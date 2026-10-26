@@ -15,7 +15,7 @@ import type {
   TerminateSessionInput,
   TerminateSessionResult,
 } from "@werft-ai/platform";
-import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, eq, inArray, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { PoolClient } from "pg";
 import { closeAtomic } from "./close-control.ts";
@@ -37,7 +37,13 @@ import {
 import { dbNow, fromDbNow } from "./db-clock.ts";
 import { drainOf, openDrainReceipt } from "./drain.ts";
 import { pauseAtomic } from "./pause-control.ts";
-import { publicStatus } from "./pending-requests.ts";
+import {
+  awaitingInputAt,
+  cancelParkedRequests,
+  closeWorkerRequests,
+  publicStatus,
+  recordLostInputWait,
+} from "./pending-requests.ts";
 import { changeProfileAtomic } from "./profile-control.ts";
 import type { Database } from "./queries.ts";
 import { decideRecoveryAtomic, resumeAtomic } from "./recovery-control.ts";
@@ -47,7 +53,6 @@ import * as schema from "./schema.ts";
 import {
   executions,
   idempotencyKeys,
-  pendingRequests,
   queueMessages,
   receipts,
   sessions,
@@ -233,18 +238,22 @@ export async function stopExecution(
     inputWaitBefore(tx, session, at),
   );
   // A question nobody can answer any more: the worker that asked is being
-  // fenced out, so an answer would land on nothing.
-  await measure("resolve_pending_requests_ms", () =>
-    tx
-      .update(pendingRequests)
-      .set({ resolvedAt: now })
-      .where(
-        and(
-          eq(pendingRequests.sessionId, sessionId),
-          isNull(pendingRequests.resolvedAt),
-        ),
-      ),
+  // fenced out, so an answer would land on nothing. A parked one waits for
+  // no worker and outlives the fence; a person's terminate ends the turn it
+  // would resume, as it does queued input.
+  const closed = await measure("resolve_pending_requests_ms", () =>
+    closeWorkerRequests(tx, sessionId, now),
   );
+  // A revoked execution loses its waits the way a dead worker does; a
+  // terminate is a person ending them.
+  if (by !== "terminate") {
+    await recordLostInputWait(tx, { sessionId, closed, measure, now });
+  }
+  if (by === "terminate") {
+    await measure("cancel_parked_requests_ms", () =>
+      cancelParkedRequests(tx, { sessionId }, now),
+    );
+  }
   // The kill outbox. An executions row is one generation, so asking for this
   // row is asking for exactly the generation the session is bound to. The
   // scheduler carries it out and confirmExecutionGone settles the session
@@ -338,8 +347,9 @@ export function stoppedAdmission(
 /**
  * After the session row says where stoppedAdmission moved it: a status event
  * with the new admission, so a client following the stream does not stay at
- * the state the stop left. The stop closed every open question, so
- * the event also ends any wait for input. A stop that moved no admission
+ * the state the stop left. The stop closed every open question but a
+ * parked one, so the event also ends any wait for input that no park holds
+ * open. A stop that moved no admission
  * only reports that end, if there was one.
  */
 export async function announceStopped(
@@ -368,7 +378,10 @@ export async function announceStopped(
   }
   await recordStatus(tx, {
     sessionId: session.id,
-    phase: publicStatus(into.status ?? session.status, false),
+    phase: publicStatus(
+      into.status ?? session.status,
+      await awaitingInputAt(tx, session.id, input.inputWait.at),
+    ),
     extra: { admission_state: into.admissionState, ...input.extra },
     ...(input.measure ? { measure: input.measure } : {}),
     turnRowId: null,

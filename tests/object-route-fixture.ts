@@ -1,6 +1,5 @@
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
-import { createEgressAuthorizer } from "@werft-ai/control-host/src/api/egress-authorizer.ts";
 import * as schema from "@werft-ai/db";
 import {
   createPostgresSessionUnitOfWork,
@@ -12,6 +11,7 @@ import { createObjectRouteSigner } from "@werft-ai/storage";
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
+import { createEgressAuthorizer } from "../apps/control-host/src/api/egress-authorizer.ts";
 
 /**
  * The control plane side of the object store route, real from the

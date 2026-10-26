@@ -47,8 +47,8 @@ test("event registration results persist across reads and expose only a safe err
     checked_at: null,
   });
   await service.updateAgentAppManifest(WORKSPACE, created.slack_app.id, input);
-  expect((await service.getAgentApp(caller, AGENT)).events).toMatchObject({
-    state: "verified",
+  expect((await service.getAgentApp(caller, AGENT)).events).toEqual({
+    state: "pending",
     checked_at: "2026-10-23T00:00:00.000Z",
   });
   slack.api.updateApp = async () => {
@@ -63,6 +63,49 @@ test("event registration results persist across reads and expose only a safe err
     error: "events_registration_failed",
   });
 });
+
+test.each([
+  ["answers", false],
+  ["is lost", true],
+])(
+  "a challenge Slack answers while the manifest update %s keeps the subscription verified",
+  async (_, lost) => {
+    const { service, slack, apps } = await setup();
+    const created = await service.createAgentApp(user("owner"), AGENT, {
+      replace_uncertain: false,
+    });
+    const update = slack.api.updateApp;
+    slack.api.updateApp = async (...args) => {
+      await apps.store.setEventsUnlessVerified(
+        WORKSPACE,
+        created.slack_app.id,
+        {
+          state: "verified",
+          checked_at: "2026-10-23T00:00:01.000Z",
+        },
+      );
+      if (lost)
+        throw new SlackApiError("apps.manifest.update", "timeout", false);
+      return update(...args);
+    };
+    const updating = service.updateAgentAppManifest(
+      WORKSPACE,
+      created.slack_app.id,
+      {
+        name: "Release notes",
+        botName: "release-notes",
+        description: "Writes the release notes",
+        eventsUrl: `https://events.example.test/v1/slack/events/${AGENT}`,
+      },
+    );
+    if (lost) await expect(updating).rejects.toThrow();
+    else await updating;
+    expect((await service.getAgentApp(user("owner"), AGENT)).events).toEqual({
+      state: "verified",
+      checked_at: "2026-10-23T00:00:01.000Z",
+    });
+  },
+);
 
 function user(
   role: WorkspaceRole,
@@ -87,7 +130,15 @@ const agentAuthority: AgentAuthority = {
   isAdmin: async (_workspace, _agent, userId) => userId === AGENT_ADMIN,
 };
 
-async function setup(options: { consoleOrigin?: string | null } = {}) {
+async function setup(
+  options: {
+    consoleOrigin?: string | null;
+    repositoryRequiredProfile?: (
+      workspaceId: string,
+      agentId: string,
+    ) => Promise<string | null>;
+  } = {},
+) {
   let clock = new Date("2026-10-23T00:00:00.000Z");
   const secrets = createMemorySecretStore();
   const tokenStore = createMemoryConfigTokenStore(secrets);
@@ -132,6 +183,9 @@ async function setup(options: { consoleOrigin?: string | null } = {}) {
     api: slack.api,
     consoleOrigin:
       options.consoleOrigin === undefined ? ORIGIN : options.consoleOrigin,
+    ...(options.repositoryRequiredProfile
+      ? { repositoryRequiredProfile: options.repositoryRequiredProfile }
+      : {}),
     now: () => clock,
   });
   await tokens.register(WORKSPACE, slack.issueRefresh(), {
@@ -382,6 +436,42 @@ describe("Slack app service", () => {
         user_id: "U0SECOND",
       },
     ]);
+  });
+
+  test("an agent whose profile needs a repository is warned about, and still connects", async () => {
+    const asked: string[] = [];
+    const { service } = await setup({
+      repositoryRequiredProfile: async (workspaceId, agentId) => {
+        asked.push(`${workspaceId}/${agentId}`);
+        return agentId === AGENT ? "claude-coding-local" : null;
+      },
+    });
+    const warning = {
+      code: "repository_required",
+      profile_id: "claude-coding-local",
+    } as const;
+    expect((await service.getAgentApp(user("owner"), AGENT)).warnings).toEqual([
+      warning,
+    ]);
+    const made = await service.createAgentApp(user("owner"), AGENT, {
+      replace_uncertain: false,
+    });
+    expect(made.created).toBe(true);
+    expect(made.warnings).toEqual([warning]);
+    const again = await service.createAgentApp(user("owner"), AGENT, {
+      replace_uncertain: false,
+    });
+    expect(again).toMatchObject({ created: false, warnings: [warning] });
+    expect(new Set(asked)).toEqual(new Set([`${WORKSPACE}/${AGENT}`]));
+  });
+
+  test("without a repository-only profile there is no warning", async () => {
+    const { service } = await setup({
+      repositoryRequiredProfile: async () => null,
+    });
+    expect((await service.getAgentApp(user("owner"), AGENT)).warnings).toEqual(
+      [],
+    );
   });
 
   test("delete goes to Slack only for the workspace's own app", async () => {

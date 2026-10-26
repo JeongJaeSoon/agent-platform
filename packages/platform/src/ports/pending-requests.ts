@@ -1,4 +1,5 @@
 import type {
+  ParkDeclinedRequest,
   PendingRequest,
   PendingSettlement,
   PostSessionAnswerRequest,
@@ -85,10 +86,23 @@ export type PendingControlInput = {
  * A control intent the attempt owes an answer to. An interrupt names its
  * turn (the public turn id); a pause names none: it asks the attempt to
  * finish the one it has and take no other, and its id is the pause receipt's.
+ * A park is the platform's pause for a turn left waiting on its requests,
+ * and stops that turn where it waits.
  */
 export type DeliveredControl =
   | { controlId: string; kind: "interrupt"; turnId: string; issuedAt: Date }
-  | { controlId: string; kind: "pause"; turnId: null; issuedAt: Date };
+  | { controlId: string; kind: "pause" | "park"; turnId: null; issuedAt: Date };
+
+export type ParkDeclinedInput = {
+  fence: WorkerFence;
+  pauseControlId: string;
+  reason: ParkDeclinedRequest["reason"];
+};
+
+// `reverted`: the park was the open pause and the session is active again.
+export type ParkDeclinedResult =
+  | { outcome: "ok"; reverted: boolean }
+  | FenceRejection;
 
 export type PendingControlResult =
   | {
@@ -104,6 +118,7 @@ export interface WorkerPendingStore {
   pendingControlAtomic(
     input: PendingControlInput,
   ): Promise<PendingControlResult>;
+  parkDeclinedAtomic(input: ParkDeclinedInput): Promise<ParkDeclinedResult>;
   // A hint for heartbeat: an answer or a control intent is waiting for this
   // attempt to take it.
   hasUndelivered(fence: WorkerFence): Promise<boolean>;

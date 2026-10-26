@@ -127,6 +127,7 @@ describe("linking a Slack account", () => {
         status: "active",
         verified_at: "2026-10-11T00:00:00.000Z",
         revision: 1,
+        expires_at: null,
       },
       receipt_id: LINK,
     });

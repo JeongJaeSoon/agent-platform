@@ -82,6 +82,7 @@ import {
   forgettingChannelsOnBindingPut,
   InstallationConfigError,
   installationLimitsFromEnv,
+  profileNeedsRepository,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
@@ -433,6 +434,13 @@ const slackApps = createSlackAppService({
   consoleOrigin,
   eventsPublicUrl: slackEventsPublicUrlFrom(process.env),
   onAgentAppChanged: (agentId) => slackSigningSecrets?.invalidate(agentId),
+  repositoryRequiredProfile: async (workspaceId, agentId) => {
+    const profileId = (await agentStore.get(workspaceId, agentId))
+      ?.active_release?.runtime_profile_id;
+    return profileId !== undefined && profileNeedsRepository(catalog, profileId)
+      ? profileId
+      : null;
+  },
 });
 const slackEventsPublicUrl = slackEventsPublicUrlFrom(process.env);
 if (slackEventsPublicUrl === null) {
@@ -446,6 +454,7 @@ const slackIdentityStore = createPostgresAgentIdentityStore(db);
 const slackEvents = createSlackEventsService({
   signingSecrets: slackSigningSecrets ?? { forAgent: async () => null },
   inbox: createPostgresSlackInboundEventStore(db),
+  apps: slackAppStore ?? { setEventsUnlessVerified: async () => {} },
   identities: slackIdentityStore,
   installs: slackInstallStore,
 });

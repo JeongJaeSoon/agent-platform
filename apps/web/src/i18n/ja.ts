@@ -44,6 +44,13 @@ export const slackJa = {
   "slack.state.pending": "インストール待ち",
   "slack.state.connected": "接続済み",
   "slack.state.reinstall": "再インストールが必要",
+  "slack.eventsPending.title": "Slack で Request URL を Verify してください",
+  "slack.eventsPending.body":
+    "Slack がこのアプリの Request URL を確認するまで、招待・メンション・DM のイベントは届きません。アプリ設定の Event Subscriptions で Verify(または Retry)を押してください。確認が届くとこの案内は消えます。",
+  "slack.eventsPending.open": "Event Subscriptions を開く",
+  "slack.repositoryRequired.title": "Slack からはセッションを開始できません",
+  "slack.repositoryRequired.body":
+    "このエージェントのプロファイル（{profile}）はセッションごとにリポジトリの指定が必要です。Slack のメンションと DM ではリポジトリを選べないため拒否され、スレッドに案内だけが残ります。接続はできます。リポジトリが不要なプロファイルにリリースを切り替えるか、Web コンソールからセッションを開始してください。",
   "slack.state.error": "エラー",
   "slack.createInstall": "Slack アプリを作成してインストール",
   "slack.install": "Slack アプリをインストール",

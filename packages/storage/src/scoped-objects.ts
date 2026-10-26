@@ -91,9 +91,6 @@ export function scopedCheckpointObjectStore(
       }
       return store.list(prefix);
     },
-    async put(key, bytes) {
-      return store.put(within(key), bytes);
-    },
     async putImmutable(key, body, options) {
       return store.putImmutable(within(key), body, options);
     },

@@ -23,6 +23,11 @@ import type {
   CheckpointStore,
 } from "../ports/checkpoint-store.ts";
 import { structuralBundleVerifier } from "../ports/workspace-bundle-verifier.ts";
+import {
+  type CommitCheckpointInput,
+  type CommitCheckpointResult,
+  finalizeCheckpoint,
+} from "../testing/checkpoints.ts";
 import { createCheckpointCollector } from "./checkpoint-collector.ts";
 import {
   createCheckpointService,
@@ -140,35 +145,38 @@ function memorySession() {
     async listSessionIds({ after }) {
       return after === null ? [sessionId] : [];
     },
-    async commitAtomic(input) {
-      if (fenced.has(input.fence.attemptId)) return { outcome: "stale_epoch" };
-      const next = (pointer?.revision ?? -1) + 1;
-      if (input.checkpoint.revision !== next) {
-        return {
-          outcome: "conflict",
-          currentRevision: pointer?.revision ?? null,
-        };
-      }
-      pointer = {
-        committedAt: input.now,
-        manifestRef: input.checkpoint.manifest_ref,
-        manifestSha256: input.checkpoint.manifest_sha256,
-        manifestVersion: input.checkpoint.manifest_version ?? null,
-        parentRevision:
-          state.fallback?.attemptId === input.fence.attemptId
-            ? state.fallback.revision
-            : (pointer?.revision ?? null),
-        revision: next,
-        turnId: null,
-        versionsHeld: input.versionsHeld === true,
-      };
-      state.fallback = null;
-      rows.push(pointer);
-      return { outcome: "committed", revision: next };
-    },
   };
+  async function commit(
+    input: CommitCheckpointInput,
+  ): Promise<CommitCheckpointResult> {
+    if (fenced.has(input.fence.attemptId)) return { outcome: "stale_epoch" };
+    const next = (pointer?.revision ?? -1) + 1;
+    if (input.checkpoint.revision !== next) {
+      return {
+        outcome: "conflict",
+        currentRevision: pointer?.revision ?? null,
+      };
+    }
+    pointer = {
+      committedAt: input.now,
+      manifestRef: input.checkpoint.manifest_ref,
+      manifestSha256: input.checkpoint.manifest_sha256,
+      manifestVersion: input.checkpoint.manifest_version ?? null,
+      parentRevision:
+        state.fallback?.attemptId === input.fence.attemptId
+          ? state.fallback.revision
+          : (pointer?.revision ?? null),
+      revision: next,
+      turnId: null,
+      versionsHeld: input.versionsHeld === true,
+    };
+    state.fallback = null;
+    rows.push(pointer);
+    return { outcome: "committed", revision: next };
+  }
   return {
     collected,
+    commit,
     fence: (attemptId: string) => fenced.add(attemptId),
     pointer: () => pointer,
     state,
@@ -294,7 +302,7 @@ async function commit(
   generation = 1,
 ) {
   const published = await publish(revision, attemptId, parts);
-  const result = await checkpoints.finalize({
+  const result = await finalizeCheckpoint(checkpoints, session.commit, {
     checkpoint: published.checkpoint,
     fence: fenceOf(attemptId, generation),
     now: new Date("2026-09-24T00:00:00.000Z"),
@@ -323,7 +331,10 @@ async function transcriptPart(
 async function rewrite(
   ref: ObjectRef,
 ): Promise<{ key: string; version: string }> {
-  await objects.put(ref.key, encode('{"type":"user","uuid":"rewritten"}\n'));
+  await objects.overwrite(
+    ref.key,
+    encode('{"type":"user","uuid":"rewritten"}\n'),
+  );
   const head = await objects.head(ref.key);
   return { key: ref.key, version: head?.version as string };
 }
@@ -482,7 +493,7 @@ describe("a bundle chain", () => {
       return ref.slice(0, ref.lastIndexOf("/") + 1);
     };
     const finalize = async (checkpoint: CheckpointRef) =>
-      service().finalize({
+      finalizeCheckpoint(service(), session.commit, {
         checkpoint,
         fence: fenceOf("attempt-a"),
         now: new Date("2026-09-24T00:00:00.000Z"),
@@ -553,7 +564,7 @@ describe("against a finalize in flight", () => {
       dryRun: false,
     });
     expect(
-      await session.store.commitAtomic({
+      await session.commit({
         checkpoint: next.checkpoint,
         fence: fenceOf("attempt-a"),
         now: new Date(),
@@ -580,7 +591,7 @@ describe("against a finalize in flight", () => {
     const next = await publish(1, "attempt-a", [part]);
     const checkpoints = service();
     session.state.betweenReads = async () => {
-      await checkpoints.finalize({
+      await finalizeCheckpoint(checkpoints, session.commit, {
         checkpoint: next.checkpoint,
         fence: fenceOf("attempt-a"),
         now: new Date(),
@@ -618,7 +629,7 @@ describe("against a finalize in flight", () => {
       }),
     ).toMatchObject({ status: "verified", versionsHeld: true });
     expect(
-      await service().finalize({
+      await finalizeCheckpoint(service(), session.commit, {
         checkpoint: revision1.checkpoint,
         fence: fenceOf("attempt-a"),
         now: new Date(),
@@ -663,7 +674,7 @@ describe("against a finalize in flight", () => {
     };
     const finalizeAs = async (published: Awaited<ReturnType<typeof publish>>) =>
       expect(
-        await service().finalize({
+        await finalizeCheckpoint(service(), session.commit, {
           checkpoint: published.checkpoint,
           fence: fenceOf("attempt-a"),
           now: new Date(),
@@ -800,7 +811,10 @@ describe("what the pointer vouches for", () => {
     expect(session.pointer()?.versionsHeld).toBe(false);
     // A second write under the manifest's key: only a key-level keep holds it.
     const rewrite = await (async () => {
-      await objects.put(revision0.checkpoint.manifest_ref, encode("{}\n"));
+      await objects.overwrite(
+        revision0.checkpoint.manifest_ref,
+        encode("{}\n"),
+      );
       const head = await objects.head(revision0.checkpoint.manifest_ref);
       return {
         key: revision0.checkpoint.manifest_ref,
@@ -1043,7 +1057,7 @@ describe("finalize against transcript collection", () => {
 
     expect(verdict.status).toBe("verified");
     expect(
-      await session.store.commitAtomic({
+      await session.commit({
         checkpoint: stale.checkpoint,
         fence: fenceOf("attempt-b", 2),
         now: new Date(),
@@ -1073,7 +1087,7 @@ describe("finalize against transcript collection", () => {
       dryRun: false,
     });
     expect(
-      await session.store.commitAtomic({
+      await session.commit({
         checkpoint: next.checkpoint,
         fence: fenceOf("attempt-b", 2),
         now: new Date(),

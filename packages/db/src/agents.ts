@@ -236,8 +236,8 @@ export function createPostgresAgentStore(db: Database): AgentStore {
       return { all: row?.all ?? 0, administered: row?.administered ?? 0 };
     },
 
-    summaries: (workspaceId, agentIds) =>
-      agentSummaries(db, workspaceId, agentIds),
+    summaries: (workspaceId, agentIds, viewer) =>
+      agentSummaries(db, workspaceId, agentIds, viewer),
 
     get: (workspaceId, agentId) => detailOf(db, workspaceId, agentId),
 

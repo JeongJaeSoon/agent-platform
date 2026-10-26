@@ -83,7 +83,7 @@ describe("objectStoreConfigFromEnv", () => {
   });
 });
 
-/** Records what reaches it and answers like S3 would a plain put. */
+/** Records what reaches it and answers like S3 would a create-only put. */
 type Seen = { method: string; url: string; headers: Headers };
 
 function fakeRoute(): { requests: Seen[]; url: string } {
@@ -131,7 +131,7 @@ describe("createWorkerObjectStore", () => {
       () => token.current(),
     );
     await expect(
-      store.put("sessions/s1/x", new TextEncoder().encode("x")),
+      store.putImmutable("sessions/s1/x", new TextEncoder().encode("x")),
     ).rejects.toThrow("used before the claim");
     expect(route.requests).toEqual([]);
   });
@@ -144,10 +144,15 @@ describe("createWorkerObjectStore", () => {
       objectStoreConfigFromEnv(base, route.url),
       () => token.current(),
     );
-    await store.put("sessions/s1/transcript/part-0", new Uint8Array([1, 2]));
+    await store.putImmutable(
+      "sessions/s1/transcript/part-0",
+      new Uint8Array([1, 2]),
+      { contentAddressed: true },
+    );
     expect(route.requests).toHaveLength(1);
     const [put] = route.requests;
     expect(put?.method).toBe("PUT");
+    expect(put?.headers.get("if-none-match")).toBe("*");
     expect(new URL(put?.url ?? "http://missing").pathname).toBe(
       "/object-store/claude-sessions/sessions/s1/transcript/part-0",
     );

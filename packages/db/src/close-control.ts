@@ -26,7 +26,11 @@ import {
 import { dbNow } from "./db-clock.ts";
 import { CLOSE } from "./drain.ts";
 import { pauseBlocker } from "./pause-control.ts";
-import { awaitingInputAt, publicStatus } from "./pending-requests.ts";
+import {
+  awaitingInputAt,
+  cancelParkedRequests,
+  publicStatus,
+} from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import { cancelQueuedInput, resumableFromStopped } from "./recovery-control.ts";
 import {
@@ -71,6 +75,7 @@ export async function finishClose(
     },
     now: input.now,
   });
+  await cancelParkedRequests(tx, { sessionId: session.id }, input.now);
   await tx
     .update(pendingRequests)
     .set({ resolvedAt: input.now })

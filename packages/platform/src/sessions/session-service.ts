@@ -71,7 +71,7 @@ import {
 } from "./catalog.ts";
 import { deriveSessionTitle } from "./session-title.ts";
 
-const viewerOf = (actor: Caller): SessionViewer => ({
+export const viewerOf = (actor: Caller): SessionViewer => ({
   userId: actor.actor?.userId ?? null,
   apiKeyId: actor.actor?.apiKeyId ?? null,
 });
@@ -589,6 +589,9 @@ export function createSessionService(deps: {
         ...(input.shareScope === undefined
           ? {}
           : { shareScope: input.shareScope }),
+        ...(input.body.permission_wait === undefined
+          ? {}
+          : { permissionWait: input.body.permission_wait }),
         message: input.body.message,
         limits: inputLimits,
       });

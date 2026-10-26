@@ -8,6 +8,10 @@ import {
   structuralBundleVerifier,
 } from "@werft-ai/platform";
 import {
+  type CommitCheckpoint,
+  finalizeCheckpoint,
+} from "@werft-ai/platform/testing/checkpoints";
+import {
   CLAUDE_RUNTIME_FINGERPRINT,
   ClaudeSessionStore,
   claudeCheckpointCodec,
@@ -85,6 +89,7 @@ const fence: CheckpointFence = {
 
 /** `live` names the attempt currently holding the lease. */
 function memoryCheckpointStore(live = { attemptId }): CheckpointStore & {
+  commit: CommitCheckpoint;
   pointer(): CheckpointPointer | null;
 } {
   let pointer: CheckpointPointer | null = null;
@@ -92,7 +97,7 @@ function memoryCheckpointStore(live = { attemptId }): CheckpointStore & {
     async readPointer() {
       return pointer;
     },
-    async commitAtomic(input) {
+    async commit(input) {
       if (input.fence.attemptId !== live.attemptId) {
         return { outcome: "stale_epoch" as const };
       }
@@ -175,7 +180,10 @@ for (const [name, enabled, createObjects] of backends) {
       const subagent = { ...root, subpath: "agents/reviewer" };
 
       for (const attempt of [attemptId, "attempt-stale"]) {
-        await objects.put(bundleKeyFor(0, attempt), workspaceBundle.bytes);
+        await objects.putImmutable(
+          bundleKeyFor(0, attempt),
+          workspaceBundle.bytes,
+        );
       }
       await mirror.append(root, [entry("r1", "first turn")]);
       await mirror.append(subagent, [entry("s1", "review")]);
@@ -207,7 +215,7 @@ for (const [name, enabled, createObjects] of backends) {
         await objects.putImmutable(request.request.manifestRef, first.bytes),
       ).toEqual({ outcome: "created" });
       expect(
-        await service.finalize({
+        await finalizeCheckpoint(service, store.commit, {
           checkpoint: {
             manifest_ref: request.request.manifestRef,
             manifest_sha256: first.sha256,
@@ -242,7 +250,7 @@ for (const [name, enabled, createObjects] of backends) {
         outcome: "created",
       });
       expect(
-        await service.finalize({
+        await finalizeCheckpoint(service, store.commit, {
           checkpoint: {
             manifest_ref: staleRef,
             manifest_sha256: stale.sha256,
@@ -319,8 +327,14 @@ for (const [name, enabled, createObjects] of backends) {
       const prefix = `sessions/${sessionId}/mirror`;
       const root = { projectKey, sessionId: engineSession };
       const subagent = { ...root, subpath: "agents/reviewer" };
-      await objects.put(bundleKeyFor(0, attemptId), workspaceBundle.bytes);
-      await objects.put(bundleKeyFor(1, "attempt-2"), workspaceBundle.bytes);
+      await objects.putImmutable(
+        bundleKeyFor(0, attemptId),
+        workspaceBundle.bytes,
+      );
+      await objects.putImmutable(
+        bundleKeyFor(1, "attempt-2"),
+        workspaceBundle.bytes,
+      );
 
       const first = new ClaudeSessionStore({ generation: 1, objects, prefix });
       await first.append(root, [entry("r1", "first turn")]);
@@ -331,7 +345,7 @@ for (const [name, enabled, createObjects] of backends) {
         committed.bytes,
       );
       expect(
-        await service.finalize({
+        await finalizeCheckpoint(service, store.commit, {
           checkpoint: {
             manifest_ref: manifestRefFor(sessionId, 0, attemptId, PUBLISH_ID),
             manifest_sha256: committed.sha256,
@@ -379,7 +393,7 @@ for (const [name, enabled, createObjects] of backends) {
         next.bytes,
       );
       expect(
-        await service.finalize({
+        await finalizeCheckpoint(service, store.commit, {
           checkpoint: {
             manifest_ref: manifestRefFor(sessionId, 1, "attempt-2", PUBLISH_ID),
             manifest_sha256: next.sha256,
@@ -440,7 +454,10 @@ for (const [name, enabled, createObjects] of backends) {
         objects,
         prefix: `sessions/${sessionId}/mirror`,
       });
-      await objects.put(bundleKeyFor(0, attemptId), workspaceBundle.bytes);
+      await objects.putImmutable(
+        bundleKeyFor(0, attemptId),
+        workspaceBundle.bytes,
+      );
       await mirror.append({ projectKey, sessionId: engineSession }, [
         entry("r1", "first turn"),
       ]);
@@ -451,7 +468,7 @@ for (const [name, enabled, createObjects] of backends) {
       });
       const ref = manifestRefFor(sessionId, 0, attemptId, PUBLISH_ID);
       await objects.putImmutable(ref, published.bytes);
-      await service.finalize({
+      await finalizeCheckpoint(service, store.commit, {
         checkpoint: {
           manifest_ref: ref,
           manifest_sha256: published.sha256,

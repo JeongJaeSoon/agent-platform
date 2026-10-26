@@ -24,6 +24,7 @@ import {
   receiptActorOf,
 } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
+import { cancelParkedRequests } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
   controlIntents,
@@ -135,7 +136,7 @@ export function createPostgresTurnInterrupts(
           createdAt: at,
           updatedAt: at,
         });
-        const waitingBefore = open && (await inputWaitBefore(tx, session, at));
+        const waitingBefore = await inputWaitBefore(tx, session, at);
         if (open) {
           await tx.insert(controlIntents).values({
             id: randomUUID(),
@@ -158,13 +159,17 @@ export function createPostgresTurnInterrupts(
                 isNull(pendingRequests.resolvedAt),
               ),
             );
-          await announceInputWaitEnded(tx, {
-            sessionId,
-            waitingBefore,
-            turnRowId: turn.id,
-            at,
-          });
+        } else {
+          // A parked turn has already ended; interrupting it gives up the
+          // resume its requests wait for.
+          await cancelParkedRequests(tx, { sessionId, turnRowId: turn.id }, at);
         }
+        await announceInputWaitEnded(tx, {
+          sessionId,
+          waitingBefore,
+          turnRowId: turn.id,
+          at,
+        });
         await tx.insert(idempotencyKeys).values({
           principal: scope.principal,
           operation: scope.operation,

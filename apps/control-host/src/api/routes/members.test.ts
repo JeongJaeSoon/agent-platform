@@ -100,6 +100,10 @@ const MEMBER_ROW: MemberRowRecord = {
   ...MEMBER,
   membershipDisabled: false,
   accountDisabled: false,
+  administeredAgents: [
+    { id: "00000000-0000-4000-8000-0000000000a1", name: "Ops", via: "team" },
+  ],
+  lastActiveAt: new Date("2026-10-20T09:00:00.000Z"),
 };
 
 function roleStore(overrides: Partial<InviteStore> = {}): InviteStore {
@@ -367,6 +371,14 @@ describe("GET /v1/members", () => {
             disable: { allowed: true },
             enable: { allowed: false, reason: "unchanged" },
           },
+          administered_agents: [
+            {
+              id: "00000000-0000-4000-8000-0000000000a1",
+              name: "Ops",
+              via: "team",
+            },
+          ],
+          last_active_at: "2026-10-20T09:00:00.000Z",
         },
       ],
       next_cursor: null,

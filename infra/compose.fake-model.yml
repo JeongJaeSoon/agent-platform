@@ -1,6 +1,6 @@
 # The fake-model overlay: the local stack without an Anthropic account, for
 # `scripts/local.sh up --fake-model` over compose.yaml and the free runs
-# over infra/docker-compose.yml (tests/e2e/run.sh, quickstart, restore,
+# over infra/compose.yml (tests/e2e/run.sh, quickstart, restore,
 # gate and soak). It names no path, so it merges the same under either
 # project directory.
 #

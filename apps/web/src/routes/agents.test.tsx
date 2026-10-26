@@ -621,6 +621,8 @@ describe("에이전트 카드", () => {
           runtime_profile_id: PROFILE,
           bound_credential_refs: ["github"],
           admins: ["Owner", "재무팀"],
+          needs_input_count: 0,
+          running_count: 0,
         },
       }));
       viewport.show(() => false);
@@ -893,6 +895,7 @@ describe("새 에이전트", () => {
           slack_app: null,
           event_url: null,
           events: { state: "pending", checked_at: null },
+          warnings: [],
         }),
       [`GET /v1/agents/${AGENT_ID}/identities`]: () => json(200, { items: [] }),
     });
@@ -1411,15 +1414,9 @@ describe("에이전트 상세", () => {
       release_id: server.releases[0]?.id,
       expected_revision: -1,
     });
-    // The overview panel stays mounted behind the release tab.
-    const glance = screen.getByRole("list", {
-      name: "에이전트 현황",
-      hidden: true,
-    });
+    const heading = screen.getByRole("heading", { level: 1 });
     await waitFor(() =>
-      expect(glance.firstElementChild?.textContent).toContain(
-        `version 1실행 프로필 ${PROFILE}`,
-      ),
+      expect(heading.nextElementSibling?.textContent).toBe("v1 · 활성"),
     );
     expect(agentDetailSchema.safeParse(server.detail()).success).toBe(true);
   });

@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import {
   type ApprovalRecord,
   approvalRecordSchema,
+  type InputWait,
+  PENDING_REQUEST_KIND_VALUES,
   type PendingQuestion,
   type PendingRequest,
   pendingQuestionSchema,
@@ -22,9 +24,11 @@ import {
   isNull,
   max,
   notInArray,
+  or,
   sql,
 } from "drizzle-orm";
 import {
+  type ControlStageMeasure,
   ENDED_ATTEMPT_STATES,
   findIdempotent,
   lockIdempotencyScope,
@@ -41,7 +45,11 @@ import {
   sessions,
   turns,
 } from "./schema.ts";
-import { announceInputWaitEnded, inputWaitBefore } from "./session-events.ts";
+import {
+  announceInputWaitEnded,
+  inputWaitBefore,
+  recordInputWaitStage,
+} from "./session-events.ts";
 
 const ANSWER = "answer";
 // Stored statuses of a session or turn in flight. No writer stores
@@ -51,6 +59,8 @@ export const IN_FLIGHT_STATUSES: ("running" | "needs_input")[] = [
   "running",
   "needs_input",
 ];
+
+type SessionRow = typeof sessions.$inferSelect;
 
 type StoredPayload =
   | { kind: "permission"; tool: string; input: NonNullable<unknown> | null }
@@ -78,18 +88,24 @@ function askerIsLive(at: Date | typeof DB_NOW) {
 // SELECT must not straddle an expiry or a lease end.
 const STATEMENT_NOW = sql<Date>`statement_timestamp()`;
 
+// That instant as text, selected beside a status so a later read can judge
+// at it: a JS Date would drop the microseconds and miss a boundary row.
+export const READ_AT = sql<string>`statement_timestamp()::text`;
+
+// A parked request outlives the attempt that asked: its turn ended with a
+// checkpoint, and the answer is what resumes it.
 function actionable(at: Date | typeof DB_NOW) {
   return and(
     isNull(pendingRequests.resolvedAt),
     gt(pendingRequests.expiresAt, at),
-    askerIsLive(at),
+    or(isNotNull(pendingRequests.parkedAt), askerIsLive(at)),
   );
 }
 
 /**
- * What a client can still act on: open, unexpired and asked by a live
- * attempt. `pending_request_count` counts the same rows, so the summary and
- * the list never disagree.
+ * What a client can still act on: open, unexpired, and parked or asked by a
+ * live attempt. `pending_request_count` counts the same rows, so the summary
+ * and the list never disagree.
  */
 export function actionablePendingWhere(sessionId: string) {
   return and(eq(pendingRequests.sessionId, sessionId), actionable(DB_NOW));
@@ -167,15 +183,84 @@ export function publicStatus<S extends string>(
   stored: S,
   awaitingInput: boolean,
 ): S | "needs_input" | "running" {
+  // An idle session that waits on a person parked its turn on their
+  // requests: only a parked row is answerable with no turn in flight.
+  if (stored === "idle" && awaitingInput) return "needs_input";
   if (!isInFlight(stored)) return stored;
   return awaitingInput ? "needs_input" : "running";
+}
+
+// Stored statuses publicStatus can turn into needs_input.
+export const AWAITABLE_STATUSES: ("running" | "needs_input" | "idle")[] = [
+  ...IN_FLIGHT_STATUSES,
+  "idle",
+];
+
+/**
+ * Closes the session's open requests that a worker holds, as its execution
+ * goes: nobody can answer them any more. A parked one waits for no worker
+ * and stays open. Says which were still waiting rather than already past
+ * their expiry, and the turn of each.
+ */
+export async function closeWorkerRequests(
+  tx: Database,
+  sessionId: string,
+  now: Date,
+): Promise<ClosedRequest[]> {
+  return tx
+    .update(pendingRequests)
+    .set({ resolvedAt: now })
+    .where(
+      and(
+        eq(pendingRequests.sessionId, sessionId),
+        isNull(pendingRequests.resolvedAt),
+        isNull(pendingRequests.parkedAt),
+      ),
+    )
+    .returning({
+      requestId: pendingRequests.requestId,
+      turnRowId: pendingRequests.turnId,
+      waiting: sql<boolean>`${pendingRequests.expiresAt} > statement_timestamp()`,
+    });
+}
+
+export type ClosedRequest = {
+  requestId: string;
+  turnRowId: number;
+  waiting: boolean;
+};
+
+/**
+ * The `lost` stage for the waits closeWorkerRequests ended: the question or
+ * approval went with its worker unanswered (design D-12).
+ */
+export async function recordLostInputWait(
+  tx: Database,
+  input: {
+    sessionId: string;
+    closed: ClosedRequest[];
+    measure?: ControlStageMeasure;
+    now: Date;
+  },
+) {
+  const lost = input.closed.filter((request) => request.waiting);
+  const turnRowIds = new Set(lost.map((request) => request.turnRowId));
+  await recordInputWaitStage(tx, {
+    sessionId: input.sessionId,
+    stage: "lost",
+    requestIds: lost.map((request) => request.requestId),
+    turnRowId: turnRowIds.size === 1 ? ([...turnRowIds][0] ?? null) : null,
+    ...(input.measure ? { measure: input.measure } : {}),
+    now: input.now,
+  });
 }
 
 /**
  * The execution is gone, so answers it was handed but never acknowledged
  * may or may not have reached their callbacks. Their receipts say unknown,
  * not failed: an approval could have been acted on before the worker died.
- * The rows are closed for good either way.
+ * The rows are closed for good either way. A parked row is not the gone
+ * execution's: its answer waits for the turn that resumes it.
  */
 export async function abandonUndeliveredAnswers(
   tx: Database,
@@ -190,6 +275,7 @@ export async function abandonUndeliveredAnswers(
         eq(pendingRequests.sessionId, sessionId),
         isNotNull(pendingRequests.answeredAt),
         isNull(pendingRequests.settledAt),
+        isNull(pendingRequests.parkedAt),
       ),
     )
     .returning({ receiptId: pendingRequests.answerReceiptId });
@@ -213,6 +299,183 @@ export async function abandonUndeliveredAnswers(
     );
 }
 
+/**
+ * A person ended what a parked turn was waiting to resume: its requests,
+ * answered or not, settle as cancelled, since no worker is left to say so.
+ * An answer given to one did nothing, and its receipt says that.
+ */
+export async function cancelParkedRequests(
+  tx: Database,
+  scope: { sessionId: string; turnRowId?: number },
+  now: Date,
+) {
+  const cancelled = await tx
+    .update(pendingRequests)
+    .set({
+      resolvedAt: sql`coalesce(${pendingRequests.resolvedAt}, ${now})`,
+      settledAt: now,
+      settledOutcome: "cancelled",
+    })
+    .where(
+      and(
+        eq(pendingRequests.sessionId, scope.sessionId),
+        scope.turnRowId === undefined
+          ? undefined
+          : eq(pendingRequests.turnId, scope.turnRowId),
+        isNotNull(pendingRequests.parkedAt),
+        isNull(pendingRequests.settledAt),
+      ),
+    )
+    .returning({ receiptId: pendingRequests.answerReceiptId });
+  const receiptIds = cancelled.flatMap((row) =>
+    row.receiptId === null ? [] : [row.receiptId],
+  );
+  if (receiptIds.length === 0) return;
+  await tx
+    .update(receipts)
+    .set({
+      status: "failed",
+      error: {
+        code: "REQUEST_STALE",
+        message:
+          "the parked request was cancelled before its answer resumed the turn",
+      },
+      updatedAt: now,
+    })
+    .where(
+      and(inArray(receipts.id, receiptIds), eq(receipts.status, "accepted")),
+    );
+}
+
+type InputWaitRow = {
+  sessionId: string;
+  requestId: string;
+  kind: string;
+  createdAt: Date;
+  parkAt: Date | null;
+  parkedAt: Date | null;
+  expiresAt: Date;
+};
+
+function inputWaitOf(
+  state: InputWait["state"],
+  rows: InputWaitRow[],
+): InputWait {
+  const earliest = (dates: Date[]) =>
+    dates.reduce((a, b) => (b < a ? b : a)).toISOString();
+  const parkAts = rows.flatMap((row) => row.parkAt ?? []);
+  return {
+    state,
+    since: earliest(rows.map((row) => row.createdAt)),
+    kinds: PENDING_REQUEST_KIND_VALUES.filter((kind) =>
+      rows.some((row) => row.kind === kind),
+    ),
+    request_ids: rows.map((row) => row.requestId),
+    park_at: parkAts.length === 0 ? null : earliest(parkAts),
+    expires_at: earliest(rows.map((row) => row.expiresAt)),
+  };
+}
+
+/**
+ * Each session's `input_wait`, read from the rows the pending list shows: a
+ * parked row makes it `parked`, a park the platform is draining `parking`,
+ * anything else open `waiting`. With nothing open, a session still paused
+ * for its park reads `expired` when every request of the turn it parked
+ * expired, the group it would resume on. Judged at `readAt` (`READ_AT` of
+ * the statement that projected the rows' status), so a session never reads
+ * needs_input beside a wait of null.
+ */
+export async function readInputWaits(
+  executor: Database,
+  rows: Pick<SessionRow, "id" | "admissionState" | "pauseReason">[],
+  readAt: string,
+): Promise<Map<string, InputWait | null>> {
+  const result = new Map<string, InputWait | null>();
+  if (rows.length === 0) return result;
+  const select = {
+    sessionId: pendingRequests.sessionId,
+    requestId: pendingRequests.requestId,
+    kind: sql<string>`${pendingRequests.payload}->>'kind'`,
+    createdAt: pendingRequests.createdAt,
+    parkAt: pendingRequests.parkAt,
+    parkedAt: pendingRequests.parkedAt,
+    expiresAt: pendingRequests.expiresAt,
+  };
+  const open = await executor
+    .select(select)
+    .from(pendingRequests)
+    .innerJoin(sessions, eq(sessions.id, pendingRequests.sessionId))
+    .innerJoin(attempts, eq(attempts.id, pendingRequests.attemptId))
+    .innerJoin(turns, eq(turns.id, pendingRequests.turnId))
+    .where(
+      and(
+        inArray(
+          pendingRequests.sessionId,
+          rows.map((row) => row.id),
+        ),
+        actionable(sql<Date>`${readAt}::timestamptz`),
+      ),
+    )
+    .orderBy(asc(pendingRequests.createdAt), asc(pendingRequests.requestId));
+  const parkHeld = rows.filter(
+    (row) =>
+      row.pauseReason === "awaiting_input" &&
+      row.admissionState === "paused" &&
+      !open.some((request) => request.sessionId === row.id),
+  );
+  const lastParked =
+    parkHeld.length === 0
+      ? []
+      : await executor
+          .select({ ...select, settledOutcome: pendingRequests.settledOutcome })
+          .from(pendingRequests)
+          .where(
+            and(
+              inArray(
+                pendingRequests.sessionId,
+                parkHeld.map((row) => row.id),
+              ),
+              sql`${pendingRequests.turnId} = (
+          SELECT max(p.turn_id) FROM ${pendingRequests} p
+          WHERE p.session_id = ${pendingRequests.sessionId}
+            AND p.parked_at IS NOT NULL
+        )`,
+              isNotNull(pendingRequests.parkedAt),
+            ),
+          )
+          .orderBy(
+            asc(pendingRequests.createdAt),
+            asc(pendingRequests.requestId),
+          );
+  for (const row of rows) {
+    const mine = open.filter((request) => request.sessionId === row.id);
+    if (mine.length > 0) {
+      result.set(
+        row.id,
+        inputWaitOf(
+          mine.some((request) => request.parkedAt !== null)
+            ? "parked"
+            : row.pauseReason === "awaiting_input" &&
+                row.admissionState === "pausing"
+              ? "parking"
+              : "waiting",
+          mine,
+        ),
+      );
+      continue;
+    }
+    const group = lastParked.filter((request) => request.sessionId === row.id);
+    result.set(
+      row.id,
+      group.length > 0 &&
+        group.every((request) => request.settledOutcome === "expired")
+        ? inputWaitOf("expired", group)
+        : null,
+    );
+  }
+  return result;
+}
+
 export function publicPendingRequest(row: {
   requestId: string;
   turnSequence: number;
@@ -220,6 +483,8 @@ export function publicPendingRequest(row: {
   payload: unknown;
   createdAt: Date;
   expiresAt: Date;
+  parkAt: Date | null;
+  parkedAt: Date | null;
 }): PendingRequest {
   const payload = row.payload as StoredPayload;
   const base = {
@@ -228,6 +493,9 @@ export function publicPendingRequest(row: {
     attempt_id: row.attemptId,
     created_at: row.createdAt.toISOString(),
     expires_at: row.expiresAt.toISOString(),
+    state: row.parkedAt === null ? ("waiting" as const) : ("parked" as const),
+    park_at: row.parkAt?.toISOString() ?? null,
+    group: String(row.turnSequence),
   };
   return payload.kind === "permission"
     ? { ...base, kind: "permission", tool: payload.tool, input: payload.input }
@@ -267,6 +535,8 @@ export function createPostgresPendingRequests(
           payload: pendingRequests.payload,
           createdAt: pendingRequests.createdAt,
           expiresAt: pendingRequests.expiresAt,
+          parkAt: pendingRequests.parkAt,
+          parkedAt: pendingRequests.parkedAt,
         })
         .from(pendingRequests)
         .innerJoin(sessions, eq(sessions.id, pendingRequests.sessionId))
@@ -373,20 +643,29 @@ export function createPostgresPendingRequests(
           return { outcome: "expired" };
         }
         // The session row is locked, so nothing can move the epoch, the
-        // lease or the turn while this reads them.
-        const [asker] = await tx
-          .select({ attemptId: attempts.id, turnSequence: turns.sequence })
-          .from(pendingRequests)
-          .innerJoin(sessions, eq(sessions.id, pendingRequests.sessionId))
-          .innerJoin(attempts, eq(attempts.id, pendingRequests.attemptId))
-          .innerJoin(turns, eq(turns.id, pendingRequests.turnId))
-          .where(
-            and(
-              eq(pendingRequests.requestId, pending.requestId),
-              askerIsLive(at),
-            ),
-          )
-          .limit(1);
+        // lease or the turn while this reads them. A parked request is
+        // answered whatever became of its asker: only expiry and
+        // resolved_at stand in its way.
+        const [asker] =
+          pending.parkedAt !== null
+            ? await tx
+                .select({ turnSequence: turns.sequence })
+                .from(turns)
+                .where(eq(turns.id, pending.turnId))
+                .limit(1)
+            : await tx
+                .select({ turnSequence: turns.sequence })
+                .from(pendingRequests)
+                .innerJoin(sessions, eq(sessions.id, pendingRequests.sessionId))
+                .innerJoin(attempts, eq(attempts.id, pendingRequests.attemptId))
+                .innerJoin(turns, eq(turns.id, pendingRequests.turnId))
+                .where(
+                  and(
+                    eq(pendingRequests.requestId, pending.requestId),
+                    askerIsLive(at),
+                  ),
+                )
+                .limit(1);
         // A fenced-out asker's requests are closed too, so this goes before
         // resolvedAt: they are stale, not expired.
         if (!asker) return { outcome: "stale" };

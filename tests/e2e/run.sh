@@ -136,7 +136,7 @@ label="agent-platform.installation=${EXECUTION_INSTALLATION_ID}"
 # E2E_COMPOSE_OVERRIDE: one more overlay after ours; CI passes
 # tests/e2e/compose.ci-mirror.yml to pull from its image mirror.
 dc() {
-  docker compose -p "$project" -f infra/docker-compose.yml -f tests/e2e/compose.yml \
+  docker compose -p "$project" -f infra/compose.yml -f tests/e2e/compose.yml \
     -f "$model_overlay" \
     ${E2E_COMPOSE_OVERRIDE:+-f "$E2E_COMPOSE_OVERRIDE"} --profile apps "$@"
 }

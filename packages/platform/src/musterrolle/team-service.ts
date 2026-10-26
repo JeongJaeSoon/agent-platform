@@ -159,8 +159,17 @@ export function createTeamService(deps: {
       };
     },
 
+    // A team's own members read it, read only and asking no policy, as with
+    // their list of teams (D23 keeps changing it to managers).
     async getTeam(caller: Caller, teamId: string): Promise<TeamDetailView> {
-      await manager(caller);
+      const userId = caller.actor?.userId;
+      const workspaceId = caller.actor?.workspaceId;
+      const member =
+        caller.subject.principal?.kind === "user" &&
+        !!userId &&
+        !!workspaceId &&
+        (await store.isMember(workspaceId, teamId, userId));
+      if (!member) await manager(caller);
       const team = await store.get(caller.ownerId, teamId);
       if (!team) throw NOT_FOUND();
       return detailView(team);

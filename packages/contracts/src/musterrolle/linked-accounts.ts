@@ -57,6 +57,10 @@ export const linkedAccountSchema = z
     status: linkedAccountStatusSchema,
     verified_at: timestampSchema,
     revision: revisionSchema,
+    expires_at: timestampSchema.nullable().meta({
+      description:
+        "When the provider token kept for this account expires. Null when no token is kept or it does not expire; Slack links keep no token, so a Slack account is always null. Not the `expires_at` of the link start response, which is when that link request lapses.",
+    }),
   })
   .strict();
 
@@ -76,7 +80,10 @@ export const startSlackLinkResponseSchema = z
   .object({
     /** Where the browser goes next: Slack's consent screen. */
     authorize_url: z.url(),
-    expires_at: timestampSchema,
+    expires_at: timestampSchema.meta({
+      description:
+        "When this link request lapses: the callback must come before it. Not a linked account's `expires_at`, which is its provider token's expiry.",
+    }),
   })
   .strict();
 

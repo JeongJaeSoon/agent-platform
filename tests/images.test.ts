@@ -523,16 +523,16 @@ type ComposeService = {
 
 const composeServices = (path: string) =>
   servicesOf(path) as Record<string, ComposeService>;
-/** The local stack's services as infra/docker-compose.yml merges them. */
+/** The local stack's services as infra/compose.yml merges them. */
 const localStack = () => layeredServices<ComposeService>(LOCAL_LAYERS);
 
 describe("compose publishes nothing beyond loopback and runs pinned images", () => {
   const services = localStack();
-  const restore = composeServices("infra/docker-compose.restore.yml");
+  const restore = composeServices("infra/compose.restore.yml");
 
   test.each([
     ["the local stack", services],
-    ["docker-compose.restore.yml", restore],
+    ["compose.restore.yml", restore],
   ] as const)("every published port in %s is bound to 127.0.0.1", (_, file) => {
     const published = Object.entries(file).flatMap(([name, service]) =>
       (service.ports ?? []).map((port) => [name, port] as const),
@@ -1024,9 +1024,9 @@ describe("compose layers", () => {
   });
 
   test(
-    "docker-compose.yml is the core with the local layer, and renders as the tests merge them",
+    "compose.yml is the core with the local layer, and renders as the tests merge them",
     () => {
-      const entry = Bun.YAML.parse(read("infra/docker-compose.yml")) as {
+      const entry = Bun.YAML.parse(read("infra/compose.yml")) as {
         name?: string;
         include?: { path?: string[] }[];
         services?: unknown;

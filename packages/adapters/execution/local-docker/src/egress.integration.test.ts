@@ -16,7 +16,7 @@ import {
   asPrintfEscapes,
   clientHello,
   EXTENSION_ENCRYPTED_CLIENT_HELLO,
-} from "../../../../../apps/egress-proxy/src/testing/client-hello.ts";
+} from "@werft-ai/testkit/tls-client-hello";
 import {
   containerNameFor,
   ENV,
@@ -1730,7 +1730,7 @@ report.head = (await store.head(key))?.bytes;
 report.list = await store.list(prefix + "checkpoints/");
 const foreign = "sessions/" + crypto.randomUUID() + "/checkpoints/0000000000/a1/manifest.json";
 report.foreignGet = await refusal(() => store.get(foreign));
-report.foreignPut = await refusal(() => store.put(foreign, encode("x")));
+report.foreignPut = await refusal(() => store.putImmutable(foreign, encode("x")));
 report.foreignList = await refusal(() => store.list("sessions/"));
 console.log("PROBE " + JSON.stringify(report));
 `;

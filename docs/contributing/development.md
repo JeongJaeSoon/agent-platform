@@ -40,12 +40,12 @@ QUEUE_DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
 로컬 의존 서비스만 기동하려면 다음을 사용한다. 기본 포트 5432·4566·3001이 이미 사용 중인지 먼저 확인한다.
 
 ```bash
-docker compose -f infra/docker-compose.yml up -d postgres localstack gitea egress-proxy
-docker compose -f infra/docker-compose.yml ps
-docker compose -f infra/docker-compose.yml run --rm migrate
+docker compose -f infra/compose.yml up -d postgres localstack gitea egress-proxy
+docker compose -f infra/compose.yml ps
+docker compose -f infra/compose.yml run --rm migrate
 ```
 
-compose가 host에 게시하는 포트는 전부 `127.0.0.1`에만 묶이고, host 프로세스가 쓰는 것만 게시한다: postgres `5432`, LocalStack `4566`, API 전용 Secrets Manager `4567`(`--fake-model`일 때만), Gitea 웹 UI·HTTP clone `3001`, API `3000`. Gitea SSH는 게시하지 않는다(워커는 proxy의 repository route로 HTTP clone한다). Gitea 가입은 꺼 두고(`GITEA__service__DISABLE_REGISTRATION`) 계정은 admin CLI로만 만든다. 다른 머신에서 이 서비스에 붙어야 하면 compose를 고치지 말고 SSH 터널을 쓴다. 이미지는 전부 multi-arch index digest로 고정하거나(`postgres`·`localstack`·`gitea`·`gitea-init`·`fake-messages`, Bun은 app Dockerfile과 같은 digest) 저장소에서 빌드한다(`egress-proxy`·`api`·`migrate`(API Dockerfile)·`worker`, scheduler는 `api`가 빌드한 control-host 이미지를 같이 쓴다). egress proxy는 `apps/egress-proxy/Dockerfile`로 빌드한 이미지로 뜨고 소스를 mount하지 않으므로, proxy 코드를 고친 뒤에는 재시작이 아니라 `docker compose -f infra/docker-compose.yml up -d --build egress-proxy`로 다시 빌드해야 반영된다. 배포는 `EGRESS_PROXY_IMAGE`를 images.yml이 낸 digest(`<name>@sha256:…`)로 주고 `--build` 없이 `up -d`로 띄운다. compose는 빌드 결과에 `image:` 값을 태그로 붙이는데 digest 참조는 태그가 될 수 없어서, `--build`를 붙이면 빌드가 실패한다. `API_IMAGE`(api·scheduler 공용)·`WORKER_IMAGE`도 마찬가지다.
+compose가 host에 게시하는 포트는 전부 `127.0.0.1`에만 묶이고, host 프로세스가 쓰는 것만 게시한다: postgres `5432`, LocalStack `4566`, API 전용 Secrets Manager `4567`(`--fake-model`일 때만), Gitea 웹 UI·HTTP clone `3001`, API `3000`. Gitea SSH는 게시하지 않는다(워커는 proxy의 repository route로 HTTP clone한다). Gitea 가입은 꺼 두고(`GITEA__service__DISABLE_REGISTRATION`) 계정은 admin CLI로만 만든다. 다른 머신에서 이 서비스에 붙어야 하면 compose를 고치지 말고 SSH 터널을 쓴다. 이미지는 전부 multi-arch index digest로 고정하거나(`postgres`·`localstack`·`gitea`·`gitea-init`·`fake-messages`, Bun은 app Dockerfile과 같은 digest) 저장소에서 빌드한다(`egress-proxy`·`api`·`migrate`(API Dockerfile)·`worker`, scheduler는 `api`가 빌드한 control-host 이미지를 같이 쓴다). egress proxy는 `apps/egress-proxy/Dockerfile`로 빌드한 이미지로 뜨고 소스를 mount하지 않으므로, proxy 코드를 고친 뒤에는 재시작이 아니라 `docker compose -f infra/compose.yml up -d --build egress-proxy`로 다시 빌드해야 반영된다. 배포는 `EGRESS_PROXY_IMAGE`를 images.yml이 낸 digest(`<name>@sha256:…`)로 주고 `--build` 없이 `up -d`로 띄운다. compose는 빌드 결과에 `image:` 값을 태그로 붙이는데 digest 참조는 태그가 될 수 없어서, `--build`를 붙이면 빌드가 실패한다. `API_IMAGE`(api·scheduler 공용)·`WORKER_IMAGE`도 마찬가지다.
 
 기존 환경 파일이나 volume을 덮어쓰거나 삭제하지 않는다. host에서 실행하는 테스트는 컨테이너 DNS 이름이 아니라 host에 공개된 endpoint를 사용한다. PostgreSQL integration fixture는 임시 DB 생성 권한이 필요하므로 전용 로컬 테스트 DB만 지정한다. LocalStack fixture는 `AWS_ENDPOINT_URL`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`의 로컬 테스트 설정을 요구한다. 운영 DB·운영 credential로 실행하지 않는다.
 
@@ -124,14 +124,14 @@ git worktree remove ~/.cache/agent-platform/preview-reap/checkout
 ## 테스트·스크립트 배치
 
 - 한 패키지·앱 안에서 닫히는 테스트는 대상 소스 옆에 `*.test.ts`로 둔다. PostgreSQL·LocalStack·Docker·실제 SDK가 필요한 테스트는 `*.integration.test.ts`다. 예외로 `packages/storage`의 `*.localstack.test.ts` 둘과, unit 파일 안에 opt-in LocalStack 블록을 둔 파일이 있다. 그래서 CI는 파일 이름이 아니라 opt-in 변수로 나눈다([ci.md](ci.md)). `__tests__` 디렉터리는 쓰지 않는다.
-- 여러 앱·패키지를 엮는 흐름 테스트와 저장소·CI·`scripts`를 검사하는 테스트는 루트 `tests/`에 둔다. 루트 `scripts/`와 `.github/` 안의 테스트는 `bun test` 필터에 걸리지 않아 돌지 않는다.
+- 여러 앱·패키지를 엮는 흐름 테스트와 저장소·CI·`scripts`를 검사하는 테스트는 루트 `tests/`에 둔다. 루트 `scripts/`와 `.github/` 안의 테스트는 `bun test` 필터에 걸리지 않아 돌지 않는다. 루트 `tests/`·`scripts/`는 앱 내부를 상대 경로(`../apps/<앱>/src/...`)로 import하고, 패키지는 `@werft-ai/<패키지>`로 import한다.
 - 실행 도구는 `scripts/<이름>/`에, 그 테스트는 `tests/<이름>/`에 짝으로 둔다. `d2-gate`는 스택 전체를 띄우는 harness이고, `tests/soak`는 `scripts/soak` 판정 함수의 단위 테스트다. e2e는 실행기와 테스트를 함께 `tests/e2e`에 둔다.
 - 자기 lock으로 SDK를 고정한 호환 harness는 `scripts/<이름>/`에 두고 CI 전용 job이 돌린다. `scripts/agent-sdk-compat`이 그렇고, 제품과 같은 SDK 버전인지는 짝 테스트 `tests/agent-sdk-compat`이 검사한다.
 - 테스트 전용 도우미는 대상의 `src/testing/`에 둔다(예: `apps/egress-proxy/src/testing`). 여러 패키지가 쓰는 fixture는 `packages/testkit`에 둔다. 예외: 다른 패키지에 `./testing` export로 내주는 도우미는 파일 하나(`local-docker/src/testing.ts`)이고, `packages/ui`는 happy-dom 도우미를 `src/test-support/`에, 스냅샷 fixture를 `src/__fixtures__/`에 둔다. runtime-claude의 제어 가능한 fake(`src/fake-adapter.ts`)는 제품 barrel로 export된다.
 - 수동 벤치는 `<패키지>/bench/`에 두고 그 패키지 tsconfig의 include에 넣는다. 테스트 파일 이름을 쓰지 않는다.
 - 새 루트 `tests/*.test.ts`는 ci.yml `integration-domain`의 `paths`에 접두어가 있어야 한다. 없으면 integration job이 모두 실패한다([ci.md](ci.md)).
 - 서비스가 필요한 테스트는 opt-in 변수(`localstackEnabled()`, `QUEUE_DATABASE_URL` 등)가 꺼지면 `describe.skip`·`skipIf`로 skip된다. 그 skip은 해당 변수를 켜는 integration job에서 사라져야 한다. 그 밖의 이유로 skip하는 코드(플랫폼 조건 등)를 새로 넣으면 integration job이 선언되지 않은 skip으로 실패시키므로 ci.yml `skips`에 선언한다.
-- 루트 `tests/`·`scripts/`·`.github/scripts`의 `.ts`는 어느 tsconfig에도 들어 있지 않아 `bun run typecheck`가 보지 않는다. 고친 파일은 직접 실행해 확인한다.
+- `bun run typecheck`는 workspace 패키지마다 typecheck를 돈 뒤 루트 `tsconfig.json`으로 `scripts/**`·`.github/scripts/*`의 `.ts`를 본다. `scripts/agent-sdk-compat`은 자기 tsconfig로 `agent-sdk-compat` job이 본다. 루트 `tests/`는 아직 typecheck 범위 밖이라 고친 파일은 직접 실행해 확인한다.
 - 운영자와 개발자가 부르는 도구는 `scripts/`에, workflow만 부르는 helper는 `.github/scripts/`에 둔다.
 
 ## 문서 쓰기

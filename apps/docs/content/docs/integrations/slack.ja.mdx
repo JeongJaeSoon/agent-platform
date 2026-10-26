@@ -47,7 +47,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/linked-accounts/slack
 
 設定済みのインストールでは、開始リクエストが `authorize_url` を返す。その URL の Slack の認可画面で同意すると、Web の連携画面が `code` と `state` を callback に渡し、連携が完了する。連携の状態は `active`·`stale`·`revoked` である。
 
-連携の応答と `GET /v1/linked-accounts` の各項目には、連携時に Slack が返した名前も入る。`external_user_name` は Slack の表示名（id_token の `name`）、`external_tenant_name` は Slack ワークスペース名（`https://slack.com/team_name`）である。もう一度連携すると新しい名前に置き換わる。名前を保存する前に作った連携や、Slack が名前を返さなかった連携は `null` で、Web 画面はそのとき ID を表示する。Slack のトークンは保存しない。
+連携の応答と `GET /v1/linked-accounts` の各項目には、連携時に Slack が返した名前も入る。`external_user_name` は Slack の表示名（id_token の `name`）、`external_tenant_name` は Slack ワークスペース名（`https://slack.com/team_name`）である。もう一度連携すると新しい名前に置き換わる。名前を保存する前に作った連携や、Slack が名前を返さなかった連携は `null` で、Web 画面はそのとき ID を表示する。Slack のトークンは保存しない。そのため provider トークンの有効期限である `expires_at` は、Slack 連携では常に `null` である。開始応答の `expires_at` は連携リクエストの有効期限で、別の値である。
 
 | レスポンス | 意味 |
 | --- | --- |
@@ -87,7 +87,9 @@ unset SLACK_BOT_TOKEN
 
 ### アプリ設定の読み取り
 
-owner・admin を含むエージェント管理者が Web セッションで呼び出す。`GET /v1/agents/{id}/slack/app` は `event_url` と `events` を返す。イベント URL はサーバーの `SLACK_EVENTS_PUBLIC_URL` に `/v1/slack/events/{agent_id}` を付けた絶対 URL で、未設定なら null になる。`events.state` は `pending`・`verified`・`failed`、`checked_at` は最後の登録試行時刻(未試行なら null)である。失敗時は秘密値を含まない `error` コードを返す。verified はインストール finalize による manifest 登録成功を表す。
+owner・admin を含むエージェント管理者が Web セッションで呼び出す。`GET /v1/agents/{id}/slack/app` は `event_url` と `events` を返す。イベント URL はサーバーの `SLACK_EVENTS_PUBLIC_URL` に `/v1/slack/events/{agent_id}` を付けた絶対 URL で、未設定なら null になる。`events.state` は `pending`・`verified`・`failed` である。インストール finalize が manifest にこのアドレスを Request URL として入れると `pending` になり、そのアプリの signing secret で署名されたリクエスト(`url_verification` またはイベント)が初めて届くと `verified` になる。manifest 登録に失敗すると `failed` になり、秘密値を含まない `error` コードを返す。`checked_at` は状態が最後に変わった時刻(まだなければ null)である。
+
+finalize 後も `pending` なら、Slack はまだこのアドレスを確認できていない。公開 DNS がまだアドレスを解決できないこともあれば、Slack が manifest で入れた URL を確認していないこともある。Slack アプリ設定の Event Subscriptions で Verify(または Retry)を押す。コンソールの Slack タブもこのとき同じ案内とその画面へのリンクを表示する。ローカルスタックで `scripts/slack-funnel.sh on` でアドレスを公開した場合は、最後の行の公開 DNS チェック(dns.google・cloudflare-dns.com)の警告が消えるまで待ってから Slack アプリを作成する。
 
 `GET /v1/agents/{id}/slack/app/manifest` は現在のエージェントとサーバー設定から生成した `manifest_yaml` を返す。秘密値は含まない。
 

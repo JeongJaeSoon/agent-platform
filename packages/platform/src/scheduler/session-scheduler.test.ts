@@ -129,6 +129,7 @@ class MemoryStore implements SchedulerStore {
       nonceExpiresAt: null,
       nonceExpired: false,
       nonceFingerprint: null,
+      observedAt: null,
       observedState: "pending",
       operationId: crypto.randomUUID(),
       pendingReplacement: null,
@@ -444,6 +445,7 @@ class MemoryStore implements SchedulerStore {
     const row = this.executions.get(ref.executionId);
     if (!row) throw new Error(`unknown execution ${ref.executionId}`);
     row.observedState = observation.state;
+    row.observedAt = observation.observedAt;
     row.providerRef = observation.providerRef;
   }
 
@@ -574,6 +576,7 @@ class FakeBackend implements ExecutionBackend {
   readonly containers = new Map<string, Container>();
   readonly ensureCalls: LaunchIntent[] = [];
   readonly terminateCalls: ExecutionRef[] = [];
+  readonly terminateOptions: TerminateOptions[] = [];
   readonly assertReplaceableCalls: LaunchIntent[] = [];
   /** What each configured reference pins to; a moved tag is a new entry. */
   readonly imageIds = new Map<string, string>();
@@ -795,6 +798,7 @@ class FakeBackend implements ExecutionBackend {
     options: TerminateOptions = {},
   ): Promise<TerminateExecutionResult> {
     this.terminateCalls.push(ref);
+    this.terminateOptions.push(options);
     if (this.failTerminateFor.has(nameOf(ref))) {
       throw new Error("docker stop failed");
     }
@@ -869,6 +873,7 @@ function harness(
   options: {
     drainDeadlineMs?: number;
     stop?: AbortSignal;
+    stopDeadlineMs?: number;
     stoppedWorkspaceTtlMs?: number;
     workspaceGc?: boolean;
   } = {},
@@ -890,6 +895,9 @@ function harness(
       ...(options.drainDeadlineMs === undefined
         ? {}
         : { drainDeadlineMs: options.drainDeadlineMs }),
+      ...(options.stopDeadlineMs === undefined
+        ? {}
+        : { stopDeadlineMs: options.stopDeadlineMs }),
       store,
     });
   const reclaim = () => reclaimWorkspaces({ backend, logger, store });
@@ -1320,7 +1328,8 @@ describe("runScheduler", () => {
     expect(backend.containers.get(name)?.exited).toBe(false);
     expect(store.executions.size).toBe(1);
     expect(row?.pendingReplacement).toBeNull();
-    expect(row?.replacementCount).toBe(2);
+    // Finishing the replacement the first pass recorded is not another one.
+    expect(row?.replacementCount).toBe(1);
     expect(row?.observedState).toBe("running");
 
     // Settled: the next pass leaves the replacement alone.
@@ -1383,6 +1392,8 @@ describe("runScheduler", () => {
     const [again] = backend.ensureCalls.slice(-1);
     expect(again?.operationId).toBe(row.operationId ?? undefined);
     expect(row.pendingReplacement).toBeNull();
+    // Unlabelled, it cannot be shown to be the old resource, so the
+    // replacement is asked for, and counted, again.
     expect(row.replacementCount).toBe(2);
   });
 
@@ -1620,6 +1631,109 @@ describe("runScheduler", () => {
     expect(backend.containers.get("exec-1#1")?.exited).toBe(false);
   });
 
+  test("hung unclaimed workers are not waited on, and each replacement is counted once", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(2);
+    await run();
+    const names = backend.ensureCalls.map((i) => `${i.executionId}#1`);
+    const rows = [...store.executions.values()];
+    expect(names).toHaveLength(2);
+    // Neither answers its SIGTERM: a pass that waited would sit out both
+    // stops back to back.
+    for (const name of names) {
+      backend.staleFor.add(name);
+      backend.drainingFor.add(name);
+    }
+
+    for (const _ of [1, 2, 3, 4]) {
+      const pass = await run();
+      expect(pass.replaced).toEqual([]);
+      expect(pass.replacementsExhausted).toEqual([]);
+      expect(pass.reconcileFailed).toEqual([]);
+    }
+    expect(backend.terminateOptions.length).toBeGreaterThan(0);
+    expect(backend.terminateOptions.every((o) => o.waitForExit === false)).toBe(
+      true,
+    );
+    for (const row of rows) {
+      expect(row.pendingReplacement).toBe("stale_isolation");
+      expect(row.replacementCount).toBe(1);
+    }
+
+    backend.drainingFor.clear();
+    const done = await run();
+    expect(done.replaced).toHaveLength(2);
+    expect(done.reensured).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.pendingReplacement).toBeNull();
+      expect(row.replacementCount).toBe(1);
+    }
+  });
+
+  /** A replacement rebuilt but not yet seen running, so still pending. */
+  async function unsettledRebuild() {
+    const fixture = harness();
+    const { backend, run, store } = fixture;
+    const [sessionId] = store.addUnassigned(1);
+    await run();
+    const [intent] = backend.ensureCalls;
+    if (!intent || !sessionId) throw new Error("no intent");
+    const name = `${intent.executionId}#1`;
+    const row = store.executions.get(intent.executionId);
+    if (!row) throw new Error("no row");
+    backend.staleFor.add(name);
+    backend.createPendingFor.add(sessionId);
+    await run();
+    backend.createPendingFor.clear();
+    expect(row.pendingReplacement).toBe("stale_isolation");
+    expect(row.replacementCount).toBe(1);
+    expect(row.nonce).not.toBeNull();
+    return { ...fixture, name, row };
+  }
+
+  test("an unlabelled unclaimed resource is waited on, so its replacement is counted once", async () => {
+    const { backend, run, store } = harness();
+    const row = store.seedActive({
+      executionId: "exec-1",
+      observedState: "running",
+    });
+    // Built before the credential label: nothing shows a later pass that it
+    // is the old resource, so a teardown left stopping would be asked for,
+    // and counted, again.
+    backend.containers.set("exec-1#1", {
+      exited: false,
+      generation: 1,
+      operationId: row.operationId ?? "op",
+      sessionId: row.sessionId,
+    });
+    backend.staleFor.add("exec-1#1");
+    backend.drainingFor.add("exec-1#1");
+
+    for (const _ of [1, 2, 3]) await run();
+    expect(backend.terminateOptions[0]?.waitForExit).toBe(true);
+    expect(row.replacementCount).toBe(1);
+  });
+
+  test("a rebuilt replacement judged again is a new replacement and is counted", async () => {
+    const { backend, run, name, row } = await unsettledRebuild();
+    backend.staleFor.add(name);
+    const again = await run();
+    expect(again.replaced).toHaveLength(1);
+    expect(row.replacementCount).toBe(2);
+  });
+
+  test("a rebuilt replacement a worker binds to while it is judged again is left to it", async () => {
+    const { backend, run, store, name, row } = await unsettledRebuild();
+    backend.staleFor.add(name);
+    backend.duringInspect = () => {
+      claimLaunchOf(store, name);
+    };
+    const raced = await run();
+    expect(raced.replaced).toEqual([]);
+    expect(backend.containers.has(name)).toBe(true);
+    expect(row.replacementCount).toBe(1);
+  });
+
   test("a created-but-never-started resource is started through the same intent", async () => {
     const { backend, run, store } = harness();
     const row = store.seedActive({ executionId: "exec-1" });
@@ -1839,7 +1953,7 @@ describe("runScheduler", () => {
       { executionId: row.executionId, generation: 1 },
     ]);
     expect(row.pendingReplacement).toBeNull();
-    expect(row.replacementCount).toBe(2);
+    expect(row.replacementCount).toBe(1);
     expect(row.nonce).not.toBeNull();
     const replacement = [...backend.containers.values()][0];
     expect(replacement?.nonce).not.toBe(held);
@@ -2831,6 +2945,83 @@ describe("runScheduler", () => {
     ).toBe(true);
   });
 
+  test("a kill still stopping past the stop deadline fails the pass", async () => {
+    const { backend, records, run, store } = harness(10, {
+      stopDeadlineMs: 60_000,
+    });
+    store.addUnassigned(1);
+    await run();
+    const [launch] = [...store.executions.values()];
+    if (!launch) throw new Error("nothing launched");
+    const ref = { executionId: launch.executionId, generation: 1 };
+    launch.desiredState = "terminated";
+    launch.claimed = true;
+    store.unassigned.delete(launch.sessionId);
+    // The daemon answers inspects but never takes the stop.
+    backend.drainingFor.add(`${launch.executionId}#1`);
+
+    const asked = await run();
+    expect(asked.killsStopping).toEqual([ref]);
+    expect(asked.killFailed).toEqual([]);
+    expect(launch.observedState).toBe("terminating");
+    const firstAsked = launch.observedAt;
+
+    // Asking again within the deadline is still a stop in progress, and
+    // does not move the time the first one went out.
+    const within = await run();
+    expect(within.killsStopping).toEqual([ref]);
+    expect(within.killFailed).toEqual([]);
+    expect(launch.observedAt).toBe(firstAsked);
+
+    if (!launch.observedAt) throw new Error("no first stop time");
+    launch.observedAt = new Date(launch.observedAt.getTime() - 61_000);
+    const overdue = await run();
+    expect(overdue.killFailed).toEqual([ref]);
+    expect(overdue.killsStopping).toEqual([]);
+    expect(
+      records.some(
+        (r) =>
+          r.level === "error" &&
+          r.message === "Kill still stopping past the stop deadline",
+      ),
+    ).toBe(true);
+
+    backend.drainingFor.clear();
+    const confirmed = await run();
+    expect(confirmed.killed).toEqual([ref]);
+    expect(store.confirmedGone).toEqual([launch.executionId]);
+  });
+
+  test("a kill's deadline does not start from another resource's teardown", async () => {
+    const { backend, run, store } = harness(10, { stopDeadlineMs: 60_000 });
+    // An earlier resource of this launch was being reclaimed long ago; the
+    // one the kill now stops is another.
+    const row = store.seedActive({
+      claimed: true,
+      desiredState: "terminated",
+      executionId: "exec-1",
+      observedAt: new Date(Date.now() - 10 * 60_000),
+      observedState: "terminating",
+      providerRef: "ctr-old",
+    });
+    backend.containers.set("exec-1#1", {
+      exited: false,
+      generation: 1,
+      id: "ctr-new",
+      operationId: row.operationId ?? "op",
+      sessionId: row.sessionId,
+    });
+    backend.drainingFor.add("exec-1#1");
+
+    const asked = await run();
+    expect(asked.killFailed).toEqual([]);
+    expect(asked.killsStopping).toEqual([
+      { executionId: "exec-1", generation: 1 },
+    ]);
+    expect(row.providerRef).toBe("ctr-new");
+    expect(row.observedAt?.getTime()).toBeGreaterThan(Date.now() - 60_000);
+  });
+
   test("a kill does not wait on a worker draining its turn, and a later pass confirms it gone", async () => {
     const { backend, records, run, store } = harness();
     store.addUnassigned(1);
@@ -3395,6 +3586,45 @@ describe("runScheduler launch failures", () => {
     const next = await run();
     expect(next.replaced).toHaveLength(1);
     expect(row?.launchFailureCount).toBe(0);
+  });
+
+  test("a resource refused for another launch spec that is gone by the next pass is not a failed launch", async () => {
+    const { backend, run, store } = harness();
+    const [sessionId] = store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+    await run();
+    const [row] = store.executions.values();
+    const [intent] = backend.ensureCalls;
+    if (!row || !intent) throw new Error("no launch");
+    expect(row.nonce).not.toBeNull();
+    // Ours goes away, and another hand builds under the name before the
+    // re-create gets there.
+    backend.containers.clear();
+    const other = launchSpecFingerprint("sha256:other", RESOURCES);
+    let planted = false;
+    backend.duringEnsure = (ensuring) => {
+      if (planted) return;
+      planted = true;
+      backend.containers.set(nameOf(ensuring), {
+        exited: false,
+        generation: ensuring.generation,
+        launchSpec: other,
+        operationId: ensuring.operationId,
+        sessionId,
+      });
+    };
+    const refused = await run();
+    expect(refused.failedLaunches).toHaveLength(1);
+    expect(row.launchFailureCount).toBe(0);
+
+    // The foreign resource is gone again before the next look. No create was
+    // ever sent for it, so nothing failed: the launch is simply built.
+    backend.containers.clear();
+    const next = await run();
+    expect(store.launchFailures).toEqual([]);
+    expect(row.launchFailureCount).toBe(0);
+    expect(next.reensured).toHaveLength(1);
+    expect(backend.containers.size).toBe(1);
   });
 
   test("the backoff doubles from its base and stops at its cap", () => {

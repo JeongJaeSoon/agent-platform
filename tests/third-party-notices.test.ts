@@ -44,6 +44,8 @@ const lock: Lockfile = {
       name: "@werft-ai/storage",
       dependencies: { "@scope/a": "1" },
     },
+    "packages/ui": { name: "@werft-ai/ui" },
+    "packages/client": { name: "@werft-ai/client" },
   },
   packages: {
     "@werft-ai/control-host": [
@@ -114,12 +116,8 @@ describe("image closure from bun.lock", () => {
     ]);
   });
 
-  test("the worker installs every workspace; linux x64/arm64 builds and required peers only", () => {
+  test("the worker installs its own closure; linux x64/arm64 builds and required peers only", () => {
     expect(ids("worker")).toEqual([
-      "@scope/a@1.0.0",
-      "b@2.0.0",
-      "c@1.0.0",
-      "hono@4.0.0",
       "sdk-linux-x64@1.0.0",
       "sdk@1.0.0",
       "zod@4.0.0",
@@ -145,16 +143,21 @@ describe("image closure from bun.lock", () => {
     const real = parseLockfile(readFileSync(join(root, "bun.lock"), "utf8"));
     const controlHost = imageClosure(real, "control-host");
     const worker = imageClosure(real, "worker");
-    // The Dockerfiles' own promises: the SDK only in the worker, nothing in
-    // the proxy, and the worker a superset (it installs every workspace).
+    // The Dockerfiles' own promises: the SDK only in the worker, the database
+    // driver and ORM only in control-host, nothing in the proxy. The web
+    // console bundle that control-host serves keeps its components listed.
     const names = (closure: typeof worker) =>
       new Set([...closure.values()].map((pkg) => pkg.name));
     expect(names(worker).has("@anthropic-ai/claude-agent-sdk")).toBe(true);
     expect(names(controlHost).has("@anthropic-ai/claude-agent-sdk")).toBe(
       false,
     );
-    for (const name of names(controlHost)) {
-      expect(names(worker).has(name)).toBe(true);
+    for (const name of ["pg", "drizzle-orm"]) {
+      expect(names(controlHost).has(name)).toBe(true);
+      expect(names(worker).has(name)).toBe(false);
+    }
+    for (const name of ["react", "@radix-ui/react-dialog", "openapi-fetch"]) {
+      expect(names(controlHost).has(name)).toBe(true);
     }
     expect(imageClosure(real, "egress-proxy").size).toBe(0);
   });

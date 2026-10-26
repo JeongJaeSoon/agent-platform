@@ -7,9 +7,6 @@ import {
   test,
 } from "bun:test";
 import { createSessionResponseSchema } from "@werft-ai/contracts";
-import { createApiApp } from "@werft-ai/control-host/src/api/app.ts";
-import { registerSessionRoutes } from "@werft-ai/control-host/src/api/routes/sessions.ts";
-import { registerWorkerRoutes } from "@werft-ai/control-host/src/api/routes/worker.ts";
 import * as schema from "@werft-ai/db";
 import {
   attempts,
@@ -33,6 +30,9 @@ import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createApiApp } from "../apps/control-host/src/api/app.ts";
+import { registerSessionRoutes } from "../apps/control-host/src/api/routes/sessions.ts";
+import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/worker.ts";
 import type { WorkerCheckpointPort } from "../apps/worker/src/checkpoint.ts";
 import {
   type FetchLike,

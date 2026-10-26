@@ -378,6 +378,12 @@ export const agentSummarySchema = z
     bound_credential_refs: z.array(credentialRefSchema),
     /** Admins by display name (email when unset), then admin teams by name. */
     admins: z.array(z.string()),
+    /**
+     * The agent's sessions the caller can see, by the status
+     * GET /v1/sessions shows them in.
+     */
+    needs_input_count: z.number().int().nonnegative(),
+    running_count: z.number().int().nonnegative(),
   })
   .strict();
 

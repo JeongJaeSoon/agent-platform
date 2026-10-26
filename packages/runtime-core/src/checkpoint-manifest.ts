@@ -381,8 +381,6 @@ export interface CheckpointObjectStore {
   /** Size and presence without transferring the body; undefined when absent. */
   head(key: string, version?: string): Promise<ObjectHead | undefined>;
   list(prefix: string): Promise<string[]>;
-  /** Append-only mirror write; callers own key uniqueness. */
-  put(key: string, bytes: Uint8Array): Promise<void>;
   /**
    * Create-only write. Never replaces an object that already exists. A body
    * too large to hold is passed as an `ImmutableObjectSource` and streamed.

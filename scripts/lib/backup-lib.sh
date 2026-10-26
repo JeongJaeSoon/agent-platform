@@ -9,8 +9,8 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-COMPOSE_FILE="${REPO_ROOT}/infra/docker-compose.yml"
-RESTORE_OVERRIDE="${REPO_ROOT}/infra/docker-compose.restore.yml"
+COMPOSE_FILE="${REPO_ROOT}/infra/compose.yml"
+RESTORE_OVERRIDE="${REPO_ROOT}/infra/compose.restore.yml"
 MIGRATIONS_DIR="${REPO_ROOT}/packages/db/migrations"
 BACKUP_MANIFEST_VERSION=1
 

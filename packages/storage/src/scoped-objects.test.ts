@@ -18,7 +18,7 @@ describe("scopedCheckpointObjectStore", () => {
     expect(await store.putImmutable(key, encode("{}"))).toEqual({
       outcome: "created",
     });
-    await store.put(`${SCOPE}transcript/part-0`, encode("x"));
+    await store.putImmutable(`${SCOPE}transcript/part-0`, encode("x"));
     expect(await store.get(key)).toEqual(encode("{}"));
     expect(await store.head(key)).toEqual({ bytes: 2 });
     expect(await store.list(`${SCOPE}checkpoints/`)).toEqual([key]);
@@ -32,9 +32,6 @@ describe("scopedCheckpointObjectStore", () => {
 
     await expect(store.get(foreign)).rejects.toBeInstanceOf(ObjectScopeError);
     await expect(store.head(foreign)).rejects.toThrow(ObjectScopeError);
-    await expect(store.put(foreign, encode("x"))).rejects.toThrow(
-      ObjectScopeError,
-    );
     await expect(store.putImmutable(foreign, encode("x"))).rejects.toThrow(
       ObjectScopeError,
     );

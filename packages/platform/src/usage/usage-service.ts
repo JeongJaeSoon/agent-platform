@@ -185,10 +185,21 @@ export function createUsageService(deps: {
       query: UsageSummaryQuery,
     ): Promise<UsageSummaryResponse> {
       const filter = await filterFor(actor, query.scope);
-      const summary = await reader.usageSummary(filter, {
+      const period = {
         since: query.since,
         ...(query.until === undefined ? {} : { until: query.until }),
-      });
+      };
+      const grouped =
+        query.group_by === undefined
+          ? null
+          : await reader.usageSummaryGroups(filter, period, query.group_by);
+      const summary = grouped ?? (await reader.usageSummary(filter, period));
+      // An agent's name is on every session of it the caller reads; another
+      // person is named only to the installation reader.
+      const named = (id: string | null) =>
+        query.group_by === "agent" ||
+        filter.kind === "installation" ||
+        (filter.kind === "user" && id === filter.userId);
       return {
         scope: query.scope,
         period: {
@@ -206,6 +217,18 @@ export function createUsageService(deps: {
           cost: "provider_usage_estimate",
           run_time: "turn_wall_clock",
         },
+        ...(grouped
+          ? {
+              groups: grouped.groups.map((group) => ({
+                id: group.id,
+                name: named(group.id) ? group.name : null,
+                session_count: group.sessionCount,
+                run_seconds: group.runSeconds,
+                cost_usd: group.costUsd,
+                cost_complete: group.incompleteTurnCount === 0,
+              })),
+            }
+          : {}),
       };
     },
 

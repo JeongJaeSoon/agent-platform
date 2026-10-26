@@ -42,7 +42,7 @@ bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup
 
 | job | 서비스 컨테이너 | 켜지는 opt-in 변수 | 실행 명령 | 머지 차단 |
 |---|---|---|---|---|
-| `check (typecheck)` | 없음 | 없음 | `bun run typecheck` | 집계로 |
+| `check (typecheck)` | 없음 | 없음 | `bun run typecheck` (workspace 패키지 + 루트 `tsconfig.json`의 `scripts/**`·`.github/scripts/*`) | 집계로 |
 | `check (lint)` | 없음 | 없음 | `bun run lint` (Biome) | 집계로 |
 | `check (licenses)` | 없음 | 없음 | `bun scripts/third-party-notices.ts --check` | 집계로 |
 | `check (unit: packages)`, `check (unit: worker, web)`, `check (unit: other apps, tests)` | 없음 | 없음 | `bun test <unit-part.ts가 고른 파일>` (`packages/` 아래 / `apps/worker/`·`apps/web/` 아래 / 그 나머지) | 집계로 |
@@ -136,7 +136,7 @@ compose 스택도 같은 원칙이다. `infra/compose.core.yml`·`infra/compose.
 - ci.yml의 mirror 참조는 전부 `<name>@sha256:…`이고, 그 `name`·digest 쌍이 mirror 목록에 있다.
 - suite 파일이 읽는 `process.env.*_IMAGE`는 전부 `integration-domain`의 `env`에서 mirror로 설정돼 있다. 기본값이 문자열이면 mirror 항목의 upstream `name:tag`와 같아야 한다(로컬과 CI가 같은 버전을 돈다).
 - busybox 항목에 `DEFAULT_MIGRATION_HELPER_IMAGE`의 digest가, bun 항목에 모든 앱 Dockerfile `BUN_IMAGE`의 digest가 있다. `workspace-quota`가 빌드하는 inode helper의 `FROM`은 worker Dockerfile과 같은 digest의 미러 참조다.
-- compose overlay가 로컬 스택(`infra/docker-compose.yml`이 합치는 core와 로컬 layer)의 서드파티 이미지마다 같은 `name:tag@digest`의 미러 참조를 두고, 빌드하는 서비스마다 그 Dockerfile의 `BUN_IMAGE` digest와 frontend tag에 맞는 미러 참조를 build-arg로 넘긴다. `e2e`·`quickstart` job이 overlay를 얹는다.
+- compose overlay가 로컬 스택(`infra/compose.yml`이 합치는 core와 로컬 layer)의 서드파티 이미지마다 같은 `name:tag@digest`의 미러 참조를 두고, 빌드하는 서비스마다 그 Dockerfile의 `BUN_IMAGE` digest와 frontend tag에 맞는 미러 참조를 build-arg로 넘긴다. `e2e`·`quickstart` job이 overlay를 얹는다.
 
 정적 검사는 코드가 이미지를 부르는 모양을 다 알 수 없다. 그래서 Docker를 쓰는 job은 마지막에 **daemon이 실제로 가진 이미지**를 본다. `integration-domain`의 모든 job, `workspace-quota`(runner daemon과 중첩 daemon 둘 다), `e2e`·`quickstart`가 그렇다. `.github/scripts/assert-no-docker-hub-images.sh`가 `docker images`에 Docker Hub 이미지가 하나라도 있으면 그 이름을 `::error::`로 찍고 job을 실패시킨다. 판정은 Docker의 이름 규칙 그대로다. 첫 경로 성분에 `.`·`:`가 없거나 `localhost`가 아니면, 또는 `docker.io`면 Docker Hub다. "미러만"이 아니라 "Docker Hub 아님"으로 거는 이유는 runner 이미지에 원래 들어 있는 이미지(`ghcr.io/github/…`, `ghcr.io/dependabot/…`) 때문이다. 아무 step도 받지 않았는데 daemon에 있다. 판정 대상은 각 이미지의 `RepoDigests`, 곧 어디서 pull했는지다. daemon에서 직접 빌드한 이미지는 `RepoDigests`가 없어 건너뛴다. 빌드의 `FROM` 이미지는 image 목록에 남는다는 보장이 없으므로, 빌드 step은 base를 미러 참조로 직접 적어야 한다. 정적 가드는 ci.yml의 `*_IMAGE` 값 중 미러가 아닌 것을 같은 workflow 안의 `-t <값>` 빌드로만 허용한다. 테스트가 실패한 job에서도 돈다. 새 `docker run alpine`이든, 환경 변수 없이 Engine API로 받는 suite든, 받은 경로와 상관없이 잡힌다.
 
@@ -162,7 +162,7 @@ bun scripts/third-party-notices.ts --check    # 최신이 아니거나 검토 �
 bun scripts/third-party-notices.ts --debian-sources   # Debian 시스템 안에서: 설치된 패키지의 대응 소스 목록(DEBIAN_SOURCES.md)
 ```
 
-- **목록의 범위.** 이미지마다 Dockerfile이 설치하는 production closure를 `bun.lock`에서 계산한다. control-host는 `--filter ./apps/control-host`, worker는 모든 workspace, egress-proxy는 설치가 없다. optional 의존성은 이미지를 빌드하는 linux x64·arm64 둘 다 센다. 그래서 어느 머신에서 돌려도 같은 파일이 나온다. 라이선스와 NOTICE는 설치된 패키지에서 읽는다. 이 머신에 설치되지 않은 다른 arch 빌드는 생성할 때만 npm registry에서 라이선스를 읽고, `--check`는 커밋된 파일의 값을 쓴다. 그래서 `--check`는 네트워크가 필요 없다.
+- **목록의 범위.** 이미지마다 Dockerfile이 설치하는 production closure를 `bun.lock`에서 계산한다. control-host는 `--filter ./apps/control-host`에 더해 이미지가 싣는 웹 콘솔 번들(`apps/web/dist`)이 담는 `packages/ui`·`packages/client`의 의존성, worker는 `--filter ./apps/worker`, egress-proxy는 설치가 없다. optional 의존성은 이미지를 빌드하는 linux x64·arm64 둘 다 센다. 그래서 어느 머신에서 돌려도 같은 파일이 나온다. 라이선스와 NOTICE는 설치된 패키지에서 읽는다. 이 머신에 설치되지 않은 다른 arch 빌드는 생성할 때만 npm registry에서 라이선스를 읽고, `--check`는 커밋된 파일의 값을 쓴다. 그래서 `--check`는 네트워크가 필요 없다.
 - **라이선스 정책.** MIT·Apache-2.0·BSD 계열·ISC 같은 허용 목록 밖의 라이선스는 스크립트의 `REVIEWED`에 검토한 라이선스 문자열과 이유를 함께 적어야 통과한다. 같은 패키지라도 라이선스가 바뀌면 다시 검토해야 한다. SPDX 식은 괄호·AND·OR 우선순위대로 읽는다. 지금은 `@anthropic-ai/claude-agent-sdk`와 그 플랫폼 빌드(Anthropic 상용 약관)뿐이다. Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 고지 파일에 옮긴다(현재 closure에는 없다). 베이스 이미지(Bun이 정적 링크한 LGPL JavaScriptCore·TinyCC, Debian 패키지)와 worker의 Claude Code 실행 파일은 고지 파일의 첫 절에 적는다.
 - **버전에 묶인 고지.** 스크립트의 `BUN_BUILDS`는 Dockerfile이 고정한 Bun 버전마다 commit(`bun --revision`)과 정적 링크한 WebKit·TinyCC commit을 적는다. `CLAUDE_CODE_BUN`은 Agent SDK 버전마다 번들 Claude Code가 내장한 Bun 버전을 적는다. Bun이나 SDK를 올리면 두 표에 새 항목을 넣을 때까지 `--check`가 실패한다. 값은 oven-sh/bun의 해당 tag(1.3.14부터 `scripts/build/deps/webkit.ts`의 `WEBKIT_VERSION`과 `scripts/build/deps/tinycc.ts`의 `TINYCC_COMMIT`, 그 전에는 `cmake/tools/SetupWebKit.cmake`·`cmake/targets/BuildTinyCC.cmake`)와 실행 파일 안의 `Bun v<버전>` 문자열에서 읽는다.
 - **Debian 대응 소스.** 세 Dockerfile은 마지막 `apt-get` 뒤에 `--debian-sources`를 돌려 `/app/DEBIAN_SOURCES.md`를 쓴다. 이 파일은 설치된 모든 Debian 패키지의 source package·버전과 snapshot.debian.org 주소다. `apt-get upgrade` 때문에 버전이 빌드마다 달라서 저장소에 커밋하지 않고 이미지에서 만든다.

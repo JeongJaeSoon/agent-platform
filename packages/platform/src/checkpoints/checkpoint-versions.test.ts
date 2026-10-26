@@ -24,6 +24,10 @@ import type {
 import { serviceCheckpointVerifier } from "../ports/checkpoint-verifier.ts";
 import { structuralBundleVerifier } from "../ports/workspace-bundle-verifier.ts";
 import {
+  type CommitCheckpointInput,
+  finalizeCheckpoint,
+} from "../testing/checkpoints.ts";
+import {
   createCheckpointService,
   manifestRefFor,
   sessionObjectPrefix,
@@ -91,25 +95,31 @@ function memoryCheckpointStore() {
         .sort((left, right) => right.revision - left.revision)
         .slice(0, limit);
     },
-    async commitAtomic(input) {
-      if (pointer !== null && input.checkpoint.revision <= pointer.revision) {
-        return { outcome: "conflict", currentRevision: pointer.revision };
-      }
-      commits += 1;
-      pointer = {
-        committedAt: input.now,
-        manifestRef: input.checkpoint.manifest_ref,
-        manifestSha256: input.checkpoint.manifest_sha256,
-        manifestVersion: input.checkpoint.manifest_version ?? null,
-        revision: input.checkpoint.revision,
-        turnId: input.turnId,
-        versionsHeld: input.versionsHeld === true,
-      };
-      history.push(pointer);
-      return { outcome: "committed", revision: input.checkpoint.revision };
-    },
   };
-  return { commits: () => commits, pointer: () => pointer, store };
+  async function commit(input: CommitCheckpointInput) {
+    if (pointer !== null && input.checkpoint.revision <= pointer.revision) {
+      return {
+        outcome: "conflict" as const,
+        currentRevision: pointer.revision,
+      };
+    }
+    commits += 1;
+    pointer = {
+      committedAt: input.now,
+      manifestRef: input.checkpoint.manifest_ref,
+      manifestSha256: input.checkpoint.manifest_sha256,
+      manifestVersion: input.checkpoint.manifest_version ?? null,
+      revision: input.checkpoint.revision,
+      turnId: input.turnId,
+      versionsHeld: input.versionsHeld === true,
+    };
+    history.push(pointer);
+    return {
+      outcome: "committed" as const,
+      revision: input.checkpoint.revision,
+    };
+  }
+  return { commit, commits: () => commits, pointer: () => pointer, store };
 }
 
 let objects: MemoryCheckpointObjectStore;
@@ -191,7 +201,7 @@ async function publish(
 }
 
 function finalize(checkpoint: CheckpointRef) {
-  return service.finalize({
+  return finalizeCheckpoint(service, checkpoints.commit, {
     checkpoint,
     fence,
     now: new Date("2026-09-23T00:00:00.000Z"),
@@ -286,8 +296,8 @@ describe("locked (the default)", () => {
 
     // A privileged overwrite with bytes of the same length, a delete marker,
     // and a create-only write that lands again once the key reads as absent.
-    await objects.put(part.key, encode("b\n"));
-    await objects.put(checkpoint.manifest_ref, encode("{}\n"));
+    await objects.overwrite(part.key, encode("b\n"));
+    await objects.overwrite(checkpoint.manifest_ref, encode("{}\n"));
     const untracked = manifest.workspace.untracked[0] as ObjectRef;
     objects.remove(untracked.key);
     objects.remove(manifest.workspace.bundle.key);
@@ -370,7 +380,7 @@ describe("locked (the default)", () => {
     });
 
     await expect(
-      failing.finalize({
+      finalizeCheckpoint(failing, checkpoints.commit, {
         checkpoint,
         fence,
         now: new Date(),
@@ -446,7 +456,7 @@ describe("finalize trusts what a held pointer already proved", () => {
     target: ReturnType<typeof createCheckpointService>,
     checkpoint: CheckpointRef,
   ) {
-    return target.finalize({
+    return finalizeCheckpoint(target, checkpoints.commit, {
       checkpoint,
       fence,
       now: new Date("2026-09-23T00:00:00.000Z"),
@@ -727,7 +737,7 @@ describe("locked fallback to an earlier revision", () => {
     destroy(second);
     // The earlier manifest's key is rewritten and its part's key deleted;
     // the versions revision 0 committed are untouched.
-    await objects.put(older.checkpoint.manifest_ref, encode("{}\n"));
+    await objects.overwrite(older.checkpoint.manifest_ref, encode("{}\n"));
     objects.remove(first.key);
 
     const result = await service.getRestorePlan({ runtime, sessionId });
@@ -838,7 +848,7 @@ describe("locked fallback to an earlier revision", () => {
     const older = await publish(0, [part]);
     const { manifest_version: _version, ...unpinned } = older.checkpoint;
     // As an `unversioned` deployment commits it, straight through the store.
-    await checkpoints.store.commitAtomic({
+    await checkpoints.commit({
       checkpoint: unpinned,
       fence,
       now: new Date("2026-09-23T00:00:00.000Z"),
@@ -913,7 +923,7 @@ describe("unversioned", () => {
     await plain.putImmutable(manifestRef, encoded.bytes);
 
     expect(
-      await degraded.finalize({
+      await finalizeCheckpoint(degraded, checkpoints.commit, {
         checkpoint: {
           manifest_ref: manifestRef,
           manifest_sha256: encoded.sha256,
@@ -954,7 +964,7 @@ describe("unversioned, then locked", () => {
     // ref names holds different bytes of the same length.
     const key = `${prefix}mirror/part-0.jsonl`;
     const older = await upload(key, encode("a\n"));
-    await objects.put(key, encode("b\n"));
+    await objects.overwrite(key, encode("b\n"));
     const stranger: ObjectRef = {
       ...older,
       sha256: sha256(encode("b\n")),
@@ -982,7 +992,7 @@ describe("unversioned, then locked", () => {
   test("a hold some later candidate placed on the old manifest does not make its versions trusted", async () => {
     const key = `${prefix}mirror/part-0.jsonl`;
     const older = await upload(key, encode("a\n"));
-    await objects.put(key, encode("b\n"));
+    await objects.overwrite(key, encode("b\n"));
     const stranger: ObjectRef = { ...older, sha256: sha256(encode("b\n")) };
     const locked = service;
     service = unversionedService();
@@ -1266,7 +1276,7 @@ describe("reading outputs", () => {
   test("streams a listed output by the version the checkpoint pinned", async () => {
     const { report } = await commitReport();
     // An overwrite after the commit changes what the key reads, not the version.
-    await objects.put(report.key, encode("# swapped\n"));
+    await objects.overwrite(report.key, encode("# swapped\n"));
 
     const opened = await service.openOutput(sessionId, "out/report.md");
     expect(opened).toMatchObject({ status: "ready", output: report });
@@ -1316,7 +1326,7 @@ describe("reading outputs", () => {
       workspaceBundles: structuralBundleVerifier,
     });
     // Same length, so only the digest can tell.
-    await objects.put(report.key, encode("# Report\n"));
+    await objects.overwrite(report.key, encode("# Report\n"));
 
     const opened = await unversioned.openOutput(sessionId, "out/report.md");
     expect(opened.status).toBe("ready");

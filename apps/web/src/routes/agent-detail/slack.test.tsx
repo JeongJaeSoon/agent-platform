@@ -42,10 +42,12 @@ const APP: NonNullable<
 };
 const appResponse = (
   app: typeof APP | null,
+  warnings: components["schemas"]["GetSlackAppResponse"]["warnings"] = [],
 ): components["schemas"]["GetSlackAppResponse"] => ({
   slack_app: app,
   event_url: null,
   events: { state: "pending", checked_at: null },
+  warnings,
 });
 const IDENTITY: components["schemas"]["ListAgentIdentitiesResponse"]["items"][number] =
   {
@@ -970,6 +972,71 @@ describe("Slack management", () => {
         .filter((call) => call.method === "POST")
         .map((call) => call.path),
     ).toEqual([`${PATH}/slack/app`, `${PATH}/slack/install/start`]);
+  });
+
+  test("warns, with the profile, that Slack cannot start a session of a repository-only agent, and still offers to connect", async () => {
+    renderAt(DETAIL, {
+      ...routes(),
+      [`GET ${PATH}/slack/app`]: () =>
+        json(
+          200,
+          appResponse(null, [
+            { code: "repository_required", profile_id: "claude-coding-local" },
+          ]),
+        ),
+    });
+    expect(
+      await screen.findByText("Slack에서는 세션을 시작할 수 없습니다"),
+    ).toBeDefined();
+    expect(document.body.textContent).toContain(
+      "이 에이전트의 프로필(claude-coding-local)은 세션마다 저장소를 골라야 합니다.",
+    );
+    expect(
+      screen.getByRole("button", { name: "Slack 앱 만들고 설치" }),
+    ).toBeDefined();
+  });
+
+  const subscribed = (
+    events: components["schemas"]["GetSlackAppResponse"]["events"],
+    eventUrl: string | null = `https://events.test/v1/slack/events/${AGENT_ID}`,
+  ) => ({
+    ...routes(APP, true),
+    [`GET ${PATH}/slack/app`]: () =>
+      json(200, { ...appResponse(APP), event_url: eventUrl, events }),
+  });
+
+  test("asks to verify the Request URL while the subscription is pending", async () => {
+    renderAt(DETAIL, subscribed({ state: "pending", checked_at: AT }));
+    const status = await screen.findByRole("region", { name: "상태" });
+    await within(status).findByText("Slack에서 Request URL을 Verify하세요");
+    const link = within(status).getByRole("link", {
+      name: /Event Subscriptions 열기/,
+    });
+    expect(link.getAttribute("href")).toBe(
+      "https://api.slack.com/apps/A123/event-subscriptions",
+    );
+    expect(link.getAttribute("target")).toBe("_blank");
+  });
+
+  for (const [name, events, eventUrl] of [
+    ["once verified", { state: "verified", checked_at: AT }, undefined],
+    ["without an event URL", { state: "pending", checked_at: null }, null],
+  ] as const) {
+    test(`shows no Verify request ${name}`, async () => {
+      renderAt(DETAIL, subscribed(events, eventUrl));
+      const status = await screen.findByRole("region", { name: "상태" });
+      // The app card reads the same query, so the status has it too.
+      await screen.findByText("앱 ID");
+      expect(status.textContent).not.toContain("Verify");
+    });
+  }
+
+  test("shows no repository warning when the profile needs none", async () => {
+    renderAt(DETAIL, routes(APP, true));
+    await screen.findByText("앱 ID");
+    expect(document.body.textContent).not.toContain(
+      "Slack에서는 세션을 시작할 수 없습니다",
+    );
   });
 
   test("revokes an identity after confirmation and focuses the result", async () => {

@@ -306,6 +306,9 @@ integration("pending requests and answers on PostgreSQL", () => {
       input: { command: "ls -la" },
       created_at: expect.any(String),
       expires_at: tool.response.expires_at,
+      state: "waiting",
+      park_at: null,
+      group: "1",
     });
     expect(byId.get(asked.requestId)).toMatchObject({
       kind: "question",

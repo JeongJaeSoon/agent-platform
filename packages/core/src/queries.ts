@@ -23,6 +23,7 @@ import type {
   ListProfilesResponse,
   ListSessionsResponse,
   ListTeamsResponse,
+  ListTurnsResponse,
   LoginMethodsResponse,
   SessionDetail,
   SessionUsageResponse,
@@ -113,6 +114,7 @@ export const queryKeys = {
   sessionUsage: (id: string) => ["sessions", id, "usage"] as const,
   pendingRequests: (id: string) =>
     ["sessions", id, "pending-requests"] as const,
+  sessionTurns: (id: string) => ["sessions", id, "turns"] as const,
   usageSeries: (
     scope: UsageSummaryScope,
     since: string,
@@ -470,6 +472,25 @@ export function sessionQuery(client: ApiClient, id: string) {
       ) as Promise<SessionDetail>,
     retry: false,
     refetchInterval: LIVE_REFETCH_MS,
+  });
+}
+
+/** Every turn of a session, oldest first: what each one was asked. */
+export function sessionTurnsQuery(client: ApiClient, id: string) {
+  return queryOptions({
+    queryKey: queryKeys.sessionTurns(id),
+    queryFn: async (): Promise<ListTurnsResponse> => {
+      const { items } = await readEveryPage(
+        (query) =>
+          unwrap(
+            client.GET("/v1/sessions/{id}/turns", {
+              params: { path: { id }, query },
+            }),
+          ) as Promise<ListTurnsResponse>,
+      );
+      return { items, next_cursor: null };
+    },
+    retry: false,
   });
 }
 

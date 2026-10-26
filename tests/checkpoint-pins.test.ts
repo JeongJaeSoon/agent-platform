@@ -196,7 +196,10 @@ async function syncUp(
 ) {
   for (const key of await filesUnder(dir)) {
     if (exclude.has(key)) continue;
-    await objects.put(key, new Uint8Array(await readFile(join(dir, key))));
+    await objects.overwrite(
+      key,
+      new Uint8Array(await readFile(join(dir, key))),
+    );
   }
 }
 
@@ -204,7 +207,7 @@ async function syncUp(
 async function restoredBucket() {
   const objects = createMemoryCheckpointObjectStore({ versioned: true });
   for (let i = 0; i < 50; i += 1) {
-    await objects.put(`filler/${i}`, new Uint8Array([i]));
+    await objects.overwrite(`filler/${i}`, new Uint8Array([i]));
   }
   return objects;
 }
@@ -247,9 +250,6 @@ async function restorePlan(
     objectProtection: "locked",
     objects,
     store: {
-      commitAtomic: () => {
-        throw new Error("restore does not commit");
-      },
       listCheckpoints: async () => [],
       readPointer: async () => pointer,
     },
@@ -356,7 +356,7 @@ describe("backup → restore re-pin", () => {
       const seeded = await seed(source, [{ path: "a.txt", text: "pinned" }]);
       const overwritten = seeded.manifest.workspace.untracked[0]?.key ?? "";
       const deleted = seeded.manifest.transcripts.root.parts[0]?.key ?? "";
-      await source.put(overwritten, new TextEncoder().encode("tampered"));
+      await source.overwrite(overwritten, new TextEncoder().encode("tampered"));
       source.remove(deleted);
       await syncDown(source, dir);
       expect(await Bun.file(join(dir, deleted)).exists()).toBe(false);
@@ -477,7 +477,7 @@ describe("backup → restore re-pin", () => {
 
       const restored = await restoredBucket();
       await syncUp(dir, restored, new Set([seeded.row.manifestRef, bundleKey]));
-      await restored.put(untrackedKey, new TextEncoder().encode("x"));
+      await restored.overwrite(untrackedKey, new TextEncoder().encode("x"));
       const before = restored.keys().length;
       const refused = await planRepin({
         codecs,
@@ -653,7 +653,7 @@ describe("backup → restore re-pin", () => {
       // Only revision 1 is backed up, as after revision 0 was collected: its
       // base must come from its own manifest. The sync saw the key already
       // overwritten, so only a capture by version keeps the base's bytes.
-      await source.put(base.key, new TextEncoder().encode("overwritten"));
+      await source.overwrite(base.key, new TextEncoder().encode("overwritten"));
       await syncDown(source, dir);
       const { replaced } = await captureCheckpointObjects({
         codecs,

@@ -1536,7 +1536,11 @@ type Published = {
  * transcript entry, and the checkpoint the gateway would commit.
  */
 async function published(
-  options: { versioned?: boolean; instructions?: boolean } = {},
+  options: {
+    versioned?: boolean;
+    instructions?: boolean;
+    untracked?: boolean;
+  } = {},
 ): Promise<Published> {
   const objects = createMemoryCheckpointObjectStore({
     versioned: options.versioned === true,
@@ -1552,6 +1556,10 @@ async function published(
   const { claim, mirror } = await opened(h);
   await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
   await writeFile(join(workspace, "README.md"), "edited\n");
+  if (options.untracked === true) {
+    await mkdir(join(workspace, "notes"));
+    await writeFile(join(workspace, "notes", "new.txt"), "never added\n");
+  }
   if (options.instructions === true) {
     await writeFile(join(workspace, "CLAUDE.md"), "rules the engine wrote\n");
   }
@@ -1656,7 +1664,7 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     expect(from.manifest.workspace.bundle.version).toBeDefined();
     expect(from.manifest.transcripts.root.parts[0]?.version).toBeDefined();
     // A later write under the same key is not what the checkpoint verified.
-    await from.objects.put(
+    await from.objects.overwrite(
       from.manifest.workspace.bundle.key,
       new TextEncoder().encode("overwritten"),
     );
@@ -1688,6 +1696,28 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     expect(plan.committedClaudeMd?.()).toBe("rules as fetched\n");
     expect(plan.sessionStore).toBeDefined();
   });
+
+  test.skipIf(!existsSync("/proc/self/fd"))(
+    "puts back a file the turn created but never added, still untracked",
+    async () => {
+      const from = await published({ untracked: true });
+      expect(from.manifest.workspace.untracked).toEqual([
+        expect.objectContaining({ bytes: 12, path: "notes/new.txt" }),
+      ]);
+      await replaceWorkspaceWithLeftovers();
+      const h = restoring(from);
+
+      await h.port.restorePlan(await claimOf(h.gateway), neverStopped());
+
+      expect(h.errors).toEqual([]);
+      expect(await readFile(join(workspace, "notes", "new.txt"), "utf8")).toBe(
+        "never added\n",
+      );
+      expect(await git("status", "--porcelain", "--untracked-files=all")).toBe(
+        " M README.md\n?? notes/new.txt\n",
+      );
+    },
+  );
 
   test("writes the resumed transcript where the engine reads it, on the workspace volume", async () => {
     const from = await published();
@@ -2004,7 +2034,7 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
 
   test("refuses a bundle whose bytes are not the ones the manifest pinned", async () => {
     const from = await published();
-    await from.objects.put(
+    await from.objects.overwrite(
       from.manifest.workspace.bundle.key,
       new TextEncoder().encode("overwritten"),
     );
@@ -2448,7 +2478,7 @@ describe("restoring a transcript over the size limit", () => {
       transcripts: { ...from.manifest.transcripts, root: revision },
     };
     const encoded = claudeCheckpointCodec.encode(oversized);
-    await from.objects.put(from.ref.manifest_ref, encoded.bytes);
+    await from.objects.overwrite(from.ref.manifest_ref, encoded.bytes);
     const ref = { ...from.ref, manifest_sha256: encoded.sha256 };
     await replaceWorkspaceWithLeftovers();
     const h = restoring({ manifest: oversized, objects: from.objects, ref });

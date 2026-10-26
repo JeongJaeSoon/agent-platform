@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./migrate": "./src/migrate.ts",
-    "./pool": "./src/pool.ts"
+    "./pool": "./src/pool.ts",
+    "./testing/checkpoints": "./src/testing/checkpoints.ts"
   },
   "scripts": {
     "bench:session-reads": "bun run bench/session-reads.ts",

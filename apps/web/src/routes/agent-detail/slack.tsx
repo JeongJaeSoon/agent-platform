@@ -9,6 +9,9 @@ import { useLocation, useNavigate } from "@tanstack/react-router";
 import { type components, unwrap } from "@werft-ai/client";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
   Badge,
   Button,
   ConfirmDialog,
@@ -315,12 +318,36 @@ function SlackStatus({ agentId }: { readonly agentId: string }) {
   const state = slackState(error, identity, app.data?.slack_app);
   const placeholder = <Skeleton className="h-5 w-24" />;
   const bindingsLost = bindings.isError && !bindings.data;
+  const record = app.data?.slack_app;
+  // Pending with no event URL means no subscription was ever asked for.
+  const unverifiedApp =
+    app.data?.events.state === "pending" &&
+    app.data.event_url !== null &&
+    record?.state === "created"
+      ? record.app_id
+      : null;
   return (
     <section
       className="flex flex-col gap-[var(--ap-space-block)]"
       aria-label={t("slack.status")}
     >
       {error ? <FieldError>{slackFailure(error, t)}</FieldError> : null}
+      {unverifiedApp ? (
+        <Alert variant="amber">
+          <AlertTitle>{t("slack.eventsPending.title")}</AlertTitle>
+          <AlertDescription>
+            {t("slack.eventsPending.body")}{" "}
+            <Link
+              href={`https://api.slack.com/apps/${encodeURIComponent(unverifiedApp)}/event-subscriptions`}
+              target="_blank"
+              newTabLabel={t("slack.newTab")}
+              underline="always"
+            >
+              {t("slack.eventsPending.open")}
+            </Link>
+          </AlertDescription>
+        </Alert>
+      ) : null}
       <RowList variant="joined">
         <RowListItem className="flex flex-wrap items-center gap-x-4 gap-y-2 text-control">
           <Badge
@@ -406,6 +433,9 @@ export function SlackConnect({
     (item) => item.provider === "slack_bot" && item.status === "active",
   );
   const record = app.data?.slack_app;
+  const needsRepository = app.data?.warnings.find(
+    (warning) => warning.code === "repository_required",
+  );
   const refresh = () => cache.invalidateQueries({ queryKey: key });
   const connect = useMutation({
     mutationFn: async () => {
@@ -502,6 +532,16 @@ export function SlackConnect({
             </Badge>
           )}
         </div>
+        {needsRepository ? (
+          <Alert variant="amber">
+            <AlertTitle>{t("slack.repositoryRequired.title")}</AlertTitle>
+            <AlertDescription>
+              {t("slack.repositoryRequired.body", {
+                profile: needsRepository.profile_id,
+              })}
+            </AlertDescription>
+          </Alert>
+        ) : null}
         {record && (record.app_id || manage) ? (
           <RowList variant="joined">
             {record.app_id ? (

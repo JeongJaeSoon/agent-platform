@@ -1260,6 +1260,7 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errors: [400, 401, 404, 409, 413, 422, 429, 503],
     errorCodes: {
+      400: ["BAD_REQUEST", "PERMISSION_WAIT_ABOVE_PROFILE"],
       409: [
         "IDEMPOTENCY_CONFLICT",
         "RELEASE_PROFILE_MISMATCH",
@@ -1269,6 +1270,8 @@ export const API_ROUTE_DECLARATIONS = [
       413: ["PAYLOAD_TOO_LARGE", "STORAGE_LIMIT_EXCEEDED"],
     },
     errorNotes: {
+      PERMISSION_WAIT_ABOVE_PROFILE:
+        "A `permission_wait` value is longer than the profile's (`GET /v1/profiles`).",
       UNSUPPORTED_CAPABILITY:
         "`profile_id` or `repository_id` is not in the catalog, the catalog does not allow the pair, the profile does not offer `model`, `repository_id` is missing for a profile whose `repository_mode` is `required` (`Profile <id> needs a repository: send repository_id`), or sent for one whose `repository_mode` is `none` (`Profile <id> runs without a repository: omit repository_id`).",
       RATE_LIMITED:
@@ -1686,7 +1689,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Events",
     summary: "Durable event replay and live stream (SSE)",
     description:
-      "Streams the session's events as Server-Sent Events: first the stored events after `Last-Event-ID` (all of them without it), then new ones as they are written. Each frame's `id` is its cursor, `event` its kind (`system`, `assistant`, `tool_use`, `tool_result`, `question`, `result`, `status`, `error`), and `data` a versioned envelope naming the session, turn and attempt. `question` events announce pending requests; `status` events report the session's status and, after a pause, resume, terminate or recovery decision, its `admission_state`. The stream does not end with a turn or the session: it stays open until the client disconnects, the credential is revoked, or the session's share stops covering the caller (the reconnect then answers 404). Reading changes nothing.\n\nReconnect after backoff with the last complete event id in `Last-Event-ID`; replay resumes strictly after that event. The stream sends a comment keepalive every 15 seconds. `410 CURSOR_EXPIRED` means the cursor fell outside retained history and the client must resynchronize from resource state; alpha does not trim events, so this response is reserved. A `result` event is engine output, not durable completion: confirm the turn with `GET /v1/sessions/{id}/turns/{turn_id}` and treat only `completed`, `failed`, `interrupted`, `cancelled`, or `outcome_unknown` as terminal.",
+      "Streams the session's events as Server-Sent Events: first the stored events after `Last-Event-ID` (all of them without it), then new ones as they are written. Each frame's `id` is its cursor, `event` its kind (`system`, `assistant`, `tool_use`, `tool_result`, `question`, `result`, `status`, `error`), and `data` a versioned envelope naming the session, turn and attempt. `question` events announce pending requests; `status` events report the session's status and, after a pause, resume, terminate or recovery decision, its `admission_state`. `system` events with a platform `subtype` are the control plane's own: `session_closed` when a close commits, and `input_wait` with `stage` (`parked` when a turn parks on its unanswered requests, `expired` when a parked turn's requests expire, `lost` when the worker holding them went away unanswered) and the `request_ids` it covers. The stream does not end with a turn or the session: it stays open until the client disconnects, the credential is revoked, or the session's share stops covering the caller (the reconnect then answers 404). Reading changes nothing.\n\nReconnect after backoff with the last complete event id in `Last-Event-ID`; replay resumes strictly after that event. The stream sends a comment keepalive every 15 seconds. `410 CURSOR_EXPIRED` means the cursor fell outside retained history and the client must resynchronize from resource state; alpha does not trim events, so this response is reserved. A `result` event is engine output, not durable completion: confirm the turn with `GET /v1/sessions/{id}/turns/{turn_id}` and treat only `completed`, `failed`, `interrupted`, `cancelled`, or `outcome_unknown` as terminal.",
     scope: "read",
     lastEventId: true,
     success: {
@@ -1723,7 +1726,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Pending requests",
     summary: "Open permission and question requests",
     description:
-      "Lists the permission and question requests the session's running turn waits on that a client can still answer: open, unexpired, and raised by the worker attempt that holds the turn, oldest first. A `permission` item names the `tool` and its `input`; a `question` item carries the questions and their option ids. Answer before `expires_at` with `POST /v1/sessions/{id}/answers`. New requests also arrive as `question` events on the event stream. It changes nothing.",
+      "Lists the permission and question requests the session waits on that a client can still answer, oldest first: open, unexpired, and either raised by the worker attempt that holds the running turn (`state: waiting`) or parked (`state: parked`). A request nobody answers by `park_at` has its turn parked: the platform stops the turn with its checkpoint and pauses the session, and the request stays answerable until `expires_at` whatever happened to the worker that asked. Requests of one `group` resume their turn together. A `permission` item names the `tool` and its `input`; a `question` item carries the questions and their option ids. Answer before `expires_at` with `POST /v1/sessions/{id}/answers`. New requests also arrive as `question` events on the event stream. It changes nothing.",
     scope: "read",
     success: {
       status: 200,
@@ -1736,7 +1739,10 @@ export const API_ROUTE_DECLARATIONS = [
             turn_id: "2",
             attempt_id: "att_01",
             created_at: "2026-10-11T08:14:30Z",
-            expires_at: "2026-10-11T08:44:30Z",
+            expires_at: "2026-10-12T08:14:30Z",
+            state: "waiting",
+            park_at: "2026-10-11T08:44:30Z",
+            group: "2",
             kind: "permission",
             tool: "Bash",
             input: { command: "npm test", description: "Run the tests" },
@@ -1754,7 +1760,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Pending requests",
     summary: "Answer a pending permission or question request",
     description:
-      "Answers one pending request by `request_id`: a permission with `allow` or `deny` (a denial needs a `reason` the model can act on), a question with one answer per question, by option ids or free text where the question allows it. The answer is stored and the request closes at once: the pending list drops it and a `status` event ends the wait. The worker then hands the answer to the engine, and the receipt settles when it reports: `succeeded` once delivered, `failed` if the request expired (`REQUEST_EXPIRED`) or was cancelled (`REQUEST_STALE`) first, `unknown` if the execution ended before it reported. Seeing a session is not answering for it: only its creator (for a session an API key made, that key), its agent's admins and the workspace's owners and admins answer. Anyone else the session is visible to gets 403 (`reason_code: role`) and the request stays open; anyone it is not visible to, 404.",
+      "Answers one pending request by `request_id`: a permission with `allow` or `deny` (a denial needs a `reason` the model can act on), a question with one answer per question, by option ids or free text where the question allows it. The answer is stored and the request closes at once: the pending list drops it and a `status` event ends the wait. The worker then hands the answer to the engine, and the receipt settles when it reports: `succeeded` once delivered, `failed` if the request expired (`REQUEST_EXPIRED`) or was cancelled (`REQUEST_STALE`) first, `unknown` if the execution ended before it reported.\n\nA parked request (`state: parked`) is answered the same way, whichever worker asked. The answer is kept until every request of its `group` is answered or expired; the one that closes the group resumes the session (`resumed: true`), and the receipt settles once the turn that resumes it has the answer. `waiting_for` counts the group's requests still open. A session paused by a person rather than by its park keeps the answer and stays paused.\n\nSeeing a session is not answering for it: only its creator (for a session an API key made, that key), its agent's admins and the workspace's owners and admins answer. Anyone else the session is visible to gets 403 (`reason_code: role`) and the request stays open; anyone it is not visible to, 404.",
     scope: "approve",
     body: "PostSessionAnswerRequest",
     requestExample: {
@@ -1789,7 +1795,7 @@ export const API_ROUTE_DECLARATIONS = [
         "Also when the answer does not fit the pending request (its kind, question or option ids); `message` says how.",
       NOT_FOUND: "Also when `request_id` names no request of the session.",
       REQUEST_STALE:
-        "The attempt that asked is no longer the session's live attempt: it ended, lost its lease, or the turn moved on.",
+        "The attempt that asked is no longer the session's live attempt: it ended, lost its lease, or the turn moved on. A parked request can be answered whatever happened to the attempt that asked.",
     },
   },
   {
@@ -2219,9 +2225,12 @@ export const API_ROUTE_DECLARATIONS = [
         "RECOVERY_REQUIRED",
         "CHECKPOINT_UNAVAILABLE",
         "PAUSE_COMMITTING",
+        "PENDING_REQUESTS_OPEN",
       ],
     },
     errorNotes: {
+      PENDING_REQUESTS_OPEN:
+        "The session's parked turn still has a request that is neither answered nor expired: answer it, or wait for its `expires_at`. Its answer then resumes the session.",
       FORBIDDEN:
         "Also when an operator revoked the session's execution authority.",
       RECOVERY_REQUIRED:
@@ -2520,7 +2529,8 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "listLinkedAccounts",
     tag: "Linked accounts",
     summary: "The caller's linked accounts that are active or stale",
-    description: "API keys are refused.",
+    description:
+      "Each item's `expires_at` is its provider token's expiry, null when no token is kept (every Slack link). API keys are refused.",
     auth: "session",
     success: { status: 200, schema: "ListLinkedAccountsResponse" },
     errors: [401, 403, 503],
@@ -2545,7 +2555,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The workspace's agents",
     description:
-      "Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its runtime profile, live credential bindings and admins), read for the whole page at once; without it the items are as before. API keys are refused.",
+      "Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its runtime profile, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once; without it the items are as before. API keys are refused.",
     auth: "session",
     query: "ListAgentsQuery",
     success: {
@@ -2889,7 +2899,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The agent's Slack app, if the platform made one",
     description:
-      "The agent's live Slack app (`creating`, `created` or `deleting`), or null when it has none. Secrets appear only as whether each is stored; `secrets.slack_bot_token.configured` says whether Slack handed over a bot token; an install refused after the code exchange keeps it, so the agent's `slack_bot` identity is what says the app is installed. The install link comes from `POST /v1/agents/{id}/slack/install/start`. Owners, admins and the agent's admins; API keys are refused.",
+      "The agent's live Slack app (`creating`, `created` or `deleting`), or null when it has none. Secrets appear only as whether each is stored; `secrets.slack_bot_token.configured` says whether Slack handed over a bot token; an install refused after the code exchange keeps it, so the agent's `slack_bot` identity is what says the app is installed. The install link comes from `POST /v1/agents/{id}/slack/install/start`. `warnings` holds `repository_required` (with the `profile_id`) while the agent's active release runs on a profile whose sessions must name a repository: Slack names none, so every mention and DM is refused with a notice in the thread. Connecting is not blocked. Owners, admins and the agent's admins; API keys are refused.",
     auth: "session",
     success: {
       status: 200,
@@ -2900,6 +2910,7 @@ export const API_ROUTE_DECLARATIONS = [
         event_url:
           "https://agents.example.test/v1/slack/events/019a0000-0000-7000-8000-0000000000c1",
         events: { state: "pending", checked_at: null },
+        warnings: [],
       },
     },
     errors: [401, 403, 404, 503],
@@ -2915,7 +2926,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Create the agent's Slack app",
     description:
-      "Creates one Slack app for the agent with the workspace's App Configuration Token (`apps.manifest.create`): the agent's name, its bot, the agent view and the bot scopes, with no event subscriptions yet. The app is recorded as `creating` before Slack is asked; its signing and client secrets are stored by the server under the app and never returned. Asking again for an agent that has its app returns the same app with `created: false`. If Slack's answer was lost the app stays `creating` and the next request answers 409 SLACK_APP_CREATING; once `uncertain`, check api.slack.com/apps, delete any app made then, and retry with `replace_uncertain: true`. `warnings` says when the config token now belongs to another Slack user than the one who made the workspace's previous app. The agent needs an active release. Installing it into Slack starts at `POST /v1/agents/{id}/slack/install/start`. Owners, admins and the agent's admins from a signed-in console; API keys are refused.",
+      "Creates one Slack app for the agent with the workspace's App Configuration Token (`apps.manifest.create`): the agent's name, its bot, the agent view and the bot scopes, with no event subscriptions yet. The app is recorded as `creating` before Slack is asked; its signing and client secrets are stored by the server under the app and never returned. Asking again for an agent that has its app returns the same app with `created: false`. If Slack's answer was lost the app stays `creating` and the next request answers 409 SLACK_APP_CREATING; once `uncertain`, check api.slack.com/apps, delete any app made then, and retry with `replace_uncertain: true`. `warnings` says when the config token now belongs to another Slack user than the one who made the workspace's previous app (`config_token_issuer_changed`), and, as on GET, when the active release's profile needs a repository (`repository_required`); neither stops the request. The agent needs an active release. Installing it into Slack starts at `POST /v1/agents/{id}/slack/install/start`. Owners, admins and the agent's admins from a signed-in console; API keys are refused.",
     auth: "session",
     body: "CreateSlackAppRequest",
     requestExample: { replace_uncertain: false },
@@ -3187,6 +3198,8 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "getTeam",
     tag: "Teams",
     summary: "A team and its members",
+    description:
+      "An owner or an admin reads any team. Anyone else reads only a team they are in now, read only: changing it stays with owners and admins. Any other team is 403.",
     auth: "session",
     success: { status: 200, schema: "TeamDetail" },
     errors: [401, 403, 404, 503],
@@ -3371,7 +3384,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Cost, tokens and run time of the sessions created in a period",
     description:
-      "Adds up the sessions created in `[since, until)`: how many, their estimated provider cost, their tokens, and how long their turns ran. `since` and `until` take a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, which is moved to UTC; without `until` the period ends when the figures are read, so `since` must then be in the past.\n\n- `scope=me`: the sessions the caller started. A personal API key counts as the person who created it; a key nobody created counts the sessions it started itself. Sessions shared with the caller are not added. A key bound to an agent gets 403, as it does from `GET /v1/sessions`.\n- `scope=installation`: every session of every owner. Only the workspace owner, signed in, reads it: any other member and every API key get 403.\n\n`cost_usd` is the sum of `cost.amount_usd` from `GET /v1/sessions/{id}/usage` over the same sessions: an estimate, not a bill. `cost_complete: false` means one of them has a turn still open or one that ended without reporting its cost, so the true total is unknown. `run_seconds` is wall-clock turn time, waiting for an answer included; an open turn counts up to `refreshed_at`. Sessions from before tokens were metered count 0 tokens. It changes nothing.",
+      "Adds up the sessions created in `[since, until)`: how many, their estimated provider cost, their tokens, and how long their turns ran. `since` and `until` take a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, which is moved to UTC; without `until` the period ends when the figures are read, so `since` must then be in the past.\n\n- `scope=me`: the sessions the caller started. A personal API key counts as the person who created it; a key nobody created counts the sessions it started itself. Sessions shared with the caller are not added. A key bound to an agent gets 403, as it does from `GET /v1/sessions`.\n- `scope=installation`: every session of every owner. Only the workspace owner, signed in, reads it: any other member and every API key get 403.\n\n`cost_usd` is the sum of `cost.amount_usd` from `GET /v1/sessions/{id}/usage` over the same sessions: an estimate, not a bill. `cost_complete: false` means one of them has a turn still open or one that ended without reporting its cost, so the true total is unknown. `run_seconds` is wall-clock turn time, waiting for an answer included; an open turn counts up to `refreshed_at`. Sessions from before tokens were metered count 0 tokens.\n\n`group_by=agent` or `group_by=user` adds `groups`: the same sessions, each once, under its agent or the user holding it, largest cost first, read in the same statement as the totals. The groups' `session_count`, `cost_usd` and `run_seconds` add up to the totals (`run_seconds` is the floor of the running total minus the floor of the one before it, so two groups of 1.5 seconds read 1 and 2), and `cost_complete` is false when any group's is. `id` is the agent id or user id; it is null for sessions without an agent, or started by a key no person created. `name` is the agent's name or the user's display name, never an email; under `scope=me` a user other than the caller is null. Without `group_by` there is no `groups`. It changes nothing.",
     scope: "read",
     query: "UsageSummaryQuery",
     success: {

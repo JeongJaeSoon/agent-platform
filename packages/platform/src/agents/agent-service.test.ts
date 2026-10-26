@@ -216,6 +216,8 @@ describe("agent service", () => {
       runtime_profile_id: null,
       bound_credential_refs: [],
       admins: [],
+      needs_input_count: 0,
+      running_count: 0,
     };
     const service = serviceOver({
       ...store,

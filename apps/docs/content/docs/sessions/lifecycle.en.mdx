@@ -131,6 +131,13 @@ curl -sS "$API/v1/usage/summary?scope=me&since=2026-10-01" -H "Authorization: Be
 
 It counts the sessions created in the period, and `cost_usd` is the sum of their `/usage` `cost.amount_usd`. If any of them has `complete: false`, `cost_complete` is `false` too. A personal key adds up the sessions of the person who created it. `scope=installation` (every owner's sessions) and `GET /v1/limits` are readable only by the signed-in workspace owner; any other member and every API key get 403.
 
+To split it by agent or by user, add `group_by=agent` or `group_by=user`. The response then carries `groups[{id, name, session_count, run_seconds, cost_usd, cost_complete}]`, and the groups' `session_count`, `cost_usd` and `run_seconds` add up to the totals above. Sessions without an agent, and sessions started by a key no person created, are the group whose `id` is null. `name` is the agent's name or the user's display name, never an email; under `scope=me` a user other than the caller has a null `name`.
+
+```bash
+curl -sS "$API/v1/usage/summary?scope=me&since=2026-10-01&group_by=agent" -H "Authorization: Bearer $KEY" \
+  | jq '.groups[] | {name, session_count, cost_usd}'
+```
+
 ## Next steps
 
 - [Waiting for approval and resuming](/sessions/waiting-and-resume): answering `needs_input`, pause and resume

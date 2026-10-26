@@ -4,8 +4,6 @@ import type {
   CheckpointCollectionStore,
   CheckpointPointer,
   CheckpointStore,
-  CommitCheckpointInput,
-  CommitCheckpointResult,
 } from "@werft-ai/platform";
 import {
   and,
@@ -37,11 +35,7 @@ import {
   unassignedSessions,
 } from "./schema.ts";
 import { recordEvent, recordStatus } from "./session-events.ts";
-import {
-  acquireFence,
-  advanceCheckpointPointer,
-  readCheckpointPointer,
-} from "./worker-unit-of-work.ts";
+import { readCheckpointPointer } from "./worker-unit-of-work.ts";
 
 /**
  * Whether any checkpoint garbage collection has not yet collected exists:
@@ -183,9 +177,9 @@ export function forgetLostCheckpoints(
 }
 
 /**
- * The checkpoint pointer on PostgreSQL. Reads and turn-less commits share the
- * helpers a turn's finalize uses (worker-unit-of-work.ts), so both entry
- * points judge the fence, the clock and the next revision the same way.
+ * The checkpoint pointer on PostgreSQL, read with the helpers a turn's finalize
+ * uses (worker-unit-of-work.ts), so a read judges the fence, the clock and the
+ * pointer the same way. The pointer moves only in `finalizeAtomic`.
  */
 export function createPostgresCheckpointStore(
   db: Database,
@@ -344,83 +338,6 @@ export function createPostgresCheckpointStore(
         versionsHeld: row.versionsHeld,
         turnId: row.turnSequence === null ? null : String(row.turnSequence),
       }));
-    },
-
-    /**
-     * A pointer commit with no turn to close: the same fenced pointer advance
-     * a turn's finalize performs, on its own. The turn path never comes here
-     * (finalizeAtomic owns it); this is what a drain or pause commits with.
-     */
-    commitAtomic(
-      input: CommitCheckpointInput,
-    ): Promise<CommitCheckpointResult> {
-      const fence = {
-        sessionId: input.fence.sessionId,
-        attemptId: input.fence.attemptId,
-        leaseEpoch: input.fence.leaseEpoch,
-        executionGeneration: input.fence.executionGeneration,
-        authRevision: input.fence.authRevision,
-      };
-      // A turn's checkpoint commits with its terminal in finalizeAtomic;
-      // attaching one here would bypass that turn's ownership and replay
-      // rules, so a turn id is refused rather than looked up.
-      if (input.turnId !== null) {
-        return Promise.reject(
-          new Error(
-            "createPostgresCheckpointStore commits turn-less checkpoints only; a turn's checkpoint goes through finalizeAtomic",
-          ),
-        );
-      }
-      return db.transaction(async (tx) => {
-        if (input.sessionId !== fence.sessionId)
-          return { outcome: "stale_epoch" };
-        const fenced = await acquireFence(tx, fence);
-        if (fenced.outcome !== "ok") return fenced;
-        const advanced = await advanceCheckpointPointer(tx, {
-          fence,
-          session: fenced.session,
-          checkpoint: input.checkpoint,
-          turnRowId: null,
-          now: input.now,
-          versionsHeld: input.versionsHeld === true,
-          ...(input.transcriptBytes === undefined
-            ? {}
-            : { transcriptBytes: input.transcriptBytes }),
-        });
-        if (advanced.outcome === "committed") {
-          return { outcome: "committed", revision: advanced.revision };
-        }
-        // The same manifest already stands at this revision: a retry of a
-        // commit whose answer was lost, not a competing checkpoint. The
-        // version counts too — identical bytes stored twice are two objects,
-        // and only the one this pointer names was verified and held.
-        const [stored] = await tx
-          .select({
-            manifestRef: checkpoints.manifestRef,
-            manifestSha256: checkpoints.manifestSha256,
-            manifestVersion: checkpoints.manifestVersion,
-          })
-          .from(checkpoints)
-          .where(
-            and(
-              eq(checkpoints.sessionId, fence.sessionId),
-              eq(checkpoints.revision, input.checkpoint.revision),
-            ),
-          )
-          .limit(1);
-        if (
-          stored &&
-          stored.manifestRef === input.checkpoint.manifest_ref &&
-          stored.manifestSha256 === input.checkpoint.manifest_sha256 &&
-          stored.manifestVersion === (input.checkpoint.manifest_version ?? null)
-        ) {
-          return { outcome: "replayed", revision: input.checkpoint.revision };
-        }
-        return {
-          outcome: "conflict",
-          currentRevision: advanced.currentRevision,
-        };
-      });
     },
   };
 }

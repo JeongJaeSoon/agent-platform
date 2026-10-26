@@ -104,7 +104,13 @@ import { CLOSE, drainBlocker, drainOf, openDrainReceipt } from "./drain.ts";
 import { catalogMismatchCause, quarantineLaunch } from "./launch-quarantine.ts";
 import { sessionMcpOf } from "./mcp-egress.ts";
 import { openPauseReceipt, pauseReceiptResult } from "./pause-control.ts";
-import { abandonUndeliveredAnswers } from "./pending-requests.ts";
+import {
+  abandonUndeliveredAnswers,
+  awaitingInputAt,
+  closeWorkerRequests,
+  publicStatus,
+  recordLostInputWait,
+} from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
   boundedReason,
@@ -125,7 +131,6 @@ import {
   events,
   executions,
   MAX_SESSION_COST_USD,
-  pendingRequests,
   providerUsage,
   queueMessages,
   receipts,
@@ -441,9 +446,8 @@ async function restoreRef(
 }
 
 /**
- * The one place the checkpoint pointer advances. A turn's finalize and a
- * turn-less commit (CheckpointStore.commitAtomic) both come through here,
- * inside the caller's fenced transaction, so there is a single answer to
+ * The one place the checkpoint pointer advances. A turn's finalize comes
+ * through here, inside its fenced transaction, so there is a single answer to
  * which revision is the session's truth: the row's current pointer plus one,
  * exactly — the server handed that number out (checkpointStateAtomic), and a
  * manifest claiming a later one was written against a pointer that no longer
@@ -2735,16 +2739,14 @@ export function createPostgresWorkerUnitOfWork(
         }
         // Requests the gone worker raised can never be answered by it; left
         // open they would keep the session reporting pending input forever.
-        await tx
-          .update(pendingRequests)
-          .set({ resolvedAt: now })
-          .where(
-            and(
-              eq(pendingRequests.sessionId, session.id),
-              isNull(pendingRequests.resolvedAt),
-            ),
-          );
+        // A parked one was never the worker's to answer: it stays open.
+        const closedRequests = await closeWorkerRequests(tx, session.id, now);
         await abandonUndeliveredAnswers(tx, session.id, now);
+        await recordLostInputWait(tx, {
+          sessionId: session.id,
+          closed: closedRequests,
+          now,
+        });
         for (const turn of unresolved) {
           // `result` stays the acceptance response (receiptSchema.result).
           await tx
@@ -2947,7 +2949,11 @@ export function createPostgresWorkerUnitOfWork(
                 ? "failed"
                 : settledInto === "stopped" || settledInto === "closed"
                   ? "stopped"
-                  : session.status,
+                  : // A park settles paused with its requests still open.
+                    publicStatus(
+                      session.status,
+                      await awaitingInputAt(tx, session.id, await dbNow(tx)),
+                    ),
             extra: {
               admission_state: settledInto,
               ...(pauseFailed

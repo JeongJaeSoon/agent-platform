@@ -10,7 +10,7 @@
     "packages/adapters/runtimes/*"
   ],
   "scripts": {
-    "typecheck": "bun run --filter '*' typecheck",
+    "typecheck": "bun run --filter '*' typecheck && tsc -p .",
     "lint": "biome check .",
     "test": "bun test tests packages apps",
     "check": "bun run typecheck && bun run lint && bun run test",
