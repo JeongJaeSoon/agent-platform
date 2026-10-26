@@ -287,6 +287,47 @@ describe("WorkerHost turn loop", () => {
     );
   });
 
+  test("keeps a frame the engine emits for a turn after the next one began out of the next one", async () => {
+    const { gateway, host, runtime } = harness([
+      { type: "await-input" },
+      { type: "emit", message: resultMessage(uuidForTurn(1)) },
+      // Long enough for turn 1 to finalize and turn 2's input to go out.
+      { type: "delay", delayMs: 50 },
+      { type: "emit", message: assistantMessage("late, for turn 1") },
+      { type: "await-input" },
+      { type: "emit", message: assistantMessage("second answer") },
+      { type: "emit", message: resultMessage(uuidForTurn(2)) },
+      { type: "await-input" },
+    ]);
+    gateway.enqueue("first message");
+    gateway.enqueue("second message");
+
+    const summary = await host.runLoop();
+
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "completed", reason: null },
+      { turnId: "2", status: "completed", reason: null },
+    ]);
+    // The late frame really did arrive once turn 2's input was out.
+    expect(runtime.inputs).toHaveLength(2);
+    const turnOf = new Map(
+      gateway.batches.flatMap((batch) =>
+        batch.events.map((event) => [event.source_sequence, batch.turn_id]),
+      ),
+    );
+    expect(
+      gateway.events.map((event) => [
+        event.event,
+        turnOf.get(event.source_sequence),
+      ]),
+    ).toEqual([
+      ["result", "1"],
+      ["assistant", null],
+      ["assistant", "2"],
+      ["result", "2"],
+    ]);
+  });
+
   test("reports a failed engine result as a failed turn", async () => {
     const { gateway, host } = harness([
       { type: "await-input" },
