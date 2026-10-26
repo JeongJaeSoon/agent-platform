@@ -3,6 +3,7 @@ import type { Principal, PullRequest } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
 import {
   type AuthorizationPolicy,
+  callerFor,
   createAuthorizationPolicy,
 } from "../musterrolle/policy.ts";
 import {
@@ -250,6 +251,34 @@ describe("opening a pull request", () => {
       created: false,
       number: 7,
     });
+  });
+
+  test("a personal key's receipts name its issuer, as the policy resolved them", async () => {
+    const issuer = "019a0000-0000-7000-8000-0000000000c1";
+    const { service, receipts } = harness({
+      authorization: createAuthorizationPolicy({
+        identity: {
+          reread: async ({ principal }) => ({
+            status: "ok",
+            principal,
+            keyCreator: { userId: issuer, role: "owner" },
+          }),
+        },
+      }),
+    });
+    const caller = callerFor(human, { kind: "api" }, "request-1", {
+      creatorId: issuer,
+    });
+    await service.open({ ...actor, caller }, SESSION, PUSH, {
+      readBody: async () => ({}),
+    });
+    expect(receipts.map((receipt) => receipt.actor)).toEqual([
+      {
+        principal: { kind: "api_key", id: "key-1" },
+        actor_user_id: issuer,
+        agent_id: null,
+      },
+    ]);
   });
 
   test("an open pull request the forge already has for the branch is recorded, not opened again", async () => {
