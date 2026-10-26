@@ -567,8 +567,7 @@ describe("OpenAPI document", () => {
       const description = method.responses["413"]?.description;
       if (description === undefined) continue;
       checked += 1;
-      const ref =
-        method.requestBody?.content["application/json"]?.schema?.$ref;
+      const ref = method.requestBody?.content["application/json"]?.schema?.$ref;
       const body = ref ? schemas[ref.replace("#/components/schemas/", "")] : {};
       const hasMessage = body?.properties?.message !== undefined;
       expect(description.includes("`message`"), key).toBe(hasMessage);
