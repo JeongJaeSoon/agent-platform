@@ -253,8 +253,10 @@ function AdminList({
   // pointer or focus greys out and drops focus to the page.
   const nothingLeft =
     picking &&
-    (!listsMembers || (members.isSuccess && !members.isFetching)) &&
-    (!listsTeams || teams.isSuccess) &&
+    members.isSuccess &&
+    !members.isFetching &&
+    teams.isSuccess &&
+    !teams.isFetching &&
     people.length === 0 &&
     groups.length === 0;
   const partial =
