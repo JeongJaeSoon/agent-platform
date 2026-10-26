@@ -57,7 +57,7 @@ export const slackKo = {
   "slack.eventsPending.open": "Event Subscriptions 열기",
   "slack.repositoryRequired.title": "Slack에서는 세션을 시작할 수 없습니다",
   "slack.repositoryRequired.body":
-    "활성 release의 프로필({profile})은 세션마다 저장소가 필요한데 release에 저장소가 없습니다. Slack 멘션과 DM은 거절되고 스레드에 안내만 남습니다. 연결은 할 수 있습니다. release 탭에서 저장소를 골라 새 release를 만들고 활성화하세요.",
+    "활성 release의 프로필({profile})은 세션마다 저장소가 필요한데 release에 쓸 수 있는 저장소가 없습니다(고르지 않았거나 카탈로그에서 빠졌습니다). Slack 멘션과 DM은 거절되고 스레드에 안내만 남습니다. 연결은 할 수 있습니다. release 탭에서 저장소를 골라 새 release를 만들고 활성화하세요.",
   "slack.profileUnavailable.title": "Slack에서는 세션을 시작할 수 없습니다",
   "slack.profileUnavailable.body":
     "활성 release의 프로필({profile})이 지금 카탈로그에 없거나 release 뒤에 바뀌었습니다. Slack 멘션과 DM은 거절되고 스레드에 안내만 남습니다. release 탭에서 카탈로그에 있는 프로필로 새 release를 만들고 활성화하세요.",

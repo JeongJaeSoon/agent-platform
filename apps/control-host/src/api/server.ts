@@ -41,6 +41,7 @@ import {
 import { createLogger, sanitizeText } from "@werft-ai/observability";
 import {
   agentSlackBotToken,
+  allowedRun,
   catalogRevision,
   composeSlackFinalize,
   createAgentAdminService,
@@ -458,8 +459,10 @@ const slackApps = createSlackAppService({
       }
       throw error;
     }
-    return release.repository_id === null &&
-      profileNeedsRepository(catalog, release.runtime_profile_id)
+    // Missing and dropped from the catalog take the same fix: a new release.
+    return profileNeedsRepository(catalog, release.runtime_profile_id) &&
+      allowedRun(catalog, release.runtime_profile_id, release.repository_id) ===
+        null
       ? { code: "repository_required", profile_id: release.runtime_profile_id }
       : null;
   },

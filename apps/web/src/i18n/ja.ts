@@ -50,7 +50,7 @@ export const slackJa = {
   "slack.eventsPending.open": "Event Subscriptions を開く",
   "slack.repositoryRequired.title": "Slack からはセッションを開始できません",
   "slack.repositoryRequired.body":
-    "有効なリリースのプロファイル（{profile}）はセッションごとにリポジトリが必要ですが、リリースにリポジトリがありません。Slack のメンションと DM は拒否され、スレッドに案内だけが残ります。接続はできます。リリースタブでリポジトリを選んで新しいリリースを作成し、有効化してください。",
+    "有効なリリースのプロファイル（{profile}）はセッションごとにリポジトリが必要ですが、リリースに使えるリポジトリがありません（選ばれていないか、カタログから外れています）。Slack のメンションと DM は拒否され、スレッドに案内だけが残ります。接続はできます。リリースタブでリポジトリを選んで新しいリリースを作成し、有効化してください。",
   "slack.profileUnavailable.title": "Slack からはセッションを開始できません",
   "slack.profileUnavailable.body":
     "有効なリリースのプロファイル（{profile}）がカタログにないか、リリース後に変更されました。Slack のメンションと DM は拒否され、スレッドに案内だけが残ります。リリースタブでカタログにあるプロファイルの新しいリリースを作成し、有効化してください。",

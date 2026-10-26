@@ -50,7 +50,7 @@ export const slackEn = {
   "slack.eventsPending.open": "Open Event Subscriptions",
   "slack.repositoryRequired.title": "Sessions can't start from Slack",
   "slack.repositoryRequired.body":
-    "The active release's profile ({profile}) needs a repository for every session, and the release names none. Slack mentions and DMs are refused and only a notice is left in the thread. You can still connect. Create a release with a repository on the Releases tab and activate it.",
+    "The active release's profile ({profile}) needs a repository for every session, and the release has none it can use (none was chosen, or it left the catalog). Slack mentions and DMs are refused and only a notice is left in the thread. You can still connect. Create a release with a repository on the Releases tab and activate it.",
   "slack.profileUnavailable.title": "Sessions can't start from Slack",
   "slack.profileUnavailable.body":
     "The active release's profile ({profile}) is no longer in the catalog, or changed after the release. Slack mentions and DMs are refused and only a notice is left in the thread. Create a release under a profile the catalog has on the Releases tab and activate it.",
