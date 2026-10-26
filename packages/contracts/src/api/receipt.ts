@@ -100,6 +100,9 @@ export const RECEIPT_OPERATION_VALUES = [
   // names its purpose and last four characters, never the value.
   "set_slack_secret",
   "delete_slack_secret",
+  // A workspace profile version saved or retired (94S-1001).
+  "create_workspace_profile",
+  "retire_workspace_profile",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);

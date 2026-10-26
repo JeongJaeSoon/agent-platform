@@ -72,6 +72,7 @@ import type {
 } from "../ports/worker-unit-of-work.ts";
 import {
   allowedPair,
+  catalogProfile,
   catalogRevision,
   type EgressUpstream,
   mcpBinding,
@@ -87,7 +88,12 @@ import {
   type SessionCatalog,
   type SessionMcp,
   sessionProfile,
+  WORKSPACE_PROFILE_PREFIX,
+  workspaceCatalogProfiles,
 } from "../sessions/catalog.ts";
+
+const WORKSPACE_PROFILE_MAX_AGE_MS = 1000;
+
 import { createMcpEgress, type McpEgressRequest } from "./mcp-egress.ts";
 
 export type WorkerGatewayStatus = 400 | 401 | 403 | 404 | 409 | 503;
@@ -468,7 +474,7 @@ export function createWorkerGateway(deps: {
   // through a queue slot. It waits for a host that knows the profile — as
   // the session was created with it — and that still lets it run
   // against the session's repository, or without one.
-  const runnable: RunnablePair[] = [
+  const operatorRunnable: RunnablePair[] = [
     ...Object.entries(catalog.repositories).flatMap(
       ([repositoryId, repository]) =>
         repository.profiles.flatMap((profileId) => {
@@ -499,6 +505,50 @@ export function createWorkerGateway(deps: {
     ),
   ];
 
+  // A workspace version runs where its base may, and only while its base
+  // still hashes as it did when the version was made.
+  function runnablePairs(): RunnablePair[] {
+    return [
+      ...operatorRunnable,
+      ...workspaceCatalogProfiles(catalog).flatMap(
+        ({ id, baseId, profile }) => [
+          ...Object.entries(catalog.repositories).flatMap(
+            ([repositoryId, repository]) =>
+              repository.profiles.includes(baseId)
+                ? profilePins(profile).map((pin) => ({
+                    profileId: id,
+                    profileFingerprint: pin.fingerprint,
+                    model: pin.model,
+                    repositoryId,
+                    url: repository.url,
+                    branch: repository.branch,
+                  }))
+                : [],
+          ),
+          ...(repositoryModeOf(profile) === "required"
+            ? []
+            : profilePins(profile).map((pin) => ({
+                profileId: id,
+                profileFingerprint: pin.fingerprint,
+                model: pin.model,
+                repositoryId: null,
+              }))),
+        ],
+      ),
+    ];
+  }
+
+  // Another replica's new version reaches this one within a second. A
+  // failed read leaves the versions already read, so a database blip never
+  // stops the operator's profiles from running.
+  async function refreshWorkspaceProfiles(): Promise<void> {
+    await catalog.workspace_profiles
+      ?.refresh(WORKSPACE_PROFILE_MAX_AGE_MS)
+      .catch(() => undefined);
+  }
+
+  // Workspace versions are not in it: they live in the database, and a
+  // replica reads them, rather than agreeing on them at startup.
   const revision = catalogRevision(catalog);
 
   function claimedMcp(mcp: SessionMcp | null | undefined) {
@@ -539,7 +589,7 @@ export function createWorkerGateway(deps: {
     profile_fingerprint: string;
     runtime_config: RuntimeConfig;
   } {
-    const listed = profileId ? own(catalog.profiles, profileId) : undefined;
+    const listed = profileId ? catalogProfile(catalog, profileId) : undefined;
     const profile = listed ? sessionProfile(listed, pin) : null;
     if (!profile || !profileId) {
       throw new WorkerGatewayError(
@@ -586,7 +636,7 @@ export function createWorkerGateway(deps: {
       ) {
         return [];
       }
-      const listed = own(catalog.profiles, made.profileId);
+      const listed = catalogProfile(catalog, made.profileId);
       const profile = listed
         ? sessionProfile(listed, {
             fingerprint: made.profileFingerprint,
@@ -619,7 +669,7 @@ export function createWorkerGateway(deps: {
     session: Parameters<EgressIssue["bindingsOf"]>[0],
   ): EgressBindings {
     const listed = session.profileId
-      ? own(catalog.profiles, session.profileId)
+      ? catalogProfile(catalog, session.profileId)
       : undefined;
     const profile = listed
       ? sessionProfile(listed, {
@@ -843,8 +893,9 @@ export function createWorkerGateway(deps: {
       const repositoryToken = generateEgressToken("repository");
       const objectStoreToken = generateEgressToken("object_store");
       const mcpToken = generateEgressToken("mcp");
+      await refreshWorkspaceProfiles();
       const result = await work.claimAtomic({
-        runnable,
+        runnable: runnablePairs(),
         catalogRevision: revision,
         costLimitUsd: deps.options.sessionCostLimitUsd,
         tokenLimit,
@@ -1040,8 +1091,11 @@ export function createWorkerGateway(deps: {
             "The session has reached its cost or token limit",
           );
         }
+        if (result.profileId?.startsWith(WORKSPACE_PROFILE_PREFIX)) {
+          await refreshWorkspaceProfiles();
+        }
         const listed = result.profileId
-          ? own(catalog.profiles, result.profileId)
+          ? catalogProfile(catalog, result.profileId)
           : undefined;
         // A model taken off the list cuts the attempt still running it here,
         // at the proxy's next regrant.

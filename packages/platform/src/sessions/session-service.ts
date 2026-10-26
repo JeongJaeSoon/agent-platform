@@ -37,7 +37,6 @@ import {
   normalizeSessionTitle,
 } from "@werft-ai/contracts";
 import { releaseModel } from "../agents/release-ids.ts";
-import { own } from "../checkpoints/checkpoint-support.ts";
 import {
   budgetExceeded,
   type SessionSpend,
@@ -61,6 +60,7 @@ import type {
 } from "../ports/session-unit-of-work.ts";
 import {
   allowedRun,
+  catalogProfile,
   isUnmetered,
   type ProfilePin,
   profileFingerprint,
@@ -68,6 +68,8 @@ import {
   repositoryModeOf,
   type SessionCatalogView,
   sessionProfile,
+  WORKSPACE_PROFILE_PREFIX,
+  workspaceProfileRefusal,
 } from "./catalog.ts";
 import { deriveSessionTitle } from "./session-title.ts";
 
@@ -343,11 +345,24 @@ export function createSessionService(deps: {
       : allowedRun(catalog, profileId, record.repository_id);
   }
 
+  // A workspace version is read fresh: another replica may have made it.
+  async function workspaceProfileRefusalOf(
+    actor: Caller,
+    profileId: string,
+    retiredAllowed: boolean,
+  ) {
+    if (!profileId.startsWith(WORKSPACE_PROFILE_PREFIX)) return null;
+    await catalog.workspace_profiles?.refresh();
+    return workspaceProfileRefusal(catalog, actor.ownerId, profileId, {
+      retiredAllowed,
+    });
+  }
+
   function repositoryRefusal(
     profileId: string,
     repositoryId: string | null,
   ): string {
-    const profile = own(catalog.profiles, profileId);
+    const profile = catalogProfile(catalog, profileId);
     const mode = profile ? repositoryModeOf(profile) : undefined;
     if (mode === "required" && repositoryId === null) {
       return `Profile ${profileId} needs a repository: send repository_id`;
@@ -375,7 +390,7 @@ export function createSessionService(deps: {
     model: string | null;
   }): SessionRuntimeView | null {
     const profileId = record.profile_id;
-    const listed = profileId ? own(catalog.profiles, profileId) : undefined;
+    const listed = profileId ? catalogProfile(catalog, profileId) : undefined;
     const profile = listed ? sessionProfile(listed, pinOf(record)) : null;
     if (!profile || !profileId) return null;
     return {
@@ -546,7 +561,15 @@ export function createSessionService(deps: {
       // A pair the catalog does not allow is as unknown as a missing id: the
       // repository did not grant this profile its trust.
       const repositoryId = input.body.repository_id ?? null;
-      const allowed = allowedRun(catalog, input.body.profile_id, repositoryId);
+      const workspaceRefusal = await workspaceProfileRefusalOf(
+        actor,
+        input.body.profile_id,
+        release !== null,
+      );
+      const allowed =
+        workspaceRefusal === null
+          ? allowedRun(catalog, input.body.profile_id, repositoryId)
+          : null;
       // A model the profile does not offer is refused like a pair the
       // catalog does not allow; a replay of an earlier acceptance still
       // succeeds.
@@ -612,7 +635,8 @@ export function createSessionService(deps: {
             "UNSUPPORTED_CAPABILITY",
             allowed && !runs
               ? `Profile ${input.body.profile_id} does not offer model ${input.body.model}`
-              : repositoryRefusal(input.body.profile_id, repositoryId),
+              : (workspaceRefusal?.message ??
+                  repositoryRefusal(input.body.profile_id, repositoryId)),
           );
         case "actor_inactive":
           throw new SessionServiceError(
@@ -846,22 +870,28 @@ export function createSessionService(deps: {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
       const wanted = input.body.profile_id;
-      const pair = runOf(record, wanted);
+      const workspaceRefusal = await workspaceProfileRefusalOf(
+        actor,
+        wanted,
+        false,
+      );
+      const pair = workspaceRefusal === null ? runOf(record, wanted) : null;
       // The session row keeps no runtime of its own: only its profile, as the
       // catalog still defines it, says which runtime took its checkpoints.
       const found = record.profile_id
-        ? own(catalog.profiles, record.profile_id)
+        ? catalogProfile(catalog, record.profile_id)
         : undefined;
       const current = found
         ? (sessionProfile(found, pinOf(record)) ?? undefined)
         : undefined;
       // The next attempt restores checkpoints the current runtime took, so
       // the runtime has to stay; the model, tools and provider may change.
-      const refusal =
-        pair === null ||
-        (pair.repository !== null &&
-          (pair.repository.url !== record.repo_url ||
-            pair.repository.branch !== record.branch))
+      const refusal = workspaceRefusal
+        ? workspaceRefusal.message
+        : pair === null ||
+            (pair.repository !== null &&
+              (pair.repository.url !== record.repo_url ||
+                pair.repository.branch !== record.branch))
           ? record.repository_mode === "none"
             ? `Profile ${wanted} is not in this host's catalog or needs a repository, which the session has none of`
             : `Profile ${wanted} is not in this host's catalog or not allowed with the session's repository`

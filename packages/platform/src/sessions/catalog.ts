@@ -5,12 +5,14 @@ import {
   credentialRefSchema,
   MCP_TOOL_PREFIX,
   mcpServerIdSchema,
+  NARROWER_PERMISSION_MODES,
   permissionModeSchema,
   projectSettingsSchema,
   type RepositoryMode,
   type RuntimeConfig,
   repositoryModeSchema,
   type runtimeConfigSchema,
+  type WorkspaceProfileState,
 } from "@werft-ai/contracts";
 import { z } from "zod";
 import { type GitCredential, repoRefOf } from "../ports/forge.ts";
@@ -315,6 +317,8 @@ export const catalogMcpServerSchema = z
   })
   .strict();
 
+export const WORKSPACE_PROFILE_PREFIX = "ws_";
+
 function nonEmpty<T extends z.ZodType>(record: T, what: string) {
   return record.refine(
     (value) => Object.keys(value as object).length > 0,
@@ -333,6 +337,15 @@ export const sessionCatalogConfigSchema = z
   })
   .strict()
   .superRefine((config, ctx) => {
+    for (const id of Object.keys(config.profiles)) {
+      if (id.startsWith(WORKSPACE_PROFILE_PREFIX)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["profiles", id],
+          message: `profile ids starting with ${WORKSPACE_PROFILE_PREFIX} are the workspace profiles' own`,
+        });
+      }
+    }
     if (
       Object.keys(config.repositories).length === 0 &&
       Object.values(config.profiles).every(
@@ -425,7 +438,43 @@ export type SessionCatalog = {
   profiles: Record<string, CatalogProfile>;
   repositories: Record<string, CatalogRepository>;
   mcp_servers?: Record<string, CatalogMcpServer>;
+  workspace_profiles?: WorkspaceProfiles;
 };
+
+/**
+ * A version of a workspace profile as stored: an operator profile narrowed
+ * by an owner or admin. Nothing in it changes but `retired_at`.
+ */
+export type WorkspaceProfileRecord = {
+  id: string;
+  workspace_id: string;
+  name: string;
+  version: number;
+  base_profile_id: string;
+  // `profileFingerprint` of the base when the version was made: a version
+  // runs only while its base still hashes to this.
+  base_fingerprint: string;
+  model: string;
+  models: string[];
+  tools: string[];
+  permission_mode: z.infer<typeof permissionModeSchema>;
+  // The base as it was, for listing a version whose base the operator removed.
+  base_runtime_version: string;
+  base_billing: "metered" | "none";
+  base_repository_mode: RepositoryMode;
+  created_at: Date;
+  retired_at: Date | null;
+};
+
+/**
+ * The workspace profiles this process has read. The database holds them, so
+ * a version another replica made shows here only after `refresh`.
+ */
+export interface WorkspaceProfiles {
+  readonly records: ReadonlyMap<string, WorkspaceProfileRecord>;
+  /** Reads them again unless the last read began within `maxAgeMs`. */
+  refresh(maxAgeMs?: number): Promise<void>;
+}
 
 type ProviderView<P> = P extends { auth: infer A }
   ? Omit<P, "auth"> & { auth: Omit<A, "value"> }
@@ -448,6 +497,7 @@ export type CatalogRepositoryView = Omit<CatalogRepository, "auth">;
 export type SessionCatalogView = {
   profiles: Record<string, CatalogProfileView>;
   repositories: Record<string, CatalogRepositoryView>;
+  workspace_profiles?: WorkspaceProfiles;
 };
 
 /** A remote MCP server the session's agent release names, as claimed. */
@@ -578,14 +628,181 @@ export function repositoryModeOf(profile: CatalogProfileView): RepositoryMode {
   return profile.repository ?? "required";
 }
 
+/** Where a profile id is looked up: the operator's, then the workspaces'. */
+export type ProfileLookup<P extends CatalogProfileView> = {
+  profiles: Readonly<Record<string, P>>;
+  workspace_profiles?: WorkspaceProfiles | undefined;
+};
+
+/** The narrowing a workspace profile version applies to its base. */
+export type ProfileNarrowing = Pick<
+  WorkspaceProfileRecord,
+  "model" | "models" | "tools" | "permission_mode"
+>;
+
+/** The base with a narrowing applied, assumed to be one `narrowingRefusal` passed. */
+export function narrowedProfile<P extends CatalogProfileView>(
+  base: P,
+  narrowing: ProfileNarrowing,
+): P {
+  return {
+    ...base,
+    model: narrowing.model,
+    models: [...narrowing.models],
+    tools: [...narrowing.tools],
+    permission_mode: narrowing.permission_mode,
+  };
+}
+
+/**
+ * Why `narrowing` would widen `base`, naming the request field, or null when
+ * every value is the base's or narrower.
+ */
+export function narrowingRefusal(
+  base: CatalogProfileView,
+  narrowing: ProfileNarrowing,
+): { field: keyof ProfileNarrowing; message: string } | null {
+  const offered = profileModels(base);
+  const unknownModel = narrowing.models.find((m) => !offered.includes(m));
+  if (unknownModel !== undefined) {
+    return {
+      field: "models",
+      message: `The base profile does not offer model ${unknownModel}`,
+    };
+  }
+  if (!narrowing.models.includes(narrowing.model)) {
+    return { field: "model", message: "model must be one of models" };
+  }
+  const unknownTool = narrowing.tools.find((t) => !base.tools.includes(t));
+  if (unknownTool !== undefined) {
+    return {
+      field: "tools",
+      message: `The base profile does not allow tool ${unknownTool}`,
+    };
+  }
+  if (
+    !NARROWER_PERMISSION_MODES[base.permission_mode].includes(
+      narrowing.permission_mode,
+    )
+  ) {
+    return {
+      field: "permission_mode",
+      message: `A profile over a ${base.permission_mode} base may run ${NARROWER_PERMISSION_MODES[base.permission_mode].join(", ")}`,
+    };
+  }
+  return null;
+}
+
+/** Whether a workspace profile version takes new releases and sessions. */
+export function workspaceProfileState(
+  catalog: ProfileLookup<CatalogProfileView>,
+  record: WorkspaceProfileRecord,
+): WorkspaceProfileState {
+  if (record.retired_at !== null) return "retired";
+  const base = Object.hasOwn(catalog.profiles, record.base_profile_id)
+    ? catalog.profiles[record.base_profile_id]
+    : undefined;
+  if (!base) return "base_missing";
+  return baseHolds(base, record) ? "usable" : "base_changed";
+}
+
+// The fingerprint leaves the model list out, so a model the operator took
+// off the base is caught by narrowing again.
+function baseHolds(
+  base: CatalogProfileView,
+  record: WorkspaceProfileRecord,
+): boolean {
+  return (
+    profileFingerprint(base) === record.base_fingerprint &&
+    narrowingRefusal(base, record) === null
+  );
+}
+
+/**
+ * The profile an id runs: the operator's entry, or a workspace version over
+ * its base. A version whose base changed since it was made runs nothing, as
+ * an operator profile edited in place does; a retired one still runs what
+ * already uses it.
+ */
+export function catalogProfile<P extends CatalogProfileView>(
+  catalog: ProfileLookup<P>,
+  profileId: string,
+): P | undefined {
+  if (Object.hasOwn(catalog.profiles, profileId)) {
+    return catalog.profiles[profileId];
+  }
+  const record = catalog.workspace_profiles?.records.get(profileId);
+  if (!record) return undefined;
+  const base = Object.hasOwn(catalog.profiles, record.base_profile_id)
+    ? catalog.profiles[record.base_profile_id]
+    : undefined;
+  return base && baseHolds(base, record)
+    ? narrowedProfile(base, record)
+    : undefined;
+}
+
+/** Every workspace version that runs now, with the operator profile it narrows. */
+export function workspaceCatalogProfiles<P extends CatalogProfileView>(
+  catalog: ProfileLookup<P>,
+): Array<{ id: string; baseId: string; profile: P }> {
+  return [...(catalog.workspace_profiles?.records.values() ?? [])].flatMap(
+    (record) => {
+      const profile = catalogProfile(catalog, record.id);
+      return profile
+        ? [{ id: record.id, baseId: record.base_profile_id, profile }]
+        : [];
+    },
+  );
+}
+
+/**
+ * Why `workspaceId` may not name `profileId` for a new release or session,
+ * or null when it may. Another workspace's version reads as unknown.
+ * `retiredAllowed`: a session of a release already made on a retired
+ * version still starts.
+ */
+export function workspaceProfileRefusal(
+  catalog: ProfileLookup<CatalogProfileView>,
+  workspaceId: string,
+  profileId: string,
+  options: { retiredAllowed?: boolean } = {},
+): { state: WorkspaceProfileState | "unknown"; message: string } | null {
+  if (!profileId.startsWith(WORKSPACE_PROFILE_PREFIX)) return null;
+  const record = catalog.workspace_profiles?.records.get(profileId);
+  if (!record || record.workspace_id !== workspaceId) {
+    return { state: "unknown", message: `Unknown profile ${profileId}` };
+  }
+  const state = workspaceProfileState(catalog, record);
+  if (state === "usable" || (state === "retired" && options.retiredAllowed)) {
+    return null;
+  }
+  return {
+    state,
+    message:
+      state === "retired"
+        ? `Profile ${profileId} is retired: pick a newer version`
+        : `The operator changed or removed the base of profile ${profileId}: make a new version`,
+  };
+}
+
+// The id a repository's `profiles` list names for this profile: a workspace
+// version runs where its base may.
+function trustedProfileId(
+  catalog: ProfileLookup<CatalogProfileView>,
+  profileId: string,
+): string {
+  return (
+    catalog.workspace_profiles?.records.get(profileId)?.base_profile_id ??
+    profileId
+  );
+}
+
 /** Whether every session of the profile names a repository; false for an unknown profile. */
 export function profileNeedsRepository(
-  catalog: { profiles: Readonly<Record<string, CatalogProfileView>> },
+  catalog: ProfileLookup<CatalogProfileView>,
   profileId: string,
 ): boolean {
-  const profile = Object.hasOwn(catalog.profiles, profileId)
-    ? catalog.profiles[profileId]
-    : undefined;
+  const profile = catalogProfile(catalog, profileId);
   return profile !== undefined && repositoryModeOf(profile) === "required";
 }
 
@@ -766,13 +983,11 @@ export function sessionProfile<P extends CatalogProfileView>(
  * leaves it to the row. Null when it does not say or the catalog moved.
  */
 export function fingerprintModel(
-  catalog: Pick<SessionCatalogView, "profiles">,
+  catalog: ProfileLookup<CatalogProfileView>,
   profileId: string,
   fingerprint: string,
 ): string | null {
-  const profile = Object.hasOwn(catalog.profiles, profileId)
-    ? catalog.profiles[profileId]
-    : undefined;
+  const profile = catalogProfile(catalog, profileId);
   if (!profile) return null;
   return sessionProfile(profile, { fingerprint, model: null })?.model ?? null;
 }
@@ -843,17 +1058,19 @@ export function allowedPair<
   P extends CatalogProfileView,
   R extends CatalogRepositoryView,
 >(
-  catalog: { profiles: Record<string, P>; repositories: Record<string, R> },
+  catalog: ProfileLookup<P> & { repositories: Record<string, R> },
   profileId: string,
   repositoryId: string,
 ): { profile: P; repository: R } | null {
-  const profile = Object.hasOwn(catalog.profiles, profileId)
-    ? catalog.profiles[profileId]
-    : undefined;
+  const profile = catalogProfile(catalog, profileId);
   const repository = Object.hasOwn(catalog.repositories, repositoryId)
     ? catalog.repositories[repositoryId]
     : undefined;
-  if (!profile || !repository || !repository.profiles.includes(profileId)) {
+  if (
+    !profile ||
+    !repository ||
+    !repository.profiles.includes(trustedProfileId(catalog, profileId))
+  ) {
     return null;
   }
   return { profile, repository };
@@ -869,15 +1086,13 @@ export function allowedRun<
   P extends CatalogProfileView,
   R extends CatalogRepositoryView,
 >(
-  catalog: { profiles: Record<string, P>; repositories: Record<string, R> },
+  catalog: ProfileLookup<P> & { repositories: Record<string, R> },
   profileId: string,
   repositoryId: string | null,
 ): { profile: P; repository: R | null } | null {
   if (repositoryId !== null)
     return allowedPair(catalog, profileId, repositoryId);
-  const profile = Object.hasOwn(catalog.profiles, profileId)
-    ? catalog.profiles[profileId]
-    : undefined;
+  const profile = catalogProfile(catalog, profileId);
   return profile && repositoryModeOf(profile) !== "required"
     ? { profile, repository: null }
     : null;
