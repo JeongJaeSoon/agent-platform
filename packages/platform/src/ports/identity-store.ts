@@ -228,6 +228,8 @@ export type MemberRecord = {
 export type MemberRowRecord = MemberRecord & {
   membershipDisabled: boolean;
   accountDisabled: boolean;
+  administeredAgents: { id: string; name: string; via: "user" | "team" }[];
+  lastActiveAt: Date | null;
 };
 
 /**
