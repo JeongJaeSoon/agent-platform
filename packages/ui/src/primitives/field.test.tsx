@@ -5,6 +5,7 @@ import { setupDom, setupUser } from "../test-support/dom.ts";
 import { buttonVariants } from "./button.tsx";
 import {
   Field,
+  FieldContent,
   FieldDescription,
   FieldError,
   FieldLabel,
@@ -270,6 +271,32 @@ describe("Field", () => {
     expect(remote.id).not.toBe(local.id);
     await user.click(getByText("원격"));
     expect(remote.getAttribute("aria-checked")).toBe("true");
+  });
+
+  test("선택 카드는 손가락 커서이고 고르지 않은 카드는 포인터를 올리면 테두리·바탕이 바뀐다", () => {
+    const { container } = render(
+      <RadioGroup defaultValue="light" aria-label="테마">
+        <FieldLabel>
+          <Field orientation="horizontal">
+            <RadioGroupItem value="light" />
+            <FieldContent>밝게</FieldContent>
+          </Field>
+        </FieldLabel>
+      </RadioGroup>,
+    );
+    const card = container.querySelector(
+      "[data-slot=field-label]",
+    ) as HTMLElement;
+    const classes = card.className.split(" ");
+    expect(classes).toContain("has-[>[data-slot=field]]:cursor-pointer");
+    expect(classes).toContain(
+      "has-[>[data-slot=field]]:has-[:disabled]:cursor-not-allowed",
+    );
+    for (const hover of ["border-border-strong", "bg-hover"]) {
+      expect(classes).toContain(
+        `has-[>[data-slot=field]]:not-has-[:disabled,[data-state=checked]]:hover:${hover}`,
+      );
+    }
   });
 });
 

@@ -651,6 +651,18 @@ describe("worker protocol", () => {
     }
   });
 
+  test("a heartbeat answer is taken with or without auth_revision", () => {
+    const fromOldServer = {
+      lease_expires_at: AT,
+      lease_remaining_ms: 120_000,
+      auth_revision: 1,
+      control_pending: false,
+    };
+    const { auth_revision: _a, ...fromNewServer } = fromOldServer;
+    expect(heartbeatResponseSchema.parse(fromOldServer)).toEqual(fromOldServer);
+    expect(heartbeatResponseSchema.parse(fromNewServer)).toEqual(fromNewServer);
+  });
+
   test("fences every post-claim request with the same identity", () => {
     expect(workerScopeSchema.parse(scope)).toEqual(scope);
     expect(nextInputRequestSchema.safeParse(scope).success).toBe(true);

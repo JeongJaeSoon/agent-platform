@@ -11,6 +11,8 @@ import type {
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   Avatar,
+  avatarInitials,
+  avatarTone,
   Badge,
   Card,
   CardAction,
@@ -407,26 +409,7 @@ export function AgentAvatar({ name }: { readonly name: string }) {
       size="lg"
       shape="square"
       tone={avatarTone(name)}
-      initials={initials(name)}
+      initials={avatarInitials(name)}
     />
   );
-}
-
-/** The same name gets the same colour on every screen and visit. */
-export function avatarTone(key: string): 1 | 2 | 3 | 4 {
-  let sum = 0;
-  for (const char of key) sum += char.codePointAt(0) ?? 0;
-  return ((sum % 4) + 1) as 1 | 2 | 3 | 4;
-}
-
-/** Up to two letters: the first of the first two words, or the first two. */
-export function initials(name: string) {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  const letters =
-    words.length > 1
-      ? [...(words[0] ?? "")]
-          .slice(0, 1)
-          .concat([...(words[1] ?? "")].slice(0, 1))
-      : [...(words[0] ?? "")].slice(0, 2);
-  return letters.join("").toUpperCase();
 }

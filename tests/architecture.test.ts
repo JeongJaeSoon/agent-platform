@@ -1034,6 +1034,43 @@ describe("architecture", () => {
     expect(imported.filter((name) => !allowed.has(name))).toEqual([]);
   });
 
+  test("the worker runs a session through the runtime contract, never the Claude driver's types", async () => {
+    const driverTypes = new Set([
+      "AgentFrame",
+      "DriverConfig",
+      "DriverMode",
+      "DriverRun",
+      "NativeEnvelope",
+      "PermissionDecision",
+      "PermissionRequest",
+      "RuntimeHooks",
+    ]);
+    const named = async (files: string[]) => {
+      const found: string[] = [];
+      for (const file of files) {
+        walk(await parse(file), (node) => {
+          if (ts.isIdentifier(node) && driverTypes.has(node.text)) {
+            found.push(`${relative(root, file)}: ${node.text}`);
+          }
+        });
+      }
+      return found.sort();
+    };
+    expect(await named(await sourceFiles(join(root, worker, "src")))).toEqual(
+      [],
+    );
+    expect(await named([join(root, claudeAdapter, "src", "index.ts")])).toEqual(
+      [],
+    );
+    expect(
+      new Set(
+        (await named([join(root, claudeAdapter, "src", "driver.ts")])).map(
+          (hit) => hit.split(": ")[1],
+        ),
+      ),
+    ).toEqual(driverTypes);
+  });
+
   test("only the worker's object-store module imports storage", async () => {
     const directory = join(root, worker);
     expect(

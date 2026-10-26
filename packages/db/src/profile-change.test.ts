@@ -12,7 +12,7 @@ import {
   type WorkerGateway,
 } from "@werft-ai/platform";
 import { testCaller } from "@werft-ai/testkit/callers";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
@@ -25,11 +25,12 @@ import {
   attempts,
   checkpoints,
   events,
-  executions,
   receipts,
   sessions,
   unassignedSessions,
+  workerLaunches,
 } from "./schema.ts";
+import { launchSession } from "./testing/launches.ts";
 import {
   advanceCheckpointPointer,
   createPostgresWorkerUnitOfWork,
@@ -154,32 +155,15 @@ function changeProfile(sessionId: string, profileId: string, revision: number) {
 }
 
 async function claim(g: WorkerGateway, sessionId: string) {
-  const executionId = `exec-${crypto.randomUUID()}`;
-  const registered = await g.registerLaunch({
-    executionId,
-    generation: 1,
-    backend: "local_docker",
+  const { executionId, generation, nonce } = await launchSession(db, {
     sessionId,
   });
-  if (registered.nonce === null) throw new Error("launch already registered");
-  await db.insert(executions).values({
-    backend: "local_docker",
-    desiredState: "running",
-    generation: 1,
-    id: executionId,
-    observedState: "running",
-    sessionId,
-  });
-  await db
-    .update(sessions)
-    .set({ executionId })
-    .where(eq(sessions.id, sessionId));
   return g.bootstrapClaim(
     { kind: "bootstrap" },
     {
       execution_id: executionId,
-      execution_generation: 1,
-      credential: { kind: "launch_nonce", nonce: registered.nonce },
+      execution_generation: generation,
+      credential: { kind: "launch_nonce", nonce },
     },
   );
 }
@@ -228,6 +212,15 @@ async function release(sessionId: string, claimed: BootstrapClaimResponse) {
     .where(eq(sessions.id, sessionId))
     .returning({ partition: sessions.partition });
   if (!released) throw new Error("no session");
+  await db
+    .update(workerLaunches)
+    .set({ slotReleasedAt: new Date() })
+    .where(
+      and(
+        eq(workerLaunches.sessionId, sessionId),
+        isNull(workerLaunches.slotReleasedAt),
+      ),
+    );
   await db
     .insert(unassignedSessions)
     .values({ sessionId, partition: released.partition });

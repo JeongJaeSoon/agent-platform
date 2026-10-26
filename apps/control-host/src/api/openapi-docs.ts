@@ -225,6 +225,10 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
     "The push request has not been pushed (`state` is not `pushed`); a pull request opens only from a pushed branch.",
   PULL_REQUEST_MISSING:
     "No pull request was opened from this push request yet; open it first.",
+  PENDING_REQUESTS_OPEN:
+    "A request the parked turn waits on is neither answered nor expired yet.",
+  PERMISSION_WAIT_ABOVE_PROFILE:
+    "A requested wait is longer than the profile allows.",
   CONFIG_TOKEN_INVALID:
     "The workspace's Slack App Configuration Token cannot be used. `error.details.reason_code` is `not_set` (none stored), `rejected` (Slack refused it; paste another) or `needs_reentry` (Slack no longer takes the stored token, or a rotation's answer was lost; an owner or admin pastes a new one).",
   SLACK_APP_CREATING:

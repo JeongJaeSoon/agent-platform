@@ -15,7 +15,7 @@ import type {
   TerminateSessionInput,
   TerminateSessionResult,
 } from "@werft-ai/platform";
-import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, eq, inArray, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { PoolClient } from "pg";
 import { closeAtomic } from "./close-control.ts";
@@ -40,7 +40,9 @@ import { pauseAtomic } from "./pause-control.ts";
 import {
   awaitingInputAt,
   cancelParkedRequests,
+  closeWorkerRequests,
   publicStatus,
+  recordLostInputWait,
 } from "./pending-requests.ts";
 import { changeProfileAtomic } from "./profile-control.ts";
 import type { Database } from "./queries.ts";
@@ -51,7 +53,6 @@ import * as schema from "./schema.ts";
 import {
   executions,
   idempotencyKeys,
-  pendingRequests,
   queueMessages,
   receipts,
   sessions,
@@ -240,18 +241,14 @@ export async function stopExecution(
   // fenced out, so an answer would land on nothing. A parked one waits for
   // no worker and outlives the fence; a person's terminate ends the turn it
   // would resume, as it does queued input.
-  await measure("resolve_pending_requests_ms", () =>
-    tx
-      .update(pendingRequests)
-      .set({ resolvedAt: now })
-      .where(
-        and(
-          eq(pendingRequests.sessionId, sessionId),
-          isNull(pendingRequests.resolvedAt),
-          isNull(pendingRequests.parkedAt),
-        ),
-      ),
+  const closed = await measure("resolve_pending_requests_ms", () =>
+    closeWorkerRequests(tx, sessionId, now),
   );
+  // A revoked execution loses its waits the way a dead worker does; a
+  // terminate is a person ending them.
+  if (by !== "terminate") {
+    await recordLostInputWait(tx, { sessionId, closed, measure, now });
+  }
   if (by === "terminate") {
     await measure("cancel_parked_requests_ms", () =>
       cancelParkedRequests(tx, { sessionId }, now),

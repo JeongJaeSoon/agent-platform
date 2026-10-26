@@ -35,6 +35,28 @@ export const STATUS_EVENT_PHASE_VALUES = [
 ] as const;
 export const statusEventPhaseSchema = z.enum(STATUS_EVENT_PHASE_VALUES);
 
+// The `system` subtypes the control plane writes, as opposed to the
+// engine's: a reader may act on these without reading any engine output.
+// They ride the v1 `system` event, whose payload is open, so a reader that
+// does not know one shows it as an ordinary system line.
+export const PLATFORM_SYSTEM_SUBTYPE_VALUES = [
+  "session_closed",
+  "input_wait",
+] as const;
+// `parked` when a park commits, `expired` when a parked group's last
+// requests expire, `lost` when the worker that held them went away first.
+// It reports a stage of the wait; each request's own outcome is still the
+// question and status events'.
+export const INPUT_WAIT_STAGE_VALUES = ["parked", "expired", "lost"] as const;
+export const inputWaitEventDataSchema = z
+  .object({
+    type: z.literal("system"),
+    subtype: z.literal("input_wait"),
+    stage: z.enum(INPUT_WAIT_STAGE_VALUES),
+    request_ids: z.array(requestIdSchema).min(1),
+  })
+  .strict();
+
 const assistantMessagePayloadSchema = z.object({
   type: z.literal("assistant"),
   message: requiredUnknownSchema,
@@ -186,6 +208,7 @@ export function readStoredEvent(
 
 export type SessionEventName = (typeof SESSION_EVENT_NAMES)[number];
 export type StatusEventPhase = z.infer<typeof statusEventPhaseSchema>;
+export type InputWaitEventData = z.infer<typeof inputWaitEventDataSchema>;
 export type SessionEventPayload = z.infer<typeof sessionEventPayloadSchema>;
 export type SessionEvent = z.infer<typeof sessionEventSchema>;
 export type SseEvent = z.infer<typeof sseEventSchema>;

@@ -1,12 +1,9 @@
 import { type SessionEvent, sessionEventSchema } from "@werft-ai/contracts";
 
-import type {
-  AgentFrame,
-  NativeEnvelope,
-  NativeSdkMessage,
-} from "@werft-ai/runtime-core";
+import type { NativeSdkMessage } from "@werft-ai/runtime-core";
 
 import { CLAUDE_AGENT_SDK_VERSION } from "./config.ts";
+import type { AgentFrame, NativeEnvelope } from "./driver.ts";
 
 const REDACTED = "[REDACTED]";
 // Paths are not secrets: an approval has to say which file it touches.

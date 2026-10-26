@@ -129,6 +129,7 @@ function memoryStore(
     async markCollected() {
       return 0;
     },
+    async markPurged() {},
     async listSessionIds({ after }) {
       return after === null ? [sessionId] : [];
     },

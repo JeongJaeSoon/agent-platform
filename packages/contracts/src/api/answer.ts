@@ -110,10 +110,22 @@ export const approvalRecordSchema = z
     decision_id: z.uuid(),
   })
   .strict();
-/** `approval` is absent only when replaying an answer stored before it existed. */
+/**
+ * `approval` is absent only when replaying an answer stored before it
+ * existed; `resumed` and `waiting_for` likewise, and from a server older than
+ * them.
+ */
 export const postSessionAnswerResponseSchema =
   receiptAcceptedResponseSchema.extend({
     approval: approvalRecordSchema.optional(),
+    resumed: z.boolean().optional().meta({
+      description:
+        "Whether this answer resumed a parked session: it closed the last open request of the parked turn's group, and the session went `resuming`. False for an answer to a turn still waiting, which the worker hands over as before.",
+    }),
+    waiting_for: z.number().int().nonnegative().optional().meta({
+      description:
+        "How many requests of the same group are still neither answered nor expired. A parked turn resumes when this reaches 0.",
+    }),
   });
 
 export type PermissionAnswer = z.infer<typeof permissionAnswerSchema>;

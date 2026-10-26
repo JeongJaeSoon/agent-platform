@@ -23,8 +23,10 @@ import type {
   ListProfilesResponse,
   ListSessionsResponse,
   ListTeamsResponse,
+  ListTurnsResponse,
   LoginMethodsResponse,
   SessionDetail,
+  SessionRelation,
   SessionUsageResponse,
   TeamDetail,
   UsageBreakdownBy,
@@ -104,6 +106,8 @@ export const queryKeys = {
   sessions: ["sessions"] as const,
   // An object segment, so it never reads as a session id.
   waitingSessions: ["sessions", { status: "needs_input" }] as const,
+  waitingSessionsBy: (relation: SessionRelation) =>
+    ["sessions", { status: "needs_input", relation }] as const,
   // Every agent's list matches agentSessionLists, so a session change
   // refreshes them all without knowing which agent it belongs to.
   agentSessionLists: ["sessions", { list: "agent" }] as const,
@@ -113,6 +117,7 @@ export const queryKeys = {
   sessionUsage: (id: string) => ["sessions", id, "usage"] as const,
   pendingRequests: (id: string) =>
     ["sessions", id, "pending-requests"] as const,
+  sessionTurns: (id: string) => ["sessions", id, "turns"] as const,
   usageSeries: (
     scope: UsageSummaryScope,
     since: string,
@@ -442,6 +447,23 @@ export function waitingSessionsQuery(client: ApiClient) {
   });
 }
 
+/** The first page of waiting sessions that came to the caller by `relation`. */
+export function waitingSessionsByQuery(
+  client: ApiClient,
+  relation: SessionRelation,
+) {
+  return queryOptions({
+    queryKey: queryKeys.waitingSessionsBy(relation),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/sessions", {
+          params: { query: { status: "needs_input", relation } },
+        }),
+      ) as Promise<ListSessionsResponse>,
+    retry: false,
+  });
+}
+
 /** Matches every agentSessionsQuery, whichever agent, to mark them stale. */
 export const agentSessionListsFilter = {
   queryKey: queryKeys.agentSessionLists,
@@ -470,6 +492,25 @@ export function sessionQuery(client: ApiClient, id: string) {
       ) as Promise<SessionDetail>,
     retry: false,
     refetchInterval: LIVE_REFETCH_MS,
+  });
+}
+
+/** Every turn of a session, oldest first: what each one was asked. */
+export function sessionTurnsQuery(client: ApiClient, id: string) {
+  return queryOptions({
+    queryKey: queryKeys.sessionTurns(id),
+    queryFn: async (): Promise<ListTurnsResponse> => {
+      const { items } = await readEveryPage(
+        (query) =>
+          unwrap(
+            client.GET("/v1/sessions/{id}/turns", {
+              params: { path: { id }, query },
+            }),
+          ) as Promise<ListTurnsResponse>,
+      );
+      return { items, next_cursor: null };
+    },
+    retry: false,
   });
 }
 

@@ -54,6 +54,19 @@ export const installationLimitsResponseSchema = z
             updated_at: timestampSchema.nullable(),
           })
           .strict(),
+        // Session outputs kept in the object store, apart from `storage`:
+        // shown, never enforced. An object a later checkpoint inherits is
+        // counted once; one too large to upload is not counted.
+        outputs: z
+          .object({
+            used_bytes: countSchema,
+            // When the figure last moved; null while nothing was recorded.
+            updated_at: timestampSchema.nullable(),
+            // false while a checkpoint from before outputs were recorded may
+            // still have objects stored: they are missing from `used_bytes`.
+            complete: z.boolean(),
+          })
+          .strict(),
       })
       .strict(),
   })
@@ -118,7 +131,7 @@ const usagePeriodQuerySchema = z.object({
 });
 
 function checkPeriod(
-  query: z.infer<typeof usagePeriodQuerySchema>,
+  query: { since: Date; until?: Date | undefined },
   ctx: z.RefinementCtx,
 ) {
   if (query.since < (query.until ?? new Date())) return;
@@ -139,13 +152,49 @@ function checkPeriod(
 
 export const USAGE_SUMMARY_GROUP_BY_VALUES = ["agent", "user"] as const;
 
+/** The summary's scopes: the period scopes and one agent's sessions. */
+export const USAGE_SUMMARY_TOTALS_SCOPE_VALUES = [
+  ...USAGE_SUMMARY_SCOPE_VALUES,
+  "agent",
+] as const;
+
 /**
  * GET /v1/usage/summary. `installation` sums every owner's sessions and is
- * the installation owner's alone; `me` sums the sessions the caller started.
+ * the installation owner's alone; `me` sums the sessions the caller started;
+ * `agent` sums the workspace's sessions started from any release of
+ * `agent_id`, for the workspace's owners and admins and that agent's admins.
  */
 export const usageSummaryQuerySchema = usagePeriodQuerySchema
-  .extend({ group_by: z.enum(USAGE_SUMMARY_GROUP_BY_VALUES).optional() })
-  .superRefine(checkPeriod);
+  .extend({
+    scope: z.enum(USAGE_SUMMARY_TOTALS_SCOPE_VALUES),
+    agent_id: agentIdSchema.optional(),
+    group_by: z.enum(USAGE_SUMMARY_GROUP_BY_VALUES).optional(),
+  })
+  .superRefine((query, ctx) => {
+    checkPeriod(query, ctx);
+    if (query.scope === "agent") {
+      if (query.agent_id === undefined) {
+        ctx.addIssue({
+          code: "custom",
+          message: "scope=agent needs agent_id",
+          path: ["agent_id"],
+        });
+      }
+      if (query.group_by !== undefined) {
+        ctx.addIssue({
+          code: "custom",
+          message: "scope=agent takes no group_by",
+          path: ["group_by"],
+        });
+      }
+    } else if (query.agent_id !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "agent_id goes only with scope=agent",
+        path: ["agent_id"],
+      });
+    }
+  });
 
 const DAY_MS = 86_400_000;
 /**
@@ -314,7 +363,7 @@ export const usageToolCallsResponseSchema = z
  */
 export const usageSummaryResponseSchema = z
   .object({
-    scope: z.enum(USAGE_SUMMARY_SCOPE_VALUES),
+    scope: z.enum(USAGE_SUMMARY_TOTALS_SCOPE_VALUES),
     // Half-open: since <= created_at < until.
     period: z
       .object({ since: timestampSchema, until: timestampSchema })

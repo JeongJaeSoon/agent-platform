@@ -31,6 +31,7 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
+import { launchSession, type TestLaunch } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 /**
@@ -143,40 +144,12 @@ async function createSession(): Promise<string> {
   return created.session_id;
 }
 
-/** A launch the scheduler reserved for the session, as its reservation pins it. */
-async function pinnedLaunch(gateway: WorkerGateway, sessionId: string) {
-  const executionId = `exec-${crypto.randomUUID()}`;
-  const registered = await gateway.registerLaunch({
-    executionId,
-    generation: 1,
-    backend: "local_docker",
-    sessionId,
-  });
-  if (registered.nonce === null) throw new Error("launch already registered");
-  await db.insert(executions).values({
-    backend: "local_docker",
-    desiredState: "running",
-    generation: 1,
-    id: executionId,
-    observedState: "running",
-    sessionId,
-  });
-  await db
-    .update(sessions)
-    .set({ executionId })
-    .where(eq(sessions.id, sessionId));
-  return { executionId, nonce: registered.nonce };
-}
-
-function claim(
-  gateway: WorkerGateway,
-  launch: { executionId: string; nonce: string },
-) {
+function claim(gateway: WorkerGateway, launch: TestLaunch) {
   return gateway.bootstrapClaim(
     { kind: "bootstrap" },
     {
       execution_id: launch.executionId,
-      execution_generation: 1,
+      execution_generation: launch.generation,
       credential: { kind: "launch_nonce", nonce: launch.nonce },
     },
   );
@@ -233,7 +206,7 @@ describe("catalog authority", () => {
     const sessionId = await createSession();
     const gateway = gatewayOf(A);
     expect(
-      await refusal(claim(gateway, await pinnedLaunch(gateway, sessionId))),
+      await refusal(claim(gateway, await launchSession(db, { sessionId }))),
     ).toEqual({ status: 409, code: "CATALOG_MISMATCH" });
     expect(await activeCatalogRevision(db)).toBeNull();
     expect(await db.select().from(catalogAuthority)).toEqual([]);
@@ -248,7 +221,7 @@ describe("catalog authority", () => {
     expect(activated.outcome).toBe("activated");
 
     const old = gatewayOf(A);
-    const launch = await pinnedLaunch(old, sessionId);
+    const launch = await launchSession(db, { sessionId });
     const before = await stateOf(sessionId, launch.executionId);
     expect(await refusal(claim(old, launch))).toEqual({
       status: 404,

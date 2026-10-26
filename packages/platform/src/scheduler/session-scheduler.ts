@@ -56,6 +56,14 @@ export const DEFAULT_STOPPED_WORKSPACE_TTL_MS = 24 * 60 * 60 * 1_000;
 export const DEFAULT_DRAIN_DEADLINE_MS = 30 * 60_000;
 
 /**
+ * How long a kill may stay `stopping` after its first stop went out: the
+ * backend's stop grace plus one request. A stop the daemon took has ended in
+ * a SIGKILL by then, so one still standing was never delivered. The control
+ * host derives it from the backend's own timeouts; this is their default.
+ */
+export const DEFAULT_STOP_DEADLINE_MS = 120_000 + 30_000;
+
+/**
  * Failed attempts before a launch is given up on. With the backoff
  * below, four retries wait 30s, 1m, 2m and 4m: a daemon restart or a slow
  * image pull gets through, while an image that does not exist hands its slot
@@ -107,6 +115,8 @@ export type SchedulerOptions = {
    * whatever was in flight.
    */
   stop?: AbortSignal;
+  /** See `DEFAULT_STOP_DEADLINE_MS`. */
+  stopDeadlineMs?: number;
   store: SchedulerStore;
 };
 
@@ -261,6 +271,7 @@ export async function runScheduler(
   for (const [name, value] of [
     ["launchRetryBaseMs", options.launchRetryBaseMs],
     ["launchRetryCapMs", options.launchRetryCapMs],
+    ["stopDeadlineMs", options.stopDeadlineMs],
   ] as const) {
     if (value !== undefined && (!Number.isFinite(value) || value < 0)) {
       throw new Error(`${name} must be a non-negative number`);
@@ -664,6 +675,7 @@ async function pass(
   const launchFailureLimit =
     options.launchFailureLimit ?? DEFAULT_LAUNCH_FAILURE_LIMIT;
   const drainDeadlineMs = options.drainDeadlineMs ?? DEFAULT_DRAIN_DEADLINE_MS;
+  const stopDeadlineMs = options.stopDeadlineMs ?? DEFAULT_STOP_DEADLINE_MS;
   const { backend, logger, store } = options;
   // `attempt` is the one `openAttempt` opened for this ensure: the credential
   // is issued only while no later attempt has been opened, so a pass that
@@ -1167,7 +1179,9 @@ async function pass(
    * tries again and the receipt's deadline keeps running.
    */
   async function kill(
-    execution: ExecutionRef & { sessionId: string },
+    execution: ExecutionRef & { sessionId: string } & Partial<
+        Pick<ActiveExecution, "observedAt" | "observedState" | "providerRef">
+      >,
   ): Promise<void> {
     const ref = refOf(execution);
     lock.throwIfAborted();
@@ -1193,6 +1207,33 @@ async function pass(
       return;
     }
     if (outcome.outcome === "stopping") {
+      // A client timeout reads as `stopping` whether or not the daemon took
+      // the stop, so the deadline runs from the first one that went out to
+      // this very resource.
+      const since =
+        execution.observedState === "terminating" &&
+        execution.providerRef === outcome.providerRef
+          ? (execution.observedAt ?? null)
+          : null;
+      if (since === null) {
+        lock.throwIfAborted();
+        await store.recordObservation(ref, {
+          found: true,
+          observedAt: now(),
+          providerRef: outcome.providerRef,
+          state: "terminating",
+        });
+      } else if (now().getTime() - since.getTime() > stopDeadlineMs) {
+        summary.killFailed.push(ref);
+        logger.error("Kill still stopping past the stop deadline", {
+          ...fieldsOf(ref),
+          deadline_ms: stopDeadlineMs,
+          first_stop_at: since.toISOString(),
+          provider_ref: outcome.providerRef,
+          session_id: execution.sessionId,
+        });
+        return;
+      }
       summary.killsStopping.push(ref);
       logger.info("Execution asked to stop; confirmed gone by a later pass", {
         ...fieldsOf(ref),
@@ -1259,7 +1300,16 @@ async function pass(
       backingOff(execution);
       return;
     }
-    if (execution.replacementCount >= replacementLimit) {
+    // An earlier pass recorded this replacement and its old resource is still
+    // there: counted already, and the record shut the door on the credential
+    // it holds, so no worker can bind to it and only the teardown and the
+    // create are left to finish. A resource holding the credential the launch
+    // accepts is the rebuild, and replacing that is a new replacement.
+    const resumed =
+      execution.pendingReplacement !== null &&
+      observed.credentialFingerprint != null &&
+      observed.credentialFingerprint !== execution.nonceFingerprint;
+    if (!resumed && execution.replacementCount >= replacementLimit) {
       // Whatever gets built keeps being rejected, so building it once more
       // is not the answer. Nothing is touched: the resource stays, the slot
       // stays, and every pass reports it until someone looks. Closing the
@@ -1316,12 +1366,14 @@ async function pass(
     // write shuts the bootstrap door, so a worker cannot bind to the
     // resource while it is on its way out.
     lock.throwIfAborted();
-    const attempts = await store.requestReplacement(
-      ref,
-      reason,
-      execution.replacementCount,
-      acceptedFingerprint,
-    );
+    const attempts = resumed
+      ? execution.replacementCount
+      : await store.requestReplacement(
+          ref,
+          reason,
+          execution.replacementCount,
+          acceptedFingerprint,
+        );
     if (attempts === null) {
       // A worker claimed, the launch gave its slot back, or another pass
       // got here first, since the rows were read. Either way the resource
@@ -1359,13 +1411,16 @@ async function pass(
       // could find a replacement another pass has since built and whose
       // worker has since bound; that one is refused, the row is left as is,
       // and the next pass judges the replacement on its own merits.
-      // A claimed worker may be draining a turn past its drain deadline and
-      // is not waited on. An unclaimed one has no turn and exits at once, and
-      // is waited on: every replace of it counts against the replacement
-      // limit, which asking again each pass would spend in seconds.
+      // Not waited on: a claimed worker may be draining a turn past its
+      // drain deadline, and two hung unclaimed ones would outlast the pass.
+      // One still stopping is asked again by the next pass, which finishes
+      // the recorded replacement without counting another — if it can tell
+      // the old resource by its revoked credential. One built before that
+      // label cannot be told apart, so it is waited on as before.
       outcome = await backend.terminate(ref, {
         ...pinnedTo(observed),
-        waitForExit: !execution.claimed,
+        waitForExit:
+          !execution.claimed && observed.credentialFingerprint == null,
       });
     } catch (error) {
       summary.reconcileFailed.push(ref);

@@ -9,6 +9,12 @@ export type InstallationUsage = {
   storageUsedBytes: number;
   /** null until the storage counter row exists. */
   storageUpdatedAt: Date | null;
+  /** Distinct output objects named by an uncollected checkpoint. */
+  outputsUsedBytes: number;
+  /** null while no checkpoint has recorded an output. */
+  outputsUpdatedAt: Date | null;
+  /** false while an uncollected checkpoint predates output recording. */
+  outputsComplete: boolean;
 };
 
 /**
@@ -38,6 +44,11 @@ export type UsageSummaryFilter =
   | { kind: "installation" }
   | { kind: "user"; ownerId: string; userId: string }
   | { kind: "api_key"; ownerId: string; apiKeyId: string };
+
+export type UsageTotalsFilter =
+  | UsageSummaryFilter
+  // Started from any release of the agent, whoever started them.
+  | { kind: "agent"; ownerId: string; agentId: string };
 
 /** Sessions created in [since, until), read in one statement. */
 export type UsageSummaryRecord = {
@@ -156,13 +167,15 @@ export type UsageToolCallsFilter = UsageToolsFilter & {
 
 export interface UsageReader {
   installationUsage(): Promise<InstallationUsage>;
+  /** Whether the workspace has this agent, archived or not. */
+  agentExists(ownerId: string, agentId: string): Promise<boolean>;
   /** null when the session is not visible to the owner. */
   sessionUsage(
     ownerId: string,
     sessionId: string,
   ): Promise<SessionUsageRecord | null>;
   usageSummary(
-    filter: UsageSummaryFilter,
+    filter: UsageTotalsFilter,
     period: { since: Date; until?: Date },
   ): Promise<UsageSummaryRecord>;
   /** Largest cost first. */

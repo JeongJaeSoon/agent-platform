@@ -244,7 +244,7 @@ const detailRoutes = {
 
 describe("approval inbox", () => {
   // A line names its session on its one button.
-  const DETAIL = `${SESSION_ID.slice(0, 8)} 상세 보기`;
+  const DETAIL = `${SESSION_ID.slice(0, 8)} 답하기`;
   // The line opens the session in the rail, where the request is answered.
   const allowInRail = async (user: Awaited<ReturnType<typeof setupUser>>) => {
     await user.click(await screen.findByRole("button", { name: DETAIL }));
@@ -1430,6 +1430,65 @@ describe("session detail", () => {
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     await (await setupUser()).click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  test("each turn opens with the message it was asked, read again as turns start", async () => {
+    const turn = (turn_id: string, message: string) => ({
+      turn_id,
+      session_id: SESSION_ID,
+      status: "completed",
+      message,
+      terminal_reason: null,
+      checkpoint_revision: null,
+      created_at: AT,
+      started_at: AT,
+      ended_at: AT,
+    });
+    let turns = [turn("1", "첫 지시"), turn("3", "아직 줄 선 지시")];
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+        json(200, { items: turns, next_cursor: null }),
+    });
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
+    act(() => {
+      stream.emit("ev_a1", "assistant", {
+        type: "assistant",
+        message: { content: [{ type: "text", text: "첫 답" }] },
+      });
+    });
+    const asked = async (turnId: string) => {
+      const head = await screen.findByText(`turn ${turnId}`);
+      const group = head.closest("[data-slot='timeline-turn']");
+      return group?.querySelector("[data-slot='message']") ?? null;
+    };
+    const first = await asked("1");
+    expect(first?.getAttribute("data-from")).toBe("user");
+    expect(first?.textContent).toContain("지시");
+    expect(first?.textContent).toContain("첫 지시");
+    // The message stands above the turn's lines, not as one of them.
+    const list = screen.getByRole("list", { name: "이벤트" });
+    expect(list.querySelectorAll("li")).toHaveLength(1);
+    // A queued turn has no events yet, so no group of its own.
+    expect(screen.queryByText("아직 줄 선 지시")).toBeNull();
+
+    turns = [turn("1", "첫 지시"), turn("2", "두 번째 지시")];
+    act(() => {
+      stream.emit("ev_s2", "status", { phase: "running" }, "2");
+      stream.emit(
+        "ev_a2",
+        "assistant",
+        {
+          type: "assistant",
+          message: { content: [{ type: "text", text: "두 번째 답" }] },
+        },
+        "2",
+      );
+    });
+    await waitFor(async () =>
+      expect((await asked("2"))?.textContent).toContain("두 번째 지시"),
+    );
   });
 
   test("thinking ticks fold into one line and an empty message draws no card", async () => {

@@ -69,6 +69,11 @@ exports[`query keys 1`] = `
     "sessions",
     "id-1",
   ],
+  "sessionTurns": [
+    "sessions",
+    "id-1",
+    "turns",
+  ],
   "sessionUsage": [
     "sessions",
     "id-1",
@@ -104,6 +109,13 @@ exports[`query keys 1`] = `
   "waitingSessions": [
     "sessions",
     {
+      "status": "needs_input",
+    },
+  ],
+  "waitingSessionsBy": [
+    "sessions",
+    {
+      "relation": "shared",
       "status": "needs_input",
     },
   ],
@@ -437,6 +449,31 @@ exports[`query options and the request each query makes 1`] = `
       "retry": false,
     },
   },
+  "sessionTurnsQuery": {
+    "calls": [
+      [
+        "/v1/sessions/{id}/turns",
+        {
+          "params": {
+            "path": {
+              "id": "id-1",
+            },
+            "query": {
+              "limit": 100,
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "sessions",
+        "id-1",
+        "turns",
+      ],
+      "retry": false,
+    },
+  },
   "sessionUsageQuery": {
     "calls": [
       [
@@ -581,6 +618,31 @@ exports[`query options and the request each query makes 1`] = `
       "queryKey": [
         "me",
         "optional",
+      ],
+      "retry": false,
+    },
+  },
+  "waitingSessionsByQuery": {
+    "calls": [
+      [
+        "/v1/sessions",
+        {
+          "params": {
+            "query": {
+              "relation": "id-1",
+              "status": "needs_input",
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "sessions",
+        {
+          "relation": "id-1",
+          "status": "needs_input",
+        },
       ],
       "retry": false,
     },

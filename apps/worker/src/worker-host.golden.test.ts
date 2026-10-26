@@ -1,19 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import type { CheckpointRef } from "@werft-ai/contracts";
-import { FakeAgentRuntime, type FakeStep } from "@werft-ai/runtime-claude";
 import type { NativeSdkMessage } from "@werft-ai/runtime-core";
 
 import type { WorkerCheckpointPort } from "./checkpoint.ts";
-import { engineProfile } from "./composition.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
 import {
-  inputUuid,
-  type RuntimeRegistry,
-  WorkerHost,
-  type WorkerLogger,
-} from "./worker-host.ts";
+  type ScriptedStep,
+  scriptedRuntimes,
+} from "./testing/golden-runtime.ts";
+import { inputUuid, WorkerHost, type WorkerLogger } from "./worker-host.ts";
 import { noWorkspace } from "./workspace.ts";
 
 // What the worker publishes and finalizes for a scripted engine, pinned to
@@ -38,7 +35,9 @@ const timeouts: WorkerTimeouts = {
   maxTurnMs: 60_000,
   nextInputRetryTimeoutMs: 60_000,
   nextInputWaitMs: 15,
-  questionTimeoutMs: 1_000,
+  // Long enough that a slow machine never expires a question the scenario
+  // is about to answer.
+  questionTimeoutMs: 30_000,
   requestTimeoutMs: 1_000,
   startupTimeoutMs: 60_000,
 };
@@ -88,29 +87,8 @@ function capturing(): WorkerCheckpointPort {
   };
 }
 
-function harness(steps: FakeStep[], gateway = new FakeWorkerGateway()) {
-  const runtime = new FakeAgentRuntime(steps);
-  const runtimes: RuntimeRegistry = {
-    launcherFor: () => ({
-      start: ({ runtimeConfig, principal, ...launch }, hooks) =>
-        runtime.start(
-          {
-            claudeConfigDir: "/tmp/fake/config",
-            cwd: "/tmp/fake/workspace",
-            home: "/tmp/fake/home",
-            model: runtimeConfig.model,
-            profile: engineProfile(
-              runtimeConfig.provider,
-              principal.owner_scope,
-              "http://egress-proxy.test:3129",
-            ),
-            tools: runtimeConfig.tools,
-            ...launch,
-          },
-          hooks,
-        ),
-    }),
-  };
+function harness(steps: ScriptedStep[], gateway = new FakeWorkerGateway()) {
+  const { engine: runtime, runtimes } = scriptedRuntimes(steps);
   const host = new WorkerHost({
     checkpoints: capturing(),
     execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
@@ -131,33 +109,40 @@ async function waitFor(condition: () => boolean, label: string): Promise<void> {
   throw new Error(`Timed out waiting for ${label}`);
 }
 
-const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
+const REQUEST_ID =
+  /^req_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 
 /**
- * Uuids become `<uuid:n>` in order of first appearance, so a value that
- * repeats still reads as the same one, and wall-clock timestamps become
- * `<timestamp>`. Everything else is kept byte for byte.
+ * Only the three fields that differ run to run: `occurred_at` becomes
+ * `<timestamp>`, a minted `request_id` becomes `req_<uuid:n>` in order of
+ * first appearance, and the session's own id in `session_id` becomes
+ * `<session>`. Every other value is kept byte for byte, so a uuid or a
+ * timestamp turning up anywhere else shows as a diff.
  */
 function normalize(value: unknown): unknown {
   const seen = new Map<string, string>();
-  const walk = (node: unknown): unknown => {
-    if (typeof node === "string") {
-      if (TIMESTAMP.test(node)) return "<timestamp>";
-      return node.replace(UUID, (uuid) => {
-        if (uuid === SESSION_ID) return "<session>";
-        let name = seen.get(uuid);
-        if (name === undefined) {
-          name = `<uuid:${seen.size}>`;
-          seen.set(uuid, name);
-        }
-        return name;
-      });
+  const field = (key: string, node: string): string => {
+    if (key === "occurred_at" && TIMESTAMP.test(node)) return "<timestamp>";
+    if (key === "session_id" && node === SESSION_ID) return "<session>";
+    if (key === "request_id" && REQUEST_ID.test(node)) {
+      let name = seen.get(node);
+      if (name === undefined) {
+        name = `req_<uuid:${seen.size}>`;
+        seen.set(node, name);
+      }
+      return name;
     }
-    if (Array.isArray(node)) return node.map(walk);
+    return node;
+  };
+  const walk = (node: unknown, key?: string): unknown => {
+    if (typeof node === "string") {
+      return key === undefined ? node : field(key, node);
+    }
+    if (Array.isArray(node)) return node.map((child) => walk(child));
     if (node !== null && typeof node === "object") {
       return Object.fromEntries(
-        Object.entries(node).map(([key, child]) => [key, walk(child)]),
+        Object.entries(node).map(([name, child]) => [name, walk(child, name)]),
       );
     }
     return node;
@@ -403,5 +388,155 @@ describe("worker public events (golden)", () => {
     gateway.interrupt("1");
 
     await expectGolden("interrupted", recorded(gateway, await loop));
+  });
+
+  test("tool results and a subagent's messages", async () => {
+    const { gateway, host } = harness([
+      { type: "await-input" },
+      {
+        type: "emit",
+        message: {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                id: "toolu_task",
+                name: "Task",
+                input: { prompt: "look around" },
+              },
+            ],
+          },
+          parent_tool_use_id: null,
+          session_id: "fake-session",
+        },
+      },
+      {
+        type: "emit",
+        message: {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [
+              { type: "text", text: "inside the subagent" },
+              {
+                type: "tool_use",
+                id: "toolu_sub",
+                name: "Read",
+                input: { file_path: "README.md" },
+              },
+            ],
+          },
+          parent_tool_use_id: "toolu_task",
+          session_id: "fake-session",
+        },
+      },
+      {
+        type: "emit",
+        message: {
+          type: "user",
+          message: {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "toolu_sub",
+                content: "# readme",
+              },
+              { type: "text", text: "not a tool result" },
+            ],
+          },
+          parent_tool_use_id: "toolu_task",
+          session_id: "fake-session",
+        },
+      },
+      {
+        type: "emit",
+        message: {
+          type: "user",
+          message: {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "toolu_task",
+                content: [{ type: "text", text: "found a readme" }],
+                is_error: false,
+              },
+            ],
+          },
+          parent_tool_use_id: null,
+          session_id: "fake-session",
+        },
+      },
+      {
+        type: "emit",
+        message: resultMessage(uuidForTurn(1), { total_cost_usd: 0.125 }),
+      },
+      { type: "await-input" },
+    ]);
+    gateway.enqueue("delegate");
+
+    await expectGolden("tool-results", recorded(gateway, await host.runLoop()));
+  });
+
+  test("messages that name no session", async () => {
+    const { session_id: _assistant, ...assistant } =
+      assistantMessage("no session here");
+    const { session_id: _result, ...result } = resultMessage(uuidForTurn(1), {
+      total_cost_usd: 0.25,
+    });
+    const { gateway, host } = harness([
+      { type: "await-input" },
+      { type: "emit", message: assistant as NativeSdkMessage },
+      { type: "emit", message: result as NativeSdkMessage },
+      { type: "await-input" },
+    ]);
+    gateway.enqueue("one message");
+
+    await expectGolden(
+      "no-session-id",
+      recorded(gateway, await host.runLoop()),
+    );
+  });
+
+  test("costs that are not finite numbers", async () => {
+    const { gateway, host } = harness([
+      { type: "await-input" },
+      {
+        type: "emit",
+        message: resultMessage(uuidForTurn(1), { total_cost_usd: 0.5 }),
+      },
+      { type: "await-input" },
+      {
+        type: "emit",
+        message: resultMessage(uuidForTurn(2), {
+          total_cost_usd: Number.NaN,
+        }),
+      },
+      { type: "await-input" },
+      {
+        type: "emit",
+        message: resultMessage(uuidForTurn(3), {
+          total_cost_usd: Number.POSITIVE_INFINITY,
+        }),
+      },
+      { type: "await-input" },
+      {
+        type: "emit",
+        message: resultMessage(uuidForTurn(4), { total_cost_usd: 0.75 }),
+      },
+      { type: "await-input" },
+    ]);
+    gateway.enqueue("first");
+    gateway.enqueue("second");
+    gateway.enqueue("third");
+    gateway.enqueue("fourth");
+
+    await expectGolden(
+      "non-finite-cost",
+      recorded(gateway, await host.runLoop()),
+    );
   });
 });
