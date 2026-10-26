@@ -1373,22 +1373,48 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       createdBy: owner.actor?.userId ?? null,
     });
 
+    // And the release made from it then, stored as a row.
+    const resolved = resolveReleaseContent(
+      storedCard as AgentCard,
+      "coding",
+      PROFILE,
+    );
+    if (!resolved.ok) throw new Error(resolved.error.message);
+    const identity = {
+      ...resolved.content,
+      agent_id: created.agent.id,
+      card_sha256: storedSha,
+    };
+    const legacyId = deriveReleaseId(identity);
+    await db.insert(agentReleases).values({
+      id: legacyId,
+      agentId: identity.agent_id,
+      versionId,
+      cardSha256: identity.card_sha256,
+      runtimeProfileId: identity.runtime_profile_id,
+      profileDigest: identity.profile_digest,
+      runtimeConfigSnapshot: identity.runtime_config_snapshot,
+      effectiveTools: identity.effective_tools,
+      policyPins: identity.policy_pins,
+      createdBy: owner.actor?.userId ?? null,
+    });
+
     const detail = await agentsService.getAgent(owner, created.agent.id);
     const v2 = detail.versions.find((version) => version.id === versionId);
     expect(v2?.card).toEqual(cardWith("with tone"));
     expect(v2?.content_sha256).toBe(storedSha);
-
-    const { release } = await agentsService.createRelease(
-      owner,
-      created.agent.id,
-      { version_id: versionId, runtime_profile_id: "coding" },
+    expect(detail.releases.map((release) => release.id)).toEqual([legacyId]);
+    expect((await agentsService.resolveRelease(workspaceId, legacyId)).id).toBe(
+      legacyId,
     );
-    expect(release.card_sha256).toBe(storedSha);
-    expect(
-      (await agentsService.resolveRelease(workspaceId, release.id)).id,
-    ).toBe(release.id);
+    // Releasing the version again derives the stored id from the stored hash.
+    const again = await agentsService.createRelease(owner, created.agent.id, {
+      version_id: versionId,
+      runtime_profile_id: "coding",
+    });
+    expect(again).toMatchObject({ created: false, release: { id: legacyId } });
     await agentsService.activateAgent(owner, created.agent.id, {
-      release_id: release.id,
+      release_id: legacyId,
       expected_revision: -1,
     });
   });
