@@ -1412,7 +1412,7 @@ export interface paths {
         };
         /**
          * The caller's linked accounts that are active or stale
-         * @description API keys are refused.
+         * @description Each item's `expires_at` is its provider token's expiry, null when no token is kept (every Slack link). API keys are refused.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -3541,7 +3541,10 @@ export interface components {
         StartSlackLinkResponse: {
             /** Format: uri */
             authorize_url: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When this link request lapses: the callback must come before it. Not a linked account's `expires_at`, which is its provider token's expiry.
+             */
             expires_at: string;
         };
         SlackLinkCallbackResponse: {
@@ -3561,6 +3564,8 @@ export interface components {
                 /** Format: date-time */
                 verified_at: string;
                 revision: number;
+                /** @description When the provider token kept for this account expires. Null when no token is kept or it does not expire; Slack links keep no token, so a Slack account is always null. Not the `expires_at` of the link start response, which is when that link request lapses. */
+                expires_at: string | null;
             };
             /** Format: uuid */
             receipt_id: string;
@@ -3582,6 +3587,8 @@ export interface components {
                 /** Format: date-time */
                 verified_at: string;
                 revision: number;
+                /** @description When the provider token kept for this account expires. Null when no token is kept or it does not expire; Slack links keep no token, so a Slack account is always null. Not the `expires_at` of the link start response, which is when that link request lapses. */
+                expires_at: string | null;
             }[];
         };
         CreateInviteResponse: {

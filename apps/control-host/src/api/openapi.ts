@@ -2520,7 +2520,8 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "listLinkedAccounts",
     tag: "Linked accounts",
     summary: "The caller's linked accounts that are active or stale",
-    description: "API keys are refused.",
+    description:
+      "Each item's `expires_at` is its provider token's expiry, null when no token is kept (every Slack link). API keys are refused.",
     auth: "session",
     success: { status: 200, schema: "ListLinkedAccountsResponse" },
     errors: [401, 403, 503],

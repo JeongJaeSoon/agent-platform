@@ -28,6 +28,8 @@ function linkedAccountView(record: LinkedAccountRecord): LinkedAccount {
     status: record.status,
     verified_at: record.verifiedAt.toISOString(),
     revision: record.revision,
+    // Slack, the only provider, keeps no token.
+    expires_at: null,
   };
 }
 
