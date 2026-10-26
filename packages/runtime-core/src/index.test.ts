@@ -39,7 +39,6 @@ describe("runtime-core contracts", () => {
       close: true,
       events: true,
       finishInput: true,
-      holdAdmission: true,
       holdsInput: true,
       interrupt: true,
       leaseCheckpoint: true,
@@ -49,6 +48,6 @@ describe("runtime-core contracts", () => {
       send: true,
     } satisfies Record<keyof AgentRun, true>;
     expect(Object.keys(runtimeMembers)).toHaveLength(2);
-    expect(Object.keys(runMethods)).toHaveLength(13);
+    expect(Object.keys(runMethods)).toHaveLength(12);
   });
 });

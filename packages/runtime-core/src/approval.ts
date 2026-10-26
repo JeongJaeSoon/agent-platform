@@ -8,6 +8,12 @@ export type ApprovalRequested = {
   tool: { name: string; input: unknown };
   inputHash: string;
   kind: "permission" | "question";
+  /**
+   * `performance.now()` when the engine asked. A host waiting for the tool
+   * call to be stored counts from here, so the run's own wait for that call
+   * is not counted twice.
+   */
+  askedAt: number;
 };
 
 /**

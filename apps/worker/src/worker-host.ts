@@ -377,10 +377,11 @@ export class WorkerHost {
     this.publisher = publisher;
     this.pending = new PendingRequestRegistry({
       gateway: scrubbed,
-      eventsStored: (toolUseId) =>
+      eventsStored: (toolUseId, askedAt) =>
         publisher.toolUseStored(
           toolUseId,
           this.options.timeouts.toolUseFrameWaitMs ?? TOOL_USE_FRAME_WAIT_MS,
+          askedAt,
         ),
       scope: () => this.scope,
       timeoutMs: this.options.timeouts.questionTimeoutMs,
@@ -1993,12 +1994,17 @@ export class WorkerHost {
     // finalize, and a turn given up on the way out is not finalized; an idle
     // worker leaves the last committed checkpoint as the one to resume from.
     // A session-level checkpoint commit would change that, and alpha has none.
-    void run?.close();
-    // Bounded for the same reason: a wedged engine may never end its stream,
-    // and the exit check below is what deals with that.
-    if (this.pumping !== undefined) {
+    const closing = run?.close().catch((error) => {
+      this.logger.warn("worker.close.failed", { reason: describe(error) });
+    });
+    // Bounded for the same reason: a wedged engine may never end its stream
+    // or finish closing, and the exit check below is what deals with that.
+    const ending = [this.pumping, closing].filter(
+      (step): step is Promise<void> => step !== undefined,
+    );
+    if (ending.length > 0) {
       await settledWithin(
-        this.pumping,
+        Promise.all(ending),
         this.shutdownWait(ENGINE_EXIT_GRACE_MS),
       );
     }

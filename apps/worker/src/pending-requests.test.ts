@@ -22,7 +22,6 @@ import {
 import {
   PendingRequestRegistry,
   type PendingRequestsOptions,
-  QUESTION_TOOL,
 } from "./pending-requests.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
 
@@ -129,7 +128,8 @@ function approval(
     toolCallId: `toolu_${requestId}`,
     tool: { name, input },
     inputHash: approvalInputHash(name, input),
-    kind: name === QUESTION_TOOL ? "question" : "permission",
+    kind: name === "AskUserQuestion" ? "question" : "permission",
+    askedAt: performance.now(),
   };
 }
 
@@ -138,7 +138,7 @@ function permission(requestId: string, command = "ls"): ApprovalRequested {
 }
 
 function question(requestId: string): ApprovalRequested {
-  return approval(requestId, QUESTION_TOOL, {
+  return approval(requestId, "AskUserQuestion", {
     questions: [
       {
         header: "deploy",

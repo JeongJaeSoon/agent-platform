@@ -19,9 +19,6 @@ export type ParkReadiness =
   | { ok: true }
   | { ok: false; reason: "tool_executing" | "not_supported" };
 
-/** While held, the run admits no new tool execution. Idempotent release. */
-export type AdmissionHold = { release(): void };
-
 /**
  * Handle for one engine execution. It may serve several turns; it is not the
  * durable Turn row the platform stores. `events()` is a single-consumer
@@ -54,7 +51,6 @@ export interface AgentRun {
   answer(answer: ApprovalAnswer): Promise<AnswerResult>;
   interrupt(): Promise<{ stillQueued: string[] }>;
   parkable(): ParkReadiness;
-  holdAdmission(): AdmissionHold;
   /** Read-only: the verdict leaseCheckpoint would reach now. */
   prepareCheckpoint(point: CheckpointPoint): Promise<CheckpointPreparation>;
   /**

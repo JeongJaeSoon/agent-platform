@@ -20,9 +20,6 @@ import {
   type WorkerGatewayClient,
 } from "@werft-ai/runtime-core";
 
-/** The tool the engine uses to put a question to the person, not to use a capability. */
-export const QUESTION_TOOL = "AskUserQuestion";
-
 export type PendingRequestsOptions = {
   gateway: Pick<WorkerGatewayClient, "registerPending" | "pendingControl">;
   /**
@@ -31,7 +28,7 @@ export type PendingRequestsOptions = {
    * itself when it registers the request, so without this it could land
    * ahead of the call that raised it.
    */
-  eventsStored: (toolUseId: string) => Promise<void>;
+  eventsStored: (toolUseId: string, askedAt: number) => Promise<void>;
   scope: () => WorkerScope;
   /**
    * How long this worker holds a callback the gateway has not registered.
@@ -113,7 +110,7 @@ export class PendingRequestRegistry {
       });
       return;
     }
-    const questions = questionsOf(request);
+    const questions = request.kind === "question" ? questionsOf(request) : null;
     const kind = questions === null ? "permission" : "question";
     const requestId = `req_${randomUUID()}`;
     this.pending.set(requestId, {
@@ -308,7 +305,7 @@ export class PendingRequestRegistry {
       return;
     }
     try {
-      await this.options.eventsStored(toolUseId);
+      await this.options.eventsStored(toolUseId, request.askedAt);
     } catch (error) {
       this.close(
         requestId,
@@ -567,12 +564,11 @@ function answerText(question: PendingQuestion, answer: QuestionAnswer): string {
 }
 
 /**
- * The questions an `AskUserQuestion` call is asking, or null when the callback
- * is an ordinary permission request. Ids are positional so an answer can only
- * name a question and an option this worker actually offered.
+ * The questions a question request is asking, or null when its input carries
+ * none this worker can show. Ids are positional so an answer can only name a
+ * question and an option this worker actually offered.
  */
 function questionsOf(request: ApprovalRequested): PendingQuestion[] | null {
-  if (request.tool.name !== QUESTION_TOOL) return null;
   const raw = inputOf(request).questions;
   if (!Array.isArray(raw)) return null;
   const questions = raw.flatMap((value, index) => {

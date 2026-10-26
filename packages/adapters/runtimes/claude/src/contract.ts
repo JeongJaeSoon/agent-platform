@@ -5,7 +5,6 @@ import {
   claudeCheckpointCodec,
 } from "@werft-ai/runtime-claude-codec";
 import {
-  type AdmissionHold,
   type AgentInput,
   type AgentRun,
   type AgentRuntime,
@@ -322,10 +321,6 @@ class ClaudeContractRun implements AgentRun {
     return { ok: false, reason: "not_supported" };
   }
 
-  holdAdmission(): AdmissionHold {
-    return { release: () => {} };
-  }
-
   prepareCheckpoint(point: CheckpointPoint): Promise<CheckpointPreparation> {
     if (point !== "turn_end") return Promise.resolve(unsupported(point));
     return this.driver.prepareCheckpoint();
@@ -349,6 +344,7 @@ class ClaudeContractRun implements AgentRun {
   }
 
   private async ask(request: PermissionRequest): Promise<PermissionDecision> {
+    const askedAt = performance.now();
     let inputHash: string;
     try {
       inputHash = approvalInputHash(request.tool, request.input);
@@ -364,6 +360,7 @@ class ClaudeContractRun implements AgentRun {
       tool: { name: request.tool, input: request.input },
       inputHash,
       kind: request.tool === QUESTION_TOOL ? "question" : "permission",
+      askedAt,
     };
     const answered = this.channel.request(approval, request.signal);
     this.offer(approval);

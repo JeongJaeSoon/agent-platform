@@ -15,6 +15,7 @@ function requested(localId: string, command = "ls"): ApprovalRequested {
     tool: { name: "Bash", input },
     inputHash: approvalInputHash("Bash", input),
     kind: "permission",
+    askedAt: performance.now(),
   };
 }
 
