@@ -2,6 +2,7 @@ import { describe, expect, setSystemTime, spyOn, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type ApiClientOptions, createApiClient } from "@werft-ai/client";
 import type { PendingRequest } from "@werft-ai/contracts";
+import { queryKeys } from "@werft-ai/core";
 import { setupDom, setupUser } from "@werft-ai/ui/test-support/dom";
 import type { ReactNode } from "react";
 import type { ApprovalLayout } from "./session-actions.tsx";
@@ -79,7 +80,7 @@ function renderInbox({
   rail = false,
   agent,
   startedBy,
-  relations = [],
+  relations: related = [],
 }: {
   open: PendingRequest[];
   layout?: ApprovalLayout;
@@ -123,6 +124,7 @@ function renderInbox({
     })}\n\n`;
   };
   let items = open;
+  let relations = related;
   // Set by `addNewer`: a session that starts waiting ahead of SESSION_ID.
   let newer = false;
   const waitingSession = {
@@ -248,6 +250,19 @@ function renderInbox({
     },
     posted,
     waitingReads: () => waitingReads,
+    /**
+     * Names SESSION_ID in `next` relation lists and reads the waiting list
+     * again, as an answer elsewhere does, leaving the rest of the cache.
+     */
+    relate: async (next: string[]) => {
+      relations = next;
+      await act(() =>
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.waitingSessions,
+          exact: true,
+        }),
+      );
+    },
     addNewer: async () => {
       newer = true;
       await act(() => queryClient.invalidateQueries());
@@ -679,6 +694,7 @@ describe("ApprovalInbox", () => {
     const line = answer.parentElement as HTMLElement;
     const avatar = line.querySelector("[data-slot='avatar']");
     expect(avatar?.textContent).toBe("RH");
+    expect(avatar?.getAttribute("aria-hidden")).toBe("true");
     expect(avatar?.className).toContain("rounded-control");
     expect(line.textContent).toContain("Permission · Write");
     // The first of the reasons, in the design's order.
@@ -687,6 +703,13 @@ describe("ApprovalInbox", () => {
         "Repo Helper · Why you: Session you started · Waiting 12 min",
       ),
     );
+    // A long reason wraps; only the wait stays whole.
+    const parts = [...line.querySelectorAll("p > span")].map((part) => [
+      part.textContent,
+      part.className,
+    ]);
+    expect(parts).toContainEqual([" · Why you: Session you started", ""]);
+    expect(parts).toContainEqual([" · Waiting 12 min", "whitespace-nowrap"]);
     expect(line.textContent).not.toContain("Bash: ls");
     expect(line.textContent).not.toContain("Expires");
     expect(line.textContent).not.toContain(SHORT);
@@ -716,6 +739,23 @@ describe("ApprovalInbox", () => {
     });
   }
 
+  test("대기 목록을 다시 읽으면 내게 온 이유도 다시 읽는다", async () => {
+    const view = renderInbox({
+      open: [QUESTION],
+      layout: "summary",
+      title: "README",
+      rail: true,
+    });
+    const answer = await view.findByRole("button", { name: "Answer README" });
+    const line = answer.parentElement as HTMLElement;
+    await waitFor(() => expect(line.textContent).toContain("Waiting"));
+    expect(line.textContent).not.toContain("Why you");
+    await view.relate(["shared"]);
+    await waitFor(() =>
+      expect(line.textContent).toContain("Why you: Shared with you"),
+    );
+  });
+
   test("레일 줄은 관계를 모르면 이유를 빼고, 에이전트 없는 세션은 시작한 사람의 기본 아바타를 쓴다", async () => {
     const view = renderInbox({
       open: [QUESTION],
@@ -729,6 +769,8 @@ describe("ApprovalInbox", () => {
     const avatar = line.querySelector("[data-slot='avatar']");
     expect(avatar?.textContent).toBe("JJ");
     expect(avatar?.className).toContain("bg-active");
+    // The starter's name is not in the meta, so the avatar says it.
+    expect(avatar?.getAttribute("aria-label")).toBe("Jaesoon Jeong");
     await waitFor(() => expect(line.textContent).toContain("Waiting"));
     expect(line.textContent).not.toContain("Why you");
   });

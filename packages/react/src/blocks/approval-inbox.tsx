@@ -173,6 +173,18 @@ export function ApprovalInbox({
       enabled: railLines && lineDrawn,
     })),
   });
+  // The waiting list is read again after an answer or a status change; the
+  // relation lists follow it, so a session that just arrived has its reason.
+  const waitedAt = waiting.dataUpdatedAt;
+  useEffect(() => {
+    if (waitedAt === 0) return;
+    for (const relation of REASONS) {
+      void queryClient.invalidateQueries({
+        ...waitingSessionsByQuery(client, relation),
+        exact: true,
+      });
+    }
+  }, [waitedAt, queryClient, client]);
   const reasonOf = (id: string) =>
     REASONS.find((_, index) =>
       related[index]?.data?.items.some((session) => session.id === id),
@@ -403,11 +415,13 @@ function WaitingSession({
     return (
       <>
         {parts.map((part, index) => (
-          // A long agent name wraps; the id and the wait stay whole.
+          // A long agent name or reason wraps; the id and the wait stay whole.
           <span
             key={part}
             className={
-              part === session.agent?.name ? undefined : "whitespace-nowrap"
+              part === short || part === waited
+                ? "whitespace-nowrap"
+                : undefined
             }
           >
             {index === 0 ? null : <span aria-hidden="true"> · </span>}
@@ -519,6 +533,10 @@ function PanelLine({
         initials={avatarInitials(
           agent ?? session.created_by?.display_name ?? "",
         )}
+        // The meta names the agent, never the starter.
+        label={
+          agent === undefined ? session.created_by?.display_name : undefined
+        }
       />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <p className="m-0 flex min-w-0 items-center gap-2 font-medium text-control leading-5">

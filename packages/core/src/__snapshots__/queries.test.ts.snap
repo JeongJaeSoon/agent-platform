@@ -644,7 +644,6 @@ exports[`query options and the request each query makes 1`] = `
           "status": "needs_input",
         },
       ],
-      "refetchInterval": 30000,
       "retry": false,
     },
   },

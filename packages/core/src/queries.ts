@@ -461,7 +461,6 @@ export function waitingSessionsByQuery(
         }),
       ) as Promise<ListSessionsResponse>,
     retry: false,
-    refetchInterval: 30_000,
   });
 }
 
