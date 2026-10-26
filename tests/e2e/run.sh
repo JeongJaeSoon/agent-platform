@@ -246,7 +246,7 @@ fi
 if [ "${E2E_UP_ONLY:-0}" = 1 ]; then
   export E2E_KEEP=1
   # Holds the API key, so only here and never in a CI artifact.
-  export -p | grep -E ' (E2E_[A-Z_]*|DOCKER_HOST|EXECUTION_INSTALLATION_ID|[A-Z_]+_IMAGE)=' >"$out/vars.sh"
+  export -p | grep -E ' (E2E_[A-Z_]*|DOCKER_HOST|EXECUTION_INSTALLATION_ID|SESSION_COST_LIMIT_USD|[A-Z_]+_IMAGE)=' >"$out/vars.sh"
   echo "stack up: source $out/vars.sh" >&2
   exit 0
 fi

@@ -267,6 +267,15 @@ echo " 0 fail"
     expect(record).toContain("session_cost_limit_usd: 3");
   });
 
+  test("an up-only stack hands the suite its limit through vars.sh", async () => {
+    const result = run("up-only", { [KEY_VARIABLE]: PROBE, E2E_UP_ONLY: "1" });
+    expect(result.status).toBe(0);
+    expect(await result.argv).not.toContain("bun test");
+    const vars = await Bun.file(join(result.out, "vars.sh")).text();
+    expect(vars).toMatch(/ SESSION_COST_LIMIT_USD="1"$/m);
+    expect(vars).toMatch(/ E2E_MODEL_MODE="real"$/m);
+  });
+
   test("takes the key from .env when the shell has none, and the shell's over it", async () => {
     const dotenv = join(dir, "dotenv-run");
     await Bun.write(dotenv, `POSTGRES_DB=other\n${KEY_VARIABLE}="${PROBE}"\n`);
