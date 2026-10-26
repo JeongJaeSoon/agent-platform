@@ -2202,6 +2202,107 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/usage/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The usage summary of a period, one bucket per UTC day
+         * @description Splits `GET /v1/usage/summary` by the UTC day each session was created on: one bucket per day the period `[since, until)` touches, oldest first, days without sessions included. `scope`, `since`, `until` and who may read which scope are exactly the summary's; the period spans at most 366 days. `bucket` is `day`, the only size.
+         *
+         *     The buckets of one response add up to the summary of the same period: `session_count`, `cost_usd` and `token_count` sum, and `cost_complete` is false on a day whose sessions include one the summary would mark incomplete. `run_seconds` is the floor of the running total of turn time minus the floor of the one before it, so two days of 0.6 seconds read 0 and 1, as the summary reads 1. A long session's cost and time count on the day it started. It changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
+         */
+        get: operations["getUsageSeries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/usage/breakdown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The usage summary of a period by model or by agent
+         * @description Groups the sessions `GET /v1/usage/summary` adds up by the model their metered calls named (`by=model`) or by their agent (`by=agent`), largest cost first, with the input, output, cache read and cache write tokens of those calls. `scope`, `since`, `until` and who may read which scope are exactly the summary's; the period spans at most 366 days.
+         *
+         *     `token_count` is the four token columns' sum; the 1-hour cache writes are inside `cache_creation_input_tokens`. `totals` is the summary of the same period: its `session_count`, `token_count` and `cost_usd` equal it.
+         *
+         *     - `by=agent`: each session counts once under its agent (`key` is the agent id, `label` its name), so the rows add up to `totals` in every column. Sessions without an agent are the row whose `key` and `label` are null.
+         *     - `by=model`: a session counts under every model it called, so the rows' `session_count` may add up to more than the totals'. A session's cost its metered calls do not explain, such as an engine's turn totals from before proxy metering, is the row whose `key` and `label` are null, with no tokens.
+         *
+         *     It changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
+         */
+        get: operations["getUsageBreakdown"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/usage/tools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Calls, failures and time per tool in a period
+         * @description Counts the tool calls whose `tool_use` event was stored in `[since, until)`, per tool name, the most-called first and at most 200 names. `scope`, `since` and `until` work as in `GET /v1/usage/summary`; `agent_id` narrows to the sessions pinned to a release of that agent. Subagent calls count too.
+         *
+         *     A call is timed from its `tool_use` to the `tool_result` paired with it in the same session and attempt by `tool_use_id`. A call with no result yet, or with either event's time missing, counts in `calls` but in no `_ms` figure. `failed` counts results with `is_error: true`; a result without `is_error` is a success, and one whose `is_error` is not a boolean is neither. `median_ms` is read from a histogram: the middle call's time, or the mean of the two middle calls' for an even count, each read within 5% or 1 ms, except that a call of about 65 minutes or more reads as about 65 minutes, so a median that takes in such a call reads low. It is never above `max_ms`. Over whole UTC days `max_ms` is the largest time a call has had: if an earlier result later replaces a call's time, it does not come down there. Figures come from a table the reconciler fills on each pass, so a call shows up within one pass of being stored, usually seconds. Each finding names a row of `tools`: `most_time` the largest `total_ms`, `fails_often` the highest `failed / calls`, `slowest` the largest `median_ms`; a kind no tool qualifies for is left out. The response names tools and figures only, never a session. It changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
+         */
+        get: operations["getUsageTools"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/usage/tools/{name}/calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Recent or slowest calls of one tool, and its calls per day
+         * @description Lists the calls of the tool `name` whose `tool_use` event was stored in `[since, until)`, with the scopes, period and `agent_id` of `GET /v1/usage/tools`; the period spans at most 366 days. `sort=recent` (the default) lists the latest `occurred_at` first, `sort=slowest` the longest `duration_ms` first with untimed calls last; ties go to the later event. Read the next page with `next_cursor`, which is null on the last page; a cursor from the other sort is 400.
+         *
+         *     `session_id` and `title` are null for a session the caller may not read (one in another owner, or private and not shared with the caller); the call's time, duration, outcome and agent still show. `agent` is null for a session made without an agent. `outcome` is `unknown` while no result is paired or when the result's `is_error` is not a boolean; `duration_ms` is null without a paired result or with either time missing, and set even when `outcome` is `unknown`. `per_day` counts the tool's calls on every UTC date the period touches, zeros included. Calls show up within one reconciler pass of being stored. It changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
+         */
+        get: operations["getUsageToolCalls"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/receipts/{id}": {
         parameters: {
             query?: never;
@@ -2298,6 +2399,49 @@ export interface components {
             scope: "installation" | "me";
             since: string;
             until?: string;
+        };
+        UsageSeriesQuery: {
+            /** @enum {string} */
+            scope: "installation" | "me";
+            since: string;
+            until?: string;
+            /**
+             * @default day
+             * @enum {string}
+             */
+            bucket: "day";
+        };
+        UsageBreakdownQuery: {
+            /** @enum {string} */
+            scope: "installation" | "me";
+            since: string;
+            until?: string;
+            /** @enum {string} */
+            by: "model" | "agent";
+        };
+        UsageToolsQuery: {
+            /** @enum {string} */
+            scope: "installation" | "me";
+            since: string;
+            until?: string;
+            /** Format: uuid */
+            agent_id?: string;
+        };
+        UsageToolCallsQuery: {
+            /** @enum {string} */
+            scope: "installation" | "me";
+            since: string;
+            until?: string;
+            /** Format: uuid */
+            agent_id?: string;
+            /**
+             * @default recent
+             * @enum {string}
+             */
+            sort: "recent" | "slowest";
+            /** @default 20 */
+            limit: number;
+            cursor?: string;
         };
         PostSessionMessageRequest: {
             /** @description At most 32768 bytes of UTF-8 */
@@ -2801,6 +2945,62 @@ export interface components {
             current_turn_id: string | null;
             queued_turn_count: number;
             last_event_at: string | null;
+            /** @description What the session's newest events did, for a list card. Absent from a server older than the field. */
+            activity?: {
+                /** @description The newest text with a non-blank line or tool call in the window's `assistant` and `tool_use` events, a subagent's included. Null when the window has neither. */
+                last: ({
+                    /** @constant */
+                    kind: "text";
+                    /** @description The first non-blank line of the text, trimmed and cut to 200 code points. */
+                    text: string;
+                } | {
+                    /** @constant */
+                    kind: "tool";
+                    /** @description The tool_use name; empty when the call named none. */
+                    name: string;
+                    /** @description What the call acts on, the first of its input's `command`, `file_path`, `path`, `pattern`, `url`, `query` or `description` that is a non-empty string; empty when none is. */
+                    target: string;
+                }) | null;
+                /** @description Distinct tool_use ids called in the window. */
+                tool_count: number;
+                /** @description Of those calls, the ones whose tool_result has `is_error: true`. A call left without a result is not counted. */
+                error_count: number;
+                /** @description Subagent runs in the window: one per `Task` or `Agent` call, and one per call the window's events name as `parent_tool_use_id`, whether or not that call is in the window. */
+                subagent_count: number;
+                /** @description The newest call still open: no tool_result yet, and neither a `result` of its turn nor a status of a session that stopped working (anything but `running`, `needs_input`, `interrupting`) came after it. Such a call reads `interrupted` and is never current. */
+                current_tool: {
+                    id: string;
+                    /** @description The tool_use name; empty when the call named none. */
+                    name: string;
+                    /** @description What the call acts on, the first of its input's `command`, `file_path`, `path`, `pattern`, `url`, `query` or `description` that is a non-empty string; empty when none is. */
+                    target: string;
+                    /**
+                     * @description `waiting` while a question for the call is unanswered: the session has not moved past `needs_input` since it was asked.
+                     * @enum {string}
+                     */
+                    state: "running" | "waiting";
+                    /**
+                     * Format: date-time
+                     * @description When the call was made, or for `waiting` when its question was asked.
+                     */
+                    since: string;
+                    /** @description What the call waits on: the newest question the session asked for it. Null unless `state` is `waiting`. */
+                    request: {
+                        /** @enum {string} */
+                        kind: "permission" | "question";
+                        /** @description For `question`, the first question's text, trimmed and cut to 200 code points; null for `permission` and for a question with no text. */
+                        prompt: string | null;
+                    } | null;
+                } | null;
+                /** @description The events the counts read: the session's newest 500 as recorded. They are ordered by `occurred_at`, and events at the same instant in the order they were recorded. */
+                window: {
+                    events: number;
+                    /** @description True when the window holds every event of the session, so the counts are the session's own. */
+                    complete: boolean;
+                    /** @description When the oldest event of the window was recorded; null for a session with none. */
+                    since: string | null;
+                };
+            };
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -2875,6 +3075,62 @@ export interface components {
             current_turn_id: string | null;
             queued_turn_count: number;
             last_event_at: string | null;
+            /** @description What the session's newest events did, for a list card. Absent from a server older than the field. */
+            activity?: {
+                /** @description The newest text with a non-blank line or tool call in the window's `assistant` and `tool_use` events, a subagent's included. Null when the window has neither. */
+                last: ({
+                    /** @constant */
+                    kind: "text";
+                    /** @description The first non-blank line of the text, trimmed and cut to 200 code points. */
+                    text: string;
+                } | {
+                    /** @constant */
+                    kind: "tool";
+                    /** @description The tool_use name; empty when the call named none. */
+                    name: string;
+                    /** @description What the call acts on, the first of its input's `command`, `file_path`, `path`, `pattern`, `url`, `query` or `description` that is a non-empty string; empty when none is. */
+                    target: string;
+                }) | null;
+                /** @description Distinct tool_use ids called in the window. */
+                tool_count: number;
+                /** @description Of those calls, the ones whose tool_result has `is_error: true`. A call left without a result is not counted. */
+                error_count: number;
+                /** @description Subagent runs in the window: one per `Task` or `Agent` call, and one per call the window's events name as `parent_tool_use_id`, whether or not that call is in the window. */
+                subagent_count: number;
+                /** @description The newest call still open: no tool_result yet, and neither a `result` of its turn nor a status of a session that stopped working (anything but `running`, `needs_input`, `interrupting`) came after it. Such a call reads `interrupted` and is never current. */
+                current_tool: {
+                    id: string;
+                    /** @description The tool_use name; empty when the call named none. */
+                    name: string;
+                    /** @description What the call acts on, the first of its input's `command`, `file_path`, `path`, `pattern`, `url`, `query` or `description` that is a non-empty string; empty when none is. */
+                    target: string;
+                    /**
+                     * @description `waiting` while a question for the call is unanswered: the session has not moved past `needs_input` since it was asked.
+                     * @enum {string}
+                     */
+                    state: "running" | "waiting";
+                    /**
+                     * Format: date-time
+                     * @description When the call was made, or for `waiting` when its question was asked.
+                     */
+                    since: string;
+                    /** @description What the call waits on: the newest question the session asked for it. Null unless `state` is `waiting`. */
+                    request: {
+                        /** @enum {string} */
+                        kind: "permission" | "question";
+                        /** @description For `question`, the first question's text, trimmed and cut to 200 code points; null for `permission` and for a question with no text. */
+                        prompt: string | null;
+                    } | null;
+                } | null;
+                /** @description The events the counts read: the session's newest 500 as recorded. They are ordered by `occurred_at`, and events at the same instant in the order they were recorded. */
+                window: {
+                    events: number;
+                    /** @description True when the window holds every event of the session, so the counts are the session's own. */
+                    complete: boolean;
+                    /** @description When the oldest event of the window was recorded; null for a session with none. */
+                    since: string | null;
+                };
+            };
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -3274,6 +3530,8 @@ export interface components {
                 provider: "slack";
                 external_tenant: string;
                 external_user_id: string;
+                external_tenant_name: string | null;
+                external_user_name: string | null;
                 /** @enum {string} */
                 status: "active" | "stale" | "revoked";
                 /** Format: date-time */
@@ -3293,6 +3551,8 @@ export interface components {
                 provider: "slack";
                 external_tenant: string;
                 external_user_id: string;
+                external_tenant_name: string | null;
+                external_user_name: string | null;
                 /** @enum {string} */
                 status: "active" | "stale" | "revoked";
                 /** Format: date-time */
@@ -3420,6 +3680,8 @@ export interface components {
                 };
             }[];
             next_cursor: string | null;
+            /** @description The roles the caller may invite someone as now (POST /v1/invites refuses any other with OWNER_PROTECTED). The same on every page and search. */
+            assignable_roles: ("owner" | "admin" | "member")[];
         };
         MemberView: {
             /** Format: uuid */
@@ -3875,7 +4137,9 @@ export interface components {
             finalized: boolean;
             warnings: {
                 /** @enum {string} */
-                code: "events_url_unset" | "reinstall_required" | "finalize_failed";
+                code: "events_url_unset" | "reinstall_required" | "finalize_failed" | "awaiting_invite" | "config_error" | "join_failed";
+                channel_id?: string;
+                error?: string;
             }[];
         };
         SlackEventsResponse: {
@@ -3998,6 +4262,80 @@ export interface components {
                 /** @constant */
                 run_time: "turn_wall_clock";
             };
+        };
+        UsageSeriesResponse: {
+            period: {
+                /** Format: date-time */
+                since: string;
+                /** Format: date-time */
+                until: string;
+            };
+            /** Format: date-time */
+            refreshed_at: string;
+            buckets: {
+                /** Format: date */
+                date: string;
+                session_count: number;
+                cost_usd: string;
+                cost_complete: boolean;
+                token_count: number;
+                run_seconds: number;
+            }[];
+        };
+        UsageBreakdownResponse: {
+            rows: {
+                session_count: number;
+                input_tokens: number;
+                output_tokens: number;
+                cache_read_input_tokens: number;
+                cache_creation_input_tokens: number;
+                token_count: number;
+                cost_usd: string;
+                key: string | null;
+                label: string | null;
+            }[];
+            totals: {
+                session_count: number;
+                input_tokens: number;
+                output_tokens: number;
+                cache_read_input_tokens: number;
+                cache_creation_input_tokens: number;
+                token_count: number;
+                cost_usd: string;
+            };
+        };
+        UsageToolsResponse: {
+            tools: {
+                name: string;
+                calls: number;
+                failed: number;
+                total_ms: number;
+                median_ms: number;
+                max_ms: number;
+            }[];
+            findings: {
+                /** @enum {string} */
+                kind: "most_time" | "fails_often" | "slowest";
+                name: string;
+            }[];
+        };
+        UsageToolCallsResponse: {
+            calls: {
+                session_id: string | null;
+                title: string | null;
+                agent: string | null;
+                /** Format: date-time */
+                occurred_at: string;
+                duration_ms: number | null;
+                /** @enum {string} */
+                outcome: "ok" | "failed" | "unknown";
+            }[];
+            next_cursor: string | null;
+            per_day: {
+                /** Format: date */
+                date: string;
+                calls: number;
+            }[];
         };
         SessionUsageResponse: {
             /** Format: uuid */
@@ -4628,6 +4966,11 @@ export interface components {
                 memory_write_policy: "deny" | "allow_explicit";
                 /** @enum {string} */
                 status: "ready" | "partial" | "failed" | "revoked";
+                membership?: {
+                    /** @enum {string} */
+                    state: "joined" | "awaiting_invite" | "config_error" | "join_failed";
+                    error: string | null;
+                };
                 muted: boolean;
                 revision: number;
                 /** Format: date-time */
@@ -4661,6 +5004,11 @@ export interface components {
                 memory_write_policy: "deny" | "allow_explicit";
                 /** @enum {string} */
                 status: "ready" | "partial" | "failed" | "revoked";
+                membership?: {
+                    /** @enum {string} */
+                    state: "joined" | "awaiting_invite" | "config_error" | "join_failed";
+                    error: string | null;
+                };
                 muted: boolean;
                 revision: number;
                 /** Format: date-time */
@@ -18960,6 +19308,504 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["UsageSummaryResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getUsageSeries: {
+        parameters: {
+            query: {
+                scope: "installation" | "me";
+                since: string;
+                until?: string;
+                bucket?: "day";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The buckets as of `refreshed_at`. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "period": {
+                     *         "since": "2026-10-09T00:00:00.000Z",
+                     *         "until": "2026-10-11T08:15:43.000Z"
+                     *       },
+                     *       "refreshed_at": "2026-10-11T08:15:43.000Z",
+                     *       "buckets": [
+                     *         {
+                     *           "date": "2026-10-09",
+                     *           "session_count": 5,
+                     *           "cost_usd": "1.204100",
+                     *           "cost_complete": true,
+                     *           "token_count": 702300,
+                     *           "run_seconds": 2210
+                     *         },
+                     *         {
+                     *           "date": "2026-10-10",
+                     *           "session_count": 0,
+                     *           "cost_usd": "0",
+                     *           "cost_complete": true,
+                     *           "token_count": 0,
+                     *           "run_seconds": 0
+                     *         },
+                     *         {
+                     *           "date": "2026-10-11",
+                     *           "session_count": 2,
+                     *           "cost_usd": "0.381000",
+                     *           "cost_complete": false,
+                     *           "token_count": 154200,
+                     *           "run_seconds": 640
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["UsageSeriesResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getUsageBreakdown: {
+        parameters: {
+            query: {
+                scope: "installation" | "me";
+                since: string;
+                until?: string;
+                by: "model" | "agent";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The groups and their totals; this example is `by=model`. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "rows": [
+                     *         {
+                     *           "key": "claude-opus-5-5",
+                     *           "label": "claude-opus-5-5",
+                     *           "session_count": 9,
+                     *           "input_tokens": 182000,
+                     *           "output_tokens": 64000,
+                     *           "cache_read_input_tokens": 1210000,
+                     *           "cache_creation_input_tokens": 96000,
+                     *           "token_count": 1552000,
+                     *           "cost_usd": "2.811000"
+                     *         },
+                     *         {
+                     *           "key": null,
+                     *           "label": null,
+                     *           "session_count": 1,
+                     *           "input_tokens": 0,
+                     *           "output_tokens": 0,
+                     *           "cache_read_input_tokens": 0,
+                     *           "cache_creation_input_tokens": 0,
+                     *           "token_count": 0,
+                     *           "cost_usd": "0.407400"
+                     *         }
+                     *       ],
+                     *       "totals": {
+                     *         "session_count": 10,
+                     *         "input_tokens": 182000,
+                     *         "output_tokens": 64000,
+                     *         "cache_read_input_tokens": 1210000,
+                     *         "cache_creation_input_tokens": 96000,
+                     *         "token_count": 1552000,
+                     *         "cost_usd": "3.218400"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["UsageBreakdownResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getUsageTools: {
+        parameters: {
+            query: {
+                scope: "installation" | "me";
+                since: string;
+                until?: string;
+                agent_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tools called in the period. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "tools": [
+                     *         {
+                     *           "name": "Bash",
+                     *           "calls": 1840,
+                     *           "failed": 21,
+                     *           "total_ms": 13320000,
+                     *           "median_ms": 3100,
+                     *           "max_ms": 298000
+                     *         },
+                     *         {
+                     *           "name": "Edit",
+                     *           "calls": 702,
+                     *           "failed": 12,
+                     *           "total_ms": 1620000,
+                     *           "median_ms": 900,
+                     *           "max_ms": 14200
+                     *         }
+                     *       ],
+                     *       "findings": [
+                     *         {
+                     *           "kind": "most_time",
+                     *           "name": "Bash"
+                     *         },
+                     *         {
+                     *           "kind": "fails_often",
+                     *           "name": "Edit"
+                     *         },
+                     *         {
+                     *           "kind": "slowest",
+                     *           "name": "Bash"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["UsageToolsResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getUsageToolCalls: {
+        parameters: {
+            query: {
+                scope: "installation" | "me";
+                since: string;
+                until?: string;
+                agent_id?: string;
+                sort?: "recent" | "slowest";
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the tool's calls. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "calls": [
+                     *         {
+                     *           "session_id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+                     *           "title": "Fix the flaky login test",
+                     *           "agent": "Reviewer",
+                     *           "occurred_at": "2026-10-24T09:14:03.120Z",
+                     *           "duration_ms": 3120,
+                     *           "outcome": "ok"
+                     *         },
+                     *         {
+                     *           "session_id": null,
+                     *           "title": null,
+                     *           "agent": null,
+                     *           "occurred_at": "2026-10-24T09:12:41.004Z",
+                     *           "duration_ms": null,
+                     *           "outcome": "unknown"
+                     *         }
+                     *       ],
+                     *       "next_cursor": "eyJzb3J0IjoicmVjZW50IiwiYXQiOiIyMDI2LTEwLTI0IDA5OjEyOjQxLjAwNCswMCIsImlkIjo0MjEsIm9yZCI6MX0",
+                     *       "per_day": [
+                     *         {
+                     *           "date": "2026-10-23",
+                     *           "calls": 0
+                     *         },
+                     *         {
+                     *           "date": "2026-10-24",
+                     *           "calls": 2
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["UsageToolCallsResponse"];
                 };
             };
             /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */

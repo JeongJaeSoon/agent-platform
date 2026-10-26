@@ -1,5 +1,6 @@
 import type { AgentDetail, AgentVersion } from "@werft-ai/contracts";
 import { formatTimestamp, RowLines, RowList, RowListItem } from "@werft-ai/ui";
+import { ChevronRight } from "lucide-react";
 import { useId, useState } from "react";
 import { RevisionDiff } from "../../components/revision-diff.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
@@ -31,10 +32,20 @@ export function VersionHistory({ detail }: { readonly detail: AgentDetail }) {
     t("agent.versionLabel", { version: version.version_no });
 
   return (
-    <section className={SECTION} aria-labelledby={titleId}>
-      <h2 id={titleId} className={SECTION_TITLE}>
-        {t("agent.versions.title")}
-      </h2>
+    // Folded: the card tab leads with the card, not its past.
+    <details className={`group ${SECTION}`} aria-labelledby={titleId}>
+      <summary className="flex min-h-7 cursor-pointer list-none items-center gap-2 rounded-control [&::-webkit-details-marker]:hidden">
+        <ChevronRight
+          aria-hidden="true"
+          className="size-4 text-muted-foreground transition-transform group-open:rotate-90"
+        />
+        <h2 id={titleId} className={SECTION_TITLE}>
+          {t("agent.versions.title")}
+        </h2>
+        <span className="text-caption text-muted-foreground">
+          {ordered.length}
+        </span>
+      </summary>
       <RowList>
         {ordered.map((version) => (
           <RowListItem key={version.id}>
@@ -76,6 +87,6 @@ export function VersionHistory({ detail }: { readonly detail: AgentDetail }) {
           ) : null}
         </>
       ) : null}
-    </section>
+    </details>
   );
 }

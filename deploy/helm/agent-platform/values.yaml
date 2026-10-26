@@ -266,9 +266,20 @@ worker:
   # a transcript at the 512 MiB checkpoint limit stays under half of it.
   # Sessions per node and how to trade them off: docs/operator/capacity.md.
   memoryMb: 4608
+  # Node disk a worker may use outside its PVC (mostly its log), request
+  # and limit both; past it the kubelet evicts the Pod.
+  ephemeralStorageMb: 1024
   workspace:
     quotaMb: 4096
     gcMinAgeSec: 3600
+
+# A throwaway preview install, never a real one. true gives the api
+# PREVIEW_NAMESPACE (its own namespace), and the demo-accounts and demo-data
+# CLIs then run in the api Pod, but only while DATABASE_URL is that
+# namespace's `postgres` Service: the demo accounts' password is public.
+# render-check.ts fails the AWS example if it turns this on.
+preview:
+  enabled: false
 
 service:
   type: ClusterIP

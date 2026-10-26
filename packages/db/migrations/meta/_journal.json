@@ -526,6 +526,48 @@
       "when": 1792899229884,
       "tag": "0165_slack_app_read_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 166,
+      "version": "7",
+      "when": 1792911299561,
+      "tag": "0166_channel_membership",
+      "breakpoints": true
+    },
+    {
+      "idx": 167,
+      "version": "7",
+      "when": 1792919449905,
+      "tag": "0167_linked_account_names",
+      "breakpoints": true
+    },
+    {
+      "idx": 168,
+      "version": "7",
+      "when": 1792923315525,
+      "tag": "0168_sessions_created_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 169,
+      "version": "7",
+      "when": 1792923419088,
+      "tag": "0169_usage_breakdown_rollup",
+      "breakpoints": true
+    },
+    {
+      "idx": 170,
+      "version": "7",
+      "when": 1792936457051,
+      "tag": "0170_tool_calls",
+      "breakpoints": true
+    },
+    {
+      "idx": 171,
+      "version": "7",
+      "when": 1792942860118,
+      "tag": "0171_tool_calls_session_name",
+      "breakpoints": true
     }
   ]
 }

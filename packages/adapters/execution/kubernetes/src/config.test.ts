@@ -15,6 +15,7 @@ describe("kubernetesConfigFromEnv", () => {
     expect(config).toEqual({
       egressCredentialPort: 3129,
       egressProxyUrl: "http://ap-egress-proxy:3128",
+      ephemeralStorageBytes: 1024 * 1024 * 1024,
       gatewayUrl: "http://ap-api:3000",
       homeDir: "/home/worker",
       imagePullSecrets: [],
@@ -43,6 +44,7 @@ describe("kubernetesConfigFromEnv", () => {
         EXECUTION_K8S_IMAGE_PULL_SECRETS: "ecr, other ,",
         EXECUTION_K8S_NAMESPACE: "workers",
         EXECUTION_K8S_STORAGE_CLASS: "gp3",
+        EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB: "512",
         EXECUTION_K8S_WORKER_NODE_SELECTOR: '{"pool":"workers"}',
         EXECUTION_K8S_WORKER_SERVICE_ACCOUNT: "ap-worker",
         EXECUTION_K8S_WORKER_TOLERATIONS:
@@ -53,6 +55,7 @@ describe("kubernetesConfigFromEnv", () => {
       () => "ignored",
     );
     expect(config).toMatchObject({
+      ephemeralStorageBytes: 512 * 1024 * 1024,
       imagePullSecrets: ["ecr", "other"],
       installationId: "prod-1",
       namespace: "workers",
@@ -102,6 +105,13 @@ describe("kubernetesConfigFromEnv", () => {
     [
       { EXECUTION_K8S_NAMESPACE: "w", EXECUTION_WORKSPACE_QUOTA_MB: "512" },
       "under the 1024",
+    ],
+    [
+      {
+        EXECUTION_K8S_NAMESPACE: "w",
+        EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB: "0",
+      },
+      "EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB",
     ],
     [
       {

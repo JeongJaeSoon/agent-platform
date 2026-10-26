@@ -8,10 +8,9 @@ import { useAgentPlatform } from "@werft-ai/react";
 import {
   Badge,
   buttonVariants,
-  Card,
-  CardDescription,
-  CardFooter,
-  CardTitle,
+  Field,
+  FieldDescription,
+  FieldLabel,
   Input,
   Page,
   RowList,
@@ -25,12 +24,12 @@ import { type FormEvent, type ReactNode, useId, useState } from "react";
 import { profilesQuery, queryKeys } from "../api/queries.ts";
 import {
   permissionReason,
-  ReasonButton,
   refusalText,
   useHasPermission,
   useMe,
   useRole,
 } from "../auth/guard.tsx";
+import { ReasonButton } from "../auth/reason-button.tsx";
 import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
@@ -40,33 +39,53 @@ import { useI18n } from "../i18n/i18n.tsx";
 // keeps this equal to the contract's value.
 export const AUDIT_RETENTION_MAX_DAYS = 3650;
 
-// Console v4 settings (Console.dc.html L853-867): `card flush` cards 16px
-// apart, a 16px body with 12px gaps, and a `form-foot` strip under it.
-const CARDS = "flex flex-col gap-4";
-const CARD_BODY = "flex flex-col gap-3 p-4";
-const SUB = "text-description";
+// GitHub-style settings (V4-SETTINGS-LAYOUT A): one column of sections, each
+// a title over a rule, labels above their fields and help under them.
+const SECTIONS = "flex flex-col gap-10";
+const SUB = "m-0 text-control text-muted-foreground";
 const META = "text-caption text-subtle-foreground";
 const ICON = "size-3.5 shrink-0";
 // Wide enough for the longer of On/Off, so the label does not reflow on a flip.
 const STATUS = `${META} min-w-6 text-right`;
-// The card draws the box; the rows only keep the rule under the body.
-const ROWS = "rounded-none border-x-0 border-b-0 bg-transparent";
 
-type OnOutcome = (outcome: Outcome | null) => void;
+export type OnOutcome = (outcome: Outcome | null) => void;
 
-/** Workspace-wide settings an owner or admin opens from the menu. */
-export function WorkspaceSettingsScreen() {
+export function WorkspacePage({
+  page,
+  children,
+}: {
+  readonly page: "general" | "slack";
+  readonly children: ReactNode;
+}) {
   const { t } = useI18n();
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
   const workspaceManage = useHasPermission("workspace.manage");
   const retentionManage = useHasPermission("audit_retention.manage");
   const editable = workspaceManage || retentionManage;
   return (
     <Page
       width="form"
-      title={t("workspace.title")}
-      description={t(editable ? "workspace.description" : "workspace.readOnly")}
+      title={t(page === "general" ? "workspace.general" : "workspace.slack")}
+      description={t(
+        page === "slack"
+          ? "workspace.slackDescription"
+          : editable
+            ? "workspace.description"
+            : "workspace.readOnly",
+      )}
     >
+      <div className={SECTIONS}>{children}</div>
+    </Page>
+  );
+}
+
+/** Workspace-wide settings an owner or admin opens from the menu. */
+export function WorkspaceSettingsScreen() {
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const workspaceManage = useHasPermission("workspace.manage");
+  const retentionManage = useHasPermission("audit_retention.manage");
+  const editable = workspaceManage || retentionManage;
+  return (
+    <WorkspacePage page="general">
       {outcome ? (
         outcome.kind === "error" ? (
           <FormError>{outcome.text}</FormError>
@@ -74,24 +93,18 @@ export function WorkspaceSettingsScreen() {
           <Notice>{outcome.text}</Notice>
         )
       ) : null}
-      <div className={CARDS}>
-        <WorkspaceName />
-        <WorkspaceId />
-        <AllowedModels />
-        {editable ? (
-          <>
-            <AuditRetention onOutcome={setOutcome} />
-            <SlackGuest onOutcome={setOutcome} />
-          </>
-        ) : (
-          <ReadOnlySettings />
-        )}
-      </div>
-    </Page>
+      <Basics />
+      <AllowedModels />
+      {editable ? (
+        <AuditRetention onOutcome={setOutcome} />
+      ) : (
+        <ReadOnlySettings />
+      )}
+    </WorkspacePage>
   );
 }
 
-function SettingsCard({
+export function SettingsCard({
   title,
   description,
   descriptionId,
@@ -101,7 +114,7 @@ function SettingsCard({
   children,
 }: {
   readonly title: string;
-  readonly description: string;
+  readonly description?: string;
   readonly descriptionId?: string;
   /** SettingRows under the body, edge to edge like the foot. */
   readonly rows?: ReactNode;
@@ -112,34 +125,36 @@ function SettingsCard({
   const titleId = useId();
   const content = (
     <>
-      <div className={CARD_BODY}>
-        <CardTitle id={titleId} role="heading" aria-level={2}>
-          {title}
-        </CardTitle>
-        <CardDescription id={descriptionId} className={SUB}>
-          {description}
-        </CardDescription>
-        {children}
-      </div>
-      {rows ? (
-        <RowList variant="joined" className={ROWS}>
-          {rows}
-        </RowList>
+      {children}
+      {rows ? <RowList variant="joined">{rows}</RowList> : null}
+      {foot ? (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {foot}
+        </div>
       ) : null}
-      {foot ? <CardFooter variant="form">{foot}</CardFooter> : null}
     </>
   );
   return (
-    <Card flush role="region" aria-labelledby={titleId}>
+    <section aria-labelledby={titleId} className="flex flex-col gap-4">
+      <div className="flex flex-col gap-1 border-b pb-2">
+        <h2 id={titleId} className="m-0 font-semibold text-body leading-6">
+          {title}
+        </h2>
+        {description ? (
+          <p id={descriptionId} className={SUB}>
+            {description}
+          </p>
+        ) : null}
+      </div>
       {onSubmit ? (
         // noValidate: the server owns the limits and says why it refused.
-        <form onSubmit={onSubmit} noValidate>
+        <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
           {content}
         </form>
       ) : (
         content
       )}
-    </Card>
+    </section>
   );
 }
 
@@ -153,42 +168,41 @@ function ReadOnlyMark() {
   );
 }
 
-/** No API renames a workspace yet (94S-817), so the name only reads. */
-function WorkspaceName() {
+/**
+ * The name and id only read: no API renames a workspace yet (94S-817).
+ * Labels sit above the values and help under them.
+ */
+function Basics() {
   const { t } = useI18n();
-  const name = useMe()?.workspace?.name ?? "";
+  const workspace = useMe()?.workspace;
   const inputId = useId();
   return (
-    <SettingsCard
-      title={t("workspace.name")}
-      description={t("workspace.nameHint")}
-      foot={
-        <>
-          <div className={META}>{t("workspace.nameFoot")}</div>
-          <ReadOnlyMark />
-        </>
-      }
-    >
-      <label className="sr-only" htmlFor={inputId}>
-        {t("workspace.name")}
-      </label>
-      <Input id={inputId} className="max-w-80" value={name} readOnly />
-    </SettingsCard>
-  );
-}
-
-function WorkspaceId() {
-  const { t } = useI18n();
-  const id = useMe()?.workspace?.id ?? "";
-  return (
-    <SettingsCard title={t("workspace.id")} description={t("workspace.idHint")}>
-      <SecretField
-        className="max-w-105"
-        value={id}
-        copyLabel={t("apiKeys.copy")}
-        copiedMessage={t("workspace.idCopied")}
-        copyFailedMessage={t("apiKeys.copyIdFailed")}
-      />
+    <SettingsCard title={t("workspace.basics")} foot={<ReadOnlyMark />}>
+      <Field>
+        <FieldLabel htmlFor={inputId}>{t("workspace.name")}</FieldLabel>
+        <Input
+          id={inputId}
+          className="max-w-80"
+          value={workspace?.name ?? ""}
+          readOnly
+        />
+        <FieldDescription>
+          {t("workspace.nameHint")} {t("workspace.nameFoot")}
+        </FieldDescription>
+      </Field>
+      <Field>
+        <p className="m-0 font-medium text-sm leading-snug">
+          {t("workspace.id")}
+        </p>
+        <SecretField
+          className="max-w-105"
+          value={workspace?.id ?? ""}
+          copyLabel={t("apiKeys.copy")}
+          copiedMessage={t("workspace.idCopied")}
+          copyFailedMessage={t("apiKeys.copyIdFailed")}
+        />
+        <FieldDescription>{t("workspace.idHint")}</FieldDescription>
+      </Field>
     </SettingsCard>
   );
 }
@@ -287,8 +301,6 @@ function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   const [draft, setDraft] = useState<string | null>(null);
   const days = draft ?? (current === undefined ? "" : `${current}`);
   const inputId = useId();
-  const hintId = useId();
-  const footId = useId();
   const reason = useHasPermission("audit_retention.manage")
     ? undefined
     : permissionReason(t, "audit_retention.manage", role);
@@ -336,44 +348,49 @@ function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   return (
     <SettingsCard
       title={t("workspace.retention")}
-      description={t("workspace.retentionHint")}
-      descriptionId={hintId}
       onSubmit={submit}
       foot={
-        <>
-          <div id={footId} className={META}>
-            {t("workspace.retentionFoot")}
-          </div>
-          <ReasonButton
-            type="submit"
-            className={buttonVariants({
-              size: "sm",
-              className: "aria-disabled:opacity-45",
-            })}
-            reason={reason}
-            // aria-disabled, not disabled: a disabled button drops its focus.
-            aria-disabled={save.isPending || undefined}
-            disabled={days.trim() === ""}
-          >
-            {t("workspace.save")}
-          </ReasonButton>
-        </>
+        <ReasonButton
+          type="submit"
+          className={buttonVariants({
+            size: "sm",
+            className: "aria-disabled:opacity-45",
+          })}
+          reason={reason}
+          // aria-disabled, not disabled: a disabled button drops its focus.
+          aria-disabled={save.isPending || undefined}
+          disabled={days.trim() === ""}
+        >
+          {t("workspace.save")}
+        </ReasonButton>
       }
     >
-      <label className="sr-only" htmlFor={inputId}>
-        {t("workspace.retentionDays")}
-      </label>
-      <Input
-        id={inputId}
-        className="max-w-50"
-        type="number"
-        inputMode="numeric"
-        step={1}
-        value={days}
-        aria-describedby={`${hintId} ${footId}`}
-        disabled={reason !== undefined}
-        onChange={(event) => setDraft(event.target.value)}
-      />
+      <Field>
+        <FieldLabel htmlFor={inputId}>
+          {t("workspace.retentionDays")}
+        </FieldLabel>
+        <div className="flex items-center gap-2">
+          <Input
+            id={inputId}
+            className="max-w-50"
+            type="number"
+            inputMode="numeric"
+            step={1}
+            value={days}
+            disabled={reason !== undefined}
+            onChange={(event) => setDraft(event.target.value)}
+          />
+          {/* The label already says the unit; this is for sighted readers. */}
+          <span
+            aria-hidden="true"
+            className="text-control text-muted-foreground"
+          >
+            {t("workspace.retentionUnit")}
+          </span>
+        </div>
+        <FieldDescription>{t("workspace.retentionHint")}</FieldDescription>
+        <FieldDescription>{t("workspace.retentionFoot")}</FieldDescription>
+      </Field>
     </SettingsCard>
   );
 }
@@ -383,7 +400,7 @@ function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
  * sends the opposite of what the server last said, so a stale screen cannot
  * undo a change it never saw.
  */
-function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
+export function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();

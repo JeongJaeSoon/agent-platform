@@ -25,20 +25,48 @@ export {
 } from "./list/load-more-button.tsx";
 export { Findings, type FindingsProps } from "./operations/findings.tsx";
 export {
+  InstallationLimits,
+  type InstallationLimitsProps,
+} from "./operations/installation-limits.tsx";
+export {
   type FindingsMessages,
+  type InstallationLimitsMessages,
   OPERATIONS_MESSAGES,
   type OperationsFormat,
+  type OperationsHeadMessages,
   type OperationsMessages,
+  type OperationsTab,
   type SessionCountsMessages,
+  type ToolCallSort,
   type ToolCallsMessages,
+  type ToolRailMessages,
+  type ToolSort,
+  type ToolsFilterMessages,
   type ToolsSummaryMessages,
   type ToolTableMessages,
+  type UsageBasisMessages,
+  type UsageCostTableMessages,
+  type UsageDailyCostMessages,
+  type UsageFiltersMessages,
+  type UsageKpisMessages,
+  type UsageTokenMixMessages,
 } from "./operations/messages.ts";
+export { MoreLink } from "./operations/more-link.tsx";
+export {
+  OperationsHead,
+  type OperationsHeadProps,
+} from "./operations/operations-head.tsx";
 export {
   SessionCounts,
   type SessionCountsProps,
 } from "./operations/session-counts.tsx";
 export { ToolCalls, type ToolCallsProps } from "./operations/tool-calls.tsx";
+export {
+  TOOL_RAIL_CALLS,
+  TOOL_RAIL_DAYS,
+  ToolRail,
+  type ToolRailProps,
+} from "./operations/tool-rail.tsx";
 export { ToolTable, type ToolTableProps } from "./operations/tool-table.tsx";
 export type {
   UsageTool,
@@ -48,9 +76,36 @@ export type {
   UsageToolsResponse,
 } from "./operations/tools.ts";
 export {
+  findTools,
+  sortTools,
+  TOOL_SEARCH_DEBOUNCE_MS,
+  ToolsFilter,
+  type ToolsFilterProps,
+} from "./operations/tools-filter.tsx";
+export {
   ToolsSummary,
   type ToolsSummaryProps,
 } from "./operations/tools-summary.tsx";
+export { UsageBasis, type UsageBasisProps } from "./operations/usage-basis.tsx";
+export {
+  UsageCostTable,
+  type UsageCostTableProps,
+} from "./operations/usage-cost-table.tsx";
+export {
+  UsageDailyCost,
+  type UsageDailyCostProps,
+} from "./operations/usage-daily-cost.tsx";
+export {
+  USAGE_PERIODS,
+  UsageFilters,
+  type UsageFiltersProps,
+  type UsagePeriod,
+} from "./operations/usage-filters.tsx";
+export { UsageKpis, type UsageKpisProps } from "./operations/usage-kpis.tsx";
+export {
+  UsageTokenMix,
+  type UsageTokenMixProps,
+} from "./operations/usage-token-mix.tsx";
 export { ReceiptLink, type ReceiptLinkProps } from "./receipt/receipt-link.tsx";
 export {
   RECEIPT_OPERATION_LABEL,

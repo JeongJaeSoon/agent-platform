@@ -22,7 +22,9 @@ import {
   SURFACE_CHANNEL_KIND_VALUES,
   SURFACE_DISCLOSURE_VALUES,
   SURFACE_KIND_VALUES,
+  SURFACE_MEMBERSHIP_STATE_VALUES,
   type SurfaceKind,
+  type SurfaceMembershipState,
 } from "@werft-ai/contracts";
 import type {
   SecretOwnerRef,
@@ -38,6 +40,7 @@ import {
   boolean,
   check,
   customType,
+  date,
   foreignKey,
   index,
   integer,
@@ -686,6 +689,9 @@ export const linkedAccounts = pgTable(
     /** The Slack team id. */
     externalTenant: text("external_tenant").notNull(),
     externalUserId: text("external_user_id").notNull(),
+    /** Names from the last verification, for display; null on older links. */
+    externalTenantName: text("external_tenant_name"),
+    externalUserName: text("external_user_name"),
     status: text()
       .$type<"active" | "stale" | "revoked">()
       .notNull()
@@ -1027,6 +1033,8 @@ export const sessions = pgTable(
     index("sessions_takeover_idx")
       .on(table.workspaceId, table.takeoverRequiredAt)
       .where(sql`${table.takeoverRequiredAt} IS NOT NULL`),
+    // Usage summaries and series pick an installation's sessions by period.
+    index("sessions_created_at_idx").on(table.createdAt),
     // The reconciler's sweep for waits that ended with no write.
     index("sessions_input_announced_idx")
       .on(table.id)
@@ -1138,6 +1146,124 @@ export const events = pgTable(
     uniqueIndex("events_attempt_sequence_uniq")
       .on(table.sessionId, table.attemptId, table.sourceSequence)
       .where(sql`${table.attemptId} IS NOT NULL`),
+  ],
+);
+
+/**
+ * One row per tool call, projected from the tool_use and tool_result events
+ * by the reconciler (`projectToolCalls`), paired as the run tree pairs them
+ * (94S-923). A read of the usage API never parses events.
+ *
+ * No foreign keys: a key on session_id would take KEY SHARE on the session
+ * row, which a worker append holds FOR UPDATE, so each projection batch and
+ * the appends of its sessions would wait on each other. Nothing deletes
+ * sessions or events.
+ */
+export const toolCalls = pgTable(
+  "tool_calls",
+  {
+    useEventId: bigint("use_event_id", { mode: "number" }).notNull(),
+    // The tool_use block's place in its event's content.
+    ord: integer().notNull(),
+    sessionId: uuid("session_id").notNull(),
+    // attempt_id, '' for none: a null attempt pairs with null.
+    attemptKey: text("attempt_key").notNull(),
+    // null when the block's id is no string: such a call pairs with nothing.
+    toolUseId: text("tool_use_id"),
+    name: text().notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    // used_at, else created_at: when the call shows as made.
+    at: timestamp({ withTimezone: true }).notNull(),
+    // The tool_use event's created_at, which the period cuts on.
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    resultEventId: bigint("result_event_id", { mode: "number" }),
+    resultAt: timestamp("result_at", { withTimezone: true }),
+    outcome: text().notNull().default("unknown"),
+    // Both times known only; a result stamped before its call is 0.
+    ms: bigint({ mode: "number" }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.useEventId, table.ord] }),
+    check(
+      "tool_calls_outcome_check",
+      sql`${table.outcome} IN ('ok', 'failed', 'unknown')`,
+    ),
+    check("tool_calls_ms_check", sql`${table.ms} >= 0`),
+    uniqueIndex("tool_calls_pair_uniq")
+      .on(table.sessionId, table.attemptKey, table.toolUseId)
+      .where(sql`${table.toolUseId} IS NOT NULL`),
+    index("tool_calls_recent_idx").on(
+      table.name,
+      table.at.desc(),
+      table.useEventId.desc(),
+      table.ord.desc(),
+    ),
+    index("tool_calls_slowest_idx").on(
+      table.name,
+      table.ms.desc().nullsLast(),
+      table.useEventId.desc(),
+      table.ord.desc(),
+    ),
+    index("tool_calls_created_at_idx").on(table.createdAt),
+    // A scope with few sessions reads its calls from them; the name-led
+    // indexes above would walk every call of the tool in the period.
+    index("tool_calls_session_name_idx").on(table.sessionId, table.name),
+  ],
+);
+
+/**
+ * How far `projectToolCalls` has read events: every event with an id at or
+ * below `applied_through` is in tool_calls. One row.
+ */
+export const toolCallProgress = pgTable(
+  "tool_call_progress",
+  {
+    id: integer().primaryKey(),
+    appliedThrough: bigint("applied_through", { mode: "number" })
+      .notNull()
+      .default(0),
+    // The batch size a statement timeout cut it down to, kept across passes;
+    // null is the reconciler's configured size.
+    batchSize: integer("batch_size"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [check("tool_call_progress_one_row", sql`${table.id} = 1`)],
+);
+
+/**
+ * tool_calls summed per UTC day of created_at and tool name, once for each
+ * scope a usage read can ask for, so a read touches days × tools rows
+ * whatever the volume. A session's calls count under scope_key '' (the
+ * installation), `user:<user_id>:<owner_id>` and `api_key:<key_id>:<owner_id>`
+ * for whoever started it, each once with agent_key '' and once more with its
+ * agent's id. `hist` counts timed calls per duration bucket
+ * (`tool_ms_bucket`), the only way to a median across rows.
+ */
+export const toolCallDays = pgTable(
+  "tool_call_days",
+  {
+    scopeKey: text("scope_key").notNull(),
+    agentKey: text("agent_key").notNull(),
+    day: date({ mode: "string" }).notNull(),
+    name: text().notNull(),
+    calls: integer().notNull(),
+    failed: integer().notNull(),
+    timed: integer().notNull(),
+    totalMs: bigint("total_ms", { mode: "number" }).notNull(),
+    // Never lowered when an earlier result replaces a call's time.
+    maxMs: bigint("max_ms", { mode: "number" }).notNull(),
+    hist: integer().array().notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.scopeKey, table.agentKey, table.day, table.name],
+    }),
+    check(
+      "tool_call_days_hist_check",
+      sql`array_length(${table.hist}, 1) = 161`,
+    ),
   ],
 );
 
@@ -1652,6 +1778,66 @@ export const providerUsage = pgTable(
       sql`${table.pricedBy} IN ('table', 'fallback', 'unmetered')`,
     ),
     check("provider_usage_cost_usd_nonneg", sql`${table.costUsd} >= 0`),
+  ],
+);
+
+// provider_usage summed per session and model by the provider_usage insert
+// trigger (migration usage_breakdown_rollup), so the usage breakdown reads a row per pair
+// instead of every call. The session's created_at and agent are copied for
+// the period filter and the grouping; neither changes after the session is
+// created. No foreign keys: rows only come from provider_usage, which holds
+// the session's, and adding one would block session writes for the whole
+// migration.
+export const sessionModelUsage = pgTable(
+  "session_model_usage",
+  {
+    sessionId: uuid("session_id").notNull(),
+    model: text().notNull(),
+    sessionCreatedAt: timestamp("session_created_at", {
+      withTimezone: true,
+    }).notNull(),
+    agentId: uuid("agent_id"),
+    inputTokens: bigint("input_tokens", { mode: "number" }).notNull(),
+    outputTokens: bigint("output_tokens", { mode: "number" }).notNull(),
+    cacheReadInputTokens: bigint("cache_read_input_tokens", {
+      mode: "number",
+    }).notNull(),
+    cacheCreationInputTokens: bigint("cache_creation_input_tokens", {
+      mode: "number",
+    }).notNull(),
+    costUsd: numeric("cost_usd", {
+      precision: 14,
+      scale: 6,
+      mode: "number",
+    }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sessionId, table.model] }),
+    index("session_model_usage_created_at_idx").on(table.sessionCreatedAt),
+  ],
+);
+
+// The part of a session's cost_usd no metered call explains: the engine's
+// turn totals from before provider_usage. Written once by migration usage_breakdown_rollup;
+// a call adds to cost_usd and to its own sum alike, so the difference stays
+// put and new sessions never get a row. No foreign key, as above.
+export const sessionPreMeteringCost = pgTable(
+  "session_pre_metering_cost",
+  {
+    sessionId: uuid("session_id").primaryKey(),
+    sessionCreatedAt: timestamp("session_created_at", {
+      withTimezone: true,
+    }).notNull(),
+    costUsd: numeric("cost_usd", {
+      precision: 14,
+      scale: 6,
+      mode: "number",
+    }).notNull(),
+  },
+  (table) => [
+    index("session_pre_metering_cost_created_at_idx").on(
+      table.sessionCreatedAt,
+    ),
   ],
 );
 
@@ -2254,6 +2440,9 @@ export const surfaceBindings = pgTable(
       .notNull()
       .default("ready"),
     muted: boolean().notNull().default(false),
+    /** `surfaceMembershipSchema`; null until Slack was asked. */
+    membership: text().$type<SurfaceMembershipState>(),
+    membershipError: text("membership_error"),
     revision: integer().notNull().default(1),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -2309,6 +2498,10 @@ export const surfaceBindings = pgTable(
     check(
       "surface_bindings_status_check",
       sql`${table.status} IN (${sql.raw(sqlList(SURFACE_BINDING_STATUS_VALUES))})`,
+    ),
+    check(
+      "surface_bindings_membership_check",
+      sql`(${table.membership} IS NULL OR ${table.membership} IN (${sql.raw(sqlList(SURFACE_MEMBERSHIP_STATE_VALUES))})) AND (${table.membershipError} IS NULL OR ${table.membership} IS NOT NULL)`,
     ),
     check(
       "surface_bindings_revoked_check",
@@ -2514,7 +2707,7 @@ export const slackOutbox = pgTable(
     }),
     check(
       "slack_outbox_kind_check",
-      sql`${table.kind} IN ('reply', 'notice', 'failure_notice', 'input_notice')`,
+      sql`${table.kind} IN ('reply', 'notice', 'failure_notice', 'input_notice', 'welcome')`,
     ),
     check(
       "slack_outbox_status_check",

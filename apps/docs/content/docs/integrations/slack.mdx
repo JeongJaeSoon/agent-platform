@@ -47,6 +47,8 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/linked-accounts/slack
 
 설정된 설치에서는 시작 요청이 `authorize_url`을 돌려준다. 그 주소에서 Slack에 동의하면 웹의 연결 화면이 `code`와 `state`를 callback에 넘기고 연결이 끝난다. 연결 상태는 `active`·`stale`·`revoked`다.
 
+연결 응답과 `GET /v1/linked-accounts`의 각 항목에는 Slack이 연결 때 알려 준 이름도 있다. `external_user_name`은 Slack 표시 이름(id_token의 `name`), `external_tenant_name`은 Slack 워크스페이스 이름(`https://slack.com/team_name`)이다. 다시 연결하면 새 이름으로 바뀐다. 이름을 저장하기 전에 만든 연결이나 Slack이 이름을 주지 않은 연결은 `null`이고, 웹 화면은 그때 ID를 보인다. Slack 토큰은 저장하지 않는다.
+
 | 응답 | 뜻 |
 | --- | --- |
 | 409 `SLACK_NOT_INSTALLED` | 이 워크스페이스에 확인된 Slack 설치가 없다 |
@@ -101,6 +103,19 @@ curl -sS "$API/v1/agents/$AID/identities" "${WEB[@]}" \
 ```
 
 확인된 Slack 설치가 없으면 409 `SLACK_NOT_INSTALLED`다. 설치는 운영자가 위의 Slack 설치 등록 CLI로 만든다.
+
+## 채널 참가와 배포 환영
+
+에이전트의 채널(`PUT /v1/agents/{id}/slack-bindings`)을 저장하면 서버가 bot을 그 채널에 넣는다. 공개 채널은 bot이 스스로 들어간다. 비공개 채널은 Slack이 막으니 채널에서 `/invite @<bot>`으로 초대한다. 초대되면 서버가 알아채고 이어 간다. 결과는 binding의 `membership.state`로 보인다.
+
+| `membership.state` | 뜻 |
+| --- | --- |
+| `joined` | bot이 채널에 있다 |
+| `awaiting_invite` | 비공개 채널이라 초대를 기다린다 |
+| `config_error` | Slack이 token이나 scope를 거절했다(`error`에 Slack 오류 코드). 앱을 다시 설치한다 |
+| `join_failed` | 보관된 채널이거나 워크스페이스 정책이 막았다(`error`) |
+
+새 release를 배포하면 home 채널에 `안녕하세요, <에이전트 이름>입니다. 이 채널에 배포됐어요. 멘션하면 답할게요`가 한 번 간다. 같은 정의를 다시 제출하거나 이전 release로 되돌리면 보내지 않는다. home을 다른 채널로 옮기면 새 채널에 한 번 간다. bot이 home에 없으면 들어올 때까지 기다린다. 환영이나 참가가 실패해도 배포는 실패하지 않는다.
 
 ## 다음 단계
 

@@ -43,7 +43,7 @@ afterEach(() => {
 });
 
 describe("app shell", () => {
-  test("the sidebar groups work, workspace and personal settings", async () => {
+  test("the sidebar groups work and the workspace, settings behind one item", async () => {
     renderAt("/", signedIn);
     const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
     const groups = within(nav).getAllByRole("group");
@@ -54,9 +54,8 @@ describe("app shell", () => {
           .map((link) => link.textContent),
       ),
     ).toEqual([
-      ["홈", "세션", "에이전트"],
-      ["구성원", "워크스페이스 설정"],
-      ["연동 계정", "API key", "언어·테마"],
+      ["홈", "세션", "에이전트", "운영"],
+      ["구성원", "설정"],
     ]);
     expect(groups[0]?.getAttribute("aria-labelledby")).toBeTruthy();
     expect(within(nav).getByRole("group", { name: "업무" })).toBeDefined();
@@ -68,9 +67,10 @@ describe("app shell", () => {
     // 구성원 holds the teams a member is in, so everyone has it.
     await within(nav).findByRole("link", { name: "구성원" });
     expect(within(nav).queryByRole("link", { name: "팀" })).toBeNull();
+    // Their settings open on the person's own pages.
     expect(
-      within(nav).queryByRole("link", { name: "워크스페이스 설정" }),
-    ).toBeNull();
+      within(nav).getByRole("link", { name: "설정" }).getAttribute("href"),
+    ).toBe("/settings/linked-accounts");
   });
 
   test("the top bar names the page with the sidebar's words", async () => {
@@ -82,11 +82,10 @@ describe("app shell", () => {
 
   // V4-PAGE-FRAME: settings and forms used to stop at 1100px.
   for (const [path, title] of [
-    ["/", "홈"],
-    ["/sessions", "세션"],
     ["/settings/api-keys", "API key"],
-    ["/settings/workspace", "워크스페이스 설정"],
-    ["/settings/workspace/", "워크스페이스 설정"],
+    ["/settings/workspace", "일반"],
+    ["/settings/workspace/", "일반"],
+    ["/settings/workspace/slack", "Slack 연결 설정"],
     ["/settings/preferences", "언어·테마"],
     ["/settings/linked-accounts", "연동 계정"],
     ["/settings/api-keys/new", "새 개인 key"],
@@ -103,11 +102,31 @@ describe("app shell", () => {
     });
   }
 
+  // Home and the sessions list open a waiting session in a rail at the
+  // screen's edge, so they frame their own body, in the same frame.
+  for (const [path, title] of [
+    ["/", "홈"],
+    ["/sessions", "세션"],
+  ] as const) {
+    test(`${path} frames its body beside the rail`, async () => {
+      renderAt(path, signedIn);
+      await screen.findByRole("heading", { level: 1, name: title });
+      expect(contentColumn()?.dataset.slot).toBe("page-flush");
+      const frame = document.querySelector<HTMLElement>(
+        '[data-slot="detail-layout"] > [data-slot="page-frame"]',
+      );
+      expect(frame?.className).toContain("md:px-6");
+      expect(
+        frame?.querySelector('[data-slot="page-frame-body"]')?.className,
+      ).toContain("max-w-[var(--ap-w-page)]");
+    });
+  }
+
   // One form or settings column stops inside the frame; lists use it all.
   for (const [path, title, width] of [
     ["/sessions", "세션", "full"],
     ["/settings/api-keys", "API key", "full"],
-    ["/settings/workspace", "워크스페이스 설정", "form"],
+    ["/settings/workspace", "일반", "form"],
     ["/settings/preferences", "언어·테마", "form"],
     ["/settings/linked-accounts", "연동 계정", "form"],
     ["/settings/api-keys/new", "새 개인 key", "form"],
@@ -127,6 +146,27 @@ describe("app shell", () => {
       ).toBe(width);
     });
   }
+
+  test("/sessions/map is a screen under 세션, not a session", async () => {
+    renderAt("/sessions/map", {
+      ...signedIn,
+      "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
+    });
+    await screen.findByRole("heading", { level: 1, name: "에이전트 지도" });
+    const [header] = await screen.findAllByRole("banner");
+    await waitFor(() =>
+      expect(header?.textContent).toBe("메뉴 열기세션/에이전트 지도"),
+    );
+    expect(contentColumn()?.dataset.slot).toBe("page-frame");
+  });
+
+  test("the sessions list opens the agent map", async () => {
+    renderAt("/sessions", signedIn);
+    await screen.findByRole("heading", { level: 1, name: "세션" });
+    expect(
+      screen.getByRole("link", { name: "에이전트 지도" }).getAttribute("href"),
+    ).toBe("/sessions/map");
+  });
 
   test("a session's detail lays out the whole area itself", async () => {
     renderAt(`/sessions/${FIRST}`, signedIn);

@@ -1,7 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link as RouterLink } from "@tanstack/react-router";
 import type { AgentDetail } from "@werft-ai/contracts";
+import { usageBreakdownQuery } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
+import { OPERATIONS_MESSAGES } from "@werft-ai/react/components";
 import {
   Badge,
   Button,
@@ -10,12 +12,15 @@ import {
   formatTimestamp,
   Link,
   Skeleton,
+  StatCard,
 } from "@werft-ai/ui";
 import { Check, Copy } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
+import { useHasPermission } from "../../auth/guard.tsx";
 import { copyText } from "../../components/copy.ts";
 import { OutcomeLine } from "../../components/outcome.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
+import { usagePeriod } from "../operations.tsx";
 import { credentialBindingsQuery } from "./credentials.tsx";
 import { latestVersion } from "./versions.tsx";
 
@@ -36,7 +41,7 @@ export function shownVersion(detail: AgentDetail) {
   );
 }
 
-/** The overview's figures: what runs and what is newest. */
+/** The overview's figures: what runs, what is newest, what it cost. */
 const releasedVersion = (detail: AgentDetail, version: { id: string }) =>
   detail.releases.some((release) => release.version_id === version.id);
 
@@ -50,7 +55,7 @@ export function AgentGlance({ detail }: { readonly detail: AgentDetail }) {
   return (
     <ul
       aria-label={t("agent.glance.label")}
-      className="m-0 grid list-none grid-cols-1 items-stretch gap-4 p-0 @[720px]:grid-cols-2"
+      className="m-0 grid list-none grid-cols-1 items-stretch gap-4 p-0 @[720px]:grid-flow-col @[720px]:auto-cols-fr @[720px]:grid-cols-none"
     >
       <Figure
         label={t("agent.glance.active")}
@@ -97,6 +102,7 @@ export function AgentGlance({ detail }: { readonly detail: AgentDetail }) {
             : t("agent.noActive")
         }
       />
+      <WeekCost agentId={agent.id} />
     </ul>
   );
 }
@@ -114,20 +120,47 @@ function Figure({
 }) {
   return (
     <li className="min-w-0">
-      <Card className="h-full gap-3 p-4">
-        <p className="m-0 flex items-center gap-2 text-control text-muted-foreground">
-          {label}
-        </p>
-        <p
-          className={cn(
-            "m-0 font-semibold text-number tabular-nums tracking-[-0.5px]",
-            muted && "text-muted-foreground",
-          )}
-        >
-          {value}
-        </p>
-        <p className={META}>{note}</p>
-      </Card>
+      <StatCard
+        className="h-full"
+        label={label}
+        value={value}
+        muted={muted}
+        description={note}
+      />
+    </li>
+  );
+}
+
+/**
+ * The agent's cost over the last 7 days. Only the install-wide figures split
+ * by agent, so without them, or when the read fails, there is no card.
+ */
+function WeekCost({ agentId }: { readonly agentId: string }) {
+  const { t, locale } = useI18n();
+  const { client } = useAgentPlatform();
+  const operator = useHasPermission("usage.installation_read");
+  const { since, until } = usagePeriod(7);
+  const breakdown = useQuery({
+    ...usageBreakdownQuery(client, "installation", since, "agent", until),
+    enabled: operator,
+  });
+  if (!operator || breakdown.isError) return null;
+  const row = breakdown.data?.rows.find((item) => item.key === agentId);
+  return (
+    <li className="min-w-0">
+      <StatCard
+        className="h-full"
+        label={t("agent.glance.cost")}
+        badge={<Badge variant="gray">{t("usage.kpi.estimated")}</Badge>}
+        value={
+          breakdown.data ? (
+            OPERATIONS_MESSAGES[locale].format.usd(row?.cost_usd ?? "0")
+          ) : (
+            <Skeleton lines={1} label={t("status.loading.title")} />
+          )
+        }
+        description={t("usage.kpi.costNote")}
+      />
     </li>
   );
 }
@@ -323,8 +356,15 @@ export function AgentRecentSessions() {
   );
 }
 
-/** The card tab's read-only half: the card in words, and as sent. */
-export function CardSummary({ detail }: { readonly detail: AgentDetail }) {
+/** The card tab when not editing: the card in words, and as sent. */
+export function CardSummary({
+  detail,
+  edit,
+}: {
+  readonly detail: AgentDetail;
+  /** The button that turns this view into the editor. */
+  readonly edit: ReactNode;
+}) {
   const { t } = useI18n();
   const titleId = useId();
   const rawId = useId();
@@ -372,29 +412,38 @@ export function CardSummary({ detail }: { readonly detail: AgentDetail }) {
                       })}
             </span>
           </div>
-          {version ? (
-            <Badge variant="gray" className="font-mono font-normal">
-              {t("agent.versionLabel", { version: version.version_no })}
-            </Badge>
-          ) : null}
+          <div className="flex flex-none items-center gap-2">
+            {version ? (
+              <Badge variant="gray" className="font-mono font-normal">
+                {t("agent.versionShort", { version: version.version_no })}
+              </Badge>
+            ) : null}
+            {edit}
+          </div>
         </div>
         <dl className="m-0 grid grid-cols-1 items-baseline gap-x-4 gap-y-1 text-control sm:grid-cols-[140px_minmax(0,1fr)] sm:gap-y-2">
           <dt className={TERM}>{t("agents.name")}</dt>
           <dd className={VALUE}>{detail.agent.name}</dd>
           <dt className={TERM}>{t("agents.slug")}</dt>
-          <dd className={`${VALUE} font-mono text-caption`}>
-            {detail.agent.slug}
-          </dd>
+          <dd className={`${VALUE} font-mono`}>{detail.agent.slug}</dd>
           {card ? (
             <>
               <dt className={TERM}>{t("agentCard.role")}</dt>
               <dd className={VALUE}>{card.role}</dd>
               <dt className={TERM}>{t("agentCard.instructions")}</dt>
               <dd className={`${VALUE} line-clamp-3`}>{card.instructions}</dd>
-              <dt className={TERM}>{t("agentCard.model")}</dt>
-              <dd className={`${VALUE} font-mono text-caption`}>
-                {card.model}
+              <dt className={TERM}>{t("agents.cards.credentials")}</dt>
+              <dd className={VALUE}>
+                {names(card.capabilities.credential_refs ?? [])}
               </dd>
+              <dt className={TERM}>{t("agents.cards.mcp")}</dt>
+              <dd className={VALUE}>
+                {names(
+                  (card.capabilities.mcp ?? []).map((server) => server.server),
+                )}
+              </dd>
+              <dt className={TERM}>{t("agentCard.model")}</dt>
+              <dd className={`${VALUE} font-mono`}>{card.model}</dd>
               <dt className={TERM}>{t("agentCard.language")}</dt>
               <dd className={VALUE}>
                 {card.language === "ko" ? "한국어" : "English"}
@@ -407,16 +456,6 @@ export function CardSummary({ detail }: { readonly detail: AgentDetail }) {
               </dd>
               <dt className={TERM}>{t("agentCard.forbidden")}</dt>
               <dd className={VALUE}>{names(card.capabilities.forbidden)}</dd>
-              <dt className={TERM}>{t("agents.cards.mcp")}</dt>
-              <dd className={VALUE}>
-                {names(
-                  (card.capabilities.mcp ?? []).map((server) => server.server),
-                )}
-              </dd>
-              <dt className={TERM}>{t("agents.cards.credentials")}</dt>
-              <dd className={VALUE}>
-                {names(card.capabilities.credential_refs ?? [])}
-              </dd>
             </>
           ) : null}
         </dl>
@@ -434,7 +473,9 @@ export function CardSummary({ detail }: { readonly detail: AgentDetail }) {
               <h2 id={rawId} className={SECTION_TITLE}>
                 {t("agent.card.raw")}
               </h2>
-              <span className={META}>{t("agent.card.rawSub")}</span>
+              <span className={META}>
+                {live ? t("agent.card.rawSubActive") : t("agent.card.rawSub")}
+              </span>
             </div>
             <Button
               type="button"

@@ -14,6 +14,7 @@ import type {
 } from "@werft-ai/contracts";
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import { ACTOR_INACTIVE, NOT_FOUND } from "../musterrolle/service-errors.ts";
+import type { SlackWelcome } from "../musterrolle/slack-welcome.ts";
 import type { AgentStore } from "../ports/agent-store.ts";
 import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
 import {
@@ -72,6 +73,8 @@ export function createAgentService(deps: {
   store: AgentStore;
   catalog: SessionCatalog;
   credentials: Pick<CredentialBindingStore, "unboundRefs">;
+  /** The home channel's welcome; absent where Slack is not wired. */
+  welcome?: Pick<SlackWelcome, "activated">;
 }) {
   const { authorization, store, catalog, credentials } = deps;
 
@@ -317,6 +320,7 @@ export function createAgentService(deps: {
             receipt_id: null,
           };
         default:
+          await deps.welcome?.activated(caller.ownerId, agentId, release.id);
           return {
             active_release_id: release.id,
             previous_release_id: result.previousReleaseId,

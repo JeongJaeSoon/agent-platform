@@ -191,6 +191,8 @@ export function createFakeSlackWebApi(
     return ts;
   };
   const failures = new Map<string, string>();
+  /** The next call of a method answers exactly this, then it is forgotten. */
+  const nextAnswers = new Map<string, { status: number; body: unknown }>();
   let appCounter = 0;
   const conversations: FakeSlackListedChannel[] = [];
   const rateLimits = new Map<
@@ -236,6 +238,16 @@ export function createFakeSlackWebApi(
     );
     if (!app) throw new SlackError("invalid_auth");
     return app;
+  };
+
+  // A channel not seeded has the bot in it already: nothing to join.
+  const membershipOf = (context: Context, id: string) => {
+    const app = installedBot(context);
+    const listed = conversations.find((candidate) => candidate.id === id);
+    return {
+      is_member: listed ? listed.members.includes(app.appId) : true,
+      is_archived: listed?.isArchived ?? false,
+    };
   };
 
   const methods: Record<string, (context: Context) => object | null> = {
@@ -349,6 +361,14 @@ export function createFakeSlackWebApi(
       installedBot(context);
       const id = context.params.channel;
       if (!id) throw new SlackError("channel_not_found");
+      // Slack hides a private channel from a bot that is not in it.
+      const hidden = conversations.find((candidate) => candidate.id === id);
+      if (
+        hidden?.isPrivate &&
+        !hidden.members.includes(installedBot(context).appId)
+      ) {
+        throw new SlackError("channel_not_found");
+      }
       const channel = channels.get(id) ?? {
         isIm: id.startsWith("D"),
         isPrivate: id.startsWith("G"),
@@ -360,8 +380,23 @@ export function createFakeSlackWebApi(
           is_im: channel.isIm ?? false,
           is_private: channel.isPrivate ?? false,
           is_mpim: channel.isMpim ?? false,
+          ...membershipOf(context, id),
         },
       };
+    },
+
+    "conversations.join"(context) {
+      const app = installedBot(context);
+      const listed = conversations.find(
+        (candidate) => candidate.id === context.params.channel,
+      );
+      if (!listed) throw new SlackError("channel_not_found");
+      if (listed.isArchived) throw new SlackError("is_archived");
+      if (listed.isPrivate) {
+        throw new SlackError("method_not_supported_for_channel_type");
+      }
+      if (!listed.members.includes(app.appId)) listed.members.push(app.appId);
+      return { channel: { id: listed.id, is_member: true } };
     },
 
     // Posted, but the answer names no message: Slack holds it all the same.
@@ -665,6 +700,26 @@ export function createFakeSlackWebApi(
           })),
         });
       }
+      // For curl on the local stack: `/invite` of `app_id`'s bot. The
+      // member_joined_channel event is sent with /fake/events.
+      if (url.pathname === "/fake/invites" && request.method === "POST") {
+        const input = (await request.json().catch(() => null)) as {
+          app_id?: unknown;
+          channel_id?: unknown;
+        } | null;
+        const appId = input?.app_id;
+        const listed = conversations.find(
+          (candidate) => candidate.id === input?.channel_id,
+        );
+        if (typeof appId !== "string" || !apps.has(appId) || !listed) {
+          return Response.json(
+            { ok: false, error: "invalid_request" },
+            { status: 400 },
+          );
+        }
+        if (!listed.members.includes(appId)) listed.members.push(appId);
+        return Response.json({ ok: true, bot_user_id: `U${appId}BOT` });
+      }
       if (url.pathname === "/fake/statuses" && request.method === "GET") {
         return Response.json({ ok: true, statuses });
       }
@@ -687,6 +742,33 @@ export function createFakeSlackWebApi(
           );
         }
         missingTs.add(input.method);
+        return Response.json({ ok: true });
+      }
+      // For curl on the local stack: {method}'s next call answers `status`
+      // with `body`, as text when it is a string and as JSON otherwise.
+      if (url.pathname === "/fake/answers" && request.method === "POST") {
+        const input = (await request.json().catch(() => null)) as {
+          method?: unknown;
+          status?: unknown;
+          body?: unknown;
+        } | null;
+        if (
+          typeof input?.method !== "string" ||
+          !Object.hasOwn(methods, input.method) ||
+          !Number.isSafeInteger(input.status) ||
+          (input.status as number) < 200 ||
+          (input.status as number) > 599 ||
+          input.body === undefined
+        ) {
+          return Response.json(
+            { ok: false, error: "invalid_request" },
+            { status: 400 },
+          );
+        }
+        nextAnswers.set(input.method, {
+          status: input.status as number,
+          body: input.body,
+        });
         return Response.json({ ok: true });
       }
       if (url.pathname === "/fake/config-tokens" && request.method === "POST") {
@@ -757,6 +839,14 @@ export function createFakeSlackWebApi(
             headers: { "Retry-After": String(limited.retryAfterSeconds) },
           },
         );
+      }
+      const canned = nextAnswers.get(method);
+      if (canned) {
+        nextAnswers.delete(method);
+        calls.push({ method, ok: false, error: "fake_answer" });
+        return typeof canned.body === "string"
+          ? new Response(canned.body, { status: canned.status })
+          : Response.json(canned.body, { status: canned.status });
       }
       const authorization = request.headers.get("authorization");
       const context: Context = {

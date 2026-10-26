@@ -278,7 +278,14 @@ export const listMembersQuerySchema = paginationQuerySchema.extend({
   }),
 });
 /** Oldest membership first, user id breaking ties. */
-export const listMembersResponseSchema = pageSchema(memberRowSchema).strict();
+export const listMembersResponseSchema = pageSchema(memberRowSchema)
+  .extend({
+    assignable_roles: z.array(workspaceRoleSchema).meta({
+      description:
+        "The roles the caller may invite someone as now (POST /v1/invites refuses any other with OWNER_PROTECTED). The same on every page and search.",
+    }),
+  })
+  .strict();
 /** Newest first; at most INVITE_LIST_LIMIT. */
 export const listInvitesResponseSchema = z
   .object({ items: z.array(inviteSchema).max(INVITE_LIST_LIMIT) })

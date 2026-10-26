@@ -71,6 +71,19 @@ exports[`query keys 1`] = `
   "teams": [
     "teams",
   ],
+  "usageBreakdown": [
+    "usage-breakdown",
+    "me",
+    "2026-07-26",
+    null,
+    "model",
+  ],
+  "usageSeries": [
+    "usage-series",
+    "installation",
+    "2026-07-26",
+    "2026-10-24",
+  ],
   "viewer": [
     "me",
     "optional",
@@ -445,6 +458,56 @@ exports[`query options and the request each query makes 1`] = `
     "options": {
       "queryKey": [
         "teams",
+      ],
+      "retry": false,
+    },
+  },
+  "usageBreakdownQuery": {
+    "calls": [
+      [
+        "/v1/usage/breakdown",
+        {
+          "params": {
+            "query": {
+              "by": undefined,
+              "scope": "id-1",
+              "since": undefined,
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "usage-breakdown",
+        "id-1",
+        undefined,
+        null,
+        undefined,
+      ],
+      "retry": false,
+    },
+  },
+  "usageSeriesQuery": {
+    "calls": [
+      [
+        "/v1/usage/series",
+        {
+          "params": {
+            "query": {
+              "scope": "id-1",
+              "since": undefined,
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "usage-series",
+        "id-1",
+        undefined,
+        null,
       ],
       "retry": false,
     },

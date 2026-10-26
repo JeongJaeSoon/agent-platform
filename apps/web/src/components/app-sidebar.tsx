@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 import { waitingSessionsQuery } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
 import { Badge, cn } from "@werft-ai/ui";
@@ -9,6 +9,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Gauge,
   Globe,
   House,
   KeyRound,
@@ -44,8 +45,11 @@ type NavPath =
   | "/"
   | "/sessions"
   | "/agents"
+  | "/operations"
   | "/members"
   | "/settings/workspace"
+  | "/settings/workspace/slack"
+  | "/settings/workspace/api-keys"
   | "/settings/linked-accounts"
   | "/settings/api-keys"
   | "/settings/preferences";
@@ -60,6 +64,8 @@ export interface NavItem {
   readonly to: NavPath;
   readonly label: MessageKey;
   readonly icon: NavIcon;
+  /** The path prefix the item stands for when it is wider than `to`. */
+  readonly match?: string;
 }
 
 // Console v4 draws the rail with Lucide 0.468; Lucide has since redrawn these
@@ -116,6 +122,7 @@ export function useNavGroups(): readonly NavGroup[] {
         { to: "/", label: "nav.home", icon: House },
         { to: "/sessions", label: "nav.sessions", icon: ListIcon },
         { to: "/agents", label: "nav.agents", icon: Bot },
+        { to: "/operations", label: "nav.operations", icon: Gauge },
       ],
     },
     {
@@ -125,17 +132,50 @@ export function useNavGroups(): readonly NavGroup[] {
         // member.manage still sees the teams they are in there. The screen
         // and the server keep the rights.
         { to: "/members", label: "nav.members", icon: Users },
-        ...(showsWorkspaceSettings
-          ? [
-              {
-                to: "/settings/workspace",
-                label: "nav.workspace",
-                icon: SettingsIcon,
-              } as const,
-            ]
-          : []),
+        // Every settings page sits behind one item (V4-SETTINGS-LAYOUT A);
+        // the settings nav beside the page lists them.
+        {
+          to: showsWorkspaceSettings
+            ? "/settings/workspace"
+            : "/settings/linked-accounts",
+          match: "/settings",
+          label: "nav.settings",
+          icon: SettingsIcon,
+        },
       ],
     },
+  ];
+  return groups;
+}
+
+export function useSettingsNavGroups(): readonly NavGroup[] {
+  const workspaceManage = useHasPermission("workspace.manage");
+  const retentionManage = useHasPermission("audit_retention.manage");
+  const workspace: NavItem[] = [];
+  if (workspaceManage || retentionManage) {
+    workspace.push({
+      to: "/settings/workspace",
+      label: "workspace.general",
+      icon: SettingsIcon,
+    });
+  }
+  if (workspaceManage) {
+    workspace.push({
+      to: "/settings/workspace/slack",
+      label: "workspace.slack",
+      icon: SettingsIcon,
+    });
+  }
+  // The admin key's place is the workspace managers'; the server says who.
+  if (useHasPermission("api_key.manage")) {
+    workspace.push({
+      to: "/settings/workspace/api-keys",
+      label: "apiKeys.orgTitle",
+      icon: KeyRound,
+    });
+  }
+  const groups: NavGroup[] = [
+    { label: "shell.group.workspace", items: workspace },
     {
       label: "shell.group.personal",
       items: [
@@ -149,23 +189,28 @@ export function useNavGroups(): readonly NavGroup[] {
       ],
     },
   ];
-  return groups;
+  return groups.filter((group) => group.items.length > 0);
 }
 
 export function navItemFor(
   groups: readonly NavGroup[],
   pathname: string,
 ): { group: NavGroup; item: NavItem } | undefined {
+  // The deepest item wins: /settings/workspace/slack over /settings.
+  let found: { group: NavGroup; item: NavItem; base: string } | undefined;
   for (const group of groups) {
     for (const item of group.items) {
+      const base = item.match ?? item.to;
       const match =
-        item.to === "/"
+        base === "/"
           ? pathname === "/"
-          : pathname === item.to || pathname.startsWith(`${item.to}/`);
-      if (match) return { group, item };
+          : pathname === base || pathname.startsWith(`${base}/`);
+      if (match && base.length > (found?.base.length ?? -1)) {
+        found = { group, item, base };
+      }
     }
   }
-  return undefined;
+  return found && { group: found.group, item: found.item };
 }
 
 function useWaitingSessions() {
@@ -279,6 +324,9 @@ function NavSection({
 }) {
   const { t } = useI18n();
   const headingId = useId();
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
   if (group.items.length === 0) return null;
   return (
     // Not a list: the home checklist's items are the page's only list items.
@@ -298,6 +346,12 @@ function NavSection({
           key={item.to}
           to={item.to}
           activeOptions={{ exact: item.to === "/" }}
+          aria-current={
+            item.match !== undefined &&
+            (pathname === item.match || pathname.startsWith(`${item.match}/`))
+              ? "page"
+              : undefined
+          }
           onClick={onNavigate}
           // Console v4 `.nav`: text-2 at 500, the icon in the label's colour;
           // the current page darkens to text on `active`.
@@ -305,6 +359,7 @@ function NavSection({
             "flex h-8 items-center gap-2 rounded-control px-2 font-medium text-control text-muted-foreground no-underline",
             "hover:bg-sidebar-hover hover:text-foreground",
             "data-[status=active]:bg-sidebar-accent data-[status=active]:text-foreground",
+            "aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-foreground",
           )}
         >
           <item.icon

@@ -1,4 +1,4 @@
-import { cn, EmptyState, RowList, RowListItem } from "@werft-ai/ui";
+import { cn, EmptyState, RowList, RowListItem, Skeleton } from "@werft-ai/ui";
 import type { LucideIcon } from "lucide-react";
 import type { JSX } from "react";
 
@@ -14,8 +14,10 @@ const ICON: Record<UsageToolFindingKind, LucideIcon> = {
 };
 
 export interface FindingsProps {
-  /** GET /v1/usage/tools as it comes. */
-  readonly data: UsageToolsResponse;
+  /** GET /v1/usage/tools as it comes; undefined while read. */
+  readonly data: UsageToolsResponse | undefined;
+  /** Placeholder rows while `data` is read; the host says it is loading. */
+  readonly loadingRows?: number | undefined;
   readonly messages?: Partial<FindingsMessages> | undefined;
   readonly className?: string | undefined;
 }
@@ -26,10 +28,30 @@ export interface FindingsProps {
  */
 export function Findings({
   data,
+  loadingRows = 3,
   messages: override,
   className,
 }: FindingsProps): JSX.Element {
   const { messages, format } = useOperationsMessages("findings", override);
+  if (data === undefined) {
+    return (
+      <RowList variant="joined" aria-hidden="true" className={className}>
+        {Array.from({ length: loadingRows }, (_, row) => row).map((row) => (
+          <RowListItem key={row} className="min-h-16 flex-nowrap">
+            <Skeleton decorative shape="circle" className="size-6" />
+            <div className="min-w-0 flex-1">
+              <p className="m-0">
+                <Skeleton inline decorative width="60%" height="1lh" />
+              </p>
+              <p className="m-0 text-caption leading-4">
+                <Skeleton inline decorative width="40%" height="1lh" />
+              </p>
+            </div>
+          </RowListItem>
+        ))}
+      </RowList>
+    );
+  }
   const totalMs = data.tools.reduce((sum, tool) => sum + tool.total_ms, 0);
   const rows = data.findings.flatMap((finding) => {
     const tool = data.tools.find((row) => row.name === finding.name);
@@ -75,7 +97,10 @@ export function Findings({
             <div className="min-w-0">
               <p className="m-0">
                 {messages[finding.kind]}
-                <code className="font-mono text-control">{tool.name}</code>
+                {/* leading-none: the mono font's metrics would stretch the line once it loads. */}
+                <code className="font-mono text-control leading-none">
+                  {tool.name}
+                </code>
               </p>
               <p className="m-0 text-caption text-subtle-foreground leading-4">
                 {detail[finding.kind](tool)}

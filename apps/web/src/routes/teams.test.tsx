@@ -627,7 +627,7 @@ describe("에이전트 관리자", () => {
       ...teamServer().routes,
       [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, admins()),
     });
-    const picker = await screen.findByLabelText("관리자로 추가할 사람");
+    const picker = await screen.findByLabelText("관리자로 추가할 사람이나 팀");
     const memberReads = () =>
       api.calls.filter((c) => c.path === "/v1/members").length;
     expect(memberReads()).toBe(0);
@@ -666,6 +666,9 @@ describe("에이전트 관리자", () => {
       },
     });
     const user = await setupUser();
+    expect(
+      (await screen.findByText("Mate")).closest("li")?.textContent,
+    ).toContain("mate@example.com · 10/11부터 담당");
     await screen.findByRole("option", { name: "결제팀" });
     // The list's summaries name the admins, so a change marks it stale.
     services.queryClient.setQueryData(queryKeys.agents, {
@@ -673,10 +676,10 @@ describe("에이전트 관리자", () => {
       next_cursor: null,
     });
     await user.selectOptions(
-      screen.getByLabelText("관리자로 추가할 팀"),
-      TEAM_ID,
+      screen.getByLabelText("관리자로 추가할 사람이나 팀"),
+      `teams:${TEAM_ID}`,
     );
-    await user.click(screen.getByRole("button", { name: "팀 추가" }));
+    await user.click(screen.getByRole("button", { name: "관리자로 추가" }));
     expect((await screen.findByRole("status")).textContent).toBe(
       "결제팀을(를) 관리자로 추가했습니다.",
     );
@@ -853,12 +856,14 @@ describe("에이전트 관리자", () => {
     expect(
       await screen.findByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),
     ).toBeDefined();
-    const person = screen.getByRole("button", { name: "사람 추가" });
-    expect(person.hasAttribute("disabled")).toBe(true);
+    const person = screen.getByRole("button", { name: "관리자로 추가" });
+    expect(person.getAttribute("aria-disabled")).toBe("true");
     expect(
       document.getElementById(person.getAttribute("aria-describedby") ?? "")
         ?.textContent,
-    ).toBe("구성원 관리 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.");
+    ).toBe(
+      "구성원 관리 권한이 있어야 할 수 있습니다. 지금 역할: 구성원. 팀 관리 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.",
+    );
     // Neither list is asked for, so no refused decision is left behind.
     expect(
       api.calls.some((c) => c.path === "/v1/members" || c.path === "/v1/teams"),

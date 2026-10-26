@@ -51,6 +51,8 @@ Claude Code의 Bash 호출은 매번 새 셸이다. 그래서 `up.sh`가 run 디
 - Slack 비밀값(config token, 앱의 secret·bot token)은 master key가 있어야 저장된다. Slack 시나리오([musterrolle.md](features/musterrolle.md) c·g, [web-settings.md](features/web-settings.md) 4)는 run마다 `openssl rand -hex 32`로 만든 버리는 값을 `PLATFORM_SECRET_KEY`로 export하고 같은 Bash 호출에서 `up.sh`를 부른다(그 문서의 한 줄). 사람의 Keychain 항목은 읽지 않는다. 그 밖의 시나리오는 key 없이 띄우고, api 로그에 `Secret store is off` 경고 한 줄이 남은 채 ready다.
 - Orca 프로그램 안에서 돌면 무거운 작업 잠금으로 감싼다: `orch heavy <program> -- .claude/skills/verify-agent-platform/scripts/up.sh`. 내릴 때도 같다.
 - 하는 일: run 디렉터리와 `ports.yml`(postgres·localstack·gitea·api 포트를 `127.0.0.1::<port>` ephemeral로, secrets는 비공개, api에 이 run의 `BOOTSTRAP_TOKEN`)을 만들고 `COMPOSE_PROJECT_NAME=verify-ap-… EXECUTION_INSTALLATION_ID=… COMPOSE_FILE=compose.yaml:ports.yml LOCAL_DEMO_ACCOUNTS=0 scripts/local.sh up --fake-model`을 돌린다(데모 계정 없이: 기능 절차가 bootstrap부터 한다). 끝나면 `docker compose port api 3000`으로 API 주소를 `state.env`에 적고 run 디렉터리를 stdout에, `run id: …`를 stderr에 출력한다. run id는 시작할 때도 stderr에 한 번 나온다. **이 run id를 기록한다.** 이후 모든 단계와 내릴 때 이것을 넘긴다. 빌드가 중간에 실패해도 시작할 때 나온 run id로 `down.sh`를 돌린다.
+- worker 슬롯은 기본 3개, `VERIFY_DEMO_ACCOUNTS=1`이면 7개다. `up.sh`가 `state.env`에 `EXECUTION_SLOT_LIMIT`을 적어 scheduler가 그 수만큼만 worker를 띄운다. 데모 데이터는 worker를 쥔 채 끝나는 세션 6개(idle 2, 승인 뒤 idle 1, 권한 요청 1, 질문 1, 실행 중 1)에 terminate할 세션 하나를 더 몬다. 그보다 슬롯이 적으면 시드가 queued 세션을 기다리다 `timed out waiting for <session> to go idle`로 실패한다. 다른 값이 필요하면 `VERIFY_SLOT_LIMIT=5 up.sh`처럼 준다. 이 값이 언제나 우선한다(10000 미만의 양의 정수만). worker마다 `ap-net-*` 네트워크가 하나씩 생기므로 스택 하나가 쓰는 네트워크는 compose 기본 네트워크를 더해 최대 슬롯 + 1개다. 슬롯은 worker 컨테이너가 사라졌다고 scheduler가 확인할 때까지 풀리지 않는다(`slot_released_at`). 입력이 없는 worker도 `WORKER_IDLE_TIMEOUT_SEC`(1800초) 동안 슬롯을 쥔다. 그래서 세션이 슬롯보다 많으면 나머지는 queued로 기다리고, 앞 세션을 pause하거나 terminate하면 다음 pass에서 뜬다.
+- 주소 풀 확인: Docker 네트워크 하나가 기본 주소 풀에서 항목 하나를 가져간다. 풀은 머신마다 다르므로 `docker info --format '{{json .DefaultAddressPools}}'`로 본다(풀 하나의 항목 수는 2^(Size − base prefix)). 데몬이 풀을 보고하지 않으면 Docker 내장 기본값(172.17–31.0.0/16 각 1개, 192.168.0.0/16의 /20 16개)으로 센다. `up.sh`는 run 디렉터리를 만들기 전에 `scripts/address-pool.sh <슬롯 + 1>`로 남은 풀을 읽기만 해서 센다. 모자라면 아무것도 만들지 않고 exit 1이다. Docker를 읽지 못해도(daemon 무응답 등) 아무것도 만들지 않고 exit 1이며, 이때는 `check that Docker answers`라고 따로 안내한다. 부족 메시지는 `address-pool.sh: Docker's address pools are short: 7 free of 30, 41 needed` 다음에 쥐고 있는 풀 항목 수를 compose project(scheduler가 만든 네트워크는 installation id)별로 적는다(보통 네트워크 하나가 한 항목). 이때는 자기가 띄운 스택을 `down.sh`로 내리거나 `VERIFY_SLOT_LIMIT`를 줄인다. 남의 스택은 지우지 않는다. 확인과 실제 생성 사이에 다른 스택이 풀을 가져갈 수는 있다.
 - 준비 표시: stderr 끝에 `{"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}`. 로그는 `evidence/up.log`.
 - 이미지 태그도 run마다 따로 둔다(`agent-platform-*:verify-ap-…`, `tests/e2e/run.sh`와 같은 방식). 기본 `:dev` 태그를 덮어쓰면 다른 스택의 scheduler가 이 checkout의 worker를 띄우게 된다. `down.sh`가 이 태그만 지운다.
 - 시간: 첫 빌드는 5–10분. 이 checkout에서 이미지를 매번 다시 빌드한다. bash 도구의 timeout을 15분으로 주거나 background로 돌린다.
@@ -100,15 +102,17 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 
 ```sh
 .claude/skills/verify-agent-platform/scripts/down.sh <run id>
+.claude/skills/verify-agent-platform/scripts/down.sh <run id> --keep-volumes   # volume은 남긴다
 ```
 
 - run id는 필수다. 인자 없이, 또는 없는 run으로 부르면 사용법과 살아 있는 run 목록(run id, project, 실행 중인 컨테이너 수)을 stderr에 보이고 exit 2로 끝난다. 이때 compose는 하나도 부르지 않는다.
 
 - `scripts/local.sh down`을 같은 env로 돌린다(volume까지 지우고, installation label이 붙은 worker 컨테이너·네트워크·volume도 지운다).
 - 이어서 `--profile apps --profile fake-model`과 `-f compose.yaml -f ports.yml -f infra/compose.fake-model.yml`로 `down -v --remove-orphans --rmi local`(compose가 이름 붙인 `<project>-migrate` 이미지까지)을 한 번 더 한다. profile이나 fake-model overlay가 빠지면 api·scheduler·reconciler와 `fake-messages`, `<project>_default` 네트워크가 남는 일이 있었다.
-- 마지막에 `docker ps -a --filter label=com.docker.compose.project=<project>`와 installation label로 남은 컨테이너를 보여 주고 `evidence/leftovers.txt`에 쓴다. 남은 것이 있으면 exit 1.
+- 마지막에 `docker ps -a --filter label=com.docker.compose.project=<project>`와 installation label로 남은 컨테이너, 그리고 같은 두 label로 남은 네트워크를 보여 주고 `evidence/leftovers.txt`에 쓴다. 남은 것이 있으면 exit 1.
+- volume을 남기려면 `down.sh <run id> --keep-volumes`를 쓴다. `local.sh down --keep-volumes`와 `-v` 없는 두 번째 compose down을 돌려 컨테이너·네트워크(worker의 `ap-net-*` 포함)는 지우고 volume은 남긴다. `ports.yml`과 run 목록의 항목도 남으므로 나중에 `down.sh <run id>`로 volume까지 지운다. 스택을 `docker compose -p <project> down`으로 직접 내리지 않는다. scheduler가 만든 worker 컨테이너와 `ap-net-*` 네트워크는 compose label이 없어 그대로 남고, 네트워크마다 Docker 주소 풀 하나를 계속 쥔다.
 - 처음에 `browser/pid`가 있으면 `browser.mjs stop`으로 그 Chrome만 끝낸다.
-- 다 성공하면 `ports.yml`(token이 든 파일), cookie, `users/`·`keys/`를 지우고, `evidence/`는 남긴다. 정리 명령이나 남은 컨테이너 조회가 하나라도 실패하면(Docker daemon 응답 없음 등) `ports.yml`을 남기고 exit 1이다. Docker를 살린 뒤 `down.sh <run id>`를 다시 돌린다. 실패한 시도 뒤에도 매번 `down.sh`를 돌린다.
+- 다 성공하면 `ports.yml`(token이 든 파일), cookie, `users/`·`keys/`를 지우고, `evidence/`는 남긴다. 정리 명령이나 남은 컨테이너 조회가 하나라도 실패하면(Docker daemon 응답 없음 등) `ports.yml`을 남기고 exit 1이다. Docker를 살린 뒤 `down.sh <run id>`를 다시 돌린다. `--keep-volumes`로 내리던 중이었으면 그 옵션을 붙여 다시 돌린다(빼면 volume까지 지운다). 실패한 시도 뒤에도 매번 `down.sh`를 돌린다.
 - `lib.sh`와 `down.sh`는 run 상태(`state.env`, `verify-ap-*` project)를 읽지 못하면 아무 helper도 정의하지 않거나 아무것도 지우지 않고 멈춘다. 기본 project나 다른 세션의 run으로 넘어가지 않게 하려는 것이다.
 - 예전 판의 스킬은 공유 `latest` 파일을 따라가 인자 없는 `down.sh`가 다른 세션의 스택을 volume까지 지웠다. 지금 스크립트는 `latest`를 쓰지도 읽지도 않는다. root에 남은 `latest` 파일은 예전 판이 쓴 것이다.
 

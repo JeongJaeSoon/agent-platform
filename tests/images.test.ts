@@ -682,6 +682,7 @@ describe("compose layers", () => {
   const core = servicesOf(CORE);
   const LOCAL_DEPENDENCIES = [
     "localstack",
+    "local-s3-init",
     "secrets",
     "fake-messages",
     "gitea-init",
@@ -1089,13 +1090,23 @@ describe("compose layers", () => {
       }
       // Relative paths still resolve from infra/, as every overlay assumes.
       expect(services.api?.volumes?.[0]?.source).toBe(join(root, "config"));
-      // LocalStack keeps S3 in memory; a data volume only suggested otherwise.
+      // The local S3 server and its encryption seed survive container replacement.
       expect(Object.keys(model?.volumes ?? {}).sort()).toEqual([
         "gitea-data",
+        "local-s3-data",
         "postgres-data",
       ]);
-      expect(JSON.stringify(services.localstack?.volumes)).not.toContain(
-        "/var/lib/localstack",
+      expect(services.localstack?.volumes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ source: "local-s3-data", target: "/data" }),
+        ]),
+      );
+      expect(services.api?.depends_on?.["local-s3-init"]?.condition).toBe(
+        "service_completed_successfully",
+      );
+      // The backup helper reads the region from the object store container.
+      expect(services.localstack?.environment?.AWS_DEFAULT_REGION).toBe(
+        services.api?.environment?.AWS_REGION,
       );
     },
     COMPOSE_RENDER_TIMEOUT_MS,
@@ -1394,7 +1405,7 @@ describe("compose layers", () => {
   );
 
   test(
-    "the test-ops layers on localstack add the local stack's LocalStack and nothing else",
+    "the test-ops layers keep the independent volatile LocalStack and nothing else",
     () => {
       const required = Object.fromEntries(
         Object.entries(TEST_OPS_REQUIRED).filter(
@@ -1407,8 +1418,9 @@ describe("compose layers", () => {
       expect(Object.keys(services).sort()).toEqual(
         [...Object.keys(core), "localstack"].sort(),
       );
-      const local = localStack();
-      expect(services.localstack?.image).toBe(local.localstack?.image);
+      expect(services.localstack?.image).toBe(
+        "localstack/localstack:3@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7",
+      );
       expect(
         services.localstack?.ports?.map(
           (port) => `${port.host_ip}:${port.published}:${port.target}`,

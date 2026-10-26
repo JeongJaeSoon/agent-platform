@@ -3,6 +3,7 @@
   "description": "Developer docs site: Fumadocs on Next.js, exported as static files to the root of the GitHub Pages site",
   "version": "0.0.0",
   "private": true,
+  "license": "PolyForm-Small-Business-1.0.0",
   "type": "module",
   "scripts": {
     "dev": "next dev",

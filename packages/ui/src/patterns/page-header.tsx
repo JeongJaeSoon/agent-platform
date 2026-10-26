@@ -1,10 +1,15 @@
-import { type JSX, type ReactNode, useId } from "react";
+import { type JSX, type ReactNode, type Ref, useId } from "react";
 
 import { cn } from "../foundations/cn.ts";
 
 export interface PageHeaderProps {
   /** The page's one `h1`; match the sidebar and breadcrumb wording. */
   readonly title: ReactNode;
+  /**
+   * Beside the title on its line but outside the heading, such as a state
+   * tag, so the heading's name stays the page's name.
+   */
+  readonly titleAside?: ReactNode | undefined;
   /** One line on what the page is for; screen readers hear it with the title. */
   readonly description?: ReactNode | undefined;
   /**
@@ -14,9 +19,15 @@ export interface PageHeaderProps {
   readonly actions?: ReactNode | undefined;
   /**
    * A `PageBreadcrumb` on the line above the title, where another page's
-   * title starts; the way back to a list goes here, not in `actions`.
+   * title starts. A detail screen's way back to its list is a button at
+   * the end of `actions` instead (user decision 2026-10-25).
    */
   readonly breadcrumb?: ReactNode | undefined;
+  /**
+   * For a screen that hands focus to its title when the part of the page
+   * that held it goes away; the title then takes `tabIndex={-1}`.
+   */
+  readonly titleRef?: Ref<HTMLHeadingElement> | undefined;
   readonly className?: string | undefined;
 }
 
@@ -26,14 +37,26 @@ export interface PageHeaderProps {
  */
 export function PageHeader({
   title,
+  titleAside,
   description,
   actions,
   breadcrumb,
+  titleRef,
   className,
 }: PageHeaderProps): JSX.Element {
   const descriptionId = useId();
   const hasDescription =
     description !== undefined && description !== null && description !== "";
+  const heading = (
+    <h1
+      ref={titleRef}
+      tabIndex={titleRef ? -1 : undefined}
+      className="m-0 font-semibold text-foreground text-title"
+      aria-describedby={hasDescription ? descriptionId : undefined}
+    >
+      {title}
+    </h1>
+  );
   return (
     <header
       data-slot="page-header"
@@ -44,12 +67,14 @@ export function PageHeader({
     >
       <div className="flex min-w-0 flex-col gap-1">
         {breadcrumb}
-        <h1
-          className="m-0 font-semibold text-foreground text-title"
-          aria-describedby={hasDescription ? descriptionId : undefined}
-        >
-          {title}
-        </h1>
+        {titleAside ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+            {heading}
+            {titleAside}
+          </div>
+        ) : (
+          heading
+        )}
         {hasDescription ? (
           <p
             id={descriptionId}

@@ -3,6 +3,7 @@
   "description": "React adapter over @werft-ai/core: the provider that injects client, locale, messages and links, and hooks that wrap the core's query options, and the components that draw contracts types on @werft-ai/ui",
   "version": "0.0.0",
   "private": true,
+  "license": "PolyForm-Small-Business-1.0.0",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",

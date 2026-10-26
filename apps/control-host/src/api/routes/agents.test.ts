@@ -136,6 +136,7 @@ function store(overrides: Partial<AgentStore> = {}): AgentStore {
     get: async () => detail,
     findVersion: async () => detail.versions[0] ?? null,
     findRelease: async () => storedRelease(),
+    releaseSuperseded: async () => false,
     create: async () => ({ outcome: "created", detail }),
     update: async () => ({ outcome: "updated", detail }),
     insertRelease: async ({ release }) => ({

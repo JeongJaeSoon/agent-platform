@@ -19,15 +19,33 @@ export const SLACK_HTTP_TIMEOUT_MS = 10_000;
  * unreachable, timed out or answered something unreadable.
  */
 export class SlackApiError extends Error {
+  /** Null when no answer came. */
+  readonly httpStatus: number | null;
+  readonly failure: SlackCallFailure;
+
   constructor(
     readonly method: string,
     readonly code: string,
     readonly answered: boolean,
+    detail: { httpStatus?: number; failure?: SlackCallFailure } = {},
   ) {
     super(`${method}: ${code}`);
     this.name = "SlackApiError";
+    this.httpStatus = detail.httpStatus ?? null;
+    this.failure = detail.failure ?? "slack_error";
   }
 }
+
+/**
+ * How a Slack call failed: no answer, a non-JSON answer (`http_status`), an
+ * answer that does not parse, or Slack's own `error`.
+ */
+export type SlackCallFailure =
+  | "unreachable"
+  | "timeout"
+  | "http_status"
+  | "unexpected_answer"
+  | "slack_error";
 
 /** Used when a 429 carries no readable Retry-After. */
 const DEFAULT_RETRY_AFTER_SECONDS = 60;
@@ -38,7 +56,7 @@ export class SlackRateLimitedError extends SlackApiError {
     method: string,
     readonly retryAfterSeconds: number,
   ) {
-    super(method, "ratelimited", true);
+    super(method, "ratelimited", true, { httpStatus: 429 });
     this.name = "SlackRateLimitedError";
   }
 }
@@ -155,6 +173,18 @@ export type SlackApiOptions = {
   timeoutMs?: number;
 };
 
+/** `httpStatus` when the headers came and the body broke off. */
+function noAnswer(method: string, error: unknown, httpStatus?: number) {
+  const failure =
+    error instanceof Error && error.name === "TimeoutError"
+      ? "timeout"
+      : "unreachable";
+  return new SlackApiError(method, failure, false, {
+    failure,
+    ...(httpStatus === undefined ? {} : { httpStatus }),
+  });
+}
+
 function slackCaller(options?: SlackApiOptions) {
   const apiUrl = (options?.apiUrl ?? SLACK_API_URL).replace(/\/+$/, "");
   const fetchImpl = options?.fetch ?? fetch;
@@ -180,37 +210,49 @@ function slackCaller(options?: SlackApiOptions) {
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (error) {
-      throw new SlackApiError(
-        method,
-        error instanceof Error && error.name === "TimeoutError"
-          ? "timeout"
-          : "unreachable",
-        false,
-      );
+      throw noAnswer(method, error);
     }
     if (response.status === 429) {
       await response.body?.cancel();
       throw new SlackRateLimitedError(method, retryAfterOf(response));
     }
-    const body = (await response.json().catch(() => null)) as Record<
-      string,
-      unknown
-    > | null;
+    let text: string;
+    try {
+      text = await response.text();
+    } catch (error) {
+      throw noAnswer(method, error, response.status);
+    }
+    let body: Record<string, unknown> | null = null;
+    try {
+      body = JSON.parse(text);
+    } catch {}
     if (body === null || typeof body !== "object") {
-      throw new SlackApiError(method, `http_${response.status}`, false);
+      throw new SlackApiError(method, `http_${response.status}`, false, {
+        httpStatus: response.status,
+        failure: "http_status",
+      });
     }
     if (body.ok !== true) {
       // A 5xx with ok:false still leaves doubt about what Slack did.
       const answered = response.status < 500;
-      const code =
-        typeof body.error === "string" && ERROR_CODE.test(body.error)
-          ? body.error
-          : `http_${response.status}`;
-      throw new SlackApiError(method, code, answered);
+      const named =
+        typeof body.error === "string" && ERROR_CODE.test(body.error);
+      throw new SlackApiError(
+        method,
+        named ? (body.error as string) : `http_${response.status}`,
+        answered,
+        {
+          httpStatus: response.status,
+          failure: named ? "slack_error" : "http_status",
+        },
+      );
     }
     const parsed = schema.safeParse(body);
     if (!parsed.success) {
-      throw new SlackApiError(method, "unexpected_answer", false);
+      throw new SlackApiError(method, "unexpected_answer", false, {
+        httpStatus: response.status,
+        failure: "unexpected_answer",
+      });
     }
     return parsed.data;
   };
@@ -240,13 +282,7 @@ function slackSender(options?: SlackApiOptions) {
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (error) {
-      throw new SlackApiError(
-        method,
-        error instanceof Error && error.name === "TimeoutError"
-          ? "timeout"
-          : "unreachable",
-        false,
-      );
+      throw noAnswer(method, error);
     }
     // A body that breaks off mid-read is no body: the status and Retry-After
     // already came, and the caller judges what they leave known.
@@ -369,6 +405,12 @@ export type SlackChannelPage = {
   nextCursor: string | null;
 };
 
+export type SlackChannelMembership = {
+  kind: SurfaceChannelKind;
+  isMember: boolean;
+  isArchived: boolean;
+};
+
 /** The calls a bot token makes about the people and places it hears from. */
 export interface SlackBotApi {
   channelInfo?(
@@ -377,6 +419,13 @@ export interface SlackBotApi {
   ): Promise<{ id: string; name: string }>;
   /** `users.info`: the flags that tell a member from a guest or a stranger. */
   userInfo(botToken: string, userId: string): Promise<SlackUser>;
+  /** `conversations.info`, read for whether the bot is in the channel. */
+  channelMembership(
+    botToken: string,
+    channelId: string,
+  ): Promise<SlackChannelMembership>;
+  /** `conversations.join` (`channels:join`): public channels only. */
+  joinChannel(botToken: string, channelId: string): Promise<void>;
   /** `conversations.info`: what kind of place the channel is. */
   channelKind(botToken: string, channelId: string): Promise<SurfaceChannelKind>;
   /**
@@ -396,7 +445,8 @@ export interface SlackBotApi {
 /** What the outbox sends with a bot token. */
 export interface SlackBotSender {
   /**
-   * `chat.postMessage` into a thread, as Kollegium sends it: no
+   * `chat.postMessage` into a thread (the channel itself when `threadTs`
+   * is ""), as Kollegium sends it: no
    * `@name` linking, no unfurls. Answers what Slack said, whatever it was;
    * throws `SlackApiError` only when no answer came.
    */
@@ -439,6 +489,8 @@ const conversationInfoAnswer = z.object({
     is_im: z.boolean().optional(),
     is_mpim: z.boolean().optional(),
     is_private: z.boolean().optional(),
+    is_member: z.boolean().optional(),
+    is_archived: z.boolean().optional(),
   }),
 });
 
@@ -509,6 +561,31 @@ export function createSlackBotApi(
         : "public_channel";
     },
 
+    async channelMembership(botToken, channelId) {
+      const { channel } = await call(
+        "conversations.info",
+        { token: botToken, body: new URLSearchParams({ channel: channelId }) },
+        conversationInfoAnswer,
+      );
+      return {
+        kind: channel.is_im
+          ? "dm"
+          : channel.is_private || channel.is_mpim
+            ? "private_channel"
+            : "public_channel",
+        isMember: channel.is_member ?? false,
+        isArchived: channel.is_archived ?? false,
+      };
+    },
+
+    async joinChannel(botToken, channelId) {
+      await call(
+        "conversations.join",
+        { token: botToken, body: new URLSearchParams({ channel: channelId }) },
+        z.object({}),
+      );
+    },
+
     async listChannels(botToken, cursor) {
       const answer = await call(
         "conversations.list",
@@ -554,7 +631,7 @@ export function createSlackBotApi(
     postMessage(botToken, input) {
       return send("chat.postMessage", botToken, {
         channel: input.channelId,
-        thread_ts: input.threadTs,
+        ...(input.threadTs === "" ? {} : { thread_ts: input.threadTs }),
         text: input.text,
         link_names: false,
         unfurl_links: false,

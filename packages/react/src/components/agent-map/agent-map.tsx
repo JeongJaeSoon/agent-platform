@@ -1,7 +1,7 @@
 import { Button, Card, Skeleton } from "@werft-ai/ui";
-import type { JSX } from "react";
+import { type JSX, type RefObject, useEffect, useRef } from "react";
 
-import { LaneBoard } from "./lane-board.tsx";
+import { ApprovalStripStandIn, LaneBoard } from "./lane-board.tsx";
 import type { AgentMapMessages } from "./messages.ts";
 import { RelationPanel } from "./relation-panel.tsx";
 import type { MapNode, MapSession } from "./types.ts";
@@ -17,20 +17,27 @@ export interface AgentMapProps {
   } | null;
   readonly onSelect: (id: string) => void;
   /**
-   * Below md the board and the panel take turns: "detail" shows the panel
-   * with a way back. From md up both always show.
+   * Below xl the board and the panel take turns: "detail" shows the panel
+   * with a way back. From xl up both always show: below it the console's
+   * sidebar leaves too little beside the board for the relation graph.
    */
   readonly view?: "board" | "detail" | undefined;
   readonly onBack?: (() => void) | undefined;
+  /** Where the way back puts focus when the card just read is gone. */
+  readonly listTitle?: RefObject<HTMLElement | null> | undefined;
   readonly onExpandDone?: (() => void) | undefined;
   /** The list has not arrived: the board and panel keep their places. */
   readonly loading?: boolean | undefined;
+  /**
+   * While loading, the open requests known from elsewhere (the sidebar's
+   * count), so the strip that arrives with the list does not push the lanes.
+   */
+  readonly waiting?: number | undefined;
   readonly now?: number | undefined;
   readonly messages?: Partial<AgentMapMessages> | undefined;
 }
 
-const COLUMNS =
-  "grid items-start gap-6 md:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[360px_minmax(0,1fr)]";
+const COLUMNS = "grid items-start gap-6 xl:grid-cols-[360px_minmax(0,1fr)]";
 
 /** The board of status lanes beside the selected session's relations. */
 export function AgentMap({
@@ -40,17 +47,50 @@ export function AgentMap({
   onSelect,
   view = "board",
   onBack,
+  listTitle,
   onExpandDone,
   loading = false,
+  waiting = 0,
   now,
   messages: override,
 }: AgentMapProps): JSX.Element {
   const messages = useAgentMapMessages(override);
   const detail = view === "detail";
-  if (loading) return <AgentMapLoading detail={detail} messages={messages} />;
+  const board = useRef<HTMLDivElement>(null);
+  const back = useRef<HTMLButtonElement>(null);
+  const title = useRef<HTMLHeadingElement>(null);
+  const shown = useRef(detail);
+  // Set on the way in, cleared once the title is there to take focus: a
+  // panel still loading, or with no session yet, gets it when it arrives.
+  const entering = useRef(false);
+  const ready = !loading && selected !== null;
+  // Taking turns, the part that held focus goes away with its turn: the
+  // panel's title takes it on the way in, the card just read on the way back.
+  // From xl up both parts stay and focus stays where it is.
+  useEffect(() => {
+    if (shown.current !== detail) {
+      shown.current = detail;
+      entering.current = detail;
+      if (!detail) {
+        (
+          board.current?.querySelector<HTMLElement>("[aria-pressed='true']") ??
+          listTitle?.current
+        )?.focus();
+        return;
+      }
+    }
+    if (!entering.current || !ready) return;
+    entering.current = false;
+    const way = back.current;
+    if (way && getComputedStyle(way).display !== "none") title.current?.focus();
+  }, [detail, ready, listTitle]);
+  if (loading)
+    return (
+      <AgentMapLoading detail={detail} waiting={waiting} messages={messages} />
+    );
   return (
     <div className={COLUMNS}>
-      <div className={detail ? "hidden md:block" : undefined}>
+      <div ref={board} className={detail ? "hidden xl:block" : undefined}>
         <LaneBoard
           sessions={sessions}
           doneCount={doneCount}
@@ -62,14 +102,15 @@ export function AgentMap({
         />
       </div>
       <div
-        className={`flex flex-col gap-3 md:sticky md:top-4 ${detail ? "" : "hidden md:flex"}`}
+        className={`flex flex-col gap-3 xl:sticky xl:top-4 ${detail ? "" : "hidden xl:flex"}`}
       >
         {detail ? (
           <Button
+            ref={back}
             type="button"
             variant="ghost"
             size="sm"
-            className="self-start md:hidden"
+            className="self-start xl:hidden"
             onClick={onBack}
           >
             {messages.back}
@@ -81,6 +122,7 @@ export function AgentMap({
             nodes={selected.nodes}
             now={now}
             messages={messages}
+            titleRef={title}
           />
         ) : null}
       </div>
@@ -102,9 +144,11 @@ const CARD_ROWS = [
 
 function AgentMapLoading({
   detail,
+  waiting,
   messages,
 }: {
   readonly detail: boolean;
+  readonly waiting: number;
   readonly messages: AgentMapMessages;
 }): JSX.Element {
   return (
@@ -113,8 +157,9 @@ function AgentMapLoading({
       <div
         aria-hidden="true"
         data-stand-in="board"
-        className={`min-w-0 flex-col gap-4 ${detail ? "hidden md:flex" : "flex"}`}
+        className={`min-w-0 flex-col gap-4 ${detail ? "hidden xl:flex" : "flex"}`}
       >
+        <ApprovalStripStandIn rows={waiting} />
         {(["attention", "running", "queued", "idle"] as const).map((lane) => (
           <section key={lane} className="flex flex-col gap-2">
             <h2 className="m-0 text-control font-semibold">
@@ -128,6 +173,8 @@ function AgentMapLoading({
                   height={height}
                   width={width}
                   label=""
+                  // A block bar's 4rem floor would spill out of the card.
+                  className="[&>span]:min-h-0"
                 />
               ))}
             </div>
@@ -137,7 +184,7 @@ function AgentMapLoading({
       <Card
         aria-hidden="true"
         data-stand-in="panel"
-        className={`min-w-0 gap-4 p-4 ${detail ? "flex" : "hidden md:flex"}`}
+        className={`min-w-0 gap-4 p-4 ${detail ? "flex" : "hidden xl:flex"}`}
       >
         <Skeleton width="45%" label="" />
         <Skeleton width="60%" label="" />

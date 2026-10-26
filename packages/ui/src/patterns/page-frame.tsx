@@ -45,6 +45,8 @@ export type PageProps = Omit<PageHeaderProps, "className"> & {
    * or settings column; the page and its head keep the frame's width.
    */
   readonly width?: "full" | "form" | undefined;
+  /** Layout for the header row, such as stacking the actions when narrow. */
+  readonly headClassName?: string | undefined;
 };
 
 /**
@@ -55,11 +57,12 @@ export type PageProps = Omit<PageHeaderProps, "className"> & {
 export function Page({
   children,
   width = "full",
+  headClassName,
   ...header
 }: PageProps): JSX.Element {
   return (
     <div data-slot="page" className="flex flex-col">
-      <PageHeader {...header} />
+      <PageHeader {...header} className={headClassName} />
       <div
         data-width={width}
         className={cn(

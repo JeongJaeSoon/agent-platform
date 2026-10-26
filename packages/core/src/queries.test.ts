@@ -29,6 +29,17 @@ test("query keys", () => {
     session: queries.queryKeys.session("id-1"),
     sessionUsage: queries.queryKeys.sessionUsage("id-1"),
     pendingRequests: queries.queryKeys.pendingRequests("id-1"),
+    usageSeries: queries.queryKeys.usageSeries(
+      "installation",
+      "2026-07-26",
+      "2026-10-24",
+    ),
+    usageBreakdown: queries.queryKeys.usageBreakdown(
+      "me",
+      "2026-07-26",
+      null,
+      "model",
+    ),
   }).toMatchSnapshot();
 });
 
@@ -37,7 +48,7 @@ test("query options and the request each query makes", async () => {
     (entry): entry is [string, (client: ApiClient, id: string) => object] =>
       typeof entry[1] === "function" && entry[0].endsWith("Query"),
   );
-  expect(factories.length).toBe(22);
+  expect(factories.length).toBe(24);
   const out: Record<string, unknown> = {};
   for (const [name, factory] of factories.sort(([a], [b]) =>
     a.localeCompare(b),
@@ -67,11 +78,24 @@ test("the session list asks for the next page by the last page's cursor", async 
 test("the member list reads every page, 100 at a time, and hands back all of them", async () => {
   const pages: Record<
     string,
-    { items: { user_id: string }[]; next_cursor: string | null }
+    {
+      items: { user_id: string }[];
+      next_cursor: string | null;
+      assignable_roles: string[];
+    }
   > = {
-    first: { items: [{ user_id: "a" }, { user_id: "b" }], next_cursor: "c2" },
-    c2: { items: [{ user_id: "c" }], next_cursor: "c3" },
-    c3: { items: [], next_cursor: null },
+    first: {
+      items: [{ user_id: "a" }, { user_id: "b" }],
+      next_cursor: "c2",
+      assignable_roles: ["owner", "admin", "member"],
+    },
+    c2: {
+      items: [{ user_id: "c" }],
+      next_cursor: "c3",
+      assignable_roles: ["owner", "admin", "member"],
+    },
+    // The role changed while the pages were read: the last word holds.
+    c3: { items: [], next_cursor: null, assignable_roles: ["admin", "member"] },
   };
   const calls: unknown[] = [];
   const client = {
@@ -87,6 +111,7 @@ test("the member list reads every page, 100 at a time, and hands back all of the
   ).toEqual({
     items: [{ user_id: "a" }, { user_id: "b" }, { user_id: "c" }],
     next_cursor: null,
+    assignable_roles: ["admin", "member"],
   });
   expect(calls).toEqual([
     { limit: 100 },
@@ -109,7 +134,7 @@ test("a member page asks the server for one page, the search going with it", asy
   ]);
   expect(all.queryKey as unknown).toEqual(["members", "pages", { q: null }]);
   expect(found.queryKey as unknown).toEqual(["members", "pages", { q: "kim" }]);
-  const page = { items: [], next_cursor: "cursor-3" };
+  const page = { items: [], next_cursor: "cursor-3", assignable_roles: [] };
   expect(found.getNextPageParam(page, [page], null, [null])).toBe("cursor-3");
 });
 

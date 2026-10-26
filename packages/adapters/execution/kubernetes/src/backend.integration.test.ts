@@ -108,6 +108,35 @@ suite("KubernetesBackend on a real API server", () => {
   );
 
   test(
+    "a failed worker reports its exit, reason and log tail",
+    async () => {
+      const failing = new KubernetesBackend(
+        {
+          ...testConfig(namespace, installationId),
+          command: ["sh", "-c", "echo booting; echo fatal: boom; exit 3"],
+        },
+        client,
+        testResolver,
+      );
+      const { intent } = intentFor();
+      await failing.ensureExecution(intent);
+      const deadline = Date.now() + TIMEOUT / 2;
+      let observed = await failing.inspect(intent);
+      while (observed.state !== "terminated") {
+        if (Date.now() > deadline) throw new Error("never terminated");
+        await Bun.sleep(250);
+        observed = await failing.inspect(intent);
+      }
+      expect(observed).toMatchObject({
+        exitCode: 3,
+        logTail: "booting\nfatal: boom\n",
+        terminationReason: "Error",
+      });
+    },
+    TIMEOUT,
+  );
+
+  test(
     "terminating one generation leaves the next generation's Pod untouched",
     async () => {
       const { intent } = intentFor();

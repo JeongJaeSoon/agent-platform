@@ -3,6 +3,7 @@
   "description": "Werft TypeScript SDK for servers and scripts: sessions, turns, events, approvals and push over an API key",
   "version": "0.1.0",
   "private": true,
+  "license": "PolyForm-Small-Business-1.0.0",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"

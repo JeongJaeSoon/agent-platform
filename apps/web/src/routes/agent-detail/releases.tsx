@@ -11,7 +11,14 @@ import {
   Alert,
   Badge,
   Button,
-  cn,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
   EmptyState,
   Field,
   FieldDescription,
@@ -19,24 +26,22 @@ import {
   formatTimestamp,
   NativeSelect,
   NativeSelectOption,
-  RowLines,
-  RowList,
-  RowListItem,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@werft-ai/ui";
-import { type FormEvent, type ReactNode, useId, useState } from "react";
-import { profilesQuery, queryKeys } from "../../api/queries.ts";
-import { useRole } from "../../auth/guard.tsx";
+import { Plus } from "lucide-react";
+import { type FormEvent, type ReactNode, useId, useRef, useState } from "react";
+import { membersQuery, profilesQuery, queryKeys } from "../../api/queries.ts";
+import { useHasPermission, useRole } from "../../auth/guard.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
 import { errorKey, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
-import {
-  FORM_INLINE,
-  MUTED,
-  PRIMARY,
-  SECONDARY,
-  SECTION,
-  SECTION_TITLE,
-} from "./classes.ts";
+import { MUTED, SECTION, SECTION_TITLE } from "./classes.ts";
 import { latestVersion, VersionSelect } from "./versions.tsx";
 
 export function Releases({
@@ -48,6 +53,7 @@ export function Releases({
   onOutcome,
   activating,
   onActivate,
+  shown,
 }: {
   readonly detail: AgentDetail;
   /** The version to release; null offers the latest. */
@@ -59,6 +65,8 @@ export function Releases({
   readonly onOutcome: (outcome: Outcome | null) => void;
   readonly activating: string | undefined;
   readonly onActivate: (release: AgentRelease) => void;
+  /** Whether the tab is open; every tab stays mounted. */
+  readonly shown: boolean;
 }) {
   const { t, locale } = useI18n();
   const { client } = useAgentPlatform();
@@ -78,6 +86,18 @@ export function Releases({
   const profile = items.some((item) => item.id === chosen)
     ? chosen
     : ((items.find((item) => item.model === cardModel) ?? items[0])?.id ?? "");
+  const [open, setOpen] = useState(false);
+  const submitted = useRef(false);
+  // Only roles that list members get names; anyone else reads "a member".
+  // Read when the tab opens, not with every visit to the agent.
+  const listsMembers = useHasPermission("member.manage");
+  const members = useQuery({
+    ...membersQuery(client),
+    enabled: listsMembers && shown,
+  });
+  const names = new Map(
+    (members.data?.items ?? []).map((m) => [m.user_id, m.display_name]),
+  );
   const ordered = [...detail.releases].sort((a, b) =>
     b.created_at.localeCompare(a.created_at),
   );
@@ -115,118 +135,195 @@ export function Releases({
       onOutcome({ kind: "error", text: agentRefusal(t, error, role) }),
   });
 
+  // The dialog closes before the request: the result shows under the
+  // table, where focus goes, and a late answer cannot close a dialog
+  // opened after it.
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    submitted.current = true;
+    setOpen(false);
     release.mutate();
   };
 
   return (
     <section className={SECTION} aria-labelledby={titleId}>
-      <h2 id={titleId} className={SECTION_TITLE}>
-        {t("agent.releases.title")}
-      </h2>
-      <p className={MUTED}>{t("agent.releases.intro")}</p>
-      <form className="flex flex-col items-start gap-3" onSubmit={submit}>
-        <div className={FORM_INLINE}>
-          <VersionSelect
-            label={t("agent.releases.version")}
-            versions={[...detail.versions].sort(
-              (a, b) => b.version_no - a.version_no,
-            )}
-            value={versionId}
-            onChange={onPick}
-          />
-          {profiles.isPending ? (
-            <p className={MUTED}>{t("agent.releases.profilesLoading")}</p>
-          ) : profiles.error ? (
-            <p className="m-0 text-destructive text-sm" role="alert">
-              {t("agent.releases.profilesFailed", {
-                reason: t(errorKey((profiles.error as ApiError).code)),
-              })}
-            </p>
-          ) : (
-            <ProfileSelect
-              label={t("agent.releases.profile")}
-              hint={t("agent.releases.profileHint")}
-              profiles={items}
-              cardModel={cardModel}
-              value={profile}
-              onChange={setProfile}
-            />
-          )}
-        </div>
-        {mismatch ? (
-          <Alert asChild variant="amber">
-            <output>
-              {t("agent.releases.modelMismatch", {
-                card: cardModel,
-                profile: profileModel,
-              })}
-            </output>
-          </Alert>
-        ) : null}
-        <Button
-          type="submit"
-          variant="outline"
-          disabled={release.isPending || versionId === "" || profile === ""}
-        >
-          {release.isPending
-            ? t("agent.releases.creating")
-            : t("agent.releases.create")}
-        </Button>
-      </form>
+      <div className="flex min-h-7 flex-wrap items-center justify-between gap-3">
+        <h2 id={titleId} className={SECTION_TITLE}>
+          {t("agent.releases.title")}
+        </h2>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={release.isPending}
+            >
+              <Plus aria-hidden="true" />
+              {release.isPending
+                ? t("agent.releases.creating")
+                : t("agent.releases.new")}
+            </Button>
+          </DialogTrigger>
+          <DialogContent
+            className="sm:max-w-[32.5rem]"
+            // The result line below the table takes the keyboard instead.
+            onCloseAutoFocus={(event) => {
+              if (submitted.current) event.preventDefault();
+              submitted.current = false;
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{t("agent.releases.new")}</DialogTitle>
+              <DialogDescription>{t("agent.releases.intro")}</DialogDescription>
+            </DialogHeader>
+            <form className="flex flex-col gap-4" onSubmit={submit}>
+              <VersionSelect
+                label={t("agent.releases.version")}
+                versions={[...detail.versions].sort(
+                  (a, b) => b.version_no - a.version_no,
+                )}
+                value={versionId}
+                onChange={onPick}
+              />
+              {profiles.isPending ? (
+                <p className={MUTED}>{t("agent.releases.profilesLoading")}</p>
+              ) : profiles.error ? (
+                <p className="m-0 text-destructive text-sm" role="alert">
+                  {t("agent.releases.profilesFailed", {
+                    reason: t(errorKey((profiles.error as ApiError).code)),
+                  })}
+                </p>
+              ) : (
+                <ProfileSelect
+                  label={t("agent.releases.profile")}
+                  hint={t("agent.releases.profileHint")}
+                  profiles={items}
+                  cardModel={cardModel}
+                  value={profile}
+                  onChange={setProfile}
+                />
+              )}
+              {mismatch ? (
+                <Alert asChild variant="amber">
+                  <output>
+                    {t("agent.releases.modelMismatch", {
+                      card: cardModel,
+                      profile: profileModel,
+                    })}
+                  </output>
+                </Alert>
+              ) : null}
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button type="button" variant="outline">
+                    {t("common.cancel")}
+                  </Button>
+                </DialogClose>
+                <Button
+                  type="submit"
+                  disabled={
+                    release.isPending || versionId === "" || profile === ""
+                  }
+                >
+                  {release.isPending
+                    ? t("agent.releases.creating")
+                    : t("agent.releases.create")}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
       {result}
       {ordered.length === 0 ? (
-        <EmptyState title={t("agent.releases.empty")} />
+        <EmptyState
+          title={t("agent.releases.empty")}
+          description={t("agent.releases.emptyBody")}
+        />
       ) : (
-        <RowList>
-          {ordered.map((item) => {
-            const active = item.id === detail.agent.active_release_id;
-            const label = t("agent.releaseLabel", {
-              version: versionNo(item.version_id) ?? "?",
-              profile: item.runtime_profile_id,
-            });
-            return (
-              <RowListItem
-                key={item.id}
-                className={cn(
-                  active && "border-[var(--ap-tone-positive-border)]",
-                )}
-                data-active={active}
-              >
-                <RowLines>
-                  <span className={PRIMARY}>{label}</span>
-                  <span className={SECONDARY}>
-                    {formatTimestamp(item.created_at, locale)} ·{" "}
-                    {item.approved_at
-                      ? t("agent.releases.approved", {
-                          at: formatTimestamp(item.approved_at, locale),
-                        })
-                      : t("agent.releases.notApproved")}
+        <TableContainer label={t("agent.releases.title")}>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead variant="nowrap">
+                  {t("agent.releases.colVersion")}
+                </TableHead>
+                <TableHead variant="nowrap">
+                  {t("agent.releases.colStatus")}
+                </TableHead>
+                <TableHead>{t("agent.releases.profile")}</TableHead>
+                <TableHead className="whitespace-nowrap">
+                  {t("agent.releases.colBy")}
+                </TableHead>
+                <TableHead variant="nowrap">
+                  {t("agent.releases.colAt")}
+                </TableHead>
+                <TableHead variant="actions">
+                  <span className="sr-only">
+                    {t("agent.releases.colActions")}
                   </span>
-                </RowLines>
-                {active ? (
-                  <Badge variant="green">{t("agent.releases.active")}</Badge>
-                ) : (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={activating !== undefined}
-                    aria-label={t("agent.releases.activateFor", {
-                      release: label,
-                    })}
-                    onClick={() => onActivate(item)}
-                  >
-                    {activating === item.id
-                      ? t("agent.releases.activating")
-                      : t("agent.releases.activate")}
-                  </Button>
-                )}
-              </RowListItem>
-            );
-          })}
-        </RowList>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {ordered.map((item) => {
+                const active = item.id === detail.agent.active_release_id;
+                const label = t("agent.releaseLabel", {
+                  version: versionNo(item.version_id) ?? "?",
+                  profile: item.runtime_profile_id,
+                });
+                return (
+                  <TableRow key={item.id} data-active={active}>
+                    <TableCell variant="nowrap" className="font-medium">
+                      {t("agent.versionShort", {
+                        version: versionNo(item.version_id) ?? "?",
+                      })}
+                    </TableCell>
+                    <TableCell variant="nowrap">
+                      <Badge variant={active ? "green" : "gray"}>
+                        {active
+                          ? t("agent.releases.active")
+                          : item.approved_at
+                            ? t("agent.releases.previous")
+                            : t("agent.releases.never")}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="font-mono text-caption">
+                      {item.runtime_profile_id}
+                    </TableCell>
+                    <TableCell>
+                      {(item.created_by
+                        ? names.get(item.created_by)
+                        : undefined) ?? t("agent.releases.byMember")}
+                    </TableCell>
+                    <TableCell variant="nowrap" className="tabular-nums">
+                      {formatTimestamp(item.created_at, locale)}
+                    </TableCell>
+                    <TableCell variant="actions">
+                      {active ? null : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={activating !== undefined}
+                          aria-label={t("agent.releases.activateFor", {
+                            release: label,
+                          })}
+                          onClick={() => onActivate(item)}
+                        >
+                          {activating === item.id
+                            ? t("agent.releases.activating")
+                            : t("agent.releases.activate")}
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </TableContainer>
       )}
     </section>
   );

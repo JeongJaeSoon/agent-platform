@@ -2,6 +2,7 @@ import { type ApiError, isApiError } from "@werft-ai/client";
 import type {
   AuthMeResponse,
   AuthorizationAction,
+  ListMembersResponse,
   MemberActions,
   MemberRow,
   MemberVerdict,
@@ -9,7 +10,6 @@ import type {
   WorkspaceRole,
 } from "@werft-ai/contracts";
 import { useMe as useMeQuery } from "@werft-ai/react";
-import { type ButtonHTMLAttributes, useId } from "react";
 import {
   errorKey,
   isMessageKey,
@@ -24,24 +24,15 @@ export const WORKSPACE_ROLE_VALUES: readonly WorkspaceRole[] = [
   "member",
 ];
 
-const BELOW_OWNER = WORKSPACE_ROLE_VALUES.filter((value) => value !== "owner");
-
-/**
- * The roles the signed-in user may invite someone as. packages/db/src/invites.ts
- * refuses owner from anyone but an owner (owner_protected); a role change
- * reads the member row's own verdicts instead.
- */
-export function useGrantableRoles(): readonly WorkspaceRole[] {
-  return useRole() === "owner" ? WORKSPACE_ROLE_VALUES : BELOW_OWNER;
-}
-
 const OFFERED: MemberVerdict = { allowed: true };
 
-/**
- * What the member list offers on a row. An API older than the field leaves
- * it out, and production hands such an answer on (validate "warn"): offer
- * everything and let the server's refusal speak, rather than fail the screen.
+/*
+ * What the member list offers. An API older than a field leaves it out, and
+ * production hands such an answer on (validate "warn"): offer everything and
+ * let the server's refusal speak, rather than fail the screen or lock it.
  */
+
+/** What may be done to the member on a row. */
 export function offeredActions(member: MemberRow): MemberActions {
   return (
     member.actions ?? {
@@ -50,6 +41,17 @@ export function offeredActions(member: MemberRow): MemberActions {
       enable: OFFERED,
     }
   );
+}
+
+/**
+ * The roles an invite may carry; POST /v1/invites refuses any other. An API
+ * older than the field leaves it out: offer every role and let the server's
+ * refusal speak, rather than lock the owner out too.
+ */
+export function offeredInviteRoles(
+  page: Pick<ListMembersResponse, "assignable_roles"> | undefined,
+): readonly WorkspaceRole[] {
+  return page?.assignable_roles ?? WORKSPACE_ROLE_VALUES;
 }
 
 /** The signed-in principal; screens under the authenticated layout only. */
@@ -78,63 +80,6 @@ export function useHasPermission(action: AuthorizationAction): boolean {
 
 export function useCan(scope: SessionScope): boolean {
   return useMe()?.scopes.includes(scope) ?? false;
-}
-
-export interface GuardedButtonProps
-  extends ButtonHTMLAttributes<HTMLButtonElement> {
-  readonly scope: SessionScope;
-}
-
-/** A button that stays visible but disabled, saying why, without the scope. */
-export function GuardedButton({ scope, ...rest }: GuardedButtonProps) {
-  const allowed = useCan(scope);
-  const { t } = useI18n();
-  return (
-    <ReasonButton
-      {...rest}
-      reason={allowed ? undefined : t("guard.missingScope", { scope })}
-    />
-  );
-}
-
-export interface ReasonButtonProps
-  extends ButtonHTMLAttributes<HTMLButtonElement> {
-  /** Why the action is unavailable; the button is disabled while it is set. */
-  readonly reason: string | undefined;
-}
-
-/**
- * The shape every withheld action takes: still on the page, disabled, and
- * described by the reason so a screen reader hears why.
- */
-export function ReasonButton({
-  reason,
-  disabled,
-  className = "ap-button",
-  children,
-  ...rest
-}: ReasonButtonProps) {
-  const reasonId = useId();
-  return (
-    <span className="web-guarded">
-      <button
-        type="button"
-        {...rest}
-        className={className}
-        disabled={disabled || reason !== undefined}
-        aria-describedby={
-          reason === undefined ? rest["aria-describedby"] : reasonId
-        }
-      >
-        {children}
-      </button>
-      {reason === undefined ? null : (
-        <span id={reasonId} className="web-guarded__reason">
-          {reason}
-        </span>
-      )}
-    </span>
-  );
 }
 
 /**

@@ -2,13 +2,15 @@ import {
   createRootRouteWithContext,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   type RouterHistory,
   redirect,
 } from "@tanstack/react-router";
 import { isApiError } from "@werft-ai/client";
-import { meQuery } from "./api/queries.ts";
+import { meQuery, viewerQuery } from "./api/queries.ts";
 import { Main } from "./components/main.tsx";
 import { StatusScreen } from "./components/status-screen.tsx";
+import { slackInstallSearch } from "./routes/agent-detail/slack-install-search.ts";
 import {
   AgentDetailScreen,
   type AgentSearch,
@@ -37,12 +39,23 @@ import {
   type SlackLinkSearch,
   slackLinkSearch,
 } from "./routes/linked-accounts.tsx";
-import { LoginScreen, type LoginSearch, loginSearch } from "./routes/login.tsx";
+import {
+  LoginScreen,
+  type LoginSearch,
+  loginSearch,
+  safeRedirect,
+} from "./routes/login.tsx";
 import {
   InvitesScreen,
   MembersLayout,
   MembersScreen,
 } from "./routes/members.tsx";
+import {
+  type OperationsSearch,
+  type OperationsToolsSearch,
+  operationsSearch,
+  operationsToolsSearch,
+} from "./routes/operations-search.ts";
 import { PreferencesScreen } from "./routes/preferences.tsx";
 import {
   SessionDetailScreen,
@@ -51,8 +64,8 @@ import {
   sessionsSearch,
 } from "./routes/sessions.tsx";
 import { TeamDetailScreen, TeamsScreen } from "./routes/teams.tsx";
-import { UsageScreen } from "./routes/usage.tsx";
 import { WorkspaceSettingsScreen } from "./routes/workspace-settings.tsx";
+import { WorkspaceSlackScreen } from "./routes/workspace-slack.tsx";
 import type { Services } from "./services.tsx";
 
 /*
@@ -70,6 +83,18 @@ const login = createRoute({
   path: "/login",
   validateSearch: (search: Record<string, unknown>): LoginSearch =>
     loginSearch(search),
+  // A live session skips the form. Fetched, not read from the cache: right
+  // after a logout the cache can still hold the old principal.
+  beforeLoad: async ({ context, search }) => {
+    const viewer = await context.queryClient
+      .fetchQuery(viewerQuery(context.client))
+      // Anything but a 401 leaves the form, which always works.
+      .catch(() => null);
+    if (!viewer?.user) return;
+    // The root route passes the raw query through, so a value loginSearch
+    // dropped can still be here.
+    throw redirect({ to: safeRedirect(search.redirect) ?? "/", replace: true });
+  },
   component: LoginScreen,
 });
 
@@ -193,10 +218,31 @@ const session = createRoute({
   component: SessionDetailScreen,
 });
 
+// A path of its own beats /sessions/$id. The graph's code loads only here.
+const agentMap = createRoute({
+  getParentRoute: () => authed,
+  path: "/sessions/map",
+  component: lazyRouteComponent(
+    () => import("./routes/agent-map.tsx"),
+    "AgentMapScreen",
+  ),
+  pendingComponent: () => <StatusScreen kind="loading" />,
+});
+
 const linkedAccounts = createRoute({
   getParentRoute: () => authed,
   path: "/settings/linked-accounts",
   component: LinkedAccountsScreen,
+});
+
+const slackInstall = createRoute({
+  getParentRoute: () => authed,
+  path: "/agents/$id/slack/callback",
+  validateSearch: slackInstallSearch,
+  component: lazyRouteComponent(
+    () => import("./routes/agent-detail/slack-install-callback.tsx"),
+    "SlackInstallCallback",
+  ),
 });
 
 // Slack sends the browser back here (SLACK_OIDC_REDIRECT_URI).
@@ -232,10 +278,13 @@ const newAgentKey = createRoute({
   component: NewAgentKeyScreen,
 });
 
-const orgKeys = createRoute({
+// Where the organization key lived before it joined the workspace settings.
+const oldOrgKeys = createRoute({
   getParentRoute: () => authed,
   path: "/settings/api-keys/org",
-  component: OrgKeysScreen,
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/workspace/api-keys", replace: true });
+  },
 });
 
 const preferences = createRoute({
@@ -250,10 +299,60 @@ const workspaceSettings = createRoute({
   component: WorkspaceSettingsScreen,
 });
 
-const usage = createRoute({
+const workspaceSlack = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/workspace/slack",
+  component: WorkspaceSlackScreen,
+});
+
+const orgKeys = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/workspace/api-keys",
+  component: OrgKeysScreen,
+});
+
+const oldUsage = createRoute({
   getParentRoute: () => authed,
   path: "/usage",
-  component: UsageScreen,
+  beforeLoad: ({ search }) => {
+    throw redirect({ to: "/operations/usage", search, replace: true });
+  },
+});
+
+const loadOperations = () => import("./routes/operations.tsx");
+
+const operations = createRoute({
+  getParentRoute: () => authed,
+  path: "/operations",
+  validateSearch: (search: Record<string, unknown>): OperationsSearch =>
+    operationsSearch(search),
+  component: lazyRouteComponent(loadOperations, "OperationsLayout"),
+});
+
+const operationsOverview = createRoute({
+  getParentRoute: () => operations,
+  path: "/",
+  component: lazyRouteComponent(loadOperations, "OperationsOverviewScreen"),
+});
+
+const operationsUsage = createRoute({
+  getParentRoute: () => operations,
+  path: "usage",
+  component: lazyRouteComponent(loadOperations, "OperationsUsageScreen"),
+});
+
+const operationsTools = createRoute({
+  getParentRoute: () => operations,
+  path: "tools",
+  validateSearch: (search: Record<string, unknown>): OperationsToolsSearch =>
+    operationsToolsSearch(search),
+  component: lazyRouteComponent(loadOperations, "OperationsToolsScreen"),
+});
+
+const operationsLimits = createRoute({
+  getParentRoute: () => operations,
+  path: "limits",
+  component: lazyRouteComponent(loadOperations, "OperationsLimitsScreen"),
 });
 
 const agents = createRoute({
@@ -290,17 +389,27 @@ const routeTree = root.addChildren([
     newAgent,
     agent,
     sessions,
+    agentMap,
     session,
     linkedAccounts,
     slackLink,
+    slackInstall,
     apiKeys,
     newApiKey,
     agentKeys,
     newAgentKey,
-    orgKeys,
+    oldOrgKeys,
     preferences,
     workspaceSettings,
-    usage,
+    workspaceSlack,
+    orgKeys,
+    oldUsage,
+    operations.addChildren([
+      operationsOverview,
+      operationsUsage,
+      operationsTools,
+      operationsLimits,
+    ]),
   ]),
 ]);
 

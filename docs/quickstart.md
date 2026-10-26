@@ -31,7 +31,7 @@ macOS나 Linux를 기준으로 한다. 셸은 bash나 zsh를 쓴다.
 | git | 아무 버전 | clone |
 | Bun | 1.3.12 이상 | 4장의 자동 검증과 6장의 key 폐기·백업에만 쓴다. 1–3장에는 필요 없다 |
 
-로컬 스택은 루프백(`127.0.0.1`)에만 포트를 연다. 다음 포트가 비어 있어야 한다: **3000**(API), **5432**(Postgres), **4566**(LocalStack S3), **4567**(LocalStack Secrets Manager, `--fake-model`일 때만), **3001**(Gitea 웹·HTTP clone). 로컬에 Postgres가 떠 있으면 5432가 겹치는 경우가 많다. Docker Desktop은 Settings → Software updates에서 엔진 버전을 확인한다.
+로컬 스택은 루프백(`127.0.0.1`)에만 포트를 연다. 다음 포트가 비어 있어야 한다: **3000**(API), **5432**(Postgres), **4566**(SeaweedFS S3), **4567**(LocalStack Secrets Manager, `--fake-model`일 때만), **3001**(Gitea 웹·HTTP clone). 로컬에 Postgres가 떠 있으면 5432가 겹치는 경우가 많다. Docker Desktop은 Settings → Software updates에서 엔진 버전을 확인한다.
 
 ```bash
 docker version --format 'Docker Engine {{.Server.Version}}'
@@ -63,9 +63,9 @@ scripts/local.sh status
 
 `up --fake-model`은 compose project `agent-platform`을 fake 모델로 띄운다(`infra/compose.fake-model.yml` overlay). 첫 실행은 api·scheduler·worker 이미지를 이 checkout에서 빌드하므로 몇 분에서 10분쯤 걸린다. `/readyz`가 `{"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}`를 돌려줄 때까지 기다렸다가 그 응답을 출력하고 끝난다. 컨테이너가 뜬 뒤 이만큼 기다리는 시간은 180초이고, `LOCAL_READY_TIMEOUT_SEC`로 바꾼다. 뜨는 서비스는 다음과 같다.
 
-- postgres(+ 한 번 도는 `migrate`), localstack(S3), gitea(+ 샘플 저장소 `agent/sample-app`을 만드는 `gitea-init`), fake-messages와 secrets(API 전용 Secrets Manager, 둘 다 `--fake-model`일 때만), egress-proxy
+- postgres(+ 한 번 도는 `migrate`), localstack(SeaweedFS S3), gitea(+ 샘플 저장소 `agent/sample-app`을 만드는 `gitea-init`), fake-messages와 secrets(API 전용 Secrets Manager, 둘 다 `--fake-model`일 때만), egress-proxy
 - `api`(`127.0.0.1:3000`)와 `scheduler`(5초마다 한 pass로 세션마다 worker 컨테이너를 띄운다)
-- `reconciler`(pass가 끝날 때마다 10초 쉬고 다음 pass를 돈다. lease가 만료된 세션과 orphan 세션을 다시 queue에 넣거나 복구 대상으로 표시하고, 기한을 넘긴 interrupt·terminate receipt를 `unknown`으로 마감한다)
+- `reconciler`(pass가 끝날 때마다 10초 쉬고 다음 pass를 돈다. lease가 만료된 세션과 orphan 세션을 다시 queue에 넣거나 복구 대상으로 표시하고, 기한을 넘긴 interrupt·terminate receipt를 `unknown`으로 마감한다. 사용량 API가 읽는 도구 호출 표도 이 pass가 채운다)
 - `worker`는 상주하지 않는다. 이미지 빌드와 `claude --version` 확인만 하고 끝난다. 실제 워커는 scheduler가 세션마다 띄운다
 
 `key`는 API 컨테이너 안에서 key CLI(`apps/control-host/src/api/keys.ts`)를 돌린다. key는 stdout에 **한 번만** 출력되고, 폐기할 때 쓰는 key id는 stderr의 `key_id …` 줄에 나온다. 위 `echo`는 발급됐는지만 앞 12자로 확인한다. `quickstart`는 key의 owner id다. 웹 콘솔 사용자와 세션을 공유하려면 그 사용자의 workspace id를 쓴다. `--scopes`는 필수이며 위 목록이 전부다. 복구 결정(`sessions:recover`)을 빼면 ⑨의 recovery 호출이 403이다.
@@ -85,7 +85,8 @@ scripts/local.sh status
 - 같은 이메일의 사용자가 이미 있으면 건드리지 않는다. 비밀번호나 역할을 바꿨어도 그대로 둔다. 그래서 `up`을 다시 돌려도 중복이나 데이터 변화가 없다.
 - 이미 떠 있는 스택에는 `scripts/local.sh demo-accounts`가 빠진 계정만 더한다. `LOCAL_DEMO_ACCOUNTS=0 scripts/local.sh up --fake-model`은 계정을 만들지 않는다. bootstrap token으로 첫 owner를 직접 만들 때는 이렇게 띄운다(데모 owner가 있으면 bootstrap은 409 `BOOTSTRAP_DONE`이다).
 - 만들지 않는 조건: Docker가 이 머신의 것이 아니거나(`DOCKER_HOST`나 지금 docker context의 주소가 `unix://`·`npipe://`가 아님) 떠 있는 api 컨테이너가 게시한 포트 중 하나라도 loopback(`127.0.0.1`·`[::1]`) 밖에 열려 있으면 `local.sh: demo accounts not added: …`를 출력하고 계정 없이 `up`을 마친다.
-- 계정을 쓰는 CLI(`apps/control-host/src/api/demo-accounts.ts`)도 스스로 거부한다. `DEMO_ACCOUNTS=local`(`local.sh`만 넘긴다)이 없거나, Kubernetes 안(`KUBERNETES_SERVICE_HOST`)이거나, `DATABASE_URL`의 host가 compose의 `postgres`나 이 머신(`localhost`·`127.0.0.1`·`[::1]`)이 아니거나 query(`?host=` 등 연결 대상을 바꿀 수 있는 옵션)가 붙어 있으면 아무것도 쓰지 않고 exit 2로 끝난다. Helm 설치에는 이 경로가 없다.
+- 계정을 쓰는 CLI(`apps/control-host/src/api/demo-accounts.ts`)도 스스로 거부한다. `DEMO_ACCOUNTS=local`(`local.sh`만 넘긴다)이 없거나, Kubernetes 안(`KUBERNETES_SERVICE_HOST`)이거나, `DATABASE_URL`의 host가 compose의 `postgres`나 이 머신(`localhost`·`127.0.0.1`·`[::1]`)이 아니거나 query(`?host=` 등 연결 대상을 바꿀 수 있는 옵션)가 붙어 있으면 아무것도 쓰지 않고 exit 2로 끝난다.
+- Helm 설치는 미리보기 설치만 예외다. chart의 `preview.enabled: true`(기본 false)가 api Pod에 자기 namespace를 담은 `PREVIEW_NAMESPACE`를 넣고, `DATABASE_URL`의 host가 그 namespace의 `postgres` Service(`postgres`·`postgres.<ns>`·`postgres.<ns>.svc`·`postgres.<ns>.svc.cluster.local`)이고 그 host가 실제로 `postgres.<ns>.svc.cluster.local`과 같은 주소로 풀릴 때만 두 CLI가 돈다(Service가 없으면 짧은 이름이 Pod의 search domain을 따라 다른 host로 풀릴 수 있어서다). 하나라도 아니면 위와 같이 exit 2다. `api.extraEnv`로 `PREVIEW_NAMESPACE`를 넣으면 chart 렌더가 실패한다. 미리보기 설치에서는 `kubectl -n <ns> exec deploy/agent-platform-api -- env DEMO_ACCOUNTS=local bun run apps/control-host/src/api/demo-accounts.ts`, 이어서 같은 방식으로 `demo-data.ts`를 부른다(`demo-data.ts`는 fake model catalog가 필요하다).
 - 사용자는 있는데 살아 있는 owner가 없는 설치도 거부한다. 그 상태의 bootstrap은 복구여서 모든 세션을 끝낸다.
 
 `--fake-model`로 띄운 스택에서는 계정 다음에 화면을 채울 데모 데이터를 공개 API로 더한다(`apps/control-host/src/api/demo-data.ts`). 데모 owner가 에이전트 셋(`release-notes`·`code-review`는 저장소 `sample-app`, `support-triage`는 저장소 없음)을 만들어 활성화하고, owner와 member가 세션 일곱 개를 연다. owner의 세션은 쉬는 중(결과물 `out/release-notes.md` 하나), 작업 중, 권한 요청 대기, 종료가 하나씩이고, member의 세션은 질문 대기, 쉬는 중, 제목 없는 쉬는 중이다. owner의 작업 중·권한 요청 세션은 owner에게만 공유돼 있어 member 목록에는 다섯 개, owner 목록에는 일곱 개가 보인다. 모델은 fake가 대본대로 답하므로 세션 상세의 첫 메시지에 `GATE-SPEC` 대본이 그대로 보이고, 사용량은 fake 호출이 남긴 아주 작은 값이다. 시드는 세션을 하나씩 열고 원하는 상태가 될 때까지 기다리므로 몇 분 걸린다. 상태는 시드 직후의 모습이다. 작업 중 세션은 fake가 단계마다 답을 늦게 돌려줘서 약 1시간(worker의 turn 상한) 작업 중으로 남고, 질문·권한 요청은 답하지 않으면 30분 뒤 만료된다. 그 뒤 화면을 다시 채우려면 `scripts/local.sh reset --fake-model`로 새로 띄운다(데이터를 모두 지운다). 에이전트는 slug로, 세션은 제목으로(제목 없는 세션은 첫 메시지로) 찾아 이미 있으면 건너뛴다. 그래서 다시 돌려도 중복이 없고 기존 데이터를 지우거나 바꾸지 않는다. 시드는 끝날 때 자기가 연 로그인 세션을 로그아웃해서, 다시 돌려도 브라우저의 데모 로그인이 밀려나지 않는다. 앞선 시드가 세션을 만든 뒤 마무리 전에 실패했으면(owner만 공유, 결과물, 종료 중 하나가 빠짐) 다시 돌릴 때 `incomplete`를 출력하고 실패한다. 쉬는 중·답변 대기·작업 중은 시드 뒤에 저절로 바뀌므로 보지 않는다. 그 세션은 고치지 않으므로 `reset`으로 다시 띄운다. 연동 계정(Slack·GitHub)과 PR은 실제 provider가 필요해 만들지 않는다. 사용하는 프로필(`claude-coding-local`·`general`)이 fake Messages API(`http://fake-messages:4010`)를 부르지 않으면 CLI가 exit 2로 거부하고 `local.sh`는 `local.sh: demo data not added`를 출력한 뒤 `up`을 마친다. 옵션 없는 `up`(실제 Claude)이 이 경우다. `LOCAL_DEMO_DATA=0`이면 계정만 만든다.
@@ -94,7 +95,7 @@ scripts/local.sh status
 
 코드를 새로 pull했으면 `scripts/local.sh up --fake-model`을 다시 실행한다. 매번 이미지를 이 checkout에서 다시 빌드한다.
 
-**로컬 설치는 휘발성이다.** LocalStack은 S3를 메모리에만 두므로 `docker compose down`이나 Docker 재시작 한 번에 checkpoint 객체가 모두 사라진다. postgres는 volume에 남아 그 객체를 가리키는 행을 그대로 갖고 있으므로, GC가 아직 거두지 않은 checkpoint가 하나라도 남아 있으면 그 상태로 다시 띄울 때 API가 기동을 거부한다([8장](#8-막혔을-때)). 스택을 내릴 때는 `scripts/local.sh down`(데이터까지 삭제)을, 처음부터 다시 할 때는 `scripts/local.sh reset --fake-model`을 쓴다(7장). 재부팅 뒤 계정과 key를 남긴 채 다시 띄우는 절차도 7장에 있다.
+**로컬 데이터는 named volume에 남는다.** S3는 SeaweedFS 4.48(서비스 이름은 호환성을 위해 `localstack` 유지), PostgreSQL과 Gitea도 각각의 volume에 저장한다. Docker/OrbStack 재시작이나 `scripts/local.sh down --keep-volumes` 뒤 `scripts/local.sh up --fake-model`로 다시 띄워도 checkpoint가 남는다. 옵션 없는 `scripts/local.sh down`과 `reset`은 명시적인 전체 데이터 삭제 명령이므로 보존할 때 쓰지 않는다. 기존 LocalStack 설치에서 전환하는 절차는 [7장](#재부팅이나-docker-재시작-뒤)을 따른다.
 
 Gitea(`http://127.0.0.1:3001`)의 `agent/sample-app`은 누구나 읽을 수 있는 공개 저장소다. 워커도 egress proxy를 거쳐 Gitea에 닿으므로 소유 계정 `agent`의 비밀번호는 알려진 기본값 없이 무작위로 만들어진다(6장).
 
@@ -352,11 +353,20 @@ scripts/local.sh down
 
 `down`은 스택과 **모든 데이터**(세션, checkpoint, API key, Gitea 저장소)를 지운다. scheduler가 만든 worker 컨테이너·네트워크·workspace volume은 compose 소유가 아니므로 `agent-platform.installation=<installation id>` label(기본 `local`, 1장)로 찾아 함께 지운다. 처음부터 다시 하려면 `scripts/local.sh reset --fake-model`(= `down` 뒤 `up --fake-model`)을 쓴다. 새 스택에서는 1장의 `KEY=…`부터 다시 한다.
 
-데이터를 남긴 채 내리는 방법은 없다. LocalStack이 S3를 메모리에만 두기 때문에 `docker compose down`으로 내리면 postgres에는 세션이 남지만 그 checkpoint 객체는 사라진다. GC가 아직 거두지 않은 checkpoint가 하나라도 남아 있으면 다시 올릴 때 API가 기동을 거부한다([8장](#8-막혔을-때)).
+데이터를 보존하며 내릴 때는 `scripts/local.sh down --keep-volumes`를 쓴다. compose 서비스와 scheduler가 만든 worker 컨테이너·네트워크를 지우고, compose volume과 workspace volume(`ap-ws-*`)은 남긴다. `docker compose down`만 하면 compose label이 없는 worker 컨테이너와 그 네트워크가 남아 Docker 주소 풀을 계속 차지할 수 있다. 다시 `scripts/local.sh up --fake-model`로 올리면 S3 객체·버전·법적 hold·버킷 설정과 암호화 seed도 `local-s3-data` named volume에서 읽는다. seed를 잃거나 바꾸면 기존 객체를 복호화할 수 없으므로 volume 전체를 함께 보존한다. 외장 디스크 bind mount나 별도 라이선스는 필요 없다. 이전 LocalStack에서 이미 객체를 잃은 설치에만 아래 복구 결정이 필요하다.
 
 ### 재부팅이나 Docker 재시작 뒤
 
-호스트나 Docker가 재시작하면 LocalStack의 S3만 비고 postgres는 남는다. 이때 `scripts/local.sh up`은 위의 기동 거부로 끝난다. 계정·워크스페이스·API key·Gitea 저장소를 남기고 잃은 checkpoint만 포기하려면 다음 순서로 다시 띄운다.
+새 SeaweedFS 설치는 호스트나 Docker 재시작 뒤에도 `scripts/local.sh up --fake-model`만 실행하면 된다. 빈 volume으로 처음 시작할 때도 versioning·Object Lock·기본 AES256 암호화를 자동 설정한다.
+
+**기존 LocalStack 설치에서 전환할 때:** 기존 S3 객체와 VersionId를 자동 이관하지 않는다.
+
+1. **pull 전에 옛 checkout에서**, writer를 멈추고 [백업 절차](operator/backup-restore.md)로 checkpoint를 보존한다. 이미 객체가 유실됐다면 백업으로 되살릴 수 없다.
+2. 코드를 pull한다.
+3. 보존할 백업이 있으면 `scripts/restore.sh`로 **이전에 사용하지 않은 새 compose project**에 복원하고 `scripts/verify-restore.sh`로 확인한다. restore는 기존 프로젝트나 기존 볼륨 위에 덮어쓰지 않는다.
+4. 복구 가능한 백업이 없고 이전 checkpoint를 명시적으로 포기하기로 했다면, 기존 PostgreSQL 볼륨의 계정·워크스페이스·API key·Gitea 저장소를 남기고 아래 명령으로 유실 참조만 해제한다. 새 설치에는 필요 없다.
+
+새 저장소가 비어 있고 PostgreSQL에 기존 checkpoint가 남아 있으면 API는 이 복구 결정을 할 때까지 기동을 거부한다.
 
 ```bash
 scripts/local.sh forget-lost-checkpoints   # 잃은 checkpoint를 포기하고 그 세션을 출력한다
@@ -370,6 +380,8 @@ scripts/local.sh up --fake-model           # 실제 Claude 스택이면 옵션 �
 
 잃은 checkpoint가 없으면 `No checkpoint is missing from the bucket`만 출력하고 끝난다. 세션까지 모두 지우고 새로 하려면 여전히 `scripts/local.sh reset --fake-model`이다.
 
+`up --fake-model`의 데모 데이터 시드는 기존 데모 세션의 outputs 조회가 409 `CHECKPOINT_UNAVAILABLE`이면 `awaiting-recovery session <id>: CHECKPOINT_UNAVAILABLE; existing demo left unchanged`를 출력하고 그 세션을 그대로 둔 채 나머지 시드를 계속한다. 뒤의 `exists session <제목>`은 기존 세션이 있다는 뜻이며 산출물이 복구됐다는 뜻이 아니다. 잃은 산출물을 다시 만들거나 복구 결정을 대신하지 않는다. 다른 조회 오류는 시드를 중단한다.
+
 ## 8. 막혔을 때
 
 | 증상 | 원인과 조치 |
@@ -377,11 +389,11 @@ scripts/local.sh up --fake-model           # 실제 Claude 스택이면 옵션 �
 | `local.sh up`이 `Docker Engine … is too old`로 끝나거나, scheduler가 재시작을 반복하고 로그에 `GatewayModeUnsupportedError`가 있다 | Docker Engine이 28 미만이다. 엔진을 올린다 |
 | `local.sh up`이 `up needs ANTHROPIC_API_KEY exported or in .env`로 끝난다 | 옵션 없는 `up`은 실제 Claude를 쓴다. 이 문서대로 key 없이 하려면 `--fake-model`을 붙이고, 실제 Claude로 하려면 [real-claude.md](real-claude.md#key-입력과-폐기)대로 key를 준다 |
 | `local.sh up`이 `127.0.0.1 port(s) … already in use`로 끝나거나 `bind: address already in use`가 나온다 | 0장의 포트 중 하나를 다른 프로세스나 다른 스택이 쓰고 있다. 0장의 `lsof` 루프로 찾는다 |
-| API가 기동하지 않고 로그에 `Checkpoint bucket … holds no object version, but the database still has checkpoints that restores read`가 있다 | `docker compose down`이나 Docker 재시작으로 LocalStack의 S3 객체만 사라지고 postgres의 checkpoint 행은 남았다. 계정과 key를 남기려면 `scripts/local.sh forget-lost-checkpoints` 뒤 `up`([7장](#재부팅이나-docker-재시작-뒤), 잃은 checkpoint의 세션은 `recovery_required`), 모두 지우고 새로 띄우려면 `scripts/local.sh reset --fake-model`(실제 Claude 스택이면 옵션 없이, 세션도 지워진다) |
+| API가 기동하지 않고 로그에 `Checkpoint bucket … holds no object version, but the database still has checkpoints that restores read`가 있다 | 이전 LocalStack 설치의 S3가 유실됐거나, 새 S3 volume으로 전환하면서 postgres의 checkpoint 참조만 남았다. 계정과 key를 남기려면 `scripts/local.sh forget-lost-checkpoints` 뒤 `up`([7장](#재부팅이나-docker-재시작-뒤), 잃은 checkpoint의 세션은 `recovery_required`), 모두 지우고 새로 띄우려면 `scripts/local.sh reset --fake-model`(실제 Claude 스택이면 옵션 없이, 세션도 지워진다) |
 | scheduler가 재시작을 반복하고 로그에 `SCHEDULER_PASS_TIMEOUT_SEC must be greater than EXECUTION_DOCKER_STOP_TIMEOUT_SEC + EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC` | 예전에 만든 `.env`에 옛 기본값(`SCHEDULER_PASS_TIMEOUT_SEC=120`)이 남아 있다. pass는 worker 정지 하나를 끝까지 기다릴 수 있어서 timeout이 그보다 길어야 한다. 두 줄을 지우거나 `.env.example`처럼 `SCHEDULER_PASS_TIMEOUT_SEC=180`·`SCHEDULER_HEALTH_STALE_SEC=200`으로 고친다. 새로 clone한 머신에는 `.env`가 없다 |
 | zsh에서 `readyz`나 다른 URL이 `NOT_FOUND`이고 `Could not resolve host: echo`가 함께 뜬다 | oh-my-zsh의 `url-quote-magic`이 URL 뒤에 붙여 넣은 `;` 앞에 `\`를 넣었다. 명령을 보면 `readyz\;`로 되어 있고, 요청은 `/readyz;`로 가며 `echo`는 curl의 호스트 이름이 된다. URL을 따옴표로 감싸도 막히지 않는다. 스택 문제가 아니다. 이 문서의 명령처럼 줄바꿈은 `curl -sS -w '\n' http://127.0.0.1:3000/readyz`로 붙인다. 이 동작을 아예 끄려면 `~/.zshrc`에서 `DISABLE_MAGIC_FUNCTIONS="true"`의 주석을 풀고 새 셸을 연다 |
 | `readyz`가 503 `NOT_READY`다 | DB나 migration이 아직 준비되지 않았다. `docker compose --profile apps ps -a`에서 `migrate`가 `Exited (0)`인지 보고 `docker compose logs api migrate`를 확인한다 |
-| `scripts/backup.sh`가 `checkpoint objects could not be backed up at the versions their checkpoints pin`으로 끝난다 | LocalStack의 S3 객체가 사라졌다(위 bucket 행과 같은 원인). `scripts/local.sh reset --fake-model` 뒤 세션을 새로 만들고 idle이 된 다음 backup한다 |
+| `scripts/backup.sh`가 `checkpoint objects could not be backed up at the versions their checkpoints pin`으로 끝난다 | checkpoint가 가리키는 객체 버전이 없다. 이전 LocalStack 설치의 유실이나 S3 volume·암호화 키 누락을 확인한다. 새 로컬 S3는 named volume에 영속화된다. 복구 가능한 백업을 찾고, 없을 때만 [7장](#재부팅이나-docker-재시작-뒤)의 명시적 유실 참조 해제 또는 전체 초기화를 선택한다 |
 | 세션이 `queued`에서 움직이지 않는다 | `docker compose logs scheduler`와 worker 로그(3장 끝의 루프)를 본다. `EXECUTION_SLOT_LIMIT`(기본 10)만큼 세션이 이미 실행 중일 수도 있다 |
 | POST가 401이다 | `Authorization` 헤더가 빠졌거나, key가 다른 스택의 DB에서 발급됐다. `reset`이나 `down` 뒤라면 key도 지워졌다. 1장의 `KEY=…`와 2장의 함수를 다시 설정한다 |
 | POST가 403이다 | key에 그 scope가 없다. `--scopes`를 1장과 같게 발급한다 |

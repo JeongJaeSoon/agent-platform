@@ -76,6 +76,15 @@ export interface AgentStore {
     workspaceId: string,
     releaseId: string,
   ): Promise<AgentRelease | null>;
+  /**
+   * Whether a release of the agent made after this one has ever been
+   * activated: going back to this one is then a rollback.
+   */
+  releaseSuperseded(
+    workspaceId: string,
+    agentId: string,
+    releaseId: string,
+  ): Promise<boolean>;
   /** The agent, version 1 and their receipt in one transaction. */
   create(input: {
     principal: Principal;

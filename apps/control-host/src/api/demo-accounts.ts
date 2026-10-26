@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { lookup as dnsLookup } from "node:dns/promises";
 import { scopesForRole, type WorkspaceRole } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
@@ -52,19 +53,36 @@ const LOCAL_DATABASE_HOSTS = new Set([
   "[::1]",
 ]);
 
+// The names a pod's resolver maps to the postgres Service of its own
+// namespace.
+function previewDatabaseHosts(namespace: string) {
+  return new Set(
+    [
+      "",
+      `.${namespace}`,
+      `.${namespace}.svc`,
+      `.${namespace}.svc.cluster.local`,
+    ].map((suffix) => `postgres${suffix}`),
+  );
+}
+
 /**
  * Why this process must not create the demo accounts, or null. Only
  * scripts/local.sh sets DEMO_ACCOUNTS=local, and only on its own compose
- * stack; a Kubernetes pod or a database elsewhere is a real installation.
+ * stack; a database elsewhere is a real installation. So is a Kubernetes
+ * pod, unless the chart's preview.enabled gave it PREVIEW_NAMESPACE and its
+ * database is that namespace's postgres Service: the flag alone must not
+ * open fixed passwords on a real database.
  */
 export function demoAccountsRefusal(
   env: Record<string, string | undefined>,
 ): string | null {
   if (env.DEMO_ACCOUNTS !== "local") {
-    return "DEMO_ACCOUNTS=local is not set; only scripts/local.sh creates demo accounts";
+    return "DEMO_ACCOUNTS=local is not set; only scripts/local.sh or a preview install creates demo accounts";
   }
-  if (env.KUBERNETES_SERVICE_HOST) {
-    return "this is a Kubernetes installation";
+  const preview = env.KUBERNETES_SERVICE_HOST ? env.PREVIEW_NAMESPACE : null;
+  if (preview === undefined || preview === "") {
+    return "this is a Kubernetes installation without preview.enabled";
   }
   let url: URL;
   try {
@@ -78,11 +96,76 @@ export function demoAccountsRefusal(
     return "DATABASE_URL carries query options";
   }
   const host = url.hostname;
+  const [allowed, expected] =
+    preview === null
+      ? [LOCAL_DATABASE_HOSTS, "the local compose postgres"]
+      : [
+          previewDatabaseHosts(preview),
+          `the postgres Service of namespace ${preview}`,
+        ];
   if (
     !["postgres:", "postgresql:"].includes(url.protocol) ||
-    !LOCAL_DATABASE_HOSTS.has(host)
+    !allowed.has(host)
   ) {
-    return `DATABASE_URL points at ${host}, not the local compose postgres`;
+    return `DATABASE_URL points at ${host}, not ${expected}`;
+  }
+  return null;
+}
+
+type Lookup = (host: string) => Promise<{ address: string }[]>;
+
+// The trailing dot keeps the search domains out of every lookup of it.
+function previewService(env: Record<string, string | undefined>) {
+  return `postgres.${env.PREVIEW_NAMESPACE}.svc.cluster.local.`;
+}
+
+/**
+ * The URL the CLI connects with. A preview pod uses the absolute Service
+ * name previewDatabaseRefusal checked: pg resolves the host again on every
+ * connection, and a short name could by then fall through elsewhere.
+ */
+export function demoDatabaseUrl(
+  env: Record<string, string | undefined>,
+): string {
+  const raw = env.DATABASE_URL ?? "";
+  if (!env.KUBERNETES_SERVICE_HOST) return raw;
+  const url = new URL(raw);
+  url.hostname = previewService(env);
+  return url.toString();
+}
+
+/**
+ * The DNS half of the preview exception, once demoAccountsRefusal passed:
+ * the DATABASE_URL host must resolve to this namespace's postgres Service.
+ * With no such Service a bare `postgres` falls through the pod's search
+ * domains to whatever other host answers.
+ */
+export async function previewDatabaseRefusal(
+  env: Record<string, string | undefined>,
+  lookup: Lookup = (host) => dnsLookup(host, { all: true }),
+): Promise<string | null> {
+  if (!env.KUBERNETES_SERVICE_HOST) return null;
+  const service = previewService(env);
+  const host = new URL(env.DATABASE_URL ?? "").hostname;
+  const addresses = async (name: string) =>
+    (await lookup(name))
+      .map(({ address }) => address)
+      .sort()
+      .join(",");
+  let want: string;
+  try {
+    want = await addresses(service);
+  } catch (error) {
+    return `cannot resolve ${service}: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  let got: string;
+  try {
+    got = await addresses(host);
+  } catch (error) {
+    return `cannot resolve ${host}: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  if (got !== want) {
+    return `DATABASE_URL host ${host} does not resolve to ${service}`;
   }
   return null;
 }
@@ -229,14 +312,16 @@ export async function seedDemoAccounts(
 }
 
 async function main(): Promise<void> {
-  const refusal = demoAccountsRefusal(process.env);
+  const refusal =
+    demoAccountsRefusal(process.env) ??
+    (await previewDatabaseRefusal(process.env));
   if (refusal) {
     console.error(`demo accounts refused: ${refusal}`);
     process.exitCode = 2;
     return;
   }
   const pool = createEnforcedPool(
-    process.env.DATABASE_URL ?? "",
+    demoDatabaseUrl(process.env),
     createLogger(),
     "demo-accounts",
     JOB_POOL_TIMEOUTS,

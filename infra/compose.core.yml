@@ -139,8 +139,9 @@ services:
       # the object store route sends the API-signed request to.
       # On the forward proxy each would be a way round its route: the
       # provider with a key of the worker's own, outside cost accounting;
-      # Gitea without a token; LocalStack, which takes any signature, into
-      # every session's prefix. fake-messages:4010 and fake-mcp:4020 are
+      # Gitea without a token; test-ops LocalStack accepts any signature,
+      # while local SeaweedFS still needs the route's session authorization.
+      # fake-messages:4010 and fake-mcp:4020 are
       # config/fake-model's Messages API and remote MCP server.
       EGRESS_CREDENTIAL_ALLOWLIST: ${EGRESS_CREDENTIAL_ALLOWLIST:-api.anthropic.com:443}
       EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-gitea:3000,fake-messages:4010,fake-mcp:4020,localstack:4566}
@@ -422,7 +423,7 @@ services:
   # Lease expiry, overdue interrupts and terminations, and orphan sessions are
   # recovered by nothing else, so this runs by default with the other apps
   # . The control host's reconciler role (`main.ts reconciler`, the
-  # pass loop in apps/control-host/src/pass-loop) runs one pass per child
+  # pass loop in apps/control-host/src/pass-loop) runs a pass in its child
   # process every RECONCILER_INTERVAL_SEC, kills a pass that outlives
   # RECONCILER_PASS_TIMEOUT_SEC, and exits after
   # RECONCILER_MAX_CONSECUTIVE_FAILURES failed passes in a row so the restart

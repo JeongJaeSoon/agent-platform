@@ -16,7 +16,8 @@
 //   browser.mjs <run> press <text|css> [Key]      focus it, then a real key (Enter): click leaves focus where it was
 //   browser.mjs <run> key <Key> [count] | eval <expr>   @N: the Nth field in <main>, from 0
 //   browser.mjs <run> measure <name>              evidence/layout/<name>.json for layout-report.mjs
-//   browser.mjs <run> slack-consent [team]        in-page Slack link start, mock consent, open the callback
+//   browser.mjs <run> slack-consent [team] [nameless]  in-page Slack link start, mock consent, open the callback
+//   browser.mjs <run> slack-install-consent <agent id> [deny]   finish a UI-started install through mock consent
 //
 // Every page command takes W (default 1280), H (900) and THEME (light|dark)
 // from the environment, e.g. W=390 THEME=dark browser.mjs <run> shot home-390-dark.
@@ -247,7 +248,11 @@ async function capture(name, full = false) {
 const masked = (text) =>
   String(text)
     .replace(/\/invite\/[^/?#\s|]+/g, "/invite/(token)")
-    .replace(/([?&](?:code|state)=)[^&#\s|]+/g, "$1(hidden)");
+    .replace(/([?&](?:code|state)=)[^&#\s|]+/g, "$1(hidden)")
+    .replace(
+      /((?:code|state)%((?:25)*)3D)[\s\S]*?(?=%(?:\2)(?:26|23)|[&#\s|]|$)/gi,
+      "$1(hidden)",
+    );
 const here = async () =>
   masked(await evaluate("location.pathname + location.search"));
 // "@N" is the Nth field in <main> (from 0), for forms whose inputs have no name.
@@ -403,9 +408,13 @@ switch (cmd) {
       throw new Error("not a verification project");
     if (!state.COMPOSE_FILE?.includes("infra/compose.mock-slack.yml"))
       throw new Error("mock Slack overlay required");
-    const team = args[0];
+    // `nameless`: the id_token carries no names, like a link made before
+    // names were kept.
+    const nameless = args.includes("nameless");
+    const team = args.find((arg) => arg !== "nameless");
     if (team && !/^T[0-9A-Z]+$/.test(team))
       throw new Error("mock team id like T0OTHER");
+    const extra = `${team ? `&mock_team=${team}` : ""}${nameless ? "&mock_team_name=&mock_user_name=" : ""}`;
     const authorize = await evaluate(
       'fetch("/v1/linked-accounts/slack/start",{method:"POST",headers:{"x-requested-with":"agent-platform-web"}}).then(r=>r.json()).then(j=>j.authorize_url ?? "")',
     );
@@ -435,7 +444,7 @@ switch (cmd) {
           env: { ...process.env, ...state },
           encoding: "utf8",
           stdio: ["pipe", "pipe", "pipe"],
-          input: team ? `${authorize}&mock_team=${team}` : authorize,
+          input: `${authorize}${extra}`,
         },
       ).trim();
     } catch (error) {
@@ -453,6 +462,65 @@ switch (cmd) {
     await navigate(url(back.pathname + back.search));
     await settle();
     console.log(`slack-consent -> ${await evaluate("location.pathname")}`);
+    break;
+  }
+  case "slack-install-consent": {
+    if (!state.COMPOSE_PROJECT_NAME?.startsWith("verify-ap-"))
+      throw new Error("not a verification project");
+    if (!state.COMPOSE_FILE?.includes("infra/compose.mock-slack.yml"))
+      throw new Error("mock Slack overlay required");
+    const agent = args[0];
+    if (!/^[0-9a-f-]{36}$/i.test(agent ?? ""))
+      throw new Error("agent UUID required");
+    if (args[1] !== undefined && args[1] !== "deny")
+      throw new Error("optional outcome must be deny");
+    let authorize = new URL(await evaluate("location.href"));
+    if (authorize.hostname !== "slack.com")
+      throw new Error("start installation with the console button first");
+    const redir = authorize.searchParams.get("redir");
+    if (redir) authorize = new URL(redir, "https://slack.com");
+    const redirect = new URL(
+      authorize.searchParams.get("redirect_uri") ?? "https://invalid.test",
+    );
+    if (redirect.pathname !== `/agents/${agent}/slack/callback`)
+      throw new Error("installation redirect does not match this agent");
+    const grant = JSON.parse(
+      execFileSync(
+        "docker",
+        [
+          "compose",
+          "--profile",
+          "apps",
+          "--profile",
+          "fake-model",
+          "exec",
+          "-T",
+          "api",
+          "bun",
+          "-e",
+          'const url = new URL((await Bun.stdin.text()).trim()); const r = await fetch("http://mock-slack:4020/fake/oauth/authorize" + url.search); if (!r.ok) throw new Error("mock consent failed"); console.log(await r.text());',
+        ],
+        {
+          cwd: state.VERIFY_REPO,
+          env: { ...process.env, ...state },
+          encoding: "utf8",
+          input: authorize.href,
+        },
+      ),
+    );
+    if (typeof grant.state !== "string" || typeof grant.code !== "string")
+      throw new Error("mock consent returned no grant");
+    const back = new URL(`/agents/${agent}/slack/callback`, state.VERIFY_API);
+    back.searchParams.set("state", grant.state);
+    back.searchParams.set(
+      args[1] === "deny" ? "error" : "code",
+      args[1] === "deny" ? "access_denied" : grant.code,
+    );
+    await navigate(back.href);
+    await settle();
+    console.log(
+      `slack-install-consent -> ${await evaluate("location.pathname")}`,
+    );
     break;
   }
   case "shot": {
