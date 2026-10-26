@@ -1,6 +1,6 @@
 export type * from "./agent-run.ts";
 export type * from "./agent-runtime.ts";
-export type * from "./capabilities.ts";
+export * from "./approval.ts";
 export type * from "./checkpoint.ts";
 export * from "./checkpoint-bundle.ts";
 export * from "./checkpoint-limits.ts";
@@ -21,7 +21,10 @@ export {
   transcriptSizeProblem,
   transcriptWarnBytes,
 } from "./checkpoint-manifest.ts";
+export type * from "./descriptor.ts";
+export type * from "./events.ts";
 export * from "./git-bundle.ts";
+export * from "./module.ts";
 export * from "./worker-gateway-client.ts";
 export * from "./workspace.ts";
 export * from "./workspace-restore.ts";

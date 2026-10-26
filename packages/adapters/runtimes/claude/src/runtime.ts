@@ -9,17 +9,10 @@ import {
   type SpawnedProcess,
   type SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
-import type {
-  AgentRun,
-  AgentRuntime,
-  RuntimeCapabilities,
-  RuntimeHooks,
-} from "@werft-ai/runtime-core";
+import type { RuntimeProcessObserver } from "@werft-ai/runtime-core";
 
-import {
-  CLAUDE_RUNTIME_CAPABILITIES,
-  type ClaudeRuntimeConfig,
-} from "./config.ts";
+import type { ClaudeRuntimeConfig } from "./config.ts";
+import type { DriverRun, RuntimeHooks } from "./driver.ts";
 import {
   ENGINE_API_KEY_DESCRIPTOR,
   engineApiKey,
@@ -34,15 +27,14 @@ import { TurnLedger } from "./turn-ledger.ts";
 
 const MIN_BUDGET_USD = 0.000001;
 
-export class ClaudeSdkRuntime implements AgentRuntime<ClaudeRuntimeConfig> {
-  readonly capabilities: RuntimeCapabilities = CLAUDE_RUNTIME_CAPABILITIES;
-
+/** The SDK driver `ClaudeAgentRuntime` wraps. */
+export class ClaudeSdkRuntime {
   constructor(
     private readonly policy: RuntimePolicy,
     private readonly processObserver?: RuntimeProcessObserver,
   ) {}
 
-  start(config: ClaudeRuntimeConfig, hooks: RuntimeHooks): AgentRun {
+  start(config: ClaudeRuntimeConfig, hooks: RuntimeHooks): DriverRun {
     validateRuntimeConfig(config, this.policy);
     const { history, launched } = resumedHistory(config);
     const input = new InputStream();
@@ -320,14 +312,7 @@ function spawnEngine(
   } as SpawnedProcess;
 }
 
-export type RuntimeProcessObserver = {
-  onExit?(
-    pid: number,
-    code: number | null,
-    signal: NodeJS.Signals | null,
-  ): void;
-  onSpawn(pid: number): void;
-};
+export type { RuntimeProcessObserver };
 
 export function resolvePinnedClaudeExecutable(): string {
   const { platform, arch } = process;
