@@ -7,7 +7,11 @@ import type {
   ReceiptActor,
 } from "@werft-ai/contracts";
 import type { PushSourceResult } from "../checkpoints/checkpoint-service.ts";
-import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
+import {
+  type AuthorizationPolicy,
+  type Caller,
+  receiptActorOf,
+} from "../musterrolle/policy.ts";
 import {
   PUSH_REFUSAL_ERRORS,
   type PushRequestStore,
@@ -42,12 +46,15 @@ const DECIDER_KINDS: ReadonlySet<Principal["kind"]> = new Set([
   "api_key",
 ]);
 
-export function receiptActorOf(principal: Principal): ReceiptActor {
-  return {
-    principal: { kind: principal.kind, id: principal.id },
-    actor_user_id: principal.kind === "user" ? principal.id : null,
-    agent_id: null,
-  };
+/** A caller assembled outside the API middleware may carry no recorded actor. */
+export function pushReceiptActor(actor: PushActor): ReceiptActor {
+  return (
+    receiptActorOf(actor.caller) ?? {
+      principal: { kind: actor.principal.kind, id: actor.principal.id },
+      actor_user_id: null,
+      agent_id: null,
+    }
+  );
 }
 
 /** Refuses a caller nothing authenticated; no receipt, as nothing is known of it. */
@@ -134,7 +141,7 @@ export function createPushRequestService(deps: {
           await store.recordRefusal({
             ownerId: actor.ownerId,
             sessionId,
-            actor: receiptActorOf(actor.principal),
+            actor: pushReceiptActor(actor),
             operation: "request_push",
             refusal,
             result: {
@@ -175,7 +182,7 @@ export function createPushRequestService(deps: {
         await store.create({
           ownerId: actor.ownerId,
           sessionId,
-          actor: receiptActorOf(actor.principal),
+          actor: pushReceiptActor(actor),
           idempotencyKey: input.idempotencyKey,
           payloadHash: payloadHash({}),
           repositoryId: session.repositoryId,
@@ -225,7 +232,7 @@ export function createPushRequestService(deps: {
       requireVerified(actor);
       const sessionId = rawSessionId.toLowerCase();
       const pushRequestId = rawPushRequestId.toLowerCase();
-      const receiptActor = receiptActorOf(actor.principal);
+      const receiptActor = pushReceiptActor(actor);
       const refusal = mayDecidePush(actor.principal);
       if (refusal !== null) {
         refused(

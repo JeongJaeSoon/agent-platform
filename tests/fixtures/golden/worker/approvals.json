@@ -1,0 +1,298 @@
+{
+  "turns": [
+    {
+      "turnId": "1",
+      "status": "completed",
+      "reason": null
+    }
+  ],
+  "events": [
+    {
+      "turn_id": "1",
+      "event": "tool_use",
+      "data": {
+        "type": "assistant",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_allow",
+              "name": "Bash",
+              "input": {
+                "command": "ls -la",
+                "description": "List files"
+              }
+            }
+          ]
+        },
+        "parent_tool_use_id": null
+      },
+      "source_sequence": 1,
+      "occurred_at": "<timestamp>"
+    },
+    {
+      "turn_id": "1",
+      "event": "tool_use",
+      "data": {
+        "type": "assistant",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_deny",
+              "name": "Bash",
+              "input": {
+                "command": "rm -rf /"
+              }
+            }
+          ]
+        },
+        "parent_tool_use_id": null
+      },
+      "source_sequence": 2,
+      "occurred_at": "<timestamp>"
+    },
+    {
+      "turn_id": "1",
+      "event": "tool_use",
+      "data": {
+        "type": "assistant",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_question",
+              "name": "AskUserQuestion",
+              "input": {
+                "questions": [
+                  {
+                    "header": "where",
+                    "question": "Which environment?",
+                    "multiSelect": false,
+                    "options": [
+                      {
+                        "label": "staging",
+                        "description": "safe"
+                      },
+                      {
+                        "label": "production",
+                        "description": "not"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "parent_tool_use_id": null
+      },
+      "source_sequence": 3,
+      "occurred_at": "<timestamp>"
+    },
+    {
+      "turn_id": "1",
+      "event": "result",
+      "data": {
+        "type": "result",
+        "subtype": "success",
+        "session_id": "fake-session",
+        "usage": {
+          "input_tokens": 3,
+          "output_tokens": 5
+        },
+        "is_error": false,
+        "stop_reason": "end_turn"
+      },
+      "source_sequence": 4,
+      "occurred_at": "<timestamp>"
+    }
+  ],
+  "finalized": [
+    {
+      "finalize_key": "att_fake:1",
+      "final_source_sequence": 4,
+      "terminal": {
+        "status": "completed",
+        "reason": null,
+        "result": {
+          "subtype": "success",
+          "is_error": false,
+          "stop_reason": "end_turn",
+          "terminal_reason": null
+        },
+        "usage": {
+          "input_tokens": 3,
+          "output_tokens": 5
+        },
+        "cost_usd": null
+      },
+      "checkpoint": {
+        "revision": 0,
+        "manifest_ref": "manifests/1.json",
+        "manifest_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    }
+  ],
+  "questions": [
+    {
+      "request_id": "req_<uuid:0>",
+      "tool_use_id": "toolu_allow",
+      "kind": "permission",
+      "tool": "Bash",
+      "input": {
+        "command": "ls -la",
+        "description": "List files"
+      }
+    },
+    {
+      "request_id": "req_<uuid:1>",
+      "tool_use_id": "toolu_deny",
+      "kind": "permission",
+      "tool": "Bash",
+      "input": {
+        "command": "rm -rf /"
+      }
+    },
+    {
+      "request_id": "req_<uuid:2>",
+      "tool_use_id": "toolu_question",
+      "kind": "question",
+      "tool": "AskUserQuestion",
+      "input": {
+        "questions": [
+          {
+            "question_id": "q0",
+            "prompt": "Which environment?",
+            "options": [
+              {
+                "option_id": "q0o0",
+                "label": "staging"
+              },
+              {
+                "option_id": "q0o1",
+                "label": "production"
+              }
+            ],
+            "multi_select": false,
+            "allow_free_text": true
+          }
+        ]
+      }
+    }
+  ],
+  "registrations": [
+    {
+      "session_id": "<session>",
+      "turn_id": "1",
+      "attempt_id": "att_fake",
+      "lease_epoch": 1,
+      "execution_generation": 1,
+      "auth_revision": 0,
+      "input_hash": "82fd604d3c37d11eaae224181f6ab5a03e51533cc1afd30de8f8fca5f510aba5",
+      "request": {
+        "kind": "permission",
+        "tool": "Bash",
+        "input": {
+          "command": "ls -la",
+          "description": "List files"
+        }
+      },
+      "announce": {
+        "tool_use_id": "toolu_allow",
+        "tool": "Bash"
+      }
+    },
+    {
+      "session_id": "<session>",
+      "turn_id": "1",
+      "attempt_id": "att_fake",
+      "lease_epoch": 1,
+      "execution_generation": 1,
+      "auth_revision": 0,
+      "input_hash": "838e6b4182c851867882e05e4f595245f168881fac037ede909ff7a8c2e628fa",
+      "request": {
+        "kind": "permission",
+        "tool": "Bash",
+        "input": {
+          "command": "rm -rf /"
+        }
+      },
+      "announce": {
+        "tool_use_id": "toolu_deny",
+        "tool": "Bash"
+      }
+    },
+    {
+      "session_id": "<session>",
+      "turn_id": "1",
+      "attempt_id": "att_fake",
+      "lease_epoch": 1,
+      "execution_generation": 1,
+      "auth_revision": 0,
+      "input_hash": "412cf8806aeb45e13135d79d7fdb49bd0da3b2febbd51ebfe391c45cbe895cd9",
+      "request": {
+        "kind": "question",
+        "questions": [
+          {
+            "question_id": "q0",
+            "prompt": "Which environment?",
+            "options": [
+              {
+                "option_id": "q0o0",
+                "label": "staging"
+              },
+              {
+                "option_id": "q0o1",
+                "label": "production"
+              }
+            ],
+            "multi_select": false,
+            "allow_free_text": true
+          }
+        ]
+      },
+      "announce": {
+        "tool_use_id": "toolu_question",
+        "tool": "AskUserQuestion"
+      }
+    }
+  ],
+  "decisions": [
+    {
+      "behavior": "allow"
+    },
+    {
+      "behavior": "deny",
+      "message": "Not on this workspace"
+    },
+    {
+      "behavior": "allow",
+      "updatedInput": {
+        "questions": [
+          {
+            "header": "where",
+            "question": "Which environment?",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "staging",
+                "description": "safe"
+              },
+              {
+                "label": "production",
+                "description": "not"
+              }
+            ]
+          }
+        ],
+        "answers": {
+          "Which environment?": "staging"
+        }
+      }
+    }
+  ]
+}

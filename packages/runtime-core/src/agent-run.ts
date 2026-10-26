@@ -21,6 +21,11 @@ export type NativeEnvelope = {
 export type AgentFrame = {
   envelope: NativeEnvelope;
   events: SessionEvent[];
+  /**
+   * The input uuids the runtime says this frame is for, read only when its
+   * native message names none, as a scripted engine's messages do.
+   */
+  inputs?: readonly string[];
 };
 
 /**

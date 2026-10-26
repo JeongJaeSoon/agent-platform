@@ -197,6 +197,16 @@ describe("WorkerHost against the actual Claude SDK", () => {
       .filter((event) => event.event === "result")
       .map((event) => event.data);
     expect(sent).toHaveLength(2);
+    // Each turn's events from its input's queued lifecycle to its result; the
+    // input's completed lifecycle comes after the terminal, under no turn.
+    const turnOf = new Map(
+      firstGateway.batches.flatMap((batch) =>
+        batch.events.map((event) => [event.source_sequence, batch.turn_id]),
+      ),
+    );
+    expect(
+      firstGateway.events.map((event) => turnOf.get(event.source_sequence)),
+    ).toEqual(["1", "1", "1", "1", "1", null, "2", "2", "2", "2", "2", null]);
     expect(firstGateway.finalized.map((call) => call.finalize_key)).toEqual([
       "att_fake:1",
       "att_fake:2",

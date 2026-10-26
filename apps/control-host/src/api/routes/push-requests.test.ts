@@ -1,21 +1,29 @@
 import { describe, expect, test } from "bun:test";
 import {
   apiErrorResponseSchema,
+  CSRF_HEADER_NAME,
+  CSRF_HEADER_VALUE,
   listPushRequestsResponseSchema,
   type PushRequest,
   pushRequestSchema,
   type SessionScope,
+  WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
 import {
+  authenticatedIdentity,
   type CreatePushRequestInput,
   createAuthorizationPolicy,
   createPushRequestService,
   type DecidePushRequestInput,
+  type IdentityReader,
+  type IdentityStore,
   type PushRefusalRecord,
   type PushRequestStore,
   type PushSourceResult,
+  type ResolvedWebSession,
   type SessionCatalog,
 } from "@werft-ai/platform";
+import { generateWebSessionToken, hashWebSessionToken } from "../auth.ts";
 import { hashApiKey } from "../keys.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerPushRequestRoutes } from "./push-requests.ts";
@@ -29,6 +37,48 @@ const COMMIT = "a".repeat(40);
 const KEYS: Record<string, readonly SessionScope[]> = {
   csp_writer: ["sessions:read", "sessions:write"],
   csp_approver: ["sessions:read", "sessions:approve"],
+  csp_service: ["sessions:read", "sessions:write", "sessions:approve"],
+};
+// A key a person issued in the workspace; it stands for that person.
+const PERSONAL = "csp_personal";
+const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
+const ISSUER = "019a0000-0000-7000-8000-0000000000c1";
+const SIGNED_IN = "019a0000-0000-7000-8000-0000000000d1";
+
+const webSessions = new Map<string, ResolvedWebSession>();
+function cookieFor(userId: string): string {
+  const token = generateWebSessionToken();
+  webSessions.set(Buffer.from(hashWebSessionToken(token)).toString("hex"), {
+    sessionId: crypto.randomUUID(),
+    userId,
+    email: "owner@example.com",
+    displayName: "owner",
+    workspaceId: WORKSPACE,
+    role: "owner",
+    expiresAt: new Date(Date.now() + 60_000),
+  });
+  return `${WEB_SESSION_COOKIE_NAME}=${token}`;
+}
+const identity = {
+  async resolveWebSession(tokenHash: Uint8Array) {
+    return webSessions.get(Buffer.from(tokenHash).toString("hex")) ?? null;
+  },
+  async renewWebSession() {
+    return null;
+  },
+} as unknown as IdentityStore;
+// As the database reader does: a personal key is judged as its issuer.
+const keyIssuers: IdentityReader = {
+  async reread(subject) {
+    const { principal } = subject;
+    return principal.kind === "api_key" && principal.id === `key-${PERSONAL}`
+      ? {
+          status: "ok",
+          principal,
+          keyCreator: { userId: ISSUER, role: "owner" },
+        }
+      : authenticatedIdentity.reread(subject);
+  },
 };
 
 const PINNED: PushRequest = {
@@ -109,7 +159,7 @@ function app(
     ...options.store,
   };
   const service = createPushRequestService({
-    authorization: createAuthorizationPolicy(),
+    authorization: createAuthorizationPolicy({ identity: keyIssuers }),
     store,
     catalog: CATALOG,
     source: {
@@ -121,22 +171,29 @@ function app(
     authMode: options.authMode ?? "api-key",
     keyStore: {
       async find(hash) {
-        const token = Object.keys(KEYS).find((candidate) =>
+        const token = [...Object.keys(KEYS), PERSONAL].find((candidate) =>
           Buffer.from(hash).equals(Buffer.from(hashApiKey(candidate))),
         );
-        return token
-          ? {
-              id: `key-${token}`,
-              ownerId: "owner-a",
-              workspaceId: null,
-              kind: "operator" as const,
-              createdByUserId: null,
-              creatorRole: null,
-              scopes: [...(KEYS[token] ?? [])],
-            }
-          : null;
+        if (!token) return null;
+        const personal = token === PERSONAL;
+        return {
+          id: `key-${token}`,
+          ownerId: personal ? WORKSPACE : "owner-a",
+          workspaceId: personal ? WORKSPACE : null,
+          kind: personal ? ("personal" as const) : ("operator" as const),
+          createdByUserId: personal ? ISSUER : null,
+          creatorRole: personal ? ("owner" as const) : null,
+          scopes: [
+            ...(KEYS[token] ?? [
+              "sessions:read",
+              "sessions:write",
+              "sessions:approve",
+            ]),
+          ],
+        };
       },
     },
+    identity,
     registerRoutes: (router) => registerPushRequestRoutes(router, service),
   });
   return { api, seen };
@@ -467,4 +524,66 @@ describe("push request routes", () => {
     ).toMatchObject({ status: 409, code: "IDEMPOTENCY_CONFLICT" });
     expect(target.seen.decided).toEqual([]);
   });
+});
+
+describe("push receipts name the person behind the credential", () => {
+  const cases = [
+    {
+      name: "a personal key: its issuer",
+      auth: { Authorization: "Bearer csp_personal" },
+      principal: { kind: "api_key", id: "key-csp_personal" },
+      person: ISSUER,
+    },
+    {
+      name: "a service key (the CLI's, no issuer): no one",
+      auth: { Authorization: "Bearer csp_service" },
+      principal: { kind: "api_key", id: "key-csp_service" },
+      person: null,
+    },
+    {
+      name: "a signed-in session: that person",
+      auth: {
+        Cookie: cookieFor(SIGNED_IN),
+        [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
+      },
+      principal: { kind: "user", id: SIGNED_IN },
+      person: SIGNED_IN,
+    },
+  ] as const;
+
+  for (const { name, auth, principal, person } of cases) {
+    test(name, async () => {
+      // A workspace credential's partition is the workspace.
+      const owners = new Set(["owner-a", WORKSPACE]);
+      const target = app({
+        store: {
+          findSession: async (ownerId) =>
+            owners.has(ownerId) ? { repositoryId: "sample-app" } : null,
+          get: async (ownerId) => (owners.has(ownerId) ? PINNED : null),
+        },
+      });
+      const send = (path: string, body: unknown) =>
+        target.api.request(`/v1/sessions/${SESSION}/push-requests${path}`, {
+          method: "POST",
+          headers: {
+            ...auth,
+            "Content-Type": "application/json",
+            "Idempotency-Key": crypto.randomUUID(),
+          },
+          body: JSON.stringify(body),
+        });
+      expect((await send("", {})).status).toBe(201);
+      expect(
+        (
+          await send(`/${PUSH}/decision`, {
+            decision: "approve",
+            git_commit: COMMIT,
+          })
+        ).status,
+      ).toBe(200);
+      const actor = { principal, actor_user_id: person, agent_id: null };
+      expect(target.seen.created.map((input) => input.actor)).toEqual([actor]);
+      expect(target.seen.decided.map((input) => input.actor)).toEqual([actor]);
+    });
+  }
 });
