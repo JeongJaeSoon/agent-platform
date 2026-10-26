@@ -49,7 +49,10 @@ import {
   priceProviderUsage,
 } from "../limits/model-prices.ts";
 import type { CheckpointPointer } from "../ports/checkpoint-store.ts";
-import type { CheckpointVerifier } from "../ports/checkpoint-verifier.ts";
+import type {
+  CheckpointOutputObject,
+  CheckpointVerifier,
+} from "../ports/checkpoint-verifier.ts";
 import {
   type ForgeResolver,
   type GitCredential,
@@ -1362,6 +1365,7 @@ export function createWorkerGateway(deps: {
       if (settled.outcome !== "open") return finalizeAnswer(settled);
       let checkpointVersionsHeld = false;
       let checkpointTranscriptBytes: number | undefined;
+      let checkpointOutputs: readonly CheckpointOutputObject[] | undefined;
       if (request.checkpoint) {
         const checkpoint = request.checkpoint;
         const verdict = await checkpointInfrastructure(() =>
@@ -1392,6 +1396,7 @@ export function createWorkerGateway(deps: {
         }
         checkpointVersionsHeld = verdict.versionsHeld === true;
         checkpointTranscriptBytes = verdict.transcriptBytes;
+        checkpointOutputs = verdict.outputs;
       }
       // Verification is a network call that can outlast the lease, so the
       // fence is judged against the clock at commit time, not the one this
@@ -1403,6 +1408,7 @@ export function createWorkerGateway(deps: {
           ...(checkpointTranscriptBytes === undefined
             ? {}
             : { checkpointTranscriptBytes }),
+          ...(checkpointOutputs === undefined ? {} : { checkpointOutputs }),
           now: now(),
         }),
       );

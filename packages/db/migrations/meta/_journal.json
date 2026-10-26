@@ -575,6 +575,13 @@
       "when": 1793024280973,
       "tag": "0172_await_park",
       "breakpoints": true
+    },
+    {
+      "idx": 173,
+      "version": "7",
+      "when": 1793037211464,
+      "tag": "0173_checkpoint_outputs",
+      "breakpoints": true
     }
   ]
 }

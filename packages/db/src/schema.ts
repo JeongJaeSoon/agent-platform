@@ -1674,8 +1674,36 @@ export const checkpoints = pgTable(
     profileFingerprint: text("profile_fingerprint"),
     // The attempt's model; null where the fingerprint names it (version 1).
     model: text(),
+    // Whether checkpoint_outputs holds what this revision's manifest names
+    // under outputs. False on rows committed before it was recorded, whose
+    // outputs no figure counts.
+    outputsRecorded: boolean("outputs_recorded").notNull().default(false),
   },
   (table) => [primaryKey({ columns: [table.sessionId, table.revision] })],
+);
+
+// Every output object a committed revision's manifest names, the ones it
+// inherited included, so the bytes still kept are the distinct keys of the
+// revisions garbage collection has not released.
+export const checkpointOutputs = pgTable(
+  "checkpoint_outputs",
+  {
+    sessionId: uuid("session_id").notNull(),
+    revision: integer().notNull(),
+    objectKey: text("object_key").notNull(),
+    bytes: bigint({ mode: "number" }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.sessionId, table.revision, table.objectKey],
+    }),
+    foreignKey({
+      name: "checkpoint_outputs_checkpoint_fk",
+      columns: [table.sessionId, table.revision],
+      foreignColumns: [checkpoints.sessionId, checkpoints.revision],
+    }),
+    check("checkpoint_outputs_bytes_nonneg", sql`${table.bytes} >= 0`),
+  ],
 );
 
 export const executions = pgTable(
