@@ -123,20 +123,24 @@ integration("installation output usage on PostgreSQL", () => {
     expect(second.storageUpdatedAt).toEqual(empty.storageUpdatedAt);
 
     // Collection releases revision 0: b goes with its directory, while a
-    // stays because revision 1 still names it.
+    // stays because revision 1 still names it. Marked collected but not yet
+    // deleted (a pass whose deletes failed), b is still counted.
     const store = createPostgresCheckpointStore(db);
-    expect(
-      await store.markCollected(sessionId, { keep: [1], throughRevision: 1 }),
-    ).toBe(1);
-    const [collected] = await db
-      .select({ at: checkpoints.collectedAt })
+    const collected = { keep: [1], throughRevision: 1 };
+    expect(await store.markCollected(sessionId, collected)).toBe(1);
+    expect((await usage()).outputsUsedBytes).toBe(180);
+
+    await store.markPurged(sessionId, collected);
+    const [purged] = await db
+      .select({ at: checkpoints.objectsPurgedAt })
       .from(checkpoints)
       .where(
         and(eq(checkpoints.sessionId, sessionId), eq(checkpoints.revision, 0)),
       );
+    expect(purged?.at).not.toBeNull();
     const released = await usage();
     expect(released.outputsUsedBytes).toBe(130);
-    expect(released.outputsUpdatedAt).toEqual(collected?.at ?? null);
+    expect(released.outputsUpdatedAt).toEqual(purged?.at ?? null);
   });
 
   test("records a checkpoint naming as many objects as a manifest may", async () => {

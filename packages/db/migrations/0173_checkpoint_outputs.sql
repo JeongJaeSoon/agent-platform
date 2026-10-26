@@ -7,5 +7,6 @@ CREATE TABLE "checkpoint_outputs" (
 	CONSTRAINT "checkpoint_outputs_bytes_nonneg" CHECK ("checkpoint_outputs"."bytes" >= 0)
 );
 --> statement-breakpoint
+ALTER TABLE "checkpoints" ADD COLUMN "objects_purged_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "checkpoints" ADD COLUMN "outputs_recorded" boolean DEFAULT false NOT NULL;--> statement-breakpoint
 ALTER TABLE "checkpoint_outputs" ADD CONSTRAINT "checkpoint_outputs_checkpoint_fk" FOREIGN KEY ("session_id","revision") REFERENCES "public"."checkpoints"("session_id","revision") ON DELETE no action ON UPDATE no action;

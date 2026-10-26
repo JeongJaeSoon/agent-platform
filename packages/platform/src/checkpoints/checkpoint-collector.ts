@@ -240,13 +240,20 @@ export function createCheckpointCollector(
       else kept += 1;
     }
     if (!options.dryRun) {
-      if (pointer !== null) {
-        await store.markCollected(sessionId, {
-          keep: rows.map((checkpoint) => checkpoint.revision),
-          throughRevision: pointer.revision,
-        });
+      const collected =
+        pointer === null
+          ? null
+          : {
+              keep: rows.map((checkpoint) => checkpoint.revision),
+              throughRevision: pointer.revision,
+            };
+      if (collected !== null) {
+        await store.markCollected(sessionId, collected);
       }
       await inBatches(doomed, 32, (entry) => collector.purge(entry));
+      if (collected !== null) {
+        await store.markPurged(sessionId, collected);
+      }
     }
     return { status: "collected", kept, purged: doomed.length };
   }

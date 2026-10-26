@@ -1667,6 +1667,9 @@ export const checkpoints = pgTable(
     // revision's objects: no restore reaches this revision any more, and a
     // backup leaves it out rather than fail on what is gone.
     collectedAt: timestamp("collected_at", { withTimezone: true }),
+    // Set once a collection pass after collected_at deleted every object it
+    // found; output usage counts the revision's outputs until then.
+    objectsPurgedAt: timestamp("objects_purged_at", { withTimezone: true }),
     // The profile of the attempt that committed it: its runtime fingerprint
     // was computed from that profile, so a restore after a profile change
     // is checked against it. Null on rows from before the column.

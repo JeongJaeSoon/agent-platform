@@ -1,5 +1,5 @@
 {
-  "id": "51b30967-9ac4-4ee9-a1dd-270a6d7cf36a",
+  "id": "4945e749-7c7e-436f-84a2-df4c50051af1",
   "prevId": "52bc9f67-36f4-4820-a5d7-909640cd95c7",
   "version": "7",
   "dialect": "postgresql",
@@ -1693,6 +1693,12 @@
         },
         "collected_at": {
           "name": "collected_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "objects_purged_at": {
+          "name": "objects_purged_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
