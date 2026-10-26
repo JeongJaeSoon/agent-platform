@@ -51,6 +51,7 @@ export {
   AgentPlatformProvider,
   type AgentPlatformProviderProps,
   type LinkTarget,
+  QueryScopeProvider,
   type RenderLink,
   useAgentPlatform,
 } from "./provider.tsx";

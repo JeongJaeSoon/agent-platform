@@ -10,7 +10,7 @@ import { useAgentPlatform } from "@werft-ai/react";
 import { Button, Page } from "@werft-ai/ui";
 import { useEffect, useRef } from "react";
 import { useI18n } from "../../i18n/i18n.tsx";
-import { slackFailure } from "./slack.tsx";
+import { slackFailure, slackKey } from "./slack.tsx";
 import { useToast } from "./toast.tsx";
 
 type CompleteSlackInstallResponse =
@@ -53,7 +53,7 @@ export function SlackInstallCallback() {
         }),
       ),
     onSuccess: async (result) => {
-      await cache.invalidateQueries({ queryKey: ["agents", id, "slack"] });
+      await cache.invalidateQueries({ queryKey: slackKey(client, id) });
       const left = unfinished(result);
       if (left) notify(left);
       else

@@ -3,24 +3,44 @@
 exports[`query keys 1`] = `
 {
   "administeredAgents": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
     "administered-agents",
   ],
   "agent": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
     "agents",
     "id-1",
   ],
   "agentAdmins": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
     "agents",
     "id-1",
     "admins",
   ],
   "agentSessionLists": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
     "sessions",
     {
       "list": "agent",
     },
   ],
   "agentSessions": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
     "sessions",
     {
       "agent_id": "id-1",
@@ -28,19 +48,39 @@ exports[`query keys 1`] = `
     },
   ],
   "agents": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
     "agents",
   ],
   "apiKeys": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
     "api-keys",
   ],
   "firstMembers": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
     "members",
     "first",
   ],
   "invites": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
     "invites",
   ],
   "linkedAccounts": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
     "linked-accounts",
   ],
   "loginMethods": [
@@ -49,47 +89,101 @@ exports[`query keys 1`] = `
   "me": [
     "me",
   ],
-  "memberPages": [Function],
+  "memberPages": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
+    "members",
+    "pages",
+    {
+      "q": "kim",
+    },
+  ],
   "members": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
     "members",
   ],
   "myTeams": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
     "teams",
     "mine",
   ],
   "pendingRequests": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
     "sessions",
     "id-1",
     "pending-requests",
   ],
   "profiles": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
     "profiles",
   ],
   "session": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
     "sessions",
     "id-1",
   ],
   "sessionTurns": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
     "sessions",
     "id-1",
     "turns",
   ],
   "sessionUsage": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
     "sessions",
     "id-1",
     "usage",
   ],
   "sessions": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
     "sessions",
   ],
   "team": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
     "teams",
     "id-1",
   ],
   "teams": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
     "teams",
   ],
   "usageBreakdown": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
     "usage-breakdown",
     "me",
     "2026-07-26",
@@ -97,6 +191,10 @@ exports[`query keys 1`] = `
     "model",
   ],
   "usageSeries": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
     "usage-series",
     "installation",
     "2026-07-26",
@@ -107,6 +205,10 @@ exports[`query keys 1`] = `
     "optional",
   ],
   "waitingSessions": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
     "sessions",
     {
       "status": "needs_input",
@@ -125,6 +227,10 @@ exports[`query options and the request each query makes 1`] = `
     ],
     "options": {
       "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
         "administered-agents",
       ],
       "retry": false,
@@ -145,6 +251,10 @@ exports[`query options and the request each query makes 1`] = `
     ],
     "options": {
       "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
         "agents",
         "id-1",
         "admins",
@@ -167,6 +277,10 @@ exports[`query options and the request each query makes 1`] = `
     ],
     "options": {
       "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
         "agents",
         "id-1",
       ],
@@ -189,6 +303,10 @@ exports[`query options and the request each query makes 1`] = `
     ],
     "options": {
       "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
         "sessions",
         {
           "agent_id": "id-1",
@@ -214,6 +332,10 @@ exports[`query options and the request each query makes 1`] = `
     ],
     "options": {
       "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
         "agents",
       ],
       "retry": false,
@@ -234,6 +356,10 @@ exports[`query options and the request each query makes 1`] = `
     ],
     "options": {
       "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
         "api-keys",
       ],
       "retry": false,
@@ -255,6 +381,10 @@ exports[`query options and the request each query makes 1`] = `
     ],
     "options": {
       "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
         "members",
         "first",
       ],
@@ -269,6 +399,10 @@ exports[`query options and the request each query makes 1`] = `
     ],
     "options": {
       "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
         "invites",
       ],
       "retry": false,
@@ -282,6 +416,10 @@ exports[`query options and the request each query makes 1`] = `
     ],
     "options": {
       "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
         "linked-accounts",
       ],
       "retry": false,
@@ -333,6 +471,10 @@ exports[`query options and the request each query makes 1`] = `
       "getNextPageParam": [Function],
       "initialPageParam": null,
       "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
         "members",
         "pages",
         {
@@ -357,6 +499,10 @@ exports[`query options and the request each query makes 1`] = `
     ],
     "options": {
       "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
         "members",
       ],
       "retry": false,
@@ -377,6 +523,10 @@ exports[`query options and the request each query makes 1`] = `
     ],
     "options": {
       "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
         "teams",
         "mine",
       ],
@@ -398,6 +548,10 @@ exports[`query options and the request each query makes 1`] = `
     ],
     "options": {
       "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
         "sessions",
         "id-1",
         "pending-requests",
@@ -414,6 +568,10 @@ exports[`query options and the request each query makes 1`] = `
     ],
     "options": {
       "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
         "profiles",
       ],
       "retry": false,
@@ -435,6 +593,10 @@ exports[`query options and the request each query makes 1`] = `
     ],
     "options": {
       "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
         "sessions",
         "id-1",
       ],
@@ -460,6 +622,10 @@ exports[`query options and the request each query makes 1`] = `
     ],
     "options": {
       "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
         "sessions",
         "id-1",
         "turns",
@@ -482,6 +648,10 @@ exports[`query options and the request each query makes 1`] = `
     ],
     "options": {
       "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
         "sessions",
         "id-1",
         "usage",
@@ -505,6 +675,10 @@ exports[`query options and the request each query makes 1`] = `
       "getNextPageParam": [Function],
       "initialPageParam": null,
       "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
         "sessions",
       ],
       "retry": false,
@@ -525,6 +699,10 @@ exports[`query options and the request each query makes 1`] = `
     ],
     "options": {
       "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
         "teams",
         "id-1",
       ],
@@ -546,6 +724,10 @@ exports[`query options and the request each query makes 1`] = `
     ],
     "options": {
       "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
         "teams",
       ],
       "retry": false,
@@ -568,6 +750,10 @@ exports[`query options and the request each query makes 1`] = `
     ],
     "options": {
       "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
         "usage-breakdown",
         "id-1",
         undefined,
@@ -593,6 +779,10 @@ exports[`query options and the request each query makes 1`] = `
     ],
     "options": {
       "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
         "usage-series",
         "id-1",
         undefined,
@@ -630,6 +820,10 @@ exports[`query options and the request each query makes 1`] = `
     ],
     "options": {
       "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
         "sessions",
         {
           "status": "needs_input",

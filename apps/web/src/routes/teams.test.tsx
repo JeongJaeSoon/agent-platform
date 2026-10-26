@@ -7,13 +7,13 @@ import {
   type TeamDetail,
   teamDetailSchema,
 } from "@werft-ai/contracts";
-import { queryKeys } from "@werft-ai/core";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { ADMINISTERED_LIST_LIMIT } from "../components/agent-admins.tsx";
 import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
 import {
   apiError,
   json,
+  keys,
   me,
   memberMe,
   memberPage,
@@ -568,7 +568,7 @@ describe("팀 화면", () => {
     });
     await screen.findByRole("link", { name: "결제팀" });
     // An earlier visit read a list with nobody to add; Mate joined since.
-    services.queryClient.setQueryData(queryKeys.members, {
+    services.queryClient.setQueryData(keys.members, {
       items: [],
       next_cursor: null,
     });
@@ -785,7 +785,7 @@ describe("에이전트 관리자", () => {
     ];
     act(() => {
       void services.queryClient.invalidateQueries({
-        queryKey: queryKeys.teams,
+        queryKey: keys.teams,
       });
     });
     await waitFor(() =>
@@ -830,7 +830,7 @@ describe("에이전트 관리자", () => {
     ).toContain("mate@example.com · 10/11부터 담당");
     await screen.findByRole("option", { name: "결제팀" });
     // The list's summaries name the admins, so a change marks it stale.
-    services.queryClient.setQueryData(queryKeys.agents, {
+    services.queryClient.setQueryData(keys.agents, {
       items: [],
       next_cursor: null,
     });
@@ -846,9 +846,9 @@ describe("에이전트 관리자", () => {
       api.calls.find((c) => c.method === "POST" && c.path.endsWith("/admins"))
         ?.body,
     ).toEqual({ team_id: TEAM_ID });
-    expect(
-      services.queryClient.getQueryState(queryKeys.agents)?.isInvalidated,
-    ).toBe(true);
+    expect(services.queryClient.getQueryState(keys.agents)?.isInvalidated).toBe(
+      true,
+    );
 
     await user.click(
       screen.getByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),

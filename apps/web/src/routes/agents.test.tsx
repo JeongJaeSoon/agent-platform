@@ -13,13 +13,13 @@ import {
   CREDENTIAL_REVOKE_NOTICE,
 } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
-import { queryKeys } from "../api/queries.ts";
 import { avatarTone } from "../components/agent-cards.tsx";
 import { type Locale, translate } from "../i18n/i18n.tsx";
 import { AGENT_ID, agentServer, CARD } from "../test-support/fake-agents.ts";
 import {
   apiError,
   json,
+  keys,
   me,
   memberMe,
   USER_ID,
@@ -1623,7 +1623,7 @@ describe("편집 중 다른 곳의 저장", () => {
     await user.type(instructions, "내가 고치던 지시.");
     otherTabSaves(server);
     await services.queryClient.invalidateQueries({
-      queryKey: queryKeys.agent(AGENT_ID),
+      queryKey: keys.agent(AGENT_ID),
     });
     expect(
       await screen.findByText(
@@ -1650,7 +1650,7 @@ describe("편집 중 다른 곳의 저장", () => {
     await user.selectOptions(release.getByLabelText("프로필"), PROFILE);
     otherTabSaves(server);
     await services.queryClient.invalidateQueries({
-      queryKey: queryKeys.agent(AGENT_ID),
+      queryKey: keys.agent(AGENT_ID),
     });
     await waitFor(() =>
       expect(
@@ -1904,7 +1904,7 @@ describe("편집 중 다른 곳의 저장", () => {
     await user.type(instructions, "카드만 고친다.");
     renamed = true;
     await services.queryClient.invalidateQueries({
-      queryKey: queryKeys.agent(AGENT_ID),
+      queryKey: keys.agent(AGENT_ID),
     });
     await screen.findByRole("heading", { name: "청구 담당" });
     await user.click(screen.getByRole("button", { name: "저장" }));
@@ -1920,7 +1920,7 @@ describe("편집 중 다른 곳의 저장", () => {
     await screen.findByLabelText("지시 사항");
     otherTabSaves(server);
     await services.queryClient.invalidateQueries({
-      queryKey: queryKeys.agent(AGENT_ID),
+      queryKey: keys.agent(AGENT_ID),
     });
     await waitFor(() =>
       expect(

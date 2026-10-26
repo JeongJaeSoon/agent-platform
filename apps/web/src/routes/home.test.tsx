@@ -1,14 +1,16 @@
 import { describe, expect, jest, test } from "bun:test";
 import type { ApiClient } from "@werft-ai/client";
 import type { MemberView } from "@werft-ai/contracts";
-import { queryKeys, waitingSessionsQuery } from "@werft-ai/core";
+import { waitingSessionsQuery, withQueryScope } from "@werft-ai/core";
 import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
 import {
   apiError,
   json,
+  keys,
   me,
   memberMe,
   memberPage,
+  SCOPE,
   USER_ID,
   WORKSPACE_ID,
 } from "../test-support/fake-api.ts";
@@ -836,7 +838,7 @@ describe("홈 요약", () => {
     fail = true;
     await act(async () => {
       await services.queryClient.refetchQueries({
-        queryKey: queryKeys.waitingSessions,
+        queryKey: keys.waitingSessions,
       });
       // The query batches its notification on a timer; let it land in act.
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -1163,7 +1165,7 @@ describe("statusPageQuery", () => {
   test("작업 중·쉬는 중 목록은 답변 대기 목록과 같은 주기로 다시 읽는다", () => {
     // The open total adds the three lists; read at different paces it would
     // count a session that moved between them twice or not at all.
-    const client = {} as ApiClient;
+    const client = withQueryScope({} as ApiClient, SCOPE);
     for (const status of ["running", "idle"] as const)
       expect<unknown>(
         statusPageQuery(client, status, true).refetchInterval,

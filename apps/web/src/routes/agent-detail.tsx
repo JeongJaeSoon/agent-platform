@@ -28,7 +28,7 @@ import {
 } from "@werft-ai/ui";
 import { ArrowLeft } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { agentQuery, queryKeys } from "../api/queries.ts";
+import { agentQuery, queryKeysOf } from "../api/queries.ts";
 import { useRole } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
 import { AgentAdmins } from "../components/agent-admins.tsx";
@@ -259,7 +259,9 @@ function AgentView({
                 release: releaseLabel(result.active_release_id),
               }),
       });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.agents });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeysOf(client).agents,
+      });
     },
     onError: (error, { expected, seenActive }) => {
       // Someone else moved the pointer since this page loaded. Retrying with

@@ -25,7 +25,7 @@ import {
   administeredAgentsQuery,
   agentAdminsQuery,
   membersQuery,
-  queryKeys,
+  queryKeysOf,
   teamsQuery,
 } from "../api/queries.ts";
 import {
@@ -183,7 +183,10 @@ function AdminList({
     onMutate: () => onOutcome(null),
     onSettled: () => setRemoving(null),
     onSuccess: async (result, { add, name }) => {
-      queryClient.setQueryData(queryKeys.agentAdmins(agentId), result.admins);
+      queryClient.setQueryData(
+        queryKeysOf(client).agentAdmins(agentId),
+        result.admins,
+      );
       if (add) setPicked("");
       onOutcome({
         kind: "notice",
@@ -193,10 +196,10 @@ function AdminList({
       // administer; the list's summaries name the admins.
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: queryKeys.administeredAgents,
+          queryKey: queryKeysOf(client).administeredAgents,
         }),
         queryClient.invalidateQueries({
-          queryKey: queryKeys.agents,
+          queryKey: queryKeysOf(client).agents,
           exact: true,
         }),
       ]);

@@ -77,56 +77,117 @@ function infiniteQueryOptions<T, K extends QueryKey, P>(
 const LIVE_REFETCH_MS = 5_000;
 
 /**
- * Query keys are the cache's public names. A screen that shows server state
- * reads it through one of these; anything that changes who is signed in
- * clears the whole cache instead of invalidating keys one by one.
+ * Who a cached answer belongs to: the principal that read it, in its
+ * workspace. Every key but the ones that find out who is signed in starts
+ * with it, so one cache can hold several principals' data without mixing
+ * them, and one principal's entries can be dropped by prefix.
+ */
+export interface QueryScope {
+  /** `<principal kind>:<principal id>`. */
+  readonly actor: string;
+  readonly workspace: string;
+}
+
+/** The scope `/v1/auth/me` describes; null outside any workspace. */
+export function queryScopeOf(me: AuthMeResponse): QueryScope | null {
+  const workspace = me.principal.workspace_id ?? me.workspace?.id ?? null;
+  if (workspace === null) return null;
+  return { actor: `${me.principal.kind}:${me.principal.id}`, workspace };
+}
+
+const clientScopes = new WeakMap<ApiClient, QueryScope>();
+
+/** The same client, whose queries are cached under `scope`. */
+export function withQueryScope(
+  client: ApiClient,
+  scope: QueryScope,
+): ApiClient {
+  const scoped = Object.create(client) as ApiClient;
+  clientScopes.set(scoped, scope);
+  return scoped;
+}
+
+function scopeOf(client: ApiClient): QueryScope {
+  const scope = clientScopes.get(client);
+  if (!scope) {
+    throw new Error("This query needs a client from withQueryScope");
+  }
+  return scope;
+}
+
+/** A key of the client's scope, for a query no factory here covers. */
+export function scopedKey<const K extends readonly unknown[]>(
+  client: ApiClient,
+  ...key: K
+) {
+  const scope = scopeOf(client);
+  return [{ actor: scope.actor, workspace: scope.workspace }, ...key] as const;
+}
+
+/** Matches every entry of `scope`, to drop them all at once. */
+export function queryScopeFilter(scope: QueryScope) {
+  return {
+    queryKey: [{ actor: scope.actor, workspace: scope.workspace }],
+  } as const;
+}
+
+/**
+ * The keys that find out who is signed in, and so cannot depend on it. A
+ * change of who is signed in clears the whole cache.
  */
 export const queryKeys = {
   me: ["me"] as const,
   viewer: ["me", "optional"] as const,
   loginMethods: ["login-methods"] as const,
-  members: ["members"] as const,
-  // Under "members", so every member change refreshes the loaded pages too.
-  memberPages: (q: string | undefined) =>
-    ["members", "pages", { q: q ?? null }] as const,
-  firstMembers: ["members", "first"] as const,
-  invites: ["invites"] as const,
-  agents: ["agents"] as const,
-  agent: (id: string) => ["agents", id] as const,
-  agentAdmins: (id: string) => ["agents", id, "admins"] as const,
-  administeredAgents: ["administered-agents"] as const,
-  teams: ["teams"] as const,
-  // Under "teams", so every team change refreshes it too.
-  myTeams: ["teams", "mine"] as const,
-  linkedAccounts: ["linked-accounts"] as const,
-  apiKeys: ["api-keys"] as const,
-  profiles: ["profiles"] as const,
-  team: (id: string) => ["teams", id] as const,
-  sessions: ["sessions"] as const,
-  // An object segment, so it never reads as a session id.
-  waitingSessions: ["sessions", { status: "needs_input" }] as const,
-  // Every agent's list matches agentSessionLists, so a session change
-  // refreshes them all without knowing which agent it belongs to.
-  agentSessionLists: ["sessions", { list: "agent" }] as const,
-  agentSessions: (agentId: string) =>
-    ["sessions", { list: "agent", agent_id: agentId }] as const,
-  session: (id: string) => ["sessions", id] as const,
-  sessionUsage: (id: string) => ["sessions", id, "usage"] as const,
-  pendingRequests: (id: string) =>
-    ["sessions", id, "pending-requests"] as const,
-  sessionTurns: (id: string) => ["sessions", id, "turns"] as const,
-  usageSeries: (
-    scope: UsageSummaryScope,
-    since: string,
-    until: string | null,
-  ) => ["usage-series", scope, since, until] as const,
-  usageBreakdown: (
-    scope: UsageSummaryScope,
-    since: string,
-    until: string | null,
-    by: UsageBreakdownBy,
-  ) => ["usage-breakdown", scope, since, until, by] as const,
 };
+
+/** Every other query key: the cache's public names, in the client's scope. */
+export function queryKeysOf(client: ApiClient) {
+  const s = scopedKey(client)[0];
+  return {
+    members: [s, "members"] as const,
+    // Under "members", so every member change refreshes the loaded pages too.
+    memberPages: (q: string | undefined) =>
+      [s, "members", "pages", { q: q ?? null }] as const,
+    firstMembers: [s, "members", "first"] as const,
+    invites: [s, "invites"] as const,
+    agents: [s, "agents"] as const,
+    agent: (id: string) => [s, "agents", id] as const,
+    agentAdmins: (id: string) => [s, "agents", id, "admins"] as const,
+    administeredAgents: [s, "administered-agents"] as const,
+    teams: [s, "teams"] as const,
+    // Under "teams", so every team change refreshes it too.
+    myTeams: [s, "teams", "mine"] as const,
+    linkedAccounts: [s, "linked-accounts"] as const,
+    apiKeys: [s, "api-keys"] as const,
+    profiles: [s, "profiles"] as const,
+    team: (id: string) => [s, "teams", id] as const,
+    sessions: [s, "sessions"] as const,
+    // An object segment, so it never reads as a session id.
+    waitingSessions: [s, "sessions", { status: "needs_input" }] as const,
+    // Every agent's list matches agentSessionLists, so a session change
+    // refreshes them all without knowing which agent it belongs to.
+    agentSessionLists: [s, "sessions", { list: "agent" }] as const,
+    agentSessions: (agentId: string) =>
+      [s, "sessions", { list: "agent", agent_id: agentId }] as const,
+    session: (id: string) => [s, "sessions", id] as const,
+    sessionUsage: (id: string) => [s, "sessions", id, "usage"] as const,
+    pendingRequests: (id: string) =>
+      [s, "sessions", id, "pending-requests"] as const,
+    sessionTurns: (id: string) => [s, "sessions", id, "turns"] as const,
+    usageSeries: (
+      scope: UsageSummaryScope,
+      since: string,
+      until: string | null,
+    ) => [s, "usage-series", scope, since, until] as const,
+    usageBreakdown: (
+      scope: UsageSummaryScope,
+      since: string,
+      until: string | null,
+      by: UsageBreakdownBy,
+    ) => [s, "usage-breakdown", scope, since, until, by] as const,
+  };
+}
 
 export function meQuery(client: ApiClient) {
   return queryOptions({
@@ -171,7 +232,7 @@ export function loginMethodsQuery(client: ApiClient) {
 /** The catalog is read once at API startup, so it rarely changes under a page. */
 export function profilesQuery(client: ApiClient) {
   return queryOptions({
-    queryKey: queryKeys.profiles,
+    queryKey: queryKeysOf(client).profiles,
     queryFn: () =>
       unwrap(client.GET("/v1/profiles")) as Promise<ListProfilesResponse>,
     retry: false,
@@ -207,7 +268,7 @@ async function readEveryPage<
 /** Every member of the workspace, every page read, oldest first. */
 export function membersQuery(client: ApiClient) {
   return queryOptions({
-    queryKey: queryKeys.members,
+    queryKey: queryKeysOf(client).members,
     queryFn: async (): Promise<ListMembersResponse> => {
       const { items, last } = await readEveryPage(
         (query) =>
@@ -232,7 +293,7 @@ export function membersQuery(client: ApiClient) {
  */
 export function firstMembersQuery(client: ApiClient) {
   return queryOptions({
-    queryKey: queryKeys.firstMembers,
+    queryKey: queryKeysOf(client).firstMembers,
     queryFn: () =>
       unwrap(
         client.GET("/v1/members", { params: { query: { limit: 2 } } }),
@@ -247,7 +308,7 @@ export function firstMembersQuery(client: ApiClient) {
  */
 export function memberPagesQuery(client: ApiClient, q?: string) {
   return infiniteQueryOptions({
-    queryKey: queryKeys.memberPages(q),
+    queryKey: queryKeysOf(client).memberPages(q),
     queryFn: ({ pageParam }) =>
       unwrap(
         client.GET("/v1/members", {
@@ -270,7 +331,7 @@ export function memberPagesQuery(client: ApiClient, q?: string) {
 
 export function invitesQuery(client: ApiClient) {
   return queryOptions({
-    queryKey: queryKeys.invites,
+    queryKey: queryKeysOf(client).invites,
     queryFn: () =>
       unwrap(client.GET("/v1/invites")) as Promise<ListInvitesResponse>,
     retry: false,
@@ -283,7 +344,7 @@ export function invitesQuery(client: ApiClient) {
  */
 export function agentsQuery(client: ApiClient) {
   return queryOptions({
-    queryKey: queryKeys.agents,
+    queryKey: queryKeysOf(client).agents,
     queryFn: async (): Promise<ListAgentsResponse> => {
       const { items } = await readEveryPage(
         (query) =>
@@ -301,7 +362,7 @@ export function agentsQuery(client: ApiClient) {
 
 export function agentQuery(client: ApiClient, id: string) {
   return queryOptions({
-    queryKey: queryKeys.agent(id),
+    queryKey: queryKeysOf(client).agent(id),
     queryFn: () =>
       unwrap(
         client.GET("/v1/agents/{id}", { params: { path: { id } } }),
@@ -313,7 +374,7 @@ export function agentQuery(client: ApiClient, id: string) {
 /** Every team of the workspace, every page read, by name. */
 export function teamsQuery(client: ApiClient) {
   return queryOptions({
-    queryKey: queryKeys.teams,
+    queryKey: queryKeysOf(client).teams,
     queryFn: async (): Promise<ListTeamsResponse> => {
       const { items } = await readEveryPage(
         (query) =>
@@ -329,7 +390,7 @@ export function teamsQuery(client: ApiClient) {
 
 export function teamQuery(client: ApiClient, id: string) {
   return queryOptions({
-    queryKey: queryKeys.team(id),
+    queryKey: queryKeysOf(client).team(id),
     queryFn: () =>
       unwrap(
         client.GET("/v1/teams/{team_id}", {
@@ -342,7 +403,7 @@ export function teamQuery(client: ApiClient, id: string) {
 
 export function agentAdminsQuery(client: ApiClient, id: string) {
   return queryOptions({
-    queryKey: queryKeys.agentAdmins(id),
+    queryKey: queryKeysOf(client).agentAdmins(id),
     queryFn: () =>
       unwrap(
         client.GET("/v1/agents/{id}/admins", { params: { path: { id } } }),
@@ -354,7 +415,7 @@ export function agentAdminsQuery(client: ApiClient, id: string) {
 /** The agents the caller administers now, directly or through a team. */
 export function administeredAgentsQuery(client: ApiClient) {
   return queryOptions({
-    queryKey: queryKeys.administeredAgents,
+    queryKey: queryKeysOf(client).administeredAgents,
     queryFn: () =>
       unwrap(
         client.GET("/v1/administered-agents"),
@@ -367,7 +428,7 @@ export function administeredAgentsQuery(client: ApiClient) {
 /** Every team the caller belongs to, every page read, by name. */
 export function myTeamsQuery(client: ApiClient) {
   return queryOptions({
-    queryKey: queryKeys.myTeams,
+    queryKey: queryKeysOf(client).myTeams,
     queryFn: async (): Promise<ListMyTeamsResponse> => {
       const { items } = await readEveryPage(
         (query) =>
@@ -383,7 +444,7 @@ export function myTeamsQuery(client: ApiClient) {
 
 export function linkedAccountsQuery(client: ApiClient) {
   return queryOptions({
-    queryKey: queryKeys.linkedAccounts,
+    queryKey: queryKeysOf(client).linkedAccounts,
     queryFn: () =>
       unwrap(
         client.GET("/v1/linked-accounts"),
@@ -398,7 +459,7 @@ export function linkedAccountsQuery(client: ApiClient) {
  */
 export function apiKeysQuery(client: ApiClient) {
   return queryOptions({
-    queryKey: queryKeys.apiKeys,
+    queryKey: queryKeysOf(client).apiKeys,
     queryFn: async (): Promise<ListApiKeysResponse> => {
       const { items } = await readEveryPage(
         (query) =>
@@ -416,7 +477,7 @@ export function apiKeysQuery(client: ApiClient) {
 
 export function sessionsQuery(client: ApiClient) {
   return infiniteQueryOptions({
-    queryKey: queryKeys.sessions,
+    queryKey: queryKeysOf(client).sessions,
     queryFn: ({ pageParam }) =>
       unwrap(
         client.GET("/v1/sessions", {
@@ -432,7 +493,7 @@ export function sessionsQuery(client: ApiClient) {
 /** The first page of sessions waiting on an answer, for the sidebar's badge. */
 export function waitingSessionsQuery(client: ApiClient) {
   return queryOptions({
-    queryKey: queryKeys.waitingSessions,
+    queryKey: queryKeysOf(client).waitingSessions,
     queryFn: () =>
       unwrap(
         client.GET("/v1/sessions", {
@@ -445,14 +506,14 @@ export function waitingSessionsQuery(client: ApiClient) {
 }
 
 /** Matches every agentSessionsQuery, whichever agent, to mark them stale. */
-export const agentSessionListsFilter = {
-  queryKey: queryKeys.agentSessionLists,
-} as const;
+export function agentSessionListsFilter(client: ApiClient) {
+  return { queryKey: queryKeysOf(client).agentSessionLists } as const;
+}
 
 /** The newest sessions of one agent the caller can read, for its overview. */
 export function agentSessionsQuery(client: ApiClient, agentId: string) {
   return queryOptions({
-    queryKey: queryKeys.agentSessions(agentId),
+    queryKey: queryKeysOf(client).agentSessions(agentId),
     queryFn: () =>
       unwrap(
         client.GET("/v1/sessions", {
@@ -465,7 +526,7 @@ export function agentSessionsQuery(client: ApiClient, agentId: string) {
 
 export function sessionQuery(client: ApiClient, id: string) {
   return queryOptions({
-    queryKey: queryKeys.session(id),
+    queryKey: queryKeysOf(client).session(id),
     queryFn: () =>
       unwrap(
         client.GET("/v1/sessions/{id}", { params: { path: { id } } }),
@@ -478,7 +539,7 @@ export function sessionQuery(client: ApiClient, id: string) {
 /** Every turn of a session, oldest first: what each one was asked. */
 export function sessionTurnsQuery(client: ApiClient, id: string) {
   return queryOptions({
-    queryKey: queryKeys.sessionTurns(id),
+    queryKey: queryKeysOf(client).sessionTurns(id),
     queryFn: async (): Promise<ListTurnsResponse> => {
       const { items } = await readEveryPage(
         (query) =>
@@ -496,7 +557,7 @@ export function sessionTurnsQuery(client: ApiClient, id: string) {
 
 export function sessionUsageQuery(client: ApiClient, id: string) {
   return queryOptions({
-    queryKey: queryKeys.sessionUsage(id),
+    queryKey: queryKeysOf(client).sessionUsage(id),
     queryFn: () =>
       unwrap(
         client.GET("/v1/sessions/{id}/usage", { params: { path: { id } } }),
@@ -517,7 +578,7 @@ export function usageSeriesQuery(
   until: string | null = null,
 ) {
   return queryOptions({
-    queryKey: queryKeys.usageSeries(scope, since, until),
+    queryKey: queryKeysOf(client).usageSeries(scope, since, until),
     queryFn: () =>
       unwrap(
         client.GET("/v1/usage/series", {
@@ -538,7 +599,7 @@ export function usageBreakdownQuery(
   until: string | null = null,
 ) {
   return queryOptions({
-    queryKey: queryKeys.usageBreakdown(scope, since, until, by),
+    queryKey: queryKeysOf(client).usageBreakdown(scope, since, until, by),
     queryFn: () =>
       unwrap(
         client.GET("/v1/usage/breakdown", {
@@ -553,7 +614,7 @@ export function usageBreakdownQuery(
 
 export function pendingRequestsQuery(client: ApiClient, id: string) {
   return queryOptions({
-    queryKey: queryKeys.pendingRequests(id),
+    queryKey: queryKeysOf(client).pendingRequests(id),
     queryFn: () =>
       unwrap(
         client.GET("/v1/sessions/{id}/pending-requests", {

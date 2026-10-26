@@ -10,12 +10,13 @@ import {
 import {
   agentSessionsQuery,
   pendingRequestsQuery,
-  queryKeys,
+  queryKeysOf,
   sessionQuery,
   sessionsQuery,
   sessionTurnsQuery,
   sessionUsageQuery,
   waitingSessionsQuery,
+  withQueryScope,
 } from "@werft-ai/core";
 import { setupDom } from "@werft-ai/ui/test-support/dom";
 import type { ReactNode } from "react";
@@ -122,10 +123,13 @@ function harness(
     sent.push(entry);
     return answer(entry);
   };
-  const client: ApiClient = createApiClient({
-    baseUrl: "https://console.test",
-    fetch: fakeFetch as unknown as NonNullable<ApiClientOptions["fetch"]>,
-  });
+  const client: ApiClient = withQueryScope(
+    createApiClient({
+      baseUrl: "https://console.test",
+      fetch: fakeFetch as unknown as NonNullable<ApiClientOptions["fetch"]>,
+    }),
+    { actor: "user:u-1", workspace: "w-1" },
+  );
   const seeded = { id: SESSION_ID, status: "running" };
   queryClient.setQueryData(
     sessionQuery(client, SESSION_ID).queryKey,
@@ -147,7 +151,7 @@ function harness(
   const keys = {
     list: sessionsQuery(client).queryKey,
     waiting: waitingSessionsQuery(client).queryKey,
-    agentLists: queryKeys.agentSessionLists,
+    agentLists: queryKeysOf(client).agentSessionLists,
     detail: sessionQuery(client, SESSION_ID).queryKey,
     pending: pendingRequestsQuery(client, SESSION_ID).queryKey,
     usage: sessionUsageQuery(client, SESSION_ID).queryKey,

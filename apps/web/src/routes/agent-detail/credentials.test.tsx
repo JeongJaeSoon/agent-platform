@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
-import { queryKeys } from "../../api/queries.ts";
 import { AGENT_ID, agentServer, CARD } from "../../test-support/fake-agents.ts";
-import { apiError, json, me } from "../../test-support/fake-api.ts";
+import { apiError, json, keys, me } from "../../test-support/fake-api.ts";
 import { appHarness } from "../../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor, within } = await appHarness();
@@ -41,11 +40,11 @@ describe("자격 연결 단계", () => {
     const { api, services } = renderAt(DETAIL, { ...meOk, ...server.routes });
     // The list's summaries say what is bound, so a change marks it stale.
     const listed = () => {
-      services.queryClient.setQueryData(queryKeys.agents, {
+      services.queryClient.setQueryData(keys.agents, {
         items: [],
         next_cursor: null,
       });
-      return () => services.queryClient.getQueryState(queryKeys.agents);
+      return () => services.queryClient.getQueryState(keys.agents);
     };
     const user = await setupUser();
     const section = await step();
@@ -168,7 +167,7 @@ describe("자격 연결 단계", () => {
 
       const listed = services.queryClient.getQueryData<{
         items: Record<string, unknown>[];
-      }>([...["agents", AGENT_ID], "credential-bindings"]);
+      }>([...keys.agent(AGENT_ID), "credential-bindings"]);
       expect(listed?.items).toEqual([]);
       const variables = services.queryClient
         .getMutationCache()

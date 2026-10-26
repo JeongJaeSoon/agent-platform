@@ -21,7 +21,11 @@ import type {
   UsageToolCallsResponse,
   UsageToolsResponse,
 } from "@werft-ai/contracts";
-import { usageBreakdownQuery, usageSeriesQuery } from "@werft-ai/core";
+import {
+  scopedKey,
+  usageBreakdownQuery,
+  usageSeriesQuery,
+} from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   DetailLayout,
@@ -108,7 +112,14 @@ function usageToolsQuery(
   agentId: string | undefined,
 ) {
   return queryOptions({
-    queryKey: ["usage-tools", scope, since, until, agentId ?? null],
+    queryKey: scopedKey(
+      client,
+      "usage-tools",
+      scope,
+      since,
+      until,
+      agentId ?? null,
+    ),
     queryFn: () =>
       unwrap(
         client.GET("/v1/usage/tools", {
@@ -136,7 +147,8 @@ function usageToolCallsQuery(
   sort: ToolCallSort,
 ) {
   return queryOptions({
-    queryKey: [
+    queryKey: scopedKey(
+      client,
       "usage-tool-calls",
       name,
       scope,
@@ -144,7 +156,7 @@ function usageToolCallsQuery(
       until,
       agentId ?? null,
       sort,
-    ],
+    ),
     queryFn: () =>
       unwrap(
         client.GET("/v1/usage/tools/{name}/calls", {
@@ -169,7 +181,7 @@ export function useInstallationLimits(enabled: boolean) {
   const { client } = useAgentPlatform();
   return useQuery({
     // The home's key, so the two screens share one read.
-    queryKey: ["limits"],
+    queryKey: scopedKey(client, "limits"),
     queryFn: () =>
       unwrap(client.GET("/v1/limits")) as Promise<InstallationLimitsResponse>,
     enabled,
@@ -243,7 +255,7 @@ export function OperationsOverviewScreen() {
   const filters = useUsageFilters();
   const { since, until } = usagePeriod(filters.days);
   const counts = useQuery({
-    queryKey: ["session-counts"],
+    queryKey: scopedKey(client, "session-counts"),
     queryFn: () =>
       unwrap(
         client.GET("/v1/sessions/counts"),

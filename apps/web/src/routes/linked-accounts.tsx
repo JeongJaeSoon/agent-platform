@@ -18,7 +18,7 @@ import {
   Link as TextLink,
 } from "@werft-ai/ui";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { linkedAccountsQuery, queryKeys } from "../api/queries.ts";
+import { linkedAccountsQuery, queryKeysOf } from "../api/queries.ts";
 import { refusalText, useRole } from "../auth/guard.tsx";
 import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
@@ -167,7 +167,7 @@ export function LinkedAccountsScreen() {
     onSuccess: async () => {
       setOutcome({ kind: "notice", text: t("linked.unlinked") });
       await queryClient.invalidateQueries({
-        queryKey: queryKeys.linkedAccounts,
+        queryKey: queryKeysOf(client).linkedAccounts,
       });
     },
     onError: (error) =>
@@ -422,7 +422,7 @@ export function SlackLinkCallbackScreen() {
       ),
     onSuccess: async () => {
       await queryClient.invalidateQueries({
-        queryKey: queryKeys.linkedAccounts,
+        queryKey: queryKeysOf(client).linkedAccounts,
       });
       await navigate({ to: "/settings/linked-accounts", replace: true });
     },

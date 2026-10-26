@@ -11,6 +11,7 @@ import { setupUser } from "@werft-ai/ui/test-support/dom";
 import {
   apiError,
   json,
+  keys,
   me,
   memberMe,
   RECEIPT_ID,
@@ -540,7 +541,7 @@ describe("sessions list", () => {
     });
 
     await screen.findByRole("link", { name: opener(SESSION_ID) });
-    await services.queryClient.invalidateQueries({ queryKey: ["sessions"] });
+    await services.queryClient.invalidateQueries({ queryKey: keys.sessions });
     await user.click(await screen.findByRole("button", { name: "다시 시도" }));
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "다시 시도" })).toBeNull(),
@@ -1118,7 +1119,7 @@ describe("sessions list", () => {
     for (const expected of [2, 3]) {
       await act(() =>
         services.queryClient.invalidateQueries({
-          queryKey: ["sessions"],
+          queryKey: keys.sessions,
           exact: true,
         }),
       );
@@ -1586,7 +1587,7 @@ describe("session detail", () => {
     visible = false;
     await act(() =>
       services.queryClient.refetchQueries({
-        queryKey: ["sessions", SESSION_ID],
+        queryKey: keys.session(SESSION_ID),
         exact: true,
       }),
     );
@@ -2953,7 +2954,7 @@ describe("세션 상세 머리 경로", () => {
     visible = false;
     await act(() =>
       services.queryClient.refetchQueries({
-        queryKey: ["sessions", SESSION_ID],
+        queryKey: keys.session(SESSION_ID),
         exact: true,
       }),
     );

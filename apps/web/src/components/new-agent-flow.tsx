@@ -41,7 +41,7 @@ import {
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useWatch } from "react-hook-form";
 import type { z } from "zod";
-import { agentQuery, profilesQuery, queryKeys } from "../api/queries.ts";
+import { agentQuery, profilesQuery, queryKeysOf } from "../api/queries.ts";
 import { FunnelResetNotice, useFunnel } from "../funnel/tanstack-funnel.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import {
@@ -370,9 +370,12 @@ export function NewAgentFlow({
     writeDraft(flow, draft);
     // The fields show what was saved, trimmed as the server keeps it.
     identity.reset({ name: draft.name, slug: draft.slug });
-    queryClient.setQueryData(queryKeys.agent(detail.agent.id), detail);
+    queryClient.setQueryData(
+      queryKeysOf(client).agent(detail.agent.id),
+      detail,
+    );
     await queryClient.invalidateQueries({
-      queryKey: queryKeys.agents,
+      queryKey: queryKeysOf(client).agents,
       exact: true,
     });
     return {
@@ -673,7 +676,9 @@ function ReleaseForm({
         body: { version_id: versionId, runtime_profile_id },
       }),
     );
-    await queryClient.invalidateQueries({ queryKey: queryKeys.agent(agentId) });
+    await queryClient.invalidateQueries({
+      queryKey: queryKeysOf(client).agent(agentId),
+    });
     onReleased(result.release.id);
   };
   return (
@@ -753,8 +758,10 @@ function ActivateStep({
       ),
     onSuccess: async () => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.agents }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.agent(agentId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeysOf(client).agents }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeysOf(client).agent(agentId),
+        }),
       ]);
       onNext();
     },

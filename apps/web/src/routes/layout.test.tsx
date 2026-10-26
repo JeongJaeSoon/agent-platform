@@ -1,8 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { queryKeys } from "@werft-ai/core";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { THEME_STORAGE_KEY } from "../components/theme.ts";
-import { json, me, memberMe } from "../test-support/fake-api.ts";
+import {
+  apiError,
+  json,
+  keys,
+  me,
+  memberMe,
+  SCOPE,
+  WORKSPACE_ID,
+} from "../test-support/fake-api.ts";
 import { appHarness, WAITING_SESSIONS } from "../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor, within } = await appHarness();
@@ -220,7 +227,7 @@ describe("app shell", () => {
     await screen.findByRole("link", { name: "세션 답변 대기 1개" });
     // What a session's status event invalidates.
     await services.queryClient.invalidateQueries({
-      queryKey: queryKeys.waitingSessions,
+      queryKey: keys.waitingSessions,
       exact: true,
     });
     await waitFor(() =>
@@ -433,5 +440,121 @@ describe("app shell", () => {
         .getAttribute("aria-expanded"),
     ).toBe("false");
     expect(document.activeElement?.id).toBe("main");
+  });
+});
+
+describe("who the cache belongs to", () => {
+  const MATE_ID = "7e8f9a0b-1c2d-4e3f-8a4b-5c6d7e8f9a0b";
+  const mate = () => {
+    const base = memberMe();
+    return {
+      ...base,
+      principal: { ...base.principal, id: MATE_ID },
+      user: { id: MATE_ID, email: "mate@example.com", display_name: "Mate" },
+    };
+  };
+  const MATE_SCOPE = { actor: `user:${MATE_ID}`, workspace: WORKSPACE_ID };
+  const SIGN_IN_KEYS = [["me"], ["me", "optional"], ["login-methods"]].map(
+    (key) => JSON.stringify(key),
+  );
+  /** Every cached key but the ones that find out who is signed in. */
+  const scopedKeys = (services: ReturnType<typeof renderAt>["services"]) =>
+    services.queryClient
+      .getQueryCache()
+      .getAll()
+      .map((query) => query.queryKey)
+      .filter((key) => !SIGN_IN_KEYS.includes(JSON.stringify(key)));
+  const ownerWaiting = () =>
+    json(200, { items: [waiting(FIRST)], next_cursor: null });
+
+  test("every key a screen caches leads with who is signed in and the workspace", async () => {
+    const { history, services } = renderAt("/", {
+      ...signedIn,
+      [WAITING_SESSIONS]: ownerWaiting,
+    });
+    await screen.findByRole("link", { name: "세션 답변 대기 1개" });
+    // Unrouted reads fail, but their keys are cached all the same.
+    for (const path of [
+      "/sessions",
+      "/agents",
+      "/members",
+      "/members/teams",
+      "/operations",
+      "/operations/tools",
+      "/usage",
+      "/settings/api-keys",
+      "/settings/linked-accounts",
+      "/settings/workspace",
+      "/settings/workspace/slack",
+    ]) {
+      await history.push(path);
+      await waitFor(() => expect(history.location.pathname).toBe(path));
+      // Long polls never settle; give the screen's reads a moment to start.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const cached = scopedKeys(services);
+    expect(cached.length).toBeGreaterThan(10);
+    for (const key of cached) expect(key[0]).toEqual(SCOPE);
+  });
+
+  test("someone else signing in on the same browser never sees the last person's entries", async () => {
+    let who: "owner" | "mate" = "owner";
+    const { services } = renderAt("/", {
+      "GET /v1/auth/me": () => json(200, who === "owner" ? me() : mate()),
+      // Mate's own count never arrives, so only a leftover could show one.
+      [WAITING_SESSIONS]: () =>
+        who === "owner" ? ownerWaiting() : new Promise<Response>(() => {}),
+    });
+    await screen.findByRole("link", { name: "세션 답변 대기 1개" });
+    who = "mate";
+    await services.queryClient.refetchQueries({ queryKey: ["me"] });
+    await screen.findByRole("button", { name: /^Mate · / });
+    await waitFor(() => {
+      const cached = scopedKeys(services);
+      expect(cached.length).toBeGreaterThan(0);
+      for (const key of cached) expect(key[0]).toEqual(MATE_SCOPE);
+    });
+    expect(
+      screen.queryByRole("link", { name: "세션 답변 대기 1개" }),
+    ).toBeNull();
+  });
+
+  test("after a logout the next person reads their own data, none of the last one's", async () => {
+    let who: "owner" | "mate" | null = "owner";
+    const { api, history, services } = renderAt("/", {
+      "GET /v1/auth/me": () =>
+        who === null
+          ? apiError(401, "UNAUTHORIZED", "Authentication is required")
+          : json(200, who === "owner" ? me() : mate()),
+      "POST /v1/auth/logout": () => {
+        who = null;
+        return new Response(null, { status: 204 });
+      },
+      [WAITING_SESSIONS]: () =>
+        who === "owner"
+          ? ownerWaiting()
+          : json(200, { items: [], next_cursor: null }),
+    });
+    await screen.findByRole("link", { name: "세션 답변 대기 1개" });
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "Owner · 소유자" }));
+    await user.click(screen.getByRole("menuitem", { name: "로그아웃" }));
+    await screen.findByText("로그아웃했습니다.");
+    // Mate signs in elsewhere in this browser; the cookie is theirs now.
+    who = "mate";
+    await history.push("/");
+    await screen.findByRole("button", { name: /^Mate · / });
+    await screen.findByRole("heading", { name: "홈" });
+    const waitingReads = api.calls.filter(
+      (call) =>
+        call.path === "/v1/sessions" && call.search === "?status=needs_input",
+    );
+    expect(waitingReads.length).toBe(2);
+    const cached = scopedKeys(services);
+    expect(cached.length).toBeGreaterThan(0);
+    for (const key of cached) expect(key[0]).toEqual(MATE_SCOPE);
+    expect(
+      screen.queryByRole("link", { name: "세션 답변 대기 1개" }),
+    ).toBeNull();
   });
 });
