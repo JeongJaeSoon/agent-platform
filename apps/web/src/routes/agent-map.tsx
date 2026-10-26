@@ -2,7 +2,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { unwrap } from "@werft-ai/client";
 import type { ListSessionsResponse } from "@werft-ai/contracts";
-import { queryKeys } from "@werft-ai/core";
+import { queryKeys, waitingSessionsQuery } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   AgentMapPage,
@@ -49,15 +49,42 @@ function firstCard(sessions: readonly MapSession[]) {
 }
 
 /**
+ * The newest page plus the waiting sessions older than it, so the strip
+ * counts what the sidebar badge counts. The waiting list is the badge's own
+ * query: no read of its own, and the newest page wins where both list one.
+ */
+function useBoardSessions() {
+  const { client } = useAgentPlatform();
+  const list = useBoardList();
+  const waiting = useQuery(waitingSessionsQuery(client));
+  // Placed together on the first read, or the older cards would come in
+  // as new and push the lanes down; a failed waiting read leaves them out.
+  const data = useMemo(() => {
+    if (waiting.isPending) return undefined;
+    if (!list.data || !waiting.data) return list.data;
+    const seen = new Set(list.data.items.map((session) => session.id));
+    const older = waiting.data.items.filter((session) => !seen.has(session.id));
+    return older.length === 0
+      ? list.data
+      : { ...list.data, items: [...list.data.items, ...older] };
+  }, [list.data, waiting.data, waiting.isPending]);
+  return {
+    list,
+    data,
+    readAt: Math.max(list.dataUpdatedAt, waiting.dataUpdatedAt),
+  };
+}
+
+/**
  * /sessions/map: the list read on a timer, the open session streamed. Loaded
  * on its own, so the graph does not weigh on the other screens.
  */
 export function AgentMapScreen() {
   const navigate = useNavigate();
-  const list = useBoardList();
+  const { list, data, readAt } = useBoardSessions();
   const { board, pendingMoves, tidy, announcement } = useAgentMapBoard(
-    list.data,
-    list.dataUpdatedAt,
+    data,
+    readAt,
   );
   const [chosen, setChosen] = useState<string | null>(null);
   const [view, setView] = useState<"board" | "detail">("board");
