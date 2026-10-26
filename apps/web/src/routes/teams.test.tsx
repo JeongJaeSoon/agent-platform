@@ -128,11 +128,19 @@ describe("팀 화면", () => {
     expect(teamDetailSchema.safeParse(teamServer().team).success).toBe(true);
   });
 
-  test("팀은 구성원 메뉴 아래에 있어 구성원 메뉴가 모두에게 보이고 팀 메뉴는 따로 없다", async () => {
-    for (const who of [me(), memberMe()]) {
+  // Console v4 navWs: 구성원 is the workspace managers' item; a member's
+  // teams still open by address.
+  test("팀은 구성원 메뉴 아래에 있고 팀 메뉴는 따로 없다. 구성원 메뉴는 소유자·관리자에게만 보인다", async () => {
+    for (const [who, shows] of [
+      [me(), true],
+      [memberMe(), false],
+    ] as const) {
       const shown = renderAt("/", { "GET /v1/auth/me": () => json(200, who) });
       const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
-      expect(within(nav).getByRole("link", { name: "구성원" })).toBeDefined();
+      await within(nav).findByRole("link", { name: "실행 프로필" });
+      expect(within(nav).queryByRole("link", { name: "구성원" }) !== null).toBe(
+        shows,
+      );
       expect(within(nav).queryByRole("link", { name: "팀" })).toBeNull();
       shown.container.remove();
     }
