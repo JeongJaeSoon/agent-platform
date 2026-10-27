@@ -1,0 +1,2 @@
+ALTER TABLE "slack_outbox" DROP CONSTRAINT "slack_outbox_kind_check";--> statement-breakpoint
+ALTER TABLE "slack_outbox" ADD CONSTRAINT "slack_outbox_kind_check" CHECK ("slack_outbox"."kind" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome'));

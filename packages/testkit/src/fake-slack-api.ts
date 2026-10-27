@@ -108,6 +108,7 @@ export type FakeSlackUser = {
   isRestricted?: boolean;
   isUltraRestricted?: boolean;
   isStranger?: boolean;
+  image48?: string;
 };
 
 export type FakeSlackChannel = {
@@ -353,6 +354,9 @@ export function createFakeSlackWebApi(
           ...(user.isStranger === undefined
             ? {}
             : { is_stranger: user.isStranger }),
+          ...(user.image48 === undefined
+            ? {}
+            : { profile: { image_48: user.image48 } }),
         },
       };
     },

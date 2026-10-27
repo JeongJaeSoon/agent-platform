@@ -8,15 +8,18 @@ import type {
   SlackOutboxFence,
   SlackOutboxStore,
   SlackUnansweredTurn,
+  SlackUnpostedInstruction,
 } from "@werft-ai/platform";
 import {
   and,
   asc,
   eq,
+  gt,
   gte,
   inArray,
   isNull,
   ne,
+  notInArray,
   or,
   type SQL,
   sql,
@@ -35,6 +38,7 @@ import {
   slackOutbox,
   surfaceBindings,
   turns,
+  users,
 } from "./schema.ts";
 
 const t = slackOutbox;
@@ -65,6 +69,17 @@ const fenced = (fence: SlackOutboxFence) =>
 // its thread's link still live, unmuted and showing full answers, and for an
 // input notice a request still waiting (its key ends in the turn). Checked
 // again at claim, since a row can wait out a backoff after any of it changed.
+// A turn asked from the web or the API after its thread was linked, not yet
+// shown there: its answer waits for it.
+const owesInstruction = (turn: SQL, link: SQL) => sql`(
+  ${turn}.channel IN ('web', 'api')
+  AND ${turn}.created_at >= ${link}.created_at
+  AND NOT EXISTS (
+    SELECT 1 FROM slack_outbox oi
+    WHERE oi.dedupe_key = 'instruction:' || ${link}.id || ':' || ${turn}.sequence
+  )
+)`;
+
 const addressed = (db: Database, row: SQL) => sql`(
   CASE WHEN ${row}.kind = 'input_notice' THEN EXISTS (
     SELECT 1 FROM ${turns}
@@ -173,6 +188,63 @@ export function createPostgresSlackOutboxStore(
       return rows.length;
     },
 
+    async unpostedInstructions(limit) {
+      const rows = await db
+        .select({
+          sessionLinkId: sessionLinks.id,
+          sessionId: turns.sessionId,
+          workspaceId: sessionLinks.workspaceId,
+          agentId: sessionLinks.agentId,
+          slackAppId: slackApps.id,
+          installationId: sessionLinks.installationId,
+          channelId: sessionLinks.channelId,
+          threadTs: sessionLinks.threadId,
+          turnId: turns.sequence,
+          channel: turns.channel,
+          message: turns.message,
+          senderName: users.displayName,
+          senderSlackUserId: linkedAccounts.externalUserId,
+        })
+        .from(sessionLinks)
+        .innerJoin(
+          slackInstallations,
+          eq(slackInstallations.id, sessionLinks.installationId),
+        )
+        .innerJoin(slackApps, eq(slackApps.appId, slackInstallations.appId))
+        .innerJoin(turns, eq(turns.sessionId, sessionLinks.sessionId))
+        .leftJoin(users, eq(users.id, turns.actorId))
+        .leftJoin(
+          linkedAccounts,
+          and(
+            eq(linkedAccounts.workspaceId, sessionLinks.workspaceId),
+            eq(linkedAccounts.userId, turns.actorId),
+            eq(linkedAccounts.provider, "slack"),
+            eq(linkedAccounts.externalTenant, slackInstallations.teamId),
+            eq(linkedAccounts.status, "active"),
+          ),
+        )
+        .where(
+          and(
+            isNull(sessionLinks.revokedAt),
+            eq(sessionLinks.muted, false),
+            eq(sessionLinks.visibility, "full"),
+            ne(slackInstallations.status, "revoked"),
+            gt(turns.sequence, sessionLinks.answeredThrough),
+            notInArray(turns.status, ["interrupted", "cancelled"]),
+            sql`${owesInstruction(sql.raw('"turns"'), sql.raw('"session_links"'))}`,
+          ),
+        )
+        .orderBy(
+          asc(turns.createdAt),
+          asc(turns.sessionId),
+          asc(turns.sequence),
+        )
+        .limit(limit);
+      return rows.flatMap(({ channel, ...row }): SlackUnpostedInstruction[] =>
+        channel === "web" || channel === "api" ? [{ ...row, channel }] : [],
+      );
+    },
+
     async unansweredTurns(limit) {
       // The keys platform's slackTurnDedupeKey makes, spelled in SQL.
       const prefix = sql`CASE WHEN ${turns.status} = 'completed' THEN 'reply' WHEN ${turns.status} IN ('failed', 'outcome_unknown') THEN 'failure' ELSE 'input' END`;
@@ -237,6 +309,7 @@ export function createPostgresSlackOutboxStore(
                         ELSE 'input' END)
                       || ':' || ol.id || ':' || ot.sequence
                   )
+                  AND NOT ${owesInstruction(sql.raw("ot"), sql.raw("ol"))}
                 ORDER BY ot.sequence
                 LIMIT ${limit}
               ) open
@@ -265,6 +338,7 @@ export function createPostgresSlackOutboxStore(
               SELECT 1 FROM ${t} o
               WHERE o.dedupe_key = ${prefix} || ':' || ${sessionLinks.id} || ':' || ${turns.sequence}
             )`,
+            sql`NOT ${owesInstruction(sql.raw('"turns"'), sql.raw('"session_links"'))}`,
           ),
         )
         // Not by turns.id, which walks every turn in the table; within a

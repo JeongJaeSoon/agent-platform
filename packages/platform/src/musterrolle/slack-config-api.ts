@@ -448,12 +448,22 @@ export interface SlackBotSender {
    * `chat.postMessage` into a thread (the channel itself when `threadTs`
    * is ""), as Kollegium sends it: no
    * `@name` linking, no unfurls. Answers what Slack said, whatever it was;
-   * throws `SlackApiError` only when no answer came.
+   * throws `SlackApiError` only when no answer came. `username` and
+   * `iconUrl` show the message as someone else's; Slack applies them only
+   * with `chat:write.customize`.
    */
   postMessage(
     botToken: string,
-    input: { channelId: string; threadTs: string; text: string },
+    input: {
+      channelId: string;
+      threadTs: string;
+      text: string;
+      username?: string;
+      iconUrl?: string;
+    },
   ): Promise<SlackSendResponse>;
+  /** `users.info`'s 48px profile image; null when Slack names none. */
+  userImage(botToken: string, userId: string): Promise<string | null>;
   /** `chat.postEphemeral`; Slack's `message_ts` comes back as `ts`. */
   postEphemeral(
     botToken: string,
@@ -473,6 +483,12 @@ export type SlackSendResponse = {
   /** The parsed JSON body, or null when there was none or it did not parse. */
   body: unknown;
 };
+
+const userImageAnswer = z.object({
+  user: z.object({
+    profile: z.object({ image_48: z.url().optional() }).optional(),
+  }),
+});
 
 const userInfoAnswer = z.object({
   user: z.object({
@@ -633,10 +649,21 @@ export function createSlackBotApi(
         channel: input.channelId,
         ...(input.threadTs === "" ? {} : { thread_ts: input.threadTs }),
         text: input.text,
+        ...(input.username === undefined ? {} : { username: input.username }),
+        ...(input.iconUrl === undefined ? {} : { icon_url: input.iconUrl }),
         link_names: false,
         unfurl_links: false,
         unfurl_media: false,
       });
+    },
+
+    async userImage(botToken, userId) {
+      const { user } = await call(
+        "users.info",
+        { token: botToken, body: new URLSearchParams({ user: userId }) },
+        userImageAnswer,
+      );
+      return user.profile?.image_48 ?? null;
     },
 
     async postEphemeral(botToken, input) {

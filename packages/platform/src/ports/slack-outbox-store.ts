@@ -6,8 +6,11 @@ import type { SlackNotice } from "@werft-ai/contracts";
  * a turn waiting on an approval only the web can give. `notice`: a refusal,
  * ephemeral to the person who typed. `welcome`: a deployment's one message
  * in the agent's home channel, outside any thread (`threadTs` is "").
+ * `instruction`: an input sent from the web or the API, shown in the thread
+ * ahead of its answer.
  */
 export type SlackOutboxKind =
+  | "instruction"
   | "reply"
   | "notice"
   | "failure_notice"
@@ -27,10 +30,13 @@ export type SlackOutboxStatus =
 
 /**
  * What goes out, before Slack controls are escaped. `mention_user_ids`: the
- * only Slack users the text may notify (a reply's requester).
+ * only Slack users the text may notify (a reply's requester). `sender`: the
+ * name an instruction is shown under, and the Slack account whose profile
+ * image goes with it.
  */
 export type SlackOutboxBody = SlackNotice & {
   mention_user_ids?: string[];
+  sender?: { username: string; slack_user_id?: string };
 };
 
 export type SlackOutboxEntry = {
@@ -94,6 +100,20 @@ export type SlackUnansweredTurn = SlackLinkedTurnTarget & {
   events: { type: string; payload: unknown }[];
 };
 
+/**
+ * A turn of a live linked session asked from the web or the API that the
+ * thread has not been shown yet.
+ */
+export type SlackUnpostedInstruction = SlackLinkedTurnTarget & {
+  turnId: number;
+  channel: "web" | "api";
+  message: string;
+  /** Who sent it; null for an API key no person created. */
+  senderName: string | null;
+  /** The Slack account linked to the sender, if any. */
+  senderSlackUserId: string | null;
+};
+
 export type SlackOutboxSettle =
   | { status: "sent"; slackTs: string }
   | { status: "failed"; errorCode: string }
@@ -117,8 +137,15 @@ export interface SlackOutboxStore {
    */
   advanceAnswered(): Promise<number>;
   /**
+   * Linked turns past the link's mark, asked from the web or the API after
+   * the link, with no `instruction` row yet; neither cancelled nor
+   * interrupted.
+   */
+  unpostedInstructions(limit: number): Promise<SlackUnpostedInstruction[]>;
+  /**
    * Linked turns past the link's mark that ended or wait on input without
-   * their outbox row.
+   * their outbox row. A turn that owes an `instruction` row waits for it,
+   * so the answer never goes ahead of what it answers.
    */
   unansweredTurns(limit: number): Promise<SlackUnansweredTurn[]>;
   /** Moves `sending` rows whose lease ran out to `uncertain`. */

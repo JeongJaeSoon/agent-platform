@@ -13,12 +13,14 @@ import { workspaceParamsSchema } from "./workspaces.ts";
  * for. Adding one grants the agent more authority in Slack, which is why a
  * test pins the list. `channels:join` lets the agent join a public channel
  * the console picks for it; `groups:write` lets it leave a private channel
- * whose invite an admin turned down.
+ * whose invite an admin turned down. `chat:write.customize` shows an
+ * instruction sent from the web or the API under its sender's name.
  */
 export const BOT_SCOPES = [
   "assistant:write",
   "app_mentions:read",
   "chat:write",
+  "chat:write.customize",
   "im:history",
   "channels:history",
   "groups:history",
