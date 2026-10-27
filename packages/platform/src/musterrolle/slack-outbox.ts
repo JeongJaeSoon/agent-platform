@@ -54,7 +54,7 @@ export function slackInstructionSender(
   senderName: string | null,
 ): string {
   const via = SLACK_OUTBOX_MESSAGES[channel];
-  const name = senderName?.trim();
+  const name = senderName?.replace(/\s+/g, " ").trim();
   if (!name) return via;
   const suffix = ` (${via})`;
   return `${[...name].slice(0, SLACK_USERNAME_MAX - suffix.length).join("")}${suffix}`;
@@ -370,10 +370,19 @@ export async function drainSlackOutbox(deps: {
   // An instruction goes under its sender's name and profile image. An app
   // installed before chat:write.customize may be refused the name; Slack
   // posted nothing then, so it goes once more as the app.
+  // Read before beginSend, so a slow users.info spends no send lease.
+  const senderImage = (botToken: string, claim: SlackOutboxClaim) =>
+    claim.kind !== "instruction" ||
+    claim.body.sender?.slack_user_id === undefined
+      ? Promise.resolve(null)
+      : deps.slack
+          .userImage(botToken, claim.body.sender.slack_user_id)
+          .catch(() => null);
   const postMessage = async (
     botToken: string,
     claim: SlackOutboxClaim,
     text: string,
+    iconUrl: string | null,
   ) => {
     const target = {
       channelId: claim.channelId,
@@ -384,12 +393,6 @@ export async function drainSlackOutbox(deps: {
     if (claim.kind !== "instruction" || sender === undefined) {
       return deps.slack.postMessage(botToken, target);
     }
-    const iconUrl =
-      sender.slack_user_id === undefined
-        ? null
-        : await deps.slack
-            .userImage(botToken, sender.slack_user_id)
-            .catch(() => null);
     const response = await deps.slack.postMessage(botToken, {
       ...target,
       username: sender.username,
@@ -502,6 +505,7 @@ export async function drainSlackOutbox(deps: {
         );
         continue;
       }
+      const iconUrl = await senderImage(botToken, claim);
       if (!(await deps.outbox.beginSend(claim))) {
         drain.lost += 1;
         deps.logger.warn("Slack outbox lease lost before send", ids);
@@ -519,7 +523,7 @@ export async function drainSlackOutbox(deps: {
                 threadTs: claim.threadTs,
                 text,
               })
-            : await postMessage(botToken, claim, text);
+            : await postMessage(botToken, claim, text, iconUrl);
         outcome = settleFor(claim, response);
       } catch (error) {
         // No answer came: the request may have reached Slack.

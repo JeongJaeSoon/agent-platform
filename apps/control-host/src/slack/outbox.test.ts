@@ -728,6 +728,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     ) as unknown as Database;
     const outbox = createPostgresSlackOutboxStore(traced);
     await outbox.unansweredTurns(10);
+    await outbox.unpostedInstructions(10);
     await outbox.untoldUncertain(10);
     const explain = async (captured: string | undefined) => {
       const { query, params } = JSON.parse(captured ?? "{}");
@@ -746,20 +747,23 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         client.release(true);
       }
     };
-    const turnsPlan = await explain(plans[0]);
-    // The open turns found per link are fetched by id, or by the link's
-    // session with the ids as a filter: the turns row width alone tips the
-    // planner between the two. Neither reads turns outside linked sessions.
-    expect(turnsPlan).toMatch(
-      /Index Cond: \(id = ANY \(|turns_session_sequence_uniq on turns\s+Index Cond: \(session_id = session_links\.session_id\)\s+Filter: \(\(id = ANY \(/,
-    );
-    expect(turnsPlan).not.toMatch(
-      /Seq Scan on turns|Index Scan using turns_pkey on turns\s+Filter/,
-    );
-    // Ranged on the link and its mark, not a walk of the whole index.
-    expect(turnsPlan).toMatch(
-      /turns_session_sequence_uniq[\s\S]*Index Cond: \(\(session_id = [^)]+\) AND \(sequence > /,
-    );
+    // Answers, then instructions.
+    for (const captured of plans.slice(0, 2)) {
+      const turnsPlan = await explain(captured);
+      // The open turns found per link are fetched by id, or by the link's
+      // session with the ids as a filter: the turns row width alone tips the
+      // planner between the two. Neither reads turns outside linked sessions.
+      expect(turnsPlan).toMatch(
+        /Index Cond: \(id = ANY \(|turns_session_sequence_uniq on turns\s+Index Cond: \(session_id = session_links\.session_id\)\s+Filter: \(.*\(id = ANY \(/,
+      );
+      expect(turnsPlan).not.toMatch(
+        /Seq Scan on turns|Index Scan using turns_pkey on turns\s+Filter/,
+      );
+      // Ranged on the link and its mark, not a walk of the whole index.
+      expect(turnsPlan).toMatch(
+        /turns_session_sequence_uniq[\s\S]*Index Cond: \(\(session_id = [^)]+\) AND \(sequence > /,
+      );
+    }
     expect(await explain(plans.at(-1))).toContain("slack_outbox_uncertain_idx");
   });
 
@@ -818,7 +822,9 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
 
     await askFrom(sessionId, 2, "api", "Run the checks", false);
     await endTurn(sessionId, 2, "completed", [[text("Checks pass.")]]);
-    expect(await outboxPass()).toMatchObject({ enqueued: 2, sent: 2 });
+    // The answer is enqueued once its instruction has gone.
+    expect(await outboxPass()).toMatchObject({ enqueued: 1, sent: 1 });
+    expect(await outboxPass()).toMatchObject({ enqueued: 1, sent: 1 });
 
     expect(
       posted()
@@ -840,8 +846,9 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     await askFrom(sessionId, 3, "web", "Third", true);
     await endTurn(sessionId, 3, "completed", [[text("Third done.")]]);
 
-    await outboxPass({ batchSize: 1 });
-    await outboxPass({ batchSize: 1 });
+    for (let pass = 0; pass < 3; pass += 1) {
+      await outboxPass({ batchSize: 1 });
+    }
 
     const sent = await rows();
     expect(
@@ -858,6 +865,36 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     expect(sent.map((row) => row.slackTs)).toEqual(
       posted().map(({ ts }) => ts),
     );
+  });
+
+  test("an answer waits while its instruction backs off", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("First.")]]);
+    await outboxPass();
+    await askFrom(sessionId, 2, "web", "Second", true);
+    await endTurn(sessionId, 2, "completed", [[text("Second done.")]]);
+
+    slack.failures.set("chat.postMessage", "internal_error");
+    await outboxPass();
+    slack.failures.clear();
+    expect((await rows()).map(({ kind, status }) => [kind, status])).toEqual([
+      ["reply", "sent"],
+      ["instruction", "pending"],
+    ]);
+
+    await db
+      .update(slackOutbox)
+      .set({ nextAttemptAt: new Date() })
+      .where(eq(slackOutbox.kind, "instruction"));
+    await outboxPass();
+    await outboxPass();
+    expect(
+      posted()
+        .slice(1)
+        .map(({ text }) => text.split("\n")[0]),
+    ).toEqual(["owner (웹 콘솔)", "Second done."]);
   });
 
   test("an app refused the sender's name posts the instruction once as itself", async () => {

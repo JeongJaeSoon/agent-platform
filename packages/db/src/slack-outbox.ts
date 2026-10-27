@@ -14,12 +14,10 @@ import {
   and,
   asc,
   eq,
-  gt,
   gte,
   inArray,
   isNull,
   ne,
-  notInArray,
   or,
   type SQL,
   sql,
@@ -65,21 +63,23 @@ const released = { claimToken: null, leaseExpiresAt: null } as const;
 const fenced = (fence: SlackOutboxFence) =>
   and(eq(t.id, fence.id), eq(t.claimToken, fence.claimToken));
 
-// Where a row may still go: an installation not revoked, for a session's row
-// its thread's link still live, unmuted and showing full answers, and for an
-// input notice a request still waiting (its key ends in the turn). Checked
-// again at claim, since a row can wait out a backoff after any of it changed.
-// A turn asked from the web or the API after its thread was linked, not yet
-// shown there: its answer waits for it.
-const owesInstruction = (turn: SQL, link: SQL) => sql`(
+// A turn asked from the web or the API after its thread was linked, with no
+// `instruction` row yet, or, `settled`, none past its sends: an answer waits
+// for it, a backoff included, so it never goes first.
+const owesInstruction = (turn: SQL, link: SQL, settled = false) => sql`(
   ${turn}.channel IN ('web', 'api')
   AND ${turn}.created_at >= ${link}.created_at
   AND NOT EXISTS (
     SELECT 1 FROM slack_outbox oi
     WHERE oi.dedupe_key = 'instruction:' || ${link}.id || ':' || ${turn}.sequence
+      ${settled ? sql`AND oi.status NOT IN ('pending', 'sending')` : sql``}
   )
 )`;
 
+// Where a row may still go: an installation not revoked, for a session's row
+// its thread's link still live, unmuted and showing full answers, and for an
+// input notice a request still waiting (its key ends in the turn). Checked
+// again at claim, since a row can wait out a backoff after any of it changed.
 const addressed = (db: Database, row: SQL) => sql`(
   CASE WHEN ${row}.kind = 'input_notice' THEN EXISTS (
     SELECT 1 FROM ${turns}
@@ -229,8 +229,22 @@ export function createPostgresSlackOutboxStore(
             eq(sessionLinks.muted, false),
             eq(sessionLinks.visibility, "full"),
             ne(slackInstallations.status, "revoked"),
-            gt(turns.sequence, sessionLinks.answeredThrough),
-            notInArray(turns.status, ["interrupted", "cancelled"]),
+            // By a range per link, as unansweredTurns finds its turns.
+            sql`${turns.id} = ANY (ARRAY(
+              SELECT open.id FROM session_links ol
+              CROSS JOIN LATERAL (
+                SELECT ot.id FROM ${turns} ot
+                WHERE ot.session_id = ol.session_id
+                  AND ot.sequence > ol.answered_through
+                  AND ot.status NOT IN ('interrupted', 'cancelled')
+                  AND ${owesInstruction(sql.raw("ot"), sql.raw("ol"))}
+                ORDER BY ot.sequence
+                LIMIT ${limit}
+              ) open
+              WHERE ol.revoked_at IS NULL
+                AND NOT ol.muted
+                AND ol.visibility = 'full'
+            ))`,
             sql`${owesInstruction(sql.raw('"turns"'), sql.raw('"session_links"'))}`,
           ),
         )
@@ -309,7 +323,7 @@ export function createPostgresSlackOutboxStore(
                         ELSE 'input' END)
                       || ':' || ol.id || ':' || ot.sequence
                   )
-                  AND NOT ${owesInstruction(sql.raw("ot"), sql.raw("ol"))}
+                  AND NOT ${owesInstruction(sql.raw("ot"), sql.raw("ol"), true)}
                 ORDER BY ot.sequence
                 LIMIT ${limit}
               ) open
@@ -338,7 +352,7 @@ export function createPostgresSlackOutboxStore(
               SELECT 1 FROM ${t} o
               WHERE o.dedupe_key = ${prefix} || ':' || ${sessionLinks.id} || ':' || ${turns.sequence}
             )`,
-            sql`NOT ${owesInstruction(sql.raw('"turns"'), sql.raw('"session_links"'))}`,
+            sql`NOT ${owesInstruction(sql.raw('"turns"'), sql.raw('"session_links"'), true)}`,
           ),
         )
         // Not by turns.id, which walks every turn in the table; within a
