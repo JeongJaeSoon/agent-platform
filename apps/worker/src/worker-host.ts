@@ -21,6 +21,7 @@ import {
   TURN_INPUT_WAIT_PARKED_REASON,
 } from "@werft-ai/contracts";
 import {
+  type AdmissionHold,
   type AgentRun,
   type AnswerResult,
   type ApprovalDecisionPayload,
@@ -45,7 +46,10 @@ import { consoleLogger } from "./console-logger.ts";
 import type { EngineExitWatch } from "./engine-processes.ts";
 import { EventPublisher } from "./event-publisher.ts";
 import { Heartbeat } from "./heartbeat.ts";
-import { PendingRequestRegistry } from "./pending-requests.ts";
+import {
+  type ApprovalCheckpointer,
+  PendingRequestRegistry,
+} from "./pending-requests.ts";
 import {
   claimSecrets,
   SecretScrubber,
@@ -73,7 +77,7 @@ export interface WorkerGatewaySession extends WorkerGatewayClient {
  */
 export type RuntimeLaunch = RuntimeResumePlan & {
   /** The workspace's, read only when the profile lets the file in. */
-  committedClaudeMd: () => string | null;
+  committedInstructions: () => string | null;
   correlationId: string;
   /**
    * The claim's remaining_budget_usd: this run counts its spend from zero.
@@ -141,6 +145,8 @@ export type WorkerHostOptions = {
    * of events by value (`SecretScrubber`): the object store key, say.
    */
   secrets?: readonly string[];
+  /** Overrides APPROVAL_CHECKPOINT_MS; for tests. */
+  approvalCheckpointMs?: number;
 };
 
 /**
@@ -243,6 +249,12 @@ const TOOL_USE_FRAME_WAIT_MS = 10_000;
  */
 const PARKED_STATE_MAX_BYTES = 1024 * 1024;
 const NOTHING_WAITING = "The turn is no longer waiting on a person alone";
+/**
+ * The most an approval-wait checkpoint may take, lease to upload (design
+ * §6.3). Past it the request is registered without one, and a crash leaves
+ * the turn unknown as before.
+ */
+const APPROVAL_CHECKPOINT_MS = 10_000;
 
 /**
  * The worker process: one session, one attempt, however many turns the lease
@@ -272,6 +284,13 @@ export class WorkerHost {
   private mirrorError: string | undefined;
   private engineBudgeted = false;
   private pending: PendingRequestRegistry | undefined;
+  /**
+   * Approval-wait checkpoints of the current turn that may be committed and
+   * are not yet void, and the admission hold that voids them before any
+   * tool starts.
+   */
+  private approvalCheckpoints: string[] = [];
+  private admissionHold: AdmissionHold | undefined;
   private publisher: EventPublisher | undefined;
   private pumping: Promise<void> | undefined;
   /** The restore in flight or done, settled either way; see `shutdown`. */
@@ -453,10 +472,10 @@ export class WorkerHost {
           this.engineBudgeted = claim.remaining_budget_usd !== null;
           run = launcher.start({
             ...plan,
-            committedClaudeMd:
-              plan.mode === "resume" && plan.committedClaudeMd !== undefined
-                ? plan.committedClaudeMd
-                : () => this.options.workspace.committedClaudeMd(),
+            committedInstructions:
+              plan.mode === "resume" && plan.committedInstructions !== undefined
+                ? plan.committedInstructions
+                : () => this.options.workspace.committedInstructions(),
             correlationId: `${claim.session_id}:${claim.attempt_id}`,
             ...(claim.remaining_budget_usd === null
               ? {}
@@ -1199,6 +1218,7 @@ export class WorkerHost {
         ? this.turn
         : undefined;
     const parking = interruptTurn?.parking;
+    this.endApprovalCheckpoints();
     // Parked only when the cut is what ended it; a turn that got to its
     // own end first keeps that end, and what it held is settled after all.
     const parked = parking !== undefined && reported.status === "interrupted";
@@ -2199,7 +2219,126 @@ export class WorkerHost {
       );
       return;
     }
-    this.pending.request(request, answer);
+    this.pending.request(request, answer, this.approvalCheckpointer(run));
+  }
+
+  /**
+   * Captures the run as it waits on a person, holding the checkpoint lease
+   * until the registration that carries it is settled; undefined when the
+   * run takes no such checkpoints.
+   */
+  private approvalCheckpointer(run: AgentRun): ApprovalCheckpointer {
+    return async (waiting) => {
+      const { effective } = await run.ready();
+      if (!effective.approvalCheckpoint || this.mirrorError !== undefined) {
+        return null;
+      }
+      const scope = { ...this.scope };
+      if (scope.turn_id === null || this.pending === undefined) return null;
+      if (Buffer.byteLength(JSON.stringify(waiting)) > PARKED_STATE_MAX_BYTES) {
+        return null;
+      }
+      const startedAt = performance.now();
+      const { lease, preparation } = await run.leaseCheckpoint("approval_wait");
+      if (lease === null) {
+        this.logger.info("worker.approval_checkpoint.skipped", {
+          reason: preparation.reason,
+          detail: preparation.detail,
+        });
+        return null;
+      }
+      // Taken with the lease: an answer applied after this may have let a
+      // tool run that the capture does not hold.
+      const answersThrough = this.pending.answersThrough;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const late = new Promise<"late">((resolve) => {
+        timer = setTimeout(
+          () => resolve("late"),
+          Math.max(
+            0,
+            (this.options.approvalCheckpointMs ?? APPROVAL_CHECKPOINT_MS) -
+              (performance.now() - startedAt),
+          ),
+        );
+      });
+      let ref: CheckpointRef | null | "late";
+      try {
+        ref = await Promise.race([
+          this.checkpoints.capture(preparation, {
+            scope,
+            recheck: () => run.prepareCheckpoint("approval_wait"),
+            workerState: { pendingApprovals: waiting },
+          }),
+          late,
+        ]);
+      } catch (error) {
+        lease.release();
+        this.logger.warn("worker.approval_checkpoint.failed", {
+          reason: describe(error),
+        });
+        return null;
+      } finally {
+        clearTimeout(timer);
+      }
+      const elapsedMs = Math.round(performance.now() - startedAt);
+      if (ref === null || ref === "late") {
+        // Nothing carries it, so nothing can commit it.
+        lease.release();
+        this.logger.warn("worker.approval_checkpoint.skipped", {
+          reason: ref === null ? "capture_refused" : "deadline",
+          elapsed_ms: elapsedMs,
+        });
+        return null;
+      }
+      this.logger.info("worker.approval_checkpoint.captured", {
+        revision: ref.revision,
+        elapsed_ms: elapsedMs,
+      });
+      const manifestRef = ref.manifest_ref;
+      let settled = false;
+      return {
+        ref: { ...ref, answers_through: answersThrough },
+        settle: (maybeCommitted) => {
+          if (settled) return;
+          settled = true;
+          // The hold goes up before the lease comes down: no tool starts
+          // in between unguarded.
+          if (maybeCommitted) this.guardAdmissions(run, manifestRef);
+          lease.release();
+        },
+      };
+    };
+  }
+
+  /** Voids `manifestRef` before the run admits its next tool. */
+  private guardAdmissions(run: AgentRun, manifestRef: string): void {
+    this.approvalCheckpoints.push(manifestRef);
+    if (this.admissionHold !== undefined) return;
+    const hold = run.holdAdmission(async () => {
+      while (this.approvalCheckpoints.length > 0) {
+        const [next] = this.approvalCheckpoints;
+        if (next === undefined) break;
+        await this.options.gateway.invalidateApprovalCheckpoint({
+          ...this.scope,
+          manifest_ref: next,
+        });
+        this.approvalCheckpoints = this.approvalCheckpoints.filter(
+          (ref) => ref !== next,
+        );
+      }
+      if (this.admissionHold === hold) {
+        this.admissionHold = undefined;
+        hold.release();
+      }
+    });
+    this.admissionHold = hold;
+  }
+
+  /** The turn is over: what it waited on can no longer be resumed from. */
+  private endApprovalCheckpoints(): void {
+    this.approvalCheckpoints = [];
+    this.admissionHold?.release();
+    this.admissionHold = undefined;
   }
 
   /**

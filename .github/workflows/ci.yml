@@ -179,6 +179,7 @@ jobs:
               - tests/feature-gate-flow.
               - tests/interrupt-flow.
               - tests/lease-clock.
+              - tests/park-resume-flow.
           # Slack and the contracts, clients and web apps that consume the API.
           # Enable PostgreSQL and LocalStack so service-gated tests do not skip.
           - domain: surface

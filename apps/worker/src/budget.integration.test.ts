@@ -12,7 +12,7 @@ import {
 } from "@werft-ai/testkit/workspace";
 
 import type { RuntimeResumePlan, WorkerCheckpointPort } from "./checkpoint.ts";
-import { claudeRuntimeRegistry, createWorkerHost } from "./composition.ts";
+import { createWorkerHost, workerRuntimeRegistry } from "./composition.ts";
 import type { WorkerConfig, WorkerTimeouts } from "./config.ts";
 import { EngineProcesses } from "./engine-processes.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
@@ -217,7 +217,7 @@ describe("session budget inside a turn, through the composed runtime", () => {
       execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
       gateway: firstGateway,
       logger: silent,
-      runtimes: claudeRuntimeRegistry(config, engines),
+      runtimes: workerRuntimeRegistry(config, engines),
       timeouts,
       workspace: noWorkspace,
     }).runLoop();
@@ -259,7 +259,7 @@ describe("session budget inside a turn, through the composed runtime", () => {
       execution: { bootstrapNonce: "wln_test", generation: 2, id: "exec-1" },
       gateway: secondGateway,
       logger: silent,
-      runtimes: claudeRuntimeRegistry(config, engines),
+      runtimes: workerRuntimeRegistry(config, engines),
       timeouts,
       workspace: noWorkspace,
     }).runLoop();
@@ -299,7 +299,7 @@ describe("session budget inside a turn, through the composed runtime", () => {
       execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
       gateway,
       logger: silent,
-      runtimes: claudeRuntimeRegistry(config, engines),
+      runtimes: workerRuntimeRegistry(config, engines),
       timeouts,
       workspace: noWorkspace,
     }).runLoop();

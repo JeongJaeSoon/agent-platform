@@ -366,4 +366,48 @@ describe("WorkerHost park", () => {
       { request_id: "req_parked_rm", outcome: "grant_unused" },
     ]);
   });
+
+  test("a call whose arguments changed is asked again, and the grant is left unused", async () => {
+    const gateway = new FakeWorkerGateway();
+    gateway.grants = [
+      {
+        request_id: "req_parked_ls",
+        turn_id: "1",
+        tool: "Bash",
+        input_hash: approvalInputHash("Bash", BASH_LS.input),
+      },
+    ];
+    const changed = {
+      ...BASH_LS,
+      input: { command: "ls -la" },
+      requestId: "sdk-ls-changed",
+      toolUseId: "toolu_changed",
+    };
+    const { host, runtime } = harness(
+      [
+        { type: "await-input" },
+        { type: "permissions", requests: [changed] },
+        { type: "emit", message: resultMessage(1) },
+        { type: "await-input" },
+      ],
+      { gateway },
+    );
+    gateway.enqueue("resume with what was answered");
+    const loop = host.runLoop();
+    await waitFor(() => gateway.registrations.length === 1, "the new ask");
+    gateway.answer({
+      request_id: gateway.registrations[0]?.request_id ?? "",
+      kind: "permission",
+      decision: "deny",
+    });
+    const summary = await loop;
+
+    expect(runtime.permissionDecisions).toEqual([
+      { behavior: "deny", message: "Denied without a reason" },
+    ]);
+    expect(summary.turns[0]?.status).toBe("completed");
+    expect(gateway.delivered).toEqual([
+      { request_id: "req_parked_ls", outcome: "grant_unused" },
+    ]);
+  });
 });

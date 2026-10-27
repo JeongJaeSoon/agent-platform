@@ -5,6 +5,7 @@ import type {
   CheckpointRef,
   FinalizeRequest,
   PauseBlockedReason,
+  PermissionGrant,
   WorkerEvent,
   WorkspaceRepository,
 } from "@werft-ai/contracts";
@@ -63,6 +64,9 @@ export type WorkerBinding = {
   costUsd: number;
   providerTokens: number;
   mcp?: SessionMcp | null;
+  // The allows a parked turn's answers left for the turn carrying it on,
+  // not yet spent.
+  grants?: readonly PermissionGrant[];
 };
 
 // A profile and repository this host may run together, with the URL and

@@ -82,6 +82,10 @@ describe("reconciler run", () => {
         });
         return 2;
       },
+      expireParked: async (options) => {
+        expect(options).toEqual({ dryRun: false, limit: 12 });
+        return ["session-f"];
+      },
       announceInputReturns: async (options) => {
         expect(options).toEqual({ dryRun: false, limit: 12 });
         return [{ sessionId: "session-e", phase: "running" }];
@@ -105,6 +109,7 @@ describe("reconciler run", () => {
     expect(result.interrupts).toHaveLength(1);
     expect(result.interruptsOverdue).toBe(3);
     expect(result.terminationsOverdue).toBe(2);
+    expect(result.parkedExpired).toEqual(["session-f"]);
     expect(result.decisionsExpired).toBe(5);
     expect(sink.records).toEqual([
       expect.objectContaining({
@@ -149,6 +154,11 @@ describe("reconciler run", () => {
         level: "info",
         message: "Overdue terminate receipts marked unknown",
         fields: { dry_run: false, overdue_count: 2 },
+      }),
+      expect.objectContaining({
+        level: "info",
+        message: "Expired parked requests settled",
+        fields: { dry_run: false, session_ids: ["session-f"] },
       }),
       expect.objectContaining({
         level: "info",
@@ -215,6 +225,10 @@ describe("reconciler run", () => {
         seen.push(dryRun);
         return 0;
       },
+      expireParked: async ({ dryRun }) => {
+        seen.push(dryRun);
+        return [];
+      },
       announceInputReturns: async ({ dryRun }) => {
         seen.push(dryRun);
         return [];
@@ -228,7 +242,7 @@ describe("reconciler run", () => {
       },
     });
 
-    expect(seen).toEqual([true, true, true, true, true, true, true]);
+    expect(seen).toEqual([true, true, true, true, true, true, true, true]);
     expect(run.toolCalls).toBeNull();
     expect(sink.records).toContainEqual(
       expect.objectContaining({
@@ -261,6 +275,7 @@ describe("reconciler run", () => {
     const reconcileInterrupts = async () => [];
     const expireInterrupts = async () => 0;
     const expireTerminations = async () => 0;
+    const expireParked = async () => [];
     const announceInputReturns = async () => [];
     const expireDecisions = async () => 0;
     const projectToolCalls = async () => ({
@@ -287,6 +302,7 @@ describe("reconciler run", () => {
           reconcileInterrupts,
           expireInterrupts,
           expireTerminations,
+          expireParked,
           announceInputReturns,
           expireDecisions,
           projectToolCalls,
@@ -303,6 +319,7 @@ describe("reconciler run", () => {
         reconcileInterrupts,
         expireInterrupts,
         expireTerminations,
+        expireParked,
         announceInputReturns,
         expireDecisions,
         projectToolCalls,
@@ -317,6 +334,7 @@ describe("reconciler run", () => {
         reconcileInterrupts,
         expireInterrupts,
         expireTerminations,
+        expireParked,
         announceInputReturns,
         expireDecisions,
         projectToolCalls,

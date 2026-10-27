@@ -6,10 +6,14 @@
   "license": "PolyForm-Small-Business-1.0.0",
   "type": "module",
   "exports": {
+    ".": "./src/index.ts",
     "./testing": "./src/testing/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "test:unit": "bun run --cwd ../claude test:unit",
+    "test:direct-local": "bun run --cwd ../claude test:direct-local",
+    "image:verify": "bun run --cwd ../claude image:verify"
   },
   "dependencies": {
     "@werft-ai/runtime-claude": "workspace:*",

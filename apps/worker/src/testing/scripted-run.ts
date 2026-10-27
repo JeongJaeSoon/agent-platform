@@ -1,9 +1,11 @@
 import type {
+  AdmissionHold,
   AgentInput,
   AgentRun,
   AnswerResult,
   ApprovalAnswer,
   CheckpointLeaseGrant,
+  CheckpointPoint,
   CheckpointPreparation,
   NegotiatedCapabilities,
   ParkReadiness,
@@ -46,6 +48,12 @@ export class ScriptedRun implements AgentRun {
   readonly answers: ApprovalAnswer[] = [];
   capabilities: NegotiatedCapabilities = noCheckpoints;
   leases = 0;
+  /** What an `approval_wait` lease is granted with; refused while unset. */
+  approvalWait: CheckpointPreparation | undefined;
+  /** Leases granted for `approval_wait` and not yet released. */
+  heldApprovalLeases = 0;
+  /** The guard `holdAdmission` installed, until released. */
+  admissionGuard: ((toolCallId: string) => Promise<void>) | undefined;
   onSend: (input: AgentInput) => void = () => {};
   onAnswer: (answer: ApprovalAnswer) => void = () => {};
   /** What `answer` says it did with each answer. */
@@ -103,12 +111,51 @@ export class ScriptedRun implements AgentRun {
     return { ok: false, reason: "not_supported" };
   }
 
-  prepareCheckpoint(): Promise<CheckpointPreparation> {
+  holdAdmission(guard: (toolCallId: string) => Promise<void>): AdmissionHold {
+    this.admissionGuard = guard;
+    return {
+      release: () => {
+        if (this.admissionGuard === guard) this.admissionGuard = undefined;
+      },
+    };
+  }
+
+  /** What the engine's gate would do with a new call: true when admitted. */
+  async admit(toolCallId: string): Promise<boolean> {
+    const guard = this.admissionGuard;
+    if (guard === undefined) return true;
+    try {
+      await guard(toolCallId);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  prepareCheckpoint(point?: CheckpointPoint): Promise<CheckpointPreparation> {
+    if (point === "approval_wait" && this.approvalWait !== undefined) {
+      return Promise.resolve(this.approvalWait);
+    }
     return Promise.resolve(noCheckpoint);
   }
 
-  leaseCheckpoint(): Promise<CheckpointLeaseGrant> {
+  leaseCheckpoint(point?: CheckpointPoint): Promise<CheckpointLeaseGrant> {
     this.leases += 1;
+    const preparation = this.approvalWait;
+    if (point === "approval_wait" && preparation?.status === "ready") {
+      this.heldApprovalLeases += 1;
+      let held = true;
+      return Promise.resolve({
+        preparation,
+        lease: {
+          release: () => {
+            if (!held) return;
+            held = false;
+            this.heldApprovalLeases -= 1;
+          },
+        },
+      });
+    }
     return Promise.resolve({ lease: null, preparation: noCheckpoint });
   }
 

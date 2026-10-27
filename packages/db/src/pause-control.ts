@@ -383,3 +383,51 @@ async function takeOverPark(
   });
   return { outcome: "accepted", response };
 }
+
+/**
+ * The pause the platform opens to park a turn whose requests went
+ * unanswered: `pausing` with `pause_reason = awaiting_input` and an open
+ * pause receipt no person asked for, so pendingControl hands the worker a
+ * `park` and its release commits under the receipt's id. The draining
+ * worker keeps its epoch and lease. The caller holds the session row lock
+ * and has checked the session is active.
+ */
+export async function openSystemPark(
+  tx: Database,
+  session: SessionRow,
+  now: Date,
+): Promise<string> {
+  await tx
+    .update(sessions)
+    .set({
+      revision: sql`${sessions.revision} + 1`,
+      admissionState: "pausing",
+      pauseReason: "awaiting_input",
+      updatedAt: now,
+    })
+    .where(eq(sessions.id, session.id));
+  const receiptId = randomUUID();
+  await tx.insert(receipts).values({
+    id: receiptId,
+    ownerId: session.ownerId,
+    actor: null,
+    requestId: null,
+    operation: PAUSE,
+    targetRef: { session_id: session.id, turn_id: null, request_id: null },
+    status: "accepted",
+    result: null,
+    createdAt: sql`clock_timestamp()`,
+    updatedAt: sql`clock_timestamp()`,
+  });
+  await recordStatus(tx, {
+    sessionId: session.id,
+    phase: publicStatus(
+      session.status,
+      await awaitingInputAt(tx, session.id, await dbNow(tx)),
+    ),
+    extra: { admission_state: "pausing", pause_reason: "awaiting_input" },
+    turnRowId: null,
+    now,
+  });
+  return receiptId;
+}

@@ -60,6 +60,7 @@
   --color-focus-ring: var(--ap-color-focus-ring);
   --color-link: var(--ap-color-link);
   --color-control-checked: var(--ap-color-control-checked);
+  --color-control-unchecked: var(--ap-color-control-unchecked);
   --color-chart-mark: var(--ap-chart-mark);
   --color-chart-mark-active: var(--ap-chart-mark-active);
   --color-chart-track: var(--ap-chart-track);

@@ -145,6 +145,7 @@ const KIND_FACTS: Record<KeyKind, readonly MessageKey[]> = {
     "apiKeys.guide.agent.actsAs",
     "apiKeys.guide.agent.issuerLeaves",
     "apiKeys.guide.agent.sessions",
+    "apiKeys.guide.agent.startSession",
     "apiKeys.guide.agent.approve",
   ],
 };

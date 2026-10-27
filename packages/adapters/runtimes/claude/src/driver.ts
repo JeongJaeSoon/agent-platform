@@ -1,7 +1,9 @@
 import type { SessionEvent } from "@werft-ai/contracts";
 import type {
+  AdmissionHold,
   AgentInput,
   CheckpointLeaseGrant,
+  CheckpointPoint,
   CheckpointPreparation,
   ParkReadiness,
 } from "@werft-ai/runtime-core";
@@ -75,9 +77,16 @@ export interface DriverRun extends AsyncIterable<AgentFrame> {
   holdsInput(uuid: string): Promise<boolean>;
   ready(): Promise<void>;
   interrupt(): Promise<{ stillQueued: string[] }>;
-  leaseCheckpoint(): Promise<CheckpointLeaseGrant>;
+  leaseCheckpoint(point?: CheckpointPoint): Promise<CheckpointLeaseGrant>;
   /** Nothing runs but tools waiting on a permission callback. */
   parkable(): ParkReadiness;
-  prepareCheckpoint(): Promise<CheckpointPreparation>;
+  prepareCheckpoint(point?: CheckpointPoint): Promise<CheckpointPreparation>;
+  /**
+   * True when `approval_wait` checkpoints can be taken: the driver watches
+   * a transcript mirror it can wait on. Absent is false.
+   */
+  readonly approvalCheckpoints?: boolean;
+  /** Absent: the driver admits tools through no gate a host can hold. */
+  holdAdmission?(guard: (toolCallId: string) => Promise<void>): AdmissionHold;
   send(input: AgentInput): void;
 }

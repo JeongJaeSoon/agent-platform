@@ -12,6 +12,8 @@ import type {
   FinalizeResponse,
   HeartbeatRequest,
   HeartbeatResponse,
+  InvalidateApprovalCheckpointRequest,
+  InvalidateApprovalCheckpointResponse,
   NextInputRequest,
   NextInputResponse,
   ParkDeclinedRequest,
@@ -22,6 +24,8 @@ import type {
   RegisterPendingResponse,
   ReleaseRequest,
   ReleaseResponse,
+  RequestParkRequest,
+  RequestParkResponse,
   RestorePlanRequest,
   RestorePlanResponse,
   RuntimeConfig,
@@ -57,7 +61,10 @@ import {
   repoRefOf,
 } from "../ports/forge.ts";
 import type { McpEgressStore } from "../ports/mcp-egress.ts";
-import type { WorkerPendingStore } from "../ports/pending-requests.ts";
+import type {
+  ApprovalCheckpointCommit,
+  WorkerPendingStore,
+} from "../ports/pending-requests.ts";
 import type { SessionTitleStore } from "../ports/session-title-store.ts";
 import type {
   EgressBindings,
@@ -464,6 +471,42 @@ export function createWorkerGateway(deps: {
     return protocol;
   }
   const now = deps.options.now ?? (() => new Date());
+
+  /**
+   * An approval-wait checkpoint is verified as a finalize's would be, since
+   * a crash can make it the session's pointer with no second look.
+   */
+  async function approvalCheckpointOf(
+    fence: WorkerFence,
+    turnId: string,
+    checkpoint: NonNullable<RegisterPendingRequest["checkpoint"]>,
+  ): Promise<ApprovalCheckpointCommit> {
+    const { answers_through, ...ref } = checkpoint;
+    const verdict = await checkpointInfrastructure(() =>
+      checkpoints.verify({ fence, turnId, checkpoint: ref, at: now() }),
+    );
+    if (verdict.status === "rejected") {
+      throw new WorkerGatewayError(
+        409,
+        "CHECKPOINT_UNAVAILABLE",
+        `Checkpoint manifest rejected: ${verdict.reason}`,
+      );
+    }
+    return {
+      revision: ref.revision,
+      manifestRef: ref.manifest_ref,
+      manifestSha256: ref.manifest_sha256,
+      ...(ref.manifest_version === undefined
+        ? {}
+        : { manifestVersion: ref.manifest_version }),
+      versionsHeld: verdict.versionsHeld === true,
+      ...(verdict.transcriptBytes === undefined
+        ? {}
+        : { transcriptBytes: verdict.transcriptBytes }),
+      answersThrough: answers_through,
+    };
+  }
+
   const sleep =
     deps.options.sleep ??
     ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
@@ -1006,6 +1049,9 @@ export function createWorkerGateway(deps: {
             remaining_budget_usd: binding.unmetered
               ? null
               : Math.max(0, deps.options.sessionCostLimitUsd - binding.costUsd),
+            ...(binding.grants === undefined || binding.grants.length === 0
+              ? {}
+              : { grants: [...binding.grants] }),
           };
         }
       }
@@ -1337,6 +1383,14 @@ export function createWorkerGateway(deps: {
       request: RegisterPendingRequest,
     ): Promise<RegisterPendingResponse> {
       const fence = requireScope(principal, request);
+      const checkpoint =
+        request.checkpoint === undefined
+          ? undefined
+          : await approvalCheckpointOf(
+              fence,
+              request.turn_id,
+              request.checkpoint,
+            );
       const result = await requirePending().registerAtomic({
         fence,
         turnId: request.turn_id,
@@ -1347,6 +1401,7 @@ export function createWorkerGateway(deps: {
           ? {}
           : { announce: request.announce }),
         ttlMs: pendingTtlMs,
+        ...(checkpoint === undefined ? {} : { checkpoint }),
       });
       if (result.outcome === "turn_not_found") {
         throw new WorkerGatewayError(
@@ -1382,20 +1437,13 @@ export function createWorkerGateway(deps: {
       request: PendingControlRequest,
     ): Promise<PendingControlResponse> {
       const fence = requireScope(principal, request);
-      // Only a turn resumed from a park reports these, and this server
-      // resumes none yet: refused rather than dropped, so the receipts they
-      // would settle are never left looking settled.
-      if (request.delivered !== undefined) {
-        throw new WorkerGatewayError(
-          400,
-          "BAD_REQUEST",
-          "This server resumes no parked turn, so it takes no delivery reports",
-        );
-      }
       const result = await requirePending().pendingControlAtomic({
         fence,
         answersAfter: request.answers_after,
         settled: request.settled ?? [],
+        ...(request.delivered === undefined
+          ? {}
+          : { delivered: request.delivered }),
       });
       if (result.outcome !== "ok") return rejected(result);
       return {
@@ -1416,6 +1464,19 @@ export function createWorkerGateway(deps: {
       };
     },
 
+    async invalidateApprovalCheckpoint(
+      principal: WorkerPrincipal,
+      request: InvalidateApprovalCheckpointRequest,
+    ): Promise<InvalidateApprovalCheckpointResponse> {
+      const fence = requireScope(principal, request);
+      const result = await requirePending().invalidateApprovalCheckpointAtomic({
+        fence,
+        manifestRef: request.manifest_ref,
+      });
+      if (result.outcome !== "ok") return rejected(result);
+      return { invalidated: result.invalidated };
+    },
+
     async parkDeclined(
       principal: WorkerPrincipal,
       request: ParkDeclinedRequest,
@@ -1428,6 +1489,35 @@ export function createWorkerGateway(deps: {
       });
       if (result.outcome !== "ok") return rejected(result);
       return { reverted: result.reverted };
+    },
+
+    async requestPark(
+      principal: WorkerPrincipal,
+      request: RequestParkRequest,
+    ): Promise<RequestParkResponse> {
+      const fence = requireScope(principal, request);
+      const result = await requirePending().requestParkAtomic({
+        fence,
+        turnId: request.turn_id,
+      });
+      switch (result.outcome) {
+        case "ok":
+          return { pause_control_id: result.pauseControlId };
+        case "not_found":
+          throw new WorkerGatewayError(
+            404,
+            "NOT_FOUND",
+            "Unknown turn_id, or the turn is not running on this attempt",
+          );
+        case "refused":
+          throw new WorkerGatewayError(
+            409,
+            "REQUEST_STALE",
+            `The turn cannot be parked: ${result.reason}`,
+          );
+        default:
+          return rejected(result);
+      }
     },
 
     async finalize(

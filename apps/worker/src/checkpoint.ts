@@ -28,7 +28,7 @@ export type RuntimeResumePlan =
        * restored workspace the preparer never read one from. Absent, the
        * preparer's answer stands.
        */
-      committedClaudeMd?: () => string | null;
+      committedInstructions?: () => string | null;
       /**
        * The checkpoint revision this run resumes from, set by a restore:
        * what the worker reports as restored rather than the claim's pointer.

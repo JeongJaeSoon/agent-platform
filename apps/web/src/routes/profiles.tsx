@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import type {
   ProfileSummary,
@@ -21,12 +22,13 @@ import {
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
+  GridTableRowOpener,
   Page,
   Section,
   Skeleton,
 } from "@werft-ai/ui";
-import { Lock, Plus } from "lucide-react";
-import { useState } from "react";
+import { ChevronDown, ChevronRight, Lock, Plus } from "lucide-react";
+import { type ReactNode, useState } from "react";
 import { profilesQuery, queryKeysOf } from "../api/queries.ts";
 import {
   refusalText,
@@ -40,22 +42,43 @@ import { useI18n } from "../i18n/i18n.tsx";
 import { type EditorStart, ProfileEditor } from "./profile-editor.tsx";
 
 const PROFILE_COLUMNS = "minmax(0,1.2fr) minmax(0,1fr) minmax(0,1.4fr)";
-// The base column leaves a phone; the editor shows it again.
+// The base column leaves a phone; the detail and the editor show it again.
 const VERSION_COLUMNS = {
   manage: [
-    "minmax(0,1.4fr) minmax(0,1fr) 96px 184px",
-    "minmax(0,1fr) 88px 112px",
+    "minmax(0,1.4fr) minmax(0,1fr) 128px 184px",
+    "minmax(0,1fr) 104px 96px",
   ],
-  read: ["minmax(0,1.4fr) minmax(0,1fr) 96px", "minmax(0,1fr) 88px"],
+  read: ["minmax(0,1.4fr) minmax(0,1fr) 128px", "minmax(0,1fr) 104px"],
 } as const;
 const META = "text-caption text-muted-foreground";
 
-const STATE_BADGE: Record<WorkspaceProfileState, "green" | "red" | "gray"> = {
+export const STATE_BADGE: Record<
+  WorkspaceProfileState,
+  "green" | "red" | "gray"
+> = {
   usable: "green",
   base_changed: "red",
   base_missing: "red",
   retired: "gray",
 };
+
+/** The id a save of a new version under `name` would get. */
+export function nextVersionId(
+  workspace: { readonly id: string; readonly slug: string } | null | undefined,
+  profiles: readonly ProfileSummary[],
+  name: string,
+): string {
+  return workspaceProfileId(
+    workspace ?? { id: "", slug: "" },
+    name,
+    Math.max(
+      0,
+      ...profiles
+        .filter((item) => item.workspace?.name === name)
+        .map((item) => item.workspace?.version ?? 0),
+    ) + 1,
+  );
+}
 
 export function ProfilesScreen() {
   const { t } = useI18n();
@@ -79,17 +102,22 @@ export function ProfilesScreen() {
         (a.workspace?.name ?? "").localeCompare(b.workspace?.name ?? "") ||
         (b.workspace?.version ?? 0) - (a.workspace?.version ?? 0),
     );
-  const nextId = (name: string) =>
-    workspaceProfileId(
-      workspace ?? { id: "", slug: "" },
-      name,
-      Math.max(
-        0,
-        ...versions
-          .filter((item) => item.workspace?.name === name)
-          .map((item) => item.workspace?.version ?? 0),
-      ) + 1,
-    );
+  // `versions` is sorted by name, newest first, so each group's head is its latest.
+  const groups: ProfileSummary[][] = [];
+  for (const item of versions) {
+    const last = groups.at(-1);
+    if (last && last[0]?.workspace?.name === item.workspace?.name)
+      last.push(item);
+    else groups.push([item]);
+  }
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const toggle = (name: string) =>
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (!next.delete(name)) next.add(name);
+      return next;
+    });
+  const nextId = (name: string) => nextVersionId(workspace, versions, name);
   const baseOf = (item: ProfileSummary) =>
     operators.find((base) => base.id === item.workspace?.base_profile_id);
   const stranded = versions.filter(
@@ -203,6 +231,13 @@ export function ProfilesScreen() {
           )}
           <Section
             title={t("profiles.workspace.title")}
+            badge={
+              groups.length === 0 ? null : (
+                <Badge variant="gray">
+                  {t("profiles.count", { count: groups.length })}
+                </Badge>
+              )
+            }
             description={t("profiles.workspace.description")}
           >
             {manages ? null : (
@@ -242,55 +277,73 @@ export function ProfilesScreen() {
                       </GridTableColumnHeader>
                     ) : null}
                   </GridTableHeader>
-                  {versions.map((item) => (
-                    <VersionRow
-                      key={item.id}
-                      profile={item}
-                      manages={manages}
-                      base={baseOf(item)}
-                      onEdit={(mode, base) => open({ mode, from: item, base })}
-                      onRetire={() => {
-                        setRetireError(null);
-                        setRetiring(item);
-                      }}
-                    />
-                  ))}
+                  {groups.flatMap(([latest, ...older]) => {
+                    if (latest === undefined) return [];
+                    const name = latest.workspace?.name ?? latest.id;
+                    const shown = expanded.has(name) ? older : [];
+                    return [latest, ...shown].map((item) => (
+                      <VersionRow
+                        key={item.id}
+                        profile={item}
+                        manages={manages}
+                        base={baseOf(item)}
+                        older={
+                          item === latest && older.length > 0
+                            ? {
+                                count: older.length,
+                                expanded: expanded.has(name),
+                                onToggle: () => toggle(name),
+                              }
+                            : undefined
+                        }
+                        onEdit={(mode, base) =>
+                          open({ mode, from: item, base })
+                        }
+                        onRetire={() => {
+                          setRetireError(null);
+                          setRetiring(item);
+                        }}
+                      />
+                    ));
+                  })}
                 </GridTable>
               </div>
             )}
           </Section>
           <Section
             title={t("profiles.operator.title")}
+            badge={
+              operators.length === 0 ? null : (
+                <Badge variant="gray">
+                  {t("profiles.count", { count: operators.length })}
+                </Badge>
+              )
+            }
             description={t("profiles.operator.description")}
           >
             {operators.length === 0 ? (
               <EmptyState title={t("profiles.empty")} />
             ) : (
-              <div className="flex flex-col gap-[var(--ap-space-block)]">
-                <div className="rounded-card border bg-card">
-                  <GridTable
-                    aria-label={t("profiles.operator.title")}
-                    columns={PROFILE_COLUMNS}
-                  >
-                    <GridTableHeader>
-                      <GridTableColumnHeader>
-                        {t("profiles.column.profile")}
-                      </GridTableColumnHeader>
-                      <GridTableColumnHeader>
-                        {t("profiles.column.model")}
-                      </GridTableColumnHeader>
-                      <GridTableColumnHeader>
-                        {t("profiles.column.environment")}
-                      </GridTableColumnHeader>
-                    </GridTableHeader>
-                    {operators.map((profile) => (
-                      <ProfileRow key={profile.id} profile={profile} />
-                    ))}
-                  </GridTable>
-                </div>
-                <p className={`m-0 ${META}`}>
-                  {t("profiles.foot", { count: operators.length })}
-                </p>
+              <div className="rounded-card border bg-card">
+                <GridTable
+                  aria-label={t("profiles.operator.title")}
+                  columns={PROFILE_COLUMNS}
+                >
+                  <GridTableHeader>
+                    <GridTableColumnHeader>
+                      {t("profiles.column.profile")}
+                    </GridTableColumnHeader>
+                    <GridTableColumnHeader>
+                      {t("profiles.column.model")}
+                    </GridTableColumnHeader>
+                    <GridTableColumnHeader>
+                      {t("profiles.column.environment")}
+                    </GridTableColumnHeader>
+                  </GridTableHeader>
+                  {operators.map((profile) => (
+                    <ProfileRow key={profile.id} profile={profile} />
+                  ))}
+                </GridTable>
               </div>
             )}
           </Section>
@@ -331,23 +384,72 @@ function VersionRow({
   profile,
   manages,
   base,
+  older,
   onEdit,
   onRetire,
 }: {
   readonly profile: ProfileSummary;
   readonly manages: boolean;
   readonly base: ProfileSummary | undefined;
+  /** On the latest version of a name that has earlier ones. */
+  readonly older:
+    | {
+        readonly count: number;
+        readonly expanded: boolean;
+        readonly onToggle: () => void;
+      }
+    | undefined;
   readonly onEdit: (mode: "version" | "remake", base: ProfileSummary) => void;
   readonly onRetire: () => void;
 }) {
   const { t } = useI18n();
   const state = profile.workspace?.state ?? "usable";
+  const Chevron = older?.expanded ? ChevronDown : ChevronRight;
   return (
     <GridTableRow>
       <GridTableCell>
+        <GridTableRowOpener
+          asChild
+          aria-label={t("profiles.open", { name: profile.id })}
+        >
+          <Link to="/profiles/$profileId" params={{ profileId: profile.id }} />
+        </GridTableRowOpener>
         <Stack
-          first={profile.workspace?.name ?? profile.id}
-          firstClassName="font-medium text-foreground"
+          first={
+            <>
+              <span className="font-medium text-foreground">
+                {profile.workspace?.name ?? profile.id}
+              </span>{" "}
+              <span className={META}>
+                {t("profiles.versionTag", {
+                  version: profile.workspace?.version ?? 0,
+                })}
+              </span>
+              {older ? (
+                <>
+                  {" "}
+                  <button
+                    type="button"
+                    aria-expanded={older.expanded}
+                    onClick={older.onToggle}
+                    // Inline, so a narrow column wraps it between words like
+                    // the name beside it instead of pushing into the next column.
+                    // Positioned above the row opener, which covers the row.
+                    className={cn(
+                      "relative z-1 inline break-keep rounded-control text-left hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
+                      META,
+                    )}
+                  >
+                    <Chevron
+                      aria-hidden="true"
+                      className="mr-0.5 inline size-3.5 align-[-2px]"
+                    />
+                    {t("profiles.olderVersions", { count: older.count })}
+                  </button>
+                </>
+              ) : null}
+            </>
+          }
           second={profile.id}
           secondClassName="font-mono"
         />
@@ -365,7 +467,7 @@ function VersionRow({
         </Badge>
       </GridTableCell>
       {manages ? (
-        <GridTableCell>
+        <GridTableCell raised>
           <div className="flex flex-wrap gap-2">
             {base && (state === "usable" || state === "base_changed") ? (
               <Button
@@ -406,6 +508,12 @@ function ProfileRow({ profile }: { readonly profile: ProfileSummary }) {
   return (
     <GridTableRow>
       <GridTableCell>
+        <GridTableRowOpener
+          asChild
+          aria-label={t("profiles.open", { name: profile.id })}
+        >
+          <Link to="/profiles/$profileId" params={{ profileId: profile.id }} />
+        </GridTableRowOpener>
         <Stack
           first={profile.id}
           firstClassName="font-medium font-mono text-foreground"
@@ -430,14 +538,14 @@ function ProfileRow({ profile }: { readonly profile: ProfileSummary }) {
 }
 
 // Not GridTableCell `lines`, which truncates: on a phone every value wraps
-// in full instead (no detail view holds the rest).
+// in full instead.
 function Stack({
   first,
   firstClassName,
   second,
   secondClassName,
 }: {
-  readonly first: string;
+  readonly first: ReactNode;
   readonly firstClassName?: string;
   readonly second: string;
   readonly secondClassName?: string;

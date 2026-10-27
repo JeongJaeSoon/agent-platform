@@ -13,6 +13,7 @@ import type { RuntimeProcessObserver } from "@werft-ai/runtime-core";
 
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import type { DriverRun, RuntimeHooks } from "./driver.ts";
+import { MirrorProgress } from "./mirror-progress.ts";
 import {
   ENGINE_API_KEY_DESCRIPTOR,
   engineApiKey,
@@ -28,6 +29,11 @@ import { TurnLedger } from "./turn-ledger.ts";
 
 const MIN_BUDGET_USD = 0.000001;
 
+// Not a person's refusal: the platform could not record that the
+// checkpoint this turn waits on no longer holds once the tool runs.
+const ADMISSION_GUARD_REFUSED =
+  "The platform could not record that this tool is starting, so it was not run. This is not a user decision; you may try the call again.";
+
 /** The SDK driver `ClaudeAgentRuntime` wraps. */
 export class ClaudeSdkRuntime {
   constructor(
@@ -37,7 +43,13 @@ export class ClaudeSdkRuntime {
 
   start(config: ClaudeRuntimeConfig, hooks: RuntimeHooks): DriverRun {
     validateRuntimeConfig(config, this.policy);
-    const { history, launched } = resumedHistory(config);
+    const mirror =
+      config.sessionStore === undefined ? undefined : new MirrorProgress();
+    const { history, launched } = resumedHistory(
+      mirror === undefined || config.sessionStore === undefined
+        ? config
+        : { ...config, sessionStore: mirror.watch(config.sessionStore) },
+    );
     const input = new InputStream();
     const abortController = new AbortController();
     const ledger = new TurnLedger(config.resume);
@@ -59,6 +71,7 @@ export class ClaudeSdkRuntime {
       history,
       ledger,
       () => relayedToolDescriptions(launched.mcpServers),
+      mirror,
     );
   }
 }
@@ -164,6 +177,19 @@ export function buildSdkOptions(
                 !permittedTools.has(input.tool_name)
               ) {
                 return deny("Tool is outside the server allowlist");
+              }
+              // A guard that lands while another is awaited is awaited too:
+              // the call is admitted only past whichever the host holds now.
+              let passed: ((id: string) => Promise<void>) | undefined;
+              for (;;) {
+                const guard = ledger.admissionGuard;
+                if (guard === undefined || guard === passed) break;
+                try {
+                  await guard(input.tool_use_id);
+                } catch {
+                  return deny(ADMISSION_GUARD_REFUSED);
+                }
+                passed = guard;
               }
               const admission = ledger.toolStarting(input.tool_use_id);
               if (admission.allowed) return {};

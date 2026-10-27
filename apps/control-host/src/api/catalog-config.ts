@@ -17,7 +17,7 @@ import {
   type SessionCatalogConfig,
   sessionCatalogConfigSchema,
 } from "@werft-ai/platform";
-import { CLAUDE_DESCRIPTOR } from "@werft-ai/runtime-claude-codec";
+import { installedDescriptors } from "@werft-ai/runtime-codecs";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
@@ -42,7 +42,7 @@ export const SECRET_KEY_SETTING = "PLATFORM_SECRET_KEY";
 const SECRET_READ_TIMEOUT_MS = 10_000;
 
 /** The runtimes the worker image ships, as the control plane sees them. */
-export const installedRuntimes = new ProfileFeatureGate([CLAUDE_DESCRIPTOR]);
+export const installedRuntimes = new ProfileFeatureGate(installedDescriptors);
 
 export type SecretReader = (secretId: string) => Promise<string | undefined>;
 

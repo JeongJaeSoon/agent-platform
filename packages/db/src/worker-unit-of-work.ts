@@ -3,6 +3,7 @@ import {
   type CheckpointBlockReason,
   type CheckpointRef,
   checkpointBlockReasonSchema,
+  type PermissionGrant,
   type TerminalTurnStatus,
   TURN_BUDGET_EXCEEDED_REASON,
   TURN_INPUT_WAIT_PARKED_REASON,
@@ -109,6 +110,11 @@ import {
 } from "./fence.ts";
 import { catalogMismatchCause, quarantineLaunch } from "./launch-quarantine.ts";
 import { sessionMcpOf } from "./mcp-egress.ts";
+import {
+  abandonUndeliveredParked,
+  closeParkedGroup,
+  settleContinuationInputs,
+} from "./parked-group.ts";
 import { openPauseReceipt, pauseReceiptResult } from "./pause-control.ts";
 import {
   abandonUndeliveredAnswers,
@@ -132,6 +138,7 @@ import {
   resumeLaunchesSpent,
 } from "./resume-control.ts";
 import {
+  approvalCheckpoints,
   attempts,
   catalogAuthority,
   checkpointOutputs,
@@ -139,10 +146,13 @@ import {
   events,
   executions,
   MAX_SESSION_COST_USD,
+  pendingRequests,
+  permissionGrants,
   providerUsage,
   queueMessages,
   receipts,
   sessions,
+  turnContinuations,
   turns,
   unassignedSessions,
   workerCredentials,
@@ -150,11 +160,16 @@ import {
   workers,
 } from "./schema.ts";
 import {
+  notBefore,
   recordEvent,
   recordInputWaitStage,
   recordStatus,
+  streamClock,
 } from "./session-events.ts";
-import { settleTurnInterrupts } from "./turn-interrupts.ts";
+import {
+  settleTurnInterrupts,
+  turnInterruptPending,
+} from "./turn-interrupts.ts";
 
 // Heartbeats travel over a network and can land out of order. The durable
 // state is the furthest phase the attempt has been reported to reach, so a
@@ -243,7 +258,8 @@ export const CHECKPOINT_RESTORE_FALLBACK = "checkpoint_restore_fallback";
 
 // Two submissions of one source_sequence are the same event only if every
 // stored field matches: a reused sequence that moved to another turn or
-// another time is a different event wearing the same number.
+// another time is a different event wearing the same number. The time stored
+// is the one sent raised to `floor`, the stream's clock when it was written.
 function sameEvent(
   stored: {
     type: string;
@@ -253,11 +269,13 @@ function sameEvent(
   },
   event: WorkerEvent,
   turnRowId: number | null,
+  floor: Date | null = null,
 ): boolean {
   return (
     stored.type === event.event &&
     stored.turnId === turnRowId &&
-    stored.occurredAt?.getTime() === new Date(event.occurred_at).getTime() &&
+    stored.occurredAt?.getTime() ===
+      notBefore(new Date(event.occurred_at), floor).getTime() &&
     payloadHash(stored.payload) === payloadHash(event.data)
   );
 }
@@ -525,6 +543,227 @@ export async function advanceCheckpointPointer(
     "session pointer",
   );
   return { outcome: "committed", revision: input.checkpoint.revision };
+}
+
+/**
+ * Crash park (design §6.2 E2): the execution went while its turn waited on
+ * a person, and the approval-wait checkpoint taken there still holds. Every
+ * condition below has to hold, or the turn stays for the caller to record
+ * unknown as before (approval-wait design D-12):
+ *
+ * - the session takes work and the turn is its only one in flight, asked
+ *   by an attempt the session still names, with no interrupt waiting on it;
+ * - (i) the turn has open requests, (ii) every one of them is bound to the
+ *   same checkpoint and none has expired;
+ * - (iii) no answer reached the worker past the one it had applied when it
+ *   captured: the engine may have acted on that one, so neither the open
+ *   rows nor any settled row of the turn may have such a delivery;
+ * - (iv) no tool was admitted after the capture, and it is the revision
+ *   the pointer would accept next.
+ *
+ * Then, in the caller's transaction, the checkpoint becomes the pointer, the
+ * turn is interrupted to park (TURN_INPUT_WAIT_PARKED_REASON) and its
+ * requests are parked, an answer given but never delivered included: it is
+ * what resumes the turn. Returns whether it parked.
+ */
+async function parkOnApprovalCheckpoint(
+  tx: Database,
+  input: { session: SessionRow; executionId: string; now: Date },
+): Promise<boolean> {
+  const { session, now } = input;
+  if (session.admissionState !== "active") return false;
+  const open = await tx
+    .select({
+      id: turns.id,
+      sequence: turns.sequence,
+      attemptId: turns.attemptId,
+    })
+    .from(turns)
+    .where(
+      and(
+        eq(turns.sessionId, session.id),
+        inArray(turns.status, OPEN_TURN_STATUSES),
+      ),
+    );
+  const [turn] = open;
+  if (open.length !== 1 || turn === undefined || turn.attemptId === null) {
+    return false;
+  }
+  const [attempt] = await tx
+    .select()
+    .from(attempts)
+    .where(
+      and(
+        eq(attempts.id, turn.attemptId),
+        eq(attempts.executionId, input.executionId),
+        notInArray(attempts.state, ENDED_ATTEMPT_STATES),
+      ),
+    )
+    .limit(1);
+  // Still the session's own binding: until the epoch moves, collection
+  // keeps this attempt's checkpoint directory.
+  if (
+    attempt === undefined ||
+    attempt.leaseEpoch !== session.leaseEpoch ||
+    attempt.executionGeneration !== session.executionGeneration ||
+    attempt.authRevision !== session.authRevision
+  ) {
+    return false;
+  }
+  if (await turnInterruptPending(tx, turn.id)) return false;
+  const rows = await tx
+    .select({
+      checkpointRef: pendingRequests.checkpointRef,
+      deliveredAt: pendingRequests.deliveredAt,
+      expiresAt: pendingRequests.expiresAt,
+    })
+    .from(pendingRequests)
+    .where(
+      and(
+        eq(pendingRequests.sessionId, session.id),
+        eq(pendingRequests.turnId, turn.id),
+        isNull(pendingRequests.settledAt),
+        isNull(pendingRequests.parkedAt),
+      ),
+    )
+    .for("update");
+  const refs = new Set(rows.map((row) => row.checkpointRef));
+  const [ref] = refs;
+  if (
+    rows.length === 0 ||
+    refs.size !== 1 ||
+    ref == null ||
+    rows.some(
+      (row) =>
+        row.deliveredAt !== null || row.expiresAt.getTime() <= now.getTime(),
+    )
+  ) {
+    return false;
+  }
+  const [checkpoint] = await tx
+    .select()
+    .from(approvalCheckpoints)
+    .where(eq(approvalCheckpoints.manifestRef, ref))
+    .limit(1)
+    .for("update");
+  if (
+    checkpoint === undefined ||
+    checkpoint.invalidatedAt !== null ||
+    checkpoint.promotedAt !== null ||
+    checkpoint.attemptId !== attempt.id ||
+    checkpoint.turnId !== turn.id ||
+    checkpoint.revision !== (session.checkpointRevision ?? -1) + 1
+  ) {
+    return false;
+  }
+  const [delivered] = await tx
+    .select({ one: sql`1` })
+    .from(pendingRequests)
+    .where(
+      and(
+        eq(pendingRequests.sessionId, session.id),
+        eq(pendingRequests.turnId, turn.id),
+        isNotNull(pendingRequests.deliveredAt),
+        gt(pendingRequests.answerSequence, checkpoint.answersThrough),
+      ),
+    )
+    .limit(1);
+  if (delivered !== undefined) return false;
+
+  const fence: WorkerFence = {
+    sessionId: session.id,
+    attemptId: attempt.id,
+    leaseEpoch: attempt.leaseEpoch,
+    executionGeneration: attempt.executionGeneration,
+    authRevision: attempt.authRevision,
+  };
+  const advanced = await advanceCheckpointPointer(tx, {
+    fence,
+    session,
+    checkpoint: {
+      revision: checkpoint.revision,
+      manifest_ref: checkpoint.manifestRef,
+      manifest_sha256: checkpoint.manifestSha256,
+      ...(checkpoint.manifestVersion === null
+        ? {}
+        : { manifest_version: checkpoint.manifestVersion }),
+    },
+    turnRowId: turn.id,
+    now,
+    versionsHeld: checkpoint.versionsHeld,
+    ...(checkpoint.transcriptBytes === null
+      ? {}
+      : { transcriptBytes: checkpoint.transcriptBytes }),
+  });
+  if (advanced.outcome !== "committed") return false;
+  await tx
+    .update(approvalCheckpoints)
+    .set({ promotedAt: now })
+    .where(eq(approvalCheckpoints.manifestRef, checkpoint.manifestRef));
+  await tx
+    .update(turns)
+    .set({
+      status: "interrupted",
+      endedAt: now,
+      terminalReason: TURN_INPUT_WAIT_PARKED_REASON,
+      outcomeUnknown: false,
+    })
+    .where(eq(turns.id, turn.id));
+  // The receipt a finalize of the same park would settle.
+  await tx
+    .update(receipts)
+    .set({
+      status: RECEIPT_STATUS_BY_TERMINAL.interrupted,
+      error: {
+        code: "INTERNAL_ERROR",
+        message: TURN_INPUT_WAIT_PARKED_REASON,
+      },
+      updatedAt: now,
+    })
+    .where(
+      and(
+        inArray(receipts.operation, INPUT_RECEIPT_OPERATIONS),
+        eq(receipts.status, "accepted"),
+        sql`${receipts.targetRef}->>'session_id' = ${session.id}`,
+        sql`${receipts.targetRef}->>'turn_id' = ${String(turn.sequence)}`,
+      ),
+    );
+  await tx
+    .delete(queueMessages)
+    .where(
+      and(
+        eq(queueMessages.sessionId, session.id),
+        eq(queueMessages.turnId, turn.id),
+      ),
+    );
+  const parked = await parkTurnRequests(tx, {
+    sessionId: session.id,
+    turnRowId: turn.id,
+    now,
+  });
+  await recordInputWaitStage(tx, {
+    sessionId: session.id,
+    stage: "parked",
+    requestIds: parked,
+    turnRowId: turn.id,
+    now,
+  });
+  await tx
+    .update(sessions)
+    .set({ status: "idle", lastTurnAt: now, updatedAt: now })
+    .where(eq(sessions.id, session.id));
+  if (session.status !== "idle") {
+    await recordStatus(tx, {
+      sessionId: session.id,
+      phase: publicStatus(
+        "idle",
+        await awaitingInputAt(tx, session.id, await dbNow(tx)),
+      ),
+      turnRowId: turn.id,
+      now,
+    });
+  }
+  return true;
 }
 
 async function warnNearTranscriptLimit(
@@ -981,7 +1220,84 @@ async function bindingOf(
     costUsd: session.costUsd,
     providerTokens: session.providerTokens,
     mcp: await sessionMcpOf(tx, session),
+    grants: await unspentGrants(tx, session.id, attempt.id),
   };
+}
+
+// Only for a turn not yet finished: a grant outlives nothing past the turn
+// it was left for. Each is marked as handed to the claiming attempt, which
+// is how nextInput knows an attempt claimed before a grant existed.
+async function unspentGrants(
+  tx: Database,
+  sessionId: string,
+  attemptId: string,
+): Promise<PermissionGrant[]> {
+  const rows = await tx
+    .select({
+      requestId: permissionGrants.requestId,
+      sequence: turns.sequence,
+      tool: pendingRequests.tool,
+      payload: pendingRequests.payload,
+      inputHash: pendingRequests.inputHash,
+    })
+    .from(permissionGrants)
+    .innerJoin(turns, eq(turns.id, permissionGrants.turnId))
+    .innerJoin(
+      pendingRequests,
+      eq(pendingRequests.requestId, permissionGrants.requestId),
+    )
+    .where(
+      and(
+        eq(permissionGrants.sessionId, sessionId),
+        isNull(permissionGrants.consumedAt),
+        isNull(pendingRequests.settledAt),
+        inArray(turns.status, ["queued", ...OPEN_TURN_STATUSES]),
+      ),
+    )
+    .orderBy(asc(permissionGrants.requestId));
+  if (rows.length > 0) {
+    await tx
+      .update(permissionGrants)
+      .set({ attemptId })
+      .where(
+        inArray(
+          permissionGrants.requestId,
+          rows.map((row) => row.requestId),
+        ),
+      );
+  }
+  return rows.map((row) => ({
+    request_id: row.requestId,
+    turn_id: String(row.sequence),
+    tool: (row.payload as { tool?: string }).tool ?? row.tool ?? "",
+    input_hash: row.inputHash,
+  }));
+}
+
+async function grantMissedBy(
+  tx: Database,
+  turnRowId: number,
+  attemptId: string,
+): Promise<boolean> {
+  // Only a grant a claim would carry: one whose request a cancel settled
+  // goes to no worker, and waiting for it would hold the queue for good.
+  const [missed] = await tx
+    .select({ requestId: permissionGrants.requestId })
+    .from(permissionGrants)
+    .innerJoin(
+      pendingRequests,
+      eq(pendingRequests.requestId, permissionGrants.requestId),
+    )
+    .where(
+      and(
+        eq(permissionGrants.turnId, turnRowId),
+        isNull(permissionGrants.consumedAt),
+        isNull(pendingRequests.settledAt),
+        sql`${permissionGrants.attemptId} IS DISTINCT FROM ${attemptId}`,
+      ),
+    )
+    .limit(1);
+  return missed !== undefined;
 }
 
 // The profiles the checkpoints a restore may land on were committed under:
@@ -1692,6 +2008,15 @@ export function createPostgresWorkerUnitOfWork(
           OPEN_TURN_STATUSES.includes(turn.status);
         if (turn.status !== "queued" && !redelivery) return none;
         if ((draining || profileMoved) && !redelivery) return none;
+        // The turn carries a grant this attempt's claim never had: the
+        // engine would ask again for what was already allowed. It goes, and
+        // the next claim takes the grant.
+        if (
+          !redelivery &&
+          (await grantMissedBy(tx, turn.id, fence.attemptId))
+        ) {
+          return { ...none, draining: true as const };
+        }
         // Pausing (or any state but active) admits nothing new; the turn
         // this attempt already holds is still its to finish.
         if (fenced.session.admissionState !== "active" && !redelivery) {
@@ -1740,6 +2065,16 @@ export function createPostgresWorkerUnitOfWork(
               deliveryStartedAt,
             })
             .where(and(eq(turns.id, turn.id), eq(turns.status, "queued")));
+          const [continued] = await tx
+            .select({ parkedTurnId: turnContinuations.parkedTurnId })
+            .from(turnContinuations)
+            .where(eq(turnContinuations.turnId, turn.id));
+          if (continued) {
+            await settleContinuationInputs(tx, {
+              parkedTurnRowId: continued.parkedTurnId,
+              at: now,
+            });
+          }
           expectFenced(
             await tx
               .update(sessions)
@@ -1928,6 +2263,7 @@ export function createPostgresWorkerUnitOfWork(
         // insert-then-inspect order cannot promise.
         const existing = await tx
           .select({
+            id: events.id,
             type: events.type,
             payload: events.payload,
             turnId: events.turnId,
@@ -1955,7 +2291,15 @@ export function createPostgresWorkerUnitOfWork(
           // A replay of what is already stored is a no-op; anything else
           // would leave the worker holding a cursor for data the stream
           // does not contain.
-          if (!sameEvent(row, event, turnRowId)) {
+          if (
+            !sameEvent(row, event, turnRowId) &&
+            !sameEvent(
+              row,
+              event,
+              turnRowId,
+              await streamClock(tx, fence.sessionId, row.id),
+            )
+          ) {
             return { outcome: "event_conflict" };
           }
         }
@@ -1982,16 +2326,20 @@ export function createPostgresWorkerUnitOfWork(
           return { outcome: "lease_expired" };
         }
         if (fresh.length > 0) {
+          let floor = await streamClock(tx, fence.sessionId);
           await tx.insert(events).values(
-            fresh.map((event) => ({
-              sessionId: fence.sessionId,
-              type: event.event,
-              payload: event.data,
-              turnId: turnRowId,
-              attemptId: fence.attemptId,
-              sourceSequence: event.source_sequence,
-              occurredAt: new Date(event.occurred_at),
-            })),
+            fresh.map((event) => {
+              floor = notBefore(new Date(event.occurred_at), floor);
+              return {
+                sessionId: fence.sessionId,
+                type: event.event,
+                payload: event.data,
+                turnId: turnRowId,
+                attemptId: fence.attemptId,
+                sourceSequence: event.source_sequence,
+                occurredAt: floor,
+              };
+            }),
           );
         }
         const [latest] = await tx
@@ -2665,12 +3013,28 @@ export function createPostgresWorkerUnitOfWork(
         // Every path takes its locks in the same order — launch, session,
         // attempt, execution — so a heartbeat and an exit observation that
         // overlap queue up instead of deadlocking each other.
-        const [session] = await tx
+        const [found] = await tx
           .select()
           .from(sessions)
           .where(eq(sessions.executionId, executionId))
           .limit(1)
           .for("update");
+        // Before anything below ends the attempt and moves the epoch it
+        // judges by; re-read after, since it may have moved the pointer.
+        const crashParked =
+          found !== undefined &&
+          (await parkOnApprovalCheckpoint(tx, {
+            session: found,
+            executionId,
+            now,
+          }));
+        const [session] = crashParked
+          ? await tx
+              .select()
+              .from(sessions)
+              .where(eq(sessions.id, found.id))
+              .limit(1)
+          : [found];
         const [observed] = await tx
           .update(executions)
           .set({
@@ -2741,6 +3105,7 @@ export function createPostgresWorkerUnitOfWork(
         // A parked one was never the worker's to answer: it stays open.
         const closedRequests = await closeWorkerRequests(tx, session.id, now);
         await abandonUndeliveredAnswers(tx, session.id, now);
+        await abandonUndeliveredParked(tx, session.id, now);
         await recordLostInputWait(tx, {
           sessionId: session.id,
           closed: closedRequests,
@@ -2966,6 +3331,21 @@ export function createPostgresWorkerUnitOfWork(
             turnRowId: null,
             now: observedAt,
           });
+        }
+        // Answers that came while the park was still draining could not
+        // carry it on then; with the asker gone, the session can.
+        if (!closed && !closedNow && unresolved.length === 0) {
+          const [settled] = await tx
+            .select()
+            .from(sessions)
+            .where(eq(sessions.id, session.id))
+            .limit(1);
+          if (settled) {
+            await closeParkedGroup(tx, settled, {
+              by: "execution_gone",
+              at: observedAt,
+            });
+          }
         }
         if (closedNow) {
           const [open] = await tx

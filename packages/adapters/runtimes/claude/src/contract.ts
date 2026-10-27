@@ -6,6 +6,7 @@ import {
   claudeCheckpointCodec,
 } from "@werft-ai/runtime-claude-codec";
 import {
+  type AdmissionHold,
   type AgentInput,
   type AgentRun,
   type AgentRuntime,
@@ -47,6 +48,7 @@ import { approvalView, sdkAnswers } from "./mapper.ts";
 import { claudeProfileFingerprint } from "./profile-fingerprint.ts";
 import { remoteMcpRelay } from "./remote-mcp.ts";
 import { ClaudeSdkRuntime } from "./runtime.ts";
+import { ClaudeSessionStore } from "./session-store.ts";
 import { TurnAccounting } from "./turn-accounting.ts";
 import { namedInputs, turnEndedOf } from "./turn-ended.ts";
 
@@ -179,9 +181,6 @@ export class ClaudeAgentRuntime implements AgentRuntime {
   constructor(private readonly deps: RuntimeHostDeps) {}
 
   start(start: RuntimeStart): AgentRun {
-    if ((start.grants?.length ?? 0) > 0) {
-      throw new Error("This runtime does not take approval grants yet");
-    }
     const config = claudeStartConfig(start, this.deps);
     const driver = new ClaudeSdkRuntime(
       {
@@ -221,6 +220,7 @@ export const claudeRuntimeModule: RuntimeModule = {
   }),
   createRuntime: (deps) => new ClaudeAgentRuntime(deps),
   imageFingerprint: () => JSON.stringify(CLAUDE_RUNTIME_FINGERPRINT),
+  openTranscriptStore: (options) => new ClaudeSessionStore(options),
 };
 
 /**
@@ -264,8 +264,14 @@ class ClaudeContractRun implements AgentRun {
 
   async ready(): Promise<NegotiatedCapabilities> {
     await this.driver.ready();
+    const { capabilities } = CLAUDE_DESCRIPTOR;
     return {
-      effective: CLAUDE_DESCRIPTOR.capabilities,
+      effective: {
+        ...capabilities,
+        approvalCheckpoint:
+          capabilities.approvalCheckpoint &&
+          this.driver.approvalCheckpoints === true,
+      },
       effectiveExtraFeatures: CLAUDE_DESCRIPTOR.extraFeatures,
     };
   }
@@ -328,15 +334,27 @@ class ClaudeContractRun implements AgentRun {
   }
 
   prepareCheckpoint(point: CheckpointPoint): Promise<CheckpointPreparation> {
-    if (point !== "turn_end") return Promise.resolve(unsupported(point));
-    return this.driver.prepareCheckpoint();
+    if (point === "turn_end") return this.driver.prepareCheckpoint();
+    if (this.driver.approvalCheckpoints !== true) {
+      return Promise.resolve(unsupported(point));
+    }
+    return this.driver.prepareCheckpoint(point);
   }
 
   leaseCheckpoint(point: CheckpointPoint): Promise<CheckpointLeaseGrant> {
-    if (point !== "turn_end") {
+    if (point === "turn_end") return this.driver.leaseCheckpoint();
+    if (this.driver.approvalCheckpoints !== true) {
       return Promise.resolve({ lease: null, preparation: unsupported(point) });
     }
-    return this.driver.leaseCheckpoint();
+    return this.driver.leaseCheckpoint(point);
+  }
+
+  holdAdmission(guard: (toolCallId: string) => Promise<void>): AdmissionHold {
+    const hold = this.driver.holdAdmission?.(guard);
+    if (hold === undefined) {
+      throw new Error("This run admits tools through no gate a host can hold");
+    }
+    return hold;
   }
 
   abort(): void {

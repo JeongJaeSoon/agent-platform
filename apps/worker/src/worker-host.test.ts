@@ -116,7 +116,7 @@ function harness(
         workspaces.push(workspace);
         budgets.push(launch.maxBudgetUsd);
         principals.push(principal);
-        claudeMds.push(launch.committedClaudeMd());
+        claudeMds.push(launch.committedInstructions());
         const wrap = overrides.wrap ?? ((run: AgentRun) => run);
         return wrap(startScripted(runtime, launch));
       },
@@ -1549,7 +1549,7 @@ describe("WorkerHost before the engine starts", () => {
           error: (event, fields) => logged.push(event, JSON.stringify(fields)),
         },
         workspace: {
-          committedClaudeMd: () => null,
+          committedInstructions: () => null,
           instructionsCommit: () => null,
           async prepare({ descriptor }) {
             order.push(`prepare ${descriptor.repository?.branch}`);
@@ -1600,7 +1600,7 @@ describe("WorkerHost before the engine starts", () => {
         error: (event, fields) => logged.push(event, JSON.stringify(fields)),
       },
       workspace: {
-        committedClaudeMd: () => null,
+        committedInstructions: () => null,
         instructionsCommit: () => null,
         async prepare() {
           throw new Error(
@@ -1626,7 +1626,7 @@ describe("WorkerHost before the engine starts", () => {
     const { host, launched } = harness([{ type: "await-input" }], {
       gateway,
       workspace: {
-        committedClaudeMd: () => null,
+        committedInstructions: () => null,
         instructionsCommit: () => null,
         async prepare() {
           throw new Error("Workspace /workspace refused: not a git checkout");
@@ -1663,7 +1663,7 @@ describe("WorkerHost before the engine starts", () => {
           error: (event, fields) => logged.push([event, fields]),
         },
         workspace: {
-          committedClaudeMd: () => null,
+          committedInstructions: () => null,
           instructionsCommit: () => null,
           async prepare({ descriptor }) {
             prepared.push(descriptor);
@@ -1696,7 +1696,7 @@ describe("WorkerHost before the engine starts", () => {
     const { host, launched } = harness([{ type: "await-input" }], {
       gateway,
       workspace: {
-        committedClaudeMd: () => null,
+        committedInstructions: () => null,
         instructionsCommit: () => null,
         prepare: ({ signal }) =>
           new Promise((_, reject) => {
@@ -1735,7 +1735,7 @@ describe("WorkerHost before the engine starts", () => {
     const { host } = harness([{ type: "await-input" }], {
       gateway,
       workspace: {
-        committedClaudeMd: () => null,
+        committedInstructions: () => null,
         instructionsCommit: () => null,
         prepare: ({ signal }) =>
           new Promise((_, reject) => {
@@ -3148,7 +3148,7 @@ describe("WorkerHost stalls the turn deadline does not cover", () => {
     const { host, launched } = harness([{ type: "await-input" }], {
       gateway,
       workspace: {
-        committedClaudeMd: () => null,
+        committedInstructions: () => null,
         instructionsCommit: () => null,
         prepare: ({ signal }) => {
           signal.addEventListener("abort", () => {
@@ -3309,11 +3309,14 @@ describe("WorkerHost restoring a checkpoint", () => {
         restorePlan: async () => ({
           mode: "resume",
           resume: "fake-session",
-          committedClaudeMd: () => "as pinned\n",
+          committedInstructions: () => "as pinned\n",
         }),
         capture: async () => null,
       },
-      workspace: { ...noWorkspace, committedClaudeMd: () => "as prepared\n" },
+      workspace: {
+        ...noWorkspace,
+        committedInstructions: () => "as prepared\n",
+      },
     });
 
     await host.runLoop();

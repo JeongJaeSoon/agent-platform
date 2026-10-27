@@ -427,7 +427,7 @@ export interface paths {
         put?: never;
         /**
          * Durably accept a session and its first input
-         * @description Creates a session for a catalog profile and repository and queues `message` as turn `1`. Whether `repository_id` is sent follows the profile's `repository_mode` (`GET /v1/profiles`): `required` needs it, `none` refuses it, `optional` takes either; a session created without one starts in an empty workspace, has no repository to push to (`POST /v1/sessions/{id}/push-requests` answers 409 PUSH_SOURCE_MISSING) and its detail's `repository_id` is null. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the profile offers (its `model` or `models` in the catalog); omitted, the model of the release's card runs when `agent_release_id` is sent, else the profile's default. The session's detail reports it as `model`. The model stays until the session's profile is changed (`POST /v1/sessions/{id}/profile`), which runs the new profile's default. A session waits in `queued` while no execution slot is free; it is never refused for that. `agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it; `profile_id` may then be omitted for the release's runtime profile, and sent it must be that profile (409 RELEASE_PROFILE_MISMATCH). Omitted, `repository_id` is the release's `repository_id`. A release whose profile is no longer in the catalog, or changed since, answers 409 PROFILE_DIGEST_MISMATCH. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.
+         * @description Creates a session for a catalog profile and repository and queues `message` as turn `1`. Whether `repository_id` is sent follows the profile's `repository_mode` (`GET /v1/profiles`): `required` needs it, `none` refuses it, `optional` takes either; a session created without one starts in an empty workspace, has no repository to push to (`POST /v1/sessions/{id}/push-requests` answers 409 PUSH_SOURCE_MISSING) and its detail's `repository_id` is null. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the profile offers (its `model` or `models` in the catalog); omitted, the model of the release's card runs when `agent_release_id` is sent, else the profile's default. The session's detail reports it as `model`. The model stays until the session's profile is changed (`POST /v1/sessions/{id}/profile`), which runs the new profile's default. A session waits in `queued` while no execution slot is free; it is never refused for that. `agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it (it reads the agent's `active_release_id` from `GET /v1/agents`);`profile_id` may then be omitted for the release's runtime profile, and sent it must be that profile (409 RELEASE_PROFILE_MISMATCH). Omitted, `repository_id` is the release's `repository_id`. A release whose profile is no longer in the catalog, or changed since, answers 409 PROFILE_DIGEST_MISMATCH. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.
          *
          *     **Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** required.
          */
@@ -745,7 +745,7 @@ export interface paths {
         };
         /**
          * Durable event replay and live stream (SSE)
-         * @description Streams the session's events as Server-Sent Events: first the stored events after `Last-Event-ID` (all of them without it), then new ones as they are written. Each frame's `id` is its cursor, `event` its kind (`system`, `assistant`, `tool_use`, `tool_result`, `question`, `result`, `status`, `error`), and `data` a versioned envelope naming the session, turn and attempt. `question` events announce pending requests; `status` events report the session's status and, after a pause, resume, terminate or recovery decision, its `admission_state`. `system` events with a platform `subtype` are the control plane's own: `session_closed` when a close commits, and `input_wait` with `stage` (`parked` when a turn parks on its unanswered requests, `expired` when a parked turn's requests expire, `lost` when the worker holding them went away unanswered) and the `request_ids` it covers. The stream does not end with a turn or the session: it stays open until the client disconnects, the credential is revoked, or the session's share stops covering the caller (the reconnect then answers 404). Reading changes nothing.
+         * @description Streams the session's events as Server-Sent Events: first the stored events after `Last-Event-ID` (all of them without it), then new ones as they are written. Each frame's `id` is its cursor, `event` its kind (`system`, `assistant`, `tool_use`, `tool_result`, `question`, `result`, `status`, `error`), and `data` a versioned envelope naming the session, turn and attempt. Frames arrive in `id` order, the order to rely on; a new event's `occurred_at` is no earlier than the one before it. An event the engine emits after its turn's terminal belongs to no turn (`turn_id` null). `question` events announce pending requests; `status` events report the session's status and, after a pause, resume, terminate or recovery decision, its `admission_state`. `system` events with a platform `subtype` are the control plane's own: `session_closed` when a close commits, and `input_wait` with `stage` (`parked` when a turn parks on its unanswered requests, `expired` when a parked turn's requests expire, `lost` when the worker holding them went away unanswered) and the `request_ids` it covers. The stream does not end with a turn or the session: it stays open until the client disconnects, the credential is revoked, or the session's share stops covering the caller (the reconnect then answers 404). Reading changes nothing.
          *
          *     Reconnect after backoff with the last complete event id in `Last-Event-ID`; replay resumes strictly after that event. The stream sends a comment keepalive every 15 seconds. `410 CURSOR_EXPIRED` means the cursor fell outside retained history and the client must resynchronize from resource state; alpha does not trim events, so this response is reserved. A `result` event is engine output, not durable completion: confirm the turn with `GET /v1/sessions/{id}/turns/{turn_id}` and treat only `completed`, `failed`, `interrupted`, `cancelled`, or `outcome_unknown` as terminal.
          *
@@ -1460,9 +1460,9 @@ export interface paths {
         };
         /**
          * The workspace's agents
-         * @description Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its runtime profile, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once; without it the items are as before. API keys are refused.
+         * @description Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its runtime profile, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once; without it the items are as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, and every other API key is refused.
          *
-         *     **Auth:** cookie session only; no scope.
+         *     **Scope:** `sessions:write` (API key or cookie session).
          */
         get: operations["listAgents"];
         put?: never;
@@ -3410,7 +3410,10 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
-                /** Format: date-time */
+                /**
+                 * Format: date-time
+                 * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.
+                 */
                 occurred_at: string;
                 data: {
                     /** @constant */
@@ -3430,7 +3433,10 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
-                /** Format: date-time */
+                /**
+                 * Format: date-time
+                 * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.
+                 */
                 occurred_at: string;
                 data: {
                     /** @constant */
@@ -3450,7 +3456,10 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
-                /** Format: date-time */
+                /**
+                 * Format: date-time
+                 * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.
+                 */
                 occurred_at: string;
                 data: {
                     /** @constant */
@@ -3470,7 +3479,10 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
-                /** Format: date-time */
+                /**
+                 * Format: date-time
+                 * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.
+                 */
                 occurred_at: string;
                 data: unknown;
             };
@@ -3485,7 +3497,10 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
-                /** Format: date-time */
+                /**
+                 * Format: date-time
+                 * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.
+                 */
                 occurred_at: string;
                 data: {
                     request_id: string;
@@ -3509,7 +3524,10 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
-                /** Format: date-time */
+                /**
+                 * Format: date-time
+                 * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.
+                 */
                 occurred_at: string;
                 data: {
                     /** @constant */
@@ -3532,7 +3550,10 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
-                /** Format: date-time */
+                /**
+                 * Format: date-time
+                 * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.
+                 */
                 occurred_at: string;
                 data: {
                     /** @enum {string} */
@@ -3555,7 +3576,10 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
-                /** Format: date-time */
+                /**
+                 * Format: date-time
+                 * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.
+                 */
                 occurred_at: string;
                 data: {
                     message: string;
@@ -10336,6 +10360,8 @@ export interface operations {
              * @description - `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.
              *     - `REQUEST_EXPIRED`: The pending request was already answered, expired or closed.
              *     - `REQUEST_STALE`: The request was made against state that has since moved on. The attempt that asked is no longer the session's live attempt: it ended, lost its lease, or the turn moved on. A parked request can be answered whatever happened to the attempt that asked.
+             *     - `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`). A parked request whose session has a turn with an unknown outcome: the answer is not kept, since the turn could not resume.
+             *     - `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. A parked request whose session has no checkpoint to resume from: the answer is not kept.
              */
             409: {
                 headers: {
@@ -10346,7 +10372,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE";
+                            code?: "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE";
                         };
                     };
                 };
@@ -14715,7 +14741,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];

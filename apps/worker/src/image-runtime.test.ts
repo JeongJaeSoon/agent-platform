@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { realRuntimeFor } from "@werft-ai/runtime-registry/testing";
 
-import { claudeClaimFingerprint } from "./composition.ts";
+import { claimFingerprint } from "./composition.ts";
 import { imageRuntimeOf } from "./image-runtime.ts";
 
 const claim = {
@@ -23,7 +23,7 @@ const NO_MCP_FINGERPRINT =
 
 describe("imageRuntimeOf", () => {
   test("stamps each claim with the digest a worker on any host computes for it", () => {
-    const onAHost = claudeClaimFingerprint({
+    const onAHost = claimFingerprint({
       egressCredentialUrl: "http://egress-proxy:3129",
       runtime: {
         claudeConfigDir: "/home/worker/.claude",
@@ -40,7 +40,7 @@ describe("imageRuntimeOf", () => {
   });
 
   test("a remote MCP server is fingerprinted by its binding, never its token", () => {
-    const fingerprint = claudeClaimFingerprint({
+    const fingerprint = claimFingerprint({
       egressCredentialUrl: "http://egress-proxy:3129",
       runtime: {
         claudeConfigDir: "/home/worker/.claude",

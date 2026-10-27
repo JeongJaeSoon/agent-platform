@@ -13,13 +13,15 @@ import type {
   ScriptedStep,
 } from "@werft-ai/runtime-core/testing";
 
+import { installedRuntimes } from "../index.ts";
+
 type ScriptedFactory = (
   steps: ScriptedStep[],
   options: ScriptedRuntimeOptions,
   deps: Partial<RuntimeHostDeps>,
 ) => ScriptedRuntime;
 
-const installed = new RuntimeRegistry([claudeRuntimeModule]);
+const installed = new RuntimeRegistry(installedRuntimes);
 const scripted = new Map<RuntimeKind, ScriptedFactory>([
   [claudeRuntimeModule.descriptor.kind, scriptedClaudeRuntime],
 ]);
