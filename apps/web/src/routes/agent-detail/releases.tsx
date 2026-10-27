@@ -445,9 +445,11 @@ function ReleaseNote({ note }: { readonly note: string }) {
   }, [open]);
   const Chevron = open ? ChevronUp : ChevronDown;
   return (
+    // w-max: a narrow table would otherwise squeeze the note to a few letters
+    // wide instead of scrolling sideways.
     <div
       ref={box}
-      className={`flex max-w-56 gap-1 ${open ? "items-start" : "items-center"}`}
+      className={`flex w-max max-w-56 gap-1 ${open ? "items-start" : "items-center"}`}
     >
       <span
         ref={text}
