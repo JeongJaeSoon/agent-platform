@@ -111,6 +111,7 @@ function releaseOf(row: ReleaseRow): AgentRelease {
     created_at: row.createdAt.toISOString(),
     approved_by: row.approvedBy,
     approved_at: row.approvedAt?.toISOString() ?? null,
+    note: row.note,
   });
 }
 
@@ -414,6 +415,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
             effectiveTools: release.effective_tools,
             policyPins: release.policy_pins,
             createdBy: release.created_by,
+            note: release.note,
           })
           .onConflictDoNothing({ target: agentReleases.id })
           .returning();

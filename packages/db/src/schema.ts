@@ -2648,6 +2648,9 @@ export const agentReleases = pgTable(
       .defaultNow(),
     approvedBy: uuid("approved_by").references(() => users.id),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
+    // Outside the id's hash: a re-release of the same content keeps the
+    // first note, null included.
+    note: text(),
   },
   (table) => [
     foreignKey({
@@ -2659,6 +2662,10 @@ export const agentReleases = pgTable(
     check(
       "agent_releases_approval_check",
       sql`(${table.approvedBy} IS NULL) = (${table.approvedAt} IS NULL)`,
+    ),
+    check(
+      "agent_releases_note_check",
+      sql`${table.note} IS NULL OR char_length(${table.note}) BETWEEN 1 AND 200`,
     ),
   ],
 );
