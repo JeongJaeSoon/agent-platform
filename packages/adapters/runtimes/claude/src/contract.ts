@@ -18,7 +18,6 @@ import {
   type CheckpointLeaseGrant,
   type CheckpointPoint,
   type CheckpointPreparation,
-  type NativeSdkMessage,
   type NegotiatedCapabilities,
   type ParkReadiness,
   type RejectedCheckpoint,
@@ -39,17 +38,18 @@ import {
 import type {
   AgentFrame,
   DriverRun,
+  NativeSdkMessage,
   PermissionDecision,
   PermissionRequest,
   RuntimeHooks,
 } from "./driver.ts";
+import { approvalView, sdkAnswers } from "./mapper.ts";
 import { claudeProfileFingerprint } from "./profile-fingerprint.ts";
 import { remoteMcpRelay } from "./remote-mcp.ts";
 import { ClaudeSdkRuntime } from "./runtime.ts";
 import { TurnAccounting } from "./turn-accounting.ts";
 import { namedInputs, turnEndedOf } from "./turn-ended.ts";
 
-const QUESTION_TOOL = "AskUserQuestion";
 const TOOL_CALL_WAIT_MS = 10_000;
 const TOOL_CALLS_REMEMBERED = 1_000;
 
@@ -365,8 +365,8 @@ class ClaudeContractRun implements AgentRun {
       toolCallId: request.toolUseId,
       tool: { name: request.tool, input: request.input },
       inputHash,
-      kind: request.tool === QUESTION_TOOL ? "question" : "permission",
       askedAt,
+      ...approvalView(request.tool, request.input),
     };
     const answered = this.channel.request(approval, request.signal);
     this.offer(approval);
@@ -431,7 +431,6 @@ class ClaudeContractRun implements AgentRun {
         (call): RuntimeEvent => ({ type: "tool.called", ...call }),
       ),
       ...this.outcomeOf(message),
-      { type: "native", message },
     ];
   }
 
@@ -543,10 +542,9 @@ function decisionOf(
             message: answer.message ?? "Denied without a reason",
           };
     case "answered":
-      // The SDK carries answers on the tool input, keyed by the question.
       return {
         behavior: "allow",
-        updatedInput: { ...input, answers: answer.answers },
+        updatedInput: { ...input, answers: sdkAnswers(input, answer.answers) },
       };
     case "cancelled":
       return {

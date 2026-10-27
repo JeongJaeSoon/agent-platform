@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import type { CheckpointRef } from "@werft-ai/contracts";
-import type { NativeSdkMessage } from "@werft-ai/runtime-core";
+import type { NativeSdkMessage } from "@werft-ai/runtime-claude/testing";
 
 import type { WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerTimeouts } from "./config.ts";

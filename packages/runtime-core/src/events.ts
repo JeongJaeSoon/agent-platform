@@ -1,6 +1,5 @@
 import type { SessionEvent } from "@werft-ai/contracts";
 
-import type { NativeSdkMessage } from "./agent-run.ts";
 import type { ApprovalOutcome, ApprovalRequested } from "./approval.ts";
 
 export type TokenUsage = Readonly<Record<string, unknown>>;
@@ -34,7 +33,7 @@ export interface TurnEnded {
 /**
  * For one engine message the run emits its public events, each
  * `tool.called` right after the public event carrying that call, then its
- * `runtime.warning` or `turn.ended`, then `native`. A `tool.called`
+ * `runtime.warning` or `turn.ended`. A `tool.called`
  * precedes any `approval.requested` for the same `toolCallId`.
  */
 export type RuntimeEventBody =
@@ -63,11 +62,6 @@ export type RuntimeEventBody =
       kind: "api_retry" | "transcript_mirror_failed";
       detail: Record<string, unknown>;
     }
-  | { type: "turn.ended"; turn: TurnEnded }
-  /**
-   * Transitional: the engine message itself. The host reads none of it;
-   * it goes with the last engine-shaped code in the host.
-   */
-  | { type: "native"; message: NativeSdkMessage; inputs?: readonly string[] };
+  | { type: "turn.ended"; turn: TurnEnded };
 
 export type RuntimeEvent = RuntimeEventBody;
