@@ -206,7 +206,7 @@ describe("SegmentedControl", () => {
     );
   });
 
-  test("toolbar 크기는 32px 트랙(1px 여백)·컨트롤 모서리에 입력 칸과 같은 테두리다", () => {
+  test("toolbar 크기는 32px 트랙(1px 여백)·컨트롤 모서리에, 쉴 때 카드 선 테두리이고 hover에서 진해진다", () => {
     const { getByRole } = render(
       <SegmentedControl
         aria-label="보기"
@@ -223,7 +223,7 @@ describe("SegmentedControl", () => {
     for (const name of [
       "p-px",
       "rounded-control",
-      "border-input",
+      "border-border",
       "hover:border-subtle-foreground",
     ]) {
       expect(track).toContain(name);
@@ -231,7 +231,7 @@ describe("SegmentedControl", () => {
     for (const name of [
       "p-0.5",
       "rounded-card",
-      "border-border",
+      "border-input",
       "hover:border-border-strong",
     ]) {
       expect(track).not.toContain(name);
