@@ -565,16 +565,33 @@ describe("focus after a page change", () => {
     expect(document.activeElement?.tagName).toBe("BODY");
   });
 
-  test("a change of search alone keeps focus where it is", async () => {
+  test("a status tab, a change of search alone, keeps focus on the tab", async () => {
     const { history } = renderAt("/sessions", signedIn);
     await screen.findByRole("heading", { level: 1, name: "세션" });
-    const toggle = screen.getByRole("button", { name: "메뉴 열기" });
-    toggle.focus();
-    await history.push("/sessions?status=needs_input");
+    const user = await setupUser();
+    const failed = screen.getByRole("button", { name: "실패" });
+    await user.click(failed);
     await waitFor(() =>
-      expect(history.location.search).toBe("?status=needs_input"),
+      expect(failed.getAttribute("aria-pressed")).toBe("true"),
     );
-    expect(document.activeElement === toggle).toBe(true);
+    expect(history.location.search).toBe("?status=failed");
+    expect(document.activeElement === failed).toBe(true);
+  });
+
+  test("back from an open account menu leaves focus in the menu", async () => {
+    const { history } = renderAt("/agents", signedIn);
+    await screen.findByRole("heading", { level: 1, name: "에이전트" });
+    await history.push("/profiles");
+    await screen.findByRole("heading", { level: 1, name: "실행 프로필" });
+    const region = screen.getByRole("region", { name: "사용자 메뉴" });
+    const user = await setupUser();
+    within(region).getByRole("button", { name: /Owner/ }).focus();
+    await user.keyboard("{ArrowUp}");
+    const item = screen.getByRole("menuitem", { name: "연동 계정" });
+    expect(document.activeElement === item).toBe(true);
+    history.back();
+    await screen.findByRole("heading", { level: 1, name: "에이전트" });
+    expect(document.activeElement === item).toBe(true);
   });
 
   test("focus taken while the page changes stays there", async () => {

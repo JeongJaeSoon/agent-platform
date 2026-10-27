@@ -87,8 +87,9 @@ export function RootLayout() {
  * the next Tab and a screen reader start there rather than at the document's
  * top. Not on the first load, not when only the search or hash changes, and
  * not when something else took focus while the page changed (a dialog, a
- * notice). <main> itself counts as untaken: links whose menu closes park
- * focus there on the way.
+ * notice) or focus sits in a menu or dialog still open (back pressed from
+ * the account menu). <main> itself counts as untaken: links whose menu
+ * closes park focus there on the way.
  */
 function useFocusOnPageChange() {
   const router = useRouter();
@@ -119,10 +120,13 @@ function useFocusOnPageChange() {
       active !== document.body &&
       active !== main &&
       active.isConnected;
-    if (taken || !main) return;
+    const open = active?.closest(
+      '[role="menu"], [role="dialog"], [role="alertdialog"]',
+    );
+    if (taken || open || !main) return;
     const target = main.querySelector<HTMLElement>("h1") ?? main;
     if (!target.hasAttribute("tabindex")) target.tabIndex = -1;
-    // Scroll is the router's: back and forward restore where the page was.
+    // The page's scroll stays where the router left it.
     target.focus({ preventScroll: true });
   }, [pathname]);
 }
