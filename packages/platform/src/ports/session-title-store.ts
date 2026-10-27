@@ -32,7 +32,8 @@ export type TitleEgressAuthorization =
       costUsd: number;
       providerTokens: number;
     }
-  // Unknown, settled, expired, or the session's authorization moved since.
+  // Unknown, already claimed, settled, expired, or the session's
+  // authorization moved since.
   | { outcome: "invalid_token" };
 
 export interface SessionTitleStore {
@@ -46,7 +47,7 @@ export interface SessionTitleStore {
     tokenHash: Uint8Array;
   }): Promise<TitleEgressAuthorization>;
   // Ends the request; a title is written only while the session's is still
-  // derived, so a rename that landed first wins.
+  // the derived one it was issued with, so a rename that landed first wins.
   settleAtomic(input: {
     tokenHash: Uint8Array;
     title: string | null;

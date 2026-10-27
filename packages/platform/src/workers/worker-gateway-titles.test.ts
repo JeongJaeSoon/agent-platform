@@ -118,10 +118,11 @@ describe("title requests on the provider route", () => {
   });
 
   test("any other token goes on to the attempt's own check", async () => {
-    const { instance } = harness({});
+    const { instance, authorized } = harness({});
     await expect(
       instance.authorizeEgress({ token: "wep_engine", purpose: "provider" }),
     ).rejects.toMatchObject({ status: 401, code: "UNAUTHORIZED" });
+    expect(authorized).toEqual([]);
   });
 
   test("a session past its limit gets no title call", async () => {
@@ -165,6 +166,7 @@ describe("finalize and the title", () => {
       finalize_key: "f",
       final_source_sequence: 0,
       terminal: { status, reason: null, result: null, usage: null },
+      checkpoint: null,
     });
 
   test("a completed first turn starts the title without waiting for it", async () => {

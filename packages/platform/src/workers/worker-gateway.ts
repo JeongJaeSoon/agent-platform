@@ -96,6 +96,7 @@ import {
 import {
   hashTitleToken,
   type SessionTitler,
+  TITLE_TOKEN_PREFIX,
   titleProfile,
 } from "../sessions/session-titler.ts";
 import { createMcpEgress, type McpEgressRequest } from "./mcp-egress.ts";
@@ -736,11 +737,14 @@ export function createWorkerGateway(deps: {
 
   // A title request's token, held to the session's budget and profile as
   // the engine's calls are; null for any other token. No fence: the attempt
-  // it is charged to may have ended since its first turn.
+  // it is charged to may have ended since its first turn. The prefix only
+  // spares the engine's calls a lookup that claims; the row decides.
   async function authorizedTitleEgress(
     token: string,
   ): Promise<EgressGrant | null> {
-    if (deps.titles === undefined) return null;
+    if (deps.titles === undefined || !token.startsWith(TITLE_TOKEN_PREFIX)) {
+      return null;
+    }
     const result = await deps.titles.store.authorizeAtomic({
       tokenHash: hashTitleToken(token),
     });

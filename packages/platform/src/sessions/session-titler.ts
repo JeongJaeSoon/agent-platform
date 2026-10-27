@@ -8,11 +8,13 @@ import {
 } from "./catalog.ts";
 import { deriveSessionTitle } from "./session-title.ts";
 
-const TITLE_TOKEN_PREFIX = "wet";
+export const TITLE_TOKEN_PREFIX = "wet_";
 // Long enough for one short Messages call through the proxy, short enough
 // that a request whose API died mid-call stops authorizing soon after.
 const TITLE_TOKEN_TTL_MS = 2 * 60_000;
-const TITLE_CALL_TIMEOUT_MS = 60_000;
+// Under the proxy's 30s regrant: the token is used up by the first grant,
+// so an exchange still open then is cut.
+const TITLE_CALL_TIMEOUT_MS = 25_000;
 const TITLE_MAX_TOKENS = 64;
 // What of the first turn the model is shown; a title needs the gist only.
 const EXCERPT_CHARS = 2_000;
@@ -71,7 +73,7 @@ export function createSessionTitler(deps: {
       sessionId: string;
       attemptId: string;
     }): Promise<"applied" | "kept" | "skipped"> {
-      const token = `${TITLE_TOKEN_PREFIX}_${randomBytes(32).toString("base64url")}`;
+      const token = `${TITLE_TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
       const tokenHash = hashTitleToken(token);
       let issued: Awaited<ReturnType<SessionTitleStore["issueAtomic"]>>;
       try {

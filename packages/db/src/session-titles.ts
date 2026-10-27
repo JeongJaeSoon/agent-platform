@@ -18,6 +18,7 @@ export function createPostgresSessionTitleStore(
       return db.transaction(async (tx) => {
         const [row] = await tx
           .select({
+            title: sessions.title,
             titleSource: sessions.titleSource,
             authRevision: sessions.authRevision,
             profileId: sessions.profileId,
@@ -50,6 +51,7 @@ export function createPostgresSessionTitleStore(
             attemptId: input.attemptId,
             tokenHash: input.tokenHash,
             authRevision: row.authRevision,
+            issuedTitle: row.title,
             expiresAt: fromDbNow(input.ttlMs),
           })
           .onConflictDoNothing({ target: sessionTitleRequests.sessionId })
@@ -66,47 +68,59 @@ export function createPostgresSessionTitleStore(
       });
     },
 
-    async authorizeAtomic(input) {
-      const [row] = await db
-        .select({
-          sessionId: sessionTitleRequests.sessionId,
-          attemptId: sessionTitleRequests.attemptId,
-          issuedRevision: sessionTitleRequests.authRevision,
-          authRevision: sessions.authRevision,
-          executionRevokedAt: sessions.executionRevokedAt,
-          profileId: sessions.profileId,
-          profileFingerprint: sessions.profileFingerprint,
-          model: sessions.model,
-          costUsd: sessions.costUsd,
-          providerTokens: sessions.providerTokens,
-        })
-        .from(sessionTitleRequests)
-        .innerJoin(sessions, eq(sessions.id, sessionTitleRequests.sessionId))
-        .where(
-          and(
-            eq(sessionTitleRequests.tokenHash, input.tokenHash),
-            isNull(sessionTitleRequests.settledAt),
-            gt(sessionTitleRequests.expiresAt, DB_NOW),
-          ),
-        )
-        .limit(1);
-      if (
-        !row ||
-        row.issuedRevision !== row.authRevision ||
-        row.executionRevokedAt !== null
-      ) {
-        return { outcome: "invalid_token" };
-      }
-      return {
-        outcome: "ok",
-        sessionId: row.sessionId,
-        attemptId: row.attemptId,
-        profileId: row.profileId,
-        profileFingerprint: row.profileFingerprint,
-        model: row.model,
-        costUsd: row.costUsd,
-        providerTokens: row.providerTokens,
-      };
+    // Claims the token: the proxy asks again for the same exchange after 30s
+    // and is refused then, so one token buys one exchange that must finish
+    // before that.
+    authorizeAtomic(input) {
+      return db.transaction(async (tx) => {
+        const [claimed] = await tx
+          .update(sessionTitleRequests)
+          .set({ claimedAt: DB_NOW })
+          .where(
+            and(
+              eq(sessionTitleRequests.tokenHash, input.tokenHash),
+              isNull(sessionTitleRequests.claimedAt),
+              isNull(sessionTitleRequests.settledAt),
+              gt(sessionTitleRequests.expiresAt, DB_NOW),
+            ),
+          )
+          .returning({
+            sessionId: sessionTitleRequests.sessionId,
+            attemptId: sessionTitleRequests.attemptId,
+            issuedRevision: sessionTitleRequests.authRevision,
+          });
+        if (!claimed) return { outcome: "invalid_token" };
+        const [session] = await tx
+          .select({
+            authRevision: sessions.authRevision,
+            executionRevokedAt: sessions.executionRevokedAt,
+            profileId: sessions.profileId,
+            profileFingerprint: sessions.profileFingerprint,
+            model: sessions.model,
+            costUsd: sessions.costUsd,
+            providerTokens: sessions.providerTokens,
+          })
+          .from(sessions)
+          .where(eq(sessions.id, claimed.sessionId))
+          .limit(1);
+        if (
+          !session ||
+          claimed.issuedRevision !== session.authRevision ||
+          session.executionRevokedAt !== null
+        ) {
+          return { outcome: "invalid_token" };
+        }
+        return {
+          outcome: "ok",
+          sessionId: claimed.sessionId,
+          attemptId: claimed.attemptId,
+          profileId: session.profileId,
+          profileFingerprint: session.profileFingerprint,
+          model: session.model,
+          costUsd: session.costUsd,
+          providerTokens: session.providerTokens,
+        };
+      });
     },
 
     settleAtomic(input) {
@@ -115,6 +129,7 @@ export function createPostgresSessionTitleStore(
           .select({
             sessionId: sessionTitleRequests.sessionId,
             settledAt: sessionTitleRequests.settledAt,
+            issuedTitle: sessionTitleRequests.issuedTitle,
           })
           .from(sessionTitleRequests)
           .where(eq(sessionTitleRequests.tokenHash, input.tokenHash))
@@ -132,7 +147,11 @@ export function createPostgresSessionTitleStore(
           sessionId: request.sessionId,
           attempt,
         });
-        if (!session || session.titleSource !== "derived") {
+        if (
+          !session ||
+          session.titleSource !== "derived" ||
+          session.title !== request.issuedTitle
+        ) {
           return { outcome: "kept" };
         }
         await tx

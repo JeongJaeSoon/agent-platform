@@ -297,6 +297,10 @@ describe("generated titles (94S-1005)", () => {
     });
     const authorized = await titles().authorizeAtomic({ tokenHash: hash("a") });
     expect(authorized).toMatchObject({ outcome: "ok", sessionId, attemptId });
+    // Used up by that grant: a second exchange on the same token is refused.
+    expect(await titles().authorizeAtomic({ tokenHash: hash("a") })).toEqual({
+      outcome: "invalid_token",
+    });
 
     const eventsBefore = (await statusEvents(sessionId)).length;
     expect(
@@ -383,6 +387,43 @@ describe("generated titles (94S-1005)", () => {
       title: "hello",
       source: "user",
     });
+  });
+
+  test("a title changed by an API from before title_source is not replaced", async () => {
+    const { sessionId, attemptId } = await firstTurnDone({ message: "hello" });
+    await titles().issueAtomic({
+      sessionId,
+      attemptId,
+      tokenHash: hash("j"),
+      ttlMs: 60_000,
+    });
+    // What an older replica's rename writes: the title, not its source.
+    await db
+      .update(sessions)
+      .set({ title: "Renamed elsewhere" })
+      .where(eq(sessions.id, sessionId));
+    expect(
+      await titles().settleAtomic({
+        tokenHash: hash("j"),
+        title: "Generated",
+        now: new Date(),
+      }),
+    ).toEqual({ outcome: "kept" });
+    expect(await titleRow(sessionId)).toEqual({
+      title: "Renamed elsewhere",
+      source: "derived",
+    });
+  });
+
+  test("a row an older API inserts is the user's", async () => {
+    const id = crypto.randomUUID();
+    await db.insert(sessions).values({
+      id,
+      ownerId: OWNER.ownerId,
+      repositoryMode: "none",
+      title: "Given",
+    });
+    expect(await titleRow(id)).toEqual({ title: "Given", source: "user" });
   });
 
   test("a failed call keeps the derived title", async () => {

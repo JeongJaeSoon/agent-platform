@@ -1,5 +1,5 @@
 {
-  "id": "46ba07c6-005d-459f-a6ea-af62985e0330",
+  "id": "771f046a-cf48-402f-98c5-c59a10f08662",
   "prevId": "bd61bfaa-7e80-4a5a-b001-ff2625acf396",
   "version": "7",
   "dialect": "postgresql",
@@ -5522,6 +5522,18 @@
           "primaryKey": false,
           "notNull": true
         },
+        "issued_title": {
+          "name": "issued_title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "claimed_at": {
+          "name": "claimed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "expires_at": {
           "name": "expires_at",
           "type": "timestamp with time zone",
@@ -5618,7 +5630,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'derived'"
+          "default": "'user'"
         },
         "repository_mode": {
           "name": "repository_mode",
