@@ -33,7 +33,7 @@ curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $KEY"
 
 ## 실행 프로필 고르기
 
-세션은 운영자가 등록한 실행 프로필(profile) 중 하나로 돈다. 로컬 fake 스택에는 `claude-coding-local` 하나가 있다.
+세션은 운영자가 등록한 실행 프로필(profile) 중 하나로 돈다. 로컬 fake 스택에는 저장소를 쓰는 `claude-coding-local`(권한 요청에 사람이 답한다)과 `claude-coding-auto`(분류기가 판정한다), 저장소 없이 도는 `general`이 있다.
 
 ```bash
 curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" | jq '.items[] | {id, model, repository_mode}'
