@@ -61,12 +61,17 @@ describe("featureSupport", () => {
     expect(featureSupport(noResume, {}, "approval_park")).toBe("none");
   });
 
-  test("takes only a native auto mode as a classifier", () => {
-    const emulated = {
+  test("reads the classifier from the auto mode's support", () => {
+    const withAuto = (auto: "emulated" | "none") => ({
       ...table,
-      permissionModes: { ...table.permissionModes, auto: "emulated" as const },
-    };
-    expect(featureSupport(emulated, {}, "classifier_review")).toBe("none");
+      permissionModes: { ...table.permissionModes, auto },
+    });
+    expect(featureSupport(withAuto("emulated"), {}, "classifier_review")).toBe(
+      "emulated",
+    );
+    expect(featureSupport(withAuto("none"), {}, "classifier_review")).toBe(
+      "none",
+    );
   });
 
   test("defaults an extra feature nobody declared to none", () => {

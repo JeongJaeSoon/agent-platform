@@ -39,8 +39,7 @@ export function featureSupport(
         ? "native"
         : "none";
     case "classifier_review":
-      // No other mechanism stands in for a model classifier.
-      return table.permissionModes.auto === "native" ? "native" : "none";
+      return table.permissionModes.auto;
     default:
       return extra[key] ?? "none";
   }
