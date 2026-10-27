@@ -63,6 +63,48 @@ describe("Claude SDK run", () => {
     expect(await run.holdsInput("first")).toBe(true);
     expect(await run.holdsInput("second")).toBe(false);
   });
+
+  test("labels the init's tools with the relays' descriptions, read on init only", async () => {
+    let asked = 0;
+    const sdkQuery = {
+      async *[Symbol.asyncIterator]() {
+        yield {
+          type: "system",
+          subtype: "init",
+          tools: ["Read", "mcp__docs__find"],
+        };
+        yield { type: "system", subtype: "status" };
+      },
+    };
+    const run = new ClaudeSdkRun(
+      "init",
+      new InputStream(),
+      sdkQuery as never,
+      new AbortController(),
+      ResumedHistory.empty(),
+      new TurnLedger(),
+      () => {
+        asked += 1;
+        return new Map([["mcp__docs__find", "Finds a page"]]);
+      },
+    );
+    const data = [];
+    for await (const frame of run.events()) {
+      data.push(...frame.events.map((item) => item.data));
+    }
+    expect(asked).toBe(1);
+    expect(data).toEqual([
+      {
+        type: "system",
+        subtype: "init",
+        tools: [
+          { name: "Read" },
+          { name: "mcp__docs__find", description: "Finds a page" },
+        ],
+      },
+      { type: "system", subtype: "status" },
+    ]);
+  });
 });
 
 describe("Claude SDK input flush", () => {

@@ -31,6 +31,7 @@ const TOOLS = [
     total_ms: 13320000,
     median_ms: 3100,
     max_ms: 298000,
+    description: null,
   },
   {
     name: "Edit",
@@ -39,6 +40,7 @@ const TOOLS = [
     total_ms: 1620000,
     median_ms: 900,
     max_ms: 14200,
+    description: null,
   },
   {
     name: "WebFetch",
@@ -47,6 +49,7 @@ const TOOLS = [
     total_ms: 3960000,
     median_ms: 12400,
     max_ms: 61000,
+    description: null,
   },
 ];
 
@@ -144,6 +147,7 @@ describe("1분 미만 도구 시간", () => {
     total_ms: 1700,
     median_ms: 1700,
     max_ms: 1700,
+    description: null,
   };
 
   test("총 시간을 0분이 아니라 초로 쓴다", () => {
@@ -459,6 +463,7 @@ describe("tools sort and search", () => {
               total_ms: 0,
               median_ms: 0,
               max_ms: 0,
+              description: null,
             },
           ],
           "failed",

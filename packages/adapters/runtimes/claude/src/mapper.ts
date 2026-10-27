@@ -20,10 +20,18 @@ const SENSITIVE_NAME =
 const PLAIN_VALUE = /"[^"\\$`\n]*"|'[^'\n]*'|[^\s"'\\$`&;|<>()]+/y;
 const VALUE_END = /[\s&;|)]|$/y;
 
+export const TOOL_DESCRIPTION_MAX_CODE_POINTS = 200;
+
+/**
+ * `toolDescriptions` are what the MCP relays were told of their tools, by
+ * engine name, when `message` is the engine's init. The engine itself names
+ * its tools there but describes none, not even in `mcpServerStatus()`.
+ */
 export function frameFromNativeMessage(
   message: NativeSdkMessage,
   correlationId: string,
   cursor: string,
+  toolDescriptions?: ReadonlyMap<string, string>,
 ): AgentFrame {
   const envelope: NativeEnvelope = {
     correlation_id: correlationId,
@@ -33,8 +41,12 @@ export function frameFromNativeMessage(
   };
   return {
     envelope,
-    events: projectPublicEvents(envelope, cursor),
+    events: projectPublicEvents(envelope, cursor, toolDescriptions),
   };
+}
+
+export function isEngineInit(message: NativeSdkMessage): boolean {
+  return message.type === "system" && message.subtype === "init";
 }
 
 export function sanitizeNativeMessage(
@@ -46,6 +58,7 @@ export function sanitizeNativeMessage(
 export function projectPublicEvents(
   envelope: NativeEnvelope,
   cursor: string,
+  toolDescriptions?: ReadonlyMap<string, string>,
 ): SessionEvent[] {
   const message = envelope.message;
   if (message.type === "assistant") {
@@ -109,6 +122,15 @@ export function projectPublicEvents(
       event(cursor, "error", {
         code: "mirror_error",
         message: "Agent SDK transcript mirror failed",
+      }),
+    ];
+  }
+  if (isEngineInit(message)) {
+    return [
+      event(cursor, "system", {
+        type: "system",
+        subtype: "init",
+        tools: toolCatalog(message.tools, toolDescriptions),
       }),
     ];
   }
@@ -221,6 +243,39 @@ function questionsOf(input: Record<string, unknown>): PendingQuestion[] | null {
     ];
   });
   return questions.length > 0 ? questions : null;
+}
+
+/**
+ * The engine's tools by name, each MCP tool with its server's description.
+ * A description is server-supplied text, so it is redacted like any engine
+ * output, kept to one line and cut to TOOL_DESCRIPTION_MAX_CODE_POINTS.
+ */
+function toolCatalog(
+  names: unknown,
+  descriptions: ReadonlyMap<string, string> | undefined,
+): { name: string; description?: string }[] {
+  return (Array.isArray(names) ? names : [])
+    .filter((name): name is string => typeof name === "string" && name !== "")
+    .map((name) => {
+      const given = descriptions?.get(name);
+      const description =
+        given === undefined ? undefined : descriptionLine(given);
+      return description === undefined ? { name } : { name, description };
+    });
+}
+
+function descriptionLine(text: string): string | undefined {
+  const line = (sanitizeValue(text) as string)
+    .replace(/[\p{Cc}\s]+/gu, " ")
+    .trim();
+  const points = [...line];
+  if (points.length <= TOOL_DESCRIPTION_MAX_CODE_POINTS) {
+    return line === "" ? undefined : line;
+  }
+  return `${points
+    .slice(0, TOOL_DESCRIPTION_MAX_CODE_POINTS - 1)
+    .join("")
+    .trimEnd()}…`;
 }
 
 function event(
