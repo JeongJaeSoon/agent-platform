@@ -589,6 +589,13 @@
       "when": 1793056702867,
       "tag": "0174_workspace_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 175,
+      "version": "7",
+      "when": 1793057972722,
+      "tag": "0175_agent_release_note",
+      "breakpoints": true
     }
   ]
 }

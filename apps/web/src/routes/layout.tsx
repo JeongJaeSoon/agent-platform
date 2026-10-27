@@ -8,8 +8,8 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import { ApiError, isApiError, unwrap } from "@werft-ai/client";
-import { sessionQuery } from "@werft-ai/core";
-import { useAgentPlatform } from "@werft-ai/react";
+import { queryScopeOf, sessionQuery } from "@werft-ai/core";
+import { QueryScopeProvider, useAgentPlatform } from "@werft-ai/react";
 import {
   Button,
   Field,
@@ -102,6 +102,19 @@ const RAIL_PATH = /^\/(sessions(\/(?!map\/?$)[^/]+)?|operations\/tools)?\/?$/;
 const SETTINGS_PATH = /^\/settings(\/|$)/;
 
 export function AuthedLayout() {
+  const me = useMe();
+  const scope = me ? queryScopeOf(me) : null;
+  // Everything below caches under who is signed in; until that is known
+  // there is nothing of theirs to show.
+  if (!scope) return null;
+  return (
+    <QueryScopeProvider scope={scope}>
+      <AuthedShell />
+    </QueryScopeProvider>
+  );
+}
+
+function AuthedShell() {
   const { t } = useI18n();
   const me = useMe();
   const groups = useNavGroups();

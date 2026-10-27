@@ -34,7 +34,7 @@ import {
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
 import { type RefObject, useEffect, useRef, useState } from "react";
-import { queryKeys } from "../api/queries.ts";
+import { queryKeysOf } from "../api/queries.ts";
 import { roleLabel, useRole, WORKSPACE_ROLE_VALUES } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
 import { FormError, Notice } from "../components/auth-page.tsx";
@@ -203,7 +203,9 @@ function InviteFlow({
         );
         await funnel.history.push("link", { expires: created.expires_at });
       }
-      await queryClient.invalidateQueries({ queryKey: queryKeys.invites });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeysOf(client).invites,
+      });
     },
   });
 

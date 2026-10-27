@@ -2,6 +2,7 @@
 import { expect, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type ApiClientOptions, createApiClient } from "@werft-ai/client";
+import { withQueryScope } from "@werft-ai/core";
 import { setupDom } from "@werft-ai/ui/test-support/dom";
 import type { ReactNode } from "react";
 import { AgentPlatformProvider, useMemberPages } from "./index.ts";
@@ -21,10 +22,13 @@ function harness(
       { headers: { "content-type": "application/json" } },
     );
   };
-  const client = createApiClient({
-    baseUrl: "https://console.test",
-    fetch: fakeFetch as unknown as NonNullable<ApiClientOptions["fetch"]>,
-  });
+  const client = withQueryScope(
+    createApiClient({
+      baseUrl: "https://console.test",
+      fetch: fakeFetch as unknown as NonNullable<ApiClientOptions["fetch"]>,
+    }),
+    { actor: "user:u-1", workspace: "w-1" },
+  );
   const queryClient = new QueryClient();
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>

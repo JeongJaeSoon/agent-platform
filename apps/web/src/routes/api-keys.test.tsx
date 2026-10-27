@@ -12,6 +12,7 @@ import { apiKeysEn, apiKeysKo } from "../i18n/api-keys.ts";
 import {
   apiError,
   json,
+  keys,
   me,
   memberMe,
   USER_ID,
@@ -605,7 +606,7 @@ describe("API key", () => {
     ).toBeDefined();
     await waitFor(() =>
       expect(
-        services.queryClient.getQueryState(["administered-agents"])?.status,
+        services.queryClient.getQueryState(keys.administeredAgents)?.status,
       ).toBe("success"),
     );
     expect(screen.queryByRole("navigation", { name: "key 목록" })).toBeNull();

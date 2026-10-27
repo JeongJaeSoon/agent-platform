@@ -11,6 +11,7 @@ import {
   agentReleaseSchema,
   agentSchema,
   agentVersionSchema,
+  createAgentReleaseRequestSchema,
   createAgentRequestSchema,
   DEFAULT_TOOL_POLICY,
   draftAgentRequestSchema,
@@ -399,6 +400,7 @@ describe("agent, version and release", () => {
       created_at: AT,
       approved_by: null,
       approved_at: null,
+      note: null,
     });
     expect(release.effective_tools.tools).toEqual(["Read"]);
     expect(
@@ -407,6 +409,34 @@ describe("agent, version and release", () => {
         effective_tools: { tools: [] },
       }).success,
     ).toBe(false);
+  });
+
+  test("a release note is trimmed and counts 1 to 200 code points, as the column does", () => {
+    const request = (note?: string) =>
+      createAgentReleaseRequestSchema.safeParse({
+        version_id: VERSION_ID,
+        runtime_profile_id: "claude-coding-v1",
+        ...(note === undefined ? {} : { note }),
+      });
+    // 200 emoji are 400 UTF-16 units but 200 characters to char_length.
+    const emoji = "🚀".repeat(200);
+    expect(request(emoji).data?.note).toBe(emoji);
+    expect(request(`  ${"a".repeat(200)}\n`).data?.note).toBe("a".repeat(200));
+    expect(request("hotfix").data?.note).toBe("hotfix");
+    expect(request().data).not.toHaveProperty("note");
+    // Postgres text cannot hold NUL; letting one through is a 500 at insert.
+    for (const note of [
+      "",
+      "   ",
+      "\n\t",
+      "🚀".repeat(201),
+      "a".repeat(201),
+      "a\u0000b",
+    ]) {
+      expect(request(note).success, JSON.stringify(note.slice(0, 8))).toBe(
+        false,
+      );
+    }
   });
 
   test("a release snapshot has no room for a live credential", () => {
@@ -424,6 +454,7 @@ describe("agent, version and release", () => {
       created_at: AT,
       approved_by: null,
       approved_at: null,
+      note: null,
     };
     // This is the repository's own ClaudeRuntimeConfig shape: handing a
     // resolved profile straight to the release used to persist the key.
@@ -514,6 +545,7 @@ describe("agent, version and release", () => {
       created_at: AT,
       approved_by: null,
       approved_at: null,
+      note: null,
     };
     // A snapshot canonicalJson refuses is a release that parses and then has
     // no identity, so the two rules have to be the same rule.

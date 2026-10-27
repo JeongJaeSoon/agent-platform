@@ -5,9 +5,15 @@ import * as queries from "./index.ts";
 // Pins every key and option a factory hands the cache, and the request its
 // query function makes, so moving the factories cannot change them.
 
+const SCOPE = { actor: "user:u-1", workspace: "w-1" };
+
+function scoped(client: unknown) {
+  return queries.withQueryScope(client as ApiClient, SCOPE);
+}
+
 function recordingClient() {
   const calls: unknown[][] = [];
-  const client = {
+  const client = scoped({
     GET: (...args: unknown[]) => {
       calls.push(args);
       // An empty last page, so a query that reads every page stops.
@@ -16,34 +22,52 @@ function recordingClient() {
         response: new Response(null),
       });
     },
-  } as unknown as ApiClient;
+  });
   return { client, calls };
 }
 
+const UNSCOPED_QUERIES = ["loginMethodsQuery", "meQuery", "viewerQuery"];
+
 test("query keys", () => {
+  const keys = queries.queryKeysOf(scoped({}));
   expect({
     ...queries.queryKeys,
-    agent: queries.queryKeys.agent("id-1"),
-    agentAdmins: queries.queryKeys.agentAdmins("id-1"),
-    team: queries.queryKeys.team("id-1"),
-    session: queries.queryKeys.session("id-1"),
-    agentSessions: queries.queryKeys.agentSessions("id-1"),
-    sessionUsage: queries.queryKeys.sessionUsage("id-1"),
-    pendingRequests: queries.queryKeys.pendingRequests("id-1"),
-    sessionTurns: queries.queryKeys.sessionTurns("id-1"),
-    waitingSessionsBy: queries.queryKeys.waitingSessionsBy("shared"),
-    usageSeries: queries.queryKeys.usageSeries(
-      "installation",
-      "2026-07-26",
-      "2026-10-24",
-    ),
-    usageBreakdown: queries.queryKeys.usageBreakdown(
-      "me",
-      "2026-07-26",
-      null,
-      "model",
-    ),
+    ...keys,
+    memberPages: keys.memberPages("kim"),
+    agent: keys.agent("id-1"),
+    agentAdmins: keys.agentAdmins("id-1"),
+    team: keys.team("id-1"),
+    session: keys.session("id-1"),
+    agentSessions: keys.agentSessions("id-1"),
+    sessionUsage: keys.sessionUsage("id-1"),
+    pendingRequests: keys.pendingRequests("id-1"),
+    sessionTurns: keys.sessionTurns("id-1"),
+    usageSeries: keys.usageSeries("installation", "2026-07-26", "2026-10-24"),
+    waitingSessionsBy: keys.waitingSessionsBy("shared"),
+    usageBreakdown: keys.usageBreakdown("me", "2026-07-26", null, "model"),
   }).toMatchSnapshot();
+});
+
+test("a query outside the sign-in check refuses a client with no scope", () => {
+  expect(() => queries.agentsQuery({} as ApiClient)).toThrow(
+    "This query needs a client from withQueryScope",
+  );
+  expect<unknown>(queries.meQuery({} as ApiClient).queryKey).toEqual(["me"]);
+});
+
+test("the scope is the principal and its workspace", () => {
+  const me = {
+    principal: { kind: "user", id: "u-1", workspace_id: "w-1" },
+    workspace: { id: "w-1" },
+  } as unknown as Parameters<typeof queries.queryScopeOf>[0];
+  expect(queries.queryScopeOf(me)).toEqual(SCOPE);
+  expect(
+    queries.queryScopeOf({
+      ...me,
+      principal: { ...me.principal, workspace_id: null },
+      workspace: null,
+    } as unknown as typeof me),
+  ).toBeNull();
 });
 
 test("query options and the request each query makes", async () => {
@@ -63,6 +87,9 @@ test("query options and the request each query makes", async () => {
     // The first page of a paged list; other queries take no page.
     await queryFn({ pageParam: null });
     out[name] = { options, calls };
+    const first = (options as { queryKey: readonly unknown[] }).queryKey[0];
+    if (UNSCOPED_QUERIES.includes(name)) expect(first).not.toEqual(SCOPE);
+    else expect(first).toEqual(SCOPE);
   }
   expect(out).toMatchSnapshot();
 });
@@ -101,13 +128,13 @@ test("the member list reads every page, 100 at a time, and hands back all of the
     c3: { items: [], next_cursor: null, assignable_roles: ["admin", "member"] },
   };
   const calls: unknown[] = [];
-  const client = {
+  const client = scoped({
     GET: (_path: string, init: { params: { query: { cursor?: string } } }) => {
       calls.push(init.params.query);
       const data = pages[init.params.query.cursor ?? "first"];
       return Promise.resolve({ data, response: new Response(null) });
     },
-  } as unknown as ApiClient;
+  });
   const { queryFn } = queries.membersQuery(client);
   expect(
     (await queryFn({} as Parameters<typeof queryFn>[0])) as unknown,
@@ -135,8 +162,18 @@ test("a member page asks the server for one page, the search going with it", asy
     ["/v1/members", { params: { query: {} } }],
     ["/v1/members", { params: { query: { q: "kim", cursor: "cursor-2" } } }],
   ]);
-  expect(all.queryKey as unknown).toEqual(["members", "pages", { q: null }]);
-  expect(found.queryKey as unknown).toEqual(["members", "pages", { q: "kim" }]);
+  expect(all.queryKey as unknown).toEqual([
+    SCOPE,
+    "members",
+    "pages",
+    { q: null },
+  ]);
+  expect(found.queryKey as unknown).toEqual([
+    SCOPE,
+    "members",
+    "pages",
+    { q: "kim" },
+  ]);
   const page = { items: [], next_cursor: "cursor-3", assignable_roles: [] };
   expect(found.getNextPageParam(page, [page], null, [null])).toBe("cursor-3");
 });
@@ -151,13 +188,13 @@ test("the agent list reads every page, 100 at a time with summaries, and hands b
     c3: { items: [], next_cursor: null },
   };
   const calls: unknown[] = [];
-  const client = {
+  const client = scoped({
     GET: (_path: string, init: { params: { query: { cursor?: string } } }) => {
       calls.push(init.params.query);
       const data = pages[init.params.query.cursor ?? "first"];
       return Promise.resolve({ data, response: new Response(null) });
     },
-  } as unknown as ApiClient;
+  });
   const { queryFn } = queries.agentsQuery(client);
   const all = await queryFn({} as Parameters<typeof queryFn>[0]);
   expect(all.items.map((agent) => agent.id)).toEqual(["a", "b", "c"]);
@@ -183,13 +220,13 @@ for (const [list, path, query] of [
       c2: { items: [{ id: "c" }], next_cursor: null },
     };
     const calls: unknown[] = [];
-    const client = {
+    const client = scoped({
       GET: (path: string, init: { params: { query: { cursor?: string } } }) => {
         calls.push([path, init.params.query]);
         const data = pages[init.params.query.cursor ?? "first"];
         return Promise.resolve({ data, response: new Response(null) });
       },
-    } as unknown as ApiClient;
+    });
     const read = query(client).queryFn as unknown as () => Promise<{
       items: { id: string }[];
       next_cursor: string | null;
