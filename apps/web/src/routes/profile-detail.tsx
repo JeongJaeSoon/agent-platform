@@ -465,10 +465,11 @@ function AgentsOn({ profile }: { readonly profile: ProfileSummary }) {
                   </span>
                 </GridTableCell>
                 <GridTableCell>
-                  <span
-                    className={cn("font-mono [overflow-wrap:anywhere]", META)}
-                  >
-                    {agent.active_release_id}
+                  {/* As the release tab names it: by the agent version. */}
+                  <span className={META}>
+                    {t("profiles.detail.agents.releaseVersion", {
+                      version: agent.summary?.version.version_no ?? "?",
+                    })}
                   </span>
                 </GridTableCell>
               </GridTableRow>

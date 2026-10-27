@@ -70,7 +70,7 @@ function agent(
     updated_at: "2026-10-20T00:00:00.000Z",
     summary: {
       version: {
-        version_no: 1,
+        version_no: n,
         role: "역할",
         instructions: "지시",
         mcp_servers: [],
@@ -174,7 +174,7 @@ describe("실행 프로필 상세", () => {
     const agents = await screen.findByRole("table", {
       name: "이 프로필을 쓰는 에이전트",
     });
-    expect(cells(agents)).toEqual([["결제 담당", RELEASE]]);
+    expect(cells(agents)).toEqual([["결제 담당", "에이전트 v1"]]);
     expect(
       within(agents)
         .getByRole("link", { name: "결제 담당의 release 보기" })
@@ -190,7 +190,7 @@ describe("실행 프로필 상세", () => {
     await waitFor(() =>
       expect(
         cells(screen.getByRole("table", { name: "이 프로필을 쓰는 에이전트" })),
-      ).toEqual([["리뷰 담당", RELEASE]]),
+      ).toEqual([["리뷰 담당", "에이전트 v2"]]),
     );
   });
 

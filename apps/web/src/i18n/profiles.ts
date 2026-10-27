@@ -124,6 +124,7 @@ export const profilesKo = {
   "profiles.detail.agents.empty": "지금 이 프로필을 쓰는 에이전트가 없습니다.",
   "profiles.detail.agents.agent": "에이전트",
   "profiles.detail.agents.release": "활성 release",
+  "profiles.detail.agents.releaseVersion": "에이전트 v{version}",
   "profiles.detail.agents.open": "{name}의 release 보기",
 };
 
@@ -253,6 +254,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.detail.agents.empty": "No agent uses this profile now.",
   "profiles.detail.agents.agent": "Agent",
   "profiles.detail.agents.release": "Active release",
+  "profiles.detail.agents.releaseVersion": "Agent v{version}",
   "profiles.detail.agents.open": "Open the release of {name}",
 };
 
@@ -385,5 +387,6 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "今このプロファイルを使うエージェントはありません。",
   "profiles.detail.agents.agent": "エージェント",
   "profiles.detail.agents.release": "有効な release",
+  "profiles.detail.agents.releaseVersion": "エージェント v{version}",
   "profiles.detail.agents.open": "{name} の release を見る",
 };
