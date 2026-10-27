@@ -1,4 +1,8 @@
-import type { PermissionMode, RepositoryMode } from "@werft-ai/contracts";
+import {
+  type PermissionMode,
+  type RepositoryMode,
+  workspaceProfileId,
+} from "@werft-ai/contracts";
 import type {
   TeamActor,
   WorkspaceProfileRecord,
@@ -36,10 +40,6 @@ function recordOf(
 async function actorManages(tx: Database, actor: TeamActor) {
   const [me] = await lockPeople(tx, actor.workspaceId, [actor.userId]);
   return me?.live === true && PROFILE_MANAGERS.includes(me.role);
-}
-
-function idPrefix(workspace: { id: string; slug: string }): string {
-  return /^[a-z0-9-]+$/.test(workspace.slug) ? workspace.slug : workspace.id;
 }
 
 async function writeReceipt(
@@ -116,7 +116,7 @@ export function createPostgresWorkspaceProfileStore(
           const [row] = await tx
             .insert(workspaceProfiles)
             .values({
-              id: `ws_${idPrefix(workspace)}_${input.name}_v${version}`,
+              id: workspaceProfileId(workspace, input.name, version),
               workspaceId: actor.workspaceId,
               name: input.name,
               version,

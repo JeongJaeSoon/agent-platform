@@ -23,6 +23,7 @@ import {
 import { useId } from "react";
 import type { components } from "../api/schema.gen.ts";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
+import { pickable } from "./profile-options.tsx";
 
 /** The card languages; agent-card-form.test.ts pins it to the contract. */
 export const AGENT_CARD_LANGUAGE_VALUES: readonly AgentCard["language"][] = [
@@ -110,7 +111,7 @@ export function modelOptions(
   current: string,
 ): ModelOption[] {
   const byModel = new Map<string, string[]>();
-  for (const profile of profiles)
+  for (const profile of profiles.filter(pickable))
     byModel.set(profile.model, [
       ...(byModel.get(profile.model) ?? []),
       profile.id,

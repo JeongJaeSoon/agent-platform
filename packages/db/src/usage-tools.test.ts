@@ -48,12 +48,24 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await db.execute(
-    sql`TRUNCATE tool_call_days, tool_calls, events, sessions CASCADE`,
+    sql`TRUNCATE tool_call_days, tool_calls, tool_descriptions, events, sessions CASCADE`,
   );
   await db.execute(
     sql`UPDATE tool_call_progress SET applied_through = 0 WHERE id = 1`,
   );
 });
+
+async function init(
+  sessionId: string,
+  tools: readonly { name: string; description?: unknown }[],
+) {
+  await insert(
+    sessionId,
+    "system",
+    {},
+    { type: "system", subtype: "init", tools },
+  );
+}
 
 async function session(createdBy = ME): Promise<string> {
   const id = crypto.randomUUID();
@@ -325,5 +337,47 @@ describe("usageTools", () => {
       "Bash",
       "Read",
     ]);
+  });
+
+  test("a tool carries the description its session's latest init declared; a tool none described has none", async () => {
+    const s = await session();
+    await init(s, [
+      { name: "Bash" },
+      { name: "mcp__docs__find", description: "Finds a page" },
+      { name: "mcp__docs__odd", description: 7 },
+      { name: "mcp__docs__long", description: "x".repeat(201) },
+    ]);
+    await use(s, "tu-1", "Bash");
+    await use(s, "tu-2", "mcp__docs__find");
+    await use(s, "tu-3", "mcp__docs__odd");
+    await use(s, "tu-4", "mcp__docs__long");
+    const described = async () =>
+      Object.fromEntries(
+        (await tools()).map((t) => [t.name, t.description ?? null]),
+      );
+    expect(await described()).toEqual({
+      Bash: null,
+      mcp__docs__find: "Finds a page",
+      mcp__docs__odd: null,
+      mcp__docs__long: null,
+    });
+    // A later init of the session replaces it; read again, nothing changes.
+    await init(s, [{ name: "mcp__docs__find", description: "Finds a doc" }]);
+    expect((await described()).mcp__docs__find).toBe("Finds a doc");
+    await db.execute(
+      sql`UPDATE tool_call_progress SET applied_through = 0 WHERE id = 1`,
+    );
+    expect((await described()).mcp__docs__find).toBe("Finds a doc");
+  });
+
+  test("scope=me sees only descriptions its own sessions declared", async () => {
+    const mine = await session(ME);
+    const theirs = await session(OTHER);
+    await init(theirs, [{ name: "mcp__docs__find", description: "Theirs" }]);
+    await use(mine, "tu-1", "mcp__docs__find");
+    await use(theirs, "tu-1", "mcp__docs__find");
+    const me: UsageSummaryFilter = { kind: "user", ownerId: OWNER, userId: ME };
+    expect((await tools(me))[0]?.description).toBeUndefined();
+    expect((await tools())[0]?.description).toBe("Theirs");
   });
 });

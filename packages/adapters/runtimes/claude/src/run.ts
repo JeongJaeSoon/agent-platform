@@ -13,7 +13,7 @@ import type {
 } from "@werft-ai/runtime-core";
 
 import type { AgentFrame, DriverRun, NativeSdkMessage } from "./driver.ts";
-import { frameFromNativeMessage } from "./mapper.ts";
+import { frameFromNativeMessage, isEngineInit } from "./mapper.ts";
 import type { ResumedHistory } from "./resumed-history.ts";
 import type { TurnLedger } from "./turn-ledger.ts";
 
@@ -131,6 +131,8 @@ export class ClaudeSdkRun implements DriverRun {
     private readonly history: ResumedHistory,
     /** Shared with the SDK options' tool gate, which feeds and consults it. */
     private readonly ledger: TurnLedger,
+    private readonly toolDescriptions: () => ReadonlyMap<string, string> = () =>
+      new Map(),
   ) {}
 
   send(input: AgentInput): void {
@@ -203,6 +205,7 @@ export class ClaudeSdkRun implements DriverRun {
           native,
           this.correlationId,
           `sdk:${cursor}`,
+          isEngineInit(native) ? this.toolDescriptions() : undefined,
         );
         cursor += 1;
       }

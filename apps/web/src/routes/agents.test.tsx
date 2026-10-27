@@ -11,6 +11,7 @@ import type { ApiError } from "@werft-ai/client";
 import {
   agentDetailSchema,
   CREDENTIAL_REVOKE_NOTICE,
+  type ProfileSummary,
 } from "@werft-ai/contracts";
 import { avatarTone } from "@werft-ai/ui";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
@@ -967,6 +968,61 @@ describe("새 에이전트", () => {
     expect(
       screen.getByRole("link", { name: "나중에 하기" }).getAttribute("href"),
     ).toBe(DETAIL);
+  });
+
+  test("배포 판 단계에서 고른 워크스페이스 판이 그사이 은퇴하면 쓸 수 있는 프로필로 바꿔 보낸다", async () => {
+    const server = agentServer();
+    const operator = (
+      (await (
+        server.routes["GET /v1/profiles"] as () => Response
+      )().json()) as { items: ProfileSummary[] }
+    ).items;
+    let state: "usable" | "retired" = "usable";
+    const version = (): ProfileSummary => ({
+      ...(operator[1] as ProfileSummary),
+      id: "ws_acme_strict_v1",
+      source: "workspace",
+      workspace: {
+        name: "strict",
+        version: 1,
+        base_profile_id: PROFILE,
+        state,
+        created_at: "2026-10-27T00:00:00.000Z",
+        retired_at: state === "retired" ? "2026-10-27T01:00:00.000Z" : null,
+      },
+    });
+    const { api, services } = renderAt("/agents/new", {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/profiles": () => json(200, { items: [...operator, version()] }),
+    });
+    const user = await setupUser();
+    await atStep("이름");
+    await user.type(screen.getByLabelText("이름"), "결제 담당");
+    await user.type(screen.getByLabelText("식별자"), "billing");
+    await user.click(screen.getByRole("button", { name: "다음" }));
+    await atStep("하는 일");
+    await user.type(screen.getByLabelText("역할"), CARD.role);
+    await user.type(screen.getByLabelText("지시 사항"), CARD.instructions);
+    await user.selectOptions(screen.getByLabelText("모델"), CARD.model);
+    await user.click(
+      screen.getByRole("button", { name: "초안 저장하고 다음" }),
+    );
+    await atStep("배포 판");
+    const profile = (await screen.findByLabelText(
+      "프로필",
+    )) as HTMLSelectElement;
+    await user.selectOptions(profile, "ws_acme_strict_v1");
+    state = "retired";
+    await services.queryClient.invalidateQueries();
+    await waitFor(() => expect(profile.value).toBe(PROFILE));
+    await user.click(screen.getByRole("button", { name: "배포 판 만들기" }));
+    await atStep("켜기");
+    expect(posted(api, `/v1/agents/${AGENT_ID}/releases`)).toEqual({
+      version_id: server.versions[0]?.id,
+      runtime_profile_id: PROFILE,
+      repository_id: "sample-app",
+    });
   });
 
   test("이 탭에서 다른 사람이 로그인하면 앞사람이 적던 흐름을 이어 보이지 않고 처음부터 연다", async () => {

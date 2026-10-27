@@ -3628,7 +3628,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Calls, failures and time per tool in a period",
     description:
-      "Counts the tool calls whose `tool_use` event was stored in `[since, until)`, per tool name, the most-called first and at most 200 names. `scope`, `since` and `until` work as in `GET /v1/usage/summary`; `agent_id` narrows to the sessions pinned to a release of that agent. Subagent calls count too.\n\nA call is timed from its `tool_use` to the `tool_result` paired with it in the same session and attempt by `tool_use_id`. A call with no result yet, or with either event's time missing, counts in `calls` but in no `_ms` figure. `failed` counts results with `is_error: true`; a result without `is_error` is a success, and one whose `is_error` is not a boolean is neither. `median_ms` is read from a histogram: the middle call's time, or the mean of the two middle calls' for an even count, each read within 5% or 1 ms, except that a call of about 65 minutes or more reads as about 65 minutes, so a median that takes in such a call reads low. It is never above `max_ms`. Over whole UTC days `max_ms` is the largest time a call has had: if an earlier result later replaces a call's time, it does not come down there. Figures come from a table the reconciler fills on each pass, so a call shows up within one pass of being stored, usually seconds. Each finding names a row of `tools`: `most_time` the largest `total_ms`, `fails_often` the highest `failed / calls`, `slowest` the largest `median_ms`; a kind no tool qualifies for is left out. The response names tools and figures only, never a session. It changes nothing.",
+      "Counts the tool calls whose `tool_use` event was stored in `[since, until)`, per tool name, the most-called first and at most 200 names. `scope`, `since` and `until` work as in `GET /v1/usage/summary`; `agent_id` narrows to the sessions pinned to a release of that agent. Subagent calls count too.\n\nA call is timed from its `tool_use` to the `tool_result` paired with it in the same session and attempt by `tool_use_id`. A call with no result yet, or with either event's time missing, counts in `calls` but in no `_ms` figure. `failed` counts results with `is_error: true`; a result without `is_error` is a success, and one whose `is_error` is not a boolean is neither. `median_ms` is read from a histogram: the middle call's time, or the mean of the two middle calls' for an even count, each read within 5% or 1 ms, except that a call of about 65 minutes or more reads as about 65 minutes, so a median that takes in such a call reads low. It is never above `max_ms`. Over whole UTC days `max_ms` is the largest time a call has had: if an earlier result later replaces a call's time, it does not come down there. Figures come from a table the reconciler fills on each pass, so a call shows up within one pass of being stored, usually seconds. Each finding names a row of `tools`: `most_time` the largest `total_ms`, `fails_often` the highest `failed / calls`, `slowest` the largest `median_ms`; a kind no tool qualifies for is left out. `description` is the line an MCP server gave its tool when a session in the same scope started, the newest such session's, redacted, on one line and at most 200 characters; built-in tools, and tools no session in scope described, have `null`. The response names tools and figures only, never a session. It changes nothing.",
     scope: "read",
     query: "UsageToolsQuery",
     success: {
@@ -3644,19 +3644,21 @@ export const API_ROUTE_DECLARATIONS = [
             total_ms: 13320000,
             median_ms: 3100,
             max_ms: 298000,
+            description: null,
           },
           {
-            name: "Edit",
+            name: "mcp__linear__get_issue",
             calls: 702,
             failed: 12,
             total_ms: 1620000,
             median_ms: 900,
             max_ms: 14200,
+            description: "Retrieve detailed information about an issue by ID",
           },
         ],
         findings: [
           { kind: "most_time", name: "Bash" },
-          { kind: "fails_often", name: "Edit" },
+          { kind: "fails_often", name: "mcp__linear__get_issue" },
           { kind: "slowest", name: "Bash" },
         ],
       },
