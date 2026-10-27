@@ -281,30 +281,24 @@ describe("native SDK message mapping", () => {
       {
         type: "system",
         subtype: "init",
-        tools: ["Bash", "mcp__fake-mcp__echo", "mcp__my_docs__search", 7],
+        tools: [
+          "Bash",
+          "mcp__docs__echo",
+          "mcp__docs__search",
+          "mcp__docs__leak",
+          "mcp__docs__blank",
+          7,
+        ],
       },
       "correlation-5",
       "init",
-      [
-        {
-          name: "fake-mcp",
-          status: "connected",
-          tools: [
-            { name: "echo", description: "Echo\u0000 the\n\tinput back" },
-            { name: "unlisted", description: "not in init" },
-          ],
-        },
-        {
-          name: "my docs",
-          tools: [
-            {
-              name: "search",
-              description: `${"검".repeat(250)} ${credentialMarker}`,
-            },
-          ],
-        },
-        { name: "broken", tools: "none" },
-      ],
+      new Map([
+        ["mcp__docs__echo", "Echo\u0000 the\n\tinput back"],
+        ["mcp__docs__search", "검".repeat(250)],
+        ["mcp__docs__leak", `Uses ${credentialMarker} upstream`],
+        ["mcp__docs__blank", " \n "],
+        ["mcp__docs__unlisted", "not in init"],
+      ]),
     );
     expect(frame.events).toHaveLength(1);
     const data = frame.events[0]?.data as {
@@ -313,17 +307,21 @@ describe("native SDK message mapping", () => {
     expect(frame.events[0]?.event).toBe("system");
     expect(data.tools.map((tool) => tool.name)).toEqual([
       "Bash",
-      "mcp__fake-mcp__echo",
-      "mcp__my_docs__search",
+      "mcp__docs__echo",
+      "mcp__docs__search",
+      "mcp__docs__leak",
+      "mcp__docs__blank",
     ]);
     expect(data.tools[0]).toEqual({ name: "Bash" });
     expect(data.tools[1]?.description).toBe("Echo the input back");
     const cut = data.tools[2]?.description ?? "";
     expect([...cut]).toHaveLength(200);
     expect(cut.endsWith("…")).toBe(true);
+    expect(data.tools[3]?.description).toBe("Uses [REDACTED] upstream");
+    expect(data.tools[4]).toEqual({ name: "mcp__docs__blank" });
     expect(JSON.stringify(frame)).not.toContain(credentialMarker);
 
-    // No server status (it failed or timed out): names alone.
+    // No relay described anything: names alone.
     const bare = frameFromNativeMessage(
       { type: "system", subtype: "init", tools: ["Read"] },
       "correlation-6",

@@ -23,15 +23,15 @@ const VALUE_END = /[\s&;|)]|$/y;
 export const TOOL_DESCRIPTION_MAX_CODE_POINTS = 200;
 
 /**
- * `mcpServers` is what `Query.mcpServerStatus()` answered when `message` is
- * the engine's init; it is the only place tool descriptions come from, and
- * only MCP tools have one.
+ * `toolDescriptions` are what the MCP relays were told of their tools, by
+ * engine name, when `message` is the engine's init. The engine itself names
+ * its tools there but describes none, not even in `mcpServerStatus()`.
  */
 export function frameFromNativeMessage(
   message: NativeSdkMessage,
   correlationId: string,
   cursor: string,
-  mcpServers?: unknown,
+  toolDescriptions?: ReadonlyMap<string, string>,
 ): AgentFrame {
   const envelope: NativeEnvelope = {
     correlation_id: correlationId,
@@ -41,7 +41,7 @@ export function frameFromNativeMessage(
   };
   return {
     envelope,
-    events: projectPublicEvents(envelope, cursor, mcpServers),
+    events: projectPublicEvents(envelope, cursor, toolDescriptions),
   };
 }
 
@@ -58,7 +58,7 @@ export function sanitizeNativeMessage(
 export function projectPublicEvents(
   envelope: NativeEnvelope,
   cursor: string,
-  mcpServers?: unknown,
+  toolDescriptions?: ReadonlyMap<string, string>,
 ): SessionEvent[] {
   const message = envelope.message;
   if (message.type === "assistant") {
@@ -130,7 +130,7 @@ export function projectPublicEvents(
       event(cursor, "system", {
         type: "system",
         subtype: "init",
-        tools: toolCatalog(message.tools, mcpServers),
+        tools: toolCatalog(message.tools, toolDescriptions),
       }),
     ];
   }
@@ -252,40 +252,16 @@ function questionsOf(input: Record<string, unknown>): PendingQuestion[] | null {
  */
 function toolCatalog(
   names: unknown,
-  mcpServers: unknown,
+  descriptions: ReadonlyMap<string, string> | undefined,
 ): { name: string; description?: string }[] {
-  const descriptions = new Map<string, string>();
-  for (const server of Array.isArray(mcpServers) ? mcpServers : []) {
-    const serverName = record(server)?.name;
-    const tools = record(server)?.tools;
-    if (typeof serverName !== "string" || !Array.isArray(tools)) continue;
-    for (const tool of tools) {
-      const { name, description } = record(tool) ?? {};
-      if (typeof name !== "string" || typeof description !== "string") {
-        continue;
-      }
-      const line = descriptionLine(description);
-      if (line === undefined) continue;
-      // The engine names an MCP tool mcp__<server>__<tool>, each part with
-      // anything but [A-Za-z0-9_-] turned into "_".
-      descriptions.set(
-        name.startsWith("mcp__")
-          ? name
-          : `mcp__${mcpNamePart(serverName)}__${mcpNamePart(name)}`,
-        line,
-      );
-    }
-  }
   return (Array.isArray(names) ? names : [])
     .filter((name): name is string => typeof name === "string" && name !== "")
     .map((name) => {
-      const description = descriptions.get(name);
+      const given = descriptions?.get(name);
+      const description =
+        given === undefined ? undefined : descriptionLine(given);
       return description === undefined ? { name } : { name, description };
     });
-}
-
-function mcpNamePart(name: string): string {
-  return name.replace(/[^A-Za-z0-9_-]/g, "_");
 }
 
 function descriptionLine(text: string): string | undefined {
