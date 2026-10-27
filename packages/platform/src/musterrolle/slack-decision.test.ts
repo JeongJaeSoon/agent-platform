@@ -401,6 +401,12 @@ describe("the channel's stored binding (94S-177)", () => {
     expect(recorded[1]?.request.subject.surface).toMatchObject({
       channel_kind: "dm",
     });
+    // DMs switched off in the console are refused, and the person told.
+    bind(null, { mode: "off" });
+    expect(await judge(dm)).toMatchObject({
+      decision: { outcome: "deny", reason_code: "surface_ceiling" },
+      notice: { text: SLACK_NOTICE_MESSAGES.noRequestRight },
+    });
   });
 });
 
