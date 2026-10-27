@@ -30,7 +30,7 @@ export interface InstallationLimitsProps {
 
 /**
  * The installation's execution capacity, slots and stored input, over every
- * limit it sets. The per-session limits have no installation-wide figure.
+ * limit it sets and the outputs stored without one. The per-session limits have no installation-wide figure.
  */
 export function InstallationLimits({
   limits,
@@ -50,6 +50,8 @@ export function InstallationLimits({
       {messages.perSession}
     </Text>
   );
+  // No limit is the contract's, not the response's: shown while loading too.
+  const noLimit = <Badge>{messages.noLimit}</Badge>;
   const rows: readonly (readonly [string, ReactNode, ReactNode, string])[] = [
     [
       messages.slots,
@@ -64,6 +66,18 @@ export function InstallationLimits({
       use ? format.bytes(use.storage.used_bytes) : null,
       cap ? format.bytes(cap.storage_limit_bytes) : null,
       messages.storageRowNote,
+    ],
+    [
+      messages.outputs,
+      use === undefined
+        ? null
+        : use.outputs.complete
+          ? format.bytes(use.outputs.used_bytes)
+          : messages.outputsAtLeast(format.bytes(use.outputs.used_bytes)),
+      noLimit,
+      use?.outputs.complete === false
+        ? messages.outputsIncompleteNote
+        : messages.outputsRowNote,
     ],
     [
       messages.sessionCost,
@@ -215,7 +229,11 @@ export function InstallationLimits({
                   )}
                 </GridTableCell>
                 <GridTableCell className="tabular-nums">
-                  <Value loading={loading}>{limit}</Value>
+                  {limit === noLimit ? (
+                    limit
+                  ) : (
+                    <Value loading={loading}>{limit}</Value>
+                  )}
                 </GridTableCell>
                 <GridTableCell hideNarrow className="text-muted-foreground">
                   {note}
