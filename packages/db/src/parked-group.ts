@@ -69,30 +69,37 @@ function uncontinued(sessionId: string) {
   );
 }
 
-/** The session's parked turn still waiting to be carried on, with its rows. */
-export async function openParkedGroup(
+/**
+ * The session's parked turns still waiting to be carried on, oldest first,
+ * each with its rows. A drain-parked turn can stay open while a later one
+ * parks too, and an answer to either closes its own.
+ */
+export async function openParkedGroups(
   tx: Database,
   sessionId: string,
-): Promise<{ turnRowId: number; rows: GroupRow[] } | null> {
-  const [latest] = await tx
-    .select({ turnId: max(pendingRequests.turnId) })
+): Promise<{ turnRowId: number; rows: GroupRow[] }[]> {
+  const open = await tx
+    .selectDistinct({ turnId: pendingRequests.turnId })
     .from(pendingRequests)
-    .where(uncontinued(sessionId));
-  const turnRowId = latest?.turnId ?? null;
-  if (turnRowId === null) return null;
-  const rows = await tx
-    .select()
-    .from(pendingRequests)
-    .where(
-      and(
-        eq(pendingRequests.sessionId, sessionId),
-        eq(pendingRequests.turnId, turnRowId),
-        isNotNull(pendingRequests.parkedAt),
-      ),
-    )
-    .orderBy(asc(pendingRequests.createdAt), asc(pendingRequests.requestId))
-    .for("update");
-  return { turnRowId, rows };
+    .where(uncontinued(sessionId))
+    .orderBy(asc(pendingRequests.turnId));
+  const groups = [];
+  for (const { turnId } of open) {
+    const rows = await tx
+      .select()
+      .from(pendingRequests)
+      .where(
+        and(
+          eq(pendingRequests.sessionId, sessionId),
+          eq(pendingRequests.turnId, turnId),
+          isNotNull(pendingRequests.parkedAt),
+        ),
+      )
+      .orderBy(asc(pendingRequests.createdAt), asc(pendingRequests.requestId))
+      .for("update");
+    groups.push({ turnRowId: turnId, rows });
+  }
+  return groups;
 }
 
 function waitingIn(rows: GroupRow[], at: Date): number {
@@ -151,10 +158,11 @@ export async function expireLapsedParked(
 /**
  * The one place a parked group closes. Once none of its requests is still
  * open and at least one was answered, the turn that carries on with the
- * answers is queued ahead of anything else the session holds, its allows
- * become grants, and a session the park paused goes `resuming`. A group
- * that only expired stays as it is until a person resumes it. The caller
- * holds the session row lock.
+ * answers is queued behind what the session already holds (turns run in
+ * sequence order, which checkpoint coverage relies on), its allows become
+ * grants, and a session the park paused goes `resuming` once no group is
+ * left. A group that only expired stays as it is until a person resumes
+ * it. The caller holds the session row lock.
  */
 export async function closeParkedGroup(
   tx: Database,
@@ -183,34 +191,43 @@ export async function closeParkedGroup(
   }
   // Every other caller passes the whole row (the overloads above).
   const session = target as SessionRow;
-  const group = await openParkedGroup(tx, session.id);
-  if (group === null) return { outcome: "ok", resumed: false, waitingFor: 0 };
-  const waitingFor = waitingIn(group.rows, input.at);
-  if (waitingFor > 0) {
-    return input.by === "resume"
-      ? { outcome: "pending_requests_open", waitingFor }
-      : { outcome: "ok", resumed: false, waitingFor };
-  }
+  const groups = await openParkedGroups(tx, session.id);
+  const waiting = groups.map((group) => waitingIn(group.rows, input.at));
+  const waitingFor = waiting.reduce((sum, count) => sum + count, 0);
   if (input.by === "resume") {
-    await continueParkedTurn(tx, session, group, input.at);
-    return { outcome: "ok", resumed: true, waitingFor: 0 };
+    if (waitingFor > 0) return { outcome: "pending_requests_open", waitingFor };
+    for (const group of groups) {
+      await continueParkedTurn(tx, session, group, input.at);
+    }
+    return { outcome: "ok", resumed: groups.length > 0, waitingFor: 0 };
   }
-  const answered = group.rows.some((row) => row.answeredAt !== null);
   const parkedBySystem =
     session.admissionState === "paused" &&
     session.pauseReason === "awaiting_input";
   // A drain park leaves no pause: the session stayed active and only needs
   // the turn. A person's pause, or one still draining, is not this call's
   // to end; the drain's own exit closes the group once it is paused.
-  if (!answered || !(parkedBySystem || session.admissionState === "active")) {
-    return { outcome: "ok", resumed: false, waitingFor: 0 };
+  if (!(parkedBySystem || session.admissionState === "active")) {
+    return { outcome: "ok", resumed: false, waitingFor };
   }
-  await continueParkedTurn(tx, session, group, input.at);
-  if (parkedBySystem) {
-    const lastAnswered = group.rows
+  let continued = 0;
+  let lastAnswered: GroupRow | undefined;
+  for (const [index, group] of groups.entries()) {
+    const answered = group.rows
       .filter((row) => row.answeredAt !== null)
-      .sort((a, b) => (a.answerSequence ?? 0) - (b.answerSequence ?? 0))
-      .at(-1);
+      .sort((a, b) => (a.answerSequence ?? 0) - (b.answerSequence ?? 0));
+    if (waiting[index] !== 0 || answered.length === 0) continue;
+    await continueParkedTurn(tx, session, group, input.at);
+    continued += 1;
+    lastAnswered = answered.at(-1) ?? lastAnswered;
+  }
+  if (continued === 0) return { outcome: "ok", resumed: false, waitingFor };
+  // The pause lifts only once no group it holds is left: one still asking,
+  // or one that only expired, waits for its answer or for a person.
+  if (parkedBySystem) {
+    if (continued < groups.length) {
+      return { outcome: "ok", resumed: false, waitingFor };
+    }
     await moveToResuming(tx, session, {
       now: input.at,
       answeredBy:
@@ -219,7 +236,7 @@ export async function closeParkedGroup(
         null,
     });
   }
-  return { outcome: "ok", resumed: true, waitingFor: 0 };
+  return { outcome: "ok", resumed: true, waitingFor };
 }
 
 async function continueParkedTurn(

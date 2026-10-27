@@ -1732,15 +1732,7 @@ export function createPostgresWorkerUnitOfWork(
               eq(queueMessages.kind, "message"),
             ),
           )
-          // The turn that carries on a park goes before what was queued
-          // behind it: the model has to learn how its calls were answered
-          // before it reads the next message.
-          .orderBy(
-            asc(
-              sql`NOT EXISTS (SELECT 1 FROM ${turnContinuations} c WHERE c.turn_id = ${turns.id})`,
-            ),
-            asc(queueMessages.id),
-          )
+          .orderBy(asc(queueMessages.id))
           .limit(1)
           .for("update");
         // Whoever held that row may have held it past this lease. Handing the
