@@ -689,6 +689,40 @@ describe("팀 화면", () => {
     );
   });
 
+  test("추가하는 동안 새로 고른 사람은 끝난 뒤에도 고른 채로 남는다", async () => {
+    let answer: () => void = () => {};
+    const asked = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    const server = teamServer();
+    const post = server.routes[`POST /v1/teams/${TEAM_ID}/members`];
+    renderAt(`/members/teams/${TEAM_ID}`, {
+      ...server.routes,
+      [`POST /v1/teams/${TEAM_ID}/members`]: async (request: Request) => {
+        await asked;
+        return post(request);
+      },
+    });
+    const user = await setupUser();
+    const picker = await screen.findByRole("combobox", {
+      name: "추가할 사람",
+    });
+    await user.type(picker, "Mate");
+    await user.keyboard("{ArrowDown}{Enter}");
+    await user.click(screen.getByRole("button", { name: "추가" }));
+    await user.type(picker, "Owner");
+    await user.keyboard("{ArrowDown}{Enter}");
+    act(() => answer());
+    await waitFor(() =>
+      expect(said()).toContain("Mate님을 팀에 추가했습니다."),
+    );
+    expect(
+      within(screen.getByRole("list", { name: "추가할 사람" }))
+        .getAllByRole("listitem")
+        .map((li) => li.textContent),
+    ).toEqual(["Owner"]);
+  });
+
   test("구성원을 빼고, 이름을 바꾸고, 팀을 지운다", async () => {
     const server = teamServer();
     const { api, history } = renderAt(

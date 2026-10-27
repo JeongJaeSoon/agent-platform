@@ -674,7 +674,10 @@ function AddMembers({
     },
     onMutate: () => onOutcome(null),
     onSuccess: async ({ added, failed }) => {
-      setPicked(failed.map(({ member }) => member));
+      // Only who joined leaves the picks: the refused stay for a retry, and
+      // anyone picked while the requests ran waits for the next one.
+      const joined = new Set(added.map((member) => member.user_id));
+      setPicked((list) => list.filter((member) => !joined.has(member.user_id)));
       const [first] = added;
       const said = [
         added.length === 1 && first
