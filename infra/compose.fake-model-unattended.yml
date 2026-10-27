@@ -1,0 +1,14 @@
+# Opt-in overlay over infra/compose.fake-model.yml: the API and the slack role
+# read config/fake-model-unattended, whose operator profiles run `auto` and
+# `bypassPermissions`, and the installation allows it. Without this overlay
+# PLATFORM_ALLOW_UNATTENDED_PERMISSIONS stays false and such a catalog stops
+# the API (docs/operator/api-server.md, 자율 모드).
+services:
+  api:
+    environment:
+      PLATFORM_CONFIG_DIR: /app/config/fake-model-unattended
+      PLATFORM_ALLOW_UNATTENDED_PERMISSIONS: "true"
+  slack:
+    environment:
+      PLATFORM_CONFIG_DIR: /app/config/fake-model-unattended
+      PLATFORM_ALLOW_UNATTENDED_PERMISSIONS: "true"

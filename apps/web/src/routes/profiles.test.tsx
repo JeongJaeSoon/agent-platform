@@ -213,11 +213,22 @@ describe("실행 프로필", () => {
     const mode = within(editor).getByLabelText(
       "권한 모드",
     ) as HTMLSelectElement;
-    expect([...mode.options].map((option) => option.value)).toEqual([
-      "acceptEdits",
-      "default",
-      "plan",
+    expect(mode.value).toBe("acceptEdits");
+    // An installation that has not opted in shows the unattended modes closed.
+    expect(
+      [...mode.options].map((option) => [option.value, option.disabled]),
+    ).toEqual([
+      ["acceptEdits", false],
+      ["default", false],
+      ["plan", false],
+      ["auto", true],
+      ["bypassPermissions", true],
     ]);
+    expect(
+      within(editor).getByText(
+        "auto와 bypassPermissions는 바탕 프로필이 그 모드일 때만 고를 수 있습니다. 운영자가 설치 설정 PLATFORM_ALLOW_UNATTENDED_PERMISSIONS를 켜고 그런 운영자 프로필을 등록해야 합니다.",
+      ),
+    ).toBeDefined();
     expect(
       (within(editor).getByLabelText("스크립트 상한") as HTMLSelectElement)
         .disabled,
@@ -257,6 +268,86 @@ describe("실행 프로필", () => {
       name: "워크스페이스 프로필",
     });
     await waitFor(() => expect(rows(table)).toHaveLength(2));
+  });
+
+  test("a new profile starts on a base that allows auto, at auto, and may pick bypassPermissions over a bypass base", async () => {
+    const operator = (
+      id: string,
+      permission_mode: "auto" | "bypassPermissions",
+    ) => ({
+      ...(PROFILES[0] as ProfileSummary),
+      id,
+      permission_mode,
+    });
+    const server = catalog([
+      ...PROFILES,
+      operator("coding-auto", "auto"),
+      operator("coding-bypass", "bypassPermissions"),
+    ]);
+    const { api } = renderAt("/profiles", server.routes);
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "프로필 만들기" }),
+    );
+    const editor = await screen.findByRole("region", {
+      name: "프로필 만들기",
+    });
+    expect(
+      (within(editor).getByLabelText("바탕 프로필") as HTMLSelectElement).value,
+    ).toBe("coding-auto");
+    const mode = within(editor).getByLabelText(
+      "권한 모드",
+    ) as HTMLSelectElement;
+    expect(mode.value).toBe("auto");
+    expect(
+      [...mode.options].map((option) => [option.value, option.disabled]),
+    ).toEqual([
+      ["auto", false],
+      ["acceptEdits", false],
+      ["default", false],
+      ["plan", false],
+      ["bypassPermissions", true],
+    ]);
+
+    await user.selectOptions(
+      within(editor).getByLabelText("바탕 프로필"),
+      "coding-bypass",
+    );
+    expect(mode.value).toBe("auto");
+    expect(
+      [...mode.options].map((option) => [option.value, option.disabled]),
+    ).toEqual([
+      ["bypassPermissions", false],
+      ["auto", false],
+      ["acceptEdits", false],
+      ["default", false],
+      ["plan", false],
+    ]);
+    expect(
+      within(editor).queryAllByText(/PLATFORM_ALLOW_UNATTENDED_PERMISSIONS/)
+        .length,
+    ).toBe(0);
+
+    await user.type(within(editor).getByLabelText("이름"), "free");
+    await user.selectOptions(mode, "bypassPermissions");
+    await user.click(
+      within(editor).getByRole("button", { name: "새 버전으로 저장" }),
+    );
+    await screen.findByText("ws_acme_free_v1 버전을 저장했습니다.");
+    expect(
+      api.calls
+        .filter((call) => call.method === "POST")
+        .map((call) => call.body),
+    ).toEqual([
+      {
+        name: "free",
+        base_profile_id: "coding-bypass",
+        model: "claude-sonnet-5",
+        models: ["claude-sonnet-5"],
+        tools: ["Read", "Edit", "Bash"],
+        permission_mode: "bypassPermissions",
+      },
+    ]);
   });
 
   test("a name the server would refuse is caught before the request", async () => {

@@ -39,7 +39,11 @@ import {
 import { Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import { type EditorStart, ProfileEditor } from "./profile-editor.tsx";
+import {
+  allowsAuto,
+  type EditorStart,
+  ProfileEditor,
+} from "./profile-editor.tsx";
 
 const PROFILE_COLUMNS = "minmax(0,1.2fr) minmax(0,1fr) minmax(0,1.4fr)";
 // The base column leaves a phone; the detail and the editor show it again.
@@ -95,6 +99,7 @@ export function ProfilesScreen() {
 
   const items = profiles.data?.items ?? [];
   const operators = items.filter((item) => item.source === "operator");
+  const firstBase = operators.find(allowsAuto) ?? operators[0];
   const versions = items
     .filter((item) => item.source === "workspace")
     .sort(
@@ -163,12 +168,10 @@ export function ProfilesScreen() {
       title={t("profiles.title")}
       description={t("profiles.description")}
       actions={
-        manages && operators[0] !== undefined ? (
+        manages && firstBase !== undefined ? (
           <Button
             type="button"
-            onClick={() =>
-              operators[0] && open({ mode: "new", base: operators[0] })
-            }
+            onClick={() => open({ mode: "new", base: firstBase })}
           >
             <Plus aria-hidden="true" />
             {t("profiles.create")}
