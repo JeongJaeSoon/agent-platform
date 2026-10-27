@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { sessionEventSchema } from "@werft-ai/contracts";
 
-import { frameFromNativeMessage, pendingRequestEvent } from "./mapper.ts";
+import { approvalView, frameFromNativeMessage, sdkAnswers } from "./mapper.ts";
 
 describe("native SDK message mapping", () => {
   test("projects assistant blocks and preserves correlation fields", () => {
@@ -82,23 +82,95 @@ describe("native SDK message mapping", () => {
     expect(serialized).toContain("tool-1");
   });
 
-  test("projects permission and question requests with stable correlation", () => {
-    const event = pendingRequestEvent(
-      {
-        input: { command: "pwd" },
-        kind: "permission",
-        requestId: "request-2",
-        tool: "Bash",
-        toolUseId: "tool-2",
-      },
-      "question",
-    );
-    expect(event.data).toEqual(
-      expect.objectContaining({
-        request_id: "request-2",
-        tool_use_id: "tool-2",
-      }),
-    );
+  test("asks an AskUserQuestion as questions with positional ids", () => {
+    const view = approvalView("AskUserQuestion", {
+      questions: [
+        {
+          question: "Which environment?",
+          multiSelect: true,
+          options: [{ label: "staging" }, { nolabel: true }, { label: "prod" }],
+        },
+        { question: 42 },
+        { question: "Why?" },
+      ],
+    });
+
+    expect(view).toEqual({
+      kind: "question",
+      questions: [
+        {
+          question_id: "q0",
+          prompt: "Which environment?",
+          options: [
+            { option_id: "q0o0", label: "staging" },
+            { option_id: "q0o2", label: "prod" },
+          ],
+          multi_select: true,
+          allow_free_text: true,
+        },
+        {
+          question_id: "q2",
+          prompt: "Why?",
+          options: [],
+          multi_select: false,
+          allow_free_text: true,
+        },
+      ],
+    });
+  });
+
+  test.each([
+    ["an AskUserQuestion with no question to show", "AskUserQuestion", {}],
+    [
+      "an AskUserQuestion whose questions have no prompt",
+      "AskUserQuestion",
+      { questions: [{ options: [] }] },
+    ],
+    [
+      "another tool that carries questions",
+      "Bash",
+      { questions: [{ question: "Which?" }] },
+    ],
+  ])("asks %s as a permission", (_, tool, input) => {
+    expect(approvalView(tool, input)).toEqual({
+      kind: "permission",
+      display: input,
+    });
+  });
+
+  test("redacts the questions shown but answers with the words asked", () => {
+    const secret = ["sk", "ant", "api03", "x".repeat(20)].join("-");
+    const input = {
+      questions: [
+        {
+          question: `Use ${secret}?`,
+          options: [{ label: "yes" }, { label: `rotate ${secret}` }],
+        },
+      ],
+    };
+    const view = approvalView("AskUserQuestion", input);
+    expect(JSON.stringify(view)).not.toContain(secret);
+
+    expect(
+      sdkAnswers(input, [
+        { question_id: "q0", selected_option_ids: ["q0o1", "q0o0"] },
+      ]),
+    ).toEqual({ [`Use ${secret}?`]: `rotate ${secret}, yes` });
+  });
+
+  test("answers only the questions an answer names, free text last", () => {
+    const input = {
+      questions: [
+        { question: "A?", options: [{ label: "a1" }] },
+        { question: "B?", options: [] },
+      ],
+    };
+
+    expect(
+      sdkAnswers(input, [
+        { question_id: "q0", selected_option_ids: ["q0o0"], free_text: "more" },
+      ]),
+    ).toEqual({ "A?": "a1, more" });
   });
 
   test("shows which file a tool request touches", () => {
@@ -115,19 +187,8 @@ describe("native SDK message mapping", () => {
       NotebookEdit: { notebook_path: "/workspace/n.ipynb", new_source: "x" },
     };
     for (const [tool, input] of Object.entries(inputs)) {
-      const event = pendingRequestEvent(
-        {
-          input,
-          kind: "permission",
-          requestId: `request-${tool}`,
-          tool,
-          toolUseId: `tool-${tool}`,
-        },
-        "question",
-      );
-      expect(event.event === "question" ? event.data.input : null).toEqual(
-        input,
-      );
+      const event = approvalView(tool, input);
+      expect(event.kind === "permission" ? event.display : null).toEqual(input);
     }
 
     const frame = frameFromNativeMessage(
@@ -152,18 +213,9 @@ describe("native SDK message mapping", () => {
 
   test("hides only the value of a sensitive name when its end is clear", () => {
     const shown = (command: string) => {
-      const event = pendingRequestEvent(
-        {
-          input: { command },
-          kind: "permission",
-          requestId: "request-4",
-          tool: "Bash",
-          toolUseId: "tool-4",
-        },
-        "question",
-      );
-      return event.event === "question"
-        ? (event.data.input as { command: string }).command
+      const event = approvalView("Bash", { command });
+      return event.kind === "permission"
+        ? (event.display as { command: string }).command
         : "";
     };
     const value = ["v4lue", "0f", "api"].join("-");
@@ -204,34 +256,16 @@ describe("native SDK message mapping", () => {
 
   test("hides a value in linear time when its end is unclear", () => {
     const command = `${"api_key=x:".repeat(50_000)}"`;
-    const event = pendingRequestEvent(
-      {
-        input: { command },
-        kind: "permission",
-        requestId: "request-6",
-        tool: "Bash",
-        toolUseId: "tool-6",
-      },
-      "question",
-    );
-    expect(event.event === "question" ? event.data.input : null).toEqual({
+    const event = approvalView("Bash", { command });
+    expect(event.kind === "permission" ? event.display : null).toEqual({
       command: "[REDACTED]",
     });
   });
 
   test("shows a path but still hides a value that reads like a sensitive name", () => {
     const shown = (input: Record<string, string>) => {
-      const event = pendingRequestEvent(
-        {
-          input,
-          kind: "permission",
-          requestId: "request-5",
-          tool: "Write",
-          toolUseId: "tool-5",
-        },
-        "question",
-      );
-      return event.event === "question" ? event.data.input : null;
+      const event = approvalView("Write", input);
+      return event.kind === "permission" ? event.display : null;
     };
     expect(shown({ file_path: "/workspace/api_key=fixture.txt" })).toEqual({
       file_path: "/workspace/api_key=[REDACTED]",

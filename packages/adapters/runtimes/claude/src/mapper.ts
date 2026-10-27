@@ -1,9 +1,12 @@
-import { type SessionEvent, sessionEventSchema } from "@werft-ai/contracts";
-
-import type { NativeSdkMessage } from "@werft-ai/runtime-core";
+import {
+  type PendingQuestion,
+  type QuestionAnswer,
+  type SessionEvent,
+  sessionEventSchema,
+} from "@werft-ai/contracts";
 
 import { CLAUDE_AGENT_SDK_VERSION } from "./config.ts";
-import type { AgentFrame, NativeEnvelope } from "./driver.ts";
+import type { AgentFrame, NativeEnvelope, NativeSdkMessage } from "./driver.ts";
 
 const REDACTED = "[REDACTED]";
 // Paths are not secrets: an approval has to say which file it touches.
@@ -130,23 +133,94 @@ export function projectPublicEvents(
   ];
 }
 
-export function pendingRequestEvent(
-  request: {
-    input: unknown;
-    kind: "permission" | "question";
-    requestId: string;
-    tool?: string;
-    toolUseId: string;
-  },
-  cursor: string,
-): SessionEvent {
-  return event(cursor, "question", {
-    request_id: request.requestId,
-    tool_use_id: request.toolUseId,
-    kind: request.kind,
-    tool: request.tool,
-    input: sanitizeValue(request.input),
+const QUESTION_TOOL = "AskUserQuestion";
+
+/**
+ * What people are shown of an approval request, redacted. Redaction keeps the
+ * shape, so question and option ids still name the unredacted questions an
+ * answer is turned back into. A question with nothing to show is asked as a
+ * permission.
+ */
+export function approvalView(
+  tool: string,
+  input: Record<string, unknown>,
+):
+  | { kind: "permission"; display: Record<string, unknown> }
+  | { kind: "question"; questions: PendingQuestion[] } {
+  const questions = tool === QUESTION_TOOL ? questionsOf(input) : null;
+  return questions === null
+    ? {
+        kind: "permission",
+        display: sanitizeValue(input) as Record<string, unknown>,
+      }
+    : {
+        kind: "question",
+        questions: sanitizeValue(questions) as PendingQuestion[],
+      };
+}
+
+/** The SDK takes answers on the tool input, keyed by each question as asked. */
+export function sdkAnswers(
+  input: Record<string, unknown>,
+  answers: readonly QuestionAnswer[],
+): Record<string, string> {
+  return Object.fromEntries(
+    (questionsOf(input) ?? []).flatMap((question) => {
+      const answer = answers.find(
+        (item) => item.question_id === question.question_id,
+      );
+      return answer === undefined
+        ? []
+        : [[question.prompt, answerText(question, answer)]];
+    }),
+  );
+}
+
+function answerText(question: PendingQuestion, answer: QuestionAnswer): string {
+  const labels = answer.selected_option_ids.map(
+    (id) =>
+      question.options.find((candidate) => candidate.option_id === id)?.label ??
+      id,
+  );
+  if (answer.free_text !== undefined) labels.push(answer.free_text);
+  return labels.join(", ");
+}
+
+/**
+ * The questions an AskUserQuestion input asks, or null when it carries none
+ * to show. Ids are positional so an answer can only name a question and an
+ * option that was offered.
+ */
+function questionsOf(input: Record<string, unknown>): PendingQuestion[] | null {
+  const raw = input.questions;
+  if (!Array.isArray(raw)) return null;
+  const questions = raw.flatMap((value, index) => {
+    if (value === null || typeof value !== "object") return [];
+    const item = value as Record<string, unknown>;
+    const prompt = typeof item.question === "string" ? item.question : null;
+    if (prompt === null) return [];
+    const options = Array.isArray(item.options) ? item.options : [];
+    return [
+      {
+        question_id: `q${index}`,
+        prompt,
+        options: options.flatMap((option, position) => {
+          const label =
+            option !== null &&
+            typeof option === "object" &&
+            typeof (option as Record<string, unknown>).label === "string"
+              ? ((option as Record<string, unknown>).label as string)
+              : null;
+          return label === null
+            ? []
+            : [{ option_id: `q${index}o${position}`, label }];
+        }),
+        multi_select: item.multiSelect === true,
+        allow_free_text: true,
+      },
+    ];
   });
+  return questions.length > 0 ? questions : null;
 }
 
 function event(

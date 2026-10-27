@@ -29,8 +29,8 @@ import {
 import {
   FakeAgentRuntime,
   type FakeStep,
+  type NativeSdkMessage,
 } from "@werft-ai/runtime-claude/testing";
-import type { NativeSdkMessage } from "@werft-ai/runtime-core";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";

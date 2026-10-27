@@ -1,10 +1,9 @@
 import type {
   CheckpointLeaseGrant,
   CheckpointPreparation,
-  NativeSdkMessage,
 } from "@werft-ai/runtime-core";
-
 import { CLAUDE_AGENT_SDK_VERSION } from "./config.ts";
+import type { NativeSdkMessage } from "./driver.ts";
 
 /**
  * Shared bookkeeping for ClaudeSdkRun and FakeRun: which SDK session a

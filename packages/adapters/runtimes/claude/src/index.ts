@@ -8,7 +8,6 @@ export {
 } from "@werft-ai/runtime-claude-codec";
 export type { ClaudeRuntimeConfig, RuntimeProfile } from "./config.ts";
 export { ClaudeAgentRuntime, claudeRuntimeModule } from "./contract.ts";
-export { pendingRequestEvent } from "./mapper.ts";
 export { runtimeEnvironment } from "./profile.ts";
 export { claudeProfileFingerprint } from "./profile-fingerprint.ts";
 export { type RemoteMcpServer, remoteMcpRelay } from "./remote-mcp.ts";

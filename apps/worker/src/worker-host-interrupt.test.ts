@@ -3,10 +3,10 @@ import type { CheckpointRef } from "@werft-ai/contracts";
 import {
   FakeAgentRuntime,
   type FakeStep,
+  type NativeSdkMessage,
 } from "@werft-ai/runtime-claude/testing";
 import {
   type AgentRun,
-  type NativeSdkMessage,
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
 

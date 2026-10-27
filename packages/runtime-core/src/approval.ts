@@ -1,20 +1,34 @@
 import { createHash } from "node:crypto";
-import { canonicalJson } from "@werft-ai/contracts";
+import {
+  canonicalJson,
+  type PendingQuestion,
+  type QuestionAnswer,
+} from "@werft-ai/contracts";
 
+/**
+ * `tool.input` is what the engine will act on; `display` and `questions` are
+ * the run's redacted copy for people to see, which the host shows as it is.
+ */
 export type ApprovalRequested = {
   /** Minted by the run, fresh per request: an engine-side id can come round again. */
   localId: string;
   toolCallId: string;
   tool: { name: string; input: unknown };
   inputHash: string;
-  kind: "permission" | "question";
   /**
    * `performance.now()` when the engine asked. A host waiting for the tool
    * call to be stored counts from here, so the run's own wait for that call
    * is not counted twice.
    */
   askedAt: number;
-};
+} & (
+  | { kind: "permission"; display: Record<string, unknown> }
+  | {
+      kind: "question";
+      /** Ids are the run's own; an answer names them, never the engine's text. */
+      questions: PendingQuestion[];
+    }
+);
 
 /**
  * Why a request ended without a person's choice. `expired` is a question
@@ -50,7 +64,7 @@ export type ApprovalAnswer =
       localId: string;
       inputHash: string;
       kind: "answered";
-      answers: Record<string, string>;
+      answers: readonly QuestionAnswer[];
     }
   | {
       localId: string;

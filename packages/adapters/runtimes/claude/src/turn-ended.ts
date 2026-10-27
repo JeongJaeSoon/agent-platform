@@ -1,9 +1,6 @@
-import type {
-  NativeSdkMessage,
-  TokenUsage,
-  TurnEnded,
-} from "@werft-ai/runtime-core";
+import type { TokenUsage, TurnEnded } from "@werft-ai/runtime-core";
 
+import type { NativeSdkMessage } from "./driver.ts";
 import { endedByAbort } from "./run.ts";
 import type { ProviderFailure, TurnAccounting } from "./turn-accounting.ts";
 

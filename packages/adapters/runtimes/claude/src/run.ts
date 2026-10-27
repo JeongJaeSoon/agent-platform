@@ -9,10 +9,9 @@ import type {
   AgentInput,
   CheckpointLeaseGrant,
   CheckpointPreparation,
-  NativeSdkMessage,
 } from "@werft-ai/runtime-core";
 
-import type { AgentFrame, DriverRun } from "./driver.ts";
+import type { AgentFrame, DriverRun, NativeSdkMessage } from "./driver.ts";
 import { frameFromNativeMessage } from "./mapper.ts";
 import type { ResumedHistory } from "./resumed-history.ts";
 import type { TurnLedger } from "./turn-ledger.ts";
