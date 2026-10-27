@@ -16,6 +16,7 @@ import {
   type AuthorizationPolicy,
   type Caller,
   type CatalogProfile,
+  callerFor,
   createAgentService,
   createAuthorizationPolicy,
   deriveReleaseId,
@@ -290,10 +291,75 @@ describe("GET /v1/agents", () => {
     expect(await codeOf(forged)).toBe("BAD_REQUEST");
   });
 
-  test("refuses an API key whatever its scopes", async () => {
+  test("refuses an API key that names no agent of its own, whatever its scopes", async () => {
     const response = await send(keyOnly(), "GET", "/v1/agents");
     expect(response.status).toBe(403);
     expect(await codeOf(response)).toBe("FORBIDDEN");
+  });
+
+  test("a key's agent comes from its stored row, so only an agent key gets one agent and the policy is asked about that agent", async () => {
+    const asked: unknown[] = [];
+    const policy: AuthorizationPolicy = {
+      authorize: async (request) => {
+        asked.push([request.action, request.resource.agent_id]);
+        return allowing.authorize(request);
+      },
+    };
+    const stored = (kind: "agent" | "personal") => ({
+      find: async (workspaceId: string, keyId: string) => ({
+        id: keyId,
+        workspaceId,
+        kind,
+        name: null,
+        agentId: kind === "agent" ? AGENT : null,
+        createdByUserId: null,
+        createdByDisplayName: null,
+        scopes: [],
+        createdAt: new Date(AT),
+        expiresAt: null,
+        revokedAt: null,
+        lastUsedAt: null,
+      }),
+    });
+    const service = (kind: "agent" | "personal") =>
+      createAgentService({
+        authorization: policy,
+        store: store({
+          list: () =>
+            Promise.reject(new Error("a key never lists the workspace")),
+        }),
+        catalog: { profiles: {}, repositories: {} },
+        credentials: { unboundRefs: async () => [] },
+        keys: stored(kind),
+      });
+    const key = callerFor(
+      {
+        kind: "api_key",
+        id: "key-1",
+        owner_id: "ws-1",
+        workspace_id: "ws-1",
+        scopes: ["sessions:write"],
+      },
+      { kind: "api" },
+      "request-1",
+      { creatorId: null },
+    );
+
+    expect(await service("agent").listAgents(key, { limit: 50 })).toEqual({
+      items: [detail.agent],
+      next_cursor: null,
+    });
+    expect(asked).toEqual([["session.submit", AGENT]]);
+    // Even a policy that allows everything never hears of a personal key.
+    for (const [kind, query] of [
+      ["personal", { limit: 50 }],
+      ["agent", { limit: 50, include: "summary" }],
+    ] as const) {
+      await expect(service(kind).listAgents(key, query)).rejects.toMatchObject({
+        code: "FORBIDDEN",
+      });
+    }
+    expect(asked).toHaveLength(1);
   });
 
   test("requires authentication and maps an outage to 503", async () => {

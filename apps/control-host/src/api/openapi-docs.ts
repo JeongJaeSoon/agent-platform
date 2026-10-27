@@ -32,7 +32,7 @@ There are two ways to call the API, and they are not interchangeable:
 - **Servers and scripts** send an API key as an HTTP bearer token, \`Bearer <key>\` (\`bearerApiKey\`). The key is limited to the scopes it was issued with, and it never needs the CSRF header.
 - **The web console** uses the browser session cookie that \`POST /v1/auth/login\` sets (\`cookieSession\`). What it may do follows the user's workspace role, and every request other than GET must send \`X-Requested-With: ${CSRF_HEADER_VALUE}\` and must not be cross-site (\`Sec-Fetch-Site\`, \`Origin\`); otherwise it answers \`403 FORBIDDEN\`.
 
-An API key cannot manage agents, members, teams or API keys, list or stop sessions through the administration operations, read a session outside its share or take a session over: those operations answer it \`403 FORBIDDEN\`, whatever its scopes. A missing, malformed, unknown or revoked credential answers \`401 UNAUTHORIZED\`. \`/healthz\`, \`/readyz\`, \`/v1/openapi.json\`, \`/v1/auth/bootstrap\` and \`/v1/auth/login\` take no credential.
+An API key cannot manage agents, members, teams or API keys, list agents other than an agent key's own, list or stop sessions through the administration operations, read a session outside its share or take a session over: those operations answer it \`403 FORBIDDEN\`, whatever its scopes. A missing, malformed, unknown or revoked credential answers \`401 UNAUTHORIZED\`. \`/healthz\`, \`/readyz\`, \`/v1/openapi.json\`, \`/v1/auth/bootstrap\` and \`/v1/auth/login\` take no credential.
 
 ## Scopes
 
@@ -49,6 +49,15 @@ What a credential holds:
 - An API key holds exactly the scopes it was issued with (\`scopes\` in \`POST /v1/api-keys\`, or \`--scopes\` in the key CLI). A key issued before scopes existed holds none and must be reissued.
 - A cookie session holds the scopes of the user's workspace role: \`owner\` holds all five, \`admin\` and \`member\` all but \`sessions:recover\`.
 - A credential without the required scope answers \`403 FORBIDDEN\` before the body or the resource is read.
+
+## Starting a session with an API key
+
+1. Issue an agent key for the agent with \`sessions:write\` and \`sessions:read\`: in the console's API keys screen, or \`POST /v1/api-keys\` with \`kind: "agent"\` and its \`agent_id\`. An owner, an admin or that agent's admin may.
+2. \`GET /v1/agents\` with that key answers its agent alone. Its \`active_release_id\` is the release to start on; null until the agent is activated.
+3. \`POST /v1/sessions\` with an \`Idempotency-Key\` and \`{"agent_release_id": "<active_release_id>", "message": "..."}\`. The release supplies the profile and the repository.
+4. \`GET /v1/sessions/{id}\` follows it.
+
+A personal key with \`sessions:write\` may start sessions on any agent's release too, but lists no agents: read \`active_release_id\` from \`GET /v1/agents\` signed in to the console as an owner or an admin.
 
 ## Idempotency
 
