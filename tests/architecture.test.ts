@@ -1253,11 +1253,13 @@ describe("architecture", () => {
   });
 
   test("runtime-core's testing helpers name no engine", async () => {
-    const named: string[] = [];
-    for (const file of await typescriptFiles(
+    const files = await typescriptFiles(
       join(root, runtimeCore, "src", "testing"),
       () => true,
-    )) {
+    );
+    expect(files.length).toBeGreaterThan(0);
+    const named: string[] = [];
+    for (const file of files) {
       if (/claude|anthropic|codex|_sdk\b/i.test(await readFile(file, "utf8")))
         named.push(relative(root, file));
     }
@@ -1276,7 +1278,11 @@ describe("architecture", () => {
       join(root, "packages/adapters/runtimes/registry/src/testing/index.ts"),
       "utf8",
     );
-    expect(entry).not.toMatch(/export (type )?(\*|\{)/);
+    // Types never reach Object.keys, so re-exports are read from the source.
+    const reexport = /\bexport\s+(?:type\s+)?(?:\*|\{)/;
+    expect('export\ntype { SDKMessage } from "x";').toMatch(reexport);
+    expect("export * from 'x';").toMatch(reexport);
+    expect(entry).not.toMatch(reexport);
   });
 
   test("the control host takes codecs and descriptors from runtime-codecs only", async () => {
