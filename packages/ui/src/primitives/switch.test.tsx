@@ -143,13 +143,13 @@ describe("Switch", () => {
     expect(classes).toContain("w-9");
   });
 
-  test("켜짐은 control-checked, 꺼짐은 input 트랙이고 비활성은 색을 둔 채 흐리다", () => {
+  test("켜짐은 control-checked, 꺼짐은 control-unchecked 트랙이고 비활성은 색을 둔 채 흐리다", () => {
     const { getByRole } = render(
       <Switch aria-label="게스트 허용" disabled={true} />,
     );
     const classes = getByRole("switch").className.split(" ");
     expect(classes).toContain("data-[state=checked]:bg-control-checked");
-    expect(classes).toContain("data-[state=unchecked]:bg-input");
+    expect(classes).toContain("data-[state=unchecked]:bg-control-unchecked");
     expect(classes).toContain("disabled:opacity-40");
     expect(classes).toContain("disabled:cursor-not-allowed");
     expect(classes.some((c) => c.startsWith("aria-disabled:opacity"))).toBe(
