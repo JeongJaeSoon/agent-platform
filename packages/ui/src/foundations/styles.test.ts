@@ -401,15 +401,14 @@ describe("tokens.css", () => {
         4.5,
       ],
       ["--ap-color-focus-ring", "--ap-color-surface", 3],
-      // An on switch: the track on the page, the surface thumb on the track.
+      // A switch's track, on or off, on the page.
       ...[
         "--ap-color-surface",
         "--ap-color-sidebar",
         "--ap-color-surface-sunken",
-      ].map((surface): [string, string, number] => [
-        "--ap-color-control-checked",
-        surface,
-        3,
+      ].flatMap((surface): [string, string, number][] => [
+        ["--ap-color-control-checked", surface, 3],
+        ["--ap-color-control-unchecked", surface, 3],
       ]),
     ];
     const themes: [string, Map<string, string>][] = [
@@ -429,9 +428,11 @@ describe("tokens.css", () => {
       ],
     ];
     // Suffix match for the same reason as the input border test above.
-    expect(
-      parse(THEME).find((d) => d.property.endsWith("-control-checked"))?.value,
-    ).toBe("var(--ap-color-control-checked)");
+    for (const name of ["control-checked", "control-unchecked"]) {
+      expect(
+        parse(THEME).find((d) => d.property.endsWith(`-${name}`))?.value,
+      ).toBe(`var(--ap-color-${name})`);
+    }
     const failures = themes.flatMap(([theme, palette]) =>
       pairs.flatMap(([fg, bg, floor]) => {
         const a = palette.get(fg) ?? "";

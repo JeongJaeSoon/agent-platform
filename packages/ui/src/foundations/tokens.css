@@ -72,6 +72,9 @@
      * surface-coloured thumb 3:1 on it.
      */
     --ap-color-control-checked: #0060d1;
+    /* A switch that is off: its track is the state, so it keeps 3:1 on
+     every surface while control edges (border-input) are lighter. */
+    --ap-color-control-unchecked: #8a8a8a;
     /*
      * A filled destructive button, white text on red, the same in dark: v4's
      * dark #e5484d holds white at only 3.9:1.
@@ -274,6 +277,7 @@
       --ap-color-focus-ring: #3291ff;
       --ap-color-link: #52a8ff;
       --ap-color-control-checked: #3291ff;
+      --ap-color-control-unchecked: #616161;
       --ap-color-destructive-solid: #c4282d;
       --ap-color-destructive-foreground: #ffffff;
 
@@ -357,6 +361,7 @@
     --ap-color-focus-ring: #3291ff;
     --ap-color-link: #52a8ff;
     --ap-color-control-checked: #3291ff;
+    --ap-color-control-unchecked: #616161;
     --ap-color-destructive-solid: #c4282d;
     --ap-color-destructive-foreground: #ffffff;
 
