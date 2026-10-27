@@ -42,8 +42,23 @@ const PROFILE: CatalogProfile = {
 };
 
 const catalogOf = (profile: CatalogProfile): SessionCatalog => ({
-  profiles: { coding: profile },
-  repositories: {},
+  profiles: {
+    coding: profile,
+    scratch: { ...profile, repository: "none" },
+    either: { ...profile, repository: "optional" },
+  },
+  repositories: {
+    "sample-app": {
+      url: "https://github.com/acme/sample-app",
+      branch: "main",
+      profiles: ["coding", "either"],
+    },
+    "other-app": {
+      url: "https://github.com/acme/other-app",
+      branch: "main",
+      profiles: ["either"],
+    },
+  },
 });
 
 function cardWith(tools: string[]) {
@@ -161,7 +176,11 @@ async function codeOf(promise: Promise<unknown>): Promise<string> {
   }
 }
 
-const release = { version_id: VERSION, runtime_profile_id: "coding" };
+const release = {
+  version_id: VERSION,
+  runtime_profile_id: "coding",
+  repository_id: "sample-app",
+};
 const PAGE = { limit: 50 };
 
 describe("agent service", () => {
@@ -249,6 +268,57 @@ describe("agent service", () => {
       release,
     );
     expect(again).toEqual({ release: first.release, created: false });
+  });
+
+  test("a release names the repository its sessions work on, as the profile's repository mode allows", async () => {
+    const service = serviceOver(memoryStore().store);
+    const refused = async (body: Record<string, unknown>) => {
+      const error = await service
+        .createRelease(owner, AGENT, { ...release, ...body })
+        .then(
+          () => null,
+          (thrown: unknown) => thrown,
+        );
+      expect(error).toBeInstanceOf(SessionServiceError);
+      return [(error as SessionServiceError).code, (error as Error).message];
+    };
+    expect(await refused({ repository_id: undefined })).toEqual([
+      "UNSUPPORTED_CAPABILITY",
+      "repository_id: Profile coding needs a repository: send repository_id",
+    ]);
+    expect(
+      await refused({
+        runtime_profile_id: "scratch",
+        repository_id: "sample-app",
+      }),
+    ).toEqual([
+      "UNSUPPORTED_CAPABILITY",
+      "repository_id: Profile scratch runs without a repository: omit repository_id",
+    ]);
+    expect(await refused({ repository_id: "other-app" })).toEqual([
+      "UNSUPPORTED_CAPABILITY",
+      "repository_id: Repository other-app is not in the catalog or does not allow profile coding",
+    ]);
+    expect(await refused({ repository_id: "missing" })).toEqual([
+      "UNSUPPORTED_CAPABILITY",
+      "repository_id: Repository missing is not in the catalog or does not allow profile coding",
+    ]);
+
+    const made = await service.createRelease(owner, AGENT, release);
+    expect(made.release.repository_id).toBe("sample-app");
+    const none = await service.createRelease(owner, AGENT, {
+      version_id: VERSION,
+      runtime_profile_id: "either",
+    });
+    expect(none.release.repository_id).toBeNull();
+    // The repository is part of what the id names.
+    const elsewhere = await service.createRelease(owner, AGENT, {
+      version_id: VERSION,
+      runtime_profile_id: "either",
+      repository_id: "other-app",
+    });
+    expect(elsewhere.release.id).not.toBe(none.release.id);
+    expect(elsewhere.release.repository_id).toBe("other-app");
   });
 
   test("an unknown profile or a tool the profile lacks is UNSUPPORTED_CAPABILITY", async () => {

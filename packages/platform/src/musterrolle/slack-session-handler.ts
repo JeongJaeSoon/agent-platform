@@ -99,8 +99,15 @@ export type SlackSessionHandlerDeps = {
   sessions: Pick<SessionService, "createSession" | "appendMessage">;
   /** The agent's active release, which a new thread's session runs. */
   agentDetails: Pick<AgentStore, "get">;
-  /** Slack names no repository, so such a profile's sessions are refused. */
-  profileNeedsRepository(profileId: string): boolean;
+  /**
+   * Slack names no repository, so a session gets the release's; true when
+   * that cannot start (none for a profile that needs one, or it left the
+   * catalog).
+   */
+  releaseRepositoryUnusable(
+    workspaceId: string,
+    releaseId: string,
+  ): Promise<boolean>;
   slack: SlackBotApi;
   /** The app's bot token from the secret store; null when it has none. */
   botToken(workspaceId: string, slackAppId: string): Promise<string | null>;
@@ -225,7 +232,10 @@ export function createSlackSessionHandler(
         agent.agentId,
       );
       if (!detail?.active_release) {
-        deps.logger.warn("Slack agent has no active release; ignored", ids);
+        deps.logger.warn("Slack agent has no active release; refused", ids);
+        await notice("no_active_release", {
+          text: SLACK_NOTICE_MESSAGES.noActiveRelease,
+        });
         return;
       }
       release = detail.active_release;
@@ -327,10 +337,17 @@ export function createSlackSessionHandler(
       });
       if (
         error.code === "UNSUPPORTED_CAPABILITY" &&
-        deps.profileNeedsRepository(link.profileId)
+        (await deps.releaseRepositoryUnusable(
+          agent.workspaceId,
+          link.releaseId,
+        ))
       ) {
         await notice("repository_required", {
           text: SLACK_NOTICE_MESSAGES.repositoryRequired,
+        });
+      } else if (error.code === "PROFILE_DIGEST_MISMATCH") {
+        await notice("profile_unavailable", {
+          text: SLACK_NOTICE_MESSAGES.profileUnavailable,
         });
       } else {
         await notice(error.code, { text: SLACK_NOTICE_MESSAGES.failed });

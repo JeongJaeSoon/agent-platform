@@ -12,6 +12,8 @@ import type {
   HeartbeatResponse,
   NextInputRequest,
   NextInputResponse,
+  ParkDeclinedRequest,
+  ParkDeclinedResponse,
   PendingControlRequest,
   PendingControlResponse,
   RegisterPendingRequest,
@@ -50,6 +52,12 @@ export interface WorkerGatewayClient {
   pendingControl(
     request: PendingControlRequest,
   ): Promise<PendingControlResponse>;
+  /**
+   * The attempt will not carry out the `park` it was handed, said before it
+   * touches the turn; the session goes back to active while that park is
+   * still the open pause.
+   */
+  parkDeclined(request: ParkDeclinedRequest): Promise<ParkDeclinedResponse>;
   /**
    * Once the claim's restore is done and the engine has loaded it, before
    * the first input poll: a session resumed out of `paused` only admits input

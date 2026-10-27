@@ -147,6 +147,13 @@ export const agentsKo = {
   "agent.releases.profileOption": "{profile} · {model}",
   "agent.releases.profileUnlisted":
     "프로필의 권한 모드는 아직 이 화면에 나오지 않습니다.",
+  "agent.releases.repository": "저장소",
+  "agent.releases.repositoryHint":
+    "Slack 세션과 저장소를 따로 보내지 않은 API 세션이 이 저장소에서 시작합니다",
+  "agent.releases.repositoryNone": "저장소 없음",
+  "agent.releases.repositoryMissing":
+    "카탈로그에 이 프로필을 허용하는 저장소가 없어 release할 수 없습니다. 운영자에게 저장소 추가를 요청하세요.",
+  "agent.releases.profileGone": "카탈로그에 없음",
   "agent.releases.profilesLoading": "프로필 목록을 불러오는 중…",
   "agent.releases.profilesFailed":
     "프로필 목록을 불러오지 못했습니다: {reason}",
@@ -436,6 +443,13 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.profileOption": "{profile} · {model}",
   "agent.releases.profileUnlisted":
     "A profile's permission mode is not shown on this screen yet.",
+  "agent.releases.repository": "Repository",
+  "agent.releases.repositoryHint":
+    "Slack sessions, and API sessions that send no repository, start on this repository",
+  "agent.releases.repositoryNone": "No repository",
+  "agent.releases.repositoryMissing":
+    "No catalog repository allows this profile, so it can't be released to. Ask an operator to add one.",
+  "agent.releases.profileGone": "Not in catalog",
   "agent.releases.profilesLoading": "Loading profiles…",
   "agent.releases.profilesFailed": "Could not load the profiles: {reason}",
   "agent.releases.create": "Create release",
@@ -718,6 +732,13 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.releases.profileOption": "{profile} · {model}",
   "agent.releases.profileUnlisted":
     "プロファイルの権限モードは、この画面にはまだ表示されません。",
+  "agent.releases.repository": "リポジトリ",
+  "agent.releases.repositoryHint":
+    "Slack のセッションと、リポジトリを指定しない API セッションはこのリポジトリで始まります",
+  "agent.releases.repositoryNone": "リポジトリなし",
+  "agent.releases.repositoryMissing":
+    "このプロファイルを許可するリポジトリがカタログにないため、リリースできません。運用者にリポジトリの追加を依頼してください。",
+  "agent.releases.profileGone": "カタログにありません",
   "agent.releases.profilesLoading": "プロファイルを読み込み中…",
   "agent.releases.profilesFailed":
     "プロファイルを読み込めませんでした: {reason}",

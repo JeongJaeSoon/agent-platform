@@ -78,13 +78,14 @@ function setup(
     catalog: options.catalog ?? catalog,
     releases: {
       async resolveRelease(_workspaceId, releaseId) {
-        if (releaseId !== "rel-1") {
+        if (releaseId !== "rel-1" && releaseId !== "rel-app") {
           throw new SessionServiceError("NOT_FOUND", "Resource not found");
         }
         return {
-          id: "rel-1",
+          id: releaseId,
           agent_id: AGENT,
           runtime_profile_id: "coding-v1",
+          repository_id: releaseId === "rel-app" ? "app" : null,
           runtime_config_snapshot: { model: "claude-opus-5-5" },
         };
       },
@@ -190,6 +191,33 @@ describe("a session pinned to an agent release", () => {
     expect(accepted[3]).toMatchObject({ repository: null });
     expect(accepted[3]?.model).toBeUndefined();
     expect(accepted[3]?.profileFingerprint).toBeUndefined();
+  });
+
+  test("with only the release named, runs on its profile and its repository", async () => {
+    const { service, caller, accepted } = setup();
+    await service.createSession(caller, {
+      idempotencyKey: "k",
+      body: { agent_release_id: "rel-app", message: "hi" },
+    });
+    expect(accepted[0]).toMatchObject({
+      profileId: "coding-v1",
+      agentReleaseId: "rel-app",
+      repository: {
+        id: "app",
+        url: "https://example.invalid/app.git",
+        branch: "main",
+      },
+    });
+    // A release without a repository runs nothing on a profile that needs
+    // one: the acceptance is asked with no pair, which it refuses.
+    await service.createSession(caller, {
+      idempotencyKey: "k2",
+      body: { agent_release_id: "rel-1", message: "hi" },
+    });
+    expect(accepted[1]).toMatchObject({
+      profileId: "coding-v1",
+      repository: null,
+    });
   });
 
   test("must run on the release's profile", async () => {

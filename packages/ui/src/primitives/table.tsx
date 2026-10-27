@@ -56,10 +56,12 @@ export function TableContainer({
     <section
       data-slot="table-container"
       aria-label={label}
+      // relative: an sr-only header cell scrolled out of view would
+      // otherwise widen the page instead of the scroller.
       // biome-ignore lint/a11y/noNoninteractiveTabindex: a scroll container must be focusable to scroll by keyboard
       tabIndex={0}
       className={cn(
-        "overflow-x-auto rounded-card border bg-card focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2",
+        "relative overflow-x-auto rounded-card border bg-card focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2",
         className,
       )}
       {...props}

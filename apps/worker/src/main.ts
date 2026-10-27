@@ -3,7 +3,7 @@ import { WORKER_EXIT_LEASE_LOST } from "@werft-ai/contracts";
 
 import { createWorkerHost } from "./composition.ts";
 import { type WorkerEnvironment, workerConfigFromEnv } from "./config.ts";
-import type { WorkerRunSummary } from "./worker-host.ts";
+import type { WorkerHost, WorkerRunSummary } from "./worker-host.ts";
 
 const DRAIN_SIGNALS = ["SIGTERM", "SIGINT"] as const;
 
@@ -18,18 +18,26 @@ export async function main(
   const config = workerConfigFromEnv(environment);
   await verifyWorkspace(config.runtime.cwd);
   const host = createWorkerHost(config);
+  const release = drainOnSignals(host);
+  try {
+    return await host.runLoop();
+  } finally {
+    release();
+  }
+}
+
+/** Hands each drain signal to the host until the returned function is called. */
+export function drainOnSignals(host: Pick<WorkerHost, "drain">): () => void {
   const handlers = DRAIN_SIGNALS.map((signal) => {
     const handler = () => host.drain(`received ${signal}`);
     process.on(signal, handler);
     return { signal, handler } as const;
   });
-  try {
-    return await host.runLoop();
-  } finally {
+  return () => {
     for (const { signal, handler } of handlers) {
       process.off(signal, handler);
     }
-  }
+  };
 }
 
 /**
