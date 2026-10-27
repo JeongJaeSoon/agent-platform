@@ -35,8 +35,15 @@ import {
   TableHeader,
   TableRow,
 } from "@werft-ai/ui";
-import { Plus } from "lucide-react";
-import { type FormEvent, type ReactNode, useId, useRef, useState } from "react";
+import { ChevronDown, ChevronUp, Plus } from "lucide-react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { membersQuery, profilesQuery, queryKeysOf } from "../../api/queries.ts";
 import { useHasPermission, useRole } from "../../auth/guard.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
@@ -308,7 +315,7 @@ export function Releases({
                 <TableHead variant="nowrap" className={SPREAD}>
                   {t("agent.releases.colAt")}
                 </TableHead>
-                <TableHead className="min-w-72">
+                <TableHead className={SPREAD}>
                   {t("agent.releases.colNote")}
                 </TableHead>
                 <TableHead variant="actions">
@@ -374,9 +381,10 @@ export function Releases({
                     >
                       {formatTimestamp(item.created_at, locale)}
                     </TableCell>
-                    {/* Wrapped, not cut: a note runs to 200 characters. */}
-                    <TableCell className="min-w-72 break-words">
-                      {item.note ?? (
+                    <TableCell className={SPREAD}>
+                      {item.note ? (
+                        <ReleaseNote note={item.note} />
+                      ) : (
                         <span className="text-muted-foreground">
                           {t("agent.releases.noteNone")}
                         </span>
@@ -408,6 +416,65 @@ export function Releases({
         </TableContainer>
       )}
     </section>
+  );
+}
+
+/**
+ * A note on one line, cut with "…" so a 200-character note does not take the
+ * row. Only a note that is actually cut gets the toggle that wraps it in full.
+ */
+function ReleaseNote({ note }: { readonly note: string }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const [cut, setCut] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const text = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const outer = box.current;
+    const element = text.current;
+    // While open the text wraps and never overflows; keep the toggle.
+    if (!outer || !element || open) return undefined;
+    // Against the whole box, not the text beside the toggle: a note that
+    // fits once the toggle is gone must lose it after a resize.
+    const measure = () => setCut(element.scrollWidth > outer.clientWidth);
+    measure();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const resized = new ResizeObserver(measure);
+    resized.observe(outer);
+    return () => resized.disconnect();
+  }, [open]);
+  const Chevron = open ? ChevronUp : ChevronDown;
+  return (
+    // w-max: a narrow table would otherwise squeeze the note to a few letters
+    // wide instead of scrolling sideways.
+    <div
+      ref={box}
+      className={`flex w-max max-w-56 gap-1 ${open ? "items-start" : "items-center"}`}
+    >
+      <span
+        ref={text}
+        data-slot="release-note"
+        className={
+          open
+            ? "min-w-0 whitespace-normal [overflow-wrap:anywhere]"
+            : "min-w-0 truncate"
+        }
+      >
+        {note}
+      </span>
+      {cut ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-expanded={open}
+          aria-label={t("agent.releases.noteToggle")}
+          onClick={() => setOpen(!open)}
+        >
+          <Chevron aria-hidden="true" />
+        </Button>
+      ) : null}
+    </div>
   );
 }
 

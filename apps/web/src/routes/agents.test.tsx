@@ -1550,6 +1550,129 @@ describe("에이전트 상세", () => {
       .map((row) => within(row).getAllByRole("cell")[at]?.textContent);
     expect(notes).toEqual(["환불 문의 규칙을 더함", "—"]);
   });
+  test("잘린 메모만 펼침 단추를 갖고, 키보드로 펼치면 줄바꿈해 전체를 보인다", async () => {
+    const long = "환불 문의 규칙을 더함. ".repeat(14).trim();
+    const server = agentServer();
+    await seedRelease(server, "짧은 메모");
+    server.versions.push({
+      ...(server.versions[0] as (typeof server.versions)[number]),
+      id: "7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f",
+      version_no: 2,
+      content_sha256: "f".repeat(64),
+    });
+    await seedRelease(server, long);
+    // Happy DOM lays nothing out: a note is cut when it is wider than its box.
+    const widths = Object.getOwnPropertyDescriptors(HTMLElement.prototype);
+    Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.dataset.slot === "release-note" &&
+          (this.textContent ?? "").length > 40
+          ? 900
+          : 100;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get: () => 200,
+    });
+    try {
+      renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
+      const table = await screen.findByRole("table");
+      const [cutRow, shortRow] = within(table).getAllByRole("row").slice(1);
+      const toggle = await within(cutRow as HTMLElement).findByRole("button", {
+        name: "메모 전체 보기",
+      });
+      expect(
+        within(shortRow as HTMLElement).queryByRole("button", {
+          name: "메모 전체 보기",
+        }),
+      ).toBeNull();
+      const note = (cutRow as HTMLElement).querySelector(
+        "[data-slot=release-note]",
+      ) as HTMLElement;
+      expect(note.textContent).toBe(long);
+      expect(note.className).toContain("truncate");
+      expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+      const user = await setupUser();
+      // The table frame is a tab stop; the cut note's toggle is the next one.
+      (table.closest("[data-slot=table-container]") as HTMLElement).focus();
+      await user.tab();
+      expect(document.activeElement === toggle).toBe(true);
+      await user.keyboard("{Enter}");
+      expect(toggle.getAttribute("aria-expanded")).toBe("true");
+      expect(note.className).not.toContain("truncate");
+      await user.keyboard("{Enter}");
+      expect(toggle.getAttribute("aria-expanded")).toBe("false");
+      expect(note.className).toContain("truncate");
+    } finally {
+      for (const key of ["scrollWidth", "clientWidth"] as const) {
+        const own = widths[key];
+        if (own) Object.defineProperty(HTMLElement.prototype, key, own);
+        else Reflect.deleteProperty(HTMLElement.prototype, key);
+      }
+    }
+  });
+  test("칸이 넓어져 메모가 다 들어가면 펼침 단추가 사라진다", async () => {
+    const server = agentServer();
+    await seedRelease(server, "환불 문의 규칙을 더함");
+    // A 210px note: cut in a 200px box, whole in a 224px one. Beside the
+    // toggle (28px + 4px gap) the text has only 192px of the wider box.
+    let box = 200;
+    const widths = Object.getOwnPropertyDescriptors(HTMLElement.prototype);
+    Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.dataset.slot === "release-note" ? 210 : 0;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get(this: HTMLElement) {
+        if (this.dataset.slot !== "release-note") return box;
+        return this.nextElementSibling ? box - 32 : box;
+      },
+    });
+    // Happy DOM never fires a ResizeObserver; this one is fired by hand.
+    const observed: (() => void)[] = [];
+    const Observer = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      constructor(callback: () => void) {
+        observed.push(callback);
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+    try {
+      renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
+      await screen.findByRole("button", { name: "메모 전체 보기" });
+      box = 224;
+      act(() => {
+        for (const callback of observed) callback();
+      });
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("button", { name: "메모 전체 보기" }),
+        ).toBeNull(),
+      );
+      // Measured again without the toggle, it stays away.
+      act(() => {
+        for (const callback of observed) callback();
+      });
+      expect(
+        screen.queryByRole("button", { name: "메모 전체 보기" }),
+      ).toBeNull();
+    } finally {
+      globalThis.ResizeObserver = Observer;
+      for (const key of ["scrollWidth", "clientWidth"] as const) {
+        const own = widths[key];
+        if (own) Object.defineProperty(HTMLElement.prototype, key, own);
+        else Reflect.deleteProperty(HTMLElement.prototype, key);
+      }
+    }
+  });
   test("release 만들기는 응답을 기다리기 전에 대화상자를 닫고, 결과 줄이 포커스를 받는다", async () => {
     const server = agentServer();
     let answer: (() => void) | undefined;
