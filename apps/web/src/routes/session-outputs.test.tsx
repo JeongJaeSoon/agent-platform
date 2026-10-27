@@ -107,6 +107,7 @@ describe("session outputs", () => {
     expect(section.textContent).toContain("2kB");
     expect(section.textContent).toContain("video.mp4");
     expect(section.textContent).toContain("너무 커서 보관하지 않음");
+    expect(screen.queryByText(/out\/ 폴더에 남긴 파일만/)).toBeNull();
 
     const report = screen.getByRole("link", { name: "report.md 내려받기" });
     expect(report.getAttribute("href")).toBe(
@@ -157,6 +158,12 @@ describe("session outputs", () => {
     );
     await openOutputs();
     expect(await screen.findByText("아직 결과물이 없습니다.")).toBeTruthy();
+    // Says what counts, so a session that only edited its repository is not a surprise.
+    expect(
+      screen.getByText(
+        "결과물은 작업 공간의 out/ 폴더에 남긴 파일만 셉니다. 저장소 파일을 고친 내역은 진행 탭의 도구 호출에서 볼 수 있습니다.",
+      ),
+    ).toBeTruthy();
     expect(screen.queryByRole("region", { name: "결과물" })).toBeNull();
   });
 
