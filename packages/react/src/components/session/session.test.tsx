@@ -89,7 +89,11 @@ function entry(
 }
 
 const tick = (turnId = "t1") =>
-  entry("system", { subtype: "thinking_tokens" }, turnId);
+  entry(
+    "system",
+    { engine_event: { name: "thinking_tokens", category: "thinking" } },
+    turnId,
+  );
 
 function summaries() {
   return [...document.querySelectorAll("li")].map(
@@ -116,13 +120,9 @@ describe("Timeline", () => {
     const { container } = render(
       <Timeline
         entries={[
-          entry("assistant", {
-            message: { content: [{ type: "text", text: "hi" }] },
-          }),
+          entry("assistant", { text: "hi" }),
           entry("tool_use", {
-            message: {
-              content: [{ type: "tool_use", id: "c1", name: "Bash" }],
-            },
+            tool_call: { id: "c1", name: "Bash", input: {} },
           }),
           entry("question", { kind: "permission", tool: "Bash", input: {} }),
           entry("error", { message: "boom" }),
@@ -167,7 +167,9 @@ describe("Timeline", () => {
   test("debug 이벤트는 showDebug일 때만 보이고 tick 접기를 끊지 않는다", () => {
     const entries = [
       tick(),
-      entry("system", { subtype: "sdk_event", native_type: "rate_limit" }),
+      entry("system", {
+        engine_event: { name: "rate_limit", category: "internal" },
+      }),
       tick(),
     ];
     const { rerender } = render(
@@ -194,7 +196,7 @@ describe("Timeline", () => {
     render(
       <Timeline
         entries={[
-          entry("assistant", { message: { content: [] } }),
+          entry("assistant", {}),
           entry("system", { subtype: "" }),
           entry("unknown_event", {}),
         ]}
@@ -208,20 +210,22 @@ describe("Timeline", () => {
 
   test("짝지은 도구 결과와 오류를 그리고 생각은 접어 둔다", () => {
     const result: TimelineEntry = {
-      ...entry("tool_result", { is_error: true, content: "boom\nmore" }),
+      ...entry("tool_result", {
+        tool_result: { tool_call_id: "c1", is_error: true, text: "boom\nmore" },
+      }),
       presentation: presentTurnEvent(
-        { event: "tool_result", data: { is_error: true, content: "boom" } },
+        {
+          event: "tool_result",
+          data: {
+            tool_result: { tool_call_id: "c1", is_error: true, text: "boom" },
+          },
+        },
         { toolName: "Bash" },
       ),
     };
     render(
       <Timeline
-        entries={[
-          result,
-          entry("assistant", {
-            message: { content: [{ type: "thinking", thinking: "plan" }] },
-          }),
-        ]}
+        entries={[result, entry("assistant", { thinking: "plan" })]}
         formatMessage={formatMessage}
         messages={MESSAGES}
       />,

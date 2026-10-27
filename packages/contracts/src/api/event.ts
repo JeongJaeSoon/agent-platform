@@ -42,6 +42,16 @@ export const statusEventPhaseSchema = z.enum(STATUS_EVENT_PHASE_VALUES);
 export const PLATFORM_SYSTEM_SUBTYPE_VALUES = [
   "session_closed",
   "input_wait",
+  "context_gap_detected",
+  "checkpoint_objects_lost",
+  "checkpoint_restore_failed",
+  "checkpoint_restore_fallback",
+  "startup_failed",
+  "transcript_near_limit",
+  "execution_revoked",
+  "execution_restored",
+  "recovery_decision",
+  "transcript_limit_reached",
 ] as const;
 // `parked` when a park commits, `expired` when a parked group's last
 // requests expire, `lost` when the worker that held them went away first.
@@ -57,10 +67,59 @@ export const inputWaitEventDataSchema = z
   })
   .strict();
 
+// Engine-neutral fields. The session's runtime codec adds them beside the
+// v1 payload when an event is stored; everything outside the runtime
+// adapters reads these and never the engine's own fields, which stay in
+// v1 for API compatibility as opaque values.
+const ENGINE_SPECIFIC =
+  "Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead.";
+const opaque = <T extends z.ZodType>(schema: T) =>
+  schema.meta({ description: ENGINE_SPECIFIC });
+
+export const toolCallSchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  input: requiredUnknownSchema,
+});
+export const toolResultSchema = z.object({
+  tool_call_id: z.string().min(1),
+  // Null when the engine said something other than true or false.
+  is_error: z.boolean().nullable(),
+  text: z.string(),
+});
+// What a reader shows for a `system` event the engine wrote; the platform's
+// own subtypes are PLATFORM_SYSTEM_SUBTYPE_VALUES and carry none.
+export const ENGINE_EVENT_CATEGORY_VALUES = [
+  "started",
+  "thinking",
+  "workspace",
+  "internal",
+  "other",
+] as const;
+export const engineEventSchema = z.object({
+  name: z.string(),
+  category: z.enum(ENGINE_EVENT_CATEGORY_VALUES),
+});
+export const turnEndSchema = z.object({
+  outcome: z.string().min(1),
+  is_error: z.boolean(),
+  terminal_reason: z.string().min(1).nullable(),
+  // Input plus output tokens, when the engine counted any.
+  tokens: z.number().nonnegative().nullable(),
+});
+export const runtimeRefSchema = z.object({
+  kind: z.string().min(1),
+  // The engine's own id for the session, not the platform's.
+  session_ref: z.string().min(1).nullable(),
+});
+
 const assistantMessagePayloadSchema = z.object({
   type: z.literal("assistant"),
-  message: requiredUnknownSchema,
+  message: opaque(requiredUnknownSchema.optional()),
   parent_tool_use_id: z.string().min(1).nullable().optional(),
+  text: z.string().optional(),
+  thinking: z.string().optional(),
+  tool_call: toolCallSchema.optional(),
 });
 
 // Per-kind payloads: the worker projects native SDK messages into these and the
@@ -68,7 +127,14 @@ const assistantMessagePayloadSchema = z.object({
 export const sessionEventVariants = {
   system: z.object({
     event: z.literal("system"),
-    data: z.looseObject({ type: z.literal("system") }),
+    data: z.looseObject({
+      type: z.literal("system"),
+      engine_event: engineEventSchema.optional(),
+      native_type: opaque(z.unknown().optional()),
+      schema_version: opaque(z.unknown().optional()),
+      sdk_version: opaque(z.unknown().optional()),
+      correlation_id: opaque(z.unknown().optional()),
+    }),
   }),
   assistant: z.object({
     event: z.literal("assistant"),
@@ -80,7 +146,11 @@ export const sessionEventVariants = {
   }),
   tool_result: z.object({
     event: z.literal("tool_result"),
-    data: requiredUnknownSchema,
+    // Any value the engine sent; an object carries `tool_result`
+    // (toolResultSchema) once the codec read it.
+    data: requiredUnknownSchema.meta({
+      description: `${ENGINE_SPECIFIC} An object here carries the engine-neutral \`tool_result\` field: { tool_call_id, is_error, text }.`,
+    }),
   }),
   question: z.object({
     event: z.literal("question"),
@@ -99,9 +169,11 @@ export const sessionEventVariants = {
     event: z.literal("result"),
     data: z.looseObject({
       type: z.literal("result"),
-      subtype: z.string().min(1),
-      session_id: z.string().min(1),
-      usage: requiredUnknownSchema.optional(),
+      subtype: opaque(z.string().min(1).optional()),
+      session_id: opaque(z.string().min(1).optional()),
+      usage: opaque(requiredUnknownSchema.optional()),
+      turn: turnEndSchema.optional(),
+      runtime: runtimeRefSchema.optional(),
     }),
   }),
   status: z.object({
@@ -211,6 +283,12 @@ export function readStoredEvent(
 }
 
 export type SessionEventName = (typeof SESSION_EVENT_NAMES)[number];
+export type ToolCall = z.infer<typeof toolCallSchema>;
+export type ToolResult = z.infer<typeof toolResultSchema>;
+export type EngineEvent = z.infer<typeof engineEventSchema>;
+export type EngineEventCategory = EngineEvent["category"];
+export type TurnEnd = z.infer<typeof turnEndSchema>;
+export type RuntimeRef = z.infer<typeof runtimeRefSchema>;
 export type StatusEventPhase = z.infer<typeof statusEventPhaseSchema>;
 export type InputWaitEventData = z.infer<typeof inputWaitEventDataSchema>;
 export type SessionEventPayload = z.infer<typeof sessionEventPayloadSchema>;

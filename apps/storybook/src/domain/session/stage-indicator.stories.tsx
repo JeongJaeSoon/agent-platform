@@ -12,15 +12,10 @@ const meta = {
     presentation: presentTurnEvent({
       event: "tool_use",
       data: {
-        message: {
-          content: [
-            {
-              type: "tool_use",
-              id: "call_1",
-              name: "Bash",
-              input: { description: "Run the tests" },
-            },
-          ],
+        tool_call: {
+          id: "call_1",
+          name: "Bash",
+          input: { description: "Run the tests" },
         },
       },
     }),

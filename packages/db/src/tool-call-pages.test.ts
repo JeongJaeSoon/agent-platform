@@ -158,23 +158,23 @@ const use = (
     occurredAt,
     {
       type: "assistant",
-      message: {
-        role: "assistant",
-        content: [{ type: "tool_use", id, name: "Bash", input: {} }],
-      },
+      tool_call: { id, name: "Bash", input: {} },
     },
     createdAt,
   );
 
 const result = (
   sessionId: string,
-  data: Record<string, unknown>,
+  data: { tool_call_id?: unknown; is_error?: boolean | null },
   occurredAt: Date | null,
 ) =>
   insert(sessionId, "tool_result", occurredAt, {
     type: "tool_result",
-    content: "done",
-    ...data,
+    tool_result: {
+      tool_call_id: data.tool_call_id,
+      is_error: data.is_error === undefined ? false : data.is_error,
+      text: "done",
+    },
   });
 
 async function page(
@@ -229,11 +229,11 @@ describe("toolCallPage", () => {
     const s = await session({ agent: true });
     await use(s, "tu-open", at(0));
     await use(s, "tu-odd", at(10));
-    await result(s, { tool_use_id: "tu-odd", is_error: "yes" }, at(410));
+    await result(s, { tool_call_id: "tu-odd", is_error: null }, at(410));
     await use(s, "tu-bad", at(20));
-    await result(s, { tool_use_id: "tu-bad", is_error: true }, at(120));
+    await result(s, { tool_call_id: "tu-bad", is_error: true }, at(120));
     await use(s, "tu-late", null);
-    await result(s, { tool_use_id: "tu-late" }, at(500));
+    await result(s, { tool_call_id: "tu-late" }, at(500));
     const { calls } = await page();
     expect(
       calls.map((call) => [call.outcome, call.durationMs, call.agent]),
@@ -334,7 +334,7 @@ describe("toolCallPage", () => {
       ["tu-f", 300],
     ] as const) {
       await use(s, id, at(0));
-      if (ms !== null) await result(s, { tool_use_id: id }, at(ms));
+      if (ms !== null) await result(s, { tool_call_id: id }, at(ms));
     }
     const pages = await walk("slowest", 2);
     expect(pages).toEqual([

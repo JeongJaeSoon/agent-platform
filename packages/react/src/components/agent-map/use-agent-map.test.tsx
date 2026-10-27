@@ -72,22 +72,21 @@ const use = (id: string, name: string, parent: string | null, s: number) =>
     "tool_use",
     {
       type: "assistant",
-      message: {
-        content: [
-          {
-            type: "tool_use",
-            id,
-            name,
-            input: { subagent_type: "Explore", file_path: id },
-          },
-        ],
+      tool_call: {
+        id,
+        name,
+        input: { subagent_type: "Explore", file_path: id },
       },
       parent_tool_use_id: parent,
     },
     s,
   ] as const;
 const done = (id: string, s: number) =>
-  ["tool_result", { tool_use_id: id, content: "ok" }, s] as const;
+  [
+    "tool_result",
+    { tool_result: { tool_call_id: id, is_error: false, text: "ok" } },
+    s,
+  ] as const;
 
 describe("useAgentMapBoard", () => {
   // React Query hands back the same object while a poll reads the same data.

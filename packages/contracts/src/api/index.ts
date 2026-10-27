@@ -2,6 +2,7 @@ export * from "./answer.ts";
 export * from "./control.ts";
 export * from "./event.ts";
 export * from "./health.ts";
+export * from "./neutral-event.ts";
 export * from "./output.ts";
 export * from "./pending.ts";
 export * from "./present-turn-event.ts";

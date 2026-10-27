@@ -132,6 +132,7 @@ import { forgesOf } from "./forge-github.ts";
 import { createGitPusher } from "./git-push.ts";
 import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
+import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { createReadinessProbe } from "./readiness.ts";
@@ -294,6 +295,10 @@ const backfillModels = (): void => {
   );
 };
 backfillModels();
+const neutralize = eventNeutralizer(catalog, logger);
+startNeutralFill(db, neutralize, logger, () =>
+  workspaceProfileVersions.refresh(),
+);
 if (checkpointStorage !== "disabled") {
   await assertCheckpointObjectsPresent(checkpointStorage, {
     hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
@@ -364,7 +369,7 @@ const sessions = createSessionService({
     connect: () => pool.connect(),
     logger,
   }),
-  reader: createPostgresSessionReader(db, { logger }),
+  reader: createPostgresSessionReader(db, { logger, neutralize }),
   catalog,
   releases: agents,
   credentials: credentialBindings,
@@ -610,6 +615,7 @@ if (titleEgressUrl === null) {
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db, { logger }),
   catalog,
+  neutralize,
   // The storage-backed verifier: a checkpoint is promoted only after its
   // manifest, objects and workspace bundle were read back from S3 (checked by
   // git), and the pointer itself advances inside the turn's own transaction.

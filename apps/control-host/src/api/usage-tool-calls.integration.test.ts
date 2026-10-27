@@ -155,10 +155,7 @@ async function sessionWithCall(
     type: "tool_use",
     payload: {
       type: "assistant",
-      message: {
-        role: "assistant",
-        content: [{ type: "tool_use", id: `tu-${sequence}`, name: "Bash" }],
-      },
+      tool_call: { id: `tu-${sequence}`, name: "Bash", input: {} },
     },
     attemptId: "att-1",
     sourceSequence: sequence,

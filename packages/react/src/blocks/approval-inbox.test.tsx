@@ -860,9 +860,7 @@ describe("ApprovalInbox", () => {
       [
         "tool_use",
         {
-          message: {
-            content: [{ type: "tool_use", id, name, input: { command: "ls" } }],
-          },
+          tool_call: { id, name, input: { command: "ls" } },
         },
       ] as const;
     const ask = (requestId: string, toolUseId: string, tool: string) =>
@@ -925,11 +923,7 @@ describe("ApprovalInbox", () => {
       {
         event: "tool_use",
         data: {
-          message: {
-            content: [
-              { type: "tool_use", id: "tu_1", name: "Bash", input: {} },
-            ],
-          },
+          tool_call: { id: "tu_1", name: "Bash", input: {} },
         },
       },
       {

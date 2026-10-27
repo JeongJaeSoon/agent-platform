@@ -16,13 +16,15 @@ import {
   subscribeSessionEvents,
   unwrap,
 } from "@werft-ai/client";
-import type {
-  ChangeSessionProfileRequest,
-  PostSessionAnswerResponse,
-  PostSessionMessageResponse,
-  ReceiptAcceptedResponse,
-  SessionEventPayload,
-  TerminateSessionResponse,
+import {
+  type ChangeSessionProfileRequest,
+  eventToolCall,
+  eventToolResult,
+  type PostSessionAnswerResponse,
+  type PostSessionMessageResponse,
+  type ReceiptAcceptedResponse,
+  type SessionEventPayload,
+  type TerminateSessionResponse,
 } from "@werft-ai/contracts";
 import {
   agentSessionListsFilter,
@@ -288,16 +290,8 @@ const PENDING_CALLS_MAX = EVENT_WINDOW;
 
 function toolCalls(payload: SessionEventPayload) {
   if (payload.event !== "tool_use" && payload.event !== "assistant") return [];
-  const content = (payload.data.message as { content?: unknown } | null)
-    ?.content;
-  return Array.isArray(content)
-    ? content.flatMap(
-        (block: { type?: unknown; id?: unknown; name?: unknown }) =>
-          block?.type === "tool_use" && typeof block.id === "string"
-            ? [[block.id, String(block.name ?? "")] as const]
-            : [],
-      )
-    : [];
+  const call = eventToolCall(payload.data);
+  return call === null ? [] : [[call.id, call.name] as const];
 }
 
 /**
@@ -311,8 +305,7 @@ export function eventToolCallId(
     const calls = toolCalls(payload);
     return calls.length === 1 ? calls[0]?.[0] : undefined;
   }
-  const id = (payload.data as { tool_use_id?: unknown } | null)?.tool_use_id;
-  return typeof id === "string" ? id : undefined;
+  return eventToolResult(payload.data)?.tool_call_id;
 }
 
 /**

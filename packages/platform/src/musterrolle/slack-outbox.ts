@@ -1,4 +1,8 @@
-import { SLACK_NOTICE_MESSAGES } from "@werft-ai/contracts";
+import {
+  eventText,
+  eventToolCall,
+  SLACK_NOTICE_MESSAGES,
+} from "@werft-ai/contracts";
 import type { SlackNoticeSink } from "../ports/slack-notice-sink.ts";
 import type {
   SlackOutboxClaim,
@@ -46,12 +50,6 @@ export function slackTurnDedupeKey(
   return `${prefix}:${sessionLinkId}:${turnId}`;
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
 /**
  * The text the model wrote after its last tool call: what it said once the
  * work was done. Read whole, unlike presentTurnEvent's clipped summary.
@@ -59,14 +57,10 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 export function finalReplyText(events: SlackUnansweredTurn["events"]): string {
   let parts: string[] = [];
   for (const event of events) {
-    const content = asRecord(asRecord(event.payload)?.message)?.content;
-    if (!Array.isArray(content)) continue;
-    for (const block of content) {
-      const fields = asRecord(block);
-      if (fields?.type === "tool_use") parts = [];
-      else if (fields?.type === "text" && typeof fields.text === "string") {
-        parts.push(fields.text);
-      }
+    if (eventToolCall(event.payload) !== null) parts = [];
+    else {
+      const text = eventText(event.payload);
+      if (text !== null) parts.push(text);
     }
   }
   return parts.join("\n\n").trim();

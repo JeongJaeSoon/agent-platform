@@ -26,16 +26,22 @@ const VIEWER = { userId: null, apiKeyId: null };
 const T0 = Date.parse("2026-10-25T01:00:00.000Z");
 const at = (seconds: number) => new Date(T0 + seconds * 1000);
 
+// Events as the runtime's codec gives them: one call or text each, read
+// through the engine-neutral fields only.
 const use = (id: string, name: string, input: unknown = {}) => ({
-  type: "tool_use",
-  id,
-  name,
-  input,
+  tool_call: { id, name, input },
 });
-const assistant = (content: unknown[], parent: string | null = null) => ({
+const text = (value: string) => ({ text: value });
+const assistant = (
+  said: Record<string, unknown>,
+  parent: string | null = null,
+) => ({
   type: "assistant",
-  message: { content },
+  ...said,
   parent_tool_use_id: parent,
+});
+const result = (id: string, isError = false) => ({
+  tool_result: { tool_call_id: id, is_error: isError, text: "" },
 });
 
 integration("session list activity on PostgreSQL", () => {
@@ -130,33 +136,36 @@ integration("session list activity on PostgreSQL", () => {
     await s.record("status", { phase: "running" });
     await s.record(
       "assistant",
-      assistant([
-        {
-          type: "text",
-          text: "\n  Reading the retry code first.  \nthen more",
-        },
-        use("t-read", "Read", { file_path: "retry.ts" }),
+      assistant(text("\n  Reading the retry code first.  \nthen more")),
+    );
+    await s.record(
+      "assistant",
+      assistant(use("t-read", "Read", { file_path: "retry.ts" })),
+    );
+    await s.record(
+      "assistant",
+      assistant(
         use("t-bash", "Bash", { command: 42, description: "run tests" }),
-      ]),
+      ),
     );
-    await s.record("tool_result", { tool_use_id: "t-read", is_error: false });
-    await s.record("tool_result", { tool_use_id: "t-bash", is_error: true });
+    await s.record("tool_result", result("t-read", false));
+    await s.record("tool_result", result("t-bash", true));
     await s.record(
       "tool_use",
-      assistant([use("t-task", "Task", { subagent_type: "code-reviewer" })]),
+      assistant(use("t-task", "Task", { subagent_type: "code-reviewer" })),
     );
     await s.record(
       "tool_use",
-      assistant([use("t-grep", "Grep", { pattern: "maxAttempts" })], "t-task"),
+      assistant(use("t-grep", "Grep", { pattern: "maxAttempts" }), "t-task"),
     );
     // The same call again, as a replayed frame: counted once.
     await s.record(
       "assistant",
-      assistant([use("t-grep", "Grep", { pattern: "maxAttempts" })], "t-task"),
+      assistant(use("t-grep", "Grep", { pattern: "maxAttempts" }), "t-task"),
     );
-    await s.record("tool_result", { tool_use_id: "t-grep" });
+    await s.record("tool_result", result("t-grep"));
     // A result for a call the window never saw is not an error of it.
-    await s.record("tool_result", { tool_use_id: "elsewhere", is_error: true });
+    await s.record("tool_result", result("elsewhere", true));
 
     const read = await activity(s.id);
     expect(read).toMatchObject({
@@ -169,18 +178,19 @@ integration("session list activity on PostgreSQL", () => {
         name: "Task",
         target: "",
         state: "running",
-        since: at(5).toISOString(),
+        since: at(7).toISOString(),
       },
-      window: { events: 9, complete: true, since: expect.any(String) },
+      window: { events: 11, complete: true, since: expect.any(String) },
     });
 
-    await s.record("assistant", assistant([{ type: "text", text: "   " }]));
+    await s.record("assistant", assistant(text("   ")));
     await s.record(
       "assistant",
-      assistant([
-        use("t-edit", "Edit", { file_path: "retry.ts" }),
-        { type: "text", text: "Done reviewing.\r\nDetails follow." },
-      ]),
+      assistant(use("t-edit", "Edit", { file_path: "retry.ts" })),
+    );
+    await s.record(
+      "assistant",
+      assistant(text("Done reviewing.\r\nDetails follow.")),
     );
     expect((await activity(s.id))?.last).toEqual({
       kind: "text",
@@ -193,14 +203,14 @@ integration("session list activity on PostgreSQL", () => {
     // The Task call fell out of the window; its subagent's calls remain.
     await s.record(
       "tool_use",
-      assistant([use("t-in", "Read", { path: "a.ts" })], "t-gone"),
+      assistant(use("t-in", "Read", { path: "a.ts" }), "t-gone"),
     );
     await s.record(
       "tool_use",
-      assistant([use("t-in2", "Read", { path: "b.ts" })], "t-gone"),
+      assistant(use("t-in2", "Read", { path: "b.ts" }), "t-gone"),
     );
-    await s.record("assistant", assistant([use("t-twice", "Bash")]));
-    await s.record("assistant", assistant([use("t-twice", "Task")]));
+    await s.record("assistant", assistant(use("t-twice", "Bash")));
+    await s.record("assistant", assistant(use("t-twice", "Task")));
     expect(await activity(s.id)).toMatchObject({
       tool_count: 3,
       subagent_count: 2,
@@ -212,9 +222,9 @@ integration("session list activity on PostgreSQL", () => {
     await s.record("status", { phase: "running" });
     await s.record(
       "assistant",
-      assistant([
+      assistant(
         use("t-push", "Bash", { command: "git push origin fix/webhook" }),
-      ]),
+      ),
     );
     await s.record("question", {
       request_id: "r1",
@@ -241,13 +251,13 @@ integration("session list activity on PostgreSQL", () => {
       request: null,
     });
 
-    await s.record("tool_result", { tool_use_id: "t-push" });
+    await s.record("tool_result", result("t-push"));
     expect((await activity(s.id))?.current_tool).toBeNull();
   });
 
   test("a question's request carries its first question's text, cut by code points", async () => {
     const s = await session();
-    await s.record("assistant", assistant([use("t-ask", "AskUserQuestion")]));
+    await s.record("assistant", assistant(use("t-ask", "AskUserQuestion")));
     const asked = (questions: unknown) =>
       s.record("question", {
         request_id: "r-ask",
@@ -305,10 +315,7 @@ integration("session list activity on PostgreSQL", () => {
       workspaceId,
       scope: "private",
     });
-    await secret.record(
-      "assistant",
-      assistant([use("t-q", "AskUserQuestion")]),
-    );
+    await secret.record("assistant", assistant(use("t-q", "AskUserQuestion")));
     await secret.record("question", {
       request_id: "r-q",
       tool_use_id: "t-q",
@@ -351,7 +358,7 @@ integration("session list activity on PostgreSQL", () => {
     const byTurn = await session();
     await byTurn.record(
       "assistant",
-      assistant([use("t-long", "Bash", { command: "sleep 600" })]),
+      assistant(use("t-long", "Bash", { command: "sleep 600" })),
     );
     await byTurn.record("result", {
       type: "result",
@@ -368,7 +375,7 @@ integration("session list activity on PostgreSQL", () => {
     await byStatus.record("status", { phase: "running" });
     await byStatus.record(
       "assistant",
-      assistant([use("t-old", "Read", { path: "a.ts" })]),
+      assistant(use("t-old", "Read", { path: "a.ts" })),
     );
     await byStatus.record("status", { phase: "interrupting" });
     expect((await activity(byStatus.id))?.current_tool?.id).toBe("t-old");
@@ -377,7 +384,7 @@ integration("session list activity on PostgreSQL", () => {
     // A call made after the stop is open again.
     await byStatus.record(
       "assistant",
-      assistant([use("t-new", "Read", { path: "b.ts" })]),
+      assistant(use("t-new", "Read", { path: "b.ts" })),
     );
     expect((await activity(byStatus.id))?.current_tool?.id).toBe("t-new");
   });
@@ -388,7 +395,7 @@ integration("session list activity on PostgreSQL", () => {
       Array.from({ length: SESSION_ACTIVITY_WINDOW_EVENTS + 1 }, (_, i) => ({
         sessionId: s.id,
         type: "tool_use",
-        payload: assistant([use(`t-${i}`, "Read", { path: `${i}.ts` })]),
+        payload: assistant(use(`t-${i}`, "Read", { path: `${i}.ts` })),
         turnId: s.turnId,
         occurredAt: at(i),
         createdAt: at(i),
@@ -410,7 +417,7 @@ integration("session list activity on PostgreSQL", () => {
       const owner = `owner-page-${count}`;
       for (let i = 0; i < count; i += 1) {
         const s = await session(owner);
-        await s.record("assistant", assistant([use(`t-${i}`, "Read")]));
+        await s.record("assistant", assistant(use(`t-${i}`, "Read")));
       }
       statements = 0;
       const page = await reader.listSessions(owner, { limit: 100 }, VIEWER);

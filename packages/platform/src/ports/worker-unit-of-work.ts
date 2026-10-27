@@ -234,7 +234,8 @@ export type ClaimResult =
 // name any other one: the numbers are guessable, so without this a holder of
 // a token that is about to be revoked could pre-address the next revision.
 export type ResolvedCredential =
-  | ({ kind: "session" } & WorkerFence)
+  // `profileId` is the session's, which names its runtime.
+  | ({ kind: "session"; profileId?: string | null } & WorkerFence)
   // A launch nonce: valid only for bootstrapClaim.
   | { kind: "bootstrap" }
   | null;
@@ -299,6 +300,9 @@ export type CommitEventsInput = {
   turnId: string | null;
   now: Date;
   events: WorkerEvent[];
+  // The engine-neutral fields stored beside a new event's data, never in it:
+  // a resend is compared against the data as the worker sent it.
+  neutral?: (event: WorkerEvent) => Record<string, unknown> | null;
 };
 export type CommitEventsResult =
   | { outcome: "ok"; acceptedThrough: number; cursor: string }

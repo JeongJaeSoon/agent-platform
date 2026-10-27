@@ -86,6 +86,7 @@ describe("database schema", () => {
       "member_team_members",
       "member_teams",
       "memberships",
+      "neutral_field_progress",
       "owner_workspace_map",
       "password_resets",
       "pending_requests",

@@ -30,6 +30,7 @@ import type {
   RestorePlanResponse,
   RuntimeConfig,
   SessionRuntime,
+  WorkerEvent,
   WorkerReadyRequest,
   WorkerReadyResponse,
   WorkerScope,
@@ -100,6 +101,10 @@ import {
   type WorkspaceProfiles,
   workspaceCatalogProfiles,
 } from "../sessions/catalog.ts";
+import {
+  type NeutralizeEvent,
+  neutralFieldsOf,
+} from "../sessions/event-codecs.ts";
 import {
   hashTitleToken,
   type SessionTitler,
@@ -446,9 +451,11 @@ export function createWorkerGateway(deps: {
   onMcpReceiptError?: (error: unknown) => void;
   // Absent, a session keeps the title cut from its first message.
   titles?: { store: SessionTitleStore; titler: SessionTitler };
+  // Absent, events are stored without the engine-neutral fields beside them.
+  neutralize?: NeutralizeEvent;
   options: WorkerGatewayOptions;
 }) {
-  const { work, catalog, checkpoints, pending } = deps;
+  const { work, catalog, checkpoints, pending, neutralize } = deps;
   const decideMcp =
     deps.mcp === undefined
       ? null
@@ -1337,11 +1344,19 @@ export function createWorkerGateway(deps: {
       request: AppendEventsRequest,
     ): Promise<AppendEventsResponse> {
       const fence = requireScope(principal, request);
+      const profileId =
+        principal.kind === "session" ? (principal.profileId ?? null) : null;
       const result = await work.commitEventsAtomic({
         fence,
         turnId: request.turn_id,
         now: now(),
         events: request.events,
+        ...(neutralize === undefined
+          ? {}
+          : {
+              neutral: (event: WorkerEvent) =>
+                neutralFieldsOf(neutralize, profileId, event),
+            }),
       });
       if (result.outcome === "turn_not_found") {
         throw new WorkerGatewayError(

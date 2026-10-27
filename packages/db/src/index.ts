@@ -23,6 +23,7 @@ export * from "./mcp-egress.ts";
 export * from "./member-teams.ts";
 export * from "./members.ts";
 export * from "./migration-head.ts";
+export * from "./neutral-fields.ts";
 export { expireParkedGroups } from "./parked-group.ts";
 export * from "./pause-control.ts";
 export * from "./pending-control.ts";

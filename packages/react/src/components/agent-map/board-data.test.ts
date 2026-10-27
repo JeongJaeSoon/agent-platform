@@ -215,7 +215,7 @@ function use(
       event: "tool_use",
       data: {
         type: "assistant",
-        message: { content: [{ type: "tool_use", id, name, input }] },
+        tool_call: { id, name, input },
         parent_tool_use_id: parent,
       },
     },
@@ -229,7 +229,7 @@ function result(seconds: number, id: string, isError = false): RunTreeFrame {
     turnId: null,
     payload: {
       event: "tool_result",
-      data: { type: "tool_result", tool_use_id: id, is_error: isError },
+      data: { tool_result: { tool_call_id: id, is_error: isError, text: "" } },
     },
   };
 }

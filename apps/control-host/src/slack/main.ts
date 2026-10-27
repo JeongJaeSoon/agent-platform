@@ -63,6 +63,7 @@ import {
   type SecretReader,
   secretsManagerReader,
 } from "../api/catalog-config.ts";
+import { eventNeutralizer } from "../api/neutral-fields.ts";
 import { consoleOriginFrom, slackApiUrlFrom } from "../api/slack-config.ts";
 import { PASS_LOOP_ROLES, passLoopConfigFromEnv } from "../pass-loop/loop.ts";
 
@@ -166,7 +167,10 @@ export function slackSessionHandler(deps: {
       connect: () => deps.pool.connect(),
       logger,
     }),
-    reader: createPostgresSessionReader(db, { logger }),
+    reader: createPostgresSessionReader(db, {
+      logger,
+      neutralize: eventNeutralizer(catalog, logger),
+    }),
     catalog,
     releases: {
       resolveRelease: (workspaceId, releaseId) =>
@@ -258,8 +262,20 @@ export async function main(
     // so a steady stream of mentions cannot starve the answers.
     const started = Date.now();
     const deadline = started + settings.passBudgetMs;
-    const outbox = createPostgresSlackOutboxStore(db);
     const { catalog, secretKey } = await slackRoleStartup(environment);
+    const workspaceProfiles = createWorkspaceProfiles(
+      createPostgresWorkspaceProfileStore(db),
+    );
+    await workspaceProfiles.refresh();
+    const outbox = createPostgresSlackOutboxStore(db, {
+      neutralize: eventNeutralizer(
+        {
+          ...sessionCatalogView(catalog),
+          workspace_profiles: workspaceProfiles,
+        },
+        logger,
+      ),
+    });
     const drain = await drainSlackInbox({
       inbox: createPostgresSlackInboundEventStore(db),
       handler: slackSessionHandler({

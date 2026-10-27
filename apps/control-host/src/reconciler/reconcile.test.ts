@@ -100,6 +100,7 @@ describe("reconciler run", () => {
         appliedThrough: 31,
         caughtUp: true,
         timedOut: 1,
+        heldByFillSeconds: null,
       }),
     });
 
@@ -268,6 +269,41 @@ describe("reconciler run", () => {
     );
   });
 
+  test("warns when the tool call projection has waited long on the neutral field fill", async () => {
+    const records = async (heldByFillSeconds: number | null) => {
+      const sink = new MemoryLogSink();
+      await runReconciler({
+        logger: new StructuredLogger({ sinks: [sink] }),
+        reconcile: async () => [],
+        reconcileLeases: async () => [],
+        reconcileInterrupts: async () => [],
+        expireInterrupts: async () => 0,
+        expireTerminations: async () => 0,
+        expireParked: async () => [],
+        announceInputReturns: async () => [],
+        expireDecisions: async () => 0,
+        projectToolCalls: async () => ({
+          eventsRead: 10,
+          batches: 1,
+          appliedThrough: 7,
+          caughtUp: true,
+          timedOut: 0,
+          heldByFillSeconds,
+        }),
+      });
+      return sink.records.filter((record) => record.level === "warn");
+    };
+    expect(await records(null)).toEqual([]);
+    expect(await records(30)).toEqual([]);
+    expect(await records(900.4)).toEqual([
+      expect.objectContaining({
+        message:
+          "Tool call projection is waiting on the event neutral field fill",
+        fields: { applied_through: 7, fill_idle_seconds: 900 },
+      }),
+    ]);
+  });
+
   test("refuses HEARTBEAT_TTL_SEC outright, and invalid batch or dry-run settings", async () => {
     const logger = new StructuredLogger({ sinks: [] });
     const reconcile = async () => [];
@@ -284,6 +320,7 @@ describe("reconciler run", () => {
       appliedThrough: 0,
       caughtUp: true,
       timedOut: 0,
+      heldByFillSeconds: null,
     });
     // Valid or not: the reconciler has no TTL to be told, so a value here is
     // an operator who believes it does. It must not start and quietly

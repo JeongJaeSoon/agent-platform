@@ -20,6 +20,7 @@ import {
   SESSION_STATUS_VALUES,
   type SessionStatus,
   SSE_SCHEMA_VERSION,
+  type SseEvent,
   sseEventSchema,
   type TurnDetail,
   type TurnSummary,
@@ -32,6 +33,7 @@ import type {
   AppendMessageInput,
   AppendMessageResult,
   EventPage,
+  NeutralizeEvent,
   ReadEventsQuery,
   SessionDetailRecord,
   SessionReader,
@@ -84,6 +86,7 @@ import {
 } from "./cursors.ts";
 import { drainAttention } from "./drain.ts";
 import { enqueueWithin } from "./enqueue.ts";
+import { eventWithNeutralFields } from "./event-payload.ts";
 import { admitInput } from "./input-limits.ts";
 import {
   AWAITABLE_STATUSES,
@@ -531,6 +534,9 @@ function summarizeTurn(
   };
 }
 
+const byteLength = (value: unknown) =>
+  Buffer.byteLength(JSON.stringify(value) ?? "");
+
 // Exported so a test can EXPLAIN it: the work per page must stay bounded
 // by `limit` however long the session history is. The byte total is the
 // serialized length, not pg_column_size: TOAST compresses a repetitive
@@ -543,17 +549,19 @@ export function eventPageQuery(
   maxBytes: number,
 ) {
   return sql`
-    SELECT id, type, payload, attempt_id, occurred_ms, turn_sequence,
-           fetched
+    SELECT id, type, payload, bare, attempt_id, occurred_ms, turn_sequence,
+           running_bytes, fetched
     FROM (
-      SELECT c.id, c.type, c.payload, c.attempt_id, c.turn_sequence,
+      SELECT c.id, c.type, c.payload, c.bare, c.attempt_id, c.turn_sequence,
              c.occurred_ms,
              sum(octet_length(c.payload::text)) OVER (ORDER BY c.id)
                AS running_bytes,
              row_number() OVER (ORDER BY c.id) AS position,
              count(*) OVER () AS fetched
       FROM (
-        SELECT e.id, e.type, e.payload, e.attempt_id,
+        SELECT e.id, e.type,
+               ${eventWithNeutralFields(sql`e`)} AS payload,
+               e.neutral IS NULL AS bare, e.attempt_id,
                t.sequence AS turn_sequence,
                (extract(epoch FROM coalesce(e.occurred_at, e.created_at))
                  * 1000)::bigint AS occurred_ms
@@ -573,7 +581,9 @@ type EventPageRow = {
   id: string;
   type: string;
   payload: unknown;
+  bare: boolean;
   attempt_id: string | null;
+  running_bytes: string;
   occurred_ms: string;
   turn_sequence: number | null;
   fetched: string;
@@ -581,12 +591,17 @@ type EventPageRow = {
 
 export function createPostgresSessionReader(
   db: Database,
-  options: { logger?: StructuredLogger } = {},
+  options: {
+    logger?: StructuredLogger;
+    // Fills the neutral fields of a row stored before they were written.
+    neutralize?: NeutralizeEvent;
+  } = {},
 ): SessionReader {
   async function ownedSession(ownerId: string, sessionId: string) {
     const [row] = await db
       .select({
         id: sessions.id,
+        profileId: sessions.profileId,
         retiredCheckpointRevision: sessions.contextResetCheckpointRevision,
       })
       .from(sessions)
@@ -1190,7 +1205,8 @@ export function createPostgresSessionReader(
       query: ReadEventsQuery,
     ): Promise<EventPage | null> {
       const after = decodeEventCursor(query.after);
-      if (!(await ownedSession(ownerId, sessionId))) return null;
+      const owned = await ownedSession(ownerId, sessionId);
+      if (!owned) return null;
       // events.id is global, so a well-formed cursor from another session
       // would silently skip this one's history and a forged future cursor
       // would stream nothing forever. A nonzero cursor must name a row of
@@ -1226,19 +1242,39 @@ export function createPostgresSessionReader(
       )) as { rows: EventPageRow[] };
       const rows = result.rows;
       const fetched = Number(rows[0]?.fetched ?? 0);
-      return {
-        items: rows.map((row) => {
-          const stored = readStoredEvent(row.type, row.payload);
-          if (!stored.readable) {
-            options.logger?.warn("Stored event does not match the contract", {
-              session_id: sessionId,
-              event_row_id: Number(row.id),
-              event_type: row.type,
-            });
-          }
-          return sseEventSchema.parse({
+      // Fields filled here on read count against the byte bound too: a page
+      // stops before the row they would push past it.
+      let filledBytes = 0;
+      let cut = false;
+      const items: SseEvent[] = [];
+      for (const [index, row] of rows.entries()) {
+        const stored = readStoredEvent(row.type, row.payload);
+        const payload =
+          stored.readable && row.bare && options.neutralize
+            ? options.neutralize(owned.profileId, stored.payload)
+            : stored.payload;
+        if (payload !== stored.payload) {
+          filledBytes +=
+            byteLength(payload.data) - byteLength(stored.payload.data);
+        }
+        if (
+          index > 0 &&
+          Number(row.running_bytes) + filledBytes > query.maxBytes
+        ) {
+          cut = true;
+          break;
+        }
+        if (!stored.readable) {
+          options.logger?.warn("Stored event does not match the contract", {
+            session_id: sessionId,
+            event_row_id: Number(row.id),
+            event_type: row.type,
+          });
+        }
+        items.push(
+          sseEventSchema.parse({
             id: encodeEventCursor(Number(row.id)),
-            event: stored.payload.event,
+            event: payload.event,
             data: {
               schema_version: SSE_SCHEMA_VERSION,
               session_id: sessionId,
@@ -1246,12 +1282,15 @@ export function createPostgresSessionReader(
                 row.turn_sequence === null ? null : String(row.turn_sequence),
               attempt_id: row.attempt_id,
               occurred_at: new Date(Number(row.occurred_ms)).toISOString(),
-              data: stored.payload.data,
+              data: payload.data,
             },
-          });
-        }),
+          }),
+        );
+      }
+      return {
+        items,
         // Cut by the row limit, or by the byte bound below the row limit.
-        more: fetched === query.limit || rows.length < fetched,
+        more: cut || fetched === query.limit || rows.length < fetched,
       };
     },
   };

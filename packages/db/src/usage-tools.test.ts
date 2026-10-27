@@ -63,7 +63,11 @@ async function init(
     sessionId,
     "system",
     {},
-    { type: "system", subtype: "init", tools },
+    {
+      type: "system",
+      engine_event: { name: "init", category: "started" },
+      tools,
+    },
   );
 }
 
@@ -94,23 +98,23 @@ async function use(
 ) {
   await insert(sessionId, "tool_use", stamp, {
     type: "assistant",
-    message: {
-      role: "assistant",
-      content: [{ type: "tool_use", id, name, input: {} }],
-    },
+    tool_call: { id, name, input: {} },
     parent_tool_use_id: stamp.parent ?? null,
   });
 }
 
 async function result(
   sessionId: string,
-  data: Record<string, unknown>,
+  data: { tool_call_id?: unknown; is_error?: boolean | null },
   stamp: Stamp = {},
 ) {
   await insert(sessionId, "tool_result", stamp, {
     type: "tool_result",
-    content: "done",
-    ...data,
+    tool_result: {
+      tool_call_id: data.tool_call_id,
+      is_error: data.is_error === undefined ? false : data.is_error,
+      text: "done",
+    },
   });
 }
 
@@ -151,7 +155,7 @@ describe("usageTools", () => {
     const s = await session();
     await use(s, "tu-1", "Bash");
     await use(s, "tu-2", "Bash", { occurredAt: at(0) });
-    await result(s, { tool_use_id: "tu-2" }, { occurredAt: at(1500) });
+    await result(s, { tool_call_id: "tu-2" }, { occurredAt: at(1500) });
     expect(await tools()).toEqual([
       {
         name: "Bash",
@@ -168,9 +172,9 @@ describe("usageTools", () => {
   test("a missing time on either side leaves the call untimed", async () => {
     const s = await session();
     await use(s, "tu-1", "Read", { occurredAt: null });
-    await result(s, { tool_use_id: "tu-1" }, { occurredAt: at(100) });
+    await result(s, { tool_call_id: "tu-1" }, { occurredAt: at(100) });
     await use(s, "tu-2", "Read", { occurredAt: at(0) });
-    await result(s, { tool_use_id: "tu-2" }, { occurredAt: null });
+    await result(s, { tool_call_id: "tu-2" }, { occurredAt: null });
     expect(await tools()).toEqual([
       { name: "Read", calls: 2, failed: 0, totalMs: 0, medianMs: 0, maxMs: 0 },
     ]);
@@ -179,29 +183,29 @@ describe("usageTools", () => {
   test("only is_error true fails; no is_error succeeds; a non-boolean is neither but is timed", async () => {
     const s = await session();
     await use(s, "tu-ok", "Edit", { occurredAt: at(0) });
-    await result(s, { tool_use_id: "tu-ok" }, { occurredAt: at(100) });
+    await result(s, { tool_call_id: "tu-ok" }, { occurredAt: at(100) });
     await use(s, "tu-fail", "Edit", { occurredAt: at(0) });
     await result(
       s,
-      { tool_use_id: "tu-fail", is_error: true },
+      { tool_call_id: "tu-fail", is_error: true },
       { occurredAt: at(200) },
     );
     await use(s, "tu-false", "Edit", { occurredAt: at(0) });
     await result(
       s,
-      { tool_use_id: "tu-false", is_error: false },
+      { tool_call_id: "tu-false", is_error: false },
       { occurredAt: at(300) },
     );
     await use(s, "tu-text", "Edit", { occurredAt: at(0) });
     await result(
       s,
-      { tool_use_id: "tu-text", is_error: "true" },
+      { tool_call_id: "tu-text", is_error: null },
       { occurredAt: at(400) },
     );
     await use(s, "tu-null", "Edit", { occurredAt: at(0) });
     await result(
       s,
-      { tool_use_id: "tu-null", is_error: null },
+      { tool_call_id: "tu-null", is_error: null },
       { occurredAt: at(500) },
     );
     expect(await tools()).toEqual([
@@ -216,13 +220,13 @@ describe("usageTools", () => {
     ]);
   });
 
-  test("a result without a readable tool_use_id pairs with nothing", async () => {
+  test("a result without a readable tool_call_id pairs with nothing", async () => {
     const s = await session();
     await use(s, "tu-1", "Grep", { occurredAt: at(0) });
     await result(s, { is_error: true }, { occurredAt: at(100) });
     await result(
       s,
-      { tool_use_id: 7, is_error: true },
+      { tool_call_id: 7, is_error: true },
       { occurredAt: at(100) },
     );
     expect(await tools()).toEqual([
@@ -237,19 +241,19 @@ describe("usageTools", () => {
     await use(b, "tu-1", "Bash", { occurredAt: at(0) });
     await result(
       b,
-      { tool_use_id: "tu-1", is_error: true },
+      { tool_call_id: "tu-1", is_error: true },
       { occurredAt: at(900) },
     );
     await use(a, "tu-2", "Bash", { occurredAt: at(0), attemptId: "att-1" });
     await result(
       a,
-      { tool_use_id: "tu-2" },
+      { tool_call_id: "tu-2" },
       { occurredAt: at(50), attemptId: "att-2" },
     );
     await use(a, "tu-3", "Bash", { occurredAt: at(0), attemptId: null });
     await result(
       a,
-      { tool_use_id: "tu-3" },
+      { tool_call_id: "tu-3" },
       { occurredAt: at(100), attemptId: null },
     );
     expect(await tools()).toEqual([
@@ -267,10 +271,10 @@ describe("usageTools", () => {
   test("the earlier of two results for one call wins", async () => {
     const s = await session();
     await use(s, "tu-1", "Bash", { occurredAt: at(0) });
-    await result(s, { tool_use_id: "tu-1" }, { occurredAt: at(300) });
+    await result(s, { tool_call_id: "tu-1" }, { occurredAt: at(300) });
     await result(
       s,
-      { tool_use_id: "tu-1", is_error: true },
+      { tool_call_id: "tu-1", is_error: true },
       { occurredAt: at(100) },
     );
     expect(await tools()).toEqual([
@@ -329,7 +333,7 @@ describe("usageTools", () => {
       {},
       {
         type: "assistant",
-        message: { content: [{ type: "text", text: "hi" }] },
+        text: "hi",
       },
     );
     expect((await tools()).map((t) => t.name)).toEqual([

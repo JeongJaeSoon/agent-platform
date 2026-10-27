@@ -104,7 +104,7 @@ turn이 끝났는지는 turn 조회의 `status`로만 판단한다. `completed`�
 ```bash
 curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
   | awk '/^event: assistant/ { getline; sub(/^data: /, ""); print }' \
-  | jq -r '.data.message.content[] | select(.type == "text") | .text' || true
+  | jq -r '.data.text // empty' || true
 ```
 
 ```text
@@ -112,7 +112,7 @@ curl: (28) Operation timed out after 5002 milliseconds with 3362 bytes received
 hello from Werft
 ```
 
-이벤트 하나는 `event:` 줄(종류)과 `data:` 줄(JSON)이다. assistant 이벤트의 `data.message`가 모델이 보낸 메시지다. `curl: (28) Operation timed out`은 `--max-time`이 끊은 것이라 정상이다.
+이벤트 하나는 `event:` 줄(종류)과 `data:` 줄(JSON)이다. assistant 이벤트의 `data.text`가 모델이 보낸 텍스트다. `curl: (28) Operation timed out`은 `--max-time`이 끊은 것이라 정상이다.
 
 ## 다음 단계
 

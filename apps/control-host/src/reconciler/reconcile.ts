@@ -34,7 +34,12 @@ export type ReconcilerRun = {
 
 export type ReconcilerLogger = {
   info(message: string, fields?: Readonly<Record<string, unknown>>): void;
+  warn(message: string, fields?: Readonly<Record<string, unknown>>): void;
 };
+
+// The fill (packages/db neutral-fields.ts) passes rows once 60 seconds old
+// and runs every 15 seconds; held this long, it has stopped.
+const FILL_HOLD_WARN_SECONDS = 300;
 
 export type ReconcilerEnvironment = {
   // Present only to be refused: see runReconciler.
@@ -190,6 +195,16 @@ export async function runReconciler(input: {
           timed_out_batches: toolCalls.timedOut,
         }),
   });
+  if ((toolCalls?.heldByFillSeconds ?? 0) >= FILL_HOLD_WARN_SECONDS) {
+    // Calls are delayed, not lost: the projection reads them once filled.
+    input.logger.warn(
+      "Tool call projection is waiting on the event neutral field fill",
+      {
+        applied_through: toolCalls?.appliedThrough,
+        fill_idle_seconds: Math.round(toolCalls?.heldByFillSeconds ?? 0),
+      },
+    );
+  }
   return {
     orphans: reconciled,
     leases,

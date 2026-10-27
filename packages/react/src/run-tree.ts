@@ -1,5 +1,9 @@
 import type { SessionEventFrame } from "@werft-ai/client";
-import type { StatusEventPhase } from "@werft-ai/contracts";
+import {
+  eventToolCall,
+  eventToolResult,
+  type StatusEventPhase,
+} from "@werft-ai/contracts";
 import type { RunStatus, ToolCallState } from "./components/agent-map/types.ts";
 
 /*
@@ -161,30 +165,10 @@ function remove(list: string[], id: string) {
   if (index >= 0) list.splice(index, 1);
 }
 
-function toolUses(message: unknown) {
-  const content = (message as { content?: unknown } | null)?.content;
-  if (!Array.isArray(content)) return [];
-  return content.flatMap((block: unknown) => {
-    const b = block as {
-      type?: unknown;
-      id?: unknown;
-      name?: unknown;
-      input?: unknown;
-    } | null;
-    // A call may not take the root's id, or it would stand in for the root.
-    return b?.type === "tool_use" &&
-      typeof b.id === "string" &&
-      b.id !== "" &&
-      b.id !== ROOT_RUN_ID
-      ? [
-          {
-            id: b.id,
-            name: typeof b.name === "string" ? b.name : "",
-            input: b.input,
-          },
-        ]
-      : [];
-  });
+function toolUses(data: unknown) {
+  const call = eventToolCall(data);
+  // A call may not take the root's id, or it would stand in for the root.
+  return call !== null && call.id !== ROOT_RUN_ID ? [call] : [];
 }
 
 function field(input: unknown, key: string) {
@@ -367,15 +351,8 @@ export function createRunTreeBuilder(): RunTreeBuilder {
       case "tool_use": {
         const parent = payload.data.parent_tool_use_id ?? null;
         ensureRun(parent ?? ROOT_RUN_ID, at);
-        toolUses(payload.data.message).forEach((use, index) => {
-          // Calls sharing a frame keep their block order.
-          const start =
-            index === 0
-              ? at
-              : {
-                  ...at,
-                  id: `${at.id}\u0000${String(index).padStart(9, "0")}`,
-                };
+        toolUses(payload.data).forEach((use) => {
+          const start = at;
           const known = tools.get(use.id);
           if (known && !before(start, known.start)) {
             // Whether a run exists must not depend on which frame came first.
@@ -404,15 +381,12 @@ export function createRunTreeBuilder(): RunTreeBuilder {
         break;
       }
       case "tool_result": {
-        const data = payload.data as {
-          tool_use_id?: unknown;
-          is_error?: unknown;
-        } | null;
-        const id = data?.tool_use_id;
-        if (typeof id !== "string") break;
+        const result = eventToolResult(payload.data);
+        if (result === null) break;
+        const id = result.tool_call_id;
         const known = results.get(id);
         if (known && !before(at, known.end)) break;
-        const error = data?.is_error === true;
+        const error = result.is_error === true;
         if (tools.has(id)) errors += (error ? 1 : 0) - (known?.error ? 1 : 0);
         results.set(id, { end: at, error });
         openQuestions.delete(id);

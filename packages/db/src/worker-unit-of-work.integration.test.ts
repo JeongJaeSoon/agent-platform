@@ -9,6 +9,7 @@ import {
   DEFAULT_LEASE_TTL_MS,
   DEFAULT_NONCE_TTL_MS,
   hashWorkerToken,
+  type NeutralizeEvent,
   profileFingerprint,
   transcriptWarnBytes,
   type WorkerGateway,
@@ -165,9 +166,10 @@ integration("worker gateway on PostgreSQL", () => {
     await database.drop();
   }, 60_000);
 
-  const briefGateway = (leaseTtlMs: number) =>
+  const briefGateway = (leaseTtlMs: number, neutralize?: NeutralizeEvent) =>
     createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
+      ...(neutralize === undefined ? {} : { neutralize }),
       catalog: {
         profiles: {
           "claude-coding-v1": {
@@ -467,6 +469,7 @@ integration("worker gateway on PostgreSQL", () => {
       kind: "session",
       attemptId: first.attempt_id,
       sessionId: first.session_id,
+      profileId: "claude-coding-v1",
       leaseEpoch: retry.lease_epoch,
       executionGeneration: retry.execution_generation,
       authRevision: retry.auth_revision,
@@ -972,6 +975,63 @@ integration("worker gateway on PostgreSQL", () => {
       .from(events)
       .where(workerStream(session.session_id));
     expect(storedRow?.stored).toBe(4);
+  });
+
+  test("a batch resent across replicas that do and do not store neutral fields is still the same batch", async () => {
+    const { session, claimed } = await claimAndDeliver();
+    // A rolling deploy: a replica that stores the neutral fields beside the
+    // event and an older one that does not compare a resend the same way.
+    const plain = briefGateway(LEASE_TTL_MS);
+    const neutral = briefGateway(LEASE_TTL_MS, (_, e) =>
+      e.event === "assistant" ? { ...e, data: { ...e.data, text: "hi" } } : e,
+    );
+    const said: WorkerEvent = {
+      event: "assistant",
+      data: { type: "assistant", message: { content: "hi" } },
+      source_sequence: 1,
+      occurred_at: clock.toISOString(),
+    };
+    const batch = {
+      ...scopeOf(claimed, "1"),
+      batch_key: "batch-1",
+      events: [said],
+    };
+    await neutral.appendEvents(principalOf(claimed), batch);
+    expect(
+      (await plain.appendEvents(principalOf(claimed), batch)).accepted_through,
+    ).toBe(1);
+    expect(
+      (await neutral.appendEvents(principalOf(claimed), batch))
+        .accepted_through,
+    ).toBe(1);
+    const stored = await db.execute(
+      sql`SELECT payload, neutral FROM events WHERE session_id = ${session.session_id} AND type = 'assistant'`,
+    );
+    expect(stored.rows).toEqual([
+      { payload: said.data, neutral: { text: "hi" } },
+    ]);
+    // Fields the worker sent itself are the event: a change there is not a
+    // resend.
+    const own: WorkerEvent = {
+      event: "assistant",
+      data: { type: "assistant", text: "A" },
+      source_sequence: 2,
+      occurred_at: clock.toISOString(),
+    };
+    await neutral.appendEvents(principalOf(claimed), {
+      ...batch,
+      batch_key: "batch-2",
+      events: [own],
+    });
+    expect(
+      await failure(
+        neutral.appendEvents(principalOf(claimed), {
+          ...batch,
+          batch_key: "batch-2",
+          events: [{ ...own, data: { type: "assistant", text: "B" } }],
+        }),
+      ),
+    ).toEqual({ status: 409, code: "IDEMPOTENCY_CONFLICT" });
   });
 
   test("finalize replayed with the same key but a different terminal is a conflict", async () => {

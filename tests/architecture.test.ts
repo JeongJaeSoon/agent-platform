@@ -231,6 +231,51 @@ function kindMentionAllowed(hit: string): boolean {
   );
 }
 
+// G3: the engine's own event shape, as stored in a v1 event: its message and
+// content blocks, its wrapped and native event types, its init subtype, its
+// envelope marker and its cost. Outside the adapters, readers take the
+// neutral fields a codec adds instead.
+const engineShapeReads = (cwd: string) =>
+  grepOutsideAdapters(cwd, [
+    "-E",
+    [
+      "sdk_event",
+      "native_type",
+      "sdk-envelope",
+      "NativeSdkMessage",
+      "total_cost_usd",
+      "message\\??\\.content",
+      "->+ *'(message|content)'",
+      "subtype.{0,12}[\"']init[\"']",
+      "[\"']init[\"'].{0,12}subtype",
+    ].join("|"),
+  ]);
+
+/** G3's allowlist, for one `path:line:text` hit. */
+function engineShapeReadAllowed(hit: string): boolean {
+  const [path = "", , ...rest] = hit.split(":");
+  const text = rest.join(":");
+  return (
+    // The public schema describes the engine fields as opaque.
+    (path === "packages/contracts/src/api/event.ts" &&
+      text === "      native_type: opaque(z.unknown().optional()),") ||
+    path === "apps/control-host/src/api/openapi.ts" ||
+    path === "packages/client/src/schema.gen.ts" ||
+    // Tests feed stored v1 events to prove they still read.
+    /\.test\.tsx?$/.test(path) ||
+    /\/(test-support|fixtures)\//.test(path) ||
+    path.startsWith("apps/worker/src/testing/") ||
+    // The fake model and the egress proxy read Messages API bodies, not events.
+    path === "packages/testkit/src/scripted-messages.ts" ||
+    (path === "apps/egress-proxy/src/usage.ts" &&
+      text.includes("SDK's `total_cost_usd`")) ||
+    // The usage reader's name for the platform's own cost sum.
+    (path === "packages/db/src/usage-reader.ts" &&
+      /\btotal_cost_usd\b/.test(text) &&
+      !text.includes("payload"))
+  );
+}
+
 /**
  * `forbidden` entries match a package and everything under it, so a bare
  * scope ("@aws-sdk") covers each of its packages.
@@ -1151,6 +1196,59 @@ describe("architecture", () => {
     expect(
       kindMentions(root).filter((hit) => !kindMentionAllowed(hit)),
     ).toEqual([]);
+  });
+
+  test("nothing outside the runtime adapters reads the engine's event shape (G3)", () => {
+    expect(
+      engineShapeReads(root).filter((hit) => !engineShapeReadAllowed(hit)),
+    ).toEqual([]);
+  });
+
+  test("the G3 scan catches each engine shape read outside the adapters", async () => {
+    const fixture = await mkdtemp(join(tmpdir(), "arch-"));
+    try {
+      const reads = [
+        "const blocks = data.message.content;",
+        'if (data.subtype === "init") {}',
+        'if (data.subtype === "sdk_event") {}',
+        "const native = data.native_type;",
+        'const v = "sdk-envelope/v1";',
+        "type M = NativeSdkMessage;",
+        "const cost = data.total_cost_usd;",
+        "sql`payload->'message'->'content'`;",
+      ];
+      const files: Array<[string, string]> = [
+        ["apps/web/src/read.ts", `${reads.join("\n")}\n`],
+        ["packages/adapters/runtimes/c/src/ok.ts", `${reads.join("\n")}\n`],
+        ["packages/b/src/read.test.ts", `${reads[0]}\n`],
+        // The schema line passes; a read in the same file does not.
+        [
+          "packages/contracts/src/api/event.ts",
+          "      native_type: opaque(z.unknown().optional()),\n" +
+            "const n = data.native_type;\n",
+        ],
+      ];
+      for (const [path, body] of files) {
+        await mkdir(join(fixture, dirname(path)), { recursive: true });
+        await writeFile(join(fixture, path), body);
+      }
+      expect(
+        Bun.spawnSync(["git", "init", "-q"], { cwd: fixture }).exitCode,
+      ).toBe(0);
+      expect(
+        engineShapeReads(fixture)
+          .filter((hit) => !engineShapeReadAllowed(hit))
+          .map((hit) => hit.split(":").slice(0, 2).join(":"))
+          .sort(),
+      ).toEqual(
+        [
+          ...reads.map((_, index) => `apps/web/src/read.ts:${index + 1}`),
+          "packages/contracts/src/api/event.ts:2",
+        ].sort(),
+      );
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
   });
 
   test("the G1 and G2 scans catch a violation in any tracked or new file", async () => {

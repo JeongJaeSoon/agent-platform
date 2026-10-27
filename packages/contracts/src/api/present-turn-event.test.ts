@@ -17,65 +17,72 @@ const AT = "2026-10-21T02:54:00.000Z";
 // One readable payload per event name; status gets one per phase below.
 const PAYLOADS: Record<SessionEventName, unknown[]> = {
   system: [
-    { type: "system", subtype: "init" },
-    { type: "system", subtype: "vcs_state_changed" },
-    { type: "system", subtype: "compact_boundary" },
-    { type: "system", subtype: "thinking_tokens" },
-    { type: "system", subtype: "sdk_event", native_type: "command_lifecycle" },
+    { type: "system", engine_event: { name: "init", category: "started" } },
+    {
+      type: "system",
+      engine_event: { name: "vcs_state_changed", category: "workspace" },
+    },
+    {
+      type: "system",
+      engine_event: { name: "compact_boundary", category: "other" },
+    },
+    {
+      type: "system",
+      engine_event: { name: "thinking_tokens", category: "thinking" },
+    },
+    {
+      type: "system",
+      engine_event: { name: "command_lifecycle", category: "internal" },
+    },
     { type: "system" },
-    // Loose system payloads: the web folds only on an exact subtype string.
-    { type: "system", subtype: ["thinking_tokens"] },
-    { type: "system", subtype: ["sdk_event"] },
-    { type: "system", subtype: ["init"] },
+    // The platform's own: named by their subtype, never folded.
+    { type: "system", subtype: "context_gap_detected" },
+    { type: "system", subtype: "thinking_tokens" },
   ],
   assistant: [
+    { type: "assistant", text: "Listing files" },
+    { type: "assistant", text: "x".repeat(300) },
+    { type: "assistant", thinking: "Read it first." },
+    { type: "assistant", thinking: "" },
+    { type: "assistant" },
+    // The engine's own message is never read.
     {
       type: "assistant",
-      message: { content: [{ type: "text", text: "Listing files" }] },
+      message: { content: [{ type: "text", text: "not shown" }] },
     },
-    {
-      type: "assistant",
-      message: { content: [{ type: "text", text: "x".repeat(300) }] },
-    },
-    {
-      type: "assistant",
-      message: { content: [{ type: "thinking", thinking: "Read it first." }] },
-    },
-    { type: "assistant", message: { content: [{ type: "thinking" }] } },
-    { type: "assistant", message: { content: [] } },
-    { type: "assistant", message: "not blocks" },
   ],
   tool_use: [
     {
       type: "assistant",
-      message: {
-        content: [
-          {
-            type: "tool_use",
-            id: "tu_1",
-            name: "Bash",
-            input: { command: "rm -rf build", description: "Clean" },
-          },
-          {
-            type: "tool_use",
-            id: "tu_2",
-            name: "Bash",
-            input: { command: `echo ${"x".repeat(200)}\nsecond` },
-          },
-          { type: "tool_use", id: "tu_3", name: "TodoWrite", input: {} },
-        ],
+      tool_call: {
+        id: "tu_1",
+        name: "Bash",
+        input: { command: "rm -rf build", description: "Clean" },
       },
+    },
+    {
+      type: "assistant",
+      tool_call: {
+        id: "tu_2",
+        name: "Bash",
+        input: { command: `echo ${"x".repeat(200)}\nsecond` },
+      },
+    },
+    {
+      type: "assistant",
+      tool_call: { id: "tu_3", name: "TodoWrite", input: {} },
     },
   ],
   tool_result: [
-    { type: "tool_result", tool_use_id: "tu_1", content: "a.txt" },
+    { tool_result: { tool_call_id: "tu_1", is_error: false, text: "a.txt" } },
     {
-      type: "tool_result",
-      tool_use_id: "tu_1",
-      is_error: true,
-      content: [{ type: "text", text: "make: *** No rule\nline 2\nline 3" }],
+      tool_result: {
+        tool_call_id: "tu_1",
+        is_error: true,
+        text: "make: *** No rule\nline 2\nline 3",
+      },
     },
-    { type: "tool_result", tool_use_id: "tu_1", content: "" },
+    { tool_result: { tool_call_id: "tu_1", is_error: null, text: "" } },
     "plain text result",
   ],
   question: [
@@ -127,14 +134,22 @@ const PAYLOADS: Record<SessionEventName, unknown[]> = {
     {
       type: "result",
       subtype: "success",
-      session_id: "s",
-      usage: { input_tokens: 120, output_tokens: 30 },
+      turn: {
+        outcome: "success",
+        is_error: false,
+        terminal_reason: "completed",
+        tokens: 150,
+      },
     },
     {
       type: "result",
       subtype: "error_max_turns",
-      session_id: "s",
-      is_error: true,
+      turn: {
+        outcome: "error_max_turns",
+        is_error: true,
+        terminal_reason: null,
+        tokens: null,
+      },
     },
   ],
   status: STATUS_EVENT_PHASE_VALUES.map((phase) => ({ phase })),
@@ -230,9 +245,6 @@ describe("presentTurnEvent", () => {
           throw new Error("getter");
         },
       },
-      JSON.parse(
-        '{"event":"assistant","data":{"type":"assistant","message":{"content":[{"type":"text","text":{"toString":null}}]}}}',
-      ),
       JSON.parse('{"event":"system","data":{"subtype":{"toString":null}}}'),
     ];
     for (const event of throwing) {
@@ -240,7 +252,7 @@ describe("presentTurnEvent", () => {
     }
     const hostile = {
       event: "assistant",
-      data: { message: { content: [null, 1, [], { type: "text" }] } },
+      data: { text: { toString: null }, tool_call: [], thinking: 1 },
     };
     expect(() => presentTurnEvent(hostile)).not.toThrow();
   });

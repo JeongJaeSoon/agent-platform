@@ -4704,6 +4704,41 @@
                       "type": {
                         "type": "string",
                         "const": "system"
+                      },
+                      "engine_event": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "started",
+                              "thinking",
+                              "workspace",
+                              "internal",
+                              "other"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "category"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "native_type": {
+                        "description": "Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead."
+                      },
+                      "schema_version": {
+                        "description": "Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead."
+                      },
+                      "sdk_version": {
+                        "description": "Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead."
+                      },
+                      "correlation_id": {
+                        "description": "Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead."
                       }
                     },
                     "required": [
@@ -4788,7 +4823,9 @@
                         "type": "string",
                         "const": "assistant"
                       },
-                      "message": {},
+                      "message": {
+                        "description": "Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead."
+                      },
                       "parent_tool_use_id": {
                         "anyOf": [
                           {
@@ -4799,11 +4836,35 @@
                             "type": "null"
                           }
                         ]
+                      },
+                      "text": {
+                        "type": "string"
+                      },
+                      "thinking": {
+                        "type": "string"
+                      },
+                      "tool_call": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "input": {}
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "input"
+                        ],
+                        "additionalProperties": false
                       }
                     },
                     "required": [
-                      "type",
-                      "message"
+                      "type"
                     ],
                     "additionalProperties": false
                   }
@@ -4884,7 +4945,9 @@
                         "type": "string",
                         "const": "assistant"
                       },
-                      "message": {},
+                      "message": {
+                        "description": "Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead."
+                      },
                       "parent_tool_use_id": {
                         "anyOf": [
                           {
@@ -4895,11 +4958,35 @@
                             "type": "null"
                           }
                         ]
+                      },
+                      "text": {
+                        "type": "string"
+                      },
+                      "thinking": {
+                        "type": "string"
+                      },
+                      "tool_call": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "input": {}
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "input"
+                        ],
+                        "additionalProperties": false
                       }
                     },
                     "required": [
-                      "type",
-                      "message"
+                      "type"
                     ],
                     "additionalProperties": false
                   }
@@ -4973,7 +5060,9 @@
                     "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
                     "description": "When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it."
                   },
-                  "data": {}
+                  "data": {
+                    "description": "Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead. An object here carries the engine-neutral `tool_result` field: { tool_call_id, is_error, text }."
+                  }
                 },
                 "required": [
                   "schema_version",
@@ -5159,19 +5248,87 @@
                         "const": "result"
                       },
                       "subtype": {
+                        "description": "Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead.",
                         "type": "string",
                         "minLength": 1
                       },
                       "session_id": {
+                        "description": "Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead.",
                         "type": "string",
                         "minLength": 1
                       },
-                      "usage": {}
+                      "usage": {
+                        "description": "Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead."
+                      },
+                      "turn": {
+                        "type": "object",
+                        "properties": {
+                          "outcome": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "is_error": {
+                            "type": "boolean"
+                          },
+                          "terminal_reason": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "tokens": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "outcome",
+                          "is_error",
+                          "terminal_reason",
+                          "tokens"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "runtime": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "session_ref": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "session_ref"
+                        ],
+                        "additionalProperties": false
+                      }
                     },
                     "required": [
-                      "type",
-                      "subtype",
-                      "session_id"
+                      "type"
                     ],
                     "additionalProperties": {}
                   }

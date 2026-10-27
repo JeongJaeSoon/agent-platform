@@ -3418,6 +3418,19 @@ export interface components {
                 data: {
                     /** @constant */
                     type: "system";
+                    engine_event?: {
+                        name: string;
+                        /** @enum {string} */
+                        category: "started" | "thinking" | "workspace" | "internal" | "other";
+                    };
+                    /** @description Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead. */
+                    native_type?: unknown;
+                    /** @description Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead. */
+                    schema_version?: unknown;
+                    /** @description Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead. */
+                    sdk_version?: unknown;
+                    /** @description Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead. */
+                    correlation_id?: unknown;
                 } & {
                     [key: string]: unknown;
                 };
@@ -3441,8 +3454,16 @@ export interface components {
                 data: {
                     /** @constant */
                     type: "assistant";
-                    message: unknown;
+                    /** @description Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead. */
+                    message?: unknown;
                     parent_tool_use_id?: string | null;
+                    text?: string;
+                    thinking?: string;
+                    tool_call?: {
+                        id: string;
+                        name: string;
+                        input: unknown;
+                    };
                 };
             };
         } | {
@@ -3464,8 +3485,16 @@ export interface components {
                 data: {
                     /** @constant */
                     type: "assistant";
-                    message: unknown;
+                    /** @description Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead. */
+                    message?: unknown;
                     parent_tool_use_id?: string | null;
+                    text?: string;
+                    thinking?: string;
+                    tool_call?: {
+                        id: string;
+                        name: string;
+                        input: unknown;
+                    };
                 };
             };
         } | {
@@ -3484,6 +3513,7 @@ export interface components {
                  * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.
                  */
                 occurred_at: string;
+                /** @description Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead. An object here carries the engine-neutral `tool_result` field: { tool_call_id, is_error, text }. */
                 data: unknown;
             };
         } | {
@@ -3532,9 +3562,22 @@ export interface components {
                 data: {
                     /** @constant */
                     type: "result";
-                    subtype: string;
-                    session_id: string;
+                    /** @description Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead. */
+                    subtype?: string;
+                    /** @description Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead. */
+                    session_id?: string;
+                    /** @description Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead. */
                     usage?: unknown;
+                    turn?: {
+                        outcome: string;
+                        is_error: boolean;
+                        terminal_reason: string | null;
+                        tokens: number | null;
+                    };
+                    runtime?: {
+                        kind: string;
+                        session_ref: string | null;
+                    };
                 } & {
                     [key: string]: unknown;
                 };

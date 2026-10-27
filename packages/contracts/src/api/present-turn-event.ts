@@ -1,10 +1,19 @@
 import type { StatusEventPhase } from "./event.ts";
+import {
+  eventEngineEvent,
+  eventText,
+  eventThinking,
+  eventToolCall,
+  eventToolResult,
+  eventTurnEnd,
+} from "./neutral-event.ts";
 import type { SessionStatus } from "./session.ts";
 
 /*
  * Says in words what one session event is, for every surface that shows a
  * turn (the web timeline, Slack). It returns message keys and parameters, not
- * text: each surface owns its wording. It reads only the fields it knows and
+ * text: each surface owns its wording. It reads only the fields it knows,
+ * of an engine's events only the engine-neutral ones (neutral-event.ts), and
  * never throws, so it takes any event-shaped value, parsed or not.
  *
  * Kept free of zod (type imports only) so a browser bundle that calls it does
@@ -125,15 +134,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function contentBlocks(content: unknown): Record<string, unknown>[] {
-  return Array.isArray(content)
-    ? content.flatMap((block) => {
-        const fields = asRecord(block);
-        return fields ? [fields] : [];
-      })
-    : [];
-}
-
 function firstLine(text: string) {
   return text.trim().split("\n")[0]?.trim() ?? "";
 }
@@ -166,26 +166,6 @@ function inputSummary(input: unknown) {
 function toolCall(name: string, input: unknown) {
   const about = inputSummary(input);
   return about ? `${name}: ${about}` : name;
-}
-
-function resultText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .flatMap((block) => {
-      const text = asRecord(block)?.text;
-      return typeof text === "string" ? [text] : [];
-    })
-    .join("\n");
-}
-
-function tokenCount(usage: unknown) {
-  const fields = asRecord(usage);
-  if (!fields) return null;
-  const counts = [fields.input_tokens, fields.output_tokens].filter(
-    (value): value is number => typeof value === "number",
-  );
-  return counts.length > 0 ? counts.reduce((a, b) => a + b, 0) : null;
 }
 
 function text(value: string): TurnEventPart[] {
@@ -222,35 +202,23 @@ function question(data: Record<string, unknown>): TurnEventPresentation {
 }
 
 function assistant(data: Record<string, unknown>): TurnEventPresentation {
-  const blocks = contentBlocks(asRecord(data.message)?.content);
-  const reply = blocks
-    .filter((block) => block.type === "text")
-    .map((block) => String(block.text ?? ""))
-    .join(" ")
-    .trim();
+  const reply = eventText(data)?.trim();
   if (reply) {
     return {
       label: message("session.event.kind.assistant"),
       summary: text(clip(reply)),
     };
   }
-  const tools = blocks.filter((block) => block.type === "tool_use");
-  if (tools.length > 0) {
+  const call = eventToolCall(data);
+  if (call) {
     return {
       label: message("session.event.kind.toolUse"),
-      summary: text(
-        tools
-          .map((block) => toolCall(String(block.name ?? ""), block.input))
-          .join(", "),
-      ),
+      summary: text(toolCall(call.name, call.input)),
     };
   }
-  const thinking = blocks.filter((block) => block.type === "thinking");
-  if (thinking.length > 0) {
-    const thought = thinking
-      .map((block) => String(block.thinking ?? ""))
-      .join("\n")
-      .trim();
+  const thinking = eventThinking(data);
+  if (thinking !== null) {
+    const thought = thinking.trim();
     return {
       label: message("session.event.kind.thinking"),
       summary: [message("session.event.thought")],
@@ -265,8 +233,9 @@ function toolResult(
   toolName: string | undefined,
 ): TurnEventPresentation {
   const tool = toolName ?? "";
-  const failed = data.is_error === true;
-  const body = resultText(data.content).trim();
+  const result = eventToolResult(data);
+  const failed = result?.is_error === true;
+  const body = (result?.text ?? "").trim();
   const lines = body ? body.split("\n").length : 0;
   return {
     label: message("session.event.kind.toolResult"),
@@ -289,29 +258,31 @@ function toolResult(
 }
 
 function system(data: Record<string, unknown>): TurnEventPresentation {
-  // Folding matches the subtype exactly; the line itself reads it as text.
-  if (data.subtype === "thinking_tokens") {
-    return {
-      label: message("session.event.kind.thinking"),
-      summary: [message("session.event.thinkingTokens", { count: 1 })],
-      fold: "thinking_tick",
-    };
-  }
-  const subtype = String(data.subtype ?? "");
   const label = message("session.event.kind.system");
-  switch (subtype) {
-    case "init":
+  const engine = eventEngineEvent(data);
+  // Without engine_event it is one the control plane wrote, named by its
+  // own subtype.
+  if (engine === null)
+    return { label, summary: text(String(data.subtype ?? "")) };
+  switch (engine.category) {
+    case "thinking":
+      return {
+        label: message("session.event.kind.thinking"),
+        summary: [message("session.event.thinkingTokens", { count: 1 })],
+        fold: "thinking_tick",
+      };
+    case "started":
       return { label, summary: [message("session.event.init")] };
-    case "vcs_state_changed":
+    case "workspace":
       return { label, summary: [message("session.event.vcsChanged")] };
-    case "sdk_event":
+    case "internal":
       return {
         label: message("session.event.kind.internal"),
-        summary: text(String(data.native_type ?? subtype)),
-        ...(data.subtype === "sdk_event" ? { fold: "debug" as const } : {}),
+        summary: text(engine.name),
+        fold: "debug",
       };
     default:
-      return { label, summary: text(subtype) };
+      return { label, summary: text(engine.name) };
   }
 }
 
@@ -356,19 +327,19 @@ function present(
     case "question":
       return question(data);
     case "result": {
-      if (typeof data.subtype !== "string") return GENERIC;
-      const tokens = tokenCount(data.usage);
+      const turn = eventTurnEnd(data);
+      if (turn === null) return GENERIC;
       return {
         label: message("session.event.kind.result"),
         summary: [
-          data.subtype === "success"
+          turn.outcome === "success"
             ? message("session.event.result.success")
-            : message("session.event.result.other", { subtype: data.subtype }),
-          ...(tokens === null
+            : message("session.event.result.other", { subtype: turn.outcome }),
+          ...(turn.tokens === null
             ? []
-            : [message("session.event.result.tokens", { count: tokens })]),
+            : [message("session.event.result.tokens", { count: turn.tokens })]),
         ],
-        error: data.is_error === true,
+        error: turn.is_error,
       };
     }
     case "assistant":
