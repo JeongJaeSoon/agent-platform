@@ -353,7 +353,11 @@ describe("홈 요약", () => {
         accounted_content: ["input_messages"],
         updated_at: null,
       },
-      outputs: { used_bytes: 0, updated_at: null, complete: true },
+      outputs: {
+        used_bytes: 314572800,
+        updated_at: "2026-10-24T12:35:00Z",
+        complete: true,
+      },
     },
   };
   const since = new Date(Date.now() - 30 * 86_400_000)
@@ -619,12 +623,12 @@ describe("홈 요약", () => {
           rows: [
             ["세션", "12"],
             ["동시 실행", "3 / 8 slot"],
-            ["결과물 저장", "—미계측"],
+            ["결과물 저장", "300 MB"],
           ],
         },
         {
           title: "확인할 항목",
-          badge: "운영",
+          badge: "워크스페이스",
           value: "2",
           rows: [
             ["30분 넘게 대기", "1개 세션"],

@@ -30,7 +30,7 @@ export interface InstallationLimitsProps {
 
 /**
  * The installation's execution capacity, slots and stored input, over every
- * limit it sets. The per-session limits have no installation-wide figure.
+ * limit it sets and the outputs stored without one. The per-session limits have no installation-wide figure.
  */
 export function InstallationLimits({
   limits,
@@ -64,6 +64,14 @@ export function InstallationLimits({
       use ? format.bytes(use.storage.used_bytes) : null,
       cap ? format.bytes(cap.storage_limit_bytes) : null,
       messages.storageRowNote,
+    ],
+    [
+      messages.outputs,
+      use ? format.bytes(use.outputs.used_bytes) : null,
+      cap ? <Badge key="none">{messages.noLimit}</Badge> : null,
+      use?.outputs.complete === false
+        ? messages.outputsIncompleteNote
+        : messages.outputsRowNote,
     ],
     [
       messages.sessionCost,

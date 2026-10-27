@@ -340,7 +340,7 @@ export function HomeScreen() {
   const unmeasured = <Unmeasured />;
   const unknown = t("home.overview.unknown");
   const number = new Intl.NumberFormat(locale);
-  const { usd } = OPERATIONS_MESSAGES[locale].format;
+  const { usd, bytes } = OPERATIONS_MESSAGES[locale].format;
   // A partial sum must not pass for the whole spend.
   const costNote = (summary: UsageSummaryResponse | undefined) =>
     t(
@@ -373,7 +373,12 @@ export function HomeScreen() {
               })
             : t("home.overview.unknown"),
         },
-        { label: t("home.glance.outputs"), value: unmeasured },
+        {
+          label: t("home.glance.outputs"),
+          value: limits.data
+            ? bytes(limits.data.usage.outputs.used_bytes)
+            : unknown,
+        },
       ]}
       footer={
         installSummary
@@ -389,7 +394,7 @@ export function HomeScreen() {
       key="oversight"
       eyebrow={t("home.glance.workspace")}
       title={t("home.glance.workspaceTitle")}
-      badge={<Badge>{t("home.glance.operations")}</Badge>}
+      badge={<Badge>{t("shell.group.workspace")}</Badge>}
       value={attention === null ? t("home.overview.unknown") : attention}
       note={t("home.glance.attentionNote")}
       rows={[
