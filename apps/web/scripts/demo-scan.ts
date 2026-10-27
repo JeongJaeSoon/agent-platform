@@ -19,7 +19,7 @@ export interface Finding {
 }
 
 const PRIVATE_IPV4 =
-  /\b(?:127\.0\.0\.1|localhost|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])(?:\.\d{1,3}){2})\b/g;
+  /\b(?:127\.0\.0\.1|localhost|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])(?:\.\d{1,3}){2})\b/gi;
 
 const RULES: readonly (readonly [string, RegExp])[] = [
   ["platform token", /\bap[a-z]_[A-Za-z0-9_-]{20,}/g],
@@ -30,15 +30,17 @@ const RULES: readonly (readonly [string, RegExp])[] = [
   ["aws key", /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g],
   ["private key", /-----BEGIN [A-Z ]*PRIVATE KEY-----/g],
   ["jwt", /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\./g],
-  ["bearer header", /\bBearer [A-Za-z0-9._~+/-]{16,}/g],
-  ["tailnet host", /[\w.-]*\.ts\.net\b|\btailscale\b/gi],
+  ["bearer header", /\bBearer[ +][A-Za-z0-9._~+/-]{16,}/gi],
+  // Patterns that open with a repeated class start only where a word starts;
+  // otherwise a long run of letters is retried from every position.
+  ["tailnet host", /(?<![\w.-])[\w.-]*\.ts\.net\b|\btailscale\b/gi],
   ["private address", PRIVATE_IPV4],
   ["machine name", /\b(?:jaesoon|94soon|soons?-mac[\w-]*|wjdwotns\w*)\b/gi],
   ["home path", /\/(?:Users|home)\/[\w.-]+/g],
 ];
 
-const EMAIL = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
-const ALLOWED_EMAIL = /@example\.test$/;
+const EMAIL = /(?<![\w.+-])[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
+const ALLOWED_EMAIL = /@example\.test$/i;
 
 /**
  * Addresses of the recording stack that a visitor's copy should not carry:
@@ -61,23 +63,53 @@ export function scanFixtures(fixtures: {
 }): Finding[] {
   const findings: Finding[] = [];
   Object.entries(fixtures.responses).forEach(([key, response], answer) => {
-    // Keys and URLs in answers are percent-encoded (`@` as `%40`); decoding
-    // only reveals, so the decoded text is the one scanned.
-    const text = percentDecode(`${key}\n${JSON.stringify(response)}`);
+    const text = [key, ...strings(response)].map(reveal).join("\n");
     for (const [rule, pattern] of RULES)
       for (const [match] of text.matchAll(pattern))
         findings.push({ rule, match, answer });
     for (const [match] of text.matchAll(EMAIL))
       if (!ALLOWED_EMAIL.test(match))
         findings.push({ rule: "email outside example.test", match, answer });
-    // A JSON escape such as `\n` would glue its letter to the address.
-    for (const [match] of text
-      .replace(/\\[bfnrt]/g, " ")
-      .matchAll(IPV6_CANDIDATE))
+    for (const [match] of text.matchAll(IPV6_CANDIDATE))
       if (isPrivateIpv6(match))
         findings.push({ rule: "private address", match, answer });
   });
   return findings;
+}
+
+/** Every string in an answer, object keys included, as JavaScript reads it. */
+function strings(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(strings);
+  if (typeof value === "object" && value !== null)
+    return Object.entries(value).flatMap(([k, v]) => [k, ...strings(v)]);
+  return [];
+}
+
+/**
+ * What a reader of the published demo could recover from a string. SSE
+ * frames carry JSON as text, so its escapes are still literal; URLs and
+ * fixture keys are percent-encoded, sometimes twice. Decoding only reveals,
+ * so the decoded text is the one scanned.
+ */
+function reveal(text: string): string {
+  let current = text.replace(
+    /\\u([0-9a-f]{4})|\\([bfnrt"\\/])/gi,
+    (_, hex: string | undefined, char: string | undefined) =>
+      hex
+        ? String.fromCharCode(Number.parseInt(hex, 16))
+        : ({ b: "\b", f: "\f", n: "\n", r: "\r", t: "\t" }[char as "b"] ??
+          (char as string)),
+  );
+  for (let round = 0; round < 4; round += 1) {
+    // Byte-wise, so one stray `%` does not leave the rest encoded.
+    const next = current.replace(/%([0-9a-f]{2})/gi, (_, hex: string) =>
+      String.fromCharCode(Number.parseInt(hex, 16)),
+    );
+    if (next === current) break;
+    current = next;
+  }
+  return current;
 }
 
 const IPV6_CANDIDATE =
@@ -102,16 +134,9 @@ function isPrivateIpv6(candidate: string): boolean {
       Number.parseInt(group ?? "", 16),
     ) as [number, number];
     const ipv4 = [hi >> 8, hi & 255, lo >> 8, lo & 255].join(".");
-    return new RegExp(PRIVATE_IPV4.source).test(ipv4);
+    return new RegExp(PRIVATE_IPV4.source, "i").test(ipv4);
   }
   return host === "[::1]" || /^\[f[cd]/i.test(host);
-}
-
-/** Byte-wise, so one stray `%` does not leave the rest encoded. */
-function percentDecode(text: string): string {
-  return text.replace(/%([0-9a-f]{2})/gi, (_, hex: string) =>
-    String.fromCharCode(Number.parseInt(hex, 16)),
-  );
 }
 
 /** A demo without a signed-in session answer opens on an error screen. */

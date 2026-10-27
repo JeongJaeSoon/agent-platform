@@ -83,6 +83,28 @@ describe("demo fixture scan", () => {
     ).toEqual([]);
   });
 
+  test("values hidden behind escapes and encodings are revealed", () => {
+    expect(
+      scan({
+        a: "line\n10.1.2.3",
+        b: "nul\u0000fd00::1",
+        c: "https://x.example.test/?q=host%3Dfd00%253A%253A1",
+        sse: 'data: {"host":"fd00\\u003a\\u003a1"}\n\n',
+        d: "http://LocalHost:8000/",
+      }),
+    ).toEqual(Array(5).fill("private address"));
+  });
+
+  test("demo addresses pass in any case", () => {
+    expect(scan({ email: "Demo-Owner@EXAMPLE.TEST" })).toEqual([]);
+  });
+
+  test("a long run of letters scans in linear time", () => {
+    const started = performance.now();
+    expect(scan({ log: "a".repeat(200_000) })).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
   test("a description carries no part of the value", () => {
     const [finding] = scanFixtures({
       responses: { "/v1/x?email=someone%40corp.example.com": {} },
