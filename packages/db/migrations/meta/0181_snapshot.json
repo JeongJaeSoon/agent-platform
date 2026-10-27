@@ -1,5 +1,5 @@
 {
-  "id": "d4652b95-1422-43df-867b-c59f1aa47080",
+  "id": "3b435297-006f-470f-b721-e8276eaf6624",
   "prevId": "e4fa7cc1-640f-4d9b-9d4d-23c08537dbb1",
   "version": "7",
   "dialect": "postgresql",
@@ -1196,7 +1196,7 @@
         "manifest_ref": {
           "name": "manifest_ref",
           "type": "text",
-          "primaryKey": true,
+          "primaryKey": false,
           "notNull": true
         },
         "session_id": {
@@ -1239,7 +1239,12 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "approval_checkpoint_voids_manifest_ref_session_id_attempt_id_pk": {
+          "name": "approval_checkpoint_voids_manifest_ref_session_id_attempt_id_pk",
+          "columns": ["manifest_ref", "session_id", "attempt_id"]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},

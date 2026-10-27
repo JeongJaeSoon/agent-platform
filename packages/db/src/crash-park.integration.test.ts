@@ -472,6 +472,22 @@ integration("crash park on an approval-wait checkpoint", () => {
     await expectUnknown(sessionId, worker);
   });
 
+  test("another session's invalidation of the same ref does not stand in for this one's", async () => {
+    const other = await runningSession();
+    const { sessionId, worker } = await runningSession();
+    const checkpoint = checkpointOf(worker);
+    for (const caller of [other.worker, worker]) {
+      await gateway.invalidateApprovalCheckpoint(caller.principal, {
+        ...caller.scope,
+        manifest_ref: checkpoint.manifest_ref,
+      });
+    }
+    await register(worker, { checkpoint });
+
+    await executionGone(worker);
+    await expectUnknown(sessionId, worker);
+  });
+
   test("an answer delivered past what the worker had applied at the capture leaves the turn unknown", async () => {
     const { owner, sessionId, worker } = await runningSession();
     const requestId = await register(worker, {

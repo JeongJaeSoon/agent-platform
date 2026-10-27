@@ -529,21 +529,24 @@ describe("the worker's checkpoints against the control plane's service", () => {
     ]);
     expect(gateway.finalized[0]?.checkpoint).toBeNull();
     expect(pointers.pointer()).toBeNull();
+    // The approval-wait capture, then the turn's end.
     expect(recorded.failures).toEqual([
       expect.objectContaining({ stage: "workspace" }),
+      expect.objectContaining({ stage: "workspace" }),
     ]);
+    expect(gateway.registrations[0]?.checkpoint).toBeUndefined();
     expect(
       gateway.checkpointRequests
         .map((request) => request.preparation)
         .filter((preparation) => preparation.status === "rejected"),
-    ).toEqual([
-      {
+    ).toEqual(
+      Array(2).fill({
         status: "rejected",
         reason: "publish_failed",
         detail: expect.stringMatching(
           /^workspace: the workspace bundle is over/,
         ),
-      },
-    ]);
+      }),
+    );
   }, 180_000);
 });

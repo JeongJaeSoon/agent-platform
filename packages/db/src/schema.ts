@@ -1613,16 +1613,26 @@ export const approvalCheckpoints = pgTable("approval_checkpoints", {
 
 // An invalidation that came before the registration carrying its checkpoint
 // committed: that registration still may, and must find it void.
-export const approvalCheckpointVoids = pgTable("approval_checkpoint_voids", {
-  manifestRef: text("manifest_ref").primaryKey(),
-  sessionId: uuid("session_id")
-    .notNull()
-    .references(() => sessions.id),
-  attemptId: text("attempt_id")
-    .notNull()
-    .references(() => attempts.id),
-  voidedAt: timestamp("voided_at", { withTimezone: true }).notNull(),
-});
+// Keyed by the attempt too: another attempt naming the same ref voids
+// nothing of this one's.
+export const approvalCheckpointVoids = pgTable(
+  "approval_checkpoint_voids",
+  {
+    manifestRef: text("manifest_ref").notNull(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id),
+    attemptId: text("attempt_id")
+      .notNull()
+      .references(() => attempts.id),
+    voidedAt: timestamp("voided_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.manifestRef, table.sessionId, table.attemptId],
+    }),
+  ],
+);
 
 // An answer to a parked permission request, to be spent once by the turn
 // that resumes it. The tool, input hash and who answered stay on the

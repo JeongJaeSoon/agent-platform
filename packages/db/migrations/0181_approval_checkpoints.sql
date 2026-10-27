@@ -1,8 +1,9 @@
 CREATE TABLE "approval_checkpoint_voids" (
-	"manifest_ref" text PRIMARY KEY NOT NULL,
+	"manifest_ref" text NOT NULL,
 	"session_id" uuid NOT NULL,
 	"attempt_id" text NOT NULL,
-	"voided_at" timestamp with time zone NOT NULL
+	"voided_at" timestamp with time zone NOT NULL,
+	CONSTRAINT "approval_checkpoint_voids_manifest_ref_session_id_attempt_id_pk" PRIMARY KEY("manifest_ref","session_id","attempt_id")
 );
 --> statement-breakpoint
 CREATE TABLE "approval_checkpoints" (
