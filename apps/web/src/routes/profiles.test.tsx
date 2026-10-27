@@ -144,11 +144,16 @@ describe("실행 프로필", () => {
     expect(
       table.querySelector("[data-hide-narrow], [data-lines], .truncate"),
     ).toBeNull();
-    expect(screen.getByText("프로필 2개")).toBeDefined();
-    expect(screen.getByText("아직 좁힌 프로필이 없습니다")).toBeDefined();
+    // The count sits in the section head, beside the title it counts.
     expect(
-      screen.getByRole("button", { name: "좁힌 프로필 만들기" }),
+      screen
+        .getByRole("region", { name: "운영자 프로필" })
+        .querySelector("[data-slot=badge]")?.textContent,
+    ).toBe("2개");
+    expect(
+      screen.getByText("아직 워크스페이스 프로필이 없습니다"),
     ).toBeDefined();
+    expect(screen.getByRole("button", { name: "프로필 만들기" })).toBeDefined();
     expect(api.calls.filter((call) => call.method !== "GET")).toEqual([]);
   });
 
@@ -162,18 +167,16 @@ describe("실행 프로필", () => {
       name: "워크스페이스 프로필",
     });
     expect(rows(table)).toEqual([
-      ["이름", "기준", "상태"],
-      ["strictws_acme_strict_v1", "coding-claudeclaude-sonnet-5", "쓸 수 있음"],
+      ["이름", "바탕 프로필", "상태"],
+      ["strict v1ws_acme_strict_v1", "coding-claudeclaude-sonnet-5", "사용 중"],
     ]);
     expect(
       screen.getByText("바꾸려면 워크스페이스 소유자나 관리자에게 요청하세요"),
     ).toBeDefined();
     expect(
-      screen.queryAllByRole("button", { name: "좁힌 프로필 만들기" }).length,
+      screen.queryAllByRole("button", { name: "프로필 만들기" }).length,
     ).toBe(0);
-    expect(
-      screen.queryAllByRole("button", { name: "새 판 만들기" }).length,
-    ).toBe(0);
+    expect(screen.queryAllByRole("button", { name: "수정" }).length).toBe(0);
   });
 
   test("an owner narrows an operator profile into a new version", async () => {
@@ -181,13 +184,13 @@ describe("실행 프로필", () => {
     const { api } = renderAt("/profiles", server.routes);
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "좁힌 프로필 만들기" }),
+      await screen.findByRole("button", { name: "프로필 만들기" }),
     );
     const editor = await screen.findByRole("region", {
-      name: "좁힌 프로필 만들기",
+      name: "프로필 만들기",
     });
     expect(
-      (within(editor).getByLabelText("기준 프로필") as HTMLSelectElement).value,
+      (within(editor).getByLabelText("바탕 프로필") as HTMLSelectElement).value,
     ).toBe("coding-claude");
     expect(
       within(editor)
@@ -218,15 +221,15 @@ describe("실행 프로필", () => {
 
     await user.type(within(editor).getByLabelText("이름"), "strict");
     expect(
-      within(editor).getByText("저장하면 ws_acme_strict_v1 판이 생깁니다."),
+      within(editor).getByText("저장할 버전의 id: ws_acme_strict_v1"),
     ).toBeDefined();
     await user.click(within(editor).getByRole("checkbox", { name: "Bash" }));
     await user.selectOptions(mode, "plan");
     await user.click(
-      within(editor).getByRole("button", { name: "새 판으로 저장" }),
+      within(editor).getByRole("button", { name: "새 버전으로 저장" }),
     );
 
-    await screen.findByText("ws_acme_strict_v1 판을 만들었습니다.");
+    await screen.findByText("ws_acme_strict_v1 버전을 저장했습니다.");
     expect(
       api.calls
         .filter((call) => call.method === "POST")
@@ -243,7 +246,7 @@ describe("실행 프로필", () => {
     ]);
     await waitFor(() =>
       expect(
-        screen.queryAllByRole("region", { name: "좁힌 프로필 만들기" }).length,
+        screen.queryAllByRole("region", { name: "프로필 만들기" }).length,
       ).toBe(0),
     );
     const table = await screen.findByRole("table", {
@@ -256,14 +259,14 @@ describe("실행 프로필", () => {
     const { api } = renderAt("/profiles", catalog().routes);
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "좁힌 프로필 만들기" }),
+      await screen.findByRole("button", { name: "프로필 만들기" }),
     );
     const editor = await screen.findByRole("region", {
-      name: "좁힌 프로필 만들기",
+      name: "프로필 만들기",
     });
     await user.type(within(editor).getByLabelText("이름"), "Strict Review");
     await user.click(
-      within(editor).getByRole("button", { name: "새 판으로 저장" }),
+      within(editor).getByRole("button", { name: "새 버전으로 저장" }),
     );
     expect(
       await within(editor).findByText(
@@ -283,24 +286,22 @@ describe("실행 프로필", () => {
     ]);
     const { api } = renderAt("/profiles", server.routes);
     const user = await setupUser();
-    await user.click(
-      await screen.findByRole("button", { name: "새 판 만들기" }),
-    );
+    await user.click(await screen.findByRole("button", { name: "수정" }));
     const editor = await screen.findByRole("region", {
-      name: "strict 새 판 만들기",
+      name: "strict 수정",
     });
-    expect(within(editor).queryAllByLabelText("기준 프로필").length).toBe(0);
+    expect(within(editor).queryAllByLabelText("바탕 프로필").length).toBe(0);
     expect(
       (within(editor).getByLabelText("이름") as HTMLInputElement).readOnly,
     ).toBe(true);
     expect(
-      within(editor).getByText("저장하면 ws_acme_strict_v2 판이 생깁니다."),
+      within(editor).getByText("저장할 버전의 id: ws_acme_strict_v2"),
     ).toBeDefined();
     await user.click(within(editor).getByRole("checkbox", { name: "Edit" }));
     await user.click(
-      within(editor).getByRole("button", { name: "새 판으로 저장" }),
+      within(editor).getByRole("button", { name: "새 버전으로 저장" }),
     );
-    await screen.findByText("ws_acme_strict_v2 판을 만들었습니다.");
+    await screen.findByText("ws_acme_strict_v2 버전을 저장했습니다.");
     expect(
       api.calls.filter((call) => call.method === "POST").map((c) => c.body),
     ).toEqual([
@@ -313,6 +314,55 @@ describe("실행 프로필", () => {
         permission_mode: "plan",
       },
     ]);
+  });
+
+  test("a name with several versions shows its latest, the earlier ones folded under it", async () => {
+    renderAt("/profiles", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/profiles": () =>
+        json(200, {
+          items: [...PROFILES, version(1, "retired"), version(2, "usable")],
+        }),
+    });
+    const table = await screen.findByRole("table", {
+      name: "워크스페이스 프로필",
+    });
+    expect(rows(table).slice(1)).toEqual([
+      [
+        "strict v2 이전 버전 1개ws_acme_strict_v2",
+        "coding-claudeclaude-sonnet-5",
+        "사용 중",
+        "수정사용 중지",
+      ],
+    ]);
+    expect(
+      screen
+        .getByRole("region", { name: "워크스페이스 프로필" })
+        .querySelector("[data-slot=badge]")?.textContent,
+    ).toBe("1개");
+    const toggle = within(table).getByRole("button", {
+      name: "이전 버전 1개",
+    });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    const user = await setupUser();
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(rows(table).slice(1)).toEqual([
+      [
+        "strict v2 이전 버전 1개ws_acme_strict_v2",
+        "coding-claudeclaude-sonnet-5",
+        "사용 중",
+        "수정사용 중지",
+      ],
+      [
+        "strict v1ws_acme_strict_v1",
+        "coding-claudeclaude-sonnet-5",
+        "사용 중지됨",
+        "",
+      ],
+    ]);
+    await user.click(toggle);
+    expect(rows(table)).toHaveLength(2);
   });
 
   test("a version whose base changed warns and is made again; one whose base is gone can only retire", async () => {
@@ -338,23 +388,23 @@ describe("실행 프로필", () => {
         }),
     });
     expect(
-      await screen.findByText("strict의 기준이 바뀌었습니다"),
+      await screen.findByText("strict의 바탕 프로필이 바뀌었습니다"),
     ).toBeDefined();
-    expect(screen.getByText("gone의 기준이 없어졌습니다")).toBeDefined();
+    expect(screen.getByText("gone의 바탕 프로필이 없어졌습니다")).toBeDefined();
     const table = screen.getByRole("table", { name: "워크스페이스 프로필" });
     expect(rows(table)).toEqual([
-      ["이름", "기준", "상태", "동작"],
+      ["이름", "바탕 프로필", "상태", "동작"],
       [
-        "gonews_acme_gone_v1",
+        "gone v1ws_acme_gone_v1",
         "removed-profileclaude-sonnet-5",
-        "기준 없음",
-        "은퇴",
+        "바탕 프로필 없음",
+        "사용 중지",
       ],
       [
-        "strictws_acme_strict_v1",
+        "strict v1ws_acme_strict_v1",
         "coding-claudeclaude-sonnet-5",
-        "기준 바뀜",
-        "다시 만들기은퇴",
+        "바탕 프로필 바뀜",
+        "다시 만들기사용 중지",
       ],
     ]);
     const user = await setupUser();
@@ -376,20 +426,23 @@ describe("실행 프로필", () => {
     });
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "은퇴 ws_acme_strict_v1" }),
+      await screen.findByRole("button", {
+        name: "사용 중지 ws_acme_strict_v1",
+      }),
     );
     const dialog = await screen.findByRole("dialog", {
-      name: "ws_acme_strict_v1 판을 은퇴시킬까요?",
+      name: "ws_acme_strict_v1 버전을 사용 중지할까요?",
     });
+    expect(within(dialog).getByText(/되돌릴 수 없습니다/)).toBeDefined();
     expect(api.calls.filter((call) => call.method === "POST")).toEqual([]);
-    await user.click(within(dialog).getByRole("button", { name: "은퇴" }));
-    await screen.findByText("ws_acme_strict_v1 판을 은퇴시켰습니다.");
+    await user.click(within(dialog).getByRole("button", { name: "사용 중지" }));
+    await screen.findByText("ws_acme_strict_v1 버전을 사용 중지했습니다.");
     const table = screen.getByRole("table", { name: "워크스페이스 프로필" });
     await waitFor(() =>
       expect(rows(table)[1]).toEqual([
-        "strictws_acme_strict_v1",
+        "strict v1ws_acme_strict_v1",
         "coding-claudeclaude-sonnet-5",
-        "은퇴",
+        "사용 중지됨",
         "",
       ]),
     );
@@ -411,18 +464,18 @@ describe("실행 프로필", () => {
     });
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "좁힌 프로필 만들기" }),
+      await screen.findByRole("button", { name: "프로필 만들기" }),
     );
     const editor = await screen.findByRole("region", {
-      name: "좁힌 프로필 만들기",
+      name: "프로필 만들기",
     });
     await user.type(within(editor).getByLabelText("이름"), "strict");
     await user.click(
-      within(editor).getByRole("button", { name: "새 판으로 저장" }),
+      within(editor).getByRole("button", { name: "새 버전으로 저장" }),
     );
     expect(
       await within(editor).findByText(
-        "기준 프로필이 허용하지 않는 값입니다. 목록을 다시 불러와 기준을 확인하세요.",
+        "바탕 프로필이 허용하지 않는 값입니다. 목록을 다시 불러와 바탕 프로필을 확인하세요.",
       ),
     ).toBeDefined();
   });
@@ -435,18 +488,18 @@ describe("실행 프로필", () => {
     const { api } = renderAt("/profiles", catalog([wide]).routes);
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "좁힌 프로필 만들기" }),
+      await screen.findByRole("button", { name: "프로필 만들기" }),
     );
     const editor = await screen.findByRole("region", {
-      name: "좁힌 프로필 만들기",
+      name: "프로필 만들기",
     });
     await user.type(within(editor).getByLabelText("이름"), "wide");
     await user.click(
-      within(editor).getByRole("button", { name: "새 판으로 저장" }),
+      within(editor).getByRole("button", { name: "새 버전으로 저장" }),
     );
     expect(
       await within(editor).findByText(
-        "한 판에는 모델 32개, 도구 64개까지 담습니다. 줄인 뒤 다시 저장하세요.",
+        "한 프로필에는 모델 32개, 도구 64개까지 담습니다. 줄인 뒤 다시 저장하세요.",
       ),
     ).toBeDefined();
     expect(api.calls.filter((call) => call.method === "POST")).toEqual([]);
@@ -460,18 +513,18 @@ describe("실행 프로필", () => {
     const { api } = renderAt("/profiles", catalog([long]).routes);
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "좁힌 프로필 만들기" }),
+      await screen.findByRole("button", { name: "프로필 만들기" }),
     );
     const editor = await screen.findByRole("region", {
-      name: "좁힌 프로필 만들기",
+      name: "프로필 만들기",
     });
     await user.type(within(editor).getByLabelText("이름"), "long");
     await user.click(
-      within(editor).getByRole("button", { name: "새 판으로 저장" }),
+      within(editor).getByRole("button", { name: "새 버전으로 저장" }),
     );
     expect(
       await within(editor).findByText(
-        "판에는 200자 이하의 이름만 담습니다. 이름이 긴 모델이나 도구를 빼고 저장하세요.",
+        "프로필에는 200자 이하의 이름만 담습니다. 이름이 긴 모델이나 도구를 빼고 저장하세요.",
       ),
     ).toBeDefined();
     expect(api.calls.filter((call) => call.method === "POST")).toEqual([]);
@@ -495,23 +548,21 @@ describe("실행 프로필", () => {
     });
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "좁힌 프로필 만들기" }),
+      await screen.findByRole("button", { name: "프로필 만들기" }),
     );
     const first = await screen.findByRole("region", {
-      name: "좁힌 프로필 만들기",
+      name: "프로필 만들기",
     });
     await user.type(within(first).getByLabelText("이름"), "fresh");
     await user.click(
-      within(first).getByRole("button", { name: "새 판으로 저장" }),
+      within(first).getByRole("button", { name: "새 버전으로 저장" }),
     );
-    await user.click(screen.getByRole("button", { name: "새 판 만들기" }));
-    await screen.findByRole("region", { name: "strict 새 판 만들기" });
+    await user.click(screen.getByRole("button", { name: "수정" }));
+    await screen.findByRole("region", { name: "strict 수정" });
     reply();
-    await screen.findByText("ws_acme_fresh_v1 판을 만들었습니다.");
-    expect(
-      screen.getByRole("region", { name: "strict 새 판 만들기" }),
-    ).toBeDefined();
-    expect(screen.queryAllByText("새 판으로 저장").length).toBe(1);
+    await screen.findByText("ws_acme_fresh_v1 버전을 저장했습니다.");
+    expect(screen.getByRole("region", { name: "strict 수정" })).toBeDefined();
+    expect(screen.queryAllByText("새 버전으로 저장").length).toBe(1);
   });
 
   test("a retire that fails after the role is lost still says so", async () => {
@@ -530,10 +581,12 @@ describe("실행 프로필", () => {
     });
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "은퇴 ws_acme_strict_v1" }),
+      await screen.findByRole("button", {
+        name: "사용 중지 ws_acme_strict_v1",
+      }),
     );
     const dialog = await screen.findByRole("dialog");
-    await user.click(within(dialog).getByRole("button", { name: "은퇴" }));
+    await user.click(within(dialog).getByRole("button", { name: "사용 중지" }));
     role = "member";
     await services.queryClient.invalidateQueries();
     await screen.findByText(
@@ -553,11 +606,11 @@ describe("실행 프로필", () => {
     });
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "좁힌 프로필 만들기" }),
+      await screen.findByRole("button", { name: "프로필 만들기" }),
     );
-    await screen.findByRole("region", { name: "좁힌 프로필 만들기" });
+    await screen.findByRole("region", { name: "프로필 만들기" });
     await user.click(
-      screen.getByRole("button", { name: "은퇴 ws_acme_strict_v1" }),
+      screen.getByRole("button", { name: "사용 중지 ws_acme_strict_v1" }),
     );
     await screen.findByRole("dialog");
     role = "member";
@@ -566,7 +619,7 @@ describe("실행 프로필", () => {
       "바꾸려면 워크스페이스 소유자나 관리자에게 요청하세요",
     );
     await waitFor(() => expect(screen.queryAllByRole("dialog").length).toBe(0));
-    expect(screen.queryAllByText("새 판으로 저장").length).toBe(0);
+    expect(screen.queryAllByText("새 버전으로 저장").length).toBe(0);
   });
 
   test("a failed read says so and asks again", async () => {
@@ -596,7 +649,7 @@ describe("실행 프로필", () => {
       ).toBe(0),
     );
     expect(
-      screen.queryAllByRole("button", { name: "좁힌 프로필 만들기" }).length,
+      screen.queryAllByRole("button", { name: "프로필 만들기" }).length,
     ).toBe(0);
   });
 });
