@@ -58,11 +58,6 @@ export function receiptActorOf(principal: Principal): ReceiptActor | null {
 export type Caller = Principal & {
   subject: AuthorizationSubject;
   requestId: string;
-  /**
-   * The agent an agent key was issued for, as authentication read it. Only
-   * names what to ask about: the policy re-reads the key for every decision.
-   */
-  keyAgentId?: string;
 };
 
 /**
@@ -73,7 +68,7 @@ export function callerFor(
   principal: AuthenticatedPrincipal,
   surface: AuthorizationSurface,
   requestId: string,
-  storedKey?: { creatorId: string | null; agentId?: string | null },
+  storedKey?: { creatorId: string | null },
 ): Caller {
   const userId =
     principal.kind === "user"
@@ -95,7 +90,6 @@ export function callerFor(
       surface,
     },
     requestId,
-    ...(storedKey?.agentId ? { keyAgentId: storedKey.agentId } : {}),
   };
 }
 

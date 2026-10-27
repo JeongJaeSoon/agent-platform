@@ -16,6 +16,7 @@ import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import { ACTOR_INACTIVE, NOT_FOUND } from "../musterrolle/service-errors.ts";
 import type { SlackWelcome } from "../musterrolle/slack-welcome.ts";
 import type { AgentStore } from "../ports/agent-store.ts";
+import type { WorkspaceKeyStore } from "../ports/api-key-store.ts";
 import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
 import {
   allowedRun,
@@ -91,6 +92,8 @@ export function createAgentService(deps: {
   credentials: Pick<CredentialBindingStore, "unboundRefs">;
   /** The home channel's welcome; absent where Slack is not wired. */
   welcome?: Pick<SlackWelcome, "activated">;
+  /** Where an agent key's agent is read; absent, every key is refused. */
+  keys?: Pick<WorkspaceKeyStore, "find">;
 }) {
   const { authorization, store, catalog, credentials } = deps;
 
@@ -148,8 +151,15 @@ export function createAgentService(deps: {
     caller: Caller,
     query: ListAgentsQuery,
   ): Promise<ListAgentsResponse> {
-    const agentId = caller.keyAgentId;
-    if (agentId === undefined || query.include === "summary") {
+    // Read by the principal the policy re-reads below, so the agent asked
+    // about is the one bound to the key that decision judges.
+    const principal = caller.subject.principal;
+    const key =
+      principal?.kind === "api_key" && principal.workspace_id !== null
+        ? await deps.keys?.find(principal.workspace_id, principal.id)
+        : null;
+    const agentId = key?.kind === "agent" ? key.agentId : null;
+    if (!agentId || query.include === "summary") {
       throw new SessionServiceError(
         "FORBIDDEN",
         "Only an agent key lists agents, and only its own agent without include=summary",

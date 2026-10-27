@@ -2603,7 +2603,9 @@ export const API_ROUTE_DECLARATIONS = [
     summary: "The workspace's agents",
     description:
       "Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its runtime profile, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once; without it the items are as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, and every other API key is refused.",
-    auth: "session",
+    // A key needs sessions:write here, the right to start a session on the
+    // agent it finds; a person's role holds it.
+    scope: "write",
     query: "ListAgentsQuery",
     success: {
       status: 200,

@@ -133,6 +133,7 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
       store: createPostgresAgentStore(db),
       catalog,
       credentials,
+      keys: createPostgresWorkspaceKeyStore(db),
     });
     const service = createSessionService({
       limits: {
@@ -516,7 +517,8 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
     for (const [headers, path, reason] of [
       // What a card shows an admin is not the key's to read.
       [bearer(agentKey), "/v1/agents?include=summary", undefined],
-      [bearer(readOnly), "/v1/agents", "role"],
+      // The scope check refuses it before the service reads anything.
+      [bearer(readOnly), "/v1/agents", undefined],
       [bearer(personalKey), "/v1/agents", undefined],
       [bearer(agentKey), "/v1/agents/counts", undefined],
       [bearer(agentKey), `/v1/agents/${agentIds.mine}`, "role"],
