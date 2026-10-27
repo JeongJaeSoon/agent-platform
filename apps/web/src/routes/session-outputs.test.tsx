@@ -157,6 +157,11 @@ describe("session outputs", () => {
     );
     await openOutputs();
     expect(await screen.findByText("아직 결과물이 없습니다.")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "결과물은 작업 공간 out/ 폴더에 남긴 파일입니다. 저장소 파일 변경은 진행 탭의 도구 호출에서 볼 수 있습니다.",
+      ),
+    ).toBeTruthy();
     expect(screen.queryByRole("region", { name: "결과물" })).toBeNull();
   });
 
