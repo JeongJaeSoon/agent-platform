@@ -293,14 +293,16 @@ export function Releases({
                   {t("agent.releases.colStatus")}
                 </TableHead>
                 <TableHead>{t("agent.releases.profile")}</TableHead>
-                <TableHead>{t("agent.releases.repository")}</TableHead>
-                <TableHead className="whitespace-nowrap">
+                <TableHead variant="nowrap">
+                  {t("agent.releases.repository")}
+                </TableHead>
+                <TableHead variant="nowrap">
                   {t("agent.releases.colBy")}
                 </TableHead>
                 <TableHead variant="nowrap">
                   {t("agent.releases.colAt")}
                 </TableHead>
-                <TableHead variant="text">
+                <TableHead variant="text" className="min-w-72">
                   {t("agent.releases.colNote")}
                 </TableHead>
                 <TableHead variant="actions">
@@ -346,10 +348,13 @@ export function Releases({
                         </Badge>
                       ) : null}
                     </TableCell>
-                    <TableCell className="font-mono text-caption">
+                    <TableCell
+                      variant="nowrap"
+                      className="font-mono text-caption"
+                    >
                       {item.repository_id ?? t("agent.releases.repositoryNone")}
                     </TableCell>
-                    <TableCell>
+                    <TableCell variant="nowrap">
                       {(item.created_by
                         ? names.get(item.created_by)
                         : undefined) ?? t("agent.releases.byMember")}
@@ -358,7 +363,7 @@ export function Releases({
                       {formatTimestamp(item.created_at, locale)}
                     </TableCell>
                     {/* Wrapped, not cut: a note runs to 200 characters. */}
-                    <TableCell variant="text" className="break-words">
+                    <TableCell variant="text" className="min-w-72 break-words">
                       {item.note ?? (
                         <span className="text-muted-foreground">
                           {t("agent.releases.noteNone")}
