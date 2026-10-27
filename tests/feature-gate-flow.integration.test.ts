@@ -261,9 +261,7 @@ integration(
     expect(response.status).toBe(201);
     const created = createSessionResponseSchema.parse(await response.json());
 
-    const backend = new WorkerBackend(
-      () => `http://127.0.0.1:${server.port}`,
-    );
+    const backend = new WorkerBackend(() => `http://127.0.0.1:${server.port}`);
     const store = createPostgresSchedulerStore(db, {
       connectForLock: () => pool.connect(),
       sessionCostLimitUsd: 1_000,
