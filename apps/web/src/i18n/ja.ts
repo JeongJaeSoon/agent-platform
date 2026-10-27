@@ -45,10 +45,21 @@ export const slackJa = {
   "slack.state.pending": "インストール待ち",
   "slack.state.connected": "接続済み",
   "slack.state.reinstall": "再インストールが必要",
-  "slack.eventsPending.title": "Slack で Request URL を Verify してください",
+  "slack.eventsPending.title": "Slack が Request URL をまだ確認していません",
   "slack.eventsPending.body":
-    "Slack がこのアプリの Request URL を確認するまで、招待・メンション・DM のイベントは届きません。アプリ設定の Event Subscriptions で Verify(または Retry)を押してください。確認が届くとこの案内は消えます。",
-  "slack.eventsPending.open": "Event Subscriptions を開く",
+    "Slack がこのアプリの Request URL を確認するまで、招待・メンション・DM のイベントは届きません。詳細の「再確認」で URL をもう一度送ってください。それでも残る場合は、アプリ設定の App Manifest で Verify を押してください。確認が届くとこの案内は消えます。",
+  "slack.eventsPending.open": "App Manifest を開く",
+  "slack.eventsUrl.title": "イベントの Request URL",
+  "slack.eventsUrl.hint":
+    "Slack が招待・メンション・DM を送る先です。再確認するとアプリ設定に URL をもう一度送り、Slack の確認要求に自動で応答します。",
+  "slack.eventsUrl.verified": "Slack が確認済み",
+  "slack.eventsUrl.pending": "Slack の確認待ち",
+  "slack.eventsUrl.failed": "登録に失敗",
+  "slack.eventsUrl.unsent": "まだ送っていません",
+  "slack.eventsUrl.recheck": "再確認",
+  "slack.eventsUrl.done": "Slack が Request URL を確認しました。",
+  "slack.eventsUrl.sent":
+    "Request URL を Slack にもう一度送りました。Slack が確認すると状態が変わります。",
   "slack.repositoryRequired.title": "Slack からはセッションを開始できません",
   "slack.repositoryRequired.body":
     "有効なリリースのプロファイル（{profile}）はセッションごとにリポジトリが必要ですが、リリースに使えるリポジトリがありません（選ばれていないか、カタログから外れています）。Slack のメンションと DM は拒否され、スレッドに案内だけが残ります。接続はできます。リリースタブでリポジトリを選んで新しいリリースを作成し、有効化してください。",

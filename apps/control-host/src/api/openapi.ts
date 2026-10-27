@@ -2958,7 +2958,11 @@ export const API_ROUTE_DECLARATIONS = [
         slack_app: EXAMPLE_SLACK_APP,
         event_url:
           "https://agents.example.test/v1/slack/events/019a0000-0000-7000-8000-0000000000c1",
-        events: { state: "pending", checked_at: null },
+        events: {
+          state: "pending",
+          checked_at: "2026-10-28T00:00:00.000Z",
+          url: "https://agents.example.test/v1/slack/events/019a0000-0000-7000-8000-0000000000c1",
+        },
         warnings: [],
       },
     },
@@ -2966,6 +2970,39 @@ export const API_ROUTE_DECLARATIONS = [
     errorNotes: {
       BACKEND_UNAVAILABLE:
         "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
+  },
+  {
+    method: "post",
+    path: "/v1/agents/{id}/slack/app/events/recheck",
+    operationId: "recheckSlackAppEvents",
+    tag: "Agents",
+    // Sending the same manifest again is harmless.
+    idempotent: false,
+    summary: "Send the agent app's Request URL to Slack again",
+    description:
+      "Sends the app's whole manifest again with its Request URL (`apps.manifest.update`), as the install does, so Slack checks the URL anew. Slack's check arrives as a signed `url_verification`, which the events route answers with its challenge and nothing else; the app then reads `events.state: verified`. An app already verified for the same URL stays verified; a changed URL reads `pending` until Slack checks it. `events.url` is the Request URL last sent to Slack, null before any. Owners, admins and the agent's admins from a signed-in console; API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "GetSlackAppResponse",
+      description: "The agent's app after the manifest was sent.",
+      example: {
+        slack_app: EXAMPLE_SLACK_APP,
+        event_url:
+          "https://agents.example.test/v1/slack/events/019a0000-0000-7000-8000-0000000000c1",
+        events: {
+          state: "verified",
+          checked_at: "2026-10-28T00:00:00.000Z",
+          url: "https://agents.example.test/v1/slack/events/019a0000-0000-7000-8000-0000000000c1",
+        },
+        warnings: [],
+      },
+    },
+    errors: [401, 403, 404, 503],
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also without a master key (PLATFORM_SECRET_KEY), without SLACK_EVENTS_PUBLIC_URL, or when Slack refuses or loses the manifest update.",
     },
   },
   {

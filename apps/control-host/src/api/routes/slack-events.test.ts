@@ -249,6 +249,7 @@ describe("POST /v1/slack/events/{agent_id}", () => {
     expect((await apps.store.find(WORKSPACE, APP_ROW))?.events).toEqual({
       state: "pending",
       checked_at: null,
+      url: null,
     });
   });
 

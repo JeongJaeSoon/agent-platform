@@ -275,6 +275,7 @@ describe("Slack events service", () => {
     expect(await events()).toEqual({
       state: "verified",
       checked_at: NOW.toISOString(),
+      url: null,
     });
     w.advance(60_000);
     await w.service.receive(w.signed(w.event(MENTION, { eventId: "Ev0B" })));

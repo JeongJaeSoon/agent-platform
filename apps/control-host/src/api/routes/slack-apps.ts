@@ -72,6 +72,14 @@ export function registerSlackAppRoutes(
     return jsonWithSchema(context, getSlackAppResponseSchema, found);
   });
 
+  apiRoute(router, "recheckSlackAppEvents", async (context) => {
+    const params = requireParams(context, agentIdParamsSchema);
+    const found = await mapped(() =>
+      apps.recheckAgentAppEvents(context.get("caller"), params.id),
+    );
+    return jsonWithSchema(context, getSlackAppResponseSchema, found);
+  });
+
   apiRoute(router, "createSlackApp", async (context) => {
     const params = requireParams(context, agentIdParamsSchema);
     const body = await parseJsonBody(context, createSlackAppRequestSchema);

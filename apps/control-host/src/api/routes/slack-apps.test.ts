@@ -396,9 +396,23 @@ describe("the agent Slack app API", () => {
     ).toEqual({
       slack_app: null,
       event_url: `https://events.example.test/v1/slack/events/${IDLE_AGENT}`,
-      events: { state: "pending", checked_at: null },
+      events: { state: "pending", checked_at: null, url: null },
       warnings: [],
     });
+
+    const recheck = await call("POST", `${appPath(AGENT)}/events/recheck`, {
+      cookie: admin,
+    });
+    expect(recheck.status).toBe(200);
+    expect(recheck.json.events).toMatchObject({
+      state: "pending",
+      url: `https://events.example.test/v1/slack/events/${AGENT}`,
+    });
+    const none = await call("POST", `${appPath(IDLE_AGENT)}/events/recheck`, {
+      cookie: admin,
+    });
+    expect(none.status).toBe(404);
+    expect(code(none.json).code).toBe("NOT_FOUND");
   });
 
   test("a member who is not the agent's admin, an API key, or a write without CSRF is refused", async () => {

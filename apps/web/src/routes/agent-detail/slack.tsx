@@ -347,10 +347,10 @@ function SlackStatus({ agentId }: { readonly agentId: string }) {
   const placeholder = <Skeleton className="h-5 w-24" />;
   const bindingsLost = bindings.isError && !bindings.data;
   const record = app.data?.slack_app;
-  // Pending with no event URL means no subscription was ever asked for.
+  // Until a Request URL has gone to Slack there is nothing to verify.
   const unverifiedApp =
     app.data?.events.state === "pending" &&
-    app.data.event_url !== null &&
+    app.data.events.url !== null &&
     record?.state === "created"
       ? record.app_id
       : null;
@@ -366,7 +366,7 @@ function SlackStatus({ agentId }: { readonly agentId: string }) {
           <AlertDescription>
             {t("slack.eventsPending.body")}{" "}
             <Link
-              href={`https://api.slack.com/apps/${encodeURIComponent(unverifiedApp)}/event-subscriptions`}
+              href={`https://api.slack.com/apps/${encodeURIComponent(unverifiedApp)}/app-manifest`}
               target="_blank"
               newTabLabel={t("slack.newTab")}
               underline="always"
@@ -516,15 +516,40 @@ export function SlackConnect({
       await refresh();
     },
   });
+  const recheck = useMutation({
+    onMutate: () => setNotice(""),
+    mutationFn: () =>
+      unwrap(
+        client.POST("/v1/agents/{id}/slack/app/events/recheck", {
+          params: { path: { id: agentId } },
+        }),
+      ),
+    onSuccess: async (read) => {
+      setNotice(
+        t(
+          read.events.state === "verified"
+            ? "slack.eventsUrl.done"
+            : "slack.eventsUrl.sent",
+        ),
+      );
+      await refresh();
+    },
+  });
   const error =
     app.error ??
     identities.error ??
     connect.error ??
     remove.error ??
-    revoke.error;
+    revoke.error ??
+    recheck.error;
   const errorText = error ? slackFailure(error, t) : "";
   if (app.isPending || identities.isPending) return <SlackSkeleton />;
-  const busy = connect.isPending || remove.isPending || revoke.isPending;
+  const busy =
+    connect.isPending ||
+    remove.isPending ||
+    revoke.isPending ||
+    recheck.isPending;
+  const events = app.data?.events;
   const pending = record?.state === "creating" || record?.state === "deleting";
   const status = slackState(error, identity, record);
   return (
@@ -657,6 +682,34 @@ export function SlackConnect({
                       {t("slack.refresh")}
                     </Button>
                   </>
+                }
+              />
+            ) : null}
+            {manage &&
+            identity &&
+            record.state === "created" &&
+            events &&
+            app.data?.event_url ? (
+              <SettingRow
+                title={t("slack.eventsUrl.title")}
+                description={t("slack.eventsUrl.hint")}
+                meta={t(
+                  events.url === null
+                    ? "slack.eventsUrl.unsent"
+                    : `slack.eventsUrl.${events.state}`,
+                )}
+                actions={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={busy || pending}
+                    onClick={() => recheck.mutate()}
+                  >
+                    {recheck.isPending
+                      ? t("slack.working")
+                      : t("slack.eventsUrl.recheck")}
+                  </Button>
                 }
               />
             ) : null}

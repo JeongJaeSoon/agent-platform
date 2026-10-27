@@ -175,6 +175,8 @@ export const getSlackAppResponseSchema = z
       .object({
         state: z.enum(["verified", "pending", "failed"]),
         checked_at: timestampSchema.nullable(),
+        /** The Request URL last sent to Slack; null while none has been. */
+        url: z.url().nullable(),
         error: z.string().max(128).optional(),
       })
       .strict(),

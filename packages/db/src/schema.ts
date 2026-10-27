@@ -516,6 +516,8 @@ export const slackApps = pgTable(
       .default("pending"),
     eventsCheckedAt: timestamp("events_checked_at", { withTimezone: true }),
     eventsError: text("events_error"),
+    /** The Request URL last sent to Slack; null until one is. */
+    eventsUrl: text("events_url"),
     createdByTokenUser: text("created_by_token_user"),
     /** No foreign key: the row outlives the account; null for the CLI. */
     createdBy: uuid("created_by"),

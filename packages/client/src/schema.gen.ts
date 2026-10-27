@@ -1821,6 +1821,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{id}/slack/app/events/recheck": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send the agent app's Request URL to Slack again
+         * @description Sends the app's whole manifest again with its Request URL (`apps.manifest.update`), as the install does, so Slack checks the URL anew. Slack's check arrives as a signed `url_verification`, which the events route answers with its challenge and nothing else; the app then reads `events.state: verified`. An app already verified for the same URL stays verified; a changed URL reads `pending` until Slack checks it. `events.url` is the Request URL last sent to Slack, null before any. Owners, admins and the agent's admins from a signed-in console; API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["recheckSlackAppEvents"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{id}/slack/install/start": {
         parameters: {
             query?: never;
@@ -4252,6 +4274,7 @@ export interface components {
                 /** @enum {string} */
                 state: "verified" | "pending" | "failed";
                 checked_at: string | null;
+                url: string | null;
                 error?: string;
             };
             warnings: ({
@@ -17141,7 +17164,8 @@ export interface operations {
                      *       "event_url": "https://agents.example.test/v1/slack/events/019a0000-0000-7000-8000-0000000000c1",
                      *       "events": {
                      *         "state": "pending",
-                     *         "checked_at": null
+                     *         "checked_at": "2026-10-28T00:00:00.000Z",
+                     *         "url": "https://agents.example.test/v1/slack/events/019a0000-0000-7000-8000-0000000000c1"
                      *       },
                      *       "warnings": []
                      *     }
@@ -17396,6 +17420,152 @@ export interface operations {
             };
             500: components["responses"]["InternalError"];
             /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also when the API runs without a master key (PLATFORM_SECRET_KEY) or SLACK_OIDC_REDIRECT_URI, when Slack refused the manifest (`error.details.slack_error`; nothing was created) or could not be reached. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    recheckSlackAppEvents: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The agent's app after the manifest was sent. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "slack_app": {
+                     *         "id": "6a1d3e5f-2b4c-4d8e-9f0a-1b2c3d4e5f60",
+                     *         "kind": "agent",
+                     *         "agent_id": "8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d",
+                     *         "state": "created",
+                     *         "app_id": "A0B1C2D3E4F",
+                     *         "client_id": "1234567890.9876543210",
+                     *         "redirect_url": "https://console.example.ts.net/agents/8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d/slack/callback",
+                     *         "created_by_token_user": "U0ISSUER",
+                     *         "created_at": "2026-10-23T09:00:00Z",
+                     *         "updated_at": "2026-10-23T09:00:00Z",
+                     *         "secrets": {
+                     *           "slack_signing_secret": {
+                     *             "configured": true,
+                     *             "last4": "c3d4",
+                     *             "updated_at": "2026-10-23T09:00:00Z",
+                     *             "updated_by": null
+                     *           },
+                     *           "slack_client_secret": {
+                     *             "configured": true,
+                     *             "last4": "e5f6",
+                     *             "updated_at": "2026-10-23T09:00:00Z",
+                     *             "updated_by": null
+                     *           },
+                     *           "slack_bot_token": {
+                     *             "configured": false,
+                     *             "last4": null,
+                     *             "updated_at": null,
+                     *             "updated_by": null
+                     *           }
+                     *         }
+                     *       },
+                     *       "event_url": "https://agents.example.test/v1/slack/events/019a0000-0000-7000-8000-0000000000c1",
+                     *       "events": {
+                     *         "state": "verified",
+                     *         "checked_at": "2026-10-28T00:00:00.000Z",
+                     *         "url": "https://agents.example.test/v1/slack/events/019a0000-0000-7000-8000-0000000000c1"
+                     *       },
+                     *       "warnings": []
+                     *     }
+                     */
+                    "application/json": components["schemas"]["GetSlackAppResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also without a master key (PLATFORM_SECRET_KEY), without SLACK_EVENTS_PUBLIC_URL, or when Slack refuses or loses the manifest update. */
             503: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];

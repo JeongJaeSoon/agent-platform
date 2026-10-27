@@ -1,0 +1,1 @@
+ALTER TABLE "slack_apps" ADD COLUMN "events_url" text;
