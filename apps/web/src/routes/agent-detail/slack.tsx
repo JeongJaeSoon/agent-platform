@@ -66,13 +66,11 @@ const modeKey = (mode: Binding["mode"]) =>
     : mode === "off"
       ? "slack.off"
       : "slack.mention";
-// The DM row is an on/off switch, so mention reads as on there.
+// The DM row is an on/off switch, so mention reads as on there. With no
+// row yet the server makes a mention one on the first DM and answers it.
 const dmKey = (dm: Binding | undefined) =>
-  !dm
-    ? "slack.notConfigured"
-    : dm.mode === "mention"
-      ? "slack.on"
-      : modeKey(dm.mode);
+  !dm || dm.mode === "mention" ? "slack.on" : modeKey(dm.mode);
+const dmOn = (dm: Binding | undefined) => dm === undefined || dm.mode !== "off";
 
 const SECTION = {
   channels: "slack-channels",
@@ -1299,7 +1297,7 @@ function SlackDmSetting({ agentId }: { readonly agentId: string }) {
         bindings.isError && !bindings.data ? null : (
           <Switch
             aria-label={t("slack.dmSetting")}
-            checked={dm !== undefined && dm.mode !== "off"}
+            checked={dmOn(dm)}
             aria-disabled={unavailable}
             onCheckedChange={(checked) => {
               if (!unavailable) update.mutate(checked);

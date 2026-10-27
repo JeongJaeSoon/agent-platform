@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "bun --bun vite",
     "build": "bun --bun vite build",
+    "build:demo": "bun --bun vite build --mode demo",
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {

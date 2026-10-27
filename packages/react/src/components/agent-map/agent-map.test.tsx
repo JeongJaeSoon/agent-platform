@@ -389,6 +389,45 @@ describe("AgentMap", () => {
     expect(standIn("board")).not.toContain("md:flex");
   });
 
+  test("from xl the board and the panel each scroll within the screen's height, not the page (94S-1075)", () => {
+    const view = withPlatform(
+      <AgentMap
+        sessions={[selected.session]}
+        doneCount={0}
+        selected={selected}
+        onSelect={() => {}}
+        now={NOW}
+      />,
+    );
+    const classes = (slot: string) =>
+      view.container
+        .querySelector(`[data-slot='${slot}']`)
+        ?.className.split(" ");
+    const scroll = view.container.querySelector("[data-slot='board-scroll']");
+    expect(scroll?.contains(view.getByRole("button", { pressed: true }))).toBe(
+      true,
+    );
+    expect(
+      view.container
+        .querySelector("[data-slot='panel-scroll']")
+        ?.contains(view.getByRole("link", { name: "타임라인에서 전체 보기" })),
+    ).toBe(true);
+    // A tall panel in the flow would stretch the row and scroll the page.
+    for (const part of ["board", "panel"]) {
+      expect(classes(`${part}-scroll`)).toEqual(
+        expect.arrayContaining(["xl:absolute", "xl:overflow-y-auto"]),
+      );
+      expect(classes(`${part}-column`)).toEqual(
+        expect.arrayContaining(["xl:relative", "xl:self-stretch"]),
+      );
+      // Below xl only the page scrolls: one scroller.
+      expect(classes(`${part}-scroll`)).not.toContain("overflow-y-auto");
+    }
+    expect(
+      scroll?.parentElement?.parentElement?.className.split(" "),
+    ).toContain("xl:flex-[1_1_0px]");
+  });
+
   test("the detail view below xl offers the way back", async () => {
     const user = await setupUser();
     let back = 0;

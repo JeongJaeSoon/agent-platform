@@ -38,6 +38,8 @@ export const errorsKo = {
     "Slack 계정 연결을 아직 쓸 수 없습니다 — 워크스페이스 관리자에게 Slack 연결 설정을 요청하세요.",
   "error.SLACK_APP_CREATING":
     "Slack 앱을 만드는 중입니다 — 잠시 뒤 다시 시도하세요.",
+  // Only the read-only demo build answers this (src/demo/fetch.ts).
+  "error.DEMO_READ_ONLY": "데모에서는 저장되지 않습니다.",
 };
 
 export const errorsEn: Record<keyof typeof errorsKo, string> = {
@@ -78,6 +80,7 @@ export const errorsEn: Record<keyof typeof errorsKo, string> = {
     "Slack account linking isn't available yet — ask a workspace admin to set up the Slack connection.",
   "error.SLACK_APP_CREATING":
     "The Slack app is being created — try again shortly.",
+  "error.DEMO_READ_ONLY": "Changes are not saved in this demo.",
 };
 
 export const errorsJa: Record<keyof typeof errorsKo, string> = {
@@ -124,4 +127,5 @@ export const errorsJa: Record<keyof typeof errorsKo, string> = {
     "Slack アカウント連携はまだ使えません。ワークスペースの管理者に Slack 連携の設定を依頼してください。",
   "error.SLACK_APP_CREATING":
     "Slack アプリを作成中です。しばらくしてから、もう一度お試しください。",
+  "error.DEMO_READ_ONLY": "このデモでは変更は保存されません。",
 };

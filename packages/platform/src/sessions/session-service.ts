@@ -217,7 +217,8 @@ export function payloadHash(payload: unknown): string {
     .digest("hex");
 }
 
-// Every service entry asks before any store call. Over HTTP the edge has
+// Service entries authorize before store calls, except receipt reads that
+// must resolve their target before authorizing disclosure. Over HTTP the edge has
 // already refused a missing scope, so only a caller without HTTP meets the
 // FORBIDDEN here, with the same message. A decision that cannot be reached
 // is a refusal.
@@ -1291,19 +1292,18 @@ export function createSessionService(deps: {
     // 404 as for a receipt that never existed, and so does anyone outside
     // the share of the session it names.
     async getReceipt(actor: Caller, receiptId: string): Promise<Receipt> {
+      // Resolve only within the caller's partition. A null session would
+      // incorrectly require an agent key to read across all agents.
+      const receipt = await reader.getReceipt(actor.ownerId, receiptId);
       await requirePermitted(authorization, actor, "session.read", {
         kind: "session",
-        id: null,
+        id:
+          receipt && "session_id" in receipt.target_ref
+            ? receipt.target_ref.session_id
+            : null,
       });
-      const receipt = await reader.getReceipt(actor.ownerId, receiptId);
       if (!receipt) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
-      }
-      if ("session_id" in receipt.target_ref) {
-        await requirePermitted(authorization, actor, "session.read", {
-          kind: "session",
-          id: receipt.target_ref.session_id,
-        });
       }
       return receipt;
     },

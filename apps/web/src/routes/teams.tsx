@@ -519,7 +519,10 @@ function TeamMembers({
                   </GridTableColumnHeader>
                   {manages && (
                     <GridTableColumnHeader align="end">
-                      {t("members.column.actions")}
+                      {/* Over the row buttons' centred labels. */}
+                      <span className="min-w-[var(--ap-row-action-min-width)] text-center">
+                        {t("members.column.actions")}
+                      </span>
                     </GridTableColumnHeader>
                   )}
                 </GridTableHeader>
