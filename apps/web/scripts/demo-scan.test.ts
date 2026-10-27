@@ -201,6 +201,14 @@ describe("gitleaks ignores for the fixture file", () => {
     expect(check(entry(breakdownAgent))).toEqual([]);
   });
 
+  test("a recording under another root is matched by its own name", () => {
+    const own = `fixtures.json:generic-api-key:${breakdownAgent}`;
+    expect(checkIgnores(text, own, "fixtures.json")).toEqual([]);
+    expect(
+      checkIgnores(text, `${own}\n${entry(breakdownAgent)}`, "fixtures.json"),
+    ).toHaveLength(1);
+  });
+
   test("entries for other files are left alone", () => {
     expect(check("docs/x.md:generic-api-key:3")).toEqual([]);
   });

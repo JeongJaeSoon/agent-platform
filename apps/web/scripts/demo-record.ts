@@ -6,17 +6,14 @@
  *
  *   bun run --cwd apps/web build
  *   bun apps/web/scripts/demo-record.ts --api http://127.0.0.1:4611 \
- *     --accounts <accounts.md> [--account owner] [--max-pages 500]
+ *     --accounts <accounts.md> --out <demo>/fixtures.json \
+ *     [--account owner] [--max-pages 500]
  *
  * <accounts.md> holds the stack's account table between `<!-- accounts -->`
  * markers, one row per account: key | role | name | email | password | ...
- * The password is read from it and never printed. Before committing the
- * result, regenerate the .gitleaksignore fingerprints (line numbers move with
- * every recording) and scan it:
- *
- *   gitleaks dir apps/web/src/demo/fixtures.json --redact=100 -f json -r <report.json>
- *   bun apps/web/scripts/demo-scan.ts --write-ignores <report.json>
- *   bun apps/web/scripts/demo-scan.ts
+ * The password is read from it and never printed. <demo> is a checkout of
+ * JeongJaeSoon/agent-platform-demo; README "콘솔 데모" has the steps that
+ * follow (gitleaks fingerprints, demo-scan, the push).
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
@@ -31,15 +28,14 @@ const { values: args } = parseArgs({
     api: { type: "string" },
     accounts: { type: "string" },
     account: { type: "string", default: "owner" },
-    out: {
-      type: "string",
-      default: new URL("../src/demo/fixtures.json", import.meta.url).pathname,
-    },
+    out: { type: "string" },
     "max-pages": { type: "string", default: "500" },
   },
 });
-if (!args.api || !args.accounts) {
-  console.error("usage: demo-record.ts --api <url> --accounts <file>");
+if (!args.api || !args.accounts || !args.out) {
+  console.error(
+    "usage: demo-record.ts --api <url> --accounts <file> --out <fixtures.json>",
+  );
   process.exit(2);
 }
 const api = args.api.replace(/\/$/, "");

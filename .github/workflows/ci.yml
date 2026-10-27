@@ -531,11 +531,11 @@ jobs:
           path: apps/docs/out
           retention-days: 1
 
-  # The read-only console demo the Pages site carries at /demo: the console
-  # built to answer from apps/web/src/demo/fixtures.json. The fixtures are
-  # published as they are, so the scan gates the build.
+  # The read-only console demo, built on the placeholder fixture. The real
+  # recording and its Pages deploy live in JeongJaeSoon/agent-platform-demo,
+  # which runs the same scan and build against this repository.
   demo:
-    if: contains(fromJSON('["all","docs","storybook","demo"]'), github.event.inputs.only || 'all')
+    if: contains(fromJSON('["all","demo"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -546,11 +546,6 @@ jobs:
         run: bun apps/web/scripts/demo-scan.ts
       - name: Static build
         run: bun run --cwd apps/web build:demo
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: demo-dist
-          path: apps/web/dist-demo
-          retention-days: 1
 
   # packages/ui as an outside app gets it: the built package, packed, installed
   # from the tarball into an empty Vite + React app with no Tailwind, which
@@ -588,11 +583,11 @@ jobs:
           retention-days: 7
 
   # Assembled on every run so a PR proves the layout the deploy will get: the
-  # docs site at the root, Storybook, the console demo and the Scalar
-  # reference beside it. docs/api/index.html embeds the spec and loads
-  # ./scalar.js beside it; openapi.json rides along as the downloadable copy.
+  # docs site at the root, Storybook and the Scalar reference beside it.
+  # docs/api/index.html embeds the spec and loads ./scalar.js beside it;
+  # openapi.json rides along as the downloadable copy.
   pages:
-    needs: [docs, storybook, demo]
+    needs: [docs, storybook]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -605,7 +600,7 @@ jobs:
       # be silently merged with or replaced by the sibling below.
       - name: Siblings are free in the docs build
         run: |
-          for sibling in _site/api _site/storybook _site/demo; do
+          for sibling in _site/api _site/storybook; do
             if [ -e "$sibling" ]; then
               echo "::error::apps/docs produced $sibling, which the Pages site reserves"
               exit 1
@@ -615,15 +610,11 @@ jobs:
         with:
           name: storybook-dist
           path: _site/storybook
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: demo-dist
-          path: _site/demo
       - name: Pages site
         run: |
           mkdir -p _site/api
           cp docs/api/index.html docs/api/scalar.js docs/openapi.json _site/api/
-          ls _site _site/api _site/storybook _site/demo
+          ls _site _site/api _site/storybook
       - if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:

@@ -2,11 +2,14 @@
  * The check a fixture file passes before the demo is published: no
  * credential, no address outside example.test, no host or name from the
  * machine it was recorded on. CI runs it on every build of the demo.
+ * Without --fixtures it checks the placeholder in this repository; with it,
+ * the recording in a JeongJaeSoon/agent-platform-demo checkout given as
+ * --root, whose .gitleaksignore names the file relative to that root.
  *
- *   bun apps/web/scripts/demo-scan.ts
- *   bun apps/web/scripts/demo-scan.ts --write-ignores <gitleaks-report.json>
+ *   bun apps/web/scripts/demo-scan.ts [--fixtures <file> --root <dir>]
+ *   bun apps/web/scripts/demo-scan.ts [...] --write-ignores <gitleaks-report.json>
  */
-import { join } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 export interface Finding {
@@ -203,7 +206,7 @@ export function checkComplete(fixtures: {
       ];
 }
 
-/** The fixture file as gitleaks names it, from the repository root. */
+/** The placeholder fixture file as gitleaks names it, from the repository root. */
 export const FIXTURES_PATH = "apps/web/src/demo/fixtures.json";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const BREAKDOWN_KEY_LINE = /^ {2,}"key": "([^"]*)",?$/;
@@ -233,16 +236,17 @@ function agentIds(fixtures: {
 export function checkIgnores(
   fixturesText: string,
   ignoreText: string,
+  name = FIXTURES_PATH,
 ): Finding[] {
   const lines = fixturesText.split("\n");
   const agents = agentIds(JSON.parse(fixturesText));
   const findings: Finding[] = [];
   for (const [i, raw] of ignoreText.split("\n").entries()) {
     const entry = raw.trim();
-    if (!entry.includes(FIXTURES_PATH)) continue;
+    if (!entry.includes(name)) continue;
     const ignoreLine = i + 1;
     // gitleaks also honours `<commit>:<path>:<rule>:<line>`.
-    if (!entry.startsWith(`${FIXTURES_PATH}:`)) {
+    if (!entry.startsWith(`${name}:`)) {
       findings.push({
         rule: "gitleaks ignore in another form",
         match: entry,
@@ -250,7 +254,7 @@ export function checkIgnores(
       });
       continue;
     }
-    const [rule, lineNumber] = entry.slice(FIXTURES_PATH.length + 1).split(":");
+    const [rule, lineNumber] = entry.slice(name.length + 1).split(":");
     const index = Number(lineNumber) - 1;
     const line = lines[index] ?? "";
     let response = "";
@@ -277,10 +281,11 @@ export function checkIgnores(
 export function withFixtureIgnores(
   ignoreText: string,
   entries: readonly string[],
+  name = FIXTURES_PATH,
 ): string {
   const kept = ignoreText
     .split("\n")
-    .filter((line) => line.trim() && !line.startsWith(`${FIXTURES_PATH}:`));
+    .filter((line) => line.trim() && !line.startsWith(`${name}:`));
   return `${[...kept, ...[...entries].sort()].join("\n")}\n`;
 }
 
@@ -300,14 +305,30 @@ function report(findings: readonly Finding[]): void {
 }
 
 if (import.meta.main) {
-  const repo = new URL("../../../", import.meta.url).pathname;
+  const { values } = parseArgs({
+    options: {
+      fixtures: { type: "string" },
+      root: { type: "string" },
+      "write-ignores": { type: "string" },
+    },
+  });
+  if (!values.fixtures !== !values.root) {
+    console.error("--fixtures and --root go together");
+    process.exit(2);
+  }
+  const repo = resolve(
+    values.root ?? new URL("../../../", import.meta.url).pathname,
+  );
+  const fixturesPath = resolve(values.fixtures ?? join(repo, FIXTURES_PATH));
+  const name = relative(repo, fixturesPath);
+  if (name.startsWith("..")) {
+    console.error("--fixtures must sit under --root");
+    process.exit(2);
+  }
   const ignorePath = join(repo, ".gitleaksignore");
   const ignoreFile = Bun.file(ignorePath);
   const ignoreText = (await ignoreFile.exists()) ? await ignoreFile.text() : "";
-  const fixturesText = await Bun.file(join(repo, FIXTURES_PATH)).text();
-  const { values } = parseArgs({
-    options: { "write-ignores": { type: "string" } },
-  });
+  const fixturesText = await Bun.file(fixturesPath).text();
   // A parser's message quotes the text around the error.
   const parse = (text: string, name: string) => {
     try {
@@ -319,27 +340,27 @@ if (import.meta.main) {
   };
   const fixtures: { responses: Record<string, unknown> } = parse(
     fixturesText,
-    FIXTURES_PATH,
+    name,
   );
 
   if (values["write-ignores"]) {
-    // A gitleaks JSON report of the fixture file (README, "콘솔 데모").
+    // A gitleaks JSON report of the fixture file, run from --root.
     const found: { File: string; RuleID: string; StartLine: number }[] = parse(
       await Bun.file(values["write-ignores"]).text(),
       values["write-ignores"],
     );
     const entries = found
-      .filter((finding) => finding.File === FIXTURES_PATH)
+      .filter((finding) => finding.File === name)
       .map(
         (finding) => `${finding.File}:${finding.RuleID}:${finding.StartLine}`,
       );
-    const refused = checkIgnores(fixturesText, entries.join("\n"));
+    const refused = checkIgnores(fixturesText, entries.join("\n"), name);
     if (refused.length > 0) {
       report(refused);
       console.error("not written: these findings need a look, not an ignore");
       process.exit(1);
     }
-    await Bun.write(ignorePath, withFixtureIgnores(ignoreText, entries));
+    await Bun.write(ignorePath, withFixtureIgnores(ignoreText, entries, name));
     console.log(`wrote ${entries.length} fixture entries to .gitleaksignore`);
     process.exit(0);
   }
@@ -347,17 +368,17 @@ if (import.meta.main) {
   const findings = [
     ...checkComplete(fixtures),
     ...scanFixtures(fixtures),
-    ...checkIgnores(fixturesText, ignoreText),
+    ...checkIgnores(fixturesText, ignoreText, name),
   ];
   report(findings);
   if (findings.length > 0) {
-    console.error(`${findings.length} finding(s) in ${FIXTURES_PATH}`);
+    console.error(`${findings.length} finding(s) in ${name}`);
     process.exit(1);
   }
   const ignored = ignoreText
     .split("\n")
-    .filter((line) => line.startsWith(`${FIXTURES_PATH}:`)).length;
+    .filter((line) => line.startsWith(`${name}:`)).length;
   console.log(
-    `clean: ${FIXTURES_PATH} (${Object.keys(fixtures.responses).length} answers; ${ignored} gitleaks ignores, each a recorded agent id in a usage breakdown, of ${agentIds(fixtures).size} agents)`,
+    `clean: ${name} (${Object.keys(fixtures.responses).length} answers; ${ignored} gitleaks ignores, each a recorded agent id in a usage breakdown, of ${agentIds(fixtures).size} agents)`,
   );
 }
