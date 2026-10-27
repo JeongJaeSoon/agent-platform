@@ -220,7 +220,17 @@ function service(
       },
       usageTools: async (filter) => {
         asked.push(filter);
-        return [];
+        const figures = {
+          calls: 3,
+          failed: 0,
+          totalMs: 0,
+          medianMs: 0,
+          maxMs: 0,
+        };
+        return [
+          { name: "Bash", ...figures },
+          { name: "mcp__docs__find", ...figures, description: "Finds a page" },
+        ];
       },
       usageToolCalls: async (filter, calls) => {
         asked.push(filter);
@@ -263,6 +273,7 @@ const tool = (
   total_ms: 0,
   median_ms: 0,
   max_ms: 0,
+  description: null,
   ...figures,
 });
 
@@ -429,14 +440,17 @@ describe("usage service", () => {
     expect(asked).toEqual([{ kind: "installation" }, { kind: "installation" }]);
   });
 
-  test("tools for scope=me count what the caller started, as the summary does", async () => {
+  test("tools for scope=me count what the caller started, as the summary does, with a description only where one was declared", async () => {
     asked.length = 0;
     const body = await service().getUsageTools(
       user("member"),
       toolsQuery("me"),
     );
     expect(usageToolsResponseSchema.parse(body)).toEqual({
-      tools: [],
+      tools: [
+        tool("Bash", { calls: 3 }),
+        tool("mcp__docs__find", { calls: 3, description: "Finds a page" }),
+      ],
       findings: [],
     });
     expect(asked).toEqual([{ kind: "user", ownerId: WORKSPACE, userId: USER }]);

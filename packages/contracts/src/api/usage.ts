@@ -299,6 +299,9 @@ export const usageToolsResponseSchema = z
             total_ms: countSchema,
             median_ms: countSchema,
             max_ms: countSchema,
+            // From an MCP server, as its tools were listed at session start;
+            // built-in tools have none.
+            description: z.string().min(1).nullable(),
           })
           .strict(),
       )

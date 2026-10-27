@@ -6,7 +6,7 @@ import {
   sha256Hex,
   startFakeMcp,
 } from "@werft-ai/testkit/fake-mcp";
-import { remoteMcpRelay } from "./remote-mcp.ts";
+import { relayedToolDescriptions, remoteMcpRelay } from "./remote-mcp.ts";
 
 const BEARER = "service-account-value-for-the-relay-test";
 
@@ -28,12 +28,12 @@ async function through(options: { token: string; tools: string[] }) {
   await relay.instance.connect(relaySide);
   const engine = new Client({ name: "engine", version: "1" });
   await engine.connect(engineSide);
-  return engine;
+  return { engine, relay };
 }
 
 describe("remoteMcpRelay", () => {
   test("lists and calls only the pinned tools, with the route's bearer", async () => {
-    const engine = await through({
+    const { engine } = await through({
       token: BEARER,
       tools: ["Read", "mcp__fake__whoami", "mcp__other__whoami"],
     });
@@ -51,8 +51,22 @@ describe("remoteMcpRelay", () => {
     });
   });
 
+  test("keeps the descriptions of the tools it last listed, by engine name", async () => {
+    const { engine, relay } = await through({
+      token: BEARER,
+      tools: ["mcp__fake__whoami"],
+    });
+    const servers = { fake: relay, plain: { command: "local-mcp" } };
+    expect([...relayedToolDescriptions(servers)]).toEqual([]);
+    await engine.listTools();
+    expect([...relayedToolDescriptions(servers)]).toEqual([
+      ["mcp__fake__whoami", "Says who the server thinks is calling"],
+    ]);
+    expect(relayedToolDescriptions(undefined).size).toBe(0);
+  });
+
   test("a refused upstream is a tool error naming the refusal", async () => {
-    const engine = await through({
+    const { engine } = await through({
       token: "not-the-bearer",
       tools: ["mcp__fake__whoami"],
     });

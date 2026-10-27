@@ -112,6 +112,7 @@ describe("database schema", () => {
       "tool_call_days",
       "tool_call_progress",
       "tool_calls",
+      "tool_descriptions",
       "turns",
       "unassigned_sessions",
       "users",

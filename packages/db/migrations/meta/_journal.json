@@ -614,8 +614,15 @@
     {
       "idx": 178,
       "version": "7",
-      "when": 1793067599918,
-      "tag": "0178_session_title_source",
+      "when": 1793067884185,
+      "tag": "0178_tool_descriptions",
+      "breakpoints": true
+    },
+    {
+      "idx": 179,
+      "version": "7",
+      "when": 1793070279065,
+      "tag": "0179_session_title_source",
       "breakpoints": true
     }
   ]

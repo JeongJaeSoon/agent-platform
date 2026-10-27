@@ -27,7 +27,7 @@ import {
   workerLaunches,
 } from "./schema.ts";
 import { toolCallDays, toolCallPage } from "./tool-call-pages.ts";
-import { toolCallTotals } from "./tool-calls.ts";
+import { toolCallTotals, toolDescriptionsOf } from "./tool-calls.ts";
 
 // An open period ends at the read, and never before it starts.
 const untilOf = (period: { since: Date; until?: Date }) =>
@@ -629,14 +629,24 @@ export function createPostgresUsageReader(db: Database): UsageReader {
 
     // From the reconciler's projection: calls made since its last pass do
     // not count yet.
-    usageTools(filter, tools, limit) {
-      return toolCallTotals(db, filter, {
+    async usageTools(filter, tools, limit) {
+      const totals = await toolCallTotals(db, filter, {
         since: tools.period.since,
         ...(tools.period.until === undefined
           ? {}
           : { until: tools.period.until }),
         ...(tools.agentId === undefined ? {} : { agentId: tools.agentId }),
         limit,
+      });
+      const descriptions = await toolDescriptionsOf(
+        db,
+        filter,
+        tools.agentId,
+        totals.map((row) => row.name),
+      );
+      return totals.map((row) => {
+        const description = descriptions.get(row.name);
+        return description === undefined ? row : { ...row, description };
       });
     },
 

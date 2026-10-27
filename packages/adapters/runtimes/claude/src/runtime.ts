@@ -20,6 +20,7 @@ import {
   runtimeEnvironment,
   validateRuntimeConfig,
 } from "./profile.ts";
+import { relayedToolDescriptions } from "./remote-mcp.ts";
 import { systemPromptAppend } from "./repository-instructions.ts";
 import { ResumedHistory } from "./resumed-history.ts";
 import { ClaudeSdkRun, InputStream } from "./run.ts";
@@ -57,6 +58,7 @@ export class ClaudeSdkRuntime {
       abortController,
       history,
       ledger,
+      () => relayedToolDescriptions(launched.mcpServers),
     );
   }
 }
