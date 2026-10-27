@@ -218,7 +218,9 @@ function kindMentionAllowed(hit: string): boolean {
     path === "apps/control-host/src/api/openapi.ts" ||
     path === "packages/client/src/schema.gen.ts" ||
     /\.test\.tsx?$/.test(path) ||
-    /\/(test-support|testing|fixtures)\//.test(path) ||
+    /\/(test-support|fixtures)\//.test(path) ||
+    // Testing helpers, one directory at a time so a new one is a decision.
+    path.startsWith("apps/worker/src/testing/") ||
     /^apps\/storybook\/src\/.*(\.stories\.tsx|-fixtures\.ts)$/.test(path) ||
     // Example payloads in the user documentation.
     /^apps\/docs\/content\/.*\.mdx$/.test(path) ||
@@ -1248,6 +1250,33 @@ describe("architecture", () => {
     ).toEqual([]);
     // The walk is not vacuous: it reaches the codec it re-exports.
     expect(seen.has("@werft-ai/runtime-claude-codec")).toBe(true);
+  });
+
+  test("runtime-core's testing helpers name no engine", async () => {
+    const named: string[] = [];
+    for (const file of await typescriptFiles(
+      join(root, runtimeCore, "src", "testing"),
+      () => true,
+    )) {
+      if (/claude|anthropic|codex|_sdk\b/i.test(await readFile(file, "utf8")))
+        named.push(relative(root, file));
+    }
+    expect(named).toEqual([]);
+  });
+
+  // The registry hands tests an engine by kind; re-exporting an adapter's
+  // names would let a test pick Claude by name again.
+  test("the registry's testing entry exports only kind-selected functions", async () => {
+    const testing = await import("@werft-ai/runtime-registry/testing");
+    expect(Object.keys(testing).sort()).toEqual([
+      "fakeRuntimeFor",
+      "realRuntimeFor",
+    ]);
+    const entry = await readFile(
+      join(root, "packages/adapters/runtimes/registry/src/testing/index.ts"),
+      "utf8",
+    );
+    expect(entry).not.toMatch(/export (type )?(\*|\{)/);
   });
 
   test("the control host takes codecs and descriptors from runtime-codecs only", async () => {
