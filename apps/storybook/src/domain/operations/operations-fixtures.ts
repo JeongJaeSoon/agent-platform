@@ -30,6 +30,7 @@ export const TOOLS: UsageToolsResponse = {
       total_ms: 13320000,
       median_ms: 3100,
       max_ms: 298000,
+      description: null,
     },
     {
       name: "Read",
@@ -38,6 +39,7 @@ export const TOOLS: UsageToolsResponse = {
       total_ms: 1080000,
       median_ms: 400,
       max_ms: 9100,
+      description: null,
     },
     {
       name: "Edit",
@@ -46,6 +48,7 @@ export const TOOLS: UsageToolsResponse = {
       total_ms: 1620000,
       median_ms: 900,
       max_ms: 14200,
+      description: null,
     },
     {
       name: "Grep",
@@ -54,6 +57,7 @@ export const TOOLS: UsageToolsResponse = {
       total_ms: 900000,
       median_ms: 600,
       max_ms: 21000,
+      description: null,
     },
     {
       name: "WebFetch",
@@ -62,6 +66,7 @@ export const TOOLS: UsageToolsResponse = {
       total_ms: 3960000,
       median_ms: 12400,
       max_ms: 61000,
+      description: null,
     },
     {
       name: "Task",
@@ -70,6 +75,7 @@ export const TOOLS: UsageToolsResponse = {
       total_ms: 1200000,
       median_ms: 7800,
       max_ms: 184000,
+      description: null,
     },
     {
       name: "mcp__linear__get_issue",
@@ -78,6 +84,7 @@ export const TOOLS: UsageToolsResponse = {
       total_ms: 240000,
       median_ms: 1900,
       max_ms: 8800,
+      description: "Retrieve detailed information about an issue by ID",
     },
   ],
   findings: [

@@ -82,6 +82,13 @@ export interface InstallationLimitsMessages {
   readonly slots: string;
   readonly slotsRowNote: string;
   readonly storageRowNote: string;
+  readonly outputs: string;
+  readonly outputsRowNote: string;
+  /** `usage.outputs.complete` is false: the figure may be short. */
+  readonly outputsIncompleteNote: string;
+  /** The figure when it may be short: a lower bound. */
+  readonly outputsAtLeast: (bytes: string) => string;
+  readonly noLimit: string;
   readonly sessionCost: string;
   readonly sessionCostNote: string;
   readonly sessionTokens: string;
@@ -480,7 +487,14 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         slots: "동시 실행 slot",
         slotsRowNote: "설치 설정의 상한. 빈 slot이 없으면 세션이 대기합니다",
         storageRowNote:
-          "세션에 보낸 입력 메시지만 셉니다. 결과물 용량은 아직 세지 않습니다",
+          "세션에 보낸 입력 메시지만 셉니다. 결과물은 따로 셉니다",
+        outputs: "결과물 저장",
+        outputsRowNote:
+          "세션 결과물이 차지한 용량. 보여 주기만 하고 막지 않습니다",
+        outputsIncompleteNote:
+          "결과물을 세기 전 checkpoint가 남아 있어 실제보다 적을 수 있습니다",
+        outputsAtLeast: (bytes) => `${bytes} 이상`,
+        noLimit: "한도 없음",
         sessionCost: "세션당 비용",
         sessionCostNote: "추정 비용이 넘은 세션은 새 turn을 시작하지 않습니다",
         sessionTokens: "세션당 토큰",
@@ -672,7 +686,13 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         slotsRowNote:
           "インストール設定の上限。空きスロットがないとセッションは待機します",
         storageRowNote:
-          "セッションに送った入力メッセージのみ数えます。成果物の容量はまだ数えません",
+          "セッションに送った入力メッセージのみ数えます。成果物は別に数えます",
+        outputs: "成果物の保存",
+        outputsRowNote: "セッションの成果物が使う容量。表示のみで制限しません",
+        outputsIncompleteNote:
+          "成果物を数える前の checkpoint が残っていて、実際より少ない場合があります",
+        outputsAtLeast: (bytes) => `${bytes} 以上`,
+        noLimit: "上限なし",
         sessionCost: "セッションあたりのコスト",
         sessionCostNote:
           "推定コストを超えたセッションは新しい turn を始めません",
@@ -866,7 +886,13 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         slotsRowNote:
           "The installation's cap. Sessions wait when no slot is free",
         storageRowNote:
-          "Counts only the input messages sent to sessions, not outputs yet",
+          "Counts only the input messages sent to sessions; outputs are counted separately",
+        outputs: "Output storage",
+        outputsRowNote: "Space session outputs take. Shown, never enforced",
+        outputsIncompleteNote:
+          "Checkpoints from before outputs were counted may remain, so this can be low",
+        outputsAtLeast: (bytes) => `At least ${bytes}`,
+        noLimit: "No limit",
         sessionCost: "Cost per session",
         sessionCostNote: "A session past its estimated cost starts no new turn",
         sessionTokens: "Tokens per session",

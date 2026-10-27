@@ -353,7 +353,11 @@ describe("홈 요약", () => {
         accounted_content: ["input_messages"],
         updated_at: null,
       },
-      outputs: { used_bytes: 0, updated_at: null, complete: true },
+      outputs: {
+        used_bytes: 314572800,
+        updated_at: "2026-10-24T12:35:00Z",
+        complete: true,
+      },
     },
   };
   const since = new Date(Date.now() - 30 * 86_400_000)
@@ -619,12 +623,12 @@ describe("홈 요약", () => {
           rows: [
             ["세션", "12"],
             ["동시 실행", "3 / 8 slot"],
-            ["결과물 저장", "—미계측"],
+            ["결과물 저장", "300 MB"],
           ],
         },
         {
           title: "확인할 항목",
-          badge: "운영",
+          badge: "워크스페이스",
           value: "2",
           rows: [
             ["30분 넘게 대기", "1개 세션"],
@@ -790,6 +794,26 @@ describe("홈 요약", () => {
       ]);
       expect(check?.rows[0]).toEqual(["30분 넘게 대기", "0개 세션"]);
     });
+  });
+
+  test("결과물을 다 세지 못한 응답이면 전체 사용량의 결과물 저장은 하한으로 보인다", async () => {
+    renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/limits": () =>
+        json(200, {
+          ...limits,
+          usage: {
+            ...limits.usage,
+            outputs: { ...limits.usage.outputs, complete: false },
+          },
+        }),
+    });
+    const overview = await screen.findByRole("region", { name: "한눈에 보기" });
+    await waitFor(() =>
+      expect(
+        cards(overview).find((card) => card.title === "전체 사용량")?.rows,
+      ).toContainEqual(["결과물 저장", "300 MB 이상"]),
+    );
   });
 
   test("가장 오래된 요청은 세션의 갱신 시각이 아니라 요청 시각으로 고른다", async () => {

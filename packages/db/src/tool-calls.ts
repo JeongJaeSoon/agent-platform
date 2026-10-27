@@ -147,6 +147,29 @@ async function applyResults(tx: Database, from: number, to: number) {
       hist = tool_hist_add(d.hist, excluded.hist)`);
 }
 
+// An init event's tools that carry a description. A replayed event, or an
+// older init read after a newer one, changes nothing.
+async function applyDescriptions(tx: Database, from: number, to: number) {
+  await tx.execute(sql`
+    INSERT INTO tool_descriptions AS d (session_id, name, description, event_id)
+    SELECT DISTINCT ON (e.session_id, t.tool->>'name')
+      e.session_id, t.tool->>'name', t.tool->>'description', e.id
+    FROM events e
+    CROSS JOIN LATERAL jsonb_array_elements(
+      CASE WHEN jsonb_typeof(e.payload->'tools') = 'array'
+        THEN e.payload->'tools' ELSE '[]'::jsonb END
+    ) AS t(tool)
+    WHERE e.id > ${from} AND e.id <= ${to} AND e.type = 'system'
+      AND e.payload->>'subtype' = 'init'
+      AND jsonb_typeof(t.tool->'name') = 'string'
+      AND jsonb_typeof(t.tool->'description') = 'string'
+      AND char_length(t.tool->>'description') BETWEEN 1 AND 200
+    ORDER BY e.session_id, t.tool->>'name', e.id DESC
+    ON CONFLICT (session_id, name) DO UPDATE
+      SET description = excluded.description, event_id = excluded.event_id
+      WHERE excluded.event_id > d.event_id`);
+}
+
 /**
  * Projects tool calls from events the reconciler has not read yet, a batch
  * of `batchSize` events per transaction, until it has read up to the newest
@@ -259,6 +282,7 @@ function projectBatch(
     const hi = Number(bounds.hi);
     await applyUses(tx, from, hi);
     await applyResults(tx, from, hi);
+    await applyDescriptions(tx, from, hi);
     const next = Math.max(cursor, Number(bounds.safe ?? cursor));
     if (next !== cursor) {
       await tx.execute(
@@ -267,6 +291,41 @@ function projectBatch(
     }
     return { n, from, hi, cursor: next };
   });
+}
+
+/**
+ * Each named tool's newest description among the sessions the filter may
+ * read, whenever they declared it; a name none of them described is absent.
+ */
+export async function toolDescriptionsOf(
+  db: Database,
+  filter: UsageSummaryFilter,
+  agentId: string | undefined,
+  names: readonly string[],
+): Promise<Map<string, string>> {
+  if (names.length === 0) return new Map();
+  const scope = scopeOf(filter, agentId);
+  // One index walk per name, newest first, stopping at the first session in
+  // scope: a common MCP tool is described in every session that has it.
+  const result = await db.execute(sql`
+    SELECT n.name, latest.description
+    FROM unnest(ARRAY[${sql.join(
+      names.map((name) => sql`${name}`),
+      sql`, `,
+    )}]::text[]) AS n(name)
+    CROSS JOIN LATERAL (
+      SELECT d.description
+      FROM tool_descriptions d JOIN sessions s ON s.id = d.session_id
+      WHERE d.name = n.name AND ${scope.sessions}
+      ORDER BY d.event_id DESC
+      LIMIT 1
+    ) AS latest`);
+  return new Map(
+    rowsOf<{ name: string; description: string }>(result).map((row) => [
+      row.name,
+      row.description,
+    ]),
+  );
 }
 
 export type ToolCallTotals = {

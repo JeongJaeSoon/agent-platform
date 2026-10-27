@@ -12,6 +12,27 @@ import {
 const CALL_TIMEOUT_MS = 30 * 60_000;
 const MAX_LIST_PAGES = 50;
 
+const listedDescriptions = new WeakMap<McpServer, Map<string, string>>();
+
+/**
+ * The descriptions the relays among `servers` were last given for their
+ * pinned tools, by engine name. The engine passes them on nowhere: its init
+ * and `mcpServerStatus()` carry tool names only.
+ */
+export function relayedToolDescriptions(
+  servers: Record<string, unknown> | undefined,
+): ReadonlyMap<string, string> {
+  const descriptions = new Map<string, string>();
+  for (const server of Object.values(servers ?? {})) {
+    const instance = (server as { instance?: unknown } | null)?.instance;
+    if (!(instance instanceof McpServer)) continue;
+    for (const entry of listedDescriptions.get(instance) ?? []) {
+      descriptions.set(...entry);
+    }
+  }
+  return descriptions;
+}
+
 export type RemoteMcpServer = {
   /** The registry name: the engine names its tools `mcp__<name>__<tool>`. */
   name: string;
@@ -74,6 +95,16 @@ export function remoteMcpRelay(server: RemoteMcpServer): {
       cursor = listed.nextCursor;
       if (cursor === undefined) break;
     }
+    listedDescriptions.set(
+      relay,
+      new Map(
+        tools.flatMap((tool) =>
+          typeof tool.description === "string"
+            ? [[`${prefix}${tool.name}`, tool.description] as const]
+            : [],
+        ),
+      ),
+    );
     return { tools };
   });
   relay.server.setRequestHandler(

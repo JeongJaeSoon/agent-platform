@@ -31,6 +31,7 @@ const TOOLS = [
     total_ms: 13320000,
     median_ms: 3100,
     max_ms: 298000,
+    description: null,
   },
   {
     name: "Edit",
@@ -39,6 +40,7 @@ const TOOLS = [
     total_ms: 1620000,
     median_ms: 900,
     max_ms: 14200,
+    description: null,
   },
   {
     name: "WebFetch",
@@ -47,6 +49,7 @@ const TOOLS = [
     total_ms: 3960000,
     median_ms: 12400,
     max_ms: 61000,
+    description: null,
   },
 ];
 
@@ -144,6 +147,7 @@ describe("1분 미만 도구 시간", () => {
     total_ms: 1700,
     median_ms: 1700,
     max_ms: 1700,
+    description: null,
   };
 
   test("총 시간을 0분이 아니라 초로 쓴다", () => {
@@ -459,6 +463,7 @@ describe("tools sort and search", () => {
               total_ms: 0,
               median_ms: 0,
               max_ms: 0,
+              description: null,
             },
           ],
           "failed",
@@ -566,12 +571,16 @@ const LIMITS = {
       accounted_content: ["input_messages" as const],
       updated_at: "2026-10-24T12:31:00Z",
     },
-    outputs: { used_bytes: 0, updated_at: null, complete: true },
+    outputs: {
+      used_bytes: 536870912,
+      updated_at: "2026-10-24T12:35:00Z",
+      complete: true,
+    },
   },
 };
 
 describe("InstallationLimits", () => {
-  test("한도 행마다 현재·한도를 쓰고, 토큰 한도가 null이면 '설정 안 됨'이다", () => {
+  test("한도 행마다 현재·한도를 쓰고, 토큰 한도가 null이면 '설정 안 됨', 결과물 저장은 '한도 없음'이다", () => {
     const { getByRole } = withPlatform(
       <InstallationLimits limits={LIMITS} timeZone="Asia/Seoul" />,
     );
@@ -587,6 +596,7 @@ describe("InstallationLimits", () => {
     expect(rows).toEqual([
       ["동시 실행 slot", "7 / 10", "10"],
       ["입력 메시지 저장", "2 GB", "10 GB"],
+      ["결과물 저장", "512 MB", "한도 없음"],
       ["세션당 비용", "세션마다 셉니다", "$25.00"],
       ["세션당 토큰", "세션마다 셉니다", "설정 안 됨"],
       ["세션당 대기 입력", "세션마다 셉니다", "20건"],
@@ -595,6 +605,52 @@ describe("InstallationLimits", () => {
     expect(document.body.textContent).toContain(
       "설치 전체에 적용됩니다 · 오후 9:40 기준",
     );
+  });
+
+  test("결과물 행은 받은 그대로 설명하고, 빠진 checkpoint가 있으면 값을 하한으로 쓰고 적게 셀 수 있다고 쓴다", () => {
+    // Item, current and note of the storage and outputs rows.
+    const rows = (limits: typeof LIMITS) => {
+      const { getByRole, unmount } = withPlatform(
+        <InstallationLimits limits={limits} timeZone="Asia/Seoul" />,
+      );
+      const cells = [
+        ...getByRole("table", { name: "한도" }).querySelectorAll("[role=row]"),
+      ]
+        .slice(2, 4)
+        .map((row) =>
+          [...row.querySelectorAll("[role=cell]")]
+            .filter((_, i) => i !== 2)
+            .map((cell) => cell.textContent),
+        );
+      unmount();
+      return cells;
+    };
+    expect(rows(LIMITS)).toEqual([
+      [
+        "입력 메시지 저장",
+        "2 GB",
+        "세션에 보낸 입력 메시지만 셉니다. 결과물은 따로 셉니다",
+      ],
+      [
+        "결과물 저장",
+        "512 MB",
+        "세션 결과물이 차지한 용량. 보여 주기만 하고 막지 않습니다",
+      ],
+    ]);
+    // The current cell stays on narrow screens, where the note column hides.
+    expect(
+      rows({
+        ...LIMITS,
+        usage: {
+          ...LIMITS.usage,
+          outputs: { ...LIMITS.usage.outputs, complete: false },
+        },
+      })[1],
+    ).toEqual([
+      "결과물 저장",
+      "512 MB 이상",
+      "결과물을 세기 전 checkpoint가 남아 있어 실제보다 적을 수 있습니다",
+    ]);
   });
 
   test("읽는 동안 meter 없이 한 번만 알린다", () => {
