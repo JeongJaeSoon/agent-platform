@@ -370,6 +370,8 @@ const NOT_SETTINGS: Record<string, string> = {
   GIT_CONFIG_COUNT: "written into git's environment, not read",
   NODE_EXTRA_CA_CERTS: "written into the engine's environment, not read",
   NEXT_PUBLIC_BASE_PATH: "inlined into the docs site by its next.config.mjs",
+  DEMO_FIXTURES:
+    "inlined into the console demo build by apps/web/vite.config.ts",
 };
 
 function withoutComments(source: string): string {
