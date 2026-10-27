@@ -417,6 +417,81 @@ describe("PendingRequestRegistry", () => {
     },
   );
 
+  test("holds an answer's outcome until the run says, and a flush waits for it", async () => {
+    const harness = registry();
+    let say: ((result: AnswerResult) => void) | undefined;
+    let handed = false;
+    harness.registry.request(permission("req-slow"), () => {
+      handed = true;
+      return new Promise<AnswerResult>((resolve) => {
+        say = resolve;
+      });
+    });
+    const requestId = await harness.answer({
+      request_id: "req-slow",
+      kind: "permission",
+      decision: "allow",
+    });
+    await waitFor(() => handed, "the answer reaching the run");
+    // Polls keep running meanwhile; none may report the request yet, and
+    // none may call it cancelled for want of a holder.
+    harness.registry.poll(true);
+    await Bun.sleep(20);
+    expect(harness.gateway.settled).toEqual([]);
+
+    const flushed = harness.registry.flush(1_000);
+    setTimeout(() => say?.("applied"), 20);
+    await flushed;
+
+    expect(harness.gateway.settled).toEqual([
+      { request_id: requestId, outcome: "answered" },
+    ]);
+  });
+
+  test("does not call an answer cancelled when its registration returns while the run decides", async () => {
+    const fake = new FakeWorkerGateway();
+    let registered: (() => void) | undefined;
+    const late = new Promise<void>((resolve) => {
+      registered = resolve;
+    });
+    const harness = registry({
+      gateway: {
+        async registerPending(request) {
+          const response = await fake.registerPending(request);
+          await late;
+          return response;
+        },
+        pendingControl: (request) => fake.pendingControl(request),
+      },
+    });
+    let say: ((result: AnswerResult) => void) | undefined;
+    harness.registry.request(
+      permission("req-race"),
+      () =>
+        new Promise<AnswerResult>((resolve) => {
+          say = resolve;
+        }),
+    );
+    await waitFor(() => fake.registered().length === 1, "the registration");
+    const requestId = fake.registered()[0]?.request_id ?? "";
+    fake.answer({
+      request_id: requestId,
+      kind: "permission",
+      decision: "allow",
+    });
+    harness.registry.poll(true);
+    await waitFor(() => say !== undefined, "the answer reaching the run");
+
+    registered?.();
+    await Bun.sleep(20);
+    say?.("applied");
+    await harness.registry.flush(1_000);
+
+    expect(fake.settled).toEqual([
+      { request_id: requestId, outcome: "answered" },
+    ]);
+  });
+
   test("refuses a question the run gave nothing to show for", async () => {
     const harness = registry();
     const decision = await harness.ask(question("req-empty", []));
