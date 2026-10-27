@@ -1590,7 +1590,22 @@ export const permissionGrants = pgTable("permission_grants", {
   turnId: bigint("turn_id", { mode: "number" })
     .notNull()
     .references(() => turns.id),
+  // The attempt whose claim last carried it; null until one has.
+  attemptId: text("attempt_id").references(() => attempts.id),
   consumedAt: timestamp("consumed_at", { withTimezone: true }),
+});
+
+// The turn that carries a parked one on with its answers, delivered ahead of
+// the session's other queued turns. Its own table, so turns rows stay as
+// narrow as the plans over them were tuned for.
+export const turnContinuations = pgTable("turn_continuations", {
+  turnId: bigint("turn_id", { mode: "number" })
+    .primaryKey()
+    .references(() => turns.id, { onDelete: "cascade" }),
+  parkedTurnId: bigint("parked_turn_id", { mode: "number" })
+    .notNull()
+    .unique()
+    .references(() => turns.id, { onDelete: "cascade" }),
 });
 
 // A session result the platform may push to `agent/<session-id>` once a human

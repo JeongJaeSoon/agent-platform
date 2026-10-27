@@ -1,7 +1,6 @@
 import type { PermissionMode, RuntimeConfig } from "@werft-ai/contracts";
 
 import type { AgentRun } from "./agent-run.ts";
-import type { ApprovalGrant } from "./approval.ts";
 import type { TranscriptMirror } from "./checkpoint-manifest.ts";
 import type { RuntimeDescriptor } from "./descriptor.ts";
 
@@ -104,7 +103,6 @@ export type RuntimeStart = {
   config: RuntimeStartConfig;
   bindings: RuntimeBindings;
   bundle: RuntimeBundle;
-  grants?: readonly ApprovalGrant[];
 };
 
 export interface AgentRuntime {

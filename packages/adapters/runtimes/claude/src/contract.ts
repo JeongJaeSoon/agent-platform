@@ -180,9 +180,6 @@ export class ClaudeAgentRuntime implements AgentRuntime {
   constructor(private readonly deps: RuntimeHostDeps) {}
 
   start(start: RuntimeStart): AgentRun {
-    if ((start.grants?.length ?? 0) > 0) {
-      throw new Error("This runtime does not take approval grants yet");
-    }
     const config = claudeStartConfig(start, this.deps);
     const driver = new ClaudeSdkRuntime(
       {

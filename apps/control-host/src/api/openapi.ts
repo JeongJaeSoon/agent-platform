@@ -1825,9 +1825,19 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errors: [...CONFLICTS, 413, 503],
     errorCodes: {
-      409: ["IDEMPOTENCY_CONFLICT", "REQUEST_EXPIRED", "REQUEST_STALE"],
+      409: [
+        "IDEMPOTENCY_CONFLICT",
+        "REQUEST_EXPIRED",
+        "REQUEST_STALE",
+        "RECOVERY_REQUIRED",
+        "CHECKPOINT_UNAVAILABLE",
+      ],
     },
     errorNotes: {
+      RECOVERY_REQUIRED:
+        "A parked request whose session has a turn with an unknown outcome: the answer is not kept, since the turn could not resume.",
+      CHECKPOINT_UNAVAILABLE:
+        "A parked request whose session has no checkpoint to resume from: the answer is not kept.",
       BAD_REQUEST:
         "Also when the answer does not fit the pending request (its kind, question or option ids); `message` says how.",
       NOT_FOUND: "Also when `request_id` names no request of the session.",

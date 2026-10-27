@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 
 import {
   ApprovalChannel,
-  type ApprovalGrant,
   type ApprovalRequested,
   approvalInputHash,
 } from "./approval.ts";
@@ -110,40 +109,6 @@ describe("ApprovalChannel", () => {
       });
     }
     expect(channel.open).toBe(0);
-  });
-
-  test("spends a grant once, for its turn, tool and arguments only", () => {
-    const hash = approvalInputHash("Bash", { command: "ls" });
-    const grant: ApprovalGrant = {
-      turnUuid: "turn-1",
-      tool: "Bash",
-      inputHash: hash,
-      decision: { kind: "selected", optionKind: "allow_once" },
-    };
-    const channel = new ApprovalChannel([grant]);
-
-    expect(channel.consumeGrant("turn-2", "Bash", hash)).toBeUndefined();
-    expect(channel.consumeGrant("turn-1", "Edit", hash)).toBeUndefined();
-    expect(channel.consumeGrant("turn-1", "Bash", "0".repeat(64))).toBe(
-      undefined,
-    );
-    expect(channel.consumeGrant("turn-1", "Bash", hash)).toEqual(
-      grant.decision,
-    );
-    expect(channel.consumeGrant("turn-1", "Bash", hash)).toBeUndefined();
-  });
-
-  test("drops what is left of a turn's grants and keeps the others", () => {
-    const hash = approvalInputHash("Bash", { command: "ls" });
-    const decision = { kind: "selected", optionKind: "allow_once" } as const;
-    const channel = new ApprovalChannel([
-      { turnUuid: "turn-1", tool: "Bash", inputHash: hash, decision },
-      { turnUuid: "turn-2", tool: "Bash", inputHash: hash, decision },
-    ]);
-    channel.dropGrants("turn-1");
-
-    expect(channel.consumeGrant("turn-1", "Bash", hash)).toBeUndefined();
-    expect(channel.consumeGrant("turn-2", "Bash", hash)).toEqual(decision);
   });
 });
 

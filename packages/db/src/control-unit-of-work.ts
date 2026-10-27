@@ -53,9 +53,11 @@ import * as schema from "./schema.ts";
 import {
   executions,
   idempotencyKeys,
+  permissionGrants,
   queueMessages,
   receipts,
   sessions,
+  turnContinuations,
   turns,
   workerLaunches,
 } from "./schema.ts";
@@ -198,14 +200,21 @@ export async function stopExecution(
       .returning({ id: turns.id, sequence: turns.sequence }),
   );
   if (cancelled.length > 0) {
+    const cancelledIds = cancelled.map((turn) => turn.id);
     await measure("delete_queue_messages_ms", () =>
-      tx.delete(queueMessages).where(
-        inArray(
-          queueMessages.turnId,
-          cancelled.map((turn) => turn.id),
-        ),
-      ),
+      tx
+        .delete(queueMessages)
+        .where(inArray(queueMessages.turnId, cancelledIds)),
     );
+    // A turn that would have carried a park on never ran: its group opens
+    // again with the answers it holds, for the next resume to carry on, or
+    // for a terminate's cancel below to end.
+    await tx
+      .delete(permissionGrants)
+      .where(inArray(permissionGrants.turnId, cancelledIds));
+    await tx
+      .delete(turnContinuations)
+      .where(inArray(turnContinuations.turnId, cancelledIds));
     await measure("fail_input_receipts_ms", () =>
       tx
         .update(receipts)

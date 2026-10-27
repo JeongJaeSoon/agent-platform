@@ -10336,6 +10336,8 @@ export interface operations {
              * @description - `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.
              *     - `REQUEST_EXPIRED`: The pending request was already answered, expired or closed.
              *     - `REQUEST_STALE`: The request was made against state that has since moved on. The attempt that asked is no longer the session's live attempt: it ended, lost its lease, or the turn moved on. A parked request can be answered whatever happened to the attempt that asked.
+             *     - `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`). A parked request whose session has a turn with an unknown outcome: the answer is not kept, since the turn could not resume.
+             *     - `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. A parked request whose session has no checkpoint to resume from: the answer is not kept.
              */
             409: {
                 headers: {
@@ -10346,7 +10348,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE";
+                            code?: "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE";
                         };
                     };
                 };

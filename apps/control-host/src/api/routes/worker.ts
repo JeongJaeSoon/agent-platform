@@ -19,6 +19,8 @@ import {
   registerPendingResponseSchema,
   releaseRequestSchema,
   releaseResponseSchema,
+  requestParkRequestSchema,
+  requestParkResponseSchema,
   restorePlanRequestSchema,
   restorePlanResponseSchema,
   workerReadyRequestSchema,
@@ -160,6 +162,12 @@ export function registerWorkerRoutes(
     parkDeclinedRequestSchema,
     parkDeclinedResponseSchema,
     (principal, body) => gateway.parkDeclined(principal, body),
+  );
+  call(
+    "/request-park",
+    requestParkRequestSchema,
+    requestParkResponseSchema,
+    (principal, body) => gateway.requestPark(principal, body),
   );
   call(
     "/finalize",

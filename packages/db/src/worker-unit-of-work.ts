@@ -3,6 +3,7 @@ import {
   type CheckpointBlockReason,
   type CheckpointRef,
   checkpointBlockReasonSchema,
+  type PermissionGrant,
   type TerminalTurnStatus,
   TURN_BUDGET_EXCEEDED_REASON,
   TURN_INPUT_WAIT_PARKED_REASON,
@@ -109,6 +110,11 @@ import {
 } from "./fence.ts";
 import { catalogMismatchCause, quarantineLaunch } from "./launch-quarantine.ts";
 import { sessionMcpOf } from "./mcp-egress.ts";
+import {
+  abandonUndeliveredParked,
+  closeParkedGroup,
+  settleContinuationInputs,
+} from "./parked-group.ts";
 import { openPauseReceipt, pauseReceiptResult } from "./pause-control.ts";
 import {
   abandonUndeliveredAnswers,
@@ -139,10 +145,13 @@ import {
   events,
   executions,
   MAX_SESSION_COST_USD,
+  pendingRequests,
+  permissionGrants,
   providerUsage,
   queueMessages,
   receipts,
   sessions,
+  turnContinuations,
   turns,
   unassignedSessions,
   workerCredentials,
@@ -981,7 +990,84 @@ async function bindingOf(
     costUsd: session.costUsd,
     providerTokens: session.providerTokens,
     mcp: await sessionMcpOf(tx, session),
+    grants: await unspentGrants(tx, session.id, attempt.id),
   };
+}
+
+// Only for a turn not yet finished: a grant outlives nothing past the turn
+// it was left for. Each is marked as handed to the claiming attempt, which
+// is how nextInput knows an attempt claimed before a grant existed.
+async function unspentGrants(
+  tx: Database,
+  sessionId: string,
+  attemptId: string,
+): Promise<PermissionGrant[]> {
+  const rows = await tx
+    .select({
+      requestId: permissionGrants.requestId,
+      sequence: turns.sequence,
+      tool: pendingRequests.tool,
+      payload: pendingRequests.payload,
+      inputHash: pendingRequests.inputHash,
+    })
+    .from(permissionGrants)
+    .innerJoin(turns, eq(turns.id, permissionGrants.turnId))
+    .innerJoin(
+      pendingRequests,
+      eq(pendingRequests.requestId, permissionGrants.requestId),
+    )
+    .where(
+      and(
+        eq(permissionGrants.sessionId, sessionId),
+        isNull(permissionGrants.consumedAt),
+        isNull(pendingRequests.settledAt),
+        inArray(turns.status, ["queued", ...OPEN_TURN_STATUSES]),
+      ),
+    )
+    .orderBy(asc(permissionGrants.requestId));
+  if (rows.length > 0) {
+    await tx
+      .update(permissionGrants)
+      .set({ attemptId })
+      .where(
+        inArray(
+          permissionGrants.requestId,
+          rows.map((row) => row.requestId),
+        ),
+      );
+  }
+  return rows.map((row) => ({
+    request_id: row.requestId,
+    turn_id: String(row.sequence),
+    tool: (row.payload as { tool?: string }).tool ?? row.tool ?? "",
+    input_hash: row.inputHash,
+  }));
+}
+
+async function grantMissedBy(
+  tx: Database,
+  turnRowId: number,
+  attemptId: string,
+): Promise<boolean> {
+  // Only a grant a claim would carry: one whose request a cancel settled
+  // goes to no worker, and waiting for it would hold the queue for good.
+  const [missed] = await tx
+    .select({ requestId: permissionGrants.requestId })
+    .from(permissionGrants)
+    .innerJoin(
+      pendingRequests,
+      eq(pendingRequests.requestId, permissionGrants.requestId),
+    )
+    .where(
+      and(
+        eq(permissionGrants.turnId, turnRowId),
+        isNull(permissionGrants.consumedAt),
+        isNull(pendingRequests.settledAt),
+        sql`${permissionGrants.attemptId} IS DISTINCT FROM ${attemptId}`,
+      ),
+    )
+    .limit(1);
+  return missed !== undefined;
 }
 
 // The profiles the checkpoints a restore may land on were committed under:
@@ -1692,6 +1778,15 @@ export function createPostgresWorkerUnitOfWork(
           OPEN_TURN_STATUSES.includes(turn.status);
         if (turn.status !== "queued" && !redelivery) return none;
         if ((draining || profileMoved) && !redelivery) return none;
+        // The turn carries a grant this attempt's claim never had: the
+        // engine would ask again for what was already allowed. It goes, and
+        // the next claim takes the grant.
+        if (
+          !redelivery &&
+          (await grantMissedBy(tx, turn.id, fence.attemptId))
+        ) {
+          return { ...none, draining: true as const };
+        }
         // Pausing (or any state but active) admits nothing new; the turn
         // this attempt already holds is still its to finish.
         if (fenced.session.admissionState !== "active" && !redelivery) {
@@ -1740,6 +1835,16 @@ export function createPostgresWorkerUnitOfWork(
               deliveryStartedAt,
             })
             .where(and(eq(turns.id, turn.id), eq(turns.status, "queued")));
+          const [continued] = await tx
+            .select({ parkedTurnId: turnContinuations.parkedTurnId })
+            .from(turnContinuations)
+            .where(eq(turnContinuations.turnId, turn.id));
+          if (continued) {
+            await settleContinuationInputs(tx, {
+              parkedTurnRowId: continued.parkedTurnId,
+              at: now,
+            });
+          }
           expectFenced(
             await tx
               .update(sessions)
@@ -2741,6 +2846,7 @@ export function createPostgresWorkerUnitOfWork(
         // A parked one was never the worker's to answer: it stays open.
         const closedRequests = await closeWorkerRequests(tx, session.id, now);
         await abandonUndeliveredAnswers(tx, session.id, now);
+        await abandonUndeliveredParked(tx, session.id, now);
         await recordLostInputWait(tx, {
           sessionId: session.id,
           closed: closedRequests,
@@ -2966,6 +3072,21 @@ export function createPostgresWorkerUnitOfWork(
             turnRowId: null,
             now: observedAt,
           });
+        }
+        // Answers that came while the park was still draining could not
+        // carry it on then; with the asker gone, the session can.
+        if (!closed && !closedNow && unresolved.length === 0) {
+          const [settled] = await tx
+            .select()
+            .from(sessions)
+            .where(eq(sessions.id, session.id))
+            .limit(1);
+          if (settled) {
+            await closeParkedGroup(tx, settled, {
+              by: "execution_gone",
+              at: observedAt,
+            });
+          }
         }
         if (closedNow) {
           const [open] = await tx
