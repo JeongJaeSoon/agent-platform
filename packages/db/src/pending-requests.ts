@@ -8,6 +8,7 @@ import {
   type PendingRequest,
   pendingQuestionSchema,
   questionAnswerMismatch,
+  sessionMessageSchema,
 } from "@werft-ai/contracts";
 import type {
   AnswerRequestInput,
@@ -37,7 +38,7 @@ import {
   receiptActorOf,
 } from "./control-shared.ts";
 import { DB_NOW, dbNow } from "./db-clock.ts";
-import { closeParkedGroup } from "./parked-group.ts";
+import { closeParkedGroup, continuationMessage } from "./parked-group.ts";
 import type { Database } from "./queries.ts";
 import { lockRequester, lockSessionReach } from "./requester-locks.ts";
 import {
@@ -717,11 +718,44 @@ export function createPostgresPendingRequests(
         // kept for a turn that cannot carry them on.
         if (pending.parkedAt !== null) {
           const unknown = await earliestUnknownTurn(tx, sessionId);
-          if (unknown !== null) {
+          if (
+            unknown !== null ||
+            session.admissionState === "recovery_required"
+          ) {
             return { outcome: "recovery_required", unconfirmedTurnId: unknown };
           }
           if (!hasRestorePoint(session)) {
             return { outcome: "checkpoint_unavailable" };
+          }
+          // The turn that carries the group on is one input: the answers so
+          // far, this one, and an expiry line for every other row must fit
+          // it, or the group could never be carried on.
+          const group = await tx
+            .select()
+            .from(pendingRequests)
+            .where(
+              and(
+                eq(pendingRequests.turnId, pending.turnId),
+                isNotNull(pendingRequests.parkedAt),
+              ),
+            )
+            .orderBy(
+              asc(pendingRequests.createdAt),
+              asc(pendingRequests.requestId),
+            );
+          const carried = continuationMessage(
+            group.map((row) =>
+              row.requestId === pending.requestId
+                ? { ...row, answer: input.answer }
+                : row,
+            ),
+          );
+          if (!sessionMessageSchema.safeParse({ message: carried }).success) {
+            return {
+              outcome: "invalid",
+              reason:
+                "The answers to this parked turn no longer fit in one message; answer with less text",
+            };
           }
         }
 

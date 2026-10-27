@@ -1505,6 +1505,34 @@ integration("parked pending requests on PostgreSQL", () => {
     ).toBe("RECOVERY_REQUIRED");
     expect((await request(unknown.requestId)).answeredAt).toBeNull();
     expect(await continuations(unknown.turnRowId)).toEqual([]);
+
+    // Held for an operator with no turn of unknown outcome, as restores
+    // that kept failing leave it.
+    const held = await parked();
+    await db
+      .update(sessions)
+      .set({ admissionState: "recovery_required", status: "failed" })
+      .where(eq(sessions.id, held.sessionId));
+    expect(
+      await failure(answer(held.owner, held.sessionId, held.requestId)),
+    ).toBe("RECOVERY_REQUIRED");
+    expect((await request(held.requestId)).answeredAt).toBeNull();
+  });
+
+  test("answers that would not fit the turn carrying them on are refused", async () => {
+    const { owner, sessionId, requestIds, turnRowId } = await parked(2);
+    const [first = "", second = ""] = requestIds;
+    const deny = (requestId: string) =>
+      answerWith(owner, sessionId, {
+        request_id: requestId,
+        kind: "permission",
+        decision: "deny",
+        reason: "x".repeat(20 * 1024),
+      });
+    expect((await deny(first)).receipt_status).toBe("accepted");
+    expect(await failure(deny(second))).toBe("BAD_REQUEST");
+    expect((await request(second)).answeredAt).toBeNull();
+    expect(await continuations(turnRowId)).toEqual([]);
   });
 
   test("the last answer of a paused park resumes it, its allows granted to the turn that carries it on", async () => {

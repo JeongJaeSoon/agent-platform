@@ -35,7 +35,7 @@ export type AnswerRequestResult =
   // A parked request whose session could not be resumed from it: refused
   // before the answer is kept, so no group is left closed on a session
   // that cannot carry it on.
-  | { outcome: "recovery_required"; unconfirmedTurnId: string }
+  | { outcome: "recovery_required"; unconfirmedTurnId: string | null }
   | { outcome: "checkpoint_unavailable" }
   // Re-judged inside the write: the requester is gone, or no longer answers
   // for this session.

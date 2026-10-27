@@ -95,7 +95,9 @@ export function createPendingRequestService(deps: {
         case "recovery_required":
           throw new SessionServiceError(
             "RECOVERY_REQUIRED",
-            `Turn ${result.unconfirmedTurnId} has an unknown outcome; an operator recovery decision is required before the parked turn can resume`,
+            result.unconfirmedTurnId === null
+              ? "The session waits for an operator recovery decision before the parked turn can resume"
+              : `Turn ${result.unconfirmedTurnId} has an unknown outcome; an operator recovery decision is required before the parked turn can resume`,
           );
         case "checkpoint_unavailable":
           throw new SessionServiceError(
