@@ -1,7 +1,7 @@
 # The example repository (config/repositories.yaml), trusted for the
-# fake-model profile alone.
+# fake-model profiles alone.
 repositories:
   sample-app:
     url: http://gitea:3000/agent/sample-app.git
     branch: main
-    profiles: [claude-coding-local]
+    profiles: [claude-coding-local, claude-coding-auto]

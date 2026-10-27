@@ -44,7 +44,8 @@ curl: (28) Operation timed out after 5006 milliseconds with 4482 bytes received
 | --- | --- |
 | `default` | 파일을 바꾸는 도구(Write, Edit, 파일을 쓰는 Bash 명령 등)는 실행 전에 권한 요청을 만든다. 읽기 명령은 묻지 않는다. 로컬 프로필의 모드다 |
 | `acceptEdits`, `dontAsk`, `plan` | Claude Code의 같은 이름 모드로 돈다 |
-| `bypassPermissions`, `auto` | 사람의 승인 없이 실행한다. 카탈로그에 이 모드의 프로필이 있으면 API는 `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true` 없이는 기동하지 않는다 |
+| `auto` | 사람 대신 모델 분류기가 호출마다 허용·거부를 정한다. 분류기를 쓸 수 없으면 거부한다. 설치 설정 없이 쓸 수 있다 |
+| `bypassPermissions` | 판정 없이 모든 호출을 실행한다. 카탈로그에 이 모드의 프로필이 있으면 API는 `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true` 없이는 기동하지 않고, 워크스페이스 프로필에서는 owner·admin만 고를 수 있다 |
 
 모드는 카탈로그에만 있고, 세션 요청으로 바꿀 수 없다.
 

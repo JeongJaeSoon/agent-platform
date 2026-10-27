@@ -1,17 +1,17 @@
 # The format is config/profiles.yaml's.
 #
-# Opt-in example: config/fake-model plus operator profiles that run without
-# a person answering permission requests, so a workspace profile over them
-# may pick `auto` or `bypassPermissions` (a workspace profile only narrows
-# its base). The API refuses to start on this catalog unless the
-# installation sets PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true;
+# Opt-in example: config/fake-model plus an operator profile in
+# `bypassPermissions`, which runs every tool call with nothing judging it, so
+# a workspace profile over it may pick `bypassPermissions` (a workspace
+# profile only narrows its base). The API refuses to start on this catalog
+# unless the installation sets PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true;
 # infra/compose.fake-model-unattended.yml does both over the fake-model
-# overlay. Read docs/operator/api-server.md (자율 모드) before copying these
-# profiles into a real catalog.
+# overlay. Read docs/operator/api-server.md (자율 모드) before copying this
+# profile into a real catalog.
 #
 # New ids rather than a changed mode on claude-coding-local: the mode is in a
 # profile's fingerprint, so editing it in place stops every session and
-# release on that id.
+# release on that id. claude-coding-auto is config/fake-model's.
 profiles:
   claude-coding-local:
     runtime_kind: claude_agent_sdk

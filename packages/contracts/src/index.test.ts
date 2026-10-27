@@ -17,6 +17,7 @@ import {
   listSessionsQuerySchema,
   loggableBootstrapClaim,
   nextInputRequestSchema,
+  OPT_IN_PERMISSION_MODES,
   opaqueCursorSchema,
   pendingControlRequestSchema,
   pendingControlResponseSchema,
@@ -70,6 +71,7 @@ describe("session contracts", () => {
     expect(TURN_STATUS_VALUES).not.toContain("done");
     expect(sessionStatusSchema.safeParse("complete").success).toBe(false);
     expect(UNATTENDED_PERMISSION_MODES).toEqual(["bypassPermissions", "auto"]);
+    expect(OPT_IN_PERMISSION_MODES).toEqual(["bypassPermissions"]);
   });
 
   test("accepts the api.md create example and rejects the legacy shape", () => {

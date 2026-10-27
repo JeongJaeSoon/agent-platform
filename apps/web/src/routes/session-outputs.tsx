@@ -96,7 +96,12 @@ export function SessionOutputs({
   }
   const items = outputs.data?.items ?? [];
   if (items.length === 0) {
-    return <EmptyState title={t("session.outputs.empty")} />;
+    return (
+      <EmptyState
+        title={t("session.outputs.empty")}
+        description={t("session.outputs.emptyHint")}
+      />
+    );
   }
   return (
     <section

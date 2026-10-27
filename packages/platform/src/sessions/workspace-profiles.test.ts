@@ -348,9 +348,13 @@ function caller(who: keyof typeof USERS): Caller {
   return callerFor(principal, { kind: "web" }, crypto.randomUUID());
 }
 
-function service(store: Partial<WorkspaceProfileStore> = {}, readable = true) {
+function service(
+  store: Partial<WorkspaceProfileStore> = {},
+  readable = true,
+  operators?: Record<string, CatalogProfile>,
+) {
   const writes: unknown[] = [];
-  const catalog = catalogWith([]);
+  const catalog = catalogWith([], operators);
   if (!readable && catalog.workspace_profiles) {
     catalog.workspace_profiles.refresh = async () => {
       throw new Error("database down");
@@ -447,6 +451,28 @@ describe("the service", () => {
     expect(
       (await refusal(profiles.create(caller("member"), REQUEST))).code,
     ).toBe("FORBIDDEN");
+    expect(writes).toEqual([]);
+  });
+
+  test("over a bypassPermissions base only an owner or an admin saves bypassPermissions", async () => {
+    const bypass = {
+      coding: { ...base, permission_mode: "bypassPermissions" as const },
+    };
+    const request = {
+      ...REQUEST,
+      permission_mode: "bypassPermissions" as const,
+    };
+    for (const who of ["owner", "admin"] as const) {
+      const { profiles, writes } = service({}, true, bypass);
+      await profiles.create(caller(who), request);
+      expect(writes).toMatchObject([
+        { narrowing: { permission_mode: "bypassPermissions" } },
+      ]);
+    }
+    const { profiles, writes } = service({}, true, bypass);
+    const refused = await refusal(profiles.create(caller("member"), request));
+    expect(refused.code).toBe("FORBIDDEN");
+    expect(refused.details).toMatchObject({ reason_code: "role" });
     expect(writes).toEqual([]);
   });
 

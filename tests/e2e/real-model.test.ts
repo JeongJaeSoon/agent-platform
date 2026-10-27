@@ -50,7 +50,7 @@ function defaults(...layers: Array<Service | undefined>) {
 }
 
 describe("default catalog", () => {
-  test("its one profile calls api.anthropic.com with the key from the API's environment", async () => {
+  test("its profiles call api.anthropic.com with the key from the API's environment", async () => {
     const catalog = await loadSessionCatalog({
       dir: CATALOG,
       env: { [KEY_VARIABLE]: PROBE },
@@ -58,10 +58,21 @@ describe("default catalog", () => {
         throw new Error("the default catalog reads no secret");
       },
     });
-    expect(Object.keys(catalog.profiles)).toEqual(["claude-coding-real"]);
+    expect(Object.keys(catalog.profiles)).toEqual([
+      "claude-coding-real",
+      "claude-coding-real-auto",
+    ]);
     expect(catalog.repositories["sample-app"]?.profiles).toEqual([
       "claude-coding-real",
+      "claude-coding-real-auto",
     ]);
+    // The auto base differs only in its mode, so this one profile speaks for both.
+    const { permission_mode, ...auto } =
+      catalog.profiles["claude-coding-real-auto"] ?? {};
+    expect(permission_mode).toBe("auto");
+    const { permission_mode: _, ...real } =
+      catalog.profiles["claude-coding-real"] ?? {};
+    expect(auto).toEqual(real);
     const profile = catalog.profiles["claude-coding-real"];
     if (profile === undefined) throw new Error("no profile");
     expect(providerUpstreamOf(profile)).toEqual({

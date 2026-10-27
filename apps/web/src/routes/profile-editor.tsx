@@ -31,7 +31,7 @@ import {
   NativeSelectOption,
   Section,
 } from "@werft-ai/ui";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useId, useState } from "react";
 import { queryKeysOf } from "../api/queries.ts";
 import { refusalText, useRole } from "../auth/guard.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
@@ -107,6 +107,8 @@ export function ProfileEditor({
   const closedModes = (["auto", "bypassPermissions"] as const).filter(
     (mode) => !choices?.permission_modes.includes(mode),
   );
+  const bypassChosen = draft.permission_mode === "bypassPermissions";
+  const riskId = useId();
 
   const name = workspaceProfileNameStep.safeParse(draft.name);
   const nameError = name.success ? undefined : t("profiles.editor.nameInvalid");
@@ -318,6 +320,7 @@ export function ProfileEditor({
               <NativeSelect
                 value={draft.permission_mode}
                 disabled={save.isPending}
+                aria-describedby={bypassChosen ? riskId : undefined}
                 onChange={(event) =>
                   setDraft({
                     ...draft,
@@ -340,12 +343,23 @@ export function ProfileEditor({
               <FieldDescription>
                 {t("profiles.editor.modeHint")}
               </FieldDescription>
-              {closedModes.length === 0 ? null : (
-                <FieldDescription>
-                  {t("profiles.editor.unattendedClosed")}
+              {closedModes.map((mode) => (
+                <FieldDescription key={mode}>
+                  {t(
+                    mode === "auto"
+                      ? "profiles.editor.autoClosed"
+                      : "profiles.editor.bypassClosed",
+                  )}
                 </FieldDescription>
-              )}
+              ))}
             </Field>
+            {bypassChosen ? (
+              <Alert id={riskId} variant="amber">
+                <AlertDescription>
+                  {t("profiles.editor.bypassRisk")}
+                </AlertDescription>
+              </Alert>
+            ) : null}
           </>
         ) : null}
 

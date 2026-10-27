@@ -1,9 +1,10 @@
 # Opt-in overlay with infra/compose.fake-model.yml, for `scripts/local.sh up
 # --fake-model` with this file in COMPOSE_FILE: the API and the slack role
-# read config/fake-model-unattended, whose operator profiles run `auto` and
-# `bypassPermissions`, and the installation allows it. Without it
+# read config/fake-model-unattended, which adds a `bypassPermissions`
+# operator profile, and the installation allows it. Without it
 # PLATFORM_ALLOW_UNATTENDED_PERMISSIONS stays false and such a catalog stops
-# the API (docs/operator/api-server.md, 자율 모드).
+# the API (docs/operator/api-server.md, 자율 모드). `auto` needs neither: the
+# plain fake-model catalog carries claude-coding-auto.
 #
 # The catalog is mounted where the fake-model overlay points
 # PLATFORM_CONFIG_DIR, since local.sh puts that overlay after COMPOSE_FILE and

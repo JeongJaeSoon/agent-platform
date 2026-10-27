@@ -33,7 +33,7 @@ curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $KEY"
 
 ## Choose a run profile
 
-A session runs with one of the run profiles (profile) that the operator registered. The local fake stack has one, `claude-coding-local`.
+A session runs with one of the run profiles (profile) that the operator registered. The local fake stack has `claude-coding-local` (a person answers permission requests) and `claude-coding-auto` (a classifier judges them), which use a repository, and `general`, which runs without one.
 
 ```bash
 curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" | jq '.items[] | {id, model, repository_mode}'
