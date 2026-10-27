@@ -100,6 +100,31 @@ export const profilesKo = {
     "이미 이 버전을 쓰는 release와 세션은 계속 동작합니다. 새 release와 세션은 이 버전을 고를 수 없습니다. 사용 중지는 되돌릴 수 없습니다.",
   "profiles.retiring": "사용 중지하는 중…",
   "profiles.retired": "{id} 버전을 사용 중지했습니다.",
+  "profiles.open": "{name} 자세히 보기",
+  "profiles.detail.notFound.title": "프로필을 찾을 수 없습니다",
+  "profiles.detail.notFound.text":
+    "{id} 프로필이 없습니다. 운영자가 지웠거나 주소가 잘못됐습니다.",
+  "profiles.detail.back": "실행 프로필 목록으로",
+  "profiles.detail.workspaceDescription":
+    "운영자 프로필을 바탕으로 이 워크스페이스에서 만든 프로필입니다. 수정하면 새 버전으로 저장되고, 이 버전은 그대로 남습니다.",
+  "profiles.detail.createFrom": "이 프로필로 만들기",
+  "profiles.detail.settings": "설정",
+  "profiles.detail.id": "id",
+  "profiles.detail.models": "고를 수 있는 모델",
+  "profiles.detail.created": "만든 때",
+  "profiles.detail.retiredAt": "사용 중지한 때",
+  "profiles.detail.history.title": "버전 기록",
+  "profiles.detail.history.version": "버전",
+  "profiles.detail.history.current": "지금 보는 버전",
+  "profiles.detail.agents.title": "이 프로필을 쓰는 에이전트",
+  "profiles.detail.agents.description":
+    "지금 활성 release가 이 프로필(버전)을 쓰는 에이전트입니다. 이전 release는 세지 않습니다.",
+  "profiles.detail.agents.withheld":
+    "에이전트 목록은 에이전트를 관리할 수 있는 사람만 봅니다",
+  "profiles.detail.agents.empty": "지금 이 프로필을 쓰는 에이전트가 없습니다.",
+  "profiles.detail.agents.agent": "에이전트",
+  "profiles.detail.agents.release": "활성 release",
+  "profiles.detail.agents.open": "{name}의 release 보기",
 };
 
 export const profilesEn: Record<keyof typeof profilesKo, string> = {
@@ -204,6 +229,31 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
     "Releases and sessions that already use it keep running. New releases and sessions cannot pick it. Turning it off cannot be undone.",
   "profiles.retiring": "Turning off…",
   "profiles.retired": "Turned off version {id}.",
+  "profiles.open": "Open {name}",
+  "profiles.detail.notFound.title": "Profile not found",
+  "profiles.detail.notFound.text":
+    "There is no profile {id}. The operator removed it or the address is wrong.",
+  "profiles.detail.back": "Back to run profiles",
+  "profiles.detail.workspaceDescription":
+    "Made in this workspace from an operator profile. Editing saves a new version; this version stays as it is.",
+  "profiles.detail.createFrom": "Make a profile from this",
+  "profiles.detail.settings": "Settings",
+  "profiles.detail.id": "id",
+  "profiles.detail.models": "Models to choose from",
+  "profiles.detail.created": "Created",
+  "profiles.detail.retiredAt": "Turned off",
+  "profiles.detail.history.title": "Versions",
+  "profiles.detail.history.version": "Version",
+  "profiles.detail.history.current": "Viewing",
+  "profiles.detail.agents.title": "Agents using this profile",
+  "profiles.detail.agents.description":
+    "Agents whose active release uses this profile (version). Earlier releases are not counted.",
+  "profiles.detail.agents.withheld":
+    "Only people who can manage agents see the agent list",
+  "profiles.detail.agents.empty": "No agent uses this profile now.",
+  "profiles.detail.agents.agent": "Agent",
+  "profiles.detail.agents.release": "Active release",
+  "profiles.detail.agents.open": "Open the release of {name}",
 };
 
 export const profilesJa: Record<keyof typeof profilesKo, string> = {
@@ -310,4 +360,30 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "すでにこのバージョンを使っている release とセッションは動き続けます。新しい release とセッションはこのバージョンを選べません。使用停止は元に戻せません。",
   "profiles.retiring": "使用停止しています…",
   "profiles.retired": "バージョン {id} を使用停止しました。",
+  "profiles.open": "{name} の詳細を見る",
+  "profiles.detail.notFound.title": "プロファイルが見つかりません",
+  "profiles.detail.notFound.text":
+    "プロファイル {id} はありません。運営者が削除したか、アドレスが誤っています。",
+  "profiles.detail.back": "実行プロファイル一覧へ",
+  "profiles.detail.workspaceDescription":
+    "運営者プロファイルをもとにこのワークスペースで作ったプロファイルです。編集すると新しいバージョンとして保存され、このバージョンはそのまま残ります。",
+  "profiles.detail.createFrom": "このプロファイルから作る",
+  "profiles.detail.settings": "設定",
+  "profiles.detail.id": "id",
+  "profiles.detail.models": "選べるモデル",
+  "profiles.detail.created": "作成日時",
+  "profiles.detail.retiredAt": "使用停止日時",
+  "profiles.detail.history.title": "バージョン履歴",
+  "profiles.detail.history.version": "バージョン",
+  "profiles.detail.history.current": "表示中",
+  "profiles.detail.agents.title": "このプロファイルを使うエージェント",
+  "profiles.detail.agents.description":
+    "有効な release がこのプロファイル(バージョン)を使うエージェントです。以前の release は数えません。",
+  "profiles.detail.agents.withheld":
+    "エージェント一覧はエージェントを管理できる人だけが見られます",
+  "profiles.detail.agents.empty":
+    "今このプロファイルを使うエージェントはありません。",
+  "profiles.detail.agents.agent": "エージェント",
+  "profiles.detail.agents.release": "有効な release",
+  "profiles.detail.agents.open": "{name} の release を見る",
 };
