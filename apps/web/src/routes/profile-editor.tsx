@@ -35,8 +35,12 @@ import { refusalText, useRole } from "../auth/guard.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
 export type EditorStart =
-  | { readonly mode: "new" }
-  | { readonly mode: "version" | "remake"; readonly from: ProfileSummary };
+  | { readonly mode: "new"; readonly base: ProfileSummary }
+  | {
+      readonly mode: "version" | "remake";
+      readonly from: ProfileSummary;
+      readonly base: ProfileSummary;
+    };
 
 type Draft = Omit<CreateWorkspaceProfileRequest, "name"> & {
   readonly name: string;
@@ -51,7 +55,6 @@ const fromBase = (base: ProfileSummary, name: string): Draft => ({
   permission_mode: base.permission_mode,
 });
 
-// A version's own values, less what its base no longer allows.
 function fromVersion(from: ProfileSummary, base: ProfileSummary): Draft {
   const models = from.models.filter((model) => base.models.includes(model));
   const modes = NARROWER_PERMISSION_MODES[base.permission_mode];
@@ -67,23 +70,17 @@ function fromVersion(from: ProfileSummary, base: ProfileSummary): Draft {
   };
 }
 
-/**
- * Makes a new version of a workspace profile: an operator profile, narrowed.
- * A new profile picks its base and name; a later version keeps both.
- */
 export function ProfileEditor({
   start,
   operators,
-  versions,
-  idPrefix,
+  nextId,
   onSaved,
   onCancel,
 }: {
   readonly start: EditorStart;
   readonly operators: readonly ProfileSummary[];
-  /** Every workspace version, for the number the next one gets. */
-  readonly versions: readonly ProfileSummary[];
-  readonly idPrefix: string;
+  /** The id a save under `name` would get. */
+  readonly nextId: (name: string) => string;
   readonly onSaved: (id: string) => void;
   readonly onCancel: () => void;
 }) {
@@ -92,15 +89,11 @@ export function ProfileEditor({
   const queryClient = useQueryClient();
   const role = useRole();
   const fixed = start.mode !== "new";
-  const [draft, setDraft] = useState<Draft>(() => {
-    const first = operators[0] as ProfileSummary;
-    if (start.mode === "new") return fromBase(first, "");
-    // Only a version whose base is still in the catalog opens here.
-    const base = operators.find(
-      (item) => item.id === start.from.workspace?.base_profile_id,
-    );
-    return fromVersion(start.from, base ?? first);
-  });
+  const [draft, setDraft] = useState<Draft>(() =>
+    start.mode === "new"
+      ? fromBase(start.base, "")
+      : fromVersion(start.from, start.base),
+  );
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const base = operators.find((item) => item.id === draft.base_profile_id);
@@ -109,13 +102,6 @@ export function ProfileEditor({
   const nameError = name.success ? undefined : t("profiles.editor.nameInvalid");
   const modelsError =
     draft.models.length === 0 ? t("profiles.editor.modelsEmpty") : undefined;
-  const version =
-    Math.max(
-      0,
-      ...versions
-        .filter((item) => item.workspace?.name === draft.name)
-        .map((item) => item.workspace?.version ?? 0),
-    ) + 1;
 
   const save = useMutation<
     WorkspaceProfileChangeResponse,
@@ -221,7 +207,7 @@ export function ProfileEditor({
           <FieldDescription>
             {name.success
               ? t("profiles.editor.preview", {
-                  id: `ws_${idPrefix}_${name.data}_v${version}`,
+                  id: nextId(name.data),
                 })
               : t("profiles.editor.nameHint")}
           </FieldDescription>
@@ -327,7 +313,6 @@ export function ProfileEditor({
           </>
         ) : null}
 
-        {/* No input yet: script ceilings arrive with extensions (stage 2a). */}
         <Field className="w-auto max-w-full">
           <div className="flex items-center gap-2">
             <FieldLabel>{t("profiles.editor.scriptCeiling")}</FieldLabel>

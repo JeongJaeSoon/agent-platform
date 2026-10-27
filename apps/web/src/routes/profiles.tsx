@@ -5,6 +5,7 @@ import type {
   WorkspaceProfileChangeResponse,
   WorkspaceProfileState,
 } from "@werft-ai/contracts";
+import { workspaceProfileId } from "@werft-ai/core/forms";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   Alert,
@@ -38,7 +39,6 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { type EditorStart, ProfileEditor } from "./profile-editor.tsx";
 
-// No column drops on a phone: each cell stacks two values instead.
 const PROFILE_COLUMNS = "minmax(0,1.2fr) minmax(0,1fr) minmax(0,1.4fr)";
 const VERSION_COLUMNS = "minmax(0,1.4fr) minmax(0,1fr) auto auto";
 const META = "text-caption text-muted-foreground";
@@ -50,11 +50,6 @@ const STATE_BADGE: Record<WorkspaceProfileState, "green" | "red" | "gray"> = {
   retired: "gray",
 };
 
-/**
- * The run profiles: the operator's, read only from the installation's
- * settings file, and this workspace's versions narrowing them, which owners
- * and admins make and retire here.
- */
 export function ProfilesScreen() {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
@@ -77,14 +72,19 @@ export function ProfilesScreen() {
         (a.workspace?.name ?? "").localeCompare(b.workspace?.name ?? "") ||
         (b.workspace?.version ?? 0) - (a.workspace?.version ?? 0),
     );
-  // The server names a version after the slug when it is id-safe.
-  const idPrefix =
-    workspace == null
-      ? ""
-      : /^[a-z0-9-]+$/.test(workspace.slug)
-        ? workspace.slug
-        : workspace.id;
-  // Only the latest version of a name calls for a move to a new one.
+  const nextId = (name: string) =>
+    workspaceProfileId(
+      workspace ?? { id: "", slug: "" },
+      name,
+      Math.max(
+        0,
+        ...versions
+          .filter((item) => item.workspace?.name === name)
+          .map((item) => item.workspace?.version ?? 0),
+      ) + 1,
+    );
+  const baseOf = (item: ProfileSummary) =>
+    operators.find((base) => base.id === item.workspace?.base_profile_id);
   const stranded = versions.filter(
     (item) =>
       (item.workspace?.state === "base_changed" ||
@@ -125,8 +125,13 @@ export function ProfilesScreen() {
       title={t("profiles.title")}
       description={t("profiles.description")}
       actions={
-        manages && operators.length > 0 ? (
-          <Button type="button" onClick={() => open({ mode: "new" })}>
+        manages && operators[0] !== undefined ? (
+          <Button
+            type="button"
+            onClick={() =>
+              operators[0] && open({ mode: "new", base: operators[0] })
+            }
+          >
             <Plus aria-hidden="true" />
             {t("profiles.create")}
           </Button>
@@ -169,12 +174,10 @@ export function ProfilesScreen() {
           ))}
           {editor === null ? null : (
             <ProfileEditor
-              // A new start is a new form, not an edit of the open one.
               key={editor.mode === "new" ? "new" : editor.from.id}
               start={editor}
               operators={operators}
-              versions={versions}
-              idPrefix={idPrefix}
+              nextId={nextId}
               onCancel={() => setEditor(null)}
               onSaved={(id) => {
                 setEditor(null);
@@ -230,7 +233,8 @@ export function ProfilesScreen() {
                       key={item.id}
                       profile={item}
                       manages={manages}
-                      onEdit={(mode) => open({ mode, from: item })}
+                      base={baseOf(item)}
+                      onEdit={(mode, base) => open({ mode, from: item, base })}
                       onRetire={() => {
                         setRetireError(null);
                         setRetiring(item);
@@ -309,12 +313,14 @@ export function ProfilesScreen() {
 function VersionRow({
   profile,
   manages,
+  base,
   onEdit,
   onRetire,
 }: {
   readonly profile: ProfileSummary;
   readonly manages: boolean;
-  readonly onEdit: (mode: "version" | "remake") => void;
+  readonly base: ProfileSummary | undefined;
+  readonly onEdit: (mode: "version" | "remake", base: ProfileSummary) => void;
   readonly onRetire: () => void;
 }) {
   const { t } = useI18n();
@@ -344,13 +350,13 @@ function VersionRow({
       {manages ? (
         <GridTableCell>
           <div className="flex flex-wrap justify-end gap-2">
-            {state === "usable" || state === "base_changed" ? (
+            {base && (state === "usable" || state === "base_changed") ? (
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
                 onClick={() =>
-                  onEdit(state === "usable" ? "version" : "remake")
+                  onEdit(state === "usable" ? "version" : "remake", base)
                 }
               >
                 {t(

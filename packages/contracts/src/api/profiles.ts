@@ -122,6 +122,18 @@ export const listProfilesResponseSchema = z
   .object({ items: z.array(profileSummarySchema) })
   .strict();
 
+/** A slug that is not id-safe gives way to the workspace's uuid. */
+export function workspaceProfileId(
+  workspace: { readonly id: string; readonly slug: string },
+  name: string,
+  version: number,
+): string {
+  const prefix = /^[a-z0-9-]+$/.test(workspace.slug)
+    ? workspace.slug
+    : workspace.id;
+  return `ws_${prefix}_${name}_v${version}`;
+}
+
 /**
  * POST /v1/workspace-profiles: a new version of the workspace profile
  * `name`, narrowing the operator profile `base_profile_id`. Its id is new

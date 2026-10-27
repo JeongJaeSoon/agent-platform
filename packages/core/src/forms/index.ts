@@ -36,8 +36,10 @@ export const workspaceProfileNameStep = trimmed(
   createWorkspaceProfileRequestSchema.shape.name,
 );
 
-/** The modes a workspace profile may run over a base of each mode. */
-export { NARROWER_PERMISSION_MODES } from "@werft-ai/contracts";
+export {
+  NARROWER_PERMISSION_MODES,
+  workspaceProfileId,
+} from "@werft-ai/contracts";
 
 export const inviteStep = z.object({
   email: trimmed(createInviteRequestSchema.shape.email),

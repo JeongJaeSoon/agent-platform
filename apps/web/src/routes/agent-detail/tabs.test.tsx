@@ -958,7 +958,6 @@ describe("에이전트 상세 탭", () => {
       ...operator,
       id: `ws_acme_strict_v${n}`,
       source: "workspace" as const,
-      // The card's model: a pick by model alone would land here.
       model: "claude-sonnet-5",
       models: ["claude-sonnet-5"],
       workspace: {

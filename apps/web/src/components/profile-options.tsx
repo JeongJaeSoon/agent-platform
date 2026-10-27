@@ -2,14 +2,9 @@ import type { ProfileSummary } from "@werft-ai/contracts";
 import { NativeSelectOptGroup, NativeSelectOption } from "@werft-ai/ui";
 import { useI18n } from "../i18n/i18n.tsx";
 
-/** Whether a new release may name the profile. */
 export const pickable = (profile: ProfileSummary) =>
   profile.source === "operator" || profile.workspace?.state === "usable";
 
-/**
- * A profile select's options, grouped by where each is defined. Workspace
- * versions that take no new release stay listed, disabled, with why.
- */
 export function ProfileOptions({
   profiles,
   label,

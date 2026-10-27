@@ -73,7 +73,6 @@ const rows = (table: HTMLElement) =>
       ),
     );
 
-/** A catalog that takes the screen's writes as the server would. */
 function catalog(start: ProfileSummary[] = PROFILES) {
   const items = [...start];
   return {
@@ -180,7 +179,6 @@ describe("실행 프로필", () => {
     const editor = await screen.findByRole("region", {
       name: "좁힌 프로필 만들기",
     });
-    // The base's own values to start from, and only those to pick.
     expect(
       (within(editor).getByLabelText("기준 프로필") as HTMLSelectElement).value,
     ).toBe("coding-claude");
@@ -206,7 +204,6 @@ describe("실행 프로필", () => {
       "default",
       "plan",
     ]);
-    // The ceiling is shown, not taken.
     expect(
       (within(editor).getByLabelText("스크립트 상한") as HTMLSelectElement)
         .disabled,
