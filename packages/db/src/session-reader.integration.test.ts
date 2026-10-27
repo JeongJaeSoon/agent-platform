@@ -22,6 +22,7 @@ import {
   receipts,
   sessions,
   turns,
+  users,
 } from "./schema.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -115,6 +116,55 @@ integration("session reader on PostgreSQL", () => {
       outcome: "checkpoint_unavailable",
       reason: "future_reason",
     });
+  });
+
+  test("each turn reads back where its input came from and who sent it", async () => {
+    const { sessionId } = await queuedSession();
+    const userId = crypto.randomUUID();
+    await db.insert(users).values({
+      id: userId,
+      email: `${userId}@example.invalid`,
+      displayName: "Mina Park",
+    });
+    const uow = createPostgresSessionUnitOfWork(db);
+    const append = (
+      key: string,
+      kind: "user" | "api_key" | "installation",
+      actorUserId: string | null,
+    ) =>
+      uow.appendInputAtomic({
+        principal: {
+          ownerId: OWNER,
+          actor: {
+            principal: { kind, id: key },
+            userId: actorUserId,
+            workspaceId: null,
+            apiKeyId: kind === "api_key" ? key : null,
+          },
+        },
+        sessionId,
+        idempotencyKey: key,
+        payloadHash: key,
+        message: key,
+        limits: { queuedInputLimitPerSession: 100, storageLimitBytes: 1e15 },
+      });
+    await append("from-web", "user", userId);
+    await append("from-key", "api_key", null);
+    await append("from-slack", "installation", userId);
+
+    const listed = await createPostgresSessionReader(db).listTurns(
+      OWNER,
+      sessionId,
+      { limit: 10 },
+    );
+    expect(
+      listed?.items.map(({ source, author_name }) => [source, author_name]),
+    ).toEqual([
+      [null, null],
+      ["web", "Mina Park"],
+      ["api", null],
+      ["slack", "Mina Park"],
+    ]);
   });
 
   test("last_event_at is the time of the newest event in stream order, in list and detail", async () => {

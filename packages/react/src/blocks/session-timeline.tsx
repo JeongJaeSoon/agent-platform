@@ -246,7 +246,12 @@ export function SessionTimeline({
           return turn ? (
             <Message
               from="user"
-              author={t("session.events.prompt")}
+              author={[
+                turn.author_name ?? t("session.events.prompt"),
+                turn.source ? t(`session.events.source.${turn.source}`) : null,
+              ]
+                .filter((part) => part !== null)
+                .join(" · ")}
               text={turn.message}
             />
           ) : null;

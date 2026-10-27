@@ -4375,6 +4375,29 @@
           "message": {
             "type": "string"
           },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "slack",
+                  "web",
+                  "api"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the instruction came from: `slack` (a mention, DM or thread reply), `web` (the console) or `api` (an API key). Null for a turn from before it was recorded."
+          },
+          "author_name": {
+            "description": "Display name of the person who sent the instruction. Null for an API key no person created, or a turn from before it was recorded.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "terminal_reason": {
             "anyOf": [
               {
@@ -4434,6 +4457,8 @@
           "session_id",
           "status",
           "message",
+          "source",
+          "author_name",
           "terminal_reason",
           "checkpoint_revision",
           "created_at",
@@ -4470,6 +4495,29 @@
           },
           "message": {
             "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "slack",
+                  "web",
+                  "api"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the instruction came from: `slack` (a mention, DM or thread reply), `web` (the console) or `api` (an API key). Null for a turn from before it was recorded."
+          },
+          "author_name": {
+            "description": "Display name of the person who sent the instruction. Null for an API key no person created, or a turn from before it was recorded.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "terminal_reason": {
             "anyOf": [
@@ -4625,6 +4673,8 @@
           "session_id",
           "status",
           "message",
+          "source",
+          "author_name",
           "terminal_reason",
           "checkpoint_revision",
           "created_at",
@@ -24181,6 +24231,8 @@
                       "session_id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
                       "status": "completed",
                       "message": "Add a health check endpoint and a test for it.",
+                      "source": "web",
+                      "author_name": "Mina Park",
                       "terminal_reason": null,
                       "checkpoint_revision": 2,
                       "created_at": "2026-10-11T08:00:00Z",
@@ -24192,6 +24244,8 @@
                       "session_id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
                       "status": "running",
                       "message": "Now add the endpoint to the README.",
+                      "source": "web",
+                      "author_name": "Mina Park",
                       "terminal_reason": null,
                       "checkpoint_revision": null,
                       "created_at": "2026-10-11T08:14:00Z",
@@ -24448,6 +24502,8 @@
                   "session_id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
                   "status": "completed",
                   "message": "Add a health check endpoint and a test for it.",
+                  "source": "web",
+                  "author_name": "Mina Park",
                   "terminal_reason": null,
                   "checkpoint_revision": 2,
                   "created_at": "2026-10-11T08:00:00Z",

@@ -3382,6 +3382,10 @@ export interface components {
              */
             status: "queued" | "running" | "needs_input" | "completed" | "failed" | "interrupted" | "cancelled" | "outcome_unknown";
             message: string;
+            /** @description Where the instruction came from: `slack` (a mention, DM or thread reply), `web` (the console) or `api` (an API key). Null for a turn from before it was recorded. */
+            source: ("slack" | "web" | "api") | null;
+            /** @description Display name of the person who sent the instruction. Null for an API key no person created, or a turn from before it was recorded. */
+            author_name: string | null;
             terminal_reason: string | null;
             /** @description The newest checkpoint this turn committed that a restore can still reach. A revision garbage collection removed, or one a start_fresh recovery decision retired, is not reported; null when none is left. */
             checkpoint_revision: number | null;
@@ -3400,6 +3404,10 @@ export interface components {
              */
             status: "queued" | "running" | "needs_input" | "completed" | "failed" | "interrupted" | "cancelled" | "outcome_unknown";
             message: string;
+            /** @description Where the instruction came from: `slack` (a mention, DM or thread reply), `web` (the console) or `api` (an API key). Null for a turn from before it was recorded. */
+            source: ("slack" | "web" | "api") | null;
+            /** @description Display name of the person who sent the instruction. Null for an API key no person created, or a turn from before it was recorded. */
+            author_name: string | null;
             terminal_reason: string | null;
             /** @description The newest checkpoint this turn committed that a restore can still reach. A revision garbage collection removed, or one a start_fresh recovery decision retired, is not reported; null when none is left. */
             checkpoint_revision: number | null;
@@ -9812,6 +9820,8 @@ export interface operations {
                      *           "session_id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
                      *           "status": "completed",
                      *           "message": "Add a health check endpoint and a test for it.",
+                     *           "source": "web",
+                     *           "author_name": "Mina Park",
                      *           "terminal_reason": null,
                      *           "checkpoint_revision": 2,
                      *           "created_at": "2026-10-11T08:00:00Z",
@@ -9823,6 +9833,8 @@ export interface operations {
                      *           "session_id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
                      *           "status": "running",
                      *           "message": "Now add the endpoint to the README.",
+                     *           "source": "web",
+                     *           "author_name": "Mina Park",
                      *           "terminal_reason": null,
                      *           "checkpoint_revision": null,
                      *           "created_at": "2026-10-11T08:14:00Z",
@@ -9940,6 +9952,8 @@ export interface operations {
                      *       "session_id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
                      *       "status": "completed",
                      *       "message": "Add a health check endpoint and a test for it.",
+                     *       "source": "web",
+                     *       "author_name": "Mina Park",
                      *       "terminal_reason": null,
                      *       "checkpoint_revision": 2,
                      *       "created_at": "2026-10-11T08:00:00Z",
