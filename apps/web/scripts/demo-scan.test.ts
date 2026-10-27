@@ -61,10 +61,16 @@ describe("demo fixture scan", () => {
     expect(
       scan({ a: "100.101.102.103", b: "[::1]:4611", c: "fd7a:115c:a1e0::53" }),
     ).toEqual(["private address", "private address", "private address"]);
-    expect(scan({ a: "::0001", b: "0:0:0:0:0:0:0:1" })).toEqual([
-      "private address",
-      "private address",
-    ]);
+    expect(
+      scan({
+        a: "::0001",
+        b: "0:0:0:0:0:0:0:1",
+        c: "line\n::1",
+        d: "col\tFD00::1",
+        e: "http://[::ffff:7f00:1]/",
+        f: "https://x.example.test/?host=fd00%3A%3A1",
+      }),
+    ).toEqual(Array(6).fill("private address"));
     expect(
       scan({
         a: "100.200.1.1",
@@ -103,6 +109,7 @@ describe("demo fixture scan", () => {
       1,
     );
     expect(me({ status: 200, json: {} })).toBe(1);
+    expect(me({ status: 200, json: [1] })).toBe(1);
     expect(me({ status: 200, json: { id: "u1" } })).toBe(0);
   });
 });

@@ -18,6 +18,9 @@ export interface Finding {
   readonly ignoreLine?: number;
 }
 
+const PRIVATE_IPV4 =
+  /\b(?:127\.0\.0\.1|localhost|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])(?:\.\d{1,3}){2})\b/g;
+
 const RULES: readonly (readonly [string, RegExp])[] = [
   ["platform token", /\bap[a-z]_[A-Za-z0-9_-]{20,}/g],
   ["anthropic key", /\bsk-ant-[A-Za-z0-9_-]{10,}/g],
@@ -29,10 +32,7 @@ const RULES: readonly (readonly [string, RegExp])[] = [
   ["jwt", /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\./g],
   ["bearer header", /\bBearer [A-Za-z0-9._~+/-]{16,}/g],
   ["tailnet host", /[\w.-]*\.ts\.net\b|\btailscale\b/gi],
-  [
-    "private address",
-    /\b(?:127\.0\.0\.1|localhost|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])(?:\.\d{1,3}){2})\b/g,
-  ],
+  ["private address", PRIVATE_IPV4],
   ["machine name", /\b(?:jaesoon|94soon|soons?-mac[\w-]*|wjdwotns\w*)\b/gi],
   ["home path", /\/(?:Users|home)\/[\w.-]+/g],
 ];
@@ -61,16 +61,19 @@ export function scanFixtures(fixtures: {
 }): Finding[] {
   const findings: Finding[] = [];
   Object.entries(fixtures.responses).forEach(([key, response], answer) => {
-    // fixtureKey() percent-encodes the query: `@` is `%40` there.
-    const decoded = decodeKey(key);
-    const text = `${decoded === key ? key : `${key}\n${decoded}`}\n${JSON.stringify(response)}`;
+    // Keys and URLs in answers are percent-encoded (`@` as `%40`); decoding
+    // only reveals, so the decoded text is the one scanned.
+    const text = percentDecode(`${key}\n${JSON.stringify(response)}`);
     for (const [rule, pattern] of RULES)
       for (const [match] of text.matchAll(pattern))
         findings.push({ rule, match, answer });
     for (const [match] of text.matchAll(EMAIL))
       if (!ALLOWED_EMAIL.test(match))
         findings.push({ rule: "email outside example.test", match, answer });
-    for (const [match] of text.matchAll(IPV6_CANDIDATE))
+    // A JSON escape such as `\n` would glue its letter to the address.
+    for (const [match] of text
+      .replace(/\\[bfnrt]/g, " ")
+      .matchAll(IPV6_CANDIDATE))
       if (isPrivateIpv6(match))
         findings.push({ rule: "private address", match, answer });
   });
@@ -92,15 +95,23 @@ function isPrivateIpv6(candidate: string): boolean {
   } catch {
     return false;
   }
+  // The parser writes ::ffff:127.0.0.1 as [::ffff:7f00:1].
+  const mapped = /^\[::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})\]$/i.exec(host);
+  if (mapped) {
+    const [hi, lo] = [mapped[1], mapped[2]].map((group) =>
+      Number.parseInt(group ?? "", 16),
+    ) as [number, number];
+    const ipv4 = [hi >> 8, hi & 255, lo >> 8, lo & 255].join(".");
+    return new RegExp(PRIVATE_IPV4.source).test(ipv4);
+  }
   return host === "[::1]" || /^\[f[cd]/i.test(host);
 }
 
-function decodeKey(key: string): string {
-  try {
-    return decodeURIComponent(key.replaceAll("+", " "));
-  } catch {
-    return key;
-  }
+/** Byte-wise, so one stray `%` does not leave the rest encoded. */
+function percentDecode(text: string): string {
+  return text.replace(/%([0-9a-f]{2})/gi, (_, hex: string) =>
+    String.fromCharCode(Number.parseInt(hex, 16)),
+  );
 }
 
 /** A demo without a signed-in session answer opens on an error screen. */
@@ -114,6 +125,7 @@ export function checkComplete(fixtures: {
     me?.status === 200 &&
     typeof me.json === "object" &&
     me.json !== null &&
+    !Array.isArray(me.json) &&
     Object.keys(me.json).length > 0;
   return signedIn
     ? []
@@ -230,14 +242,26 @@ if (import.meta.main) {
   const { values } = parseArgs({
     options: { "write-ignores": { type: "string" } },
   });
+  // A parser's message quotes the text around the error.
+  const parse = (text: string, name: string) => {
+    try {
+      return JSON.parse(text);
+    } catch {
+      console.error(`${name} is not valid JSON`);
+      process.exit(1);
+    }
+  };
+  const fixtures: { responses: Record<string, unknown> } = parse(
+    fixturesText,
+    FIXTURES_PATH,
+  );
 
   if (values["write-ignores"]) {
     // A gitleaks JSON report of the fixture file (README, "콘솔 데모").
-    const found = (await Bun.file(values["write-ignores"]).json()) as {
-      File: string;
-      RuleID: string;
-      StartLine: number;
-    }[];
+    const found: { File: string; RuleID: string; StartLine: number }[] = parse(
+      await Bun.file(values["write-ignores"]).text(),
+      values["write-ignores"],
+    );
     const entries = found
       .filter((finding) => finding.File === FIXTURES_PATH)
       .map(
@@ -254,14 +278,6 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  let fixtures: { responses: Record<string, unknown> };
-  try {
-    fixtures = JSON.parse(fixturesText);
-  } catch {
-    // The parser's message quotes the text around the error.
-    console.error(`${FIXTURES_PATH} is not valid JSON`);
-    process.exit(1);
-  }
   const findings = [
     ...checkComplete(fixtures),
     ...scanFixtures(fixtures),
