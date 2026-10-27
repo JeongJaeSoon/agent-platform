@@ -470,15 +470,18 @@ function TeamMembers({
         <EmptyState title={t("teams.noMembers")} />
       ) : (
         <div className="flex flex-col gap-3">
-          <SearchInput
-            ref={search}
-            type="search"
-            aria-label={t("teams.search")}
-            placeholder={t("teams.search")}
-            maxLength={SEARCH_MAX}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
+          {/* SearchInput sizes itself as an item of a toolbar row. */}
+          <div className="flex">
+            <SearchInput
+              ref={search}
+              type="search"
+              aria-label={t("teams.search")}
+              placeholder={t("teams.search")}
+              maxLength={SEARCH_MAX}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </div>
           {shown.length === 0 ? (
             <EmptyState
               className="w-full"
@@ -724,10 +727,11 @@ function AddMembers({
       }}
     >
       <FieldLabel htmlFor={pickerId}>{t("teams.pickMember")}</FieldLabel>
-      <div className="flex flex-wrap items-center gap-2">
+      {/* As wide as the name's row above, so both buttons end in one line. */}
+      <div className="flex max-w-xl flex-wrap items-center gap-2">
         <Combobox
           id={pickerId}
-          className="min-w-0 flex-[1_1_16rem] sm:max-w-md"
+          className={NAME_FIELD}
           options={candidates.map((member) => ({
             value: member.user_id,
             label: member.display_name,
