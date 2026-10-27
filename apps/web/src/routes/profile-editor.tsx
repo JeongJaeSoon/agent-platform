@@ -71,6 +71,10 @@ const fromVersion = (from: ProfileSummary, base: ProfileSummary): Draft =>
     WORKSPACE_PROFILE_POLICY.carry(from, base),
   );
 
+/** Whether a version over `base` may run `auto`; a new profile starts on such a base. */
+export const allowsAuto = (base: ProfileSummary): boolean =>
+  WORKSPACE_PROFILE_POLICY.choices(base).permission_modes.includes("auto");
+
 export function ProfileEditor({
   start,
   operators,
@@ -99,6 +103,10 @@ export function ProfileEditor({
   const [error, setError] = useState<string | null>(null);
   const base = operators.find((item) => item.id === draft.base_profile_id);
   const choices = base ? WORKSPACE_PROFILE_POLICY.choices(base) : undefined;
+  // Listed disabled, so the console says why they are missing.
+  const closedModes = (["auto", "bypassPermissions"] as const).filter(
+    (mode) => !choices?.permission_modes.includes(mode),
+  );
 
   const name = workspaceProfileNameStep.safeParse(draft.name);
   const nameError = name.success ? undefined : t("profiles.editor.nameInvalid");
@@ -323,10 +331,20 @@ export function ProfileEditor({
                     {mode}
                   </NativeSelectOption>
                 ))}
+                {closedModes.map((mode) => (
+                  <NativeSelectOption key={mode} value={mode} disabled>
+                    {mode}
+                  </NativeSelectOption>
+                ))}
               </NativeSelect>
               <FieldDescription>
                 {t("profiles.editor.modeHint")}
               </FieldDescription>
+              {closedModes.length === 0 ? null : (
+                <FieldDescription>
+                  {t("profiles.editor.unattendedClosed")}
+                </FieldDescription>
+              )}
             </Field>
           </>
         ) : null}

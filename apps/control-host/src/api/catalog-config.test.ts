@@ -11,6 +11,7 @@ import {
   ALLOW_UNATTENDED_SETTING,
   DEFAULT_CONFIG_DIR,
   installedRuntimes,
+  loadCatalogConfig,
   loadSessionCatalog,
   PROFILES_FILE,
   REPOSITORIES_FILE,
@@ -254,11 +255,47 @@ describe("unattended permission modes", () => {
 
 describe("installed runtimes", () => {
   test("pass every profile shipped in the repository", async () => {
-    for (const dir of [".", "fake-model", "local-model"]) {
+    for (const dir of [
+      ".",
+      "fake-model",
+      "local-model",
+      "fake-model-unattended",
+    ]) {
       const config = await readCatalogConfig(join(DEFAULT_CONFIG_DIR, dir));
       expect(Object.keys(config.profiles).length).toBeGreaterThan(0);
       installedRuntimes.assertProfiles(config.profiles);
     }
+  });
+
+  test("only the opt-in example catalog carries unattended profiles, and it starts only where the installation allows them", async () => {
+    for (const dir of [".", "fake-model", "local-model"]) {
+      expect(
+        unattendedProfiles(
+          await readCatalogConfig(join(DEFAULT_CONFIG_DIR, dir)),
+        ),
+      ).toEqual([]);
+    }
+    const dir = join(DEFAULT_CONFIG_DIR, "fake-model-unattended");
+    const config = await readCatalogConfig(dir);
+    expect(unattendedProfiles(config)).toEqual([
+      "claude-coding-auto",
+      "claude-coding-bypass",
+    ]);
+    expect(config.repositories["sample-app"]?.profiles).toEqual([
+      "claude-coding-local",
+      "claude-coding-auto",
+      "claude-coding-bypass",
+    ]);
+    expect(await failure(loadCatalogConfig({ dir, env: {} }))).toContain(
+      `${ALLOW_UNATTENDED_SETTING}=true`,
+    );
+    const allowed = await loadCatalogConfig({
+      dir,
+      env: { [ALLOW_UNATTENDED_SETTING]: "true" },
+    });
+    expect(allowed.profiles["claude-coding-bypass"]?.permission_mode).toBe(
+      "bypassPermissions",
+    );
   });
 
   test("a profile of a kind the image does not ship parses, then stops the load", async () => {

@@ -47,12 +47,13 @@
 
     --ap-color-border: #eaeaea;
     --ap-color-border-strong: #d4d4d4;
-    /* A control's edge: toolbar segments, filter chips, selects and fields
-     on all four edges, so one toolbar has one edge colour. At rest it is
-     border-strong, one step over the table and card lines, because 3:1
-     (WCAG 1.4.11) made a toolbar heavier than the table under it; the
-     pointer takes it to subtle-foreground (over 3:1) and focus draws the
-     ring. A field is also told by its icon, placeholder or label. */
+    /* A form control's edge: selects, text fields and textareas on all four
+     edges. At rest it is border-strong, one step over the table and card
+     lines, because 3:1 (WCAG 1.4.11) made a form heavier than its card and
+     the card line itself left an empty field lost in its card; the pointer
+     takes it to subtle-foreground (over 3:1) and focus draws the ring.
+     Toolbar controls (search, filter chip, toolbar segments) rest on the
+     card line instead: their icon, placeholder or label names them. */
     --ap-color-border-input: #d4d4d4;
     --ap-color-foreground: #171717;
     --ap-color-muted-foreground: #4d4d4d;

@@ -55,9 +55,12 @@ describe("SearchInput", () => {
     const classes = input.className.split(" ");
     expect(classes).toContain("pl-8");
     expect(classes).toContain("extra-input");
-    // Still Input: its border, height and focus stay.
+    // Still Input: its height, hover and focus stay; at rest its edge is the
+    // card line, like the toolbar controls beside it.
     expect(input.getAttribute("data-slot")).toBe("input");
-    expect(classes).toContain("border-input");
+    expect(classes).toContain("border-border");
+    expect(classes).not.toContain("border-input");
+    expect(classes).toContain("hover:border-subtle-foreground");
   });
 
   test("두 진입점에서 같은 부품을 내보낸다", async () => {

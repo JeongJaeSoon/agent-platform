@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { narrowOnlyPolicy } from "./profile-derivation.ts";
-import { PERMISSION_MODE_VALUES } from "./session.ts";
+import { PERMISSION_MODE_VALUES, type PermissionMode } from "./session.ts";
 
 const UNATTENDED = ["bypassPermissions", "auto", "dontAsk"] as const;
 
@@ -22,6 +22,17 @@ describe("narrowOnlyPolicy", () => {
           })?.field,
         ).toBe("permission_mode");
       }
+    }
+  });
+
+  test("starts a new version at auto where the base allows it, else at the base's mode", () => {
+    const start = (mode: PermissionMode) =>
+      narrowOnlyPolicy.initial({ model: "m", tools: [], permission_mode: mode })
+        .permission_mode;
+    expect(start("auto")).toBe("auto");
+    expect(start("bypassPermissions")).toBe("auto");
+    for (const mode of ["default", "acceptEdits", "dontAsk", "plan"] as const) {
+      expect(start(mode)).toBe(mode);
     }
   });
 });

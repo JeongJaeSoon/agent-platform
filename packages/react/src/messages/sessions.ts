@@ -197,6 +197,7 @@ export const sessionsKo = {
   "session.events.kind.error": "오류",
   "session.events.kind.system": "시스템",
   "session.events.options": "선택지",
+  "session.events.newer": "새 메시지",
   "session.reason.idle": "{duration} 동안 입력이 없어 멈췄습니다",
   "session.reason.noAnswer": "{duration} 안에 답이 오지 않아 요청을 닫았습니다",
   "session.reason.turnBudget": "제한 시간 {duration} 초과로 턴을 멈췄습니다",
@@ -436,6 +437,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.events.kind.error": "Error",
   "session.events.kind.system": "System",
   "session.events.options": "Options",
+  "session.events.newer": "New messages",
   "session.reason.idle": "Stopped after {duration} with no input",
   "session.reason.noAnswer":
     "No answer came within {duration}, so the request closed",
@@ -705,6 +707,7 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.events.kind.error": "エラー",
   "session.events.kind.system": "システム",
   "session.events.options": "選択肢",
+  "session.events.newer": "新しいメッセージ",
   "session.reason.idle": "{duration}入力がなかったため停止しました",
   "session.reason.noAnswer":
     "{duration}以内に回答がなかったため、リクエストを閉じました",

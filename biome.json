@@ -6,6 +6,8 @@
       "**",
       "!!node_modules",
       "!!dist",
+      "!!apps/web/dist-demo",
+      "!apps/web/src/demo/fixtures.json",
       "!apps/docs/.next",
       "!apps/docs/out",
       "!apps/docs/.source",
