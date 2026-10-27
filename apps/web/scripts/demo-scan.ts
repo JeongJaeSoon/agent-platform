@@ -349,11 +349,17 @@ if (import.meta.main) {
       await Bun.file(values["write-ignores"]).text(),
       values["write-ignores"],
     );
-    const entries = found
-      .filter((finding) => finding.File === name)
-      .map(
-        (finding) => `${finding.File}:${finding.RuleID}:${finding.StartLine}`,
+    // A report naming the file another way (./x, an absolute path) would
+    // match nothing here and wipe the existing entries.
+    if (found.some((finding) => finding.File !== name)) {
+      console.error(
+        `not written: the report names files other than ${name}; run gitleaks from --root on ${name}`,
       );
+      process.exit(1);
+    }
+    const entries = found.map(
+      (finding) => `${finding.File}:${finding.RuleID}:${finding.StartLine}`,
+    );
     const refused = checkIgnores(fixturesText, entries.join("\n"), name);
     if (refused.length > 0) {
       report(refused);

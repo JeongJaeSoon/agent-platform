@@ -50,7 +50,7 @@ Storybook과 Vitest CLI는 Node 20.19 이상에서 돈다. `test:stories`는 설
 
 ### 다시 녹화하기
 
-`example.test` 계정으로 채운 스택(오너 Mac의 4620 스택)을 상대로, 데모 저장소 checkout `<demo>` 옆에서 돌린다.
+`example.test` 계정으로 채운 스택(오너 Mac의 4620 스택)을 상대로, 이 저장소 루트에서 돌린다. `<demo>`(데모 저장소 checkout)와 `<리포트.json>`은 절대 경로로 쓴다. 리포트는 데모 저장소 밖에 둔다.
 
 ```bash
 bun run --cwd apps/web build                      # 녹화에 쓰는 일반 빌드
