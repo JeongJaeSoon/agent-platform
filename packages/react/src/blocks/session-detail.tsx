@@ -19,6 +19,7 @@ import {
   Section as TitledBlock,
 } from "@werft-ai/ui";
 import {
+  ArrowDown,
   Bot,
   Copy,
   Folder,
@@ -37,6 +38,7 @@ import {
   SessionStatusLabel,
   StatusLabel,
 } from "../components/index.ts";
+import { useFollowEnd } from "../components/session/follow-end.ts";
 import {
   usePendingRequests,
   useSession,
@@ -106,6 +108,12 @@ export function SessionDetail({
   const pending = usePendingRequests(id, readable);
   const events = useSessionEvents(id, readable);
   const turns = useSessionTurns(id, readable);
+  // The event window keeps its length once full, so the newest event's id
+  // tells an arrival, not the count.
+  const follow = useFollowEnd(
+    id,
+    `${events.events.at(-1)?.id ?? ""}/${turns.data?.items.length ?? 0}`,
+  );
 
   if (detail === undefined) {
     // The host leaves the gutters to this layout, rail or not.
@@ -130,7 +138,7 @@ export function SessionDetail({
       value={tab}
       onValueChange={setTab}
       // Grows so the body ends where the rail does.
-      className="flex min-w-0 flex-1 flex-col gap-6"
+      className="flex min-h-0 min-w-0 flex-1 flex-col gap-6"
     >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b">
         <TabsList variant="line" aria-label={t("session.tabs.label")}>
@@ -166,16 +174,52 @@ export function SessionDetail({
         value="timeline"
         forceMount
         hidden={tab !== "timeline"}
-        className="flex flex-1 flex-col gap-4 data-[state=inactive]:hidden"
+        className="flex min-h-0 flex-1 flex-col gap-4 data-[state=inactive]:hidden"
+        // Whoever sends wants to see the reply, wherever they had scrolled.
+        onSubmit={follow.toEnd}
       >
-        <div className="min-w-0 flex-1 rounded-card border bg-card">
-          <SessionTimeline
-            events={events.events}
-            state={events.state}
-            debug={debug}
-            pending={listedRequests(pending)}
-            turns={turns.data?.items}
-          />
+        {/* No height of its own, so the screen's height decides; a 0%
+            basis would count the whole timeline when the page measures
+            min-content. Only a screen too short for 16rem scrolls the page. */}
+        <div className="relative flex min-h-64 min-w-0 flex-[1_1_0px] flex-col">
+          <div
+            ref={follow.ref}
+            // A keyboard needs a stop to scroll it once it overflows.
+            {...(follow.scrollable
+              ? {
+                  tabIndex: 0,
+                  role: "group",
+                  "aria-label": t("session.events"),
+                }
+              : undefined)}
+            // Scroll anchoring would move a list resized at its end away
+            // from it, and the scroll that causes reads as the reader's.
+            className="min-h-0 flex-1 overflow-y-auto rounded-card border bg-card [overflow-anchor:none]"
+          >
+            <SessionTimeline
+              events={events.events}
+              state={events.state}
+              debug={debug}
+              pending={listedRequests(pending)}
+              turns={turns.data?.items}
+            />
+          </div>
+          {follow.behind ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="-translate-x-1/2 absolute bottom-3 left-1/2 shadow-md"
+              onClick={() => {
+                follow.toEnd();
+                // The button goes away; the list it scrolled keeps focus.
+                follow.element?.focus({ preventScroll: true });
+              }}
+            >
+              <ArrowDown strokeWidth={1.5} aria-hidden="true" />
+              {t("session.events.newer")}
+            </Button>
+          ) : null}
         </div>
         {usage.data ? <BudgetExceeded usage={usage.data} /> : null}
         <SessionComposer
@@ -293,7 +337,17 @@ export function SessionDetail({
     </DetailRail>
   );
   return (
-    <DetailLayout rail={rail}>
+    <DetailLayout
+      rail={rail}
+      // The conversation keeps the composer on screen: the body takes the
+      // screen under the top bar and only the timeline scrolls. min-content
+      // lets a screen too short for that fall back to the page scroll.
+      className={
+        tab === "timeline"
+          ? "[&>[data-slot=page-frame]]:h-[calc(100dvh-var(--ap-topbar-h))] [&>[data-slot=page-frame]]:min-h-min [&_[data-slot=page-frame-body]]:min-h-0"
+          : undefined
+      }
+    >
       <PageHeader
         // Wide, the meta line wraps under the title and the commands stay
         // top right (console v4 `.page-head`); narrow, the commands go below
