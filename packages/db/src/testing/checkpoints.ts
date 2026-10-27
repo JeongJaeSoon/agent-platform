@@ -3,11 +3,9 @@ import type {
   CommitCheckpointResult,
 } from "@werft-ai/platform/testing/checkpoints";
 
+import { acquireFence } from "../fence.ts";
 import type { Database } from "../queries.ts";
-import {
-  acquireFence,
-  advanceCheckpointPointer,
-} from "../worker-unit-of-work.ts";
+import { advanceCheckpointPointer } from "../worker-unit-of-work.ts";
 
 /**
  * The fenced pointer advance a turn's finalize makes, with no turn: what

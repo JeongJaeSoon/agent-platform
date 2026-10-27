@@ -65,7 +65,7 @@ Every error answers \`application/json\` with \`{"error": {"code", "message", "r
 
 export const SECURITY_SCHEME_DESCRIPTIONS = {
   bearerApiKey:
-    "For servers and scripts: an API key sent as an HTTP bearer token, `Bearer <key>`. It holds exactly the scopes it was issued with; a key issued before scopes existed holds none. It never needs the CSRF header, and it cannot manage agents, members, teams or API keys.",
+    "For servers and scripts: an API key sent as an HTTP bearer token, `Bearer <key>`. It holds exactly the scopes it was issued with; a key issued before scopes existed holds none. It never needs the CSRF header, and it cannot manage agents, members, teams or API keys. Issue one in the web console under Settings → API keys; each operation names the scope it needs.",
   cookieSession:
     "For the web console: the browser session cookie set by `POST /v1/auth/login`. It holds the scopes of the user's workspace role (`owner`: all; `admin` and `member`: all but `sessions:recover`). Requests other than GET must also send `X-Requested-With: agent-platform-web`.",
 } as const;

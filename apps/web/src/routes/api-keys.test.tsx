@@ -168,6 +168,16 @@ describe("API key", () => {
       apiKeysKo["apiKeys.guide.personal.approve"],
     ]);
     expect(screen.queryByTestId("guide-agent")).toBeNull();
+    const docs = within(screen.getByRole("region", { name: "key 종류" }))
+      .getAllByRole("link")
+      .find((link) =>
+        link.textContent?.startsWith(apiKeysKo["apiKeys.docsLink"]),
+      );
+    if (!docs) throw new Error("no API reference link in the guide");
+    expect(docs.textContent).toContain(apiKeysKo["apiKeys.docsNewTab"]);
+    expect(docs.getAttribute("href")).toBe("/docs");
+    expect(docs.getAttribute("target")).toBe("_blank");
+    expect(docs.getAttribute("rel")).toContain("noopener");
     // The list comes before the guide.
     const list = screen.getByRole("list", { name: "발급된 key" });
     expect(
