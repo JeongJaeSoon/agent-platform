@@ -65,11 +65,16 @@ export async function runScheduler(
       throw new Error(`${name} must be a non-negative number`);
     }
   }
-  return underPassLock(options, options.slotLimit, (lock) =>
-    pass(
-      options,
-      options.stop === undefined ? lock : AbortSignal.any([lock, options.stop]),
-    ),
+  return underPassLock(
+    options,
+    () => options.slotLimit,
+    (lock) =>
+      pass(
+        options,
+        options.stop === undefined
+          ? lock
+          : AbortSignal.any([lock, options.stop]),
+      ),
   );
 }
 
@@ -85,17 +90,21 @@ export async function runScheduler(
 export async function reclaimWorkspaces(
   options: ReclaimOptions,
 ): Promise<SchedulerRunSummary> {
-  return underPassLock(options, 0, async (lock) => {
-    const summary = emptySummary(0);
-    await collectWorkspaces(options, summary, lock);
-    options.logger.info("Workspace reclaim completed", {
-      workspace_failed_count: summary.workspacesFailed.length,
-      workspace_reclaimed_count: summary.workspacesReclaimed.length,
-      workspace_scan_failed: summary.workspaceScanFailed,
-      workspace_unresolved_count: summary.workspacesUnresolved.length,
-    });
-    return summary;
-  });
+  return underPassLock(
+    options,
+    () => 0,
+    async (lock) => {
+      const summary = emptySummary(0);
+      await collectWorkspaces(options, summary, lock);
+      options.logger.info("Workspace reclaim completed", {
+        workspace_failed_count: summary.workspacesFailed.length,
+        workspace_reclaimed_count: summary.workspacesReclaimed.length,
+        workspace_scan_failed: summary.workspaceScanFailed,
+        workspace_unresolved_count: summary.workspacesUnresolved.length,
+      });
+      return summary;
+    },
+  );
 }
 
 /**
@@ -107,30 +116,35 @@ export async function reclaimWorkspaces(
 export async function reclaimNetworks(
   options: ReclaimOptions,
 ): Promise<SchedulerRunSummary> {
-  return underPassLock(options, 0, async (lock) => {
-    const summary = emptySummary(0);
-    lock.throwIfAborted();
-    await reconcileNetworks(options, summary);
-    options.logger.info("Worker network reconcile completed", {
-      network_failed_count: summary.networksFailed.length,
-      network_reclaimed_count: summary.networksReclaimed.length,
-      network_repaired_count: summary.networksRepaired.length,
-      network_scan_failed: summary.networkScanFailed,
-    });
-    return summary;
-  });
+  return underPassLock(
+    options,
+    () => 0,
+    async (lock) => {
+      const summary = emptySummary(0);
+      lock.throwIfAborted();
+      await reconcileNetworks(options, summary);
+      options.logger.info("Worker network reconcile completed", {
+        network_failed_count: summary.networksFailed.length,
+        network_reclaimed_count: summary.networksReclaimed.length,
+        network_repaired_count: summary.networksRepaired.length,
+        network_scan_failed: summary.networkScanFailed,
+      });
+      return summary;
+    },
+  );
 }
 
 /** Runs `work` holding the pass lock, or skips when another pass holds it. */
 async function underPassLock(
   options: Pick<ReclaimOptions, "logger" | "store">,
-  slotLimit: number,
+  // Read once the lock is refused, as each entry point did inline.
+  skippedSlotLimit: () => number,
   work: (lock: AbortSignal) => Promise<SchedulerRunSummary>,
 ): Promise<SchedulerRunSummary> {
   const lock = await options.store.acquirePassLock();
   if (lock === null) {
     options.logger.warn("Another scheduling pass holds the lock; skipping");
-    return { ...emptySummary(slotLimit), skipped: true };
+    return { ...emptySummary(skippedSlotLimit()), skipped: true };
   }
   let summary: SchedulerRunSummary;
   try {

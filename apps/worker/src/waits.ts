@@ -15,8 +15,9 @@ export async function settledWithin(
 }
 
 /**
- * Resolves with the value, or undefined once `cut` settles first. A
- * rejection of `work` after the cut is dropped: nobody is waiting on it.
+ * Resolves with the value, or undefined once `cut` fulfills first (a
+ * rejected `cut` rejects). A rejection of `work` after the cut is dropped:
+ * nobody is waiting on it.
  */
 export function until<T>(
   work: Promise<T>,
