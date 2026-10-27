@@ -1,3 +1,10 @@
+CREATE TABLE "approval_checkpoint_voids" (
+	"manifest_ref" text PRIMARY KEY NOT NULL,
+	"session_id" uuid NOT NULL,
+	"attempt_id" text NOT NULL,
+	"voided_at" timestamp with time zone NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "approval_checkpoints" (
 	"manifest_ref" text PRIMARY KEY NOT NULL,
 	"session_id" uuid NOT NULL,
@@ -15,6 +22,8 @@ CREATE TABLE "approval_checkpoints" (
 );
 --> statement-breakpoint
 ALTER TABLE "pending_requests" ADD COLUMN "checkpoint_ref" text;--> statement-breakpoint
+ALTER TABLE "approval_checkpoint_voids" ADD CONSTRAINT "approval_checkpoint_voids_session_id_sessions_id_fk" FOREIGN KEY ("session_id") REFERENCES "public"."sessions"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "approval_checkpoint_voids" ADD CONSTRAINT "approval_checkpoint_voids_attempt_id_attempts_id_fk" FOREIGN KEY ("attempt_id") REFERENCES "public"."attempts"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "approval_checkpoints" ADD CONSTRAINT "approval_checkpoints_session_id_sessions_id_fk" FOREIGN KEY ("session_id") REFERENCES "public"."sessions"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "approval_checkpoints" ADD CONSTRAINT "approval_checkpoints_attempt_id_attempts_id_fk" FOREIGN KEY ("attempt_id") REFERENCES "public"."attempts"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "approval_checkpoints" ADD CONSTRAINT "approval_checkpoints_turn_id_turns_id_fk" FOREIGN KEY ("turn_id") REFERENCES "public"."turns"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint

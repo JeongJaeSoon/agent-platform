@@ -455,6 +455,23 @@ integration("crash park on an approval-wait checkpoint", () => {
     await expectUnknown(sessionId, worker);
   });
 
+  test("an invalidation that lands before its registration still voids the checkpoint", async () => {
+    const { sessionId, worker } = await runningSession();
+    const checkpoint = checkpointOf(worker);
+    // The registration's first send failed in flight; the next tool was
+    // admitted, and only then did a retry of it commit.
+    expect(
+      await gateway.invalidateApprovalCheckpoint(worker.principal, {
+        ...worker.scope,
+        manifest_ref: checkpoint.manifest_ref,
+      }),
+    ).toEqual({ invalidated: false });
+    await register(worker, { checkpoint });
+
+    await executionGone(worker);
+    await expectUnknown(sessionId, worker);
+  });
+
   test("an answer delivered past what the worker had applied at the capture leaves the turn unknown", async () => {
     const { owner, sessionId, worker } = await runningSession();
     const requestId = await register(worker, {

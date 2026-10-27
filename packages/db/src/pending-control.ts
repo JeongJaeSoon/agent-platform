@@ -27,6 +27,7 @@ import { awaitingInputAt, publicStatus } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
   approvalCheckpoints,
+  approvalCheckpointVoids,
   pendingRequests,
   receipts,
   sessions,
@@ -219,6 +220,16 @@ export function createPostgresWorkerPendingStore(
         }
         const checkpoint = input.checkpoint;
         if (checkpoint !== undefined) {
+          const [voided] = await tx
+            .select({ at: approvalCheckpointVoids.voidedAt })
+            .from(approvalCheckpointVoids)
+            .where(
+              and(
+                eq(approvalCheckpointVoids.manifestRef, checkpoint.manifestRef),
+                eq(approvalCheckpointVoids.sessionId, fence.sessionId),
+                eq(approvalCheckpointVoids.attemptId, fence.attemptId),
+              ),
+            );
           await tx.insert(approvalCheckpoints).values({
             manifestRef: checkpoint.manifestRef,
             sessionId: fence.sessionId,
@@ -231,6 +242,7 @@ export function createPostgresWorkerPendingStore(
             turnId: turn.id,
             answersThrough: checkpoint.answersThrough,
             createdAt: at,
+            invalidatedAt: voided?.at ?? null,
           });
         }
         await tx.insert(pendingRequests).values({
@@ -320,6 +332,17 @@ export function createPostgresWorkerPendingStore(
             ),
           )
           .returning({ ref: approvalCheckpoints.manifestRef });
+        if (voided.length === 0) {
+          await tx
+            .insert(approvalCheckpointVoids)
+            .values({
+              manifestRef: input.manifestRef,
+              sessionId: fence.sessionId,
+              attemptId: fence.attemptId,
+              voidedAt: at,
+            })
+            .onConflictDoNothing();
+        }
         return { outcome: "ok", invalidated: voided.length === 1 };
       });
     },

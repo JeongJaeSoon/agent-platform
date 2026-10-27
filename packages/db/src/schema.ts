@@ -1611,6 +1611,19 @@ export const approvalCheckpoints = pgTable("approval_checkpoints", {
   promotedAt: timestamp("promoted_at", { withTimezone: true }),
 });
 
+// An invalidation that came before the registration carrying its checkpoint
+// committed: that registration still may, and must find it void.
+export const approvalCheckpointVoids = pgTable("approval_checkpoint_voids", {
+  manifestRef: text("manifest_ref").primaryKey(),
+  sessionId: uuid("session_id")
+    .notNull()
+    .references(() => sessions.id),
+  attemptId: text("attempt_id")
+    .notNull()
+    .references(() => attempts.id),
+  voidedAt: timestamp("voided_at", { withTimezone: true }).notNull(),
+});
+
 // An answer to a parked permission request, to be spent once by the turn
 // that resumes it. The tool, input hash and who answered stay on the
 // request row; copying them here would let the two disagree.
