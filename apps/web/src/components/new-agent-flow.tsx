@@ -60,6 +60,7 @@ import {
   EMPTY_DRAFT,
 } from "./agent-card-form.tsx";
 import { Notice } from "./auth-page.tsx";
+import { ProfileOptions, pickable } from "./profile-options.tsx";
 import { StepHeading, useStepMoved } from "./step-heading.tsx";
 
 const SlackConnect = lazy(() =>
@@ -678,10 +679,13 @@ function ReleaseForm({
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
-  const first = profiles.find((p) => p.model === cardModel) ?? profiles[0];
+  const first =
+    profiles.find((p) => pickable(p) && p.model === cardModel) ??
+    profiles.find(pickable);
+  const fallback = first?.id ?? "";
   const form = useStepForm(agentReleaseStep, {
     defaultValues: {
-      runtime_profile_id: first?.id ?? "",
+      runtime_profile_id: fallback,
       repository_id: defaultRepository(first),
     },
   });
@@ -693,6 +697,11 @@ function ReleaseForm({
   const profileModel = picked?.model;
   const repositories = picked?.repository_ids ?? [];
   const { setValue } = form;
+  // A refetch can retire the picked version under the open form.
+  useEffect(() => {
+    if (picked !== undefined && !pickable(picked) && chosen !== fallback)
+      setValue("runtime_profile_id", fallback);
+  }, [picked, chosen, fallback, setValue]);
   useEffect(() => {
     setValue("repository_id", defaultRepository(picked));
   }, [picked, setValue]);
@@ -725,16 +734,17 @@ function ReleaseForm({
       <Field>
         <FieldLabel>{t("agent.releases.profile")}</FieldLabel>
         <NativeSelect {...form.register("runtime_profile_id")}>
-          {profiles.map((profile) => (
-            <NativeSelectOption key={profile.id} value={profile.id}>
-              {t(
+          <ProfileOptions
+            profiles={profiles}
+            label={(profile) =>
+              t(
                 cardModel === undefined || profile.model === cardModel
                   ? "agent.releases.profileOption"
                   : "agent.releases.profileOptionMismatch",
                 { profile: profile.id, model: profile.model },
-              )}
-            </NativeSelectOption>
-          ))}
+              )
+            }
+          />
         </NativeSelect>
         <FieldDescription>{t("agent.releases.profileHint")}</FieldDescription>
         <FieldDescription>
