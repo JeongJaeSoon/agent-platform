@@ -108,8 +108,11 @@ export function SessionDetail({
   const pending = usePendingRequests(id, readable);
   const events = useSessionEvents(id, readable);
   const turns = useSessionTurns(id, readable);
+  // The event window keeps its length once full, so the newest event's id
+  // tells an arrival, not the count.
   const follow = useFollowEnd(
-    events.events.length + (turns.data?.items.length ?? 0),
+    id,
+    `${events.events.at(-1)?.id ?? ""}/${turns.data?.items.length ?? 0}`,
   );
 
   if (detail === undefined) {
