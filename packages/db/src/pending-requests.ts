@@ -28,6 +28,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { contextCoverage, contextGap } from "./context-gap.ts";
 import {
   type ControlStageMeasure,
   ENDED_ATTEMPT_STATES,
@@ -729,7 +730,13 @@ export function createPostgresPendingRequests(
           ) {
             return { outcome: "recovery_required", unconfirmedTurnId: unknown };
           }
-          if (!hasRestorePoint(session)) {
+          // A stopped session resumes only onto a checkpoint that covers
+          // every turn that ran, as its /resume judges.
+          if (
+            !hasRestorePoint(session) ||
+            (session.admissionState === "stopped" &&
+              contextGap(session, await contextCoverage(tx, session)))
+          ) {
             return { outcome: "checkpoint_unavailable" };
           }
           // The turn that carries the group on is one input: the answers so

@@ -778,6 +778,46 @@ integration("parked pending requests on PostgreSQL", () => {
     }
   });
 
+  test("an answer is refused while the stopped session's checkpoint misses a turn that ran", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const requestId = await register(worker);
+    await parkRows(worker, [requestId]);
+    await executionGone(worker);
+    await followUp(owner, sessionId);
+    const later = await claim(sessionId);
+    // Turn 2 ends with no checkpoint, as a background writer can leave it.
+    await gateway.finalize(later.worker.principal, {
+      ...later.worker.scope,
+      finalize_key: `${later.worker.scope.attempt_id}:2`,
+      final_source_sequence: 0,
+      terminal: {
+        status: "completed",
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: null,
+    });
+    const now = new Date();
+    await revokeExecutionAtomic(db, {
+      sessionId,
+      reason: "grant revoked",
+      now,
+    });
+    await executionGone(later.worker);
+    await restoreExecutionAtomic(db, {
+      sessionId,
+      reason: "grant reissued",
+      now,
+    });
+    expect((await sessionRow(sessionId)).admissionState).toBe("stopped");
+
+    expect(await failure(answer(owner, sessionId, requestId))).toBe(
+      "CHECKPOINT_UNAVAILABLE",
+    );
+    expect((await request(requestId)).answeredAt).toBeNull();
+  });
+
   test("a close, an interrupt or a recovery close or start_fresh cancels the parked requests", async () => {
     const closed = await parked();
     const row = await sessionRow(closed.sessionId);
