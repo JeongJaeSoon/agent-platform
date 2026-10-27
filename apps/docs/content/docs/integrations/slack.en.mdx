@@ -108,7 +108,7 @@ Without a confirmed Slack installation this returns 409 `SLACK_NOT_INSTALLED`. T
 
 ## Channel joins and the deployment welcome
 
-When you save one of the agent's channels (`PUT /v1/agents/{id}/slack-bindings`), the server puts the bot in that channel. The bot joins a public channel itself. Slack does not let a bot join a private channel, so invite it there with `/invite @<bot>`; the server notices the invite and carries on. The binding's `membership.state` shows the result.
+When you save one of the agent's channels (`PUT /v1/agents/{id}/slack-bindings`), the server puts the bot in that channel. The bot joins a public channel itself. Slack does not let a bot join a private channel, so invite it there with `/invite @<bot>`; the server notices the invite and carries on. The binding's `membership.state` shows the result. Inviting the bot to a channel you never saved also connects that channel, with its response on (`mention`). A channel you already saved keeps its settings, so one you switched off stays off.
 
 | `membership.state` | Meaning |
 | --- | --- |
