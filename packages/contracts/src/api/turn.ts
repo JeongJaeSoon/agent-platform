@@ -54,11 +54,11 @@ export const turnSummarySchema = z.object({
   message: z.string(),
   source: turnSourceSchema.nullable().meta({
     description:
-      "Where the instruction came from: `slack` (a mention, DM or thread reply), `web` (the console) or `api` (an API key). Null for a turn from before it was recorded.",
+      "Where the instruction came from: `slack` (a mention, DM or thread reply), `web` (the console) or `api` (an API key). Null for a turn from before it was recorded, or one the platform queued itself, such as an approval answered after its worker was gone.",
   }),
   author_name: z.string().nullable().meta({
     description:
-      "Display name of the person who sent the instruction. Null for an API key no person created, or a turn from before it was recorded.",
+      "Display name of the person who sent the instruction; for an API key, the person who created the key. Null when no person is recorded: an API key no person created, or a turn the platform queued itself.",
   }),
   terminal_reason: z.string().min(1).nullable(),
   checkpoint_revision: revisionSchema.nullable().meta({

@@ -3382,9 +3382,9 @@ export interface components {
              */
             status: "queued" | "running" | "needs_input" | "completed" | "failed" | "interrupted" | "cancelled" | "outcome_unknown";
             message: string;
-            /** @description Where the instruction came from: `slack` (a mention, DM or thread reply), `web` (the console) or `api` (an API key). Null for a turn from before it was recorded. */
+            /** @description Where the instruction came from: `slack` (a mention, DM or thread reply), `web` (the console) or `api` (an API key). Null for a turn from before it was recorded, or one the platform queued itself, such as an approval answered after its worker was gone. */
             source: ("slack" | "web" | "api") | null;
-            /** @description Display name of the person who sent the instruction. Null for an API key no person created, or a turn from before it was recorded. */
+            /** @description Display name of the person who sent the instruction; for an API key, the person who created the key. Null when no person is recorded: an API key no person created, or a turn the platform queued itself. */
             author_name: string | null;
             terminal_reason: string | null;
             /** @description The newest checkpoint this turn committed that a restore can still reach. A revision garbage collection removed, or one a start_fresh recovery decision retired, is not reported; null when none is left. */
@@ -3404,9 +3404,9 @@ export interface components {
              */
             status: "queued" | "running" | "needs_input" | "completed" | "failed" | "interrupted" | "cancelled" | "outcome_unknown";
             message: string;
-            /** @description Where the instruction came from: `slack` (a mention, DM or thread reply), `web` (the console) or `api` (an API key). Null for a turn from before it was recorded. */
+            /** @description Where the instruction came from: `slack` (a mention, DM or thread reply), `web` (the console) or `api` (an API key). Null for a turn from before it was recorded, or one the platform queued itself, such as an approval answered after its worker was gone. */
             source: ("slack" | "web" | "api") | null;
-            /** @description Display name of the person who sent the instruction. Null for an API key no person created, or a turn from before it was recorded. */
+            /** @description Display name of the person who sent the instruction; for an API key, the person who created the key. Null when no person is recorded: an API key no person created, or a turn the platform queued itself. */
             author_name: string | null;
             terminal_reason: string | null;
             /** @description The newest checkpoint this turn committed that a restore can still reach. A revision garbage collection removed, or one a start_fresh recovery decision retired, is not reported; null when none is left. */
