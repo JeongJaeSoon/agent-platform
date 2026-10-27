@@ -95,19 +95,21 @@ function useFocusOnPageChange() {
   const router = useRouter();
   const before = useRef<Element | null>(null);
   useEffect(() => {
-    // A redirect starts a second navigation before the first resolves; the
-    // focus to compare against is the one from before the first.
-    let recorded = false;
-    const offBefore = router.subscribe("onBeforeNavigate", (event) => {
-      if (!event.pathChanged || recorded) return;
+    // The router follows a redirect with a replace while the first
+    // navigation is still pending; the focus to compare against is the one
+    // from before that first navigation. Any other move, such as a second
+    // link followed while the first page loads, starts over.
+    let pending = false;
+    const offHistory = router.history.subscribe(({ action }) => {
+      if (pending && action.type === "REPLACE") return;
       before.current = document.activeElement;
-      recorded = true;
+      pending = true;
     });
     const offResolved = router.subscribe("onResolved", () => {
-      recorded = false;
+      pending = false;
     });
     return () => {
-      offBefore();
+      offHistory();
       offResolved();
     };
   }, [router]);

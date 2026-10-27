@@ -605,6 +605,32 @@ describe("focus after a page change", () => {
     expect(document.activeElement === toggle).toBe(true);
   });
 
+  test("a second link followed while the first page loads still moves focus", async () => {
+    let hold: Promise<Response> | null = null;
+    const { api, history } = renderAt("/", {
+      "GET /v1/auth/me": () => hold ?? json(200, me()),
+    });
+    await screen.findByRole("heading", { level: 1, name: "홈" });
+    // The /login check never answers; the sidebar link replaces it.
+    hold = new Promise(() => {});
+    const asked = api.calls.length;
+    void history.push("/login");
+    await waitFor(() =>
+      expect(
+        api.calls.slice(asked).some((call) => call.path === "/v1/auth/me"),
+      ).toBe(true),
+    );
+    hold = null;
+    const nav = screen.getByRole("navigation", { name: "주요 메뉴" });
+    const user = await setupUser();
+    await user.click(within(nav).getByRole("link", { name: "에이전트" }));
+    const title = await screen.findByRole("heading", {
+      level: 1,
+      name: "에이전트",
+    });
+    await waitFor(() => expect(document.activeElement === title).toBe(true));
+  });
+
   test("back from an open account menu leaves focus in the menu", async () => {
     const { history } = renderAt("/agents", signedIn);
     await screen.findByRole("heading", { level: 1, name: "에이전트" });
