@@ -40,7 +40,14 @@ import { useI18n } from "../i18n/i18n.tsx";
 import { type EditorStart, ProfileEditor } from "./profile-editor.tsx";
 
 const PROFILE_COLUMNS = "minmax(0,1.2fr) minmax(0,1fr) minmax(0,1.4fr)";
-const VERSION_COLUMNS = "minmax(0,1.4fr) minmax(0,1fr) auto auto";
+// The base column leaves a phone; the editor shows it again.
+const VERSION_COLUMNS = {
+  manage: [
+    "minmax(0,1.4fr) minmax(0,1fr) 96px 184px",
+    "minmax(0,1fr) 88px 112px",
+  ],
+  read: ["minmax(0,1.4fr) minmax(0,1fr) 96px", "minmax(0,1fr) 88px"],
+} as const;
 const META = "text-caption text-muted-foreground";
 
 const STATE_BADGE: Record<WorkspaceProfileState, "green" | "red" | "gray"> = {
@@ -188,15 +195,13 @@ export function ProfilesScreen() {
           <Section
             title={t("profiles.workspace.title")}
             description={t("profiles.workspace.description")}
-            actions={
-              manages ? null : (
-                <span className={cn("flex items-center gap-1", META)}>
-                  <Lock aria-hidden="true" className="size-3.5" />
-                  {t("profiles.locked")}
-                </span>
-              )
-            }
           >
+            {manages ? null : (
+              <p className={cn("m-0 mb-3 flex items-center gap-1", META)}>
+                <Lock aria-hidden="true" className="size-3.5 shrink-0" />
+                {t("profiles.locked")}
+              </p>
+            )}
             {versions.length === 0 ? (
               <EmptyState
                 title={t("profiles.emptyWorkspace.title")}
@@ -206,17 +211,17 @@ export function ProfilesScreen() {
               <div className="rounded-card border bg-card">
                 <GridTable
                   aria-label={t("profiles.workspace.title")}
-                  columns={
-                    manages
-                      ? VERSION_COLUMNS
-                      : "minmax(0,1.4fr) minmax(0,1fr) auto"
+                  columns={VERSION_COLUMNS[manages ? "manage" : "read"][0]}
+                  narrowAt={640}
+                  narrowColumns={
+                    VERSION_COLUMNS[manages ? "manage" : "read"][1]
                   }
                 >
                   <GridTableHeader>
                     <GridTableColumnHeader>
                       {t("profiles.column.name")}
                     </GridTableColumnHeader>
-                    <GridTableColumnHeader>
+                    <GridTableColumnHeader hideNarrow>
                       {t("profiles.column.base")}
                     </GridTableColumnHeader>
                     <GridTableColumnHeader>
@@ -335,7 +340,7 @@ function VersionRow({
           secondClassName="font-mono"
         />
       </GridTableCell>
-      <GridTableCell>
+      <GridTableCell hideNarrow>
         <Stack
           first={profile.workspace?.base_profile_id ?? ""}
           firstClassName="font-mono text-caption"
@@ -349,7 +354,7 @@ function VersionRow({
       </GridTableCell>
       {manages ? (
         <GridTableCell>
-          <div className="flex flex-wrap justify-end gap-2">
+          <div className="flex flex-wrap gap-2">
             {base && (state === "usable" || state === "base_changed") ? (
               <Button
                 type="button"
