@@ -148,7 +148,10 @@ const stateOf = (link: HTMLElement) =>
 const showTable = async (user: User) =>
   user.click(await screen.findByRole("button", { name: "표" }));
 
-async function seedRelease(server: ReturnType<typeof agentServer>) {
+async function seedRelease(
+  server: ReturnType<typeof agentServer>,
+  note?: string,
+) {
   const handler = server.routes[`POST /v1/agents/${AGENT_ID}/releases`];
   const versionId = server.versions.at(-1)?.id ?? "";
   await handler?.(
@@ -157,6 +160,7 @@ async function seedRelease(server: ReturnType<typeof agentServer>) {
       body: JSON.stringify({
         version_id: versionId,
         runtime_profile_id: PROFILE,
+        ...(note === undefined ? {} : { note }),
       }),
     }),
   );
@@ -1522,6 +1526,29 @@ describe("에이전트 상세", () => {
       expect(heading.nextElementSibling?.textContent).toBe("v1 · 활성"),
     );
     expect(agentDetailSchema.safeParse(server.detail()).success).toBe(true);
+  });
+  test("배포 기록 표는 release의 메모를 보이고, 메모가 없는 release는 —로 둔다", async () => {
+    const server = agentServer();
+    await seedRelease(server);
+    server.versions.push({
+      ...(server.versions[0] as (typeof server.versions)[number]),
+      id: "7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f",
+      version_no: 2,
+      content_sha256: "f".repeat(64),
+    });
+    await seedRelease(server, "환불 문의 규칙을 더함");
+    renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
+    const table = await screen.findByRole("table");
+    const headers = within(table)
+      .getAllByRole("columnheader")
+      .map((header) => header.textContent);
+    const at = headers.indexOf("메모");
+    expect(at).toBeGreaterThan(headers.indexOf("만든 시각"));
+    const notes = within(table)
+      .getAllByRole("row")
+      .slice(1)
+      .map((row) => within(row).getAllByRole("cell")[at]?.textContent);
+    expect(notes).toEqual(["환불 문의 규칙을 더함", "—"]);
   });
   test("release 만들기는 응답을 기다리기 전에 대화상자를 닫고, 결과 줄이 포커스를 받는다", async () => {
     const server = agentServer();

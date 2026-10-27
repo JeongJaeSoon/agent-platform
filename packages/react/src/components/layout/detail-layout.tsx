@@ -17,10 +17,9 @@ export type DetailLayoutProps = Omit<ComponentProps<"div">, "children"> & {
 /**
  * A detail page with a right rail (Cloudflare's domain overview). The host
  * gives it the whole area under the top bar, with no padding of its own: the
- * body sits in the same `PageFrame` as every other page, centred in what the
- * rail leaves, and the rail runs from the top bar to the bottom of the screen. Below
- * 1280px the rail follows the body, so DOM, focus and reading order agree
- * at every width.
+ * body sits in the same `PageFrame` as every other page, and the rail runs
+ * from the top bar to the bottom of the screen. Below 1280px the rail
+ * follows the body, so DOM, focus and reading order agree at every width.
  */
 export function DetailLayout({
   children,
@@ -32,12 +31,19 @@ export function DetailLayout({
     <div
       data-slot="detail-layout"
       className={cn(
-        "flex min-w-0 flex-1 flex-col xl:grid xl:grid-cols-[minmax(0,1fr)_auto]",
+        "@container flex min-w-0 flex-1 flex-col xl:grid xl:grid-cols-[minmax(0,1fr)_auto]",
         className,
       )}
       {...props}
     >
-      <PageFrame>{children}</PageFrame>
+      {/* The body's left edge is where a page without a rail centres it,
+          measured on the whole width rather than what the rail leaves, so
+          opening a rail or switching to a tab without one does not move it;
+          a narrow screen gives up the body's right edge instead. 3rem is
+          PageFrame's own padding from 768px. */}
+      <PageFrame className="xl:[&>[data-slot=page-frame-body]]:mr-0 xl:[&>[data-slot=page-frame-body]]:w-auto xl:[&>[data-slot=page-frame-body]]:ml-[max(0px,calc((100cqw-3rem-var(--ap-w-page))/2))]">
+        {children}
+      </PageFrame>
       {rail}
     </div>
   );

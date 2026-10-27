@@ -10,7 +10,7 @@ export type SwitchProps = ComponentProps<typeof SwitchPrimitive.Root>;
  * shadcn/ui new-york Switch. Changed from upstream: Field wiring (a FieldLabel
  * names it, a FieldDescription describes it), a 20×36 track so the thumb sits
  * on the 4px grid, the console's focus outline instead of a ring, the on
- * track in `control-checked` and the off track in `input` (both 3:1 against
+ * track in `control-checked` and the off track in `control-unchecked` (both 3:1 against
  * the card), a card thumb, no thumb shadow and no `dark:` variants. The state
  * is `aria-checked`; any "on"/"off" words belong to the caller, outside.
  * `disabled` keeps each state's colour, faded. `aria-disabled` keeps focus
@@ -28,7 +28,7 @@ export function Switch({
     <SwitchPrimitive.Root
       data-slot="switch"
       className={cn(
-        "peer inline-flex h-5 w-9 shrink-0 items-center rounded-full border-2 border-transparent transition-[background-color] duration-[var(--ap-motion-fast)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring aria-disabled:cursor-progress disabled:cursor-not-allowed disabled:opacity-40 data-[state=checked]:bg-control-checked data-[state=unchecked]:bg-input data-[state=checked]:enabled:not-aria-disabled:hover:bg-control-checked/80 data-[state=unchecked]:enabled:not-aria-disabled:hover:bg-subtle-foreground motion-reduce:transition-none",
+        "peer inline-flex h-5 w-9 shrink-0 items-center rounded-full border-2 border-transparent transition-[background-color] duration-[var(--ap-motion-fast)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring aria-disabled:cursor-progress disabled:cursor-not-allowed disabled:opacity-40 data-[state=checked]:bg-control-checked data-[state=unchecked]:bg-control-unchecked data-[state=checked]:enabled:not-aria-disabled:hover:bg-control-checked/80 data-[state=unchecked]:enabled:not-aria-disabled:hover:bg-subtle-foreground motion-reduce:transition-none",
         className,
       )}
       onClick={(event) => {
