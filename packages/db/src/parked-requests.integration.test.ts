@@ -87,14 +87,25 @@ const catalog: SessionCatalog = {
   },
 };
 
+async function until(
+  check: () => Promise<boolean>,
+  what: string,
+): Promise<void> {
+  for (let i = 0; i < 250; i += 1) {
+    if (await check()) return;
+    await Bun.sleep(10);
+  }
+  throw new Error(`timed out waiting for ${what}`);
+}
+
 function permission(command = "ls"): RegisterPendingRequest["request"] {
   return { kind: "permission", tool: "Bash", input: { command } };
 }
 
 // A park as the worker will commit it (94S-858): the turn ends interrupted
 // with its open requests marked parked, the worker releases, the execution
-// goes, and the session settles paused for input. Written here row by row,
-// since no worker parks yet.
+// goes, and the session settles paused for input. Most tests write it row by
+// row; the finalize tests go through the worker's own path.
 integration("parked pending requests on PostgreSQL", () => {
   let database: TempDatabase;
   let pool: Pool;
@@ -501,6 +512,88 @@ integration("parked pending requests on PostgreSQL", () => {
       admission_state: "paused",
     });
     expect((await reads(owner, sessionId)).status).toBe("needs_input");
+  });
+
+  function finalizeParked(worker: Worker, reason: string) {
+    return gateway.finalize(worker.principal, {
+      ...worker.scope,
+      finalize_key: `${worker.scope.attempt_id}:${worker.scope.turn_id}`,
+      final_source_sequence: 0,
+      terminal: { status: "interrupted", reason, result: null, usage: null },
+      checkpoint: {
+        revision: 0,
+        manifest_ref: `manifests/${worker.scope.session_id}/0`,
+        manifest_sha256: "c".repeat(64),
+      },
+    });
+  }
+
+  test("a parking finalize parks what its worker left unsettled, expiring together, and leaves the session idle on it", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const settled = await register(worker);
+    const open = await register(worker, HASH_B);
+    const answeredAfterCut = await register(worker);
+    await answer(owner, sessionId, settled);
+    await poll(worker, [{ request_id: settled, outcome: "answered" }]);
+    await db
+      .update(pendingRequests)
+      .set({ expiresAt: sql`now() + interval '2 hours'` })
+      .where(eq(pendingRequests.requestId, open));
+    await db
+      .update(pendingRequests)
+      .set({ expiresAt: sql`now() + interval '1 hour'` })
+      .where(eq(pendingRequests.requestId, answeredAfterCut));
+    // The worker cut the turn before this answer reached it.
+    await answer(owner, sessionId, answeredAfterCut);
+
+    await finalizeParked(worker, "input_wait_parked");
+
+    const rows = await Promise.all(
+      [settled, open, answeredAfterCut].map(request),
+    );
+    expect(rows.map((row) => row.parkedAt !== null)).toEqual([
+      false,
+      true,
+      true,
+    ]);
+    expect(rows[1]?.expiresAt.getTime()).toBe(rows[2]?.expiresAt.getTime());
+    expect((await sessionRow(sessionId)).status).toBe("idle");
+    expect((await reads(owner, sessionId)).status).toBe("needs_input");
+    const stages = await db
+      .select({ type: events.type, payload: events.payload })
+      .from(events)
+      .where(eq(events.sessionId, sessionId))
+      .orderBy(events.id);
+    const tail = stages.slice(-2);
+    expect(tail[0]?.payload).toEqual({
+      type: "system",
+      subtype: "input_wait",
+      stage: "parked",
+      request_ids: [open, answeredAfterCut].sort(),
+    });
+    expect(tail[1]?.payload).toMatchObject({ phase: "needs_input" });
+
+    // The drain release and the execution going leave the parked rows open.
+    await gateway.release(worker.principal, {
+      ...worker.scope,
+      turn_id: null,
+      reason: "received SIGTERM",
+      stop_kind: "drain",
+    });
+    await executionGone(worker);
+    expect((await request(open)).resolvedAt).toBeNull();
+    expect((await reads(owner, sessionId)).status).toBe("needs_input");
+  });
+
+  test("an interrupted finalize for any other reason parks nothing", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const requestId = await register(worker);
+
+    await finalizeParked(worker, "interrupted");
+
+    expect((await request(requestId)).parkedAt).toBeNull();
+    expect((await sessionRow(sessionId)).status).toBe("stopped");
+    expect((await reads(owner, sessionId)).status).toBe("stopped");
   });
 
   test("pendingControl stamps delivered_at once, when it first hands an answer over", async () => {
@@ -1064,7 +1157,22 @@ integration("parked pending requests on PostgreSQL", () => {
       () => null,
       (error: unknown) => error,
     );
-    await Bun.sleep(600);
+    // The decline must be queued behind the lock, and its lease over, by the
+    // time the lock is let go.
+    await until(async () => {
+      const { rows } = await pool.query(
+        `SELECT 1 FROM pg_stat_activity WHERE datname = current_database()
+           AND wait_event_type = 'Lock'`,
+      );
+      return rows.length > 0;
+    }, "the decline to wait on the receipt lock");
+    await until(async () => {
+      const { rows } = await pool.query(
+        "SELECT lease_expires_at < clock_timestamp() AS lapsed FROM attempts WHERE id = $1",
+        [worker.scope.attempt_id],
+      );
+      return rows[0]?.lapsed === true;
+    }, "the lease to end");
     release();
     await holder;
     const error = await declined;

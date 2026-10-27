@@ -6,6 +6,7 @@ import type {
   ClaimPrincipal,
   ControlIntent,
   NextInputResponse,
+  PermissionGrant,
   ReleaseRequest,
   RuntimeConfig,
   SessionRuntime,
@@ -17,6 +18,7 @@ import type {
 import {
   MAX_TURN_COST_USD,
   TURN_BUDGET_EXCEEDED_REASON,
+  TURN_INPUT_WAIT_PARKED_REASON,
 } from "@werft-ai/contracts";
 import {
   type AgentRun,
@@ -27,8 +29,10 @@ import {
   type CheckpointPreparation,
   isOwnershipLost,
   isRetryable,
+  type ParkedApproval,
   type RuntimeEvent,
   type TurnEnded,
+  type WorkerCheckpointState,
   type WorkerGatewayClient,
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
@@ -196,6 +200,11 @@ type Turn = {
   interruptDeadline?: number;
   /** Monotonic origin for every stage of this interrupt's diagnostic timeline. */
   interruptStartedAt?: number;
+  /**
+   * The turn is being cut where it waits on a person: what it waited on,
+   * kept for the checkpoint, and the park control that asked, if one did.
+   */
+  parking?: { approvals: ParkedApproval[]; controlId?: string };
   /** The input went to the engine: an interrupt can only reach it from here. */
   sent: boolean;
   settled: Promise<Settlement>;
@@ -225,6 +234,12 @@ const ENGINE_EXIT_GRACE_MS = 5_000;
 const RELEASE_RESERVE_MS = 2_000;
 /** The default for `timeouts.toolUseFrameWaitMs`. */
 const TOOL_USE_FRAME_WAIT_MS = 10_000;
+/**
+ * The most a park keeps of what its turn waited on: it rides in the
+ * manifest, whose own limit is far above it.
+ */
+const PARKED_STATE_MAX_BYTES = 1024 * 1024;
+const NOTHING_WAITING = "The turn is no longer waiting on a person alone";
 
 /**
  * The worker process: one session, one attempt, however many turns the lease
@@ -285,6 +300,10 @@ export class WorkerHost {
    */
   private pauseReleasing: string | undefined;
   private turn: Turn | undefined;
+  /** The claim's: allows the turn this attempt resumes may spend once each. */
+  private grants: PermissionGrant[] = [];
+  /** Park controls already carried out or declined; polls repeat them. */
+  private readonly parksTaken = new Set<string>();
   /**
    * What the engine reported spending on turns that settled nothing, waiting
    * for the next turn that settles with a cost of its own.
@@ -319,9 +338,15 @@ export class WorkerHost {
     return this.scrubber;
   }
 
-  /** Asks the loop to wind down at the next safe point; safe from a signal handler. */
+  /**
+   * Asks the loop to wind down at the next safe point; safe from a signal
+   * handler. A turn waiting only on a person is parked rather than held to
+   * the drain budget and denied.
+   */
   drain(reason: string): void {
+    const draining = this.stopping === undefined;
     this.stop({ kind: "drain", reason, requested: true });
+    if (draining) void this.drainPark();
   }
 
   async runLoop(): Promise<WorkerRunSummary> {
@@ -345,6 +370,7 @@ export class WorkerHost {
       execution_generation: claim.execution_generation,
       auth_revision: claim.auth_revision,
     };
+    this.grants = [...(claim.grants ?? [])];
     this.logger.info("worker.claimed", {
       session_id: claim.session_id,
       attempt_id: claim.attempt_id,
@@ -389,7 +415,7 @@ export class WorkerHost {
       timeoutMs: this.options.timeouts.questionTimeoutMs,
       pollIntervalMs: this.options.timeouts.answerPollIntervalMs,
       onOwnershipLost: (error) => this.lose(describe(error), error),
-      onControl: (control) => this.onControl(control),
+      onControl: (control, poll) => this.onControl(control, poll),
     });
     this.heartbeat = new Heartbeat({
       gateway: this.options.gateway,
@@ -1160,12 +1186,20 @@ export class WorkerHost {
   private async finalizeTurn(
     run: AgentRun,
     turnId: string,
-    settlement: Settlement,
+    reported: Settlement,
   ): Promise<void> {
     const interruptTurn =
       this.turn?.turnId === turnId && this.turn.interrupting
         ? this.turn
         : undefined;
+    const parking = interruptTurn?.parking;
+    // Parked only when the cut is what ended it; a turn that got to its
+    // own end first keeps that end, and what it held is settled after all.
+    const parked = parking !== undefined && reported.status === "interrupted";
+    if (parking !== undefined && !parked) this.pending?.unpark();
+    const settlement: Settlement = parked
+      ? { ...reported, reason: TURN_INPUT_WAIT_PARKED_REASON }
+      : reported;
     // The event tail has to be durable before the turn is declared over: a
     // finalize that overtakes its own events publishes a closed turn whose
     // stream is still arriving. Both waits end with the drain budget, so a
@@ -1199,7 +1233,10 @@ export class WorkerHost {
         if (interruptTurn !== undefined) {
           this.logInterruptStage(interruptTurn, "capture_started");
         }
-        const rawCapturing = this.capture(run);
+        const rawCapturing = this.capture(
+          run,
+          parked ? { pendingApprovals: parking.approvals } : undefined,
+        );
         const capturing =
           interruptTurn === undefined
             ? rawCapturing
@@ -1378,6 +1415,7 @@ export class WorkerHost {
       }
       if (finalized === undefined) return;
       outstanding = undefined;
+      this.dropGrants(turnId);
       this.turns.push({
         turnId,
         status: terminal.status,
@@ -1500,9 +1538,16 @@ export class WorkerHost {
    * ignored here, and the gateway settles its receipt from how that turn
    * actually ended. The engine keeps its session; only this turn stops.
    */
-  private onControl(control: ControlIntent): void {
+  private onControl(
+    control: ControlIntent,
+    poll: { answered: boolean } = { answered: false },
+  ): void {
     if (control.kind === "pause") {
       this.requestPause(control);
+      return;
+    }
+    if (control.kind === "park") {
+      void this.onPark(control, poll.answered);
       return;
     }
     const turn = this.turn;
@@ -1541,8 +1586,15 @@ export class WorkerHost {
     // What the turn was waiting on is void: an answer landing now must not
     // let the engine carry the interrupted turn on.
     this.pending?.cancelAll("interrupt", "The turn was interrupted");
-    // The grace runs from here, not from the send: an input check that
-    // hangs must not hold the interrupt open until the turn budget ends.
+    this.armInterruptGrace(turn);
+    if (turn.sent) this.sendInterrupt(run, turn);
+  }
+
+  /**
+   * The grace runs from here, not from the send: an input check that hangs
+   * must not hold the interrupt open until the turn budget ends.
+   */
+  private armInterruptGrace(turn: Turn): void {
     const graceMs = this.interruptGraceMs();
     turn.interruptDeadline = performance.now() + graceMs;
     turn.timers.push(
@@ -1565,7 +1617,224 @@ export class WorkerHost {
         });
       }, graceMs),
     );
-    if (turn.sent) this.sendInterrupt(run, turn);
+  }
+
+  /**
+   * A park the platform asked for because the turn's requests went
+   * unanswered. Declined before anything is touched when the poll that
+   * brought it also applied an answer, or when no checkpoint could be left
+   * to park on; otherwise the turn is cut, finalized parked, and the
+   * release commits the control. A drain under way parks on its own.
+   */
+  private async onPark(
+    control: ControlIntent,
+    answered: boolean,
+  ): Promise<void> {
+    if (this.parksTaken.has(control.control_id)) return;
+    if (this.stopping !== undefined) return;
+    this.parksTaken.add(control.control_id);
+    const turn = this.turn;
+    const run = this.engine;
+    this.logger.info("worker.park.requested", {
+      control_id: control.control_id,
+      turn_id: turn?.closed === false ? turn.turnId : null,
+    });
+    if (
+      answered ||
+      run === undefined ||
+      turn === undefined ||
+      this.parkBlockedNow(run, turn)?.reason === NOTHING_WAITING
+    ) {
+      await this.declinePark(control.control_id, "answer_applied");
+      return;
+    }
+    if (this.pending?.parkReady === false) {
+      await this.pending.flush(this.options.timeouts.requestTimeoutMs);
+    }
+    const blocked =
+      (await this.parkBlocker(run, turn)) ?? this.parkBlockedNow(run, turn);
+    if (this.stopping !== undefined) return;
+    if (blocked !== undefined) {
+      this.logger.warn("worker.park.unavailable", {
+        control_id: control.control_id,
+        reason: blocked.reason,
+      });
+      await this.declinePark(
+        control.control_id,
+        blocked.reason === NOTHING_WAITING
+          ? "answer_applied"
+          : "checkpoint_unavailable",
+      );
+      return;
+    }
+    this.cutForPark(run, turn, control.control_id);
+  }
+
+  private async declinePark(
+    controlId: string,
+    reason: "answer_applied" | "checkpoint_unavailable",
+  ): Promise<void> {
+    try {
+      const { reverted } = await this.withRetry(() =>
+        this.options.gateway.parkDeclined({
+          ...this.scope,
+          pause_control_id: controlId,
+          reason,
+        }),
+      );
+      this.logger.info("worker.park.declined", {
+        control_id: controlId,
+        reason,
+        reverted,
+      });
+    } catch (error) {
+      // The park stays the open pause; a pause can still commit it later.
+      this.logger.warn("worker.park.decline_failed", {
+        control_id: controlId,
+        reason: describe(error),
+      });
+    }
+  }
+
+  /**
+   * The drain's park: a turn left waiting only on a person is cut there and
+   * parked, rather than held to the drain budget and denied. Answers
+   * already given are applied first, and a tool one of them let run is
+   * waited out before the turn is judged again. Anything that would leave
+   * no checkpoint leaves the drain as it was.
+   */
+  private async drainPark(): Promise<void> {
+    for (;;) {
+      const run = this.engine;
+      const turn = this.turn;
+      const pending = this.pending;
+      if (
+        run === undefined ||
+        turn === undefined ||
+        pending === undefined ||
+        this.stopKind !== "drain" ||
+        this.abandonedNow
+      ) {
+        return;
+      }
+      await pending.refresh(this.options.timeouts.requestTimeoutMs);
+      if (this.stopKind !== "drain" || this.turn !== turn) return;
+      const blocked =
+        (await this.parkBlocker(run, turn)) ?? this.parkBlockedNow(run, turn);
+      if (this.stopKind !== "drain" || this.abandonedNow) return;
+      if (blocked === undefined) {
+        this.cutForPark(run, turn);
+        return;
+      }
+      if (blocked.lasting) {
+        if (blocked.reason !== NOTHING_WAITING) {
+          this.logger.warn("worker.park.unavailable", {
+            turn_id: turn.turnId,
+            reason: blocked.reason,
+          });
+        }
+        return;
+      }
+      await this.untilAbandoned(
+        Promise.race([
+          this.sleep(this.options.timeouts.answerPollIntervalMs),
+          turn.settled,
+        ]),
+      );
+    }
+  }
+
+  /**
+   * Why the turn cannot be parked at this instant, judged in one step with
+   * nothing awaited, so the cut that follows it finds the same. `lasting`
+   * says waiting will not change it.
+   */
+  private parkBlockedNow(
+    run: AgentRun,
+    turn: Turn,
+  ): { lasting: boolean; reason: string } | undefined {
+    if (this.mirrorError !== undefined) {
+      return { lasting: true, reason: this.mirrorError };
+    }
+    const pending = this.pending;
+    if (
+      turn.closed ||
+      turn.interrupting ||
+      turn.timedOut ||
+      !turn.sent ||
+      pending === undefined ||
+      pending.outstanding === 0
+    ) {
+      return { lasting: true, reason: NOTHING_WAITING };
+    }
+    const readiness = run.parkable();
+    if (!readiness.ok) {
+      return readiness.reason === "checkpoint_unavailable"
+        ? { lasting: true, reason: readiness.detail }
+        : {
+            lasting: readiness.reason === "not_supported",
+            reason: `The runtime cannot park now (${readiness.reason})`,
+          };
+    }
+    if (!pending.parkReady) {
+      return {
+        lasting: false,
+        reason: "A request or its outcome has not reached the gateway yet",
+      };
+    }
+    const bytes = Buffer.byteLength(JSON.stringify(pending.peekParked()));
+    if (bytes > PARKED_STATE_MAX_BYTES) {
+      return {
+        lasting: true,
+        reason: `What the turn waits on is ${bytes} bytes, over the ${PARKED_STATE_MAX_BYTES} a park keeps`,
+      };
+    }
+    return undefined;
+  }
+
+  /** parkBlockedNow, then what the checkpoint port knows about the transcript. */
+  private async parkBlocker(
+    run: AgentRun,
+    turn: Turn,
+  ): Promise<{ lasting: boolean; reason: string } | undefined> {
+    const now = this.parkBlockedNow(run, turn);
+    if (now !== undefined) return now;
+    const readiness = run.parkable();
+    if (!readiness.ok) return undefined;
+    // A parked finalize needs its checkpoint, which this run would not take.
+    const { effective } = await run.ready();
+    if (!effective.checkpoint) {
+      return { lasting: true, reason: "The run takes no checkpoints" };
+    }
+    const reason = await this.checkpoints.parkBlocked?.(readiness.resume);
+    return reason === undefined ? undefined : { lasting: true, reason };
+  }
+
+  /**
+   * Every waiting callback is cancelled for the park, which the runtime
+   * turns into a refusal that stops the turn, and the turn is interrupted
+   * on the interrupt's own terms. Nothing is settled: the requests stay
+   * open for the finalize to park.
+   */
+  private cutForPark(run: AgentRun, turn: Turn, controlId?: string): void {
+    const pending = this.pending;
+    if (pending === undefined) return;
+    const approvals = pending.park();
+    turn.parking = {
+      approvals,
+      ...(controlId === undefined ? {} : { controlId }),
+    };
+    // The release that follows the finalize is the park's commit.
+    if (controlId !== undefined) this.pauseControl = controlId;
+    turn.interrupting = true;
+    turn.interruptStartedAt = performance.now();
+    this.logger.info("worker.turn.parking", {
+      turn_id: turn.turnId,
+      control_id: controlId ?? null,
+      request_ids: approvals.map((approval) => approval.requestId),
+    });
+    this.armInterruptGrace(turn);
+    this.sendInterrupt(run, turn);
   }
 
   private sendInterrupt(run: AgentRun, turn: Turn): void {
@@ -1931,7 +2200,44 @@ export class WorkerHost {
       });
       return;
     }
+    const grant = this.takeGrant(request);
+    if (grant !== undefined) {
+      answer({ kind: "selected", optionKind: "allow_once" });
+      this.pending.deliver(grant.request_id, "grant_consumed");
+      return;
+    }
     this.pending.request(request, answer);
+  }
+
+  /**
+   * The allow a parked request was answered with, spent on the first call
+   * of the resumed turn with the same tool and arguments. A second such
+   * call, or one with other arguments, is asked again.
+   */
+  private takeGrant(request: ApprovalRequested): PermissionGrant | undefined {
+    const turn = this.turn;
+    if (turn === undefined || request.kind !== "permission") return undefined;
+    const index = this.grants.findIndex(
+      (grant) =>
+        grant.turn_id === turn.turnId &&
+        grant.tool === request.tool.name &&
+        grant.input_hash === request.inputHash,
+    );
+    if (index === -1) return undefined;
+    const [grant] = this.grants.splice(index, 1);
+    this.logger.info("worker.grant.consumed", {
+      turn_id: turn.turnId,
+      request_id: grant?.request_id ?? null,
+    });
+    return grant;
+  }
+
+  /** What the turn did not spend is reported unused, once it is finalized. */
+  private dropGrants(turnId: string): void {
+    for (const grant of this.grants.filter((g) => g.turn_id === turnId)) {
+      this.pending?.deliver(grant.request_id, "grant_unused");
+    }
+    this.grants = this.grants.filter((grant) => grant.turn_id !== turnId);
   }
 
   /**
@@ -1939,7 +2245,10 @@ export class WorkerHost {
    * writes between the quiescence check and the pointer CAS. A capture that
    * fails or produces nothing to commit gives the lease back at once.
    */
-  private async capture(run: AgentRun): Promise<Captured> {
+  private async capture(
+    run: AgentRun,
+    workerState?: WorkerCheckpointState,
+  ): Promise<Captured> {
     // A run that takes no checkpoints finalizes without one, not as a
     // capture that failed.
     const { effective } = await run.ready();
@@ -1978,6 +2287,7 @@ export class WorkerHost {
       ref = await this.checkpoints.capture(preparation, {
         scope: { ...this.scope },
         recheck: () => run.prepareCheckpoint("turn_end"),
+        ...(workerState === undefined ? {} : { workerState }),
       });
     } catch (error) {
       lease?.release();

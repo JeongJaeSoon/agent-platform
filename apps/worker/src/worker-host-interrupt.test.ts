@@ -547,7 +547,11 @@ describe("WorkerHost interrupt", () => {
 
     expect(summary.turns[0]?.status).toBe("interrupted");
     // The engine never got an allow for it.
-    expect(runtime.permissionDecisions).toEqual([]);
+    expect(
+      runtime.permissionDecisions.filter(
+        (decision) => decision.behavior === "allow",
+      ),
+    ).toEqual([]);
     expect(gateway.settled).toEqual([
       {
         request_id: gateway.requestIdFor("toolu_deploy"),
