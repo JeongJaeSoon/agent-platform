@@ -389,7 +389,7 @@ describe("AgentMap", () => {
     expect(standIn("board")).not.toContain("md:flex");
   });
 
-  test("from xl the board scrolls within the screen's height, not the page (94S-1075)", () => {
+  test("from xl the board and the panel each scroll within the screen's height, not the page (94S-1075)", () => {
     const view = withPlatform(
       <AgentMap
         sessions={[selected.session]}
@@ -407,14 +407,22 @@ describe("AgentMap", () => {
     expect(scroll?.contains(view.getByRole("button", { pressed: true }))).toBe(
       true,
     );
-    expect(classes("board-scroll")).toEqual(
-      expect.arrayContaining(["xl:absolute", "xl:overflow-y-auto"]),
-    );
-    expect(classes("board-column")).toEqual(
-      expect.arrayContaining(["xl:relative", "xl:self-stretch"]),
-    );
-    // Below xl the board stays in the page's own scroll: one scroller only.
-    expect(classes("board-scroll")).not.toContain("overflow-y-auto");
+    expect(
+      view.container
+        .querySelector("[data-slot='panel-scroll']")
+        ?.contains(view.getByRole("link", { name: "타임라인에서 전체 보기" })),
+    ).toBe(true);
+    // A tall panel in the flow would stretch the row and scroll the page.
+    for (const part of ["board", "panel"]) {
+      expect(classes(`${part}-scroll`)).toEqual(
+        expect.arrayContaining(["xl:absolute", "xl:overflow-y-auto"]),
+      );
+      expect(classes(`${part}-column`)).toEqual(
+        expect.arrayContaining(["xl:relative", "xl:self-stretch"]),
+      );
+      // Below xl only the page scrolls: one scroller.
+      expect(classes(`${part}-scroll`)).not.toContain("overflow-y-auto");
+    }
     expect(
       scroll?.parentElement?.parentElement?.className.split(" "),
     ).toContain("xl:flex-[1_1_0px]");
