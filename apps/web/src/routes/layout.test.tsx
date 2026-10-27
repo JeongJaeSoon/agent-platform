@@ -578,6 +578,33 @@ describe("focus after a page change", () => {
     expect(document.activeElement === failed).toBe(true);
   });
 
+  test("focus taken while a redirect is decided stays there", async () => {
+    let hold: Promise<Response> | null = null;
+    let release = () => {};
+    const { api, history } = renderAt("/agents", {
+      "GET /v1/auth/me": () => hold ?? json(200, me()),
+    });
+    await screen.findByRole("heading", { level: 1, name: "에이전트" });
+    hold = new Promise((resolve) => {
+      release = () => resolve(json(200, me()));
+    });
+    const asked = api.calls.length;
+    // A live session on /login goes on to the home page.
+    const going = history.push("/login");
+    await waitFor(() =>
+      expect(
+        api.calls.slice(asked).some((call) => call.path === "/v1/auth/me"),
+      ).toBe(true),
+    );
+    const toggle = screen.getByRole("button", { name: "메뉴 열기" });
+    toggle.focus();
+    release();
+    await going;
+    await screen.findByRole("heading", { level: 1, name: "홈" });
+    await waitFor(() => expect(history.location.pathname).toBe("/"));
+    expect(document.activeElement === toggle).toBe(true);
+  });
+
   test("back from an open account menu leaves focus in the menu", async () => {
     const { history } = renderAt("/agents", signedIn);
     await screen.findByRole("heading", { level: 1, name: "에이전트" });

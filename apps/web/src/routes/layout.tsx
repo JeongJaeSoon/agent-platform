@@ -94,13 +94,23 @@ export function RootLayout() {
 function useFocusOnPageChange() {
   const router = useRouter();
   const before = useRef<Element | null>(null);
-  useEffect(
-    () =>
-      router.subscribe("onBeforeNavigate", (event) => {
-        if (event.pathChanged) before.current = document.activeElement;
-      }),
-    [router],
-  );
+  useEffect(() => {
+    // A redirect starts a second navigation before the first resolves; the
+    // focus to compare against is the one from before the first.
+    let recorded = false;
+    const offBefore = router.subscribe("onBeforeNavigate", (event) => {
+      if (!event.pathChanged || recorded) return;
+      before.current = document.activeElement;
+      recorded = true;
+    });
+    const offResolved = router.subscribe("onResolved", () => {
+      recorded = false;
+    });
+    return () => {
+      offBefore();
+      offResolved();
+    };
+  }, [router]);
   // After the render the resolved path commits, not on the router's
   // onRendered: ShellMain swaps the page's frame in that render, which
   // remounts a title focused any earlier.
