@@ -49,6 +49,16 @@ bun run --cwd apps/web build:demo                 # 정적 빌드: apps/web/dist
 
 녹화기는 로그인 한 번 말고는 GET만 스택에 넘기고, 끝나면 로그아웃한다.
 
+gitleaks의 `generic-api-key` 규칙은 사용량 breakdown 응답의 `"key": "<에이전트 id>"` 줄을 비밀값으로 읽는다. 그 줄만 루트 `.gitleaksignore`에 fingerprint로 넣는데, 줄 번호가 녹화마다 바뀌므로 다시 녹화하면 fingerprint도 다시 만든다.
+
+```bash
+gitleaks dir apps/web/src/demo/fixtures.json --redact=100 -f json -r <리포트.json>   # 다른 gitleaks 설정을 쓰면 --config
+bun apps/web/scripts/demo-scan.ts --write-ignores <리포트.json>
+bun apps/web/scripts/demo-scan.ts
+```
+
+`--write-ignores`는 모든 발견이 breakdown 응답 안에 있고, UUID이며, 녹화된 에이전트 목록의 id일 때만 fixture 항목을 바꿔 쓴다. 하나라도 어긋나면 아무것도 쓰지 않는다. 기본 실행(CI demo job 포함)은 남아 있는 fixture 항목을 같은 기준으로 다시 확인하고, 실제 줄과 맞지 않는 항목이 있으면 실패한다.
+
 ## 라이선스
 
 [PolyForm Small Business License 1.0.0](LICENSE)을 따르는 source-available 저장소다.

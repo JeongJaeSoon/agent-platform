@@ -10,12 +10,18 @@
  *
  * <accounts.md> holds the stack's account table between `<!-- accounts -->`
  * markers, one row per account: key | role | name | email | password | ...
- * The password is read from it and never printed. Run
- * `bun apps/web/scripts/demo-scan.ts` on the result before committing it.
+ * The password is read from it and never printed. Before committing the
+ * result, regenerate the .gitleaksignore fingerprints (line numbers move with
+ * every recording) and scan it:
+ *
+ *   gitleaks dir apps/web/src/demo/fixtures.json --redact=100 -f json -r <report.json>
+ *   bun apps/web/scripts/demo-scan.ts --write-ignores <report.json>
+ *   bun apps/web/scripts/demo-scan.ts
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { parseArgs } from "node:util";
+import { CSRF_HEADER_NAME, CSRF_HEADER_VALUE } from "@werft-ai/client";
 import { chromium, type Page } from "playwright-core";
 import { type DemoResponse, fixtureKey } from "../src/demo/fetch.ts";
 import { sanitize } from "./demo-scan.ts";
@@ -80,7 +86,7 @@ async function signIn(): Promise<string> {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-requested-with": "XMLHttpRequest",
+      [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
     },
     body: JSON.stringify(await account()),
   });
@@ -144,7 +150,7 @@ async function proxy(request: Request, cookie: string): Promise<Response> {
     headers: {
       cookie,
       accept: request.headers.get("accept") ?? "*/*",
-      "x-requested-with": "XMLHttpRequest",
+      [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
     },
   });
   const type = upstream.headers.get("content-type") ?? "";
@@ -269,7 +275,7 @@ try {
   // The login is the one write this script makes; take it back.
   await fetch(`${api}/v1/auth/logout`, {
     method: "POST",
-    headers: { cookie, "x-requested-with": "XMLHttpRequest" },
+    headers: { cookie, [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE },
   }).catch(() => {});
   server.stop(true);
 }

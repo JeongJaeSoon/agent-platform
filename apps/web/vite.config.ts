@@ -36,8 +36,12 @@ function fontLicenses(): Plugin {
 function demoEntry(): Plugin {
   return {
     name: "demo-entry",
-    transformIndexHtml: (html) =>
-      html.replace('src="/src/main.tsx"', 'src="/src/demo/main.tsx"'),
+    // "pre": the build reads its entry from the transformed page.
+    transformIndexHtml: {
+      order: "pre",
+      handler: (html) =>
+        html.replace('src="/src/main.tsx"', 'src="/src/demo/main.tsx"'),
+    },
   };
 }
 
