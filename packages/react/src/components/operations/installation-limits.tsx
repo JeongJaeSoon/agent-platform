@@ -50,6 +50,8 @@ export function InstallationLimits({
       {messages.perSession}
     </Text>
   );
+  // No limit is the contract's, not the response's: shown while loading too.
+  const noLimit = <Badge>{messages.noLimit}</Badge>;
   const rows: readonly (readonly [string, ReactNode, ReactNode, string])[] = [
     [
       messages.slots,
@@ -72,7 +74,7 @@ export function InstallationLimits({
         : use.outputs.complete
           ? format.bytes(use.outputs.used_bytes)
           : messages.outputsAtLeast(format.bytes(use.outputs.used_bytes)),
-      cap ? <Badge key="none">{messages.noLimit}</Badge> : null,
+      noLimit,
       use?.outputs.complete === false
         ? messages.outputsIncompleteNote
         : messages.outputsRowNote,
@@ -227,7 +229,11 @@ export function InstallationLimits({
                   )}
                 </GridTableCell>
                 <GridTableCell className="tabular-nums">
-                  <Value loading={loading}>{limit}</Value>
+                  {limit === noLimit ? (
+                    limit
+                  ) : (
+                    <Value loading={loading}>{limit}</Value>
+                  )}
                 </GridTableCell>
                 <GridTableCell hideNarrow className="text-muted-foreground">
                   {note}
