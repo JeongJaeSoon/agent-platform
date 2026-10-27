@@ -796,6 +796,26 @@ describe("홈 요약", () => {
     });
   });
 
+  test("결과물을 다 세지 못한 응답이면 전체 사용량의 결과물 저장은 하한으로 보인다", async () => {
+    renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/limits": () =>
+        json(200, {
+          ...limits,
+          usage: {
+            ...limits.usage,
+            outputs: { ...limits.usage.outputs, complete: false },
+          },
+        }),
+    });
+    const overview = await screen.findByRole("region", { name: "한눈에 보기" });
+    await waitFor(() =>
+      expect(
+        cards(overview).find((card) => card.title === "전체 사용량")?.rows,
+      ).toContainEqual(["결과물 저장", "300 MB 이상"]),
+    );
+  });
+
   test("가장 오래된 요청은 세션의 갱신 시각이 아니라 요청 시각으로 고른다", async () => {
     // Updated first, asked last: updated_at would pick it.
     const askedLate = {

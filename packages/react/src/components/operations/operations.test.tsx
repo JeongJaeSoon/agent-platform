@@ -602,8 +602,9 @@ describe("InstallationLimits", () => {
     );
   });
 
-  test("결과물 행은 받은 그대로 설명하고, 빠진 checkpoint가 있으면 적게 셀 수 있다고 쓴다", () => {
-    const notes = (limits: typeof LIMITS) => {
+  test("결과물 행은 받은 그대로 설명하고, 빠진 checkpoint가 있으면 값을 하한으로 쓰고 적게 셀 수 있다고 쓴다", () => {
+    // Item, current and note of the storage and outputs rows.
+    const rows = (limits: typeof LIMITS) => {
       const { getByRole, unmount } = withPlatform(
         <InstallationLimits limits={limits} timeZone="Asia/Seoul" />,
       );
@@ -611,23 +612,40 @@ describe("InstallationLimits", () => {
         ...getByRole("table", { name: "한도" }).querySelectorAll("[role=row]"),
       ]
         .slice(2, 4)
-        .map((row) => row.querySelectorAll("[role=cell]")[3]?.textContent);
+        .map((row) =>
+          [...row.querySelectorAll("[role=cell]")]
+            .filter((_, i) => i !== 2)
+            .map((cell) => cell.textContent),
+        );
       unmount();
       return cells;
     };
-    expect(notes(LIMITS)).toEqual([
-      "세션에 보낸 입력 메시지만 셉니다. 결과물은 따로 셉니다",
-      "세션 결과물이 차지한 용량. 보여 주기만 하고 막지 않습니다",
+    expect(rows(LIMITS)).toEqual([
+      [
+        "입력 메시지 저장",
+        "2 GB",
+        "세션에 보낸 입력 메시지만 셉니다. 결과물은 따로 셉니다",
+      ],
+      [
+        "결과물 저장",
+        "512 MB",
+        "세션 결과물이 차지한 용량. 보여 주기만 하고 막지 않습니다",
+      ],
     ]);
+    // The current cell stays on narrow screens, where the note column hides.
     expect(
-      notes({
+      rows({
         ...LIMITS,
         usage: {
           ...LIMITS.usage,
           outputs: { ...LIMITS.usage.outputs, complete: false },
         },
       })[1],
-    ).toBe("결과물을 세기 전 checkpoint가 남아 있어 실제보다 적을 수 있습니다");
+    ).toEqual([
+      "결과물 저장",
+      "512 MB 이상",
+      "결과물을 세기 전 checkpoint가 남아 있어 실제보다 적을 수 있습니다",
+    ]);
   });
 
   test("읽는 동안 meter 없이 한 번만 알린다", () => {

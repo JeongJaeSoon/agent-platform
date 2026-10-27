@@ -376,7 +376,11 @@ export function HomeScreen() {
         {
           label: t("home.glance.outputs"),
           value: limits.data
-            ? bytes(limits.data.usage.outputs.used_bytes)
+            ? limits.data.usage.outputs.complete
+              ? bytes(limits.data.usage.outputs.used_bytes)
+              : t("home.glance.outputsAtLeast", {
+                  value: bytes(limits.data.usage.outputs.used_bytes),
+                })
             : unknown,
         },
       ]}

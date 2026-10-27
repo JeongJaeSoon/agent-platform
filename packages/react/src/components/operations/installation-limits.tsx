@@ -67,7 +67,11 @@ export function InstallationLimits({
     ],
     [
       messages.outputs,
-      use ? format.bytes(use.outputs.used_bytes) : null,
+      use === undefined
+        ? null
+        : use.outputs.complete
+          ? format.bytes(use.outputs.used_bytes)
+          : messages.outputsAtLeast(format.bytes(use.outputs.used_bytes)),
       cap ? <Badge key="none">{messages.noLimit}</Badge> : null,
       use?.outputs.complete === false
         ? messages.outputsIncompleteNote
