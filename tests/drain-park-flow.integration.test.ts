@@ -27,14 +27,14 @@ import {
   type WorkerGateway,
 } from "@werft-ai/platform";
 import {
-  FakeAgentRuntime,
-  type FakeStep,
-  type NativeSdkMessage,
-} from "@werft-ai/runtime-claude/testing";
-import {
   approvalInputHash,
   type WorkerCheckpointState,
 } from "@werft-ai/runtime-core";
+import type {
+  EngineMessage,
+  ScriptedStep,
+} from "@werft-ai/runtime-core/testing";
+import { fakeRuntimeFor } from "@werft-ai/runtime-registry/testing";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -49,6 +49,10 @@ import { PostgresSessionNotifier } from "../apps/control-host/src/api/session-no
 import type { WorkerCheckpointPort } from "../apps/worker/src/checkpoint.ts";
 import { HttpWorkerGatewayClient } from "../apps/worker/src/gateway-client.ts";
 import { drainOnSignals } from "../apps/worker/src/main.ts";
+import {
+  SCRIPTED_KIND,
+  startScripted,
+} from "../apps/worker/src/testing/scripted-engine.ts";
 import {
   inputUuid,
   WorkerHost,
@@ -97,7 +101,7 @@ const catalog: SessionCatalog = {
   },
 };
 
-function result(uuid: string): NativeSdkMessage {
+function result(uuid: string): EngineMessage {
   return {
     type: "result",
     subtype: "success",
@@ -270,7 +274,7 @@ integration("a drain parks a turn waiting on a person, end to end", () => {
       inputUuid(sessionId, String(turn), String(turn));
     // The display copy hides this key's value; the engine acts on it as is.
     const input = { command: "deploy", credential: RAW_MARKER };
-    const steps: FakeStep[] = [
+    const steps: ScriptedStep[] = [
       { type: "await-input" },
       {
         type: "permissions",
@@ -286,7 +290,7 @@ integration("a drain parks a turn waiting on a person, end to end", () => {
       { type: "emit", message: result(uuid(1)) },
       { type: "await-input" },
     ];
-    const runtime = new FakeAgentRuntime(steps);
+    const runtime = fakeRuntimeFor(SCRIPTED_KIND, steps);
     const states: Array<WorkerCheckpointState | undefined> = [];
     const logged: unknown[] = [];
     const logger: WorkerLogger = {
@@ -309,19 +313,7 @@ integration("a drain parks a turn waiting on a person, end to end", () => {
       logger,
       runtimes: {
         launcherFor: () => ({
-          start: ({ runtimeConfig, principal, ...rest }) =>
-            runtime.run({
-              claudeConfigDir: "/tmp/fake/config",
-              cwd: "/tmp/fake/workspace",
-              home: "/tmp/fake/home",
-              model: runtimeConfig.model,
-              profile: {
-                ...runtimeConfig.provider,
-                principal: { ownerScope: principal.owner_scope },
-              },
-              tools: runtimeConfig.tools,
-              ...rest,
-            }),
+          start: (launch) => startScripted(runtime, launch),
         }),
       },
       // Production cadences: the heartbeat alone would take 10s to say anything.

@@ -73,7 +73,7 @@ export interface WorkerGatewaySession extends WorkerGatewayClient {
  */
 export type RuntimeLaunch = RuntimeResumePlan & {
   /** The workspace's, read only when the profile lets the file in. */
-  committedClaudeMd: () => string | null;
+  committedInstructions: () => string | null;
   correlationId: string;
   /**
    * The claim's remaining_budget_usd: this run counts its spend from zero.
@@ -453,10 +453,10 @@ export class WorkerHost {
           this.engineBudgeted = claim.remaining_budget_usd !== null;
           run = launcher.start({
             ...plan,
-            committedClaudeMd:
-              plan.mode === "resume" && plan.committedClaudeMd !== undefined
-                ? plan.committedClaudeMd
-                : () => this.options.workspace.committedClaudeMd(),
+            committedInstructions:
+              plan.mode === "resume" && plan.committedInstructions !== undefined
+                ? plan.committedInstructions
+                : () => this.options.workspace.committedInstructions(),
             correlationId: `${claim.session_id}:${claim.attempt_id}`,
             ...(claim.remaining_budget_usd === null
               ? {}

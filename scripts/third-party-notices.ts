@@ -57,7 +57,8 @@ const IMAGE_ROOTS: Record<Image, readonly string[]> = {
 /**
  * Packages a Dockerfile deletes after its install, by name or a name prefix
  * ending in `*`: they are in the closure but not in the image.
- * tests/images.test.ts holds the worker Dockerfile's `rm` to this list.
+ * tests/images.test.ts holds the worker build's removal (the Claude runtime's
+ * image:verify) to this list.
  */
 export const REMOVED_AFTER_INSTALL: Record<Image, readonly string[]> = {
   "control-host": [],

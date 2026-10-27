@@ -320,7 +320,11 @@ describe("credential routes end to end", () => {
 
     scratch = await mkdtemp(join(tmpdir(), "94s-252-clone-"));
     const root = join(scratch, "workspace");
-    const action = await new GitWorkspace(root, credentialUrl).prepare({
+    const action = await new GitWorkspace(
+      root,
+      "CLAUDE.md",
+      credentialUrl,
+    ).prepare({
       descriptor: claim.workspace,
       restore: null,
       signal: AbortSignal.timeout(60_000),
@@ -358,7 +362,7 @@ describe("credential routes end to end", () => {
     } = await topology();
     scratch = await mkdtemp(join(tmpdir(), "94s-252-dump-"));
     const root = join(scratch, "workspace");
-    await new GitWorkspace(root, credentialUrl).prepare({
+    await new GitWorkspace(root, "CLAUDE.md", credentialUrl).prepare({
       descriptor: claim.workspace,
       restore: null,
       signal: AbortSignal.timeout(60_000),

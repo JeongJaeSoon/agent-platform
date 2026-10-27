@@ -2,11 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { realRuntimeFor } from "@werft-ai/runtime-registry/testing";
 
 import {
-  claudeClaimFingerprint,
-  claudeRuntimeRegistry,
+  claimFingerprint,
   createWorkerHost,
   OUT_DIRECTORY_PROMPT,
   runtimeProfile,
+  workerRuntimeRegistry,
 } from "./composition.ts";
 import type { WorkerConfig } from "./config.ts";
 import { EngineProcesses } from "./engine-processes.ts";
@@ -53,9 +53,9 @@ describe("createWorkerHost", () => {
   });
 });
 
-describe("claudeRuntimeRegistry", () => {
+describe("workerRuntimeRegistry", () => {
   test("serves a session created for the engine this image ships", () => {
-    const launcher = claudeRuntimeRegistry(
+    const launcher = workerRuntimeRegistry(
       config,
       new EngineProcesses(),
     ).launcherFor({
@@ -69,7 +69,7 @@ describe("claudeRuntimeRegistry", () => {
 
   test("refuses a session that asks for another engine", () => {
     expect(() =>
-      claudeRuntimeRegistry(config, new EngineProcesses()).launcherFor({
+      workerRuntimeRegistry(config, new EngineProcesses()).launcherFor({
         kind: "codex_app_server",
         version: "1.0.0",
         profile_id: "default",
@@ -81,7 +81,7 @@ describe("claudeRuntimeRegistry", () => {
     // A transcript is only replayable on the build that wrote it, so a
     // version this image cannot provide is refused rather than approximated.
     expect(() =>
-      claudeRuntimeRegistry(config, new EngineProcesses()).launcherFor({
+      workerRuntimeRegistry(config, new EngineProcesses()).launcherFor({
         kind: "claude_agent_sdk",
         version: "0.0.1",
         profile_id: "default",
@@ -90,7 +90,7 @@ describe("claudeRuntimeRegistry", () => {
   });
 
   test("a profile that wants CLAUDE.md gets no engine when the workspace cannot vouch for one", () => {
-    const launcher = claudeRuntimeRegistry(
+    const launcher = workerRuntimeRegistry(
       config,
       new EngineProcesses(),
     ).launcherFor({
@@ -101,9 +101,9 @@ describe("claudeRuntimeRegistry", () => {
 
     expect(() =>
       launcher.start({
-        committedClaudeMd: () => {
+        committedInstructions: () => {
           throw new Error(
-            "Repository CLAUDE.md refused: a restored workspace has no freshly fetched commit behind it",
+            "Repository instruction file refused: a restored workspace has no freshly fetched commit behind it",
           );
         },
         correlationId: "s:a",
@@ -126,7 +126,7 @@ describe("claudeRuntimeRegistry", () => {
   });
 });
 
-describe("claudeClaimFingerprint", () => {
+describe("claimFingerprint", () => {
   const claimToken = { kind: "egress_token" as const, token: "claim-token" };
   // The runtime_config the API hands out for each profile under config/, as
   // runtimeConfigOf builds it.
@@ -197,7 +197,7 @@ describe("claudeClaimFingerprint", () => {
       "308002b17585b7fc3ff77dc05e403bac013e476ccf5b3065c6722b9945cbcf24",
   };
   const principal = { owner_scope: "owner-a" };
-  const fingerprint = claudeClaimFingerprint(config);
+  const fingerprint = claimFingerprint(config);
 
   test("a repository session's digest is the one main computed for every shipped profile", () => {
     const repository = {

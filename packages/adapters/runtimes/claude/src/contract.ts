@@ -47,6 +47,7 @@ import { approvalView, sdkAnswers } from "./mapper.ts";
 import { claudeProfileFingerprint } from "./profile-fingerprint.ts";
 import { remoteMcpRelay } from "./remote-mcp.ts";
 import { ClaudeSdkRuntime } from "./runtime.ts";
+import { ClaudeSessionStore } from "./session-store.ts";
 import { TurnAccounting } from "./turn-accounting.ts";
 import { namedInputs, turnEndedOf } from "./turn-ended.ts";
 
@@ -218,6 +219,7 @@ export const claudeRuntimeModule: RuntimeModule = {
   }),
   createRuntime: (deps) => new ClaudeAgentRuntime(deps),
   imageFingerprint: () => JSON.stringify(CLAUDE_RUNTIME_FINGERPRINT),
+  openTranscriptStore: (options) => new ClaudeSessionStore(options),
 };
 
 /**

@@ -61,8 +61,8 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   open_pull_request: "PR 열기",
   comment_pull_request: "PR 코멘트",
   call_mcp: "원격 MCP 호출",
-  create_workspace_profile: "실행 프로필 새 판 저장",
-  retire_workspace_profile: "실행 프로필 은퇴",
+  create_workspace_profile: "실행 프로필 새 버전 저장",
+  retire_workspace_profile: "실행 프로필 사용 중지",
   set_slack_secret: "Slack 비밀값 설정",
   delete_slack_secret: "Slack 비밀값 삭제",
 };
