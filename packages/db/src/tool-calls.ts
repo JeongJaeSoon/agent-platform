@@ -305,14 +305,21 @@ export async function toolDescriptionsOf(
 ): Promise<Map<string, string>> {
   if (names.length === 0) return new Map();
   const scope = scopeOf(filter, agentId);
+  // One index walk per name, newest first, stopping at the first session in
+  // scope: a common MCP tool is described in every session that has it.
   const result = await db.execute(sql`
-    SELECT DISTINCT ON (d.name) d.name, d.description
-    FROM tool_descriptions d JOIN sessions s ON s.id = d.session_id
-    WHERE d.name IN (${sql.join(
+    SELECT n.name, latest.description
+    FROM unnest(ARRAY[${sql.join(
       names.map((name) => sql`${name}`),
       sql`, `,
-    )}) AND ${scope.sessions}
-    ORDER BY d.name, d.event_id DESC`);
+    )}]::text[]) AS n(name)
+    CROSS JOIN LATERAL (
+      SELECT d.description
+      FROM tool_descriptions d JOIN sessions s ON s.id = d.session_id
+      WHERE d.name = n.name AND ${scope.sessions}
+      ORDER BY d.event_id DESC
+      LIMIT 1
+    ) AS latest`);
   return new Map(
     rowsOf<{ name: string; description: string }>(result).map((row) => [
       row.name,
