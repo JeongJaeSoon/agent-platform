@@ -290,7 +290,7 @@ describe("GET /v1/agents", () => {
     expect(await codeOf(forged)).toBe("BAD_REQUEST");
   });
 
-  test("refuses an API key whatever its scopes", async () => {
+  test("refuses an API key that names no agent of its own, whatever its scopes", async () => {
     const response = await send(keyOnly(), "GET", "/v1/agents");
     expect(response.status).toBe(403);
     expect(await codeOf(response)).toBe("FORBIDDEN");

@@ -8,7 +8,10 @@ import {
   postSessionMessageRequestSchema,
 } from "@werft-ai/contracts";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
-import { INTERACTIVE_CONFIGURATION_ATTRIBUTE } from "./api-reference.ts";
+import {
+  INTERACTIVE_CONFIGURATION_ATTRIBUTE,
+  STYLE_NONCE_SCRIPT,
+} from "./api-reference.ts";
 import {
   BODY_IDLE_TIMEOUT_SECONDS,
   jsonWithSchema,
@@ -45,7 +48,10 @@ test("serves the API reference with same-origin test requests and no authenticat
   expect(html.headers.get("X-Frame-Options")).toBe("DENY");
   expect(html.headers.get("Set-Cookie")).toBeNull();
   const body = await html.text();
-  expect(body).toContain('src="/docs/scalar.js"');
+  // The nonce script has to run before Scalar adds its first <style>.
+  expect(body).toMatch(
+    /<script src="\/docs\/style-nonce\.js"><\/script>\s*<script src="\/docs\/scalar\.js"><\/script>/,
+  );
   const nonce = body.match(/property="csp-nonce" content="([^"]+)"/)?.[1];
   expect(nonce).toBeDefined();
   expect(csp).toContain(`style-src 'nonce-${nonce}'`);
@@ -68,6 +74,40 @@ test("serves the API reference with same-origin test requests and no authenticat
   expect(scalar.headers.get("Cache-Control")).toBe("public, max-age=3600");
   expect(scalar.headers.get("X-Content-Type-Options")).toBe("nosniff");
   expect((await scalar.arrayBuffer()).byteLength).toBeGreaterThan(1_000_000);
+
+  const styleNonce = await app.request("/docs/style-nonce.js");
+  expect(styleNonce.status).toBe(200);
+  expect(styleNonce.headers.get("Content-Type")).toBe(
+    "text/javascript; charset=utf-8",
+  );
+  expect(styleNonce.headers.get("X-Content-Type-Options")).toBe("nosniff");
+});
+
+test("the style nonce script gives each new <style> the page's nonce, and nothing else", async () => {
+  class FakeDocument {
+    querySelector(selector: string) {
+      return selector === 'meta[property="csp-nonce"]'
+        ? { content: "n-1" }
+        : null;
+    }
+    createElement(name: string) {
+      const attributes = new Map<string, string>();
+      return {
+        name,
+        attributes,
+        setAttribute: (key: string, value: string) =>
+          attributes.set(key, value),
+      };
+    }
+  }
+  const document = new FakeDocument();
+  new Function("document", "Document", STYLE_NONCE_SCRIPT)(
+    document,
+    FakeDocument,
+  );
+  expect(document.createElement("style").attributes.get("nonce")).toBe("n-1");
+  expect(document.createElement("STYLE").attributes.get("nonce")).toBe("n-1");
+  expect(document.createElement("div").attributes.has("nonce")).toBe(false);
 });
 
 test("serves the API reference from the documented package-directory launch", async () => {

@@ -142,6 +142,28 @@ export function createAgentService(deps: {
     return personOf(caller);
   }
 
+  // A key that may start sessions on its agent has to find the release to
+  // name; it reads that one agent and nothing its admins manage.
+  async function keysOwnAgent(
+    caller: Caller,
+    query: ListAgentsQuery,
+  ): Promise<ListAgentsResponse> {
+    const agentId = caller.keyAgentId;
+    if (agentId === undefined || query.include === "summary") {
+      throw new SessionServiceError(
+        "FORBIDDEN",
+        "Only an agent key lists agents, and only its own agent without include=summary",
+      );
+    }
+    await requirePermitted(authorization, caller, "session.submit", {
+      kind: "session",
+      id: null,
+      agent_id: agentId,
+    });
+    const detail = await store.get(caller.ownerId, agentId);
+    return { items: detail ? [detail.agent] : [], next_cursor: null };
+  }
+
   const resolveRelease = (workspaceId: string, releaseId: string) =>
     resolveAgentRelease({ store, catalog }, workspaceId, releaseId);
 
@@ -152,6 +174,9 @@ export function createAgentService(deps: {
       caller: Caller,
       query: ListAgentsQuery,
     ): Promise<ListAgentsResponse> {
+      if (caller.actor?.principal.kind === "api_key") {
+        return keysOwnAgent(caller, query);
+      }
       await onWorkspace(caller, "agent.manage");
       const page = await store.list(caller.ownerId, query);
       if (query.include !== "summary") return page;
