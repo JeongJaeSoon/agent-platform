@@ -5,7 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { Link, useBlocker, useRouter } from "@tanstack/react-router";
-import { type ApiError, unwrap } from "@werft-ai/client";
+import { type ApiClient, type ApiError, unwrap } from "@werft-ai/client";
 import type {
   ActivateAgentResponse,
   AgentCard,
@@ -41,7 +41,12 @@ import {
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useWatch } from "react-hook-form";
 import type { z } from "zod";
-import { agentQuery, profilesQuery, queryKeys } from "../api/queries.ts";
+import {
+  agentQuery,
+  profilesQuery,
+  queryKeysOf,
+  scopedKey,
+} from "../api/queries.ts";
 import { FunnelResetNotice, useFunnel } from "../funnel/tanstack-funnel.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import {
@@ -179,6 +184,12 @@ interface SavedDraft {
   readonly card: CardDraft;
 }
 
+/** The start of every flow id of who is signed in, in their workspace. */
+const flowOwner = (client: ApiClient) => {
+  const [{ actor, workspace }] = scopedKey(client);
+  return `${actor}@${workspace}/`;
+};
+
 const draftKey = (flow: string) => `new-agent.${flow}`;
 
 function readDraft(flow: string): SavedDraft | null {
@@ -212,14 +223,19 @@ export function NewAgentFlow({
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
-  const [newFlow] = useState(() => crypto.randomUUID());
+  const owner = flowOwner(client);
+  const [newFlow] = useState(() => `${owner}${crypto.randomUUID()}`);
+  // Input this tab kept from someone else signed in before fails every
+  // guard, so the flow starts over instead of showing it.
+  const ours = (data: unknown, keys: readonly string[]) =>
+    hasText(data, keys) && (data as { flow: string }).flow.startsWith(owner);
   const funnel = useFunnel<Steps>({
     id: "new-agent",
     initial: { step: "name", context: { flow: newFlow } },
     steps: {
       channels: {
         guard: (data): data is Steps["channels"] =>
-          hasText(data, [
+          ours(data, [
             "flow",
             "name",
             "slug",
@@ -229,19 +245,19 @@ export function NewAgentFlow({
           ]),
       },
       name: {
-        guard: (data): data is Steps["name"] => hasText(data, ["flow"]),
+        guard: (data): data is Steps["name"] => ours(data, ["flow"]),
       },
       job: {
         guard: (data): data is Steps["job"] =>
-          hasText(data, ["flow", "name", "slug"]),
+          ours(data, ["flow", "name", "slug"]),
       },
       release: {
         guard: (data): data is Steps["release"] =>
-          hasText(data, ["flow", "name", "slug", "agentId", "versionId"]),
+          ours(data, ["flow", "name", "slug", "agentId", "versionId"]),
       },
       activate: {
         guard: (data): data is Steps["activate"] =>
-          hasText(data, [
+          ours(data, [
             "flow",
             "name",
             "slug",
@@ -370,9 +386,12 @@ export function NewAgentFlow({
     writeDraft(flow, draft);
     // The fields show what was saved, trimmed as the server keeps it.
     identity.reset({ name: draft.name, slug: draft.slug });
-    queryClient.setQueryData(queryKeys.agent(detail.agent.id), detail);
+    queryClient.setQueryData(
+      queryKeysOf(client).agent(detail.agent.id),
+      detail,
+    );
     await queryClient.invalidateQueries({
-      queryKey: queryKeys.agents,
+      queryKey: queryKeysOf(client).agents,
       exact: true,
     });
     return {
@@ -673,7 +692,9 @@ function ReleaseForm({
         body: { version_id: versionId, runtime_profile_id },
       }),
     );
-    await queryClient.invalidateQueries({ queryKey: queryKeys.agent(agentId) });
+    await queryClient.invalidateQueries({
+      queryKey: queryKeysOf(client).agent(agentId),
+    });
     onReleased(result.release.id);
   };
   return (
@@ -753,8 +774,10 @@ function ActivateStep({
       ),
     onSuccess: async () => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.agents }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.agent(agentId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeysOf(client).agents }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeysOf(client).agent(agentId),
+        }),
       ]);
       onNext();
     },

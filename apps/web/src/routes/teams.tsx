@@ -32,7 +32,7 @@ import { ArrowLeft, ChevronRight } from "lucide-react";
 import { type FormEvent, type ReactNode, useId, useState } from "react";
 import {
   membersQuery,
-  queryKeys,
+  queryKeysOf,
   teamQuery,
   teamsQuery,
 } from "../api/queries.ts";
@@ -255,7 +255,9 @@ function TeamSettings({
         kind: "notice",
         text: t("teams.renamed", { name: renamed.name }),
       });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.teams });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeysOf(client).teams,
+      });
     },
     onError: fail,
   });
@@ -309,8 +311,12 @@ function TeamDangerZone({
     onMutate: () => onOutcome(null),
     onSuccess: async () => {
       setConfirming(false);
-      queryClient.removeQueries({ queryKey: queryKeys.team(team.id) });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.teams });
+      queryClient.removeQueries({
+        queryKey: queryKeysOf(client).team(team.id),
+      });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeysOf(client).teams,
+      });
       await navigate({ to: "/members/teams" });
     },
     onError: (error) => {
@@ -381,8 +387,10 @@ function TeamMembers({
   const settle = async (text: string) => {
     onOutcome({ kind: "notice", text });
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.team(team.id) }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.teams }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeysOf(client).team(team.id),
+      }),
+      queryClient.invalidateQueries({ queryKey: queryKeysOf(client).teams }),
     ]);
   };
   const fail = (error: ApiError) =>

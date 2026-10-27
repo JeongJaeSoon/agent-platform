@@ -9,7 +9,7 @@ import type {
 } from "@werft-ai/contracts";
 import {
   pendingRequestsQuery,
-  queryKeys,
+  queryKeysOf,
   waitingSessionsQuery,
 } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
@@ -37,7 +37,7 @@ export const BOARD_POLL_MS = 5_000;
 function useBoardList() {
   const { client } = useAgentPlatform();
   return useQuery({
-    queryKey: [...queryKeys.sessions, { view: "agent-map" }],
+    queryKey: [...queryKeysOf(client).sessions, { view: "agent-map" }],
     queryFn: () =>
       unwrap(client.GET("/v1/sessions")) as Promise<ListSessionsResponse>,
     refetchInterval: BOARD_POLL_MS,
