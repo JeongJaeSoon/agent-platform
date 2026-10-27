@@ -255,6 +255,77 @@ describe("claudeContractRun", () => {
     script.end();
   });
 
+  test.each([
+    [
+      "park",
+      {
+        message: "The approval was set aside for a later turn",
+        interrupt: true,
+      },
+    ],
+    ["shutdown", { message: "This worker is shutting down" }],
+    ["interrupt", { message: "The run stopped before this was answered" }],
+    ["expired", { message: "No answer arrived in time" }],
+    ["refused", { message: "The answer could not be applied" }],
+  ] as const)(
+    "settles a request cancelled for %s once, never as a person's deny, and announces nothing",
+    async (reason, told) => {
+      const script = scriptedDriver();
+      const run = claudeContractRun((hooks) => script.start(hooks));
+      const events = run.events()[Symbol.asyncIterator]();
+      script.push(toolUseFrame("toolu_c"));
+      await collect(events, 2);
+      const decision = script.ask("toolu_c");
+      const request = requestOf((await collect(events, 1))[0]);
+      const cancel = {
+        localId: request.localId,
+        inputHash: request.inputHash,
+        kind: "cancelled",
+        reason,
+      } as const;
+
+      expect(await run.answer(cancel)).toBe("applied");
+      expect(await run.answer(cancel)).toBe("stale");
+      expect(
+        await run.answer({
+          localId: request.localId,
+          inputHash: request.inputHash,
+          kind: "selected",
+          optionKind: "reject_once",
+        }),
+      ).toBe("stale");
+      expect(await decision).toEqual({ behavior: "deny", ...told });
+      // The host cancelled it, so the run has nothing to tell it: the next
+      // event is the next frame's, not an approval.resolved.
+      script.push(toolUseFrame("toolu_d"));
+      const [next] = await collect(events, 1);
+      expect(next?.type).toBe("public");
+      script.end();
+    },
+  );
+
+  test("passes a person's deny on as theirs, apart from any cancel", async () => {
+    const script = scriptedDriver();
+    const run = claudeContractRun((hooks) => script.start(hooks));
+    const events = run.events()[Symbol.asyncIterator]();
+    script.push(toolUseFrame("toolu_r"));
+    await collect(events, 2);
+    const decision = script.ask("toolu_r");
+    const request = requestOf((await collect(events, 1))[0]);
+
+    expect(
+      await run.answer({
+        localId: request.localId,
+        inputHash: request.inputHash,
+        kind: "selected",
+        optionKind: "reject_once",
+        message: "not that",
+      }),
+    ).toBe("applied");
+    expect(await decision).toEqual({ behavior: "deny", message: "not that" });
+    script.end();
+  });
+
   test("throws a failing driver close at once instead of rejecting later", () => {
     const script = scriptedDriver();
     const run = claudeContractRun((hooks) => ({

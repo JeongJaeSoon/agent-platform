@@ -552,10 +552,12 @@ describe("WorkerHost interrupt", () => {
         (decision) => decision.behavior === "allow",
       ),
     ).toEqual([]);
+    // Cancelled by the interrupt, which the record says, not a person's deny.
     expect(gateway.settled).toEqual([
       {
         request_id: gateway.requestIdFor("toolu_deploy"),
         outcome: "cancelled",
+        reason: "interrupt",
       },
     ]);
   });

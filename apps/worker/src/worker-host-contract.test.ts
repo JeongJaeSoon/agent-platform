@@ -477,6 +477,70 @@ describe("WorkerHost over a run that implements the contract itself", () => {
     ]);
   });
 
+  test("cancels an approval the turn waits on when it is interrupted, and records the interrupt rather than a deny", async () => {
+    const run = new ScriptedRun();
+    run.onSend = (sent) => {
+      call(run, sent, "call_wait");
+      run.interrupt = async () => {
+        finish(run, sent, { abortedByStop: true });
+        return { stillQueued: [] };
+      };
+    };
+    const { gateway, worker } = host(run);
+    gateway.enqueue("deploy");
+    const loop = worker.runLoop();
+    await until(() => gateway.registered().length === 1, "the registration");
+    gateway.interrupt("1");
+
+    await loop;
+
+    expect(run.answers).toEqual([
+      expect.objectContaining({
+        localId: "local-call_wait",
+        kind: "cancelled",
+        reason: "interrupt",
+      }),
+    ]);
+    expect(gateway.settled).toEqual([
+      {
+        request_id: gateway.requestIdFor("call_wait"),
+        outcome: "cancelled",
+        reason: "interrupt",
+      },
+    ]);
+  });
+
+  test.each([
+    ["applied", { outcome: "answered", answer_result: "applied" }],
+    ["unknown", { outcome: "answered", answer_result: "unknown" }],
+    ["stale", { outcome: "cancelled", answer_result: "stale" }],
+  ] as const)(
+    "reports what the run made of an answer it called %s",
+    async (result, settled) => {
+      const run = new ScriptedRun();
+      run.answerResult = result;
+      run.onSend = (sent) => {
+        call(run, sent, "call_said");
+        run.onAnswer = () => finish(run, sent);
+      };
+      const { gateway, worker } = host(run);
+      gateway.enqueue("hello");
+      const loop = worker.runLoop();
+      await until(() => gateway.registered().length === 1, "the registration");
+      gateway.answer({
+        request_id: gateway.requestIdFor("call_said"),
+        kind: "permission",
+        decision: "allow",
+      });
+
+      await loop;
+
+      expect(gateway.settled).toEqual([
+        { request_id: gateway.requestIdFor("call_said"), ...settled },
+      ]);
+    },
+  );
+
   test("counts the tool call wait from when the run asked, not from when the host heard", async () => {
     const run = new ScriptedRun();
     const waitMs = 400;
