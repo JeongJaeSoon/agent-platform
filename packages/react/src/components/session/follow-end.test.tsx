@@ -86,9 +86,19 @@ function sized(element: HTMLElement, client: number) {
       act(() => resize());
     },
     scrollTo(value: number, input?: string) {
+      this.move(value, input);
+      this.land();
+    },
+    // The reader's scroll, its event not dispatched yet.
+    move(value: number, input?: string) {
       if (input) element.dispatchEvent(new Event(input));
       element.scrollTop = value;
+    },
+    land() {
       element.dispatchEvent(new Event("scroll"));
+    },
+    frame() {
+      for (const run of frames.splice(0)) run();
     },
   };
 }
@@ -180,6 +190,35 @@ describe("useFollowEnd", () => {
     list.reflow({ height: 1100 });
     rerender(<List latest="e6" />);
     expect(list.top).toBe(300);
+  });
+
+  test("a line arriving before the reader's scroll event lands does not undo it", () => {
+    const { getByTestId, rerender, queryByRole } = render(<List latest="" />);
+    const list = sized(getByTestId("list"), 400);
+    list.grow(1000);
+    rerender(<List latest="e5" />);
+    list.move(300, "wheel");
+    list.grow(1300);
+    rerender(<List latest="e6" />);
+    expect(list.top).toBe(300);
+    act(() => list.land());
+    expect(list.top).toBe(300);
+    expect(queryByRole("button")).not.toBe(null);
+  });
+
+  test("a scroll a frame after the resize is the reader's again", () => {
+    const { getByTestId, rerender, queryByRole } = render(<List latest="" />);
+    const list = sized(getByTestId("list"), 400);
+    list.grow(1000);
+    rerender(<List latest="e5" />);
+    list.reflow({ height: 1100 });
+    expect(list.top).toBe(700);
+    list.frame();
+    // Without input: a programmatic or assistive scroll moves it up too.
+    act(() => list.scrollTo(200));
+    rerender(<List latest="e6" />);
+    expect(list.top).toBe(200);
+    expect(queryByRole("button")).not.toBe(null);
   });
 
   test("another session starts at its end, whatever the last one was doing", () => {

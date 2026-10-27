@@ -28,11 +28,38 @@ export function useFollowEnd(scope: string, latest: string) {
   const seen = useRef({ scope, latest });
   // Where the list last stood, so a scroll can tell up from down.
   const lastTop = useRef(0);
+  // The reader's last touch of the list, and whether a pointer is down on it.
+  const input = useRef({ at: Number.NEGATIVE_INFINITY, held: false });
+
+  const moved = useCallback(
+    (now: number) => input.current.held || now - input.current.at < INPUT_MS,
+    [],
+  );
 
   const pin = useCallback((list: HTMLElement) => {
     list.scrollTop = list.scrollHeight;
     lastTop.current = list.scrollTop;
   }, []);
+
+  // Moves the list to its end if it still follows. The reader may have
+  // scrolled up already with the scroll event still to come.
+  const follow = useCallback(
+    (list: HTMLElement) => {
+      if (!atEnd.current) return false;
+      const gap = list.scrollHeight - list.scrollTop - list.clientHeight;
+      if (
+        gap > SLACK_PX &&
+        list.scrollTop < lastTop.current &&
+        moved(performance.now())
+      ) {
+        atEnd.current = false;
+        return false;
+      }
+      pin(list);
+      return true;
+    },
+    [moved, pin],
+  );
 
   const toEnd = useCallback(() => {
     if (!element) return;
@@ -45,23 +72,20 @@ export function useFollowEnd(scope: string, latest: string) {
     if (!element) return;
     lastTop.current = element.scrollTop;
     let resized = false;
-    let inputAt = Number.NEGATIVE_INFINITY;
-    let held = false;
     const onInput = (event: Event) => {
-      inputAt = event.timeStamp;
-      if (event.type === "pointerdown") held = true;
+      input.current.at = event.timeStamp;
+      if (event.type === "pointerdown") input.current.held = true;
     };
     const onRelease = () => {
-      held = false;
+      input.current.held = false;
     };
     const onScroll = (event: Event) => {
       const gap =
         element.scrollHeight - element.scrollTop - element.clientHeight;
-      const moved = held || event.timeStamp - inputAt < INPUT_MS;
       if (gap <= SLACK_PX) {
         atEnd.current = true;
         setBehind(false);
-      } else if (resized && !moved) {
+      } else if (resized && !moved(event.timeStamp)) {
         // A resize clamps the scroll, and its event lands a frame late,
         // after the next resize may have opened a gap the reader never made.
         if (atEnd.current) pin(element);
@@ -71,12 +95,15 @@ export function useFollowEnd(scope: string, latest: string) {
       resized = false;
       lastTop.current = element.scrollTop;
     };
-    // A drag of the scrollbar may end outside the list.
+    // A drag of the scrollbar may end outside the list, or outside the
+    // window, which then hears only that it lost focus.
     const page = element.ownerDocument;
+    const view = page.defaultView;
     for (const type of INPUTS)
       element.addEventListener(type, onInput, { passive: true });
     page.addEventListener("pointerup", onRelease);
     page.addEventListener("pointercancel", onRelease);
+    view?.addEventListener("blur", onRelease);
     element.addEventListener("scroll", onScroll, { passive: true });
     const observer =
       typeof ResizeObserver === "undefined"
@@ -89,7 +116,7 @@ export function useFollowEnd(scope: string, latest: string) {
               resized = false;
             });
             setScrollable(element.scrollHeight > element.clientHeight);
-            if (atEnd.current) pin(element);
+            follow(element);
           });
     observer?.observe(element);
     for (const child of element.children) observer?.observe(child);
@@ -97,10 +124,11 @@ export function useFollowEnd(scope: string, latest: string) {
       for (const type of INPUTS) element.removeEventListener(type, onInput);
       page.removeEventListener("pointerup", onRelease);
       page.removeEventListener("pointercancel", onRelease);
+      view?.removeEventListener("blur", onRelease);
       element.removeEventListener("scroll", onScroll);
       observer?.disconnect();
     };
-  }, [element, pin]);
+  }, [element, follow, moved, pin]);
 
   // Before paint, so a line that arrives at the end never shows the jump.
   useLayoutEffect(() => {
@@ -111,9 +139,8 @@ export function useFollowEnd(scope: string, latest: string) {
       setBehind(false);
     }
     if (!element) return;
-    if (atEnd.current) pin(element);
-    else if (latest !== before.latest) setBehind(true);
-  }, [scope, latest, element, pin]);
+    if (!follow(element) && latest !== before.latest) setBehind(true);
+  }, [scope, latest, element, follow]);
 
   return { ref: setElement, element, behind, scrollable, toEnd };
 }
