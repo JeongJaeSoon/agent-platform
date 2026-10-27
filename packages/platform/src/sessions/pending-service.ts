@@ -92,6 +92,16 @@ export function createPendingRequestService(deps: {
           );
         case "invalid":
           throw new SessionServiceError("BAD_REQUEST", result.reason);
+        case "recovery_required":
+          throw new SessionServiceError(
+            "RECOVERY_REQUIRED",
+            `Turn ${result.unconfirmedTurnId} has an unknown outcome; an operator recovery decision is required before the parked turn can resume`,
+          );
+        case "checkpoint_unavailable":
+          throw new SessionServiceError(
+            "CHECKPOINT_UNAVAILABLE",
+            "The session has no checkpoint the parked turn can resume from",
+          );
         case "actor_inactive":
           throw new SessionServiceError(
             "FORBIDDEN",

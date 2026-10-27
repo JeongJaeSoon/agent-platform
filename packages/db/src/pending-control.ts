@@ -9,6 +9,8 @@ import type {
   PendingControlResult,
   RegisterPendingInput,
   RegisterPendingResult,
+  RequestParkInput,
+  RequestParkResult,
   WorkerFence,
   WorkerPendingStore,
 } from "@werft-ai/platform";
@@ -17,7 +19,8 @@ import { OPEN_TURN_STATUSES, parseTurnSequence } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
 import { DRAINING_STATES, drainOf, openDrainReceipt } from "./drain.ts";
 import { acquireFence, leaseHeld } from "./fence.ts";
-import { openPauseReceipt } from "./pause-control.ts";
+import { lockDeliveredParked, settleParkedDeliveries } from "./parked-group.ts";
+import { openPauseReceipt, openSystemPark } from "./pause-control.ts";
 import { awaitingInputAt, publicStatus } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import { pendingRequests, receipts, sessions, turns } from "./schema.ts";
@@ -280,6 +283,14 @@ export function createPostgresWorkerPendingStore(
                 )
                 .orderBy(asc(pendingRequests.requestId))
                 .for("update");
+        const delivered = input.delivered ?? [];
+        const parked =
+          delivered.length === 0
+            ? []
+            : await lockDeliveredParked(tx, {
+                fence,
+                requestIds: delivered.map((item) => item.request_id),
+              });
         const due = await tx
           .select({
             requestId: pendingRequests.requestId,
@@ -369,6 +380,7 @@ export function createPostgresWorkerPendingStore(
             at,
           });
         }
+        await settleParkedDeliveries(tx, { rows: parked, delivered, at });
         const rows = due.filter((row) => !settledNow.has(row.requestId));
         if (rows.length > 0) {
           // Handed over from here: past this commit an engine may act on
@@ -485,6 +497,85 @@ export function createPostgresWorkerPendingStore(
           now,
         });
         return { outcome: "ok", reverted: true };
+      });
+    },
+
+    /**
+     * The worker's own turn is about to run past its deadline waiting on
+     * nobody but a person: the same system pause a timed park opens, named
+     * so the worker can cut, finalize and release under it. Asked again
+     * while that park is still the open pause, it names the same one.
+     */
+    requestParkAtomic(input: RequestParkInput): Promise<RequestParkResult> {
+      const { fence } = input;
+      return db.transaction(async (tx) => {
+        const fenced = await acquireFence(tx, fence);
+        if (fenced.outcome !== "ok") return fenced;
+        const { session } = fenced;
+        const sequence = parseTurnSequence(input.turnId);
+        const [turn] =
+          sequence === null
+            ? []
+            : await tx
+                .select({ id: turns.id })
+                .from(turns)
+                .where(
+                  and(
+                    eq(turns.sessionId, fence.sessionId),
+                    eq(turns.sequence, sequence),
+                    eq(turns.attemptId, fence.attemptId),
+                    inArray(turns.status, OPEN_TURN_STATUSES),
+                  ),
+                )
+                .limit(1);
+        if (!turn) return { outcome: "not_found" };
+        const [pause] =
+          session.admissionState === "pausing" &&
+          session.pauseReason === "awaiting_input"
+            ? await tx
+                .select({ id: receipts.id })
+                .from(receipts)
+                .where(openPauseReceipt(fence.sessionId))
+                .limit(1)
+            : [];
+        const open = await tx
+          .select({ answeredAt: pendingRequests.answeredAt })
+          .from(pendingRequests)
+          .where(
+            and(
+              eq(pendingRequests.turnId, turn.id),
+              eq(pendingRequests.attemptId, fence.attemptId),
+              isNull(pendingRequests.settledAt),
+              isNull(pendingRequests.parkedAt),
+            ),
+          );
+        const now = await dbNow(tx);
+        if (!leaseHeld(fenced.attempt, now)) {
+          return { outcome: "lease_expired" };
+        }
+        if (pause !== undefined) {
+          return { outcome: "ok", pauseControlId: pause.id };
+        }
+        if (session.admissionState !== "active") {
+          return {
+            outcome: "refused",
+            reason: `the session is ${session.admissionState}`,
+          };
+        }
+        if (open.length === 0) {
+          return { outcome: "refused", reason: "the turn waits on no request" };
+        }
+        // An answer already on its way would be cut off by the park.
+        if (open.some((row) => row.answeredAt !== null)) {
+          return {
+            outcome: "refused",
+            reason: "an answer has not been settled yet",
+          };
+        }
+        return {
+          outcome: "ok",
+          pauseControlId: await openSystemPark(tx, session, now),
+        };
       });
     },
 

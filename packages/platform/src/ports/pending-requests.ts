@@ -1,5 +1,6 @@
 import type {
   ParkDeclinedRequest,
+  ParkedDelivery,
   PendingRequest,
   PendingSettlement,
   PostSessionAnswerRequest,
@@ -31,6 +32,11 @@ export type AnswerRequestResult =
   | { outcome: "stale" }
   // The answer names something the request never offered.
   | { outcome: "invalid"; reason: string }
+  // A parked request whose session could not be resumed from it: refused
+  // before the answer is kept, so no group is left closed on a session
+  // that cannot carry it on.
+  | { outcome: "recovery_required"; unconfirmedTurnId: string }
+  | { outcome: "checkpoint_unavailable" }
   // Re-judged inside the write: the requester is gone, or no longer answers
   // for this session.
   | { outcome: "actor_inactive" | "role" };
@@ -80,6 +86,8 @@ export type PendingControlInput = {
   fence: WorkerFence;
   answersAfter: number;
   settled: PendingSettlement[];
+  // How parked answers reached the turn this attempt carries on with.
+  delivered?: ParkedDelivery[];
 };
 
 /**
@@ -104,6 +112,21 @@ export type ParkDeclinedResult =
   | { outcome: "ok"; reverted: boolean }
   | FenceRejection;
 
+export type RequestParkInput = {
+  fence: WorkerFence;
+  // The public turn id the worker is parking.
+  turnId: string;
+};
+
+// `refused`: the session is not one this park may pause (a person's pause,
+// a close, another state), or the turn has nothing left that only a person
+// can end: no open request, or an answer the worker has not settled yet.
+export type RequestParkResult =
+  | { outcome: "ok"; pauseControlId: string }
+  | { outcome: "not_found" }
+  | { outcome: "refused"; reason: string }
+  | FenceRejection;
+
 export type PendingControlResult =
   | {
       outcome: "ok";
@@ -119,6 +142,7 @@ export interface WorkerPendingStore {
     input: PendingControlInput,
   ): Promise<PendingControlResult>;
   parkDeclinedAtomic(input: ParkDeclinedInput): Promise<ParkDeclinedResult>;
+  requestParkAtomic(input: RequestParkInput): Promise<RequestParkResult>;
   // A hint for heartbeat: an answer or a control intent is waiting for this
   // attempt to take it.
   hasUndelivered(fence: WorkerFence): Promise<boolean>;

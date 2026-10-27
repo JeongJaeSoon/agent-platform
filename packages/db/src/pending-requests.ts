@@ -30,11 +30,14 @@ import {
 import {
   type ControlStageMeasure,
   ENDED_ATTEMPT_STATES,
+  earliestUnknownTurn,
   findIdempotent,
+  hasRestorePoint,
   lockIdempotencyScope,
   receiptActorOf,
 } from "./control-shared.ts";
 import { DB_NOW, dbNow } from "./db-clock.ts";
+import { closeParkedGroup } from "./parked-group.ts";
 import type { Database } from "./queries.ts";
 import { lockRequester, lockSessionReach } from "./requester-locks.ts";
 import {
@@ -709,6 +712,18 @@ export function createPostgresPendingRequests(
           input.answer,
         );
         if (mismatch !== null) return { outcome: "invalid", reason: mismatch };
+        // Judged on every answer, not only the one that would close the
+        // group: a resume refused at the last answer would leave the others
+        // kept for a turn that cannot carry them on.
+        if (pending.parkedAt !== null) {
+          const unknown = await earliestUnknownTurn(tx, sessionId);
+          if (unknown !== null) {
+            return { outcome: "recovery_required", unconfirmedTurnId: unknown };
+          }
+          if (!hasRestorePoint(session)) {
+            return { outcome: "checkpoint_unavailable" };
+          }
+        }
 
         const waitingBefore = await inputWaitBefore(tx, session, at);
         const receiptId = randomUUID();
@@ -755,6 +770,14 @@ export function createPostgresPendingRequests(
           turnRowId: pending.turnId,
           at,
         });
+        const parked =
+          pending.parkedAt === null
+            ? undefined
+            : await closeParkedGroup(tx, session, {
+                by: "answer",
+                at,
+                actor: scope.actor,
+              });
         return {
           outcome: "accepted",
           response: {
@@ -765,6 +788,8 @@ export function createPostgresPendingRequests(
               surface: input.approval.surface,
               decision_id: input.approval.decisionId,
             },
+            resumed: parked?.outcome === "ok" && parked.resumed,
+            ...(parked === undefined ? {} : { waiting_for: parked.waitingFor }),
           },
         };
       });

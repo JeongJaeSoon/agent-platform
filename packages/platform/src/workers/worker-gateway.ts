@@ -22,6 +22,8 @@ import type {
   RegisterPendingResponse,
   ReleaseRequest,
   ReleaseResponse,
+  RequestParkRequest,
+  RequestParkResponse,
   RestorePlanRequest,
   RestorePlanResponse,
   RuntimeConfig,
@@ -1006,6 +1008,9 @@ export function createWorkerGateway(deps: {
             remaining_budget_usd: binding.unmetered
               ? null
               : Math.max(0, deps.options.sessionCostLimitUsd - binding.costUsd),
+            ...(binding.grants === undefined || binding.grants.length === 0
+              ? {}
+              : { grants: [...binding.grants] }),
           };
         }
       }
@@ -1382,20 +1387,13 @@ export function createWorkerGateway(deps: {
       request: PendingControlRequest,
     ): Promise<PendingControlResponse> {
       const fence = requireScope(principal, request);
-      // Only a turn resumed from a park reports these, and this server
-      // resumes none yet: refused rather than dropped, so the receipts they
-      // would settle are never left looking settled.
-      if (request.delivered !== undefined) {
-        throw new WorkerGatewayError(
-          400,
-          "BAD_REQUEST",
-          "This server resumes no parked turn, so it takes no delivery reports",
-        );
-      }
       const result = await requirePending().pendingControlAtomic({
         fence,
         answersAfter: request.answers_after,
         settled: request.settled ?? [],
+        ...(request.delivered === undefined
+          ? {}
+          : { delivered: request.delivered }),
       });
       if (result.outcome !== "ok") return rejected(result);
       return {
@@ -1428,6 +1426,35 @@ export function createWorkerGateway(deps: {
       });
       if (result.outcome !== "ok") return rejected(result);
       return { reverted: result.reverted };
+    },
+
+    async requestPark(
+      principal: WorkerPrincipal,
+      request: RequestParkRequest,
+    ): Promise<RequestParkResponse> {
+      const fence = requireScope(principal, request);
+      const result = await requirePending().requestParkAtomic({
+        fence,
+        turnId: request.turn_id,
+      });
+      switch (result.outcome) {
+        case "ok":
+          return { pause_control_id: result.pauseControlId };
+        case "not_found":
+          throw new WorkerGatewayError(
+            404,
+            "NOT_FOUND",
+            "Unknown turn_id, or the turn is not running on this attempt",
+          );
+        case "refused":
+          throw new WorkerGatewayError(
+            409,
+            "REQUEST_STALE",
+            `The turn cannot be parked: ${result.reason}`,
+          );
+        default:
+          return rejected(result);
+      }
     },
 
     async finalize(

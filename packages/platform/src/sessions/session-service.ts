@@ -1154,6 +1154,11 @@ export function createSessionService(deps: {
           );
         case "execution_revoked":
           throw executionRevoked();
+        case "pending_requests_open":
+          throw new SessionServiceError(
+            "PENDING_REQUESTS_OPEN",
+            `${result.waitingFor} request(s) of the parked turn are neither answered nor expired; answer them or wait for them to expire`,
+          );
         default:
           return result.response;
       }

@@ -88,18 +88,6 @@ export type AnswerResult = "applied" | "stale" | "unknown";
 export type ApprovalOutcome = "withdrawn";
 
 /**
- * A decision carried into the turn that continues a parked one: spent the
- * first time the engine asks for the same tool with the same arguments, and
- * dropped with whatever is left when that turn ends.
- */
-export type ApprovalGrant = {
-  turnUuid: string;
-  tool: string;
-  inputHash: string;
-  decision: ApprovalDecisionPayload;
-};
-
-/**
  * Over the arguments the engine will act on, before any redaction: an
  * approval is for exactly these, and a display copy cannot tell apart two
  * calls that differ only in a redacted value. Throws for arguments that are
@@ -123,12 +111,6 @@ type Waiting = {
 export class ApprovalChannel {
   private readonly waiting = new Map<string, Waiting>();
   private readonly settled = new Set<string>();
-  private readonly grants: ApprovalGrant[];
-
-  constructor(grants: readonly ApprovalGrant[] = []) {
-    this.grants = [...grants];
-  }
-
   get open(): number {
     return this.waiting.size;
   }
@@ -183,31 +165,6 @@ export class ApprovalChannel {
         reason,
         ...(message === undefined ? {} : { message }),
       });
-    }
-  }
-
-  /** The grant's decision, once: a second call for the same request finds none. */
-  consumeGrant(
-    turnUuid: string,
-    tool: string,
-    inputHash: string,
-  ): ApprovalDecisionPayload | undefined {
-    const index = this.grants.findIndex(
-      (grant) =>
-        grant.turnUuid === turnUuid &&
-        grant.tool === tool &&
-        grant.inputHash === inputHash,
-    );
-    if (index === -1) return undefined;
-    const [grant] = this.grants.splice(index, 1);
-    return grant?.decision;
-  }
-
-  dropGrants(turnUuid: string): void {
-    for (let index = this.grants.length - 1; index >= 0; index -= 1) {
-      if (this.grants[index]?.turnUuid === turnUuid) {
-        this.grants.splice(index, 1);
-      }
     }
   }
 

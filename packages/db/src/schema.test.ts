@@ -113,6 +113,7 @@ describe("database schema", () => {
       "tool_call_progress",
       "tool_calls",
       "tool_descriptions",
+      "turn_continuations",
       "turns",
       "unassigned_sessions",
       "users",

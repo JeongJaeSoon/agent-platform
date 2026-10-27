@@ -24,6 +24,8 @@ export type ReconcilerRun = {
   interrupts: ReconciledInterrupt[];
   interruptsOverdue: number;
   terminationsOverdue: number;
+  // Sessions whose parked requests this pass expired.
+  parkedExpired: string[];
   inputReturns: AnnouncedInputReturn[];
   decisionsExpired: number;
   // null on a dry run, which projects nothing.
@@ -88,6 +90,9 @@ export async function runReconciler(input: {
   // Interrupt receipts still open past their later deadline become unknown,
   // for when nothing confirms the kill above.
   expireInterrupts(options: LeaseReconcileOptions): Promise<number>;
+  // Parked requests past their deadline: settled expired, and their group
+  // closed, before the pass below reports what ended.
+  expireParked(options: { dryRun: boolean; limit: number }): Promise<string[]>;
   // Waits for input the stream still reports after they ended with nothing
   // written (expiry, a lost attempt). Last, so the lease pass above has
   // already fenced what it fences and this reports the result in one go.
@@ -156,6 +161,11 @@ export async function runReconciler(input: {
     dry_run: dryRun,
     overdue_count: terminationsOverdue,
   });
+  const parkedExpired = await input.expireParked({ dryRun, limit });
+  input.logger.info("Expired parked requests settled", {
+    dry_run: dryRun,
+    session_ids: parkedExpired,
+  });
   const inputReturns = await input.announceInputReturns({ dryRun, limit });
   input.logger.info("Ended input waits announced", {
     dry_run: dryRun,
@@ -186,6 +196,7 @@ export async function runReconciler(input: {
     interrupts,
     interruptsOverdue,
     terminationsOverdue,
+    parkedExpired,
     inputReturns,
     decisionsExpired,
     toolCalls,
