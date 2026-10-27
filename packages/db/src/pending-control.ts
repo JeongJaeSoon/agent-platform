@@ -3,6 +3,8 @@ import {
   postSessionAnswerRequestSchema,
 } from "@werft-ai/contracts";
 import type {
+  InvalidateApprovalCheckpointInput,
+  InvalidateApprovalCheckpointResult,
   ParkDeclinedInput,
   ParkDeclinedResult,
   PendingControlInput,
@@ -23,7 +25,13 @@ import { lockDeliveredParked, settleParkedDeliveries } from "./parked-group.ts";
 import { openPauseReceipt, openSystemPark } from "./pause-control.ts";
 import { awaitingInputAt, publicStatus } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
-import { pendingRequests, receipts, sessions, turns } from "./schema.ts";
+import {
+  approvalCheckpoints,
+  pendingRequests,
+  receipts,
+  sessions,
+  turns,
+} from "./schema.ts";
 import {
   announceInputWaitEnded,
   inputWaitBefore,
@@ -209,6 +217,22 @@ export function createPostgresWorkerPendingStore(
             now: at,
           });
         }
+        const checkpoint = input.checkpoint;
+        if (checkpoint !== undefined) {
+          await tx.insert(approvalCheckpoints).values({
+            manifestRef: checkpoint.manifestRef,
+            sessionId: fence.sessionId,
+            revision: checkpoint.revision,
+            manifestSha256: checkpoint.manifestSha256,
+            manifestVersion: checkpoint.manifestVersion ?? null,
+            versionsHeld: checkpoint.versionsHeld,
+            transcriptBytes: checkpoint.transcriptBytes ?? null,
+            attemptId: fence.attemptId,
+            turnId: turn.id,
+            answersThrough: checkpoint.answersThrough,
+            createdAt: at,
+          });
+        }
         await tx.insert(pendingRequests).values({
           requestId: input.requestId,
           sessionId: fence.sessionId,
@@ -221,7 +245,26 @@ export function createPostgresWorkerPendingStore(
           createdAt: at,
           toolUseId: input.announce?.tool_use_id ?? null,
           tool: input.announce?.tool ?? null,
+          checkpointRef: checkpoint?.manifestRef ?? null,
         });
+        if (checkpoint !== undefined) {
+          // The engine was still waiting on every row of the turn no answer
+          // has reached yet when this was captured, so it covers them too;
+          // the checkpoint they were bound to is left for collection.
+          await tx
+            .update(pendingRequests)
+            .set({ checkpointRef: checkpoint.manifestRef })
+            .where(
+              and(
+                eq(pendingRequests.sessionId, fence.sessionId),
+                eq(pendingRequests.turnId, turn.id),
+                eq(pendingRequests.attemptId, fence.attemptId),
+                isNull(pendingRequests.settledAt),
+                isNull(pendingRequests.deliveredAt),
+                isNull(pendingRequests.parkedAt),
+              ),
+            );
+        }
         if (input.announce !== undefined) {
           // The question first, then the status it opens, in this
           // transaction: a client never sees needs_input for a question it
@@ -253,6 +296,31 @@ export function createPostgresWorkerPendingStore(
           expiresAt,
           expiresInMs: input.ttlMs,
         };
+      });
+    },
+
+    invalidateApprovalCheckpointAtomic(
+      input: InvalidateApprovalCheckpointInput,
+    ): Promise<InvalidateApprovalCheckpointResult> {
+      const { fence } = input;
+      return db.transaction(async (tx) => {
+        const fenced = await acquireFence(tx, fence);
+        if (fenced.outcome !== "ok") return fenced;
+        const at = await dbNow(tx);
+        const voided = await tx
+          .update(approvalCheckpoints)
+          .set({
+            invalidatedAt: sql`coalesce(${approvalCheckpoints.invalidatedAt}, ${at})`,
+          })
+          .where(
+            and(
+              eq(approvalCheckpoints.manifestRef, input.manifestRef),
+              eq(approvalCheckpoints.sessionId, fence.sessionId),
+              eq(approvalCheckpoints.attemptId, fence.attemptId),
+            ),
+          )
+          .returning({ ref: approvalCheckpoints.manifestRef });
+        return { outcome: "ok", invalidated: voided.length === 1 };
       });
     },
 

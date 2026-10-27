@@ -12,6 +12,8 @@ import type {
   FinalizeResponse,
   HeartbeatRequest,
   HeartbeatResponse,
+  InvalidateApprovalCheckpointRequest,
+  InvalidateApprovalCheckpointResponse,
   NextInputRequest,
   NextInputResponse,
   ParkDeclinedRequest,
@@ -59,7 +61,10 @@ import {
   repoRefOf,
 } from "../ports/forge.ts";
 import type { McpEgressStore } from "../ports/mcp-egress.ts";
-import type { WorkerPendingStore } from "../ports/pending-requests.ts";
+import type {
+  ApprovalCheckpointCommit,
+  WorkerPendingStore,
+} from "../ports/pending-requests.ts";
 import type { SessionTitleStore } from "../ports/session-title-store.ts";
 import type {
   EgressBindings,
@@ -466,6 +471,42 @@ export function createWorkerGateway(deps: {
     return protocol;
   }
   const now = deps.options.now ?? (() => new Date());
+
+  /**
+   * An approval-wait checkpoint is verified as a finalize's would be, since
+   * a crash can make it the session's pointer with no second look.
+   */
+  async function approvalCheckpointOf(
+    fence: WorkerFence,
+    turnId: string,
+    checkpoint: NonNullable<RegisterPendingRequest["checkpoint"]>,
+  ): Promise<ApprovalCheckpointCommit> {
+    const { answers_through, ...ref } = checkpoint;
+    const verdict = await checkpointInfrastructure(() =>
+      checkpoints.verify({ fence, turnId, checkpoint: ref, at: now() }),
+    );
+    if (verdict.status === "rejected") {
+      throw new WorkerGatewayError(
+        409,
+        "CHECKPOINT_UNAVAILABLE",
+        `Checkpoint manifest rejected: ${verdict.reason}`,
+      );
+    }
+    return {
+      revision: ref.revision,
+      manifestRef: ref.manifest_ref,
+      manifestSha256: ref.manifest_sha256,
+      ...(ref.manifest_version === undefined
+        ? {}
+        : { manifestVersion: ref.manifest_version }),
+      versionsHeld: verdict.versionsHeld === true,
+      ...(verdict.transcriptBytes === undefined
+        ? {}
+        : { transcriptBytes: verdict.transcriptBytes }),
+      answersThrough: answers_through,
+    };
+  }
+
   const sleep =
     deps.options.sleep ??
     ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
@@ -1342,6 +1383,14 @@ export function createWorkerGateway(deps: {
       request: RegisterPendingRequest,
     ): Promise<RegisterPendingResponse> {
       const fence = requireScope(principal, request);
+      const checkpoint =
+        request.checkpoint === undefined
+          ? undefined
+          : await approvalCheckpointOf(
+              fence,
+              request.turn_id,
+              request.checkpoint,
+            );
       const result = await requirePending().registerAtomic({
         fence,
         turnId: request.turn_id,
@@ -1352,6 +1401,7 @@ export function createWorkerGateway(deps: {
           ? {}
           : { announce: request.announce }),
         ttlMs: pendingTtlMs,
+        ...(checkpoint === undefined ? {} : { checkpoint }),
       });
       if (result.outcome === "turn_not_found") {
         throw new WorkerGatewayError(
@@ -1412,6 +1462,19 @@ export function createWorkerGateway(deps: {
           input_hash: item.inputHash,
         })),
       };
+    },
+
+    async invalidateApprovalCheckpoint(
+      principal: WorkerPrincipal,
+      request: InvalidateApprovalCheckpointRequest,
+    ): Promise<InvalidateApprovalCheckpointResponse> {
+      const fence = requireScope(principal, request);
+      const result = await requirePending().invalidateApprovalCheckpointAtomic({
+        fence,
+        manifestRef: request.manifest_ref,
+      });
+      if (result.outcome !== "ok") return rejected(result);
+      return { invalidated: result.invalidated };
     },
 
     async parkDeclined(

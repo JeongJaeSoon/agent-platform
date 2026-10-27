@@ -12,7 +12,7 @@ export const CLAUDE_DESCRIPTOR: RuntimeDescriptor = {
   capabilities: {
     interrupt: true,
     checkpoint: true,
-    approvalCheckpoint: false,
+    approvalCheckpoint: true,
     resume: true,
     mcp: "native",
     skills: "none",

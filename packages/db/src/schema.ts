@@ -1546,6 +1546,11 @@ export const pendingRequests = pgTable(
     // When pendingControl first handed the answer to a worker. An answer
     // with none never reached an engine.
     deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    // The approval-wait checkpoint taken while the engine waited on this
+    // row; a later one of the same turn takes over every row still waiting.
+    checkpointRef: text("checkpoint_ref").references(
+      () => approvalCheckpoints.manifestRef,
+    ),
   },
   (table) => [
     index("pending_requests_unresolved_session_idx")
@@ -1576,6 +1581,35 @@ export const pendingRequests = pgTable(
     ),
   ],
 );
+
+// A checkpoint captured while a turn waited on a person (design §6.3 K),
+// committed with the request it covers. It reaches the session pointer only
+// when the execution goes with that wait intact (confirmExecutionGoneAtomic);
+// otherwise the turn's own checkpoint takes its revision and garbage
+// collection removes its objects like any other attempt directory.
+export const approvalCheckpoints = pgTable("approval_checkpoints", {
+  manifestRef: text("manifest_ref").primaryKey(),
+  sessionId: uuid("session_id")
+    .notNull()
+    .references(() => sessions.id),
+  revision: integer().notNull(),
+  manifestSha256: text("manifest_sha256").notNull(),
+  manifestVersion: text("manifest_version"),
+  versionsHeld: boolean("versions_held").notNull(),
+  transcriptBytes: bigint("transcript_bytes", { mode: "number" }),
+  attemptId: text("attempt_id")
+    .notNull()
+    .references(() => attempts.id),
+  turnId: bigint("turn_id", { mode: "number" })
+    .notNull()
+    .references(() => turns.id),
+  // The last answer sequence the worker had applied when it captured.
+  answersThrough: integer("answers_through").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  // A tool was admitted after the capture.
+  invalidatedAt: timestamp("invalidated_at", { withTimezone: true }),
+  promotedAt: timestamp("promoted_at", { withTimezone: true }),
+});
 
 // An answer to a parked permission request, to be spent once by the turn
 // that resumes it. The tool, input hash and who answered stay on the

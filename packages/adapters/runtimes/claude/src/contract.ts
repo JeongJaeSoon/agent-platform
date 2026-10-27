@@ -6,6 +6,7 @@ import {
   claudeCheckpointCodec,
 } from "@werft-ai/runtime-claude-codec";
 import {
+  type AdmissionHold,
   type AgentInput,
   type AgentRun,
   type AgentRuntime,
@@ -263,8 +264,14 @@ class ClaudeContractRun implements AgentRun {
 
   async ready(): Promise<NegotiatedCapabilities> {
     await this.driver.ready();
+    const { capabilities } = CLAUDE_DESCRIPTOR;
     return {
-      effective: CLAUDE_DESCRIPTOR.capabilities,
+      effective: {
+        ...capabilities,
+        approvalCheckpoint:
+          capabilities.approvalCheckpoint &&
+          this.driver.approvalCheckpoints === true,
+      },
       effectiveExtraFeatures: CLAUDE_DESCRIPTOR.extraFeatures,
     };
   }
@@ -327,15 +334,27 @@ class ClaudeContractRun implements AgentRun {
   }
 
   prepareCheckpoint(point: CheckpointPoint): Promise<CheckpointPreparation> {
-    if (point !== "turn_end") return Promise.resolve(unsupported(point));
-    return this.driver.prepareCheckpoint();
+    if (point === "turn_end") return this.driver.prepareCheckpoint();
+    if (this.driver.approvalCheckpoints !== true) {
+      return Promise.resolve(unsupported(point));
+    }
+    return this.driver.prepareCheckpoint(point);
   }
 
   leaseCheckpoint(point: CheckpointPoint): Promise<CheckpointLeaseGrant> {
-    if (point !== "turn_end") {
+    if (point === "turn_end") return this.driver.leaseCheckpoint();
+    if (this.driver.approvalCheckpoints !== true) {
       return Promise.resolve({ lease: null, preparation: unsupported(point) });
     }
-    return this.driver.leaseCheckpoint();
+    return this.driver.leaseCheckpoint(point);
+  }
+
+  holdAdmission(guard: (toolCallId: string) => Promise<void>): AdmissionHold {
+    const hold = this.driver.holdAdmission?.(guard);
+    if (hold === undefined) {
+      throw new Error("This run admits tools through no gate a host can hold");
+    }
+    return hold;
   }
 
   abort(): void {

@@ -416,3 +416,50 @@ describe("checkpoint lease", () => {
     expect(ledger.prepareCheckpoint()).toEqual(ready);
   });
 });
+
+describe("approval-wait checkpoint", () => {
+  test("is ready mid-turn once every admitted call has settled or waits on a person", () => {
+    const ledger = new TurnLedger("s1");
+    ledger.queued("a");
+    expect(ledger.prepareCheckpoint("approval_wait")).toMatchObject({
+      reason: "turn_in_flight",
+      detail: "No permission callback is waiting",
+    });
+    ledger.toolStarting("toolu_ask");
+    ledger.permissionStarting("toolu_ask");
+    ledger.toolStarting("toolu_run");
+    expect(ledger.prepareCheckpoint("approval_wait")).toMatchObject({
+      reason: "tool_in_flight",
+    });
+    ledger.toolSettled("toolu_run");
+    expect(ledger.prepareCheckpoint("approval_wait")).toEqual(ready);
+    // The turn itself is still running: a turn-end checkpoint is not.
+    expect(ledger.prepareCheckpoint().status).toBe("rejected");
+    expect(ledger.awaitingIds()).toEqual(["toolu_ask"]);
+
+    const grant = ledger.leaseCheckpoint("approval_wait");
+    expect(grant.preparation).toEqual(ready);
+    expect(ledger.toolStarting("toolu_next").allowed).toBe(false);
+    expect(ledger.prepareCheckpoint("approval_wait")).toMatchObject({
+      reason: "checkpoint_lease_held",
+    });
+    grant.lease?.release();
+    expect(ledger.toolStarting("toolu_next").allowed).toBe(true);
+  });
+
+  test("names the settled calls whose results the mirror does not hold, until it does", () => {
+    const ledger = new TurnLedger("s1");
+    ledger.toolStarting("toolu_1");
+    ledger.toolSettled("toolu_1");
+    ledger.observe({
+      type: "user",
+      message: {
+        content: [{ type: "tool_result", tool_use_id: "toolu_2" }],
+      },
+    });
+    expect(ledger.unmirroredResults(new Set())).toEqual(["toolu_1", "toolu_2"]);
+    expect(ledger.unmirroredResults(new Set(["toolu_1"]))).toEqual(["toolu_2"]);
+    // Forgotten once mirrored, whatever a later caller passes.
+    expect(ledger.unmirroredResults(new Set())).toEqual(["toolu_2"]);
+  });
+});

@@ -19,6 +19,11 @@ export type ParkReadiness =
   | { ok: false; reason: "tool_executing" | "not_supported" }
   | { ok: false; reason: "checkpoint_unavailable"; detail: string };
 
+/** Ends an `AgentRun.holdAdmission`. Idempotent. */
+export interface AdmissionHold {
+  release(): void;
+}
+
 /**
  * Handle for one engine execution. It may serve several turns; it is not the
  * durable Turn row the platform stores. `events()` is a single-consumer
@@ -51,6 +56,13 @@ export interface AgentRun {
   answer(answer: ApprovalAnswer): Promise<AnswerResult>;
   interrupt(): Promise<{ stillQueued: string[] }>;
   parkable(): ParkReadiness;
+  /**
+   * From now until released, the engine admits no new tool call before
+   * `guard` has resolved for it; a rejection refuses that call. An approved
+   * call the engine runs on its answer is not admitted again, so it never
+   * reaches the guard. Holding a second one replaces the first.
+   */
+  holdAdmission(guard: (toolCallId: string) => Promise<void>): AdmissionHold;
   /** Read-only: the verdict leaseCheckpoint would reach now. */
   prepareCheckpoint(point: CheckpointPoint): Promise<CheckpointPreparation>;
   /**

@@ -13,6 +13,8 @@ import {
   type FinalizeResponse,
   type HeartbeatRequest,
   type HeartbeatResponse,
+  type InvalidateApprovalCheckpointRequest,
+  type InvalidateApprovalCheckpointResponse,
   type NextInputRequest,
   type NextInputResponse,
   type ParkDeclinedRequest,
@@ -102,6 +104,11 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   readonly registrations: RegisterPendingRequest[] = [];
   /** Every park the worker declined, in order. */
   readonly parkDeclines: ParkDeclinedRequest[] = [];
+  readonly invalidations: InvalidateApprovalCheckpointRequest[] = [];
+  /** Set, invalidateApprovalCheckpoint throws it. */
+  invalidationFailure: Error | undefined;
+  /** Thrown by the next registerPending calls, one each, after recording them. */
+  readonly registerFailures: Error[] = [];
   /** How each parked request's answer reached the turn that resumed it. */
   readonly delivered: ParkedDelivery[] = [];
   /** Handed to the claim as its `grants`; absent while empty. */
@@ -412,6 +419,8 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   ): Promise<RegisterPendingResponse> {
     this.calls.push("registerPending");
     this.registrations.push(request);
+    const failure = this.registerFailures.shift();
+    if (failure !== undefined) throw failure;
     return {
       request_id: request.request_id,
       expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
@@ -462,6 +471,19 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
           !this.settled.some(
             (done) => done.request_id === entry.answer.request_id,
           ),
+      ),
+    };
+  }
+
+  async invalidateApprovalCheckpoint(
+    request: InvalidateApprovalCheckpointRequest,
+  ): Promise<InvalidateApprovalCheckpointResponse> {
+    this.calls.push("invalidateApprovalCheckpoint");
+    if (this.invalidationFailure !== undefined) throw this.invalidationFailure;
+    this.invalidations.push(request);
+    return {
+      invalidated: this.registrations.some(
+        (entry) => entry.checkpoint?.manifest_ref === request.manifest_ref,
       ),
     };
   }

@@ -61,6 +61,19 @@ export type RegisterPendingInput = {
   announce?: RegisterPendingRequest["announce"];
   // A lifetime on the storage clock, never a caller deadline.
   ttlMs: number;
+  // The approval-wait checkpoint taken while the engine waits on this
+  // request, already verified like a finalize's.
+  checkpoint?: ApprovalCheckpointCommit;
+};
+
+export type ApprovalCheckpointCommit = {
+  revision: number;
+  manifestRef: string;
+  manifestSha256: string;
+  manifestVersion?: string;
+  versionsHeld: boolean;
+  transcriptBytes?: number;
+  answersThrough: number;
 };
 
 export type RegisterPendingResult =
@@ -127,6 +140,16 @@ export type RequestParkResult =
   | { outcome: "refused"; reason: string }
   | FenceRejection;
 
+export type InvalidateApprovalCheckpointInput = {
+  fence: WorkerFence;
+  manifestRef: string;
+};
+
+// `invalidated` is false when this attempt committed no such checkpoint.
+export type InvalidateApprovalCheckpointResult =
+  | { outcome: "ok"; invalidated: boolean }
+  | FenceRejection;
+
 export type PendingControlResult =
   | {
       outcome: "ok";
@@ -143,6 +166,9 @@ export interface WorkerPendingStore {
   ): Promise<PendingControlResult>;
   parkDeclinedAtomic(input: ParkDeclinedInput): Promise<ParkDeclinedResult>;
   requestParkAtomic(input: RequestParkInput): Promise<RequestParkResult>;
+  invalidateApprovalCheckpointAtomic(
+    input: InvalidateApprovalCheckpointInput,
+  ): Promise<InvalidateApprovalCheckpointResult>;
   // A hint for heartbeat: an answer or a control intent is waiting for this
   // attempt to take it.
   hasUndelivered(fence: WorkerFence): Promise<boolean>;
