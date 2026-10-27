@@ -239,8 +239,10 @@ export async function projectToolCalls(
     eventsRead += batch.n;
     batches += 1;
     appliedThrough = batch.cursor;
-    caughtUp = batch.n < batchSize;
     heldByFillSeconds = batch.heldByFillSeconds;
+    // Held by the fill, the pass ends: the fill may pass rows this pass has
+    // read unfilled, and the next batch would carry the cursor over them.
+    caughtUp = batch.n < batchSize || heldByFillSeconds !== null;
   }
   if (timedOut === 0 && startSize < options.batchSize) {
     const grown = startSize * 10;

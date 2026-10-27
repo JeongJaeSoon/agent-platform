@@ -388,6 +388,29 @@ integration("neutral field fill on PostgreSQL", () => {
     ).toEqual(["tu-late"]);
   });
 
+  test("a projection pass held by the fill reads no further", async () => {
+    const known = await session("known");
+    await stored(
+      known,
+      ["a", "b", "c", "d"].map((call) => [
+        "tool_use",
+        { type: "assistant", message: { call } },
+      ]),
+    );
+    const pass = await projectToolCalls(db, { batchSize: 2, budgetMs: 10_000 });
+    expect(pass).toMatchObject({ batches: 1, appliedThrough: 0 });
+    expect(pass.heldByFillSeconds).not.toBeNull();
+    await fill();
+    await projectToolCalls(db, { batchSize: 2, budgetMs: 10_000 });
+    expect(
+      rowsOf<{ tool_use_id: string }>(
+        await db.execute(
+          sql`SELECT tool_use_id FROM tool_calls ORDER BY tool_use_id`,
+        ),
+      ).map((row) => row.tool_use_id),
+    ).toEqual(["a", "b", "c", "d"]);
+  });
+
   test("tens of thousands of stored events fill in batches that block no writer", async () => {
     const SESSIONS = 50;
     const PER_SESSION = 800;
