@@ -50,6 +50,7 @@ import {
   scrubbingGateway,
   scrubbingLogger,
 } from "./secret-scrubber.ts";
+import { settledWithin, until } from "./waits.ts";
 import type { WorkspacePreparer } from "./workspace.ts";
 
 /** Where the claim's object store token goes. */
@@ -1110,13 +1111,7 @@ export class WorkerHost {
       this.logger.warn("worker.turn.already_consumed", {
         turn_id: turn.turnId,
       });
-      this.settleTurn({
-        status: "outcome_unknown",
-        reason: "input_already_consumed",
-        result: null,
-        usage: null,
-        synthetic: true,
-      });
+      this.settleTurn(unknownOutcome("input_already_consumed"));
       return;
     }
     run.send({ message, uuid: turn.uuid });
@@ -1174,13 +1169,7 @@ export class WorkerHost {
   private closeUnanswered(turn: Turn, reason: string): void {
     if (turn.closed) return;
     this.fail(reason);
-    this.settleTurn({
-      status: "outcome_unknown",
-      reason: "turn_timeout",
-      result: null,
-      usage: null,
-      synthetic: true,
-    });
+    this.settleTurn(unknownOutcome("turn_timeout"));
   }
 
   private async finalizeTurn(
@@ -1608,13 +1597,7 @@ export class WorkerHost {
         this.fail(
           `Turn ${turn.turnId} gave no terminal within ${graceMs}ms of its interrupt`,
         );
-        this.settleTurn({
-          status: "outcome_unknown",
-          reason: "interrupt_unanswered",
-          result: null,
-          usage: null,
-          synthetic: true,
-        });
+        this.settleTurn(unknownOutcome("interrupt_unanswered"));
       }, graceMs),
     );
   }
@@ -1894,12 +1877,7 @@ export class WorkerHost {
       this.fail(
         `Turn ${turn.turnId} ended before its interrupt was answered, and no answer came`,
       );
-      return {
-        ...decide(false),
-        status: "outcome_unknown",
-        reason: "interrupt_unanswered",
-        synthetic: true,
-      };
+      return unknownOutcome("interrupt_unanswered", decide(false));
     });
   }
 
@@ -2030,13 +2008,9 @@ export class WorkerHost {
         // A stream that ended without a terminal leaves the turn's outcome
         // genuinely unknown; guessing either way would be a lie about the
         // transcript.
-        this.settleTurn({
-          status: "outcome_unknown",
-          reason: "The engine stream ended before the turn settled",
-          result: null,
-          usage: null,
-          synthetic: true,
-        });
+        this.settleTurn(
+          unknownOutcome("The engine stream ended before the turn settled"),
+        );
         // An engine that is gone accepts inputs it will never answer, so the
         // loop must not hand it another one. A no-op when shutdown closed it.
         this.stop({ kind: "failed", reason: "The engine stream ended" });
@@ -2572,21 +2546,20 @@ export class WorkerHost {
   private async untilStopGraceSpent<T>(
     work: Promise<T>,
   ): Promise<T | undefined> {
-    work.catch(() => {});
-    const cut = this.stopped.then(async () => {
-      await settledWithin(
-        work,
-        this.withinGrace(this.options.timeouts.requestTimeoutMs),
-      );
-      return undefined;
-    });
-    return Promise.race([work, cut]);
+    return until(
+      work,
+      this.stopped.then(() =>
+        settledWithin(
+          work,
+          this.withinGrace(this.options.timeouts.requestTimeoutMs),
+        ),
+      ),
+    );
   }
 
   /** Resolves with the value, or undefined once any stop has come. */
   private async untilStopped<T>(work: Promise<T>): Promise<T | undefined> {
-    work.catch(() => {});
-    return Promise.race([work, this.stopped.then(() => undefined)]);
+    return until(work, this.stopped);
   }
 
   /**
@@ -2618,8 +2591,7 @@ export class WorkerHost {
 
   /** Resolves with the value, or undefined once the turn has to be given up. */
   private async untilAbandoned<T>(work: Promise<T>): Promise<T | undefined> {
-    work.catch(() => {});
-    return Promise.race([work, this.abandoned.then(() => undefined)]);
+    return until(work, this.abandoned);
   }
 
   /**
@@ -2734,19 +2706,18 @@ function clearTurnTimers(turn: Turn): void {
   for (const timer of turn.timers.splice(0)) clearTimeout(timer);
 }
 
-async function settledWithin(
-  settled: Promise<unknown>,
-  ms: number,
-): Promise<boolean> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const expired = new Promise<false>((resolve) => {
-    timer = setTimeout(() => resolve(false), ms);
-  });
-  try {
-    return await Promise.race([settled.then(() => true), expired]);
-  } finally {
-    clearTimeout(timer);
-  }
+/**
+ * A terminal this worker decided because the engine gave none it can
+ * trust; `ended` keeps what the engine did report.
+ */
+function unknownOutcome(
+  reason: string,
+  ended: Pick<Settlement, "costUsd" | "result" | "usage"> = {
+    result: null,
+    usage: null,
+  },
+): Settlement {
+  return { ...ended, reason, status: "outcome_unknown", synthetic: true };
 }
 
 function describe(error: unknown): string {
