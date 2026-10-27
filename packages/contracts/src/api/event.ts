@@ -132,7 +132,10 @@ const sseEnvelopeSchema = z.object({
   session_id: sessionIdSchema,
   turn_id: turnIdSchema.nullable(),
   attempt_id: attemptIdSchema.nullable(),
-  occurred_at: timestampSchema,
+  occurred_at: timestampSchema.meta({
+    description:
+      "When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.",
+  }),
 });
 
 function record<V extends EventVariant>(variant: V) {

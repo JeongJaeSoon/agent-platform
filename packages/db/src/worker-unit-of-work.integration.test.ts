@@ -1214,6 +1214,71 @@ integration("worker gateway on PostgreSQL", () => {
     }
   });
 
+  test("occurred_at never goes back in id order across worker and control-plane writes", async () => {
+    const { session, claimed } = await claimAndDeliver();
+    const scope = scopeOf(claimed, "1");
+    // A worker clock running ahead of the database's.
+    const ahead = new Date(Date.now() + 60 * 60_000);
+    await gateway.appendEvents(principalOf(claimed), {
+      ...scope,
+      batch_key: "ahead",
+      events: [{ ...event(1), occurred_at: ahead.toISOString() }],
+    });
+    await gateway.finalize(principalOf(claimed), {
+      ...scope,
+      turn_id: "1",
+      finalize_key: "fin-order",
+      final_source_sequence: 1,
+      terminal: {
+        status: "completed",
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: null,
+    });
+    // A frame the engine emitted past its terminal, stamped before the
+    // finalize committed and held behind it: stored after the idle status.
+    const late = {
+      ...scopeOf(claimed),
+      batch_key: "late",
+      events: [
+        {
+          event: "system" as const,
+          data: { type: "system" as const, subtype: "late" },
+          source_sequence: 2,
+          occurred_at: new Date(ahead.getTime() - 300).toISOString(),
+        },
+      ],
+    };
+    await gateway.appendEvents(principalOf(claimed), late);
+    // The worker resends its own time; the raised one still matches it.
+    await gateway.appendEvents(principalOf(claimed), late);
+
+    const rows = await db
+      .select({
+        type: events.type,
+        payload: events.payload,
+        at: events.occurredAt,
+      })
+      .from(events)
+      .where(eq(events.sessionId, session.session_id))
+      .orderBy(events.id);
+    const times = rows.map((row) => row.at?.getTime() ?? Number.NaN);
+    expect(times.every((at, i) => i === 0 || at >= (times[i - 1] ?? 0))).toBe(
+      true,
+    );
+    const idle = rows.find(
+      (row) =>
+        row.type === "status" &&
+        (row.payload as { phase?: string }).phase === "idle",
+    );
+    expect(idle?.at?.getTime()).toBe(ahead.getTime());
+    expect(rows.at(-1)?.type).toBe("system");
+    expect(rows.at(-1)?.at?.getTime()).toBe(ahead.getTime());
+    expect(rows.filter((row) => row.type === "system")).toHaveLength(1);
+  });
+
   test("append and finalize racing in either order never lose the tail", async () => {
     for (const round of [0, 1, 2, 3, 4, 5]) {
       const { session, claimed } = await claimAndDeliver();

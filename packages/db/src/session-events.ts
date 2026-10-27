@@ -5,7 +5,7 @@ import {
   type StatusEventPhase,
   sessionEventPayloadSchema,
 } from "@werft-ai/contracts";
-import { and, eq, notExists, sql } from "drizzle-orm";
+import { and, desc, eq, lt, notExists, sql } from "drizzle-orm";
 import type { ControlStageMeasure } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
 import {
@@ -15,6 +15,39 @@ import {
 } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import { events, sessions } from "./schema.ts";
+
+/**
+ * The `occurred_at` readers see on the session's last event, or on the last
+ * one before `beforeId`. Each writer stamps its own clock — the worker when
+ * it publishes, the control plane when it commits — and a worker frame held
+ * behind its turn's finalize is stored after a status stamped later, so every
+ * write is raised to at least this: in id order the times never go back.
+ */
+export async function streamClock(
+  tx: Database,
+  sessionId: string,
+  beforeId?: number,
+): Promise<Date | null> {
+  const [row] = await tx
+    .select({
+      // Rounded up: readers round a sub-millisecond created_at to the
+      // nearest millisecond, and a truncated floor could sit below it.
+      epochMs: sql<string>`ceil(extract(epoch FROM coalesce(${events.occurredAt}, ${events.createdAt})) * 1000)::text`,
+    })
+    .from(events)
+    .where(
+      beforeId === undefined
+        ? eq(events.sessionId, sessionId)
+        : and(eq(events.sessionId, sessionId), lt(events.id, beforeId)),
+    )
+    .orderBy(desc(events.id))
+    .limit(1);
+  return row ? new Date(Number(row.epochMs)) : null;
+}
+
+export function notBefore(at: Date, floor: Date | null): Date {
+  return floor !== null && floor.getTime() > at.getTime() ? floor : at;
+}
 
 // A server-side write to the session's event stream. The caller holds the
 // session row FOR UPDATE, as every events writer must: ids are
@@ -39,6 +72,10 @@ export async function recordEvent(
     event: input.type,
     data: input.payload,
   });
+  const occurredAt = notBefore(
+    input.now,
+    await streamClock(tx, input.sessionId),
+  );
   await measure("insert_status_event_ms", () =>
     tx.insert(events).values({
       sessionId: input.sessionId,
@@ -47,7 +84,7 @@ export async function recordEvent(
       turnId: input.turnRowId,
       // No source_sequence: that numbering is the worker's own stream.
       attemptId: input.attemptId ?? null,
-      occurredAt: input.now,
+      occurredAt,
     }),
   );
   await measure("notify_status_event_ms", () =>
