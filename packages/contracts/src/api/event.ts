@@ -109,7 +109,8 @@ export const sessionEventVariants = {
     data: z.looseObject({
       phase: statusEventPhaseSchema,
       admission_state: admissionStateSchema.optional(),
-      // Set on the event a rename writes: the session's title from then on.
+      // Set on the event a rename or a generated title writes: the
+      // session's title from then on.
       title: z.string().min(1).optional(),
     }),
   }),

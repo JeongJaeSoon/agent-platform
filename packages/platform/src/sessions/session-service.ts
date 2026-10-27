@@ -593,6 +593,7 @@ export function createSessionService(deps: {
           input.body.title === undefined
             ? deriveSessionTitle(input.body.message)
             : normalizeSessionTitle(input.body.title),
+        titleSource: input.body.title === undefined ? "derived" : "user",
         repository:
           pair === null
             ? null

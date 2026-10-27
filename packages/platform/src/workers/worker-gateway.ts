@@ -58,6 +58,7 @@ import {
 } from "../ports/forge.ts";
 import type { McpEgressStore } from "../ports/mcp-egress.ts";
 import type { WorkerPendingStore } from "../ports/pending-requests.ts";
+import type { SessionTitleStore } from "../ports/session-title-store.ts";
 import type {
   EgressBindings,
   EgressIssue,
@@ -92,6 +93,11 @@ import {
   type WorkspaceProfiles,
   workspaceCatalogProfiles,
 } from "../sessions/catalog.ts";
+import {
+  hashTitleToken,
+  type SessionTitler,
+  titleProfile,
+} from "../sessions/session-titler.ts";
 import { createMcpEgress, type McpEgressRequest } from "./mcp-egress.ts";
 
 const WORKSPACE_PROFILE_MAX_AGE_MS = 1000;
@@ -269,6 +275,8 @@ async function checkpointInfrastructure<T>(call: () => Promise<T>): Promise<T> {
 }
 
 // Both the replay lookup and the commit answer in the same shape.
+const FIRST_TURN_ID = "1";
+
 function finalizeAnswer(result: FinalizeResult): FinalizeResponse {
   switch (result.outcome) {
     case "turn_not_found":
@@ -428,6 +436,8 @@ export function createWorkerGateway(deps: {
   // agent's credential is still bound.
   mcp?: McpEgressStore;
   onMcpReceiptError?: (error: unknown) => void;
+  // Absent, a session keeps the title cut from its first message.
+  titles?: { store: SessionTitleStore; titler: SessionTitler };
   options: WorkerGatewayOptions;
 }) {
   const { work, catalog, checkpoints, pending } = deps;
@@ -722,6 +732,41 @@ export function createWorkerGateway(deps: {
       "The repository's forge credential could not be issued",
       true,
     );
+  }
+
+  // A title request's token, held to the session's budget and profile as
+  // the engine's calls are; null for any other token. No fence: the attempt
+  // it is charged to may have ended since its first turn.
+  async function authorizedTitleEgress(
+    token: string,
+  ): Promise<EgressGrant | null> {
+    if (deps.titles === undefined) return null;
+    const result = await deps.titles.store.authorizeAtomic({
+      tokenHash: hashTitleToken(token),
+    });
+    if (result.outcome !== "ok") return null;
+    if (result.profileId !== null) {
+      await refreshWorkspaceProfilesFor(catalog, [result.profileId]);
+    }
+    if (
+      budgetExceeded(result, {
+        costUsd: deps.options.sessionCostLimitUsd,
+        tokens: tokenLimit,
+      })
+    ) {
+      throw new WorkerGatewayError(
+        403,
+        "BUDGET_EXCEEDED",
+        "The session has reached its cost or token limit",
+      );
+    }
+    const profile = titleProfile(catalog, result);
+    if (profile === null) moved("session's profile");
+    return {
+      session_id: result.sessionId,
+      attempt_id: result.attemptId,
+      upstream: providerUpstreamOf(profile),
+    };
   }
 
   // What an egress token stands for once its attempt still owns the session;
@@ -1029,6 +1074,10 @@ export function createWorkerGateway(deps: {
       token: string;
       purpose: "provider" | "repository";
     }): Promise<EgressGrant> {
+      if (request.purpose === "provider") {
+        const titled = await authorizedTitleEgress(request.token);
+        if (titled !== null) return titled;
+      }
       const result = await authorizedEgress(request);
       const grant = (upstream: EgressUpstream): EgressGrant => ({
         session_id: result.sessionId,
@@ -1437,17 +1486,28 @@ export function createWorkerGateway(deps: {
       // Verification is a network call that can outlast the lease, so the
       // fence is judged against the clock at commit time, not the one this
       // request started with.
-      return finalizeAnswer(
-        await work.finalizeAtomic({
-          ...attempt,
-          checkpointVersionsHeld,
-          ...(checkpointTranscriptBytes === undefined
-            ? {}
-            : { checkpointTranscriptBytes }),
-          ...(checkpointOutputs === undefined ? {} : { checkpointOutputs }),
-          now: now(),
-        }),
-      );
+      const finalized = await work.finalizeAtomic({
+        ...attempt,
+        checkpointVersionsHeld,
+        ...(checkpointTranscriptBytes === undefined
+          ? {}
+          : { checkpointTranscriptBytes }),
+        ...(checkpointOutputs === undefined ? {} : { checkpointOutputs }),
+        now: now(),
+      });
+      // Not awaited: naming the session must never hold up its turn.
+      if (
+        deps.titles !== undefined &&
+        finalized.outcome === "finalized" &&
+        finalized.result.status === "completed" &&
+        request.turn_id === FIRST_TURN_ID
+      ) {
+        void deps.titles.titler.afterFirstTurn({
+          sessionId: fence.sessionId,
+          attemptId: fence.attemptId,
+        });
+      }
+      return finalizeAnswer(finalized);
     },
 
     // Where the next checkpoint goes. The fenced read comes first: a stale

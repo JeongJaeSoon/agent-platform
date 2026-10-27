@@ -274,6 +274,7 @@ export function createPostgresSessionUnitOfWork(
           ownerId: scope.principal,
           ...repository,
           title: input.title ?? null,
+          titleSource: input.titleSource ?? "derived",
           channel: input.channel ?? null,
           profileId: input.profileId,
           profileFingerprint: input.profileFingerprint ?? null,

@@ -272,6 +272,10 @@ services:
       # repository call is refused.
       EGRESS_AUTHORIZER_PORT: *egress-authorizer-port
       EGRESS_AUTHORIZER_TOKEN: *egress-authorizer-token
+      # Where the API sends the call that names a session after its first
+      # turn: the proxy's credential listener, which meters it on the
+      # session. Empty turns it off and sessions keep their first message.
+      SESSION_TITLE_EGRESS_URL: ${SESSION_TITLE_EGRESS_URL-http://egress-proxy:3129}
       # The operator catalog: config/ mounted below. The image
       # carries none, so an API without a mounted catalog does not start.
       PLATFORM_CONFIG_DIR: /app/config
