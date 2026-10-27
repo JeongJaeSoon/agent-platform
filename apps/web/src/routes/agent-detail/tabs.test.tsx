@@ -1015,8 +1015,12 @@ describe("에이전트 상세 탭", () => {
       [
         "워크스페이스 프로필",
         [
-          ["ws_acme_strict_v1", true, expect.stringContaining("은퇴")],
-          ["ws_acme_strict_v2", true, expect.stringContaining("기준 바뀜")],
+          ["ws_acme_strict_v1", true, expect.stringContaining("사용 중지됨")],
+          [
+            "ws_acme_strict_v2",
+            true,
+            expect.stringContaining("바탕 프로필 바뀜"),
+          ],
         ],
       ],
     ]);
