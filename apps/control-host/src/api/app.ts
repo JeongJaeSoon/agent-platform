@@ -28,6 +28,10 @@ import {
 import type { Context, Handler, MiddlewareHandler } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
+import {
+  INTERACTIVE_CONFIGURATION_ATTRIBUTE,
+  READ_ONLY_CONFIGURATION_ATTRIBUTE,
+} from "./api-reference.ts";
 import { createAuthenticator, csrfViolation } from "./auth.ts";
 import {
   BODY_DEADLINE_MS,
@@ -96,7 +100,18 @@ let apiReferenceHtml: Promise<string> | undefined;
 function readApiReferenceHtml(): Promise<string> {
   apiReferenceHtml ??= Bun.file(join(API_REFERENCE_DIRECTORY, "index.html"))
     .text()
-    .then((html) => html.replace('src="./scalar.js"', 'src="/docs/scalar.js"'));
+    .then((html) => {
+      if (!html.includes(READ_ONLY_CONFIGURATION_ATTRIBUTE))
+        throw new Error(
+          "docs/api/index.html is stale; run apps/control-host/scripts/generate-openapi.ts",
+        );
+      return html
+        .replace('src="./scalar.js"', 'src="/docs/scalar.js"')
+        .replace(
+          READ_ONLY_CONFIGURATION_ATTRIBUTE,
+          INTERACTIVE_CONFIGURATION_ATTRIBUTE,
+        );
+    });
   return apiReferenceHtml;
 }
 
@@ -113,7 +128,7 @@ function apiReferenceCsp(nonce: string): string {
     "script-src 'self'",
     `style-src 'nonce-${nonce}'`,
     "img-src data:",
-    "connect-src 'none'",
+    "connect-src 'self'",
     "font-src 'none'",
     "base-uri 'none'",
     "form-action 'none'",
