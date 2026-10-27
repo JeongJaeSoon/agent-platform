@@ -1779,6 +1779,30 @@ integration("parked pending requests on PostgreSQL", () => {
     );
   });
 
+  test("interrupting a park that already expired still lifts the pause", async () => {
+    const { owner, sessionId, first, firstTurn, second } = await twoParks();
+    await answer(owner, sessionId, first);
+    await db
+      .update(pendingRequests)
+      .set({ expiresAt: sql`now() - interval '1 minute'` })
+      .where(eq(pendingRequests.requestId, second));
+    await expireParkedGroups(db, { limit: 1_000, dryRun: false });
+    expect((await request(second)).settledOutcome).toBe("expired");
+    expect((await sessionRow(sessionId)).admissionState).toBe("paused");
+
+    const interrupt = await createPostgresTurnInterrupts(db).interruptAtomic({
+      principal: owner,
+      sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      targetTurnId: "2",
+    });
+    expect(interrupt.outcome).toBe("accepted");
+    expect((await request(second)).settledOutcome).toBe("cancelled");
+    expect((await sessionRow(sessionId)).admissionState).toBe("resuming");
+    expect(await continuations(firstTurn)).toHaveLength(1);
+  });
+
   test("a drain park whose requests all expired carries on with the denials", async () => {
     const { sessionId, worker } = await runningSession();
     const requestId = await register(worker);

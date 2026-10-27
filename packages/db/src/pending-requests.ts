@@ -361,7 +361,12 @@ export async function cancelParkedRequests(
           ? undefined
           : eq(pendingRequests.turnId, scope.turnRowId),
         isNotNull(pendingRequests.parkedAt),
-        isNull(pendingRequests.settledAt),
+        // An expired row is still its group's until the group closes;
+        // left as it is, the cancelled group would wait for a resume.
+        or(
+          isNull(pendingRequests.settledAt),
+          eq(pendingRequests.settledOutcome, "expired"),
+        ),
       ),
     )
     .returning({ receiptId: pendingRequests.answerReceiptId });
