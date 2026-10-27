@@ -30,7 +30,9 @@ export async function streamClock(
 ): Promise<Date | null> {
   const [row] = await tx
     .select({
-      epochMs: sql<string>`(extract(epoch FROM coalesce(${events.occurredAt}, ${events.createdAt})) * 1000)::text`,
+      // Rounded up: readers round a sub-millisecond created_at to the
+      // nearest millisecond, and a truncated floor could sit below it.
+      epochMs: sql<string>`ceil(extract(epoch FROM coalesce(${events.occurredAt}, ${events.createdAt})) * 1000)::text`,
     })
     .from(events)
     .where(

@@ -134,7 +134,7 @@ const sseEnvelopeSchema = z.object({
   attempt_id: attemptIdSchema.nullable(),
   occurred_at: timestampSchema.meta({
     description:
-      "When the event happened: for an engine event, when the worker published it; for a control-plane event, when it was committed. Raised where needed so that it never goes back from one event to the next in `id` order. Order and resume by `id`, not by this time: events can share it.",
+      "When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.",
   }),
 });
 
