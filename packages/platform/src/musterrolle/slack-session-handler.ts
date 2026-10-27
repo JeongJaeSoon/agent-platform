@@ -167,6 +167,9 @@ export function createSlackSessionHandler(
     const mentioned =
       event.type === "app_mention" ||
       new RegExp(`<@${agent.botUserId}(?:\\||>)`).test(event.text);
+    // A stray reply is nobody's request in any mode; skip the lookup.
+    if (found === null && !mentioned && !dm && event.thread_ts !== undefined)
+      return;
     const binding = dm
       ? await deps.bindings.ensureDmBinding(agent.installationId)
       : await deps.bindings.resolveSlackChannel(

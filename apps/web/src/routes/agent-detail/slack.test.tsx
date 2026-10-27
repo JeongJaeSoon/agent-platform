@@ -462,10 +462,10 @@ describe("Slack management", () => {
     // An unused channel has no mention choice to make.
     expect(mention.getAttribute("aria-disabled")).toBe("true");
     await user.click(mention);
-    // Back in use, the channel starts from the default.
+    // Back in use, the channel waits for a mention whatever the default.
     await user.click(use);
     await waitFor(() => expect(use.getAttribute("aria-checked")).toBe("true"));
-    expect(puts()).toEqual(["mention", "off", "ambient"]);
+    expect(puts()).toEqual(["mention", "off", "mention"]);
   });
 
   test("changes home from the picker while preserving the channel mode and ceiling", async () => {

@@ -216,7 +216,7 @@ async function agentInSlack(
     /** The catalog the release is made against; the handler's stays as loaded. */
     releasedUnder?: (catalog: SessionCatalog) => SessionCatalog;
     activate?: boolean;
-    mode?: "mention" | "ambient";
+    mode?: "off" | "mention" | "ambient";
   } = {},
 ) {
   const workspaceId = randomUUID();
@@ -736,6 +736,10 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     // Someone not linked who did not ask the agent is not told anything.
     await deliver(fixture, message("300.000100", { user: "U0STRANGER" }));
     await deliver(fixture, message("400.000100", { bot_id: "B0OTHER" }));
+    await deliver(
+      fixture,
+      message("500.000100", { subtype: "message_changed" }),
+    );
     await drain(handle);
     expect((await links()).map((link) => link.threadId)).toEqual([
       "100.000100",
@@ -746,6 +750,15 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
       "and the next step",
       "and the next step",
     ]);
+    expect(notices).toEqual([]);
+  });
+
+  test("an unused channel takes no unmentioned post", async () => {
+    const fixture = await agentInSlack("general", { mode: "off" });
+    const { handle, notices } = handler();
+    await deliver(fixture, message("100.000100"));
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toEqual([]);
     expect(notices).toEqual([]);
   });
 

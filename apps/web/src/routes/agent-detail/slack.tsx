@@ -1004,11 +1004,9 @@ function SlackChannels({
                         checked={row.mode !== "off"}
                         aria-disabled={update.isPending}
                         onCheckedChange={(checked) =>
-                          // Switching a channel back on starts from the default.
-                          change(
-                            row,
-                            checked ? (defaultMode ?? "mention") : "off",
-                          )
+                          // Back in use, a channel waits for a mention until
+                          // someone chooses otherwise.
+                          change(row, checked ? "mention" : "off")
                         }
                       />
                     </span>
