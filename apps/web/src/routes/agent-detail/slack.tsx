@@ -795,11 +795,14 @@ function SlackChannels({
   agentId,
   invite,
   notify,
+  homeStep = false,
 }: {
   readonly agentId: string;
   /** The line to paste in a channel to add the bot. */
   readonly invite: string;
   readonly notify: Notify;
+  /** Installed with no home yet: only picking the home is offered. */
+  readonly homeStep?: boolean;
 }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
@@ -873,7 +876,9 @@ function SlackChannels({
   const error = bindings.error ?? channels.error ?? update.error;
   const connectChannel = (channelId: string) => {
     const row = rows.find((item) => item.external_surface_id === channelId);
-    const mode = row ? row.mode : defaultMode;
+    // The first home is always in use, even a channel someone switched off.
+    const mode =
+      row && !(homeStep && row.mode === "off") ? row.mode : defaultMode;
     if (!mode) return;
     update.mutate({
       kind: pickHome ? "home" : "connect",
@@ -906,12 +911,12 @@ function SlackChannels({
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 id={`${SECTION.channels}-title`} className={HEADING}>
-          {t("slack.connectedChannels")}
+          {t(homeStep ? "slack.homeStep" : "slack.connectedChannels")}
         </h2>
         <div className="flex flex-wrap justify-end gap-2">
           <Button
             type="button"
-            variant="outline"
+            variant={homeStep ? "default" : "outline"}
             size="sm"
             onClick={(event) => {
               pickerOpener.current = event.currentTarget;
@@ -919,23 +924,30 @@ function SlackChannels({
               setPicking(true);
             }}
           >
-            {t("slack.setHome")}
+            {t(homeStep ? "slack.pickHome" : "slack.setHome")}
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={(event) => {
-              pickerOpener.current = event.currentTarget;
-              setPickHome(false);
-              setPicking(true);
-            }}
-          >
-            <Plus aria-hidden="true" strokeWidth={1.5} />
-            {t("slack.addChannel")}
-          </Button>
+          {homeStep ? null : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={(event) => {
+                pickerOpener.current = event.currentTarget;
+                setPickHome(false);
+                setPicking(true);
+              }}
+            >
+              <Plus aria-hidden="true" strokeWidth={1.5} />
+              {t("slack.addChannel")}
+            </Button>
+          )}
         </div>
       </div>
+      {homeStep ? (
+        <p className="m-0 text-control text-muted-foreground">
+          {t("slack.homeStepHint")}
+        </p>
+      ) : null}
       <output
         aria-live="polite"
         className={notice ? "text-control" : "sr-only"}
@@ -947,7 +959,7 @@ function SlackChannels({
           <FieldError>{slackFailure(error, t)}</FieldError>
         </div>
       ) : null}
-      {bindings.isPending ? (
+      {homeStep ? null : bindings.isPending ? (
         <ChannelSkeleton />
       ) : bindings.isError && !bindings.data ? null : rows.length === 0 ? (
         <EmptyState
@@ -1337,10 +1349,21 @@ export default function SlackTab({
     });
   }, [justInstalled, notify, navigate, t]);
   const { app, identities } = useSlackState(agentId);
+  const bindings = useSlackBindings(agentId);
+  const installed =
+    identities.data?.items.some((item) => item.status === "active") ?? false;
+  // An installed agent picks its home before anything else in the tab.
+  const homeStep =
+    installed &&
+    bindings.isSuccess &&
+    !bindings.data.items.some((binding) => binding.home);
   // The danger zone exists only while there is an app to revoke or delete.
-  const keys: readonly SectionKey[] = app.data?.slack_app
-    ? ["channels", "basic", "advanced", "danger"]
-    : ["channels", "basic", "advanced"];
+  const keys: readonly SectionKey[] = [
+    "channels",
+    ...(homeStep ? [] : (["basic"] as const)),
+    "advanced",
+    ...(app.data?.slack_app ? (["danger"] as const) : []),
+  ];
   const [current, setCurrent] = useCurrentSection(
     keys.map((key) => SECTION[key]),
   );
@@ -1359,8 +1382,6 @@ export default function SlackTab({
     window.addEventListener("resize", leave);
     return () => window.removeEventListener("resize", leave);
   }, [fits, current]);
-  const installed =
-    identities.data?.items.some((item) => item.status === "active") ?? false;
   const [wasConnected, setWasConnected] = useState(installed);
   useEffect(() => {
     if (installed) setWasConnected(true);
@@ -1415,7 +1436,7 @@ export default function SlackTab({
           >
             <SideNavGroup>
               {link("channels")}
-              {link("basic")}
+              {homeStep ? null : link("basic")}
             </SideNavGroup>
             <SideNavGroup label={t("slack.manage")}>
               {link("advanced")}
@@ -1430,21 +1451,24 @@ export default function SlackTab({
             agentId={agentId}
             invite={`/invite @${slug}`}
             notify={notify}
+            homeStep={homeStep}
           />
-          <section
-            id={SECTION.basic}
-            tabIndex={-1}
-            className={SECTION_BOX}
-            aria-labelledby={`${SECTION.basic}-title`}
-          >
-            <h2 id={`${SECTION.basic}-title`} className={HEADING}>
-              {t("slack.basic")}
-            </h2>
-            <RowList variant="joined">
-              <SlackDmSetting agentId={agentId} />
-              <SlackDefaultReaction agentId={agentId} />
-            </RowList>
-          </section>
+          {homeStep ? null : (
+            <section
+              id={SECTION.basic}
+              tabIndex={-1}
+              className={SECTION_BOX}
+              aria-labelledby={`${SECTION.basic}-title`}
+            >
+              <h2 id={`${SECTION.basic}-title`} className={HEADING}>
+                {t("slack.basic")}
+              </h2>
+              <RowList variant="joined">
+                <SlackDmSetting agentId={agentId} />
+                <SlackDefaultReaction agentId={agentId} />
+              </RowList>
+            </section>
+          )}
           <SlackConnect
             agentId={agentId}
             active={active}

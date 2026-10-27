@@ -95,6 +95,10 @@ export const slackKo = {
   "slack.notConfigured": "설정 안 됨",
   "slack.home": "홈 채널",
   "slack.setHome": "홈 지정",
+  "slack.homeStep": "홈 채널 지정",
+  "slack.pickHome": "홈 채널 고르기",
+  "slack.homeStepHint":
+    "에이전트가 소개와 알림을 올릴 홈 채널을 먼저 고르세요. 고른 채널은 바로 사용으로 켜집니다. 비공개 채널은 채널에서 /invite로 봇을 초대해야 합니다.",
   "slack.channelHome": "{channel} 홈 지정",
   "slack.channelConnect": "{channel} 연결",
   "slack.connectedChannels": "연결된 채널",

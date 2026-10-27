@@ -88,6 +88,10 @@ export const slackEn = {
   "slack.notConfigured": "Not configured",
   "slack.home": "Home channel",
   "slack.setHome": "Set home",
+  "slack.homeStep": "Set a home channel",
+  "slack.pickHome": "Choose home channel",
+  "slack.homeStepHint":
+    "First choose the home channel where the agent posts its introduction and notices. The channel you choose is in use right away. For a private channel, invite the bot there with /invite.",
   "slack.channelHome": "Set home: {channel}",
   "slack.channelConnect": "Connect {channel}",
   "slack.connectedChannels": "Connected channels",
