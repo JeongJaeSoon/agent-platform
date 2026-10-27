@@ -46,7 +46,7 @@ Storybook과 Vitest CLI는 Node 20.19 이상에서 돈다. `test:stories`는 설
 - `apps/web/scripts/demo-record.ts`: 녹화기. 로그인 한 번 말고는 GET만 스택에 넘기고, 끝나면 로그아웃한다.
 - `apps/web/scripts/demo-scan.ts`: 공개 전 검사. 토큰·`example.test` 밖 이메일·내부 호스트·기계 이름을 찾는다.
 
-녹화 데이터(`fixtures.json`)는 데모 저장소에 있다. `apps/web/src/demo/fixtures.json`은 로그인 응답 하나만 든 자리표시이고, CI `demo` job은 이것으로 검사와 빌드만 확인한다. 데모 빌드는 `DEMO_FIXTURES=<파일>`이 있으면 그 파일을, 없으면 자리표시를 쓴다.
+녹화 데이터(`fixtures.json`)는 데모 저장소에 있다. `apps/web/src/demo/fixtures.json`은 로그인 응답 하나만 든 자리표시이고, CI `demo` job은 이것으로 검사와 빌드만 확인한다. 데모 빌드는 `DEMO_FIXTURES=<파일>`이 있으면 그 파일을, 없으면 자리표시를 쓴다. 상대 경로는 `apps/web` 기준이라 절대 경로로 준다.
 
 ### 다시 녹화하기
 

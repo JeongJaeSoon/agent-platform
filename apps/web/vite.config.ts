@@ -40,6 +40,8 @@ function demoEntry(): Plugin {
   const fixtures = process.env.DEMO_FIXTURES;
   return {
     name: "demo-entry",
+    // Ahead of Vite's own resolver, which would find the placeholder.
+    enforce: "pre",
     resolveId: (source, importer) =>
       fixtures &&
       source === "./fixtures.json" &&
