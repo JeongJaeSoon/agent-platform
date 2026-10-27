@@ -218,6 +218,33 @@ describe("useFollowEnd", () => {
     expect(queryByRole("button")).toBe(null);
   });
 
+  test("small steps up add up to leaving the end", () => {
+    const { getByTestId, rerender, queryByRole } = render(<List latest="" />);
+    const list = sized(getByTestId("list"), 400);
+    list.grow(1000);
+    rerender(<List latest="e5" />);
+    act(() => list.scrollTo(580, "wheel"));
+    list.move(560, "wheel");
+    list.grow(1300);
+    rerender(<List latest="e6" />);
+    expect(list.top).toBe(560);
+    expect(queryByRole("button")).not.toBe(null);
+  });
+
+  test("a list shrunk under the reader's hand is still at its end", () => {
+    const { getByTestId, rerender, queryByRole } = render(<List latest="" />);
+    const list = sized(getByTestId("list"), 400);
+    list.grow(1000);
+    rerender(<List latest="e5" />);
+    getByTestId("list").dispatchEvent(new Event("wheel"));
+    list.reflow({ height: 900 });
+    expect(list.top).toBe(500);
+    list.grow(1300);
+    rerender(<List latest="e6" />);
+    expect(list.top).toBe(900);
+    expect(queryByRole("button")).toBe(null);
+  });
+
   test("a scroll a frame after the resize is the reader's again", () => {
     const { getByTestId, rerender, queryByRole } = render(<List latest="" />);
     const list = sized(getByTestId("list"), 400);

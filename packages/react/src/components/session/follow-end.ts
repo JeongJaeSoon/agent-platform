@@ -28,6 +28,9 @@ export function useFollowEnd(scope: string, latest: string) {
   const seen = useRef({ scope, latest });
   // Where the list last stood, so a scroll can tell up from down.
   const lastTop = useRef(0);
+  // Where the end last was while the reader was at it. Steps that each stay
+  // within the slack add up against this, not against the last step.
+  const endTop = useRef(0);
   // The reader's last touch of the list, and whether a pointer is down on it.
   const input = useRef({ at: Number.NEGATIVE_INFINITY, held: false });
 
@@ -39,6 +42,7 @@ export function useFollowEnd(scope: string, latest: string) {
   const pin = useCallback((list: HTMLElement) => {
     list.scrollTop = list.scrollHeight;
     lastTop.current = list.scrollTop;
+    endTop.current = list.scrollTop;
   }, []);
 
   // Moves the list to its end if it still follows. The reader may have
@@ -46,10 +50,13 @@ export function useFollowEnd(scope: string, latest: string) {
   const follow = useCallback(
     (list: HTMLElement) => {
       if (!atEnd.current) return false;
-      // Measured from where it was pinned: what just arrived below is not
-      // distance the reader went.
+      // Measured from the end the reader was at, so what just arrived below
+      // is not distance they went; a list shrunk under them is still at its
+      // end, only clamped.
+      const end = list.scrollHeight - list.clientHeight;
       if (
-        lastTop.current - list.scrollTop > SLACK_PX &&
+        list.scrollTop < end - SLACK_PX &&
+        endTop.current - list.scrollTop > SLACK_PX &&
         moved(performance.now())
       ) {
         atEnd.current = false;
@@ -84,6 +91,7 @@ export function useFollowEnd(scope: string, latest: string) {
         element.scrollHeight - element.scrollTop - element.clientHeight;
       if (gap <= SLACK_PX) {
         atEnd.current = true;
+        endTop.current = element.scrollHeight - element.clientHeight;
         setBehind(false);
       } else if (resized && !moved(event.timeStamp)) {
         // A resize clamps the scroll, and its event lands a frame late,
