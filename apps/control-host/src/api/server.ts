@@ -21,6 +21,7 @@ import {
   createPostgresSessionControl,
   createPostgresSessionReader,
   createPostgresSessionShareStore,
+  createPostgresSessionTitleStore,
   createPostgresSessionUnitOfWork,
   createPostgresSlackAppStore,
   createPostgresSlackConfigTokenStore,
@@ -62,6 +63,7 @@ import {
   createSessionOutputService,
   createSessionService,
   createSessionShareService,
+  createSessionTitler,
   createSlackAppService,
   createSlackBotApi,
   createSlackChannelJoiner,
@@ -124,6 +126,7 @@ import {
 import {
   createEgressAuthorizer,
   egressAuthorizerConfigFromEnv,
+  sessionTitleEgressUrlFromEnv,
 } from "./egress-authorizer.ts";
 import { forgesOf } from "./forge-github.ts";
 import { createGitPusher } from "./git-push.ts";
@@ -595,6 +598,14 @@ const interrupts = createInterruptService({
   store: createPostgresTurnInterrupts(db, { logger }),
 });
 const shutdown = createShutdown({ logger });
+const titleEgressUrl = sessionTitleEgressUrlFromEnv(process.env);
+const titleStore = createPostgresSessionTitleStore(db);
+if (titleEgressUrl === null) {
+  logger.info(
+    "Generated session titles are off (SESSION_TITLE_EGRESS_URL unset)",
+    {},
+  );
+}
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db, { logger }),
   catalog,
@@ -612,6 +623,26 @@ const workers = createWorkerGateway({
     logger.error("MCP refusal receipt not recorded", {
       error: error instanceof Error ? error.name : "error",
     }),
+  ...(titleEgressUrl === null
+    ? {}
+    : {
+        titles: {
+          store: titleStore,
+          titler: createSessionTitler({
+            store: titleStore,
+            catalog,
+            egressUrl: titleEgressUrl,
+            onError: (error, context) =>
+              logger.warn(
+                "Session title not generated; the derived one stays",
+                {
+                  session_id: context.sessionId,
+                  error: error instanceof Error ? error.message : "error",
+                },
+              ),
+          }),
+        },
+      }),
   options: {
     sessionCostLimitUsd: limits.sessionCostLimitUsd,
     sessionTokenLimit: limits.sessionTokenLimit,

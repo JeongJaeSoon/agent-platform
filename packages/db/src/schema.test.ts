@@ -99,6 +99,7 @@ describe("database schema", () => {
       "session_pre_metering_cost",
       "session_share_targets",
       "session_shares",
+      "session_title_requests",
       "sessions",
       "slack_apps",
       "slack_config_tokens",

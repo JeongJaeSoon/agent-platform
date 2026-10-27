@@ -140,6 +140,23 @@ const usageReportSchema = z
   })
   .strict();
 
+/**
+ * The egress proxy's credential listener, where the API sends a session's
+ * title call so the proxy meters it like the engine's own. Unset, every
+ * session keeps the title cut from its first message.
+ */
+export function sessionTitleEgressUrlFromEnv(
+  env: Record<string, string | undefined>,
+): string | null {
+  const value = env.SESSION_TITLE_EGRESS_URL;
+  if (value === undefined || value === "") return null;
+  const url = URL.parse(value);
+  if (url === null || (url.protocol !== "http:" && url.protocol !== "https:")) {
+    throw new Error(`SESSION_TITLE_EGRESS_URL ${value} is not an http(s) URL`);
+  }
+  return url.href;
+}
+
 /** The body, or null the moment it passes `max`: the rest is never read. */
 async function readAtMost(
   request: Request,
