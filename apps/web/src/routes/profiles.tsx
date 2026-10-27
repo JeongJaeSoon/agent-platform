@@ -414,7 +414,7 @@ function VersionRow({
                     aria-expanded={older.expanded}
                     onClick={older.onToggle}
                     className={cn(
-                      "inline-flex items-center gap-0.5 rounded-control align-bottom hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
+                      "inline-flex items-center gap-0.5 whitespace-nowrap rounded-control align-bottom hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
                       META,
                     )}
                   >
