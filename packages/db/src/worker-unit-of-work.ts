@@ -42,7 +42,6 @@ import {
   payloadHash,
   type ReadyInput,
   type ReadyResult,
-  type RegisterLaunchInput,
   type ReleaseInput,
   type ReleaseResult,
   type RepositoryPair,
@@ -55,6 +54,7 @@ import {
   TRANSCRIPT_LIMITS,
   transcriptLimitReachedEvent,
   transcriptWarnBytes,
+  WORKSPACE_PROFILE_PREFIX,
   type WorkerBinding,
   type WorkerFence,
   type WorkerUnitOfWork,
@@ -878,7 +878,11 @@ async function giveUpOnCatalogMismatch(
   sessionId: string,
   input: Pick<
     ClaimInput,
-    "runnable" | "catalogRevision" | "costLimitUsd" | "tokenLimit"
+    | "runnable"
+    | "catalogRevision"
+    | "workspaceProfileIds"
+    | "costLimitUsd"
+    | "tokenLimit"
   >,
   now: Date,
 ): Promise<"catalog_mismatch" | "context_gap" | null> {
@@ -897,7 +901,9 @@ async function giveUpOnCatalogMismatch(
     // Reserved for this launch and no later one.
     session.executionId !== launch.executionId ||
     budgetExceeded(session, budgetOf(input)) ||
-    runnablePairOf(session, runnable) !== undefined
+    runnablePairOf(session, runnable) !== undefined ||
+    (session.profileId?.startsWith(WORKSPACE_PROFILE_PREFIX) === true &&
+      !input.workspaceProfileIds.has(session.profileId))
   ) {
     return null;
   }
@@ -1177,23 +1183,6 @@ export function createPostgresWorkerUnitOfWork(
   options: { logger?: StructuredLogger } = {},
 ): WorkerUnitOfWork {
   return {
-    async registerLaunchAtomic(input: RegisterLaunchInput) {
-      const inserted = await db
-        .insert(workerLaunches)
-        .values({
-          executionId: input.executionId,
-          generation: input.generation,
-          partition: input.partition,
-          sessionId: input.sessionId,
-          backend: input.backend,
-          nonceHash: input.nonceHash,
-          nonceExpiresAt: fromDbNow(input.nonceTtlMs),
-        })
-        .onConflictDoNothing({ target: workerLaunches.executionId })
-        .returning({ executionId: workerLaunches.executionId });
-      return { outcome: inserted.length === 1 ? "registered" : "exists" };
-    },
-
     claimAtomic(input: ClaimInput): Promise<ClaimResult> {
       return db.transaction(async (tx) => {
         const [launch] = await tx
@@ -1843,6 +1832,10 @@ export function createPostgresWorkerUnitOfWork(
     heartbeatAtomic(input: HeartbeatInput): Promise<HeartbeatResult> {
       const { fence, now } = input;
       return db.transaction(async (tx) => {
+        // A beat stuck behind another transaction's session row would spend
+        // the worker's whole lease budget waiting; failing fast lets it send
+        // the next beat while a renewal can still land.
+        await tx.execute(sql`SET LOCAL lock_timeout = '2s'`);
         const fenced = await acquireFence(tx, fence);
         if (fenced.outcome !== "ok") return fenced;
         const reported = ATTEMPT_PHASE_ORDER[input.attemptState] ?? -1;
@@ -2717,7 +2710,11 @@ export function createPostgresWorkerUnitOfWork(
         }
         const open = await tx
           .update(attempts)
-          .set({ state: "lost", endedAt: now, endReason: "execution_gone" })
+          .set({
+            state: "lost",
+            endedAt: now,
+            endReason: input.endReason ?? "execution_gone",
+          })
           .where(
             and(
               eq(attempts.executionId, executionId),
@@ -3147,21 +3144,6 @@ export function createPostgresWorkerUnitOfWork(
         }
         return result;
       });
-    },
-
-    async countReservedSlots(partition?: string): Promise<number> {
-      const [row] = await db
-        .select({ reserved: count() })
-        .from(workerLaunches)
-        .where(
-          and(
-            isNull(workerLaunches.slotReleasedAt),
-            partition === undefined
-              ? undefined
-              : eq(workerLaunches.partition, partition),
-          ),
-        );
-      return row?.reserved ?? 0;
     },
   };
 }

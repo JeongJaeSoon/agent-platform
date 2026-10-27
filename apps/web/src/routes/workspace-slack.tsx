@@ -1,5 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
+import {
+  type ApiClient,
+  type ApiError,
+  isApiError,
+  unwrap,
+} from "@werft-ai/client";
 import type {
   PutSlackConfigTokenResponse,
   SlackConfigTokenSummary,
@@ -29,6 +34,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { scopedKey } from "../api/queries.ts";
 import {
   permissionReason,
   refusalText,
@@ -50,8 +56,8 @@ import {
 // Row buttons share one width down the right edge.
 const ACTION = "min-w-12";
 
-const tokenKey = (workspaceId: string) =>
-  ["workspace", workspaceId, "slack-config-token"] as const;
+const tokenKey = (client: ApiClient, workspaceId: string) =>
+  scopedKey(client, "workspace", workspaceId, "slack-config-token");
 
 /** Workspace › Slack: who may use agents from Slack, and the app-making token. */
 export function WorkspaceSlackScreen() {
@@ -101,7 +107,7 @@ function ConfigToken({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   }, [editing]);
 
   const token = useQuery({
-    queryKey: tokenKey(workspaceId),
+    queryKey: tokenKey(client, workspaceId),
     queryFn: () =>
       unwrap(
         client.GET("/v1/workspaces/{id}/slack/config-token", {
@@ -112,7 +118,7 @@ function ConfigToken({ onOutcome }: { readonly onOutcome: OnOutcome }) {
     retry: (failures, error) => !storeOff(error) && failures < 3,
   });
   const refresh = () =>
-    queryClient.invalidateQueries({ queryKey: tokenKey(workspaceId) });
+    queryClient.invalidateQueries({ queryKey: tokenKey(client, workspaceId) });
   const refused = (error: ApiError) =>
     onOutcome({
       kind: "error",

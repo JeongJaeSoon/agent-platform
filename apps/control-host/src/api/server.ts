@@ -35,6 +35,7 @@ import {
   createPostgresWorkerPendingStore,
   createPostgresWorkerUnitOfWork,
   createPostgresWorkspaceKeyStore,
+  createPostgresWorkspaceProfileStore,
   hasUncollectedCheckpoint,
   slackAppKind,
 } from "@werft-ai/db";
@@ -79,12 +80,15 @@ import {
   createTeamService,
   createUsageService,
   createWorkerGateway,
+  createWorkspaceProfileService,
+  createWorkspaceProfiles,
   fingerprintModel,
   forgettingChannelsOnBindingPut,
   InstallationConfigError,
   installationLimitsFromEnv,
   resolveAgentRelease,
   SessionServiceError,
+  WORKSPACE_PROFILE_REFRESH_MS,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
@@ -256,6 +260,20 @@ if (checkpointStorage !== "disabled") {
 
 const pool = createApiPool(databaseUrl, logger);
 const db = drizzle(pool, { schema });
+const workspaceProfileStore = createPostgresWorkspaceProfileStore(db);
+const workspaceProfileVersions = createWorkspaceProfiles(workspaceProfileStore);
+catalog.workspace_profiles = workspaceProfileVersions;
+const refreshWorkspaceProfiles = (): void => {
+  workspaceProfileVersions
+    .refresh(WORKSPACE_PROFILE_REFRESH_MS)
+    .catch((error: unknown) => {
+      logger.warn("Workspace profiles could not be read; retrying", {
+        error_name: error instanceof Error ? error.name : typeof error,
+      });
+    });
+};
+refreshWorkspaceProfiles();
+setInterval(refreshWorkspaceProfiles, WORKSPACE_PROFILE_REFRESH_MS).unref();
 // Not awaited: the API starts without its database, and a version 1
 // fingerprint names its model, so nothing waits on the column being filled.
 const MODEL_BACKFILL_RETRY_MS = 30_000;
@@ -536,6 +554,11 @@ const teams = createTeamService({
   authorization,
   store: createPostgresTeamStore(db),
 });
+const workspaceProfiles = createWorkspaceProfileService({
+  authorization,
+  store: workspaceProfileStore,
+  catalog: { ...catalog, workspace_profiles: workspaceProfileVersions },
+});
 const agentAdmins = createAgentAdminService({
   authorization,
   store: createPostgresAgentAdminStore(db),
@@ -696,7 +719,7 @@ const app = createApiApp({
     registerCloseRoutes(router, sessions);
     registerReceiptRoutes(router, sessions);
     registerUsageRoutes(router, usage);
-    registerProfileRoutes(router, catalog);
+    registerProfileRoutes(router, workspaceProfiles);
     registerPendingRoutes(router, pendingRequests);
     registerPushRequestRoutes(router, pushRequests);
     registerPullRequestRoutes(router, pullRequests);

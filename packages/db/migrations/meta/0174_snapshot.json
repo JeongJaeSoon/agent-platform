@@ -1,5 +1,5 @@
 {
-  "id": "f4fd48f9-c4ef-4204-8039-445ba18e02e8",
+  "id": "50cd3ddd-63fb-4f44-b929-74d5b35e7e80",
   "prevId": "4945e749-7c7e-436f-84a2-df4c50051af1",
   "version": "7",
   "dialect": "postgresql",
@@ -575,12 +575,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "repository_id": {
-          "name": "repository_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "profile_digest": {
           "name": "profile_digest",
@@ -8418,6 +8412,181 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.workspace_profiles": {
+      "name": "workspace_profiles",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "base_profile_id": {
+          "name": "base_profile_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "base_fingerprint": {
+          "name": "base_fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "base_runtime_version": {
+          "name": "base_runtime_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "base_billing": {
+          "name": "base_billing",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "base_repository_mode": {
+          "name": "base_repository_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "models": {
+          "name": "models",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tools": {
+          "name": "tools",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "permission_mode": {
+          "name": "permission_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "retired_at": {
+          "name": "retired_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "retired_by": {
+          "name": "retired_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "workspace_profiles_workspace_id_workspaces_id_fk": {
+          "name": "workspace_profiles_workspace_id_workspaces_id_fk",
+          "tableFrom": "workspace_profiles",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "workspace_profiles_created_by_users_id_fk": {
+          "name": "workspace_profiles_created_by_users_id_fk",
+          "tableFrom": "workspace_profiles",
+          "tableTo": "users",
+          "columnsFrom": ["created_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "workspace_profiles_retired_by_users_id_fk": {
+          "name": "workspace_profiles_retired_by_users_id_fk",
+          "tableFrom": "workspace_profiles",
+          "tableTo": "users",
+          "columnsFrom": ["retired_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "workspace_profiles_version_key": {
+          "name": "workspace_profiles_version_key",
+          "nullsNotDistinct": false,
+          "columns": ["workspace_id", "name", "version"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "workspace_profiles_id_check": {
+          "name": "workspace_profiles_id_check",
+          "value": "\"workspace_profiles\".\"id\" LIKE 'ws\\_%'"
+        },
+        "workspace_profiles_version_check": {
+          "name": "workspace_profiles_version_check",
+          "value": "\"workspace_profiles\".\"version\" >= 1"
+        },
+        "workspace_profiles_permission_mode_check": {
+          "name": "workspace_profiles_permission_mode_check",
+          "value": "\"workspace_profiles\".\"permission_mode\" IN ('default','acceptEdits','dontAsk','plan','bypassPermissions','auto')"
+        },
+        "workspace_profiles_base_billing_check": {
+          "name": "workspace_profiles_base_billing_check",
+          "value": "\"workspace_profiles\".\"base_billing\" IN ('metered', 'none')"
+        },
+        "workspace_profiles_base_repository_mode_check": {
+          "name": "workspace_profiles_base_repository_mode_check",
+          "value": "\"workspace_profiles\".\"base_repository_mode\" IN ('required', 'optional', 'none')"
+        },
+        "workspace_profiles_retired_check": {
+          "name": "workspace_profiles_retired_check",
+          "value": "(\"workspace_profiles\".\"retired_at\" IS NULL) = (\"workspace_profiles\".\"retired_by\" IS NULL)"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.workspaces": {

@@ -16,7 +16,12 @@ export {
   myTeamsQuery,
   pendingRequestsQuery,
   profilesQuery,
+  type QueryScope,
   queryKeys,
+  queryKeysOf,
+  queryScopeFilter,
+  queryScopeOf,
+  scopedKey,
   sessionQuery,
   sessionsQuery,
   sessionTurnsQuery,
@@ -28,4 +33,5 @@ export {
   viewerQuery,
   waitingSessionsByQuery,
   waitingSessionsQuery,
+  withQueryScope,
 } from "./queries.ts";

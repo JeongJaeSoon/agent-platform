@@ -128,7 +128,7 @@ function refreshSession(
           ...waitingSessionsQuery(client),
           exact: true,
         });
-        void queryClient.invalidateQueries(agentSessionListsFilter);
+        void queryClient.invalidateQueries(agentSessionListsFilter(client));
         break;
       case "detail":
         void queryClient.invalidateQueries({

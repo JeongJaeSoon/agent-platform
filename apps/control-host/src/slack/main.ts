@@ -19,6 +19,7 @@ import {
   createPostgresSlackInboundEventStore,
   createPostgresSlackOutboxStore,
   createPostgresSurfaceBindingStore,
+  createPostgresWorkspaceProfileStore,
   type Database,
 } from "@werft-ai/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
@@ -37,6 +38,7 @@ import {
   createSlackMemberJoinedHandler,
   createSlackSessionHandler,
   createSlackWelcome,
+  createWorkspaceProfiles,
   drainSlackInbox,
   drainSlackOutbox,
   installationLimitsFromEnv,
@@ -49,6 +51,7 @@ import {
   type SlackNoticeSink,
   sessionCatalogView,
   slackBotToken,
+  WORKSPACE_PROFILE_REFRESH_MS,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { Pool } from "pg";
@@ -131,7 +134,21 @@ export function slackSessionHandler(deps: {
   inbox?: Pick<SlackInboundEventStore, "renew">;
 }): SlackInboundHandler {
   const { db, environment, logger } = deps;
-  const catalog = sessionCatalogView(deps.catalog);
+  const catalog = {
+    ...sessionCatalogView(deps.catalog),
+    workspace_profiles: createWorkspaceProfiles(
+      createPostgresWorkspaceProfileStore(db),
+    ),
+  };
+  setInterval(() => {
+    catalog.workspace_profiles
+      .refresh(WORKSPACE_PROFILE_REFRESH_MS)
+      .catch((error: unknown) => {
+        logger.warn("Workspace profiles could not be read; retrying", {
+          error_name: error instanceof Error ? error.name : typeof error,
+        });
+      });
+  }, WORKSPACE_PROFILE_REFRESH_MS).unref();
   const credentials = createPostgresCredentialBindingStore(db);
   const authorization = createAuthorizationPolicy({
     identity: createDatabaseIdentityReader(db),

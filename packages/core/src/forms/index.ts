@@ -55,7 +55,6 @@ export const acceptInviteStep = z.object({
 const agentCardDraftSchema = z.object({
   role: z.string(),
   instructions: z.string(),
-  tone: z.string(),
   language: agentCardSchema.shape.language.unwrap(),
   model: z.string(),
   /** `all` = whatever the runtime profile allows (`tools: null`). */
@@ -76,18 +75,14 @@ const splitList = (text: string) =>
  * The card step. An edit passes the card it started from: the result keeps
  * every field the form has no input for (rules, tool_policy,
  * credential_refs, anything added later) instead of the contract's defaults.
- * A tone left empty is removed, as clearing it in the form means.
  */
 export function agentCardStep(base?: AgentCard) {
   return agentCardDraftSchema
     .transform((draft): z.input<typeof agentCardSchema> => {
-      const { tone: _cleared, ...kept } = base ?? {};
-      const tone = draft.tone.trim();
       return {
-        ...kept,
+        ...base,
         role: draft.role.trim(),
         instructions: draft.instructions.trim(),
-        ...(tone ? { tone } : {}),
         language: draft.language,
         model: draft.model.trim(),
         capabilities: {

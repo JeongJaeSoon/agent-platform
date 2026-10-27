@@ -5,10 +5,10 @@ import {
   linkedAccountSchema,
 } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
-import { queryKeys } from "../api/queries.ts";
 import {
   apiError,
   json,
+  keys,
   me,
   RECEIPT_ID,
   USER_ID,
@@ -152,7 +152,7 @@ describe("연동 계정", () => {
     start.focus();
     items = [slack];
     await services.queryClient.invalidateQueries({
-      queryKey: queryKeys.linkedAccounts,
+      queryKey: keys.linkedAccounts,
     });
     await waitFor(() =>
       expect(
@@ -467,7 +467,7 @@ describe("연동 계정", () => {
     screen.getAllByRole("button", { name: "연결 해제" })[0]?.focus();
     await user.keyboard("{Enter}");
     await services.queryClient.invalidateQueries({
-      queryKey: queryKeys.linkedAccounts,
+      queryKey: keys.linkedAccounts,
     });
     await waitFor(() =>
       expect(

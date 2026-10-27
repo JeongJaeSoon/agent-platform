@@ -5,14 +5,11 @@ import type {
   ReleaseResponse,
 } from "@werft-ai/contracts";
 import {
-  claudeContractRun,
   FakeAgentRuntime,
   type FakeStep,
-} from "@werft-ai/runtime-claude";
-import {
   type NativeSdkMessage,
-  WorkerGatewayRequestError,
-} from "@werft-ai/runtime-core";
+} from "@werft-ai/runtime-claude/testing";
+import { WorkerGatewayRequestError } from "@werft-ai/runtime-core";
 
 import type { WorkerCheckpointPort } from "./checkpoint.ts";
 import { engineProfile } from "./composition.ts";
@@ -97,24 +94,19 @@ function harness(
   const runtimes: RuntimeRegistry = {
     launcherFor: () => ({
       start: ({ runtimeConfig, principal, ...launch }) =>
-        claudeContractRun((hooks) =>
-          runtime.start(
-            {
-              claudeConfigDir: "/tmp/fake/config",
-              cwd: "/tmp/fake/workspace",
-              home: "/tmp/fake/home",
-              model: runtimeConfig.model,
-              profile: engineProfile(
-                runtimeConfig.provider,
-                principal.owner_scope,
-                "http://egress-proxy.test:3129",
-              ),
-              tools: runtimeConfig.tools,
-              ...launch,
-            },
-            hooks,
+        runtime.run({
+          claudeConfigDir: "/tmp/fake/config",
+          cwd: "/tmp/fake/workspace",
+          home: "/tmp/fake/home",
+          model: runtimeConfig.model,
+          profile: engineProfile(
+            runtimeConfig.provider,
+            principal.owner_scope,
+            "http://egress-proxy.test:3129",
           ),
-        ),
+          tools: runtimeConfig.tools,
+          ...launch,
+        }),
     }),
   };
   const host = new WorkerHost({

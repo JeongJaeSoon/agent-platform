@@ -52,7 +52,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import {
   firstMembersQuery,
   invitesQuery,
-  queryKeys,
+  queryKeysOf,
   teamsQuery,
 } from "../api/queries.ts";
 import {
@@ -427,13 +427,17 @@ function MemberTable({
 
   const settle = async (text: string) => {
     onOutcome({ kind: "notice", text });
-    await queryClient.invalidateQueries({ queryKey: queryKeys.members });
+    await queryClient.invalidateQueries({
+      queryKey: queryKeysOf(client).members,
+    });
   };
   const fail = (error: ApiError, action: MemberAction) => {
     onOutcome({ kind: "error", text: refusal(t, error, role, action) });
     // A refusal means the rows' verdicts were stale: read them again.
     if (error.status === 403 || error.status === 409) {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.members });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeysOf(client).members,
+      });
     }
   };
 
@@ -840,7 +844,9 @@ function InviteList({
         kind: "notice",
         text: t("members.invites.revoked", { email: invite.email }),
       });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.invites });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeysOf(client).invites,
+      });
     },
     onError: (error) =>
       onOutcome({ kind: "error", text: refusal(t, error, role) }),

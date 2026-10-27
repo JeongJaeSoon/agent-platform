@@ -3,8 +3,13 @@ import type {
   AgentInput,
   CheckpointLeaseGrant,
   CheckpointPreparation,
-  NativeSdkMessage,
 } from "@werft-ai/runtime-core";
+
+/** A message as the Claude Agent SDK emits it; nothing outside this adapter reads one. */
+export type NativeSdkMessage = {
+  [key: string]: unknown;
+  type: string;
+};
 
 export type NativeEnvelope = {
   correlation_id: string;

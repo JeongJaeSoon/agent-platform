@@ -1,3 +1,4 @@
+export { type QueryScope, queryScopeOf } from "@werft-ai/core";
 export {
   type FormMessageKey,
   type IssueFacts,
@@ -51,6 +52,7 @@ export {
   AgentPlatformProvider,
   type AgentPlatformProviderProps,
   type LinkTarget,
+  QueryScopeProvider,
   type RenderLink,
   useAgentPlatform,
 } from "./provider.tsx";

@@ -11,14 +11,13 @@ import {
   type WorkspaceDescriptor,
 } from "@werft-ai/contracts";
 import {
-  claudeContractRun,
   FakeAgentRuntime,
   type FakeStep,
-} from "@werft-ai/runtime-claude";
+  type NativeSdkMessage,
+} from "@werft-ai/runtime-claude/testing";
 import {
   type AgentRun,
   type CheckpointPreparation,
-  type NativeSdkMessage,
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
 
@@ -120,24 +119,19 @@ function harness(
         claudeMds.push(launch.committedClaudeMd());
         const wrap = overrides.wrap ?? ((run: AgentRun) => run);
         return wrap(
-          claudeContractRun((hooks) =>
-            runtime.start(
-              {
-                claudeConfigDir: "/tmp/fake/config",
-                cwd: "/tmp/fake/workspace",
-                home: "/tmp/fake/home",
-                model: runtimeConfig.model,
-                profile: engineProfile(
-                  runtimeConfig.provider,
-                  principal.owner_scope,
-                  "http://egress-proxy.test:3129",
-                ),
-                tools: runtimeConfig.tools,
-                ...launch,
-              },
-              hooks,
+          runtime.run({
+            claudeConfigDir: "/tmp/fake/config",
+            cwd: "/tmp/fake/workspace",
+            home: "/tmp/fake/home",
+            model: runtimeConfig.model,
+            profile: engineProfile(
+              runtimeConfig.provider,
+              principal.owner_scope,
+              "http://egress-proxy.test:3129",
             ),
-          ),
+            tools: runtimeConfig.tools,
+            ...launch,
+          }),
         );
       },
     }),
@@ -3887,13 +3881,6 @@ describe("secrets in what the engine prints", () => {
 describe("frameTurn", () => {
   const ours = "input-2";
   const before = "input-1";
-  const frame = (
-    message: Record<string, unknown>,
-    inputs?: string[],
-  ): Parameters<typeof frameTurn>[0] => ({
-    message: { type: "assistant", ...message },
-    ...(inputs === undefined ? {} : { inputs }),
-  });
   const turn = (entered: boolean, closed = false) => ({
     closed,
     entered,
@@ -3903,70 +3890,48 @@ describe("frameTurn", () => {
 
   test.each([
     [
-      "the input's queued lifecycle enters the turn",
-      frame({ type: "command_lifecycle", command_uuid: ours, state: "queued" }),
-      turn(false),
-      { entered: true, turnId: "2" },
-    ],
-    [
-      "a reply stamped with the input enters it",
-      frame({ user_message_uuid: ours }),
+      "an event naming the input enters the turn",
+      [ours],
       turn(false),
       { entered: true, turnId: "2" },
     ],
     [
       "a batch naming the input among others enters it",
-      frame({ user_message_uuids: [before, ours] }),
+      [before, ours],
       turn(false),
       { entered: true, turnId: "2" },
     ],
     [
-      "an unnamed frame before the input is named stays out",
-      frame({}),
+      "an unnamed event before the input is named stays out",
+      [],
       turn(false),
       { entered: false, turnId: null },
     ],
     [
-      "an unnamed frame once it is named is the turn's",
-      frame({}),
+      "an unnamed event once it is named is the turn's",
+      [],
       turn(true),
       { entered: true, turnId: "2" },
     ],
     [
-      "the previous input's completed lifecycle stays out, entered or not",
-      frame({
-        type: "command_lifecycle",
-        command_uuid: before,
-        state: "completed",
-      }),
+      "an event for the previous input stays out, entered or not",
+      [before],
       turn(true),
       { entered: true, turnId: null },
     ],
     [
-      "a result for the previous input stays out",
-      frame({ type: "result", user_message_uuid: before }),
-      turn(true),
-      { entered: true, turnId: null },
-    ],
-    [
-      "the runtime's word counts when the message names nothing",
-      frame({}, [ours]),
-      turn(false),
-      { entered: true, turnId: "2" },
-    ],
-    [
-      "the message's own names win over the runtime's",
-      frame({ user_message_uuid: before }, [ours]),
+      "an event for the previous input does not enter the turn",
+      [before],
       turn(false),
       { entered: false, turnId: null },
     ],
     [
       "nothing is the turn's past its terminal",
-      frame({ user_message_uuid: ours }),
+      [ours],
       turn(true, true),
       { entered: true, turnId: null },
     ],
-  ] as const)("%s", (_, given, current, expected) => {
-    expect(frameTurn(given, current)).toEqual(expected);
+  ] as const)("%s", (_, inputs, current, expected) => {
+    expect(frameTurn(inputs, current)).toEqual(expected);
   });
 });

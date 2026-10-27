@@ -20,11 +20,14 @@ import type { CredentialBindingStore } from "../ports/credential-binding-store.t
 import {
   allowedRun,
   type CatalogProfile,
+  catalogProfile,
   profileModels,
   profilePinned,
+  refreshWorkspaceProfilesFor,
   repositoryModeOf,
   type SessionCatalog,
   type SessionCatalogView,
+  workspaceProfileRefusal,
 } from "../sessions/catalog.ts";
 import {
   requirePermitted,
@@ -46,7 +49,7 @@ import {
 export async function resolveAgentRelease(
   deps: {
     store: Pick<AgentStore, "findRelease">;
-    catalog: Pick<SessionCatalogView, "profiles">;
+    catalog: Pick<SessionCatalogView, "profiles" | "workspace_profiles">;
   },
   workspaceId: string,
   releaseId: string,
@@ -54,14 +57,18 @@ export async function resolveAgentRelease(
   const release = await deps.store.findRelease(workspaceId, releaseId);
   if (!release) throw NOT_FOUND();
   assertReleaseIdentity(release);
-  const { profiles } = deps.catalog;
-  const profile = Object.hasOwn(profiles, release.runtime_profile_id)
-    ? profiles[release.runtime_profile_id]
-    : undefined;
+  const profileId = release.runtime_profile_id;
+  await refreshWorkspaceProfilesFor(deps.catalog, [profileId]);
+  const profile =
+    workspaceProfileRefusal(deps.catalog, workspaceId, profileId, {
+      retiredAllowed: true,
+    }) === null
+      ? catalogProfile(deps.catalog, profileId)
+      : undefined;
   if (!profile) {
     throw new SessionServiceError(
       "PROFILE_DIGEST_MISMATCH",
-      `Runtime profile ${release.runtime_profile_id} of this release is not in this host's catalog; release the version again under a profile the catalog has`,
+      `Runtime profile ${profileId} of this release is not in this host's catalog; release the version again under a profile the catalog has`,
     );
   }
   const model = releaseModel(release);
@@ -249,9 +256,21 @@ export function createAgentService(deps: {
       );
       if (!version) throw NOT_FOUND();
       const profileId = request.runtime_profile_id;
-      const profile = Object.hasOwn(catalog.profiles, profileId)
-        ? catalog.profiles[profileId]
-        : undefined;
+      await refreshWorkspaceProfilesFor(catalog, [profileId], { strict: true });
+      const workspaceRefusal = workspaceProfileRefusal(
+        catalog,
+        caller.ownerId,
+        profileId,
+      );
+      if (workspaceRefusal !== null) {
+        throw new SessionServiceError(
+          "UNSUPPORTED_CAPABILITY",
+          workspaceRefusal.message,
+          undefined,
+          { reason_code: workspaceRefusal.state },
+        );
+      }
+      const profile = catalogProfile(catalog, profileId);
       if (!profile) {
         throw new SessionServiceError(
           "UNSUPPORTED_CAPABILITY",
@@ -296,6 +315,7 @@ export function createAgentService(deps: {
           id: deriveReleaseId(identity),
           version_id: version.id,
           created_by: userId,
+          note: request.note ?? null,
           ...identity,
         },
       });

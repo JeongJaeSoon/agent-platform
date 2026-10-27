@@ -14,12 +14,12 @@ import {
 } from "@werft-ai/contracts";
 import { avatarTone } from "@werft-ai/ui";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
-import { queryKeys } from "../api/queries.ts";
 import { type Locale, translate } from "../i18n/i18n.tsx";
 import { AGENT_ID, agentServer, CARD } from "../test-support/fake-agents.ts";
 import {
   apiError,
   json,
+  keys,
   me,
   memberMe,
   USER_ID,
@@ -379,6 +379,7 @@ describe("에이전트 카드", () => {
       created_at: "2026-10-11T01:00:00.000Z",
       approved_by: null,
       approved_at: null,
+      note: null,
     };
     const agent = { ...base.agent, active_release_id: release.id };
     const detail = agentDetailSchema.parse({
@@ -968,6 +969,31 @@ describe("새 에이전트", () => {
     ).toBe(DETAIL);
   });
 
+  test("이 탭에서 다른 사람이 로그인하면 앞사람이 적던 흐름을 이어 보이지 않고 처음부터 연다", async () => {
+    const MATE_ID = "7e8f9a0b-1c2d-4e3f-8a4b-5c6d7e8f9a0b";
+    const mate = {
+      ...me(),
+      principal: { ...me().principal, id: MATE_ID },
+      user: { id: MATE_ID, email: "mate@example.com", display_name: "Mate" },
+    };
+    let who: "owner" | "mate" = "owner";
+    const { services } = renderAt("/agents/new", {
+      ...agentServer().routes,
+      "GET /v1/auth/me": () => json(200, who === "owner" ? me() : mate),
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    who = "mate";
+    await services.queryClient.refetchQueries({ queryKey: ["me"] });
+    await screen.findByRole("button", { name: /^Mate · / });
+    const name = (await screen.findByLabelText("이름")) as HTMLInputElement;
+    expect(currentStep()).toBe("1이름");
+    expect(name.value).toBe("");
+    expect((screen.getByLabelText("식별자") as HTMLInputElement).value).toBe(
+      "",
+    );
+  });
+
   test("식별자는 이름에서 채워지고, 고친 뒤에는 이름을 따라가지 않는다", async () => {
     renderAt("/agents/new", { ...meOk, ...agentServer().routes });
     const user = await setupUser();
@@ -1042,7 +1068,7 @@ describe("새 에이전트", () => {
     expect(stateOf(link)?.textContent).toBe("초안");
   });
 
-  test("초안을 다시 저장해도 다른 곳에서 넣은 말투는 글자 그대로 남는다", async () => {
+  test("초안을 다시 저장해도 다른 곳에서 넣은 규칙은 그대로 남는다", async () => {
     const server = agentServer();
     const { api, history } = renderAt("/agents/new", {
       ...meOk,
@@ -1053,11 +1079,14 @@ describe("새 에이전트", () => {
     await fillJob(user);
     await atStep("배포 판");
     const first = server.versions[0] as (typeof server.versions)[number];
+    const rules = [
+      { id: "r1", text: " 환불은 사람에게 넘긴다 ", source: "user" as const },
+    ];
     server.versions.push({
       ...first,
       id: "7e8f9a0b-1c2d-4e3f-8a4b-5c6d7e8f9a0b",
       version_no: 2,
-      card: { ...first.card, tone: " 공손하게 " },
+      card: { ...first.card, rules },
     });
 
     act(() => history.back());
@@ -1068,8 +1097,8 @@ describe("새 에이전트", () => {
     );
     await atStep("배포 판");
     const patch = api.calls.find((c) => c.method === "PATCH");
-    const card = (patch?.body as { card: { tone?: string } }).card;
-    expect(card.tone).toBe(" 공손하게 ");
+    const card = (patch?.body as { card: { rules?: unknown } }).card;
+    expect(card.rules).toEqual(rules);
   });
 
   test("초안을 저장한 뒤 뒤로 가서 고치면 새로 만들지 않고 그 초안을 고친다", async () => {
@@ -1632,7 +1661,7 @@ describe("편집 중 다른 곳의 저장", () => {
     await user.type(instructions, "내가 고치던 지시.");
     otherTabSaves(server);
     await services.queryClient.invalidateQueries({
-      queryKey: queryKeys.agent(AGENT_ID),
+      queryKey: keys.agent(AGENT_ID),
     });
     expect(
       await screen.findByText(
@@ -1659,7 +1688,7 @@ describe("편집 중 다른 곳의 저장", () => {
     await user.selectOptions(release.getByLabelText("프로필"), PROFILE);
     otherTabSaves(server);
     await services.queryClient.invalidateQueries({
-      queryKey: queryKeys.agent(AGENT_ID),
+      queryKey: keys.agent(AGENT_ID),
     });
     await waitFor(() =>
       expect(
@@ -1913,7 +1942,7 @@ describe("편집 중 다른 곳의 저장", () => {
     await user.type(instructions, "카드만 고친다.");
     renamed = true;
     await services.queryClient.invalidateQueries({
-      queryKey: queryKeys.agent(AGENT_ID),
+      queryKey: keys.agent(AGENT_ID),
     });
     await screen.findByRole("heading", { name: "청구 담당" });
     await user.click(screen.getByRole("button", { name: "저장" }));
@@ -1929,7 +1958,7 @@ describe("편집 중 다른 곳의 저장", () => {
     await screen.findByLabelText("지시 사항");
     otherTabSaves(server);
     await services.queryClient.invalidateQueries({
-      queryKey: queryKeys.agent(AGENT_ID),
+      queryKey: keys.agent(AGENT_ID),
     });
     await waitFor(() =>
       expect(

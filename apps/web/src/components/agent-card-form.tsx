@@ -34,8 +34,6 @@ export const AGENT_CARD_LANGUAGE_VALUES: readonly AgentCard["language"][] = [
 export interface CardDraft {
   readonly role: string;
   readonly instructions: string;
-  /** No input: carried so the card step parses; a save keeps the base's. */
-  readonly tone: string;
   readonly language: AgentCard["language"];
   readonly model: string;
   /** `all` = whatever the runtime profile allows (`tools: null`). */
@@ -47,7 +45,6 @@ export interface CardDraft {
 export const EMPTY_DRAFT: CardDraft = {
   role: "",
   instructions: "",
-  tone: "",
   language: "ko",
   model: "",
   toolsMode: "all",
@@ -68,7 +65,6 @@ export function draftFromCard(card: AgentCard): CardDraft {
   return {
     role: card.role,
     instructions: card.instructions,
-    tone: card.tone ?? "",
     language: card.language,
     model: card.model,
     toolsMode: card.capabilities.tools === null ? "all" : "list",
@@ -79,7 +75,7 @@ export function draftFromCard(card: AgentCard): CardDraft {
 
 /**
  * The card to send. An edit starts from `base` and overwrites only what the
- * form has a field for, so fields without an editor (tone, rules,
+ * form has a field for, so fields without an editor (rules,
  * tool_policy, credential_refs) survive the save.
  */
 export function cardFromDraft(draft: CardDraft, base?: AgentCard): ApiCard {

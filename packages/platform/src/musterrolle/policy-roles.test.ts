@@ -191,6 +191,7 @@ const TABLE: [
   ["자격 참조 연결·해제", "credential.bind", onAgentA, "ooxoxx"],
   ["에이전트 관리자 지정", "agent.admin.manage", onAgentA, "ooxoxx"],
   ["Slack 앱 설치·채널 설정", "binding.manage", onAgentA, "ooxoxx"],
+  ["그 에이전트의 사용량 읽기", "usage.agent_read", onAgentA, "ooxoxx"],
   ["에이전트 보관", "agent.manage", onAgentA, "ooxoxx"],
   ["보관한 에이전트 되살리기", "agent.restore", onAgentA, "oxxxxx"],
   // Every agent, across the workspace, is the roles' alone.

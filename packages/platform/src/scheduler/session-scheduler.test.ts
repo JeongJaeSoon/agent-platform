@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { WORKER_EXIT_LEASE_LOST } from "@werft-ai/contracts";
 import type {
   EnsureExecutionResult,
   ExecutionBackend,
@@ -327,6 +328,8 @@ class MemoryStore implements SchedulerStore {
 
   /** Confirmations refused because the launch had moved on. */
   readonly supersededConfirms: string[] = [];
+  /** The end reason each confirmation was given, by execution. */
+  readonly confirmEndReasons = new Map<string, string | undefined>();
   /** Runs as a confirmation reaches the store, before it is judged. */
   duringConfirm: ((executionId: string) => void) | null = null;
 
@@ -334,8 +337,10 @@ class MemoryStore implements SchedulerStore {
     executionId: string,
     _now: Date,
     incarnation: ExecutionIncarnation | null,
+    endReason?: string,
   ): Promise<"confirmed" | "deferred" | "superseded"> {
     this.duringConfirm?.(executionId);
+    this.confirmEndReasons.set(executionId, endReason);
     const row = this.executions.get(executionId);
     if (
       incarnation !== null &&
@@ -990,6 +995,39 @@ describe("runScheduler", () => {
       error:
         "resource exited before a worker claimed it (exit code 137, OOMKilled)",
     });
+  });
+
+  test("a worker that exited for a lost lease ends its attempt saying so; any other exit is just gone", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(2);
+    await run();
+    const [leaseLost, failed] = [...backend.containers.entries()];
+    if (!leaseLost || !failed) throw new Error("no containers");
+    for (const [name, container] of [leaseLost, failed]) {
+      claimLaunchOf(store, name);
+      container.exited = true;
+    }
+    leaseLost[1].failure = {
+      exitCode: WORKER_EXIT_LEASE_LOST,
+      logTail: "lease given up\n",
+      terminationReason: "Error",
+    };
+    failed[1].failure = {
+      exitCode: 1,
+      logTail: "failed\n",
+      terminationReason: "Error",
+    };
+    await run();
+
+    expect(store.confirmEndReasons.get(leaseLost[0].split("#")[0] ?? "")).toBe(
+      "worker_lease_lost",
+    );
+    expect(store.confirmEndReasons.has(failed[0].split("#")[0] ?? "")).toBe(
+      true,
+    );
+    expect(
+      store.confirmEndReasons.get(failed[0].split("#")[0] ?? ""),
+    ).toBeUndefined();
   });
 
   test("a session with a live execution is not launched twice", async () => {

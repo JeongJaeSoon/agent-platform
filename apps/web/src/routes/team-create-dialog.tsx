@@ -21,7 +21,7 @@ import {
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { queryKeys } from "../api/queries.ts";
+import { queryKeysOf } from "../api/queries.ts";
 import { refusalText, useRole } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
@@ -64,7 +64,9 @@ export function TeamCreateDialog({
         setOpen(false);
         onCreated(team.name);
       }
-      await queryClient.invalidateQueries({ queryKey: queryKeys.teams });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeysOf(client).teams,
+      });
     },
     onError: (failure) =>
       setError(

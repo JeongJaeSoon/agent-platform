@@ -64,7 +64,7 @@ API는 설치 상한 말고도 아래 값을 기동 때 한 parser(`apps/control
 
 | 변수 | 기본값 | 허용 범위 |
 |---|---|---|
-| `HEARTBEAT_TTL_SEC` | 30 | 20 초과 86400 이하. worker는 lease가 끝나기 10초 전에 lease를 내려놓고(`WORKER_LEASE_SAFETY_MARGIN_SEC`), 10초마다 heartbeat를 보낸다(`WORKER_HEARTBEAT_INTERVAL_SEC`). 둘의 합 이하이면 모든 attempt가 첫 heartbeat 무렵 lease를 잃는다. launcher는 두 worker 값을 넘기지 않으므로 기본값을 기준으로 판정한다 |
+| `HEARTBEAT_TTL_SEC` | 30 | 20 초과 86400 이하. worker는 lease가 끝나기 10초 전에 lease를 내려놓고(`WORKER_LEASE_SAFETY_MARGIN_SEC`), 5초마다 heartbeat를 보낸다(`WORKER_HEARTBEAT_INTERVAL_SEC`, 이전 버전 worker는 10초). 마진과 10초의 합 이하이면 이전 버전 worker의 attempt가 첫 heartbeat 무렵 lease를 잃는다. launcher는 두 worker 값을 넘기지 않으므로 기본값을 기준으로 판정한다 |
 | `PENDING_REQUEST_TTL_SEC` | 1800 | 정수 1–604800. 승인·질문 요청을 받는 기간이다. 등록된 요청은 worker가 이 값만큼 기다린다. worker의 `QUESTION_TIMEOUT_SEC`는 gateway가 등록을 확인하기 전에만 적용된다. turn 벽시계 `MAX_TURN_SECONDS`에는 대기 시간도 들어가므로, 대기는 그 상한을 넘지 못한다 |
 | `SSE_MAX_STREAMS` · `SSE_MAX_STREAMS_PER_OWNER` · `SSE_REPLAY_MAX_BYTES` | 256 · 8 · 1 MiB | 양의 정수 |
 | `LOG_LEVEL` | `info` | `debug`·`info`·`warn`·`error`(대소문자 무관, 빈 값은 `info`). scheduler·reconciler loop와 egress-proxy도 같은 규칙으로 기동을 거부한다. worker는 scheduler의 값을 받는다 |
@@ -127,4 +127,4 @@ API 컨테이너의 메모리는 checkpoint bundle 검증이 정한다. 검증�
 
 compose의 Postgres는 `POSTGRES_USER`(`postgres`)·`POSTGRES_PASSWORD`(`dev`)·`POSTGRES_DB`(`sessions`)로 만들고, 모든 서비스가 같은 값으로 DSN을 만든다. 로컬 Gitea 예시 저장소의 agent 사용자 비밀번호는 `GITEA_AGENT_PASSWORD`이고, 비워 두면 아무도 모르는 무작위 값이 된다.
 
-worker는 아래 값도 env로 읽는다. 하지만 scheduler가 넘기지 않으므로 운영에서는 코드 기본값으로 고정이다. `WORKER_ANSWER_POLL_SEC`(1), `WORKER_CLAIM_TIMEOUT_SEC`(60), `WORKER_DRAIN_TIMEOUT_SEC`(100, stop 유예 안으로 줄어든다), `WORKER_HEARTBEAT_INTERVAL_SEC`(10), `WORKER_IDLE_TIMEOUT_SEC`(1800), `WORKER_LEASE_SAFETY_MARGIN_SEC`(10), `WORKER_NEXT_INPUT_RETRY_SEC`(60), `WORKER_NEXT_INPUT_WAIT_SEC`(20), `WORKER_REQUEST_TIMEOUT_SEC`(30), `WORKER_STARTUP_TIMEOUT_SEC`(3600), `QUESTION_TIMEOUT_SEC`(1800), `WORKER_CLAUDE_CONFIG_DIR`(`$HOME/.claude`).
+worker는 아래 값도 env로 읽는다. 하지만 scheduler가 넘기지 않으므로 운영에서는 코드 기본값으로 고정이다. `WORKER_ANSWER_POLL_SEC`(1), `WORKER_CLAIM_TIMEOUT_SEC`(60), `WORKER_DRAIN_TIMEOUT_SEC`(100, stop 유예 안으로 줄어든다), `WORKER_HEARTBEAT_INTERVAL_SEC`(5), `WORKER_IDLE_TIMEOUT_SEC`(1800), `WORKER_LEASE_SAFETY_MARGIN_SEC`(10), `WORKER_NEXT_INPUT_RETRY_SEC`(60), `WORKER_NEXT_INPUT_WAIT_SEC`(20), `WORKER_REQUEST_TIMEOUT_SEC`(30), `WORKER_STARTUP_TIMEOUT_SEC`(3600), `QUESTION_TIMEOUT_SEC`(1800), `WORKER_CLAUDE_CONFIG_DIR`(`$HOME/.claude`).

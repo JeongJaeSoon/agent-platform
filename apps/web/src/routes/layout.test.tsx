@@ -1,8 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { queryKeys } from "@werft-ai/core";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { THEME_STORAGE_KEY } from "../components/theme.ts";
-import { json, me, memberMe } from "../test-support/fake-api.ts";
+import {
+  apiError,
+  json,
+  keys,
+  me,
+  memberMe,
+  SCOPE,
+  WORKSPACE_ID,
+} from "../test-support/fake-api.ts";
 import { appHarness, WAITING_SESSIONS } from "../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor, within } = await appHarness();
@@ -43,34 +50,77 @@ afterEach(() => {
 });
 
 describe("app shell", () => {
-  test("the sidebar groups work and the workspace, settings behind one item", async () => {
-    renderAt("/", signedIn);
-    const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
-    const groups = within(nav).getAllByRole("group");
-    expect(
-      groups.map((group) =>
-        within(group)
-          .getAllByRole("link")
-          .map((link) => link.textContent),
-      ),
-    ).toEqual([
-      ["홈", "세션", "에이전트", "운영"],
-      ["구성원", "설정"],
-    ]);
-    expect(groups[0]?.getAttribute("aria-labelledby")).toBeTruthy();
-    expect(within(nav).getByRole("group", { name: "업무" })).toBeDefined();
-  });
+  // Console v4 navWs: members and settings join the workspace group for its
+  // managers only; a member reaches their own settings from the account menu.
+  const MANAGER_NAV = [
+    [
+      ["홈", "/"],
+      ["세션", "/sessions"],
+      ["에이전트", "/agents"],
+    ],
+    [
+      ["실행 프로필", "/profiles"],
+      ["사용량·한도", "/operations"],
+      ["구성원", "/members"],
+      ["설정", "/settings/workspace"],
+    ],
+  ];
+  for (const [role, signedInAs, expected] of [
+    ["owner", me(), MANAGER_NAV],
+    ["admin", me(undefined, "admin"), MANAGER_NAV],
+    [
+      "member",
+      memberMe(),
+      [
+        MANAGER_NAV[0],
+        [
+          ["실행 프로필", "/profiles"],
+          ["사용량·한도", "/operations"],
+        ],
+      ],
+    ],
+  ] as const) {
+    test(`the sidebar an ${role} sees`, async () => {
+      renderAt("/", { "GET /v1/auth/me": () => json(200, signedInAs) });
+      const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
+      await waitFor(() =>
+        expect(
+          within(nav)
+            .getAllByRole("group")
+            .map((group) =>
+              within(group)
+                .getAllByRole("link")
+                .map((link) => [link.textContent, link.getAttribute("href")]),
+            ),
+        ).toEqual(expected as unknown as string[][][]),
+      );
+      expect(within(nav).getByRole("group", { name: "업무" })).toBeDefined();
+      expect(
+        within(nav).getByRole("group", { name: "워크스페이스" }),
+      ).toBeDefined();
+      expect(within(nav).queryByText("운영")).toBeNull();
+    });
+  }
 
-  test("a member is not offered the screens that need management rights", async () => {
+  test("a member keeps their own settings in the account menu", async () => {
     renderAt("/", { "GET /v1/auth/me": () => json(200, memberMe()) });
-    const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
-    // 구성원 holds the teams a member is in, so everyone has it.
-    await within(nav).findByRole("link", { name: "구성원" });
-    expect(within(nav).queryByRole("link", { name: "팀" })).toBeNull();
-    // Their settings open on the person's own pages.
+    const region = await screen.findByRole("region", { name: "사용자 메뉴" });
+    const user = await setupUser();
+    await user.click(
+      within(region).getByRole("button", { name: "Owner · 구성원" }),
+    );
+    const menu = screen.getByRole("menu", { name: "Owner · 구성원" });
     expect(
-      within(nav).getByRole("link", { name: "설정" }).getAttribute("href"),
-    ).toBe("/settings/linked-accounts");
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((item) => [item.textContent, item.getAttribute("href")]),
+    ).toEqual([
+      ["연동 계정", "/settings/linked-accounts"],
+      ["언어한국어", null],
+      ["테마시스템 설정", null],
+      ["API key", "/settings/api-keys"],
+      ["로그아웃", null],
+    ]);
   });
 
   test("the top bar names the page with the sidebar's words", async () => {
@@ -79,6 +129,32 @@ describe("app shell", () => {
     const [header] = await screen.findAllByRole("banner");
     await waitFor(() => expect(header?.textContent).toBe("메뉴 열기API key"));
   });
+
+  test("a member on their teams still reads 구성원 in the top bar", async () => {
+    renderAt("/members/teams", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+    });
+    const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
+    await within(nav).findByRole("link", { name: "실행 프로필" });
+    expect(within(nav).queryByRole("link", { name: "구성원" })).toBeNull();
+    const [header] = screen.getAllByRole("banner");
+    await waitFor(() => expect(header?.textContent).toBe("메뉴 열기구성원"));
+  });
+
+  for (const [path, title] of [
+    ["/operations", "사용량·한도"],
+    ["/operations/limits", "사용량·한도"],
+    ["/profiles", "실행 프로필"],
+  ] as const) {
+    test(`${path} is named ${title} in the top bar and the page head`, async () => {
+      renderAt(path, signedIn);
+      await screen.findByRole("heading", { level: 1, name: title });
+      const [header] = screen.getAllByRole("banner");
+      await waitFor(() =>
+        expect(header?.textContent).toBe(`메뉴 열기${title}`),
+      );
+    });
+  }
 
   // V4-PAGE-FRAME: settings and forms used to stop at 1100px.
   for (const [path, title] of [
@@ -220,7 +296,7 @@ describe("app shell", () => {
     await screen.findByRole("link", { name: "세션 답변 대기 1개" });
     // What a session's status event invalidates.
     await services.queryClient.invalidateQueries({
-      queryKey: queryKeys.waitingSessions,
+      queryKey: keys.waitingSessions,
       exact: true,
     });
     await waitFor(() =>
@@ -433,5 +509,138 @@ describe("app shell", () => {
         .getAttribute("aria-expanded"),
     ).toBe("false");
     expect(document.activeElement?.id).toBe("main");
+  });
+});
+
+describe("who the cache belongs to", () => {
+  const MATE_ID = "7e8f9a0b-1c2d-4e3f-8a4b-5c6d7e8f9a0b";
+  const mate = () => {
+    const base = memberMe();
+    return {
+      ...base,
+      principal: { ...base.principal, id: MATE_ID },
+      user: { id: MATE_ID, email: "mate@example.com", display_name: "Mate" },
+    };
+  };
+  const MATE_SCOPE = { actor: `user:${MATE_ID}`, workspace: WORKSPACE_ID };
+  const SIGN_IN_KEYS = [["me"], ["me", "optional"], ["login-methods"]].map(
+    (key) => JSON.stringify(key),
+  );
+  /** Every cached key but the ones that find out who is signed in. */
+  const scopedKeys = (services: ReturnType<typeof renderAt>["services"]) =>
+    services.queryClient
+      .getQueryCache()
+      .getAll()
+      .map((query) => query.queryKey)
+      .filter((key) => !SIGN_IN_KEYS.includes(JSON.stringify(key)));
+  const ownerWaiting = () =>
+    json(200, { items: [waiting(FIRST)], next_cursor: null });
+
+  test("every key a screen caches leads with who is signed in and the workspace", async () => {
+    const { history, services } = renderAt("/", {
+      ...signedIn,
+      [WAITING_SESSIONS]: ownerWaiting,
+    });
+    await screen.findByRole("link", { name: "세션 답변 대기 1개" });
+    // Unrouted reads fail, but their keys are cached all the same.
+    for (const path of [
+      "/sessions",
+      "/agents",
+      "/members",
+      "/members/teams",
+      "/operations",
+      "/operations/tools",
+      "/usage",
+      "/settings/api-keys",
+      "/settings/linked-accounts",
+      "/settings/workspace",
+      "/settings/workspace/slack",
+    ]) {
+      await history.push(path);
+      await waitFor(() => expect(history.location.pathname).toBe(path));
+      // Long polls never settle; give the screen's reads a moment to start.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const cached = scopedKeys(services);
+    expect(cached.length).toBeGreaterThan(10);
+    for (const key of cached) expect(key[0]).toEqual(SCOPE);
+  });
+
+  test("someone else signing in on the same browser never sees the last person's entries", async () => {
+    let who: "owner" | "mate" = "owner";
+    const { services } = renderAt("/", {
+      "GET /v1/auth/me": () => json(200, who === "owner" ? me() : mate()),
+      // Mate's own count never arrives, so only a leftover could show one.
+      [WAITING_SESSIONS]: () =>
+        who === "owner" ? ownerWaiting() : new Promise<Response>(() => {}),
+    });
+    await screen.findByRole("link", { name: "세션 답변 대기 1개" });
+    who = "mate";
+    await services.queryClient.refetchQueries({ queryKey: ["me"] });
+    await screen.findByRole("button", { name: /^Mate · / });
+    await waitFor(() => {
+      const cached = scopedKeys(services);
+      expect(cached.length).toBeGreaterThan(0);
+      for (const key of cached) expect(key[0]).toEqual(MATE_SCOPE);
+    });
+    expect(
+      screen.queryByRole("link", { name: "세션 답변 대기 1개" }),
+    ).toBeNull();
+  });
+
+  test("a list that keeps its rows while it reloads drops the last person's rows when someone else signs in", async () => {
+    let who: "owner" | "mate" = "owner";
+    const { services } = renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, who === "owner" ? me() : mate()),
+      // Mate's own list never arrives, so only a leftover could show.
+      "GET /v1/sessions": () =>
+        who === "owner" ? ownerWaiting() : new Promise<Response>(() => {}),
+    });
+    await screen.findByRole("link", { name: `세션 열기: ${FIRST}` });
+    who = "mate";
+    await services.queryClient.refetchQueries({ queryKey: ["me"] });
+    await screen.findByRole("button", { name: /^Mate · / });
+    expect(
+      screen.queryByRole("link", { name: `세션 열기: ${FIRST}` }),
+    ).toBeNull();
+  });
+
+  test("after a logout the next person reads their own data, none of the last one's", async () => {
+    let who: "owner" | "mate" | null = "owner";
+    const { api, history, services } = renderAt("/", {
+      "GET /v1/auth/me": () =>
+        who === null
+          ? apiError(401, "UNAUTHORIZED", "Authentication is required")
+          : json(200, who === "owner" ? me() : mate()),
+      "POST /v1/auth/logout": () => {
+        who = null;
+        return new Response(null, { status: 204 });
+      },
+      [WAITING_SESSIONS]: () =>
+        who === "owner"
+          ? ownerWaiting()
+          : json(200, { items: [], next_cursor: null }),
+    });
+    await screen.findByRole("link", { name: "세션 답변 대기 1개" });
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "Owner · 소유자" }));
+    await user.click(screen.getByRole("menuitem", { name: "로그아웃" }));
+    await screen.findByText("로그아웃했습니다.");
+    // Mate signs in elsewhere in this browser; the cookie is theirs now.
+    who = "mate";
+    await history.push("/");
+    await screen.findByRole("button", { name: /^Mate · / });
+    await screen.findByRole("heading", { name: "홈" });
+    const waitingReads = api.calls.filter(
+      (call) =>
+        call.path === "/v1/sessions" && call.search === "?status=needs_input",
+    );
+    expect(waitingReads.length).toBe(2);
+    const cached = scopedKeys(services);
+    expect(cached.length).toBeGreaterThan(0);
+    for (const key of cached) expect(key[0]).toEqual(MATE_SCOPE);
+    expect(
+      screen.queryByRole("link", { name: "세션 답변 대기 1개" }),
+    ).toBeNull();
   });
 });

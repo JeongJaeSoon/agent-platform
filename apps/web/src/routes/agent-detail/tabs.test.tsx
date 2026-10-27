@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
-import { queryKeys } from "../../api/queries.ts";
 import { AGENT_ID, agentServer } from "../../test-support/fake-agents.ts";
 import {
   apiError,
   json,
+  keys,
   me,
   memberMe,
   memberPage,
@@ -542,7 +542,7 @@ describe("에이전트 상세 탭", () => {
       ]),
     );
     fail = true;
-    await services.queryClient.refetchQueries({ queryKey: queryKeys.agents });
+    await services.queryClient.refetchQueries({ queryKey: keys.agents });
     await waitFor(() =>
       expect(figureTexts(glance).slice(0, 2)).toEqual([
         ["답변 대기", "—", "불러오지 못함"],

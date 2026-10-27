@@ -17,7 +17,6 @@ import {
 const BASE: AgentCard = {
   role: "Support agent",
   instructions: "Answer refund questions.",
-  tone: "Polite",
   language: "en",
   model: "claude-sonnet-5",
   capabilities: {
@@ -36,7 +35,6 @@ const BASE: AgentCard = {
 const DRAFT: AgentCardDraft = {
   role: "Support agent",
   instructions: "Answer refund questions.",
-  tone: "Polite",
   language: "en",
   model: "claude-sonnet-5",
   toolsMode: "list",
@@ -123,11 +121,6 @@ describe("the card step keeps what its base has", () => {
       BASE.capabilities.tool_policy,
     );
     expect(card.rules).toEqual(BASE.rules);
-  });
-
-  test("clearing the tone removes the base's tone", () => {
-    const card = agentCardStep(BASE).parse({ ...DRAFT, tone: "  " });
-    expect("tone" in card).toBe(false);
   });
 
   test("without a base the contract's defaults fill in", () => {

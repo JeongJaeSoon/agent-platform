@@ -144,6 +144,7 @@ export function agentServer() {
       const body = (await request.json()) as {
         version_id: string;
         runtime_profile_id: string;
+        note?: string;
         repository_id?: string;
       };
       if (body.runtime_profile_id !== "claude-coding-local")
@@ -170,6 +171,7 @@ export function agentServer() {
         created_at: `2026-10-11T01:0${releases.length}:00.000Z`,
         approved_by: null,
         approved_at: null,
+        note: body.note ?? null,
       };
       releases.push(release);
       return json(200, { release, created: true });
@@ -246,8 +248,11 @@ export function agentServer() {
 function profile(id: string, model: string): ProfileSummary {
   return {
     id,
+    source: "operator",
     model,
+    models: [model],
     tools: ["Read"],
+    permission_mode: "default",
     runtime_kind: "claude_agent_sdk",
     runtime_version: "0.3.270",
     billing: "metered",

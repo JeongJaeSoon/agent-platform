@@ -4,6 +4,7 @@ import {
   type AgentRelease,
   agentCardSchema,
   agentReleaseSchema,
+  storedAgentCardSchema,
 } from "@werft-ai/contracts";
 import {
   type CatalogProfile,
@@ -69,6 +70,7 @@ function releaseOf(identity: ReleaseIdentity): AgentRelease {
     created_at: "2026-10-11T00:00:00.000Z",
     approved_by: null,
     approved_at: null,
+    note: null,
     ...identity,
   });
 }
@@ -167,13 +169,14 @@ describe("deriveReleaseId", () => {
     }
   });
 
-  test("leaves who made or approved the release out of the id", () => {
+  test("leaves who made or approved the release, and its note, out of the id", () => {
     const release = releaseOf(identityOf());
     const approved = {
       ...release,
       created_by: USER_B,
       approved_by: USER_B,
       approved_at: "2026-10-12T00:00:00.000Z",
+      note: "hotfix",
     };
     expect(deriveReleaseId(approved)).toBe(release.id);
     expect(() => assertReleaseIdentity(approved)).not.toThrow();
@@ -188,6 +191,26 @@ describe("deriveReleaseId", () => {
         effective_tools: { tools: ["Bash"], mcp: [] },
       }),
     ).toThrow(ReleaseIdentityError);
+  });
+
+  test("a release made from a card with a tone still verifies once read", () => {
+    // As written before 94S-761: the stored card, tone included, is hashed.
+    const storedCard = { ...card, tone: "공손하게" };
+    const storedSha = cardContentSha256(storedCard as AgentCard);
+    const resolved = resolveReleaseContent(card, "coding", profile);
+    if (!resolved.ok) throw new Error(resolved.error.message);
+    const release = releaseOf({
+      agent_id: AGENT_ID,
+      card_sha256: storedSha,
+      repository_id: null,
+      ...resolved.content,
+    });
+
+    const read = storedAgentCardSchema.parse(storedCard);
+    expect(Object.hasOwn(read, "tone")).toBe(false);
+    expect(cardContentSha256(read)).not.toBe(storedSha);
+    expect(resolveReleaseContent(read, "coding", profile)).toEqual(resolved);
+    expect(() => assertReleaseIdentity(release)).not.toThrow();
   });
 });
 

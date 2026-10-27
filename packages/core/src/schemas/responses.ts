@@ -29,8 +29,8 @@ import {
   getSlackAppResponseSchema,
   getTurnResponseSchema,
   healthResponseSchema,
-  installationLimitsResponseSchema,
   issuePasswordResetResponseSchema,
+  limitsResponseSchema,
   linkAgentIdentityResponseSchema,
   listAdministeredAgentsResponseSchema,
   listAdminSessionsResponseSchema,
@@ -89,6 +89,7 @@ import {
   usageSummaryResponseSchema,
   usageToolCallsResponseSchema,
   usageToolsResponseSchema,
+  workspaceProfileChangeResponseSchema,
 } from "@werft-ai/contracts";
 // biome-ignore lint/style/noRestrictedImports: the schemas entry is where the core may name zod; the root entry still may not.
 import type { ZodType } from "zod";
@@ -218,7 +219,10 @@ export const responseSchemas = {
     agentAdminChangeResponseSchema,
   "GET /v1/administered-agents": listAdministeredAgentsResponseSchema,
   "GET /v1/profiles": listProfilesResponseSchema,
-  "GET /v1/limits": installationLimitsResponseSchema,
+  "POST /v1/workspace-profiles": workspaceProfileChangeResponseSchema,
+  "POST /v1/workspace-profiles/{profile_id}/retire":
+    workspaceProfileChangeResponseSchema,
+  "GET /v1/limits": limitsResponseSchema,
   "GET /v1/usage/summary": usageSummaryResponseSchema,
   "GET /v1/usage/series": usageSeriesResponseSchema,
   "GET /v1/usage/breakdown": usageBreakdownResponseSchema,

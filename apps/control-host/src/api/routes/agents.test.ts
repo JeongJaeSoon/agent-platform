@@ -110,6 +110,7 @@ function storedRelease(profile: CatalogProfile = PROFILE): AgentRelease {
     created_at: AT,
     approved_by: null,
     approved_at: null,
+    note: null,
     ...identity,
   };
 }
@@ -372,6 +373,7 @@ describe("POST /v1/agents", () => {
       },
       { ...body, slug: "Finance Team" },
       { ...body, card: { ...card, api_key: "x" } },
+      { ...body, card: { ...card, tone: "공손하게" } },
     ]) {
       const response = await send(app(), "POST", "/v1/agents", bad);
       expect(response.status).toBe(400);
@@ -458,6 +460,13 @@ describe("PATCH /v1/agents/{id}", () => {
     );
     expect(
       (
+        await send(app(), "PATCH", `/v1/agents/${AGENT}`, {
+          card: { ...card, tone: "공손하게" },
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
         await send(
           app(store({ update: async () => ({ outcome: "not_found" }) })),
           "PATCH",
@@ -495,6 +504,25 @@ describe("POST /v1/agents/{id}/releases", () => {
     expect(released.release.repository_id).toBe("sample-app");
     expect(released.release.approved_by).toBeNull();
     expect(JSON.stringify(released)).not.toContain("catalog-provider-key");
+  });
+
+  test("carries a trimmed note, null without one, and refuses a blank or long one", async () => {
+    const noted = createAgentReleaseResponseSchema.parse(
+      await (
+        await send(app(), "POST", path, { ...body, note: "  hotfix  " })
+      ).json(),
+    );
+    expect(noted.release.note).toBe("hotfix");
+    const bare = createAgentReleaseResponseSchema.parse(
+      await (await send(app(), "POST", path, body)).json(),
+    );
+    expect(bare.release.note).toBeNull();
+    expect(bare.release.id).toBe(noted.release.id);
+    for (const note of ["   ", "a".repeat(201), "a\u0000b", 7]) {
+      const response = await send(app(), "POST", path, { ...body, note });
+      expect(response.status).toBe(400);
+      expect(await codeOf(response)).toBe("BAD_REQUEST");
+    }
   });
 
   test("a release without a repository for a profile that needs one is 422 and says why", async () => {

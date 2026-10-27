@@ -38,6 +38,7 @@ import {
   workerLaunches,
   workers,
 } from "./schema.ts";
+import { confirmExecutionGone, launchSession } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -383,33 +384,15 @@ integration("expired lease reconciliation on PostgreSQL", () => {
       .update(unassignedSessions)
       .set({ partition })
       .where(eq(unassignedSessions.sessionId, sessionId));
-    const executionId = `exec-${crypto.randomUUID()}`;
-    const registered = await gateway.registerLaunch({
-      executionId,
-      generation: 1,
-      partition,
-      sessionId,
-      backend: "local_docker",
-    });
-    if (registered.nonce === null) throw new Error("launch already registered");
-    await db.insert(executions).values({
-      backend: "local_docker",
-      desiredState: "running",
-      generation: 1,
-      id: executionId,
-      observedState: "running",
+    const { executionId, generation, nonce } = await launchSession(db, {
       sessionId,
     });
-    await db
-      .update(sessions)
-      .set({ executionId })
-      .where(eq(sessions.id, sessionId));
     const claimed = await gateway.bootstrapClaim(
       { kind: "bootstrap" },
       {
         execution_id: executionId,
-        execution_generation: 1,
-        credential: { kind: "launch_nonce", nonce: registered.nonce },
+        execution_generation: generation,
+        credential: { kind: "launch_nonce", nonce },
       },
     );
     const principal: WorkerPrincipal = {
@@ -493,7 +476,7 @@ integration("expired lease reconciliation on PostgreSQL", () => {
     expect(launchRow?.slotReleasedAt).toBeNull();
 
     // The backend confirms the removal: the undelivered input goes back.
-    expect(await gateway.confirmExecutionGone(b.executionId)).toEqual({
+    expect(await confirmExecutionGone(db, b.executionId)).toEqual({
       sessionReleased: true,
       slotReleased: true,
     });
@@ -545,7 +528,7 @@ integration("expired lease reconciliation on PostgreSQL", () => {
         expiresAt: new Date(Date.now() + 60_000),
       });
 
-      await gateway.confirmExecutionGone(b.executionId);
+      await confirmExecutionGone(db, b.executionId);
       const [request] = await db
         .select({ resolvedAt: pendingRequests.resolvedAt })
         .from(pendingRequests)

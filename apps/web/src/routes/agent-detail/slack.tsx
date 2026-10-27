@@ -6,7 +6,8 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { type components, unwrap } from "@werft-ai/client";
+import { type ApiClient, type components, unwrap } from "@werft-ai/client";
+import { queryKeysOf } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   Alert,
@@ -37,7 +38,7 @@ import {
   Switch,
 } from "@werft-ai/ui";
 import { Copy, Plus } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useMe } from "../../auth/guard.tsx";
 import { copyText } from "../../components/copy.ts";
 import {
@@ -50,6 +51,7 @@ import { useAppServices } from "../../services.tsx";
 import { storeOff } from "../workspace-slack.tsx";
 import { type Notify, useToast } from "./toast.tsx";
 import { useCurrentSection } from "./use-current-section.ts";
+import { usePageFits } from "./use-page-fits.ts";
 
 type Binding =
   components["schemas"]["ListSlackBindingsResponse"]["items"][number];
@@ -132,9 +134,13 @@ export function SlackSkeleton() {
   );
 }
 
+/** Under the agent's key, so whatever refreshes the agent refreshes these. */
+export const slackKey = (client: ApiClient, agentId: string) =>
+  [...queryKeysOf(client).agent(agentId), "slack"] as const;
+
 function useSlackState(agentId: string) {
   const { client } = useAgentPlatform();
-  const key = ["agents", agentId, "slack"];
+  const key = slackKey(client, agentId);
   const app = useQuery({
     queryKey: [...key, "app"],
     queryFn: () =>
@@ -163,7 +169,7 @@ function useSlackState(agentId: string) {
 function useSlackBindings(agentId: string) {
   const { client } = useAgentPlatform();
   return useQuery({
-    queryKey: ["agents", agentId, "slack", "bindings"],
+    queryKey: [...slackKey(client, agentId), "bindings"],
     queryFn: () =>
       unwrap(
         client.GET("/v1/agents/{id}/slack-bindings", {
@@ -178,7 +184,7 @@ function useSlackBindings(agentId: string) {
 function useSlackSettings(agentId: string) {
   const { client } = useAgentPlatform();
   return useQuery({
-    queryKey: ["agents", agentId, "slack", "settings"],
+    queryKey: [...slackKey(client, agentId), "settings"],
     queryFn: () =>
       unwrap(
         client.GET("/v1/agents/{id}/slack/app/settings", {
@@ -193,7 +199,7 @@ function useSlackSettings(agentId: string) {
 function useSlackChannels(agentId: string, query: string) {
   const { client } = useAgentPlatform();
   return useInfiniteQuery({
-    queryKey: ["agents", agentId, "slack", "channels", query],
+    queryKey: [...slackKey(client, agentId), "channels", query],
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) =>
       unwrap(
@@ -798,7 +804,7 @@ function SlackChannels({
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const cache = useQueryClient();
-  const key = ["agents", agentId, "slack"];
+  const key = slackKey(client, agentId);
   const [input, setInput] = useState("");
   const [query, setQuery] = useState("");
   const [picking, setPicking] = useState(false);
@@ -1141,7 +1147,7 @@ function SlackDmSetting({ agentId }: { readonly agentId: string }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const cache = useQueryClient();
-  const key = ["agents", agentId, "slack", "bindings"];
+  const key = [...slackKey(client, agentId), "bindings"];
   const bindings = useSlackBindings(agentId);
   const dm = bindings.data?.items.find((row) => row.surface_kind === "dm");
   const [notice, setNotice] = useState("");
@@ -1214,7 +1220,7 @@ function SlackDefaultReaction({ agentId }: { readonly agentId: string }) {
       setNotice("");
       // A read still in flight would land after the save and undo it.
       await cache.cancelQueries({
-        queryKey: ["agents", agentId, "slack", "settings"],
+        queryKey: [...slackKey(client, agentId), "settings"],
       });
     },
     mutationFn: (checked: boolean) =>
@@ -1228,7 +1234,7 @@ function SlackDefaultReaction({ agentId }: { readonly agentId: string }) {
         }),
       ),
     onSuccess: (saved) => {
-      cache.setQueryData(["agents", agentId, "slack", "settings"], saved);
+      cache.setQueryData([...slackKey(client, agentId), "settings"], saved);
       setNotice(
         t("slack.defaultSaved", {
           mode: t(
@@ -1241,7 +1247,7 @@ function SlackDefaultReaction({ agentId }: { readonly agentId: string }) {
     // read again now that the save is done.
     onSettled: () =>
       cache.invalidateQueries({
-        queryKey: ["agents", agentId, "slack", "settings"],
+        queryKey: [...slackKey(client, agentId), "settings"],
       }),
   });
   const lost = settings.isError && !settings.data;
@@ -1324,6 +1330,20 @@ export default function SlackTab({
     keys.map((key) => SECTION[key]),
   );
   const jumped = useRef<string>(undefined);
+  // With nothing to scroll to, the wide list only takes room from the page.
+  const [fits, watchPage] = usePageFits();
+  // The list also hides when the window widens past lg while the page fits.
+  useLayoutEffect(() => {
+    if (!fits) return;
+    const leave = () => {
+      const nav = document.activeElement?.closest("[data-slot=side-nav]");
+      if (!nav || nav.getClientRects().length > 0) return;
+      document.getElementById(current ?? "")?.focus({ preventScroll: true });
+    };
+    leave();
+    window.addEventListener("resize", leave);
+    return () => window.removeEventListener("resize", leave);
+  }, [fits, current]);
   const installed =
     identities.data?.items.some((item) => item.status === "active") ?? false;
   const [wasConnected, setWasConnected] = useState(installed);
@@ -1368,6 +1388,7 @@ export default function SlackTab({
         nav={
           <SideNav
             aria-label={t("slack.sectionNav")}
+            className={fits ? "lg:hidden" : undefined}
             current={here ? t(SECTION_LABEL[here]) : undefined}
             // Folding the list sends focus to its button; take it back to
             // the section the link jumped to.
@@ -1388,7 +1409,7 @@ export default function SlackTab({
           </SideNav>
         }
       >
-        <div className="flex flex-col gap-8">
+        <div ref={watchPage} className="flex flex-col gap-8">
           <SlackStatus agentId={agentId} />
           <SlackChannels
             agentId={agentId}

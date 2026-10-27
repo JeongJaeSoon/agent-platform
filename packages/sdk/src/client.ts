@@ -153,13 +153,23 @@ export class Werft {
         ),
     };
     this.limits = {
-      get: (o) =>
-        call(
+      get: async (o) => {
+        const limits = await call(
           policy,
           "read",
-          ({ signal, headers }) => api.GET("/v1/limits", { signal, headers }),
+          ({ signal, headers }) =>
+            api.GET("/v1/limits", {
+              params: { query: { scope: "installation" } },
+              signal,
+              headers,
+            }),
           o,
-        ),
+        );
+        if (limits.scope !== "installation") {
+          throw new TypeError(`unexpected limits scope ${limits.scope}`);
+        }
+        return limits;
+      },
     };
     this.profiles = {
       list: (o) =>

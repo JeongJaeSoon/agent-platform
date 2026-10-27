@@ -33,6 +33,7 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
+import { insertUnreservedLaunch } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -96,6 +97,7 @@ class ClaimingBackend implements ExecutionBackend {
     for (const { intent, nonce } of this.starting.splice(0)) {
       const result = await createPostgresWorkerUnitOfWork(this.db).claimAtomic({
         catalogRevision: "catalog-under-test",
+        workspaceProfileIds: new Set(),
         runnable: this.runnable,
         costLimitUsd: 1_000,
         tokenLimit: null,
@@ -372,6 +374,7 @@ integration("claim against a catalog that dropped the pair", () => {
 
     const result = await createPostgresWorkerUnitOfWork(db).claimAtomic({
       catalogRevision: "catalog-under-test",
+      workspaceProfileIds: new Set(),
       runnable: [pairAt(REGISTERED)],
       costLimitUsd: 1_000,
       tokenLimit: null,
@@ -448,6 +451,7 @@ integration("claim against a catalog that dropped the pair", () => {
 
     const result = await createPostgresWorkerUnitOfWork(db).claimAtomic({
       catalogRevision: "catalog-under-test",
+      workspaceProfileIds: new Set(),
       runnable: [pairAt(REGISTERED)],
       costLimitUsd: 1_000,
       tokenLimit: null,
@@ -520,9 +524,11 @@ integration("claim against a catalog that dropped the pair", () => {
     function claim(
       launch: { ref: ExecutionRef; nonce: string },
       costLimitUsd = 1_000,
+      workspaceProfileIds: ReadonlySet<string> = new Set(),
     ) {
       return createPostgresWorkerUnitOfWork(db).claimAtomic({
         catalogRevision: "catalog-under-test",
+        workspaceProfileIds,
         runnable: [pairAt(REGISTERED)],
         costLimitUsd,
         tokenLimit: null,
@@ -587,6 +593,20 @@ integration("claim against a catalog that dropped the pair", () => {
       await untouched(session.session_id, launch.ref);
     });
 
+    test("a workspace profile version this host has not read yet", async () => {
+      const session = await queuedSession();
+      const launch = await reserved(session.session_id);
+      await db
+        .update(sessions)
+        .set({ profileId: "ws_acme_strict_v1" })
+        .where(eq(sessions.id, session.session_id));
+      expect((await claim(launch)).outcome).toBe("no_session");
+      await untouched(session.session_id, launch.ref);
+      expect(
+        (await claim(launch, 1_000, new Set(["ws_acme_strict_v1"]))).outcome,
+      ).toBe("catalog_mismatch");
+    });
+
     test("a session the catalog allows that has spent its budget", async () => {
       const session = await queuedSession();
       const launch = await reserved(session.session_id);
@@ -600,21 +620,8 @@ integration("claim against a catalog that dropped the pair", () => {
 
     test("a launch not reserved for one session", async () => {
       const session = await queuedSession(MOVED_TO);
-      const executionId = `exec-${randomUUID()}`;
-      const nonce = `nonce-${randomUUID()}`;
-      await createPostgresWorkerUnitOfWork(db).registerLaunchAtomic({
-        executionId,
-        generation: 1,
-        partition: "default",
-        sessionId: null,
-        backend: "local_docker",
-        nonceHash: hashWorkerToken(nonce),
-        nonceTtlMs: 60_000,
-      });
-      const result = await claim({
-        ref: { executionId, generation: 1 },
-        nonce,
-      });
+      const pool = await insertUnreservedLaunch(db, { partition: "default" });
+      const result = await claim({ ref: pool, nonce: pool.nonce });
       // Another session may be claimable; this one never is, and stays put.
       if (result.outcome === "claimed") {
         expect(result.binding.sessionId).not.toBe(session.session_id);

@@ -15,6 +15,8 @@ export {
   myTeamsQuery,
   profilesQuery,
   queryKeys,
+  queryKeysOf,
+  scopedKey,
   teamQuery,
   teamsQuery,
   viewerQuery,

@@ -12,6 +12,7 @@ import { apiKeysEn, apiKeysKo } from "../i18n/api-keys.ts";
 import {
   apiError,
   json,
+  keys,
   me,
   memberMe,
   USER_ID,
@@ -379,6 +380,17 @@ describe("API key", () => {
     ]);
     expect(rows()[0]?.textContent).toContain("곧 만료 · ");
     expect(rows()[1]?.textContent).toContain("만료됨 · ");
+    // A key with no end must not wear the soon-to-expire clock.
+    const icon = (row: number) =>
+      rows()[row]?.querySelector("[data-expiry] svg") ?? null;
+    expect(icon(0)?.classList.contains("lucide-clock")).toBe(true);
+    expect(icon(1)?.classList.contains("lucide-circle-alert")).toBe(true);
+    expect(icon(3)?.classList.contains("lucide-clock")).toBe(false);
+    expect(icon(3)?.classList.contains("lucide-infinity")).toBe(true);
+    expect(icon(3)?.getAttribute("aria-hidden")).toBe("true");
+    expect(rows()[3]?.querySelector("[data-expiry]")?.textContent).toBe(
+      "만료 없음",
+    );
   });
 
   test("새 key 버튼은 만들기 화면으로 가고, 취소하면 목록으로 돌아온다", async () => {
@@ -594,7 +606,7 @@ describe("API key", () => {
     ).toBeDefined();
     await waitFor(() =>
       expect(
-        services.queryClient.getQueryState(["administered-agents"])?.status,
+        services.queryClient.getQueryState(keys.administeredAgents)?.status,
       ).toBe("success"),
     );
     expect(screen.queryByRole("navigation", { name: "key 목록" })).toBeNull();

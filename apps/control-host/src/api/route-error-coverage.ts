@@ -81,7 +81,11 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/sessions/{id}/outputs",
     "GET /v1/sessions/{id}/outputs/{path}",
   ],
-  "routes/profiles.test.ts": ["GET /v1/profiles"],
+  "routes/profiles.test.ts": [
+    "GET /v1/profiles",
+    "POST /v1/workspace-profiles",
+    "POST /v1/workspace-profiles/{profile_id}/retire",
+  ],
   "routes/events.test.ts": ["GET /v1/sessions/{id}/events"],
   "routes/members.test.ts": [
     "GET /v1/members",

@@ -20,6 +20,10 @@ import {
   sessions,
   turns,
 } from "@werft-ai/db";
+import {
+  insertUnreservedLaunch,
+  launchSession,
+} from "@werft-ai/db/testing/launches";
 import { acceptAllCheckpoints, createWorkerGateway } from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { and, count, eq, isNotNull } from "drizzle-orm";
@@ -134,19 +138,16 @@ function scope(claimed: BootstrapClaimResponse, turnId: string | null = null) {
   };
 }
 
-async function claimed() {
-  const launch = await gateway.registerLaunch({
-    executionId: "exec-1",
-    generation: 1,
-    backend: "local_docker",
-  });
+async function claimed(sessionId: string) {
+  const launch = await launchSession(db, { sessionId });
   const response = await post("bootstrap-claim", launch.nonce, {
-    execution_id: "exec-1",
-    execution_generation: 1,
+    execution_id: launch.executionId,
+    execution_generation: launch.generation,
     credential: { kind: "launch_nonce", nonce: launch.nonce },
   });
   expect(response.status).toBe(200);
   return {
+    launch,
     nonce: launch.nonce,
     binding: bootstrapClaimResponseSchema.parse(await response.json()),
   };
@@ -217,11 +218,11 @@ describe("/internal/worker", () => {
   test.each([
     ["40P01", "deadlock detected"],
     ["40001", "could not serialize access due to concurrent update"],
+    ["55P03", "canceling statement due to lock timeout"],
   ])(
     "a transaction rolled back with %s is a retryable 503 with Retry-After, not a lost lease",
     async (code, text) => {
-      await seedSession();
-      const { binding } = await claimed();
+      const { binding } = await claimed((await seedSession()).session_id);
       const work = createPostgresWorkerUnitOfWork(db);
       const conflicted = createApiApp({
         authMode: "api-key",
@@ -265,8 +266,9 @@ describe("/internal/worker", () => {
   );
 
   test("the bootstrap token can only call bootstrap-claim", async () => {
-    await seedSession();
-    const { nonce, binding } = await claimed();
+    const { launch, nonce, binding } = await claimed(
+      (await seedSession()).session_id,
+    );
     expect(
       await errorOf(await post("next-input", nonce, scope(binding))),
     ).toEqual({ status: 403, code: "FORBIDDEN" });
@@ -282,8 +284,8 @@ describe("/internal/worker", () => {
     expect(
       await errorOf(
         await post("bootstrap-claim", binding.session_credential, {
-          execution_id: "exec-1",
-          execution_generation: 1,
+          execution_id: launch.executionId,
+          execution_generation: launch.generation,
           credential: { kind: "launch_nonce", nonce },
         }),
       ),
@@ -291,8 +293,7 @@ describe("/internal/worker", () => {
   });
 
   test("bootstrap-claim refuses a bearer nonce other than the one it claims with", async () => {
-    await seedSession();
-    const first = await claimed();
+    const first = await claimed((await seedSession()).session_id);
     expect(
       (
         await post("release", first.binding.session_credential, {
@@ -301,15 +302,12 @@ describe("/internal/worker", () => {
         })
       ).status,
     ).toBe(200);
-    await seedSession();
-    const second = await gateway.registerLaunch({
-      executionId: "exec-2",
-      generation: 1,
-      backend: "local_docker",
+    const second = await launchSession(db, {
+      sessionId: (await seedSession()).session_id,
     });
     const claim = {
-      execution_id: "exec-2",
-      execution_generation: 1,
+      execution_id: second.executionId,
+      execution_generation: second.generation,
       credential: { kind: "launch_nonce", nonce: second.nonce },
     };
     expect(
@@ -323,7 +321,7 @@ describe("/internal/worker", () => {
 
   test("a session token cannot act for a binding it does not own", async () => {
     const seeded = await seedSession();
-    const { binding } = await claimed();
+    const { binding } = await claimed(seeded.session_id);
     const forged = { ...scope(binding), attempt_id: "att_other" };
     expect(
       await errorOf(
@@ -337,14 +335,10 @@ describe("/internal/worker", () => {
   });
 
   test("bootstrap-claim answers 404 when the partition has no waiting session", async () => {
-    const launch = await gateway.registerLaunch({
-      executionId: "exec-idle",
-      generation: 1,
-      backend: "local_docker",
-    });
+    const launch = await insertUnreservedLaunch(db, { partition: "default" });
     const response = await post("bootstrap-claim", launch.nonce, {
-      execution_id: "exec-idle",
-      execution_generation: 1,
+      execution_id: launch.executionId,
+      execution_generation: launch.generation,
       credential: { kind: "launch_nonce", nonce: launch.nonce },
     });
     expect(await errorOf(response)).toEqual({
@@ -356,7 +350,7 @@ describe("/internal/worker", () => {
 
   test("runs one attempt end to end over HTTP", async () => {
     const seeded = await seedSession();
-    const { binding } = await claimed();
+    const { binding } = await claimed(seeded.session_id);
     const token = binding.session_credential;
     expect(binding.workspace.repository).toEqual({
       id: "sample-app",
@@ -495,8 +489,7 @@ describe("/internal/worker", () => {
   });
 
   test("heartbeat after the TTL is 409 LEASE_EXPIRED", async () => {
-    await seedSession();
-    const { binding } = await claimed();
+    const { binding } = await claimed((await seedSession()).session_id);
     // The lease runs on the database clock, so only real time ends it.
     await new Promise((resolve) => setTimeout(resolve, LEASE_TTL_MS + 50));
     expect(
@@ -510,8 +503,7 @@ describe("/internal/worker", () => {
   });
 
   test("a stale epoch is 409 STALE_EPOCH", async () => {
-    await seedSession();
-    const { binding } = await claimed();
+    const { binding } = await claimed((await seedSession()).session_id);
     expect(
       await errorOf(
         await post("append-events", binding.session_credential, {
@@ -532,8 +524,7 @@ describe("/internal/worker", () => {
   });
 
   test("rejects a malformed body with 400 before touching the gateway", async () => {
-    await seedSession();
-    const { binding } = await claimed();
+    const { binding } = await claimed((await seedSession()).session_id);
     expect(
       await errorOf(
         await post("heartbeat", binding.session_credential, {
@@ -586,8 +577,7 @@ describe("/internal/worker", () => {
   });
 
   test("checkpoint-request and restore-plan are fenced session-token calls answered by the checkpoint protocol", async () => {
-    await seedSession();
-    const { binding, nonce } = await claimed();
+    const { binding, nonce } = await claimed((await seedSession()).session_id);
     const token = binding.session_credential;
     const protocolCalls: unknown[] = [];
     const withProtocol = createApiApp({
@@ -722,8 +712,7 @@ describe("/internal/worker", () => {
   });
 
   test("without an object store the checkpoint protocol is 409 CHECKPOINT_UNAVAILABLE", async () => {
-    await seedSession();
-    const { binding } = await claimed();
+    const { binding } = await claimed((await seedSession()).session_id);
     const response = await post(
       "checkpoint-request",
       binding.session_credential,

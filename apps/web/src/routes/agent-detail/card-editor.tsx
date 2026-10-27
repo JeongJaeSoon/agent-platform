@@ -18,7 +18,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { profilesQuery, queryKeys } from "../../api/queries.ts";
+import { profilesQuery, queryKeysOf } from "../../api/queries.ts";
 import { useRole } from "../../auth/guard.tsx";
 import {
   AGENT_FORM,
@@ -122,9 +122,12 @@ export function CardEditor({
               baseName: updated.agent.name,
             },
       );
-      queryClient.setQueryData(queryKeys.agent(detail.agent.id), updated);
+      queryClient.setQueryData(
+        queryKeysOf(client).agent(detail.agent.id),
+        updated,
+      );
       await queryClient.invalidateQueries({
-        queryKey: queryKeys.agents,
+        queryKey: queryKeysOf(client).agents,
         exact: true,
       });
     },

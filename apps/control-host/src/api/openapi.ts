@@ -50,6 +50,7 @@ import {
   createSlackAppRequestSchema,
   createSlackAppResponseSchema,
   createTeamRequestSchema,
+  createWorkspaceProfileRequestSchema,
   credentialBindingParamsSchema,
   decidePushRequestRequestSchema,
   deleteSlackAppResponseSchema,
@@ -67,6 +68,8 @@ import {
   inviteIdParamsSchema,
   issuePasswordResetRequestSchema,
   issuePasswordResetResponseSchema,
+  limitsQuerySchema,
+  limitsResponseSchema,
   linkAgentIdentityRequestSchema,
   linkAgentIdentityResponseSchema,
   linkedAccountParamsSchema,
@@ -101,6 +104,7 @@ import {
   loginResponseSchema,
   lookupSlackChannelsQuerySchema,
   lookupSlackChannelsResponseSchema,
+  memberLimitsResponseSchema,
   memberParamsSchema,
   memberUserParamsSchema,
   memberViewSchema,
@@ -187,6 +191,8 @@ import {
   usageToolsResponseSchema,
   WEB_SESSION_COOKIE_NAME,
   workspaceParamsSchema,
+  workspaceProfileChangeResponseSchema,
+  workspaceProfileIdParamsSchema,
 } from "@werft-ai/contracts";
 import { z } from "zod";
 import {
@@ -216,6 +222,7 @@ const requestComponents = {
   ListMyTeamsQuery: listMyTeamsQuerySchema,
   ListMembersQuery: listMembersQuerySchema,
   CountSessionsQuery: countSessionsQuerySchema,
+  LimitsQuery: limitsQuerySchema,
   UsageSummaryQuery: usageSummaryQuerySchema,
   UsageSeriesQuery: usageSeriesQuerySchema,
   UsageBreakdownQuery: usageBreakdownQuerySchema,
@@ -260,6 +267,7 @@ const requestComponents = {
   ActivateAgentRequest: activateAgentRequestSchema,
   CreateApiKeyRequest: createApiKeyRequestSchema,
   CreateTeamRequest: createTeamRequestSchema,
+  CreateWorkspaceProfileRequest: createWorkspaceProfileRequestSchema,
   SetSessionShareRequest: setSessionShareRequestSchema,
   AuditReadRequest: auditReadRequestSchema,
   AdminTerminateSessionRequest: adminTerminateSessionRequestSchema,
@@ -333,6 +341,8 @@ const responseComponents = {
   PasswordResetResponse: passwordResetResponseSchema,
   AuthMeResponse: authMeResponseSchema,
   InstallationLimitsResponse: installationLimitsResponseSchema,
+  MemberLimitsResponse: memberLimitsResponseSchema,
+  LimitsResponse: limitsResponseSchema,
   UsageSummaryResponse: usageSummaryResponseSchema,
   UsageSeriesResponse: usageSeriesResponseSchema,
   UsageBreakdownResponse: usageBreakdownResponseSchema,
@@ -343,6 +353,7 @@ const responseComponents = {
   ListAgentsResponse: listAgentsResponseSchema,
   CountAgentsResponse: countAgentsResponseSchema,
   ListProfilesResponse: listProfilesResponseSchema,
+  WorkspaceProfileChangeResponse: workspaceProfileChangeResponseSchema,
   AgentDetail: agentDetailSchema,
   CreateAgentReleaseResponse: createAgentReleaseResponseSchema,
   ActivateAgentResponse: activateAgentResponseSchema,
@@ -614,6 +625,27 @@ const ALL_SCOPES = [
 ];
 const TEAM_PAGES =
   "By `name`, then `id`, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. A team renamed while the pages are read can show twice or not at all; every other team shows once.";
+
+const WORKSPACE_PROFILE_EXAMPLE = {
+  id: "ws_acme_strict-review_v2",
+  source: "workspace",
+  model: "claude-sonnet-5",
+  models: ["claude-sonnet-5"],
+  tools: ["Read", "Glob", "Grep"],
+  permission_mode: "default",
+  runtime_kind: "claude_agent_sdk",
+  runtime_version: "0.3.270",
+  billing: "metered",
+  repository_mode: "required",
+  workspace: {
+    name: "strict-review",
+    version: 2,
+    base_profile_id: "claude-coding-real",
+    state: "usable",
+    created_at: "2026-10-27T01:00:00.000Z",
+    retired_at: null,
+  },
+} as const;
 
 const EXAMPLE_AGENT = {
   id: EXAMPLE_AGENT_ID,
@@ -1224,6 +1256,7 @@ export const API_ROUTE_DECLARATIONS = [
           "session.audit_read",
           "session.admin_list",
           "usage.installation_read",
+          "usage.agent_read",
         ],
       },
     },
@@ -2638,7 +2671,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Release a version against a runtime profile",
     description:
-      "The release id is a hash of the card, the profile's digest and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. A card tool outside the profile, a different model or an unknown profile answers 422. `repository_id` names the catalog repository the release's sessions work on (`GET /v1/profiles`, `repository_ids`): required when the profile's `repository_mode` is `required` (422 `repository_id: Profile <id> needs a repository: send repository_id`), refused when it is `none`, and 422 when the catalog has no such repository or it does not allow the profile. Slack sessions and API sessions that send no `repository_id` work on it. Releasing approves and activates nothing.",
+      "The release id is a hash of the card, the profile's digest and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. The optional `note` (trimmed, 1 to 200 characters) is stored with the release but is not part of its id, so a re-release keeps the note it was first made with. A card tool outside the profile, a different model or an unknown profile answers 422. `repository_id` names the catalog repository the release's sessions work on (`GET /v1/profiles`, `repository_ids`): required when the profile's `repository_mode` is `required` (422 `repository_id: Profile <id> needs a repository: send repository_id`), refused when it is `none`, and 422 when the catalog has no such repository or it does not allow the profile. Slack sessions and API sessions that send no `repository_id` work on it. Releasing approves and activates nothing.",
     auth: "session",
     body: "CreateAgentReleaseRequest",
     success: { status: 200, schema: "CreateAgentReleaseResponse" },
@@ -3319,29 +3352,93 @@ export const API_ROUTE_DECLARATIONS = [
     path: "/v1/profiles",
     operationId: "listProfiles",
     tag: "Agents",
-    summary: "The runtime profiles this installation can run",
+    summary: "The runtime profiles this workspace can run",
     description:
-      "Lists the catalog profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`, with the model each one runs and its `repository_mode`: whether a session of it names a repository (`required`), may (`optional`) or never does (`none`). The catalog is the operator's config, read once at startup; this reads it and changes nothing. A profile's provider endpoint and credential are not included.",
+      "Lists the profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`: the operator's (`source: operator`, from the catalog config read at startup) and the caller's workspace's (`source: workspace`, ids starting `ws_`), each with the models it offers, its tools, permission mode and `repository_mode`: whether a session of it names a repository (`required`), may (`optional`) or never does (`none`). A workspace profile lists every version, each with its `workspace.state`; only `usable` takes a new release or session. A profile's provider endpoint and credential are not included.",
     scope: "read",
     success: {
       status: 200,
       schema: "ListProfilesResponse",
-      description: "Every profile in the catalog, ordered by `id`.",
+      description:
+        "The operator's profiles ordered by `id`, then the workspace's.",
       example: {
         items: [
           {
             id: "claude-coding-real",
+            source: "operator",
             model: "claude-sonnet-5",
+            models: ["claude-sonnet-5", "claude-haiku-5"],
             tools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+            permission_mode: "acceptEdits",
             runtime_kind: "claude_agent_sdk",
             runtime_version: "0.3.270",
             billing: "metered",
             repository_mode: "required",
           },
+          WORKSPACE_PROFILE_EXAMPLE,
         ],
       },
     },
     errors: [401, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/workspace-profiles",
+    operationId: "createWorkspaceProfile",
+    tag: "Agents",
+    summary: "Save a new version of a workspace profile",
+    description:
+      "Owners and admins (`workspace.manage`), signed in. Narrows the operator profile `base_profile_id`: `models` and `tools` are subsets of the base's, and `permission_mode` the base's or one that leaves more to a person. Anything wider is 400 with `details.field`. Each save makes the next version of `name` with a new id (`ws_<workspace slug>_<name>_v<n>`); earlier versions, and what already runs on them, stay as they were. Two saves of one name at once: the second is 409 REVISION_CONFLICT, and saving again makes the version after. Writes a `create_workspace_profile` receipt.",
+    auth: "session",
+    body: "CreateWorkspaceProfileRequest",
+    requestExample: {
+      name: "strict-review",
+      base_profile_id: "claude-coding-real",
+      model: "claude-sonnet-5",
+      models: ["claude-sonnet-5"],
+      tools: ["Read", "Glob", "Grep"],
+      permission_mode: "default",
+    },
+    success: {
+      status: 201,
+      schema: "WorkspaceProfileChangeResponse",
+      description: "The version saved, and its receipt.",
+      example: {
+        profile: WORKSPACE_PROFILE_EXAMPLE,
+        receipt_id: "019a0000-0000-7000-8000-0000000000e1",
+      },
+    },
+    errors: [400, 401, 403, 409, 413, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/workspace-profiles/{profile_id}/retire",
+    operationId: "retireWorkspaceProfile",
+    tag: "Agents",
+    summary: "Retire a version of a workspace profile",
+    description:
+      "Owners and admins (`workspace.manage`), signed in. A retired version takes no new release and no new session of a new release; releases and sessions already on it keep running. Retiring one already retired changes nothing and answers a null `receipt_id`; otherwise writes a `retire_workspace_profile` receipt. Another workspace's version is 404.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "WorkspaceProfileChangeResponse",
+      description: "The version as retired.",
+      example: {
+        profile: {
+          ...WORKSPACE_PROFILE_EXAMPLE,
+          workspace: {
+            ...WORKSPACE_PROFILE_EXAMPLE.workspace,
+            state: "retired",
+            retired_at: "2026-10-28T01:00:00.000Z",
+          },
+        },
+        receipt_id: "019a0000-0000-7000-8000-0000000000e2",
+      },
+    },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
   },
   {
     method: "get",
@@ -3350,11 +3447,12 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Installation limits and installation-wide usage",
     description:
-      "Reads the limits this installation runs under (execution slots, queued input per session, storage, turn length, per-session cost and token limits, provider retries) and the usage against the installation-wide ones, summed over every owner. Use it to explain `STORAGE_LIMIT_EXCEEDED`, a full input queue, or sessions waiting in `queued` for a slot. `usage.outputs` is the bytes of session outputs kept in the object store, shown beside storage and never enforced.\n\nOnly the workspace owner, signed in, reads it: any other member and every API key get 403. It changes nothing.",
+      "Reads the limits this installation runs under (execution slots, queued input per session, storage, turn length, per-session cost and token limits, provider retries) and the usage against the installation-wide ones, summed over every owner. Use it to explain `STORAGE_LIMIT_EXCEEDED`, a full input queue, or sessions waiting in `queued` for a slot. `usage.outputs` is the bytes of session outputs kept in the object store, shown beside storage and never enforced.\n\nWithout `scope`, or with `scope=installation`, only the workspace owner, signed in, reads it: any other member and every API key get 403.\n\n`scope=me` gives any signed-in member the per-session limits alone (`queued_input_limit_per_session`, `max_turn_seconds`, `session_cost_limit_usd`, `session_token_limit`), with no `usage`; an API key gets 403. It changes nothing.",
     scope: "read",
+    query: "LimitsQuery",
     success: {
       status: 200,
-      schema: "InstallationLimitsResponse",
+      schema: "LimitsResponse",
       description: "The limits and usage as of `refreshed_at`.",
       example: {
         scope: "installation",
@@ -3384,7 +3482,7 @@ export const API_ROUTE_DECLARATIONS = [
         },
       },
     },
-    errors: [401, 503],
+    errors: [400, 401, 503],
   },
   {
     method: "get",
@@ -3393,7 +3491,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Cost, tokens and run time of the sessions created in a period",
     description:
-      "Adds up the sessions created in `[since, until)`: how many, their estimated provider cost, their tokens, and how long their turns ran. `since` and `until` take a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, which is moved to UTC; without `until` the period ends when the figures are read, so `since` must then be in the past.\n\n- `scope=me`: the sessions the caller started. A personal API key counts as the person who created it; a key nobody created counts the sessions it started itself. Sessions shared with the caller are not added. A key bound to an agent gets 403, as it does from `GET /v1/sessions`.\n- `scope=installation`: every session of every owner. Only the workspace owner, signed in, reads it: any other member and every API key get 403.\n\n`cost_usd` is the sum of `cost.amount_usd` from `GET /v1/sessions/{id}/usage` over the same sessions: an estimate, not a bill. `cost_complete: false` means one of them has a turn still open or one that ended without reporting its cost, so the true total is unknown. `run_seconds` is wall-clock turn time, waiting for an answer included; an open turn counts up to `refreshed_at`. Sessions from before tokens were metered count 0 tokens.\n\n`group_by=agent` or `group_by=user` adds `groups`: the same sessions, each once, under its agent or the user holding it, largest cost first, read in the same statement as the totals. The groups' `session_count`, `cost_usd` and `run_seconds` add up to the totals (`run_seconds` is the floor of the running total minus the floor of the one before it, so two groups of 1.5 seconds read 1 and 2), and `cost_complete` is false when any group's is. `id` is the agent id or user id; it is null for sessions without an agent, or started by a key no person created. `name` is the agent's name or the user's display name, never an email; under `scope=me` a user other than the caller is null. Without `group_by` there is no `groups`. It changes nothing.",
+      "Adds up the sessions created in `[since, until)`: how many, their estimated provider cost, their tokens, and how long their turns ran. `since` and `until` take a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, which is moved to UTC; without `until` the period ends when the figures are read, so `since` must then be in the past.\n\n- `scope=me`: the sessions the caller started. A personal API key counts as the person who created it; a key nobody created counts the sessions it started itself. Sessions shared with the caller are not added. A key bound to an agent gets 403, as it does from `GET /v1/sessions`.\n- `scope=installation`: every session of every owner. Only the workspace owner, signed in, reads it: any other member and every API key get 403.\n- `scope=agent` with `agent_id`: the sessions started from any release of that agent, whoever started them. The workspace's owner and admins and the agent's admins read it; anyone else, and every API key, gets 403, and an agent of another workspace, or none, is 404 for everyone. `agent_id` is required with it and refused with any other scope, and `group_by` is refused with it.\n\n`cost_usd` is the sum of `cost.amount_usd` from `GET /v1/sessions/{id}/usage` over the same sessions: an estimate, not a bill. `cost_complete: false` means one of them has a turn still open or one that ended without reporting its cost, so the true total is unknown. `run_seconds` is wall-clock turn time, waiting for an answer included; an open turn counts up to `refreshed_at`. Sessions from before tokens were metered count 0 tokens.\n\n`group_by=agent`, `group_by=user` or `group_by=profile` adds `groups`: the same sessions, each once, under its agent, the user holding it or the session's current profile (`sessions.profile_id`; a session that changed profile counts whole under the one it has now), largest cost first, read in the same statement as the totals. The groups' `session_count`, `cost_usd` and `run_seconds` add up to the totals (`run_seconds` is the floor of the running total minus the floor of the one before it, so two groups of 1.5 seconds read 1 and 2), and `cost_complete` is false when any group's is. `id` is the agent id, user id or profile id; it is null for sessions without an agent or a profile, or started by a key no person created. `name` is the agent's name, the user's display name (never an email) or, as profiles have no display name, the profile id; under `scope=me` a user other than the caller is null. Without `group_by` there is no `groups`. It changes nothing.",
     scope: "read",
     query: "UsageSummaryQuery",
     success: {
@@ -3419,7 +3517,7 @@ export const API_ROUTE_DECLARATIONS = [
         },
       },
     },
-    errors: [400, 401, 503],
+    errors: [400, 401, 404, 503],
   },
   {
     method: "get",
@@ -3815,6 +3913,8 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path.startsWith("/v1/teams/{team_id}/members/"))
     return teamMemberParamsSchema;
   if (path.startsWith("/v1/teams/{team_id}")) return teamIdParamsSchema;
+  if (path.startsWith("/v1/workspace-profiles/{profile_id}"))
+    return workspaceProfileIdParamsSchema;
   if (path.startsWith("/v1/workspaces/{id}/members/{userId}"))
     return memberParamsSchema;
   if (path.includes("{app_id}/secrets/{purpose}"))

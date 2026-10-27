@@ -40,6 +40,7 @@ import {
   workerLaunches,
 } from "./schema.ts";
 import { recordEvent } from "./session-events.ts";
+import { confirmExecutionGone, launchSession } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -149,18 +150,13 @@ integration("pause on PostgreSQL", () => {
   }
 
   async function claim(session: Session): Promise<Worker> {
-    const executionId = `exec-${crypto.randomUUID()}`;
-    const registered = await gateway.registerLaunch({
-      executionId,
-      generation: 1,
-      partition: session.partition,
-      backend: "local_docker",
+    const { executionId, generation, nonce } = await launchSession(db, {
+      sessionId: session.sessionId,
     });
-    if (registered.nonce === null) throw new Error("launch already registered");
     const claimed = await gateway.bootstrapClaim(bootstrap, {
       execution_id: executionId,
-      execution_generation: 1,
-      credential: { kind: "launch_nonce", nonce: registered.nonce },
+      execution_generation: generation,
+      credential: { kind: "launch_nonce", nonce },
     });
     expect(claimed.session_id).toBe(session.sessionId);
     return {
@@ -378,7 +374,7 @@ integration("pause on PostgreSQL", () => {
     );
     expect((await receiptRow(response.receipt_id)).status).toBe("accepted");
 
-    await gateway.confirmExecutionGone(worker.executionId);
+    await confirmExecutionGone(db, worker.executionId);
 
     const paused = await sessionRow(session.sessionId);
     expect(paused.admissionState).toBe("paused");
@@ -556,7 +552,7 @@ integration("pause on PostgreSQL", () => {
       ...worker.scope,
       reason: "idle",
     });
-    await gateway.confirmExecutionGone(worker.executionId);
+    await confirmExecutionGone(db, worker.executionId);
     expect((await sessionRow(covered.sessionId)).executionId).toBeNull();
 
     const response = await accepted(covered);
@@ -588,7 +584,7 @@ integration("pause on PostgreSQL", () => {
       ...worker.scope,
       reason: "idle",
     });
-    await gateway.confirmExecutionGone(worker.executionId);
+    await confirmExecutionGone(db, worker.executionId);
     // A later turn-less revision 1 became the pointer and turned out damaged;
     // the session was restored from revision 0, which covers the last turn.
     await db.insert(checkpoints).values({
@@ -657,7 +653,7 @@ integration("pause on PostgreSQL", () => {
         ...worker.scope,
         reason: "idle",
       });
-      await gateway.confirmExecutionGone(worker.executionId);
+      await confirmExecutionGone(db, worker.executionId);
       return session;
     };
 
@@ -702,29 +698,12 @@ integration("pause on PostgreSQL", () => {
       ...worker.scope,
       reason: "idle",
     });
-    await gateway.confirmExecutionGone(worker.executionId);
+    await confirmExecutionGone(db, worker.executionId);
     // The scheduler has reserved the next launch; no worker claimed it yet.
     await append(session, "queued behind");
-    const executionId = `exec-${crypto.randomUUID()}`;
-    await gateway.registerLaunch({
-      executionId,
-      generation: 2,
-      partition: session.partition,
-      sessionId: session.sessionId,
-      backend: "local_docker",
-    });
-    await db.insert(executions).values({
-      backend: "local_docker",
-      desiredState: "running",
-      generation: 2,
-      id: executionId,
-      observedState: "pending",
+    const { executionId } = await launchSession(db, {
       sessionId: session.sessionId,
     });
-    await db
-      .update(sessions)
-      .set({ executionId })
-      .where(eq(sessions.id, session.sessionId));
     await db
       .update(workerLaunches)
       .set({ replacementReason: "nonce_expired" })
@@ -744,7 +723,7 @@ integration("pause on PostgreSQL", () => {
       .where(eq(workerLaunches.executionId, executionId));
     expect(launch?.replacementReason).toBeNull();
 
-    await gateway.confirmExecutionGone(executionId);
+    await confirmExecutionGone(db, executionId);
     expect((await sessionRow(session.sessionId)).admissionState).toBe("paused");
     expect((await receiptRow(response.receipt_id)).status).toBe("succeeded");
   });
@@ -778,7 +757,7 @@ integration("pause on PostgreSQL", () => {
     const w2 = await claim(lost);
     await deliver(w2);
     const p2 = await accepted(lost);
-    await gateway.confirmExecutionGone(w2.executionId);
+    await confirmExecutionGone(db, w2.executionId);
     expect((await sessionRow(lost.sessionId)).admissionState).toBe(
       "recovery_required",
     );
@@ -822,7 +801,7 @@ integration("pause on PostgreSQL", () => {
       .from(attempts)
       .where(eq(attempts.id, worker.scope.attempt_id));
     expect(attempt?.state).toBe("exited");
-    await gateway.confirmExecutionGone(worker.executionId);
+    await confirmExecutionGone(db, worker.executionId);
     expect((await sessionRow(session.sessionId)).admissionState).toBe("paused");
     expect((await receiptRow(response.receipt_id)).status).toBe("succeeded");
   });
