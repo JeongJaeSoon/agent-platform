@@ -1614,6 +1614,65 @@ describe("에이전트 상세", () => {
       }
     }
   });
+  test("칸이 넓어져 메모가 다 들어가면 펼침 단추가 사라진다", async () => {
+    const server = agentServer();
+    await seedRelease(server, "환불 문의 규칙을 더함");
+    // A 210px note: cut in a 200px box, whole in a 224px one. Beside the
+    // toggle (28px + 4px gap) the text has only 192px of the wider box.
+    let box = 200;
+    const widths = Object.getOwnPropertyDescriptors(HTMLElement.prototype);
+    Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.dataset.slot === "release-note" ? 210 : 0;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get(this: HTMLElement) {
+        if (this.dataset.slot !== "release-note") return box;
+        return this.nextElementSibling ? box - 32 : box;
+      },
+    });
+    // Happy DOM never fires a ResizeObserver; this one is fired by hand.
+    const observed: (() => void)[] = [];
+    const Observer = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      constructor(callback: () => void) {
+        observed.push(callback);
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+    try {
+      renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
+      await screen.findByRole("button", { name: "메모 전체 보기" });
+      box = 224;
+      act(() => {
+        for (const callback of observed) callback();
+      });
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("button", { name: "메모 전체 보기" }),
+        ).toBeNull(),
+      );
+      // Measured again without the toggle, it stays away.
+      act(() => {
+        for (const callback of observed) callback();
+      });
+      expect(
+        screen.queryByRole("button", { name: "메모 전체 보기" }),
+      ).toBeNull();
+    } finally {
+      globalThis.ResizeObserver = Observer;
+      for (const key of ["scrollWidth", "clientWidth"] as const) {
+        const own = widths[key];
+        if (own) Object.defineProperty(HTMLElement.prototype, key, own);
+        else Reflect.deleteProperty(HTMLElement.prototype, key);
+      }
+    }
+  });
   test("release 만들기는 응답을 기다리기 전에 대화상자를 닫고, 결과 줄이 포커스를 받는다", async () => {
     const server = agentServer();
     let answer: (() => void) | undefined;
