@@ -428,7 +428,11 @@ describe("app shell", () => {
     await user.click(screen.getByRole("menuitem", { name: "API key" }));
     expect(history.location.pathname).toBe("/settings/api-keys");
     expect(screen.queryByRole("menu")).toBeNull();
-    expect(document.activeElement?.id).toBe("main");
+    const title = await screen.findByRole("heading", {
+      level: 1,
+      name: "API key",
+    });
+    await waitFor(() => expect(document.activeElement === title).toBe(true));
   });
 
   // happy-dom has no layout; the width at 390px is measured in the browser.
@@ -508,7 +512,80 @@ describe("app shell", () => {
         .getByRole("button", { name: "메뉴 열기" })
         .getAttribute("aria-expanded"),
     ).toBe("false");
-    expect(document.activeElement?.id).toBe("main");
+    const title = await screen.findByRole("heading", {
+      level: 1,
+      name: "구성원",
+    });
+    await waitFor(() => expect(document.activeElement === title).toBe(true));
+  });
+});
+
+describe("focus after a page change", () => {
+  test("a sidebar link puts focus on the next page's title", async () => {
+    renderAt("/", signedIn);
+    const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
+    const user = await setupUser();
+    await user.click(within(nav).getByRole("link", { name: "에이전트" }));
+    const title = await screen.findByRole("heading", {
+      level: 1,
+      name: "에이전트",
+    });
+    await waitFor(() => expect(document.activeElement === title).toBe(true));
+    expect(title.getAttribute("tabindex")).toBe("-1");
+  });
+
+  test("logging out puts focus on the login title", async () => {
+    let out = false;
+    renderAt("/", {
+      "GET /v1/auth/me": () =>
+        out
+          ? apiError(401, "UNAUTHORIZED", "Authentication is required")
+          : json(200, me()),
+      "POST /v1/auth/logout": () => {
+        out = true;
+        return new Response(null, { status: 204 });
+      },
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "Owner · 소유자" }),
+    );
+    await user.click(screen.getByRole("menuitem", { name: "로그아웃" }));
+    const title = await screen.findByRole("heading", {
+      level: 1,
+      name: "로그인",
+    });
+    await waitFor(() => expect(document.activeElement === title).toBe(true));
+  });
+
+  test("the first page leaves focus where the browser put it", async () => {
+    renderAt("/agents", signedIn);
+    await screen.findByRole("heading", { level: 1, name: "에이전트" });
+    await screen.findByRole("navigation", { name: "주요 메뉴" });
+    expect(document.activeElement?.tagName).toBe("BODY");
+  });
+
+  test("a change of search alone keeps focus where it is", async () => {
+    const { history } = renderAt("/sessions", signedIn);
+    await screen.findByRole("heading", { level: 1, name: "세션" });
+    const toggle = screen.getByRole("button", { name: "메뉴 열기" });
+    toggle.focus();
+    await history.push("/sessions?status=needs_input");
+    await waitFor(() =>
+      expect(history.location.search).toBe("?status=needs_input"),
+    );
+    expect(document.activeElement === toggle).toBe(true);
+  });
+
+  test("focus taken while the page changes stays there", async () => {
+    const { history } = renderAt("/", signedIn);
+    await screen.findByRole("heading", { level: 1, name: "홈" });
+    const toggle = screen.getByRole("button", { name: "메뉴 열기" });
+    const going = history.push("/agents");
+    toggle.focus();
+    await going;
+    await screen.findByRole("heading", { level: 1, name: "에이전트" });
+    expect(document.activeElement === toggle).toBe(true);
   });
 });
 

@@ -19,7 +19,14 @@ import {
   PageFrame,
   SkipLink,
 } from "@werft-ai/ui";
-import { type ReactNode, useId, useLayoutEffect, useState } from "react";
+import {
+  type ReactNode,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { agentQuery } from "../api/queries.ts";
 import { useMe } from "../auth/guard.tsx";
 import {
@@ -49,6 +56,7 @@ export function RootLayout() {
       state.matches.some((match) => match.routeId === "/authed"),
   });
   useLayoutEffect(() => applyTheme(storedTheme()), []);
+  useFocusOnPageChange();
   return (
     <div className="group/root flex min-h-dvh flex-col">
       <SkipLink href={`#${MAIN_CONTENT_ID}`}>
@@ -72,6 +80,51 @@ export function RootLayout() {
       )}
     </div>
   );
+}
+
+/**
+ * A move to another page puts focus on its h1, or on <main> without one, so
+ * the next Tab and a screen reader start there rather than at the document's
+ * top. Not on the first load, not when only the search or hash changes, and
+ * not when something else took focus while the page changed (a dialog, a
+ * notice). <main> itself counts as untaken: links whose menu closes park
+ * focus there on the way.
+ */
+function useFocusOnPageChange() {
+  const router = useRouter();
+  const before = useRef<Element | null>(null);
+  useEffect(
+    () =>
+      router.subscribe("onBeforeNavigate", (event) => {
+        if (event.pathChanged) before.current = document.activeElement;
+      }),
+    [router],
+  );
+  // After the render the resolved path commits, not on the router's
+  // onRendered: ShellMain swaps the page's frame in that render, which
+  // remounts a title focused any earlier.
+  const pathname = useRouterState({
+    select: (state) => state.resolvedLocation?.pathname,
+  });
+  const shown = useRef(pathname);
+  useEffect(() => {
+    const last = shown.current;
+    shown.current = pathname;
+    if (last === undefined || last === pathname) return;
+    const main = document.getElementById(MAIN_CONTENT_ID);
+    const active = document.activeElement;
+    const taken =
+      active !== null &&
+      active !== before.current &&
+      active !== document.body &&
+      active !== main &&
+      active.isConnected;
+    if (taken || !main) return;
+    const target = main.querySelector<HTMLElement>("h1") ?? main;
+    if (!target.hasAttribute("tabindex")) target.tabIndex = -1;
+    // Scroll is the router's: back and forward restore where the page was.
+    target.focus({ preventScroll: true });
+  }, [pathname]);
 }
 
 function LocaleSwitch() {
