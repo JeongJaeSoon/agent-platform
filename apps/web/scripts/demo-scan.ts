@@ -119,25 +119,38 @@ const DECODE_ROUNDS = 8;
 function reveal(text: string): { stages: string[]; encoded: boolean } {
   const stages = [text];
   let current = text;
-  for (let round = 0; round < DECODE_ROUNDS; round += 1) {
-    const next = current
-      .replace(
-        /\\u([0-9a-f]{4})|\\([bfnrt"\\/])/gi,
-        (_, hex: string | undefined, char: string | undefined) =>
-          hex
-            ? String.fromCharCode(Number.parseInt(hex, 16))
-            : ({ b: "\b", f: "\f", n: "\n", r: "\r", t: "\t" }[char as "b"] ??
-              (char as string)),
-      )
-      // Byte-wise, so one stray `%` does not leave the rest encoded.
-      .replace(/%([0-9a-f]{2})/gi, (_, hex: string) =>
-        String.fromCharCode(Number.parseInt(hex, 16)),
-      );
-    if (next === current) return { stages, encoded: false };
-    stages.push(next);
-    current = next;
+  for (let round = 0; round <= DECODE_ROUNDS; round += 1) {
+    const before = current;
+    // Each step is its own stage: the next one can glue a revealed value to
+    // its neighbour.
+    for (const step of [unescapeJson, percentDecode]) {
+      const next = step(current);
+      if (next === current) continue;
+      if (round === DECODE_ROUNDS) return { stages, encoded: true };
+      stages.push(next);
+      current = next;
+    }
+    if (current === before) break;
   }
-  return { stages, encoded: true };
+  return { stages, encoded: false };
+}
+
+function unescapeJson(text: string): string {
+  return text.replace(
+    /\\u([0-9a-f]{4})|\\([bfnrt"\\/])/gi,
+    (_, hex: string | undefined, char: string | undefined) =>
+      hex
+        ? String.fromCharCode(Number.parseInt(hex, 16))
+        : ({ b: "\b", f: "\f", n: "\n", r: "\r", t: "\t" }[char as "b"] ??
+          (char as string)),
+  );
+}
+
+/** Byte-wise, so one stray `%` does not leave the rest encoded. */
+function percentDecode(text: string): string {
+  return text.replace(/%([0-9a-f]{2})/gi, (_, hex: string) =>
+    String.fromCharCode(Number.parseInt(hex, 16)),
+  );
 }
 
 const IPV6_CANDIDATE =

@@ -100,12 +100,16 @@ describe("demo fixture scan", () => {
       scan({
         a: "\\fd00::1",
         b: "fd00::1%2567",
+        b2: "fd00\\u003a\\u003a1%67",
         c: "https://x.example.test/?h=fd00%5Cu003a%5Cu003a1",
       }),
-    ).toEqual(Array(3).fill("private address"));
+    ).toEqual(Array(4).fill("private address"));
   });
 
   test("text still changing at the decoding cap fails", () => {
+    let settled = "hello world";
+    for (let i = 0; i < 8; i += 1) settled = encodeURIComponent(settled);
+    expect(scan({ settled })).toEqual([]);
     let deep = "a@corp.example.com";
     for (let i = 0; i < 9; i += 1) deep = encodeURIComponent(deep);
     expect(scan({ deep })).toEqual(["still encoded after the decoding cap"]);
