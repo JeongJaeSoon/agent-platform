@@ -4,6 +4,7 @@ import {
   AgentPlatformProvider,
   LOCALES,
   type Locale,
+  QueryScopeProvider,
   type RenderLink,
 } from "@werft-ai/react";
 import { type ReactNode, useMemo, useState } from "react";
@@ -18,6 +19,8 @@ const withTheme: Decorator = (Story, { globals }) => {
     globals.theme === "dark" ? "dark" : "light";
   return <Story />;
 };
+
+const STORY_SCOPE = { actor: "user:story", workspace: "story" };
 
 const renderLink: RenderLink = ({ to, id, ...anchor }) => (
   <a href={`#${to}/${id}`} {...anchor} />
@@ -44,7 +47,7 @@ function Platform({
         locale={locale}
         renderLink={renderLink}
       >
-        {children}
+        <QueryScopeProvider scope={STORY_SCOPE}>{children}</QueryScopeProvider>
       </AgentPlatformProvider>
     </QueryClientProvider>
   );

@@ -1,3 +1,4 @@
+import type { ApiClient } from "@werft-ai/client";
 import type {
   AuthMeResponse,
   MemberActions,
@@ -6,6 +7,13 @@ import type {
   MemberView,
   WorkspaceRole,
 } from "@werft-ai/contracts";
+import {
+  type QueryScope,
+  queryKeysOf,
+  queryScopeOf,
+  scopedKey,
+  withQueryScope,
+} from "@werft-ai/core";
 
 export interface Recorded {
   readonly method: string;
@@ -153,6 +161,14 @@ export function me(
 export function memberMe(): AuthMeResponse {
   return me(undefined, "member");
 }
+
+/** The scope the fixture user's screens cache under, whatever its role. */
+export const SCOPE = queryScopeOf(me()) as QueryScope;
+const scopedClient = withQueryScope({} as ApiClient, SCOPE);
+/** The fixture user's cache keys. */
+export const keys = queryKeysOf(scopedClient);
+export const keyOf = <const K extends readonly unknown[]>(...key: K) =>
+  scopedKey(scopedClient, ...key);
 
 /** What the server says when it refuses every action on a row for one reason. */
 export function refusedActions(reason: MemberRefusal): MemberActions {

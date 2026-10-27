@@ -2,7 +2,7 @@ import { describe, expect, setSystemTime, spyOn, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type ApiClientOptions, createApiClient } from "@werft-ai/client";
 import type { PendingRequest } from "@werft-ai/contracts";
-import { queryKeys } from "@werft-ai/core";
+import { queryKeysOf, withQueryScope } from "@werft-ai/core";
 import { setupDom, setupUser } from "@werft-ai/ui/test-support/dom";
 import { type ReactNode, useState } from "react";
 import type { ApprovalLayout } from "./session-actions.tsx";
@@ -206,10 +206,13 @@ function renderInbox({
     }
     return json(404, { error: { code: "NOT_FOUND", message: route } });
   };
-  const client = createApiClient({
-    baseUrl: "https://console.test",
-    fetch: fakeFetch as unknown as NonNullable<ApiClientOptions["fetch"]>,
-  });
+  const client = withQueryScope(
+    createApiClient({
+      baseUrl: "https://console.test",
+      fetch: fakeFetch as unknown as NonNullable<ApiClientOptions["fetch"]>,
+    }),
+    { actor: "user:u-1", workspace: "w-1" },
+  );
   const queryClient = new QueryClient();
   const view = render(
     <QueryClientProvider client={queryClient}>
@@ -259,7 +262,7 @@ function renderInbox({
       relations = next;
       await act(() =>
         queryClient.invalidateQueries({
-          queryKey: queryKeys.waitingSessions,
+          queryKey: queryKeysOf(client).waitingSessions,
           exact: true,
         }),
       );

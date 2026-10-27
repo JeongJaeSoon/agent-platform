@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
-import { queryKeys } from "../../api/queries.ts";
 import { AGENT_ID, agentServer, CARD } from "../../test-support/fake-agents.ts";
-import { apiError, json, me } from "../../test-support/fake-api.ts";
+import { apiError, json, keys, me } from "../../test-support/fake-api.ts";
 import { appHarness } from "../../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor, within } = await appHarness();
@@ -47,12 +46,12 @@ describe("자격 연결 단계", () => {
     const listed = async () => {
       await waitFor(() =>
         expect(
-          services.queryClient.getQueryState(queryKeys.agents)?.fetchStatus,
+          services.queryClient.getQueryState(keys.agents)?.fetchStatus,
         ).toBe("idle"),
       );
       const reads = listReads();
       return () =>
-        services.queryClient.getQueryState(queryKeys.agents)?.isInvalidated ===
+        services.queryClient.getQueryState(keys.agents)?.isInvalidated ===
           true || listReads() > reads;
     };
     const user = await setupUser();
@@ -176,7 +175,7 @@ describe("자격 연결 단계", () => {
 
       const listed = services.queryClient.getQueryData<{
         items: Record<string, unknown>[];
-      }>([...["agents", AGENT_ID], "credential-bindings"]);
+      }>([...keys.agent(AGENT_ID), "credential-bindings"]);
       expect(listed?.items).toEqual([]);
       const variables = services.queryClient
         .getMutationCache()

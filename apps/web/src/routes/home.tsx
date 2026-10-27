@@ -12,7 +12,8 @@ import type {
 import {
   apiKeysQuery,
   pendingRequestsQuery,
-  queryKeys,
+  queryKeysOf,
+  scopedKey,
   waitingSessionsQuery,
 } from "@werft-ai/core";
 import { useAgentPlatform, useSessions } from "@werft-ai/react";
@@ -179,7 +180,7 @@ export function HomeScreen() {
   // The install's figures are the owner's alone; anyone else would get 403.
   const operator = useHasPermission("usage.installation_read");
   const limits = useQuery({
-    queryKey: ["limits"],
+    queryKey: scopedKey(client, "limits"),
     queryFn: () =>
       unwrap(client.GET("/v1/limits")) as Promise<InstallationLimitsResponse>,
     enabled: operator,
@@ -792,7 +793,7 @@ export function statusPageQuery(
   enabled: boolean,
 ) {
   return {
-    queryKey: [...queryKeys.sessions, "home", status],
+    queryKey: [...queryKeysOf(client).sessions, "home", status],
     // In step with the waiting list, or the open total adds counts read at
     // different times and counts a session twice or not at all.
     refetchInterval: WAITING_REFETCH_MS,

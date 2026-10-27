@@ -61,7 +61,7 @@ import {
   administeredAgentsQuery,
   agentsQuery,
   apiKeysQuery,
-  queryKeys,
+  queryKeysOf,
 } from "../api/queries.ts";
 import {
   type ManagedPermission,
@@ -584,7 +584,9 @@ function KeyList({
     onSuccess: async () => {
       setConfirming(null);
       onOutcome({ kind: "notice", text: t("apiKeys.revoked") });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeysOf(client).apiKeys,
+      });
     },
     onError: (error, key) => {
       setConfirming(null);
@@ -825,7 +827,7 @@ function useIssue(
     gcTime: 0,
     onMutate: () => onOutcome(null),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys }),
+      queryClient.invalidateQueries({ queryKey: queryKeysOf(client).apiKeys }),
     onError: (error) =>
       onOutcome({
         kind: "error",
