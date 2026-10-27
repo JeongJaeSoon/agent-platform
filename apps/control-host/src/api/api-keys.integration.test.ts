@@ -427,17 +427,20 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
       asCookie(cookies.owner),
       releases.owners,
     );
-    const ownersId = createSessionResponseSchema.parse(
-      await owners.json(),
-    ).session_id;
+    const { session_id: ownersId, receipt_id: ownersReceiptId } =
+      createSessionResponseSchema.parse(await owners.json());
+    expect(
+      (await send("GET", `/v1/receipts/${receipt_id}`, bearer(agentKey)))
+        .status,
+    ).toBe(200);
     for (const path of [
       `/v1/sessions/${ownersId}`,
       `/v1/sessions/${ownersId}/turns`,
-      // A list spans agents, and a receipt names no session to check.
+      // A list spans agents.
       "/v1/sessions",
       // Narrowing to its own agent does not lift the list's refusal.
       `/v1/sessions?agent_id=${agentIds.mine}`,
-      `/v1/receipts/${receipt_id}`,
+      `/v1/receipts/${ownersReceiptId}`,
     ]) {
       expect((await send("GET", path, bearer(agentKey))).status).toBe(403);
     }
