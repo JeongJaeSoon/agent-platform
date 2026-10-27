@@ -64,7 +64,7 @@ checkpoint manifest에 필드를 더할 때는 반대로 읽는 쪽이 먼저다
 
 | 필드 | 먼저: 읽는 쪽 | 그다음: 쓰는 쪽 |
 |---|---|---|
-| `workerState`(승인 대기 park, 94S-858) | control-host와 worker가 이 키가 있는 manifest를 받는다 | worker가 승인 대기 turn을 park할 때만 쓴다 |
+| `workerState`(승인 대기 park) | control-host와 worker가 이 키가 있는 manifest를 받는다 | worker가 승인 대기 turn을 park할 때만 쓴다 |
 
 ## 공급망 취약점 정책
 
