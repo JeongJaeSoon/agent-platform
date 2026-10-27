@@ -24,6 +24,7 @@ import {
   receiptActorOf,
 } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
+import { closeParkedGroup } from "./parked-group.ts";
 import { cancelParkedRequests } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -70,7 +71,7 @@ export function createPostgresTurnInterrupts(
         // and this is a no-op, or the intent is stored before the terminal
         // and settled by it.
         const [session] = await tx
-          .select({ id: sessions.id, inputAnnounced: sessions.inputAnnounced })
+          .select()
           .from(sessions)
           .where(
             and(
@@ -176,6 +177,11 @@ export function createPostgresTurnInterrupts(
               { sessionId, turnRowId: turn.id },
               at,
             );
+            await closeParkedGroup(tx, session, {
+              by: "interrupt",
+              at,
+              actor: scope.actor,
+            });
           }
         }
         await announceInputWaitEnded(tx, {

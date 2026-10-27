@@ -38,13 +38,15 @@ type SessionRow = typeof sessions.$inferSelect;
 type GroupRow = typeof pendingRequests.$inferSelect;
 
 /**
- * Who closes a parked group. `answer`, `expiry` and `execution_gone` are the
- * platform undoing its own park, so they resume only a session the park
+ * Who closes a parked group. `answer`, `interrupt` (another group
+ * cancelled), `expiry` and `execution_gone` are the platform undoing its
+ * own park, so they resume only a session the park
  * still holds; `resume` is a person with control rights, who may carry on a
  * pause they took over; `close` ends the group unresumed.
  */
 export type ParkedGroupCaller =
   | "answer"
+  | "interrupt"
   | "expiry"
   | "execution_gone"
   | "resume"
@@ -162,8 +164,8 @@ export async function expireLapsedParked(
  * answers is queued behind what the session already holds (turns run in
  * sequence order, which checkpoint coverage relies on), its allows become
  * grants, and a session the park paused goes `resuming` once no group is
- * left. A group that only expired stays as it is until a person resumes
- * it. The caller holds the session row lock.
+ * left. A group that only expired under a pause stays as it is until a
+ * person resumes it. The caller holds the session row lock.
  */
 export async function closeParkedGroup(
   tx: Database,
@@ -217,27 +219,47 @@ export async function closeParkedGroup(
     const answered = group.rows
       .filter((row) => row.answeredAt !== null)
       .sort((a, b) => (a.answerSequence ?? 0) - (b.answerSequence ?? 0));
-    if (waiting[index] !== 0 || answered.length === 0) continue;
+    if (waiting[index] !== 0) continue;
+    // A pause holds an all-expired group for a person's resume; a drain
+    // park has no pause to resume, so it carries on with the denials.
+    if (answered.length === 0 && parkedBySystem) continue;
     await continueParkedTurn(tx, session, group, input.at);
     continued += 1;
     lastAnswered = answered.at(-1) ?? lastAnswered;
   }
-  if (continued === 0) return { outcome: "ok", resumed: false, waitingFor };
-  // The pause lifts only once no group it holds is left: one still asking,
-  // or one that only expired, waits for its answer or for a person.
-  if (parkedBySystem) {
-    if (continued < groups.length) {
-      return { outcome: "ok", resumed: false, waitingFor };
-    }
-    await moveToResuming(tx, session, {
-      now: input.at,
-      answeredBy:
-        input.actor ??
-        (lastAnswered?.answeredBy as ReceiptActor | null | undefined) ??
-        null,
-    });
+  if (!parkedBySystem) {
+    return { outcome: "ok", resumed: continued > 0, waitingFor };
   }
+  // The pause lifts only once no group it holds is left, and only for a
+  // turn to carry on: one carried earlier may be waiting on a group that a
+  // cancel, not an answer, took away.
+  if (
+    continued < groups.length ||
+    (continued === 0 && !(await continuationQueued(tx, session.id)))
+  ) {
+    return { outcome: "ok", resumed: false, waitingFor };
+  }
+  await moveToResuming(tx, session, {
+    now: input.at,
+    answeredBy:
+      input.actor ??
+      (lastAnswered?.answeredBy as ReceiptActor | null | undefined) ??
+      null,
+  });
   return { outcome: "ok", resumed: true, waitingFor };
+}
+
+async function continuationQueued(
+  tx: Database,
+  sessionId: string,
+): Promise<boolean> {
+  const [queued] = await tx
+    .select({ turnId: turnContinuations.turnId })
+    .from(turnContinuations)
+    .innerJoin(turns, eq(turns.id, turnContinuations.turnId))
+    .where(and(eq(turns.sessionId, sessionId), eq(turns.status, "queued")))
+    .limit(1);
+  return queued !== undefined;
 }
 
 async function continueParkedTurn(

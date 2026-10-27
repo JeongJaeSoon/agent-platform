@@ -1716,7 +1716,9 @@ integration("parked pending requests on PostgreSQL", () => {
     expect((await sessionRow(sessionId)).admissionState).toBe("active");
   });
 
-  test("an answer to an earlier drain park carries it on while a later park still waits", async () => {
+  // Turn 1 drain-parked and left open, then turn 2 parked behind it by the
+  // system, both groups waiting.
+  async function twoParks() {
     const { owner, sessionId, worker } = await runningSession();
     const first = await register(worker);
     const firstTurn = await parkRows(worker, [first]);
@@ -1734,6 +1736,12 @@ integration("parked pending requests on PostgreSQL", () => {
         pauseReason: "awaiting_input",
       })
       .where(eq(sessions.id, sessionId));
+    return { owner, sessionId, first, firstTurn, second, secondTurn };
+  }
+
+  test("an answer to an earlier drain park carries it on while a later park still waits", async () => {
+    const { owner, sessionId, first, firstTurn, second, secondTurn } =
+      await twoParks();
 
     expect(await answer(owner, sessionId, first)).toMatchObject({
       resumed: false,
@@ -1749,6 +1757,42 @@ integration("parked pending requests on PostgreSQL", () => {
     expect(await continuations(secondTurn)).toHaveLength(1);
     expect(await continuations(firstTurn)).toHaveLength(1);
     expect((await sessionRow(sessionId)).admissionState).toBe("resuming");
+  });
+
+  test("interrupting the park still waiting lifts the pause for the one already carried on", async () => {
+    const { owner, sessionId, first, firstTurn } = await twoParks();
+    await answer(owner, sessionId, first);
+    expect((await sessionRow(sessionId)).admissionState).toBe("paused");
+
+    const interrupt = await createPostgresTurnInterrupts(db).interruptAtomic({
+      principal: owner,
+      sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      targetTurnId: "2",
+    });
+    expect(interrupt.outcome).toBe("accepted");
+    expect((await sessionRow(sessionId)).admissionState).toBe("resuming");
+    const [carried] = await continuations(firstTurn);
+    expect((await claim(sessionId)).input.turn_id).toBe(
+      String(carried?.sequence),
+    );
+  });
+
+  test("a drain park whose requests all expired carries on with the denials", async () => {
+    const { sessionId, worker } = await runningSession();
+    const requestId = await register(worker);
+    const turnRowId = await parkRows(worker, [requestId]);
+    await executionGone(worker);
+    await db
+      .update(pendingRequests)
+      .set({ expiresAt: sql`now() - interval '1 minute'` })
+      .where(eq(pendingRequests.requestId, requestId));
+
+    await expireParkedGroups(db, { limit: 1_000, dryRun: false });
+    const [carried] = await continuations(turnRowId);
+    expect(carried?.message).toContain("nobody answered");
+    expect((await sessionRow(sessionId)).admissionState).toBe("active");
   });
 
   test("an answer while the park drains is only stored; the drain's end carries the turn on", async () => {
