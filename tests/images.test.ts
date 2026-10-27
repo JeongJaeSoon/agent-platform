@@ -1049,7 +1049,7 @@ describe("compose layers", () => {
       expect(Object.keys(services).sort()).toEqual(Object.keys(merged).sort());
       /** A value as compose resolves it with nothing set. */
       const resolved = (value: string) =>
-        value.replace(/\$\{[A-Z0-9_]+:-([^}]*)\}/g, "$1");
+        value.replace(/\$\{[A-Z0-9_]+:?-([^}]*)\}/g, "$1");
       for (const [name, service] of Object.entries(services)) {
         const layered = merged[name];
         // Only the keys compose files set: a developer's ../.env adds more
