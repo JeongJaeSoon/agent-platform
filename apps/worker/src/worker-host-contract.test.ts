@@ -226,6 +226,62 @@ describe("WorkerHost over a run that implements the contract itself", () => {
     expect(warnings).not.toContain("worker.checkpoint.rejected");
   });
 
+  test("a drain does not park a run that takes no checkpoints, though the run says it could", async () => {
+    const run = new ScriptedRun();
+    run.parkable = () => ({ ok: true, resume: "scripted-session" });
+    run.onSend = (sent) => call(run, sent, "c1");
+    run.onAnswer = (answer) => {
+      if (answer.kind === "cancelled") run.abort();
+    };
+    const warnings: string[] = [];
+    const { gateway, worker } = host(run, {
+      info: () => {},
+      warn: (event) => warnings.push(event),
+      error: () => {},
+    });
+    gateway.enqueue("hello");
+    const loop = worker.runLoop();
+    await until(() => gateway.registrations.length === 1, "the request");
+
+    worker.drain("received SIGTERM");
+    await loop;
+
+    expect(warnings).toContain("worker.park.unavailable");
+    expect(run.answers.map((answer) => answer.kind)).toEqual(["cancelled"]);
+    expect(run.answers[0]).not.toMatchObject({ reason: "park" });
+  });
+
+  test("a grant whose allow came too late for its call is not spent, and is reported unused", async () => {
+    const run = new ScriptedRun();
+    run.onSend = (sent) => {
+      call(run, sent, "c1");
+      // The engine aborts the call before the allow lands, then ends.
+      setTimeout(() => finish(run, sent), 20);
+    };
+    run.answer = async (answer) => {
+      run.answers.push(answer);
+      return "stale";
+    };
+    const { gateway, worker } = host(run);
+    gateway.grants = [
+      {
+        request_id: "req_parked_c1",
+        turn_id: "1",
+        tool: "shell",
+        input_hash: approvalInputHash("shell", { command: "run c1" }),
+      },
+    ];
+    gateway.enqueue("hello");
+
+    await worker.runLoop();
+
+    expect(run.answers.map((answer) => answer.kind)).toEqual(["selected"]);
+    expect(gateway.registrations).toEqual([]);
+    expect(gateway.delivered).toEqual([
+      { request_id: "req_parked_c1", outcome: "grant_unused" },
+    ]);
+  });
+
   test("still takes the lease when the run takes checkpoints", async () => {
     const run = new ScriptedRun();
     run.capabilities = {

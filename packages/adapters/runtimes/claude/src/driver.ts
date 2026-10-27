@@ -3,6 +3,7 @@ import type {
   AgentInput,
   CheckpointLeaseGrant,
   CheckpointPreparation,
+  ParkReadiness,
 } from "@werft-ai/runtime-core";
 
 /** A message as the Claude Agent SDK emits it; nothing outside this adapter reads one. */
@@ -75,6 +76,8 @@ export interface DriverRun extends AsyncIterable<AgentFrame> {
   ready(): Promise<void>;
   interrupt(): Promise<{ stillQueued: string[] }>;
   leaseCheckpoint(): Promise<CheckpointLeaseGrant>;
+  /** Nothing runs but tools waiting on a permission callback. */
+  parkable(): ParkReadiness;
   prepareCheckpoint(): Promise<CheckpointPreparation>;
   send(input: AgentInput): void;
 }

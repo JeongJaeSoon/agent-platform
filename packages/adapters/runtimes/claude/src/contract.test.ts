@@ -42,6 +42,7 @@ function scriptedDriver() {
     ready: async () => {},
     interrupt: async () => ({ stillQueued: [] }),
     leaseCheckpoint: () => Promise.reject(new Error("not used")),
+    parkable: () => ({ ok: true, resume: "s1" }),
     prepareCheckpoint: () => Promise.reject(new Error("not used")),
     send: () => {},
     [Symbol.asyncIterator]: () => driver.events()[Symbol.asyncIterator](),

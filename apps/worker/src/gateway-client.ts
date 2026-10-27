@@ -18,8 +18,11 @@ import {
   type NextInputRequest,
   type NextInputResponse,
   nextInputResponseSchema,
+  type ParkDeclinedRequest,
+  type ParkDeclinedResponse,
   type PendingControlRequest,
   type PendingControlResponse,
+  parkDeclinedResponseSchema,
   pendingControlResponseSchema,
   type RegisterPendingRequest,
   type RegisterPendingResponse,
@@ -110,6 +113,10 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
     request: PendingControlRequest,
   ): Promise<PendingControlResponse> {
     return this.post("/pending-control", request, pendingControlResponseSchema);
+  }
+
+  parkDeclined(request: ParkDeclinedRequest): Promise<ParkDeclinedResponse> {
+    return this.post("/park-declined", request, parkDeclinedResponseSchema);
   }
 
   requestCheckpoint(

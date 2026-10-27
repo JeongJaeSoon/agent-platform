@@ -6,6 +6,7 @@ import type {
 import type {
   CheckpointPreparation,
   TranscriptMirror,
+  WorkerCheckpointState,
 } from "@werft-ai/runtime-core";
 
 /**
@@ -45,6 +46,8 @@ export type CheckpointCaptureContext = {
    * after the lease was taken makes the capture worthless.
    */
   recheck(): Promise<CheckpointPreparation>;
+  /** Goes into the manifest as it is; absent for a turn that was not parked. */
+  workerState?: WorkerCheckpointState;
 };
 
 /**
@@ -80,6 +83,13 @@ export interface WorkerCheckpointPort {
    * when the attempt no longer owns the session.
    */
   finalizeRefused?(detail: string, scope: WorkerScope): Promise<void>;
+  /**
+   * Why a checkpoint of the engine session `resume` could not be taken now,
+   * judged before a park cuts the turn: the transcript past its limits, say.
+   * Undefined when nothing known stops one; that is no promise the capture
+   * succeeds. Throws only when the attempt no longer owns the session.
+   */
+  parkBlocked?(resume: string): Promise<string | undefined>;
   /**
    * When the transcript mirror last took a write, for the heartbeat; absent
    * while no mirror is bound.

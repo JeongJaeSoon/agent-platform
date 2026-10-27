@@ -5,6 +5,7 @@ import {
   checkpointBlockReasonSchema,
   type TerminalTurnStatus,
   TURN_BUDGET_EXCEEDED_REASON,
+  TURN_INPUT_WAIT_PARKED_REASON,
   terminalTurnStatusSchema,
   type WorkerEvent,
 } from "@werft-ai/contracts";
@@ -108,6 +109,7 @@ import {
   abandonUndeliveredAnswers,
   awaitingInputAt,
   closeWorkerRequests,
+  parkTurnRequests,
   publicStatus,
   recordLostInputWait,
 } from "./pending-requests.ts";
@@ -142,7 +144,11 @@ import {
   workerLaunches,
   workers,
 } from "./schema.ts";
-import { recordEvent, recordStatus } from "./session-events.ts";
+import {
+  recordEvent,
+  recordInputWaitStage,
+  recordStatus,
+} from "./session-events.ts";
 import { settleTurnInterrupts } from "./turn-interrupts.ts";
 
 // Heartbeats travel over a network and can land out of order. The durable
@@ -2252,7 +2258,29 @@ export function createPostgresWorkerUnitOfWork(
               ),
             );
         }
-        const settled = SESSION_STATUS_BY_TERMINAL[input.terminal.status];
+        // A turn interrupted to park leaves its requests answerable and the
+        // session idle on them; the answer resumes it from this checkpoint.
+        const parked =
+          terminal !== undefined &&
+          input.terminal.status === "interrupted" &&
+          input.terminal.reason === TURN_INPUT_WAIT_PARKED_REASON
+            ? await parkTurnRequests(tx, {
+                sessionId: fence.sessionId,
+                turnRowId: terminal.id,
+                now,
+              })
+            : [];
+        await recordInputWaitStage(tx, {
+          sessionId: fence.sessionId,
+          stage: "parked",
+          requestIds: parked,
+          turnRowId: turn.id,
+          now,
+        });
+        const settled =
+          parked.length > 0
+            ? "idle"
+            : SESSION_STATUS_BY_TERMINAL[input.terminal.status];
         expectFenced(
           await tx
             .update(sessions)
@@ -2278,7 +2306,13 @@ export function createPostgresWorkerUnitOfWork(
         if (settled !== fenced.session.status || recovering) {
           await recordStatus(tx, {
             sessionId: fence.sessionId,
-            phase: settled,
+            phase:
+              parked.length > 0
+                ? publicStatus(
+                    settled,
+                    await awaitingInputAt(tx, fence.sessionId, await dbNow(tx)),
+                  )
+                : settled,
             ...(recovering
               ? { extra: { admission_state: "recovery_required" } }
               : {}),
