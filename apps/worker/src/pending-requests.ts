@@ -252,7 +252,7 @@ export class PendingRequestRegistry {
     this.again = true;
     this.wakeSleep?.();
     this.poll(true);
-    await within(round, timeoutMs);
+    await settledWithin(round, timeoutMs);
   }
 
   /**
