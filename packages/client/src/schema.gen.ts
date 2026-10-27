@@ -745,7 +745,7 @@ export interface paths {
         };
         /**
          * Durable event replay and live stream (SSE)
-         * @description Streams the session's events as Server-Sent Events: first the stored events after `Last-Event-ID` (all of them without it), then new ones as they are written. Each frame's `id` is its cursor, `event` its kind (`system`, `assistant`, `tool_use`, `tool_result`, `question`, `result`, `status`, `error`), and `data` a versioned envelope naming the session, turn and attempt. `question` events announce pending requests; `status` events report the session's status and, after a pause, resume, terminate or recovery decision, its `admission_state`. `system` events with a platform `subtype` are the control plane's own: `session_closed` when a close commits, and `input_wait` with `stage` (`parked` when a turn parks on its unanswered requests, `expired` when a parked turn's requests expire, `lost` when the worker holding them went away unanswered) and the `request_ids` it covers. The stream does not end with a turn or the session: it stays open until the client disconnects, the credential is revoked, or the session's share stops covering the caller (the reconnect then answers 404). Reading changes nothing.
+         * @description Streams the session's events as Server-Sent Events: first the stored events after `Last-Event-ID` (all of them without it), then new ones as they are written. Each frame's `id` is its cursor, `event` its kind (`system`, `assistant`, `tool_use`, `tool_result`, `question`, `result`, `status`, `error`), and `data` a versioned envelope naming the session, turn and attempt. Frames arrive in `id` order, the order to rely on; `occurred_at` follows it and never goes back. An event the engine emits after its turn's terminal belongs to no turn (`turn_id` null). `question` events announce pending requests; `status` events report the session's status and, after a pause, resume, terminate or recovery decision, its `admission_state`. `system` events with a platform `subtype` are the control plane's own: `session_closed` when a close commits, and `input_wait` with `stage` (`parked` when a turn parks on its unanswered requests, `expired` when a parked turn's requests expire, `lost` when the worker holding them went away unanswered) and the `request_ids` it covers. The stream does not end with a turn or the session: it stays open until the client disconnects, the credential is revoked, or the session's share stops covering the caller (the reconnect then answers 404). Reading changes nothing.
          *
          *     Reconnect after backoff with the last complete event id in `Last-Event-ID`; replay resumes strictly after that event. The stream sends a comment keepalive every 15 seconds. `410 CURSOR_EXPIRED` means the cursor fell outside retained history and the client must resynchronize from resource state; alpha does not trim events, so this response is reserved. A `result` event is engine output, not durable completion: confirm the turn with `GET /v1/sessions/{id}/turns/{turn_id}` and treat only `completed`, `failed`, `interrupted`, `cancelled`, or `outcome_unknown` as terminal.
          *
@@ -3410,7 +3410,10 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
-                /** Format: date-time */
+                /**
+                 * Format: date-time
+                 * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when it was committed. Raised where needed so that it never goes back from one event to the next in `id` order. Order and resume by `id`, not by this time: events can share it.
+                 */
                 occurred_at: string;
                 data: {
                     /** @constant */
@@ -3430,7 +3433,10 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
-                /** Format: date-time */
+                /**
+                 * Format: date-time
+                 * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when it was committed. Raised where needed so that it never goes back from one event to the next in `id` order. Order and resume by `id`, not by this time: events can share it.
+                 */
                 occurred_at: string;
                 data: {
                     /** @constant */
@@ -3450,7 +3456,10 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
-                /** Format: date-time */
+                /**
+                 * Format: date-time
+                 * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when it was committed. Raised where needed so that it never goes back from one event to the next in `id` order. Order and resume by `id`, not by this time: events can share it.
+                 */
                 occurred_at: string;
                 data: {
                     /** @constant */
@@ -3470,7 +3479,10 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
-                /** Format: date-time */
+                /**
+                 * Format: date-time
+                 * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when it was committed. Raised where needed so that it never goes back from one event to the next in `id` order. Order and resume by `id`, not by this time: events can share it.
+                 */
                 occurred_at: string;
                 data: unknown;
             };
@@ -3485,7 +3497,10 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
-                /** Format: date-time */
+                /**
+                 * Format: date-time
+                 * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when it was committed. Raised where needed so that it never goes back from one event to the next in `id` order. Order and resume by `id`, not by this time: events can share it.
+                 */
                 occurred_at: string;
                 data: {
                     request_id: string;
@@ -3509,7 +3524,10 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
-                /** Format: date-time */
+                /**
+                 * Format: date-time
+                 * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when it was committed. Raised where needed so that it never goes back from one event to the next in `id` order. Order and resume by `id`, not by this time: events can share it.
+                 */
                 occurred_at: string;
                 data: {
                     /** @constant */
@@ -3532,7 +3550,10 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
-                /** Format: date-time */
+                /**
+                 * Format: date-time
+                 * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when it was committed. Raised where needed so that it never goes back from one event to the next in `id` order. Order and resume by `id`, not by this time: events can share it.
+                 */
                 occurred_at: string;
                 data: {
                     /** @enum {string} */
@@ -3555,7 +3576,10 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
-                /** Format: date-time */
+                /**
+                 * Format: date-time
+                 * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when it was committed. Raised where needed so that it never goes back from one event to the next in `id` order. Order and resume by `id`, not by this time: events can share it.
+                 */
                 occurred_at: string;
                 data: {
                     message: string;
