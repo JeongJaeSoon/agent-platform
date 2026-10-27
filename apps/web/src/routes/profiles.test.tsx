@@ -168,7 +168,11 @@ describe("실행 프로필", () => {
     });
     expect(rows(table)).toEqual([
       ["이름", "바탕 프로필", "상태"],
-      ["strict v1ws_acme_strict_v1", "coding-claudeclaude-sonnet-5", "사용 중"],
+      [
+        "strict v1ws_acme_strict_v1",
+        "coding-claudeclaude-sonnet-5",
+        "사용 가능",
+      ],
     ]);
     expect(
       screen.getByText("바꾸려면 워크스페이스 소유자나 관리자에게 요청하세요"),
@@ -331,7 +335,7 @@ describe("실행 프로필", () => {
       [
         "strict v2 이전 버전 1개ws_acme_strict_v2",
         "coding-claudeclaude-sonnet-5",
-        "사용 중",
+        "사용 가능",
         "수정사용 중지",
       ],
     ]);
@@ -351,7 +355,7 @@ describe("실행 프로필", () => {
       [
         "strict v2 이전 버전 1개ws_acme_strict_v2",
         "coding-claudeclaude-sonnet-5",
-        "사용 중",
+        "사용 가능",
         "수정사용 중지",
       ],
       [
@@ -363,6 +367,37 @@ describe("실행 프로필", () => {
     ]);
     await user.click(toggle);
     expect(rows(table)).toHaveLength(2);
+  });
+
+  test("a retired latest version still heads its name, and the earlier one keeps its actions", async () => {
+    renderAt("/profiles", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/profiles": () =>
+        json(200, {
+          items: [...PROFILES, version(1, "usable"), version(2, "retired")],
+        }),
+    });
+    const table = await screen.findByRole("table", {
+      name: "워크스페이스 프로필",
+    });
+    const user = await setupUser();
+    await user.click(
+      within(table).getByRole("button", { name: "이전 버전 1개" }),
+    );
+    expect(rows(table).slice(1)).toEqual([
+      [
+        "strict v2 이전 버전 1개ws_acme_strict_v2",
+        "coding-claudeclaude-sonnet-5",
+        "사용 중지됨",
+        "",
+      ],
+      [
+        "strict v1ws_acme_strict_v1",
+        "coding-claudeclaude-sonnet-5",
+        "사용 가능",
+        "수정사용 중지",
+      ],
+    ]);
   });
 
   test("a version whose base changed warns and is made again; one whose base is gone can only retire", async () => {
