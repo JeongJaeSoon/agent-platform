@@ -30,7 +30,7 @@ import {
   Section,
 } from "@werft-ai/ui";
 import { type FormEvent, useState } from "react";
-import { queryKeys } from "../api/queries.ts";
+import { queryKeysOf } from "../api/queries.ts";
 import { refusalText, useRole } from "../auth/guard.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
@@ -126,7 +126,9 @@ export function ProfileEditor({
       unwrap(client.POST("/v1/workspace-profiles", { body })),
     onMutate: () => setError(null),
     onSuccess: async ({ profile }) => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.profiles });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeysOf(client).profiles,
+      });
       onSaved(profile.id);
     },
     onError: (failure) => setError(saveRefusal(failure)),

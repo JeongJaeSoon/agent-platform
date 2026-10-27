@@ -26,7 +26,7 @@ import {
 } from "@werft-ai/ui";
 import { Lock, Plus } from "lucide-react";
 import { useState } from "react";
-import { profilesQuery, queryKeys } from "../api/queries.ts";
+import { profilesQuery, queryKeysOf } from "../api/queries.ts";
 import {
   refusalText,
   useHasPermission,
@@ -107,7 +107,9 @@ export function ProfilesScreen() {
     onSuccess: async ({ profile }) => {
       setRetiring(null);
       setNotice(t("profiles.retired", { id: profile.id }));
-      await queryClient.invalidateQueries({ queryKey: queryKeys.profiles });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeysOf(client).profiles,
+      });
     },
     onError: (failure) =>
       setRetireError(refusalText(t, failure, "workspace.manage", role)),
