@@ -23,6 +23,8 @@ import {
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
 
+import { settledWithin } from "./waits.ts";
+
 export type PendingRequestsOptions = {
   gateway: Pick<WorkerGatewayClient, "registerPending" | "pendingControl">;
   /**
@@ -251,7 +253,7 @@ export class PendingRequestRegistry {
     this.again = true;
     this.wakeSleep?.();
     this.poll(true);
-    await within(round, timeoutMs);
+    await settledWithin(round, timeoutMs);
   }
 
   /**
@@ -262,10 +264,10 @@ export class PendingRequestRegistry {
   async flush(timeoutMs: number): Promise<void> {
     const deadline = performance.now() + timeoutMs;
     if (this.registering.size > 0) {
-      await within(Promise.all(this.registering), timeoutMs);
+      await settledWithin(Promise.all(this.registering), timeoutMs);
     }
     if (this.answering.size > 0) {
-      await within(
+      await settledWithin(
         Promise.all(this.answering.values()),
         deadline - performance.now(),
       );
@@ -273,7 +275,7 @@ export class PendingRequestRegistry {
     if (this.settlements.size === 0 && this.deliveries.size === 0) return;
     this.poll();
     if (this.polling !== undefined) {
-      await within(this.polling, deadline - performance.now());
+      await settledWithin(this.polling, deadline - performance.now());
     }
   }
 
@@ -685,15 +687,4 @@ export class PendingRequestRegistry {
     });
     return true;
   }
-}
-
-async function within(work: Promise<unknown>, ms: number): Promise<void> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  await Promise.race([
-    work,
-    new Promise<void>((resolve) => {
-      timer = setTimeout(resolve, Math.max(0, ms));
-    }),
-  ]);
-  clearTimeout(timer);
 }
