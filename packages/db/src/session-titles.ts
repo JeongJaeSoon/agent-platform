@@ -1,4 +1,4 @@
-import type { SessionTitleStore } from "@werft-ai/platform";
+import { deriveSessionTitle, type SessionTitleStore } from "@werft-ai/platform";
 import { and, eq, gt, isNull } from "drizzle-orm";
 import {
   lockSessionForControl,
@@ -39,6 +39,9 @@ export function createPostgresSessionTitleStore(
         if (
           !row ||
           row.titleSource !== "derived" ||
+          // A title that is not the one cut from this message was renamed,
+          // by an API from before title_source.
+          row.title !== deriveSessionTitle(row.message) ||
           row.status !== "completed" ||
           row.attemptId !== input.attemptId
         ) {

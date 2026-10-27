@@ -415,6 +415,22 @@ describe("generated titles (94S-1005)", () => {
     });
   });
 
+  test("a title an older API renamed before the first turn ended is not asked about", async () => {
+    const { sessionId, attemptId } = await firstTurnDone({ message: "hello" });
+    await db
+      .update(sessions)
+      .set({ title: "Renamed early" })
+      .where(eq(sessions.id, sessionId));
+    expect(
+      await titles().issueAtomic({
+        sessionId,
+        attemptId,
+        tokenHash: hash("k"),
+        ttlMs: 60_000,
+      }),
+    ).toEqual({ outcome: "skipped" });
+  });
+
   test("a row an older API inserts is the user's", async () => {
     const id = crypto.randomUUID();
     await db.insert(sessions).values({
