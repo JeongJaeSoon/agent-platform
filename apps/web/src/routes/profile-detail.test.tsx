@@ -315,14 +315,31 @@ describe("실행 프로필 상세", () => {
   });
 
   test("a version whose base changed offers 다시 만들기; a retired one offers nothing", async () => {
-    const start = [OPERATOR, version(1, "retired"), version(2, "base_changed")];
-    renderAt("/profiles/ws_acme_strict_v2", catalog(me(), start));
+    // The operator dropped Edit since v2 was made from it.
+    const changed = { ...OPERATOR, tools: ["Read", "Bash"] };
+    const start = [changed, version(1, "retired"), version(2, "base_changed")];
+    const { api, history } = renderAt(
+      "/profiles/ws_acme_strict_v2",
+      catalog(me(), start),
+    );
     const user = await setupUser();
     await user.click(
       await screen.findByRole("button", { name: "다시 만들기" }),
     );
-    await screen.findByRole("region", { name: "strict 다시 만들기" });
+    const editor = await screen.findByRole("region", {
+      name: "strict 다시 만들기",
+    });
     expect(screen.queryByRole("button", { name: "수정" })).toBeNull();
+    await user.click(
+      within(editor).getByRole("button", { name: "새 버전으로 저장" }),
+    );
+    await screen.findByText("ws_acme_strict_v3 버전을 저장했습니다.");
+    expect(history.location.pathname).toBe("/profiles/ws_acme_strict_v3");
+    expect(
+      api.calls
+        .filter((call) => call.method === "POST")
+        .map((call) => (call.body as CreateWorkspaceProfileRequest).tools),
+    ).toEqual([["Read"]]);
 
     await user.click(
       screen.getByRole("link", { name: "ws_acme_strict_v1 자세히 보기" }),
