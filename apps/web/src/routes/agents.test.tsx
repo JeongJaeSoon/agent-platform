@@ -1550,6 +1550,67 @@ describe("에이전트 상세", () => {
       .map((row) => within(row).getAllByRole("cell")[at]?.textContent);
     expect(notes).toEqual(["환불 문의 규칙을 더함", "—"]);
   });
+  test("잘린 메모만 펼침 단추를 갖고, 키보드로 펼치면 줄바꿈해 전체를 보인다", async () => {
+    const long = "환불 문의 규칙을 더함. ".repeat(14).trim();
+    const server = agentServer();
+    await seedRelease(server, "짧은 메모");
+    server.versions.push({
+      ...(server.versions[0] as (typeof server.versions)[number]),
+      id: "7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f",
+      version_no: 2,
+      content_sha256: "f".repeat(64),
+    });
+    await seedRelease(server, long);
+    // Happy DOM lays nothing out: a note is cut when it is wider than its box.
+    const widths = Object.getOwnPropertyDescriptors(HTMLElement.prototype);
+    Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.dataset.slot === "release-note" &&
+          (this.textContent ?? "").length > 40
+          ? 900
+          : 100;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get: () => 200,
+    });
+    try {
+      renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
+      const table = await screen.findByRole("table");
+      const [cutRow, shortRow] = within(table).getAllByRole("row").slice(1);
+      const toggle = await within(cutRow as HTMLElement).findByRole("button", {
+        name: "메모 전체 보기",
+      });
+      expect(
+        within(shortRow as HTMLElement).queryByRole("button", {
+          name: "메모 전체 보기",
+        }),
+      ).toBeNull();
+      const note = (cutRow as HTMLElement).querySelector(
+        "[data-slot=release-note]",
+      ) as HTMLElement;
+      expect(note.textContent).toBe(long);
+      expect(note.className).toContain("truncate");
+      expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+      const user = await setupUser();
+      toggle.focus();
+      await user.keyboard("{Enter}");
+      expect(toggle.getAttribute("aria-expanded")).toBe("true");
+      expect(note.className).not.toContain("truncate");
+      await user.keyboard("{Enter}");
+      expect(toggle.getAttribute("aria-expanded")).toBe("false");
+      expect(note.className).toContain("truncate");
+    } finally {
+      for (const key of ["scrollWidth", "clientWidth"] as const) {
+        const own = widths[key];
+        if (own) Object.defineProperty(HTMLElement.prototype, key, own);
+        else Reflect.deleteProperty(HTMLElement.prototype, key);
+      }
+    }
+  });
   test("release 만들기는 응답을 기다리기 전에 대화상자를 닫고, 결과 줄이 포커스를 받는다", async () => {
     const server = agentServer();
     let answer: (() => void) | undefined;
