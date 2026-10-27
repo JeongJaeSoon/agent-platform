@@ -383,17 +383,23 @@ function tokenLine(
 export const storeOff = (error: unknown) =>
   isApiError(error, "BACKEND_UNAVAILABLE") && error.retryable === false;
 
-function DangerZone({ children }: { readonly children: ReactNode }) {
+export function DangerZone({
+  titleAs: Heading = "h2",
+  children,
+}: {
+  readonly titleAs?: "h2" | "h3";
+  readonly children: ReactNode;
+}) {
   const { t } = useI18n();
   const titleId = useId();
   return (
     <section aria-labelledby={titleId} className="flex flex-col gap-3">
-      <h2
+      <Heading
         id={titleId}
         className="m-0 border-b pb-2 font-semibold text-body leading-6"
       >
         {t("workspace.danger")}
-      </h2>
+      </Heading>
       <RowList
         variant="joined"
         style={{ borderColor: "var(--ap-tone-danger-border)" }}

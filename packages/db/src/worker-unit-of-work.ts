@@ -159,9 +159,11 @@ import {
   workers,
 } from "./schema.ts";
 import {
+  notBefore,
   recordEvent,
   recordInputWaitStage,
   recordStatus,
+  streamClock,
 } from "./session-events.ts";
 import { settleTurnInterrupts } from "./turn-interrupts.ts";
 
@@ -252,7 +254,8 @@ export const CHECKPOINT_RESTORE_FALLBACK = "checkpoint_restore_fallback";
 
 // Two submissions of one source_sequence are the same event only if every
 // stored field matches: a reused sequence that moved to another turn or
-// another time is a different event wearing the same number.
+// another time is a different event wearing the same number. The time stored
+// is the one sent raised to `floor`, the stream's clock when it was written.
 function sameEvent(
   stored: {
     type: string;
@@ -262,11 +265,13 @@ function sameEvent(
   },
   event: WorkerEvent,
   turnRowId: number | null,
+  floor: Date | null = null,
 ): boolean {
   return (
     stored.type === event.event &&
     stored.turnId === turnRowId &&
-    stored.occurredAt?.getTime() === new Date(event.occurred_at).getTime() &&
+    stored.occurredAt?.getTime() ===
+      notBefore(new Date(event.occurred_at), floor).getTime() &&
     payloadHash(stored.payload) === payloadHash(event.data)
   );
 }
@@ -2033,6 +2038,7 @@ export function createPostgresWorkerUnitOfWork(
         // insert-then-inspect order cannot promise.
         const existing = await tx
           .select({
+            id: events.id,
             type: events.type,
             payload: events.payload,
             turnId: events.turnId,
@@ -2060,7 +2066,15 @@ export function createPostgresWorkerUnitOfWork(
           // A replay of what is already stored is a no-op; anything else
           // would leave the worker holding a cursor for data the stream
           // does not contain.
-          if (!sameEvent(row, event, turnRowId)) {
+          if (
+            !sameEvent(row, event, turnRowId) &&
+            !sameEvent(
+              row,
+              event,
+              turnRowId,
+              await streamClock(tx, fence.sessionId, row.id),
+            )
+          ) {
             return { outcome: "event_conflict" };
           }
         }
@@ -2087,16 +2101,20 @@ export function createPostgresWorkerUnitOfWork(
           return { outcome: "lease_expired" };
         }
         if (fresh.length > 0) {
+          let floor = await streamClock(tx, fence.sessionId);
           await tx.insert(events).values(
-            fresh.map((event) => ({
-              sessionId: fence.sessionId,
-              type: event.event,
-              payload: event.data,
-              turnId: turnRowId,
-              attemptId: fence.attemptId,
-              sourceSequence: event.source_sequence,
-              occurredAt: new Date(event.occurred_at),
-            })),
+            fresh.map((event) => {
+              floor = notBefore(new Date(event.occurred_at), floor);
+              return {
+                sessionId: fence.sessionId,
+                type: event.event,
+                payload: event.data,
+                turnId: turnRowId,
+                attemptId: fence.attemptId,
+                sourceSequence: event.source_sequence,
+                occurredAt: floor,
+              };
+            }),
           );
         }
         const [latest] = await tx

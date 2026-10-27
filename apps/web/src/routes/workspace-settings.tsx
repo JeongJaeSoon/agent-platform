@@ -106,6 +106,8 @@ export function WorkspaceSettingsScreen() {
 
 export function SettingsCard({
   title,
+  titleAs: Heading = "h2",
+  badge,
   description,
   descriptionId,
   rows,
@@ -114,6 +116,10 @@ export function SettingsCard({
   children,
 }: {
   readonly title: string;
+  /** `h3` under a page whose own sections are `h2`, as a team's are. */
+  readonly titleAs?: "h2" | "h3";
+  /** After the title, outside the heading's name: a count. */
+  readonly badge?: ReactNode;
   readonly description?: string;
   readonly descriptionId?: string;
   /** SettingRows under the body, edge to edge like the foot. */
@@ -137,9 +143,15 @@ export function SettingsCard({
   return (
     <section aria-labelledby={titleId} className="flex flex-col gap-4">
       <div className="flex flex-col gap-1 border-b pb-2">
-        <h2 id={titleId} className="m-0 font-semibold text-body leading-6">
-          {title}
-        </h2>
+        <div className="flex items-center gap-2">
+          <Heading
+            id={titleId}
+            className="m-0 font-semibold text-body leading-6"
+          >
+            {title}
+          </Heading>
+          {badge}
+        </div>
         {description ? (
           <p id={descriptionId} className={SUB}>
             {description}
