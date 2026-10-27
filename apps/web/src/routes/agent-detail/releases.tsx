@@ -300,6 +300,9 @@ export function Releases({
                 <TableHead variant="nowrap">
                   {t("agent.releases.colAt")}
                 </TableHead>
+                <TableHead variant="text">
+                  {t("agent.releases.colNote")}
+                </TableHead>
                 <TableHead variant="actions">
                   <span className="sr-only">
                     {t("agent.releases.colActions")}
@@ -353,6 +356,14 @@ export function Releases({
                     </TableCell>
                     <TableCell variant="nowrap" className="tabular-nums">
                       {formatTimestamp(item.created_at, locale)}
+                    </TableCell>
+                    {/* Wrapped, not cut: a note runs to 200 characters. */}
+                    <TableCell variant="text" className="break-words">
+                      {item.note ?? (
+                        <span className="text-muted-foreground">
+                          {t("agent.releases.noteNone")}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell variant="actions">
                       {active ? null : (

@@ -885,6 +885,7 @@ describe("에이전트 상세 탭", () => {
       "저장소",
       "만든 사람",
       "만든 시각",
+      "메모",
       "동작",
     ]);
     const row = within(table).getAllByRole("row")[1] as HTMLElement;
