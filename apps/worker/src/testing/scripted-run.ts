@@ -48,6 +48,8 @@ export class ScriptedRun implements AgentRun {
   leases = 0;
   onSend: (input: AgentInput) => void = () => {};
   onAnswer: (answer: ApprovalAnswer) => void = () => {};
+  /** What `answer` says it did with each answer. */
+  answerResult: AnswerResult = "applied";
   closing: () => Promise<void> = () => Promise.resolve();
   private readonly queue: RuntimeEvent[] = [];
   private wake: (() => void) | undefined;
@@ -90,7 +92,7 @@ export class ScriptedRun implements AgentRun {
   answer(answer: ApprovalAnswer): Promise<AnswerResult> {
     this.answers.push(answer);
     this.onAnswer(answer);
-    return Promise.resolve("applied");
+    return Promise.resolve(this.answerResult);
   }
 
   interrupt(): Promise<{ stillQueued: string[] }> {

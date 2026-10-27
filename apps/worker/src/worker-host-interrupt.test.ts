@@ -548,10 +548,12 @@ describe("WorkerHost interrupt", () => {
     expect(summary.turns[0]?.status).toBe("interrupted");
     // The engine never got an allow for it.
     expect(runtime.permissionDecisions).toEqual([]);
+    // Cancelled by the interrupt, which the record says, not a person's deny.
     expect(gateway.settled).toEqual([
       {
         request_id: gateway.requestIdFor("toolu_deploy"),
         outcome: "cancelled",
+        reason: "interrupt",
       },
     ]);
   });

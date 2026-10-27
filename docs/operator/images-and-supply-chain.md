@@ -60,6 +60,12 @@ API를 업그레이드해도 이미 떠 있는 worker 컨테이너는 옛 이미
 
 2단계를 너무 일찍 배포하면 옛 쪽이 상대의 요청이나 응답을 계약 위반으로 거절한다. worker는 계약에 맞지 않는 heartbeat 응답을 재시도할 수 없는 실패로 보므로, 첫 heartbeat에서 lease를 잃었다고 판단하고 멈춘다.
 
+worker가 보내는 필드를 새로 더할 때는 반대로 API가 먼저다. API의 worker protocol 요청 schema는 strict라서, 옛 API는 모르는 필드가 실린 요청 전체를 400 `BAD_REQUEST`로 거절한다.
+
+| 필드 | 먼저 배포 | 옛 API를 만난 새 worker |
+|---|---|---|
+| pending-control 요청 `settled[].reason`·`settled[].answer_result` | API | `worker.pending.settlement_detail_refused` 경고를 한 번 남기고, 그 attempt가 끝날 때까지 `outcome`만 보낸다. receipt는 예전 규칙대로 정산되고 `pending_requests.settled_reason`·`settled_answer_result`는 비어 있다 |
+
 ## 공급망 취약점 정책
 
 **수정판이 있는 high·critical 취약점만 막는다.** 수정판이 없는 발견은 보고만 하고 실패시키지 않는다.

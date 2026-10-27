@@ -14,9 +14,11 @@ import {
   type AnswerResult,
   type ApprovalDecisionPayload,
   type ApprovalRequested,
+  type CancelReason,
   isOwnershipLost,
   isRetryable,
   type WorkerGatewayClient,
+  WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
 
 export type PendingRequestsOptions = {
@@ -38,11 +40,15 @@ export type PendingRequestsOptions = {
   onOwnershipLost?: (error: unknown) => void;
   /** A control intent the gateway holds for this attempt; repeated each poll until it is settled. */
   onControl?: (control: ControlIntent) => void;
+  /** The gateway refused a settlement's reason or answer result; outcomes alone go from then on. */
+  onSettlementDetailRefused?: (error: WorkerGatewayRequestError) => void;
   pollIntervalMs?: number;
   sleep?: (ms: number) => Promise<void>;
 };
 
-type Outcome = PendingSettlement["outcome"];
+type Settled = Omit<PendingSettlement, "request_id">;
+
+const CANCELLED: Settled = { outcome: "cancelled" };
 
 type Pending = {
   kind: "permission" | "question";
@@ -75,7 +81,7 @@ export class PendingRequestRegistry {
   private readonly options: PendingRequestsOptions;
   private readonly pending = new Map<string, Pending>();
   // Unsent settlements; a poll removes only what it carried, once it lands.
-  private readonly settlements = new Map<string, Outcome>();
+  private readonly settlements = new Map<string, Settled>();
   // Answers handed to the run whose outcome waits on what the run says.
   private readonly answering = new Map<string, Promise<void>>();
   // Registrations still in flight, including ones whose callback has closed
@@ -85,6 +91,7 @@ export class PendingRequestRegistry {
   private polling: Promise<void> | undefined;
   private stopped = false;
   private watching = false;
+  private outcomeOnly = false;
 
   constructor(options: PendingRequestsOptions) {
     this.options = options;
@@ -133,23 +140,16 @@ export class PendingRequestRegistry {
   withdraw(localId: string): void {
     for (const [requestId, entry] of this.pending) {
       if (entry.localId === localId) {
-        this.drop(requestId, "cancelled");
+        this.drop(requestId, CANCELLED);
         return;
       }
     }
   }
 
   /** Cancels everything still waiting; used by drain and by ownership loss. */
-  cancelAll(
-    reason: "interrupt" | "refused" | "shutdown",
-    message: string,
-  ): void {
+  cancelAll(reason: Exclude<CancelReason, "expired">, message: string): void {
     for (const requestId of [...this.pending.keys()]) {
-      this.close(
-        requestId,
-        { kind: "cancelled", reason, message },
-        "cancelled",
-      );
+      this.close(requestId, { kind: "cancelled", reason, message });
     }
   }
 
@@ -215,38 +215,43 @@ export class PendingRequestRegistry {
     clearTimeout(entry.timer);
     entry.timer = setTimeout(
       () => {
-        this.close(
-          requestId,
-          {
-            kind: "cancelled",
-            reason: "expired",
-            message: `No answer arrived within ${Math.round((entry.deadline - entry.openedAt) / 1000)}s`,
-          },
-          "expired",
-        );
+        this.close(requestId, {
+          kind: "cancelled",
+          reason: "expired",
+          message: `No answer arrived within ${Math.round((entry.deadline - entry.openedAt) / 1000)}s`,
+        });
       },
       Math.max(0, entry.deadline - performance.now()),
     );
   }
 
-  private close(
-    requestId: string,
-    decision: ApprovalDecisionPayload,
-    outcome: Outcome,
-  ): void {
-    if (outcome !== "answered") {
-      void this.drop(requestId, outcome)?.settle(decision);
+  /**
+   * A cancel is settled as one at once, with its reason; anything else waits
+   * on what the run says it did with it.
+   */
+  private close(requestId: string, decision: ApprovalDecisionPayload): void {
+    if (decision.kind === "cancelled") {
+      void this.drop(
+        requestId,
+        decision.reason === "expired"
+          ? { outcome: "expired" }
+          : { outcome: "cancelled", reason: decision.reason },
+      )?.settle(decision);
       return;
     }
     const entry = this.drop(requestId, undefined);
     if (entry === undefined) return;
     // A stale answer never reached the engine. An unknown one may have, and
-    // calling it cancelled could hide a tool that ran, so it stays answered.
+    // calling it cancelled could hide a tool that ran, so it stays answered
+    // and says so.
     const answering = entry
       .settle(decision)
       .then(
-        (result): Outcome => (result === "stale" ? "cancelled" : "answered"),
-        (): Outcome => "cancelled",
+        (result): Settled =>
+          result === "stale"
+            ? { outcome: "cancelled", answer_result: result }
+            : { outcome: "answered", answer_result: result },
+        (): Settled => CANCELLED,
       )
       .then((settled) => {
         this.answering.delete(requestId);
@@ -262,14 +267,14 @@ export class PendingRequestRegistry {
    */
   private drop(
     requestId: string,
-    outcome: Outcome | undefined,
+    settled: Settled | undefined,
   ): Pending | undefined {
     const entry = this.pending.get(requestId);
     if (entry === undefined) return undefined;
     this.pending.delete(requestId);
     clearTimeout(entry.timer);
-    if (outcome === undefined) return entry;
-    this.settlements.set(requestId, outcome);
+    if (settled === undefined) return entry;
+    this.settlements.set(requestId, settled);
     this.poll();
     return entry;
   }
@@ -294,15 +299,11 @@ export class PendingRequestRegistry {
         ? pendingQuestionSchema.array().min(1).safeParse(request.questions).data
         : undefined;
     if (request.kind === "question" && shown === undefined) {
-      this.close(
-        requestId,
-        {
-          kind: "cancelled",
-          reason: "refused",
-          message: "The question cannot be shown without its redacted values",
-        },
-        "cancelled",
-      );
+      this.close(requestId, {
+        kind: "cancelled",
+        reason: "refused",
+        message: "The question cannot be shown without its redacted values",
+      });
       return;
     }
     const body: RegisterPendingRequest["request"] =
@@ -311,29 +312,21 @@ export class PendingRequestRegistry {
         : { kind: "question", questions: shown ?? [] };
     const turnId = this.options.scope().turn_id;
     if (turnId === null) {
-      this.close(
-        requestId,
-        {
-          kind: "cancelled",
-          reason: "refused",
-          message: "No turn is running to ask in",
-        },
-        "cancelled",
-      );
+      this.close(requestId, {
+        kind: "cancelled",
+        reason: "refused",
+        message: "No turn is running to ask in",
+      });
       return;
     }
     try {
       await this.options.eventsStored(toolUseId, request.askedAt);
     } catch (error) {
-      this.close(
-        requestId,
-        {
-          kind: "cancelled",
-          reason: "refused",
-          message: `The events before this request could not be stored: ${error instanceof Error ? error.message : String(error)}`,
-        },
-        "cancelled",
-      );
+      this.close(requestId, {
+        kind: "cancelled",
+        reason: "refused",
+        message: `The events before this request could not be stored: ${error instanceof Error ? error.message : String(error)}`,
+      });
       this.settlements.delete(requestId);
       return;
     }
@@ -362,7 +355,7 @@ export class PendingRequestRegistry {
           // The settlement may have gone out before the row existed and been
           // ignored; the gateway keeps whichever word reached it first.
           if (this.unsettled(requestId)) {
-            this.settlements.set(requestId, "cancelled");
+            this.settlements.set(requestId, CANCELLED);
           }
           this.poll();
           return;
@@ -385,15 +378,11 @@ export class PendingRequestRegistry {
         }
         if (!isRetryable(error)) {
           // A refused call left no row, or found one already settled.
-          this.close(
-            requestId,
-            {
-              kind: "cancelled",
-              reason: "refused",
-              message: `The control plane did not take this request: ${error instanceof Error ? error.message : String(error)}`,
-            },
-            "cancelled",
-          );
+          this.close(requestId, {
+            kind: "cancelled",
+            reason: "refused",
+            message: `The control plane did not take this request: ${error instanceof Error ? error.message : String(error)}`,
+          });
           this.settlements.delete(requestId);
           return;
         }
@@ -418,16 +407,22 @@ export class PendingRequestRegistry {
       // The rest waits for the next poll, which comes at once while any is
       // left.
       let sent = false;
-      const batch = [...this.settlements]
-        .slice(0, PENDING_SETTLEMENTS_MAX)
-        .map(([request_id, outcome]) => ({ request_id, outcome }));
+      const carried = [...this.settlements].slice(0, PENDING_SETTLEMENTS_MAX);
+      const batch = carried.map(([request_id, settled]) =>
+        this.outcomeOnly
+          ? { request_id, outcome: settled.outcome }
+          : { request_id, ...settled },
+      );
+      const detailed = batch.some(
+        (item) => "reason" in item || "answer_result" in item,
+      );
       try {
         const response = await this.options.gateway.pendingControl({
           ...this.options.scope(),
           answers_after: this.answersAfter,
           ...(batch.length > 0 ? { settled: batch } : {}),
         });
-        this.forget(batch);
+        this.forget(carried);
         sent = true;
         if (response.control !== null) {
           this.options.onControl?.(response.control);
@@ -450,9 +445,21 @@ export class PendingRequestRegistry {
           this.stop();
           return;
         }
+        // A strict gateway older than `reason` and `answer_result` refuses
+        // the whole poll. Their outcomes alone still settle the receipts as
+        // it always did, so they go again without them.
+        if (
+          detailed &&
+          error instanceof WorkerGatewayRequestError &&
+          error.code === "BAD_REQUEST"
+        ) {
+          this.outcomeOnly = true;
+          this.options.onSettlementDetailRefused?.(error);
+          continue;
+        }
         // Resending would be refused the same way; the answers themselves
         // stay waiting for their own expiry.
-        if (!isRetryable(error)) this.forget(batch);
+        if (!isRetryable(error)) this.forget(carried);
       }
       const backlog = sent && batch.length === PENDING_SETTLEMENTS_MAX;
       if (
@@ -464,10 +471,10 @@ export class PendingRequestRegistry {
     }
   }
 
-  private forget(batch: PendingSettlement[]): void {
-    for (const item of batch) {
-      if (this.settlements.get(item.request_id) === item.outcome) {
-        this.settlements.delete(item.request_id);
+  private forget(carried: [string, Settled][]): void {
+    for (const [requestId, settled] of carried) {
+      if (this.settlements.get(requestId) === settled) {
+        this.settlements.delete(requestId);
       }
     }
   }
@@ -478,32 +485,24 @@ export class PendingRequestRegistry {
       // Its callback is already gone: say so, or the receipt would wait on
       // a request nobody holds.
       if (this.unsettled(answer.request_id)) {
-        this.settlements.set(answer.request_id, "cancelled");
+        this.settlements.set(answer.request_id, CANCELLED);
       }
       return;
     }
     if (entry.inputHash !== inputHash) {
-      this.close(
-        answer.request_id,
-        {
-          kind: "cancelled",
-          reason: "refused",
-          message: "The answer was given for different tool arguments",
-        },
-        "cancelled",
-      );
+      this.close(answer.request_id, {
+        kind: "cancelled",
+        reason: "refused",
+        message: "The answer was given for different tool arguments",
+      });
       return;
     }
     if (entry.kind !== answer.kind) {
-      this.close(
-        answer.request_id,
-        {
-          kind: "cancelled",
-          reason: "refused",
-          message: `A ${answer.kind} answer cannot settle a ${entry.kind} request`,
-        },
-        "cancelled",
-      );
+      this.close(answer.request_id, {
+        kind: "cancelled",
+        reason: "refused",
+        message: `A ${answer.kind} answer cannot settle a ${entry.kind} request`,
+      });
       return;
     }
     if (answer.kind === "permission") {
@@ -516,7 +515,6 @@ export class PendingRequestRegistry {
               optionKind: "reject_once",
               message: answer.reason ?? "Denied without a reason",
             },
-        "answered",
       );
       return;
     }
@@ -524,18 +522,17 @@ export class PendingRequestRegistry {
     if (invalid !== null) {
       // The gateway refuses these already; acting on one that slipped through
       // would let the engine act on something nobody chose.
-      this.close(
-        answer.request_id,
-        { kind: "cancelled", reason: "refused", message: invalid },
-        "cancelled",
-      );
+      this.close(answer.request_id, {
+        kind: "cancelled",
+        reason: "refused",
+        message: invalid,
+      });
       return;
     }
-    this.close(
-      answer.request_id,
-      { kind: "answered", answers: answer.answers },
-      "answered",
-    );
+    this.close(answer.request_id, {
+      kind: "answered",
+      answers: answer.answers,
+    });
   }
 }
 

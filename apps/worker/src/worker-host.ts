@@ -390,6 +390,10 @@ export class WorkerHost {
       pollIntervalMs: this.options.timeouts.answerPollIntervalMs,
       onOwnershipLost: (error) => this.lose(describe(error), error),
       onControl: (control) => this.onControl(control),
+      onSettlementDetailRefused: (error) =>
+        this.logger.warn("worker.pending.settlement_detail_refused", {
+          reason: error.message,
+        }),
     });
     this.heartbeat = new Heartbeat({
       gateway: this.options.gateway,
