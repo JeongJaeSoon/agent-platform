@@ -370,11 +370,20 @@ describe("실행 프로필", () => {
   });
 
   test("a retired latest version still heads its name, and the earlier one keeps its actions", async () => {
-    renderAt("/profiles", {
+    const { api } = renderAt("/profiles", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/profiles": () =>
         json(200, {
-          items: [...PROFILES, version(1, "usable"), version(2, "retired")],
+          items: [
+            ...PROFILES,
+            version(1, "usable", { tools: ["Read", "Edit"] }),
+            version(2, "retired"),
+          ],
+        }),
+      "POST /v1/workspace-profiles/ws_acme_strict_v1/retire": () =>
+        json(200, {
+          profile: version(1, "retired"),
+          receipt_id: RECEIPT_ID,
         }),
     });
     const table = await screen.findByRole("table", {
@@ -398,7 +407,19 @@ describe("실행 프로필", () => {
         "수정사용 중지",
       ],
     ]);
-    // The earlier row's actions act on that version, not on the latest.
+    // The earlier row's actions act on that version, not on the latest:
+    // the editor starts from v1's tools (v2 has no Edit), and the turn-off
+    // request names v1.
+    await user.click(within(table).getByRole("button", { name: "수정" }));
+    const editor = await screen.findByRole("region", { name: "strict 수정" });
+    expect(
+      within(editor)
+        .getByRole("checkbox", { name: "Edit" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(
+      within(editor).getByText("저장할 버전의 id: ws_acme_strict_v3"),
+    ).toBeDefined();
     await user.click(
       within(table).getByRole("button", {
         name: "사용 중지 ws_acme_strict_v1",
@@ -407,12 +428,13 @@ describe("실행 프로필", () => {
     const dialog = await screen.findByRole("dialog", {
       name: "ws_acme_strict_v1 버전을 사용 중지할까요?",
     });
-    await user.click(within(dialog).getByRole("button", { name: "취소" }));
-    await user.click(within(table).getByRole("button", { name: "수정" }));
-    const editor = await screen.findByRole("region", { name: "strict 수정" });
+    await user.click(within(dialog).getByRole("button", { name: "사용 중지" }));
+    await screen.findByText("ws_acme_strict_v1 버전을 사용 중지했습니다.");
     expect(
-      within(editor).getByText("저장할 버전의 id: ws_acme_strict_v3"),
-    ).toBeDefined();
+      api.calls
+        .filter((call) => call.method === "POST")
+        .map((call) => call.path),
+    ).toEqual(["/v1/workspace-profiles/ws_acme_strict_v1/retire"]);
   });
 
   test("a version whose base changed warns and is made again; one whose base is gone can only retire", async () => {

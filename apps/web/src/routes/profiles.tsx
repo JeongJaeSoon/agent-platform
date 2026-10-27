@@ -44,7 +44,7 @@ const PROFILE_COLUMNS = "minmax(0,1.2fr) minmax(0,1fr) minmax(0,1.4fr)";
 const VERSION_COLUMNS = {
   manage: [
     "minmax(0,1.4fr) minmax(0,1fr) 128px 184px",
-    "minmax(0,1fr) 104px 112px",
+    "minmax(0,1fr) 104px 96px",
   ],
   read: ["minmax(0,1.4fr) minmax(0,1fr) 128px", "minmax(0,1fr) 104px"],
 } as const;
