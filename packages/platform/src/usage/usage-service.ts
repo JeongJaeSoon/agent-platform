@@ -365,6 +365,7 @@ export function createUsageService(deps: {
         total_ms: row.totalMs,
         median_ms: row.medianMs,
         max_ms: row.maxMs,
+        description: row.description ?? null,
       }));
       return { tools, findings: toolFindings(tools) };
     },

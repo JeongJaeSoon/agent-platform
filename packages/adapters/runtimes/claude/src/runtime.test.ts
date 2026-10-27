@@ -63,6 +63,62 @@ describe("Claude SDK run", () => {
     expect(await run.holdsInput("first")).toBe(true);
     expect(await run.holdsInput("second")).toBe(false);
   });
+
+  test("asks the engine for its MCP servers on init only, and a failed answer leaves the names", async () => {
+    const initTools = async (mcpServerStatus: () => Promise<unknown>) => {
+      let asked = 0;
+      const sdkQuery = {
+        async *[Symbol.asyncIterator]() {
+          yield {
+            type: "system",
+            subtype: "init",
+            tools: ["Read", "mcp__docs__find"],
+          };
+          yield { type: "system", subtype: "status" };
+        },
+        mcpServerStatus: () => {
+          asked += 1;
+          return mcpServerStatus();
+        },
+      };
+      const run = new ClaudeSdkRun(
+        "init",
+        new InputStream(),
+        sdkQuery as never,
+        new AbortController(),
+        ResumedHistory.empty(),
+        new TurnLedger(),
+      );
+      const data = [];
+      for await (const frame of run.events()) {
+        data.push(...frame.events.map((item) => item.data));
+      }
+      return { asked, data };
+    };
+    const listed = await initTools(async () => [
+      { name: "docs", tools: [{ name: "find", description: "Finds a page" }] },
+    ]);
+    expect(listed.asked).toBe(1);
+    expect(listed.data).toEqual([
+      {
+        type: "system",
+        subtype: "init",
+        tools: [
+          { name: "Read" },
+          { name: "mcp__docs__find", description: "Finds a page" },
+        ],
+      },
+      { type: "system", subtype: "status" },
+    ]);
+    const failed = await initTools(() =>
+      Promise.reject(new Error("control request failed")),
+    );
+    expect(failed.data[0]).toEqual({
+      type: "system",
+      subtype: "init",
+      tools: [{ name: "Read" }, { name: "mcp__docs__find" }],
+    });
+  });
 });
 
 describe("Claude SDK input flush", () => {

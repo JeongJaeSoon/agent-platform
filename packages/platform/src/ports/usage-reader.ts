@@ -136,6 +136,8 @@ export type UsageToolRecord = {
   /** 0 when no call of the tool was timed. */
   medianMs: number;
   maxMs: number;
+  /** As an engine in the filter's sessions declared it; MCP tools only. */
+  description?: string;
 };
 
 export type UsageToolsFilter = {

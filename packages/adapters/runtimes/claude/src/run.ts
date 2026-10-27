@@ -13,9 +13,11 @@ import type {
 } from "@werft-ai/runtime-core";
 
 import type { AgentFrame, DriverRun, NativeSdkMessage } from "./driver.ts";
-import { frameFromNativeMessage } from "./mapper.ts";
+import { frameFromNativeMessage, isEngineInit } from "./mapper.ts";
 import type { ResumedHistory } from "./resumed-history.ts";
 import type { TurnLedger } from "./turn-ledger.ts";
+
+const MCP_STATUS_TIMEOUT_MS = 5_000;
 
 /**
  * How the SDK ends a turn cut short mid-response or with a tool (or its
@@ -192,6 +194,24 @@ export class ClaudeSdkRun implements DriverRun {
     return this;
   }
 
+  // Descriptions only label tools: a server status that fails or is slow
+  // leaves them out rather than holding up the session's events.
+  private async mcpServers(): Promise<unknown> {
+    let timer: Parameters<typeof clearTimeout>[0];
+    try {
+      return await Promise.race([
+        this.sdkQuery.mcpServerStatus(),
+        new Promise<undefined>((resolve) => {
+          timer = setTimeout(resolve, MCP_STATUS_TIMEOUT_MS);
+        }),
+      ]);
+    } catch {
+      return undefined;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async *[Symbol.asyncIterator](): AsyncIterator<AgentFrame> {
     this.ledger.claimConsumer();
     try {
@@ -203,6 +223,7 @@ export class ClaudeSdkRun implements DriverRun {
           native,
           this.correlationId,
           `sdk:${cursor}`,
+          isEngineInit(native) ? await this.mcpServers() : undefined,
         );
         cursor += 1;
       }

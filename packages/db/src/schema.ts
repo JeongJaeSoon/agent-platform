@@ -1226,6 +1226,32 @@ export const toolCalls = pgTable(
 );
 
 /**
+ * A tool's description as a session's engine declared it at init, projected
+ * with tool_calls (94S-936). Only MCP tools have one; the adapter has already
+ * redacted it and cut it to one line. A usage read takes the newest one among
+ * the sessions it may see, so a description never crosses into a scope whose
+ * sessions did not declare it.
+ */
+export const toolDescriptions = pgTable(
+  "tool_descriptions",
+  {
+    sessionId: uuid("session_id").notNull(),
+    name: text().notNull(),
+    description: text().notNull(),
+    // The init event's id: of two inits in a session the later one wins.
+    eventId: bigint("event_id", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sessionId, table.name] }),
+    check(
+      "tool_descriptions_description_check",
+      sql`char_length(${table.description}) BETWEEN 1 AND 200`,
+    ),
+    index("tool_descriptions_name_idx").on(table.name, table.eventId.desc()),
+  ],
+);
+
+/**
  * How far `projectToolCalls` has read events: every event with an id at or
  * below `applied_through` is in tool_calls. One row.
  */

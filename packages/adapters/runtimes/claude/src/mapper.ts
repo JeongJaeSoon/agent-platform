@@ -20,10 +20,18 @@ const SENSITIVE_NAME =
 const PLAIN_VALUE = /"[^"\\$`\n]*"|'[^'\n]*'|[^\s"'\\$`&;|<>()]+/y;
 const VALUE_END = /[\s&;|)]|$/y;
 
+export const TOOL_DESCRIPTION_MAX_CODE_POINTS = 200;
+
+/**
+ * `mcpServers` is what `Query.mcpServerStatus()` answered when `message` is
+ * the engine's init; it is the only place tool descriptions come from, and
+ * only MCP tools have one.
+ */
 export function frameFromNativeMessage(
   message: NativeSdkMessage,
   correlationId: string,
   cursor: string,
+  mcpServers?: unknown,
 ): AgentFrame {
   const envelope: NativeEnvelope = {
     correlation_id: correlationId,
@@ -33,8 +41,12 @@ export function frameFromNativeMessage(
   };
   return {
     envelope,
-    events: projectPublicEvents(envelope, cursor),
+    events: projectPublicEvents(envelope, cursor, mcpServers),
   };
+}
+
+export function isEngineInit(message: NativeSdkMessage): boolean {
+  return message.type === "system" && message.subtype === "init";
 }
 
 export function sanitizeNativeMessage(
@@ -46,6 +58,7 @@ export function sanitizeNativeMessage(
 export function projectPublicEvents(
   envelope: NativeEnvelope,
   cursor: string,
+  mcpServers?: unknown,
 ): SessionEvent[] {
   const message = envelope.message;
   if (message.type === "assistant") {
@@ -109,6 +122,15 @@ export function projectPublicEvents(
       event(cursor, "error", {
         code: "mirror_error",
         message: "Agent SDK transcript mirror failed",
+      }),
+    ];
+  }
+  if (isEngineInit(message)) {
+    return [
+      event(cursor, "system", {
+        type: "system",
+        subtype: "init",
+        tools: toolCatalog(message.tools, mcpServers),
       }),
     ];
   }
@@ -221,6 +243,63 @@ function questionsOf(input: Record<string, unknown>): PendingQuestion[] | null {
     ];
   });
   return questions.length > 0 ? questions : null;
+}
+
+/**
+ * The engine's tools by name, each MCP tool with its server's description.
+ * A description is server-supplied text, so it is redacted like any engine
+ * output, kept to one line and cut to TOOL_DESCRIPTION_MAX_CODE_POINTS.
+ */
+function toolCatalog(
+  names: unknown,
+  mcpServers: unknown,
+): { name: string; description?: string }[] {
+  const descriptions = new Map<string, string>();
+  for (const server of Array.isArray(mcpServers) ? mcpServers : []) {
+    const serverName = record(server)?.name;
+    const tools = record(server)?.tools;
+    if (typeof serverName !== "string" || !Array.isArray(tools)) continue;
+    for (const tool of tools) {
+      const { name, description } = record(tool) ?? {};
+      if (typeof name !== "string" || typeof description !== "string") {
+        continue;
+      }
+      const line = descriptionLine(description);
+      if (line === undefined) continue;
+      // The engine names an MCP tool mcp__<server>__<tool>, each part with
+      // anything but [A-Za-z0-9_-] turned into "_".
+      descriptions.set(
+        name.startsWith("mcp__")
+          ? name
+          : `mcp__${mcpNamePart(serverName)}__${mcpNamePart(name)}`,
+        line,
+      );
+    }
+  }
+  return (Array.isArray(names) ? names : [])
+    .filter((name): name is string => typeof name === "string" && name !== "")
+    .map((name) => {
+      const description = descriptions.get(name);
+      return description === undefined ? { name } : { name, description };
+    });
+}
+
+function mcpNamePart(name: string): string {
+  return name.replace(/[^A-Za-z0-9_-]/g, "_");
+}
+
+function descriptionLine(text: string): string | undefined {
+  const line = (sanitizeValue(text) as string)
+    .replace(/[\p{Cc}\s]+/gu, " ")
+    .trim();
+  const points = [...line];
+  if (points.length <= TOOL_DESCRIPTION_MAX_CODE_POINTS) {
+    return line === "" ? undefined : line;
+  }
+  return `${points
+    .slice(0, TOOL_DESCRIPTION_MAX_CODE_POINTS - 1)
+    .join("")
+    .trimEnd()}…`;
 }
 
 function event(

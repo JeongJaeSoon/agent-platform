@@ -10,7 +10,9 @@ import type { UsageTool } from "./tools.ts";
 import { useOperationsMessages } from "./use-messages.ts";
 
 const SORTS: readonly ToolSort[] = ["calls", "time", "slow", "failed"];
-const SORT_KEY: Readonly<Record<ToolSort, Exclude<keyof UsageTool, "name">>> = {
+const SORT_KEY: Readonly<
+  Record<ToolSort, Exclude<keyof UsageTool, "name" | "description">>
+> = {
   calls: "calls",
   time: "total_ms",
   slow: "median_ms",
