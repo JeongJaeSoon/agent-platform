@@ -46,7 +46,7 @@ function version(n: number, state: WorkspaceProfileState): ProfileSummary {
       base_profile_id: "coding-claude",
       state,
       created_at: `2026-10-2${n}T00:00:00.000Z`,
-      retired_at: null,
+      retired_at: state === "retired" ? "2026-10-27T00:00:00.000Z" : null,
     },
   };
 }
@@ -92,18 +92,30 @@ const AGENTS = [
   agent(3, "초안 담당", null, null),
 ];
 
-function catalog(signedIn = me()) {
-  const items = [OPERATOR, version(1, "usable"), version(2, "usable")];
+function catalog(
+  signedIn = me(),
+  start = [OPERATOR, version(1, "usable"), version(2, "usable")],
+) {
+  const items = [...start];
   return {
     "GET /v1/auth/me": () => json(200, signedIn),
     "GET /v1/profiles": () => json(200, { items }),
     "GET /v1/agents": () => json(200, { items: AGENTS, next_cursor: null }),
     "POST /v1/workspace-profiles": async (request: Request) => {
       const body = (await request.json()) as CreateWorkspaceProfileRequest;
+      const n =
+        items.filter((item) => item.workspace?.name === body.name).length + 1;
       const made: ProfileSummary = {
-        ...version(items.length, "usable"),
+        ...version(n, "usable"),
+        id: `ws_acme_${body.name}_v${n}`,
         tools: body.tools,
         permission_mode: body.permission_mode,
+        workspace: {
+          ...(version(n, "usable").workspace as NonNullable<
+            ProfileSummary["workspace"]
+          >),
+          name: body.name,
+        },
       };
       items.push(made);
       return json(201, { profile: made, receipt_id: RECEIPT_ID });
@@ -263,10 +275,80 @@ describe("실행 프로필 상세", () => {
     expect(history.location.pathname).toBe("/profiles/coding-claude");
     expect(values()["도구"]).toBe("ReadEditBash");
     expect(screen.queryByRole("table", { name: "버전 기록" })).toBeNull();
-    expect(
-      screen.getByRole("button", { name: "이 프로필로 만들기" }),
-    ).toBeDefined();
     await screen.findByText("지금 이 프로필을 쓰는 에이전트가 없습니다.");
+
+    await user.click(
+      screen.getByRole("button", { name: "이 프로필로 만들기" }),
+    );
+    const editor = await screen.findByRole("region", { name: "프로필 만들기" });
+    expect(
+      (within(editor).getByLabelText("이름") as HTMLInputElement).value,
+    ).toBe("");
+    await user.type(within(editor).getByLabelText("이름"), "fresh");
+    await user.click(
+      within(editor).getByRole("button", { name: "새 버전으로 저장" }),
+    );
+    await screen.findByText("ws_acme_fresh_v1 버전을 저장했습니다.");
+    expect(history.location.pathname).toBe("/profiles/ws_acme_fresh_v1");
+    expect(values()["바탕 프로필"]).toBe("coding-claude");
+  });
+
+  test("opening another version closes the editor started on this one", async () => {
+    const { api } = renderAt("/profiles/ws_acme_strict_v1", catalog());
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "수정" }));
+    await screen.findByRole("region", { name: "strict 수정" });
+    await user.click(
+      screen.getByRole("link", { name: "ws_acme_strict_v2 자세히 보기" }),
+    );
+    await waitFor(() => expect(values().id).toBe("ws_acme_strict_v2"));
+    expect(screen.queryByRole("region", { name: "strict 수정" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "수정" }));
+    const editor = await screen.findByRole("region", { name: "strict 수정" });
+    // v2's tools, not v1's.
+    expect(
+      within(editor)
+        .getByRole("checkbox", { name: "Edit" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(api.calls.filter((call) => call.method === "POST")).toEqual([]);
+  });
+
+  test("a version whose base changed offers 다시 만들기; a retired one offers nothing", async () => {
+    const start = [OPERATOR, version(1, "retired"), version(2, "base_changed")];
+    renderAt("/profiles/ws_acme_strict_v2", catalog(me(), start));
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "다시 만들기" }),
+    );
+    await screen.findByRole("region", { name: "strict 다시 만들기" });
+    expect(screen.queryByRole("button", { name: "수정" })).toBeNull();
+
+    await user.click(
+      screen.getByRole("link", { name: "ws_acme_strict_v1 자세히 보기" }),
+    );
+    await waitFor(() => expect(values().id).toBe("ws_acme_strict_v1"));
+    expect(values()["사용 중지한 때"]).toEqual(expect.any(String));
+    expect(screen.queryByRole("button", { name: "수정" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "다시 만들기" })).toBeNull();
+  });
+
+  test("a version whose base is gone offers no edit", async () => {
+    const orphan: ProfileSummary = {
+      ...version(1, "base_missing"),
+      workspace: {
+        ...(version(1, "base_missing").workspace as NonNullable<
+          ProfileSummary["workspace"]
+        >),
+        base_profile_id: "gone",
+      },
+    };
+    renderAt("/profiles/ws_acme_strict_v1", catalog(me(), [OPERATOR, orphan]));
+    await screen.findByRole("heading", { level: 1, name: "strict" });
+    // In the title and in the history row.
+    expect(screen.getAllByText("바탕 프로필 없음")).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "수정" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "다시 만들기" })).toBeNull();
   });
 
   test("an unknown id says the profile is not there", async () => {

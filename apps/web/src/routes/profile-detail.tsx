@@ -48,9 +48,9 @@ export function ProfileDetailScreen() {
   const workspace = useMe()?.workspace;
   const manages = useHasPermission("workspace.manage");
   const profiles = useQuery(profilesQuery(client));
-  const [editor, setEditor] = useState<EditorStart | null>(null);
-  // Kept per profile, so it shows on the version it names and not on
-  // another one opened afterwards.
+  // Both kept per profile id: the screen stays mounted when another
+  // version's link changes the param, and neither belongs to that version.
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<{
     readonly on: string;
     readonly text: string;
@@ -128,6 +128,7 @@ export function ProfileDetailScreen() {
       : start?.mode === "remake"
         ? "profiles.remake"
         : "profiles.newVersion";
+  const editor = editingId === profile.id ? start : null;
 
   return (
     <Page
@@ -160,7 +161,7 @@ export function ProfileDetailScreen() {
             type="button"
             onClick={() => {
               setNotice(null);
-              setEditor(start);
+              setEditingId(profile.id);
             }}
           >
             {t(startLabel)}
@@ -169,15 +170,15 @@ export function ProfileDetailScreen() {
       }
     >
       <Notice>{notice?.on === profile.id ? notice.text : undefined}</Notice>
-      {editor === null || !manages ? null : (
+      {editor === null ? null : (
         <ProfileEditor
           key={profile.id}
           start={editor}
           operators={operators}
           nextId={(name) => nextVersionId(workspace, items, name)}
-          onCancel={() => setEditor(null)}
+          onCancel={() => setEditingId(null)}
           onSaved={(id) => {
-            setEditor(null);
+            setEditingId(null);
             setNotice({ on: id, text: t("profiles.saved", { id }) });
             void navigate({
               to: "/profiles/$profileId",
