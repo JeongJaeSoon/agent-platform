@@ -35,7 +35,7 @@ export function SearchInput({
         strokeWidth={1.5}
         className="pointer-events-none absolute top-2 left-2.5 size-4 text-subtle-foreground"
       />
-      <Input className={cn("pl-8", className)} {...props} />
+      <Input className={cn("border-border pl-8", className)} {...props} />
     </div>
   );
 }
