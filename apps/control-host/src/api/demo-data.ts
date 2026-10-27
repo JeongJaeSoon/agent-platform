@@ -47,6 +47,8 @@ type DemoAgent = {
   role: string;
   instructions: string;
   profile: string;
+  /** The release's repository, which its sessions work on. */
+  repositoryId?: string;
 };
 
 export const DEMO_AGENTS: readonly DemoAgent[] = [
@@ -57,6 +59,7 @@ export const DEMO_AGENTS: readonly DemoAgent[] = [
     instructions:
       "저장소의 최근 변경을 읽고 사용자에게 보이는 변화만 골라 릴리스 노트 초안을 out/ 아래에 쓴다.",
     profile: REPOSITORY_PROFILE,
+    repositoryId: REPOSITORY_ID,
   },
   {
     slug: "code-review",
@@ -65,6 +68,7 @@ export const DEMO_AGENTS: readonly DemoAgent[] = [
     instructions:
       "변경된 파일을 읽고 버그·회귀 가능성이 있는 곳을 근거와 함께 정리한다. 명령을 돌리기 전에 확인을 받는다.",
     profile: REPOSITORY_PROFILE,
+    repositoryId: REPOSITORY_ID,
   },
   {
     slug: "support-triage",
@@ -414,7 +418,11 @@ async function ensureAgent(
     200,
     "POST",
     `/v1/agents/${agentId}/releases`,
-    { version_id: versionId, runtime_profile_id: agent.profile },
+    {
+      version_id: versionId,
+      runtime_profile_id: agent.profile,
+      ...(agent.repositoryId ? { repository_id: agent.repositoryId } : {}),
+    },
   );
   await owner.expect(200, "POST", `/v1/agents/${agentId}/activate`, {
     release_id: released.release.id,

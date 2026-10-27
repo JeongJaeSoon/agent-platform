@@ -9,6 +9,7 @@ import type {
   AgentInput,
   CheckpointLeaseGrant,
   CheckpointPreparation,
+  ParkReadiness,
 } from "@werft-ai/runtime-core";
 
 import type { AgentFrame, DriverRun, NativeSdkMessage } from "./driver.ts";
@@ -181,6 +182,10 @@ export class ClaudeSdkRun implements DriverRun {
 
   async prepareCheckpoint(): Promise<CheckpointPreparation> {
     return this.ledger.prepareCheckpoint();
+  }
+
+  parkable(): ParkReadiness {
+    return this.ledger.parkable();
   }
 
   events(): AsyncIterable<AgentFrame> {

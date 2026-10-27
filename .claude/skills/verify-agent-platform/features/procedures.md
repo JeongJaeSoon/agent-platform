@@ -179,7 +179,7 @@ AID=$(printf '%s\n' "$AGENT" | head -1 | jq -r .agent.id)
 printf 'AID=%s\n' "$AID" >> "$VERIFY_RUN/ids.sh"
 VID=$(printf '%s\n' "$AGENT" | head -1 | jq -r '.versions[0].id')
 printf 'VID=%s\n' "$VID" >> "$VERIFY_RUN/ids.sh"
-RELEASE=$(ap_web POST "/v1/agents/$AID/releases" "$(jq -nc --arg v "$VID" '{version_id:$v,runtime_profile_id:"claude-coding-local"}')")
+RELEASE=$(ap_web POST "/v1/agents/$AID/releases" "$(jq -nc --arg v "$VID" '{version_id:$v,runtime_profile_id:"claude-coding-local",repository_id:"sample-app"}')")
 printf '%s\n' "$RELEASE"
 REL=$(printf '%s\n' "$RELEASE" | head -1 | jq -r .release.id)
 printf 'REL=%s\n' "$REL" >> "$VERIFY_RUN/ids.sh"

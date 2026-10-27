@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { type ApiErrorCode, apiErrorResponseSchema } from "@werft-ai/contracts";
+import {
+  type ApiErrorCode,
+  apiErrorResponseSchema,
+  requestBodyInvalidDetailsSchema,
+} from "@werft-ai/contracts";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   type AuthorizationPolicy,
@@ -153,6 +157,28 @@ describe("POST /v1/sessions validation", () => {
     const response = await post(valid, { "Idempotency-Key": "" });
     expect(response.status).toBe(400);
     expect(await errorCode(response)).toBe("BAD_REQUEST");
+  });
+
+  test("an invalid body names each field at fault in details", async () => {
+    const issuesOf = async (body: unknown) => {
+      const response = await post(body);
+      expect(response.status).toBe(400);
+      const { error } = apiErrorResponseSchema.parse(await response.json());
+      expect(error.message).toBe("Request body is invalid");
+      return requestBodyInvalidDetailsSchema.parse(error.details).issues;
+    };
+    const { profile_id: _, ...withoutProfile } = valid;
+    expect(await issuesOf(withoutProfile)).toEqual([
+      {
+        path: "profile_id",
+        message: "profile_id is required without agent_release_id",
+      },
+    ]);
+    expect(
+      (await issuesOf({ ...valid, message: "", title: 7 })).map(
+        (issue) => issue.path,
+      ),
+    ).toEqual(["title", "message"]);
   });
 
   test("rejects unknown profile or repository with 422", async () => {

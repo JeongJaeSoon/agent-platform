@@ -135,6 +135,22 @@ export const apiErrorResponseSchema = z
   .object({ error: apiErrorSchema })
   .strict();
 
+/**
+ * `details` of a 400 BAD_REQUEST for a body its schema refuses: each field
+ * at fault, as a dotted path from the body's root (`""` for the body
+ * itself, `items.0.id` inside an array), and why.
+ */
+export const requestBodyInvalidDetailsSchema = z
+  .object({
+    issues: z.array(
+      z.object({ path: z.string(), message: z.string().min(1) }).strict(),
+    ),
+  })
+  .strict();
+
 export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
+export type RequestBodyInvalidDetails = z.infer<
+  typeof requestBodyInvalidDetailsSchema
+>;
 export type ApiError = z.infer<typeof apiErrorSchema>;
 export type ApiErrorResponse = z.infer<typeof apiErrorResponseSchema>;

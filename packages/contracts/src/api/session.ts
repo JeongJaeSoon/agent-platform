@@ -546,13 +546,16 @@ export const messageTextSchema = z
 
 export const createSessionRequestSchema = z
   .object({
-    profile_id: z.string().min(1),
+    profile_id: z.string().min(1).optional().meta({
+      description:
+        "The catalog profile the session runs on. Required without `agent_release_id`; with it, omitted means the release's profile, and sent it must be that profile.",
+    }),
     title: sessionTitleSchema.optional().meta({
       description: `The session's name. Omitted, it is derived from \`message\`: whitespace and line breaks collapsed to one space, the ends trimmed, and text longer than ${SESSION_TITLE_MAX_GRAPHEMES} characters cut to ${SESSION_TITLE_MAX_GRAPHEMES - 1} and an ellipsis (…). Rename it later with \`PATCH /v1/sessions/{id}\`.`,
     }),
     repository_id: z.string().min(1).optional().meta({
       description:
-        "The catalog repository the session works on. Required when the profile's `repository_mode` is `required`, refused when it is `none`, either when it is `optional`; omitted, the session starts in an empty workspace with no repository to push to.",
+        "The catalog repository the session works on. Required when the profile's `repository_mode` is `required`, refused when it is `none`, either when it is `optional`; omitted, the session works on the release's `repository_id` when `agent_release_id` is sent, else starts in an empty workspace with no repository to push to.",
     }),
     message: messageTextSchema,
     // Pins the session to this release of an agent: the session then belongs
@@ -568,7 +571,15 @@ export const createSessionRequestSchema = z
         "How long the session's permission and question requests wait for an answer, in seconds: `park_after_seconds` before the platform parks the turn and frees its worker (0 parks at once), `expire_after_seconds` from the request until it stops taking answers and is denied. Each can only shorten the profile's value (`GET /v1/profiles`, `permission_wait`); a longer one is 400 `PERMISSION_WAIT_ABOVE_PROFILE`. Omitted, the profile's values apply. A request takes the values in force when it is raised.",
     }),
   })
-  .strict();
+  .strict()
+  .refine(
+    (body) =>
+      body.profile_id !== undefined || body.agent_release_id !== undefined,
+    {
+      path: ["profile_id"],
+      message: "profile_id is required without agent_release_id",
+    },
+  );
 export const createSessionResponseSchema = z.object({
   session_id: sessionIdSchema,
   turn_id: turnIdSchema,

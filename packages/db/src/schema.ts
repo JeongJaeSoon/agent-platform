@@ -1500,6 +1500,11 @@ export const pendingRequests = pgTable(
     // answered | expired | cancelled from the worker; lost when the
     // execution went away before it said.
     settledOutcome: text("settled_outcome"),
+    // Why the worker cancelled it (park | shutdown | interrupt | refused),
+    // and what its run said of a delivered answer (applied | stale |
+    // unknown). Null from a worker older than them and where it did not say.
+    settledReason: text("settled_reason"),
+    settledAnswerResult: text("settled_answer_result"),
     // Set when the worker handed the `question` event to the gateway
     // a replay must carry the same pair. Null for a worker that
     // publishes the event itself.
@@ -2683,6 +2688,7 @@ export const agentReleases = pgTable(
     versionId: uuid("version_id").notNull(),
     cardSha256: text("card_sha256").notNull(),
     runtimeProfileId: text("runtime_profile_id").notNull(),
+    repositoryId: text("repository_id"),
     profileDigest: text("profile_digest").notNull(),
     runtimeConfigSnapshot: jsonb("runtime_config_snapshot").notNull(),
     effectiveTools: jsonb("effective_tools").notNull(),

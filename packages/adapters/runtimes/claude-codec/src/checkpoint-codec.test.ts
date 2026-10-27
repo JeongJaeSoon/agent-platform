@@ -300,6 +300,62 @@ describe("Claude checkpoint codec", () => {
     ).toThrow(/Invalid Claude checkpoint manifest/);
   });
 
+  test("round-trips the requests a parked turn waited on, arguments unredacted", () => {
+    const original = manifest({
+      workerState: {
+        pendingApprovals: [
+          {
+            input: { command: "deploy --token=s3cret", env: { A: [1, null] } },
+            inputHash: "f".repeat(64),
+            kind: "permission",
+            requestId: "req_1",
+            tool: "Bash",
+            toolCallId: "toolu_1",
+          },
+        ],
+      },
+    });
+
+    expect(
+      decodeCheckpointManifest(encodeCheckpointManifest(original).bytes),
+    ).toEqual(original);
+    expect(
+      "workerState" in
+        decodeCheckpointManifest(encodeCheckpointManifest(manifest()).bytes),
+    ).toBe(false);
+  });
+
+  test.each([
+    ["an empty request list", { pendingApprovals: [] }],
+    [
+      "a field this build does not know",
+      {
+        pendingApprovals: [
+          {
+            input: {},
+            inputHash: "f".repeat(64),
+            kind: "permission",
+            requestId: "req_1",
+            tool: "Bash",
+            toolCallId: "toolu_1",
+            answer: "allow",
+          },
+        ],
+      },
+    ],
+  ])("refuses worker state with %s", (_, workerState) => {
+    const body = {
+      ...JSON.parse(
+        new TextDecoder().decode(encodeCheckpointManifest(manifest()).bytes),
+      ),
+      workerState,
+    };
+
+    expect(() =>
+      decodeCheckpointManifest(new TextEncoder().encode(JSON.stringify(body))),
+    ).toThrow(/Invalid Claude checkpoint manifest/);
+  });
+
   test("refuses bytes that are not a manifest", () => {
     expect(() =>
       decodeCheckpointManifest(new TextEncoder().encode("not json")),

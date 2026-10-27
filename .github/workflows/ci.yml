@@ -175,6 +175,7 @@ jobs:
               - apps/control-host/src/reconciler/
               - tests/catalog-mismatch.
               - tests/context-gap-flow.
+              - tests/drain-park-flow.
               - tests/interrupt-flow.
               - tests/lease-clock.
           # Slack and the contracts, clients and web apps that consume the API.

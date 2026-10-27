@@ -116,7 +116,7 @@ export function buildSdkOptions(
       if (!permittedTools.has(tool)) {
         return deny("Tool is outside the server allowlist");
       }
-      const admission = ledger.permissionStarting();
+      const admission = ledger.permissionStarting(options.toolUseID);
       if (!admission.allowed) return deny(admission.message);
       let allowed = false;
       try {
@@ -130,7 +130,7 @@ export function buildSdkOptions(
         allowed = decision.behavior === "allow";
         return { ...decision, toolUseID: options.toolUseID };
       } finally {
-        ledger.permissionSettled();
+        ledger.permissionSettled(options.toolUseID);
         if (!allowed) ledger.toolSettled(options.toolUseID);
       }
     },
