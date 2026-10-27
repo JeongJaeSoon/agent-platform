@@ -140,7 +140,11 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     // 0178, arrives as 'user'
     "title_source",
   ],
-  turns: ["actor_id"],
+  turns: [
+    "actor_id",
+    // 0185
+    "channel",
+  ],
   // kind arrives as 'service'
   api_keys: [
     "workspace_id",

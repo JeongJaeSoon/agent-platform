@@ -721,6 +721,8 @@ const EXAMPLE_TURN_SUMMARY = {
   session_id: EXAMPLE_SESSION_ID,
   status: "completed",
   message: "Add a health check endpoint and a test for it.",
+  channel: "web",
+  created_by: { user_id: EXAMPLE_USER_ID, display_name: "Mina Park" },
   terminal_reason: null,
   checkpoint_revision: 2,
   created_at: "2026-10-11T08:00:00Z",

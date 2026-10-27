@@ -1154,11 +1154,17 @@ export const turns = pgTable(
       .defaultNow(),
     /** The human whose input started the turn; null on the api-key path. */
     actorId: uuid("actor_id").references(() => users.id),
+    /** The surface the input came from; null on rows from before 0185. */
+    channel: text().$type<SurfaceKind>(),
   },
   (table) => [
     uniqueIndex("turns_session_sequence_uniq").on(
       table.sessionId,
       table.sequence,
+    ),
+    check(
+      "turns_channel_check",
+      sql`${table.channel} IN (${sql.raw(sqlList(SURFACE_KIND_VALUES))})`,
     ),
   ],
 );

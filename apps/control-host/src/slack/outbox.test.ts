@@ -721,8 +721,15 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       }
     };
     const turnsPlan = await explain(plans[0]);
-    // turns_pkey only to fetch the open turns found per link.
-    expect(turnsPlan).toContain("Index Cond: (id = ANY (");
+    // The open turns found per link are fetched by id, or by the link's
+    // session with the ids as a filter: the turns row width alone tips the
+    // planner between the two. Neither reads turns outside linked sessions.
+    expect(turnsPlan).toMatch(
+      /Index Cond: \(id = ANY \(|turns_session_sequence_uniq on turns\s+Index Cond: \(session_id = session_links\.session_id\)\s+Filter: \(\(id = ANY \(/,
+    );
+    expect(turnsPlan).not.toMatch(
+      /Seq Scan on turns|Index Scan using turns_pkey on turns\s+Filter/,
+    );
     // Ranged on the link and its mark, not a walk of the whole index.
     expect(turnsPlan).toMatch(
       /turns_session_sequence_uniq[\s\S]*Index Cond: \(\(session_id = [^)]+\) AND \(sequence > /,

@@ -21,6 +21,7 @@ import {
   type SessionStatus,
   SSE_SCHEMA_VERSION,
   type SseEvent,
+  type SurfaceKind,
   sseEventSchema,
   type TurnDetail,
   type TurnSummary,
@@ -163,6 +164,7 @@ async function insertQueuedTurn(
     sequence: number;
     message: string;
     actorId: string | null;
+    channel: SurfaceKind | null;
   },
 ) {
   // now() is the transaction start, which can precede a competing append
@@ -177,6 +179,7 @@ async function insertQueuedTurn(
       status: "queued",
       createdAt: sql`clock_timestamp()`,
       actorId: input.actorId,
+      channel: input.channel,
     })
     .returning({ id: turns.id });
   if (!turn) throw new Error("Failed to insert turn");
@@ -305,6 +308,7 @@ export function createPostgresSessionUnitOfWork(
           sequence: 1,
           message: input.message,
           actorId: actor?.userId ?? null,
+          channel: input.channel ?? null,
         });
 
         const receiptId = randomUUID();
@@ -441,6 +445,7 @@ export function createPostgresSessionUnitOfWork(
           sequence,
           message: input.message,
           actorId: input.principal.actor?.userId ?? null,
+          channel: input.channel ?? null,
         });
         await tx
           .update(sessions)
@@ -499,6 +504,11 @@ const LAST_EVENT_AT = sql<Date | null>`(
 
 type SessionRow = typeof sessions.$inferSelect;
 type TurnRow = typeof turns.$inferSelect;
+type TurnRead = {
+  turn: TurnRow;
+  awaitingInput: boolean;
+  creatorName: string | null;
+};
 
 // result_json holds the SDK result message: its `result` and `usage` when
 // present, otherwise the whole document is the result.
@@ -517,8 +527,7 @@ function resultParts(resultJson: unknown): {
 }
 
 function summarizeTurn(
-  row: TurnRow,
-  awaitingInput: boolean,
+  { turn: row, awaitingInput, creatorName }: TurnRead,
   checkpointRevision: number | null,
 ): TurnSummary {
   return {
@@ -526,6 +535,11 @@ function summarizeTurn(
     session_id: row.sessionId,
     status: turnStatusSchema.parse(publicStatus(row.status, awaitingInput)),
     message: row.message,
+    channel: row.channel,
+    created_by:
+      row.actorId === null || creatorName === null
+        ? null
+        : { user_id: row.actorId, display_name: creatorName },
     terminal_reason: row.terminalReason,
     checkpoint_revision: checkpointRevision,
     created_at: row.createdAt.toISOString(),
@@ -649,8 +663,10 @@ export function createPostgresSessionReader(
       .select({
         turn: turns,
         awaitingInput: sql<boolean>`exists (${actionableOfTurn(db)})`,
+        creatorName: users.displayName,
       })
-      .from(turns);
+      .from(turns)
+      .leftJoin(users, eq(users.id, turns.actorId));
 
   // A reason a newer build recorded reads as unknown after a rollback
   // rather than failing the whole detail.
@@ -1104,8 +1120,8 @@ export function createPostgresSessionReader(
         session.retiredCheckpointRevision,
       );
       return {
-        items: page.map(({ turn, awaitingInput }) =>
-          summarizeTurn(turn, awaitingInput, revisions.get(turn.id) ?? null),
+        items: page.map((read) =>
+          summarizeTurn(read, revisions.get(read.turn.id) ?? null),
         ),
         next_cursor:
           rows.length > query.limit && last
@@ -1143,11 +1159,7 @@ export function createPostgresSessionReader(
             .limit(1)
         : [];
       return {
-        ...summarizeTurn(
-          row,
-          read.awaitingInput,
-          revisions.get(row.id) ?? null,
-        ),
+        ...summarizeTurn(read, revisions.get(row.id) ?? null),
         result: parts.result,
         usage: parts.usage,
         attempts: attemptRows.map((attempt) => ({

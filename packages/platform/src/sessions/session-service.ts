@@ -683,6 +683,7 @@ export function createSessionService(deps: {
         payloadHash: payloadHash(input.body),
         message: input.body.message,
         limits: inputLimits,
+        channel: actor.subject.surface.kind,
       });
       switch (result.outcome) {
         case "conflict":

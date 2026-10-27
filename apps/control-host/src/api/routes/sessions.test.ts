@@ -454,6 +454,7 @@ describe("POST /v1/sessions/{id}/messages validation", () => {
             sessionId,
             idempotencyKey: "key-1",
             message: "Apply the proposed fix.",
+            channel: "api",
           });
           return { outcome: "accepted", response: accepted };
         },

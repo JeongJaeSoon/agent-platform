@@ -1,5 +1,5 @@
 import { z } from "zod";
-
+import { surfaceKindSchema } from "../kollegium/surfaces.ts";
 import {
   attemptIdSchema,
   epochSchema,
@@ -10,6 +10,7 @@ import {
   sessionIdSchema,
   timestampSchema,
   turnIdSchema,
+  userIdSchema,
 } from "../shared/index.ts";
 import { receiptStatusSchema } from "./receipt.ts";
 import {
@@ -50,6 +51,18 @@ export const turnSummarySchema = z.object({
       "needs_input is derived when read, as for the session: a running turn with a pending request a client can still answer.",
   }),
   message: z.string(),
+  channel: surfaceKindSchema.nullable().default(null).meta({
+    description:
+      "Where the instruction came from: `slack` (a mention, DM or thread reply), `web` (the console) or `api` (an API key). Null for a turn from before it was recorded, or one the platform queued itself, such as an approval answered after its worker was gone.",
+  }),
+  created_by: z
+    .object({ user_id: userIdSchema, display_name: z.string() })
+    .nullable()
+    .default(null)
+    .meta({
+      description:
+        "Who sent the instruction: the signed-in person, the Slack user's linked account, or for an API key the person who created the key. Null when no person is recorded: an API key no person created, or a turn the platform queued itself.",
+    }),
   terminal_reason: z.string().min(1).nullable(),
   checkpoint_revision: revisionSchema.nullable().meta({
     description:

@@ -1379,18 +1379,28 @@ describe("session detail", () => {
   });
 
   test("each turn opens with the message it was asked, read again as turns start", async () => {
-    const turn = (turn_id: string, message: string) => ({
+    const turn = (
+      turn_id: string,
+      message: string,
+      channel: string | null = null,
+      creator: string | null = null,
+    ) => ({
       turn_id,
       session_id: SESSION_ID,
       status: "completed",
       message,
+      channel,
+      created_by: creator && { user_id: THIRD_ID, display_name: creator },
       terminal_reason: null,
       checkpoint_revision: null,
       created_at: AT,
       started_at: AT,
       ended_at: AT,
     });
-    let turns = [turn("1", "첫 지시"), turn("3", "아직 줄 선 지시")];
+    let turns = [
+      turn("1", "첫 지시", "slack", "김민아"),
+      turn("3", "아직 줄 선 지시"),
+    ];
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
       [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
@@ -1411,7 +1421,7 @@ describe("session detail", () => {
     };
     const first = await asked("1");
     expect(first?.getAttribute("data-from")).toBe("user");
-    expect(first?.textContent).toContain("지시");
+    expect(first?.textContent).toContain("김민아 · Slack");
     expect(first?.textContent).toContain("첫 지시");
     // The message stands above the turn's lines, not as one of them.
     const list = screen.getByRole("list", { name: "이벤트" });
@@ -1419,7 +1429,10 @@ describe("session detail", () => {
     // A queued turn has no events yet, so no group of its own.
     expect(screen.queryByText("아직 줄 선 지시")).toBeNull();
 
-    turns = [turn("1", "첫 지시"), turn("2", "두 번째 지시")];
+    turns = [
+      turn("1", "첫 지시", "slack", "김민아"),
+      turn("2", "두 번째 지시", "api"),
+    ];
     act(() => {
       stream.emit("ev_s2", "status", { phase: "running" }, "2");
       stream.emit(
@@ -1435,6 +1448,8 @@ describe("session detail", () => {
     await waitFor(async () =>
       expect((await asked("2"))?.textContent).toContain("두 번째 지시"),
     );
+    // An API key no person created has no name to show.
+    expect((await asked("2"))?.textContent).toContain("지시 · API");
   });
 
   test("thinking ticks fold into one line and an empty message draws no card", async () => {

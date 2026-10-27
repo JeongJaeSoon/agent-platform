@@ -22,6 +22,7 @@ import {
   receipts,
   sessions,
   turns,
+  users,
 } from "./schema.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -115,6 +116,87 @@ integration("session reader on PostgreSQL", () => {
       outcome: "checkpoint_unavailable",
       reason: "future_reason",
     });
+  });
+
+  test("each turn reads back where its input came from and who sent it", async () => {
+    const { sessionId } = await queuedSession();
+    const userId = crypto.randomUUID();
+    await db.insert(users).values({
+      id: userId,
+      email: `${userId}@example.invalid`,
+      displayName: "Mina Park",
+    });
+    const uow = createPostgresSessionUnitOfWork(db);
+    const append = (
+      key: string,
+      kind: "user" | "api_key" | "installation",
+      channel: "web" | "api" | "slack",
+      actorUserId: string | null,
+    ) =>
+      uow.appendInputAtomic({
+        principal: {
+          ownerId: OWNER,
+          actor: {
+            principal: { kind, id: key },
+            userId: actorUserId,
+            workspaceId: null,
+            apiKeyId: kind === "api_key" ? key : null,
+          },
+        },
+        sessionId,
+        idempotencyKey: key,
+        payloadHash: key,
+        message: key,
+        limits: { queuedInputLimitPerSession: 100, storageLimitBytes: 1e15 },
+        channel,
+      });
+    await append("from-web", "user", "web", userId);
+    await append("from-key", "api_key", "api", null);
+    await append("from-slack", "installation", "slack", userId);
+
+    const listed = await createPostgresSessionReader(db).listTurns(
+      OWNER,
+      sessionId,
+      { limit: 10 },
+    );
+    const mina = { user_id: userId, display_name: "Mina Park" };
+    expect(
+      listed?.items.map(({ channel, created_by }) => [channel, created_by]),
+    ).toEqual([
+      [null, null],
+      ["web", mina],
+      ["api", null],
+      ["slack", mina],
+    ]);
+
+    // The first turn is written by acceptance, not append.
+    const accepted = await uow.acceptInputAtomic({
+      principal: {
+        ownerId: OWNER,
+        actor: {
+          principal: { kind: "installation", id: "first" },
+          userId,
+          workspaceId: null,
+          apiKeyId: null,
+        },
+      },
+      idempotencyKey: "first",
+      payloadHash: "first",
+      profileId: "claude-coding-v1",
+      repository: "none",
+      channel: "slack",
+      message: "first",
+      limits: { queuedInputLimitPerSession: 100, storageLimitBytes: 1e15 },
+    });
+    if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
+    const first = await createPostgresSessionReader(db).listTurns(
+      OWNER,
+      accepted.response.session_id,
+      { limit: 1 },
+    );
+    expect(
+      first?.items.map(({ channel, created_by }) => [channel, created_by]),
+    ).toEqual([["slack", mina]]);
   });
 
   test("last_event_at is the time of the newest event in stream order, in list and detail", async () => {
