@@ -534,6 +534,7 @@ describe("the worker's checkpoints against the control plane's service", () => {
       expect.objectContaining({ stage: "workspace" }),
       expect.objectContaining({ stage: "workspace" }),
     ]);
+    expect(gateway.registrations).toHaveLength(1);
     expect(gateway.registrations[0]?.checkpoint).toBeUndefined();
     expect(
       gateway.checkpointRequests
