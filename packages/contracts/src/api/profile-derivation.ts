@@ -46,8 +46,8 @@ export interface ProfileDerivationPolicy {
     derived: DerivedFields,
   ): DerivationRefusal | null;
   /**
-   * The base as the version runs it. Listing also applies it to stored
-   * versions that no longer pass `refusal` (base changed, retired).
+   * The base as the version runs it. Listing applies it to every stored
+   * version whose base still exists, whether or not it passes `refusal`.
    */
   apply<B extends DerivationBase>(base: B, derived: DerivedFields): B;
 }
