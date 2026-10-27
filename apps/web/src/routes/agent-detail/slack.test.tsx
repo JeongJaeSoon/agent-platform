@@ -1233,6 +1233,16 @@ describe("Slack management", () => {
     });
   }
 
+  test("reads an app verified before its Request URL was recorded as verified", async () => {
+    renderAt(
+      DETAIL,
+      subscribed({ state: "verified", checked_at: AT, url: null }, undefined),
+    );
+    const advanced = await screen.findByRole("region", { name: "고급" });
+    await within(advanced).findByText("Slack 확인됨");
+    expect(within(advanced).queryByText("아직 보내지 않음")).toBeNull();
+  });
+
   test("sends the Request URL again from the advanced section", async () => {
     let read: components["schemas"]["GetSlackAppResponse"]["events"] = {
       state: "pending",

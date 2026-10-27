@@ -2999,7 +2999,8 @@ export const API_ROUTE_DECLARATIONS = [
         warnings: [],
       },
     },
-    errors: [401, 403, 404, 503],
+    errors: [401, 403, 404, 409, 503],
+    errorCodes: { 409: ["CONFIG_TOKEN_INVALID"] },
     errorNotes: {
       BACKEND_UNAVAILABLE:
         "Also without a master key (PLATFORM_SECRET_KEY), without SLACK_EVENTS_PUBLIC_URL, or when Slack refuses or loses the manifest update.",

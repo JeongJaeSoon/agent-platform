@@ -697,17 +697,14 @@ export function SlackConnect({
                 title={t("slack.eventsUrl.title")}
                 description={t("slack.eventsUrl.hint")}
                 badge={
-                  <Badge
-                    variant={
-                      events.url === null ? "gray" : EVENTS_BADGE[events.state]
-                    }
-                  >
-                    {t(
-                      events.url === null
-                        ? "slack.eventsUrl.unsent"
-                        : `slack.eventsUrl.${events.state}`,
-                    )}
-                  </Badge>
+                  // Apps checked before the URL was recorded have none.
+                  events.url === null && events.state === "pending" ? (
+                    <Badge variant="gray">{t("slack.eventsUrl.unsent")}</Badge>
+                  ) : (
+                    <Badge variant={EVENTS_BADGE[events.state]}>
+                      {t(`slack.eventsUrl.${events.state}`)}
+                    </Badge>
+                  )
                 }
                 actions={
                   <Button
