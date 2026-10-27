@@ -122,6 +122,9 @@ export function ProfilesScreen() {
       setRetireError(refusalText(t, failure, "workspace.manage", role)),
   });
 
+  // Losing the role closes the dialog; a request already sent still reports here.
+  const retireOpen = retiring !== null && manages;
+
   const open = (start: EditorStart) => {
     setNotice(null);
     setEditor(start);
@@ -155,6 +158,11 @@ export function ProfilesScreen() {
       ) : (
         <div className="flex flex-col gap-[var(--ap-space-section)]">
           <Notice>{notice ?? undefined}</Notice>
+          {retireError === null || retireOpen ? null : (
+            <Alert variant="red" role="alert">
+              <AlertDescription>{retireError}</AlertDescription>
+            </Alert>
+          )}
           {stranded.map((item) => (
             <Alert key={item.id} variant="red">
               <AlertTitle>
@@ -187,7 +195,8 @@ export function ProfilesScreen() {
               nextId={nextId}
               onCancel={() => setEditor(null)}
               onSaved={(id) => {
-                setEditor(null);
+                // A late reply must not close an editor opened meanwhile.
+                setEditor((current) => (current === editor ? null : current));
                 setNotice(t("profiles.saved", { id }));
               }}
             />
@@ -288,9 +297,12 @@ export function ProfilesScreen() {
         </div>
       )}
       <ConfirmDialog
-        open={retiring !== null && manages}
+        open={retireOpen}
         onOpenChange={(next) => {
-          if (!next && !retire.isPending) setRetiring(null);
+          if (!next && !retire.isPending) {
+            setRetiring(null);
+            setRetireError(null);
+          }
         }}
         title={t("profiles.retireTitle", { id: retiring?.id ?? "" })}
         consequence={t("profiles.retireText")}

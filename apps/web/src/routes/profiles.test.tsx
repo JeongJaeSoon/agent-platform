@@ -452,6 +452,97 @@ describe("실행 프로필", () => {
     expect(api.calls.filter((call) => call.method === "POST")).toEqual([]);
   });
 
+  test("a name longer than a version holds is named as such, not as a count", async () => {
+    const long: ProfileSummary = {
+      ...(PROFILES[0] as ProfileSummary),
+      tools: ["Read", "x".repeat(201)],
+    };
+    const { api } = renderAt("/profiles", catalog([long]).routes);
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "좁힌 프로필 만들기" }),
+    );
+    const editor = await screen.findByRole("region", {
+      name: "좁힌 프로필 만들기",
+    });
+    await user.type(within(editor).getByLabelText("이름"), "long");
+    await user.click(
+      within(editor).getByRole("button", { name: "새 판으로 저장" }),
+    );
+    expect(
+      await within(editor).findByText(
+        "판에는 200자 이하의 이름만 담습니다. 이름이 긴 모델이나 도구를 빼고 저장하세요.",
+      ),
+    ).toBeDefined();
+    expect(api.calls.filter((call) => call.method === "POST")).toEqual([]);
+  });
+
+  test("a late save reply leaves the editor opened meanwhile open", async () => {
+    const base = catalog([...PROFILES, version(1, "usable")]);
+    let reply = () => {};
+    const replied = new Promise<void>((resolve) => {
+      reply = resolve;
+    });
+    const create = base.routes["POST /v1/workspace-profiles"] as (
+      request: Request,
+    ) => Response | Promise<Response>;
+    renderAt("/profiles", {
+      ...base.routes,
+      "POST /v1/workspace-profiles": async (request) => {
+        await replied;
+        return create(request);
+      },
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "좁힌 프로필 만들기" }),
+    );
+    const first = await screen.findByRole("region", {
+      name: "좁힌 프로필 만들기",
+    });
+    await user.type(within(first).getByLabelText("이름"), "fresh");
+    await user.click(
+      within(first).getByRole("button", { name: "새 판으로 저장" }),
+    );
+    await user.click(screen.getByRole("button", { name: "새 판 만들기" }));
+    await screen.findByRole("region", { name: "strict 새 판 만들기" });
+    reply();
+    await screen.findByText("ws_acme_fresh_v1 판을 만들었습니다.");
+    expect(screen.queryAllByText("새 판으로 저장").length).toBe(1);
+  });
+
+  test("a retire that fails after the role is lost still says so", async () => {
+    let role: "owner" | "member" = "owner";
+    let reply = () => {};
+    const replied = new Promise<void>((resolve) => {
+      reply = resolve;
+    });
+    const { services } = renderAt("/profiles", {
+      ...catalog([...PROFILES, version(1, "usable")]).routes,
+      "GET /v1/auth/me": () => json(200, role === "owner" ? me() : memberMe()),
+      "POST /v1/workspace-profiles/ws_acme_strict_v1/retire": async () => {
+        await replied;
+        return apiError(500, "INTERNAL", "boom");
+      },
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "은퇴 ws_acme_strict_v1" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "은퇴" }));
+    role = "member";
+    await services.queryClient.invalidateQueries();
+    await screen.findByText(
+      "바꾸려면 워크스페이스 소유자나 관리자에게 요청하세요",
+    );
+    await waitFor(() => expect(screen.queryAllByRole("dialog").length).toBe(0));
+    reply();
+    await waitFor(() =>
+      expect(screen.queryAllByRole("alert").length).toBeGreaterThan(0),
+    );
+  });
+
   test("losing the manage role closes the open editor and retire dialog", async () => {
     let role: "owner" | "member" = "owner";
     const { services } = renderAt("/profiles", {

@@ -84,6 +84,8 @@ export const profilesKo = {
   "profiles.editor.modelsEmpty": "모델을 하나 이상 고르세요.",
   "profiles.editor.tooLarge":
     "한 판에는 모델 32개, 도구 64개까지 담습니다. 줄인 뒤 다시 저장하세요.",
+  "profiles.editor.tooLong":
+    "판에는 200자 이하의 이름만 담습니다. 이름이 긴 모델이나 도구를 빼고 저장하세요.",
   "profiles.error.unknownBase":
     "운영자가 그 기준 프로필을 지웠습니다. 목록을 다시 불러오세요.",
   "profiles.error.widens":
@@ -183,6 +185,8 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.editor.modelsEmpty": "Pick at least one model.",
   "profiles.editor.tooLarge":
     "A version holds up to 32 models and 64 tools. Pick fewer and save again.",
+  "profiles.editor.tooLong":
+    "A version holds names of up to 200 characters. Leave out the model or tool with the long name and save again.",
   "profiles.error.unknownBase":
     "The operator removed that base profile. Reload the list.",
   "profiles.error.widens":
@@ -283,6 +287,8 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.editor.modelsEmpty": "モデルを 1 つ以上選んでください。",
   "profiles.editor.tooLarge":
     "1 つの版に入るのはモデル 32 個、ツール 64 個までです。減らしてからもう一度保存してください。",
+  "profiles.editor.tooLong":
+    "版に入る名前は 200 文字までです。名前の長いモデルやツールを外してから保存してください。",
   "profiles.error.unknownBase":
     "運営者がその基準のプロファイルを削除しました。一覧を再読み込みしてください。",
   "profiles.error.widens":

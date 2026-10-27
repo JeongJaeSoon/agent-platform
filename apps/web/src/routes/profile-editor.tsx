@@ -141,7 +141,14 @@ export function ProfileEditor({
       name: name.data,
     });
     if (!request.success) {
-      setError(t("profiles.editor.tooLarge"));
+      const tooMany = request.error.issues.some(
+        (issue) =>
+          issue.path.length === 1 &&
+          (issue.path[0] === "models" || issue.path[0] === "tools"),
+      );
+      setError(
+        t(tooMany ? "profiles.editor.tooLarge" : "profiles.editor.tooLong"),
+      );
       return;
     }
     save.mutate(request.data);
