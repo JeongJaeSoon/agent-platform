@@ -29,8 +29,26 @@ function fontLicenses(): Plugin {
   };
 }
 
-export default defineConfig({
-  plugins: [react(), tailwindcss(), fontLicenses()],
+/**
+ * `--mode demo`: the read-only demo (src/demo/main.tsx) that answers from
+ * recorded fixtures. Relative asset paths let it sit under any static path.
+ */
+function demoEntry(): Plugin {
+  return {
+    name: "demo-entry",
+    transformIndexHtml: (html) =>
+      html.replace('src="/src/main.tsx"', 'src="/src/demo/main.tsx"'),
+  };
+}
+
+export default defineConfig(({ mode }) => ({
+  base: mode === "demo" ? "./" : "/",
+  plugins: [
+    react(),
+    tailwindcss(),
+    fontLicenses(),
+    ...(mode === "demo" ? [demoEntry()] : []),
+  ],
   // packages/ui resolves through a workspace symlink; without this a second
   // React or query-core copy breaks hooks and the query cache at runtime.
   // apps/storybook/.storybook/main.ts keeps the same list.
@@ -43,11 +61,11 @@ export default defineConfig({
     ],
   },
   build: {
-    outDir: "dist",
+    outDir: mode === "demo" ? "dist-demo" : "dist",
     emptyOutDir: true,
     license: { fileName: "THIRD_PARTY_NOTICES.md" },
   },
   server: {
     proxy: { "/v1": { target: apiTarget, changeOrigin: false } },
   },
-});
+}));
