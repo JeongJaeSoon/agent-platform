@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { CheckpointRef, RuntimeConfig } from "@werft-ai/contracts";
-import { ClaudeSdkRuntime } from "@werft-ai/runtime-claude";
-import { sdkRun } from "@werft-ai/runtime-claude/testing";
-import type { CheckpointPreparation } from "@werft-ai/runtime-core";
+import type {
+  CheckpointPreparation,
+  RuntimeProcessObserver,
+} from "@werft-ai/runtime-core";
+import { realRuntimeFor } from "@werft-ai/runtime-registry/testing";
 import {
   type FakeAnthropicServer,
   startFakeAnthropicServer,
@@ -15,7 +17,7 @@ import {
 } from "@werft-ai/testkit/workspace";
 
 import type { RuntimeResumePlan, WorkerCheckpointPort } from "./checkpoint.ts";
-import { engineProfile } from "./composition.ts";
+import { runtimeStart } from "./composition.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import { EngineProcesses } from "./engine-processes.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
@@ -75,38 +77,32 @@ class RecordingCheckpoints implements WorkerCheckpointPort {
   }
 }
 
-/** The actual SDK runtime, launched the way composition launches it. */
+/** The installed runtime, launched the way composition launches it. */
 function sdkRuntimes(
   endpoint: string,
   home: string,
   workspace: string,
-  processes: ConstructorParameters<typeof ClaudeSdkRuntime>[1],
+  processes: RuntimeProcessObserver,
 ): RuntimeRegistry {
-  const runtime = new ClaudeSdkRuntime(
-    { endpoints: [endpoint], models: [MODEL] },
-    processes,
-  );
+  const module = realRuntimeFor("claude_agent_sdk");
+  const runtime = module.createRuntime({
+    processObserver: processes,
+    stateDir: home,
+  });
+  // The fake server stands in for the proxy's route too.
+  const host = {
+    egressCredentialUrl: endpoint.replace(/\/$/, ""),
+    runtime: {
+      claudeConfigDir: home,
+      cwd: workspace,
+      home,
+      providerMaxRetries: 0,
+    },
+  };
   return {
     launcherFor: () => ({
       // What to run comes from the claim, as in composition.
-      start: ({ runtimeConfig, principal, ...launch }) =>
-        sdkRun(runtime, {
-          claudeConfigDir: home,
-          cwd: workspace,
-          home,
-          maxTurns: 4,
-          model: runtimeConfig.model,
-          permissionMode: runtimeConfig.permission_mode,
-          // The fake server stands in for the proxy's route too.
-          profile: engineProfile(
-            runtimeConfig.provider,
-            principal.owner_scope,
-            runtimeConfig.provider.endpoint.replace(/\/$/, ""),
-          ),
-          settingSources: ["project"],
-          tools: runtimeConfig.tools,
-          ...launch,
-        }),
+      start: (launch) => runtime.start(runtimeStart(host, module, launch)),
     }),
   };
 }

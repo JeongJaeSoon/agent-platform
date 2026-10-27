@@ -1024,6 +1024,8 @@ describe("architecture", () => {
       "@werft-ai/observability",
       "@werft-ai/runtime-claude",
       "@werft-ai/runtime-core",
+      // Test-only: the scripted and real engines, picked by runtime kind.
+      "@werft-ai/runtime-registry",
       storage,
       "@werft-ai/system",
     ]);

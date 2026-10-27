@@ -11,21 +11,20 @@ import {
   type WorkspaceDescriptor,
 } from "@werft-ai/contracts";
 import {
-  FakeAgentRuntime,
-  type FakeStep,
-  type NativeSdkMessage,
-} from "@werft-ai/runtime-claude/testing";
-import {
   type AgentRun,
   type CheckpointPreparation,
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
+import type {
+  EngineMessage,
+  ScriptedStep,
+} from "@werft-ai/runtime-core/testing";
 
 import { unwiredCheckpoints, type WorkerCheckpointPort } from "./checkpoint.ts";
-import { engineProfile } from "./composition.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import type { EngineExitWatch } from "./engine-processes.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
+import { scriptedRuntime, startScripted } from "./testing/scripted-engine.ts";
 import {
   frameTurn,
   inputUuid,
@@ -62,7 +61,7 @@ function uuidForTurn(turn: number): string {
   return inputUuid(SESSION_ID, String(turn), `msg-${turn}`);
 }
 
-function assistantMessage(text: string): NativeSdkMessage {
+function assistantMessage(text: string): EngineMessage {
   return {
     type: "assistant",
     message: { role: "assistant", content: [{ type: "text", text }] },
@@ -71,7 +70,7 @@ function assistantMessage(text: string): NativeSdkMessage {
   };
 }
 
-function resultMessage(uuid: string): NativeSdkMessage {
+function resultMessage(uuid: string): EngineMessage {
   return {
     type: "result",
     subtype: "success",
@@ -83,7 +82,7 @@ function resultMessage(uuid: string): NativeSdkMessage {
 }
 
 function harness(
-  steps: FakeStep[],
+  steps: ScriptedStep[],
   overrides: {
     checkpoints?: WorkerCheckpointPort;
     engines?: EngineExitWatch;
@@ -98,7 +97,7 @@ function harness(
   } = {},
 ) {
   const gateway = overrides.gateway ?? new FakeWorkerGateway();
-  const runtime = new FakeAgentRuntime(
+  const runtime = scriptedRuntime(
     steps,
     overrides.resumedTranscript === undefined
       ? {}
@@ -111,28 +110,15 @@ function harness(
   const workspaces: Array<WorkspaceDescriptor | undefined> = [];
   const runtimes: RuntimeRegistry = {
     launcherFor: () => ({
-      start: ({ runtimeConfig, principal, workspace, ...launch }) => {
+      start: (launch) => {
+        const { runtimeConfig, principal, workspace } = launch;
         launched.push(runtimeConfig);
         workspaces.push(workspace);
         budgets.push(launch.maxBudgetUsd);
         principals.push(principal);
         claudeMds.push(launch.committedClaudeMd());
         const wrap = overrides.wrap ?? ((run: AgentRun) => run);
-        return wrap(
-          runtime.run({
-            claudeConfigDir: "/tmp/fake/config",
-            cwd: "/tmp/fake/workspace",
-            home: "/tmp/fake/home",
-            model: runtimeConfig.model,
-            profile: engineProfile(
-              runtimeConfig.provider,
-              principal.owner_scope,
-              "http://egress-proxy.test:3129",
-            ),
-            tools: runtimeConfig.tools,
-            ...launch,
-          }),
-        );
+        return wrap(startScripted(runtime, launch));
       },
     }),
   };
@@ -3409,7 +3395,7 @@ describe("WorkerHost checkpoint publishing", () => {
           }
         : null,
   };
-  const oneTurn: FakeStep[] = [
+  const oneTurn: ScriptedStep[] = [
     { type: "await-input" },
     { type: "emit", message: resultMessage(uuidForTurn(1)) },
     { type: "await-input" },
@@ -3835,7 +3821,7 @@ describe("secrets in what the engine prints", () => {
       `session=${sessionHeld}`,
       "origin\thttps://git.example.test/sample.git (fetch)",
     ].join("\n");
-    const toolResult: NativeSdkMessage = {
+    const toolResult: EngineMessage = {
       type: "user",
       message: {
         role: "user",

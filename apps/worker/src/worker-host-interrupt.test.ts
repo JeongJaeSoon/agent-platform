@@ -1,19 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import type { CheckpointRef } from "@werft-ai/contracts";
 import {
-  FakeAgentRuntime,
-  type FakeStep,
-  type NativeSdkMessage,
-} from "@werft-ai/runtime-claude/testing";
-import {
   type AgentRun,
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
+import type {
+  EngineMessage,
+  ScriptedStep,
+} from "@werft-ai/runtime-core/testing";
 
 import { unwiredCheckpoints, type WorkerCheckpointPort } from "./checkpoint.ts";
-import { engineProfile } from "./composition.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
+import { scriptedRuntime, startScripted } from "./testing/scripted-engine.ts";
 import {
   inputUuid,
   type RuntimeRegistry,
@@ -48,7 +47,7 @@ function uuidForTurn(turn: number): string {
   return inputUuid(SESSION_ID, String(turn), `msg-${turn}`);
 }
 
-function resultMessage(uuid: string): NativeSdkMessage {
+function resultMessage(uuid: string): EngineMessage {
   return {
     type: "result",
     subtype: "success",
@@ -58,7 +57,7 @@ function resultMessage(uuid: string): NativeSdkMessage {
   };
 }
 
-function errorResult(uuid: string, terminalReason: string): NativeSdkMessage {
+function errorResult(uuid: string, terminalReason: string): EngineMessage {
   return {
     type: "result",
     subtype: "error_during_execution",
@@ -89,7 +88,7 @@ function capturing(): WorkerCheckpointPort & { refs: CheckpointRef[] } {
 }
 
 function harness(
-  steps: FakeStep[],
+  steps: ScriptedStep[],
   overrides: {
     checkpoints?: WorkerCheckpointPort;
     gateway?: FakeWorkerGateway;
@@ -99,25 +98,13 @@ function harness(
   } = {},
 ) {
   const gateway = overrides.gateway ?? new FakeWorkerGateway();
-  const runtime = new FakeAgentRuntime(steps);
+  const runtime = scriptedRuntime(steps);
   let starts = 0;
   const runtimes: RuntimeRegistry = {
     launcherFor: () => ({
-      start: ({ runtimeConfig, principal, ...launch }) => {
+      start: (launch) => {
         starts += 1;
-        const run = runtime.run({
-          claudeConfigDir: "/tmp/fake/config",
-          cwd: "/tmp/fake/workspace",
-          home: "/tmp/fake/home",
-          model: runtimeConfig.model,
-          profile: engineProfile(
-            runtimeConfig.provider,
-            principal.owner_scope,
-            "http://egress-proxy.test:3129",
-          ),
-          tools: runtimeConfig.tools,
-          ...launch,
-        });
+        const run = startScripted(runtime, launch);
         return overrides.wrap?.(run) ?? run;
       },
     }),
@@ -161,7 +148,7 @@ function withInterrupt(
 }
 
 /** Turn 1 runs until interrupted; turn 2 answers at once. */
-const TWO_TURNS: FakeStep[] = [
+const TWO_TURNS: ScriptedStep[] = [
   { type: "await-input" },
   { type: "delay", delayMs: 60_000 },
   { type: "emit", message: resultMessage(uuidForTurn(1)) },

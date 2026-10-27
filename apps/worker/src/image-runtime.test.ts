@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CLAUDE_RUNTIME_FINGERPRINT } from "@werft-ai/runtime-claude";
+import { realRuntimeFor } from "@werft-ai/runtime-registry/testing";
 
 import { claudeClaimFingerprint } from "./composition.ts";
 import { imageRuntimeOf } from "./image-runtime.ts";
@@ -34,7 +34,7 @@ describe("imageRuntimeOf", () => {
     })(claim);
 
     expect(imageRuntimeOf({ s1: claim })).toEqual({
-      ...CLAUDE_RUNTIME_FINGERPRINT,
+      ...JSON.parse(realRuntimeFor("claude_agent_sdk").imageFingerprint()),
       profiles: { s1: { profileSha256: onAHost.profileSha256 } },
     });
   });
