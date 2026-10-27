@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   checkComplete,
   checkIgnores,
+  describeFinding,
   FIXTURES_PATH,
   scanFixtures,
   withFixtureIgnores,
@@ -60,7 +61,29 @@ describe("demo fixture scan", () => {
     expect(
       scan({ a: "100.101.102.103", b: "[::1]:4611", c: "fd7a:115c:a1e0::53" }),
     ).toEqual(["private address", "private address", "private address"]);
-    expect(scan({ a: "100.200.1.1", b: "12:30:45", c: "a::b" })).toEqual([]);
+    expect(scan({ a: "::0001", b: "0:0:0:0:0:0:0:1" })).toEqual([
+      "private address",
+      "private address",
+    ]);
+    expect(
+      scan({
+        a: "100.200.1.1",
+        b: "12:30:45",
+        c: "a::b",
+        d: "fd00:1:2",
+        e: "fd00:::1",
+        f: "2026-10-27T12:30:45.000Z",
+      }),
+    ).toEqual([]);
+  });
+
+  test("a description carries no part of the value", () => {
+    const [finding] = scanFixtures({
+      responses: { "/v1/x?email=someone%40corp.example.com": {} },
+    });
+    expect(finding && describeFinding(finding)).toBe(
+      "email outside example.test: 24 chars (answer 0)",
+    );
   });
 
   test("findings name the answer by position, not by key", () => {
@@ -71,9 +94,16 @@ describe("demo fixture scan", () => {
     ).toEqual([1]);
   });
 
-  test("a fixture without the session answer is incomplete", () => {
+  test("a fixture without a signed-in session answer is incomplete", () => {
+    const me = (answer: unknown) =>
+      checkComplete({ responses: { "/v1/auth/me": answer } }).length;
     expect(checkComplete({ responses: {} }).length).toBe(1);
-    expect(checkComplete({ responses: { "/v1/auth/me": {} } })).toEqual([]);
+    expect(me({})).toBe(1);
+    expect(me({ status: 401, json: { error: { code: "UNAUTHORIZED" } } })).toBe(
+      1,
+    );
+    expect(me({ status: 200, json: {} })).toBe(1);
+    expect(me({ status: 200, json: { id: "u1" } })).toBe(0);
   });
 });
 

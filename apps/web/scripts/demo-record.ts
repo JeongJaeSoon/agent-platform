@@ -233,27 +233,28 @@ async function openEverything(page: Page): Promise<void> {
 }
 
 const cookie = await signIn();
-const server = Bun.serve({
-  // Anyone who reaches this port reads the API as the signed-in owner.
-  hostname: "127.0.0.1",
-  port: 0,
-  idleTimeout: 60,
-  async fetch(request) {
-    inflight += 1;
-    try {
-      const { pathname } = new URL(request.url);
-      return pathname.startsWith("/v1/")
-        ? await proxy(request, cookie)
-        : await asset(pathname);
-    } finally {
-      inflight -= 1;
-      lastActivity = Date.now();
-    }
-  },
-});
-const origin = `http://127.0.0.1:${server.port}`;
+let server: ReturnType<typeof Bun.serve> | undefined;
 let browser: Browser | undefined;
 try {
+  server = Bun.serve({
+    // Anyone who reaches this port reads the API as the signed-in owner.
+    hostname: "127.0.0.1",
+    port: 0,
+    idleTimeout: 60,
+    async fetch(request) {
+      inflight += 1;
+      try {
+        const { pathname } = new URL(request.url);
+        return pathname.startsWith("/v1/")
+          ? await proxy(request, cookie)
+          : await asset(pathname);
+      } finally {
+        inflight -= 1;
+        lastActivity = Date.now();
+      }
+    },
+  });
+  const origin = `http://127.0.0.1:${server.port}`;
   browser = await chromium.launch({ channel: "chrome", headless: true });
   const page = await browser.newPage({
     viewport: { width: 1440, height: 900 },
@@ -280,7 +281,7 @@ try {
     method: "POST",
     headers: { cookie, [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE },
   }).catch(() => {});
-  server.stop(true);
+  server?.stop(true);
 }
 
 const sorted = Object.fromEntries(

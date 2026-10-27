@@ -14,6 +14,8 @@ export interface Finding {
   readonly match: string;
   /** Position of the answer in `responses`; its key may hold the value too. */
   readonly answer?: number;
+  /** 1-based line of the offending .gitleaksignore entry. */
+  readonly ignoreLine?: number;
 }
 
 const RULES: readonly (readonly [string, RegExp])[] = [
@@ -30,11 +32,6 @@ const RULES: readonly (readonly [string, RegExp])[] = [
   [
     "private address",
     /\b(?:127\.0\.0\.1|localhost|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])(?:\.\d{1,3}){2})\b/g,
-  ],
-  // Loopback and unique local (fc00::/7) IPv6.
-  [
-    "private address",
-    /(?<![\w:])(?:::1|f[cd][0-9a-f]{2}(?::[0-9a-f]{0,4}){2,7})(?![\w:])/gi,
   ],
   ["machine name", /\b(?:jaesoon|94soon|soons?-mac[\w-]*|wjdwotns\w*)\b/gi],
   ["home path", /\/(?:Users|home)\/[\w.-]+/g],
@@ -73,8 +70,29 @@ export function scanFixtures(fixtures: {
     for (const [match] of text.matchAll(EMAIL))
       if (!ALLOWED_EMAIL.test(match))
         findings.push({ rule: "email outside example.test", match, answer });
+    for (const [match] of text.matchAll(IPV6_CANDIDATE))
+      if (isPrivateIpv6(match))
+        findings.push({ rule: "private address", match, answer });
   });
   return findings;
+}
+
+const IPV6_CANDIDATE =
+  /(?<![\w:.])[0-9a-f]{0,4}(?::[0-9a-f]{0,4}){2,7}(?![\w:])/gi;
+
+/**
+ * Loopback or unique local (fc00::/7). The URL parser validates and
+ * normalises the address, so `0:0:0:0:0:0:0:1` and `::0001` read as `::1`
+ * and clock times such as `12:30:45` are not addresses at all.
+ */
+function isPrivateIpv6(candidate: string): boolean {
+  let host: string;
+  try {
+    host = new URL(`http://[${candidate}]/`).hostname;
+  } catch {
+    return false;
+  }
+  return host === "[::1]" || /^\[f[cd]/i.test(host);
 }
 
 function decodeKey(key: string): string {
@@ -85,15 +103,23 @@ function decodeKey(key: string): string {
   }
 }
 
-/** A demo without the session answer opens on an error screen. */
+/** A demo without a signed-in session answer opens on an error screen. */
 export function checkComplete(fixtures: {
   readonly responses: Readonly<Record<string, unknown>>;
 }): Finding[] {
-  return "/v1/auth/me" in fixtures.responses
+  const me = fixtures.responses["/v1/auth/me"] as
+    | { status?: unknown; json?: unknown }
+    | undefined;
+  const signedIn =
+    me?.status === 200 &&
+    typeof me.json === "object" &&
+    me.json !== null &&
+    Object.keys(me.json).length > 0;
+  return signedIn
     ? []
     : [
         {
-          rule: "no /v1/auth/me answer (record the fixtures first)",
+          rule: "no signed-in /v1/auth/me answer (record the fixtures first)",
           match: "",
         },
       ];
@@ -133,11 +159,17 @@ export function checkIgnores(
   const lines = fixturesText.split("\n");
   const agents = agentIds(JSON.parse(fixturesText));
   const findings: Finding[] = [];
-  for (const entry of ignoreText.split("\n").map((line) => line.trim())) {
+  for (const [i, raw] of ignoreText.split("\n").entries()) {
+    const entry = raw.trim();
     if (!entry.includes(FIXTURES_PATH)) continue;
+    const ignoreLine = i + 1;
     // gitleaks also honours `<commit>:<path>:<rule>:<line>`.
     if (!entry.startsWith(`${FIXTURES_PATH}:`)) {
-      findings.push({ rule: "gitleaks ignore in another form", match: entry });
+      findings.push({
+        rule: "gitleaks ignore in another form",
+        match: entry,
+        ignoreLine,
+      });
       continue;
     }
     const [rule, lineNumber] = entry.slice(FIXTURES_PATH.length + 1).split(":");
@@ -148,7 +180,11 @@ export function checkIgnores(
       response = RESPONSE_LINE.exec(lines[i] ?? "")?.[1] ?? "";
     const value = BREAKDOWN_KEY_LINE.exec(line)?.[1];
     const fail = (why: string) =>
-      findings.push({ rule: `gitleaks ignore ${why}`, match: entry });
+      findings.push({
+        rule: `gitleaks ignore ${why}`,
+        match: entry,
+        ignoreLine,
+      });
     if (rule !== "generic-api-key") fail("for another rule");
     else if (value === undefined) fail("not on a breakdown key line");
     else if (!response.startsWith("/v1/usage/breakdown"))
@@ -170,15 +206,19 @@ export function withFixtureIgnores(
   return `${[...kept, ...[...entries].sort()].join("\n")}\n`;
 }
 
-// CI logs are public: never print what was found, nor the key it sat
-// under. `jq 'keys[N]'` on the file names answer N locally.
+// CI logs are public: print no part of a match, its key or an ignore entry,
+// only positions. `jq '.responses | keys[N]'` names answer N locally.
+export function describeFinding(finding: Finding): string {
+  const { rule, match, answer, ignoreLine } = finding;
+  if (answer !== undefined)
+    return `${rule}: ${match.length} chars (answer ${answer})`;
+  if (ignoreLine !== undefined)
+    return `${rule} (.gitleaksignore line ${ignoreLine})`;
+  return rule;
+}
+
 function report(findings: readonly Finding[]): void {
-  for (const { rule, match, answer } of findings)
-    console.error(
-      answer === undefined
-        ? `${rule}${match ? `: ${match}` : ""}`
-        : `${rule}: ${match.slice(0, 3)}… ${match.length} chars (answer ${answer})`,
-    );
+  for (const finding of findings) console.error(describeFinding(finding));
 }
 
 if (import.meta.main) {
@@ -214,7 +254,14 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  const fixtures = JSON.parse(fixturesText);
+  let fixtures: { responses: Record<string, unknown> };
+  try {
+    fixtures = JSON.parse(fixturesText);
+  } catch {
+    // The parser's message quotes the text around the error.
+    console.error(`${FIXTURES_PATH} is not valid JSON`);
+    process.exit(1);
+  }
   const findings = [
     ...checkComplete(fixtures),
     ...scanFixtures(fixtures),
