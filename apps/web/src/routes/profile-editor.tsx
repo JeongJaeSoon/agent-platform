@@ -2,11 +2,12 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import type {
   CreateWorkspaceProfileRequest,
+  DerivedFields,
   ProfileSummary,
   WorkspaceProfileChangeResponse,
 } from "@werft-ai/contracts";
 import {
-  NARROWER_PERMISSION_MODES,
+  WORKSPACE_PROFILE_POLICY,
   workspaceProfileNameStep,
   workspaceProfileStep,
 } from "@werft-ai/core/forms";
@@ -47,29 +48,28 @@ type Draft = Omit<CreateWorkspaceProfileRequest, "name"> & {
   readonly name: string;
 };
 
-const fromBase = (base: ProfileSummary, name: string): Draft => ({
+const draftOf = (
+  base: ProfileSummary,
+  name: string,
+  derived: DerivedFields,
+): Draft => ({
   name,
   base_profile_id: base.id,
-  model: base.model,
-  models: [base.model],
-  tools: base.tools,
-  permission_mode: base.permission_mode,
+  model: derived.model,
+  models: [...derived.models],
+  tools: [...derived.tools],
+  permission_mode: derived.permission_mode,
 });
 
-function fromVersion(from: ProfileSummary, base: ProfileSummary): Draft {
-  const models = from.models.filter((model) => base.models.includes(model));
-  const modes = NARROWER_PERMISSION_MODES[base.permission_mode];
-  return {
-    name: from.workspace?.name ?? "",
-    base_profile_id: base.id,
-    model: models.includes(from.model) ? from.model : (models[0] ?? base.model),
-    models: models.length > 0 ? models : [base.model],
-    tools: from.tools.filter((tool) => base.tools.includes(tool)),
-    permission_mode: modes.includes(from.permission_mode)
-      ? from.permission_mode
-      : base.permission_mode,
-  };
-}
+const fromBase = (base: ProfileSummary, name: string): Draft =>
+  draftOf(base, name, WORKSPACE_PROFILE_POLICY.initial(base));
+
+const fromVersion = (from: ProfileSummary, base: ProfileSummary): Draft =>
+  draftOf(
+    base,
+    from.workspace?.name ?? "",
+    WORKSPACE_PROFILE_POLICY.carry(from, base),
+  );
 
 export function ProfileEditor({
   start,
@@ -98,6 +98,7 @@ export function ProfileEditor({
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const base = operators.find((item) => item.id === draft.base_profile_id);
+  const choices = base ? WORKSPACE_PROFILE_POLICY.choices(base) : undefined;
 
   const name = workspaceProfileNameStep.safeParse(draft.name);
   const nameError = name.success ? undefined : t("profiles.editor.nameInvalid");
@@ -231,7 +232,7 @@ export function ProfileEditor({
           <FieldError>{submitted ? nameError : undefined}</FieldError>
         </Field>
 
-        {base ? (
+        {choices ? (
           <>
             <FieldSet className="gap-3">
               <FieldLegend variant="label" className="mb-0">
@@ -240,7 +241,7 @@ export function ProfileEditor({
               <FieldDescription>
                 {t("profiles.editor.modelsHint")}
               </FieldDescription>
-              {base.models.map((model) => (
+              {choices.models.map((model) => (
                 <Field key={model} orientation="horizontal">
                   <Checkbox
                     checked={draft.models.includes(model)}
@@ -281,11 +282,11 @@ export function ProfileEditor({
                 {t("profiles.editor.tools")}
               </FieldLegend>
               <FieldDescription>
-                {base.tools.length === 0
+                {choices.tools.length === 0
                   ? t("profiles.noTools")
                   : t("profiles.editor.toolsHint")}
               </FieldDescription>
-              {base.tools.map((tool) => (
+              {choices.tools.map((tool) => (
                 <Field key={tool} orientation="horizontal">
                   <Checkbox
                     checked={draft.tools.includes(tool)}
@@ -317,7 +318,7 @@ export function ProfileEditor({
                   })
                 }
               >
-                {NARROWER_PERMISSION_MODES[base.permission_mode].map((mode) => (
+                {choices.permission_modes.map((mode) => (
                   <NativeSelectOption key={mode} value={mode}>
                     {mode}
                   </NativeSelectOption>
