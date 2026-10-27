@@ -23,11 +23,6 @@ import type {
   RestorePlanResponse,
 } from "@werft-ai/contracts";
 import {
-  CLAUDE_RUNTIME_FINGERPRINT,
-  ClaudeSessionStore,
-  claudeCheckpointCodec,
-} from "@werft-ai/runtime-claude";
-import {
   type CheckpointCodec,
   type CheckpointManifest,
   type CheckpointPreparation,
@@ -39,9 +34,11 @@ import {
   type RuntimeFingerprint,
   readGitBundleHeader,
   type TranscriptMirror,
+  type TranscriptRevision,
   transcriptWarnBytes,
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
+import { realRuntimeFor } from "@werft-ai/runtime-registry/testing";
 import {
   createMemoryCheckpointObjectStore,
   type MemoryCheckpointObjectStore,
@@ -61,8 +58,24 @@ import type {
 } from "./workspace-capture.ts";
 import { captureWorkspace } from "./workspace-capture.ts";
 
+const claude = realRuntimeFor("claude_agent_sdk");
+const claudeCheckpointCodec = claude.checkpointCodec;
+/** The build this image runs, short of a profile. */
+const engineBuild: Omit<RuntimeFingerprint, "profileSha256"> = JSON.parse(
+  claude.imageFingerprint(),
+);
+/** What the transcript mirror a fresh plan opens does beyond `TranscriptMirror`. */
+type CapturingMirror = TranscriptMirror & {
+  captureRevision(key: {
+    projectKey: string;
+    sessionId: string;
+  }): Promise<TranscriptRevision | null>;
+  transcriptSizes(
+    sessionId: string,
+  ): Promise<Array<{ bytes: number; key: string }> | null>;
+};
 const runtime: RuntimeFingerprint = {
-  ...CLAUDE_RUNTIME_FINGERPRINT,
+  ...engineBuild,
   profileSha256: "a".repeat(64),
 };
 /** FakeWorkerGateway's default session. */
@@ -71,9 +84,9 @@ const resume = "engine-session-1";
 const ready: CheckpointPreparation = {
   status: "ready",
   checkpoint: {
-    engine: CLAUDE_RUNTIME_FINGERPRINT.engine,
+    engine: engineBuild.engine,
     resume,
-    sdkVersion: CLAUDE_RUNTIME_FINGERPRINT.sdkVersion,
+    sdkVersion: engineBuild.sdkVersion,
   },
 };
 const root = { projectKey: "-workspace", sessionId: resume };
@@ -2385,10 +2398,10 @@ describe("transcript limits, judged against limits a test sets", () => {
         { type: "user", uuid: `u${index}`, message: "y".repeat(100) },
       ]);
     }
-    const sizes = await (mirror as ClaudeSessionStore).transcriptSizes(resume);
+    const sizes = await (mirror as CapturingMirror).transcriptSizes(resume);
     if (sizes === null) throw new Error("expected a root transcript");
     const total = sizes.reduce((sum, part) => sum + part.bytes, 0);
-    return { claim, h, mirror: mirror as ClaudeSessionStore, sizes, total };
+    return { claim, h, mirror: mirror as CapturingMirror, sizes, total };
   }
   const nearLimit = (h: ReturnType<typeof harness>) =>
     h.warnings.filter(
@@ -2499,11 +2512,7 @@ describe("restoring a transcript over the size limit", () => {
     const from = await published();
     // A real revision of one part just over the limit, pinned where nothing
     // is ever read from.
-    const elsewhere = new ClaudeSessionStore({
-      generation: 1,
-      objects: createMemoryCheckpointObjectStore(),
-      prefix: `sessions/${SESSION}/transcripts`,
-    });
+    const elsewhere = (await opened(harness())).mirror as CapturingMirror;
     await elsewhere.append(root, [
       {
         type: "user",

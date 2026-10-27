@@ -1,94 +1,173 @@
+import type { ParkReadiness } from "../agent-run.ts";
+import type { AgentInput, AgentRuntime } from "../agent-runtime.ts";
 import type {
-  AgentInput,
-  AgentRun,
   CheckpointLeaseGrant,
   CheckpointPreparation,
-  ParkReadiness,
-} from "@werft-ai/runtime-core";
+} from "../checkpoint.ts";
 
-import type { ClaudeRuntimeConfig } from "./config.ts";
-import { claudeContractRun } from "./contract.ts";
-import type {
-  AgentFrame,
-  DriverRun,
-  NativeSdkMessage,
-  PermissionDecision,
-  PermissionRequest,
-  RuntimeHooks,
-} from "./driver.ts";
-import { frameFromNativeMessage } from "./mapper.ts";
-import type { InterruptedResult } from "./run.ts";
-import { type ToolAdmission, TurnLedger } from "./turn-ledger.ts";
+export type ScriptedPermission = {
+  input: Record<string, unknown>;
+  requestId: string;
+  tool: string;
+  toolUseId: string;
+};
 
-export type FakeStep =
+/** What the engine's own permission gate answered a scripted request. */
+export type ScriptedDecision =
+  | { behavior: "allow"; updatedInput?: Record<string, unknown> }
+  | { behavior: "deny"; message: string; interrupt?: boolean };
+
+export type ScriptedAdmission =
+  | { allowed: true }
+  | { allowed: false; message: string };
+
+/** A message in some engine's own shape, as a script writes it: plain data. */
+export type EngineMessage = { [key: string]: unknown; type: string };
+
+/**
+ * One step of a scripted engine. `emit` carries a message in the engine's own
+ * shape: the dialect that runs the script is the only reader of it.
+ */
+export type ScriptedStep =
   /** Hold until one more input has been sent, the way a real engine waits. */
   | { type: "await-input" }
   | { delayMs: number; type: "delay" }
-  | { message: NativeSdkMessage; type: "emit" }
+  | { message: unknown; type: "emit" }
   | { error: Error; type: "error" }
-  | { requests: Omit<PermissionRequest, "signal">[]; type: "permissions" }
-  /** A tool asking the PreToolUse gate to start, the way the real hook does. */
+  | { requests: ScriptedPermission[]; type: "permissions" }
+  /** A tool asking the engine's pre-tool gate to start. */
   | { toolUseId: string; type: "tool-start" }
-  /** PostToolUse for a tool that started. */
+  /** The tool that started has settled. */
   | { toolUseId: string; type: "tool-end" };
 
-export type FakeRuntimeOptions = {
+export type ScriptedRuntimeOptions = {
   /**
-   * Input uuids already in the transcript a resumed run continues. The fake
-   * treats a send of one the way the pinned SDK does: it answers
-   * nothing — no frame, no result — and an interrupt afterwards has nothing
-   * to end, so it produces no terminal either.
+   * Input uuids already in the transcript a resumed run continues. A send of
+   * one is answered with nothing — no frame, no result — and an interrupt
+   * afterwards has nothing to end, so it produces no terminal either.
    */
   resumedTranscript?: string[];
   /** Makes a resumed run's `ready()` reject with this, as an unreadable transcript would. */
   resumeFailure?: string;
 };
 
-/** A scripted engine: `run` gives the contract run the real runtime would. */
-export class FakeAgentRuntime {
+/** A scripted engine behind the runtime contract, with what it saw recorded. */
+export interface ScriptedRuntime extends AgentRuntime {
   /** Every input the host sent, including ones the engine deduplicated. */
-  readonly inputs: AgentInput[] = [];
-  readonly permissionDecisions: PermissionDecision[] = [];
+  readonly inputs: AgentInput[];
+  readonly permissionDecisions: ScriptedDecision[];
   /** What the tool gate answered each tool-start step, in order. */
   readonly toolAdmissions: Array<{
-    admission: ToolAdmission;
+    admission: ScriptedAdmission;
+    toolUseId: string;
+  }>;
+}
+
+/** The engine's bookkeeping of inputs, tools and checkpoint readiness. */
+export interface ScriptLedger {
+  claimConsumer(): void;
+  leaseCheckpoint(): CheckpointLeaseGrant;
+  observe(message: unknown): void;
+  parkable(): ParkReadiness;
+  pendingUuids(): string[];
+  permissionSettled(toolUseId: string): void;
+  permissionStarting(toolUseId: string): ScriptedAdmission;
+  prepareCheckpoint(): CheckpointPreparation;
+  queued(uuid: string): void;
+  streamEnded(): void;
+  toolSettled(toolUseId: string): void;
+  toolStarting(toolUseId: string): ScriptedAdmission;
+  wasSent(uuid: string): boolean;
+}
+
+/** Whether an interrupt caught a tool (or its permission prompt) or the model mid-response. */
+export type InterruptCut = "tools" | "streaming";
+
+/** What an engine adapter supplies for the scripted engine to speak its messages. */
+export interface ScriptDialect<TFrame> {
+  /** The session id the engine names its messages with before any says otherwise. */
+  readonly initialSessionId: string;
+  ledger(resume: string | undefined): ScriptLedger;
+  frame(
+    message: unknown,
+    correlationId: string,
+    cursor: string,
+    inputs: readonly string[] | undefined,
+  ): TFrame;
+  sessionIdOf(message: unknown): string | undefined;
+  /** The message announcing the calls a permissions step asks about. */
+  toolCallMessage(requests: readonly ScriptedPermission[]): unknown;
+  /** The terminal an interrupt ends the turn with, naming every input it dropped. */
+  interruptedMessage(
+    pending: readonly string[],
+    cut: InterruptCut,
+    sessionId: string,
+  ): unknown;
+}
+
+export type ScriptedRunStart = {
+  correlationId: string;
+  mode: "new" | "resume";
+  resume?: string | undefined;
+};
+
+/** One scripted execution, at the level an engine driver runs it. */
+export interface ScriptedDriverRun<TFrame> extends AsyncIterable<TFrame> {
+  abort(): void;
+  close(): void;
+  events(): AsyncIterable<TFrame>;
+  finishInput(): void;
+  holdsInput(uuid: string): Promise<boolean>;
+  interrupt(): Promise<{ stillQueued: string[] }>;
+  leaseCheckpoint(): Promise<CheckpointLeaseGrant>;
+  parkable(): ParkReadiness;
+  prepareCheckpoint(): Promise<CheckpointPreparation>;
+  ready(): Promise<void>;
+  send(input: AgentInput): void;
+}
+
+/** Runs one script against any engine's dialect, recording what the host did. */
+export class ScriptedEngine<TFrame> {
+  readonly inputs: AgentInput[] = [];
+  readonly permissionDecisions: ScriptedDecision[] = [];
+  readonly toolAdmissions: Array<{
+    admission: ScriptedAdmission;
     toolUseId: string;
   }> = [];
 
   constructor(
-    private readonly steps: FakeStep[],
-    private readonly options: FakeRuntimeOptions = {},
+    private readonly steps: ScriptedStep[],
+    private readonly dialect: ScriptDialect<TFrame>,
+    private readonly options: ScriptedRuntimeOptions = {},
   ) {}
 
-  run(
-    config: ClaudeRuntimeConfig,
-    options: { toolCallWaitMs?: number } = {},
-  ): AgentRun {
-    return claudeContractRun((hooks) => this.start(config, hooks), options);
-  }
-
-  /** The driver run itself, for this package's own driver tests. */
-  start(config: ClaudeRuntimeConfig, hooks: RuntimeHooks): DriverRun {
-    return new FakeRun(
+  start(
+    start: ScriptedRunStart,
+    onPermission: (
+      request: ScriptedPermission & { signal: AbortSignal },
+    ) => Promise<ScriptedDecision>,
+  ): ScriptedDriverRun<TFrame> {
+    return new ScriptedRun(
       this,
-      config.correlationId,
+      this.dialect,
+      start.correlationId,
       this.steps,
-      hooks.onPermission,
-      config.resume,
-      config.mode === "resume"
+      onPermission,
+      start.resume,
+      start.mode === "resume"
         ? new Set(this.options.resumedTranscript ?? [])
         : new Set(),
-      config.mode === "resume" ? this.options.resumeFailure : undefined,
+      start.mode === "resume" ? this.options.resumeFailure : undefined,
     );
   }
 }
 
-class FakeRun implements DriverRun {
+class ScriptedRun<TFrame> implements ScriptedDriverRun<TFrame> {
   private readonly abortController = new AbortController();
   private readonly arrivals: Array<() => void> = [];
-  // Replaced after each interrupt: the run outlives it, like the real SDK's.
+  // Replaced after each interrupt: the run outlives it, like a real engine's.
   private interruptController = new AbortController();
-  private readonly ledger: TurnLedger;
+  private readonly ledger: ScriptLedger;
   private closed = false;
   private consumedInputs = 0;
   /** Inputs the engine took, in send order; a deduplicated send is not one. */
@@ -101,22 +180,23 @@ class FakeRun implements DriverRun {
   // First accepted terminal action wins: an interrupt that already returned
   // its receipt still yields its terminal result even if abort() follows.
   private terminal: "aborted" | "interrupted" | undefined;
-  /** What the SDK names its results with: the session it resumed or reported. */
+  /** What the engine names its results with: the session it resumed or reported. */
   private sessionId: string;
 
   constructor(
-    private readonly runtime: FakeAgentRuntime,
+    private readonly engine: ScriptedEngine<TFrame>,
+    private readonly dialect: ScriptDialect<TFrame>,
     private readonly correlationId: string,
-    private readonly steps: FakeStep[],
+    private readonly steps: ScriptedStep[],
     private readonly onPermission: (
-      request: PermissionRequest,
-    ) => Promise<PermissionDecision>,
+      request: ScriptedPermission & { signal: AbortSignal },
+    ) => Promise<ScriptedDecision>,
     resume: string | undefined,
     private readonly resumed: ReadonlySet<string>,
     private readonly resumeFailure: string | undefined,
   ) {
-    this.ledger = new TurnLedger(resume);
-    this.sessionId = resume ?? "fake-session";
+    this.ledger = dialect.ledger(resume);
+    this.sessionId = resume ?? dialect.initialSessionId;
   }
 
   async ready(): Promise<void> {
@@ -128,7 +208,7 @@ class FakeRun implements DriverRun {
     const duplicate =
       this.resumed.has(input.uuid) || this.ledger.wasSent(input.uuid);
     this.ledger.queued(input.uuid);
-    this.runtime.inputs.push(input);
+    this.engine.inputs.push(input);
     if (duplicate) {
       this.deduplicated.add(input.uuid);
       return;
@@ -182,16 +262,16 @@ class FakeRun implements DriverRun {
     return this.ledger.parkable();
   }
 
-  events(): AsyncIterable<AgentFrame> {
+  events(): AsyncIterable<TFrame> {
     return this;
   }
 
-  async *[Symbol.asyncIterator](): AsyncIterator<AgentFrame> {
+  async *[Symbol.asyncIterator](): AsyncIterator<TFrame> {
     this.ledger.claimConsumer();
     try {
       let cursor = 0;
       for (let index = 0; index < this.steps.length; index += 1) {
-        const step = this.steps[index] as FakeStep;
+        const step = this.steps[index] as ScriptedStep;
         const controlSignal = AbortSignal.any([
           this.abortController.signal,
           this.interruptController.signal,
@@ -203,11 +283,11 @@ class FakeRun implements DriverRun {
           interrupted = true;
         } else {
           try {
-            // The real engine streams the assistant message carrying a call
-            // before it asks whether the call may run.
+            // A real engine streams the message carrying a call before it
+            // asks whether the call may run.
             if (step.type === "permissions") {
-              const calls = toolCallMessage(step.requests);
-              // Observed like every message the real run streams.
+              const calls = this.dialect.toolCallMessage(step.requests);
+              // Observed like every message a real run streams.
               this.ledger.observe(calls);
               yield this.frame(calls, `fake:${cursor}:calls`);
             }
@@ -218,9 +298,8 @@ class FakeRun implements DriverRun {
             }
             if (step.type === "emit") {
               this.ledger.observe(step.message);
-              if (typeof step.message.session_id === "string") {
-                this.sessionId = step.message.session_id;
-              }
+              const sessionId = this.dialect.sessionIdOf(step.message);
+              if (sessionId !== undefined) this.sessionId = sessionId;
               yield this.frame(step.message, `fake:${cursor}`);
             }
           } catch (error) {
@@ -238,7 +317,7 @@ class FakeRun implements DriverRun {
         }
         cursor += 1;
         if (!interrupted) continue;
-        // The real SDK ends only the current turn: the script resumes at the
+        // A real engine ends only the current turn: the script resumes at the
         // next turn's input, and ends here when no further turn is scripted.
         const next = this.steps.findIndex(
           (candidate, position) =>
@@ -254,7 +333,10 @@ class FakeRun implements DriverRun {
     }
   }
 
-  private async runStep(step: FakeStep, signal: AbortSignal): Promise<void> {
+  private async runStep(
+    step: ScriptedStep,
+    signal: AbortSignal,
+  ): Promise<void> {
     if (step.type === "await-input") {
       await raceAbort(this.awaitInput(), signal);
     } else if (step.type === "delay") {
@@ -268,13 +350,13 @@ class FakeRun implements DriverRun {
         Promise.all(
           step.requests.map(async (request) => {
             const decision = await this.askPermission({ ...request, signal });
-            this.runtime.permissionDecisions.push(decision);
+            this.engine.permissionDecisions.push(decision);
           }),
         ),
         signal,
       );
     } else if (step.type === "tool-start") {
-      this.runtime.toolAdmissions.push({
+      this.engine.toolAdmissions.push({
         toolUseId: step.toolUseId,
         admission: this.ledger.toolStarting(step.toolUseId),
       });
@@ -283,10 +365,10 @@ class FakeRun implements DriverRun {
     }
   }
 
-  /** The same gate the real canUseTool goes through. */
+  /** The same gate a real engine's permission callback goes through. */
   private async askPermission(
-    request: PermissionRequest,
-  ): Promise<PermissionDecision> {
+    request: ScriptedPermission & { signal: AbortSignal },
+  ): Promise<ScriptedDecision> {
     const admission = this.ledger.permissionStarting(request.toolUseId);
     if (!admission.allowed) {
       this.ledger.toolSettled(request.toolUseId);
@@ -324,16 +406,16 @@ class FakeRun implements DriverRun {
     cursor: string,
     index: number,
     reached: boolean,
-  ): AgentFrame {
-    const reason = this.abortedAt(index, reached);
+  ): TFrame {
+    const cut = this.cutAt(index, reached);
     for (const step of this.steps.slice(index)) {
       if (step.type === "await-input") break;
       if (step.type === "tool-end") this.ledger.toolSettled(step.toolUseId);
     }
     this.consumedInputs = this.acceptedInputs;
-    const message = interruptedMessage(
+    const message = this.dialect.interruptedMessage(
       this.ledger.pendingUuids(),
-      reason,
+      cut,
       this.sessionId,
     );
     this.ledger.observe(message);
@@ -345,74 +427,33 @@ class FakeRun implements DriverRun {
    * script is on: the input the last `await-input` took, or the first one
    * sent before any did.
    */
-  private frame(message: NativeSdkMessage, cursor: string): AgentFrame {
-    const frame = frameFromNativeMessage(message, this.correlationId, cursor);
+  private frame(message: unknown, cursor: string): TFrame {
     const current = this.accepted[Math.max(this.consumedInputs - 1, 0)];
-    return current === undefined ? frame : { ...frame, inputs: [current] };
+    return this.dialect.frame(
+      message,
+      this.correlationId,
+      cursor,
+      current === undefined ? undefined : [current],
+    );
   }
 
   /**
-   * The SDK tells an interrupt that caught a tool, or its permission prompt,
-   * from one that caught the model mid-response. `reached` says whether the
-   * step at `index` had begun.
+   * Whether the interrupt caught a tool, or its permission prompt, or the
+   * model mid-response. `reached` says whether the step at `index` had begun.
    */
-  private abortedAt(index: number, reached: boolean): TerminalReason {
+  private cutAt(index: number, reached: boolean): InterruptCut {
     const ended = new Set<string>();
     for (let at = reached ? index : index - 1; at >= 0; at -= 1) {
       const step = this.steps[at];
       if (step === undefined || step.type === "await-input") break;
-      if (step.type === "permissions" && at === index) return "aborted_tools";
+      if (step.type === "permissions" && at === index) return "tools";
       if (step.type === "tool-end") ended.add(step.toolUseId);
       if (step.type === "tool-start" && !ended.has(step.toolUseId)) {
-        return "aborted_tools";
+        return "tools";
       }
     }
-    return "aborted_streaming";
+    return "streaming";
   }
-}
-
-// Typed against the SDK: a value no real run sends would let a host that
-// branches on it pass here and fail against the engine.
-type TerminalReason = NonNullable<InterruptedResult["terminal_reason"]>;
-
-function toolCallMessage(
-  requests: Omit<PermissionRequest, "signal">[],
-): NativeSdkMessage {
-  return {
-    type: "assistant",
-    message: {
-      role: "assistant",
-      content: requests.map((request) => ({
-        type: "tool_use",
-        id: request.toolUseId,
-        name: request.tool,
-        input: request.input,
-      })),
-    },
-    parent_tool_use_id: null,
-    session_id: "fake-session",
-  };
-}
-
-// An interrupt drops every queued input, so the terminal frame attributes all
-// of them the way the SDK attributes a batch: last uuid plus the full list.
-function interruptedMessage(
-  pending: string[],
-  reason: TerminalReason,
-  sessionId: string,
-): NativeSdkMessage {
-  const last = pending.at(-1);
-  const message: InterruptedResult = {
-    type: "result",
-    subtype: "error_during_execution",
-    session_id: sessionId,
-    is_error: true,
-    terminal_reason: reason,
-    ...(last === undefined
-      ? {}
-      : { user_message_uuid: last, user_message_uuids: pending }),
-  };
-  return message;
 }
 
 async function raceAbort<T>(
