@@ -47,6 +47,9 @@ x-egress-ports:
 services:
   postgres:
     image: postgres:16@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6
+    # A wait past deadlock_timeout (1s) logs the PIDs holding the lock, so
+    # a statement_timeout on a row lock can be traced to its holder.
+    command: ["postgres", "-c", "log_lock_waits=on"]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-sessions}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}

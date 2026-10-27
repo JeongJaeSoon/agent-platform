@@ -6,13 +6,12 @@ import {
   type PendingSettlement,
   type PostSessionAnswerRequest,
   pendingQuestionSchema,
-  type QuestionAnswer,
   questionAnswerMismatch,
   type RegisterPendingRequest,
   type WorkerScope,
 } from "@werft-ai/contracts";
-import { pendingRequestEvent } from "@werft-ai/runtime-claude";
 import {
+  type AnswerResult,
   type ApprovalDecisionPayload,
   type ApprovalRequested,
   isOwnershipLost,
@@ -48,10 +47,9 @@ type Outcome = PendingSettlement["outcome"];
 type Pending = {
   kind: "permission" | "question";
   questions: PendingQuestion[];
-  input: Record<string, unknown>;
   inputHash: string;
   localId: string;
-  settle: (decision: ApprovalDecisionPayload) => void;
+  settle: (decision: ApprovalDecisionPayload) => Promise<AnswerResult>;
   /** On `performance.now`: a wall-clock jump must not move it. */
   openedAt: number;
   deadline: number;
@@ -78,6 +76,8 @@ export class PendingRequestRegistry {
   private readonly pending = new Map<string, Pending>();
   // Unsent settlements; a poll removes only what it carried, once it lands.
   private readonly settlements = new Map<string, Outcome>();
+  // Answers handed to the run whose outcome waits on what the run says.
+  private readonly answering = new Map<string, Promise<void>>();
   // Registrations still in flight, including ones whose callback has closed
   // but whose row may or may not exist yet.
   private readonly registering = new Set<Promise<void>>();
@@ -96,27 +96,25 @@ export class PendingRequestRegistry {
 
   /**
    * Registers one approval the run asked for; `answer` is called at most
-   * once, with whatever settles it, and never after `withdraw`.
+   * once, with whatever settles it, and never after `withdraw`. What it
+   * resolves with decides whether an answer is reported as answered.
    */
   request(
     request: ApprovalRequested,
-    answer: (decision: ApprovalDecisionPayload) => void,
+    answer: (decision: ApprovalDecisionPayload) => Promise<AnswerResult>,
   ): void {
     if (this.stopped) {
-      answer({
+      void answer({
         kind: "cancelled",
         reason: "shutdown",
         message: "This worker is no longer taking requests",
       });
       return;
     }
-    const questions = request.kind === "question" ? questionsOf(request) : null;
-    const kind = questions === null ? "permission" : "question";
     const requestId = `req_${randomUUID()}`;
     this.pending.set(requestId, {
-      kind,
-      questions: questions ?? [],
-      input: inputOf(request),
+      kind: request.kind,
+      questions: request.kind === "question" ? request.questions : [],
       inputHash: request.inputHash,
       localId: request.localId,
       settle: answer,
@@ -125,8 +123,8 @@ export class PendingRequestRegistry {
       timer: undefined,
     });
     this.arm(requestId);
-    const registration = this.register(requestId, request, questions).finally(
-      () => this.registering.delete(registration),
+    const registration = this.register(requestId, request).finally(() =>
+      this.registering.delete(registration),
     );
     this.registering.add(registration);
   }
@@ -164,6 +162,12 @@ export class PendingRequestRegistry {
     const deadline = performance.now() + timeoutMs;
     if (this.registering.size > 0) {
       await within(Promise.all(this.registering), timeoutMs);
+    }
+    if (this.answering.size > 0) {
+      await within(
+        Promise.all(this.answering.values()),
+        deadline - performance.now(),
+      );
     }
     if (this.settlements.size === 0) return;
     this.poll();
@@ -230,52 +234,66 @@ export class PendingRequestRegistry {
     decision: ApprovalDecisionPayload,
     outcome: Outcome,
   ): void {
-    this.drop(requestId, outcome)?.settle(decision);
+    if (outcome !== "answered") {
+      void this.drop(requestId, outcome)?.settle(decision);
+      return;
+    }
+    const entry = this.drop(requestId, undefined);
+    if (entry === undefined) return;
+    // A stale answer never reached the engine. An unknown one may have, and
+    // calling it cancelled could hide a tool that ran, so it stays answered.
+    const answering = entry
+      .settle(decision)
+      .then(
+        (result): Outcome => (result === "stale" ? "cancelled" : "answered"),
+        (): Outcome => "cancelled",
+      )
+      .then((settled) => {
+        this.answering.delete(requestId);
+        this.settlements.set(requestId, settled);
+        this.poll();
+      });
+    this.answering.set(requestId, answering);
   }
 
-  /** Ends the request without answering the run; returns what it held. */
-  private drop(requestId: string, outcome: Outcome): Pending | undefined {
+  /**
+   * Ends the request without answering the run; returns what it held.
+   * Without an outcome, the caller records one once it knows it.
+   */
+  private drop(
+    requestId: string,
+    outcome: Outcome | undefined,
+  ): Pending | undefined {
     const entry = this.pending.get(requestId);
     if (entry === undefined) return undefined;
     this.pending.delete(requestId);
     clearTimeout(entry.timer);
+    if (outcome === undefined) return entry;
     this.settlements.set(requestId, outcome);
     this.poll();
     return entry;
   }
 
+  /** No word for it yet, here or on its way. */
+  private unsettled(requestId: string): boolean {
+    return !this.settlements.has(requestId) && !this.answering.has(requestId);
+  }
+
   private async register(
     requestId: string,
     request: ApprovalRequested,
-    questions: PendingQuestion[] | null,
   ): Promise<void> {
     const tool = request.tool.name;
     const toolUseId = request.toolCallId;
     const sleep = this.options.sleep ?? ((ms: number) => Bun.sleep(ms));
     const interval = this.options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-    const event = pendingRequestEvent(
-      {
-        input: questions === null ? inputOf(request) : { questions },
-        kind: questions === null ? "permission" : "question",
-        requestId,
-        tool,
-        toolUseId,
-      },
-      `pending:${requestId}`,
-    );
-    const display = event.event === "question" ? event.data.input : {};
-    // Redaction keeps the shape, so ids still line up with the unredacted
-    // copy the answer is turned back into. The gateway publishes this copy
-    // as it is, so one that no longer parses is refused rather than
-    // replaced with the unredacted questions.
+    // The run's redacted copy is published as it is, so a question that no
+    // longer parses is refused rather than shown some other way.
     const shown =
-      questions === null
-        ? null
-        : pendingQuestionSchema
-            .array()
-            .min(1)
-            .safeParse((display as { questions?: unknown }).questions).data;
-    if (questions !== null && shown === undefined) {
+      request.kind === "question"
+        ? pendingQuestionSchema.array().min(1).safeParse(request.questions).data
+        : undefined;
+    if (request.kind === "question" && shown === undefined) {
       this.close(
         requestId,
         {
@@ -288,9 +306,9 @@ export class PendingRequestRegistry {
       return;
     }
     const body: RegisterPendingRequest["request"] =
-      shown === null || shown === undefined
-        ? { kind: "permission", tool, input: display }
-        : { kind: "question", questions: shown };
+      request.kind === "permission"
+        ? { kind: "permission", tool, input: request.display }
+        : { kind: "question", questions: shown ?? [] };
     const turnId = this.options.scope().turn_id;
     if (turnId === null) {
       this.close(
@@ -343,7 +361,7 @@ export class PendingRequestRegistry {
         if (entry === undefined) {
           // The settlement may have gone out before the row existed and been
           // ignored; the gateway keeps whichever word reached it first.
-          if (!this.settlements.has(requestId)) {
+          if (this.unsettled(requestId)) {
             this.settlements.set(requestId, "cancelled");
           }
           this.poll();
@@ -459,7 +477,7 @@ export class PendingRequestRegistry {
     if (entry === undefined) {
       // Its callback is already gone: say so, or the receipt would wait on
       // a request nobody holds.
-      if (!this.settlements.has(answer.request_id)) {
+      if (this.unsettled(answer.request_id)) {
         this.settlements.set(answer.request_id, "cancelled");
       }
       return;
@@ -515,20 +533,7 @@ export class PendingRequestRegistry {
     }
     this.close(
       answer.request_id,
-      {
-        kind: "answered",
-        answers: Object.fromEntries(
-          entry.questions.map((question) => [
-            question.prompt,
-            answerText(
-              question,
-              answer.answers.find(
-                (item) => item.question_id === question.question_id,
-              ) as QuestionAnswer,
-            ),
-          ]),
-        ),
-      },
+      { kind: "answered", answers: answer.answers },
       "answered",
     );
   }
@@ -543,59 +548,4 @@ async function within(work: Promise<unknown>, ms: number): Promise<void> {
     }),
   ]);
   clearTimeout(timer);
-}
-
-function inputOf(request: ApprovalRequested): Record<string, unknown> {
-  const input = request.tool.input;
-  return input !== null && typeof input === "object" && !Array.isArray(input)
-    ? (input as Record<string, unknown>)
-    : {};
-}
-
-function answerText(question: PendingQuestion, answer: QuestionAnswer): string {
-  // Every id was checked against the question's options by the mismatch check.
-  const labels = answer.selected_option_ids.map(
-    (id) =>
-      question.options.find((candidate) => candidate.option_id === id)?.label ??
-      id,
-  );
-  if (answer.free_text !== undefined) labels.push(answer.free_text);
-  return labels.join(", ");
-}
-
-/**
- * The questions a question request is asking, or null when its input carries
- * none this worker can show. Ids are positional so an answer can only name a
- * question and an option this worker actually offered.
- */
-function questionsOf(request: ApprovalRequested): PendingQuestion[] | null {
-  const raw = inputOf(request).questions;
-  if (!Array.isArray(raw)) return null;
-  const questions = raw.flatMap((value, index) => {
-    if (value === null || typeof value !== "object") return [];
-    const item = value as Record<string, unknown>;
-    const prompt = typeof item.question === "string" ? item.question : null;
-    if (prompt === null) return [];
-    const options = Array.isArray(item.options) ? item.options : [];
-    return [
-      {
-        question_id: `q${index}`,
-        prompt,
-        options: options.flatMap((option, position) => {
-          const label =
-            option !== null &&
-            typeof option === "object" &&
-            typeof (option as Record<string, unknown>).label === "string"
-              ? ((option as Record<string, unknown>).label as string)
-              : null;
-          return label === null
-            ? []
-            : [{ option_id: `q${index}o${position}`, label }];
-        }),
-        multi_select: item.multiSelect === true,
-        allow_free_text: true,
-      },
-    ];
-  });
-  return questions.length > 0 ? questions : null;
 }

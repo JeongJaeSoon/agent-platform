@@ -218,6 +218,7 @@ describe("/internal/worker", () => {
   test.each([
     ["40P01", "deadlock detected"],
     ["40001", "could not serialize access due to concurrent update"],
+    ["55P03", "canceling statement due to lock timeout"],
   ])(
     "a transaction rolled back with %s is a retryable 503 with Retry-After, not a lost lease",
     async (code, text) => {

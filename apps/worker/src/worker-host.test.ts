@@ -13,11 +13,11 @@ import {
 import {
   FakeAgentRuntime,
   type FakeStep,
+  type NativeSdkMessage,
 } from "@werft-ai/runtime-claude/testing";
 import {
   type AgentRun,
   type CheckpointPreparation,
-  type NativeSdkMessage,
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { NativeSdkMessage } from "@werft-ai/runtime-core";
+import type { NativeSdkMessage } from "./driver.ts";
 import { TurnAccounting } from "./turn-accounting.ts";
 
 function result(total: unknown, sessionId = "s"): NativeSdkMessage {

@@ -1,3 +1,4 @@
+import { WORKER_EXIT_LEASE_LOST } from "@werft-ai/contracts";
 import type {
   EnsureExecutionResult,
   ExecutionBackend,
@@ -1055,7 +1056,13 @@ async function pass(
       // under the same name after its check reads as the same success; the
       // incarnation it was created with is what tells them apart.
       if (
-        !(await confirmGone(execution, seenIncarnation(execution, observed)))
+        !(await confirmGone(
+          execution,
+          seenIncarnation(execution, observed),
+          observed.exitCode === WORKER_EXIT_LEASE_LOST
+            ? "worker_lease_lost"
+            : undefined,
+        ))
       ) {
         return;
       }
@@ -1149,6 +1156,7 @@ async function pass(
   async function confirmGone(
     execution: ExecutionRef & { sessionId: string },
     incarnation: ExecutionIncarnation | null,
+    endReason?: string,
   ): Promise<boolean> {
     const ref = refOf(execution);
     lock.throwIfAborted();
@@ -1156,6 +1164,7 @@ async function pass(
       ref.executionId,
       now(),
       incarnation,
+      endReason,
     );
     if (outcome === "confirmed") return true;
     logger.warn(

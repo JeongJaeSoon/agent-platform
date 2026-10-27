@@ -266,6 +266,11 @@ export function isolationStampFor(config: LocalDockerBackendConfig): string {
 
 /** How long `terminate` without `waitForExit` waits on a stop. */
 const STOP_WAIT_MS = 5_000;
+// As the Kubernetes backend reads a failed worker's log: up to 200 lines,
+// the last 8 KiB of them kept, at most 64 KiB read for it.
+const LOG_TAIL_LINES = [200, 20, 1];
+const LOG_TAIL_BYTES = 8 * 1024;
+const LOG_TAIL_READ_BYTES = 64 * 1024;
 
 const CONTAINER_NAME_PREFIX = "ap-worker-";
 const NETWORK_PREFIX = "ap-net-";
@@ -849,8 +854,14 @@ export class LocalDockerBackend implements ExecutionBackend {
       );
     }
     const state = stateOf(container.State.Status);
+    const failed = state === "terminated" && container.State.ExitCode !== 0;
+    const logTail = failed ? await this.logTailOf(container.Id) : undefined;
     return {
       ...(state === "terminated" ? { exitCode: container.State.ExitCode } : {}),
+      ...(failed && container.State.OOMKilled === true
+        ? { terminationReason: "OOMKilled" }
+        : {}),
+      ...(logTail === undefined ? {} : { logTail }),
       credentialFingerprint: credentialFingerprintOf(container),
       found: true,
       launchSpec: container.Config.Labels?.[LABELS.launchSpec] ?? null,
@@ -859,6 +870,31 @@ export class LocalDockerBackend implements ExecutionBackend {
       state,
       ...(verdict === "current" ? {} : { stale: true }),
     };
+  }
+
+  /**
+   * The end of an exited worker's output, or undefined when there is none to
+   * read; the container is removed later in the same pass, and its output
+   * with it. A read that fails costs only the tail, never the inspect.
+   */
+  private async logTailOf(id: string): Promise<string | undefined> {
+    let read: { output: Uint8Array; cut: boolean } | null = null;
+    // A read cut at the limit holds the start of the lines asked for, not
+    // their end: it is asked again for fewer lines.
+    for (const tail of LOG_TAIL_LINES) {
+      try {
+        read = await this.client.containerLogs(id, tail, LOG_TAIL_READ_BYTES);
+      } catch {
+        return undefined;
+      }
+      if (read === null) return undefined;
+      if (!read.cut) {
+        if (read.output.length === 0) return undefined;
+        return new TextDecoder().decode(read.output.subarray(-LOG_TAIL_BYTES));
+      }
+    }
+    if (read === null) return undefined;
+    return `${new TextDecoder().decode(read.output.subarray(0, LOG_TAIL_BYTES))}\n[log tail cut: the last line is longer than ${LOG_TAIL_READ_BYTES} bytes; its end was not read]\n`;
   }
 
   /**

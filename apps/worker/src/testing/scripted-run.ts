@@ -11,7 +11,7 @@ import type {
   RuntimeEvent,
 } from "@werft-ai/runtime-core";
 
-const capabilities: NegotiatedCapabilities = {
+const noCheckpoints: NegotiatedCapabilities = {
   effective: {
     interrupt: true,
     checkpoint: false,
@@ -44,6 +44,8 @@ const noCheckpoint: RejectedCheckpoint = {
 export class ScriptedRun implements AgentRun {
   readonly inputs: AgentInput[] = [];
   readonly answers: ApprovalAnswer[] = [];
+  capabilities: NegotiatedCapabilities = noCheckpoints;
+  leases = 0;
   onSend: (input: AgentInput) => void = () => {};
   onAnswer: (answer: ApprovalAnswer) => void = () => {};
   closing: () => Promise<void> = () => Promise.resolve();
@@ -57,7 +59,7 @@ export class ScriptedRun implements AgentRun {
   }
 
   ready(): Promise<NegotiatedCapabilities> {
-    return Promise.resolve(capabilities);
+    return Promise.resolve(this.capabilities);
   }
 
   async *events(): AsyncIterable<RuntimeEvent> {
@@ -104,6 +106,7 @@ export class ScriptedRun implements AgentRun {
   }
 
   leaseCheckpoint(): Promise<CheckpointLeaseGrant> {
+    this.leases += 1;
     return Promise.resolve({ lease: null, preparation: noCheckpoint });
   }
 

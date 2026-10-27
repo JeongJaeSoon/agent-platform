@@ -1033,11 +1033,12 @@ export function createPostgresSchedulerStore(
         );
     },
 
-    async confirmExecutionGone(executionId, now, incarnation) {
+    async confirmExecutionGone(executionId, now, incarnation, endReason) {
       const result = await work.confirmExecutionGoneAtomic({
         executionId,
         now,
         ...(incarnation === null ? {} : { incarnation }),
+        ...(endReason === undefined ? {} : { endReason }),
       });
       return result.superseded
         ? "superseded"

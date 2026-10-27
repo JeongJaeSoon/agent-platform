@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import type { SessionEvent } from "@werft-ai/contracts";
 import type {
   ApprovalRequested,
-  NativeSdkMessage,
   RuntimeEvent,
   TurnEnded,
 } from "@werft-ai/runtime-core";
@@ -11,6 +10,7 @@ import { claudeContractRun } from "./contract.ts";
 import type {
   AgentFrame,
   DriverRun,
+  NativeSdkMessage,
   PermissionDecision,
   RuntimeHooks,
 } from "./driver.ts";
@@ -120,11 +120,11 @@ const requestOf = (event: RuntimeEvent | undefined): ApprovalRequested => {
 };
 
 describe("claudeContractRun", () => {
-  test("emits a message's public events, then its tool calls, then native, then the approval for the call", async () => {
+  test("emits a message's public events, then its tool calls, then the approval for the call", async () => {
     const script = scriptedDriver();
     const run = claudeContractRun((hooks) => script.start(hooks));
     const events = run.events()[Symbol.asyncIterator]();
-    const pending = collect(events, 4);
+    const pending = collect(events, 3);
     const decision = script.ask("toolu_1");
     script.push(toolUseFrame("toolu_1"));
     const emitted = await pending;
@@ -132,14 +132,14 @@ describe("claudeContractRun", () => {
     expect(emitted.map((event) => event.type)).toEqual([
       "public",
       "tool.called",
-      "native",
       "approval.requested",
     ]);
-    const request = requestOf(emitted[3]);
+    const request = requestOf(emitted[2]);
     expect(request).toMatchObject({
       toolCallId: "toolu_1",
       tool: { name: "Bash", input: { command: "ls" } },
       kind: "permission",
+      display: { command: "ls" },
     });
     expect(
       await run.answer({
@@ -170,11 +170,7 @@ describe("claudeContractRun", () => {
     script.push(toolUseFrame("toolu_lost"));
     script.end();
     const rest = [(await first).value, ...(await collect(events, 10))];
-    expect(rest.map((event) => event?.type)).toEqual([
-      "public",
-      "tool.called",
-      "native",
-    ]);
+    expect(rest.map((event) => event?.type)).toEqual(["public", "tool.called"]);
   });
 
   test("says a request the engine aborted is withdrawn once the host heard of it", async () => {
@@ -182,7 +178,7 @@ describe("claudeContractRun", () => {
     const run = claudeContractRun((hooks) => script.start(hooks));
     const events = run.events()[Symbol.asyncIterator]();
     script.push(toolUseFrame("toolu_2"));
-    await collect(events, 3);
+    await collect(events, 2);
     const controller = new AbortController();
     const decision = script.ask("toolu_2", controller.signal);
     const request = requestOf((await collect(events, 1))[0]);
@@ -228,7 +224,7 @@ describe("claudeContractRun", () => {
     const events = run.events()[Symbol.asyncIterator]();
     script.push(toolUseFrame("toolu_a"));
     script.push(toolUseFrame("toolu_b"));
-    await collect(events, 6);
+    await collect(events, 4);
     const first = script.ask("toolu_a");
     const a = requestOf((await collect(events, 1))[0]);
     const second = script.ask("toolu_b");
@@ -282,20 +278,41 @@ describe("claudeContractRun", () => {
     const events = run.events()[Symbol.asyncIterator]();
     script.push(toolUseFrame("toolu_q"));
     script.push(toolUseFrame("toolu_p"));
-    await collect(events, 6);
-    const questions = [{ question: "Which environment?", options: [] }];
+    await collect(events, 4);
+    const questions = [
+      {
+        question: "Which environment?",
+        options: [{ label: "staging" }, { label: "production" }],
+      },
+      { question: "Anything else?", options: [] },
+    ];
     const asked = script.ask("toolu_q", undefined, "AskUserQuestion", {
       questions,
     });
     const question = requestOf((await collect(events, 1))[0]);
     const parked = script.ask("toolu_p");
     const permission = requestOf((await collect(events, 1))[0]);
-    expect(question.kind).toBe("question");
+    expect(question).toMatchObject({
+      kind: "question",
+      questions: [
+        {
+          question_id: "q0",
+          options: [
+            { option_id: "q0o0", label: "staging" },
+            { option_id: "q0o1", label: "production" },
+          ],
+        },
+        { question_id: "q1", options: [] },
+      ],
+    });
     await run.answer({
       localId: question.localId,
       inputHash: question.inputHash,
       kind: "answered",
-      answers: { "Which environment?": "production" },
+      answers: [
+        { question_id: "q0", selected_option_ids: ["q0o1"] },
+        { question_id: "q1", selected_option_ids: [], free_text: "no" },
+      ],
     });
     await run.answer({
       localId: permission.localId,
@@ -308,7 +325,7 @@ describe("claudeContractRun", () => {
       behavior: "allow",
       updatedInput: {
         questions,
-        answers: { "Which environment?": "production" },
+        answers: { "Which environment?": "production", "Anything else?": "no" },
       },
     });
     expect(await parked).toEqual({
@@ -384,7 +401,7 @@ describe("claudeContractRun events", () => {
     expect(inputsOf(await eventsFor(given))).toEqual([expected]);
   });
 
-  test("ends a turn after the result's public event and before native", async () => {
+  test("ends a turn after the result's public event", async () => {
     const events = await eventsFor(
       frame({
         type: "result",
@@ -396,11 +413,7 @@ describe("claudeContractRun events", () => {
       }),
     );
 
-    expect(events.map((event) => event.type)).toEqual([
-      "public",
-      "turn.ended",
-      "native",
-    ]);
+    expect(events.map((event) => event.type)).toEqual(["public", "turn.ended"]);
     expect(events[1]).toEqual({
       type: "turn.ended",
       turn: {
@@ -444,7 +457,6 @@ describe("claudeContractRun events", () => {
     expect(events.map((event) => event.type)).toEqual([
       "public",
       "runtime.warning",
-      "native",
     ]);
     expect(events[1]).toEqual({
       type: "runtime.warning",
@@ -481,7 +493,6 @@ describe("claudeContractRun events", () => {
       "public:assistant",
       "public:tool_use",
       "called:call_b",
-      "native",
     ]);
   });
 
@@ -522,22 +533,22 @@ describe("claudeContractRun events", () => {
     [
       "names the input a message with no public event is for",
       frame({ type: "assistant", user_message_uuid: "in-2", message: {} }),
-      [{ type: "inputs.named", inputs: ["in-2"] }, { type: "native" }],
+      [{ type: "inputs.named", inputs: ["in-2"] }],
     ],
     [
       "names the driver's input for such a message",
       frame({ type: "stream_event" }, ["in-3"]),
-      [{ type: "inputs.named", inputs: ["in-3"] }, { type: "native" }],
+      [{ type: "inputs.named", inputs: ["in-3"] }],
     ],
     [
       "says nothing for one that names no input",
       frame({ type: "stream_event" }),
-      [{ type: "native" }],
+      [],
     ],
     [
       "leaves naming to the public events when there are some",
       frame({ type: "command_lifecycle", command_uuid: "in-2" }),
-      [{ type: "public", inputs: ["in-2"] }, { type: "native" }],
+      [{ type: "public", inputs: ["in-2"] }],
     ],
   ] as const)("%s", async (_, given, expected) => {
     expect(await eventsFor(given)).toMatchObject(expected);

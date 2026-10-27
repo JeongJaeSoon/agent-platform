@@ -31,11 +31,11 @@ import {
   type SessionCatalog,
   type WorkerGateway,
 } from "@werft-ai/platform";
-import { FakeAgentRuntime } from "@werft-ai/runtime-claude/testing";
-import type {
-  CheckpointPreparation,
-  NativeSdkMessage,
-} from "@werft-ai/runtime-core";
+import {
+  FakeAgentRuntime,
+  type NativeSdkMessage,
+} from "@werft-ai/runtime-claude/testing";
+import type { CheckpointPreparation } from "@werft-ai/runtime-core";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";

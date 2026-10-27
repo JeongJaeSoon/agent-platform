@@ -6,6 +6,7 @@ import type { ClaudeRuntimeConfig } from "./config.ts";
 import { claudeContractRun } from "./contract.ts";
 import type { ClaudeSdkRuntime } from "./runtime.ts";
 
+export type { NativeSdkMessage } from "./driver.ts";
 export {
   FakeAgentRuntime,
   type FakeRuntimeOptions,

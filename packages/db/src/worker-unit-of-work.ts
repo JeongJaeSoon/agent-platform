@@ -1832,6 +1832,10 @@ export function createPostgresWorkerUnitOfWork(
     heartbeatAtomic(input: HeartbeatInput): Promise<HeartbeatResult> {
       const { fence, now } = input;
       return db.transaction(async (tx) => {
+        // A beat stuck behind another transaction's session row would spend
+        // the worker's whole lease budget waiting; failing fast lets it send
+        // the next beat while a renewal can still land.
+        await tx.execute(sql`SET LOCAL lock_timeout = '2s'`);
         const fenced = await acquireFence(tx, fence);
         if (fenced.outcome !== "ok") return fenced;
         const reported = ATTEMPT_PHASE_ORDER[input.attemptState] ?? -1;
@@ -2706,7 +2710,11 @@ export function createPostgresWorkerUnitOfWork(
         }
         const open = await tx
           .update(attempts)
-          .set({ state: "lost", endedAt: now, endReason: "execution_gone" })
+          .set({
+            state: "lost",
+            endedAt: now,
+            endReason: input.endReason ?? "execution_gone",
+          })
           .where(
             and(
               eq(attempts.executionId, executionId),

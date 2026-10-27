@@ -1071,6 +1071,24 @@ describe("architecture", () => {
     ).toEqual(driverTypes);
   });
 
+  test("the worker's turn loop and approvals reach the Claude adapter only through the contract", async () => {
+    const src = join(root, worker, "src");
+    const importing = (
+      await filesImporting(await sourceFiles(src), "@werft-ai/runtime-claude")
+    )
+      .map((file) => relative(src, file))
+      .filter((file) => !file.startsWith("testing/"))
+      .sort();
+    // 94S-661 moves the last three behind the runtime module, leaving the
+    // composition root alone.
+    expect(importing).toEqual([
+      "composition.ts",
+      "engine-processes.ts",
+      "image-runtime.ts",
+      "session-checkpoints.ts",
+    ]);
+  });
+
   test("only the worker's object-store module imports storage", async () => {
     const directory = join(root, worker);
     expect(
