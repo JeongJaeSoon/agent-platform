@@ -144,6 +144,7 @@ export function agentServer() {
       const body = (await request.json()) as {
         version_id: string;
         runtime_profile_id: string;
+        note?: string;
       };
       if (body.runtime_profile_id !== "claude-coding-local")
         return apiError(
@@ -168,6 +169,7 @@ export function agentServer() {
         created_at: `2026-10-11T01:0${releases.length}:00.000Z`,
         approved_by: null,
         approved_at: null,
+        note: body.note ?? null,
       };
       releases.push(release);
       return json(200, { release, created: true });
