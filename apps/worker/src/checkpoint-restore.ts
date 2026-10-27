@@ -8,10 +8,10 @@ import {
   peeledCommits,
 } from "@werft-ai/runtime-core";
 import {
-  type CommittedClaudeMd,
+  type CommittedInstructions,
   check,
   type Git,
-  readCommittedClaudeMd,
+  readCommittedInstructions,
   runGit,
   writeLocalExcludes,
 } from "./workspace.ts";
@@ -144,24 +144,26 @@ export async function stageCheckpointBundle(input: {
 }
 
 /**
- * CLAUDE.md as committed at the staged instructions commit. A checkpoint
- * that pins none is refused rather than read as having no CLAUDE.md, so a
- * profile that wants the file fails instead of resuming without it.
+ * The instruction file `file` as committed at the staged instructions commit.
+ * A checkpoint that pins none is refused rather than read as having no file,
+ * so a profile that wants the file fails instead of resuming without it.
  */
-export async function stagedClaudeMd(
+export async function stagedInstructions(
   staged: StagedCheckpoint,
+  file: string | null,
   signal: AbortSignal,
-): Promise<CommittedClaudeMd> {
+): Promise<CommittedInstructions> {
   if (staged.instructions === null) {
     return {
       kind: "refused",
       reason: "the checkpoint pins no commit it can be read at",
     };
   }
-  return readCommittedClaudeMd(
+  return readCommittedInstructions(
     localGit(staged.repository, signal, { GIT_DIR: staged.repository }),
     staged.repository,
     staged.instructions,
+    file,
     signal,
   );
 }

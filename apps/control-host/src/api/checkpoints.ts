@@ -12,10 +12,7 @@ import {
   type SessionOutputSource,
   serviceCheckpointVerifier,
 } from "@werft-ai/platform";
-import {
-  CLAUDE_CHECKPOINT_ENGINE,
-  claudeCheckpointCodec,
-} from "@werft-ai/runtime-claude-codec";
+import { installedCheckpointCodecs } from "@werft-ai/runtime-codecs";
 import {
   bucketHoldsObjectVersion,
   createCheckpointObjectStore,
@@ -109,9 +106,10 @@ export function checkpointGitMemoryBytesFromEnv(
 }
 
 /** The engines this control plane can read a manifest for. */
-export const API_CHECKPOINT_CODECS: CheckpointServiceDependencies["codecs"] = {
-  [CLAUDE_CHECKPOINT_ENGINE]: claudeCheckpointCodec,
-};
+export const API_CHECKPOINT_CODECS: CheckpointServiceDependencies["codecs"] =
+  Object.fromEntries(
+    installedCheckpointCodecs.map((codec) => [codec.engine, codec]),
+  );
 
 /**
  * Read: `S3_BUCKET`, `AWS_REGION`, `AWS_ACCESS_KEY_ID` and

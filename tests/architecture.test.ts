@@ -175,6 +175,61 @@ export async function importsOutside(
 }
 
 /**
+ * `git grep` over apps and packages outside the runtime adapters, as the
+ * design's G1 and G2 commands run it, plus files not yet added: a scan that
+ * missed a new file would pass until the commit that adds it.
+ */
+function grepOutsideAdapters(cwd: string, args: string[]): string[] {
+  const result = Bun.spawnSync(
+    [
+      "git",
+      "grep",
+      "--untracked",
+      "-n",
+      ...args,
+      "--",
+      "apps",
+      "packages",
+      ":!packages/adapters/runtimes",
+    ],
+    { cwd },
+  );
+  if (result.exitCode === 1) return [];
+  if (result.exitCode !== 0) throw new Error(result.stderr.toString());
+  return result.stdout.toString().trimEnd().split("\n");
+}
+
+const engineMentions = (cwd: string) =>
+  grepOutsideAdapters(cwd, [
+    "-E",
+    "@werft-ai/runtime-claude|@anthropic-ai/claude-agent-sdk|adapters/runtimes/claude",
+  ]);
+
+const kindMentions = (cwd: string) =>
+  grepOutsideAdapters(cwd, ["-w", "claude_agent_sdk"]);
+
+/** G2's allowlist, for one `path:line:text` hit. */
+function kindMentionAllowed(hit: string): boolean {
+  const [path = "", , ...text] = hit.split(":");
+  return (
+    // The RUNTIME_KIND_VALUES entry, where the value is defined.
+    (path === "packages/contracts/src/api/session.ts" &&
+      text.join(":") === '  "claude_agent_sdk",') ||
+    path === "apps/control-host/src/api/openapi.ts" ||
+    path === "packages/client/src/schema.gen.ts" ||
+    /\.test\.tsx?$/.test(path) ||
+    /\/(test-support|testing|fixtures)\//.test(path) ||
+    /^apps\/storybook\/src\/.*(\.stories\.tsx|-fixtures\.ts)$/.test(path) ||
+    // Example payloads in the user documentation.
+    /^apps\/docs\/content\/.*\.mdx$/.test(path) ||
+    // A workspace profile whose base profile is gone keeps no kind of its
+    // own; reported to the program lead, not fixed under 94S-661.
+    (path === "packages/platform/src/sessions/workspace-profiles.ts" &&
+      text.join(":") === '          runtime_kind: "claude_agent_sdk" as const,')
+  );
+}
+
+/**
  * `forbidden` entries match a package and everything under it, so a bare
  * scope ("@aws-sdk") covers each of its packages.
  */
@@ -1017,14 +1072,12 @@ describe("architecture", () => {
     expect(missing).toEqual([]);
   });
 
-  test("the worker imports runtime-core, the Claude adapter, contracts, storage, system and observability only", async () => {
+  test("the worker imports runtime-core, the runtime registry, contracts, storage, system and observability only", async () => {
     const allowed = new Set([
       "@werft-ai/contracts",
       // The log format and masking rules; it imports nothing itself.
       "@werft-ai/observability",
-      "@werft-ai/runtime-claude",
       "@werft-ai/runtime-core",
-      // Test-only: the scripted and real engines, picked by runtime kind.
       "@werft-ai/runtime-registry",
       storage,
       "@werft-ai/system",
@@ -1073,22 +1126,139 @@ describe("architecture", () => {
     ).toEqual(driverTypes);
   });
 
-  test("the worker's turn loop and approvals reach the Claude adapter only through the contract", async () => {
+  test("only the worker's composition root picks the installed runtimes", async () => {
     const src = join(root, worker, "src");
     const importing = (
-      await filesImporting(await sourceFiles(src), "@werft-ai/runtime-claude")
+      await filesImporting(await sourceFiles(src), "@werft-ai/runtime-registry")
     )
       .map((file) => relative(src, file))
-      .filter((file) => !file.startsWith("testing/"))
+      .filter((file) => !file.startsWith(`testing${sep}`))
       .sort();
-    // 94S-661 moves the last three behind the runtime module, leaving the
-    // composition root alone.
-    expect(importing).toEqual([
-      "composition.ts",
-      "engine-processes.ts",
-      "image-runtime.ts",
-      "session-checkpoints.ts",
-    ]);
+    expect(importing).toEqual(["composition.ts"]);
+  });
+
+  // G1: outside the runtime adapters nothing names an engine package or path,
+  // in sources, tests, manifests and Dockerfiles alike.
+  test("nothing outside the runtime adapters names an engine package (G1)", () => {
+    expect(engineMentions(root)).toEqual([]);
+  });
+
+  // G2: the runtime kind is data. Code outside the adapters never spells one
+  // out, except where the value itself is defined, generated or exemplified.
+  test("a runtime kind is spelled out only where G2 allows it", () => {
+    expect(
+      kindMentions(root).filter((hit) => !kindMentionAllowed(hit)),
+    ).toEqual([]);
+  });
+
+  test("the G1 and G2 scans catch a violation in any tracked or new file", async () => {
+    const fixture = await mkdtemp(join(tmpdir(), "arch-"));
+    try {
+      const files: Array<[string, string]> = [
+        ["apps/a/src/run.ts", `import { query } from "${claudeSdk}";\n`],
+        [
+          "apps/a/package.json",
+          '{ "dependencies": { "@werft-ai/runtime-claude": "workspace:*" } }\n',
+        ],
+        [
+          "apps/a/Dockerfile",
+          "RUN bun packages/adapters/runtimes/claude/x.ts\n",
+        ],
+        ["packages/b/src/pick.ts", 'export const k = "claude_agent_sdk";\n'],
+        [
+          "packages/b/src/pick.test.ts",
+          'export const k = "claude_agent_sdk";\n',
+        ],
+        [
+          "packages/adapters/runtimes/c/src/ok.ts",
+          `import "${claudeSdk}";\nexport const k = "claude_agent_sdk";\n`,
+        ],
+        // The allowed line passes; a second use in the same file does not.
+        [
+          "packages/platform/src/sessions/workspace-profiles.ts",
+          '          runtime_kind: "claude_agent_sdk" as const,\n' +
+            'export const fallback = "claude_agent_sdk";\n',
+        ],
+        [
+          "packages/contracts/src/api/session.ts",
+          '  "claude_agent_sdk",\nif (kind === "claude_agent_sdk") {}\n',
+        ],
+      ];
+      for (const [path, body] of files) {
+        await mkdir(join(fixture, dirname(path)), { recursive: true });
+        await writeFile(join(fixture, path), body);
+      }
+      expect(
+        Bun.spawnSync(["git", "init", "-q"], { cwd: fixture }).exitCode,
+      ).toBe(0);
+      expect(
+        Bun.spawnSync(["git", "add", "apps/a/src/run.ts"], { cwd: fixture })
+          .exitCode,
+      ).toBe(0);
+      expect(
+        engineMentions(fixture)
+          .map((hit) => hit.split(":")[0])
+          .sort(),
+      ).toEqual([
+        "apps/a/Dockerfile",
+        "apps/a/package.json",
+        "apps/a/src/run.ts",
+      ]);
+      expect(
+        kindMentions(fixture)
+          .filter((hit) => !kindMentionAllowed(hit))
+          .map((hit) => hit.split(":").slice(0, 2).join(":"))
+          .sort(),
+      ).toEqual([
+        "packages/b/src/pick.ts:1",
+        "packages/contracts/src/api/session.ts:2",
+        "packages/platform/src/sessions/workspace-profiles.ts:2",
+      ]);
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
+  });
+
+  test("runtime-codecs reaches no engine SDK, directly or through a package it imports", async () => {
+    const byName = new Map<string, string>();
+    for (const directory of await workspacePackages()) {
+      const { name } = await manifest(directory);
+      if (name !== undefined) byName.set(name, directory);
+    }
+    const seen = new Set<string>();
+    const pending = ["@werft-ai/runtime-codecs"];
+    while (pending.length > 0) {
+      const name = pending.pop() as string;
+      if (seen.has(name)) continue;
+      seen.add(name);
+      const directory = byName.get(name);
+      if (directory === undefined) continue;
+      for (const next of [
+        ...declaredDependencies(await manifest(directory)),
+        ...(await packageImports(directory)),
+      ])
+        pending.push(next);
+    }
+    expect(
+      [...seen].filter(
+        (name) =>
+          name.startsWith("@anthropic-ai/") ||
+          name === "@werft-ai/runtime-claude",
+      ),
+    ).toEqual([]);
+    // The walk is not vacuous: it reaches the codec it re-exports.
+    expect(seen.has("@werft-ai/runtime-claude-codec")).toBe(true);
+  });
+
+  test("the control host takes codecs and descriptors from runtime-codecs only", async () => {
+    const directory = join(root, "apps", "control-host");
+    const declared = declaredDependencies(await manifest(directory));
+    expect(declared.has("@werft-ai/runtime-codecs")).toBe(true);
+    expect(
+      [...declared, ...(await packageImports(directory))].filter((name) =>
+        name.startsWith("@werft-ai/runtime-claude"),
+      ),
+    ).toEqual([]);
   });
 
   test("only the worker's object-store module imports storage", async () => {

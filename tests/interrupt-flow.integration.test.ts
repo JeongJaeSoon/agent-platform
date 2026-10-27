@@ -26,11 +26,11 @@ import {
   type SessionCatalog,
   type WorkerGateway,
 } from "@werft-ai/platform";
-import {
-  FakeAgentRuntime,
-  type FakeStep,
-  type NativeSdkMessage,
-} from "@werft-ai/runtime-claude/testing";
+import type {
+  EngineMessage,
+  ScriptedStep,
+} from "@werft-ai/runtime-core/testing";
+import { fakeRuntimeFor } from "@werft-ai/runtime-registry/testing";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -44,6 +44,10 @@ import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/worker
 import { PostgresSessionNotifier } from "../apps/control-host/src/api/session-notifier.ts";
 import type { WorkerCheckpointPort } from "../apps/worker/src/checkpoint.ts";
 import { HttpWorkerGatewayClient } from "../apps/worker/src/gateway-client.ts";
+import {
+  SCRIPTED_KIND,
+  startScripted,
+} from "../apps/worker/src/testing/scripted-engine.ts";
 import {
   inputUuid,
   WorkerHost,
@@ -97,7 +101,7 @@ const silent: WorkerLogger = {
   error: () => {},
 };
 
-function result(uuid: string): NativeSdkMessage {
+function result(uuid: string): EngineMessage {
   return {
     type: "result",
     subtype: "success",
@@ -312,7 +316,7 @@ integration("POST /v1/sessions/{id}/interrupt end to end", () => {
 
     const uuid = (turn: number) =>
       inputUuid(sessionId, String(turn), String(turn));
-    const steps: FakeStep[] = [
+    const steps: ScriptedStep[] = [
       { type: "await-input" },
       { type: "delay", delayMs: 60_000 },
       { type: "emit", message: result(uuid(1)) },
@@ -320,7 +324,7 @@ integration("POST /v1/sessions/{id}/interrupt end to end", () => {
       { type: "emit", message: result(uuid(2)) },
       { type: "await-input" },
     ];
-    const runtime = new FakeAgentRuntime(steps);
+    const runtime = fakeRuntimeFor(SCRIPTED_KIND, steps);
     const host = new WorkerHost({
       checkpoints: capturing(),
       execution: {
@@ -336,19 +340,7 @@ integration("POST /v1/sessions/{id}/interrupt end to end", () => {
       logger: silent,
       runtimes: {
         launcherFor: () => ({
-          start: ({ runtimeConfig, principal, ...rest }) =>
-            runtime.run({
-              claudeConfigDir: "/tmp/fake/config",
-              cwd: "/tmp/fake/workspace",
-              home: "/tmp/fake/home",
-              model: runtimeConfig.model,
-              profile: {
-                ...runtimeConfig.provider,
-                principal: { ownerScope: principal.owner_scope },
-              },
-              tools: runtimeConfig.tools,
-              ...rest,
-            }),
+          start: (launch) => startScripted(runtime, launch),
         }),
       },
       // Production cadences: the heartbeat alone would take 10s to say anything.
