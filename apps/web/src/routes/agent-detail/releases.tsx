@@ -25,7 +25,6 @@ import {
   FieldLabel,
   formatTimestamp,
   NativeSelect,
-  NativeSelectOption,
   Table,
   TableBody,
   TableCell,
@@ -39,6 +38,7 @@ import { type FormEvent, type ReactNode, useId, useRef, useState } from "react";
 import { membersQuery, profilesQuery, queryKeys } from "../../api/queries.ts";
 import { useHasPermission, useRole } from "../../auth/guard.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
+import { ProfileOptions, pickable } from "../../components/profile-options.tsx";
 import { errorKey, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
 import { MUTED, SECTION, SECTION_TITLE } from "./classes.ts";
@@ -83,9 +83,11 @@ export function Releases({
   // A profile the catalog no longer has cannot be released again; without
   // a usable choice, offer one that runs the card's model.
   const items = profiles.data?.items ?? [];
-  const profile = items.some((item) => item.id === chosen)
+  const usable = items.filter(pickable);
+  const profile = usable.some((item) => item.id === chosen)
     ? chosen
-    : ((items.find((item) => item.model === cardModel) ?? items[0])?.id ?? "");
+    : ((usable.find((item) => item.model === cardModel) ?? usable[0])?.id ??
+      "");
   const [open, setOpen] = useState(false);
   const submitted = useRef(false);
   // Only roles that list members get names; anyone else reads "a member".
@@ -353,16 +355,17 @@ function ProfileSelect({
         value={value}
         onChange={(event) => onChange(event.target.value)}
       >
-        {profiles.map((profile) => (
-          <NativeSelectOption key={profile.id} value={profile.id}>
-            {t(
+        <ProfileOptions
+          profiles={profiles}
+          label={(profile) =>
+            t(
               cardModel !== undefined && profile.model !== cardModel
                 ? "agent.releases.profileOptionMismatch"
                 : "agent.releases.profileOption",
               { profile: profile.id, model: profile.model },
-            )}
-          </NativeSelectOption>
-        ))}
+            )
+          }
+        />
       </NativeSelect>
       <FieldDescription>{hint}</FieldDescription>
       <FieldDescription>{t("agent.releases.profileUnlisted")}</FieldDescription>

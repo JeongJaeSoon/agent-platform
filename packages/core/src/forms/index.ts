@@ -5,6 +5,7 @@ import {
   createAgentReleaseRequestSchema,
   createAgentRequestSchema,
   createInviteRequestSchema,
+  createWorkspaceProfileRequestSchema,
 } from "@werft-ai/contracts";
 // biome-ignore lint/style/noRestrictedImports: the forms entry, like the schemas entry, may name zod; the root entry still may not.
 import { z } from "zod";
@@ -30,6 +31,13 @@ export const agentReleaseStep = z.object({
     createAgentReleaseRequestSchema.shape.runtime_profile_id,
   ),
 });
+
+export const workspaceProfileNameStep = trimmed(
+  createWorkspaceProfileRequestSchema.shape.name,
+);
+
+/** The modes a workspace profile may run over a base of each mode. */
+export { NARROWER_PERMISSION_MODES } from "@werft-ai/contracts";
 
 export const inviteStep = z.object({
   email: trimmed(createInviteRequestSchema.shape.email),

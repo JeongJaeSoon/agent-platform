@@ -1,10 +1,18 @@
-import { useQuery } from "@tanstack/react-query";
-import type { ProfileSummary } from "@werft-ai/contracts";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type ApiError, unwrap } from "@werft-ai/client";
+import type {
+  ProfileSummary,
+  WorkspaceProfileChangeResponse,
+  WorkspaceProfileState,
+} from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   Alert,
   AlertDescription,
   AlertTitle,
+  Badge,
+  Button,
+  ConfirmDialog,
   cn,
   EmptyState,
   GridTable,
@@ -13,79 +21,358 @@ import {
   GridTableHeader,
   GridTableRow,
   Page,
+  Section,
   Skeleton,
 } from "@werft-ai/ui";
-import { profilesQuery } from "../api/queries.ts";
-import { useHasPermission } from "../auth/guard.tsx";
+import { Lock, Plus } from "lucide-react";
+import { useState } from "react";
+import { profilesQuery, queryKeys } from "../api/queries.ts";
+import {
+  refusalText,
+  useHasPermission,
+  useMe,
+  useRole,
+} from "../auth/guard.tsx";
+import { Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
+import { type EditorStart, ProfileEditor } from "./profile-editor.tsx";
 
 // No column drops on a phone: each cell stacks two values instead.
 const PROFILE_COLUMNS = "minmax(0,1.2fr) minmax(0,1fr) minmax(0,1.4fr)";
+const VERSION_COLUMNS = "minmax(0,1.4fr) minmax(0,1fr) auto auto";
 const META = "text-caption text-muted-foreground";
 
+const STATE_BADGE: Record<WorkspaceProfileState, "green" | "red" | "gray"> = {
+  usable: "green",
+  base_changed: "red",
+  base_missing: "red",
+  retired: "gray",
+};
+
 /**
- * The catalog's run profiles, read only: the operator defines them in the
- * installation's settings file (console v4 `profiles`).
+ * The run profiles: the operator's, read only from the installation's
+ * settings file, and this workspace's versions narrowing them, which owners
+ * and admins make and retire here.
  */
 export function ProfilesScreen() {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
+  const role = useRole();
+  const workspace = useMe()?.workspace;
   const profiles = useQuery(profilesQuery(client));
-  const oversight = useHasPermission("workspace.manage");
+  const manages = useHasPermission("workspace.manage");
+  const [editor, setEditor] = useState<EditorStart | null>(null);
+  const [retiring, setRetiring] = useState<ProfileSummary | null>(null);
+  const [retireError, setRetireError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
   const items = profiles.data?.items ?? [];
+  const operators = items.filter((item) => item.source === "operator");
+  const versions = items
+    .filter((item) => item.source === "workspace")
+    .sort(
+      (a, b) =>
+        (a.workspace?.name ?? "").localeCompare(b.workspace?.name ?? "") ||
+        (b.workspace?.version ?? 0) - (a.workspace?.version ?? 0),
+    );
+  // The server names a version after the slug when it is id-safe.
+  const idPrefix =
+    workspace == null
+      ? ""
+      : /^[a-z0-9-]+$/.test(workspace.slug)
+        ? workspace.slug
+        : workspace.id;
+  // Only the latest version of a name calls for a move to a new one.
+  const stranded = versions.filter(
+    (item) =>
+      (item.workspace?.state === "base_changed" ||
+        item.workspace?.state === "base_missing") &&
+      !versions.some(
+        (other) =>
+          other.workspace?.name === item.workspace?.name &&
+          (other.workspace?.version ?? 0) > (item.workspace?.version ?? 0),
+      ),
+  );
+
+  const retire = useMutation<WorkspaceProfileChangeResponse, ApiError, string>({
+    mutationFn: (id) =>
+      unwrap(
+        client.POST("/v1/workspace-profiles/{profile_id}/retire", {
+          params: { path: { profile_id: id } },
+        }),
+      ),
+    onMutate: () => setRetireError(null),
+    onSuccess: async ({ profile }) => {
+      setRetiring(null);
+      setNotice(t("profiles.retired", { id: profile.id }));
+      await queryClient.invalidateQueries({ queryKey: queryKeys.profiles });
+    },
+    onError: (failure) =>
+      setRetireError(refusalText(t, failure, "workspace.manage", role)),
+  });
+
+  const open = (start: EditorStart) => {
+    setNotice(null);
+    setEditor(start);
+  };
 
   return (
-    <Page title={t("profiles.title")} description={t("profiles.description")}>
-      {/* The notice reads with the table it is about (v4: 16 between). */}
-      <div className="flex flex-col gap-[var(--ap-space-block)]">
-        <Alert variant="blue">
-          <AlertTitle>
-            {t(oversight ? "profiles.readOnlyTitle" : "profiles.pickTitle")}
-          </AlertTitle>
-          <AlertDescription>
-            {t(oversight ? "profiles.readOnlyText" : "profiles.pickText")}
-          </AlertDescription>
-        </Alert>
-        {profiles.isPending ? (
-          <Skeleton width="60%" />
-        ) : profiles.isError ? (
-          <LoadFailure
-            error={profiles.error}
-            onRetry={() => void profiles.refetch()}
-          />
-        ) : items.length === 0 ? (
-          <EmptyState title={t("profiles.empty")} />
-        ) : (
-          <div className="flex flex-col gap-[var(--ap-space-block)]">
-            <div className="rounded-card border bg-card">
-              <GridTable
-                aria-label={t("profiles.title")}
-                columns={PROFILE_COLUMNS}
-              >
-                <GridTableHeader>
-                  <GridTableColumnHeader>
-                    {t("profiles.column.profile")}
-                  </GridTableColumnHeader>
-                  <GridTableColumnHeader>
-                    {t("profiles.column.model")}
-                  </GridTableColumnHeader>
-                  <GridTableColumnHeader>
-                    {t("profiles.column.environment")}
-                  </GridTableColumnHeader>
-                </GridTableHeader>
-                {items.map((profile) => (
-                  <ProfileRow key={profile.id} profile={profile} />
-                ))}
-              </GridTable>
-            </div>
-            <p className={`m-0 ${META}`}>
-              {t("profiles.foot", { count: items.length })}
-            </p>
-          </div>
+    <Page
+      title={t("profiles.title")}
+      description={t("profiles.description")}
+      actions={
+        manages && operators.length > 0 ? (
+          <Button type="button" onClick={() => open({ mode: "new" })}>
+            <Plus aria-hidden="true" />
+            {t("profiles.create")}
+          </Button>
+        ) : null
+      }
+    >
+      {profiles.isPending ? (
+        <Skeleton width="60%" />
+      ) : profiles.isError ? (
+        <LoadFailure
+          error={profiles.error}
+          onRetry={() => void profiles.refetch()}
+        />
+      ) : (
+        <div className="flex flex-col gap-[var(--ap-space-section)]">
+          <Notice>{notice ?? undefined}</Notice>
+          {stranded.map((item) => (
+            <Alert key={item.id} variant="red">
+              <AlertTitle>
+                {t(
+                  item.workspace?.state === "base_missing"
+                    ? "profiles.baseMissing.title"
+                    : "profiles.baseChanged.title",
+                  { name: item.workspace?.name ?? item.id },
+                )}
+              </AlertTitle>
+              <AlertDescription>
+                {t(
+                  item.workspace?.state === "base_missing"
+                    ? "profiles.baseMissing.text"
+                    : "profiles.baseChanged.text",
+                  {
+                    name: item.workspace?.name ?? item.id,
+                    base: item.workspace?.base_profile_id ?? "",
+                    id: item.id,
+                  },
+                )}
+              </AlertDescription>
+            </Alert>
+          ))}
+          {editor === null ? null : (
+            <ProfileEditor
+              // A new start is a new form, not an edit of the open one.
+              key={editor.mode === "new" ? "new" : editor.from.id}
+              start={editor}
+              operators={operators}
+              versions={versions}
+              idPrefix={idPrefix}
+              onCancel={() => setEditor(null)}
+              onSaved={(id) => {
+                setEditor(null);
+                setNotice(t("profiles.saved", { id }));
+              }}
+            />
+          )}
+          <Section
+            title={t("profiles.workspace.title")}
+            description={t("profiles.workspace.description")}
+            actions={
+              manages ? null : (
+                <span className={cn("flex items-center gap-1", META)}>
+                  <Lock aria-hidden="true" className="size-3.5" />
+                  {t("profiles.locked")}
+                </span>
+              )
+            }
+          >
+            {versions.length === 0 ? (
+              <EmptyState
+                title={t("profiles.emptyWorkspace.title")}
+                description={t("profiles.emptyWorkspace.text")}
+              />
+            ) : (
+              <div className="rounded-card border bg-card">
+                <GridTable
+                  aria-label={t("profiles.workspace.title")}
+                  columns={
+                    manages
+                      ? VERSION_COLUMNS
+                      : "minmax(0,1.4fr) minmax(0,1fr) auto"
+                  }
+                >
+                  <GridTableHeader>
+                    <GridTableColumnHeader>
+                      {t("profiles.column.name")}
+                    </GridTableColumnHeader>
+                    <GridTableColumnHeader>
+                      {t("profiles.column.base")}
+                    </GridTableColumnHeader>
+                    <GridTableColumnHeader>
+                      {t("profiles.column.state")}
+                    </GridTableColumnHeader>
+                    {manages ? (
+                      <GridTableColumnHeader>
+                        {t("profiles.column.actions")}
+                      </GridTableColumnHeader>
+                    ) : null}
+                  </GridTableHeader>
+                  {versions.map((item) => (
+                    <VersionRow
+                      key={item.id}
+                      profile={item}
+                      manages={manages}
+                      onEdit={(mode) => open({ mode, from: item })}
+                      onRetire={() => {
+                        setRetireError(null);
+                        setRetiring(item);
+                      }}
+                    />
+                  ))}
+                </GridTable>
+              </div>
+            )}
+          </Section>
+          <Section
+            title={t("profiles.operator.title")}
+            description={t("profiles.operator.description")}
+          >
+            {operators.length === 0 ? (
+              <EmptyState title={t("profiles.empty")} />
+            ) : (
+              <div className="flex flex-col gap-[var(--ap-space-block)]">
+                <div className="rounded-card border bg-card">
+                  <GridTable
+                    aria-label={t("profiles.operator.title")}
+                    columns={PROFILE_COLUMNS}
+                  >
+                    <GridTableHeader>
+                      <GridTableColumnHeader>
+                        {t("profiles.column.profile")}
+                      </GridTableColumnHeader>
+                      <GridTableColumnHeader>
+                        {t("profiles.column.model")}
+                      </GridTableColumnHeader>
+                      <GridTableColumnHeader>
+                        {t("profiles.column.environment")}
+                      </GridTableColumnHeader>
+                    </GridTableHeader>
+                    {operators.map((profile) => (
+                      <ProfileRow key={profile.id} profile={profile} />
+                    ))}
+                  </GridTable>
+                </div>
+                <p className={`m-0 ${META}`}>
+                  {t("profiles.foot", { count: operators.length })}
+                </p>
+              </div>
+            )}
+          </Section>
+        </div>
+      )}
+      <ConfirmDialog
+        open={retiring !== null}
+        onOpenChange={(next) => {
+          if (!next && !retire.isPending) setRetiring(null);
+        }}
+        title={t("profiles.retireTitle", { id: retiring?.id ?? "" })}
+        consequence={t("profiles.retireText")}
+        confirmLabel={
+          retire.isPending ? t("profiles.retiring") : t("profiles.retire")
+        }
+        cancelLabel={t("common.cancel")}
+        tone="danger"
+        busy={retire.isPending}
+        onConfirm={() => {
+          if (retiring !== null && !retire.isPending)
+            retire.mutate(retiring.id);
+        }}
+      >
+        {retireError === null ? null : (
+          <Alert variant="red" role="alert">
+            <AlertDescription>{retireError}</AlertDescription>
+          </Alert>
         )}
-      </div>
+      </ConfirmDialog>
     </Page>
+  );
+}
+
+function VersionRow({
+  profile,
+  manages,
+  onEdit,
+  onRetire,
+}: {
+  readonly profile: ProfileSummary;
+  readonly manages: boolean;
+  readonly onEdit: (mode: "version" | "remake") => void;
+  readonly onRetire: () => void;
+}) {
+  const { t } = useI18n();
+  const state = profile.workspace?.state ?? "usable";
+  return (
+    <GridTableRow>
+      <GridTableCell>
+        <Stack
+          first={profile.workspace?.name ?? profile.id}
+          firstClassName="font-medium text-foreground"
+          second={profile.id}
+          secondClassName="font-mono"
+        />
+      </GridTableCell>
+      <GridTableCell>
+        <Stack
+          first={profile.workspace?.base_profile_id ?? ""}
+          firstClassName="font-mono text-caption"
+          second={profile.models.join(", ")}
+        />
+      </GridTableCell>
+      <GridTableCell>
+        <Badge variant={STATE_BADGE[state]}>
+          {t(`profiles.state.${state}`)}
+        </Badge>
+      </GridTableCell>
+      {manages ? (
+        <GridTableCell>
+          <div className="flex flex-wrap justify-end gap-2">
+            {state === "usable" || state === "base_changed" ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  onEdit(state === "usable" ? "version" : "remake")
+                }
+              >
+                {t(
+                  state === "usable"
+                    ? "profiles.newVersion"
+                    : "profiles.remake",
+                )}
+              </Button>
+            ) : null}
+            {state === "retired" ? null : (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                aria-label={`${t("profiles.retire")} ${profile.id}`}
+                onClick={onRetire}
+              >
+                {t("profiles.retire")}
+              </Button>
+            )}
+          </div>
+        </GridTableCell>
+      ) : null}
+    </GridTableRow>
   );
 }
 
@@ -123,17 +410,21 @@ function Stack({
   first,
   firstClassName,
   second,
+  secondClassName,
 }: {
   readonly first: string;
   readonly firstClassName?: string;
   readonly second: string;
+  readonly secondClassName?: string;
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
       <span className={cn("wrap-anywhere leading-5", firstClassName)}>
         {first}
       </span>
-      <span className={cn("wrap-anywhere leading-4", META)}>{second}</span>
+      <span className={cn("wrap-anywhere leading-4", META, secondClassName)}>
+        {second}
+      </span>
     </div>
   );
 }

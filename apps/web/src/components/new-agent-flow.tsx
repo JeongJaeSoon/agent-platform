@@ -35,7 +35,6 @@ import {
   FieldLabel,
   Input,
   NativeSelect,
-  NativeSelectOption,
   Stepper,
 } from "@werft-ai/ui";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
@@ -55,6 +54,7 @@ import {
   EMPTY_DRAFT,
 } from "./agent-card-form.tsx";
 import { Notice } from "./auth-page.tsx";
+import { ProfileOptions, pickable } from "./profile-options.tsx";
 import { StepHeading, useStepMoved } from "./step-heading.tsx";
 
 const SlackConnect = lazy(() =>
@@ -655,7 +655,10 @@ function ReleaseForm({
   const form = useStepForm(agentReleaseStep, {
     defaultValues: {
       runtime_profile_id:
-        (profiles.find((p) => p.model === cardModel) ?? profiles[0])?.id ?? "",
+        (
+          profiles.find((p) => pickable(p) && p.model === cardModel) ??
+          profiles.find(pickable)
+        )?.id ?? "",
     },
   });
   const chosen = useWatch({
@@ -685,16 +688,17 @@ function ReleaseForm({
       <Field>
         <FieldLabel>{t("agent.releases.profile")}</FieldLabel>
         <NativeSelect {...form.register("runtime_profile_id")}>
-          {profiles.map((profile) => (
-            <NativeSelectOption key={profile.id} value={profile.id}>
-              {t(
+          <ProfileOptions
+            profiles={profiles}
+            label={(profile) =>
+              t(
                 cardModel === undefined || profile.model === cardModel
                   ? "agent.releases.profileOption"
                   : "agent.releases.profileOptionMismatch",
                 { profile: profile.id, model: profile.model },
-              )}
-            </NativeSelectOption>
-          ))}
+              )
+            }
+          />
         </NativeSelect>
         <FieldDescription>{t("agent.releases.profileHint")}</FieldDescription>
         <FieldDescription>
