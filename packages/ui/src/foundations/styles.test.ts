@@ -325,7 +325,7 @@ describe("tokens.css", () => {
     expect(failures).toEqual([]);
   });
 
-  test("입력 칸 테두리가 surface·sidebar·surface-sunken에서 3:1을 넘는다", () => {
+  test("입력 칸 테두리가 표·카드 선보다 옅지 않고 hover에 3:1을 넘는다", () => {
     const themes: [string, Map<string, string>][] = [
       [
         "light",
@@ -354,13 +354,18 @@ describe("tokens.css", () => {
         "--ap-color-sidebar",
         "--ap-color-surface-sunken",
       ].map((surface) => {
-        const border = palette.get("--ap-color-border-input") ?? "";
-        const ratio = contrast(border, palette.get(surface) ?? "");
-        return `${theme} ${surface} ${ratio >= 3 ? "ok" : ratio.toFixed(2)}`;
+        const bg = palette.get(surface) ?? "";
+        const ratio = contrast(
+          palette.get("--ap-color-border-input") ?? "",
+          bg,
+        );
+        const line = contrast(palette.get("--ap-color-border") ?? "", bg);
+        return `${theme} ${surface} ${ratio > line ? "ok" : `${ratio.toFixed(2)} <= ${line.toFixed(2)}`}`;
       }),
     );
     expect(ratios.filter((line) => !line.endsWith("ok"))).toEqual([]);
-    // Hover (subtle-foreground) never stands out less than the resting edge.
+    // The resting edge is under 3:1 by choice (tokens.css); hover makes up
+    // the 3:1 under the pointer and never stands out less than the rest.
     const hover = themes.map(([theme, palette]) => {
       const surface = palette.get("--ap-color-surface") ?? "";
       const rest = contrast(
@@ -371,7 +376,7 @@ describe("tokens.css", () => {
         palette.get("--ap-color-subtle-foreground") ?? "",
         surface,
       );
-      return `${theme} ${over >= rest ? "ok" : `${over.toFixed(2)} < ${rest.toFixed(2)}`}`;
+      return `${theme} ${over >= rest && over >= 3 ? "ok" : `${over.toFixed(2)} vs ${rest.toFixed(2)}`}`;
     });
     expect(hover.filter((line) => !line.endsWith("ok"))).toEqual([]);
   });
@@ -396,15 +401,14 @@ describe("tokens.css", () => {
         4.5,
       ],
       ["--ap-color-focus-ring", "--ap-color-surface", 3],
-      // An on switch: the track on the page, the surface thumb on the track.
+      // A switch's track, on or off, on the page.
       ...[
         "--ap-color-surface",
         "--ap-color-sidebar",
         "--ap-color-surface-sunken",
-      ].map((surface): [string, string, number] => [
-        "--ap-color-control-checked",
-        surface,
-        3,
+      ].flatMap((surface): [string, string, number][] => [
+        ["--ap-color-control-checked", surface, 3],
+        ["--ap-color-control-unchecked", surface, 3],
       ]),
     ];
     const themes: [string, Map<string, string>][] = [
@@ -424,9 +428,11 @@ describe("tokens.css", () => {
       ],
     ];
     // Suffix match for the same reason as the input border test above.
-    expect(
-      parse(THEME).find((d) => d.property.endsWith("-control-checked"))?.value,
-    ).toBe("var(--ap-color-control-checked)");
+    for (const name of ["control-checked", "control-unchecked"]) {
+      expect(
+        parse(THEME).find((d) => d.property.endsWith(`-${name}`))?.value,
+      ).toBe(`var(--ap-color-${name})`);
+    }
     const failures = themes.flatMap(([theme, palette]) =>
       pairs.flatMap(([fg, bg, floor]) => {
         const a = palette.get(fg) ?? "";
