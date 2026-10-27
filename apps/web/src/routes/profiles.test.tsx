@@ -85,7 +85,12 @@ function catalog(start: ProfileSummary[] = PROFILES) {
           (await request.json()) as CreateWorkspaceProfileRequest;
         const body = { name, base_profile_id };
         const n =
-          items.filter((item) => item.workspace?.name === body.name).length + 1;
+          Math.max(
+            0,
+            ...items
+              .filter((item) => item.workspace?.name === body.name)
+              .map((item) => item.workspace?.version ?? 0),
+          ) + 1;
         const made: ProfileSummary = {
           ...version(n, "usable"),
           ...narrowed,
@@ -164,9 +169,11 @@ describe("실행 프로필", () => {
       screen.getByText("바꾸려면 워크스페이스 소유자나 관리자에게 요청하세요"),
     ).toBeDefined();
     expect(
-      screen.queryByRole("button", { name: "좁힌 프로필 만들기" }),
-    ).toBeNull();
-    expect(screen.queryByRole("button", { name: "새 판 만들기" })).toBeNull();
+      screen.queryAllByRole("button", { name: "좁힌 프로필 만들기" }).length,
+    ).toBe(0);
+    expect(
+      screen.queryAllByRole("button", { name: "새 판 만들기" }).length,
+    ).toBe(0);
   });
 
   test("an owner narrows an operator profile into a new version", async () => {
@@ -236,8 +243,8 @@ describe("실행 프로필", () => {
     ]);
     await waitFor(() =>
       expect(
-        screen.queryByRole("region", { name: "좁힌 프로필 만들기" }),
-      ).toBeNull(),
+        screen.queryAllByRole("region", { name: "좁힌 프로필 만들기" }).length,
+      ).toBe(0),
     );
     const table = await screen.findByRole("table", {
       name: "워크스페이스 프로필",
@@ -282,7 +289,7 @@ describe("실행 프로필", () => {
     const editor = await screen.findByRole("region", {
       name: "strict 새 판 만들기",
     });
-    expect(within(editor).queryByLabelText("기준 프로필")).toBeNull();
+    expect(within(editor).queryAllByLabelText("기준 프로필").length).toBe(0);
     expect(
       (within(editor).getByLabelText("이름") as HTMLInputElement).readOnly,
     ).toBe(true);
@@ -420,6 +427,55 @@ describe("실행 프로필", () => {
     ).toBeDefined();
   });
 
+  test("a base with more tools than one version holds is refused before the request", async () => {
+    const wide: ProfileSummary = {
+      ...(PROFILES[0] as ProfileSummary),
+      tools: Array.from({ length: 65 }, (_, n) => `Tool${n}`),
+    };
+    const { api } = renderAt("/profiles", catalog([wide]).routes);
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "좁힌 프로필 만들기" }),
+    );
+    const editor = await screen.findByRole("region", {
+      name: "좁힌 프로필 만들기",
+    });
+    await user.type(within(editor).getByLabelText("이름"), "wide");
+    await user.click(
+      within(editor).getByRole("button", { name: "새 판으로 저장" }),
+    );
+    expect(
+      await within(editor).findByText(
+        "한 판에는 모델 32개, 도구 64개까지 담습니다. 줄인 뒤 다시 저장하세요.",
+      ),
+    ).toBeDefined();
+    expect(api.calls.filter((call) => call.method === "POST")).toEqual([]);
+  });
+
+  test("losing the manage role closes the open editor and retire dialog", async () => {
+    let role: "owner" | "member" = "owner";
+    const { services } = renderAt("/profiles", {
+      ...catalog([...PROFILES, version(1, "usable")]).routes,
+      "GET /v1/auth/me": () => json(200, role === "owner" ? me() : memberMe()),
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "좁힌 프로필 만들기" }),
+    );
+    await screen.findByRole("region", { name: "좁힌 프로필 만들기" });
+    await user.click(
+      screen.getByRole("button", { name: "은퇴 ws_acme_strict_v1" }),
+    );
+    await screen.findByRole("dialog");
+    role = "member";
+    await services.queryClient.invalidateQueries();
+    await screen.findByText(
+      "바꾸려면 워크스페이스 소유자나 관리자에게 요청하세요",
+    );
+    await waitFor(() => expect(screen.queryAllByRole("dialog").length).toBe(0));
+    expect(screen.queryAllByText("새 판으로 저장").length).toBe(0);
+  });
+
   test("a failed read says so and asks again", async () => {
     let failing = true;
     renderAt("/profiles", {
@@ -442,10 +498,12 @@ describe("실행 프로필", () => {
     });
     await screen.findByText("이 설치에 실행 프로필이 없습니다.");
     await waitFor(() =>
-      expect(screen.queryByRole("table", { name: "운영자 프로필" })).toBeNull(),
+      expect(
+        screen.queryAllByRole("table", { name: "운영자 프로필" }).length,
+      ).toBe(0),
     );
     expect(
-      screen.queryByRole("button", { name: "좁힌 프로필 만들기" }),
-    ).toBeNull();
+      screen.queryAllByRole("button", { name: "좁힌 프로필 만들기" }).length,
+    ).toBe(0);
   });
 });

@@ -35,6 +35,7 @@ export const agentReleaseStep = z.object({
 export const workspaceProfileNameStep = trimmed(
   createWorkspaceProfileRequestSchema.shape.name,
 );
+export const workspaceProfileStep = createWorkspaceProfileRequestSchema;
 
 export {
   NARROWER_PERMISSION_MODES,

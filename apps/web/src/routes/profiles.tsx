@@ -179,7 +179,7 @@ export function ProfilesScreen() {
               </AlertDescription>
             </Alert>
           ))}
-          {editor === null ? null : (
+          {editor === null || !manages ? null : (
             <ProfileEditor
               key={editor.mode === "new" ? "new" : editor.from.id}
               start={editor}
@@ -288,7 +288,7 @@ export function ProfilesScreen() {
         </div>
       )}
       <ConfirmDialog
-        open={retiring !== null}
+        open={retiring !== null && manages}
         onOpenChange={(next) => {
           if (!next && !retire.isPending) setRetiring(null);
         }}
@@ -301,7 +301,7 @@ export function ProfilesScreen() {
         tone="danger"
         busy={retire.isPending}
         onConfirm={() => {
-          if (retiring !== null && !retire.isPending)
+          if (retiring !== null && manages && !retire.isPending)
             retire.mutate(retiring.id);
         }}
       >

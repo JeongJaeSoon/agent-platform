@@ -671,19 +671,24 @@ function ReleaseForm({
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
+  const fallback =
+    (
+      profiles.find((p) => pickable(p) && p.model === cardModel) ??
+      profiles.find(pickable)
+    )?.id ?? "";
   const form = useStepForm(agentReleaseStep, {
-    defaultValues: {
-      runtime_profile_id:
-        (
-          profiles.find((p) => pickable(p) && p.model === cardModel) ??
-          profiles.find(pickable)
-        )?.id ?? "",
-    },
+    defaultValues: { runtime_profile_id: fallback },
   });
   const chosen = useWatch({
     control: form.control,
     name: "runtime_profile_id",
   });
+  // A refetch can retire the picked version under the open form.
+  useEffect(() => {
+    const picked = profiles.find((p) => p.id === chosen);
+    if (picked !== undefined && !pickable(picked) && chosen !== fallback)
+      form.setValue("runtime_profile_id", fallback);
+  }, [profiles, chosen, fallback, form]);
   const profileModel = profiles.find((p) => p.id === chosen)?.model;
   const { errors, isSubmitting } = form.formState;
   const release = async ({

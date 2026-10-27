@@ -8,6 +8,7 @@ import type {
 import {
   NARROWER_PERMISSION_MODES,
   workspaceProfileNameStep,
+  workspaceProfileStep,
 } from "@werft-ai/core/forms";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
@@ -134,7 +135,16 @@ export function ProfileEditor({
     event.preventDefault();
     setSubmitted(true);
     if (save.isPending || !name.success || modelsError) return;
-    save.mutate({ ...draft, name: name.data });
+    // The operator catalog has no such caps; the request does.
+    const request = workspaceProfileStep.safeParse({
+      ...draft,
+      name: name.data,
+    });
+    if (!request.success) {
+      setError(t("profiles.editor.tooLarge"));
+      return;
+    }
+    save.mutate(request.data);
   };
 
   const toggle = (list: readonly string[], item: string, on: boolean) =>

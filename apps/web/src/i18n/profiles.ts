@@ -82,6 +82,8 @@ export const profilesKo = {
   "profiles.editor.nameInvalid":
     "이름은 영문 소문자나 숫자로 시작하고, 영문 소문자·숫자·-로 40자까지 씁니다.",
   "profiles.editor.modelsEmpty": "모델을 하나 이상 고르세요.",
+  "profiles.editor.tooLarge":
+    "한 판에는 모델 32개, 도구 64개까지 담습니다. 줄인 뒤 다시 저장하세요.",
   "profiles.error.unknownBase":
     "운영자가 그 기준 프로필을 지웠습니다. 목록을 다시 불러오세요.",
   "profiles.error.widens":
@@ -179,6 +181,8 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.editor.nameInvalid":
     "A name starts with a lowercase letter or digit and holds lowercase letters, digits and - up to 40 characters.",
   "profiles.editor.modelsEmpty": "Pick at least one model.",
+  "profiles.editor.tooLarge":
+    "A version holds up to 32 models and 64 tools. Pick fewer and save again.",
   "profiles.error.unknownBase":
     "The operator removed that base profile. Reload the list.",
   "profiles.error.widens":
@@ -277,6 +281,8 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.editor.nameInvalid":
     "名前は英小文字か数字で始め、英小文字・数字・- で 40 文字までです。",
   "profiles.editor.modelsEmpty": "モデルを 1 つ以上選んでください。",
+  "profiles.editor.tooLarge":
+    "1 つの版に入るのはモデル 32 個、ツール 64 個までです。減らしてからもう一度保存してください。",
   "profiles.error.unknownBase":
     "運営者がその基準のプロファイルを削除しました。一覧を再読み込みしてください。",
   "profiles.error.widens":
