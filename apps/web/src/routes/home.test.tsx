@@ -286,6 +286,39 @@ describe("bootstrap checklist", () => {
 });
 
 describe("최근 세션 표", () => {
+  test("에이전트 칸은 세션이 붙은 에이전트의 이름을, 에이전트 없는 세션은 —를 보인다", async () => {
+    renderAt("/", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
+      "GET /v1/invites": () => json(200, { items: [] }),
+      "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
+      "GET /v1/sessions": () =>
+        json(200, {
+          items: [
+            {
+              ...oneSession,
+              agent: {
+                id: "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d",
+                name: "배포 도우미",
+                release_version_no: 2,
+              },
+            },
+            { ...oneSession, id: USER_ID },
+          ],
+          next_cursor: null,
+        }),
+    });
+    const table = await screen.findByRole("table", { name: "최근 세션" });
+    const at = within(table)
+      .getAllByRole("columnheader")
+      .findIndex((header) => header.textContent === "에이전트");
+    const agents = within(table)
+      .getAllByRole("row")
+      .slice(1)
+      .map((row) => within(row).getAllByRole("cell")[at]?.textContent);
+    expect(agents).toEqual(["배포 도우미", "—"]);
+  });
   test("좁은 표(820px 이하)에서는 에이전트·저장소 열이 머리와 칸이 함께 빠지고 남는 세 열이 좁은 열 틀과 맞는다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),

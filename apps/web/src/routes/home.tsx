@@ -100,8 +100,7 @@ const STEP_ACTION = {
 const RECENT_LIMIT = 5;
 const RECENT_COLUMNS =
   "minmax(0,2.2fr) 120px minmax(0,1.2fr) minmax(0,1.2fr) 72px";
-// Without the agent and repository columns: the agent is always "—" for now,
-// and the title needs the width at 390px.
+// Without the agent and repository columns: the title needs the width at 390px.
 const RECENT_NARROW_COLUMNS = "minmax(0,1fr) 116px 64px";
 const STALE_WAIT_MS = 30 * 60 * 1000;
 // Lines the home inbox draws before the rest go to the sessions screen.
@@ -1255,9 +1254,14 @@ function RecentRow({
           </span>
         </div>
       </GridTableCell>
-      {/* Sessions do not name their agent yet. */}
-      <GridTableCell hideNarrow={true} className="text-muted-foreground">
-        {t("home.overview.unknown")}
+      <GridTableCell hideNarrow={true}>
+        {session.agent ? (
+          <span className="min-w-0 truncate">{session.agent.name}</span>
+        ) : (
+          <span className="text-muted-foreground">
+            {t("home.overview.unknown")}
+          </span>
+        )}
       </GridTableCell>
       <GridTableCell hideNarrow={true}>
         <span className="flex min-w-0 items-center gap-2">
