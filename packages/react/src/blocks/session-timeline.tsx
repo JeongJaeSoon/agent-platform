@@ -247,7 +247,7 @@ export function SessionTimeline({
             <Message
               from="user"
               author={[
-                turn.created_by?.display_name ?? t("session.events.prompt"),
+                turn.created_by?.display_name || t("session.events.prompt"),
                 turn.channel ? t(`session.channel.${turn.channel}`) : null,
               ]
                 .filter((part) => part !== null)

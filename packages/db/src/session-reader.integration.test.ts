@@ -168,6 +168,35 @@ integration("session reader on PostgreSQL", () => {
       ["api", null],
       ["slack", mina],
     ]);
+
+    // The first turn is written by acceptance, not append.
+    const accepted = await uow.acceptInputAtomic({
+      principal: {
+        ownerId: OWNER,
+        actor: {
+          principal: { kind: "installation", id: "first" },
+          userId,
+          workspaceId: null,
+          apiKeyId: null,
+        },
+      },
+      idempotencyKey: "first",
+      payloadHash: "first",
+      profileId: "claude-coding-v1",
+      repository: "none",
+      channel: "slack",
+      message: "first",
+      limits: { queuedInputLimitPerSession: 100, storageLimitBytes: 1e15 },
+    });
+    if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
+    const first = await createPostgresSessionReader(db).listTurns(
+      OWNER,
+      accepted.response.session_id,
+      { limit: 1 },
+    );
+    expect(
+      first?.items.map(({ channel, created_by }) => [channel, created_by]),
+    ).toEqual([["slack", mina]]);
   });
 
   test("last_event_at is the time of the newest event in stream order, in list and detail", async () => {
