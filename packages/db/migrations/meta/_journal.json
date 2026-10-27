@@ -666,6 +666,13 @@
       "when": 1793139460733,
       "tag": "0185_turn_channel",
       "breakpoints": true
+    },
+    {
+      "idx": 186,
+      "version": "7",
+      "when": 1793140842344,
+      "tag": "0186_slack_outbox_instruction",
+      "breakpoints": true
     }
   ]
 }

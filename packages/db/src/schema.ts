@@ -2973,7 +2973,7 @@ export const slackOutbox = pgTable(
     }),
     check(
       "slack_outbox_kind_check",
-      sql`${table.kind} IN ('reply', 'notice', 'failure_notice', 'input_notice', 'welcome')`,
+      sql`${table.kind} IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome')`,
     ),
     check(
       "slack_outbox_status_check",

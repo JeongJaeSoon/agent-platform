@@ -402,6 +402,18 @@ describe("Slack events service", () => {
         "message_subtype",
       ],
       [{ ...MENTION, bot_id: "B0OTHER" }, "dropped", "bot_message"],
+      // An instruction the outbox posted under its sender's name.
+      [
+        {
+          ...message,
+          subtype: "bot_message",
+          bot_id: "B0OWN",
+          username: "Mina Park (웹 콘솔)",
+          text: "Mina Park (웹 콘솔)\nRun it",
+        },
+        "dropped",
+        "bot_message",
+      ],
       [{ ...message, user: "U0P" }, "received", undefined],
       [
         { ...message, user: "U0P", subtype: "thread_broadcast" },

@@ -18,6 +18,7 @@ describe("agent app manifest", () => {
       "assistant:write",
       "app_mentions:read",
       "chat:write",
+      "chat:write.customize",
       "im:history",
       "channels:history",
       "groups:history",

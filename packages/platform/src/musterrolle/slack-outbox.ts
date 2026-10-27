@@ -11,6 +11,7 @@ import type {
   SlackOutboxSettle,
   SlackOutboxStore,
   SlackUnansweredTurn,
+  SlackUnpostedInstruction,
 } from "../ports/slack-outbox-store.ts";
 import {
   SlackApiError,
@@ -37,7 +38,58 @@ export const SLACK_OUTBOX_MESSAGES = {
   needsInput: "웹에서 승인이 필요해요",
   uncertain: "답을 보냈는지 확인하지 못했어요. 웹에서 확인해 주세요",
   link: "웹에서 열기",
+  web: "웹 콘솔",
+  api: "API",
 } as const;
+
+/** Slack cuts a `username` past this many characters. */
+const SLACK_USERNAME_MAX = 80;
+
+/**
+ * Who an instruction came from, as its first line and its `username`: the
+ * first line still says so in an app that cannot set the name.
+ */
+export function slackInstructionSender(
+  channel: SlackUnpostedInstruction["channel"],
+  senderName: string | null,
+): string {
+  const via = SLACK_OUTBOX_MESSAGES[channel];
+  const name = senderName?.replace(/\s+/g, " ").trim();
+  if (!name) return via;
+  const suffix = ` (${via})`;
+  return `${[...name].slice(0, SLACK_USERNAME_MAX - suffix.length).join("")}${suffix}`;
+}
+
+/** Enqueues the instructions sent from the web or the API, once each. */
+export async function enqueueSlackInstructions(deps: {
+  outbox: Pick<SlackOutboxStore, "unpostedInstructions" | "enqueue">;
+  limit: number;
+}): Promise<number> {
+  const turns = await deps.outbox.unpostedInstructions(deps.limit);
+  for (const turn of turns) {
+    const username = slackInstructionSender(turn.channel, turn.senderName);
+    await deps.outbox.enqueue({
+      workspaceId: turn.workspaceId,
+      agentId: turn.agentId,
+      slackAppId: turn.slackAppId,
+      installationId: turn.installationId,
+      kind: "instruction",
+      channelId: turn.channelId,
+      threadTs: turn.threadTs,
+      slackUserId: null,
+      sessionId: turn.sessionId,
+      body: {
+        text: `${username}\n${turn.message}`,
+        sender:
+          turn.senderSlackUserId === null
+            ? { username }
+            : { username, slack_user_id: turn.senderSlackUserId },
+      },
+      dedupeKey: `instruction:${turn.sessionLinkId}:${turn.turnId}`,
+    });
+  }
+  return turns.length;
+}
 
 /** One outbox row per turn and kind: what makes a turn answered. */
 export function slackTurnDedupeKey(
@@ -315,6 +367,43 @@ export async function drainSlackOutbox(deps: {
       });
     }
   };
+  // An instruction goes under its sender's name and profile image. An app
+  // installed before chat:write.customize may be refused the name; Slack
+  // posted nothing then, so it goes once more as the app.
+  // Read before beginSend, so a slow users.info spends no send lease.
+  const senderImage = (botToken: string, claim: SlackOutboxClaim) =>
+    claim.kind !== "instruction" ||
+    claim.body.sender?.slack_user_id === undefined
+      ? Promise.resolve(null)
+      : deps.slack
+          .userImage(botToken, claim.body.sender.slack_user_id)
+          .catch(() => null);
+  const postMessage = async (
+    botToken: string,
+    claim: SlackOutboxClaim,
+    text: string,
+    iconUrl: string | null,
+  ) => {
+    const target = {
+      channelId: claim.channelId,
+      threadTs: claim.threadTs,
+      text,
+    };
+    const sender = claim.body.sender;
+    if (claim.kind !== "instruction" || sender === undefined) {
+      return deps.slack.postMessage(botToken, target);
+    }
+    const response = await deps.slack.postMessage(botToken, {
+      ...target,
+      username: sender.username,
+      ...(iconUrl === null ? {} : { iconUrl }),
+    });
+    const refused =
+      typeof response.body === "object" &&
+      response.body !== null &&
+      (response.body as { error?: unknown }).error === "missing_scope";
+    return refused ? deps.slack.postMessage(botToken, target) : response;
+  };
   // A lost reply's notice clears the status once sent; a lost notice has
   // nothing after it to do so.
   const lostNotices: SlackOutboxLost[] = [];
@@ -341,7 +430,12 @@ export async function drainSlackOutbox(deps: {
     await noticeUncertain(row);
   }
   await deps.outbox.advanceAnswered();
-  drain.enqueued = await enqueueSlackTurnAnswers({
+  // First, so an answer enqueued below is claimed after what it answers.
+  drain.enqueued = await enqueueSlackInstructions({
+    outbox: deps.outbox,
+    limit: deps.batchSize,
+  });
+  drain.enqueued += await enqueueSlackTurnAnswers({
     outbox: deps.outbox,
     consoleOrigin: deps.consoleOrigin,
     limit: deps.batchSize,
@@ -411,6 +505,7 @@ export async function drainSlackOutbox(deps: {
         );
         continue;
       }
+      const iconUrl = await senderImage(botToken, claim);
       if (!(await deps.outbox.beginSend(claim))) {
         drain.lost += 1;
         deps.logger.warn("Slack outbox lease lost before send", ids);
@@ -428,11 +523,7 @@ export async function drainSlackOutbox(deps: {
                 threadTs: claim.threadTs,
                 text,
               })
-            : await deps.slack.postMessage(botToken, {
-                channelId: claim.channelId,
-                threadTs: claim.threadTs,
-                text,
-              });
+            : await postMessage(botToken, claim, text, iconUrl);
         outcome = settleFor(claim, response);
       } catch (error) {
         // No answer came: the request may have reached Slack.
@@ -449,6 +540,7 @@ export async function drainSlackOutbox(deps: {
         settled &&
         outcome.status !== "pending" &&
         claim.kind !== "notice" &&
+        claim.kind !== "instruction" &&
         claim.kind !== "input_notice" &&
         claim.kind !== "welcome"
       ) {

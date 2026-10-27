@@ -170,6 +170,7 @@ function useDatabase(engine: string) {
     slack.messages.length = 0;
     slack.failures.clear();
     slack.missingTs.clear();
+    slack.users.clear();
     logged.length = 0;
   }, 60_000);
   afterEach(() => close());
@@ -448,6 +449,31 @@ async function answeredThrough() {
   return link?.answeredThrough;
 }
 
+// Turn `sequence`, queued as asked from the web or the API: by the person
+// who asked turn 1, or by no one.
+async function askFrom(
+  sessionId: string,
+  sequence: number,
+  channel: "web" | "api",
+  message: string,
+  byPerson: boolean,
+) {
+  await addTurn(sessionId, sequence);
+  const [first] = await db
+    .select({ actorId: turns.actorId })
+    .from(turns)
+    .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, 1)));
+  await db
+    .update(turns)
+    .set({
+      channel,
+      message,
+      status: "queued",
+      actorId: byPerson ? (first?.actorId ?? null) : null,
+    })
+    .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, sequence)));
+}
+
 const rows = () => db.select().from(slackOutbox).orderBy(asc(slackOutbox.seq));
 
 const posted = () =>
@@ -702,6 +728,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     ) as unknown as Database;
     const outbox = createPostgresSlackOutboxStore(traced);
     await outbox.unansweredTurns(10);
+    await outbox.unpostedInstructions(10);
     await outbox.untoldUncertain(10);
     const explain = async (captured: string | undefined) => {
       const { query, params } = JSON.parse(captured ?? "{}");
@@ -720,21 +747,178 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         client.release(true);
       }
     };
-    const turnsPlan = await explain(plans[0]);
-    // The open turns found per link are fetched by id, or by the link's
-    // session with the ids as a filter: the turns row width alone tips the
-    // planner between the two. Neither reads turns outside linked sessions.
-    expect(turnsPlan).toMatch(
-      /Index Cond: \(id = ANY \(|turns_session_sequence_uniq on turns\s+Index Cond: \(session_id = session_links\.session_id\)\s+Filter: \(\(id = ANY \(/,
-    );
-    expect(turnsPlan).not.toMatch(
-      /Seq Scan on turns|Index Scan using turns_pkey on turns\s+Filter/,
-    );
-    // Ranged on the link and its mark, not a walk of the whole index.
-    expect(turnsPlan).toMatch(
-      /turns_session_sequence_uniq[\s\S]*Index Cond: \(\(session_id = [^)]+\) AND \(sequence > /,
-    );
+    // Answers, then instructions.
+    for (const captured of plans.slice(0, 2)) {
+      const turnsPlan = await explain(captured);
+      // The open turns found per link are fetched by id, or by the link's
+      // session with the ids as a filter: the turns row width alone tips the
+      // planner between the two. Neither reads turns outside linked sessions.
+      expect(turnsPlan).toMatch(
+        /Index Cond: \(id = ANY \(|turns_session_sequence_uniq on turns\s+Index Cond: \(session_id = session_links\.session_id\)\s+Filter: \(.*\(id = ANY \(/,
+      );
+      expect(turnsPlan).not.toMatch(
+        /Seq Scan on turns|Index Scan using turns_pkey on turns\s+Filter/,
+      );
+      // Ranged on the link and its mark, not a walk of the whole index.
+      expect(turnsPlan).toMatch(
+        /turns_session_sequence_uniq[\s\S]*Index Cond: \(\(session_id = [^)]+\) AND \(sequence > /,
+      );
+    }
     expect(await explain(plans.at(-1))).toContain("slack_outbox_uncertain_idx");
+  });
+
+  test("a web instruction goes to the thread once, under its sender's name and image, before its answer", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("First.")]]);
+    await outboxPass();
+    slack.users.set(PERSON, { image48: "https://avatars.example/owner.png" });
+
+    await askFrom(sessionId, 2, "web", "Add a test, <!here>", true);
+    expect(await outboxPass()).toMatchObject({ enqueued: 1, sent: 1 });
+    expect(await outboxPass()).toMatchObject({ enqueued: 0, claimed: 0 });
+    await endTurn(sessionId, 2, "completed", [[text("Added.")]]);
+    await outboxPass();
+
+    const thread = posted().slice(1);
+    expect(
+      thread.map(({ threadTs, text, options }) => ({
+        threadTs,
+        text,
+        username: options.username,
+        icon_url: options.icon_url,
+      })),
+    ).toEqual([
+      {
+        threadTs: THREAD,
+        text: "owner (웹 콘솔)\nAdd a test, &lt;!here&gt;",
+        username: "owner (웹 콘솔)",
+        icon_url: "https://avatars.example/owner.png",
+      },
+      {
+        threadTs: THREAD,
+        text: expect.stringMatching(/^Added\./),
+        username: undefined,
+        icon_url: undefined,
+      },
+    ]);
+    // Turn 1 came from Slack: it is already in the thread.
+    expect(
+      (await rows()).map(({ kind, dedupeKey }) => [kind, dedupeKey]),
+    ).toEqual([
+      ["reply", expect.stringMatching(/^reply:.*:1$/)],
+      ["instruction", expect.stringMatching(/^instruction:.*:2$/)],
+      ["reply", expect.stringMatching(/^reply:.*:2$/)],
+    ]);
+  });
+
+  test("an answer that ended before its instruction went still follows it; a key no person made shows as API", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("First.")]]);
+    await outboxPass();
+
+    await askFrom(sessionId, 2, "api", "Run the checks", false);
+    await endTurn(sessionId, 2, "completed", [[text("Checks pass.")]]);
+    // The answer is enqueued once its instruction has gone.
+    expect(await outboxPass()).toMatchObject({ enqueued: 1, sent: 1 });
+    expect(await outboxPass()).toMatchObject({ enqueued: 1, sent: 1 });
+
+    expect(
+      posted()
+        .slice(1)
+        .map(({ text, options }) => [text.split("\n")[0], options.username]),
+    ).toEqual([
+      ["API", "API"],
+      [expect.stringMatching(/^Checks pass\./), undefined],
+    ]);
+  });
+
+  test("an answer waits for its instruction when a pass's batch did not reach it", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("First.")]]);
+    await outboxPass();
+    await askFrom(sessionId, 2, "web", "Second", true);
+    await askFrom(sessionId, 3, "web", "Third", true);
+    await endTurn(sessionId, 3, "completed", [[text("Third done.")]]);
+
+    for (let pass = 0; pass < 3; pass += 1) {
+      await outboxPass({ batchSize: 1 });
+    }
+
+    const sent = await rows();
+    expect(
+      sent.map(({ dedupeKey, status }) => [
+        dedupeKey.replace(/:.*:/, ":"),
+        status,
+      ]),
+    ).toEqual([
+      ["reply:1", "sent"],
+      ["instruction:2", "sent"],
+      ["instruction:3", "sent"],
+      ["reply:3", "sent"],
+    ]);
+    expect(sent.map((row) => row.slackTs)).toEqual(
+      posted().map(({ ts }) => ts),
+    );
+  });
+
+  test("an answer waits while its instruction backs off", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("First.")]]);
+    await outboxPass();
+    await askFrom(sessionId, 2, "web", "Second", true);
+    await endTurn(sessionId, 2, "completed", [[text("Second done.")]]);
+
+    slack.failures.set("chat.postMessage", "internal_error");
+    await outboxPass();
+    slack.failures.clear();
+    expect((await rows()).map(({ kind, status }) => [kind, status])).toEqual([
+      ["reply", "sent"],
+      ["instruction", "pending"],
+    ]);
+
+    await db
+      .update(slackOutbox)
+      .set({ nextAttemptAt: new Date() })
+      .where(eq(slackOutbox.kind, "instruction"));
+    await outboxPass();
+    await outboxPass();
+    expect(
+      posted()
+        .slice(1)
+        .map(({ text }) => text.split("\n")[0]),
+    ).toEqual(["owner (웹 콘솔)", "Second done."]);
+  });
+
+  test("an app refused the sender's name posts the instruction once as itself", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("First.")]]);
+    await outboxPass();
+    await fetch(`${slack.url.replace(/\/api$/, "")}/fake/answers`, {
+      method: "POST",
+      body: JSON.stringify({
+        method: "chat.postMessage",
+        status: 200,
+        body: { ok: false, error: "missing_scope" },
+      }),
+    });
+
+    await askFrom(sessionId, 2, "web", "Add a test", true);
+    expect(await outboxPass()).toMatchObject({ enqueued: 1, sent: 1 });
+
+    const [, instruction, ...rest] = posted();
+    expect(rest).toEqual([]);
+    expect(instruction?.text).toBe("owner (웹 콘솔)\nAdd a test");
+    expect(instruction?.options.username).toBeUndefined();
   });
 
   test("a long answer is cut to Slack's limit with its link kept whole", async () => {

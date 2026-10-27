@@ -8,6 +8,7 @@ import type {
   SlackOutboxFence,
   SlackOutboxStore,
   SlackUnansweredTurn,
+  SlackUnpostedInstruction,
 } from "@werft-ai/platform";
 import {
   and,
@@ -35,6 +36,7 @@ import {
   slackOutbox,
   surfaceBindings,
   turns,
+  users,
 } from "./schema.ts";
 
 const t = slackOutbox;
@@ -60,6 +62,19 @@ const released = { claimToken: null, leaseExpiresAt: null } as const;
 // token), and both fail this.
 const fenced = (fence: SlackOutboxFence) =>
   and(eq(t.id, fence.id), eq(t.claimToken, fence.claimToken));
+
+// A turn asked from the web or the API after its thread was linked, with no
+// `instruction` row yet, or, `settled`, none past its sends: an answer waits
+// for it, a backoff included, so it never goes first.
+const owesInstruction = (turn: SQL, link: SQL, settled = false) => sql`(
+  ${turn}.channel IN ('web', 'api')
+  AND ${turn}.created_at >= ${link}.created_at
+  AND NOT EXISTS (
+    SELECT 1 FROM slack_outbox oi
+    WHERE oi.dedupe_key = 'instruction:' || ${link}.id || ':' || ${turn}.sequence
+      ${settled ? sql`AND oi.status NOT IN ('pending', 'sending')` : sql``}
+  )
+)`;
 
 // Where a row may still go: an installation not revoked, for a session's row
 // its thread's link still live, unmuted and showing full answers, and for an
@@ -173,6 +188,77 @@ export function createPostgresSlackOutboxStore(
       return rows.length;
     },
 
+    async unpostedInstructions(limit) {
+      const rows = await db
+        .select({
+          sessionLinkId: sessionLinks.id,
+          sessionId: turns.sessionId,
+          workspaceId: sessionLinks.workspaceId,
+          agentId: sessionLinks.agentId,
+          slackAppId: slackApps.id,
+          installationId: sessionLinks.installationId,
+          channelId: sessionLinks.channelId,
+          threadTs: sessionLinks.threadId,
+          turnId: turns.sequence,
+          channel: turns.channel,
+          message: turns.message,
+          senderName: users.displayName,
+          senderSlackUserId: linkedAccounts.externalUserId,
+        })
+        .from(sessionLinks)
+        .innerJoin(
+          slackInstallations,
+          eq(slackInstallations.id, sessionLinks.installationId),
+        )
+        .innerJoin(slackApps, eq(slackApps.appId, slackInstallations.appId))
+        .innerJoin(turns, eq(turns.sessionId, sessionLinks.sessionId))
+        .leftJoin(users, eq(users.id, turns.actorId))
+        .leftJoin(
+          linkedAccounts,
+          and(
+            eq(linkedAccounts.workspaceId, sessionLinks.workspaceId),
+            eq(linkedAccounts.userId, turns.actorId),
+            eq(linkedAccounts.provider, "slack"),
+            eq(linkedAccounts.externalTenant, slackInstallations.teamId),
+            eq(linkedAccounts.status, "active"),
+          ),
+        )
+        .where(
+          and(
+            isNull(sessionLinks.revokedAt),
+            eq(sessionLinks.muted, false),
+            eq(sessionLinks.visibility, "full"),
+            ne(slackInstallations.status, "revoked"),
+            // By a range per link, as unansweredTurns finds its turns.
+            sql`${turns.id} = ANY (ARRAY(
+              SELECT open.id FROM session_links ol
+              CROSS JOIN LATERAL (
+                SELECT ot.id FROM ${turns} ot
+                WHERE ot.session_id = ol.session_id
+                  AND ot.sequence > ol.answered_through
+                  AND ot.status NOT IN ('interrupted', 'cancelled')
+                  AND ${owesInstruction(sql.raw("ot"), sql.raw("ol"))}
+                ORDER BY ot.sequence
+                LIMIT ${limit}
+              ) open
+              WHERE ol.revoked_at IS NULL
+                AND NOT ol.muted
+                AND ol.visibility = 'full'
+            ))`,
+            sql`${owesInstruction(sql.raw('"turns"'), sql.raw('"session_links"'))}`,
+          ),
+        )
+        .orderBy(
+          asc(turns.createdAt),
+          asc(turns.sessionId),
+          asc(turns.sequence),
+        )
+        .limit(limit);
+      return rows.flatMap(({ channel, ...row }): SlackUnpostedInstruction[] =>
+        channel === "web" || channel === "api" ? [{ ...row, channel }] : [],
+      );
+    },
+
     async unansweredTurns(limit) {
       // The keys platform's slackTurnDedupeKey makes, spelled in SQL.
       const prefix = sql`CASE WHEN ${turns.status} = 'completed' THEN 'reply' WHEN ${turns.status} IN ('failed', 'outcome_unknown') THEN 'failure' ELSE 'input' END`;
@@ -237,6 +323,7 @@ export function createPostgresSlackOutboxStore(
                         ELSE 'input' END)
                       || ':' || ol.id || ':' || ot.sequence
                   )
+                  AND NOT ${owesInstruction(sql.raw("ot"), sql.raw("ol"), true)}
                 ORDER BY ot.sequence
                 LIMIT ${limit}
               ) open
@@ -265,6 +352,7 @@ export function createPostgresSlackOutboxStore(
               SELECT 1 FROM ${t} o
               WHERE o.dedupe_key = ${prefix} || ':' || ${sessionLinks.id} || ':' || ${turns.sequence}
             )`,
+            sql`NOT ${owesInstruction(sql.raw('"turns"'), sql.raw('"session_links"'), true)}`,
           ),
         )
         // Not by turns.id, which walks every turn in the table; within a
