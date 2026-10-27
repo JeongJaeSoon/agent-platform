@@ -45,3 +45,23 @@ profiles:
         value_env: ANTHROPIC_API_KEY
     project_settings:
       claude_md: true
+  # claude-coding-real with a model classifier answering in place of a
+  # person, so a workspace profile over it may run `auto` (it only narrows its
+  # base). A new id: the mode is in a profile's fingerprint, so changing it on
+  # claude-coding-real would stop every session and release on that id.
+  # `bypassPermissions` needs PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true
+  # (docs/operator/api-server.md, 자율 모드).
+  claude-coding-real-auto:
+    runtime_kind: claude_agent_sdk
+    runtime_version: "0.3.270"
+    model: claude-sonnet-5
+    tools: [Read, Edit, Write, Glob, Grep, Bash]
+    permission_mode: auto
+    provider:
+      kind: anthropic
+      endpoint: https://api.anthropic.com
+      auth:
+        kind: api_key
+        value_env: ANTHROPIC_API_KEY
+    project_settings:
+      claude_md: true

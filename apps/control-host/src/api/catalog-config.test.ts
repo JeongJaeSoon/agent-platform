@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  profileFingerprint,
   profilePinned,
   repositoryModeOf,
   resolveSessionCatalog,
@@ -13,6 +14,7 @@ import {
   installedRuntimes,
   loadCatalogConfig,
   loadSessionCatalog,
+  optInProfiles,
   PROFILES_FILE,
   REPOSITORIES_FILE,
   readCatalogConfig,
@@ -251,6 +253,22 @@ describe("unattended permission modes", () => {
     );
     expect(unattendedProfiles(catalog)).toEqual(["from-secrets"]);
   });
+
+  test("an auto profile loads without the switch: its classifier still judges each call", async () => {
+    const auto = PROFILES.replace(
+      "tools: [Read]\n    permission_mode: default",
+      "tools: [Read]\n    permission_mode: auto",
+    );
+    expect(auto).not.toBe(PROFILES);
+    const catalog = await loadSessionCatalog({
+      dir: await dirWith({ [PROFILES_FILE]: auto }),
+      env: { PROVIDER_KEY: ENV_VALUE },
+      readSecret: secrets,
+    });
+    expect(catalog.profiles["from-secrets"]?.permission_mode).toBe("auto");
+    expect(unattendedProfiles(catalog)).toEqual(["from-secrets"]);
+    expect(optInProfiles(catalog)).toEqual([]);
+  });
 });
 
 describe("installed runtimes", () => {
@@ -267,20 +285,77 @@ describe("installed runtimes", () => {
     }
   });
 
-  test("only the opt-in example catalog carries unattended profiles, and it starts only where the installation allows them", async () => {
-    for (const dir of [".", "fake-model", "local-model"]) {
-      expect(
-        unattendedProfiles(
-          await readCatalogConfig(join(DEFAULT_CONFIG_DIR, dir)),
-        ),
-      ).toEqual([]);
+  test("the default catalogs carry an auto base and start without the installation's opt-in", async () => {
+    const expected: Record<string, string[]> = {
+      ".": ["claude-coding-real-auto"],
+      "fake-model": ["claude-coding-auto"],
+      "local-model": [],
+    };
+    for (const [dir, auto] of Object.entries(expected)) {
+      const config = await loadCatalogConfig({
+        dir: join(DEFAULT_CONFIG_DIR, dir),
+        env: {},
+      });
+      expect(unattendedProfiles(config)).toEqual(auto);
+      expect(optInProfiles(config)).toEqual([]);
+      for (const id of auto) {
+        expect(config.repositories["sample-app"]?.profiles).toContain(id);
+      }
     }
+  });
+
+  test("a shipped profile keeps the fingerprint main gave it, and an auto base is the same profile in every example", async () => {
+    // Computed on main at 304c2713: sessions and releases pin these.
+    const onMain: Record<string, Record<string, string>> = {
+      ".": {
+        "claude-coding-real":
+          "sha256:9b0f3cfac118121bb700fa88ba6d7b418064520a82f4baa9769e2c55aa954790",
+      },
+      "fake-model": {
+        "claude-coding-local":
+          "sha256:ce5cd0ec2659ff5df68d461bac93fec5cf45a362aeac483de0df4d1fe44b4261",
+        general:
+          "sha256:573de23784b416dec3ac0d9922f0c833ef5f308752716f9f8503b9d6430d194f",
+      },
+      "local-model": {
+        "local-ollama":
+          "sha256:719a7af6b2f1ec7710965e57e021d8d1d558cc3043866d518de09aca8894ec4b",
+        "local-litellm":
+          "sha256:d342569f22e036620a11708b4f0247d2784577bc62c0caf556a0ecb2073f682a",
+      },
+      "fake-model-unattended": {
+        "claude-coding-auto":
+          "sha256:fa3ea8136562b7b2984deffcba6d5e6ea42df9dd366d364978f6e223d858633a",
+        "claude-coding-bypass":
+          "sha256:6bfe7b0617ea29eeaaaa383444248f6d92f32fe9200ba22f1a643c00e6dbbf47",
+      },
+    };
+    const shared = new Map<string, string>();
+    for (const [dir, pinned] of Object.entries(onMain)) {
+      const config = resolveSessionCatalog(
+        await readCatalogConfig(join(DEFAULT_CONFIG_DIR, dir)),
+        () => "placeholder-credential-value",
+      );
+      for (const [id, digest] of Object.entries(pinned)) {
+        const profile = config.profiles[id];
+        expect(profile && profileFingerprint(profile)).toBe(digest);
+      }
+      for (const [id, profile] of Object.entries(config.profiles)) {
+        const digest = profileFingerprint(profile);
+        expect(shared.get(id) ?? digest).toBe(digest);
+        shared.set(id, digest);
+      }
+    }
+  });
+
+  test("only the bypass example needs the installation's opt-in", async () => {
     const dir = join(DEFAULT_CONFIG_DIR, "fake-model-unattended");
     const config = await readCatalogConfig(dir);
     expect(unattendedProfiles(config)).toEqual([
       "claude-coding-auto",
       "claude-coding-bypass",
     ]);
+    expect(optInProfiles(config)).toEqual(["claude-coding-bypass"]);
     expect(config.repositories["sample-app"]?.profiles).toEqual([
       "claude-coding-local",
       "claude-coding-auto",

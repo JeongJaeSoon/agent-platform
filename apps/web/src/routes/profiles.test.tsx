@@ -226,7 +226,12 @@ describe("실행 프로필", () => {
     ]);
     expect(
       within(editor).getByText(
-        "auto는 바탕 프로필이 auto나 bypassPermissions일 때, bypassPermissions는 bypassPermissions일 때만 고를 수 있습니다. 운영자가 설치 설정 PLATFORM_ALLOW_UNATTENDED_PERMISSIONS를 켜고 그런 운영자 프로필을 등록해야 합니다.",
+        "auto는 바탕 프로필이 auto나 bypassPermissions일 때만 고를 수 있습니다.",
+      ),
+    ).toBeDefined();
+    expect(
+      within(editor).getByText(
+        "bypassPermissions는 바탕 프로필이 bypassPermissions일 때만 고를 수 있습니다. 운영자가 설치 설정 PLATFORM_ALLOW_UNATTENDED_PERMISSIONS를 켜고 그런 운영자 프로필을 등록해야 합니다.",
       ),
     ).toBeDefined();
     expect(
@@ -308,6 +313,13 @@ describe("실행 프로필", () => {
       ["plan", false],
       ["bypassPermissions", true],
     ]);
+    // Over an auto base only bypassPermissions is closed, and only its reason shows.
+    expect(within(editor).queryAllByText(/^auto는 바탕 프로필이/).length).toBe(
+      0,
+    );
+    expect(
+      within(editor).getAllByText(/^bypassPermissions는 바탕 프로필이/).length,
+    ).toBe(1);
 
     await user.selectOptions(
       within(editor).getByLabelText("바탕 프로필"),
@@ -328,8 +340,15 @@ describe("실행 프로필", () => {
         .length,
     ).toBe(0);
 
+    const risk = /^bypassPermissions는 모든 도구 호출을 아무 판정 없이/;
+    expect(within(editor).queryAllByText(risk).length).toBe(0);
     await user.type(within(editor).getByLabelText("이름"), "free");
     await user.selectOptions(mode, "bypassPermissions");
+    const warning = within(editor).getByText(risk).closest("[data-slot=alert]");
+    expect(warning?.getAttribute("data-variant")).toBe("amber");
+    expect(mode.getAttribute("aria-describedby")?.split(" ")).toContain(
+      warning?.id,
+    );
     await user.click(
       within(editor).getByRole("button", { name: "새 버전으로 저장" }),
     );
