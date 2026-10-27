@@ -176,6 +176,7 @@ jobs:
               - tests/catalog-mismatch.
               - tests/context-gap-flow.
               - tests/drain-park-flow.
+              - tests/feature-gate-flow.
               - tests/interrupt-flow.
               - tests/lease-clock.
           # Slack and the contracts, clients and web apps that consume the API.

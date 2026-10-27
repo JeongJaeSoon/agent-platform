@@ -23,6 +23,7 @@ export {
 } from "./checkpoint-manifest.ts";
 export type * from "./descriptor.ts";
 export type * from "./events.ts";
+export * from "./features.ts";
 export * from "./git-bundle.ts";
 export * from "./module.ts";
 export * from "./worker-gateway-client.ts";

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { receiptIdSchema, timestampSchema } from "../shared/ids.ts";
-import { permissionModeSchema } from "./session.ts";
+import { permissionModeSchema, runtimeKindSchema } from "./session.ts";
 
 /**
  * Whether a session of the profile names a repository: `required` always,
@@ -67,7 +67,7 @@ export const profileSummarySchema = z
     models: z.array(z.string().min(1)).min(1),
     tools: z.array(z.string().min(1)),
     permission_mode: permissionModeSchema,
-    runtime_kind: z.literal("claude_agent_sdk"),
+    runtime_kind: runtimeKindSchema,
     runtime_version: z.string().min(1),
     // `none`: the profile declared `billing: none`, so its sessions run at
     // no recorded cost and with no dollar limit.

@@ -11034,7 +11034,11 @@
                 },
                 "runtime_kind": {
                   "type": "string",
-                  "const": "claude_agent_sdk"
+                  "enum": [
+                    "claude_agent_sdk",
+                    "codex_app_server",
+                    "pi_coding_agent"
+                  ]
                 },
                 "runtime_version": {
                   "type": "string",
@@ -11232,7 +11236,11 @@
               },
               "runtime_kind": {
                 "type": "string",
-                "const": "claude_agent_sdk"
+                "enum": [
+                  "claude_agent_sdk",
+                  "codex_app_server",
+                  "pi_coding_agent"
+                ]
               },
               "runtime_version": {
                 "type": "string",
