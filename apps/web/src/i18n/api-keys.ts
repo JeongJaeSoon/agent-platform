@@ -17,6 +17,10 @@ export const apiKeysKo = {
     "고른 에이전트의 세션에만 닿습니다. 세션을 시작할 때도 그 에이전트의 release를 지정해야 합니다.",
   "apiKeys.guide.agent.approve":
     "'요청에 답하기'(sessions:approve) 권한이 없습니다. 승인과 질문 답변은 사람이 합니다.",
+  "apiKeys.docs":
+    "API 문서에서 key를 Bearer 칸에 넣고 Test Request로 실제 요청을 보내 볼 수 있습니다.",
+  "apiKeys.docsLink": "API 문서 열기",
+  "apiKeys.docsNewTab": "(새 탭에서 열림)",
   "apiKeys.nav": "key 목록",
   "apiKeys.navCount": "{count}개",
   "apiKeys.personalTitle": "개인 key",
@@ -119,6 +123,10 @@ export const apiKeysEn: Record<keyof typeof apiKeysKo, string> = {
     "Reaches only the chosen agent's sessions, and starts sessions only on that agent's releases.",
   "apiKeys.guide.agent.approve":
     "Never holds Answer requests (sessions:approve): approvals and answers come from a person.",
+  "apiKeys.docs":
+    "In the API reference, put a key in the Bearer field and send a real request with Test Request.",
+  "apiKeys.docsLink": "Open the API reference",
+  "apiKeys.docsNewTab": "(opens in a new tab)",
   "apiKeys.nav": "Key lists",
   "apiKeys.navCount": "{count} keys",
   "apiKeys.personalTitle": "Personal keys",
@@ -223,6 +231,10 @@ export const apiKeysJa: Record<keyof typeof apiKeysKo, string> = {
     "選択したエージェントのセッションにのみアクセスできます。セッションを開始するときも、そのエージェントのリリースを指定する必要があります。",
   "apiKeys.guide.agent.approve":
     "「リクエストへの回答」（sessions:approve）は持てません。承認と質問への回答は人が行います。",
+  "apiKeys.docs":
+    "API リファレンスでキーを Bearer 欄に入れ、Test Request で実際のリクエストを送れます。",
+  "apiKeys.docsLink": "API リファレンスを開く",
+  "apiKeys.docsNewTab": "(新しいタブで開きます)",
   "apiKeys.nav": "キーの一覧",
   "apiKeys.navCount": "{count}件",
   "apiKeys.personalTitle": "個人キー",
