@@ -245,6 +245,85 @@ describe("actual Claude SDK adapter with local Messages API", () => {
     ).toBe(true);
   }, 30_000);
 
+  test("a turn parked at its permission prompt ends without running the tool or asking the model again", async () => {
+    isolated = await createIsolatedWorkspace({ prefix: "94s-858-" });
+    const { home, workspace } = isolated;
+    const marker = join(workspace, "parked-tool-ran.txt");
+    server = startFakeAnthropicServer((_request, index) =>
+      index === 0
+        ? toolReply(
+            "Bash",
+            { command: `printf ran > ${JSON.stringify(marker)}` },
+            "toolu_parked",
+          )
+        : textReply("FOLLOW_UP_AFTER_PARK"),
+    );
+    const runtime = new ClaudeSdkRuntime({
+      endpoints: [server.url],
+      models: ["claude-sonnet-4-5"],
+    });
+    let readiness: unknown;
+    const run = runtime.start(
+      {
+        claudeConfigDir: home,
+        correlationId: "actual-park",
+        mode: "new",
+        cwd: workspace,
+        home,
+        maxTurns: 2,
+        model: "claude-sonnet-4-5",
+        profile: {
+          kind: "anthropic",
+          endpoint: server.url,
+          auth: { kind: "api_key", value: "placeholder-local" },
+          principal: { ownerScope: "owner-a" },
+        },
+        settingSources: [],
+        tools: ["Bash"],
+      },
+      {
+        // What the worker does on a park: the deny carries the interrupt,
+        // and the run is interrupted beside it.
+        onPermission: async () => {
+          readiness = run.parkable();
+          void run.interrupt();
+          return {
+            behavior: "deny",
+            message: "The approval was set aside for a later turn",
+            interrupt: true,
+          };
+        },
+      },
+    );
+    const frames: AgentFrame[] = [];
+    let requestsByParkedResult: number | undefined;
+    const consume = (async () => {
+      for await (const frame of run) {
+        frames.push(frame);
+        if (
+          frame.envelope.message.type === "result" &&
+          requestsByParkedResult === undefined
+        ) {
+          requestsByParkedResult = server?.requests.length;
+          // The run outlives the cut, as the worker's does until it releases.
+          run.send({ message: "follow up", uuid: crypto.randomUUID() });
+          run.finishInput();
+        }
+      }
+    })();
+    run.send({ message: "request a command", uuid: crypto.randomUUID() });
+    await withTimeout(consume, 10_000, "Parked adapter did not settle");
+
+    const results = frames
+      .map((frame) => frame.envelope.message)
+      .filter((message) => message.type === "result");
+    expect(results[0]).toMatchObject({ terminal_reason: "aborted_tools" });
+    expect(requestsByParkedResult).toBe(1);
+    expect(readiness).toEqual({ ok: true, resume: expect.any(String) });
+    expect(await Bun.file(marker).exists()).toBe(false);
+    expect(JSON.stringify(frames)).toContain("FOLLOW_UP_AFTER_PARK");
+  }, 30_000);
+
   test("interrupts the current turn and returns a receipt", async () => {
     isolated = await createIsolatedWorkspace({ prefix: "94s-18-" });
     const { home, workspace } = isolated;

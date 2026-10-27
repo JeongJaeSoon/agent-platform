@@ -309,6 +309,7 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
       {
         version_id: detail.versions[0]?.id,
         runtime_profile_id: "claude-coding-v1",
+        repository_id: "sample-app",
       },
     );
     expect(released.status).toBe(200);

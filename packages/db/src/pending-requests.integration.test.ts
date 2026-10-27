@@ -813,6 +813,124 @@ integration("pending requests and answers on PostgreSQL", () => {
     );
   });
 
+  test.each([
+    [
+      "applied",
+      { outcome: "answered", answer_result: "applied" },
+      "succeeded",
+      null,
+    ],
+    [
+      "from a worker that does not say",
+      { outcome: "answered" },
+      "succeeded",
+      null,
+    ],
+    [
+      "unknown to the run",
+      { outcome: "answered", answer_result: "unknown" },
+      "unknown",
+      "may or may not have acted on it",
+    ],
+    [
+      "stale to the run",
+      { outcome: "cancelled", answer_result: "stale" },
+      "failed",
+      "had already closed the request",
+    ],
+    [
+      "cut off by an interrupt",
+      { outcome: "cancelled", reason: "interrupt" },
+      "failed",
+      "the turn was interrupted",
+    ],
+    [
+      "refused by the worker",
+      { outcome: "cancelled", reason: "refused" },
+      "failed",
+      "the worker refused the answer",
+    ],
+  ] as const)(
+    "an answer %s settles its receipt and records why",
+    async (_label, settlement, status, says) => {
+      const { owner, sessionId, worker } = await runningSession();
+      const { requestId } = await register(worker, permission());
+      const accepted = await answer(owner, sessionId, {
+        request_id: requestId,
+        kind: "permission",
+        decision: "allow",
+      });
+      await poll(worker, 0, [{ request_id: requestId, ...settlement }]);
+
+      const receipt = await receiptOf(accepted.receipt_id);
+      expect(receipt?.status).toBe(status);
+      if (says === null) {
+        expect(receipt?.error).toBeNull();
+      } else {
+        expect(receipt?.error).toMatchObject({ code: "REQUEST_STALE" });
+        expect(
+          (receipt?.error as { message: string } | null)?.message,
+        ).toContain(says);
+      }
+      const [row] = await db
+        .select()
+        .from(pendingRequests)
+        .where(eq(pendingRequests.requestId, requestId));
+      expect([
+        row?.settledOutcome,
+        row?.settledReason,
+        row?.settledAnswerResult,
+      ]).toEqual([
+        settlement.outcome,
+        "reason" in settlement ? settlement.reason : null,
+        "answer_result" in settlement ? settlement.answer_result : null,
+      ]);
+    },
+  );
+
+  test("a cancel nobody answered is recorded with its reason, apart from a person's deny", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const cancelled = await register(worker, permission("make deploy"));
+    const denied = await register(worker, permission("rm -rf"), HASH_B);
+    await answer(owner, sessionId, {
+      request_id: denied.requestId,
+      kind: "permission",
+      decision: "deny",
+      reason: "not that",
+    });
+    await poll(worker, 0, [
+      { request_id: cancelled.requestId, outcome: "cancelled", reason: "park" },
+      {
+        request_id: denied.requestId,
+        outcome: "answered",
+        answer_result: "applied",
+      },
+    ]);
+
+    const rows = await db
+      .select()
+      .from(pendingRequests)
+      .where(eq(pendingRequests.sessionId, sessionId));
+    const record = (id: string) => {
+      const row = rows.find((candidate) => candidate.requestId === id);
+      return {
+        outcome: row?.settledOutcome,
+        reason: row?.settledReason,
+        decision: (row?.answer as { decision?: string } | null)?.decision,
+      };
+    };
+    expect(record(cancelled.requestId)).toEqual({
+      outcome: "cancelled",
+      reason: "park",
+      decision: undefined,
+    });
+    expect(record(denied.requestId)).toEqual({
+      outcome: "answered",
+      reason: null,
+      decision: "deny",
+    });
+  });
+
   // What each reader says, next to what the columns hold.
   async function statuses(owner: { ownerId: string }, sessionId: string) {
     const reader = createPostgresSessionReader(db);

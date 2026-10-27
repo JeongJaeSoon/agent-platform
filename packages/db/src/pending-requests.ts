@@ -231,6 +231,40 @@ export type ClosedRequest = {
 };
 
 /**
+ * Parks what the finalized turn still waits on: every unexpired row its
+ * worker has not settled, an answer that came after the worker cut the
+ * turn included, since that answer is what resumes it. The group expires
+ * together, at its earliest expiry. Returns the parked ids.
+ */
+export async function parkTurnRequests(
+  tx: Database,
+  input: { sessionId: string; turnRowId: number; now: Date },
+): Promise<string[]> {
+  const unsettled = and(
+    eq(pendingRequests.sessionId, input.sessionId),
+    eq(pendingRequests.turnId, input.turnRowId),
+    isNull(pendingRequests.settledAt),
+    isNull(pendingRequests.parkedAt),
+    gt(pendingRequests.expiresAt, input.now),
+  );
+  const [group] = await tx
+    .select({
+      expiresAt: sql<Date | null>`min(${pendingRequests.expiresAt})`.mapWith(
+        pendingRequests.expiresAt,
+      ),
+    })
+    .from(pendingRequests)
+    .where(unsettled);
+  if (group?.expiresAt == null) return [];
+  const parked = await tx
+    .update(pendingRequests)
+    .set({ parkedAt: input.now, expiresAt: group.expiresAt })
+    .where(unsettled)
+    .returning({ requestId: pendingRequests.requestId });
+  return parked.map((row) => row.requestId).sort();
+}
+
+/**
  * The `lost` stage for the waits closeWorkerRequests ended: the question or
  * approval went with its worker unanswered (design D-12).
  */

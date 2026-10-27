@@ -1,6 +1,7 @@
 import type {
   CheckpointLeaseGrant,
   CheckpointPreparation,
+  ParkReadiness,
 } from "@werft-ai/runtime-core";
 import { CLAUDE_AGENT_SDK_VERSION } from "./config.ts";
 import type { NativeSdkMessage } from "./driver.ts";
@@ -45,7 +46,8 @@ export class TurnLedger {
   private lease: object | undefined;
   private mirrorError: string | undefined;
   private readonly pending = new Set<string>();
-  private permissionCallbacks = 0;
+  /** Tools whose permission callback is open, one entry per callback. */
+  private readonly asking: string[] = [];
   /** Every uuid that reached the engine on this run, settled or not. */
   private readonly sent = new Set<string>();
   private sessionId: string | undefined;
@@ -140,14 +142,44 @@ export class TurnLedger {
   }
 
   /** A permission callback opened; pair an admitted one with permissionSettled(). */
-  permissionStarting(): ToolAdmission {
+  permissionStarting(toolUseId: string): ToolAdmission {
     if (this.lease !== undefined) return leasedAdmission;
-    this.permissionCallbacks += 1;
+    this.asking.push(toolUseId);
     return { allowed: true };
   }
 
-  permissionSettled(): void {
-    this.permissionCallbacks = Math.max(0, this.permissionCallbacks - 1);
+  permissionSettled(toolUseId: string): void {
+    const index = this.asking.indexOf(toolUseId);
+    if (index !== -1) this.asking.splice(index, 1);
+  }
+
+  /**
+   * Parkable once nothing runs but tools waiting on a person: a tool the
+   * gate admitted that is not asking is executing, and a background task
+   * keeps writing. Both would be cut mid-write by the park's interrupt.
+   */
+  parkable(): ParkReadiness {
+    if (this.mirrorError !== undefined) {
+      return {
+        ok: false,
+        reason: "checkpoint_unavailable",
+        detail: this.mirrorError,
+      };
+    }
+    const executing = [...this.toolsInFlight].filter(
+      (id) => !this.asking.includes(id),
+    );
+    if (executing.length > 0 || this.backgroundTasks.length > 0) {
+      return { ok: false, reason: "tool_executing" };
+    }
+    if (this.sessionId === undefined) {
+      return {
+        ok: false,
+        reason: "checkpoint_unavailable",
+        detail: "No SDK session has started",
+      };
+    }
+    return { ok: true, resume: this.sessionId };
   }
 
   claimConsumer(): void {
@@ -179,7 +211,7 @@ export class TurnLedger {
         detail: "Another checkpoint holds the lease",
       };
     }
-    const tools = this.toolsInFlight.size + this.permissionCallbacks;
+    const tools = this.toolsInFlight.size + this.asking.length;
     if (tools > 0) {
       return {
         status: "rejected",

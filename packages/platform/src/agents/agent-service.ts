@@ -18,10 +18,13 @@ import type { SlackWelcome } from "../musterrolle/slack-welcome.ts";
 import type { AgentStore } from "../ports/agent-store.ts";
 import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
 import {
+  allowedRun,
+  type CatalogProfile,
   catalogProfile,
   profileModels,
   profilePinned,
   refreshWorkspaceProfilesFor,
+  repositoryModeOf,
   type SessionCatalog,
   type SessionCatalogView,
   workspaceProfileRefusal,
@@ -62,9 +65,14 @@ export async function resolveAgentRelease(
     }) === null
       ? catalogProfile(deps.catalog, profileId)
       : undefined;
+  if (!profile) {
+    throw new SessionServiceError(
+      "PROFILE_DIGEST_MISMATCH",
+      `Runtime profile ${profileId} of this release is not in this host's catalog; release the version again under a profile the catalog has`,
+    );
+  }
   const model = releaseModel(release);
   if (
-    !profile ||
     !profilePinned(profile, release.profile_digest) ||
     (model !== undefined && !profileModels(profile).includes(model))
   ) {
@@ -85,6 +93,24 @@ export function createAgentService(deps: {
   welcome?: Pick<SlackWelcome, "activated">;
 }) {
   const { authorization, store, catalog, credentials } = deps;
+
+  // A release is refused here for what its sessions would be refused for,
+  // so Slack, which names no repository, gets one that can start.
+  function releaseRepositoryRefusal(
+    profileId: string,
+    profile: CatalogProfile,
+    repositoryId: string | null,
+  ): string | null {
+    if (allowedRun(catalog, profileId, repositoryId) !== null) return null;
+    const mode = repositoryModeOf(profile);
+    if (mode === "required" && repositoryId === null) {
+      return `Profile ${profileId} needs a repository: send repository_id`;
+    }
+    if (mode === "none" && repositoryId !== null) {
+      return `Profile ${profileId} runs without a repository: omit repository_id`;
+    }
+    return `Repository ${repositoryId} is not in the catalog or does not allow profile ${profileId}`;
+  }
 
   function personOf(caller: Caller): string {
     const userId = caller.actor?.userId;
@@ -251,6 +277,18 @@ export function createAgentService(deps: {
           `Unknown runtime_profile_id ${profileId}`,
         );
       }
+      const repositoryId = request.repository_id ?? null;
+      const refused = releaseRepositoryRefusal(
+        profileId,
+        profile,
+        repositoryId,
+      );
+      if (refused !== null) {
+        throw new SessionServiceError(
+          "UNSUPPORTED_CAPABILITY",
+          `repository_id: ${refused}`,
+        );
+      }
       const resolved = resolveReleaseContent(
         version.card,
         profileId,
@@ -267,6 +305,7 @@ export function createAgentService(deps: {
         // As stored: PostgreSQL returns a uuid in lower case.
         agent_id: version.agent_id,
         card_sha256: version.content_sha256,
+        repository_id: repositoryId,
         ...resolved.content,
       };
       const result = await store.insertRelease({

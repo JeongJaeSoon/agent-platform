@@ -1,4 +1,7 @@
-import { postSessionAnswerRequestSchema } from "@werft-ai/contracts";
+import {
+  type PendingSettlement,
+  postSessionAnswerRequestSchema,
+} from "@werft-ai/contracts";
 import type {
   ParkDeclinedInput,
   ParkDeclinedResult,
@@ -26,27 +29,54 @@ import {
 import { openInterruptFor, turnInterruptPending } from "./turn-interrupts.ts";
 import { acquireFence, leaseHeld } from "./worker-unit-of-work.ts";
 
+const CANCELLED_BEFORE_ANSWER = {
+  park: "the turn was parked before the answer reached the request",
+  shutdown: "the worker shut down before the answer reached the request",
+  interrupt: "the turn was interrupted before the answer reached the request",
+  refused: "the worker refused the answer for this request",
+} satisfies Record<NonNullable<PendingSettlement["reason"]>, string>;
+
 // What the worker's word does to the answer's receipt. `answered` means the
-// callback got it, whatever it decided; the other two mean the answer was
-// dropped, so the person who gave it learns it did nothing.
-const RECEIPT_BY_OUTCOME = {
-  answered: { status: "succeeded" as const, error: null },
-  expired: {
-    status: "failed" as const,
-    error: {
-      code: "REQUEST_EXPIRED",
-      message:
-        "the request timed out on the worker before the answer reached it",
-    },
-  },
-  cancelled: {
+// callback got it, whatever it decided, unless the run could not say it held
+// the request: then nobody knows whether the engine acted on it. The others
+// mean the answer was dropped, so the person who gave it learns it did
+// nothing, and why when the worker said.
+function receiptEffect(settlement: PendingSettlement) {
+  if (settlement.outcome === "answered") {
+    return settlement.answer_result === "unknown"
+      ? {
+          status: "unknown" as const,
+          error: {
+            code: "REQUEST_STALE",
+            message:
+              "the engine did not know the request when the answer reached it, so it may or may not have acted on it",
+          },
+        }
+      : { status: "succeeded" as const, error: null };
+  }
+  if (settlement.outcome === "expired") {
+    return {
+      status: "failed" as const,
+      error: {
+        code: "REQUEST_EXPIRED",
+        message:
+          "the request timed out on the worker before the answer reached it",
+      },
+    };
+  }
+  return {
     status: "failed" as const,
     error: {
       code: "REQUEST_STALE",
-      message: "the request's callback was gone before the answer reached it",
+      message:
+        settlement.answer_result === "stale"
+          ? "the engine had already closed the request when the answer reached it"
+          : settlement.reason !== undefined
+            ? CANCELLED_BEFORE_ANSWER[settlement.reason]
+            : "the request's callback was gone before the answer reached it",
     },
-  },
-};
+  };
+}
 
 // The event a worker that hands publication over would have published: the
 // display copy it registered, which is already redacted, plus the expiry
@@ -307,6 +337,8 @@ export function createPostgresWorkerPendingStore(
             .set({
               settledAt: at,
               settledOutcome: settlement.outcome,
+              settledReason: settlement.reason ?? null,
+              settledAnswerResult: settlement.answer_result ?? null,
               resolvedAt: row.resolvedAt ?? at,
             })
             .where(eq(pendingRequests.requestId, row.requestId));
@@ -314,7 +346,7 @@ export function createPostgresWorkerPendingStore(
           settledNow.add(row.requestId);
           settledTurns.add(row.turnId);
           if (row.answerReceiptId !== null) {
-            const effect = RECEIPT_BY_OUTCOME[settlement.outcome];
+            const effect = receiptEffect(settlement);
             await tx
               .update(receipts)
               .set({ ...effect, updatedAt: at })

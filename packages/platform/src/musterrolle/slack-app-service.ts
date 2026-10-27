@@ -121,11 +121,11 @@ export function createSlackAppService(deps: {
   consoleOrigin: string | null;
   eventsPublicUrl?: string | null;
   onAgentAppChanged?: (agentId: string) => void;
-  /** The active release's profile when its sessions must name a repository; else null. */
-  repositoryRequiredProfile?: (
+  /** Why the agent's Slack sessions would be refused now; null when they would start. */
+  activeReleaseWarning?: (
     workspaceId: string,
     agentId: string,
-  ) => Promise<string | null>;
+  ) => Promise<SlackAgentWarning | null>;
   now?: () => Date;
   newId?: () => string;
 }) {
@@ -137,11 +137,9 @@ export function createSlackAppService(deps: {
     workspaceId: string,
     agentId: string,
   ): Promise<SlackAgentWarning[]> {
-    const profileId =
-      (await deps.repositoryRequiredProfile?.(workspaceId, agentId)) ?? null;
-    return profileId === null
-      ? []
-      : [{ code: "repository_required", profile_id: profileId }];
+    const warning =
+      (await deps.activeReleaseWarning?.(workspaceId, agentId)) ?? null;
+    return warning === null ? [] : [warning];
   }
 
   function ready() {
