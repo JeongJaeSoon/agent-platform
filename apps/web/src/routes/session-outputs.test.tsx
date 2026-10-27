@@ -192,5 +192,6 @@ describe("session outputs", () => {
     expect(
       await screen.findByRole("button", { name: "다시 시도" }),
     ).toBeTruthy();
+    expect(screen.queryByText(/out\/ 폴더에 남긴 파일만/)).toBeNull();
   });
 });
