@@ -2202,8 +2202,10 @@ export class WorkerHost {
     }
     const grant = this.takeGrant(request);
     if (grant !== undefined) {
-      answer({ kind: "selected", optionKind: "allow_once" });
-      this.pending.deliver(grant.request_id, "grant_consumed");
+      void answer({ kind: "selected", optionKind: "allow_once" }).then(
+        (result) => this.grantAnswered(grant, result),
+        () => this.grantAnswered(grant, "stale"),
+      );
       return;
     }
     this.pending.request(request, answer);
@@ -2224,12 +2226,28 @@ export class WorkerHost {
         grant.input_hash === request.inputHash,
     );
     if (index === -1) return undefined;
-    const [grant] = this.grants.splice(index, 1);
-    this.logger.info("worker.grant.consumed", {
-      turn_id: turn.turnId,
-      request_id: grant?.request_id ?? null,
-    });
-    return grant;
+    return this.grants.splice(index, 1)[0];
+  }
+
+  /**
+   * A stale allow never reached the engine, so the grant is still there for
+   * the next such call, or unused if its turn is already over. An unknown
+   * one may have let the tool run, so it counts as spent.
+   */
+  private grantAnswered(grant: PermissionGrant, result: AnswerResult): void {
+    if (result !== "stale") {
+      this.logger.info("worker.grant.consumed", {
+        turn_id: grant.turn_id,
+        request_id: grant.request_id,
+      });
+      this.pending?.deliver(grant.request_id, "grant_consumed");
+      return;
+    }
+    if (this.turn?.turnId === grant.turn_id && this.turn.closed !== true) {
+      this.grants.push(grant);
+      return;
+    }
+    this.pending?.deliver(grant.request_id, "grant_unused");
   }
 
   /** What the turn did not spend is reported unused, once it is finalized. */
