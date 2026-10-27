@@ -1,16 +1,8 @@
-// Creates a session, sends a message, answers its permission request while
-// waiting on the event stream, then closes the session.
-//
-//   WERFT_BASE_URL=http://127.0.0.1:3000 WERFT_API_KEY=... \
-//     bun packages/sdk/examples/session-close.ts
-//
-// The key needs sessions:read, sessions:write, sessions:approve and
-// sessions:control. The messages are GATE-SPEC scripts for the fake model;
-// a real model takes plain prompts.
 import {
   closeResult,
   isApiError,
   type PendingRequestHandlers,
+  type SessionEvent,
   type SessionId,
   Werft,
   waitForReceipt,
@@ -18,9 +10,17 @@ import {
 } from "@werft-ai/sdk";
 
 const client = new Werft();
+const approver = process.env.WERFT_APPROVER_API_KEY
+  ? client.withOptions({ apiKey: process.env.WERFT_APPROVER_API_KEY })
+  : client;
 const signal = AbortSignal.timeout(5 * 60_000);
-const profile_id = process.env.WERFT_PROFILE_ID ?? "claude-coding-local";
-const repository_id = process.env.WERFT_REPOSITORY_ID ?? "sample-app";
+const agent_release_id = process.env.WERFT_AGENT_RELEASE_ID;
+const target = agent_release_id
+  ? { agent_release_id }
+  : {
+      profile_id: process.env.WERFT_PROFILE_ID ?? "claude-coding-local",
+      repository_id: process.env.WERFT_REPOSITORY_ID ?? "sample-app",
+    };
 
 const COMMAND = "echo alpha > hello.txt";
 // A handler is a security boundary: allow the exact command, deny the rest.
@@ -37,11 +37,20 @@ const approvals: PendingRequestHandlers = {
   },
 };
 
+function logEvent(event: SessionEvent): void {
+  console.log(
+    `  event ${event.kind}${event.turn_id ? ` (turn ${event.turn_id})` : ""}`,
+  );
+  if (event.kind === "assistant") {
+    const text = (event.payload as { text?: unknown }).text;
+    if (typeof text === "string") console.log(text);
+  }
+}
+
 async function run(): Promise<void> {
   const created = await client.sessions.create(
     {
-      profile_id,
-      repository_id,
+      ...target,
       message:
         'GATE-SPEC {"id":"sdk1","steps":[],"final":"hello from the SDK"}',
     },
@@ -58,13 +67,14 @@ async function run(): Promise<void> {
     events: {
       onEvent(event) {
         lastEventId = event.id;
-        console.log(
-          `  event ${event.kind}${event.turn_id ? ` (turn ${event.turn_id})` : ""}`,
-        );
+        logEvent(event);
       },
     },
   });
   console.log(`turn ${first.turn_id}: ${first.status}`);
+  if (first.status !== "completed")
+    throw new Error(`turn ${first.turn_id} did not complete`);
+  console.log("result:", first.result);
 
   const sent = await client.sessions.messages.send(
     sessionId,
@@ -82,20 +92,20 @@ async function run(): Promise<void> {
     },
     { signal },
   );
-  const second = await waitForTurn(client, sessionId, sent.turn_id, {
+  const second = await waitForTurn(approver, sessionId, sent.turn_id, {
     signal,
     onRequest: approvals,
     onAnswer: (outcome) =>
       console.log(`answer ${outcome.request_id}: ${outcome.outcome}`),
     events: {
       ...(lastEventId ? { lastEventId } : {}),
-      onEvent: (event) =>
-        console.log(
-          `  event ${event.kind}${event.turn_id ? ` (turn ${event.turn_id})` : ""}`,
-        ),
+      onEvent: logEvent,
     },
   });
   console.log(`turn ${second.turn_id}: ${second.status}`);
+  if (second.status !== "completed")
+    throw new Error(`turn ${second.turn_id} did not complete`);
+  console.log("result:", second.result);
 
   const { revision } = await client.sessions.get(sessionId, { signal });
   const accepted = await client.sessions.close(
@@ -106,11 +116,14 @@ async function run(): Promise<void> {
   console.log(`close: receipt ${accepted.receipt_status}`);
   const receipt = await waitForReceipt(client, accepted.receipt_id, { signal });
   console.log(`close: receipt ${receipt.status}`, closeResult(receipt));
+  if (receipt.status !== "succeeded") throw new Error("close did not succeed");
 
   const closed = await client.sessions.get(sessionId, { signal });
   console.log(
     `session ${sessionId}: admission ${closed.admission_state}, status ${closed.status}`,
   );
+  if (closed.admission_state !== "closed")
+    throw new Error("session is not closed");
 
   const refused = await client.sessions.messages
     .send(sessionId, { message: "one more" }, { signal })
@@ -119,6 +132,8 @@ async function run(): Promise<void> {
     "message after close:",
     isApiError(refused) ? `${refused.status} ${refused.code}` : refused,
   );
+  if (!isApiError(refused, "SESSION_CLOSED"))
+    throw new Error("message after close was not refused");
 }
 
 try {
@@ -126,5 +141,6 @@ try {
 } catch (error) {
   if (isApiError(error))
     console.error(error.code, error.message, "request_id:", error.requestId);
-  throw error;
+  else console.error(error instanceof Error ? error.message : "Sample failed");
+  process.exitCode = 1;
 }
