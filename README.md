@@ -34,7 +34,20 @@ bun run --filter @werft-ai/storybook build   # 정적 빌드: apps/storybook/dis
 bun run --filter @werft-ai/storybook test:stories  # 모든 스토리를 Chrome에서 그리고 a11y(axe) 위반이 있으면 실패
 ```
 
-Storybook과 Vitest CLI는 Node 20.19 이상에서 돈다. `test:stories`는 설치된 Chrome을 쓴다. CI의 `storybook` job이 빌드와 a11y 검사를 하고, `pages` job이 [apps/docs](apps/docs) 문서 사이트를 루트에, Storybook을 `/storybook/`에, API 레퍼런스를 `/api/`에 모은다. main push에서만 `storybook-pages` job이 GitHub Pages에 배포한다.
+Storybook과 Vitest CLI는 Node 20.19 이상에서 돈다. `test:stories`는 설치된 Chrome을 쓴다. CI의 `storybook` job이 빌드와 a11y 검사를 하고, `pages` job이 [apps/docs](apps/docs) 문서 사이트를 루트에, Storybook을 `/storybook/`에, 콘솔 데모를 `/demo/`에, API 레퍼런스를 `/api/`에 모은다. main push에서만 `storybook-pages` job이 GitHub Pages에 배포한다.
+
+## 콘솔 데모 (읽기 전용)
+
+[jeongjaesoon.github.io/agent-platform/demo/](https://jeongjaesoon.github.io/agent-platform/demo/)에서 예시 데이터가 들어간 웹 콘솔을 서버 없이 눌러 본다. 데모 owner로 로그인된 상태로 열리고, 저장·실행 요청은 보내지 않고 "데모에서는 저장되지 않습니다"라고 알린다. 데이터는 `example.test` 계정으로 채운 스택에서 녹화한 GET 응답(`apps/web/src/demo/fixtures.json`)이다.
+
+```bash
+bun run --cwd apps/web build                      # 녹화에 쓰는 일반 빌드
+bun apps/web/scripts/demo-record.ts --api http://127.0.0.1:<API 포트> --accounts <계정 표 파일>
+bun apps/web/scripts/demo-scan.ts                 # 토큰·example.test 밖 이메일·내부 호스트 검사 (CI demo job도 돌린다)
+bun run --cwd apps/web build:demo                 # 정적 빌드: apps/web/dist-demo
+```
+
+녹화기는 로그인 한 번 말고는 GET만 스택에 넘기고, 끝나면 로그아웃한다.
 
 ## 라이선스
 
