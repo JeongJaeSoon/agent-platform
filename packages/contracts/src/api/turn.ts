@@ -18,6 +18,8 @@ import {
   turnStatusSchema,
 } from "./session.ts";
 
+export const turnSourceSchema = z.enum(["slack", "web", "api"]);
+
 export const sessionMessageSchema = z
   .object({ message: messageTextSchema })
   .strict();
@@ -50,6 +52,14 @@ export const turnSummarySchema = z.object({
       "needs_input is derived when read, as for the session: a running turn with a pending request a client can still answer.",
   }),
   message: z.string(),
+  source: turnSourceSchema.nullable().meta({
+    description:
+      "Where the instruction came from: `slack` (a mention, DM or thread reply), `web` (the console) or `api` (an API key). Null for a turn from before it was recorded.",
+  }),
+  author_name: z.string().nullable().meta({
+    description:
+      "Display name of the person who sent the instruction. Null for an API key no person created, or a turn from before it was recorded.",
+  }),
   terminal_reason: z.string().min(1).nullable(),
   checkpoint_revision: revisionSchema.nullable().meta({
     description:
@@ -79,6 +89,7 @@ export type PostSessionMessageResponse = z.infer<
 >;
 export type AttemptSummary = z.infer<typeof attemptSummarySchema>;
 export type TurnSummary = z.infer<typeof turnSummarySchema>;
+export type TurnSource = z.infer<typeof turnSourceSchema>;
 export type TurnDetail = z.infer<typeof turnDetailSchema>;
 export type ListTurnsQuery = z.infer<typeof listTurnsQuerySchema>;
 export type ListTurnsResponse = z.infer<typeof listTurnsResponseSchema>;

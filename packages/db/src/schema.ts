@@ -1152,6 +1152,8 @@ export const turns = pgTable(
       .defaultNow(),
     /** The human whose input started the turn; null on the api-key path. */
     actorId: uuid("actor_id").references(() => users.id),
+    /** `slack`, `web` or `api`; null on rows from before it was recorded. */
+    source: text(),
   },
   (table) => [
     uniqueIndex("turns_session_sequence_uniq").on(

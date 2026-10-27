@@ -23,7 +23,9 @@ import {
   type SseEvent,
   sseEventSchema,
   type TurnDetail,
+  type TurnSource,
   type TurnSummary,
+  turnSourceSchema,
   turnStatusSchema,
 } from "@werft-ai/contracts";
 import type { StructuredLogger } from "@werft-ai/observability";
@@ -156,6 +158,21 @@ async function recordAcceptance(
   });
 }
 
+// Slack ingress is the only caller that speaks as the installation.
+const SOURCE_OF_PRINCIPAL: Record<string, TurnSource> = {
+  installation: "slack",
+  user: "web",
+  api_key: "api",
+};
+
+function turnActor(principal: AcceptSessionInput["principal"]) {
+  const actor = principal.actor;
+  return {
+    actorId: actor?.userId ?? null,
+    source: (actor && SOURCE_OF_PRINCIPAL[actor.principal.kind]) ?? null,
+  };
+}
+
 async function insertQueuedTurn(
   tx: Database,
   input: {
@@ -163,6 +180,7 @@ async function insertQueuedTurn(
     sequence: number;
     message: string;
     actorId: string | null;
+    source: TurnSource | null;
   },
 ) {
   // now() is the transaction start, which can precede a competing append
@@ -177,6 +195,7 @@ async function insertQueuedTurn(
       status: "queued",
       createdAt: sql`clock_timestamp()`,
       actorId: input.actorId,
+      source: input.source,
     })
     .returning({ id: turns.id });
   if (!turn) throw new Error("Failed to insert turn");
@@ -304,7 +323,7 @@ export function createPostgresSessionUnitOfWork(
           sessionId,
           sequence: 1,
           message: input.message,
-          actorId: actor?.userId ?? null,
+          ...turnActor(input.principal),
         });
 
         const receiptId = randomUUID();
@@ -440,7 +459,7 @@ export function createPostgresSessionUnitOfWork(
           sessionId: sessionId,
           sequence,
           message: input.message,
-          actorId: input.principal.actor?.userId ?? null,
+          ...turnActor(input.principal),
         });
         await tx
           .update(sessions)
@@ -499,6 +518,11 @@ const LAST_EVENT_AT = sql<Date | null>`(
 
 type SessionRow = typeof sessions.$inferSelect;
 type TurnRow = typeof turns.$inferSelect;
+type TurnRead = {
+  turn: TurnRow;
+  awaitingInput: boolean;
+  authorName: string | null;
+};
 
 // result_json holds the SDK result message: its `result` and `usage` when
 // present, otherwise the whole document is the result.
@@ -517,8 +541,7 @@ function resultParts(resultJson: unknown): {
 }
 
 function summarizeTurn(
-  row: TurnRow,
-  awaitingInput: boolean,
+  { turn: row, awaitingInput, authorName }: TurnRead,
   checkpointRevision: number | null,
 ): TurnSummary {
   return {
@@ -526,6 +549,8 @@ function summarizeTurn(
     session_id: row.sessionId,
     status: turnStatusSchema.parse(publicStatus(row.status, awaitingInput)),
     message: row.message,
+    source: turnSourceSchema.safeParse(row.source).data ?? null,
+    author_name: authorName,
     terminal_reason: row.terminalReason,
     checkpoint_revision: checkpointRevision,
     created_at: row.createdAt.toISOString(),
@@ -649,8 +674,10 @@ export function createPostgresSessionReader(
       .select({
         turn: turns,
         awaitingInput: sql<boolean>`exists (${actionableOfTurn(db)})`,
+        authorName: users.displayName,
       })
-      .from(turns);
+      .from(turns)
+      .leftJoin(users, eq(users.id, turns.actorId));
 
   // A reason a newer build recorded reads as unknown after a rollback
   // rather than failing the whole detail.
@@ -1104,8 +1131,8 @@ export function createPostgresSessionReader(
         session.retiredCheckpointRevision,
       );
       return {
-        items: page.map(({ turn, awaitingInput }) =>
-          summarizeTurn(turn, awaitingInput, revisions.get(turn.id) ?? null),
+        items: page.map((read) =>
+          summarizeTurn(read, revisions.get(read.turn.id) ?? null),
         ),
         next_cursor:
           rows.length > query.limit && last
@@ -1143,11 +1170,7 @@ export function createPostgresSessionReader(
             .limit(1)
         : [];
       return {
-        ...summarizeTurn(
-          row,
-          read.awaitingInput,
-          revisions.get(row.id) ?? null,
-        ),
+        ...summarizeTurn(read, revisions.get(row.id) ?? null),
         result: parts.result,
         usage: parts.usage,
         attempts: attemptRows.map((attempt) => ({
