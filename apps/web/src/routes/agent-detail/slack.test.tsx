@@ -130,7 +130,9 @@ describe("Slack management", () => {
     );
     const state = screen.getByRole("region", { name: "상태" });
     // Home and DM both read as unknown.
-    expect(within(state).getAllByText("—")).toHaveLength(2);
+    await waitFor(() =>
+      expect(within(state).getAllByText("—")).toHaveLength(2),
+    );
     expect(screen.queryByText("설정 안 됨") === null).toBe(true);
     expect(screen.queryByRole("switch", { name: "DM 받기" }) === null).toBe(
       true,
@@ -142,7 +144,7 @@ describe("Slack management", () => {
       ),
     );
     expect(screen.queryByText("연결된 채널이 없습니다") === null).toBe(true);
-    await user.click(screen.getByRole("button", { name: "채널 추가" }));
+    await user.click(await screen.findByRole("button", { name: "채널 추가" }));
     expect(
       screen.queryByText(
         "찾은 채널이 없습니다. 비공개 채널은 먼저 /invite로 초대하세요.",
@@ -163,6 +165,8 @@ describe("Slack management", () => {
     expect(screen.queryByRole("button", { name: "채널 추가" })).toBeNull();
     expect(screen.queryByText("연결된 채널이 없습니다")).toBeNull();
     expect(screen.getByRole("region", { name: "고급" })).toBeDefined();
+    expect(screen.getByRole("region", { name: "위험 구역" })).toBeDefined();
+    expect(screen.queryByRole("link", { name: "기본" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "홈 채널 고르기" }));
     await screen.findByText(
       "찾은 채널이 없습니다. 비공개 채널은 먼저 /invite로 초대하세요.",
@@ -172,6 +176,27 @@ describe("Slack management", () => {
         "[data-slot=dialog-content] [data-slot=row-list]",
       ) === null,
     ).toBe(true);
+  });
+
+  test("offers no channel actions until the bindings say which step it is", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: async () => {
+        await gate;
+        return json(200, { items: [] });
+      },
+    });
+    await screen.findByRole("region", { name: "고급" });
+    expect(screen.queryByRole("button", { name: "채널 추가" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "홈 지정" })).toBeNull();
+    release();
+    await screen.findByRole("button", { name: "홈 채널 고르기" });
+    expect(screen.queryByRole("button", { name: "채널 추가" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "기본" })).toBeNull();
   });
 
   test("shows DM immediately but keeps the home placeholder until channel names arrive", async () => {

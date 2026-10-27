@@ -92,7 +92,7 @@ export const slackJa = {
   "slack.homeStep": "ホームチャンネルの設定",
   "slack.pickHome": "ホームチャンネルを選ぶ",
   "slack.homeStepHint":
-    "まず、エージェントが紹介やお知らせを投稿するホームチャンネルを選んでください。選んだチャンネルはすぐに使用中になります。非公開チャンネルはチャンネルで /invite を使って bot を招待してください。",
+    "まず、エージェントが紹介やお知らせを投稿するホームチャンネルを選んでください。選んだチャンネルはすぐに使用中になります。非公開チャンネルはチャンネルで /invite を使ってボットを招待してください。",
   "slack.channelHome": "{channel} をホームに設定",
   "slack.channelConnect": "{channel} に接続",
   "slack.connectedChannels": "接続済みチャンネル",

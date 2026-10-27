@@ -874,11 +874,12 @@ function SlackChannels({
     }));
   }, [channels.data]);
   const error = bindings.error ?? channels.error ?? update.error;
+  const modeFor = (row: Binding | undefined) =>
+    // The first home is always in use, even a channel someone switched off.
+    row && !(homeStep && row.mode === "off") ? row.mode : defaultMode;
   const connectChannel = (channelId: string) => {
     const row = rows.find((item) => item.external_surface_id === channelId);
-    // The first home is always in use, even a channel someone switched off.
-    const mode =
-      row && !(homeStep && row.mode === "off") ? row.mode : defaultMode;
+    const mode = modeFor(row);
     if (!mode) return;
     update.mutate({
       kind: pickHome ? "home" : "connect",
@@ -913,35 +914,38 @@ function SlackChannels({
         <h2 id={`${SECTION.channels}-title`} className={HEADING}>
           {t(homeStep ? "slack.homeStep" : "slack.connectedChannels")}
         </h2>
-        <div className="flex flex-wrap justify-end gap-2">
-          <Button
-            type="button"
-            variant={homeStep ? "default" : "outline"}
-            size="sm"
-            onClick={(event) => {
-              pickerOpener.current = event.currentTarget;
-              setPickHome(true);
-              setPicking(true);
-            }}
-          >
-            {t(homeStep ? "slack.pickHome" : "slack.setHome")}
-          </Button>
-          {homeStep ? null : (
+        {/* Until the bindings load, it is not known which step this is. */}
+        {bindings.isPending ? null : (
+          <div className="flex flex-wrap justify-end gap-2">
             <Button
               type="button"
-              variant="outline"
+              variant={homeStep ? "default" : "outline"}
               size="sm"
               onClick={(event) => {
                 pickerOpener.current = event.currentTarget;
-                setPickHome(false);
+                setPickHome(true);
                 setPicking(true);
               }}
             >
-              <Plus aria-hidden="true" strokeWidth={1.5} />
-              {t("slack.addChannel")}
+              {t(homeStep ? "slack.pickHome" : "slack.setHome")}
             </Button>
-          )}
-        </div>
+            {homeStep ? null : (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={(event) => {
+                  pickerOpener.current = event.currentTarget;
+                  setPickHome(false);
+                  setPicking(true);
+                }}
+              >
+                <Plus aria-hidden="true" strokeWidth={1.5} />
+                {t("slack.addChannel")}
+              </Button>
+            )}
+          </div>
+        )}
       </div>
       {homeStep ? (
         <p className="m-0 text-control text-muted-foreground">
@@ -1120,10 +1124,11 @@ function SlackChannels({
                         disabled={
                           update.isPending ||
                           !bindings.isSuccess ||
-                          (!defaultMode &&
-                            !rows.some(
+                          !modeFor(
+                            rows.find(
                               (row) => row.external_surface_id === channel.id,
-                            )) ||
+                            ),
+                          ) ||
                           channels.isPlaceholderData ||
                           input.trim() !== query ||
                           (!pickHome &&
@@ -1352,10 +1357,11 @@ export default function SlackTab({
   const bindings = useSlackBindings(agentId);
   const installed =
     identities.data?.items.some((item) => item.status === "active") ?? false;
-  // An installed agent picks its home before anything else in the tab.
+  // An installed agent picks its home before anything else in the tab. A
+  // failed refetch keeps the last data, so the step follows the data.
   const homeStep =
     installed &&
-    bindings.isSuccess &&
+    bindings.data !== undefined &&
     !bindings.data.items.some((binding) => binding.home);
   // The danger zone exists only while there is an app to revoke or delete.
   const keys: readonly SectionKey[] = [
