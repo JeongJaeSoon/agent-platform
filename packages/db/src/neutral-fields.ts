@@ -1,5 +1,4 @@
-import type { SessionEventPayload } from "@werft-ai/contracts";
-import type { NeutralizeEvent } from "@werft-ai/platform";
+import { type NeutralizeEvent, neutralFieldsOf } from "@werft-ai/platform";
 import { sql } from "drizzle-orm";
 import { rowsOf } from "./control-unit-of-work.ts";
 import type { Database } from "./queries.ts";
@@ -19,7 +18,7 @@ const ENGINE_EVENT_TYPES = [
 
 export type NeutralFill = {
   eventsRead: number;
-  /** Events that got fields they lacked. */
+  /** Events that got their neutral fields. */
   filled: number;
   batches: number;
   filledThrough: number;
@@ -30,11 +29,11 @@ export type NeutralFill = {
 };
 
 /**
- * Adds the engine-neutral fields to stored events that lack them, from the
- * progress cursor on, until it catches up or `budgetMs` runs out. Only keys
- * an event lacks are added and nothing stored is rewritten, so a batch read
- * twice changes nothing more. Rows are filled, and passed by the cursor, once
- * older than the margin `projectToolCalls` uses
+ * Writes the engine-neutral fields of stored events that have none
+ * (`events.neutral`), from the progress cursor on, until it catches up or
+ * `budgetMs` runs out. The payload is never rewritten and a row that has
+ * fields keeps them, so a batch read twice changes nothing more. The cursor
+ * passes a row once it is older than the margin `projectToolCalls` uses
  * (TOOL_CALL_CURSOR_MARGIN_SECONDS).
  */
 export async function fillNeutralFields(
@@ -79,6 +78,7 @@ type BatchRow = {
   id: string;
   type: string;
   payload: unknown;
+  bare: boolean;
   safe: boolean;
   profile_id: string | null;
 };
@@ -106,13 +106,14 @@ function fillBatch(
     const from = read === null ? cursor : Math.max(read, cursor);
     const rows = rowsOf<BatchRow>(
       await tx.execute(sql`
-        SELECT b.id, b.type, b.payload, b.safe, s.profile_id
+        SELECT b.id, b.type, b.payload, b.bare, b.safe, s.profile_id
         FROM (
           SELECT id, session_id, type,
             CASE WHEN type IN (${sql.join(
               ENGINE_EVENT_TYPES.map((type) => sql`${type}`),
               sql`, `,
             )}) THEN payload END AS payload,
+            neutral IS NULL AS bare,
             created_at < now() - make_interval(secs => ${margin}) AS safe
           FROM events WHERE id > ${from} ORDER BY id LIMIT ${options.batchSize}
         ) AS b
@@ -120,20 +121,27 @@ function fillBatch(
         ORDER BY b.id`),
     );
     if (rows.length === 0) return { n: 0, filled: 0, hi: from, cursor };
-    // A row inside the margin is left for a later pass: a worker may still
-    // resend its batch, and an older replica compares the whole payload.
     const added = rows.flatMap((row) => {
-      const fields = row.safe ? addedFields(options.neutralize, row) : null;
+      const fields =
+        row.bare && row.payload !== null
+          ? neutralFieldsOf(options.neutralize, row.profile_id, {
+              event: row.type,
+              data: row.payload,
+            })
+          : null;
       return fields === null ? [] : [{ id: Number(row.id), added: fields }];
     });
     if (added.length > 0) {
       await tx.execute(sql`
-        UPDATE events AS e SET payload = e.payload || v.added
+        UPDATE events AS e SET neutral = v.added
         FROM jsonb_to_recordset(${JSON.stringify(added)}::jsonb) AS v(id bigint, added jsonb)
-        WHERE e.id = v.id`);
+        WHERE e.id = v.id AND e.neutral IS NULL`);
     }
     const hi = Number(rows[rows.length - 1]?.id);
-    const safe = rows.filter((row) => row.safe).at(-1);
+    // Only up to the first row still inside the margin: a lower id can
+    // have begun its transaction later than a higher one.
+    const unsafe = rows.findIndex((row) => !row.safe);
+    const safe = (unsafe === -1 ? rows : rows.slice(0, unsafe)).at(-1);
     const next = Math.max(
       cursor,
       safe === undefined ? cursor : Number(safe.id),
@@ -145,23 +153,4 @@ function fillBatch(
     }
     return { n: rows.length, filled: added.length, hi, cursor: next };
   });
-}
-
-// The stored payload goes to the codec as it is: parsing it would drop the
-// keys the contract does not name, and only keys it lacks are written back.
-function addedFields(
-  neutralize: NeutralizeEvent,
-  row: BatchRow,
-): Record<string, unknown> | null {
-  const data = row.payload;
-  if (data === null || typeof data !== "object" || Array.isArray(data)) {
-    return null;
-  }
-  const stored = data as Record<string, unknown>;
-  const out = neutralize(row.profile_id, {
-    event: row.type,
-    data: stored,
-  } as SessionEventPayload).data as Record<string, unknown>;
-  const added = Object.entries(out).filter(([key]) => !(key in stored));
-  return added.length === 0 ? null : Object.fromEntries(added);
 }

@@ -3,19 +3,24 @@ import {
   presentTurnEvent,
   type SessionEventPayload,
   sessionEventPayloadSchema,
+  withStoredNeutralFields,
+  workerEventSchema,
 } from "@werft-ai/contracts";
 import type { EventCodec } from "@werft-ai/runtime-core";
 import { finalReplyText } from "../musterrolle/slack-outbox.ts";
 import type { CatalogProfileView } from "./catalog.ts";
-import { createNeutralizer } from "./event-codecs.ts";
+import { createNeutralizer, neutralFieldsOf } from "./event-codecs.ts";
 
-// A second engine with an event shape of its own: its codec reads `item`,
-// which no consumer outside it knows.
+// A second engine with an event shape of its own, in the fields the contract
+// keeps opaque (`message`, a result's or a tool result's own keys): its codec
+// reads them, no consumer outside it does.
 const secondEngine: EventCodec = {
   kind: "codex_app_server",
   withNeutralFields(event) {
     const data = event.data as Record<string, unknown>;
-    const item = data.item as Record<string, unknown> | undefined;
+    const item = (data.item ?? data.message) as
+      | Record<string, unknown>
+      | undefined;
     if (item === undefined) return event;
     const added =
       event.event === "assistant"
@@ -58,13 +63,13 @@ const catalog = {
 const stream: SessionEventPayload[] = [
   {
     event: "assistant",
-    data: { type: "assistant", item: { said: "Looking." } },
+    data: { type: "assistant", message: { said: "Looking." } },
   },
   {
     event: "tool_use",
     data: {
       type: "assistant",
-      item: { call: "c1", tool: "shell", args: { command: "ls" } },
+      message: { call: "c1", tool: "shell", args: { command: "ls" } },
     },
   },
   {
@@ -74,7 +79,10 @@ const stream: SessionEventPayload[] = [
       item: { call: "c1", failed: false, output: "README.md" },
     },
   },
-  { event: "assistant", data: { type: "assistant", item: { said: "Done." } } },
+  {
+    event: "assistant",
+    data: { type: "assistant", message: { said: "Done." } },
+  },
   {
     event: "result",
     data: {
@@ -87,9 +95,9 @@ const stream: SessionEventPayload[] = [
 describe("createNeutralizer", () => {
   test("picks the codec the session profile's runtime kind names", () => {
     const unknown: Array<string | null> = [];
-    const neutralize = createNeutralizer([secondEngine], catalog, (id) =>
-      unknown.push(id),
-    );
+    const neutralize = createNeutralizer([secondEngine], catalog, {
+      unknown: (id) => unknown.push(id),
+    });
     const [said] = stream;
     expect(
       neutralize("second", said as SessionEventPayload).data,
@@ -103,7 +111,7 @@ describe("createNeutralizer", () => {
     expect(unknown).toEqual([null, "gone", "other"]);
   });
 
-  test("fields the contract refuses are not added", () => {
+  test("fields the contract refuses are not added, with a warning", () => {
     const broken: EventCodec = {
       kind: "codex_app_server",
       withNeutralFields: (event) =>
@@ -113,17 +121,37 @@ describe("createNeutralizer", () => {
         }) as SessionEventPayload,
     };
     const [said] = stream as [SessionEventPayload];
-    expect(createNeutralizer([broken], catalog)("second", said)).toBe(said);
+    const refused: string[] = [];
+    const neutralize = createNeutralizer([broken], catalog, {
+      refused: (kind, event) => refused.push(`${kind} ${event}`),
+    });
+    expect(neutralize("second", said)).toBe(said);
+    expect(refused).toEqual(["codex_app_server assistant"]);
   });
 
   test("a second engine's stream reads through the neutral fields alone", () => {
     const neutralize = createNeutralizer([secondEngine], catalog);
-    const events = stream.map((event) => neutralize("second", event));
+    // As /append-events takes it, stores it (neutral fields beside the data)
+    // and the event stream reads it back.
+    const events = stream.map((sent, index) => {
+      const {
+        source_sequence: _,
+        occurred_at: __,
+        ...event
+      } = workerEventSchema.parse({
+        ...sent,
+        source_sequence: index + 1,
+        occurred_at: "2026-10-27T00:00:00.000Z",
+      });
+      const neutral = neutralFieldsOf(neutralize, "second", event);
+      return sessionEventPayloadSchema.parse({
+        event: event.event,
+        data: withStoredNeutralFields(event.data, neutral),
+      });
+    });
     for (const event of events) {
-      const { item: _, ...data } = event.data as Record<string, unknown>;
-      expect(sessionEventPayloadSchema.parse(event).data).toMatchObject(data);
-      for (const engineField of ["message", "session_id", "native_type"]) {
-        expect(data).not.toHaveProperty(engineField);
+      for (const engineField of ["session_id", "native_type"]) {
+        expect(event.data).not.toHaveProperty(engineField);
       }
     }
     expect(events.map((event) => presentTurnEvent(event).summary)).toEqual([

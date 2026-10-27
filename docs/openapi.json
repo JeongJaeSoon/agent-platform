@@ -5250,9 +5250,6 @@
                       "usage": {
                         "description": "Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead."
                       },
-                      "stop_reason": {
-                        "description": "Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead."
-                      },
                       "turn": {
                         "type": "object",
                         "properties": {

@@ -3568,8 +3568,6 @@ export interface components {
                     session_id?: string;
                     /** @description Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead. */
                     usage?: unknown;
-                    /** @description Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead. */
-                    stop_reason?: unknown;
                     turn?: {
                         outcome: string;
                         is_error: boolean;

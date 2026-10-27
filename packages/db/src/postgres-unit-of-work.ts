@@ -85,6 +85,7 @@ import {
 } from "./cursors.ts";
 import { drainAttention } from "./drain.ts";
 import { enqueueWithin } from "./enqueue.ts";
+import { eventWithNeutralFields } from "./event-payload.ts";
 import { admitInput } from "./input-limits.ts";
 import {
   AWAITABLE_STATUSES,
@@ -544,17 +545,19 @@ export function eventPageQuery(
   maxBytes: number,
 ) {
   return sql`
-    SELECT id, type, payload, attempt_id, occurred_ms, turn_sequence,
+    SELECT id, type, payload, bare, attempt_id, occurred_ms, turn_sequence,
            fetched
     FROM (
-      SELECT c.id, c.type, c.payload, c.attempt_id, c.turn_sequence,
+      SELECT c.id, c.type, c.payload, c.bare, c.attempt_id, c.turn_sequence,
              c.occurred_ms,
              sum(octet_length(c.payload::text)) OVER (ORDER BY c.id)
                AS running_bytes,
              row_number() OVER (ORDER BY c.id) AS position,
              count(*) OVER () AS fetched
       FROM (
-        SELECT e.id, e.type, e.payload, e.attempt_id,
+        SELECT e.id, e.type,
+               ${eventWithNeutralFields(sql`e`)} AS payload,
+               e.neutral IS NULL AS bare, e.attempt_id,
                t.sequence AS turn_sequence,
                (extract(epoch FROM coalesce(e.occurred_at, e.created_at))
                  * 1000)::bigint AS occurred_ms
@@ -574,6 +577,7 @@ type EventPageRow = {
   id: string;
   type: string;
   payload: unknown;
+  bare: boolean;
   attempt_id: string | null;
   occurred_ms: string;
   turn_sequence: number | null;
@@ -1237,7 +1241,7 @@ export function createPostgresSessionReader(
         items: rows.map((row) => {
           const stored = readStoredEvent(row.type, row.payload);
           const payload =
-            stored.readable && options.neutralize
+            stored.readable && row.bare && options.neutralize
               ? options.neutralize(owned.profileId, stored.payload)
               : stored.payload;
           if (!stored.readable) {

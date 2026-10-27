@@ -25,7 +25,11 @@ export type NeutralizeEvent = (
 export function createNeutralizer(
   codecs: readonly EventCodec[],
   catalog: ProfileLookup<CatalogProfileView>,
-  onUnknown: (profileId: string | null) => void = () => {},
+  warn: {
+    unknown?: (profileId: string | null) => void;
+    // The codec's output broke the contract; the event is kept as it was.
+    refused?: (kind: RuntimeKind, event: string, reason: string) => void;
+  } = {},
 ): NeutralizeEvent {
   const byKind = new Map<RuntimeKind, EventCodec>(
     codecs.map((codec) => [codec.kind, codec]),
@@ -36,14 +40,38 @@ export function createNeutralizer(
         ? undefined
         : catalogProfile(catalog, profileId)?.runtime_kind;
     const codec = kind === undefined ? undefined : byKind.get(kind);
-    if (codec === undefined) {
-      onUnknown(profileId);
+    if (kind === undefined || codec === undefined) {
+      warn.unknown?.(profileId);
       return event;
     }
     const out = codec.withNeutralFields(event);
+    if (out === event) return out;
     // Stored, a field the contract refuses would leave the event unreadable.
-    return out === event || sessionEventPayloadSchema.safeParse(out).success
-      ? out
-      : event;
+    const checked = sessionEventPayloadSchema.safeParse(out);
+    if (checked.success) return out;
+    warn.refused?.(kind, event.event, checked.error.message);
+    return event;
   };
+}
+
+/**
+ * Only the neutral fields the codec adds to the data (`events.neutral`), or
+ * null when it adds none. The data goes to the codec unparsed: parsing would
+ * drop the keys the contract does not name.
+ */
+export function neutralFieldsOf(
+  neutralize: NeutralizeEvent,
+  profileId: string | null,
+  event: { event: string; data: unknown },
+): Record<string, unknown> | null {
+  const data = event.data;
+  if (data === null || typeof data !== "object" || Array.isArray(data)) {
+    return null;
+  }
+  const stored = data as Record<string, unknown>;
+  const out = neutralize(profileId, event as SessionEventPayload).data as
+    | Record<string, unknown>
+    | undefined;
+  const added = Object.entries(out ?? {}).filter(([key]) => !(key in stored));
+  return added.length === 0 ? null : Object.fromEntries(added);
 }

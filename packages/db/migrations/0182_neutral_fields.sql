@@ -6,7 +6,8 @@ CREATE TABLE "neutral_field_progress" (
 	CONSTRAINT "neutral_field_progress_one_row" CHECK ("neutral_field_progress"."id" = 1)
 );
 --> statement-breakpoint
--- Every event stored so far was written before the control plane added the
+ALTER TABLE "events" ADD COLUMN "neutral" jsonb;--> statement-breakpoint
+-- Every event stored so far was written before the control plane derived the
 -- engine-neutral fields; the API's fill reads them from 0.
 INSERT INTO "neutral_field_progress" ("id", "filled_through", "history_through")
   SELECT 1, 0, coalesce(max("id"), 0) FROM "events";

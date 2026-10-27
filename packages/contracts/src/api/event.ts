@@ -172,7 +172,6 @@ export const sessionEventVariants = {
       subtype: opaque(z.string().min(1).optional()),
       session_id: opaque(z.string().min(1).optional()),
       usage: opaque(requiredUnknownSchema.optional()),
-      stop_reason: opaque(z.unknown().optional()),
       turn: turnEndSchema.optional(),
       runtime: runtimeRefSchema.optional(),
     }),

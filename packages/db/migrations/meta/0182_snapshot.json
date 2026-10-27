@@ -1,5 +1,5 @@
 {
-  "id": "0b9fa9fe-0135-4020-8a69-4abf2fa0ccca",
+  "id": "9d7eb117-cacd-4cd5-9a28-30a398302c18",
   "prevId": "3b435297-006f-470f-b721-e8276eaf6624",
   "version": "7",
   "dialect": "postgresql",
@@ -2277,6 +2277,12 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true
+        },
+        "neutral": {
+          "name": "neutral",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
         },
         "turn_id": {
           "name": "turn_id",

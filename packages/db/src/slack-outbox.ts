@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
-import type { SessionEventPayload } from "@werft-ai/contracts";
+import {
+  type SessionEventPayload,
+  withStoredNeutralFields,
+} from "@werft-ai/contracts";
 import type {
   NeutralizeEvent,
   SlackOutboxFence,
@@ -283,6 +286,7 @@ export function createPostgresSlackOutboxStore(
                 turnId: events.turnId,
                 type: events.type,
                 payload: events.payload,
+                neutral: events.neutral,
                 profileId: sessions.profileId,
               })
               .from(events)
@@ -317,11 +321,11 @@ export function createPostgresSlackOutboxStore(
                 : "needs_input",
           events: said
             .filter((event) => event.turnId === turnRowId)
-            .map(({ type, payload, profileId }) => ({
+            .map(({ type, payload, neutral, profileId }) => ({
               type,
               payload:
-                options.neutralize === undefined
-                  ? payload
+                neutral !== null || options.neutralize === undefined
+                  ? withStoredNeutralFields(payload, neutral)
                   : options.neutralize(profileId, {
                       event: type,
                       data: payload,

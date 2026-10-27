@@ -1192,6 +1192,10 @@ export const events = pgTable(
       .references(() => sessions.id),
     type: text().notNull(),
     payload: jsonb().notNull(),
+    // The engine-neutral fields the control plane derived from payload,
+    // kept apart so payload stays what the worker sent (a resend is compared
+    // against it). Null until derived; read merged under payload's own keys.
+    neutral: jsonb(),
     turnId: bigint("turn_id", { mode: "number" }).references(() => turns.id),
     attemptId: text("attempt_id"),
     sourceSequence: integer("source_sequence"),

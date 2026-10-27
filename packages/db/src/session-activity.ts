@@ -5,6 +5,7 @@ import {
 } from "@werft-ai/contracts";
 import { type SQL, sql } from "drizzle-orm";
 import { rowsOf } from "./control-unit-of-work.ts";
+import { eventWithNeutralFields } from "./event-payload.ts";
 import type { Database } from "./queries.ts";
 import { events } from "./schema.ts";
 
@@ -36,6 +37,8 @@ const ROOT_RUN_ID = "root";
 const LIVE_PHASES = ["running", "needs_input", "interrupting"];
 // left() counts code points.
 const TEXT_MAX = SESSION_ACTIVITY_TEXT_MAX;
+// Every read below is FROM events unaliased.
+const said = eventWithNeutralFields(sql`${events}`);
 
 const str = (value: SQL) =>
   sql`CASE WHEN jsonb_typeof(${value}) = 'string' THEN ${value} #>> '{}' END`;
@@ -77,16 +80,16 @@ export function activityQuery(ids: readonly string[]) {
         SELECT id, type, turn_id, created_at,
                coalesce(occurred_at, created_at) AS at,
                CASE WHEN type = 'tool_result'
-                    THEN ${str(sql`payload -> 'tool_result' -> 'tool_call_id'`)}
+                    THEN ${str(sql`${said} -> 'tool_result' -> 'tool_call_id'`)}
                     WHEN type = 'question'
                     THEN ${str(sql`payload -> 'tool_use_id'`)} END AS ref_tool,
                CASE WHEN type = 'tool_result'
-                    THEN payload -> 'tool_result' -> 'is_error' = 'true'::jsonb END AS error,
+                    THEN ${said} -> 'tool_result' -> 'is_error' = 'true'::jsonb END AS error,
                CASE WHEN type = 'status' THEN payload ->> 'phase' END AS phase,
                CASE WHEN type IN ('assistant', 'tool_use')
                     THEN ${str(sql`payload -> 'parent_tool_use_id'`)} END AS parent,
                CASE WHEN type IN ('assistant', 'tool_use')
-                    THEN payload END AS said
+                    THEN ${said} END AS said
         FROM ${events}
         WHERE session_id = p.session_id
         ORDER BY id DESC
@@ -217,10 +220,10 @@ export function activityQuery(ids: readonly string[]) {
     LEFT JOIN last l USING (session_id)
     LEFT JOIN current cur USING (session_id)
     LEFT JOIN LATERAL (
-      SELECT payload AS said FROM ${events} WHERE id = l.id
+      SELECT ${said} AS said FROM ${events} WHERE id = l.id
     ) lb ON true
     LEFT JOIN LATERAL (
-      SELECT payload AS said FROM ${events} WHERE id = cur.use_id
+      SELECT ${said} AS said FROM ${events} WHERE id = cur.use_id
     ) cb ON true
     LEFT JOIN LATERAL (
       SELECT payload FROM ${events} WHERE id = cur.question_id AND cur.waiting

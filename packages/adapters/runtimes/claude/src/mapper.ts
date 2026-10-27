@@ -1,6 +1,5 @@
 import {
   type PendingQuestion,
-  PLATFORM_SYSTEM_SUBTYPE_VALUES,
   type QuestionAnswer,
   type SessionEvent,
   sessionEventSchema,
@@ -10,7 +9,6 @@ import { CLAUDE_AGENT_SDK_VERSION } from "./config.ts";
 import type { AgentFrame, NativeEnvelope, NativeSdkMessage } from "./driver.ts";
 
 const REDACTED = "[REDACTED]";
-const PLATFORM_SUBTYPES = new Set<string>(PLATFORM_SYSTEM_SUBTYPE_VALUES);
 // Paths are not secrets: an approval has to say which file it touches.
 const SENSITIVE_KEY =
   /authorization|cookie|credential|secret|password|api[_-]?key|auth[_-]?token|(^|_)home$/i;
@@ -136,15 +134,7 @@ export function projectPublicEvents(
       }),
     ];
   }
-  // A subtype the control plane also writes would read as the platform's
-  // own (EX-4 R37), so it goes out wrapped like any other engine event.
-  if (
-    message.type === "system" &&
-    !(
-      typeof message.subtype === "string" &&
-      PLATFORM_SUBTYPES.has(message.subtype)
-    )
-  ) {
+  if (message.type === "system") {
     return [
       event(cursor, "system", {
         type: "system",
@@ -157,7 +147,7 @@ export function projectPublicEvents(
     event(cursor, "system", {
       type: "system",
       subtype: "sdk_event",
-      native_type: message.type === "system" ? message.subtype : message.type,
+      native_type: message.type,
       schema_version: envelope.schema_version,
       sdk_version: envelope.sdk_version,
       correlation_id: envelope.correlation_id,

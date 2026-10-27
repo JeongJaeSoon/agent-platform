@@ -17,19 +17,35 @@ const FILL_RETRY_MS = 30_000;
 
 /**
  * The installed codecs' neutralizer. A session whose runtime cannot be told
- * keeps its events as stored, with a warning once per profile.
+ * keeps its events as stored, with a warning once per profile; an event
+ * whose codec output the contract refuses is kept too, with a warning.
  */
 export function eventNeutralizer(
   catalog: ProfileLookup<CatalogProfileView>,
   logger: Pick<StructuredLogger, "warn">,
 ): NeutralizeEvent {
   const warned = new Set<string | null>();
-  return createNeutralizer(installedEventCodecs, catalog, (profileId) => {
-    if (warned.has(profileId)) return;
-    warned.add(profileId);
-    logger.warn("No event codec for the session's runtime; events keep their stored fields", {
-      profile_id: profileId,
-    });
+  return createNeutralizer(installedEventCodecs, catalog, {
+    unknown: (profileId) => {
+      if (warned.has(profileId)) return;
+      warned.add(profileId);
+      logger.warn(
+        "No event codec for the session's runtime; events keep their stored fields",
+        {
+          profile_id: profileId,
+        },
+      );
+    },
+    refused: (kind, event, reason) => {
+      logger.warn(
+        "Event codec output breaks the contract; the event keeps its stored fields",
+        {
+          runtime_kind: kind,
+          event,
+          reason,
+        },
+      );
+    },
   });
 }
 
@@ -37,38 +53,45 @@ export function eventNeutralizer(
  * Fills the neutral fields of stored events in the background, for as long
  * as the process runs: history first, then whatever an older replica stores
  * meanwhile. Nothing waits on it; a replica that finds the fill held by
- * another tries again later.
+ * another tries again later. Each pass starts once `beforePass` resolves (the
+ * workspace profiles read afresh): the cursor passes a row whose runtime it
+ * could not tell, so the profiles have to be current first.
  */
 export function startNeutralFill(
   db: Database,
   neutralize: NeutralizeEvent,
   logger: Pick<StructuredLogger, "info" | "warn">,
+  beforePass: () => Promise<void>,
 ): void {
   const pass = (): void => {
-    fillNeutralFields(db, {
-      neutralize,
-      batchSize: FILL_BATCH_SIZE,
-      budgetMs: FILL_BUDGET_MS,
-    }).then(
-      (fill) => {
-        if (fill.filled > 0) {
-          logger.info("Event neutral fields filled", {
-            events: fill.filled,
-            filled_through: fill.filledThrough,
+    beforePass()
+      .then(() =>
+        fillNeutralFields(db, {
+          neutralize,
+          batchSize: FILL_BATCH_SIZE,
+          budgetMs: FILL_BUDGET_MS,
+        }),
+      )
+      .then(
+        (fill) => {
+          if (fill.filled > 0) {
+            logger.info("Event neutral fields filled", {
+              events: fill.filled,
+              filled_through: fill.filledThrough,
+            });
+          }
+          setTimeout(
+            pass,
+            fill.caughtUp || fill.busy ? FILL_IDLE_MS : 0,
+          ).unref();
+        },
+        (error: unknown) => {
+          logger.warn("Event neutral fields could not be filled; retrying", {
+            error_name: error instanceof Error ? error.name : typeof error,
           });
-        }
-        setTimeout(
-          pass,
-          fill.caughtUp || fill.busy ? FILL_IDLE_MS : 0,
-        ).unref();
-      },
-      (error: unknown) => {
-        logger.warn("Event neutral fields could not be filled; retrying", {
-          error_name: error instanceof Error ? error.name : typeof error,
-        });
-        setTimeout(pass, FILL_RETRY_MS).unref();
-      },
-    );
+          setTimeout(pass, FILL_RETRY_MS).unref();
+        },
+      );
   };
   pass();
 }

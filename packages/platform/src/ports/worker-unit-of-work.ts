@@ -300,6 +300,9 @@ export type CommitEventsInput = {
   turnId: string | null;
   now: Date;
   events: WorkerEvent[];
+  // The engine-neutral fields stored beside a new event's data, never in it:
+  // a resend is compared against the data as the worker sent it.
+  neutral?: (event: WorkerEvent) => Record<string, unknown> | null;
 };
 export type CommitEventsResult =
   | { outcome: "ok"; acceptedThrough: number; cursor: string }

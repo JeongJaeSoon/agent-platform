@@ -225,10 +225,7 @@ describe("Timeline", () => {
     };
     render(
       <Timeline
-        entries={[
-          result,
-          entry("assistant", { thinking: "plan" }),
-        ]}
+        entries={[result, entry("assistant", { thinking: "plan" })]}
         formatMessage={formatMessage}
         messages={MESSAGES}
       />,

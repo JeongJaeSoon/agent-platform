@@ -101,8 +101,14 @@ integration("neutral field fill on PostgreSQL", () => {
   }
 
   const payloads = async () =>
-    rowsOf<{ type: string; payload: Record<string, unknown> }>(
-      await db.execute(sql`SELECT type, payload FROM events ORDER BY id`),
+    rowsOf<{
+      type: string;
+      payload: Record<string, unknown>;
+      neutral: Record<string, unknown> | null;
+    }>(
+      await db.execute(
+        sql`SELECT type, payload, neutral FROM events ORDER BY id`,
+      ),
     );
 
   const progress = async () => {
@@ -124,7 +130,7 @@ integration("neutral field fill on PostgreSQL", () => {
       ...options,
     });
 
-  test("adds only the fields an event lacks and keeps every stored key", async () => {
+  test("stores only the fields an event lacks beside it and never rewrites the payload", async () => {
     const known = await session("known");
     const unknown = await session("unknown");
     await stored(known, [
@@ -156,8 +162,8 @@ integration("neutral field fill on PostgreSQL", () => {
           type: "assistant",
           message: { call: "tu-1" },
           extra: { kept: true },
-          tool_call: { id: "tu-1", name: "Bash", input: {} },
         },
+        neutral: { tool_call: { id: "tu-1", name: "Bash", input: {} } },
       },
       {
         type: "assistant",
@@ -166,19 +172,25 @@ integration("neutral field fill on PostgreSQL", () => {
           message: { said: "hi" },
           text: "already there",
         },
+        neutral: null,
       },
-      { type: "status", payload: { phase: "running" } },
+      { type: "status", payload: { phase: "running" }, neutral: null },
       // No codec for its runtime: kept as stored, and the cursor passes it.
       {
         type: "tool_use",
         payload: { type: "assistant", message: { call: "tu-2" } },
+        neutral: null,
       },
     ]);
     expect(first.filledThrough).toBe(await progress());
 
-    // A second pass over the same rows changes nothing.
+    // A second pass over the same rows changes nothing, and fields already
+    // stored beside an event are kept.
     await db.execute(
       sql`UPDATE neutral_field_progress SET filled_through = 0 WHERE id = 1`,
+    );
+    await db.execute(
+      sql`UPDATE events SET neutral = '{"tool_call":{"id":"kept","name":"Read","input":{}}}' WHERE payload -> 'message' ->> 'call' = 'tu-1'`,
     );
     const before = await payloads();
     expect(await fill()).toMatchObject({ eventsRead: 4, filled: 0 });
@@ -203,12 +215,12 @@ integration("neutral field fill on PostgreSQL", () => {
     const rest = await fill({ batchSize: 10 });
     expect(rest).toMatchObject({ eventsRead: 15, filled: 15, caughtUp: true });
     const filled = (await payloads()).filter(
-      (row) => "tool_call" in row.payload,
+      (row) => row.neutral !== null && "tool_call" in row.neutral,
     );
     expect(filled).toHaveLength(25);
   });
 
-  test("rows inside the margin are left as stored and the cursor stays before them", async () => {
+  test("the cursor stays before rows inside the margin", async () => {
     const known = await session("known");
     await stored(known, [
       ["tool_use", { type: "assistant", message: { call: "old" } }],
@@ -219,12 +231,25 @@ integration("neutral field fill on PostgreSQL", () => {
       0,
     );
     const pass = await fill({ marginSeconds: 60 });
-    expect(pass.filled).toBe(1);
-    expect((await payloads())[1]?.payload).not.toHaveProperty("tool_call");
+    expect(pass.filled).toBe(2);
     const [oldest] = rowsOf<{ id: string }>(
       await db.execute(sql`SELECT min(id) AS id FROM events`),
     );
     expect(await progress()).toBe(Number(oldest?.id));
+  });
+
+  test("a lower id still inside the margin holds the cursor before a safe higher one", async () => {
+    const known = await session("known");
+    await stored(
+      known,
+      [["tool_use", { type: "assistant", message: { call: "late" } }]],
+      0,
+    );
+    await stored(known, [
+      ["tool_use", { type: "assistant", message: { call: "early" } }],
+    ]);
+    await fill({ marginSeconds: 60 });
+    expect(await progress()).toBe(0);
   });
 
   test("a replica that finds the fill taken leaves it alone", async () => {
@@ -240,7 +265,7 @@ integration("neutral field fill on PostgreSQL", () => {
         NEUTRAL_FILL_LOCK_KEY,
       ]);
       expect(await fill()).toMatchObject({ busy: true, filled: 0 });
-      expect((await payloads())[0]?.payload).not.toHaveProperty("tool_call");
+      expect((await payloads())[0]?.neutral).toBeNull();
       await other.query("COMMIT");
     } finally {
       await other.end();
@@ -292,10 +317,12 @@ integration("neutral field fill on PostgreSQL", () => {
         ),
       ).map((row) => row.tool_use_id);
 
-    expect((await project()).appliedThrough).toBe(0);
+    const held = await project();
+    expect(held.appliedThrough).toBe(0);
+    expect(held.heldByFillSeconds).not.toBeNull();
     expect(await calls()).toEqual([]);
     await fill();
-    await project();
+    expect((await project()).heldByFillSeconds).toBeNull();
     expect(await calls()).toEqual(["tu-1", "tu-2"]);
   });
 
@@ -379,8 +406,8 @@ integration("neutral field fill on PostgreSQL", () => {
     const [left] = rowsOf<{ n: string }>(
       await db.execute(sql`
         SELECT count(*) AS n FROM events
-        WHERE (type = 'tool_use' AND NOT payload ? 'tool_call')
-           OR (type = 'assistant' AND NOT payload ? 'text')`),
+        WHERE (type = 'tool_use' AND NOT coalesce(neutral, '{}') ? 'tool_call')
+           OR (type = 'assistant' AND NOT coalesce(neutral, '{}') ? 'text')`),
     );
     expect(Number(left?.n)).toBe(0);
     // A batch takes no lock on events beyond the rows it updates.

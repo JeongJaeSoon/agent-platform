@@ -2,6 +2,7 @@ import type { UsageSummaryFilter } from "@werft-ai/platform";
 import { type SQL, sql } from "drizzle-orm";
 import { findPgError } from "./control-shared.ts";
 import { rowsOf } from "./control-unit-of-work.ts";
+import { eventWithNeutralFields } from "./event-payload.ts";
 import type { Database } from "./queries.ts";
 import { histMedianMs } from "./tool-calls-hist.ts";
 
@@ -26,6 +27,11 @@ export type ToolCallProjection = {
   caughtUp: boolean;
   /** Batches cut by the statement timeout and retried smaller. */
   timedOut: number;
+  /**
+   * Seconds since the neutral field fill last moved, when the last batch's
+   * cursor stopped at it with events ready beyond; null otherwise.
+   */
+  heldByFillSeconds: number | null;
 };
 
 // The scope rows of tool_call_days each call of a session adds to; see the
@@ -43,6 +49,9 @@ const scopesOf = (sessionIds: SQL) => sql`
   WHERE sk.scope_key IS NOT NULL AND ak.agent_key IS NOT NULL
     AND s.id IN (${sessionIds})`;
 
+// An event as read below (FROM events e), with its neutral fields.
+const neutral = eventWithNeutralFields(sql`e`);
+
 // A tool_use event's call becomes a call once: a replayed event, or a
 // second one with an id already seen in its session and attempt, does
 // nothing. An event holds one call, at ord 1.
@@ -51,12 +60,12 @@ async function applyUses(tx: Database, from: number, to: number) {
     WITH blocks AS (
       SELECT e.id, 1 AS ord, e.session_id,
         coalesce(e.attempt_id, '') AS attempt_key,
-        e.payload->'tool_call'->>'id' AS tool_use_id,
-        e.payload->'tool_call'->>'name' AS name, e.occurred_at, e.created_at
+        ${neutral}->'tool_call'->>'id' AS tool_use_id,
+        ${neutral}->'tool_call'->>'name' AS name, e.occurred_at, e.created_at
       FROM events e
       WHERE e.id > ${from} AND e.id <= ${to} AND e.type = 'tool_use'
-        AND jsonb_typeof(e.payload->'tool_call'->'id') = 'string'
-        AND jsonb_typeof(e.payload->'tool_call'->'name') = 'string'
+        AND jsonb_typeof(${neutral}->'tool_call'->'id') = 'string'
+        AND jsonb_typeof(${neutral}->'tool_call'->'name') = 'string'
       ORDER BY e.id
     ),
     inserted AS (
@@ -84,10 +93,10 @@ async function applyUses(tx: Database, from: number, to: number) {
 async function applyResults(tx: Database, from: number, to: number) {
   await tx.execute(sql`
     WITH results AS (
-      SELECT DISTINCT ON (e.session_id, coalesce(e.attempt_id, ''), e.payload->'tool_result'->>'tool_call_id')
+      SELECT DISTINCT ON (e.session_id, coalesce(e.attempt_id, ''), ${neutral}->'tool_result'->>'tool_call_id')
         e.id, e.session_id, coalesce(e.attempt_id, '') AS attempt_key,
-        e.payload->'tool_result'->>'tool_call_id' AS tool_use_id, e.occurred_at,
-        CASE e.payload->'tool_result'->'is_error'
+        ${neutral}->'tool_result'->>'tool_call_id' AS tool_use_id, e.occurred_at,
+        CASE ${neutral}->'tool_result'->'is_error'
           WHEN 'true'::jsonb THEN 'failed'
           WHEN 'false'::jsonb THEN 'ok'
           ELSE 'unknown'
@@ -95,8 +104,8 @@ async function applyResults(tx: Database, from: number, to: number) {
       FROM events e
       WHERE e.id > ${from} AND e.id <= ${to} AND e.type = 'tool_result'
         AND jsonb_typeof(e.payload) = 'object'
-        AND jsonb_typeof(e.payload->'tool_result'->'tool_call_id') = 'string'
-      ORDER BY e.session_id, coalesce(e.attempt_id, ''), e.payload->'tool_result'->>'tool_call_id',
+        AND jsonb_typeof(${neutral}->'tool_result'->'tool_call_id') = 'string'
+      ORDER BY e.session_id, coalesce(e.attempt_id, ''), ${neutral}->'tool_result'->>'tool_call_id',
         coalesce(e.occurred_at, 'infinity'), e.id
     ),
     changed AS (
@@ -156,7 +165,7 @@ async function applyDescriptions(tx: Database, from: number, to: number) {
         THEN e.payload->'tools' ELSE '[]'::jsonb END
     ) AS t(tool)
     WHERE e.id > ${from} AND e.id <= ${to} AND e.type = 'system'
-      AND e.payload->'engine_event'->>'category' = 'started'
+      AND ${neutral}->'engine_event'->>'category' = 'started'
       AND jsonb_typeof(t.tool->'name') = 'string'
       AND jsonb_typeof(t.tool->'description') = 'string'
       AND char_length(t.tool->>'description') BETWEEN 1 AND 200
@@ -194,6 +203,7 @@ export async function projectToolCalls(
   let batches = 0;
   let appliedThrough = 0;
   let caughtUp = false;
+  let heldByFillSeconds: number | null = null;
   const [stored] = rowsOf<{ batch_size: number | null }>(
     await db.execute(
       sql`SELECT batch_size FROM tool_call_progress WHERE id = 1`,
@@ -230,12 +240,20 @@ export async function projectToolCalls(
     batches += 1;
     appliedThrough = batch.cursor;
     caughtUp = batch.n < batchSize;
+    heldByFillSeconds = batch.heldByFillSeconds;
   }
   if (timedOut === 0 && startSize < options.batchSize) {
     const grown = startSize * 10;
     await storeBatchSize(db, grown >= options.batchSize ? null : grown);
   }
-  return { eventsRead, batches, appliedThrough, caughtUp, timedOut };
+  return {
+    eventsRead,
+    batches,
+    appliedThrough,
+    caughtUp,
+    timedOut,
+    heldByFillSeconds,
+  };
 }
 
 function storeBatchSize(db: Database, size: number | null) {
@@ -262,9 +280,15 @@ function projectBatch(
     // stored before them is read only once the fill has given it those, and
     // the cursor never passes the fill, so a row an older replica stored
     // without them is read again once filled.
-    const [fill] = rowsOf<{ filled_through: string; history_through: string }>(
+    const [fill] = rowsOf<{
+      filled_through: string;
+      history_through: string;
+      idle_seconds: number;
+    }>(
       await tx.execute(
-        sql`SELECT filled_through, history_through FROM neutral_field_progress WHERE id = 1`,
+        sql`SELECT filled_through, history_through,
+          extract(epoch FROM now() - updated_at)::float8 AS idle_seconds
+        FROM neutral_field_progress WHERE id = 1`,
       ),
     );
     const ceiling =
@@ -288,25 +312,34 @@ function projectBatch(
     );
     const n = Number(bounds?.n ?? 0);
     if (n === 0 || bounds?.hi == null) {
-      return { n, from, hi: from, cursor };
+      return {
+        n,
+        from,
+        hi: from,
+        cursor,
+        heldByFillSeconds:
+          fill && ceiling !== null ? Number(fill.idle_seconds) : null,
+      };
     }
     const hi = Number(bounds.hi);
     await applyUses(tx, from, hi);
     await applyResults(tx, from, hi);
     await applyDescriptions(tx, from, hi);
-    const next = Math.max(
-      cursor,
-      Math.min(
-        Number(bounds.safe ?? cursor),
-        fill ? Number(fill.filled_through) : Number.POSITIVE_INFINITY,
-      ),
-    );
+    const safe = Number(bounds.safe ?? cursor);
+    const filled = fill
+      ? Number(fill.filled_through)
+      : Number.POSITIVE_INFINITY;
+    const next = Math.max(cursor, Math.min(safe, filled));
+    const heldByFillSeconds =
+      fill && (ceiling !== null || safe > filled)
+        ? Number(fill.idle_seconds)
+        : null;
     if (next !== cursor) {
       await tx.execute(
         sql`UPDATE tool_call_progress SET applied_through = ${next}, updated_at = now() WHERE id = 1`,
       );
     }
-    return { n, from, hi, cursor: next };
+    return { n, from, hi, cursor: next, heldByFillSeconds };
   });
 }
 

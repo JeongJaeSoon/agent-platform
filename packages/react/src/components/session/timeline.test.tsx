@@ -47,11 +47,7 @@ function entry(
 }
 
 const reply = (text: string, options?: Parameters<typeof entry>[2]) =>
-  entry(
-    "assistant",
-    { text },
-    options,
-  );
+  entry("assistant", { text }, options);
 const call = (id: string, options?: Parameters<typeof entry>[2]) =>
   entry(
     "tool_use",
@@ -151,7 +147,11 @@ describe("Timeline turn 묶음", () => {
       <Timeline
         entries={[
           status("running", { turnId: "a" }),
-          entry("system", { engine_event: { name: "init", category: "started" } }, { turnId: null }),
+          entry(
+            "system",
+            { engine_event: { name: "init", category: "started" } },
+            { turnId: null },
+          ),
           entry(
             "result",
             {
@@ -375,7 +375,9 @@ describe("Timeline 잡음 접기", () => {
       <Timeline
         entries={[
           status("running"),
-          entry("system", { engine_event: { name: "init", category: "started" } }),
+          entry("system", {
+            engine_event: { name: "init", category: "started" },
+          }),
           reply("hi"),
           status("idle"),
         ]}
@@ -410,7 +412,11 @@ describe("Timeline 잡음 접기", () => {
       <Timeline
         entries={[
           status("running", { turnId: null }),
-          entry("system", { engine_event: { name: "init", category: "started" } }, { turnId: null }),
+          entry(
+            "system",
+            { engine_event: { name: "init", category: "started" } },
+            { turnId: null },
+          ),
         ]}
         formatMessage={formatMessage}
         messages={MESSAGES}
@@ -468,7 +474,12 @@ describe("Timeline 잡음 접기", () => {
   test("접힘 문구를 받지 않으면 접지 않고 한 줄씩 작게 둔다", () => {
     render(
       <Timeline
-        entries={[status("running"), entry("system", { engine_event: { name: "init", category: "started" } })]}
+        entries={[
+          status("running"),
+          entry("system", {
+            engine_event: { name: "init", category: "started" },
+          }),
+        ]}
         formatMessage={formatMessage}
         messages={{ ...MESSAGES, folded: undefined }}
         now={START}

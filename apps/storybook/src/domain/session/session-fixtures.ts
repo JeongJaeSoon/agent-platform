@@ -125,10 +125,7 @@ export const TURN_EVENTS: readonly RawEvent[] = [
     { engine_event: { name: "rate_limit_event", category: "internal" } },
   ],
   ["assistant", { thinking: "Run the tests first, then read the failure." }],
-  toolUse(
-    "call_1",
-    { command: "bun test", description: "Run the tests" },
-  ),
+  toolUse("call_1", { command: "bun test", description: "Run the tests" }),
   toolResult("call_1", "12 pass\n0 fail\nRan 12 tests"),
   ["assistant", { text: "All 12 tests pass." }],
   turnEnd("success", 1540),
@@ -170,7 +167,6 @@ export function pairedTimelineEntries(
 const inTurn = (events: readonly RawEvent[], turnId: string | null) =>
   events.map(([event, data]): RawEvent => [event, data, turnId]);
 
-
 /** A second turn: a permission wait, then a tool call that fails. */
 export const WAIT_FAIL_EVENTS: readonly RawEvent[] = inTurn(
   [
@@ -202,18 +198,9 @@ export const RUNNING_EVENTS: readonly RawEvent[] = inTurn(
 
 /** Events from before the first turn carry no turn id. */
 export const NO_TURN_EVENTS: readonly RawEvent[] = [
+  ...inTurn([STARTED, ["status", { phase: "queued" }]], null),
   ...inTurn(
-    [
-      STARTED,
-      ["status", { phase: "queued" }],
-    ],
-    null,
-  ),
-  ...inTurn(
-    [
-      ["assistant", { text: "Starting." }],
-      turnEnd("success"),
-    ],
+    [["assistant", { text: "Starting." }], turnEnd("success")],
     "turn_01",
   ),
 ];

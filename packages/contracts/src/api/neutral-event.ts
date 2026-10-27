@@ -30,16 +30,21 @@ export const NEUTRAL_FIELD_KEYS = [
   "runtime",
 ] as const;
 
-/** The data as the runtime's adapter wrote it, before any codec read it. */
-export function withoutNeutralFields(data: unknown): unknown {
+/**
+ * The data with the neutral fields stored beside it (`events.neutral`) that
+ * it lacks: a key the data holds itself is kept as it is.
+ */
+export function withStoredNeutralFields(
+  data: unknown,
+  neutral: unknown,
+): unknown {
   const record = asRecord(data);
-  if (record === null) return data;
-  const kept = Object.entries(record).filter(
-    ([key]) => !(NEUTRAL_FIELD_KEYS as readonly string[]).includes(key),
-  );
-  return kept.length === Object.keys(record).length
+  const fields = asRecord(neutral);
+  if (record === null || fields === null) return data;
+  const added = Object.entries(fields).filter(([key]) => !(key in record));
+  return added.length === 0
     ? data
-    : Object.fromEntries(kept);
+    : { ...record, ...Object.fromEntries(added) };
 }
 
 const CATEGORIES = new Set<string>([

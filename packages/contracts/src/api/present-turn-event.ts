@@ -262,7 +262,8 @@ function system(data: Record<string, unknown>): TurnEventPresentation {
   const engine = eventEngineEvent(data);
   // Without engine_event it is one the control plane wrote, named by its
   // own subtype.
-  if (engine === null) return { label, summary: text(String(data.subtype ?? "")) };
+  if (engine === null)
+    return { label, summary: text(String(data.subtype ?? "")) };
   switch (engine.category) {
     case "thinking":
       return {

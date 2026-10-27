@@ -296,7 +296,9 @@ const backfillModels = (): void => {
 };
 backfillModels();
 const neutralize = eventNeutralizer(catalog, logger);
-startNeutralFill(db, neutralize, logger);
+startNeutralFill(db, neutralize, logger, () =>
+  workspaceProfileVersions.refresh(),
+);
 if (checkpointStorage !== "disabled") {
   await assertCheckpointObjectsPresent(checkpointStorage, {
     hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
