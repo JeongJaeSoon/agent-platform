@@ -25,7 +25,10 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
-import { revokeExecutionAtomic } from "./execution-revocation.ts";
+import {
+  restoreExecutionAtomic,
+  revokeExecutionAtomic,
+} from "./execution-revocation.ts";
 import { createPostgresTurnInterrupts } from "./interrupt-control.ts";
 import { expireParkedGroups } from "./parked-group.ts";
 import { pauseBlocker } from "./pause-control.ts";
@@ -732,6 +735,47 @@ integration("parked pending requests on PostgreSQL", () => {
       admissionState: "stopped",
       pauseReason: null,
     });
+  });
+
+  test("a revoked and restored session carries its parked turn on when resumed from stopped", async () => {
+    const stop = async (sessionId: string) => {
+      const now = new Date();
+      await revokeExecutionAtomic(db, {
+        sessionId,
+        reason: "grant revoked",
+        now,
+      });
+      await restoreExecutionAtomic(db, {
+        sessionId,
+        reason: "grant reissued",
+        now,
+      });
+      expect((await sessionRow(sessionId)).admissionState).toBe("stopped");
+    };
+
+    // Answered first: the revocation cancels the queued turn carrying it,
+    // which leaves the group open again.
+    const before = await parked();
+    await answer(before.owner, before.sessionId, before.requestId);
+    await stop(before.sessionId);
+    expect(await continuations(before.turnRowId)).toEqual([]);
+    // Answered while stopped: kept until the resume.
+    const after = await parked();
+    await stop(after.sessionId);
+    await answer(after.owner, after.sessionId, after.requestId);
+
+    for (const { owner, sessionId, requestId, turnRowId } of [before, after]) {
+      expect((await resumeBy(owner, sessionId)).outcome).toBe("accepted");
+      const queued = (await continuations(turnRowId)).filter(
+        (turn) => turn.status === "queued",
+      );
+      expect(queued).toHaveLength(1);
+      const [grant] = await db
+        .select()
+        .from(permissionGrants)
+        .where(eq(permissionGrants.requestId, requestId));
+      expect(grant?.turnId).toBe(queued[0]?.id);
+    }
   });
 
   test("a close, an interrupt or a recovery close or start_fresh cancels the parked requests", async () => {
