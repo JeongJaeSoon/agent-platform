@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import type {
   ProfileSummary,
@@ -21,6 +22,7 @@ import {
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
+  GridTableRowOpener,
   Page,
   Section,
   Skeleton,
@@ -40,7 +42,7 @@ import { useI18n } from "../i18n/i18n.tsx";
 import { type EditorStart, ProfileEditor } from "./profile-editor.tsx";
 
 const PROFILE_COLUMNS = "minmax(0,1.2fr) minmax(0,1fr) minmax(0,1.4fr)";
-// The base column leaves a phone; the editor shows it again.
+// The base column leaves a phone; the detail and the editor show it again.
 const VERSION_COLUMNS = {
   manage: [
     "minmax(0,1.4fr) minmax(0,1fr) 128px 184px",
@@ -50,12 +52,33 @@ const VERSION_COLUMNS = {
 } as const;
 const META = "text-caption text-muted-foreground";
 
-const STATE_BADGE: Record<WorkspaceProfileState, "green" | "red" | "gray"> = {
+export const STATE_BADGE: Record<
+  WorkspaceProfileState,
+  "green" | "red" | "gray"
+> = {
   usable: "green",
   base_changed: "red",
   base_missing: "red",
   retired: "gray",
 };
+
+/** The id a save of a new version under `name` would get. */
+export function nextVersionId(
+  workspace: { readonly id: string; readonly slug: string } | null | undefined,
+  profiles: readonly ProfileSummary[],
+  name: string,
+): string {
+  return workspaceProfileId(
+    workspace ?? { id: "", slug: "" },
+    name,
+    Math.max(
+      0,
+      ...profiles
+        .filter((item) => item.workspace?.name === name)
+        .map((item) => item.workspace?.version ?? 0),
+    ) + 1,
+  );
+}
 
 export function ProfilesScreen() {
   const { t } = useI18n();
@@ -94,17 +117,7 @@ export function ProfilesScreen() {
       if (!next.delete(name)) next.add(name);
       return next;
     });
-  const nextId = (name: string) =>
-    workspaceProfileId(
-      workspace ?? { id: "", slug: "" },
-      name,
-      Math.max(
-        0,
-        ...versions
-          .filter((item) => item.workspace?.name === name)
-          .map((item) => item.workspace?.version ?? 0),
-      ) + 1,
-    );
+  const nextId = (name: string) => nextVersionId(workspace, versions, name);
   const baseOf = (item: ProfileSummary) =>
     operators.find((base) => base.id === item.workspace?.base_profile_id);
   const stranded = versions.filter(
@@ -395,6 +408,12 @@ function VersionRow({
   return (
     <GridTableRow>
       <GridTableCell>
+        <GridTableRowOpener
+          asChild
+          aria-label={t("profiles.open", { name: profile.id })}
+        >
+          <Link to="/profiles/$profileId" params={{ profileId: profile.id }} />
+        </GridTableRowOpener>
         <Stack
           first={
             <>
@@ -415,8 +434,9 @@ function VersionRow({
                     onClick={older.onToggle}
                     // Inline, so a narrow column wraps it between words like
                     // the name beside it instead of pushing into the next column.
+                    // Positioned above the row opener, which covers the row.
                     className={cn(
-                      "inline break-keep rounded-control text-left hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
+                      "relative z-1 inline break-keep rounded-control text-left hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
                       META,
                     )}
                   >
@@ -447,7 +467,7 @@ function VersionRow({
         </Badge>
       </GridTableCell>
       {manages ? (
-        <GridTableCell>
+        <GridTableCell raised>
           <div className="flex flex-wrap gap-2">
             {base && (state === "usable" || state === "base_changed") ? (
               <Button
@@ -488,6 +508,12 @@ function ProfileRow({ profile }: { readonly profile: ProfileSummary }) {
   return (
     <GridTableRow>
       <GridTableCell>
+        <GridTableRowOpener
+          asChild
+          aria-label={t("profiles.open", { name: profile.id })}
+        >
+          <Link to="/profiles/$profileId" params={{ profileId: profile.id }} />
+        </GridTableRowOpener>
         <Stack
           first={profile.id}
           firstClassName="font-medium font-mono text-foreground"
@@ -512,7 +538,7 @@ function ProfileRow({ profile }: { readonly profile: ProfileSummary }) {
 }
 
 // Not GridTableCell `lines`, which truncates: on a phone every value wraps
-// in full instead (no detail view holds the rest).
+// in full instead.
 function Stack({
   first,
   firstClassName,

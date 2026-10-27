@@ -57,6 +57,7 @@ import {
   operationsToolsSearch,
 } from "./routes/operations-search.ts";
 import { PreferencesScreen } from "./routes/preferences.tsx";
+import { ProfileDetailScreen } from "./routes/profile-detail.tsx";
 import { ProfilesScreen } from "./routes/profiles.tsx";
 import {
   SessionDetailScreen,
@@ -326,6 +327,12 @@ const profiles = createRoute({
   component: ProfilesScreen,
 });
 
+const profile = createRoute({
+  getParentRoute: () => authed,
+  path: "/profiles/$profileId",
+  component: ProfileDetailScreen,
+});
+
 const loadOperations = () => import("./routes/operations.tsx");
 
 const operations = createRoute({
@@ -412,6 +419,7 @@ const routeTree = root.addChildren([
     orgKeys,
     oldUsage,
     profiles,
+    profile,
     operations.addChildren([
       operationsOverview,
       operationsUsage,
