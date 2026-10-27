@@ -849,6 +849,15 @@ export const sessions = pgTable(
     // Null on rows from before it (not backfilled) and when the first
     // message had no text to derive one from.
     title: text(),
+    // `derived` (cut from the first message) is the only title a generated
+    // one replaces; `user` is one given at create or by rename. The default
+    // is `user`: rows from before it, and an API from before it still
+    // writing during a rollout, cannot tell the two kinds apart.
+    titleSource: text("title_source", {
+      enum: ["derived", "user", "generated"],
+    })
+      .notNull()
+      .default("user"),
     // 'none' marks a session accepted without a repository. A null
     // repository_id alone cannot say that: it already means a row from
     // before the catalog, which no pair matches.
@@ -1024,6 +1033,10 @@ export const sessions = pgTable(
       sql`${table.channel} IN (${sql.raw(sqlList(SURFACE_KIND_VALUES))})`,
     ),
     check(
+      "sessions_title_source_check",
+      sql`${table.titleSource} IN ('derived', 'user', 'generated')`,
+    ),
+    check(
       "sessions_restore_failure_count_check",
       sql`${table.restoreFailureCount} >= 0`,
     ),
@@ -1063,6 +1076,38 @@ export const sessions = pgTable(
       table.ownerId,
       table.workspaceId,
     ),
+  ],
+);
+
+// The one request for a generated title a session gets, made after its first
+// turn completed and charged to the attempt that ran it, which the proxy's
+// usage report names. Its token is what the egress proxy presents; a row is
+// kept once settled, so a session is never asked about twice.
+export const sessionTitleRequests = pgTable(
+  "session_title_requests",
+  {
+    sessionId: uuid("session_id")
+      .primaryKey()
+      .references(() => sessions.id),
+    attemptId: text("attempt_id")
+      .notNull()
+      .references(() => attempts.id),
+    tokenHash: bytea("token_hash").notNull(),
+    // The session's auth_revision at issue: a revocation since refuses it.
+    authRevision: integer("auth_revision").notNull(),
+    // The title at issue. One that changed since was renamed, if by an API
+    // from before title_source, so it is not replaced.
+    issuedTitle: text("issued_title"),
+    // The first authorization uses the token up: one request, one exchange.
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("session_title_requests_token_uniq").on(table.tokenHash),
   ],
 );
 

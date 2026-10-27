@@ -32,13 +32,21 @@ export function renameAtomic(
       attempt,
     });
     if (!session) return { outcome: "not_found" };
+    const now = controlClock(input.now, startedAt);
+    // Kept as the user's even when it matches: a generated title arriving
+    // after this must not replace a title the user confirmed.
     if (session.title === input.title) {
+      if (session.titleSource !== "user") {
+        await tx
+          .update(sessions)
+          .set({ titleSource: "user" })
+          .where(eq(sessions.id, sessionId));
+      }
       return { outcome: "renamed", changed: false };
     }
-    const now = controlClock(input.now, startedAt);
     await tx
       .update(sessions)
-      .set({ title: input.title, updatedAt: now })
+      .set({ title: input.title, titleSource: "user", updatedAt: now })
       .where(eq(sessions.id, sessionId));
     const at = await dbNow(tx);
     await recordStatus(tx, {

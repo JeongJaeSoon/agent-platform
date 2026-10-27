@@ -180,6 +180,9 @@ export const catalogProfileConfigSchema = z
     // Other models a session may name at create; `model` is the default.
     // Not part of what a session is pinned to, so adding one stops nothing.
     models: z.array(z.string().min(1)).min(1).optional(),
+    // The model that names a session after its first turn; the session's own
+    // when absent. Not pinned either: it never runs the session.
+    title_model: z.string().min(1).optional(),
     tools: z.array(z.string().min(1)),
     permission_mode: permissionModeSchema,
     provider: catalogProviderSchema,
@@ -407,6 +410,7 @@ export type CatalogProfile = {
   runtime_version: string;
   model: string;
   models?: string[] | undefined;
+  title_model?: string | undefined;
   tools: string[];
   permission_mode: z.infer<typeof permissionModeSchema>;
   project_settings?: z.infer<typeof projectSettingsSchema> | undefined;
@@ -891,6 +895,7 @@ export function profileFingerprint(profile: CatalogProfileView): string {
     models: _models,
     model: _model,
     repository: _repository,
+    title_model: _titleModel,
     ...runs
   } = withoutSecret(profile);
   return sha256({
@@ -900,7 +905,11 @@ export function profileFingerprint(profile: CatalogProfileView): string {
 }
 
 function profileFingerprintV1(profile: CatalogProfileView): string {
-  const { models: _models, ...runs } = withoutSecret(profile);
+  const {
+    models: _models,
+    title_model: _titleModel,
+    ...runs
+  } = withoutSecret(profile);
   return sha256({ fingerprint_version: 1, profile: runs });
 }
 
