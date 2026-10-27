@@ -26,6 +26,18 @@ profiles:
         secret_id: agent-platform/local/fake-messages
     project_settings:
       claude_md: true
+  # claude-coding-local under `auto`, the base a workspace profile needs to
+  # run it; a new id since the mode is in the fingerprint.
+  claude-coding-auto:
+    runtime_kind: claude_agent_sdk
+    runtime_version: "0.3.270"
+    model: claude-sonnet-5
+    title_model: claude-haiku-4-5
+    tools: [Read, Edit, Write, Glob, Grep, Bash, AskUserQuestion]
+    permission_mode: auto
+    provider: *fake-messages
+    project_settings:
+      claude_md: true
   general:
     runtime_kind: claude_agent_sdk
     runtime_version: "0.3.270"

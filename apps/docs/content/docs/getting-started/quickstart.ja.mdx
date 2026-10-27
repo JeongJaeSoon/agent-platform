@@ -33,7 +33,7 @@ curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $KEY"
 
 ## 実行プロファイルを選ぶ
 
-セッションは、運用者が登録した実行プロファイル (profile) のいずれかで動く。ローカルの fake スタックには `claude-coding-local` が 1 つある。
+セッションは、運用者が登録した実行プロファイル (profile) のいずれかで動く。ローカルの fake スタックには、リポジトリを使う `claude-coding-local`(権限リクエストに人が答える)と `claude-coding-auto`(分類器が判定する)、リポジトリなしで動く `general` がある。
 
 ```bash
 curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" | jq '.items[] | {id, model, repository_mode}'

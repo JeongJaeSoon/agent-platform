@@ -3,7 +3,10 @@ import {
   GetSecretValueCommand,
   SecretsManagerClient,
 } from "@aws-sdk/client-secrets-manager";
-import { UNATTENDED_PERMISSION_MODES } from "@werft-ai/contracts";
+import {
+  OPT_IN_PERMISSION_MODES,
+  UNATTENDED_PERMISSION_MODES,
+} from "@werft-ai/contracts";
 import {
   CatalogCredentialError,
   type CredentialRef,
@@ -149,13 +152,10 @@ export async function loadCatalogConfig(options: {
     );
   }
   const config = await readCatalogConfig(options.dir);
-  const unattended = unattendedProfiles(config);
-  if (
-    unattended.length > 0 &&
-    options.env[ALLOW_UNATTENDED_SETTING] !== "true"
-  ) {
+  const optIn = optInProfiles(config);
+  if (optIn.length > 0 && options.env[ALLOW_UNATTENDED_SETTING] !== "true") {
     throw new Error(
-      `Profile(s) ${unattended.join(", ")} run tools without asking (permission_mode: ${UNATTENDED_PERMISSION_MODES.join(" | ")}); set ${ALLOW_UNATTENDED_SETTING}=true on the API and the slack role to allow it`,
+      `Profile(s) ${optIn.join(", ")} run every tool call unjudged (permission_mode: ${OPT_IN_PERMISSION_MODES.join(" | ")}); set ${ALLOW_UNATTENDED_SETTING}=true on the API and the slack role to allow it`,
     );
   }
   installedRuntimes.assertProfiles(config.profiles);
@@ -258,20 +258,23 @@ export async function loadSecretKey(options: {
   );
 }
 
+const profilesIn =
+  (modes: readonly string[]) =>
+  (catalog: {
+    profiles: Record<string, { permission_mode: string }>;
+  }): string[] =>
+    Object.entries(catalog.profiles)
+      .filter(([, profile]) => modes.includes(profile.permission_mode))
+      .map(([id]) => id);
+
+/** Profiles whose tools run without a person answering; logged at startup. */
+export const unattendedProfiles = profilesIn(UNATTENDED_PERMISSION_MODES);
+
 /**
- * Profiles whose tools run without asking. That leaves the container, the
+ * Profiles whose tool calls nothing judges. That leaves the container, the
  * egress allowlist, the tool list and the cost limit as the only bounds, so
  * the installation has to opt in: a catalog is copied between installations
- * and cannot vouch for the one it lands in.
+ * and cannot vouch for the one it lands in. `auto` is not among them: its
+ * classifier still refuses a call.
  */
-export function unattendedProfiles(catalog: {
-  profiles: Record<string, { permission_mode: string }>;
-}): string[] {
-  return Object.entries(catalog.profiles)
-    .filter(([, profile]) =>
-      (UNATTENDED_PERMISSION_MODES as readonly string[]).includes(
-        profile.permission_mode,
-      ),
-    )
-    .map(([id]) => id);
-}
+export const optInProfiles = profilesIn(OPT_IN_PERMISSION_MODES);

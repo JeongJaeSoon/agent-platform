@@ -44,7 +44,8 @@ The profile's `permission_mode` decides whether a person is asked before a tool 
 | --- | --- |
 | `default` | Tools that change files (Write, Edit, Bash commands that write files, and so on) create a permission request before running. Read commands do not ask. This is the local profile's mode |
 | `acceptEdits`, `dontAsk`, `plan` | Runs in the Claude Code mode of the same name |
-| `bypassPermissions`, `auto` | Runs without human approval. If the catalog has a profile with this mode, the API does not start without `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true` |
+| `auto` | A model classifier allows or denies each call in place of a person, and denies it when the classifier cannot be reached. Needs no installation setting |
+| `bypassPermissions` | Runs every call with nothing judging it. If the catalog has a profile with this mode, the API does not start without `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true`, and only an owner or admin can pick it for a workspace profile |
 
 The mode exists only in the catalog and cannot be changed by a session request.
 

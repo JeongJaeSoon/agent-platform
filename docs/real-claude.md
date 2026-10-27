@@ -159,7 +159,7 @@ scripts/local.sh down
 
 ## 자율 모드 세션
 
-승인 없이 끝까지 도는 세션은 자율 모드 profile로 만든다. 켜는 조건과 남는 경계는 [api-server.md](operator/api-server.md#자율-모드-bypasspermissionsauto)의 '자율 모드' 절에 있다. 저장소의 `config/`에는 그런 profile이 없으므로, 먼저 `config/profiles.yaml`의 `profiles:` 아래에 하나를 더한다. `claude-coding-real`과 `permission_mode`·id만 다르다.
+승인 없이 끝까지 도는 세션은 자율 모드 profile로 만든다. 켜는 조건과 남는 경계는 [api-server.md](operator/api-server.md#자율-모드-bypasspermissionsauto)의 '자율 모드' 절에 있다. 분류기가 판정하는 `auto`는 저장소의 `config/`에 `claude-coding-real-auto`로 있어 아래 헬퍼의 `profile_id`만 바꾸면 되고 설치 설정도 필요 없다. 판정 없이 도는 `bypassPermissions`는 없으므로, 먼저 `config/profiles.yaml`의 `profiles:` 아래에 하나를 더한다. `claude-coding-real`과 `permission_mode`·id만 다르다.
 
 ```yaml
   claude-coding-real-unattended:
@@ -167,7 +167,7 @@ scripts/local.sh down
     runtime_version: "0.3.270"
     model: claude-sonnet-5
     tools: [Read, Edit, Write, Glob, Grep, Bash]
-    permission_mode: bypassPermissions   # 분류기가 판정하게 하려면 auto
+    permission_mode: bypassPermissions
     provider:
       kind: anthropic
       endpoint: https://api.anthropic.com
@@ -178,7 +178,7 @@ scripts/local.sh down
       claude_md: true
 ```
 
-`config/repositories.yaml`의 `sample-app`도 `profiles: [claude-coding-real, claude-coding-real-unattended]`로 바꾼다. 그다음 B의 1단계를 `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true scripts/local.sh up`으로 실행하고(이 변수가 없으면 API가 뜨지 않는다), 2단계 헬퍼를 붙여 넣은 뒤 이어서 실행한다.
+`config/repositories.yaml`의 `sample-app`도 `profiles: [claude-coding-real, claude-coding-real-auto, claude-coding-real-unattended]`로 바꾼다. 그다음 B의 1단계를 `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true scripts/local.sh up`으로 실행하고(이 변수가 없으면 API가 뜨지 않는다), 2단계 헬퍼를 붙여 넣은 뒤 이어서 실행한다.
 
 ```sh
 body() { jq -nc --arg m "$1" '{profile_id:"claude-coding-real-unattended", repository_id:"sample-app", message:$m}'; }

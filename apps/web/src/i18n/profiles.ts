@@ -72,8 +72,12 @@ export const profilesKo = {
   "profiles.editor.toolsHint": "바탕 프로필에 있는 도구만 켤 수 있습니다.",
   "profiles.editor.modeHint":
     "바탕 프로필과 같거나 사람이 더 많이 확인하는 모드만 고를 수 있습니다.",
-  "profiles.editor.unattendedClosed":
-    "auto는 바탕 프로필이 auto나 bypassPermissions일 때, bypassPermissions는 bypassPermissions일 때만 고를 수 있습니다. 운영자가 설치 설정 PLATFORM_ALLOW_UNATTENDED_PERMISSIONS를 켜고 그런 운영자 프로필을 등록해야 합니다.",
+  "profiles.editor.autoClosed":
+    "auto는 바탕 프로필이 auto나 bypassPermissions일 때만 고를 수 있습니다.",
+  "profiles.editor.bypassClosed":
+    "bypassPermissions는 바탕 프로필이 bypassPermissions일 때만 고를 수 있습니다. 운영자가 설치 설정 PLATFORM_ALLOW_UNATTENDED_PERMISSIONS를 켜고 그런 운영자 프로필을 등록해야 합니다.",
+  "profiles.editor.bypassRisk":
+    "bypassPermissions는 모든 도구 호출을 아무 판정 없이 실행합니다. 파일 쓰기·셸 명령·git commit도 사람이나 분류기가 확인하지 않고, 막는 것은 컨테이너·외부 접속 허용 목록·도구 목록·비용 한도뿐입니다. 위험한 호출을 분류기가 막게 하려면 auto를 고르세요.",
   "profiles.editor.scriptCeiling": "스크립트 상한",
   "profiles.editor.scriptNone": "실행 안 함",
   "profiles.editor.scriptLater": "2a 단계부터",
@@ -204,8 +208,12 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
     "Only the base profile's tools can be turned on.",
   "profiles.editor.modeHint":
     "Only the base profile's mode or one that has a person check more.",
-  "profiles.editor.unattendedClosed":
-    "auto can be picked only over a base profile in auto or bypassPermissions, and bypassPermissions only over one in bypassPermissions. The operator turns on the installation setting PLATFORM_ALLOW_UNATTENDED_PERMISSIONS and registers such an operator profile.",
+  "profiles.editor.autoClosed":
+    "auto can be picked only over a base profile in auto or bypassPermissions.",
+  "profiles.editor.bypassClosed":
+    "bypassPermissions can be picked only over a base profile in bypassPermissions. The operator turns on the installation setting PLATFORM_ALLOW_UNATTENDED_PERMISSIONS and registers such an operator profile.",
+  "profiles.editor.bypassRisk":
+    "bypassPermissions runs every tool call with nothing judging it. File writes, shell commands and git commits run with no person or classifier checking them; only the container, the egress allowlist, the tool list and the cost limit bound it. Pick auto to have a classifier stop risky calls.",
   "profiles.editor.scriptCeiling": "Script ceiling",
   "profiles.editor.scriptNone": "Not run",
   "profiles.editor.scriptLater": "From stage 2a",
@@ -338,8 +346,12 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "もとのプロファイルにあるツールだけをオンにできます。",
   "profiles.editor.modeHint":
     "もとのプロファイルと同じか、人がより多く確認するモードだけを選べます。",
-  "profiles.editor.unattendedClosed":
-    "auto はもとのプロファイルが auto か bypassPermissions のとき、bypassPermissions は bypassPermissions のときだけ選べます。運営者がインストール設定 PLATFORM_ALLOW_UNATTENDED_PERMISSIONS を有効にし、そのような運営者プロファイルを登録する必要があります。",
+  "profiles.editor.autoClosed":
+    "auto はもとのプロファイルが auto か bypassPermissions のときだけ選べます。",
+  "profiles.editor.bypassClosed":
+    "bypassPermissions はもとのプロファイルが bypassPermissions のときだけ選べます。運営者がインストール設定 PLATFORM_ALLOW_UNATTENDED_PERMISSIONS を有効にし、そのような運営者プロファイルを登録する必要があります。",
+  "profiles.editor.bypassRisk":
+    "bypassPermissions はすべてのツール呼び出しを判定なしで実行します。ファイルの書き込み・シェルコマンド・git commit も人や分類器が確認せず、制限はコンテナ・外部接続の許可リスト・ツール一覧・コスト上限だけです。危険な呼び出しを分類器に止めさせるには auto を選んでください。",
   "profiles.editor.scriptCeiling": "スクリプト上限",
   "profiles.editor.scriptNone": "実行しない",
   "profiles.editor.scriptLater": "2a 段階から",
