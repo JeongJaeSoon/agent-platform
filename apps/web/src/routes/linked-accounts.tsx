@@ -17,6 +17,7 @@ import {
   RowListItem,
   Link as TextLink,
 } from "@werft-ai/ui";
+import { LayoutGrid, MessagesSquare } from "lucide-react";
 import {
   type ReactNode,
   useEffect,
@@ -200,7 +201,9 @@ export function LinkedAccountsScreen() {
         />
         <li>
           <div className={SERVICE_ROW}>
-            <ServiceMark>S</ServiceMark>
+            <ServiceMark>
+              <MessagesSquare className={GENERIC_MARK} />
+            </ServiceMark>
             <RowLines>
               <span className="flex flex-wrap items-center gap-2">
                 <h2
@@ -262,7 +265,7 @@ export function LinkedAccountsScreen() {
           )}
         </li>
         <SoonService
-          mark="GW"
+          mark={<LayoutGrid className={GENERIC_MARK} />}
           name="Google Workspace"
           use={t("linked.use.google")}
         />
@@ -282,8 +285,11 @@ function ServiceMark({ children }: { readonly children: ReactNode }) {
   );
 }
 
-// Slack and Google Workspace keep letters: their brand terms do not let a
-// third party show the logo without a written license or approval.
+// Slack and Google Workspace take a generic icon, not their logo: their brand
+// terms do not let a third party show it without a written license or
+// approval (rechecked 2026-10-28).
+const GENERIC_MARK = "size-4 text-foreground";
+
 function GitHubMark() {
   return (
     <svg

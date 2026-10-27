@@ -72,6 +72,8 @@ export const profilesKo = {
   "profiles.editor.toolsHint": "바탕 프로필에 있는 도구만 켤 수 있습니다.",
   "profiles.editor.modeHint":
     "바탕 프로필과 같거나 사람이 더 많이 확인하는 모드만 고를 수 있습니다.",
+  "profiles.editor.unattendedClosed":
+    "auto는 바탕 프로필이 auto나 bypassPermissions일 때, bypassPermissions는 bypassPermissions일 때만 고를 수 있습니다. 운영자가 설치 설정 PLATFORM_ALLOW_UNATTENDED_PERMISSIONS를 켜고 그런 운영자 프로필을 등록해야 합니다.",
   "profiles.editor.scriptCeiling": "스크립트 상한",
   "profiles.editor.scriptNone": "실행 안 함",
   "profiles.editor.scriptLater": "2a 단계부터",
@@ -202,6 +204,8 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
     "Only the base profile's tools can be turned on.",
   "profiles.editor.modeHint":
     "Only the base profile's mode or one that has a person check more.",
+  "profiles.editor.unattendedClosed":
+    "auto can be picked only over a base profile in auto or bypassPermissions, and bypassPermissions only over one in bypassPermissions. The operator turns on the installation setting PLATFORM_ALLOW_UNATTENDED_PERMISSIONS and registers such an operator profile.",
   "profiles.editor.scriptCeiling": "Script ceiling",
   "profiles.editor.scriptNone": "Not run",
   "profiles.editor.scriptLater": "From stage 2a",
@@ -334,6 +338,8 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "もとのプロファイルにあるツールだけをオンにできます。",
   "profiles.editor.modeHint":
     "もとのプロファイルと同じか、人がより多く確認するモードだけを選べます。",
+  "profiles.editor.unattendedClosed":
+    "auto はもとのプロファイルが auto か bypassPermissions のとき、bypassPermissions は bypassPermissions のときだけ選べます。運営者がインストール設定 PLATFORM_ALLOW_UNATTENDED_PERMISSIONS を有効にし、そのような運営者プロファイルを登録する必要があります。",
   "profiles.editor.scriptCeiling": "スクリプト上限",
   "profiles.editor.scriptNone": "実行しない",
   "profiles.editor.scriptLater": "2a 段階から",

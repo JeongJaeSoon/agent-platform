@@ -92,7 +92,6 @@ export const slackKo = {
   "slack.defaultSaved":
     "새 채널의 기본 반응을 '{mode}'(으)로 바꿨습니다. 이미 연결된 채널은 그대로입니다.",
   "slack.ambient": "멘션 없이도 반응",
-  "slack.notConfigured": "설정 안 됨",
   "slack.home": "홈 채널",
   "slack.setHome": "홈 지정",
   "slack.channelHome": "{channel} 홈 지정",

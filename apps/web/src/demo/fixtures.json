@@ -1,0 +1,38 @@
+{
+  "recorded_at": "2026-10-27T00:00:00.000Z",
+  "responses": {
+    "/v1/auth/me": {
+      "status": 200,
+      "json": {
+        "principal": {
+          "kind": "user",
+          "id": "00000000-0000-4000-8000-000000000001",
+          "workspace_id": "00000000-0000-4000-8000-000000000002",
+          "role": "owner",
+          "scopes": ["sessions:read"]
+        },
+        "user": {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "email": "placeholder@example.test",
+          "display_name": "Placeholder"
+        },
+        "workspace": {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "slug": "placeholder",
+          "name": "Placeholder",
+          "settings": {
+            "dispatch_model": null,
+            "kill_switch": false,
+            "daily_cost_limit_usd": null,
+            "idle_pause_minutes": 30,
+            "audit_retention_days": 90,
+            "slack_guest_enabled": false
+          },
+          "created_at": "2026-10-27T00:00:00.000Z"
+        },
+        "scopes": ["sessions:read"],
+        "permissions": []
+      }
+    }
+  }
+}

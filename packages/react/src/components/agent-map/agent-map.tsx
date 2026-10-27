@@ -39,7 +39,16 @@ export interface AgentMapProps {
   readonly messages?: Partial<AgentMapMessages> | undefined;
 }
 
-const COLUMNS = "grid items-start gap-6 xl:grid-cols-[360px_minmax(0,1fr)]";
+// From xl up the map takes the screen's height (a 0px basis, so the long
+// board does not count) and each column scrolls within it on its own.
+const COLUMNS =
+  "grid items-start gap-6 xl:flex-[1_1_0px] xl:grid-cols-[360px_minmax(0,1fr)]";
+// Out of the flow, a column's content adds nothing to the row's height; the
+// inset and scroll padding leave a focused card's outline room inside the
+// scroller. Only a screen too short for 20rem scrolls the page.
+const COLUMN = "xl:relative xl:min-h-80 xl:self-stretch";
+const SCROLLER =
+  "xl:absolute xl:-inset-1 xl:scroll-py-1 xl:overflow-y-auto xl:p-1";
 
 /** The board of status lanes beside the selected session's relations. */
 export function AgentMap({
@@ -93,42 +102,53 @@ export function AgentMap({
     );
   return (
     <div className={COLUMNS}>
-      <div ref={board} className={detail ? "hidden xl:block" : undefined}>
-        <LaneBoard
-          sessions={sessions}
-          doneCount={doneCount}
-          selectedId={selected?.session.id ?? null}
-          onSelect={onSelect}
-          onExpandDone={onExpandDone}
-          waitingMore={waitingMore}
-          now={now}
-          messages={messages}
-        />
-      </div>
       <div
-        className={`flex flex-col gap-3 xl:sticky xl:top-4 ${detail ? "" : "hidden xl:flex"}`}
+        data-slot="board-column"
+        className={`${COLUMN} ${detail ? "hidden xl:block" : ""}`}
       >
-        {detail ? (
-          <Button
-            ref={back}
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="self-start xl:hidden"
-            onClick={onBack}
-          >
-            {messages.back}
-          </Button>
-        ) : null}
-        {selected ? (
-          <RelationPanel
-            session={selected.session}
-            nodes={selected.nodes}
+        <div ref={board} data-slot="board-scroll" className={SCROLLER}>
+          <LaneBoard
+            sessions={sessions}
+            doneCount={doneCount}
+            selectedId={selected?.session.id ?? null}
+            onSelect={onSelect}
+            onExpandDone={onExpandDone}
+            waitingMore={waitingMore}
             now={now}
             messages={messages}
-            titleRef={title}
           />
-        ) : null}
+        </div>
+      </div>
+      <div
+        data-slot="panel-column"
+        className={`${COLUMN} ${detail ? "" : "hidden xl:block"}`}
+      >
+        <div
+          data-slot="panel-scroll"
+          className={`flex flex-col gap-3 ${SCROLLER}`}
+        >
+          {detail ? (
+            <Button
+              ref={back}
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="self-start xl:hidden"
+              onClick={onBack}
+            >
+              {messages.back}
+            </Button>
+          ) : null}
+          {selected ? (
+            <RelationPanel
+              session={selected.session}
+              nodes={selected.nodes}
+              now={now}
+              messages={messages}
+              titleRef={title}
+            />
+          ) : null}
+        </div>
       </div>
     </div>
   );

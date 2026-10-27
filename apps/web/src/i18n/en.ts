@@ -85,7 +85,6 @@ export const slackEn = {
   "slack.defaultSaved":
     "Default response for new channels set to “{mode}”. Channels already connected stay as they are.",
   "slack.ambient": "Respond without a mention",
-  "slack.notConfigured": "Not configured",
   "slack.home": "Home channel",
   "slack.setHome": "Set home",
   "slack.channelHome": "Set home: {channel}",
