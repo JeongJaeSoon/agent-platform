@@ -312,7 +312,21 @@ export function createMemorySlackAppStore(input: {
   const store: SlackAppStore = {
     async setEvents(workspaceId, slackAppId, events) {
       const row = rows.get(slackAppId);
-      if (row?.workspaceId === workspaceId) touch(row, { events });
+      if (row?.workspaceId === workspaceId)
+        touch(row, { events: { ...events, url: row.events?.url ?? null } });
+    },
+    async registerEventsUrl(workspaceId, slackAppId, url, checkedAt) {
+      const row = rows.get(slackAppId);
+      if (row?.workspaceId !== workspaceId || row.state !== "created") return;
+      const events = row.events;
+      const kept =
+        events?.state === "verified" &&
+        (events.url === null || events.url === url);
+      touch(row, {
+        events: kept
+          ? { ...events, url }
+          : { state: "pending", checked_at: checkedAt, url },
+      });
     },
     async setEventsUnlessVerified(workspaceId, slackAppId, events) {
       const row = rows.get(slackAppId);
@@ -321,7 +335,7 @@ export function createMemorySlackAppStore(input: {
         row.state === "created" &&
         row.events?.state !== "verified"
       ) {
-        touch(row, { events });
+        touch(row, { events: { ...events, url: row.events?.url ?? null } });
       }
     },
     async getSettings(workspaceId, agentId) {

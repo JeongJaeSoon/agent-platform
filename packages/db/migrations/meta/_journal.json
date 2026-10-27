@@ -652,6 +652,13 @@
       "when": 1793128601385,
       "tag": "0183_slack_default_use_mention",
       "breakpoints": true
+    },
+    {
+      "idx": 184,
+      "version": "7",
+      "when": 1793133186445,
+      "tag": "0184_slack_events_url",
+      "breakpoints": true
     }
   ]
 }

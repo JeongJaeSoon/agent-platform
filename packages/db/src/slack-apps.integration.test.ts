@@ -406,7 +406,7 @@ integration("Slack apps and the config token on PostgreSQL", () => {
       await store().setEvents(workspaceId, created.slack_app.id, events);
       expect(
         (await store().findForAgent(workspaceId, agentId))?.events,
-      ).toEqual(events);
+      ).toEqual({ ...events, url: null });
       await store().setEvents(await workspace(), created.slack_app.id, {
         state: "failed",
         checked_at: events.checked_at,
@@ -414,7 +414,56 @@ integration("Slack apps and the config token on PostgreSQL", () => {
       });
       expect(
         (await store().findForAgent(workspaceId, agentId))?.events,
-      ).toEqual(events);
+      ).toEqual({ ...events, url: null });
+    });
+
+    test("a Request URL sent again keeps a verified app verified, and a new one is pending", async () => {
+      const slack = fakeSlack();
+      const { workspaceId, owner } = await withToken(slack);
+      const agentId = await agent(workspaceId);
+      const { apps } = service(slack);
+      const created = await apps.createAgentApp(owner.principal, agentId, {
+        replace_uncertain: false,
+      });
+      const id = created.slack_app.id;
+      const url = `https://events.example.test/v1/slack/events/${agentId}`;
+      const read = async () =>
+        (await store().findForAgent(workspaceId, agentId))?.events;
+      // Verified before the URL was stored: the URL is taken as this one.
+      await store().setEvents(workspaceId, id, {
+        state: "verified",
+        checked_at: "2026-10-25T00:00:00.000Z",
+      });
+      await store().registerEventsUrl(
+        workspaceId,
+        id,
+        url,
+        "2026-10-28T00:00:00.000Z",
+      );
+      expect(await read()).toEqual({
+        state: "verified",
+        checked_at: "2026-10-25T00:00:00.000Z",
+        url,
+      });
+      await store().registerEventsUrl(
+        workspaceId,
+        id,
+        url,
+        "2026-10-28T00:01:00.000Z",
+      );
+      expect((await read())?.state).toBe("verified");
+      const moved = `https://moved.example.test/v1/slack/events/${agentId}`;
+      await store().registerEventsUrl(
+        workspaceId,
+        id,
+        moved,
+        "2026-10-28T00:02:00.000Z",
+      );
+      expect(await read()).toEqual({
+        state: "pending",
+        checked_at: "2026-10-28T00:02:00.000Z",
+        url: moved,
+      });
     });
 
     test("a signed receipt verifies a pending subscription once, clears its error and outlasts a later failure", async () => {
@@ -463,7 +512,7 @@ integration("Slack apps and the config token on PostgreSQL", () => {
       }
       expect(
         (await store().findForAgent(workspaceId, agentId))?.events,
-      ).toEqual(verified);
+      ).toEqual({ ...verified, url: null });
     });
     const begin = (
       workspaceId: string,

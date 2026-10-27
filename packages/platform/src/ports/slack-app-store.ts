@@ -76,11 +76,23 @@ export type BeginDeleteResult =
  * call: `beginAgentApp` records `creating`, `finishCreate` records what
  * Slack answered and seals the app's secrets in the same transaction.
  */
+export type SlackEventsCheck = Omit<GetSlackAppResponse["events"], "url">;
+
 export interface SlackAppStore {
   setEvents(
     workspaceId: string,
     slackAppId: string,
-    events: GetSlackAppResponse["events"],
+    events: SlackEventsCheck,
+  ): Promise<void>;
+  /**
+   * Records `url` as sent to Slack: `pending` again unless the app is
+   * already `verified` for that same URL.
+   */
+  registerEventsUrl(
+    workspaceId: string,
+    slackAppId: string,
+    url: string,
+    checkedAt: string,
   ): Promise<void>;
   /**
    * `setEvents`, skipped once the app is `verified`: only a request signed
@@ -90,7 +102,7 @@ export interface SlackAppStore {
   setEventsUnlessVerified(
     workspaceId: string,
     slackAppId: string,
-    events: GetSlackAppResponse["events"],
+    events: SlackEventsCheck,
   ): Promise<void>;
   getSettings(
     workspaceId: string,

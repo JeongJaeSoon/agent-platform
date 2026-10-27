@@ -49,11 +49,13 @@ test("event registration results persist across reads and expose only a safe err
   expect((await service.getAgentApp(caller, AGENT)).events).toEqual({
     state: "pending",
     checked_at: null,
+    url: null,
   });
   await service.updateAgentAppManifest(WORKSPACE, created.slack_app.id, input);
   expect((await service.getAgentApp(caller, AGENT)).events).toEqual({
     state: "pending",
     checked_at: "2026-10-23T00:00:00.000Z",
+    url: input.eventsUrl,
   });
   slack.api.updateApp = async () => {
     throw new SlackApiError("apps.manifest.update", "invalid_manifest", true);
@@ -64,8 +66,74 @@ test("event registration results persist across reads and expose only a safe err
   expect((await service.getAgentApp(caller, AGENT)).events).toEqual({
     state: "failed",
     checked_at: "2026-10-23T00:00:00.000Z",
+    url: input.eventsUrl,
     error: "events_registration_failed",
   });
+});
+
+test("a reinstall keeps a verified URL verified and a changed URL pending again", async () => {
+  const { service, apps } = await setup();
+  const caller = user("owner");
+  const created = await service.createAgentApp(caller, AGENT, {
+    replace_uncertain: false,
+  });
+  const input = {
+    name: "Release notes",
+    botName: "release-notes",
+    description: "Writes the release notes",
+    eventsUrl: `https://events.example.test/v1/slack/events/${AGENT}`,
+  };
+  await service.updateAgentAppManifest(WORKSPACE, created.slack_app.id, input);
+  await apps.store.setEventsUnlessVerified(WORKSPACE, created.slack_app.id, {
+    state: "verified",
+    checked_at: "2026-10-23T00:00:01.000Z",
+  });
+  await service.updateAgentAppManifest(WORKSPACE, created.slack_app.id, input);
+  expect((await service.getAgentApp(caller, AGENT)).events).toEqual({
+    state: "verified",
+    checked_at: "2026-10-23T00:00:01.000Z",
+    url: input.eventsUrl,
+  });
+  const moved = `https://moved.example.test/v1/slack/events/${AGENT}`;
+  await service.updateAgentAppManifest(WORKSPACE, created.slack_app.id, {
+    ...input,
+    eventsUrl: moved,
+  });
+  expect((await service.getAgentApp(caller, AGENT)).events).toEqual({
+    state: "pending",
+    checked_at: "2026-10-23T00:00:00.000Z",
+    url: moved,
+  });
+});
+
+test("a recheck sends the Request URL to Slack again and needs the public events address", async () => {
+  const unset = await setup();
+  await unset.service.createAgentApp(user("owner"), AGENT, {
+    replace_uncertain: false,
+  });
+  expect(
+    await refusal(unset.service.recheckAgentAppEvents(user("owner"), AGENT)),
+  ).toMatchObject({ code: "BACKEND_UNAVAILABLE" });
+
+  const { service, slack } = await setup({
+    eventsPublicUrl: "https://events.example.test/",
+  });
+  await service.createAgentApp(user("owner"), AGENT, {
+    replace_uncertain: false,
+  });
+  const url = `https://events.example.test/v1/slack/events/${AGENT}`;
+  const read = await service.recheckAgentAppEvents(user("owner"), AGENT);
+  expect(read.events).toEqual({
+    state: "pending",
+    checked_at: "2026-10-23T00:00:00.000Z",
+    url,
+  });
+  expect(
+    JSON.stringify(slack.state.apps.get(read.slack_app?.app_id ?? "")),
+  ).toContain(url);
+  expect(
+    await refusal(service.recheckAgentAppEvents(user("owner"), IDLE_AGENT)),
+  ).toMatchObject({ code: "NOT_FOUND" });
 });
 
 test.each([
@@ -107,6 +175,7 @@ test.each([
     expect((await service.getAgentApp(user("owner"), AGENT)).events).toEqual({
       state: "verified",
       checked_at: "2026-10-23T00:00:01.000Z",
+      url: `https://events.example.test/v1/slack/events/${AGENT}`,
     });
   },
 );
@@ -137,6 +206,7 @@ const agentAuthority: AgentAuthority = {
 async function setup(
   options: {
     consoleOrigin?: string | null;
+    eventsPublicUrl?: string;
     activeReleaseWarning?: (
       workspaceId: string,
       agentId: string,
@@ -187,6 +257,7 @@ async function setup(
     api: slack.api,
     consoleOrigin:
       options.consoleOrigin === undefined ? ORIGIN : options.consoleOrigin,
+    eventsPublicUrl: options.eventsPublicUrl ?? null,
     ...(options.activeReleaseWarning
       ? { activeReleaseWarning: options.activeReleaseWarning }
       : {}),
