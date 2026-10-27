@@ -39,7 +39,10 @@ export interface AgentMapProps {
   readonly messages?: Partial<AgentMapMessages> | undefined;
 }
 
-const COLUMNS = "grid items-start gap-6 xl:grid-cols-[360px_minmax(0,1fr)]";
+// From xl up the map takes the screen's height (a 0px basis, so the long
+// board does not count) and the board scrolls within it, the panel in view.
+const COLUMNS =
+  "grid items-start gap-6 xl:flex-[1_1_0px] xl:grid-cols-[360px_minmax(0,1fr)]";
 
 /** The board of status lanes beside the selected session's relations. */
 export function AgentMap({
@@ -93,17 +96,29 @@ export function AgentMap({
     );
   return (
     <div className={COLUMNS}>
-      <div ref={board} className={detail ? "hidden xl:block" : undefined}>
-        <LaneBoard
-          sessions={sessions}
-          doneCount={doneCount}
-          selectedId={selected?.session.id ?? null}
-          onSelect={onSelect}
-          onExpandDone={onExpandDone}
-          waitingMore={waitingMore}
-          now={now}
-          messages={messages}
-        />
+      {/* Out of the flow, the board adds nothing to the row's height; the
+          inset and scroll padding leave a focused card's outline room inside
+          the scroller. Only a screen too short for 20rem scrolls the page. */}
+      <div
+        data-slot="board-column"
+        className={`xl:relative xl:min-h-80 xl:self-stretch ${detail ? "hidden xl:block" : ""}`}
+      >
+        <div
+          ref={board}
+          data-slot="board-scroll"
+          className="xl:absolute xl:-inset-1 xl:scroll-py-1 xl:overflow-y-auto xl:p-1"
+        >
+          <LaneBoard
+            sessions={sessions}
+            doneCount={doneCount}
+            selectedId={selected?.session.id ?? null}
+            onSelect={onSelect}
+            onExpandDone={onExpandDone}
+            waitingMore={waitingMore}
+            now={now}
+            messages={messages}
+          />
+        </div>
       </div>
       <div
         className={`flex flex-col gap-3 xl:sticky xl:top-4 ${detail ? "" : "hidden xl:flex"}`}

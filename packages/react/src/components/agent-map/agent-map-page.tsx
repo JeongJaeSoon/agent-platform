@@ -26,7 +26,7 @@ export function AgentMapPage({
   const messages = useAgentMapMessages(map.messages);
   const title = useRef<HTMLHeadingElement>(null);
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6 xl:flex-[1_1_0px]">
       <PageHeader
         title={messages.title}
         description={messages.description}

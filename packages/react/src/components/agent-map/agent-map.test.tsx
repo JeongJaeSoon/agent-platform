@@ -389,6 +389,37 @@ describe("AgentMap", () => {
     expect(standIn("board")).not.toContain("md:flex");
   });
 
+  test("from xl the board scrolls within the screen's height, not the page (94S-1075)", () => {
+    const view = withPlatform(
+      <AgentMap
+        sessions={[selected.session]}
+        doneCount={0}
+        selected={selected}
+        onSelect={() => {}}
+        now={NOW}
+      />,
+    );
+    const classes = (slot: string) =>
+      view.container
+        .querySelector(`[data-slot='${slot}']`)
+        ?.className.split(" ");
+    const scroll = view.container.querySelector("[data-slot='board-scroll']");
+    expect(scroll?.contains(view.getByRole("button", { pressed: true }))).toBe(
+      true,
+    );
+    expect(classes("board-scroll")).toEqual(
+      expect.arrayContaining(["xl:absolute", "xl:overflow-y-auto"]),
+    );
+    expect(classes("board-column")).toEqual(
+      expect.arrayContaining(["xl:relative", "xl:self-stretch"]),
+    );
+    // Below xl the board stays in the page's own scroll: one scroller only.
+    expect(classes("board-scroll")).not.toContain("overflow-y-auto");
+    expect(
+      scroll?.parentElement?.parentElement?.className.split(" "),
+    ).toContain("xl:flex-[1_1_0px]");
+  });
+
   test("the detail view below xl offers the way back", async () => {
     const user = await setupUser();
     let back = 0;
