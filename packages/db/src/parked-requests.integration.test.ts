@@ -1636,6 +1636,48 @@ integration("parked pending requests on PostgreSQL", () => {
     expect(grant?.consumedAt).toBeNull();
   });
 
+  test("answers kept before their turn parked still carry it on, cut to fit one message", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const first = await register(worker);
+    const second = await register(worker, HASH_B);
+    for (const requestId of [first, second]) {
+      await answerWith(owner, sessionId, {
+        request_id: requestId,
+        kind: "permission",
+        decision: "deny",
+        reason: "x".repeat(20 * 1024),
+      });
+    }
+    const turnRowId = await parkRows(worker, [first, second]);
+    await executionGone(worker);
+
+    const [carried] = await continuations(turnRowId);
+    expect(carried?.message).toContain("[cut to fit]");
+    expect(
+      new TextEncoder().encode(carried?.message ?? "").length,
+    ).toBeLessThanOrEqual(32 * 1024);
+  });
+
+  test("an interrupt after the turn was carried on leaves no grant to wait for", async () => {
+    const { owner, sessionId, requestId } = await parked();
+    expect(await answer(owner, sessionId, requestId)).toMatchObject({
+      resumed: true,
+    });
+    const interrupt = await createPostgresTurnInterrupts(db).interruptAtomic({
+      principal: owner,
+      sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      targetTurnId: "1",
+    });
+    expect(interrupt.outcome).toBe("accepted");
+    expect((await request(requestId)).settledOutcome).toBe("cancelled");
+
+    const next = await claim(sessionId);
+    expect(next.claimed.grants).toBeUndefined();
+    expect(next.input.turn_id).toBe("2");
+  });
+
   test("after a drain park the turn that carries it on runs after input already queued", async () => {
     const { owner, sessionId, worker } = await runningSession();
     const requestId = await register(worker);

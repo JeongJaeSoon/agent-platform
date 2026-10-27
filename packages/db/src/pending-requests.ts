@@ -749,6 +749,7 @@ export function createPostgresPendingRequests(
                 ? { ...row, answer: input.answer }
                 : row,
             ),
+            false,
           );
           if (!sessionMessageSchema.safeParse({ message: carried }).success) {
             return {

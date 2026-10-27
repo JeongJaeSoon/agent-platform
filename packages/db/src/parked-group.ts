@@ -1,8 +1,9 @@
-import type {
-  ParkedDelivery,
-  PendingQuestion,
-  PostSessionAnswerRequest,
-  ReceiptActor,
+import {
+  MESSAGE_MAX_BYTES,
+  type ParkedDelivery,
+  type PendingQuestion,
+  type PostSessionAnswerRequest,
+  type ReceiptActor,
 } from "@werft-ai/contracts";
 import type { WorkerFence } from "@werft-ai/platform";
 import {
@@ -302,7 +303,7 @@ type StoredPayload =
  * met by its grant. Built from the stored display copy: the arguments are
  * already in the engine's transcript and need no repeating.
  */
-export function continuationMessage(rows: GroupRow[]): string {
+export function continuationMessage(rows: GroupRow[], cut = true): string {
   const lines = rows.map((row) => {
     const payload = row.payload as StoredPayload;
     const answer = row.answer as PostSessionAnswerRequest | null;
@@ -336,11 +337,43 @@ export function continuationMessage(rows: GroupRow[]): string {
       })
       .join("\n");
   });
+  const head =
+    "Your previous turn was stopped while it waited for a person. Their answers to what it asked:";
+  const tail = "Carry on from there.";
   return [
-    "Your previous turn was stopped while it waited for a person. Their answers to what it asked:",
-    ...lines,
-    "Carry on from there.",
+    head,
+    ...(cut
+      ? fitted(lines, MESSAGE_MAX_BYTES - bytes(`${head}\n\n${tail}`))
+      : lines),
+    tail,
   ].join("\n");
+}
+
+const utf8 = new TextEncoder();
+
+function bytes(text: string): number {
+  return utf8.encode(text).length;
+}
+
+// An answer is refused when it would not fit, but answers stored before
+// their turn parked were never judged: past the limit every line gets an
+// equal share, so the group still carries on, the long answers cut.
+function fitted(lines: string[], budget: number): string[] {
+  const joined = lines.join("\n");
+  if (bytes(joined) <= budget) return lines;
+  const mark = " [cut to fit]";
+  const share = Math.floor((budget - (lines.length - 1)) / lines.length);
+  return lines.map((line) => {
+    if (bytes(line) <= share) return line;
+    let cut = "";
+    let used = bytes(mark);
+    for (const char of line) {
+      used += bytes(char);
+      if (used > share) break;
+      cut += char;
+    }
+    return cut + mark;
+  });
 }
 
 /**

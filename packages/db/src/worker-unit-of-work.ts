@@ -1049,13 +1049,20 @@ async function grantMissedBy(
   turnRowId: number,
   attemptId: string,
 ): Promise<boolean> {
+  // Only a grant a claim would carry: one whose request a cancel settled
+  // goes to no worker, and waiting for it would hold the queue for good.
   const [missed] = await tx
     .select({ requestId: permissionGrants.requestId })
     .from(permissionGrants)
+    .innerJoin(
+      pendingRequests,
+      eq(pendingRequests.requestId, permissionGrants.requestId),
+    )
     .where(
       and(
         eq(permissionGrants.turnId, turnRowId),
         isNull(permissionGrants.consumedAt),
+        isNull(pendingRequests.settledAt),
         sql`${permissionGrants.attemptId} IS DISTINCT FROM ${attemptId}`,
       ),
     )
