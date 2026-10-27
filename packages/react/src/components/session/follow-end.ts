@@ -46,10 +46,10 @@ export function useFollowEnd(scope: string, latest: string) {
   const follow = useCallback(
     (list: HTMLElement) => {
       if (!atEnd.current) return false;
-      const gap = list.scrollHeight - list.scrollTop - list.clientHeight;
+      // Measured from where it was pinned: what just arrived below is not
+      // distance the reader went.
       if (
-        gap > SLACK_PX &&
-        list.scrollTop < lastTop.current &&
+        lastTop.current - list.scrollTop > SLACK_PX &&
         moved(performance.now())
       ) {
         atEnd.current = false;
@@ -135,7 +135,9 @@ export function useFollowEnd(scope: string, latest: string) {
     const before = seen.current;
     seen.current = { scope, latest };
     if (scope !== before.scope) {
+      // Nothing the reader did in the last session carries over.
       atEnd.current = true;
+      input.current = { at: Number.NEGATIVE_INFINITY, held: false };
       setBehind(false);
     }
     if (!element) return;

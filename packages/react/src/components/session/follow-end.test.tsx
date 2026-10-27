@@ -206,6 +206,18 @@ describe("useFollowEnd", () => {
     expect(queryByRole("button")).not.toBe(null);
   });
 
+  test("a nudge within the slack still follows when a line lands first", () => {
+    const { getByTestId, rerender, queryByRole } = render(<List latest="" />);
+    const list = sized(getByTestId("list"), 400);
+    list.grow(1000);
+    rerender(<List latest="e5" />);
+    list.move(590, "wheel");
+    list.grow(1300);
+    rerender(<List latest="e6" />);
+    expect(list.top).toBe(900);
+    expect(queryByRole("button")).toBe(null);
+  });
+
   test("a scroll a frame after the resize is the reader's again", () => {
     const { getByTestId, rerender, queryByRole } = render(<List latest="" />);
     const list = sized(getByTestId("list"), 400);
@@ -235,6 +247,21 @@ describe("useFollowEnd", () => {
     list.grow(2000);
     rerender(<List scope="b" latest="f9" />);
     expect(list.top).toBe(1600);
+    expect(queryByRole("button")).toBe(null);
+  });
+
+  test("a scroll still in flight from the last session does not hold the next one up", () => {
+    const { getByTestId, rerender, queryByRole } = render(
+      <List scope="a" latest="" />,
+    );
+    const list = sized(getByTestId("list"), 400);
+    list.grow(1000);
+    rerender(<List scope="a" latest="e5" />);
+    list.move(300, "wheel");
+    list.grow(1300);
+    rerender(<List scope="b" latest="f1" />);
+    expect(list.top).toBe(900);
+    act(() => list.land());
     expect(queryByRole("button")).toBe(null);
   });
 });
