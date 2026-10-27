@@ -1,9 +1,6 @@
 import { z } from "zod";
 import { receiptIdSchema, timestampSchema } from "../shared/ids.ts";
-import {
-  type PERMISSION_MODE_VALUES,
-  permissionModeSchema,
-} from "./session.ts";
+import { permissionModeSchema } from "./session.ts";
 
 /**
  * Whether a session of the profile names a repository: `required` always,
@@ -35,31 +32,6 @@ export const workspaceProfileStateSchema = z.enum([
 export const workspaceProfileNameSchema = z
   .string()
   .regex(/^[a-z0-9][a-z0-9-]{0,39}$/);
-
-/**
- * The permission modes a workspace profile may run under a base of each
- * mode: the base's own, or one that leaves more to a person. A workspace
- * profile never runs unattended over an attended base.
- */
-export const NARROWER_PERMISSION_MODES: Readonly<
-  Record<
-    (typeof PERMISSION_MODE_VALUES)[number],
-    readonly (typeof PERMISSION_MODE_VALUES)[number][]
-  >
-> = {
-  bypassPermissions: [
-    "bypassPermissions",
-    "auto",
-    "acceptEdits",
-    "default",
-    "plan",
-  ],
-  auto: ["auto", "acceptEdits", "default", "plan"],
-  acceptEdits: ["acceptEdits", "default", "plan"],
-  default: ["default", "plan"],
-  dontAsk: ["dontAsk", "plan"],
-  plan: ["plan"],
-};
 
 /**
  * How long a session of the profile waits on a permission or question

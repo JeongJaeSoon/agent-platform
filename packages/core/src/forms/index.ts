@@ -38,7 +38,7 @@ export const workspaceProfileNameStep = trimmed(
 export const workspaceProfileStep = createWorkspaceProfileRequestSchema;
 
 export {
-  NARROWER_PERMISSION_MODES,
+  WORKSPACE_PROFILE_POLICY,
   workspaceProfileId,
 } from "@werft-ai/contracts";
 

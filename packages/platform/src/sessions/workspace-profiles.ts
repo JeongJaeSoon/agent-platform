@@ -1,8 +1,10 @@
-import type {
-  CreateWorkspaceProfileRequest,
-  ListProfilesResponse,
-  ProfileSummary,
-  WorkspaceProfileChangeResponse,
+import {
+  type CreateWorkspaceProfileRequest,
+  type ListProfilesResponse,
+  type ProfileDerivationPolicy,
+  type ProfileSummary,
+  WORKSPACE_PROFILE_POLICY,
+  type WorkspaceProfileChangeResponse,
 } from "@werft-ai/contracts";
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import { NOT_FOUND } from "../musterrolle/service-errors.ts";
@@ -10,9 +12,8 @@ import type { TeamActor } from "../ports/team-store.ts";
 import type { WorkspaceProfileStore } from "../ports/workspace-profile-store.ts";
 import {
   type CatalogProfileView,
+  derivationPolicyOf,
   isUnmetered,
-  narrowedProfile,
-  narrowingRefusal,
   profileFingerprint,
   profileModels,
   repositoryModeOf,
@@ -37,6 +38,7 @@ export const WORKSPACE_PROFILE_REFRESH_MS = 10_000;
 export function createWorkspaceProfiles(
   store: Pick<WorkspaceProfileStore, "listAll">,
   now: () => number = Date.now,
+  policy: ProfileDerivationPolicy = WORKSPACE_PROFILE_POLICY,
 ): WorkspaceProfiles {
   let records: ReadonlyMap<string, WorkspaceProfileRecord> = new Map();
   let readAt = Number.NEGATIVE_INFINITY;
@@ -44,6 +46,7 @@ export function createWorkspaceProfiles(
   let applied = 0;
   let latest: { startedAt: number; done: Promise<void> } | null = null;
   return {
+    policy,
     get records() {
       return records;
     },
@@ -95,7 +98,7 @@ function workspaceSummary(
     : undefined;
   return {
     ...(base
-      ? summaryOf(record.id, narrowedProfile(base, record))
+      ? summaryOf(record.id, derivationPolicyOf(catalog).apply(base, record))
       : {
           id: record.id,
           model: record.model,
@@ -223,7 +226,7 @@ export function createWorkspaceProfileService(deps: {
         tools: [...new Set(request.tools)],
         permission_mode: request.permission_mode,
       };
-      const refusal = narrowingRefusal(base, narrowing);
+      const refusal = derivationPolicyOf(catalog).refusal(base, narrowing);
       if (refusal !== null) {
         throw new SessionServiceError(
           "BAD_REQUEST",

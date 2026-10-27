@@ -5,13 +5,15 @@ import {
   credentialRefSchema,
   MCP_TOOL_PREFIX,
   mcpServerIdSchema,
-  NARROWER_PERMISSION_MODES,
+  narrowOnlyPolicy,
+  type ProfileDerivationPolicy,
   permissionModeSchema,
   projectSettingsSchema,
   type RepositoryMode,
   type RuntimeConfig,
   repositoryModeSchema,
   type runtimeConfigSchema,
+  WORKSPACE_PROFILE_POLICY,
   type WorkspaceProfileState,
 } from "@werft-ai/contracts";
 import { z } from "zod";
@@ -472,6 +474,8 @@ export type WorkspaceProfileRecord = {
  */
 export interface WorkspaceProfiles {
   readonly records: ReadonlyMap<string, WorkspaceProfileRecord>;
+  /** How its versions may differ from their bases; `WORKSPACE_PROFILE_POLICY` when unset. */
+  readonly policy?: ProfileDerivationPolicy;
   /** Reads them again unless the last read began within `maxAgeMs`. */
   refresh(maxAgeMs?: number): Promise<void>;
 }
@@ -634,24 +638,17 @@ export type ProfileLookup<P extends CatalogProfileView> = {
   workspace_profiles?: WorkspaceProfiles | undefined;
 };
 
-/** The narrowing a workspace profile version applies to its base. */
+/** The fields a workspace profile version sets over its base. */
 export type ProfileNarrowing = Pick<
   WorkspaceProfileRecord,
   "model" | "models" | "tools" | "permission_mode"
 >;
 
-/** The base with a narrowing applied, assumed to be one `narrowingRefusal` passed. */
-export function narrowedProfile<P extends CatalogProfileView>(
-  base: P,
-  narrowing: ProfileNarrowing,
-): P {
-  return {
-    ...base,
-    model: narrowing.model,
-    models: [...narrowing.models],
-    tools: [...narrowing.tools],
-    permission_mode: narrowing.permission_mode,
-  };
+/** The policy the versions in `catalog` follow, checked on save and on every run. */
+export function derivationPolicyOf(catalog: {
+  workspace_profiles?: WorkspaceProfiles | undefined;
+}): ProfileDerivationPolicy {
+  return catalog.workspace_profiles?.policy ?? WORKSPACE_PROFILE_POLICY;
 }
 
 /**
@@ -662,35 +659,7 @@ export function narrowingRefusal(
   base: CatalogProfileView,
   narrowing: ProfileNarrowing,
 ): { field: keyof ProfileNarrowing; message: string } | null {
-  const offered = profileModels(base);
-  const unknownModel = narrowing.models.find((m) => !offered.includes(m));
-  if (unknownModel !== undefined) {
-    return {
-      field: "models",
-      message: `The base profile does not offer model ${unknownModel}`,
-    };
-  }
-  if (!narrowing.models.includes(narrowing.model)) {
-    return { field: "model", message: "model must be one of models" };
-  }
-  const unknownTool = narrowing.tools.find((t) => !base.tools.includes(t));
-  if (unknownTool !== undefined) {
-    return {
-      field: "tools",
-      message: `The base profile does not allow tool ${unknownTool}`,
-    };
-  }
-  if (
-    !NARROWER_PERMISSION_MODES[base.permission_mode].includes(
-      narrowing.permission_mode,
-    )
-  ) {
-    return {
-      field: "permission_mode",
-      message: `A profile over a ${base.permission_mode} base may run ${NARROWER_PERMISSION_MODES[base.permission_mode].join(", ")}`,
-    };
-  }
-  return null;
+  return narrowOnlyPolicy.refusal(base, narrowing);
 }
 
 /** Whether a workspace profile version takes new releases and sessions. */
@@ -703,16 +672,19 @@ export function workspaceProfileState(
     ? catalog.profiles[record.base_profile_id]
     : undefined;
   if (!base) return "base_missing";
-  return baseHolds(base, record) ? "usable" : "base_changed";
+  return baseHolds(derivationPolicyOf(catalog), base, record)
+    ? "usable"
+    : "base_changed";
 }
 
 function baseHolds(
+  policy: ProfileDerivationPolicy,
   base: CatalogProfileView,
   record: WorkspaceProfileRecord,
 ): boolean {
   return (
     profileFingerprint(base) === record.base_fingerprint &&
-    narrowingRefusal(base, record) === null
+    policy.refusal(base, record) === null
   );
 }
 
@@ -734,8 +706,9 @@ export function catalogProfile<P extends CatalogProfileView>(
   const base = Object.hasOwn(catalog.profiles, record.base_profile_id)
     ? catalog.profiles[record.base_profile_id]
     : undefined;
-  return base && baseHolds(base, record)
-    ? narrowedProfile(base, record)
+  const policy = derivationPolicyOf(catalog);
+  return base && baseHolds(policy, base, record)
+    ? policy.apply(base, record)
     : undefined;
 }
 

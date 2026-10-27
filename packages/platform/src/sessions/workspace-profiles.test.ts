@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   type Principal,
+  type ProfileDerivationPolicy,
   scopesForRole,
+  WORKSPACE_PROFILE_POLICY,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import {
@@ -509,5 +511,58 @@ describe("the service", () => {
       (await refusal(service().profiles.retire(caller("member"), "ws_a_b_v1")))
         .code,
     ).toBe("FORBIDDEN");
+  });
+});
+
+describe("the derivation policy", () => {
+  const permissive: ProfileDerivationPolicy = {
+    ...WORKSPACE_PROFILE_POLICY,
+    kind: "test-permissive",
+    refusal: () => null,
+  };
+  const wider = version({ tools: ["Read", "WebFetch"] });
+
+  test("a swapped policy decides what saves and what runs; the default refuses the same version", async () => {
+    const narrow = catalogWith([wider]);
+    expect(workspaceProfileState(narrow, wider)).toBe("base_changed");
+    expect(catalogProfile(narrow, wider.id)).toBeUndefined();
+
+    const swapped = catalogWith([wider]);
+    const registry = createWorkspaceProfiles(
+      { listAll: async () => [wider] },
+      Date.now,
+      permissive,
+    );
+    await registry.refresh();
+    swapped.workspace_profiles = registry;
+    expect(workspaceProfileState(swapped, wider)).toBe("usable");
+    expect(catalogProfile(swapped, wider.id)?.tools).toEqual([
+      "Read",
+      "WebFetch",
+    ]);
+
+    const writes: unknown[] = [];
+    const profiles = createWorkspaceProfileService({
+      authorization: createAuthorizationPolicy({
+        agents: { agentOf: async () => null, isAdmin: async () => false },
+        decisions: { record: async () => {} },
+      }),
+      store: {
+        listAll: async () => [],
+        async create(input) {
+          writes.push(input);
+          return { outcome: "created", record: wider };
+        },
+        async retire() {
+          return { outcome: "not_found" };
+        },
+      },
+      catalog: { ...swapped, workspace_profiles: registry },
+    });
+    await profiles.create(caller("owner"), {
+      ...REQUEST,
+      tools: ["Read", "WebFetch"],
+    });
+    expect(writes).toHaveLength(1);
   });
 });
