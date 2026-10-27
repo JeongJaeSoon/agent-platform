@@ -238,27 +238,26 @@ describe("the agent Slack app API", () => {
     const path = `${appPath(IDLE_AGENT)}/settings`;
     const owner = cookieFor("owner");
     expect((await call("GET", path, { cookie: owner })).json).toEqual({
-      default_mode: "off",
-    });
-    expect(
-      (
-        await call("PUT", path, {
-          cookie: owner,
-          body: { default_mode: "mention" },
-        })
-      ).status,
-    ).toBe(200);
-    expect((await call("GET", path, { cookie: owner })).json).toEqual({
       default_mode: "mention",
     });
     expect(
       (
         await call("PUT", path, {
           cookie: owner,
-          body: { default_mode: "all" },
+          body: { default_mode: "ambient" },
         })
       ).status,
-    ).toBe(400);
+    ).toBe(200);
+    expect((await call("GET", path, { cookie: owner })).json).toEqual({
+      default_mode: "ambient",
+    });
+    // A new channel is always in use, so "off" is no default any more.
+    for (const default_mode of ["all", "off"]) {
+      expect(
+        (await call("PUT", path, { cookie: owner, body: { default_mode } }))
+          .status,
+      ).toBe(400);
+    }
     expect(
       (
         await call("PUT", path, {
@@ -271,7 +270,7 @@ describe("the agent Slack app API", () => {
       (
         await call("PUT", path, {
           cookie: cookieFor("member"),
-          body: { default_mode: "off" },
+          body: { default_mode: "mention" },
         })
       ).status,
     ).toBe(403);
@@ -307,7 +306,7 @@ describe("the agent Slack app API", () => {
       (
         await appWith(false)("PUT", path, {
           cookie: owner,
-          body: { default_mode: "off" },
+          body: { default_mode: "mention" },
         })
       ).status,
     ).toBe(503);
@@ -315,7 +314,7 @@ describe("the agent Slack app API", () => {
       (
         await call("PUT", `${appPath(OTHER_AGENT)}/settings`, {
           cookie: owner,
-          body: { default_mode: "off" },
+          body: { default_mode: "mention" },
         })
       ).status,
     ).toBe(404);

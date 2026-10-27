@@ -115,8 +115,8 @@ const PUBLIC = [...PUBLIC_JOINED, ...PUBLIC_UNJOINED];
 const APP_ID = "A07PLACEHLD";
 const EVENT_URL =
   "https://agents.verify.example/v1/slack/events/ebc9271d-5cec-4c73-bd7d-7efbda71d2a9";
-// SLACK_BINDING_MODE_VALUES: mention, off, so a Switch. The binding
-// contract's `ambient` (kollegium surfaces.ts) would bring back a select.
+// This mock keeps one mention switch per channel; the console now splits it
+// into "use in this channel" (off) and "only when mentioned" (mention vs ambient).
 const MENTION = "멘션할 때";
 const OFF = "꺼짐";
 const SEEDED_REACTIONS: Readonly<Record<string, string>> = {

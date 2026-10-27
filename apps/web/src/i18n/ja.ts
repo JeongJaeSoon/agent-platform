@@ -85,7 +85,7 @@ export const slackJa = {
   "slack.dmSaved": "DM の設定を保存しました。",
   "slack.defaultSaved":
     "新しいチャンネルの既定の応答を「{mode}」に変更しました。接続済みのチャンネルはそのままです。",
-  "slack.ambient": "常に応答",
+  "slack.ambient": "メンションなしでも応答",
   "slack.home": "ホームチャンネル",
   "slack.setHome": "ホームに設定",
   "slack.channelHome": "{channel} をホームに設定",
@@ -106,7 +106,7 @@ export const slackJa = {
   "slack.danger": "危険な操作",
   "slack.botId": "ボット ID",
   "slack.defaultHint":
-    "オンにすると新しく追加したチャンネルでメンションに応答し、オフにすると応答しません。接続済みのチャンネルはそのままです。",
+    "追加したチャンネルやエージェントを招待したチャンネルはすぐに使用中になります。オンにするとメンションされたときだけ、オフにするとメンションがなくても応答します。接続済みのチャンネルはそのままです。",
   "slack.dm": "ダイレクトメッセージ",
   "slack.dmSetting": "DM を受け取る",
   "slack.dmHint":
@@ -115,9 +115,13 @@ export const slackJa = {
   "slack.private": "非公開",
   "slack.off": "オフ",
   "slack.on": "オン",
-  "slack.mention": "メンション時",
-  "slack.reaction": "{channel} のメンションに応答",
+  "slack.mention": "メンション時のみ",
+  "slack.inUse": "このチャンネルで使用",
+  "slack.inUseOf": "{channel} で使用",
+  "slack.mentionOnly": "メンション時のみ応答",
+  "slack.reaction": "{channel} でメンション時のみ応答",
   "slack.defaultReaction": "新しいチャンネルの既定の応答",
+  "slack.defaultMentionOnly": "新しいチャンネル: メンション時のみ応答",
   "slack.search": "チャンネルを検索",
   "slack.invite": "参加待ち",
   "slack.privateInvite": "/invite が必要",

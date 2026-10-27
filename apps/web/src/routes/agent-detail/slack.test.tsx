@@ -93,7 +93,7 @@ function routes(app: typeof APP | null = null, installed = false) {
       json(200, { items: installed ? [IDENTITY] : [] }),
     [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [] }),
     [`GET ${PATH}/slack/app/settings`]: () =>
-      json(200, { default_mode: "off" }),
+      json(200, { default_mode: "mention" }),
     [`GET ${PATH}/slack/channels`]: () =>
       json(200, {
         items: [],
@@ -426,21 +426,46 @@ describe("Slack management", () => {
     ).toBe(true);
   });
 
-  test("shows an ambient binding consistently and keeps it read-only", async () => {
+  test("splits a channel's use from whether it waits for a mention", async () => {
+    let row: typeof BINDING = { ...BINDING, mode: "ambient" };
     const { api } = renderAt(DETAIL, {
       ...routes(APP, true),
-      [`GET ${PATH}/slack-bindings`]: () =>
-        json(200, { items: [{ ...BINDING, mode: "ambient" }] }),
+      [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [row] }),
+      [`GET ${PATH}/slack/app/settings`]: () =>
+        json(200, { default_mode: "ambient" }),
+      [`PUT ${PATH}/slack-bindings`]: async (request: Request) => {
+        row = { ...row, mode: (await request.json()).mode };
+        return json(200, { slack_binding: row, receipt_id: ID });
+      },
     });
     const user = await setupUser();
-    await screen.findByRole("navigation", { name: "Slack 구역" });
-    const toggle = await within(
-      await screen.findByRole("list", { name: "연결된 채널" }),
-    ).findByRole("switch");
-    expect(toggle.getAttribute("aria-checked")).toBe("true");
-    expect(screen.getByText("항상 반응")).toBeDefined();
-    await user.click(toggle);
-    expect(api.calls.some((call) => call.method === "PUT")).toBe(false);
+    const list = await screen.findByRole("list", { name: "연결된 채널" });
+    const use = await within(list).findByRole("switch", {
+      name: "채널 ID: C123에서 사용",
+    });
+    const mention = within(list).getByRole("switch", {
+      name: "채널 ID: C123 멘션할 때만 반응",
+    });
+    expect(use.getAttribute("aria-checked")).toBe("true");
+    expect(mention.getAttribute("aria-checked")).toBe("false");
+    expect(within(list).getByText("멘션 없이도 반응")).toBeDefined();
+    const puts = () =>
+      api.calls
+        .filter((call) => call.method === "PUT")
+        .map((call) => (call.body as { mode: string }).mode);
+    await user.click(mention);
+    await waitFor(() =>
+      expect(mention.getAttribute("aria-checked")).toBe("true"),
+    );
+    await user.click(use);
+    await waitFor(() => expect(use.getAttribute("aria-checked")).toBe("false"));
+    // An unused channel has no mention choice to make.
+    expect(mention.getAttribute("aria-disabled")).toBe("true");
+    await user.click(mention);
+    // Back in use, the channel waits for a mention whatever the default.
+    await user.click(use);
+    await waitFor(() => expect(use.getAttribute("aria-checked")).toBe("true"));
+    expect(puts()).toEqual(["mention", "off", "mention"]);
   });
 
   test("changes home from the picker while preserving the channel mode and ceiling", async () => {
@@ -486,7 +511,7 @@ describe("Slack management", () => {
 
   test("saves the default response on the server and applies it to a newly connected channel", async () => {
     let items: (typeof BINDING)[] = [];
-    let mode = "off";
+    let mode = "ambient";
     const { api } = renderAt(DETAIL, {
       ...routes(APP, true),
       [`GET ${PATH}/slack-bindings`]: () => json(200, { items }),
@@ -520,7 +545,7 @@ describe("Slack management", () => {
     const user = await setupUser();
     await screen.findByRole("navigation", { name: "Slack 구역" });
     const toggle = await screen.findByRole("switch", {
-      name: "새 채널의 기본 반응",
+      name: "새 채널: 멘션할 때만 반응",
     });
     await waitFor(() =>
       expect(toggle.getAttribute("aria-disabled")).toBe("false"),
@@ -528,7 +553,7 @@ describe("Slack management", () => {
     expect(toggle.getAttribute("aria-checked")).toBe("false");
     await user.click(toggle);
     await screen.findByText(
-      "새 채널의 기본 반응을 '멘션할 때'(으)로 바꿨습니다. 이미 연결된 채널은 그대로입니다.",
+      "새 채널의 기본 반응을 '멘션할 때만'(으)로 바꿨습니다. 이미 연결된 채널은 그대로입니다.",
     );
     expect(toggle.getAttribute("aria-checked")).toBe("true");
     const saved = api.calls.find(
@@ -667,7 +692,7 @@ describe("Slack management", () => {
   }
 
   test("keeps a saved default response when an older read lands after the save", async () => {
-    let mode = "off";
+    let mode = "ambient";
     let reads = 0;
     let release = () => {};
     const gate = new Promise<void>((resolve) => {
@@ -688,7 +713,7 @@ describe("Slack management", () => {
     });
     const user = await setupUser();
     const toggle = await screen.findByRole("switch", {
-      name: "새 채널의 기본 반응",
+      name: "새 채널: 멘션할 때만 반응",
     });
     await waitFor(() =>
       expect(toggle.getAttribute("aria-disabled")).toBe("false"),
@@ -698,7 +723,7 @@ describe("Slack management", () => {
     await waitFor(() => expect(reads).toBe(2));
     await user.click(toggle);
     await screen.findByText(
-      "새 채널의 기본 반응을 '멘션할 때'(으)로 바꿨습니다. 이미 연결된 채널은 그대로입니다.",
+      "새 채널의 기본 반응을 '멘션할 때만'(으)로 바꿨습니다. 이미 연결된 채널은 그대로입니다.",
     );
     release();
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -706,7 +731,7 @@ describe("Slack management", () => {
   });
 
   test("keeps a saved default response when a read started during the save lands after it", async () => {
-    let mode = "off";
+    let mode = "ambient";
     let reads = 0;
     let saved = () => {};
     const saving = new Promise<void>((resolve) => {
@@ -733,7 +758,7 @@ describe("Slack management", () => {
     });
     const user = await setupUser();
     const toggle = await screen.findByRole("switch", {
-      name: "새 채널의 기본 반응",
+      name: "새 채널: 멘션할 때만 반응",
     });
     await waitFor(() =>
       expect(toggle.getAttribute("aria-disabled")).toBe("false"),
@@ -744,7 +769,7 @@ describe("Slack management", () => {
     await waitFor(() => expect(reads).toBe(2));
     saved();
     await screen.findByText(
-      "새 채널의 기본 반응을 '멘션할 때'(으)로 바꿨습니다. 이미 연결된 채널은 그대로입니다.",
+      "새 채널의 기본 반응을 '멘션할 때만'(으)로 바꿨습니다. 이미 연결된 채널은 그대로입니다.",
     );
     late();
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -1358,7 +1383,7 @@ describe("Slack management", () => {
     const user = await setupUser();
     await screen.findByRole("navigation", { name: "Slack 구역" });
     const toggle = await screen.findByRole("switch", {
-      name: "채널 ID: C123 멘션할 때 반응",
+      name: "채널 ID: C123 멘션할 때만 반응",
     });
     toggle.focus();
     await user.keyboard(" ");
@@ -1496,7 +1521,7 @@ describe("Slack management", () => {
     ).toBeDefined();
     expect(document.body.textContent).not.toContain("비밀 저장소");
   });
-  test("keeps the saved ceiling and home when switching mention off with the keyboard", async () => {
+  test("keeps the saved ceiling and home when switching a channel off with the keyboard", async () => {
     let row = BINDING;
     const { api } = renderAt(DETAIL, {
       ...routes(APP, true),
@@ -1519,7 +1544,7 @@ describe("Slack management", () => {
     const user = await setupUser();
     await screen.findByRole("navigation", { name: "Slack 구역" });
     const toggle = await screen.findByRole("switch", {
-      name: "#general 멘션할 때 반응",
+      name: "#general에서 사용",
     });
     toggle.focus();
     await user.keyboard(" ");

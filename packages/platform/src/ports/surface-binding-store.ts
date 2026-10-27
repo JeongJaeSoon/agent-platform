@@ -81,8 +81,8 @@ export interface SurfaceBindingStore {
   ensureDmBinding(installationId: string): Promise<SurfaceBindingRecord | null>;
   /**
    * The live binding of a channel the install's bot was invited to, made
-   * when it has none (`mention`, the default ceiling, `joined`, no receipt:
-   * no person set it). A binding already there is returned as it is, so a
+   * when it has none (in use with the agent's default mode, the default
+   * ceiling, `joined`, no receipt: no person set it). A binding already there is returned as it is, so a
    * channel someone switched off stays off. Null when the install has no
    * live agent identity.
    */

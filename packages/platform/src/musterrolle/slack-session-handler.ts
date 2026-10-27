@@ -167,20 +167,29 @@ export function createSlackSessionHandler(
     const mentioned =
       event.type === "app_mention" ||
       new RegExp(`<@${agent.botUserId}(?:\\||>)`).test(event.text);
-    if (found === null && !mentioned && !dm) return;
-
+    // A stray reply is nobody's request in any mode; skip the lookup.
+    if (found === null && !mentioned && !dm && event.thread_ts !== undefined)
+      return;
     const binding = dm
       ? await deps.bindings.ensureDmBinding(agent.installationId)
       : await deps.bindings.resolveSlackChannel(
           agent.installationId,
           event.channel,
         );
+    // An ambient channel takes a person's top-level message unmentioned,
+    // never a reply in a thread the agent is not part of.
+    const ambient =
+      binding?.mode === "ambient" && event.thread_ts === undefined;
+    if (found === null && !mentioned && !dm && !ambient) return;
     const botToken = await deps.botToken(claim.workspaceId, claim.slackAppId);
     if (botToken === null) {
       throw new Error("The Slack app has no bot token stored");
     }
     const user = await deps.slack.userInfo(botToken, event.user);
     const notice = async (reason: string, text: SlackNotice) => {
+      // Someone talking in an ambient channel did not ask the agent, so a
+      // refusal is not theirs to read on every message.
+      if (found === null && !mentioned && !dm) return;
       await deps.notices.record({
         workspaceId: agent.workspaceId,
         agentId: agent.agentId,

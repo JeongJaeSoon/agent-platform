@@ -91,7 +91,7 @@ export const slackKo = {
   "slack.dmSaved": "DM 받기 설정을 저장했습니다.",
   "slack.defaultSaved":
     "새 채널의 기본 반응을 '{mode}'(으)로 바꿨습니다. 이미 연결된 채널은 그대로입니다.",
-  "slack.ambient": "항상 반응",
+  "slack.ambient": "멘션 없이도 반응",
   "slack.home": "홈 채널",
   "slack.setHome": "홈 지정",
   "slack.channelHome": "{channel} 홈 지정",
@@ -111,7 +111,7 @@ export const slackKo = {
   "slack.danger": "위험 구역",
   "slack.botId": "봇 ID",
   "slack.defaultHint":
-    "켜면 새로 추가한 채널이 멘션할 때 반응하고, 끄면 반응하지 않습니다. 이미 연결된 채널은 그대로입니다.",
+    "새로 추가하거나 에이전트를 초대한 채널은 바로 사용으로 켜집니다. 켜면 멘션할 때만, 끄면 멘션 없이도 반응합니다. 이미 연결된 채널은 그대로입니다.",
   "slack.dm": "다이렉트 메시지",
   "slack.dmSetting": "DM 받기",
   "slack.dmHint":
@@ -120,9 +120,13 @@ export const slackKo = {
   "slack.private": "비공개",
   "slack.off": "꺼짐",
   "slack.on": "켜짐",
-  "slack.mention": "멘션할 때",
-  "slack.reaction": "{channel} 멘션할 때 반응",
+  "slack.mention": "멘션할 때만",
+  "slack.inUse": "이 채널에서 사용",
+  "slack.inUseOf": "{channel}에서 사용",
+  "slack.mentionOnly": "멘션할 때만 반응",
+  "slack.reaction": "{channel} 멘션할 때만 반응",
   "slack.defaultReaction": "새 채널의 기본 반응",
+  "slack.defaultMentionOnly": "새 채널: 멘션할 때만 반응",
   "slack.search": "채널 찾기",
   "slack.invite": "참여 대기",
   "slack.privateInvite": "/invite 필요",

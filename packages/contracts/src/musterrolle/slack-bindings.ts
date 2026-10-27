@@ -11,8 +11,11 @@ import { receiptIdSchema } from "../shared/index.ts";
 // its DMs (94S-177). One write sets one channel; the DM binding is the
 // install's single row with no channel id.
 
-/** `ambient` is in the binding contract but not yet something anyone sets. */
-export const SLACK_BINDING_MODE_VALUES = ["off", "mention"] as const;
+/**
+ * `off`: the channel is not used. `mention`: in use, answers a mention.
+ * `ambient`: in use, answers any person's top-level message there.
+ */
+export const SLACK_BINDING_MODE_VALUES = ["off", "mention", "ambient"] as const;
 export const slackBindingModeSchema = z.enum(SLACK_BINDING_MODE_VALUES);
 
 // Slack's channel ids (`C…`, `G…`); names are resolved by the console.

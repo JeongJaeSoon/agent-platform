@@ -84,7 +84,7 @@ export const slackEn = {
   "slack.dmSaved": "DM setting saved.",
   "slack.defaultSaved":
     "Default response for new channels set to “{mode}”. Channels already connected stay as they are.",
-  "slack.ambient": "Always respond",
+  "slack.ambient": "Respond without a mention",
   "slack.home": "Home channel",
   "slack.setHome": "Set home",
   "slack.channelHome": "Set home: {channel}",
@@ -105,7 +105,7 @@ export const slackEn = {
   "slack.danger": "Danger zone",
   "slack.botId": "Bot ID",
   "slack.defaultHint":
-    "On: channels you add respond when mentioned. Off: they don't. Channels already connected stay as they are.",
+    "Channels you add or invite the agent to are in use right away. On: they respond only when mentioned. Off: they respond without a mention too. Channels already connected stay as they are.",
   "slack.dm": "Direct messages",
   "slack.dmSetting": "Receive DMs",
   "slack.dmHint":
@@ -114,9 +114,13 @@ export const slackEn = {
   "slack.private": "Private",
   "slack.off": "Off",
   "slack.on": "On",
-  "slack.mention": "When mentioned",
-  "slack.reaction": "Respond when mentioned in {channel}",
+  "slack.mention": "Only when mentioned",
+  "slack.inUse": "Use in this channel",
+  "slack.inUseOf": "Use in {channel}",
+  "slack.mentionOnly": "Respond only when mentioned",
+  "slack.reaction": "Respond only when mentioned in {channel}",
   "slack.defaultReaction": "Default response for new channels",
+  "slack.defaultMentionOnly": "New channels: respond only when mentioned",
   "slack.search": "Find channels",
   "slack.invite": "Awaiting participation",
   "slack.privateInvite": "/invite required",

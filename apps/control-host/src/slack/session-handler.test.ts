@@ -216,6 +216,7 @@ async function agentInSlack(
     /** The catalog the release is made against; the handler's stays as loaded. */
     releasedUnder?: (catalog: SessionCatalog) => SessionCatalog;
     activate?: boolean;
+    mode?: "off" | "mention" | "ambient";
   } = {},
 ) {
   const workspaceId = randomUUID();
@@ -323,7 +324,7 @@ async function agentInSlack(
     agentId,
     channelId: CHANNEL,
     channelKind: "public_channel",
-    mode: "mention",
+    mode: options.mode ?? "mention",
     home: false,
     ceiling: DEFAULT_SURFACE_CEILING,
     managerRoles: MANAGERS,
@@ -724,6 +725,41 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(opened.map((link) => link.threadId)).toEqual(["300.000300"]);
     expect(notices).toEqual([]);
     expect(await inboxStatuses()).toEqual(Array(7).fill("processed"));
+  });
+
+  test("an ambient channel opens a session on an unmentioned top-level post, not on a stray reply", async () => {
+    const fixture = await agentInSlack("general", { mode: "ambient" });
+    const { handle, notices } = handler();
+    await deliver(fixture, message("100.000100"));
+    await deliver(fixture, message("100.000200", { thread_ts: "100.000100" }));
+    await deliver(fixture, message("200.000200", { thread_ts: "200.000100" }));
+    // Someone not linked who did not ask the agent is not told anything.
+    await deliver(fixture, message("300.000100", { user: "U0STRANGER" }));
+    await deliver(fixture, message("400.000100", { bot_id: "B0OTHER" }));
+    await deliver(
+      fixture,
+      message("500.000100", { subtype: "message_changed" }),
+    );
+    await drain(handle);
+    expect((await links()).map((link) => link.threadId)).toEqual([
+      "100.000100",
+    ]);
+    const [session, ...others] = await sessionsOf(fixture);
+    expect(others).toEqual([]);
+    expect((await turnsOf(session?.id)).map((turn) => turn.message)).toEqual([
+      "and the next step",
+      "and the next step",
+    ]);
+    expect(notices).toEqual([]);
+  });
+
+  test("an unused channel takes no unmentioned post", async () => {
+    const fixture = await agentInSlack("general", { mode: "off" });
+    const { handle, notices } = handler();
+    await deliver(fixture, message("100.000100"));
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(notices).toEqual([]);
   });
 
   test("a bot's reply in a linked thread is no turn", async () => {

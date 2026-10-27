@@ -2357,9 +2357,9 @@ export const agents = pgTable(
     activeReleaseId: text("active_release_id"),
     activationRevision: integer("activation_revision").notNull().default(-1),
     slackDefaultMode: text("slack_default_mode")
-      .$type<"off" | "mention">()
+      .$type<"mention" | "ambient">()
       .notNull()
-      .default("off"),
+      .default("mention"),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -2372,7 +2372,7 @@ export const agents = pgTable(
     uniqueIndex("agents_workspace_slug_idx").on(table.workspaceId, table.slug),
     check(
       "agents_slack_default_mode_check",
-      sql`${table.slackDefaultMode} IN ('off', 'mention')`,
+      sql`${table.slackDefaultMode} IN ('mention', 'ambient')`,
     ),
     // What agent_admins and api_keys reference, so neither can name another
     // workspace's agent.

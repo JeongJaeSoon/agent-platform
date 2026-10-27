@@ -871,7 +871,7 @@ function SlackChannels({
   const error = bindings.error ?? channels.error ?? update.error;
   const connectChannel = (channelId: string) => {
     const row = rows.find((item) => item.external_surface_id === channelId);
-    const mode = row ? (row.mode === "off" ? "off" : "mention") : defaultMode;
+    const mode = row ? row.mode : defaultMode;
     if (!mode) return;
     update.mutate({
       kind: pickHome ? "home" : "connect",
@@ -883,16 +883,18 @@ function SlackChannels({
       },
     });
   };
-  const change = (row: Binding, checked: boolean) =>
-    update.mutate({
-      kind: "reaction",
-      body: {
-        channel_id: row.external_surface_id,
-        mode: checked ? "mention" : "off",
-        home: row.home,
-        ceiling: row.ceiling,
-      },
-    });
+  const change = (row: Binding, mode: Binding["mode"]) => {
+    if (!update.isPending)
+      update.mutate({
+        kind: "reaction",
+        body: {
+          channel_id: row.external_surface_id,
+          mode,
+          home: row.home,
+          ceiling: row.ceiling,
+        },
+      });
+  };
   return (
     <section
       id={SECTION.channels}
@@ -989,16 +991,38 @@ function SlackChannels({
                     {t(modeKey(row.mode))}
                   </span>
                 }
-                control={
-                  <Switch
-                    aria-label={t("slack.reaction", { channel: name })}
-                    checked={row.mode !== "off"}
-                    aria-disabled={update.isPending || row.mode === "ambient"}
-                    onCheckedChange={(checked) => {
-                      if (!update.isPending && row.mode !== "ambient")
-                        change(row, checked);
-                    }}
-                  />
+                actions={
+                  <>
+                    <span className="flex items-center gap-2">
+                      <span aria-hidden="true" className="text-control">
+                        {t("slack.inUse")}
+                      </span>
+                      <Switch
+                        aria-label={t("slack.inUseOf", { channel: name })}
+                        checked={row.mode !== "off"}
+                        aria-disabled={update.isPending}
+                        onCheckedChange={(checked) =>
+                          // Back in use, a channel waits for a mention until
+                          // someone chooses otherwise.
+                          change(row, checked ? "mention" : "off")
+                        }
+                      />
+                    </span>
+                    <span className="flex items-center gap-2">
+                      <span aria-hidden="true" className="text-control">
+                        {t("slack.mentionOnly")}
+                      </span>
+                      <Switch
+                        aria-label={t("slack.reaction", { channel: name })}
+                        checked={row.mode === "mention"}
+                        aria-disabled={update.isPending || row.mode === "off"}
+                        onCheckedChange={(checked) => {
+                          if (row.mode !== "off")
+                            change(row, checked ? "mention" : "ambient");
+                        }}
+                      />
+                    </span>
+                  </>
                 }
               />
             );
@@ -1091,12 +1115,7 @@ function SlackChannels({
                           (!pickHome &&
                             rows.some(
                               (row) => row.external_surface_id === channel.id,
-                            )) ||
-                          rows.some(
-                            (row) =>
-                              row.external_surface_id === channel.id &&
-                              row.mode === "ambient",
-                          )
+                            ))
                         }
                         onClick={() => connectChannel(channel.id)}
                       >
@@ -1228,17 +1247,13 @@ function SlackDefaultReaction({ agentId }: { readonly agentId: string }) {
             path: { id: agentId },
             header: { "Idempotency-Key": crypto.randomUUID() },
           },
-          body: { default_mode: checked ? "mention" : "off" },
+          body: { default_mode: checked ? "mention" : "ambient" },
         }),
       ),
     onSuccess: (saved) => {
       cache.setQueryData([...slackKey(client, agentId), "settings"], saved);
       setNotice(
-        t("slack.defaultSaved", {
-          mode: t(
-            saved.default_mode === "mention" ? "slack.mention" : "slack.off",
-          ),
-        }),
+        t("slack.defaultSaved", { mode: t(modeKey(saved.default_mode)) }),
       );
     },
     // A read started during the save may hold the old value; drop it and
@@ -1260,7 +1275,7 @@ function SlackDefaultReaction({ agentId }: { readonly agentId: string }) {
           {lost
             ? "—"
             : settings.data
-              ? t(mention ? "slack.mention" : "slack.off")
+              ? t(modeKey(settings.data.default_mode))
               : null}
         </span>
       }
@@ -1278,7 +1293,7 @@ function SlackDefaultReaction({ agentId }: { readonly agentId: string }) {
       control={
         lost ? null : (
           <Switch
-            aria-label={t("slack.defaultReaction")}
+            aria-label={t("slack.defaultMentionOnly")}
             checked={mention}
             aria-disabled={!settings.isSuccess || update.isPending}
             onCheckedChange={(checked) => {
