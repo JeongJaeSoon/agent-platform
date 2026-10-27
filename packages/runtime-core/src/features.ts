@@ -1,0 +1,58 @@
+import type { RuntimeConfig } from "@werft-ai/contracts";
+
+import type {
+  FeatureKey,
+  RuntimeCapabilityTable,
+  Support,
+} from "./descriptor.ts";
+
+/** The features a session's settings cannot run without. */
+export type RuntimeRequirements = { features: readonly FeatureKey[] };
+
+export function runtimeRequirementsOf(
+  runtimeConfig: Pick<RuntimeConfig, "permission_mode"> &
+    Partial<Pick<RuntimeConfig, "mcp_servers">>,
+): RuntimeRequirements {
+  const features: FeatureKey[] = [];
+  if ((runtimeConfig.mcp_servers ?? []).length > 0) features.push("mcp");
+  if (runtimeConfig.permission_mode === "auto") {
+    features.push("classifier_review");
+  }
+  return { features };
+}
+
+/** How an engine offers a feature: the table's word for it, else the extras', else none. */
+export function featureSupport(
+  table: RuntimeCapabilityTable,
+  extra: Partial<Record<FeatureKey, Support>>,
+  key: FeatureKey,
+): Support {
+  switch (key) {
+    case "mcp":
+      return table.mcp;
+    case "skills":
+      return table.skills;
+    case "session_resume":
+      return table.resume && table.checkpoint ? "native" : "none";
+    case "approval_park":
+      return table.interrupt && table.checkpoint && table.resume
+        ? "native"
+        : "none";
+    case "classifier_review":
+      // No other mechanism stands in for a model classifier.
+      return table.permissionModes.auto === "native" ? "native" : "none";
+    default:
+      return extra[key] ?? "none";
+  }
+}
+
+/** The required features the engine does not offer at all, in request order. */
+export function unmetFeatures(
+  table: RuntimeCapabilityTable,
+  extra: Partial<Record<FeatureKey, Support>>,
+  requirements: RuntimeRequirements,
+): FeatureKey[] {
+  return requirements.features.filter(
+    (key) => featureSupport(table, extra, key) === "none",
+  );
+}

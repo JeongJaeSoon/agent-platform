@@ -4653,8 +4653,8 @@ export interface components {
                 tools: string[];
                 /** @enum {string} */
                 permission_mode: "default" | "acceptEdits" | "dontAsk" | "plan" | "bypassPermissions" | "auto";
-                /** @constant */
-                runtime_kind: "claude_agent_sdk";
+                /** @enum {string} */
+                runtime_kind: "claude_agent_sdk" | "codex_app_server" | "pi_coding_agent";
                 runtime_version: string;
                 /** @enum {string} */
                 billing: "metered" | "none";
@@ -4694,8 +4694,8 @@ export interface components {
                 tools: string[];
                 /** @enum {string} */
                 permission_mode: "default" | "acceptEdits" | "dontAsk" | "plan" | "bypassPermissions" | "auto";
-                /** @constant */
-                runtime_kind: "claude_agent_sdk";
+                /** @enum {string} */
+                runtime_kind: "claude_agent_sdk" | "codex_app_server" | "pi_coding_agent";
                 runtime_version: string;
                 /** @enum {string} */
                 billing: "metered" | "none";

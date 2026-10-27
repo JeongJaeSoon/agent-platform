@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { type SessionEvent, sessionEventSchema } from "@werft-ai/contracts";
+import {
+  type RuntimeConfig,
+  type SessionEvent,
+  sessionEventSchema,
+} from "@werft-ai/contracts";
 import {
   type AgentInput,
   approvalInputHash,
@@ -295,6 +299,83 @@ describe("WorkerHost over a run that implements the contract itself", () => {
     await worker.runLoop();
 
     expect(run.leases).toBe(1);
+  });
+
+  describe("a claim that needs features", () => {
+    const runtimeConfig: RuntimeConfig = {
+      model: "fake-model",
+      tools: [],
+      permission_mode: "auto",
+      provider: {
+        kind: "anthropic",
+        endpoint: "http://127.0.0.1:4000",
+        auth: { kind: "egress_token", token: "t" },
+      },
+      mcp_servers: [
+        {
+          name: "docs",
+          endpoint: "https://mcp.example.invalid/mcp",
+          binding: `sha256:${"0".repeat(64)}`,
+          access: { kind: "egress_token", token: "t" },
+        },
+      ],
+    };
+
+    function claimHost(run: ScriptedRun) {
+      const gateway = new FakeWorkerGateway({
+        runtimeConfig: structuredClone(runtimeConfig),
+      });
+      const worker = new WorkerHost({
+        checkpoints: unwiredCheckpoints,
+        execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
+        gateway,
+        logger: { info: () => {}, warn: () => {}, error: () => {} },
+        runtimes: { launcherFor: () => ({ start: () => run }) },
+        timeouts,
+        workspace: noWorkspace,
+      });
+      return { gateway, worker };
+    }
+
+    test("is refused before any input when the run offers neither, naming both", async () => {
+      const run = new ScriptedRun();
+      run.onSend = (sent) => finish(run, sent);
+      const { gateway, worker } = claimHost(run);
+      gateway.enqueue("hello");
+
+      const summary = await worker.runLoop();
+
+      const reason =
+        "Runtime claude_agent_sdk 0.3.270 cannot run this session's profile: it does not support mcp, classifier_review";
+      expect(summary).toEqual({ outcome: "failed", reason, turns: [] });
+      expect(run.inputs).toEqual([]);
+      expect(gateway.releases.map((request) => request.reason)).toEqual([
+        reason,
+      ]);
+    });
+
+    test("runs as before when the run offers them, emulated mcp included", async () => {
+      const run = new ScriptedRun();
+      const { effective } = run.capabilities;
+      run.capabilities = {
+        ...run.capabilities,
+        effective: {
+          ...effective,
+          mcp: "emulated",
+          permissionModes: { ...effective.permissionModes, auto: "native" },
+        },
+      };
+      run.onSend = (sent) => finish(run, sent);
+      const { gateway, worker } = claimHost(run);
+      gateway.enqueue("hello");
+
+      const summary = await worker.runLoop();
+
+      expect(summary.turns).toEqual([
+        { turnId: "1", status: "completed", reason: null },
+      ]);
+      expect(run.inputs).toHaveLength(1);
+    });
   });
 
   test("waits for a run that is still closing before it releases", async () => {

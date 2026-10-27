@@ -10,6 +10,7 @@ import {
 import {
   ALLOW_UNATTENDED_SETTING,
   DEFAULT_CONFIG_DIR,
+  installedRuntimes,
   loadSessionCatalog,
   PROFILES_FILE,
   REPOSITORIES_FILE,
@@ -248,6 +249,39 @@ describe("unattended permission modes", () => {
       "bypassPermissions",
     );
     expect(unattendedProfiles(catalog)).toEqual(["from-secrets"]);
+  });
+});
+
+describe("installed runtimes", () => {
+  test("pass every profile shipped in the repository", async () => {
+    for (const dir of [".", "fake-model", "local-model"]) {
+      const config = await readCatalogConfig(join(DEFAULT_CONFIG_DIR, dir));
+      expect(Object.keys(config.profiles).length).toBeGreaterThan(0);
+      installedRuntimes.assertProfiles(config.profiles);
+    }
+  });
+
+  test("a profile of a kind the image does not ship parses, then stops the load", async () => {
+    const dir = await dirWith({
+      [PROFILES_FILE]: PROFILES.replace(
+        "from-secrets:\n    runtime_kind: claude_agent_sdk",
+        "from-secrets:\n    runtime_kind: codex_app_server",
+      ),
+    });
+    expect((await readCatalogConfig(dir)).profiles["from-secrets"]).toEqual(
+      expect.objectContaining({ runtime_kind: "codex_app_server" }),
+    );
+    expect(
+      await failure(
+        loadSessionCatalog({
+          dir,
+          env: { PROVIDER_KEY: ENV_VALUE },
+          readSecret: secrets,
+        }),
+      ),
+    ).toBe(
+      "Catalog profile(s) refused: from-secrets: Runtime codex_app_server is not installed (installed: claude_agent_sdk)",
+    );
   });
 });
 

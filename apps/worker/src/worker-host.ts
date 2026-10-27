@@ -31,7 +31,9 @@ import {
   isRetryable,
   type ParkedApproval,
   type RuntimeEvent,
+  runtimeRequirementsOf,
   type TurnEnded,
+  unmetFeatures,
   type WorkerCheckpointState,
   type WorkerGatewayClient,
   WorkerGatewayRequestError,
@@ -549,9 +551,12 @@ export class WorkerHost {
   }
 
   /**
-   * Tells the gateway this attempt restored what its claim named and can
+   * Refuses, before any input, a claim whose settings need a feature the
+   * started engine does not offer — the control plane checked the profile
+   * against its own copy of the descriptor, which this image may not match.
+   * Then tells the gateway this attempt restored what its claim named and can
    * take input: a session resumed out of `paused` admits none until then
-   * . A resumed engine is waited on first — its transcript loaded
+   * . The engine is waited on first — its transcript loaded
    * the engine initialized — so a restore that fails there fails the resume
    * instead of reaching the first turn. The revision reported is the one the
    * restore loaded (the claim's, for a plan resuming this container's disk);
@@ -566,11 +571,19 @@ export class WorkerHost {
     plan: RuntimeResumePlan,
     claim: BootstrapClaimResponse,
   ): Promise<boolean> {
-    if (claim.restore === null) return true;
-    if (plan.mode === "resume") {
-      const loaded = await this.untilStopped(run.ready().then(() => true));
-      if (loaded === undefined || this.stopping !== undefined) return false;
+    const negotiated = await this.untilStopped(run.ready());
+    if (negotiated === undefined || this.stopping !== undefined) return false;
+    const unmet = unmetFeatures(
+      negotiated.effective,
+      negotiated.effectiveExtraFeatures,
+      runtimeRequirementsOf(claim.runtime_config),
+    );
+    if (unmet.length > 0) {
+      throw new Error(
+        `Runtime ${claim.runtime.kind} ${claim.runtime.version} cannot run this session's profile: it does not support ${unmet.join(", ")}`,
+      );
     }
+    if (claim.restore === null) return true;
     const restored =
       plan.mode === "resume"
         ? (plan.restoredRevision ?? claim.restore.revision)

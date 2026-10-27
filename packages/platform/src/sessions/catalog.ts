@@ -10,8 +10,10 @@ import {
   projectSettingsSchema,
   type RepositoryMode,
   type RuntimeConfig,
+  type RuntimeKind,
   repositoryModeSchema,
   type runtimeConfigSchema,
+  runtimeKindSchema,
   type WorkspaceProfileState,
 } from "@werft-ai/contracts";
 import { z } from "zod";
@@ -26,9 +28,10 @@ import { type GitCredential, repoRefOf } from "../ports/forge.ts";
 // therefore means changing the secret and restarting the API; a claim
 // already answered keeps the key it was given.
 //
-// Only Claude profiles exist: the config block below is the Claude engine's
-// shape, and a profile that names another runtime kind with it would run
-// nothing. Other kinds get their own block when an adapter for them lands.
+// The config block below is the Claude engine's shape whatever kind a
+// profile names; the API refuses at load a kind no installed runtime serves
+// (`ProfileFeatureGate`). Other kinds get their own block when an adapter
+// for them lands.
 
 function hasControlCharacter(value: string): boolean {
   for (let i = 0; i < value.length; i += 1) {
@@ -172,7 +175,7 @@ export function isPrivateEndpointHost(hostname: string): boolean {
 }
 export const catalogProfileConfigSchema = z
   .object({
-    runtime_kind: z.literal("claude_agent_sdk"),
+    runtime_kind: runtimeKindSchema,
     runtime_version: z.string().min(1),
     model: z.string().min(1),
     // Other models a session may name at create; `model` is the default.
@@ -401,7 +404,7 @@ export type CredentialRef = { value_env: string } | { secret_id: string };
 // What the services hold: each credential resolved, its reference kept so
 // the fingerprint can name where it came from without the value.
 export type CatalogProfile = {
-  runtime_kind: "claude_agent_sdk";
+  runtime_kind: RuntimeKind;
   runtime_version: string;
   model: string;
   models?: string[] | undefined;
