@@ -457,12 +457,47 @@ export const registerPendingResponseSchema = z.object({
 // How a registered request ended on the worker: `answered` once the callback
 // got the delivered answer (a deny included), `expired` when nothing reached
 // it in time, `cancelled` when the callback went away first.
+//
+// `reason` says why the worker cancelled it, so a cancel is never read as a
+// person's deny. `answer_result` is what the run said of a delivered answer:
+// `unknown` stays answered (the engine may have acted on it), `stale` never
+// reached it. An older worker sends neither; a server older than them
+// refuses the poll, so servers deploy first.
+export const PENDING_CANCEL_REASON_VALUES = [
+  "park",
+  "shutdown",
+  "interrupt",
+  "refused",
+] as const;
 export const pendingSettlementSchema = z
   .object({
     request_id: requestIdSchema,
     outcome: z.enum(["answered", "expired", "cancelled"]),
+    reason: z.enum(PENDING_CANCEL_REASON_VALUES).optional(),
+    answer_result: z.enum(["applied", "stale", "unknown"]).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((settlement, context) => {
+    if (settlement.reason !== undefined && settlement.outcome !== "cancelled") {
+      context.addIssue({
+        code: "custom",
+        message: "Only a cancelled request has a reason",
+        path: ["reason"],
+      });
+    }
+    const result = settlement.answer_result;
+    if (
+      result !== undefined &&
+      settlement.outcome !== (result === "stale" ? "cancelled" : "answered")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "A stale answer settles as cancelled, an applied or unknown one as answered",
+        path: ["answer_result"],
+      });
+    }
+  });
 
 export const PENDING_SETTLEMENTS_MAX = 256;
 

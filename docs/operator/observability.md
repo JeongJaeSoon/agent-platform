@@ -33,7 +33,7 @@ worker의 `EventPublisher`(`apps/worker/src/event-publisher.ts`)가 이벤트에
 
 - **SSE와 재연결.** `apps/control-host/src/api/routes/events.ts`가 `Last-Event-ID` 다음부터 이 표를 읽어 스트림으로 보낸다. 사용법은 [api-guide.md § 5](../api-guide.md#5-sse로-진행-보기와-last-event-id-재연결)에 있다.
 - **turn 종료 판정.** 앞 sequence가 비어 있으면 `sequence_gap`, finalize할 때 이벤트가 덜 저장됐으면 `events_incomplete`로 거절한다(`packages/db/src/worker-unit-of-work.ts`, `packages/platform/src/workers/worker-gateway.ts`).
-- **대기 요청 알림.** 질문·권한 요청의 `question` 이벤트와 세션의 `needs_input` 상태가 같은 트랜잭션에서 커밋된다. 그래서 클라이언트는 질문을 보기 전에 `needs_input`을 받지 않는다(`packages/db/src/pending-control.ts`). 답은 `pending_requests` 표에 남는다.
+- **대기 요청 알림.** 질문·권한 요청의 `question` 이벤트와 세션의 `needs_input` 상태가 같은 트랜잭션에서 커밋된다. 그래서 클라이언트는 질문을 보기 전에 `needs_input`을 받지 않는다(`packages/db/src/pending-control.ts`). 답은 `pending_requests` 표에 남는다. worker가 요청을 어떻게 닫았는지도 같은 행에 남는다. `settled_outcome`은 `answered`·`expired`·`cancelled`다. `settled_reason`은 worker가 취소한 이유(`park`·`shutdown`·`interrupt`·`refused`)다. `settled_answer_result`는 런타임이 답을 어떻게 받았는지(`applied`·`stale`·`unknown`)다. 사람이 거절한 요청은 `answered`이고 `answer`의 `decision`이 `deny`라서 취소와 구분된다.
 - **상태 전이.** 복구·재개·일시정지·interrupt 같은 제어 단계가 `recordStatus`·`recordEvent`(`packages/db/src/session-events.ts`)로 상태와 함께 커밋된다.
 - **클라이언트의 작업 완료 판단.** 공개 API 클라이언트는 `assistant`·`tool_use`·`tool_result` 이벤트를 읽고 일이 끝났는지 판단한다([api-guide.md](../api-guide.md)).
 

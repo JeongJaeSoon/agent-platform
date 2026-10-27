@@ -237,7 +237,7 @@ describe("PendingRequestRegistry", () => {
     expect(harness.registry.outstanding).toBe(0);
     await waitFor(() => harness.gateway.settled.length === 1, "settlement");
     expect(harness.gateway.settled).toEqual([
-      { request_id: requestId, outcome: "answered" },
+      { request_id: requestId, outcome: "answered", answer_result: "applied" },
     ]);
   });
 
@@ -390,12 +390,12 @@ describe("PendingRequestRegistry", () => {
   });
 
   test.each([
-    ["stale", "cancelled"],
-    ["unknown", "answered"],
-    ["refused by a throw", "cancelled"],
+    ["stale", { outcome: "cancelled", answer_result: "stale" }],
+    ["unknown", { outcome: "answered", answer_result: "unknown" }],
+    ["refused by a throw", { outcome: "cancelled" }],
   ] as const)(
-    "reports an answer the run calls %s as %s",
-    async (said, outcome) => {
+    "reports an answer the run calls %s as %o",
+    async (said, settled) => {
       const harness = registry();
       const decision = harness.ask(
         permission("req-said"),
@@ -412,8 +412,15 @@ describe("PendingRequestRegistry", () => {
       // Stale never reached the engine. Unknown may have, and a cancelled
       // receipt would hide a tool that ran.
       expect(harness.gateway.settled).toEqual([
-        { request_id: requestId, outcome },
+        { request_id: requestId, ...settled },
       ]);
+      expect(
+        pendingControlRequestSchema.safeParse({
+          ...scope,
+          answers_after: 0,
+          settled: harness.gateway.settled,
+        }).success,
+      ).toBe(true);
     },
   );
 
@@ -444,7 +451,7 @@ describe("PendingRequestRegistry", () => {
     await flushed;
 
     expect(harness.gateway.settled).toEqual([
-      { request_id: requestId, outcome: "answered" },
+      { request_id: requestId, outcome: "answered", answer_result: "applied" },
     ]);
   });
 
@@ -488,7 +495,7 @@ describe("PendingRequestRegistry", () => {
     await harness.registry.flush(1_000);
 
     expect(fake.settled).toEqual([
-      { request_id: requestId, outcome: "answered" },
+      { request_id: requestId, outcome: "answered", answer_result: "applied" },
     ]);
   });
 
@@ -549,7 +556,7 @@ describe("PendingRequestRegistry", () => {
     // Dropped, not delivered: the receipt must not read as succeeded.
     await waitFor(() => harness.gateway.settled.length === 1, "settlement");
     expect(harness.gateway.settled).toEqual([
-      { request_id: requestId, outcome: "cancelled" },
+      { request_id: requestId, outcome: "cancelled", reason: "refused" },
     ]);
   });
 
@@ -777,20 +784,125 @@ describe("PendingRequestRegistry", () => {
     });
   });
 
-  test("denies everything still waiting when the run stops, and reports it", async () => {
-    const harness = registry();
-    const decision = harness.ask(permission("req-cancel"));
-    const requestId = await harness.idFor("req-cancel");
-    harness.registry.cancelAll("shutdown", "Worker is shutting down");
+  test.each(["park", "shutdown", "interrupt", "refused"] as const)(
+    "cancels everything still waiting for %s, never as a person's deny, and reports why",
+    async (reason) => {
+      const harness = registry();
+      const decision = harness.ask(permission("req-cancel"));
+      const requestId = await harness.idFor("req-cancel");
+      harness.registry.cancelAll(reason, "Worker is shutting down");
 
-    expect(await decision).toEqual({
-      kind: "cancelled",
-      reason: "shutdown",
-      message: "Worker is shutting down",
+      expect(await decision).toEqual({
+        kind: "cancelled",
+        reason,
+        message: "Worker is shutting down",
+      });
+      await harness.registry.flush(1_000);
+      expect(harness.gateway.settled).toEqual([
+        { request_id: requestId, outcome: "cancelled", reason },
+      ]);
+    },
+  );
+
+  test("tells the run each way a request is cancelled, and a person's deny apart from them", async () => {
+    const said: ApprovalDecisionPayload[] = [];
+    const gateway = new FakeWorkerGateway();
+    const register = gateway.registerPending.bind(gateway);
+    gateway.registerPending = async (request) => ({
+      ...(await register(request)),
+      // Only the request named for it expires before anyone answers.
+      expires_in_ms:
+        request.input_hash === permission("", "sleep 9").inputHash ? 5 : 60_000,
     });
+    const harness = registry({ gateway });
+    const settle = (name: string, command = "ls") =>
+      new Promise<void>((resolve) =>
+        harness.registry.request(
+          permission(name, command),
+          async (decision) => {
+            said.push(decision);
+            resolve();
+            return "applied";
+          },
+        ),
+      );
+
+    await settle("req-expired", "sleep 9");
+
+    const denied = settle("req-denied");
+    gateway.answer({
+      request_id: await harness.idFor("req-denied"),
+      kind: "permission",
+      decision: "deny",
+      reason: "not that",
+    });
+    await denied;
+
+    const swapped = settle("req-swapped", "pwd");
+    const swappedId = await harness.idFor("req-swapped");
+    const registration = gateway
+      .registered()
+      .find((item) => item.request_id === swappedId);
+    gateway.registrations.unshift({
+      ...(registration as RegisterPendingRequest),
+      input_hash: "f".repeat(64),
+    });
+    gateway.answer({
+      request_id: swappedId,
+      kind: "permission",
+      decision: "allow",
+    });
+    await swapped;
+
+    const mixed = settle("req-mixed", "whoami");
+    gateway.answer({
+      request_id: await harness.idFor("req-mixed"),
+      kind: "question",
+      answers: [{ question_id: "q0", selected_option_ids: ["q0o0"] }],
+    });
+    await mixed;
+
+    const interrupted = settle("req-interrupted", "date");
+    await harness.idFor("req-interrupted");
+    harness.registry.cancelAll("interrupt", "The turn was interrupted");
+    await interrupted;
+
+    expect(
+      said.map((decision) =>
+        decision.kind === "cancelled" ? decision.reason : decision,
+      ),
+    ).toEqual([
+      "expired",
+      { kind: "selected", optionKind: "reject_once", message: "not that" },
+      "refused",
+      "refused",
+      "interrupt",
+    ]);
+    await harness.registry.flush(1_000);
+    expect(
+      gateway.settled.map(({ outcome, reason }) => [outcome, reason ?? null]),
+    ).toEqual([
+      ["expired", null],
+      ["answered", null],
+      ["cancelled", "refused"],
+      ["cancelled", "refused"],
+      ["cancelled", "interrupt"],
+    ]);
+  });
+
+  test("settles a park that did not take as cancelled for the park, never as a deny", async () => {
+    const harness = registry();
+    const decision = harness.ask(permission("req-park"));
+    const requestId = await harness.idFor("req-park");
+    harness.registry.park();
+
+    expect(await decision).toEqual({ kind: "cancelled", reason: "park" });
+    await harness.registry.flush(1_000);
+    expect(harness.gateway.settled).toEqual([]);
+    harness.registry.unpark();
     await harness.registry.flush(1_000);
     expect(harness.gateway.settled).toEqual([
-      { request_id: requestId, outcome: "cancelled" },
+      { request_id: requestId, outcome: "cancelled", reason: "park" },
     ]);
   });
 
@@ -990,6 +1102,53 @@ describe("PendingRequestRegistry", () => {
     });
     // The second poll cycle starts past the answer the first request consumed.
     expect(polls.every((after) => after >= 1)).toBe(true);
+  });
+
+  test("settles by outcome alone, and says so, with a gateway older than reasons and answer results", async () => {
+    const gateway = new FakeWorkerGateway();
+    const original = gateway.pendingControl.bind(gateway);
+    let refused = 0;
+    // A strict schema from before the two fields: the whole poll is a 400.
+    gateway.pendingControl = async (request) => {
+      const detailed = (request.settled ?? []).some(
+        (item) => item.reason !== undefined || item.answer_result !== undefined,
+      );
+      if (detailed) {
+        refused += 1;
+        throw new WorkerGatewayRequestError(
+          400,
+          "BAD_REQUEST",
+          "POST /pending/control failed with BAD_REQUEST: Request body is invalid",
+          false,
+        );
+      }
+      return original(request);
+    };
+    const warned: string[] = [];
+    const harness = registry({
+      gateway,
+      onSettlementDetailRefused: (error) => warned.push(error.message),
+    });
+    const allowed = harness.ask(permission("req-old-a"));
+    const allowedId = await harness.idFor("req-old-a");
+    gateway.answer({
+      request_id: allowedId,
+      kind: "permission",
+      decision: "allow",
+    });
+    await allowed;
+    const cancelled = harness.ask(permission("req-old-b", "pwd"));
+    const cancelledId = await harness.idFor("req-old-b");
+    harness.registry.cancelAll("interrupt", "The turn was interrupted");
+    await cancelled;
+    await harness.registry.flush(1_000);
+
+    expect(refused).toBe(1);
+    expect(warned).toHaveLength(1);
+    expect(gateway.settled).toEqual([
+      { request_id: allowedId, outcome: "answered" },
+      { request_id: cancelledId, outcome: "cancelled" },
+    ]);
   });
 
   test("sends a settlement backlog larger than one call carries, in batches", async () => {
