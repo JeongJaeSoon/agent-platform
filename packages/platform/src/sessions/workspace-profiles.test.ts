@@ -519,6 +519,10 @@ describe("the derivation policy", () => {
     ...WORKSPACE_PROFILE_POLICY,
     kind: "test-permissive",
     refusal: () => null,
+    apply: (profile, derived) => ({
+      ...profile,
+      tools: [...derived.tools, "MarkedByPolicy"],
+    }),
   };
   const wider = version({ tools: ["Read", "WebFetch"] });
 
@@ -526,6 +530,18 @@ describe("the derivation policy", () => {
     const narrow = catalogWith([wider]);
     expect(workspaceProfileState(narrow, wider)).toBe("base_changed");
     expect(catalogProfile(narrow, wider.id)).toBeUndefined();
+    const { profiles: defaults, writes: refused } = service();
+    const widened = await refusal(
+      defaults.create(caller("owner"), {
+        ...REQUEST,
+        tools: ["Read", "WebFetch"],
+      }),
+    );
+    expect(widened.details).toMatchObject({
+      reason_code: "widens_base",
+      field: "tools",
+    });
+    expect(refused).toEqual([]);
 
     const swapped = catalogWith([wider]);
     const registry = createWorkspaceProfiles(
@@ -539,7 +555,10 @@ describe("the derivation policy", () => {
     expect(catalogProfile(swapped, wider.id)?.tools).toEqual([
       "Read",
       "WebFetch",
+      "MarkedByPolicy",
     ]);
+    const [, listed] = listCatalogProfiles(swapped, WORKSPACE).items;
+    expect(listed?.tools).toEqual(["Read", "WebFetch", "MarkedByPolicy"]);
 
     const writes: unknown[] = [];
     const profiles = createWorkspaceProfileService({
@@ -563,6 +582,8 @@ describe("the derivation policy", () => {
       ...REQUEST,
       tools: ["Read", "WebFetch"],
     });
-    expect(writes).toHaveLength(1);
+    expect(writes).toMatchObject([
+      { narrowing: { tools: ["Read", "WebFetch"] } },
+    ]);
   });
 });
