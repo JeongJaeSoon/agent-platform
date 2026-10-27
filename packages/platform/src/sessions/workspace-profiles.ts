@@ -72,7 +72,13 @@ export function createWorkspaceProfiles(
   };
 }
 
-function summaryOf(id: string, profile: CatalogProfileView) {
+/** `trustedId` is the operator profile a repository's allow list names. */
+function summaryOf(
+  catalog: SessionCatalogView,
+  id: string,
+  trustedId: string,
+  profile: CatalogProfileView,
+) {
   return {
     id,
     model: profile.model,
@@ -83,6 +89,13 @@ function summaryOf(id: string, profile: CatalogProfileView) {
     runtime_version: profile.runtime_version,
     billing: isUnmetered(profile) ? ("none" as const) : ("metered" as const),
     repository_mode: repositoryModeOf(profile),
+    repository_ids:
+      repositoryModeOf(profile) === "none"
+        ? []
+        : Object.entries(catalog.repositories)
+            .filter(([, repository]) => repository.profiles.includes(trustedId))
+            .map(([repositoryId]) => repositoryId)
+            .sort(),
   };
 }
 
@@ -95,7 +108,12 @@ function workspaceSummary(
     : undefined;
   return {
     ...(base
-      ? summaryOf(record.id, narrowedProfile(base, record))
+      ? summaryOf(
+          catalog,
+          record.id,
+          record.base_profile_id,
+          narrowedProfile(base, record),
+        )
       : {
           id: record.id,
           model: record.model,
@@ -109,6 +127,7 @@ function workspaceSummary(
           runtime_version: record.base_runtime_version,
           billing: record.base_billing,
           repository_mode: record.base_repository_mode,
+          repository_ids: [],
         }),
     source: "workspace",
     workspace: {
@@ -131,7 +150,7 @@ export function listCatalogProfiles(
     a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   const operator = Object.entries(catalog.profiles).map(
     ([id, profile]): ProfileSummary => ({
-      ...summaryOf(id, profile),
+      ...summaryOf(catalog, id, id, profile),
       source: "operator",
     }),
   );

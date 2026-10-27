@@ -866,6 +866,20 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     return problem.reason;
   }
 
+  async parkBlocked(resume: string): Promise<string | undefined> {
+    const bound = this.#bound;
+    if (bound === undefined) return "No transcript mirror is bound";
+    let sizes: Array<{ bytes: number; key: string }> | null;
+    try {
+      sizes = await bound.store.transcriptSizes(resume);
+    } catch (error) {
+      if (isOwnershipLost(error)) throw error;
+      return `The transcript could not be measured: ${describe(error)}`;
+    }
+    if (sizes === null) return undefined;
+    return transcriptSizeProblem(sizes, this.#limits())?.detail;
+  }
+
   async finalizeRefused(detail: string, scope: WorkerScope): Promise<void> {
     if (this.#bound !== undefined) this.#bound.published = undefined;
     await this.#report(
@@ -1259,6 +1273,9 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       sessionId: bound.claim.session_id,
       transcripts,
       version: 2,
+      ...(context.workerState === undefined
+        ? {}
+        : { workerState: context.workerState }),
       workspace: {
         ...(bases.length === 0 ? {} : { baseBundles: bases }),
         bundle: versioned(bundle),

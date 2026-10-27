@@ -63,6 +63,8 @@ const PROFILE: CatalogProfile = {
   model: "claude-sonnet-5",
   tools: ["Read", "Grep", "Edit", "Bash"],
   permission_mode: "default",
+  // Releases here name no repository; one that must is refused at release.
+  repository: "optional",
   provider: {
     kind: "litellm",
     endpoint: "https://litellm.invalid",
@@ -1405,6 +1407,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       ...resolved.content,
       agent_id: created.agent.id,
       card_sha256: cardContentSha256(v1.card),
+      repository_id: null,
       policy_pins: {},
     };
     const legacyId = deriveReleaseId(identity);
@@ -1469,6 +1472,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       ...resolved.content,
       agent_id: created.agent.id,
       card_sha256: storedSha,
+      repository_id: null,
     };
     const legacyId = deriveReleaseId(identity);
     await db.insert(agentReleases).values({

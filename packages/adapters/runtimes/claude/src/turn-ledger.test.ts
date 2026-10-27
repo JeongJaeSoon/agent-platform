@@ -231,12 +231,55 @@ describe("checkpoint quiescence", () => {
 
   test("an open permission callback is a tool about to run", () => {
     const ledger = new TurnLedger("s1");
-    expect(ledger.permissionStarting()).toEqual({ allowed: true });
+    expect(ledger.permissionStarting("toolu_1")).toEqual({ allowed: true });
     expect(ledger.prepareCheckpoint()).toMatchObject({
       reason: "tool_in_flight",
     });
-    ledger.permissionSettled();
+    ledger.permissionSettled("toolu_1");
     expect(ledger.prepareCheckpoint()).toEqual(ready);
+  });
+
+  test("parkable while every admitted tool waits on its permission callback", () => {
+    const ledger = new TurnLedger("s1");
+    expect(ledger.parkable()).toEqual({ ok: true, resume: "s1" });
+    ledger.toolStarting("toolu_ask");
+    ledger.permissionStarting("toolu_ask");
+    expect(ledger.parkable()).toEqual({ ok: true, resume: "s1" });
+    // An auto-allowed sibling is executing: a park would cut it mid-write.
+    ledger.toolStarting("toolu_run");
+    expect(ledger.parkable()).toEqual({ ok: false, reason: "tool_executing" });
+    ledger.toolSettled("toolu_run");
+    expect(ledger.parkable()).toEqual({ ok: true, resume: "s1" });
+    // An allowed callback hands its tool over to run.
+    ledger.permissionSettled("toolu_ask");
+    expect(ledger.parkable()).toEqual({ ok: false, reason: "tool_executing" });
+  });
+
+  test("a turn whose mirror dropped a batch cannot park on a checkpoint", () => {
+    const ledger = new TurnLedger("s1");
+    ledger.observe({
+      type: "system",
+      subtype: "mirror_error",
+      error: "bucket unreachable",
+    });
+    expect(ledger.parkable()).toEqual({
+      ok: false,
+      reason: "checkpoint_unavailable",
+      detail: "Transcript mirror dropped a root batch: bucket unreachable",
+    });
+    expect(new TurnLedger().parkable()).toMatchObject({
+      reason: "checkpoint_unavailable",
+    });
+  });
+
+  test("a background task keeps a turn from parking", () => {
+    const ledger = new TurnLedger("s1");
+    ledger.observe({
+      type: "system",
+      subtype: "background_tasks_changed",
+      tasks: [{ task_id: "bash_1" }],
+    });
+    expect(ledger.parkable()).toEqual({ ok: false, reason: "tool_executing" });
   });
 
   test("a background task keeps writing after the turn's result", () => {
@@ -318,7 +361,7 @@ describe("checkpoint lease", () => {
         "A checkpoint is being saved; no tool may start until it is committed",
     };
     expect(ledger.toolStarting("toolu_1")).toEqual(refused);
-    expect(ledger.permissionStarting()).toEqual(refused);
+    expect(ledger.permissionStarting("toolu_2")).toEqual(refused);
     expect(() => ledger.queued("next")).toThrow(
       "A checkpoint is being captured; input next waits",
     );

@@ -10,6 +10,7 @@ import {
   PAYLOAD_TOO_LARGE_ISSUE,
   type Principal,
   REQUEST_BODY_MAX_BYTES,
+  type RequestBodyInvalidDetails,
   readyResponseSchema,
 } from "@werft-ai/contracts";
 import {
@@ -347,7 +348,20 @@ export async function parseJsonBody<T extends z.ZodType>(
         "Request field too large",
       );
     }
-    throw new ApiHttpError(400, "BAD_REQUEST", "Request body is invalid");
+    const details: RequestBodyInvalidDetails = {
+      issues: parsed.error.issues.map((issue) => ({
+        path: issue.path.map(String).join("."),
+        message: issue.message,
+      })),
+    };
+    throw new ApiHttpError(
+      400,
+      "BAD_REQUEST",
+      "Request body is invalid",
+      false,
+      undefined,
+      details,
+    );
   }
   return parsed.data;
 }

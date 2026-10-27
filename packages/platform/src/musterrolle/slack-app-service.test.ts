@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { scopesForRole, type WorkspaceRole } from "@werft-ai/contracts";
+import {
+  type SlackAgentWarning,
+  scopesForRole,
+  type WorkspaceRole,
+} from "@werft-ai/contracts";
 import { SessionServiceError } from "../sessions/session-service.ts";
 import {
   createFakeSlackConfigApi,
@@ -133,10 +137,10 @@ const agentAuthority: AgentAuthority = {
 async function setup(
   options: {
     consoleOrigin?: string | null;
-    repositoryRequiredProfile?: (
+    activeReleaseWarning?: (
       workspaceId: string,
       agentId: string,
-    ) => Promise<string | null>;
+    ) => Promise<SlackAgentWarning | null>;
   } = {},
 ) {
   let clock = new Date("2026-10-23T00:00:00.000Z");
@@ -183,8 +187,8 @@ async function setup(
     api: slack.api,
     consoleOrigin:
       options.consoleOrigin === undefined ? ORIGIN : options.consoleOrigin,
-    ...(options.repositoryRequiredProfile
-      ? { repositoryRequiredProfile: options.repositoryRequiredProfile }
+    ...(options.activeReleaseWarning
+      ? { activeReleaseWarning: options.activeReleaseWarning }
       : {}),
     now: () => clock,
   });
@@ -441,9 +445,11 @@ describe("Slack app service", () => {
   test("an agent whose profile needs a repository is warned about, and still connects", async () => {
     const asked: string[] = [];
     const { service } = await setup({
-      repositoryRequiredProfile: async (workspaceId, agentId) => {
+      activeReleaseWarning: async (workspaceId, agentId) => {
         asked.push(`${workspaceId}/${agentId}`);
-        return agentId === AGENT ? "claude-coding-local" : null;
+        return agentId === AGENT
+          ? { code: "repository_required", profile_id: "claude-coding-local" }
+          : null;
       },
     });
     const warning = {
@@ -467,7 +473,7 @@ describe("Slack app service", () => {
 
   test("without a repository-only profile there is no warning", async () => {
     const { service } = await setup({
-      repositoryRequiredProfile: async () => null,
+      activeReleaseWarning: async () => null,
     });
     expect((await service.getAgentApp(user("owner"), AGENT)).warnings).toEqual(
       [],

@@ -324,7 +324,7 @@ class ClaudeContractRun implements AgentRun {
   }
 
   parkable(): ParkReadiness {
-    return { ok: false, reason: "not_supported" };
+    return this.driver.parkable();
   }
 
   prepareCheckpoint(point: CheckpointPoint): Promise<CheckpointPreparation> {

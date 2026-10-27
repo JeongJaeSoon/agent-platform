@@ -31,9 +31,11 @@ export function releaseModel(
 // Bumped when the hashed shape changes, so an old id can never equal a new
 // one by accident. 2: `policy_pins` went from a placeholder `{}` to the
 // resolved tool policy. A stored `{}` release keeps hashing as 1, so its id
-// still verifies.
+// still verifies. 3: the release names a repository; one without keeps
+// hashing as 2, so releases from before the column keep their ids.
 function releaseIdVersion(identity: ReleaseIdentity): number {
-  return identity.policy_pins.tools === undefined ? 1 : 2;
+  if (identity.policy_pins.tools === undefined) return 1;
+  return identity.repository_id === null ? 2 : 3;
 }
 
 function sha256Hex(text: string): string {
@@ -49,6 +51,7 @@ export type ReleaseIdentity = Pick<
   | "agent_id"
   | "card_sha256"
   | "runtime_profile_id"
+  | "repository_id"
   | "profile_digest"
   | "runtime_config_snapshot"
   | "effective_tools"
@@ -62,6 +65,9 @@ export function deriveReleaseId(identity: ReleaseIdentity): string {
       agent_id: identity.agent_id,
       card_sha256: identity.card_sha256,
       runtime_profile_id: identity.runtime_profile_id,
+      ...(identity.repository_id === null
+        ? {}
+        : { repository_id: identity.repository_id }),
       profile_digest: identity.profile_digest,
       runtime_config_snapshot: identity.runtime_config_snapshot,
       effective_tools: identity.effective_tools,
@@ -97,7 +103,10 @@ export function resolveReleaseContent(
 ):
   | {
       ok: true;
-      content: Omit<ReleaseIdentity, "agent_id" | "card_sha256">;
+      content: Omit<
+        ReleaseIdentity,
+        "agent_id" | "card_sha256" | "repository_id"
+      >;
     }
   | { ok: false; error: ReleaseCompatibilityError } {
   if (!profileModels(profile).includes(card.model)) {

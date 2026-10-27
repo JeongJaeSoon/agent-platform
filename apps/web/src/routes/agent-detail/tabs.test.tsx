@@ -878,7 +878,15 @@ describe("에이전트 상세 탭", () => {
       within(table)
         .getAllByRole("columnheader")
         .map((head) => head.textContent),
-    ).toEqual(["버전", "상태", "프로필", "만든 사람", "만든 시각", "동작"]);
+    ).toEqual([
+      "버전",
+      "상태",
+      "프로필",
+      "저장소",
+      "만든 사람",
+      "만든 시각",
+      "동작",
+    ]);
     const row = within(table).getAllByRole("row")[1] as HTMLElement;
     await within(row).findByText("이민호");
     expect(row.textContent).toContain("v1");

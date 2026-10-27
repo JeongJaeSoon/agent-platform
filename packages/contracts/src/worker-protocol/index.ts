@@ -526,8 +526,9 @@ export const pendingControlResponseSchema = z.object({
 });
 
 // The worker will not park after all, and says so before it has cancelled a
-// callback or interrupted the turn: `answer_applied` when the poll that
-// brought the park also brought an answer the worker applied,
+// callback or interrupted the turn: `answer_applied` when the wait the park
+// was for is already gone (an answer the same poll brought and the worker
+// applied, a request that expired, a turn that ended on its own),
 // `checkpoint_unavailable` when it could not leave a checkpoint to park on.
 // The server puts the session back to active only while the park is still
 // the open pause; a person's pause that took it over stands.

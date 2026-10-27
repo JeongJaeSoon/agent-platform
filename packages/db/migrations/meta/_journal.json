@@ -596,6 +596,13 @@
       "when": 1793057972722,
       "tag": "0175_agent_release_note",
       "breakpoints": true
+    },
+    {
+      "idx": 176,
+      "version": "7",
+      "when": 1793064116269,
+      "tag": "0176_agent_release_repository",
+      "breakpoints": true
     }
   ]
 }

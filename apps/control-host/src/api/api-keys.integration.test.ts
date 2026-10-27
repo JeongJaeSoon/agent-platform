@@ -253,7 +253,11 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
       "POST",
       `/v1/agents/${detail.agent.id}/releases`,
       asCookie(cookie),
-      { version_id: versionId, runtime_profile_id: "claude-coding-v1" },
+      {
+        version_id: versionId,
+        runtime_profile_id: "claude-coding-v1",
+        repository_id: "sample-app",
+      },
     );
     expect(released.status).toBe(200);
     const { release } = createAgentReleaseResponseSchema.parse(
