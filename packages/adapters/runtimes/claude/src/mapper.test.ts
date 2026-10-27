@@ -287,6 +287,7 @@ describe("native SDK message mapping", () => {
           "mcp__docs__search",
           "mcp__docs__leak",
           "mcp__docs__blank",
+          "mcp__docs__full",
           7,
         ],
       },
@@ -294,7 +295,8 @@ describe("native SDK message mapping", () => {
       "init",
       new Map([
         ["mcp__docs__echo", "Echo\u0000 the\n\tinput back"],
-        ["mcp__docs__search", "검".repeat(250)],
+        ["mcp__docs__search", "🔎".repeat(201)],
+        ["mcp__docs__full", "🔎".repeat(200)],
         ["mcp__docs__leak", `Uses ${credentialMarker} upstream`],
         ["mcp__docs__blank", " \n "],
         ["mcp__docs__unlisted", "not in init"],
@@ -311,12 +313,14 @@ describe("native SDK message mapping", () => {
       "mcp__docs__search",
       "mcp__docs__leak",
       "mcp__docs__blank",
+      "mcp__docs__full",
     ]);
     expect(data.tools[0]).toEqual({ name: "Bash" });
     expect(data.tools[1]?.description).toBe("Echo the input back");
     const cut = data.tools[2]?.description ?? "";
     expect([...cut]).toHaveLength(200);
-    expect(cut.endsWith("…")).toBe(true);
+    expect(cut).toBe(`${"🔎".repeat(199)}…`);
+    expect(data.tools[5]?.description).toBe("🔎".repeat(200));
     expect(data.tools[3]?.description).toBe("Uses [REDACTED] upstream");
     expect(data.tools[4]).toEqual({ name: "mcp__docs__blank" });
     expect(JSON.stringify(frame)).not.toContain(credentialMarker);
