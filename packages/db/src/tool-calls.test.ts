@@ -79,6 +79,10 @@ beforeEach(async () => {
   await db.execute(
     sql`UPDATE tool_call_progress SET applied_through = 0 WHERE id = 1`,
   );
+  // Events here carry their neutral fields already: the fill has passed them.
+  await db.execute(
+    sql`UPDATE neutral_field_progress SET filled_through = 9223372036854775807 WHERE id = 1`,
+  );
 });
 
 async function session(
@@ -264,12 +268,7 @@ async function everyRule() {
   );
   // A subagent's call, and a block that is no tool call.
   await use(a, "tu-sub", "Read", { parent: "tu-open" });
-  await insert(
-    a,
-    "tool_use",
-    {},
-    { type: "assistant", text: "x" },
-  );
+  await insert(a, "tool_use", {}, { type: "assistant", text: "x" });
   return { a, b };
 }
 

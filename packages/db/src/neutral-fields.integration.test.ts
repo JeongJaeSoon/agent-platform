@@ -208,7 +208,7 @@ integration("neutral field fill on PostgreSQL", () => {
     expect(filled).toHaveLength(25);
   });
 
-  test("rows inside the margin are filled but the cursor stays before them", async () => {
+  test("rows inside the margin are left as stored and the cursor stays before them", async () => {
     const known = await session("known");
     await stored(known, [
       ["tool_use", { type: "assistant", message: { call: "old" } }],
@@ -219,7 +219,8 @@ integration("neutral field fill on PostgreSQL", () => {
       0,
     );
     const pass = await fill({ marginSeconds: 60 });
-    expect(pass.filled).toBe(2);
+    expect(pass.filled).toBe(1);
+    expect((await payloads())[1]?.payload).not.toHaveProperty("tool_call");
     const [oldest] = rowsOf<{ id: string }>(
       await db.execute(sql`SELECT min(id) AS id FROM events`),
     );
@@ -296,6 +297,23 @@ integration("neutral field fill on PostgreSQL", () => {
     await fill();
     await project();
     expect(await calls()).toEqual(["tu-1", "tu-2"]);
+  });
+
+  test("a call an older replica stores after the history is projected once filled", async () => {
+    const known = await session("known");
+    await stored(known, [
+      ["tool_use", { type: "assistant", message: { call: "tu-late" } }],
+    ]);
+    const project = () =>
+      projectToolCalls(db, { batchSize: 100, budgetMs: 10_000 });
+    expect((await project()).appliedThrough).toBe(0);
+    await fill();
+    await project();
+    expect(
+      rowsOf<{ tool_use_id: string }>(
+        await db.execute(sql`SELECT tool_use_id FROM tool_calls`),
+      ).map((row) => row.tool_use_id),
+    ).toEqual(["tu-late"]);
   });
 
   test("tens of thousands of stored events fill in batches that block no writer", async () => {

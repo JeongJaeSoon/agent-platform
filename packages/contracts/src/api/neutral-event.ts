@@ -19,6 +19,29 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+// Every key a codec adds to an event's data.
+export const NEUTRAL_FIELD_KEYS = [
+  "text",
+  "thinking",
+  "tool_call",
+  "tool_result",
+  "engine_event",
+  "turn",
+  "runtime",
+] as const;
+
+/** The data as the runtime's adapter wrote it, before any codec read it. */
+export function withoutNeutralFields(data: unknown): unknown {
+  const record = asRecord(data);
+  if (record === null) return data;
+  const kept = Object.entries(record).filter(
+    ([key]) => !(NEUTRAL_FIELD_KEYS as readonly string[]).includes(key),
+  );
+  return kept.length === Object.keys(record).length
+    ? data
+    : Object.fromEntries(kept);
+}
+
 const CATEGORIES = new Set<string>([
   "started",
   "thinking",

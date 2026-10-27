@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
+import type { SessionEventPayload } from "@werft-ai/contracts";
 import type {
+  NeutralizeEvent,
   SlackOutboxFence,
   SlackOutboxStore,
   SlackUnansweredTurn,
@@ -83,7 +85,12 @@ const addressed = (db: Database, row: SQL) => sql`(
   ))
 )`;
 
-export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
+export function createPostgresSlackOutboxStore(
+  db: Database,
+  // Fills the neutral fields of an event stored before they were written,
+  // so a reply read ahead of the fill still has its text.
+  options: { neutralize?: NeutralizeEvent } = {},
+): SlackOutboxStore {
   return {
     async enqueue(input, whileHome) {
       return db.transaction(async (tx) => {
@@ -276,8 +283,10 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
                 turnId: events.turnId,
                 type: events.type,
                 payload: events.payload,
+                profileId: sessions.profileId,
               })
               .from(events)
+              .innerJoin(sessions, eq(sessions.id, events.sessionId))
               .innerJoin(
                 turns,
                 and(
@@ -308,7 +317,16 @@ export function createPostgresSlackOutboxStore(db: Database): SlackOutboxStore {
                 : "needs_input",
           events: said
             .filter((event) => event.turnId === turnRowId)
-            .map(({ type, payload }) => ({ type, payload })),
+            .map(({ type, payload, profileId }) => ({
+              type,
+              payload:
+                options.neutralize === undefined
+                  ? payload
+                  : options.neutralize(profileId, {
+                      event: type,
+                      data: payload,
+                    } as SessionEventPayload).data,
+            })),
         }),
       );
     },

@@ -262,8 +262,20 @@ export async function main(
     // so a steady stream of mentions cannot starve the answers.
     const started = Date.now();
     const deadline = started + settings.passBudgetMs;
-    const outbox = createPostgresSlackOutboxStore(db);
     const { catalog, secretKey } = await slackRoleStartup(environment);
+    const workspaceProfiles = createWorkspaceProfiles(
+      createPostgresWorkspaceProfileStore(db),
+    );
+    await workspaceProfiles.refresh();
+    const outbox = createPostgresSlackOutboxStore(db, {
+      neutralize: eventNeutralizer(
+        {
+          ...sessionCatalogView(catalog),
+          workspace_profiles: workspaceProfiles,
+        },
+        logger,
+      ),
+    });
     const drain = await drainSlackInbox({
       inbox: createPostgresSlackInboundEventStore(db),
       handler: slackSessionHandler({

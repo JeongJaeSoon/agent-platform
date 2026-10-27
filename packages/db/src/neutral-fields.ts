@@ -33,8 +33,9 @@ export type NeutralFill = {
  * Adds the engine-neutral fields to stored events that lack them, from the
  * progress cursor on, until it catches up or `budgetMs` runs out. Only keys
  * an event lacks are added and nothing stored is rewritten, so a batch read
- * twice changes nothing more. The cursor passes rows as `projectToolCalls`
- * does (TOOL_CALL_CURSOR_MARGIN_SECONDS).
+ * twice changes nothing more. Rows are filled, and passed by the cursor, once
+ * older than the margin `projectToolCalls` uses
+ * (TOOL_CALL_CURSOR_MARGIN_SECONDS).
  */
 export async function fillNeutralFields(
   db: Database,
@@ -119,8 +120,10 @@ function fillBatch(
         ORDER BY b.id`),
     );
     if (rows.length === 0) return { n: 0, filled: 0, hi: from, cursor };
+    // A row inside the margin is left for a later pass: a worker may still
+    // resend its batch, and an older replica compares the whole payload.
     const added = rows.flatMap((row) => {
-      const fields = addedFields(options.neutralize, row);
+      const fields = row.safe ? addedFields(options.neutralize, row) : null;
       return fields === null ? [] : [{ id: Number(row.id), added: fields }];
     });
     if (added.length > 0) {
@@ -131,7 +134,10 @@ function fillBatch(
     }
     const hi = Number(rows[rows.length - 1]?.id);
     const safe = rows.filter((row) => row.safe).at(-1);
-    const next = Math.max(cursor, safe === undefined ? cursor : Number(safe.id));
+    const next = Math.max(
+      cursor,
+      safe === undefined ? cursor : Number(safe.id),
+    );
     if (next !== cursor) {
       await tx.execute(
         sql`UPDATE neutral_field_progress SET filled_through = ${next}, updated_at = now() WHERE id = 1`,

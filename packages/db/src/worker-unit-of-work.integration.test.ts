@@ -9,6 +9,7 @@ import {
   DEFAULT_LEASE_TTL_MS,
   DEFAULT_NONCE_TTL_MS,
   hashWorkerToken,
+  type NeutralizeEvent,
   profileFingerprint,
   transcriptWarnBytes,
   type WorkerGateway,
@@ -165,9 +166,10 @@ integration("worker gateway on PostgreSQL", () => {
     await database.drop();
   }, 60_000);
 
-  const briefGateway = (leaseTtlMs: number) =>
+  const briefGateway = (leaseTtlMs: number, neutralize?: NeutralizeEvent) =>
     createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
+      ...(neutralize === undefined ? {} : { neutralize }),
       catalog: {
         profiles: {
           "claude-coding-v1": {
@@ -973,6 +975,52 @@ integration("worker gateway on PostgreSQL", () => {
       .from(events)
       .where(workerStream(session.session_id));
     expect(storedRow?.stored).toBe(4);
+  });
+
+  test("a batch resent across the neutral fields being added is still the same batch", async () => {
+    const { session, claimed } = await claimAndDeliver();
+    // As an older replica stores it, and as one that adds the neutral fields.
+    const plain = briefGateway(LEASE_TTL_MS);
+    const neutral = briefGateway(LEASE_TTL_MS, (_, e) =>
+      e.event === "assistant" ? { ...e, data: { ...e.data, text: "hi" } } : e,
+    );
+    const said: WorkerEvent = {
+      event: "assistant",
+      data: { type: "assistant", message: { content: "hi" } },
+      source_sequence: 1,
+      occurred_at: clock.toISOString(),
+    };
+    const batch = {
+      ...scopeOf(claimed, "1"),
+      batch_key: "batch-1",
+      events: [said],
+    };
+    await plain.appendEvents(principalOf(claimed), batch);
+    expect(
+      (await neutral.appendEvents(principalOf(claimed), batch))
+        .accepted_through,
+    ).toBe(1);
+    // The fill adds the field to the stored row; the older replica's resend
+    // still matches.
+    await db.execute(
+      sql`UPDATE events SET payload = payload || '{"text":"hi"}' WHERE session_id = ${session.session_id} AND type = 'assistant'`,
+    );
+    expect(
+      (await plain.appendEvents(principalOf(claimed), batch)).accepted_through,
+    ).toBe(1);
+    expect(
+      await failure(
+        neutral.appendEvents(principalOf(claimed), {
+          ...batch,
+          events: [
+            {
+              ...said,
+              data: { type: "assistant", message: { content: "no" } },
+            },
+          ],
+        }),
+      ),
+    ).toEqual({ status: 409, code: "IDEMPOTENCY_CONFLICT" });
   });
 
   test("finalize replayed with the same key but a different terminal is a conflict", async () => {

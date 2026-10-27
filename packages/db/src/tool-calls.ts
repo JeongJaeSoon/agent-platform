@@ -258,8 +258,10 @@ function projectBatch(
     );
     if (!progress) throw new Error("tool_call_progress has no row");
     const cursor = Number(progress.applied_through);
-    // Calls are read from the neutral fields, so history stored before
-    // them is read only once the fill has given it those (neutral-fields.ts).
+    // Calls are read from the neutral fields (neutral-fields.ts): history
+    // stored before them is read only once the fill has given it those, and
+    // the cursor never passes the fill, so a row an older replica stored
+    // without them is read again once filled.
     const [fill] = rowsOf<{ filled_through: string; history_through: string }>(
       await tx.execute(
         sql`SELECT filled_through, history_through FROM neutral_field_progress WHERE id = 1`,
@@ -292,7 +294,13 @@ function projectBatch(
     await applyUses(tx, from, hi);
     await applyResults(tx, from, hi);
     await applyDescriptions(tx, from, hi);
-    const next = Math.max(cursor, Number(bounds.safe ?? cursor));
+    const next = Math.max(
+      cursor,
+      Math.min(
+        Number(bounds.safe ?? cursor),
+        fill ? Number(fill.filled_through) : Number.POSITIVE_INFINITY,
+      ),
+    );
     if (next !== cursor) {
       await tx.execute(
         sql`UPDATE tool_call_progress SET applied_through = ${next}, updated_at = now() WHERE id = 1`,

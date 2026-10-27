@@ -144,7 +144,9 @@ integration("session list activity on PostgreSQL", () => {
     );
     await s.record(
       "assistant",
-      assistant(use("t-bash", "Bash", { command: 42, description: "run tests" })),
+      assistant(
+        use("t-bash", "Bash", { command: 42, description: "run tests" }),
+      ),
     );
     await s.record("tool_result", result("t-read", false));
     await s.record("tool_result", result("t-bash", true));
@@ -313,10 +315,7 @@ integration("session list activity on PostgreSQL", () => {
       workspaceId,
       scope: "private",
     });
-    await secret.record(
-      "assistant",
-      assistant(use("t-q", "AskUserQuestion")),
-    );
+    await secret.record("assistant", assistant(use("t-q", "AskUserQuestion")));
     await secret.record("question", {
       request_id: "r-q",
       tool_use_id: "t-q",

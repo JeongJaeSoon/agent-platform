@@ -9,6 +9,7 @@ import {
   TURN_INPUT_WAIT_PARKED_REASON,
   terminalTurnStatusSchema,
   type WorkerEvent,
+  withoutNeutralFields,
 } from "@werft-ai/contracts";
 import type { StructuredLogger } from "@werft-ai/observability";
 import {
@@ -260,6 +261,9 @@ export const CHECKPOINT_RESTORE_FALLBACK = "checkpoint_restore_fallback";
 // stored field matches: a reused sequence that moved to another turn or
 // another time is a different event wearing the same number. The time stored
 // is the one sent raised to `floor`, the stream's clock when it was written.
+// The neutral fields are left out: derived from the rest, they are added
+// when the event is stored or later by the fill (neutral-fields.ts), so a
+// resend across that change is still the same event.
 function sameEvent(
   stored: {
     type: string;
@@ -276,7 +280,8 @@ function sameEvent(
     stored.turnId === turnRowId &&
     stored.occurredAt?.getTime() ===
       notBefore(new Date(event.occurred_at), floor).getTime() &&
-    payloadHash(stored.payload) === payloadHash(event.data)
+    payloadHash(withoutNeutralFields(stored.payload)) ===
+      payloadHash(withoutNeutralFields(event.data))
   );
 }
 

@@ -47,6 +47,7 @@ import {
 import { createLogger, type LogRecord } from "@werft-ai/observability";
 import {
   type Caller,
+  type CatalogProfileView,
   callerFor,
   createAgentService,
   createAuthorizationPolicy,
@@ -78,6 +79,7 @@ import {
   PROFILES_FILE,
   REPOSITORIES_FILE,
 } from "../api/catalog-config.ts";
+import { eventNeutralizer } from "../api/neutral-fields.ts";
 import { slackRoleStartup, slackSessionHandler } from "./main.ts";
 
 const PROFILES = `profiles:
@@ -500,6 +502,35 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       threadTs: THREAD,
       status: "active",
     });
+  });
+
+  test("a reply stored before the neutral fields still answers with its text", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [
+      [{ message: { content: [{ type: "text", text: "From before." }] } }],
+    ]);
+    const [session] = await db
+      .select({ profileId: sessions.profileId })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    const neutralize = eventNeutralizer(
+      {
+        profiles: {
+          [session?.profileId ?? ""]: {
+            runtime_kind: "claude_agent_sdk",
+          } as CatalogProfileView,
+        },
+      },
+      logger,
+    );
+    expect(
+      await outboxPass({
+        outbox: createPostgresSlackOutboxStore(db, { neutralize }),
+      }),
+    ).toMatchObject({ enqueued: 1, sent: 1 });
+    expect(posted()[0]?.text).toStartWith("From before.");
   });
 
   test("a turn that ended while the role was down for days still answers once", async () => {
