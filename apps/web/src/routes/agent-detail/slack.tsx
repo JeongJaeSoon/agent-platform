@@ -107,6 +107,11 @@ const SLACK_WARNING_KEY = {
 const SECTION_BOX =
   "flex scroll-mt-4 flex-col gap-[var(--ap-space-block)] outline-none";
 const HEADING = "m-0 font-semibold text-body leading-5";
+const EVENTS_BADGE = {
+  verified: "green",
+  pending: "amber",
+  failed: "red",
+} as const;
 
 export function slackFailure(error: unknown, t: Translate): string {
   const code = (error as { code?: string } | null)?.code ?? "INTERNAL_ERROR";
@@ -693,11 +698,19 @@ export function SlackConnect({
               <SettingRow
                 title={t("slack.eventsUrl.title")}
                 description={t("slack.eventsUrl.hint")}
-                meta={t(
-                  events.url === null
-                    ? "slack.eventsUrl.unsent"
-                    : `slack.eventsUrl.${events.state}`,
-                )}
+                badge={
+                  <Badge
+                    variant={
+                      events.url === null ? "gray" : EVENTS_BADGE[events.state]
+                    }
+                  >
+                    {t(
+                      events.url === null
+                        ? "slack.eventsUrl.unsent"
+                        : `slack.eventsUrl.${events.state}`,
+                    )}
+                  </Badge>
+                }
                 actions={
                   <Button
                     type="button"
