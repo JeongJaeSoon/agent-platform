@@ -74,7 +74,11 @@ const NOT_YET_IMPLEMENTED: string[] = [];
 // The API reference UI and its same-origin asset are public documentation,
 // not API operations. Keep this exception explicit so adding another Hono
 // handler still requires either an OpenAPI declaration or a reviewed reason.
-const NON_API_ROUTES = new Set(["GET /docs", "GET /docs/scalar.js"]);
+const NON_API_ROUTES = new Set([
+  "GET /docs",
+  "GET /docs/style-nonce.js",
+  "GET /docs/scalar.js",
+]);
 
 function apiApp() {
   const auth = {

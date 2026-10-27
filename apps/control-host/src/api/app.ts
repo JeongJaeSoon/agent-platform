@@ -31,6 +31,7 @@ import type { z } from "zod";
 import {
   INTERACTIVE_CONFIGURATION_ATTRIBUTE,
   READ_ONLY_CONFIGURATION_ATTRIBUTE,
+  STYLE_NONCE_SCRIPT,
 } from "./api-reference.ts";
 import { createAuthenticator, csrfViolation } from "./auth.ts";
 import {
@@ -106,7 +107,10 @@ function readApiReferenceHtml(): Promise<string> {
           "docs/api/index.html is stale; run apps/control-host/scripts/generate-openapi.ts",
         );
       return html
-        .replace('src="./scalar.js"', 'src="/docs/scalar.js"')
+        .replace(
+          '<script src="./scalar.js"></script>',
+          '<script src="/docs/style-nonce.js"></script>\n    <script src="/docs/scalar.js"></script>',
+        )
         .replace(
           READ_ONLY_CONFIGURATION_ATTRIBUTE,
           INTERACTIVE_CONFIGURATION_ATTRIBUTE,
@@ -544,6 +548,17 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
       },
     });
   });
+  app.get(
+    "/docs/style-nonce.js",
+    () =>
+      new Response(STYLE_NONCE_SCRIPT, {
+        headers: {
+          ...API_REFERENCE_SECURITY_HEADERS,
+          "Cache-Control": "public, max-age=3600",
+          "Content-Type": "text/javascript; charset=utf-8",
+        },
+      }),
+  );
   app.get(
     "/docs/scalar.js",
     () =>

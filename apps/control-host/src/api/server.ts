@@ -355,6 +355,7 @@ const agents = createAgentService({
   catalog,
   credentials: credentialBindings,
   ...(slackWelcome === null ? {} : { welcome: slackWelcome }),
+  keys: createPostgresWorkspaceKeyStore(db),
 });
 const sessions = createSessionService({
   authorization,
