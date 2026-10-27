@@ -98,7 +98,8 @@ function useFocusOnPageChange() {
     // The router follows a redirect with a replace while the first
     // navigation is still pending; the focus to compare against is the one
     // from before that first navigation. Any other move, such as a second
-    // link followed while the first page loads, starts over.
+    // link followed while the first page loads, starts over. The app's own
+    // replace navigations start from a page already shown, not mid-load.
     let pending = false;
     const offHistory = router.history.subscribe(({ action }) => {
       if (pending && action.type === "REPLACE") return;
