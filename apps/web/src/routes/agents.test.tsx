@@ -1596,7 +1596,10 @@ describe("에이전트 상세", () => {
       expect(toggle.getAttribute("aria-expanded")).toBe("false");
 
       const user = await setupUser();
-      toggle.focus();
+      // The table frame is a tab stop; the cut note's toggle is the next one.
+      (table.closest("[data-slot=table-container]") as HTMLElement).focus();
+      await user.tab();
+      expect(document.activeElement === toggle).toBe(true);
       await user.keyboard("{Enter}");
       expect(toggle.getAttribute("aria-expanded")).toBe("true");
       expect(note.className).not.toContain("truncate");

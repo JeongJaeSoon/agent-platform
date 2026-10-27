@@ -427,21 +427,26 @@ function ReleaseNote({ note }: { readonly note: string }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [cut, setCut] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
   const text = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
+    const outer = box.current;
     const element = text.current;
     // While open the text wraps and never overflows; keep the toggle.
-    if (!element || open) return undefined;
-    const measure = () => setCut(element.scrollWidth > element.clientWidth);
+    if (!outer || !element || open) return undefined;
+    // Against the whole box, not the text beside the toggle: a note that
+    // fits once the toggle is gone must lose it after a resize.
+    const measure = () => setCut(element.scrollWidth > outer.clientWidth);
     measure();
     if (typeof ResizeObserver === "undefined") return undefined;
     const resized = new ResizeObserver(measure);
-    resized.observe(element);
+    resized.observe(outer);
     return () => resized.disconnect();
   }, [open]);
   const Chevron = open ? ChevronUp : ChevronDown;
   return (
     <div
+      ref={box}
       className={`flex max-w-56 gap-1 ${open ? "items-start" : "items-center"}`}
     >
       <span
