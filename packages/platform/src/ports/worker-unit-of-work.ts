@@ -473,6 +473,8 @@ export type ConfirmExecutionGoneInput = {
    * kill intent may.
    */
   incarnation?: ExecutionIncarnation;
+  /** What the attempts it ends record; `execution_gone` when left out. */
+  endReason?: string;
 };
 export type ConfirmExecutionGoneResult = {
   sessionReleased: boolean;
