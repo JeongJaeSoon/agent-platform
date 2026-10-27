@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   type ControlIntent,
+  type ParkedDelivery,
   PENDING_SETTLEMENTS_MAX,
   type PendingQuestion,
   type PendingSettlement,
@@ -17,6 +18,7 @@ import {
   type CancelReason,
   isOwnershipLost,
   isRetryable,
+  type ParkedApproval,
   type WorkerGatewayClient,
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
@@ -38,8 +40,12 @@ export type PendingRequestsOptions = {
    */
   timeoutMs: number;
   onOwnershipLost?: (error: unknown) => void;
-  /** A control intent the gateway holds for this attempt; repeated each poll until it is settled. */
-  onControl?: (control: ControlIntent) => void;
+  /**
+   * A control intent the gateway holds for this attempt; repeated each poll
+   * until it is settled. `answered` says the same poll applied an answer
+   * first, which is what changes a park's premise.
+   */
+  onControl?: (control: ControlIntent, poll: { answered: boolean }) => void;
   /** The gateway refused a settlement's reason or answer result; outcomes alone go from then on. */
   onSettlementDetailRefused?: (error: WorkerGatewayRequestError) => void;
   pollIntervalMs?: number;
@@ -49,12 +55,19 @@ export type PendingRequestsOptions = {
 type Settled = Omit<PendingSettlement, "request_id">;
 
 const CANCELLED: Settled = { outcome: "cancelled" };
+const PARK_CANCELLED: Settled = { outcome: "cancelled", reason: "park" };
 
 type Pending = {
   kind: "permission" | "question";
   questions: PendingQuestion[];
+  /** The arguments as the engine sent them, for a park to keep. */
+  rawInput: unknown;
   inputHash: string;
   localId: string;
+  /** The gateway holds its row. */
+  registered: boolean;
+  tool: string;
+  toolCallId: string;
   settle: (decision: ApprovalDecisionPayload) => Promise<AnswerResult>;
   /** On `performance.now`: a wall-clock jump must not move it. */
   openedAt: number;
@@ -84,6 +97,11 @@ export class PendingRequestRegistry {
   private readonly settlements = new Map<string, Settled>();
   // Answers handed to the run whose outcome waits on what the run says.
   private readonly answering = new Map<string, Promise<void>>();
+  // Unsent deliveries of parked answers, resent the same way.
+  private readonly deliveries = new Map<string, ParkedDelivery["outcome"]>();
+  // Handed to a park: their rows stay open for the turn that resumes them,
+  // so nothing this worker learns of them is settled.
+  private readonly parked = new Set<string>();
   // Registrations still in flight, including ones whose callback has closed
   // but whose row may or may not exist yet.
   private readonly registering = new Set<Promise<void>>();
@@ -92,6 +110,12 @@ export class PendingRequestRegistry {
   private stopped = false;
   private watching = false;
   private outcomeOnly = false;
+  // A refresh needs a round that starts after it asks, so the loop is woken
+  // from its sleep rather than waited out.
+  private roundsStarted = 0;
+  private roundWaiters: Array<{ round: number; resolve: () => void }> = [];
+  private again = false;
+  private wakeSleep: (() => void) | undefined;
 
   constructor(options: PendingRequestsOptions) {
     this.options = options;
@@ -122,8 +146,12 @@ export class PendingRequestRegistry {
     this.pending.set(requestId, {
       kind: request.kind,
       questions: request.kind === "question" ? request.questions : [],
+      rawInput: request.tool.input,
       inputHash: request.inputHash,
       localId: request.localId,
+      registered: false,
+      tool: request.tool.name,
+      toolCallId: request.toolCallId,
       settle: answer,
       openedAt: performance.now(),
       deadline: performance.now() + this.options.timeoutMs,
@@ -154,6 +182,79 @@ export class PendingRequestRegistry {
   }
 
   /**
+   * Every request waiting is registered and every outcome owed the gateway
+   * has gone out, so the rows a park leaves open are exactly the ones held
+   * here.
+   */
+  get parkReady(): boolean {
+    return (
+      this.pending.size > 0 &&
+      this.registering.size === 0 &&
+      this.answering.size === 0 &&
+      this.settlements.size === 0 &&
+      [...this.pending.values()].every((entry) => entry.registered)
+    );
+  }
+
+  /**
+   * Hands every waiting request to a park: each callback is cancelled for
+   * it and none is settled, so its row stays open for the finalize to park.
+   * An answer that comes for one later is the resumed turn's to take.
+   */
+  park(): ParkedApproval[] {
+    const parked = this.peekParked();
+    const handed = [...this.pending.values()];
+    for (const requestId of this.pending.keys()) this.parked.add(requestId);
+    this.pending.clear();
+    for (const entry of handed) {
+      clearTimeout(entry.timer);
+      void entry.settle({ kind: "cancelled", reason: "park" });
+    }
+    return parked;
+  }
+
+  /** What `park` would hand over, without touching anything. */
+  peekParked(): ParkedApproval[] {
+    return [...this.pending].map(([requestId, entry]) => ({
+      input: entry.rawInput,
+      inputHash: entry.inputHash,
+      kind: entry.kind,
+      requestId,
+      tool: entry.tool,
+      toolCallId: entry.toolCallId,
+    }));
+  }
+
+  /**
+   * The park did not take: the turn ended some other way, and what it held
+   * is settled as cancelled after all.
+   */
+  unpark(): void {
+    for (const requestId of this.parked) {
+      this.settlements.set(requestId, PARK_CANCELLED);
+    }
+    this.parked.clear();
+    this.poll();
+  }
+
+  /** How a parked request's answer reached this turn, resent until a poll lands. */
+  deliver(requestId: string, outcome: ParkedDelivery["outcome"]): void {
+    this.deliveries.set(requestId, outcome);
+    this.poll();
+  }
+
+  /** One poll now, answers applied, settled once it has answered or `timeoutMs` has passed. */
+  async refresh(timeoutMs: number): Promise<void> {
+    const round = new Promise<void>((resolve) => {
+      this.roundWaiters.push({ round: this.roundsStarted + 1, resolve });
+    });
+    this.again = true;
+    this.wakeSleep?.();
+    this.poll(true);
+    await within(round, timeoutMs);
+  }
+
+  /**
    * Gives the registrations still in flight and the settlements still unsent
    * one bounded chance to land, so a shutdown tells the gateway what happened
    * to what it holds instead of leaving receipts unknown.
@@ -169,7 +270,7 @@ export class PendingRequestRegistry {
         deadline - performance.now(),
       );
     }
-    if (this.settlements.size === 0) return;
+    if (this.settlements.size === 0 && this.deliveries.size === 0) return;
     this.poll();
     if (this.polling !== undefined) {
       await within(this.polling, deadline - performance.now());
@@ -201,7 +302,12 @@ export class PendingRequestRegistry {
    */
   poll(force = false): void {
     if (this.polling !== undefined || this.stopped) return;
-    if (!force && this.pending.size === 0 && this.settlements.size === 0) {
+    if (
+      !force &&
+      this.pending.size === 0 &&
+      this.settlements.size === 0 &&
+      this.deliveries.size === 0
+    ) {
       return;
     }
     this.polling = this.pollLoop(force).finally(() => {
@@ -364,6 +470,7 @@ export class PendingRequestRegistry {
         // holds the engine for answers that can no longer be given, and
         // giving up before it denies one the owner may still send. The
         // margin lets an answer taken just before it still be picked up.
+        entry.registered = true;
         entry.deadline =
           performance.now() + response.expires_in_ms + 2 * interval;
         this.arm(requestId);
@@ -399,11 +506,15 @@ export class PendingRequestRegistry {
     while (
       !this.stopped &&
       (once ||
+        this.again ||
         this.watching ||
         this.pending.size > 0 ||
-        this.settlements.size > 0)
+        this.settlements.size > 0 ||
+        this.deliveries.size > 0)
     ) {
       once = false;
+      this.again = false;
+      const round = ++this.roundsStarted;
       // The rest waits for the next poll, which comes at once while any is
       // left.
       let sent = false;
@@ -416,24 +527,32 @@ export class PendingRequestRegistry {
       const detailed = batch.some(
         (item) => "reason" in item || "answer_result" in item,
       );
+      const delivered = [...this.deliveries]
+        .slice(0, PENDING_SETTLEMENTS_MAX)
+        .map(([request_id, outcome]) => ({ request_id, outcome }));
       try {
         const response = await this.options.gateway.pendingControl({
           ...this.options.scope(),
           answers_after: this.answersAfter,
           ...(batch.length > 0 ? { settled: batch } : {}),
+          ...(delivered.length > 0 ? { delivered } : {}),
         });
         this.forget(carried);
+        this.forgetDelivered(delivered);
         sent = true;
-        if (response.control !== null) {
-          this.options.onControl?.(response.control);
-        }
+        // Answers first: one that came with a park is applied, and the park
+        // then judged on what is left waiting.
+        let answered = false;
         const answers = [...response.answers].sort(
           (a, b) => a.sequence - b.sequence,
         );
         for (const { sequence, answer, input_hash } of answers) {
           if (sequence <= this.answersAfter) continue;
           this.answersAfter = sequence;
-          this.apply(answer, input_hash);
+          if (this.apply(answer, input_hash)) answered = true;
+        }
+        if (response.control !== null) {
+          this.options.onControl?.(response.control, { answered });
         }
       } catch (error) {
         if (isOwnershipLost(error)) {
@@ -459,14 +578,35 @@ export class PendingRequestRegistry {
         }
         // Resending would be refused the same way; the answers themselves
         // stay waiting for their own expiry.
-        if (!isRetryable(error)) this.forget(carried);
+        if (!isRetryable(error)) {
+          this.forget(carried);
+          this.forgetDelivered(delivered);
+        }
       }
-      const backlog = sent && batch.length === PENDING_SETTLEMENTS_MAX;
+      this.roundWaiters = this.roundWaiters.filter((waiter) => {
+        if (waiter.round > round) return true;
+        waiter.resolve();
+        return false;
+      });
+      const backlog =
+        sent &&
+        (batch.length === PENDING_SETTLEMENTS_MAX ||
+          delivered.length === PENDING_SETTLEMENTS_MAX);
       if (
         !backlog &&
-        (this.watching || this.pending.size > 0 || this.settlements.size > 0)
+        (this.watching ||
+          this.pending.size > 0 ||
+          this.settlements.size > 0 ||
+          this.deliveries.size > 0) &&
+        !this.again
       ) {
-        await sleep(interval);
+        await Promise.race([
+          sleep(interval),
+          new Promise<void>((resolve) => {
+            this.wakeSleep = resolve;
+          }),
+        ]);
+        this.wakeSleep = undefined;
       }
     }
   }
@@ -479,7 +619,17 @@ export class PendingRequestRegistry {
     }
   }
 
-  private apply(answer: PostSessionAnswerRequest, inputHash: string): void {
+  private forgetDelivered(batch: ParkedDelivery[]): void {
+    for (const item of batch) {
+      if (this.deliveries.get(item.request_id) === item.outcome) {
+        this.deliveries.delete(item.request_id);
+      }
+    }
+  }
+
+  /** True when the answer reached its callback as one. */
+  private apply(answer: PostSessionAnswerRequest, inputHash: string): boolean {
+    if (this.parked.has(answer.request_id)) return false;
     const entry = this.pending.get(answer.request_id);
     if (entry === undefined) {
       // Its callback is already gone: say so, or the receipt would wait on
@@ -487,7 +637,7 @@ export class PendingRequestRegistry {
       if (this.unsettled(answer.request_id)) {
         this.settlements.set(answer.request_id, CANCELLED);
       }
-      return;
+      return false;
     }
     if (entry.inputHash !== inputHash) {
       this.close(answer.request_id, {
@@ -495,7 +645,7 @@ export class PendingRequestRegistry {
         reason: "refused",
         message: "The answer was given for different tool arguments",
       });
-      return;
+      return true;
     }
     if (entry.kind !== answer.kind) {
       this.close(answer.request_id, {
@@ -503,7 +653,7 @@ export class PendingRequestRegistry {
         reason: "refused",
         message: `A ${answer.kind} answer cannot settle a ${entry.kind} request`,
       });
-      return;
+      return true;
     }
     if (answer.kind === "permission") {
       this.close(
@@ -516,7 +666,7 @@ export class PendingRequestRegistry {
               message: answer.reason ?? "Denied without a reason",
             },
       );
-      return;
+      return true;
     }
     const invalid = questionAnswerMismatch(entry.questions, answer.answers);
     if (invalid !== null) {
@@ -527,12 +677,13 @@ export class PendingRequestRegistry {
         reason: "refused",
         message: invalid,
       });
-      return;
+      return true;
     }
     this.close(answer.request_id, {
       kind: "answered",
       answers: answer.answers,
     });
+    return true;
   }
 }
 

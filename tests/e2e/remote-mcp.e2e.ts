@@ -202,6 +202,7 @@ beforeAll(async () => {
   }>("POST", `/v1/agents/${agentId}/releases`, {
     version_id: created.body.versions[0]?.id,
     runtime_profile_id: PROFILE_ID,
+    repository_id: REPOSITORY_ID,
   });
   expect(released.status).toBe(200);
   releaseId = released.body.release.id;

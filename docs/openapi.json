@@ -159,6 +159,7 @@
         "type": "object",
         "properties": {
           "profile_id": {
+            "description": "The catalog profile the session runs on. Required without `agent_release_id`; with it, omitted means the release's profile, and sent it must be that profile.",
             "type": "string",
             "minLength": 1
           },
@@ -168,7 +169,7 @@
             "maxLength": 1024
           },
           "repository_id": {
-            "description": "The catalog repository the session works on. Required when the profile's `repository_mode` is `required`, refused when it is `none`, either when it is `optional`; omitted, the session starts in an empty workspace with no repository to push to.",
+            "description": "The catalog repository the session works on. Required when the profile's `repository_mode` is `required`, refused when it is `none`, either when it is `optional`; omitted, the session works on the release's `repository_id` when `agent_release_id` is sent, else starts in an empty workspace with no repository to push to.",
             "type": "string",
             "minLength": 1
           },
@@ -206,7 +207,6 @@
           }
         },
         "required": [
-          "profile_id",
           "message"
         ],
         "additionalProperties": false
@@ -2032,6 +2032,11 @@
           },
           "note": {
             "type": "string"
+          },
+          "repository_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
           }
         },
         "required": [
@@ -8562,21 +8567,55 @@
           "warnings": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "code": {
-                  "type": "string",
-                  "const": "repository_required"
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "const": "repository_required"
+                    },
+                    "profile_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "profile_id"
+                  ],
+                  "additionalProperties": false
                 },
-                "profile_id": {
-                  "type": "string"
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "const": "profile_unavailable"
+                    },
+                    "profile_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "profile_id"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "const": "no_active_release"
+                    }
+                  },
+                  "required": [
+                    "code"
+                  ],
+                  "additionalProperties": false
                 }
-              },
-              "required": [
-                "code",
-                "profile_id"
-              ],
-              "additionalProperties": false
+              ]
             }
           }
         },
@@ -8794,6 +8833,36 @@
                   "required": [
                     "code",
                     "profile_id"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "const": "profile_unavailable"
+                    },
+                    "profile_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "profile_id"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "const": "no_active_release"
+                    }
+                  },
+                  "required": [
+                    "code"
                   ],
                   "additionalProperties": false
                 }
@@ -10964,6 +11033,14 @@
                     "none"
                   ]
                 },
+                "repository_ids": {
+                  "description": "The catalog repositories that allow this profile, which a session or an agent release of it may name as `repository_id`.",
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
                 "permission_wait": {
                   "type": "object",
                   "properties": {
@@ -11153,6 +11230,14 @@
                   "optional",
                   "none"
                 ]
+              },
+              "repository_ids": {
+                "description": "The catalog repositories that allow this profile, which a session or an agent release of it may name as `repository_id`.",
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
               },
               "permission_wait": {
                 "type": "object",
@@ -11639,6 +11724,18 @@
                   "minLength": 1,
                   "maxLength": 128
                 },
+                "repository_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "profile_digest": {
                   "type": "string",
                   "minLength": 1,
@@ -11789,6 +11886,7 @@
                 "version_id",
                 "card_sha256",
                 "runtime_profile_id",
+                "repository_id",
                 "profile_digest",
                 "runtime_config_snapshot",
                 "effective_tools",
@@ -11830,6 +11928,18 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 128
+                  },
+                  "repository_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "profile_digest": {
                     "type": "string",
@@ -11981,6 +12091,7 @@
                   "version_id",
                   "card_sha256",
                   "runtime_profile_id",
+                  "repository_id",
                   "profile_digest",
                   "runtime_config_snapshot",
                   "effective_tools",
@@ -12036,6 +12147,18 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 128
+              },
+              "repository_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "profile_digest": {
                 "type": "string",
@@ -12187,6 +12310,7 @@
               "version_id",
               "card_sha256",
               "runtime_profile_id",
+              "repository_id",
               "profile_digest",
               "runtime_config_snapshot",
               "effective_tools",
@@ -12315,6 +12439,35 @@
           "receipt_id",
           "admins",
           "admin_link"
+        ],
+        "additionalProperties": false
+      },
+      "RequestBodyInvalidDetails": {
+        "type": "object",
+        "properties": {
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "path",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "issues"
         ],
         "additionalProperties": false
       },
@@ -19187,7 +19340,7 @@
           "Sessions"
         ],
         "summary": "Durably accept a session and its first input",
-        "description": "Creates a session for a catalog profile and repository and queues `message` as turn `1`. Whether `repository_id` is sent follows the profile's `repository_mode` (`GET /v1/profiles`): `required` needs it, `none` refuses it, `optional` takes either; a session created without one starts in an empty workspace, has no repository to push to (`POST /v1/sessions/{id}/push-requests` answers 409 PUSH_SOURCE_MISSING) and its detail's `repository_id` is null. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the profile offers (its `model` or `models` in the catalog); omitted, the model of the release's card runs when `agent_release_id` is sent, else the profile's default. The session's detail reports it as `model`. The model stays until the session's profile is changed (`POST /v1/sessions/{id}/profile`), which runs the new profile's default. A session waits in `queued` while no execution slot is free; it is never refused for that. `agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it; `profile_id` must be the release's runtime profile (409 RELEASE_PROFILE_MISMATCH). The run itself follows `profile_id`. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.\n\n**Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** required.",
+        "description": "Creates a session for a catalog profile and repository and queues `message` as turn `1`. Whether `repository_id` is sent follows the profile's `repository_mode` (`GET /v1/profiles`): `required` needs it, `none` refuses it, `optional` takes either; a session created without one starts in an empty workspace, has no repository to push to (`POST /v1/sessions/{id}/push-requests` answers 409 PUSH_SOURCE_MISSING) and its detail's `repository_id` is null. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the profile offers (its `model` or `models` in the catalog); omitted, the model of the release's card runs when `agent_release_id` is sent, else the profile's default. The session's detail reports it as `model`. The model stays until the session's profile is changed (`POST /v1/sessions/{id}/profile`), which runs the new profile's default. A session waits in `queued` while no execution slot is free; it is never refused for that. `agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it; `profile_id` may then be omitted for the release's runtime profile, and sent it must be that profile (409 RELEASE_PROFILE_MISMATCH). Omitted, `repository_id` is the release's `repository_id`. A release whose profile is no longer in the catalog, or changed since, answers 409 PROFILE_DIGEST_MISMATCH. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.\n\n**Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** required.",
         "x-scope": "sessions:write",
         "security": [
           {
@@ -19265,7 +19418,7 @@
             }
           },
           "400": {
-            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying.\n- `PERMISSION_WAIT_ABOVE_PROFILE`: A requested wait is longer than the profile allows. A `permission_wait` value is longer than the profile's (`GET /v1/profiles`).",
+            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying. A body its schema refuses, `profile_id` missing without `agent_release_id` included, names each field at fault in `details.issues` (`RequestBodyInvalidDetails`).\n- `PERMISSION_WAIT_ABOVE_PROFILE`: A requested wait is longer than the profile allows. A `permission_wait` value is longer than the profile's (`GET /v1/profiles`).",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -35808,7 +35961,7 @@
           "Agents"
         ],
         "summary": "Release a version against a runtime profile",
-        "description": "The release id is a hash of the card, the profile's digest and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. The optional `note` (trimmed, 1 to 200 characters) is stored with the release but is not part of its id, so a re-release keeps the note it was first made with. A card tool outside the profile, a different model or an unknown profile answers 422. Releasing approves and activates nothing.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "The release id is a hash of the card, the profile's digest and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. The optional `note` (trimmed, 1 to 200 characters) is stored with the release but is not part of its id, so a re-release keeps the note it was first made with. A card tool outside the profile, a different model or an unknown profile answers 422. `repository_id` names the catalog repository the release's sessions work on (`GET /v1/profiles`, `repository_ids`): required when the profile's `repository_mode` is `required` (422 `repository_id: Profile <id> needs a repository: send repository_id`), refused when it is `none`, and 422 when the catalog has no such repository or it does not allow the profile. Slack sessions and API sessions that send no `repository_id` work on it. Releasing approves and activates nothing.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -39941,7 +40094,7 @@
           "Agents"
         ],
         "summary": "The agent's Slack app, if the platform made one",
-        "description": "The agent's live Slack app (`creating`, `created` or `deleting`), or null when it has none. Secrets appear only as whether each is stored; `secrets.slack_bot_token.configured` says whether Slack handed over a bot token; an install refused after the code exchange keeps it, so the agent's `slack_bot` identity is what says the app is installed. The install link comes from `POST /v1/agents/{id}/slack/install/start`. `warnings` holds `repository_required` (with the `profile_id`) while the agent's active release runs on a profile whose sessions must name a repository: Slack names none, so every mention and DM is refused with a notice in the thread. Connecting is not blocked. Owners, admins and the agent's admins; API keys are refused.\n\n**Auth:** cookie session only; no scope.",
+        "description": "The agent's live Slack app (`creating`, `created` or `deleting`), or null when it has none. Secrets appear only as whether each is stored; `secrets.slack_bot_token.configured` says whether Slack handed over a bot token; an install refused after the code exchange keeps it, so the agent's `slack_bot` identity is what says the app is installed. The install link comes from `POST /v1/agents/{id}/slack/install/start`. `warnings` says why every Slack mention and DM would be refused with a notice in the thread: `no_active_release` before an activation, `profile_unavailable` (with the `profile_id`) while the catalog no longer has the active release's profile or defines it otherwise than it was released, and `repository_required` (with the `profile_id`) while the release names no repository and its profile needs one. Connecting is not blocked. Owners, admins and the agent's admins; API keys are refused.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []
@@ -40169,7 +40322,7 @@
           "Agents"
         ],
         "summary": "Create the agent's Slack app",
-        "description": "Creates one Slack app for the agent with the workspace's App Configuration Token (`apps.manifest.create`): the agent's name, its bot, the agent view and the bot scopes, with no event subscriptions yet. The app is recorded as `creating` before Slack is asked; its signing and client secrets are stored by the server under the app and never returned. Asking again for an agent that has its app returns the same app with `created: false`. If Slack's answer was lost the app stays `creating` and the next request answers 409 SLACK_APP_CREATING; once `uncertain`, check api.slack.com/apps, delete any app made then, and retry with `replace_uncertain: true`. `warnings` says when the config token now belongs to another Slack user than the one who made the workspace's previous app (`config_token_issuer_changed`), and, as on GET, when the active release's profile needs a repository (`repository_required`); neither stops the request. The agent needs an active release. Installing it into Slack starts at `POST /v1/agents/{id}/slack/install/start`. Owners, admins and the agent's admins from a signed-in console; API keys are refused.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Creates one Slack app for the agent with the workspace's App Configuration Token (`apps.manifest.create`): the agent's name, its bot, the agent view and the bot scopes, with no event subscriptions yet. The app is recorded as `creating` before Slack is asked; its signing and client secrets are stored by the server under the app and never returned. Asking again for an agent that has its app returns the same app with `created: false`. If Slack's answer was lost the app stays `creating` and the next request answers 409 SLACK_APP_CREATING; once `uncertain`, check api.slack.com/apps, delete any app made then, and retry with `replace_uncertain: true`. `warnings` says when the config token now belongs to another Slack user than the one who made the workspace's previous app (`config_token_issuer_changed`), and, as on GET, when the active release cannot start a session (`profile_unavailable`, `repository_required`); none stops the request. The agent needs an active release. Installing it into Slack starts at `POST /v1/agents/{id}/slack/install/start`. Owners, admins and the agent's admins from a signed-in console; API keys are refused.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []

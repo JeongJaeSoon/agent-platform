@@ -1,5 +1,5 @@
 {
-  "id": "a41a68ef-0d58-4392-ad38-78c360547d1b",
+  "id": "3fecae14-f6fc-48c3-b05f-56e915493c43",
   "prevId": "bd61bfaa-7e80-4a5a-b001-ff2625acf396",
   "version": "7",
   "dialect": "postgresql",
@@ -575,6 +575,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "repository_id": {
+          "name": "repository_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "profile_digest": {
           "name": "profile_digest",
@@ -3705,18 +3711,6 @@
         },
         "settled_outcome": {
           "name": "settled_outcome",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "settled_reason": {
-          "name": "settled_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "settled_answer_result": {
-          "name": "settled_answer_result",
           "type": "text",
           "primaryKey": false,
           "notNull": false

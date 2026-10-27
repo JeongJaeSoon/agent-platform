@@ -9,9 +9,15 @@ import type { RuntimeEvent } from "./events.ts";
 
 export type CheckpointPoint = "turn_end" | "approval_wait";
 
+/**
+ * Whether the turn can be cut where it waits on a person and still leave a
+ * checkpoint. `resume` is the engine session that checkpoint would resume,
+ * so the host can judge the transcript before it cuts anything.
+ */
 export type ParkReadiness =
-  | { ok: true }
-  | { ok: false; reason: "tool_executing" | "not_supported" };
+  | { ok: true; resume: string }
+  | { ok: false; reason: "tool_executing" | "not_supported" }
+  | { ok: false; reason: "checkpoint_unavailable"; detail: string };
 
 /**
  * Handle for one engine execution. It may serve several turns; it is not the

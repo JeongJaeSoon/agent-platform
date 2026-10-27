@@ -233,6 +233,25 @@ export function transcriptBytes(
   return total;
 }
 
+/**
+ * A request a parked turn was waiting on, as the engine asked it: the
+ * arguments unredacted, which no other record keeps, so the turn that
+ * resumes it can say what was asked.
+ */
+export type ParkedApproval = {
+  readonly input: unknown;
+  readonly inputHash: string;
+  readonly kind: "permission" | "question";
+  readonly requestId: string;
+  readonly tool: string;
+  readonly toolCallId: string;
+};
+
+/** What the worker carries across a park, beside the engine's transcript. */
+export type WorkerCheckpointState = {
+  readonly pendingApprovals: readonly ParkedApproval[];
+};
+
 export type CheckpointManifest = {
   readonly createdAt: string;
   readonly cwd: string;
@@ -257,6 +276,8 @@ export type CheckpointManifest = {
    * one, since the capture path lands in.
    */
   readonly version: 2;
+  /** Absent unless the turn was parked, which keeps every other manifest's bytes. */
+  readonly workerState?: WorkerCheckpointState;
   readonly workspace: CheckpointWorkspace;
 };
 

@@ -323,6 +323,46 @@ describe("SessionCheckpoints", () => {
     );
   });
 
+  test("carries the worker state a parked turn hands it into the manifest, and none otherwise", async () => {
+    const h = harness();
+    const { claim, mirror } = await opened(h);
+    await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
+    const workerState = {
+      pendingApprovals: [
+        {
+          input: { command: "rm -rf build" },
+          inputHash: "f".repeat(64),
+          kind: "permission" as const,
+          requestId: "req_1",
+          tool: "Bash",
+          toolCallId: "toolu_1",
+        },
+      ],
+    };
+
+    const parked = await h.port.capture(ready, {
+      scope: scopeOf(claim),
+      recheck: async () => ready,
+      workerState,
+    });
+    await writeFile(join(workspace, "README.md"), "edited again\n");
+    const plain = await h.port.capture(ready, {
+      scope: { ...scopeOf(claim), turn_id: "turn-2" },
+      recheck: async () => ready,
+    });
+
+    const decoded = await Promise.all(
+      [parked, plain].map(async (ref) => {
+        const bytes =
+          ref === null ? undefined : await h.objects.get(ref.manifest_ref);
+        if (bytes === undefined) throw new Error("manifest missing");
+        return claudeCheckpointCodec.decode(bytes);
+      }),
+    );
+    expect(decoded[0]?.workerState).toEqual(workerState);
+    expect(decoded[1] !== undefined && "workerState" in decoded[1]).toBe(false);
+  });
+
   test("uploads the bundle from a file in chunks, and leaves no spool behind", async () => {
     const h = harness();
     const { claim, mirror } = await opened(h);

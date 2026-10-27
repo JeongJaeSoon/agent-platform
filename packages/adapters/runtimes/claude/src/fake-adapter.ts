@@ -3,6 +3,7 @@ import type {
   AgentRun,
   CheckpointLeaseGrant,
   CheckpointPreparation,
+  ParkReadiness,
 } from "@werft-ai/runtime-core";
 
 import type { ClaudeRuntimeConfig } from "./config.ts";
@@ -177,6 +178,10 @@ class FakeRun implements DriverRun {
     return this.ledger.prepareCheckpoint();
   }
 
+  parkable(): ParkReadiness {
+    return this.ledger.parkable();
+  }
+
   events(): AsyncIterable<AgentFrame> {
     return this;
   }
@@ -201,10 +206,10 @@ class FakeRun implements DriverRun {
             // The real engine streams the assistant message carrying a call
             // before it asks whether the call may run.
             if (step.type === "permissions") {
-              yield this.frame(
-                toolCallMessage(step.requests),
-                `fake:${cursor}:calls`,
-              );
+              const calls = toolCallMessage(step.requests);
+              // Observed like every message the real run streams.
+              this.ledger.observe(calls);
+              yield this.frame(calls, `fake:${cursor}:calls`);
             }
             // A stop that landed while the calls frame was being consumed
             // ends the turn before anyone is asked.
@@ -257,15 +262,17 @@ class FakeRun implements DriverRun {
     } else if (step.type === "error") {
       throw step.error;
     } else if (step.type === "permissions") {
-      const decisions = await raceAbort(
+      // Recorded as each settles: an interrupt the decision itself asks for
+      // aborts the step before the rest would be.
+      await raceAbort(
         Promise.all(
-          step.requests.map((request) =>
-            this.askPermission({ ...request, signal }),
-          ),
+          step.requests.map(async (request) => {
+            const decision = await this.askPermission({ ...request, signal });
+            this.runtime.permissionDecisions.push(decision);
+          }),
         ),
         signal,
       );
-      this.runtime.permissionDecisions.push(...decisions);
     } else if (step.type === "tool-start") {
       this.runtime.toolAdmissions.push({
         toolUseId: step.toolUseId,
@@ -280,7 +287,7 @@ class FakeRun implements DriverRun {
   private async askPermission(
     request: PermissionRequest,
   ): Promise<PermissionDecision> {
-    const admission = this.ledger.permissionStarting();
+    const admission = this.ledger.permissionStarting(request.toolUseId);
     if (!admission.allowed) {
       this.ledger.toolSettled(request.toolUseId);
       return { behavior: "deny", message: admission.message };
@@ -291,7 +298,7 @@ class FakeRun implements DriverRun {
       allowed = decision.behavior === "allow";
       return decision;
     } finally {
-      this.ledger.permissionSettled();
+      this.ledger.permissionSettled(request.toolUseId);
       if (!allowed) this.ledger.toolSettled(request.toolUseId);
     }
   }

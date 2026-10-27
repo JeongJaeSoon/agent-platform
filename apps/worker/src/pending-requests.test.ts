@@ -890,6 +890,22 @@ describe("PendingRequestRegistry", () => {
     ]);
   });
 
+  test("settles a park that did not take as cancelled for the park, never as a deny", async () => {
+    const harness = registry();
+    const decision = harness.ask(permission("req-park"));
+    const requestId = await harness.idFor("req-park");
+    harness.registry.park();
+
+    expect(await decision).toEqual({ kind: "cancelled", reason: "park" });
+    await harness.registry.flush(1_000);
+    expect(harness.gateway.settled).toEqual([]);
+    harness.registry.unpark();
+    await harness.registry.flush(1_000);
+    expect(harness.gateway.settled).toEqual([
+      { request_id: requestId, outcome: "cancelled", reason: "park" },
+    ]);
+  });
+
   test("stops waiting, and answers nothing, when the run withdraws a request", async () => {
     const harness = registry();
     let answered = false;
@@ -1167,5 +1183,58 @@ describe("PendingRequestRegistry", () => {
 
     expect(gateway.settled).toHaveLength(count);
     expect(Math.max(...sizes)).toBe(PENDING_SETTLEMENTS_MAX);
+  });
+  test("applies the answers a poll brings before the control it brings, and says it did", async () => {
+    const seen: Array<{ answered: boolean; outstanding: number }> = [];
+    let instance: PendingRequestRegistry | undefined;
+    const harness = registry({
+      onControl: (_control, { answered }) =>
+        seen.push({ answered, outstanding: instance?.outstanding ?? -1 }),
+    });
+    instance = harness.registry;
+    const decision = harness.ask(permission("req-1"));
+    const requestId = await harness.idFor("req-1");
+    harness.gateway.control = {
+      control_id: "0b6f7d1e-6a55-4c1e-9d59-2f7ad3a4c0aa",
+      kind: "park",
+      target_turn_id: null,
+      issued_at: "2026-10-27T00:00:00.000Z",
+    };
+    harness.gateway.answer({
+      request_id: requestId,
+      kind: "permission",
+      decision: "allow",
+    });
+
+    expect(await decision).toEqual({
+      kind: "selected",
+      optionKind: "allow_once",
+    });
+    await waitFor(() => seen.length > 0, "the control");
+    expect(seen[0]).toEqual({ answered: true, outstanding: 0 });
+  });
+
+  test("a refresh polls at once even while the loop sleeps out its interval", async () => {
+    const harness = registry({ pollIntervalMs: 60_000 });
+    const decision = harness.ask(permission("req-1"));
+    const requestId = await harness.idFor("req-1");
+    await waitFor(
+      () => harness.gateway.calls.includes("pendingControl"),
+      "the first poll",
+    );
+    harness.gateway.answer({
+      request_id: requestId,
+      kind: "permission",
+      decision: "allow",
+    });
+
+    await harness.registry.refresh(1_000);
+
+    expect(harness.registry.outstanding).toBe(0);
+    expect(await decision).toEqual({
+      kind: "selected",
+      optionKind: "allow_once",
+    });
+    harness.registry.stop();
   });
 });
