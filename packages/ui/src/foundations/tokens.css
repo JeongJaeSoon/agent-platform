@@ -47,11 +47,13 @@
 
     --ap-color-border: #eaeaea;
     --ap-color-border-strong: #d4d4d4;
-    /* A control's edge is how it is found (WCAG 1.4.11): 3:1 on surface and
-     canvas, which border-strong is not. Fields, selects, filter chips and
-     toolbar segments share it on all four edges, so one toolbar has one
-     edge colour; one darker edge alone read as a shadow. */
-    --ap-color-border-input: #8a8a8a;
+    /* A control's edge: toolbar segments, filter chips, selects and fields
+     on all four edges, so one toolbar has one edge colour. At rest it is
+     border-strong, one step over the table and card lines, because 3:1
+     (WCAG 1.4.11) made a toolbar heavier than the table under it; the
+     pointer takes it to subtle-foreground (over 3:1) and focus draws the
+     ring. A field is also told by its icon, placeholder or label. */
+    --ap-color-border-input: #d4d4d4;
     --ap-color-foreground: #171717;
     --ap-color-muted-foreground: #4d4d4d;
     /* The faintest text (v35 text-3), still 4.5:1 on sidebar and surface. */
@@ -70,6 +72,9 @@
      * surface-coloured thumb 3:1 on it.
      */
     --ap-color-control-checked: #0060d1;
+    /* A switch that is off: its track is the state, so it keeps 3:1 on
+     every surface while control edges (border-input) are lighter. */
+    --ap-color-control-unchecked: #8a8a8a;
     /*
      * A filled destructive button, white text on red, the same in dark: v4's
      * dark #e5484d holds white at only 3.9:1.
@@ -261,7 +266,7 @@
 
       --ap-color-border: #262626;
       --ap-color-border-strong: #3a3a3a;
-      --ap-color-border-input: #616161;
+      --ap-color-border-input: #3a3a3a;
       --ap-color-foreground: #ededed;
       --ap-color-muted-foreground: #a1a1a1;
       --ap-color-subtle-foreground: #8f8f8f;
@@ -272,6 +277,7 @@
       --ap-color-focus-ring: #3291ff;
       --ap-color-link: #52a8ff;
       --ap-color-control-checked: #3291ff;
+      --ap-color-control-unchecked: #616161;
       --ap-color-destructive-solid: #c4282d;
       --ap-color-destructive-foreground: #ffffff;
 
@@ -344,7 +350,7 @@
 
     --ap-color-border: #262626;
     --ap-color-border-strong: #3a3a3a;
-    --ap-color-border-input: #616161;
+    --ap-color-border-input: #3a3a3a;
     --ap-color-foreground: #ededed;
     --ap-color-muted-foreground: #a1a1a1;
     --ap-color-subtle-foreground: #8f8f8f;
@@ -355,6 +361,7 @@
     --ap-color-focus-ring: #3291ff;
     --ap-color-link: #52a8ff;
     --ap-color-control-checked: #3291ff;
+    --ap-color-control-unchecked: #616161;
     --ap-color-destructive-solid: #c4282d;
     --ap-color-destructive-foreground: #ffffff;
 

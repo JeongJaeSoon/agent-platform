@@ -4,17 +4,16 @@ import type {
   ControlIntent,
   ReleaseResponse,
 } from "@werft-ai/contracts";
-import {
-  FakeAgentRuntime,
-  type FakeStep,
-  type NativeSdkMessage,
-} from "@werft-ai/runtime-claude/testing";
 import { WorkerGatewayRequestError } from "@werft-ai/runtime-core";
+import type {
+  EngineMessage,
+  ScriptedStep,
+} from "@werft-ai/runtime-core/testing";
 
 import type { WorkerCheckpointPort } from "./checkpoint.ts";
-import { engineProfile } from "./composition.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
+import { scriptedRuntime, startScripted } from "./testing/scripted-engine.ts";
 import {
   inputUuid,
   type RuntimeRegistry,
@@ -64,7 +63,7 @@ const PAUSE: ControlIntent = {
   issued_at: "2026-09-23T00:00:00.000Z",
 };
 
-function resultMessage(turn: number): NativeSdkMessage {
+function resultMessage(turn: number): EngineMessage {
   return {
     type: "result",
     subtype: "success",
@@ -76,7 +75,7 @@ function resultMessage(turn: number): NativeSdkMessage {
 }
 
 function harness(
-  steps: FakeStep[],
+  steps: ScriptedStep[],
   overrides: {
     checkpoints?: (gateway: FakeWorkerGateway) => WorkerCheckpointPort;
     gateway?: FakeWorkerGateway;
@@ -84,7 +83,7 @@ function harness(
   } = {},
 ) {
   const gateway = overrides.gateway ?? new FakeWorkerGateway();
-  const runtime = new FakeAgentRuntime(steps);
+  const runtime = scriptedRuntime(steps);
   const log: string[] = [];
   const logger: WorkerLogger = {
     info: (event) => log.push(event),
@@ -93,20 +92,7 @@ function harness(
   };
   const runtimes: RuntimeRegistry = {
     launcherFor: () => ({
-      start: ({ runtimeConfig, principal, ...launch }) =>
-        runtime.run({
-          claudeConfigDir: "/tmp/fake/config",
-          cwd: "/tmp/fake/workspace",
-          home: "/tmp/fake/home",
-          model: runtimeConfig.model,
-          profile: engineProfile(
-            runtimeConfig.provider,
-            principal.owner_scope,
-            "http://egress-proxy.test:3129",
-          ),
-          tools: runtimeConfig.tools,
-          ...launch,
-        }),
+      start: (launch) => startScripted(runtime, launch),
     }),
   };
   const host = new WorkerHost({

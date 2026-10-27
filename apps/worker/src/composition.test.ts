@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  CLAUDE_AGENT_SDK_VERSION,
-  claudeRuntimeModule,
-} from "@werft-ai/runtime-claude";
+import { realRuntimeFor } from "@werft-ai/runtime-registry/testing";
 
 import {
   claudeClaimFingerprint,
@@ -14,6 +11,8 @@ import {
 import type { WorkerConfig } from "./config.ts";
 import { EngineProcesses } from "./engine-processes.ts";
 import { WorkerHost } from "./worker-host.ts";
+
+const claude = realRuntimeFor("claude_agent_sdk");
 
 const config: WorkerConfig = {
   bootstrapNonce: "wln_test",
@@ -61,7 +60,7 @@ describe("claudeRuntimeRegistry", () => {
       new EngineProcesses(),
     ).launcherFor({
       kind: "claude_agent_sdk",
-      version: CLAUDE_AGENT_SDK_VERSION,
+      version: claude.descriptor.runtimeVersion,
       profile_id: "default",
     });
 
@@ -96,7 +95,7 @@ describe("claudeRuntimeRegistry", () => {
       new EngineProcesses(),
     ).launcherFor({
       kind: "claude_agent_sdk",
-      version: CLAUDE_AGENT_SDK_VERSION,
+      version: claude.descriptor.runtimeVersion,
       profile_id: "default",
     });
 
@@ -222,7 +221,7 @@ describe("claudeClaimFingerprint", () => {
     expect(
       runtimeProfile(
         config,
-        claudeRuntimeModule,
+        claude,
         {
           principal,
           runtimeConfig: shipped["claude-coding-real"],
@@ -237,7 +236,7 @@ describe("claudeClaimFingerprint", () => {
     for (const [id, runtimeConfig] of Object.entries(shipped)) {
       const profile = runtimeProfile(
         config,
-        claudeRuntimeModule,
+        claude,
         { principal, runtimeConfig, workspace: { repository: null } },
         () => null,
       );
@@ -249,9 +248,7 @@ describe("claudeClaimFingerprint", () => {
         runtime_config: runtimeConfig,
         workspace: { repository: null },
       }).profileSha256;
-      expect(digest).toBe(
-        claudeRuntimeModule.fingerprint(profile).profileSha256,
-      );
+      expect(digest).toBe(claude.fingerprint(profile).profileSha256);
       expect(digest).not.toBe(onMain[id as keyof typeof shipped]);
     }
     expect(OUT_DIRECTORY_PROMPT).toContain("`out/`");

@@ -39,6 +39,7 @@
         "@electric-sql/pglite": "0.3.10",
         "@scalar/api-reference": "1.72.1",
         "@types/pg": "8.15.5",
+        "@werft-ai/runtime-codecs": "workspace:*",
         "@werft-ai/testkit": "workspace:*",
       },
     },
@@ -143,6 +144,7 @@
         "@werft-ai/system": "workspace:*",
       },
       "devDependencies": {
+        "@werft-ai/runtime-registry": "workspace:*",
         "@werft-ai/testkit": "workspace:*",
       },
     },
@@ -190,6 +192,22 @@
         "@werft-ai/contracts": "workspace:*",
         "@werft-ai/runtime-core": "workspace:*",
         "zod": "4.6.7",
+      },
+    },
+    "packages/adapters/runtimes/codecs": {
+      "name": "@werft-ai/runtime-codecs",
+      "version": "0.0.0",
+      "dependencies": {
+        "@werft-ai/runtime-claude-codec": "workspace:*",
+        "@werft-ai/runtime-core": "workspace:*",
+      },
+    },
+    "packages/adapters/runtimes/registry": {
+      "name": "@werft-ai/runtime-registry",
+      "version": "0.0.0",
+      "dependencies": {
+        "@werft-ai/runtime-claude": "workspace:*",
+        "@werft-ai/runtime-core": "workspace:*",
       },
     },
     "packages/client": {
@@ -1358,7 +1376,11 @@
 
     "@werft-ai/runtime-claude-codec": ["@werft-ai/runtime-claude-codec@workspace:packages/adapters/runtimes/claude-codec"],
 
+    "@werft-ai/runtime-codecs": ["@werft-ai/runtime-codecs@workspace:packages/adapters/runtimes/codecs"],
+
     "@werft-ai/runtime-core": ["@werft-ai/runtime-core@workspace:packages/runtime-core"],
+
+    "@werft-ai/runtime-registry": ["@werft-ai/runtime-registry@workspace:packages/adapters/runtimes/registry"],
 
     "@werft-ai/sdk": ["@werft-ai/sdk@workspace:packages/sdk"],
 

@@ -143,7 +143,7 @@ function mcpConfig(
   };
 }
 
-function claudeStartConfig(
+export function claudeStartConfig(
   start: RuntimeStart,
   deps: RuntimeHostDeps,
 ): ClaudeRuntimeConfig {

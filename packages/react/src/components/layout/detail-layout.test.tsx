@@ -30,6 +30,22 @@ function Page() {
   );
 }
 
+describe("DetailLayout", () => {
+  test("the body's left edge is measured on the whole width, not what the rail leaves", () => {
+    const { container } = render(<Page />);
+    const layout = container.querySelector('[data-slot="detail-layout"]');
+    const frame = container.querySelector('[data-slot="page-frame"]');
+    expect(layout?.classList.contains("@container")).toBe(true);
+    // Happy DOM lays nothing out; the browser check measures the edges.
+    expect(frame?.className).toContain(
+      "xl:[&>[data-slot=page-frame-body]]:ml-[max(0px,calc((100cqw-3rem-var(--ap-w-page))/2))]",
+    );
+    expect(frame?.className).toContain(
+      "xl:[&>[data-slot=page-frame-body]]:w-auto",
+    );
+  });
+});
+
 describe("DetailRail", () => {
   test("a rail taller than the screen takes a keyboard stop to scroll", async () => {
     const { container, rerender, getByRole } = render(<Page />);

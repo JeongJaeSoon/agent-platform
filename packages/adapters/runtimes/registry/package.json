@@ -1,0 +1,18 @@
+{
+  "name": "@werft-ai/runtime-registry",
+  "description": "Kiel session runtime: the runtime modules this image installs",
+  "version": "0.0.0",
+  "private": true,
+  "license": "PolyForm-Small-Business-1.0.0",
+  "type": "module",
+  "exports": {
+    "./testing": "./src/testing/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@werft-ai/runtime-claude": "workspace:*",
+    "@werft-ai/runtime-core": "workspace:*"
+  }
+}

@@ -20,6 +20,7 @@
     "@werft-ai/system": "workspace:*"
   },
   "devDependencies": {
+    "@werft-ai/runtime-registry": "workspace:*",
     "@werft-ai/testkit": "workspace:*"
   }
 }
