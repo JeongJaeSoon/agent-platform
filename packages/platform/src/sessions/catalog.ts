@@ -638,13 +638,11 @@ export type ProfileLookup<P extends CatalogProfileView> = {
   workspace_profiles?: WorkspaceProfiles | undefined;
 };
 
-/** The fields a workspace profile version sets over its base. */
 export type ProfileNarrowing = Pick<
   WorkspaceProfileRecord,
   "model" | "models" | "tools" | "permission_mode"
 >;
 
-/** The policy the versions in `catalog` follow, checked on save and on every run. */
 export function derivationPolicyOf(catalog: {
   workspace_profiles?: WorkspaceProfiles | undefined;
 }): ProfileDerivationPolicy {

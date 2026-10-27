@@ -26,9 +26,7 @@ export type DerivationRefusal = {
 /**
  * How a workspace profile version may differ from its base. The server checks
  * a save and a running version with `refusal` and runs `apply`; the console
- * starts from `initial` or `carry` and offers `choices`. A policy that widens
- * or customizes is another implementation of this, picked at
- * `WORKSPACE_PROFILE_POLICY`.
+ * starts from `initial` or `carry` and offers `choices`.
  */
 export interface ProfileDerivationPolicy {
   readonly kind: string;
