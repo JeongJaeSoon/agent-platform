@@ -32,6 +32,7 @@ import {
   pendingRequests,
   receipts,
   sessions,
+  turnContinuations,
   turns,
 } from "./schema.ts";
 import { announceInputWaitEnded, inputWaitBefore } from "./session-events.ts";
@@ -161,8 +162,21 @@ export function createPostgresTurnInterrupts(
             );
         } else {
           // A parked turn has already ended; interrupting it gives up the
-          // resume its requests wait for.
-          await cancelParkedRequests(tx, { sessionId, turnRowId: turn.id }, at);
+          // resume its requests wait for. Once it is carried on, its
+          // answers and grants may already be with a worker: the turn
+          // carrying it on is the one to interrupt.
+          const [carried] = await tx
+            .select({ turnId: turnContinuations.turnId })
+            .from(turnContinuations)
+            .where(eq(turnContinuations.parkedTurnId, turn.id))
+            .limit(1);
+          if (!carried) {
+            await cancelParkedRequests(
+              tx,
+              { sessionId, turnRowId: turn.id },
+              at,
+            );
+          }
         }
         await announceInputWaitEnded(tx, {
           sessionId,

@@ -1658,11 +1658,16 @@ integration("parked pending requests on PostgreSQL", () => {
     ).toBeLessThanOrEqual(32 * 1024);
   });
 
-  test("an interrupt after the turn was carried on leaves no grant to wait for", async () => {
+  test("an interrupt of a parked turn already carried on cancels nothing a worker may hold", async () => {
     const { owner, sessionId, requestId } = await parked();
     expect(await answer(owner, sessionId, requestId)).toMatchObject({
       resumed: true,
     });
+    // The claim carries the grant before the interrupt arrives.
+    const early = await claimOnly(sessionId);
+    expect(early.claimed.grants).toEqual([
+      expect.objectContaining({ request_id: requestId }),
+    ]);
     const interrupt = await createPostgresTurnInterrupts(db).interruptAtomic({
       principal: owner,
       sessionId,
@@ -1671,11 +1676,12 @@ integration("parked pending requests on PostgreSQL", () => {
       targetTurnId: "1",
     });
     expect(interrupt.outcome).toBe("accepted");
-    expect((await request(requestId)).settledOutcome).toBe("cancelled");
+    const row = await request(requestId);
+    expect(row.settledOutcome).toBeNull();
+    expect((await receipt(row.answerReceiptId ?? ""))?.status).toBe("accepted");
 
-    const next = await claim(sessionId);
-    expect(next.claimed.grants).toBeUndefined();
-    expect(next.input.turn_id).toBe("2");
+    const next = await gateway.nextInput(early.principal, early.scope);
+    expect(next.input?.turn_id).toBe("2");
   });
 
   test("after a drain park the turn that carries it on runs after input already queued", async () => {
