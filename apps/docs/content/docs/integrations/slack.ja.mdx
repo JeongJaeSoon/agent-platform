@@ -108,7 +108,7 @@ curl -sS "$API/v1/agents/$AID/identities" "${WEB[@]}" \
 
 ## チャンネル参加とデプロイの歓迎メッセージ
 
-エージェントのチャンネル(`PUT /v1/agents/{id}/slack-bindings`)を保存すると、サーバーが bot をそのチャンネルに入れる。公開チャンネルには bot が自分で参加する。非公開チャンネルは Slack が bot の自己参加を許さないので、チャンネルで `/invite @<bot>` で招待する。招待されるとサーバーが検知して続きを進める。結果は binding の `membership.state` に出る。
+エージェントのチャンネル(`PUT /v1/agents/{id}/slack-bindings`)を保存すると、サーバーが bot をそのチャンネルに入れる。公開チャンネルには bot が自分で参加する。非公開チャンネルは Slack が bot の自己参加を許さないので、チャンネルで `/invite @<bot>` で招待する。招待されるとサーバーが検知して続きを進める。結果は binding の `membership.state` に出る。保存していないチャンネルに bot を招待した場合も、サーバーがそのチャンネルを応答オン(`mention`)で接続する。保存済みのチャンネルは設定を変えない(オフにしたチャンネルはオフのまま)。
 
 | `membership.state` | 意味 |
 | --- | --- |

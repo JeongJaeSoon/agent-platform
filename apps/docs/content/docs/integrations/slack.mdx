@@ -108,7 +108,7 @@ curl -sS "$API/v1/agents/$AID/identities" "${WEB[@]}" \
 
 ## 채널 참가와 배포 환영
 
-에이전트의 채널(`PUT /v1/agents/{id}/slack-bindings`)을 저장하면 서버가 bot을 그 채널에 넣는다. 공개 채널은 bot이 스스로 들어간다. 비공개 채널은 Slack이 막으니 채널에서 `/invite @<bot>`으로 초대한다. 초대되면 서버가 알아채고 이어 간다. 결과는 binding의 `membership.state`로 보인다.
+에이전트의 채널(`PUT /v1/agents/{id}/slack-bindings`)을 저장하면 서버가 bot을 그 채널에 넣는다. 공개 채널은 bot이 스스로 들어간다. 비공개 채널은 Slack이 막으니 채널에서 `/invite @<bot>`으로 초대한다. 초대되면 서버가 알아채고 이어 간다. 결과는 binding의 `membership.state`로 보인다. 저장한 적 없는 채널에 bot을 초대해도 서버가 그 채널을 반응 켜짐(`mention`)으로 연결한다. 이미 저장한 채널은 설정을 바꾸지 않는다(꺼 둔 채널은 꺼진 채로 둔다).
 
 | `membership.state` | 뜻 |
 | --- | --- |

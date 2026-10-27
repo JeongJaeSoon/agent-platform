@@ -428,7 +428,11 @@ describe("app shell", () => {
     await user.click(screen.getByRole("menuitem", { name: "API key" }));
     expect(history.location.pathname).toBe("/settings/api-keys");
     expect(screen.queryByRole("menu")).toBeNull();
-    expect(document.activeElement?.id).toBe("main");
+    const title = await screen.findByRole("heading", {
+      level: 1,
+      name: "API key",
+    });
+    await waitFor(() => expect(document.activeElement === title).toBe(true));
   });
 
   // happy-dom has no layout; the width at 390px is measured in the browser.
@@ -508,7 +512,150 @@ describe("app shell", () => {
         .getByRole("button", { name: "메뉴 열기" })
         .getAttribute("aria-expanded"),
     ).toBe("false");
-    expect(document.activeElement?.id).toBe("main");
+    const title = await screen.findByRole("heading", {
+      level: 1,
+      name: "구성원",
+    });
+    await waitFor(() => expect(document.activeElement === title).toBe(true));
+  });
+});
+
+describe("focus after a page change", () => {
+  test("a sidebar link puts focus on the next page's title", async () => {
+    renderAt("/", signedIn);
+    const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
+    const user = await setupUser();
+    await user.click(within(nav).getByRole("link", { name: "에이전트" }));
+    const title = await screen.findByRole("heading", {
+      level: 1,
+      name: "에이전트",
+    });
+    await waitFor(() => expect(document.activeElement === title).toBe(true));
+    expect(title.getAttribute("tabindex")).toBe("-1");
+  });
+
+  test("logging out puts focus on the login title", async () => {
+    let out = false;
+    renderAt("/", {
+      "GET /v1/auth/me": () =>
+        out
+          ? apiError(401, "UNAUTHORIZED", "Authentication is required")
+          : json(200, me()),
+      "POST /v1/auth/logout": () => {
+        out = true;
+        return new Response(null, { status: 204 });
+      },
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "Owner · 소유자" }),
+    );
+    await user.click(screen.getByRole("menuitem", { name: "로그아웃" }));
+    const title = await screen.findByRole("heading", {
+      level: 1,
+      name: "로그인",
+    });
+    await waitFor(() => expect(document.activeElement === title).toBe(true));
+  });
+
+  test("the first page leaves focus where the browser put it", async () => {
+    renderAt("/agents", signedIn);
+    await screen.findByRole("heading", { level: 1, name: "에이전트" });
+    await screen.findByRole("navigation", { name: "주요 메뉴" });
+    expect(document.activeElement?.tagName).toBe("BODY");
+  });
+
+  test("a status tab, a change of search alone, keeps focus on the tab", async () => {
+    const { history } = renderAt("/sessions", signedIn);
+    await screen.findByRole("heading", { level: 1, name: "세션" });
+    const user = await setupUser();
+    const failed = screen.getByRole("button", { name: "실패" });
+    await user.click(failed);
+    await waitFor(() =>
+      expect(failed.getAttribute("aria-pressed")).toBe("true"),
+    );
+    expect(history.location.search).toBe("?status=failed");
+    expect(document.activeElement === failed).toBe(true);
+  });
+
+  test("focus taken while a redirect is decided stays there", async () => {
+    let hold: Promise<Response> | null = null;
+    let release = () => {};
+    const { api, history } = renderAt("/agents", {
+      "GET /v1/auth/me": () => hold ?? json(200, me()),
+    });
+    await screen.findByRole("heading", { level: 1, name: "에이전트" });
+    hold = new Promise((resolve) => {
+      release = () => resolve(json(200, me()));
+    });
+    const asked = api.calls.length;
+    // A live session on /login goes on to the home page.
+    const going = history.push("/login");
+    await waitFor(() =>
+      expect(
+        api.calls.slice(asked).some((call) => call.path === "/v1/auth/me"),
+      ).toBe(true),
+    );
+    const toggle = screen.getByRole("button", { name: "메뉴 열기" });
+    toggle.focus();
+    release();
+    await going;
+    await screen.findByRole("heading", { level: 1, name: "홈" });
+    await waitFor(() => expect(history.location.pathname).toBe("/"));
+    expect(document.activeElement === toggle).toBe(true);
+  });
+
+  test("a second link followed while the first page loads still moves focus", async () => {
+    let hold: Promise<Response> | null = null;
+    const { api, history } = renderAt("/", {
+      "GET /v1/auth/me": () => hold ?? json(200, me()),
+    });
+    await screen.findByRole("heading", { level: 1, name: "홈" });
+    // The /login check never answers; the sidebar link replaces it.
+    hold = new Promise(() => {});
+    const asked = api.calls.length;
+    void history.push("/login");
+    await waitFor(() =>
+      expect(
+        api.calls.slice(asked).some((call) => call.path === "/v1/auth/me"),
+      ).toBe(true),
+    );
+    hold = null;
+    const nav = screen.getByRole("navigation", { name: "주요 메뉴" });
+    const user = await setupUser();
+    await user.click(within(nav).getByRole("link", { name: "에이전트" }));
+    const title = await screen.findByRole("heading", {
+      level: 1,
+      name: "에이전트",
+    });
+    await waitFor(() => expect(document.activeElement === title).toBe(true));
+  });
+
+  test("back from an open account menu leaves focus in the menu", async () => {
+    const { history } = renderAt("/agents", signedIn);
+    await screen.findByRole("heading", { level: 1, name: "에이전트" });
+    await history.push("/profiles");
+    await screen.findByRole("heading", { level: 1, name: "실행 프로필" });
+    const region = screen.getByRole("region", { name: "사용자 메뉴" });
+    const user = await setupUser();
+    within(region).getByRole("button", { name: /Owner/ }).focus();
+    await user.keyboard("{ArrowUp}");
+    const item = screen.getByRole("menuitem", { name: "연동 계정" });
+    expect(document.activeElement === item).toBe(true);
+    history.back();
+    await screen.findByRole("heading", { level: 1, name: "에이전트" });
+    expect(document.activeElement === item).toBe(true);
+  });
+
+  test("focus taken while the page changes stays there", async () => {
+    const { history } = renderAt("/", signedIn);
+    await screen.findByRole("heading", { level: 1, name: "홈" });
+    const toggle = screen.getByRole("button", { name: "메뉴 열기" });
+    const going = history.push("/agents");
+    toggle.focus();
+    await going;
+    await screen.findByRole("heading", { level: 1, name: "에이전트" });
+    expect(document.activeElement === toggle).toBe(true);
   });
 });
 

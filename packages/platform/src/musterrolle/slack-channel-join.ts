@@ -78,17 +78,28 @@ const memberJoinedSchema = z.object({
   type: z.literal("member_joined_channel"),
   user: z.string().min(1),
   channel: z.string().min(1),
+  // Slack's `C` is a public channel, `G` a private one.
+  channel_type: z.string().optional(),
 });
+
+const INVITED_KIND = {
+  C: "public_channel",
+  G: "private_channel",
+} as const;
 
 /**
  * The `slack` role's handler for `member_joined_channel`: when the one who
- * joined is this app's bot and the channel is bound, the binding is
- * `joined`, and a home hears the welcome it was waiting for. Every other
- * event goes to `next`.
+ * joined is this app's bot, the channel is bound if it was not (an invite
+ * is how a person adds the agent to a channel), the binding is `joined`,
+ * and a home hears the welcome it was waiting for. Every other event goes
+ * to `next`.
  */
 export function createSlackMemberJoinedHandler(deps: {
   agents: Pick<AgentIdentityStore, "resolveSlackEvent">;
-  bindings: Pick<SurfaceBindingStore, "resolveSlackChannel" | "setMembership">;
+  bindings: Pick<
+    SurfaceBindingStore,
+    "resolveSlackChannel" | "ensureInvitedChannel" | "setMembership"
+  >;
   welcome: Pick<SlackWelcome, "welcome">;
   next: SlackInboundHandler;
 }): SlackInboundHandler {
@@ -105,10 +116,20 @@ export function createSlackMemberJoinedHandler(deps: {
     if (agent.status === "dropped" || parsed.data.user !== agent.botUserId) {
       return;
     }
-    const binding = await deps.bindings.resolveSlackChannel(
-      agent.installationId,
-      parsed.data.channel,
-    );
+    const { channel, channel_type: type } = parsed.data;
+    const kind = type === "C" || type === "G" ? INVITED_KIND[type] : undefined;
+    const binding =
+      (await deps.bindings.resolveSlackChannel(
+        agent.installationId,
+        channel,
+      )) ??
+      (kind === undefined
+        ? null
+        : await deps.bindings.ensureInvitedChannel(
+            agent.installationId,
+            channel,
+            kind,
+          ));
     if (binding === null) return;
     await deps.bindings.setMembership(binding.id, JOINED);
     if (binding.home) {
