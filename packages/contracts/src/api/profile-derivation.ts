@@ -30,7 +30,7 @@ export type DerivationRefusal = {
  */
 export interface ProfileDerivationPolicy {
   readonly kind: string;
-  /** The values a new version starts from. */
+  /** The values a new version starts from: `auto` where the base allows it. */
   initial(base: DerivationBase): DerivedFields;
   /** An earlier version's values, kept where the base still allows them. */
   carry(previous: DerivedFields, base: DerivationBase): DerivedFields;
@@ -85,7 +85,11 @@ export const narrowOnlyPolicy: ProfileDerivationPolicy = {
     model: base.model,
     models: [base.model],
     tools: [...base.tools],
-    permission_mode: base.permission_mode,
+    permission_mode: NARROWER_PERMISSION_MODES[base.permission_mode].includes(
+      "auto",
+    )
+      ? "auto"
+      : base.permission_mode,
   }),
   carry(previous, base) {
     const offered = offeredModels(base);

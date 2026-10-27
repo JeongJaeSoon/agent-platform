@@ -1,0 +1,6 @@
+# config/fake-model/repositories.yaml, trusting the unattended profiles too.
+repositories:
+  sample-app:
+    url: http://gitea:3000/agent/sample-app.git
+    branch: main
+    profiles: [claude-coding-local, claude-coding-auto, claude-coding-bypass]
