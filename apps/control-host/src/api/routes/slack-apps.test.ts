@@ -396,8 +396,36 @@ describe("the agent Slack app API", () => {
     ).toEqual({
       slack_app: null,
       event_url: `https://events.example.test/v1/slack/events/${IDLE_AGENT}`,
-      events: { state: "pending", checked_at: null },
+      events: { state: "pending", checked_at: null, url: null },
       warnings: [],
+    });
+
+    const recheck = await call("POST", `${appPath(AGENT)}/events/recheck`, {
+      cookie: admin,
+    });
+    expect(recheck.status).toBe(200);
+    expect(recheck.json.events).toMatchObject({
+      state: "pending",
+      url: `https://events.example.test/v1/slack/events/${AGENT}`,
+    });
+    const none = await call("POST", `${appPath(IDLE_AGENT)}/events/recheck`, {
+      cookie: admin,
+    });
+    expect(none.status).toBe(404);
+    expect(code(none.json).code).toBe("NOT_FOUND");
+
+    const updateApp = slack.api.updateApp;
+    slack.api.updateApp = async () => {
+      throw new SlackApiError("apps.manifest.update", "token_expired", true);
+    };
+    const expired = await call("POST", `${appPath(AGENT)}/events/recheck`, {
+      cookie: admin,
+    });
+    slack.api.updateApp = updateApp;
+    expect(expired.status).toBe(409);
+    expect(code(expired.json)).toMatchObject({
+      code: "CONFIG_TOKEN_INVALID",
+      details: { reason_code: "rejected" },
     });
   });
 
@@ -411,6 +439,14 @@ describe("the agent Slack app API", () => {
         cookie: cookieFor("owner"),
         csrf: false,
         body: {},
+      }),
+      await call("POST", `${appPath(AGENT)}/events/recheck`, {
+        cookie: cookieFor("member"),
+      }),
+      await call("POST", `${appPath(AGENT)}/events/recheck`, { key: true }),
+      await call("POST", `${appPath(AGENT)}/events/recheck`, {
+        cookie: cookieFor("owner"),
+        csrf: false,
       }),
     ]) {
       expect(response.status).toBe(403);

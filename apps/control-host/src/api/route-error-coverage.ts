@@ -166,6 +166,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   ],
   "routes/slack-apps.test.ts": [
     "GET /v1/agents/{id}/slack/app",
+    "POST /v1/agents/{id}/slack/app/events/recheck",
     "GET /v1/agents/{id}/slack/app/manifest",
     "GET /v1/agents/{id}/slack/app/settings",
     "PUT /v1/agents/{id}/slack/app/settings",

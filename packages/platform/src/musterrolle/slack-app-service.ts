@@ -62,6 +62,11 @@ const NO_CONSOLE_ORIGIN = () =>
     "BACKEND_UNAVAILABLE",
     "The console's address is not configured (SLACK_OIDC_REDIRECT_URI), so no OAuth redirect can be set",
   );
+const EVENTS_URL_UNSET = () =>
+  new SessionServiceError(
+    "BACKEND_UNAVAILABLE",
+    "The public events address is not configured (SLACK_EVENTS_PUBLIC_URL), so no Request URL can be sent to Slack",
+  );
 const creating = (app: SlackAppRecord, uncertain: boolean) =>
   new SessionServiceError(
     "SLACK_APP_CREATING",
@@ -283,7 +288,7 @@ export function createSlackAppService(deps: {
     };
   }
 
-  return {
+  const service = {
     async createAgentApp(
       caller: Caller,
       agentId: string,
@@ -325,7 +330,11 @@ export function createSlackAppService(deps: {
           deps.eventsPublicUrl == null
             ? null
             : slackEventsUrl(deps.eventsPublicUrl, agentId),
-        events: record?.events ?? { state: "pending", checked_at: null },
+        events: record?.events ?? {
+          state: "pending",
+          checked_at: null,
+          url: null,
+        },
         warnings: await agentWarnings(caller.ownerId, agentId),
       };
     },
@@ -436,49 +445,77 @@ export function createSlackAppService(deps: {
      * app id is read from `slack_apps`, never taken from a caller, so the
      * token cannot be pointed at an app the platform did not make here.
      */
-    async updateAgentAppManifest(
-      workspaceId: string,
-      slackAppId: string,
-      input: Omit<AgentAppManifestInput, "redirectUrl">,
-    ): Promise<{ permissionsUpdated: boolean }> {
-      const { apps, tokens } = ready();
-      const record = await apps.find(workspaceId, slackAppId);
-      if (record === null || record.state !== "created" || !record.appId) {
-        throw NOT_FOUND();
-      }
-      const appId = record.appId;
-      const manifest = buildAgentAppManifest({
-        ...input,
-        redirectUrl: record.redirectUrl,
+    updateAgentAppManifest,
+
+    /**
+     * Sends the app's manifest with its Request URL again, so Slack checks
+     * the URL anew; the answer to that check arrives as a url_verification.
+     */
+    async recheckAgentAppEvents(
+      caller: Caller,
+      agentId: string,
+    ): Promise<GetSlackAppResponse> {
+      await permitAgent(caller, agentId);
+      const { apps } = ready();
+      if (deps.eventsPublicUrl == null) throw EVENTS_URL_UNSET();
+      const record = await apps.findForAgent(caller.ownerId, agentId);
+      const agent = await apps.manifestAgent(caller.ownerId, agentId);
+      if (record === null || agent === null) throw NOT_FOUND();
+      await updateAgentAppManifest(caller.ownerId, record.id, {
+        name: agent.name,
+        botName: agent.slug,
+        description: agent.role,
+        eventsUrl: slackEventsUrl(deps.eventsPublicUrl, agentId),
       });
-      // A new Request URL is verified only once Slack reaches it with a
-      // signed request (slack-events-service). Written before the call so a
-      // challenge Slack sends while the update is in flight is kept.
-      if (input.eventsUrl !== undefined)
-        await apps.setEvents(workspaceId, slackAppId, {
-          state: "pending",
-          checked_at: now().toISOString(),
-        });
-      try {
-        return await tokens.withToken(workspaceId, (token) =>
-          api.updateApp(token, appId, manifest),
-        );
-      } catch (error) {
-        // An unanswered call may still have reached Slack, whose challenge
-        // then left `verified`.
-        if (input.eventsUrl !== undefined)
-          await apps.setEventsUnlessVerified(workspaceId, slackAppId, {
-            state: "failed",
-            checked_at: now().toISOString(),
-            error: "events_registration_failed",
-          });
-        if (error instanceof SlackApiError) {
-          throw error.answered
-            ? slackRefused(error)
-            : answerLost("apps.manifest.update");
-        }
-        throw error;
-      }
+      return service.getAgentApp(caller, agentId);
     },
   };
+  return service;
+
+  async function updateAgentAppManifest(
+    workspaceId: string,
+    slackAppId: string,
+    input: Omit<AgentAppManifestInput, "redirectUrl">,
+  ): Promise<{ permissionsUpdated: boolean }> {
+    const { apps, tokens } = ready();
+    const record = await apps.find(workspaceId, slackAppId);
+    if (record === null || record.state !== "created" || !record.appId) {
+      throw NOT_FOUND();
+    }
+    const appId = record.appId;
+    const manifest = buildAgentAppManifest({
+      ...input,
+      redirectUrl: record.redirectUrl,
+    });
+    // A new Request URL is verified only once Slack reaches it with a
+    // signed request (slack-events-service). Written before the call so a
+    // challenge Slack sends while the update is in flight is kept.
+    if (input.eventsUrl !== undefined)
+      await apps.registerEventsUrl(
+        workspaceId,
+        slackAppId,
+        input.eventsUrl,
+        now().toISOString(),
+      );
+    try {
+      return await tokens.withToken(workspaceId, (token) =>
+        api.updateApp(token, appId, manifest),
+      );
+    } catch (error) {
+      // An unanswered call may still have reached Slack, whose challenge
+      // then left `verified`.
+      if (input.eventsUrl !== undefined)
+        await apps.setEventsUnlessVerified(workspaceId, slackAppId, {
+          state: "failed",
+          checked_at: now().toISOString(),
+          error: "events_registration_failed",
+        });
+      if (error instanceof SlackApiError) {
+        throw error.answered
+          ? slackRefused(error)
+          : answerLost("apps.manifest.update");
+      }
+      throw error;
+    }
+  }
 }

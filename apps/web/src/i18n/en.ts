@@ -45,10 +45,21 @@ export const slackEn = {
   "slack.state.pending": "Awaiting installation",
   "slack.state.connected": "Connected",
   "slack.state.reinstall": "Reinstall required",
-  "slack.eventsPending.title": "Verify the Request URL in Slack",
+  "slack.eventsPending.title": "Slack has not checked the Request URL yet",
   "slack.eventsPending.body":
-    "Slack sends no invites, mentions or DMs until it has checked this app's Request URL. In the app's Event Subscriptions settings, press Verify (or Retry). This notice goes away once Slack's check arrives.",
-  "slack.eventsPending.open": "Open Event Subscriptions",
+    "Slack sends no invites, mentions or DMs until it has checked this app's Request URL. Send the URL again with Recheck under Advanced. If this notice stays, press Verify on the app's App Manifest page. It goes away once Slack's check arrives.",
+  "slack.eventsPending.open": "Open App Manifest",
+  "slack.eventsUrl.title": "Events Request URL",
+  "slack.eventsUrl.hint":
+    "Where Slack sends invites, mentions and DMs. Recheck sends the URL to the app's settings again and answers Slack's check automatically.",
+  "slack.eventsUrl.verified": "Checked by Slack",
+  "slack.eventsUrl.pending": "Waiting for Slack",
+  "slack.eventsUrl.failed": "Registration failed",
+  "slack.eventsUrl.unsent": "Not sent yet",
+  "slack.eventsUrl.recheck": "Recheck",
+  "slack.eventsUrl.done": "Slack has checked the Request URL.",
+  "slack.eventsUrl.sent":
+    "The Request URL was sent to Slack again. The status changes once Slack checks it.",
   "slack.repositoryRequired.title": "Sessions can't start from Slack",
   "slack.repositoryRequired.body":
     "The active release's profile ({profile}) needs a repository for every session, and the release has none it can use (none was chosen, or it left the catalog). Slack mentions and DMs are refused and only a notice is left in the thread. You can still connect. Create a release with a repository on the Releases tab and activate it.",

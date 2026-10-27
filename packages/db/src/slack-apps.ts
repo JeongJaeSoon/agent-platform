@@ -11,7 +11,7 @@ import {
   type SlackAppStore,
   secretOwnerRef,
 } from "@werft-ai/platform";
-import { and, desc, eq, inArray, isNotNull, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import { holdsRight, lockedRole } from "./api-keys.ts";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
@@ -72,6 +72,7 @@ async function recordOf(db: Database, row: Row): Promise<SlackAppRecord> {
     events: {
       state: row.eventsState,
       checked_at: row.eventsCheckedAt?.toISOString() ?? null,
+      url: row.eventsUrl,
       ...(row.eventsError === null ? {} : { error: row.eventsError }),
     },
     secrets: Object.fromEntries(
@@ -175,6 +176,26 @@ export function createPostgresSlackAppStore(
           eventsCheckedAt:
             events.checked_at === null ? null : new Date(events.checked_at),
           eventsError: events.error ?? null,
+          updatedAt: DB_NOW,
+        })
+        .where(
+          and(
+            eq(slackApps.workspaceId, workspaceId),
+            eq(slackApps.id, slackAppId),
+            eq(slackApps.state, "created"),
+          ),
+        );
+    },
+    async registerEventsUrl(workspaceId, slackAppId, url, checkedAt) {
+      // A verified app stored before its URL was is taken to have this one.
+      const kept = sql`${slackApps.eventsState} = 'verified' AND (${slackApps.eventsUrl} IS NULL OR ${slackApps.eventsUrl} = ${url})`;
+      await db
+        .update(slackApps)
+        .set({
+          eventsState: sql`CASE WHEN ${kept} THEN 'verified' ELSE 'pending' END`,
+          eventsCheckedAt: sql`CASE WHEN ${kept} THEN ${slackApps.eventsCheckedAt} ELSE ${new Date(checkedAt)} END`,
+          eventsError: sql`CASE WHEN ${kept} THEN ${slackApps.eventsError} ELSE NULL END`,
+          eventsUrl: url,
           updatedAt: DB_NOW,
         })
         .where(

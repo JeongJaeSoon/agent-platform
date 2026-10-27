@@ -46,7 +46,7 @@ const appResponse = (
 ): components["schemas"]["GetSlackAppResponse"] => ({
   slack_app: app,
   event_url: null,
-  events: { state: "pending", checked_at: null },
+  events: { state: "pending", checked_at: null, url: null },
   warnings,
 });
 const IDENTITY: components["schemas"]["ListAgentIdentitiesResponse"]["items"][number] =
@@ -1187,31 +1187,96 @@ describe("Slack management", () => {
       json(200, { ...appResponse(APP), event_url: eventUrl, events }),
   });
 
-  test("asks to verify the Request URL while the subscription is pending", async () => {
-    renderAt(DETAIL, subscribed({ state: "pending", checked_at: AT }));
+  const SENT = `https://events.test/v1/slack/events/${AGENT_ID}`;
+
+  test("points to the App Manifest page while Slack has not checked the sent URL", async () => {
+    renderAt(
+      DETAIL,
+      subscribed({ state: "pending", checked_at: AT, url: SENT }),
+    );
     const status = await screen.findByRole("region", { name: "상태" });
-    await within(status).findByText("Slack에서 Request URL을 Verify하세요");
+    await within(status).findByText(
+      "Slack이 Request URL을 아직 확인하지 않았습니다",
+    );
     const link = within(status).getByRole("link", {
-      name: /Event Subscriptions 열기/,
+      name: /App Manifest 열기/,
     });
     expect(link.getAttribute("href")).toBe(
-      "https://api.slack.com/apps/A123/event-subscriptions",
+      "https://api.slack.com/apps/A123/app-manifest",
     );
     expect(link.getAttribute("target")).toBe("_blank");
   });
 
   for (const [name, events, eventUrl] of [
-    ["once verified", { state: "verified", checked_at: AT }, undefined],
-    ["without an event URL", { state: "pending", checked_at: null }, null],
+    [
+      "once verified",
+      { state: "verified", checked_at: AT, url: SENT },
+      undefined,
+    ],
+    [
+      "before a Request URL went to Slack",
+      { state: "pending", checked_at: null, url: null },
+      undefined,
+    ],
+    [
+      "without an event URL",
+      { state: "pending", checked_at: null, url: null },
+      null,
+    ],
   ] as const) {
     test(`shows no Verify request ${name}`, async () => {
       renderAt(DETAIL, subscribed(events, eventUrl));
       const status = await screen.findByRole("region", { name: "상태" });
       // The app card reads the same query, so the status has it too.
       await screen.findByText("앱 ID");
-      expect(status.textContent).not.toContain("Verify");
+      expect(status.textContent).not.toContain("App Manifest");
     });
   }
+
+  test("reads an app verified before its Request URL was recorded as verified", async () => {
+    renderAt(
+      DETAIL,
+      subscribed({ state: "verified", checked_at: AT, url: null }, undefined),
+    );
+    const advanced = await screen.findByRole("region", { name: "고급" });
+    await within(advanced).findByText("Slack 확인됨");
+    expect(within(advanced).queryByText("아직 보내지 않음")).toBeNull();
+  });
+
+  test("sends the Request URL again from the advanced section", async () => {
+    let read: components["schemas"]["GetSlackAppResponse"]["events"] = {
+      state: "pending",
+      checked_at: AT,
+      url: SENT,
+    };
+    const posts: string[] = [];
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/app`]: () =>
+        json(200, { ...appResponse(APP), event_url: SENT, events: read }),
+      [`POST ${PATH}/slack/app/events/recheck`]: () => {
+        posts.push("recheck");
+        read = { state: "verified", checked_at: AT, url: SENT };
+        return json(200, {
+          ...appResponse(APP),
+          event_url: SENT,
+          events: read,
+        });
+      },
+    });
+    const user = await setupUser();
+    const advanced = await screen.findByRole("region", { name: "고급" });
+    await within(advanced).findByText("Slack 확인 대기");
+    await user.click(
+      within(advanced).getByRole("button", { name: "다시 확인" }),
+    );
+    await screen.findByText("Slack이 Request URL을 확인했습니다.");
+    await within(advanced).findByText("Slack 확인됨");
+    expect(posts).toEqual(["recheck"]);
+    await waitFor(() =>
+      expect(screen.queryByText("App Manifest 열기")).toBeNull(),
+    );
+  });
 
   test("says when the active release's profile left the catalog", async () => {
     renderAt(DETAIL, {
