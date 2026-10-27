@@ -377,6 +377,12 @@ describe("API authentication", () => {
       Object.assign(new Error("deadlock detected"), { code: "40P01" }),
     ],
     [
+      "SQLSTATE 55P03 lock_timeout",
+      Object.assign(new Error("canceling statement due to lock timeout"), {
+        code: "55P03",
+      }),
+    ],
+    [
       "SQLSTATE 40001 serialization failure",
       Object.assign(new Error("could not serialize access"), {
         code: "40001",
@@ -505,6 +511,48 @@ describe("API validation and errors", () => {
     const logged = JSON.stringify(record);
     expect(logged).not.toContain("session-actual-id");
     expect(logged).not.toContain(secret);
+  });
+
+  test("logs a worker route's completion only when it is a 5xx", async () => {
+    const { logger, sink } = loggerWithMemory();
+    const app = createApiApp({
+      authMode: "none",
+      logger,
+      registerInternalRoutes(router) {
+        router.post("/worker/ok", (context) => context.json({ ok: true }));
+        router.post("/worker/heartbeat", () => {
+          throw Object.assign(new Error("canceling statement"), {
+            code: "55P03",
+          });
+        });
+      },
+    });
+
+    expect(
+      (await app.request("/internal/worker/ok", { method: "POST" })).status,
+    ).toBe(200);
+    expect(
+      (await app.request("/internal/worker/heartbeat", { method: "POST" }))
+        .status,
+    ).toBe(503);
+
+    const completions = sink.records.filter(
+      ({ event }) => event === "api.request.completed",
+    );
+    expect(
+      sink.records.find(
+        (r) => r.message === "Storage unavailable during API request",
+      )?.fields,
+    ).toMatchObject({ sqlstate: "55P03" });
+    expect(completions).toHaveLength(1);
+    expect(completions[0]).toMatchObject({
+      fields: {
+        outcome: "server_error",
+        reason_code: "http_503",
+        route_template: "/internal/worker/heartbeat",
+        status: 503,
+      },
+    });
   });
 
   test("rejects unknown request fields through the contracts schema", async () => {

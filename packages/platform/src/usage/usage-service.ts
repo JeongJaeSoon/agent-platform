@@ -1,5 +1,6 @@
 import {
   type InstallationLimitsResponse,
+  type MemberLimitsResponse,
   type SessionUsageResponse,
   USAGE_TOOLS_LIMIT,
   type UsageBreakdownQuery,
@@ -171,6 +172,31 @@ export function createUsageService(deps: {
   }
 
   return {
+    // Settings only, with nobody's usage, so every signed-in member's; a key
+    // is not a member.
+    async getMemberLimits(actor: Caller): Promise<MemberLimitsResponse> {
+      if (actor.actor?.principal.kind !== "user") {
+        throw new SessionServiceError(
+          "FORBIDDEN",
+          "Only a signed-in member reads its session limits",
+        );
+      }
+      await requirePermitted(authorization, actor, "session.read", {
+        kind: "session",
+        id: null,
+      });
+      return {
+        scope: "me",
+        refreshed_at: new Date().toISOString(),
+        limits: {
+          queued_input_limit_per_session: limits.queuedInputLimitPerSession,
+          max_turn_seconds: limits.maxTurnSeconds,
+          session_cost_limit_usd: decimalUsd(limits.sessionCostLimitUsd),
+          session_token_limit: limits.sessionTokenLimit,
+        },
+      };
+    },
+
     // Summed over every owner, so the installation owner's alone (94S-762).
     async getInstallationLimits(
       actor: Caller,
@@ -242,10 +268,12 @@ export function createUsageService(deps: {
           ? null
           : await reader.usageSummaryGroups(filter, period, query.group_by);
       const summary = grouped ?? (await reader.usageSummary(filter, period));
-      // An agent's name is on every session of it the caller reads; another
-      // person is named only to the installation reader.
+      // An agent's name, or a profile's id, is on every session of it the
+      // caller reads; another person is named only to the installation
+      // reader.
       const named = (id: string | null) =>
         query.group_by === "agent" ||
+        query.group_by === "profile" ||
         filter.kind === "installation" ||
         (filter.kind === "user" && id === filter.userId);
       return {

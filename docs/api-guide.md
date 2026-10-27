@@ -71,6 +71,8 @@ OpenAPI: [`createSession`](api/index.html), [`getSession`](api/index.html)
 
 **순서.** 고를 수 있는 profile과 그 모델은 `GET /v1/profiles`(`listProfiles`)로 본다. `profile_id`, `repository_id`, 첫 `message`를 보내고, 응답의 `session_id`와 `turn_id`를 저장한다. 이 예시는 다음 절에서 승인 요청을 보여 주기 위해 파일 쓰기 도구를 호출하는 fake 대본을 쓴다. 실제 Claude 스택(`scripts/local.sh up`)에서는 `profile_id`가 `claude-coding-real`이고 `message`는 자유 문장이다. 선택 필드 `model`로 profile이 허용한 모델(카탈로그의 `model`이나 `models`) 중 하나를 고를 수 있다. 생략하면 profile의 기본 `model`로 돌고, 고른 모델은 `GET /v1/sessions/{id}`의 `runtime.model`에 나온다. 세션의 profile을 바꾸면(`POST /v1/sessions/{id}/profile`) 그 뒤로는 새 profile의 기본 `model`로 돈다.
 
+목록에는 운영자 profile(`source: operator`)과, 워크스페이스 owner·admin이 콘솔에서 좁혀 만든 판(`source: workspace`, id가 `ws_`로 시작)이 함께 나온다. 워크스페이스 판은 `workspace.state`가 `usable`일 때만 새 세션에 쓸 수 있다. 규칙은 [운영자 문서](operator/api-server.md#워크스페이스-프로필-콘솔에서-좁힌-profile)에 있다.
+
 `repository_id`를 보낼지는 profile의 `repository_mode`(`GET /v1/profiles`)가 정한다. `required`면 꼭 보내고, `none`이면 보내지 않으며, `optional`이면 둘 다 된다. `repository_id` 없이 만든 세션은 빈 작업 디렉터리에서 시작하고, 세션 조회의 `repository_id`가 `null`이다. 저장소가 없으므로 push 요청은 409 `PUSH_SOURCE_MISSING`이고, `optional` profile이 저장소의 CLAUDE.md를 읽게 해 두었어도 이 세션에서는 읽지 않는다. fake-model 스택에서는 `general` profile이 저장소 없이 돈다. 그 생성 body는 다음과 같다.
 
 ```json
@@ -369,7 +371,7 @@ OpenAPI: [`getSessionUsage`](api/index.html), [`getUsageSummary`](api/index.html
 
 **목적.** 세션의 추정 provider 비용과 입력 queue 상태, 기간 동안 내가 시작한 세션의 합계, 설치 전체의 실행 slot·저장소·turn 상한을 읽는다.
 
-**순서.** 세션별 `/usage`, 기간 합계 `/v1/usage/summary`, 설치별 `/v1/limits`를 각각 읽는다. `/v1/limits`와 `scope=installation`은 로그인한 workspace owner만 읽는다(웹 콘솔의 cookie). API key는 403이다. 에이전트 하나의 합계는 `scope=agent&agent_id=…`로 읽고, workspace owner·admin과 그 에이전트의 관리자만 읽는다(API key는 403, 다른 workspace의 에이전트는 404). 비용은 청구액이 아니라 platform 가격표로 계산한 추정치이며, `cost.complete`가 false면 아직 열린 turn이 있거나 보고가 빠져 실제 합계를 알 수 없다. `/v1/limits`의 `usage.outputs.used_bytes`는 보존 중인 세션 결과물의 바이트로, `usage.storage`와 따로 세고 상한 집행에 쓰지 않는다. `outputs.complete`가 false면 결과물을 기록하기 전 checkpoint가 남아 그만큼 빠져 있다.
+**순서.** 세션별 `/usage`, 기간 합계 `/v1/usage/summary`, 설치별 `/v1/limits`를 각각 읽는다. `/v1/limits`와 `scope=installation`은 로그인한 workspace owner만 읽는다(웹 콘솔의 cookie). API key는 403이다. 에이전트 하나의 합계는 `scope=agent&agent_id=…`로 읽고, workspace owner·admin과 그 에이전트의 관리자만 읽는다(API key는 403, 다른 workspace의 에이전트는 404). 구성원은 `GET /v1/limits?scope=me`로 세션 단위 한도 네 개만 읽고, 기간 합계를 실행 프로필별로 나누려면 `group_by=profile`을 더한다(세션의 현재 프로필 기준). 비용은 청구액이 아니라 platform 가격표로 계산한 추정치이며, `cost.complete`가 false면 아직 열린 turn이 있거나 보고가 빠져 실제 합계를 알 수 없다. `/v1/limits`의 `usage.outputs.used_bytes`는 보존 중인 세션 결과물의 바이트로, `usage.storage`와 따로 세고 상한 집행에 쓰지 않는다. `outputs.complete`가 false면 결과물을 기록하기 전 checkpoint가 남아 그만큼 빠져 있다.
 
 ```bash
 usage=$(curl -sS "$API/v1/sessions/$SID/usage" "${AUTH[@]}")

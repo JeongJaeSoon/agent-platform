@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
-import type { NativeSdkMessage } from "@werft-ai/runtime-core";
-
+import type { NativeSdkMessage } from "./driver.ts";
 import { TurnAccounting } from "./turn-accounting.ts";
 
 // What each turn is charged from the engine's running totals, pinned to the
@@ -10,7 +9,7 @@ import { TurnAccounting } from "./turn-accounting.ts";
 
 const GOLDEN = join(
   import.meta.dir,
-  "../../../tests/fixtures/golden/worker/turn-accounting.json",
+  "../../../../../tests/fixtures/golden/worker/turn-accounting.json",
 );
 
 type Step = { observe: NativeSdkMessage } | "settle";

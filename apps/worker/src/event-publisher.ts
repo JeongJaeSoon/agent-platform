@@ -61,8 +61,8 @@ export class EventPublisher {
   private nextSequence = 1;
   /** Set while a turn boundary is being committed: nothing past it is sent. */
   private heldAfter: number | undefined;
-  // The sequence each recent tool call was numbered under, newest last,
-  // and the callbacks waiting for one to be numbered or stored.
+  // The last sequence published when each recent tool call was named,
+  // newest last, and the callbacks waiting for one to be named or stored.
   private readonly toolUseSequences = new Map<string, number>();
   private waiters: (() => void)[] = [];
 
@@ -103,28 +103,34 @@ export class EventPublisher {
         turnId,
       });
       this.nextSequence += 1;
-      const toolUseId = toolUseIdOf(event);
-      if (toolUseId !== null) {
-        this.toolUseSequences.delete(toolUseId);
-        this.toolUseSequences.set(toolUseId, this.nextSequence - 1);
-        // Calls nobody asked about are forgotten oldest first.
-        if (this.toolUseSequences.size > TOOL_USES_REMEMBERED) {
-          const [oldest] = this.toolUseSequences.keys();
-          if (oldest !== undefined) this.toolUseSequences.delete(oldest);
-        }
-      }
     }
     this.wake();
     this.kick();
   }
 
   /**
+   * Marks a tool call as carried by what has been published so far: the
+   * runtime names a call after the events that carry it.
+   */
+  toolCalled(toolCallId: string): void {
+    if (this.failure !== undefined) return;
+    this.toolUseSequences.delete(toolCallId);
+    this.toolUseSequences.set(toolCallId, this.published);
+    // Calls nobody asked about are forgotten oldest first.
+    if (this.toolUseSequences.size > TOOL_USES_REMEMBERED) {
+      const [oldest] = this.toolUseSequences.keys();
+      if (oldest !== undefined) this.toolUseSequences.delete(oldest);
+    }
+    this.wake();
+  }
+
+  /**
    * Resolves once the tool call with this id is stored, or rejects once
    * `waitMs` has passed since `since` without it, or the stream has failed. The engine can
-   * ask to use a tool before the frame carrying the call reaches `publish`,
-   * and whatever is written about the request must follow the call in the
-   * stream. Each numbered call answers one wait, so an id the engine uses
-   * again waits for its own frame.
+   * ask to use a tool before `toolCalled` names the call, and whatever is
+   * written about the request must follow the call in the stream. Each
+   * named call answers one wait, so an id the engine uses again waits for
+   * its own.
    */
   async toolUseStored(
     toolUseId: string,
@@ -287,14 +293,4 @@ export class EventPublisher {
     const last = batch.at(-1)?.event.source_sequence ?? 0;
     return `${this.scope().attempt_id}:${first}-${last}`;
   }
-}
-
-// The id of the tool call a projected `tool_use` event carries: the mapper
-// puts one content block in each.
-function toolUseIdOf(event: SessionEvent): string | null {
-  if (event.event !== "tool_use") return null;
-  const content = (event.data.message as { content?: unknown }).content;
-  const block = Array.isArray(content) ? content[0] : undefined;
-  const id = (block as { id?: unknown } | undefined)?.id;
-  return typeof id === "string" ? id : null;
 }

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { useId } from "react";
 
 import { setupDom } from "../test-support/dom.ts";
-import { Avatar } from "./avatar.tsx";
+import { Avatar, avatarInitials } from "./avatar.tsx";
 
 const { render } = await setupDom();
 
@@ -79,5 +79,28 @@ describe("Avatar", () => {
       expect(classes).toContain(name);
     for (const name of ["size-6", "text-2xs", "rounded-full", "bg-active"])
       expect(classes).not.toContain(name);
+  });
+});
+
+describe("avatarInitials", () => {
+  test.each([
+    ["Translator (EN)", "TE"],
+    ["(Beta) Bot", "BB"],
+    ["🦊 Fox", "F"],
+    ["🦊 ✨ Fox", "F"],
+    ["--- () Alice", "A"],
+    ["릴리스 노트 작성", "릴노"],
+    ["code-review", "CO"],
+    ["Release 2", "R2"],
+    ["정재순", "정재"],
+  ])("%p → %p", (name, initials) => {
+    expect(avatarInitials(name)).toBe(initials);
+  });
+
+  test("글자·숫자가 없는 이름은 빈 칸 대신 앞 기호를 쓴다", () => {
+    expect(avatarInitials("🦊 ✨")).toBe("🦊✨");
+    expect(avatarInitials("--")).toBe("--");
+    // Nothing to draw: the avatar keeps its tone fill, as before.
+    expect(avatarInitials("   ")).toBe("");
   });
 });

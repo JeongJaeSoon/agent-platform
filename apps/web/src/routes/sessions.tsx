@@ -11,14 +11,14 @@ import {
   useParams,
   useSearch,
 } from "@tanstack/react-router";
-import { isApiError, unwrap } from "@werft-ai/client";
+import { type ApiClient, isApiError, unwrap } from "@werft-ai/client";
 import type {
   CountSessionsResponse,
   ListSessionsResponse,
   SessionRelation,
   SessionStatus,
 } from "@werft-ai/contracts";
-import { queryKeys } from "@werft-ai/core";
+import { queryKeysOf } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   ApprovalInbox,
@@ -217,7 +217,8 @@ export function SessionsScreen() {
   );
 }
 
-const STATUS_LISTS = [...queryKeys.sessions, "status"] as const;
+const statusLists = (client: ApiClient) =>
+  [...queryKeysOf(client).sessions, "status"] as const;
 
 /**
  * The session hooks and the approval inbox refresh the full list and the
@@ -225,11 +226,13 @@ const STATUS_LISTS = [...queryKeys.sessions, "status"] as const;
  * those refreshes so an answered or stopped session leaves its tab.
  */
 function useFollowListRefresh() {
+  const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   useEffect(() => {
+    const keys = queryKeysOf(client);
     const followed = new Set([
-      hashKey(queryKeys.sessions),
-      hashKey(queryKeys.waitingSessions),
+      hashKey(keys.sessions),
+      hashKey(keys.waitingSessions),
     ]);
     return queryClient.getQueryCache().subscribe((event) => {
       if (
@@ -237,7 +240,7 @@ function useFollowListRefresh() {
         event.action.type === "invalidate" &&
         followed.has(event.query.queryHash)
       ) {
-        void queryClient.invalidateQueries({ queryKey: STATUS_LISTS });
+        void queryClient.invalidateQueries({ queryKey: statusLists(client) });
         // An invalidated query reports no further invalidation, and the full
         // list sits unmounted behind a status tab. It has no staleTime, so it
         // reads again on mount with or without the flag; clearing it keeps
@@ -247,7 +250,7 @@ function useFollowListRefresh() {
         }
       }
     });
-  }, [queryClient]);
+  }, [client, queryClient]);
 }
 
 interface SessionsFilter {
@@ -266,7 +269,9 @@ function useListedSessions(filter: SessionsFilter) {
   return useInfiniteQuery({
     // Unfiltered, it is the list the session hooks refresh by its exact key;
     // the rest sit under the sessions key, so those refreshes reach them too.
-    queryKey: unfiltered ? queryKeys.sessions : [...STATUS_LISTS, filter],
+    queryKey: unfiltered
+      ? queryKeysOf(client).sessions
+      : [...statusLists(client), filter],
     queryFn: ({ pageParam }) =>
       unwrap(
         client.GET("/v1/sessions", {
@@ -293,7 +298,7 @@ function useSessionCounts(
   useFollowListRefresh();
   const filter = { ...(relation ? { relation } : {}), ...(q ? { q } : {}) };
   return useQuery({
-    queryKey: [...STATUS_LISTS, "counts", filter],
+    queryKey: [...statusLists(client), "counts", filter],
     queryFn: () =>
       unwrap(
         client.GET("/v1/sessions/counts", { params: { query: filter } }),

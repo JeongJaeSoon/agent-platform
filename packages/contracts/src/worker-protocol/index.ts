@@ -216,8 +216,15 @@ export const leaseRemainingMsSchema = z.number().int().nonnegative();
 // WORKER_HEARTBEAT_INTERVAL_SEC nor WORKER_LEASE_SAFETY_MARGIN_SEC, which no
 // launcher does. The API refuses a HEARTBEAT_TTL_SEC that cannot cover both:
 // with less, every attempt gives its lease up at or near its first beat.
-export const WORKER_HEARTBEAT_INTERVAL_MS = 10_000;
+// A beat that cannot renew — its session row held by another transaction —
+// costs the next one a whole interval, so the default lease's 20s budget
+// rides out a stall of that budget less one interval: 15s here.
+export const WORKER_HEARTBEAT_INTERVAL_MS = 5_000;
 export const WORKER_LEASE_SAFETY_MARGIN_MS = 10_000;
+
+// The worker's exit status once it stopped owning its session, so whoever
+// reclaims the execution can record that without reading its output.
+export const WORKER_EXIT_LEASE_LOST = 75;
 
 // How many earlier profiles a claim offers for a restore: one per change the
 // checkpoints still reachable from the pointer went through, at most.

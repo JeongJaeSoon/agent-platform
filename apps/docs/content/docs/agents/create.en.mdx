@@ -96,6 +96,8 @@ echo "$release" | jq '{id: .release.id, created, tools: .release.effective_tools
 
 The release id is a hash of the card and profile contents. Creating a release again with the same contents returns the same release with `created: false`.
 
+A `note` in the request (1 to 200 characters after trimming) is kept on the release. The note is not part of the id, so creating the release again with the same contents keeps the first note. An empty note or one over 200 characters answers 400.
+
 ### Activate
 
 `expected_revision` is the agent's current `activation_revision`. It starts at `-1`. If someone changed it elsewhere first, the response is 409 `REVISION_CONFLICT`.

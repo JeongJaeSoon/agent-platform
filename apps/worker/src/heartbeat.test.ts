@@ -1,9 +1,11 @@
 import { describe, expect, setSystemTime, test } from "bun:test";
-import type {
-  HeartbeatRequest,
-  HeartbeatResponse,
-  TranscriptReport,
-  WorkerScope,
+import {
+  type HeartbeatRequest,
+  type HeartbeatResponse,
+  type TranscriptReport,
+  WORKER_HEARTBEAT_INTERVAL_MS,
+  WORKER_LEASE_SAFETY_MARGIN_MS,
+  type WorkerScope,
 } from "@werft-ai/contracts";
 import { WorkerGatewayRequestError } from "@werft-ai/runtime-core";
 
@@ -240,6 +242,80 @@ describe("Heartbeat", () => {
 
     expect(lost).toHaveLength(1);
     expect(lost[0]).toContain("lease given up 300ms before it runs out");
+  });
+
+  test("on the default lease clock, rides out a 12s session lock taken as a beat goes out: two 503s, then a renewal", async () => {
+    // Production timings divided by SCALE: a 30s lease, the default margin
+    // and interval, the gateway's 2s heartbeat lock_timeout, a 12s lock.
+    const SCALE = 4;
+    const leaseMs = 30_000 / SCALE;
+    const lockTimeoutMs = 2_000 / SCALE;
+    const holdMs = 12_000 / SCALE;
+    let holdEnd: number | undefined;
+    const answers: string[] = [];
+    const lost: string[] = [];
+    const instance = new Heartbeat({
+      gateway: {
+        heartbeat: async () => {
+          holdEnd ??= performance.now() + holdMs;
+          await Bun.sleep(
+            Math.max(0, Math.min(lockTimeoutMs, holdEnd - performance.now())),
+          );
+          if (performance.now() < holdEnd) {
+            answers.push("503");
+            throw new WorkerGatewayRequestError(
+              503,
+              "BACKEND_UNAVAILABLE",
+              "Storage is unavailable, retry later",
+              true,
+            );
+          }
+          answers.push("200");
+          return answer(leaseMs);
+        },
+      },
+      scope: () => scope,
+      attemptState: () => "running",
+      intervalMs: WORKER_HEARTBEAT_INTERVAL_MS / SCALE,
+      lease: { remainingMs: leaseMs, sentAt: performance.now() },
+      safetyMarginMs: WORKER_LEASE_SAFETY_MARGIN_MS / SCALE,
+      onLost: (reason) => lost.push(reason),
+    });
+    instance.start();
+    await until(() => answers.includes("200") || lost.length > 0, 10_000);
+    await instance.stop();
+
+    expect(lost).toEqual([]);
+    expect(answers.at(-1)).toBe("200");
+    expect(
+      answers.filter((status) => status === "503").length,
+    ).toBeGreaterThanOrEqual(2);
+  }, 15_000);
+
+  test("a lease given up behind refused beats says what the gateway answered", async () => {
+    let clock = 0;
+    const { heartbeat: beat, lost } = heartbeat(
+      async () => {
+        throw new WorkerGatewayRequestError(
+          503,
+          "BACKEND_UNAVAILABLE",
+          "Storage is unavailable, retry later",
+          true,
+        );
+      },
+      { remainingMs: 1_000, safetyMarginMs: 300, monotonicNow: () => clock },
+    );
+    beat.start();
+    await Bun.sleep(10);
+    clock = 700;
+    await settle();
+    await beat.stop();
+
+    expect(lost).toHaveLength(1);
+    expect(lost[0]).toStartWith("lease given up 300ms before it runs out: ");
+    expect(lost[0]).toEndWith(
+      " (last refusal: BACKEND_UNAVAILABLE: Storage is unavailable, retry later)",
+    );
   });
 
   test("gives the lease up a safety margin early with a beat still unanswered", async () => {

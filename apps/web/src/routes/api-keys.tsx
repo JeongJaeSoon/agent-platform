@@ -42,7 +42,14 @@ import {
   PageBreadcrumbLink,
   Link as TextLink,
 } from "@werft-ai/ui";
-import { Check, CircleAlert, Clock, Copy, Plus } from "lucide-react";
+import {
+  Check,
+  CircleAlert,
+  Clock,
+  Copy,
+  InfinityIcon,
+  Plus,
+} from "lucide-react";
 import {
   type FormEvent,
   type RefObject,
@@ -55,7 +62,7 @@ import {
   administeredAgentsQuery,
   agentsQuery,
   apiKeysQuery,
-  queryKeys,
+  queryKeysOf,
 } from "../api/queries.ts";
 import {
   type ManagedPermission,
@@ -552,6 +559,8 @@ function ExpiryMeta({
     >
       {danger ? (
         <CircleAlert aria-hidden="true" className={ICON} />
+      ) : state === "none" ? (
+        <InfinityIcon aria-hidden="true" className={ICON} />
       ) : (
         <Clock aria-hidden="true" className={ICON} />
       )}
@@ -587,7 +596,9 @@ function KeyList({
     onSuccess: async () => {
       setConfirming(null);
       onOutcome({ kind: "notice", text: t("apiKeys.revoked") });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeysOf(client).apiKeys,
+      });
     },
     onError: (error, key) => {
       setConfirming(null);
@@ -828,7 +839,7 @@ function useIssue(
     gcTime: 0,
     onMutate: () => onOutcome(null),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys }),
+      queryClient.invalidateQueries({ queryKey: queryKeysOf(client).apiKeys }),
     onError: (error) =>
       onOutcome({
         kind: "error",

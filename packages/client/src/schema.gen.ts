@@ -1538,7 +1538,7 @@ export interface paths {
         put?: never;
         /**
          * Release a version against a runtime profile
-         * @description The release id is a hash of the card, the profile's digest and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. A card tool outside the profile, a different model or an unknown profile answers 422. Releasing approves and activates nothing.
+         * @description The release id is a hash of the card, the profile's digest and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. The optional `note` (trimmed, 1 to 200 characters) is stored with the release but is not part of its id, so a re-release keeps the note it was first made with. A card tool outside the profile, a different model or an unknown profile answers 422. Releasing approves and activates nothing.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -2145,14 +2145,58 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The runtime profiles this installation can run
-         * @description Lists the catalog profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`, with the model each one runs and its `repository_mode`: whether a session of it names a repository (`required`), may (`optional`) or never does (`none`). The catalog is the operator's config, read once at startup; this reads it and changes nothing. A profile's provider endpoint and credential are not included.
+         * The runtime profiles this workspace can run
+         * @description Lists the profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`: the operator's (`source: operator`, from the catalog config read at startup) and the caller's workspace's (`source: workspace`, ids starting `ws_`), each with the models it offers, its tools, permission mode and `repository_mode`: whether a session of it names a repository (`required`), may (`optional`) or never does (`none`). A workspace profile lists every version, each with its `workspace.state`; only `usable` takes a new release or session. A profile's provider endpoint and credential are not included.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
         get: operations["listProfiles"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspace-profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save a new version of a workspace profile
+         * @description Owners and admins (`workspace.manage`), signed in. Narrows the operator profile `base_profile_id`: `models` and `tools` are subsets of the base's, and `permission_mode` the base's or one that leaves more to a person. Anything wider is 400 with `details.field`. Each save makes the next version of `name` with a new id (`ws_<workspace slug>_<name>_v<n>`); earlier versions, and what already runs on them, stay as they were. Two saves of one name at once: the second is 409 REVISION_CONFLICT, and saving again makes the version after. Writes a `create_workspace_profile` receipt.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["createWorkspaceProfile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspace-profiles/{profile_id}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retire a version of a workspace profile
+         * @description Owners and admins (`workspace.manage`), signed in. A retired version takes no new release and no new session of a new release; releases and sessions already on it keep running. Retiring one already retired changes nothing and answers a null `receipt_id`; otherwise writes a `retire_workspace_profile` receipt. Another workspace's version is 404.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["retireWorkspaceProfile"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2170,7 +2214,9 @@ export interface paths {
          * Installation limits and installation-wide usage
          * @description Reads the limits this installation runs under (execution slots, queued input per session, storage, turn length, per-session cost and token limits, provider retries) and the usage against the installation-wide ones, summed over every owner. Use it to explain `STORAGE_LIMIT_EXCEEDED`, a full input queue, or sessions waiting in `queued` for a slot. `usage.outputs` is the bytes of session outputs kept in the object store, shown beside storage and never enforced.
          *
-         *     Only the workspace owner, signed in, reads it: any other member and every API key get 403. It changes nothing.
+         *     Without `scope`, or with `scope=installation`, only the workspace owner, signed in, reads it: any other member and every API key get 403.
+         *
+         *     `scope=me` gives any signed-in member the per-session limits alone (`queued_input_limit_per_session`, `max_turn_seconds`, `session_cost_limit_usd`, `session_token_limit`), with no `usage`; an API key gets 403. It changes nothing.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -2200,7 +2246,7 @@ export interface paths {
          *
          *     `cost_usd` is the sum of `cost.amount_usd` from `GET /v1/sessions/{id}/usage` over the same sessions: an estimate, not a bill. `cost_complete: false` means one of them has a turn still open or one that ended without reporting its cost, so the true total is unknown. `run_seconds` is wall-clock turn time, waiting for an answer included; an open turn counts up to `refreshed_at`. Sessions from before tokens were metered count 0 tokens.
          *
-         *     `group_by=agent` or `group_by=user` adds `groups`: the same sessions, each once, under its agent or the user holding it, largest cost first, read in the same statement as the totals. The groups' `session_count`, `cost_usd` and `run_seconds` add up to the totals (`run_seconds` is the floor of the running total minus the floor of the one before it, so two groups of 1.5 seconds read 1 and 2), and `cost_complete` is false when any group's is. `id` is the agent id or user id; it is null for sessions without an agent, or started by a key no person created. `name` is the agent's name or the user's display name, never an email; under `scope=me` a user other than the caller is null. Without `group_by` there is no `groups`. It changes nothing.
+         *     `group_by=agent`, `group_by=user` or `group_by=profile` adds `groups`: the same sessions, each once, under its agent, the user holding it or the session's current profile (`sessions.profile_id`; a session that changed profile counts whole under the one it has now), largest cost first, read in the same statement as the totals. The groups' `session_count`, `cost_usd` and `run_seconds` add up to the totals (`run_seconds` is the floor of the running total minus the floor of the one before it, so two groups of 1.5 seconds read 1 and 2), and `cost_complete` is false when any group's is. `id` is the agent id, user id or profile id; it is null for sessions without an agent or a profile, or started by a key no person created. `name` is the agent's name, the user's display name (never an email) or, as profiles have no display name, the profile id; under `scope=me` a user other than the caller is null. Without `group_by` there is no `groups`. It changes nothing.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -2430,6 +2476,13 @@ export interface components {
             /** @description Matches a session whose title contains it, ignoring case, or whose id starts with it. */
             q?: string;
         };
+        LimitsQuery: {
+            /**
+             * @default installation
+             * @enum {string}
+             */
+            scope: "installation" | "me";
+        };
         UsageSummaryQuery: {
             /** @enum {string} */
             scope: "installation" | "me" | "agent";
@@ -2438,7 +2491,7 @@ export interface components {
             /** Format: uuid */
             agent_id?: string;
             /** @enum {string} */
-            group_by?: "agent" | "user";
+            group_by?: "agent" | "user" | "profile";
         };
         UsageSeriesQuery: {
             /** @enum {string} */
@@ -2800,6 +2853,7 @@ export interface components {
             /** Format: uuid */
             version_id: string;
             runtime_profile_id: string;
+            note?: string;
         };
         ActivateAgentRequest: {
             release_id: string;
@@ -2818,6 +2872,15 @@ export interface components {
         };
         CreateTeamRequest: {
             name: string;
+        };
+        CreateWorkspaceProfileRequest: {
+            name: string;
+            base_profile_id: string;
+            model: string;
+            models: string[];
+            tools: string[];
+            /** @enum {string} */
+            permission_mode: "default" | "acceptEdits" | "dontAsk" | "plan" | "bypassPermissions" | "auto";
         };
         SetSessionShareRequest: {
             /** @enum {string} */
@@ -3919,7 +3982,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "change_profile" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "share_session" | "request_push" | "decide_push" | "push" | "open_pull_request" | "comment_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret";
+            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "change_profile" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "share_session" | "request_push" | "decide_push" | "push" | "open_pull_request" | "comment_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "create_workspace_profile" | "retire_workspace_profile";
             target_ref: {
                 /** Format: uuid */
                 session_id: string;
@@ -4364,6 +4427,19 @@ export interface components {
                 };
             };
         };
+        MemberLimitsResponse: {
+            /** @constant */
+            scope: "me";
+            /** Format: date-time */
+            refreshed_at: string;
+            limits: {
+                queued_input_limit_per_session: number;
+                max_turn_seconds: number;
+                session_cost_limit_usd: string;
+                session_token_limit: number | null;
+            };
+        };
+        LimitsResponse: components["schemas"]["InstallationLimitsResponse"] | components["schemas"]["MemberLimitsResponse"];
         UsageSummaryResponse: {
             /** @enum {string} */
             scope: "installation" | "me" | "agent";
@@ -4554,8 +4630,13 @@ export interface components {
         ListProfilesResponse: {
             items: {
                 id: string;
+                /** @enum {string} */
+                source: "operator" | "workspace";
                 model: string;
+                models: string[];
                 tools: string[];
+                /** @enum {string} */
+                permission_mode: "default" | "acceptEdits" | "dontAsk" | "plan" | "bypassPermissions" | "auto";
                 /** @constant */
                 runtime_kind: "claude_agent_sdk";
                 runtime_version: string;
@@ -4573,7 +4654,57 @@ export interface components {
                         expire_after_seconds: "profile" | "installation";
                     };
                 };
+                workspace?: {
+                    name: string;
+                    version: number;
+                    base_profile_id: string;
+                    /** @enum {string} */
+                    state: "usable" | "base_changed" | "base_missing" | "retired";
+                    /** Format: date-time */
+                    created_at: string;
+                    retired_at: string | null;
+                };
             }[];
+        };
+        WorkspaceProfileChangeResponse: {
+            profile: {
+                id: string;
+                /** @enum {string} */
+                source: "operator" | "workspace";
+                model: string;
+                models: string[];
+                tools: string[];
+                /** @enum {string} */
+                permission_mode: "default" | "acceptEdits" | "dontAsk" | "plan" | "bypassPermissions" | "auto";
+                /** @constant */
+                runtime_kind: "claude_agent_sdk";
+                runtime_version: string;
+                /** @enum {string} */
+                billing: "metered" | "none";
+                /** @enum {string} */
+                repository_mode: "required" | "optional" | "none";
+                permission_wait?: {
+                    park_after_seconds: number;
+                    expire_after_seconds: number;
+                    source: {
+                        /** @enum {string} */
+                        park_after_seconds: "profile" | "installation";
+                        /** @enum {string} */
+                        expire_after_seconds: "profile" | "installation";
+                    };
+                };
+                workspace?: {
+                    name: string;
+                    version: number;
+                    base_profile_id: string;
+                    /** @enum {string} */
+                    state: "usable" | "base_changed" | "base_missing" | "retired";
+                    /** Format: date-time */
+                    created_at: string;
+                    retired_at: string | null;
+                };
+            };
+            receipt_id: string | null;
         };
         AgentDetail: {
             agent: {
@@ -4675,6 +4806,7 @@ export interface components {
                 created_at: string;
                 approved_by: string | null;
                 approved_at: string | null;
+                note: string | null;
             }[];
             active_release: {
                 id: string;
@@ -4710,6 +4842,7 @@ export interface components {
                 created_at: string;
                 approved_by: string | null;
                 approved_at: string | null;
+                note: string | null;
             } | null;
         };
         CreateAgentReleaseResponse: {
@@ -4747,6 +4880,7 @@ export interface components {
                 created_at: string;
                 approved_by: string | null;
                 approved_at: string | null;
+                note: string | null;
             };
             created: boolean;
         };
@@ -19305,7 +19439,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Every profile in the catalog, ordered by `id`. */
+            /** @description The operator's profiles ordered by `id`, then the workspace's. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -19317,7 +19451,12 @@ export interface operations {
                      *       "items": [
                      *         {
                      *           "id": "claude-coding-real",
+                     *           "source": "operator",
                      *           "model": "claude-sonnet-5",
+                     *           "models": [
+                     *             "claude-sonnet-5",
+                     *             "claude-haiku-5"
+                     *           ],
                      *           "tools": [
                      *             "Read",
                      *             "Edit",
@@ -19326,10 +19465,37 @@ export interface operations {
                      *             "Grep",
                      *             "Bash"
                      *           ],
+                     *           "permission_mode": "acceptEdits",
                      *           "runtime_kind": "claude_agent_sdk",
                      *           "runtime_version": "0.3.270",
                      *           "billing": "metered",
                      *           "repository_mode": "required"
+                     *         },
+                     *         {
+                     *           "id": "ws_acme_strict-review_v2",
+                     *           "source": "workspace",
+                     *           "model": "claude-sonnet-5",
+                     *           "models": [
+                     *             "claude-sonnet-5"
+                     *           ],
+                     *           "tools": [
+                     *             "Read",
+                     *             "Glob",
+                     *             "Grep"
+                     *           ],
+                     *           "permission_mode": "default",
+                     *           "runtime_kind": "claude_agent_sdk",
+                     *           "runtime_version": "0.3.270",
+                     *           "billing": "metered",
+                     *           "repository_mode": "required",
+                     *           "workspace": {
+                     *             "name": "strict-review",
+                     *             "version": 2,
+                     *             "base_profile_id": "claude-coding-real",
+                     *             "state": "usable",
+                     *             "created_at": "2026-10-27T01:00:00.000Z",
+                     *             "retired_at": null
+                     *           }
                      *         }
                      *       ]
                      *     }
@@ -19386,9 +19552,327 @@ export interface operations {
             };
         };
     };
-    getInstallationLimits: {
+    createWorkspaceProfile: {
         parameters: {
             query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "name": "strict-review",
+                 *       "base_profile_id": "claude-coding-real",
+                 *       "model": "claude-sonnet-5",
+                 *       "models": [
+                 *         "claude-sonnet-5"
+                 *       ],
+                 *       "tools": [
+                 *         "Read",
+                 *         "Glob",
+                 *         "Grep"
+                 *       ],
+                 *       "permission_mode": "default"
+                 *     }
+                 */
+                "application/json": components["schemas"]["CreateWorkspaceProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description The version saved, and its receipt. */
+            201: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "profile": {
+                     *         "id": "ws_acme_strict-review_v2",
+                     *         "source": "workspace",
+                     *         "model": "claude-sonnet-5",
+                     *         "models": [
+                     *           "claude-sonnet-5"
+                     *         ],
+                     *         "tools": [
+                     *           "Read",
+                     *           "Glob",
+                     *           "Grep"
+                     *         ],
+                     *         "permission_mode": "default",
+                     *         "runtime_kind": "claude_agent_sdk",
+                     *         "runtime_version": "0.3.270",
+                     *         "billing": "metered",
+                     *         "repository_mode": "required",
+                     *         "workspace": {
+                     *           "name": "strict-review",
+                     *           "version": 2,
+                     *           "base_profile_id": "claude-coding-real",
+                     *           "state": "usable",
+                     *           "created_at": "2026-10-27T01:00:00.000Z",
+                     *           "retired_at": null
+                     *         }
+                     *       },
+                     *       "receipt_id": "019a0000-0000-7000-8000-0000000000e1"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["WorkspaceProfileChangeResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    retireWorkspaceProfile: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The version as retired. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "profile": {
+                     *         "id": "ws_acme_strict-review_v2",
+                     *         "source": "workspace",
+                     *         "model": "claude-sonnet-5",
+                     *         "models": [
+                     *           "claude-sonnet-5"
+                     *         ],
+                     *         "tools": [
+                     *           "Read",
+                     *           "Glob",
+                     *           "Grep"
+                     *         ],
+                     *         "permission_mode": "default",
+                     *         "runtime_kind": "claude_agent_sdk",
+                     *         "runtime_version": "0.3.270",
+                     *         "billing": "metered",
+                     *         "repository_mode": "required",
+                     *         "workspace": {
+                     *           "name": "strict-review",
+                     *           "version": 2,
+                     *           "base_profile_id": "claude-coding-real",
+                     *           "state": "retired",
+                     *           "created_at": "2026-10-27T01:00:00.000Z",
+                     *           "retired_at": "2026-10-28T01:00:00.000Z"
+                     *         }
+                     *       },
+                     *       "receipt_id": "019a0000-0000-7000-8000-0000000000e2"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["WorkspaceProfileChangeResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getInstallationLimits: {
+        parameters: {
+            query?: {
+                scope?: "installation" | "me";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -19433,7 +19917,22 @@ export interface operations {
                      *       }
                      *     }
                      */
-                    "application/json": components["schemas"]["InstallationLimitsResponse"];
+                    "application/json": components["schemas"]["LimitsResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
@@ -19492,7 +19991,7 @@ export interface operations {
                 since: string;
                 until?: string;
                 agent_id?: string;
-                group_by?: "agent" | "user";
+                group_by?: "agent" | "user" | "profile";
             };
             header?: never;
             path?: never;

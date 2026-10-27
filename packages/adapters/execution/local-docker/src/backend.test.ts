@@ -48,6 +48,9 @@ type FakeContainer = {
   name: string;
   status: string;
   exitCode: number;
+  oomKilled?: boolean;
+  /** Lines the container wrote, each sent as frames of at most 7 bytes. */
+  output?: string[];
 };
 
 type FakeNetwork = {
@@ -622,7 +625,7 @@ class FakeDocker {
       }
     }
     const match = path.match(
-      /^\/containers\/([^/]+)(?:\/(start|stop|json|wait))?$/,
+      /^\/containers\/([^/]+)(?:\/(start|stop|json|wait|logs))?$/,
     );
     if (!match) return json({ message: "not found" }, 404);
     const key = decodeURIComponent(match[1] ?? "");
@@ -721,10 +724,48 @@ class FakeDocker {
         },
         State: {
           ExitCode: container.exitCode,
+          OOMKilled: container.oomKilled ?? false,
           Running: container.status === "running",
           Status: container.status,
         },
       });
+    }
+    if (request.method === "GET" && action === "logs") {
+      const tail = Number(url.searchParams.get("tail"));
+      const lines = (container.output ?? []).slice(-tail);
+      // Frames split mid-header across chunks, as a socket may deliver them.
+      const bytes = lines
+        .flatMap((line) =>
+          [...new TextEncoder().encode(`${line}\n`)].reduce<number[][]>(
+            (frames, byte, index) => {
+              if (index % 7 === 0) frames.push([]);
+              frames.at(-1)?.push(byte);
+              return frames;
+            },
+            [],
+          ),
+        )
+        .flatMap((payload) => [
+          2,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          payload.length,
+          ...payload,
+        ]);
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            for (let at = 0; at < bytes.length; at += 5) {
+              controller.enqueue(new Uint8Array(bytes.slice(at, at + 5)));
+            }
+            controller.close();
+          },
+        }),
+      );
     }
     if (request.method === "DELETE" && action === undefined) {
       this.containers.delete(container.name);
@@ -1474,6 +1515,45 @@ describe("LocalDockerBackend.inspect", () => {
       found: true,
       state: "terminated",
     });
+  });
+
+  test("an exited worker that failed is reported with the end of its output, read before anything removes it", async () => {
+    const intent = intentFor();
+    const container = docker.add(
+      containerNameFor(intent, "test-a"),
+      await createBodyOf(intent),
+    );
+    container.output = Array.from({ length: 300 }, (_, line) => `line ${line}`);
+    container.status = "exited";
+    container.exitCode = 0;
+    expect((await backend.inspect(intent)).logTail).toBeUndefined();
+    expect(docker.requests.some((r) => r.path.endsWith("/logs"))).toBe(false);
+
+    container.exitCode = 1;
+    container.oomKilled = true;
+    const observed = await backend.inspect(intent);
+    expect(observed).toMatchObject({
+      exitCode: 1,
+      state: "terminated",
+      terminationReason: "OOMKilled",
+    });
+    expect(observed.logTail?.startsWith("line 100\n")).toBe(true);
+    expect(observed.logTail?.endsWith("line 299\n")).toBe(true);
+
+    // More than a read can hold: fewer lines, and then only the start of a
+    // last line too long to reach the end of.
+    container.output = [
+      "x".repeat(40_000),
+      "y".repeat(40_000),
+      "z".repeat(100),
+    ];
+    expect((await backend.inspect(intent)).logTail).toBe(
+      `${"z".repeat(100)}\n`,
+    );
+    container.output = ["w".repeat(70_000)];
+    const cut = (await backend.inspect(intent)).logTail;
+    expect(cut?.startsWith("w".repeat(8 * 1024))).toBe(true);
+    expect(cut).toContain("[log tail cut:");
   });
 
   test("a container from an older isolation contract is reported stale", async () => {

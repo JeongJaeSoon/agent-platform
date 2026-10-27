@@ -12,12 +12,13 @@ import type {
 import {
   apiKeysQuery,
   pendingRequestsQuery,
-  queryKeys,
+  queryKeysOf,
+  scopedKey,
   waitingSessionsQuery,
 } from "@werft-ai/core";
 import { useAgentPlatform, useSessions } from "@werft-ai/react";
 import { ApprovalInbox, usePendingRail } from "@werft-ai/react/blocks";
-import { DetailLayout } from "@werft-ai/react/components";
+import { DetailLayout, OPERATIONS_MESSAGES } from "@werft-ai/react/components";
 import {
   Badge,
   Button,
@@ -54,6 +55,7 @@ import {
 } from "../api/queries.ts";
 import { useHasPermission, useMe, useRole } from "../auth/guard.tsx";
 import { AdministeredAgents } from "../components/agent-admins.tsx";
+import { CredentialNeed } from "../components/agent-cards.tsx";
 import { AgentStateBadge } from "../components/agent-state.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
@@ -178,7 +180,7 @@ export function HomeScreen() {
   // The install's figures are the owner's alone; anyone else would get 403.
   const operator = useHasPermission("usage.installation_read");
   const limits = useQuery({
-    queryKey: ["limits"],
+    queryKey: scopedKey(client, "limits"),
     queryFn: () =>
       unwrap(client.GET("/v1/limits")) as Promise<InstallationLimitsResponse>,
     enabled: operator,
@@ -338,6 +340,7 @@ export function HomeScreen() {
   const unmeasured = <Unmeasured />;
   const unknown = t("home.overview.unknown");
   const number = new Intl.NumberFormat(locale);
+  const { usd } = OPERATIONS_MESSAGES[locale].format;
   // A partial sum must not pass for the whole spend.
   const costNote = (summary: UsageSummaryResponse | undefined) =>
     t(
@@ -352,7 +355,7 @@ export function HomeScreen() {
       key="install"
       eyebrow={t("home.glance.installation")}
       title={t("home.glance.installationTitle")}
-      value={installSummary ? `$${installSummary.cost_usd}` : unknown}
+      value={installSummary ? usd(installSummary.cost_usd) : unknown}
       note={costNote(installSummary)}
       rows={[
         {
@@ -455,7 +458,7 @@ export function HomeScreen() {
       key="mine"
       eyebrow={t("home.glance.mine")}
       title={t("home.glance.mineTitle")}
-      value={mySummary ? `$${mySummary.cost_usd}` : unknown}
+      value={mySummary ? usd(mySummary.cost_usd) : unknown}
       note={costNote(mySummary)}
       rows={[
         {
@@ -565,32 +568,52 @@ export function HomeScreen() {
       }
     />
   );
-  const agentCard = (agent: Agent) => (
-    <GlanceCard
-      key={agent.id}
-      eyebrow={t("home.glance.agent")}
-      title={agent.name}
-      badge={<AgentStateBadge agent={agent} />}
-      value={unmeasured}
-      note={t("home.glance.agentWaitingNote")}
-      rows={[
-        { label: t("home.glance.running"), value: unmeasured },
-        { label: t("home.glance.recentSessions"), value: unmeasured },
-        { label: t("home.glance.credentials"), value: unmeasured },
-      ]}
-      link={
-        <TextLink
-          asChild
-          className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-(color:--ap-color-link) text-control"
-        >
-          <Link to="/agents/$id" params={{ id: agent.id }}>
-            {t("home.glance.toAgent")}
-            <ArrowRight className="size-3.5" aria-hidden="true" />
-          </Link>
-        </TextLink>
-      }
-    />
-  );
+  const agentCard = (agent: Agent) => {
+    // Only a workspace manager may list agents; an agent's own admin gets
+    // no summary and keeps "not measured". A failed refetch keeps its old
+    // data, which must not pass for the current figures.
+    const listed = managesAgents && !agents.isError ? agents.data : undefined;
+    const summary = listed?.items.find((item) => item.id === agent.id)?.summary;
+    return (
+      <GlanceCard
+        key={agent.id}
+        eyebrow={t("home.glance.agent")}
+        title={agent.name}
+        badge={<AgentStateBadge agent={agent} />}
+        value={summary ? number.format(summary.needs_input_count) : unmeasured}
+        note={t("home.glance.agentWaitingNote")}
+        rows={[
+          {
+            label: t("home.glance.running"),
+            value: summary ? number.format(summary.running_count) : unmeasured,
+          },
+          { label: t("home.glance.recentSessions"), value: unmeasured },
+          {
+            label: t("home.glance.credentials"),
+            value: summary ? (
+              <CredentialNeed
+                refs={summary.version.credential_refs}
+                bound={summary.bound_credential_refs}
+              />
+            ) : (
+              unmeasured
+            ),
+          },
+        ]}
+        link={
+          <TextLink
+            asChild
+            className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-(color:--ap-color-link) text-control"
+          >
+            <Link to="/agents/$id" params={{ id: agent.id }}>
+              {t("home.glance.toAgent")}
+              <ArrowRight className="size-3.5" aria-hidden="true" />
+            </Link>
+          </TextLink>
+        }
+      />
+    );
+  };
   // Every reader leads with the member's three (Console.dc.html homeCards
   // requester), then the cards of their role; the waiting count shows once,
   // on the progress card.
@@ -688,7 +711,15 @@ export function HomeScreen() {
             <RecentSessionTable waitingSince={requests?.since} now={now} />
           </HomeSection>
           <AdministeredAgents showEmpty={false} />
-          <MyTeams showEmpty={false} />
+          {/* Without member.manage there is no 구성원 item in the sidebar
+              (console v4 navWs); this is the way to the teams list, so it
+              stays even with no team. */}
+          <MyTeams
+            showEmpty={!managesMembers}
+            action={
+              <ArrowLink to="/members/teams">{t("home.teams.all")}</ArrowLink>
+            }
+          />
         </div>
       </Page>
     </DetailLayout>
@@ -762,7 +793,7 @@ export function statusPageQuery(
   enabled: boolean,
 ) {
   return {
-    queryKey: [...queryKeys.sessions, "home", status],
+    queryKey: [...queryKeysOf(client).sessions, "home", status],
     // In step with the waiting list, or the open total adds counts read at
     // different times and counts a session twice or not at all.
     refetchInterval: WAITING_REFETCH_MS,
@@ -862,7 +893,7 @@ function ArrowLink({
   search,
   children,
 }: {
-  readonly to: "/sessions" | "/settings/linked-accounts";
+  readonly to: "/sessions" | "/settings/linked-accounts" | "/members/teams";
   readonly search?: { readonly status: "needs_input" };
   readonly children: ReactNode;
 }) {

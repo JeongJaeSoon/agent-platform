@@ -8,7 +8,7 @@ import {
   RowListItem,
   Link as TextLink,
 } from "@werft-ai/ui";
-import { useId } from "react";
+import { type ReactNode, useId } from "react";
 import { myTeamsQuery } from "../api/queries.ts";
 import { useI18n } from "../i18n/i18n.tsx";
 import { LoadFailure } from "./load-failure.tsx";
@@ -24,9 +24,12 @@ export const MUTED = "m-0 text-muted-foreground";
  */
 export function MyTeams({
   showEmpty,
+  action,
 }: {
   /** Off where an empty section would only be noise (home). */
   readonly showEmpty: boolean;
+  /** Beside the title, e.g. home's link to the teams list. */
+  readonly action?: ReactNode;
 }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
@@ -38,11 +41,21 @@ export function MyTeams({
   const items = teams.data?.items ?? [];
   if (!teams.error && items.length === 0 && !showEmpty) return null;
 
+  const title = (
+    <h2 id={titleId} className={SECTION_TITLE}>
+      {t("teams.mine.title")}
+    </h2>
+  );
   return (
     <section className={SECTION} aria-labelledby={titleId}>
-      <h2 id={titleId} className={SECTION_TITLE}>
-        {t("teams.mine.title")}
-      </h2>
+      {action ? (
+        <div className="flex min-h-7 items-center justify-between gap-3">
+          {title}
+          {action}
+        </div>
+      ) : (
+        title
+      )}
       {teams.error ? (
         <LoadFailure error={teams.error} onRetry={() => void teams.refetch()} />
       ) : items.length === 0 ? (

@@ -1,13 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { CheckpointRef } from "@werft-ai/contracts";
 import {
-  claudeContractRun,
   FakeAgentRuntime,
   type FakeStep,
-} from "@werft-ai/runtime-claude";
+  type NativeSdkMessage,
+} from "@werft-ai/runtime-claude/testing";
 import {
   type AgentRun,
-  type NativeSdkMessage,
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
 
@@ -106,24 +105,19 @@ function harness(
     launcherFor: () => ({
       start: ({ runtimeConfig, principal, ...launch }) => {
         starts += 1;
-        const run = claudeContractRun((hooks) =>
-          runtime.start(
-            {
-              claudeConfigDir: "/tmp/fake/config",
-              cwd: "/tmp/fake/workspace",
-              home: "/tmp/fake/home",
-              model: runtimeConfig.model,
-              profile: engineProfile(
-                runtimeConfig.provider,
-                principal.owner_scope,
-                "http://egress-proxy.test:3129",
-              ),
-              tools: runtimeConfig.tools,
-              ...launch,
-            },
-            hooks,
+        const run = runtime.run({
+          claudeConfigDir: "/tmp/fake/config",
+          cwd: "/tmp/fake/workspace",
+          home: "/tmp/fake/home",
+          model: runtimeConfig.model,
+          profile: engineProfile(
+            runtimeConfig.provider,
+            principal.owner_scope,
+            "http://egress-proxy.test:3129",
           ),
-        );
+          tools: runtimeConfig.tools,
+          ...launch,
+        });
         return overrides.wrap?.(run) ?? run;
       },
     }),

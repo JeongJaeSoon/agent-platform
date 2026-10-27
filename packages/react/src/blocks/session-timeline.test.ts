@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { readableReason } from "./session-timeline.tsx";
+import type { SessionEventFrame } from "../sessions.ts";
+import { heldToolCalls, readableReason } from "./session-timeline.tsx";
 
 type Translate = Parameters<typeof readableReason>[1];
 const t = ((key: string, params?: Record<string, unknown>) =>
@@ -25,5 +26,83 @@ describe("readableReason", () => {
       "session.reason.turnOver",
       null,
     ]);
+  });
+});
+
+let sequence = 0;
+const frame = (event: string, data: unknown) => {
+  sequence += 1;
+  return {
+    id: `e${sequence}`,
+    occurredAt: "2026-10-27T01:00:00.000Z",
+    turnId: "t1",
+    payload: { event, data },
+  } as unknown as SessionEventFrame;
+};
+const call = (id: string, name = "Bash") =>
+  frame("tool_use", {
+    message: { content: [{ type: "tool_use", id, name, input: {} }] },
+  });
+const ask = (id: string, kind: "permission" | "question") =>
+  frame("question", {
+    request_id: `req_${id}`,
+    tool_use_id: id,
+    kind,
+    tool: kind === "permission" ? "Bash" : "AskUserQuestion",
+    input: {},
+  });
+const status = (phase: string) => frame("status", { phase });
+const result = (id: string, isError = false) =>
+  frame("tool_result", { tool_use_id: id, is_error: isError, content: "" });
+
+describe("heldToolCalls", () => {
+  test("권한 요청과 질문 모두 답이 오기 전까지 그 호출을 막는다", () => {
+    expect([
+      ...heldToolCalls([
+        call("c1"),
+        ask("c1", "permission"),
+        call("c2", "AskUserQuestion"),
+        ask("c2", "question"),
+        status("needs_input"),
+        call("c3"),
+      ]),
+    ]).toEqual(["c1", "c2"]);
+  });
+
+  test("허용해 세션이 다시 돌면 결과 전이라도 막지 않는다", () => {
+    expect(
+      heldToolCalls([
+        call("c1"),
+        ask("c1", "permission"),
+        status("needs_input"),
+        status("running"),
+      ]).size,
+    ).toBe(0);
+  });
+
+  test("둘 중 하나만 답하면 세션이 needs_input이어도 그 호출은 막지 않는다", () => {
+    expect([
+      ...heldToolCalls(
+        [
+          call("c1"),
+          ask("c1", "permission"),
+          call("c2"),
+          ask("c2", "permission"),
+          status("needs_input"),
+        ],
+        new Set(["req_c1"]),
+      ),
+    ]).toEqual(["c2"]);
+  });
+
+  test("거부해 실패 결과가 오면 막지 않는다", () => {
+    expect(
+      heldToolCalls([
+        call("c1"),
+        ask("c1", "permission"),
+        status("needs_input"),
+        result("c1", true),
+      ]).size,
+    ).toBe(0);
   });
 });

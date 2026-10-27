@@ -36,7 +36,7 @@ import {
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
 import { type FormEvent, type ReactNode, useId, useRef, useState } from "react";
-import { membersQuery, profilesQuery, queryKeys } from "../../api/queries.ts";
+import { membersQuery, profilesQuery, queryKeysOf } from "../../api/queries.ts";
 import { useHasPermission, useRole } from "../../auth/guard.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
 import { errorKey, useI18n } from "../../i18n/i18n.tsx";
@@ -128,7 +128,7 @@ export function Releases({
           : t("agent.releaseExisted"),
       });
       await queryClient.invalidateQueries({
-        queryKey: queryKeys.agent(detail.agent.id),
+        queryKey: queryKeysOf(client).agent(detail.agent.id),
       });
     },
     onError: (error) =>

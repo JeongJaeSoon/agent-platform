@@ -31,11 +31,11 @@ import {
   type SessionCatalog,
   type WorkerGateway,
 } from "@werft-ai/platform";
-import { claudeContractRun, FakeAgentRuntime } from "@werft-ai/runtime-claude";
-import type {
-  CheckpointPreparation,
-  NativeSdkMessage,
-} from "@werft-ai/runtime-core";
+import {
+  FakeAgentRuntime,
+  type NativeSdkMessage,
+} from "@werft-ai/runtime-claude/testing";
+import type { CheckpointPreparation } from "@werft-ai/runtime-core";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -405,23 +405,18 @@ integration(
                 mode: rest.mode,
                 resume: rest.mode === "resume" ? rest.resume : null,
               });
-              return claudeContractRun((hooks) =>
-                runtime.start(
-                  {
-                    claudeConfigDir: "/tmp/fake/config",
-                    cwd: "/tmp/fake/workspace",
-                    home: "/tmp/fake/home",
-                    model: runtimeConfig.model,
-                    profile: {
-                      ...runtimeConfig.provider,
-                      principal: { ownerScope: principal.owner_scope },
-                    },
-                    tools: runtimeConfig.tools,
-                    ...rest,
-                  },
-                  hooks,
-                ),
-              );
+              return runtime.run({
+                claudeConfigDir: "/tmp/fake/config",
+                cwd: "/tmp/fake/workspace",
+                home: "/tmp/fake/home",
+                model: runtimeConfig.model,
+                profile: {
+                  ...runtimeConfig.provider,
+                  principal: { ownerScope: principal.owner_scope },
+                },
+                tools: runtimeConfig.tools,
+                ...rest,
+              });
             },
           }),
         },

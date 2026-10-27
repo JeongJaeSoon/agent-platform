@@ -323,13 +323,25 @@ export const policyPinsSchema = z
   })
   .strict();
 
+export const RELEASE_NOTE_MAX_CODE_POINTS = 200;
+
+// Counted in code points, as the column's char_length check counts them.
+// Postgres text cannot store NUL, so it is refused here rather than at insert.
+const releaseNoteSchema = z
+  .string()
+  .refine((note) => {
+    const length = [...note].length;
+    return length >= 1 && length <= RELEASE_NOTE_MAX_CODE_POINTS;
+  }, `note must be 1 to ${RELEASE_NOTE_MAX_CODE_POINTS} characters`)
+  .refine((note) => !note.includes("\u0000"), "note must not contain NUL");
+
 /**
  * A version pinned to the runtime settings it was released against.
  *
  * The resolved config travels with the release so a profile edit cannot
  * change an in-flight session; a digest mismatch at start is refused and
- * asks for a re-release instead. Everything but `created_by`, `approved_by`
- * and the timestamps goes into the release id.
+ * asks for a re-release instead. Everything but `created_by`, `approved_by`,
+ * `note` and the timestamps goes into the release id.
  */
 export const agentReleaseSchema = z
   .object({
@@ -347,6 +359,8 @@ export const agentReleaseSchema = z
     /** Set by the first activation, never by creating the release. */
     approved_by: userIdSchema.nullable(),
     approved_at: timestampSchema.nullable(),
+    /** What the person releasing it wrote; a re-release keeps the first. */
+    note: releaseNoteSchema.nullable(),
   })
   .strict();
 
@@ -459,6 +473,8 @@ export const createAgentReleaseRequestSchema = z
   .object({
     version_id: agentVersionIdSchema,
     runtime_profile_id: z.string().min(1).max(128),
+    /** Trimmed; blank is refused. Leaves an existing release's note as is. */
+    note: z.string().trim().pipe(releaseNoteSchema).optional(),
   })
   .strict();
 /** `created: false` when the same content was released before. */
