@@ -413,12 +413,17 @@ function VersionRow({
                     type="button"
                     aria-expanded={older.expanded}
                     onClick={older.onToggle}
+                    // Inline, so a narrow column wraps it between words like
+                    // the name beside it instead of pushing into the next column.
                     className={cn(
-                      "inline-flex items-center gap-0.5 whitespace-nowrap rounded-control align-bottom hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
+                      "inline break-keep rounded-control text-left hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
                       META,
                     )}
                   >
-                    <Chevron aria-hidden="true" className="size-3.5" />
+                    <Chevron
+                      aria-hidden="true"
+                      className="mr-0.5 inline size-3.5 align-[-2px]"
+                    />
                     {t("profiles.olderVersions", { count: older.count })}
                   </button>
                 </>

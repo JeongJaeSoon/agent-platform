@@ -398,6 +398,21 @@ describe("실행 프로필", () => {
         "수정사용 중지",
       ],
     ]);
+    // The earlier row's actions act on that version, not on the latest.
+    await user.click(
+      within(table).getByRole("button", {
+        name: "사용 중지 ws_acme_strict_v1",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "ws_acme_strict_v1 버전을 사용 중지할까요?",
+    });
+    await user.click(within(dialog).getByRole("button", { name: "취소" }));
+    await user.click(within(table).getByRole("button", { name: "수정" }));
+    const editor = await screen.findByRole("region", { name: "strict 수정" });
+    expect(
+      within(editor).getByText("저장할 버전의 id: ws_acme_strict_v3"),
+    ).toBeDefined();
   });
 
   test("a version whose base changed warns and is made again; one whose base is gone can only retire", async () => {
