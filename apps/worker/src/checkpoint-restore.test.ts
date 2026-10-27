@@ -22,7 +22,7 @@ import {
   CheckpointBundleRefused,
   restoreCheckpointTree,
   stageCheckpointBundle,
-  stagedClaudeMd,
+  stagedInstructions,
 } from "./checkpoint-restore.ts";
 import { GitResourceLimitError, GitWorkspace } from "./workspace.ts";
 import {
@@ -370,7 +370,7 @@ describe("restoring a captured checkout", () => {
       repository: join(scratch, "again.git"),
       signal,
     });
-    expect(await stagedClaudeMd(again, signal)).toEqual({
+    expect(await stagedInstructions(again, "CLAUDE.md", signal)).toEqual({
       kind: "text",
       text: "rules\n",
     });
@@ -473,7 +473,13 @@ describe("staging a checkpoint bundle", () => {
     const staged = await stage(await captured(root, { commit: pinned }));
 
     expect(staged.instructions).toBe(pinned);
-    expect(await stagedClaudeMd(staged, new AbortController().signal)).toEqual({
+    expect(
+      await stagedInstructions(
+        staged,
+        "CLAUDE.md",
+        new AbortController().signal,
+      ),
+    ).toEqual({
       kind: "text",
       text: "rules as fetched\n",
     });
@@ -486,7 +492,11 @@ describe("staging a checkpoint bundle", () => {
 
     expect(staged.instructions).toBeNull();
     expect(
-      await stagedClaudeMd(staged, new AbortController().signal),
+      await stagedInstructions(
+        staged,
+        "CLAUDE.md",
+        new AbortController().signal,
+      ),
     ).toMatchObject({ kind: "refused" });
   });
 
@@ -800,7 +810,7 @@ describe("a session without a repository, from init through a lost volume", () =
   const init = async (target: string) => {
     await rm(target, { force: true, recursive: true });
     expect(
-      await new GitWorkspace(target).prepare({
+      await new GitWorkspace(target, "CLAUDE.md").prepare({
         descriptor: { repository: null },
         restore: null,
         signal,

@@ -1825,8 +1825,8 @@ const SESSION_START_PROBE = `
 const { createWorkerObjectStore, objectStoreConfigFromEnv } = await import(
   "/app/apps/worker/src/object-store.ts"
 );
-const { ClaudeSessionStore } = await import(
-  "/app/packages/adapters/runtimes/claude/src/session-store.ts"
+const { installedRuntimes } = await import(
+  "/app/packages/adapters/runtimes/registry/src/index.ts"
 );
 const gateway = process.env.GATEWAY_PROBE_URL;
 const call = async (path) => {
@@ -1839,7 +1839,7 @@ const call = async (path) => {
 };
 const report = {};
 report.claim = await call("/internal/worker/bootstrap-claim");
-const store = new ClaudeSessionStore({
+const store = installedRuntimes[0].openTranscriptStore({
   generation: 1,
   objects: createWorkerObjectStore(
     objectStoreConfigFromEnv(process.env, process.env.WORKER_EGRESS_CREDENTIAL_URL),

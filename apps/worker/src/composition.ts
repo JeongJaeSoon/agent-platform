@@ -4,18 +4,16 @@ import type {
   SessionRuntime,
 } from "@werft-ai/contracts";
 import {
-  claudeRuntimeModule,
-  type RuntimeProfile,
-} from "@werft-ai/runtime-claude";
-import {
   type CheckpointObjectStore,
   RuntimeRegistry as InstalledRuntimes,
   type PlatformMcpServer,
+  type RuntimeBindings,
   type RuntimeFingerprint,
   type RuntimeModule,
   type RuntimeProfileInput,
   type RuntimeStart,
 } from "@werft-ai/runtime-core";
+import { installedRuntimes } from "@werft-ai/runtime-registry";
 
 import type { WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerConfig, WorkerTimeouts } from "./config.ts";
@@ -65,9 +63,15 @@ export function createWorkerHost(
       credential: config.bootstrapNonce,
       requestTimeoutMs: config.timeouts.requestTimeoutMs,
     });
+  const runtime = imageRuntime();
+  const instructionsFile = runtime.descriptor.instructionFiles[0] ?? null;
   const workspace =
     overrides.workspace ??
-    new GitWorkspace(config.runtime.cwd, config.egressCredentialUrl);
+    new GitWorkspace(
+      config.runtime.cwd,
+      instructionsFile,
+      config.egressCredentialUrl,
+    );
   const objectToken = new ObjectStoreToken();
   // Built before the host that learns the claim's secrets, so it asks the
   // host for them at each line.
@@ -77,7 +81,7 @@ export function createWorkerHost(
     checkpoints:
       overrides.checkpoints ??
       new SessionCheckpoints({
-        fingerprint: claudeClaimFingerprint(config),
+        fingerprint: claimFingerprint(config),
         gateway,
         instructionsCommit: () => workspace.instructionsCommit(),
         logger: checkpointLogger,
@@ -89,6 +93,8 @@ export function createWorkerHost(
           ),
         workspaceRoot: config.runtime.cwd,
         claudeConfigDir: config.runtime.claudeConfigDir,
+        instructionsFile,
+        runtime,
       }),
     engines,
     execution: {
@@ -99,11 +105,26 @@ export function createWorkerHost(
     gateway,
     logger,
     objectStoreAccess: objectToken,
-    runtimes: overrides.runtimes ?? claudeRuntimeRegistry(config, engines),
+    runtimes: overrides.runtimes ?? workerRuntimeRegistry(config, engines),
     timeouts: config.timeouts,
     workspace,
   });
   return host;
+}
+
+/**
+ * The one runtime this image installs. Checkpoints, the workspace's
+ * instruction file and the image fingerprint all speak for a single engine,
+ * so an image built with none or several is refused at start.
+ */
+export function imageRuntime(): RuntimeModule {
+  const [runtime, ...others] = installedRuntimes;
+  if (runtime === undefined || others.length > 0) {
+    throw new Error(
+      `This image must install exactly one runtime, not ${installedRuntimes.length}`,
+    );
+  }
+  return runtime;
 }
 
 /**
@@ -112,13 +133,13 @@ export function createWorkerHost(
  * happens to be installed, because the transcript a checkpoint resumes is only
  * replayable on the build that wrote it.
  */
-export function claudeRuntimeRegistry(
+export function workerRuntimeRegistry(
   config: Pick<WorkerConfig, "egressCredentialUrl" | "runtime"> & {
     timeouts?: Pick<WorkerTimeouts, "toolUseFrameWaitMs">;
   },
   engines: EngineProcesses,
 ): RuntimeRegistry {
-  const installed = new InstalledRuntimes([claudeRuntimeModule]);
+  const installed = new InstalledRuntimes([imageRuntime()]);
   return {
     launcherFor(session: SessionRuntime): RuntimeLauncher {
       const module = installed.require(session.kind);
@@ -147,7 +168,7 @@ export function runtimeStart(
     config,
     module,
     launch,
-    launch.committedClaudeMd,
+    launch.committedInstructions,
   );
   const { correlationId, maxBudgetUsd } = launch;
   const mode =
@@ -243,23 +264,24 @@ function mcpServersOf(
 
 /**
  * The fingerprint a checkpoint of this claim's run is stamped with, and the
- * one a restore plan is asked for. The committed CLAUDE.md is not
+ * one a restore plan is asked for. The committed instruction file is not
  * read: the digest records only that the profile lets it in. A claim given
  * without its workspace is taken for a session with a repository, which is
  * all `image-runtime.ts` is fed.
  */
-export function claudeClaimFingerprint(
+export function claimFingerprint(
   config: Pick<WorkerConfig, "egressCredentialUrl" | "runtime">,
 ): (
   claim: Pick<BootstrapClaimResponse, "principal" | "runtime_config"> & {
     workspace?: BootstrapClaimResponse["workspace"] | undefined;
   },
 ) => RuntimeFingerprint {
+  const runtime = imageRuntime();
   return (claim) =>
-    claudeRuntimeModule.fingerprint(
+    runtime.fingerprint(
       runtimeProfile(
         config,
-        claudeRuntimeModule,
+        runtime,
         {
           principal: claim.principal,
           runtimeConfig: claim.runtime_config,
@@ -282,7 +304,7 @@ export function engineProfile(
   provider: RuntimeConfig["provider"],
   ownerScope: string,
   egressCredentialUrl: string,
-): RuntimeProfile {
+): RuntimeBindings["provider"] & Pick<RuntimeBindings, "principal"> {
   const auth = {
     kind: "egress_token" as const,
     token: provider.auth.token,
@@ -291,7 +313,5 @@ export function engineProfile(
   // The catalog provider is shared across partitions; the claim's
   // principal is what makes this session's checkpoints its own.
   const principal = { ownerScope };
-  return provider.kind === "anthropic"
-    ? { kind: "anthropic", endpoint: provider.endpoint, auth, principal }
-    : { kind: "litellm", endpoint: provider.endpoint, auth, principal };
+  return { kind: provider.kind, endpoint: provider.endpoint, auth, principal };
 }

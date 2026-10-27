@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
-# Worker image: Bun runtime + the worker's production closure + the Claude
-# Code executable bundled with @anthropic-ai/claude-agent-sdk 0.3.270. Built
+# Worker image: Bun runtime + the worker's production closure + the engine
+# executables its installed runtimes bundle (@werft-ai/runtime-registry). Built
 # from the repository root (`docker build -f apps/worker/Dockerfile .`).
 #
 # Base pinned by the multi-arch index digest of oven/bun:1.3.14 so amd64 CI
@@ -28,14 +28,13 @@ COPY packages ./packages
 # --filter limits the install to apps/worker and the workspaces it depends on,
 # which keeps the database driver, ORM and the web console's packages out. The lockfile
 # carries every SDK platform package; --production keeps the linux ones that
-# match this build's arch and drops testkit and the other devDependencies. Of
-# the two linux builds, the resolver only falls back to musl when the glibc one
-# is missing, so once the glibc build is proven present the ~200 MB musl twin
-# is dropped here, before its layer is copied into the runtime stage.
+# match this build's arch and drops testkit and the other devDependencies. The
+# installed runtimes' image:verify checks each engine executable and drops the
+# platform builds the engine will not run (for Claude, the ~200 MB musl twin),
+# before this layer is copied into the runtime stage.
 RUN bun install --frozen-lockfile --production \
     --filter ./apps/worker \
-  && test -x "$(bun -e 'import { resolvePinnedClaudeExecutable } from "./packages/adapters/runtimes/claude/src/runtime.ts"; console.log(resolvePinnedClaudeExecutable())')" \
-  && rm -rf node_modules/@anthropic-ai/claude-agent-sdk-linux-*-musl
+  && bun run --filter @werft-ai/runtime-registry image:verify
 
 FROM ${BUN_IMAGE} AS runtime
 # git: workspace checkout, bundles and the tools Claude Code shells out to.
@@ -67,14 +66,10 @@ RUN test "$(id -u bun)" = 1000 && test "$(id -g bun)" = 1000 \
   && mkdir -p /workspace && chown 1000:1000 /workspace
 WORKDIR /app
 COPY --from=deps --chown=1000:1000 /app /app
-# Resolve the executable exactly the way the runtime does at run time
-# (resolvePinnedClaudeExecutable) and put it on PATH as `claude`, so
-# `docker run --rm <image> claude --version` reports the bundled build and the
-# build fails if the SDK ever stops shipping it for this arch.
-RUN target="$(bun -e 'import { resolvePinnedClaudeExecutable } from "./packages/adapters/runtimes/claude/src/runtime.ts"; console.log(resolvePinnedClaudeExecutable())')" \
-  && test -x "$target" \
-  && ln -s "$target" /usr/local/bin/claude \
-  && claude --version
+# Each installed runtime checks its engine and puts it on PATH (for Claude,
+# `claude`, resolved the way the runtime does at run time), so the build fails
+# if an engine stops shipping for this arch.
+RUN bun run --filter @werft-ai/runtime-registry image:verify
 # DEBIAN_SOURCES.md: the source package and version of every Debian package
 # in this image, with its snapshot.debian.org address, which is how the
 # notices meet the GPL's source obligation (94S-375). Written from this

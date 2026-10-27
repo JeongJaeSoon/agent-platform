@@ -14,7 +14,7 @@ import {
 } from "@werft-ai/testkit/workspace";
 
 import type { RuntimeResumePlan, WorkerCheckpointPort } from "./checkpoint.ts";
-import { claudeRuntimeRegistry } from "./composition.ts";
+import { workerRuntimeRegistry } from "./composition.ts";
 import type { WorkerConfig, WorkerTimeouts } from "./config.ts";
 import { EngineProcesses } from "./engine-processes.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
@@ -179,9 +179,9 @@ async function runOneTurn(
     execution: { bootstrapNonce: "wln_local", generation: 1, id: "exec-1" },
     gateway,
     logger: silent,
-    runtimes: claudeRuntimeRegistry(config, engines),
+    runtimes: workerRuntimeRegistry(config, engines),
     timeouts,
-    workspace: new GitWorkspace(repository.workspace),
+    workspace: new GitWorkspace(repository.workspace, "CLAUDE.md"),
   });
   const summary = await host.runLoop();
   expect(summary.turns).toEqual([

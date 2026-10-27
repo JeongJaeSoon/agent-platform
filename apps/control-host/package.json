@@ -25,7 +25,7 @@
     "@werft-ai/execution-local-docker": "workspace:*",
     "@werft-ai/observability": "workspace:*",
     "@werft-ai/platform": "workspace:*",
-    "@werft-ai/runtime-claude-codec": "workspace:*",
+    "@werft-ai/runtime-codecs": "workspace:*",
     "@werft-ai/storage": "workspace:*",
     "@aws-sdk/client-secrets-manager": "^3.888.0",
     "@hono/zod-openapi": "1.6.3",
@@ -42,7 +42,6 @@
   },
   "devDependencies": {
     "@scalar/api-reference": "1.72.1",
-    "@werft-ai/runtime-codecs": "workspace:*",
     "@werft-ai/testkit": "workspace:*",
     "@electric-sql/pglite": "0.3.10",
     "@types/pg": "8.15.5"

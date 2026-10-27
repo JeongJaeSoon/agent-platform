@@ -17,6 +17,9 @@ function moduleFor(kind: RuntimeDescriptor["kind"]): RuntimeModule {
       throw new Error("not used");
     },
     imageFingerprint: () => kind,
+    openTranscriptStore: () => {
+      throw new Error("not used");
+    },
   };
 }
 

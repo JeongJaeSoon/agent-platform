@@ -1,4 +1,4 @@
-import type { PermissionMode } from "@werft-ai/contracts";
+import type { PermissionMode, RuntimeConfig } from "@werft-ai/contracts";
 
 import type { AgentRun } from "./agent-run.ts";
 import type { ApprovalGrant } from "./approval.ts";
@@ -69,7 +69,8 @@ export type RuntimeBindings = {
   provider: {
     auth: ProviderAuth;
     endpoint: string;
-    kind: "anthropic" | "litellm";
+    /** The claim's provider kind; which ones an engine speaks is its adapter's to say. */
+    kind: RuntimeConfig["provider"]["kind"];
   };
   /** Where the engine mirrors its transcript; without one no checkpoint outlives the container. */
   transcript?: TranscriptMirror;
