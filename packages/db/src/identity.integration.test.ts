@@ -143,7 +143,7 @@ const ADDED_COLUMNS: Record<string, string[]> = {
   turns: [
     "actor_id",
     // 0185
-    "source",
+    "channel",
   ],
   // kind arrives as 'service'
   api_keys: [

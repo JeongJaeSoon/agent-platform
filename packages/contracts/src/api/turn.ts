@@ -1,5 +1,5 @@
 import { z } from "zod";
-
+import { surfaceKindSchema } from "../kollegium/surfaces.ts";
 import {
   attemptIdSchema,
   epochSchema,
@@ -10,6 +10,7 @@ import {
   sessionIdSchema,
   timestampSchema,
   turnIdSchema,
+  userIdSchema,
 } from "../shared/index.ts";
 import { receiptStatusSchema } from "./receipt.ts";
 import {
@@ -17,8 +18,6 @@ import {
   messageTextSchema,
   turnStatusSchema,
 } from "./session.ts";
-
-export const turnSourceSchema = z.enum(["slack", "web", "api"]);
 
 export const sessionMessageSchema = z
   .object({ message: messageTextSchema })
@@ -52,14 +51,18 @@ export const turnSummarySchema = z.object({
       "needs_input is derived when read, as for the session: a running turn with a pending request a client can still answer.",
   }),
   message: z.string(),
-  source: turnSourceSchema.nullable().meta({
+  channel: surfaceKindSchema.nullable().default(null).meta({
     description:
       "Where the instruction came from: `slack` (a mention, DM or thread reply), `web` (the console) or `api` (an API key). Null for a turn from before it was recorded, or one the platform queued itself, such as an approval answered after its worker was gone.",
   }),
-  author_name: z.string().nullable().meta({
-    description:
-      "Display name of the person who sent the instruction; for an API key, the person who created the key. Null when no person is recorded: an API key no person created, or a turn the platform queued itself.",
-  }),
+  created_by: z
+    .object({ user_id: userIdSchema, display_name: z.string() })
+    .nullable()
+    .default(null)
+    .meta({
+      description:
+        "Who sent the instruction: the signed-in person, the Slack user's linked account, or for an API key the person who created the key. Null when no person is recorded: an API key no person created, or a turn the platform queued itself.",
+    }),
   terminal_reason: z.string().min(1).nullable(),
   checkpoint_revision: revisionSchema.nullable().meta({
     description:
@@ -89,7 +92,6 @@ export type PostSessionMessageResponse = z.infer<
 >;
 export type AttemptSummary = z.infer<typeof attemptSummarySchema>;
 export type TurnSummary = z.infer<typeof turnSummarySchema>;
-export type TurnSource = z.infer<typeof turnSourceSchema>;
 export type TurnDetail = z.infer<typeof turnDetailSchema>;
 export type ListTurnsQuery = z.infer<typeof listTurnsQuerySchema>;
 export type ListTurnsResponse = z.infer<typeof listTurnsResponseSchema>;

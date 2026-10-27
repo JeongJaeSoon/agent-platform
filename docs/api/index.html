@@ -4385,27 +4385,48 @@
           "message": {
             "type": "string"
           },
-          "source": {
+          "channel": {
+            "default": null,
+            "description": "Where the instruction came from: `slack` (a mention, DM or thread reply), `web` (the console) or `api` (an API key). Null for a turn from before it was recorded, or one the platform queued itself, such as an approval answered after its worker was gone.",
             "anyOf": [
               {
                 "type": "string",
                 "enum": [
-                  "slack",
                   "web",
+                  "slack",
                   "api"
                 ]
               },
               {
                 "type": "null"
               }
-            ],
-            "description": "Where the instruction came from: `slack` (a mention, DM or thread reply), `web` (the console) or `api` (an API key). Null for a turn from before it was recorded, or one the platform queued itself, such as an approval answered after its worker was gone."
+            ]
           },
-          "author_name": {
-            "description": "Display name of the person who sent the instruction; for an API key, the person who created the key. Null when no person is recorded: an API key no person created, or a turn the platform queued itself.",
-            "type": [
-              "string",
-              "null"
+          "created_by": {
+            "default": null,
+            "description": "Who sent the instruction: the signed-in person, the Slack user's linked account, or for an API key the person who created the key. Null when no person is recorded: an API key no person created, or a turn the platform queued itself.",
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "user_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "display_name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "user_id",
+                  "display_name"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "terminal_reason": {
@@ -4467,8 +4488,8 @@
           "session_id",
           "status",
           "message",
-          "source",
-          "author_name",
+          "channel",
+          "created_by",
           "terminal_reason",
           "checkpoint_revision",
           "created_at",
@@ -4506,27 +4527,48 @@
           "message": {
             "type": "string"
           },
-          "source": {
+          "channel": {
+            "default": null,
+            "description": "Where the instruction came from: `slack` (a mention, DM or thread reply), `web` (the console) or `api` (an API key). Null for a turn from before it was recorded, or one the platform queued itself, such as an approval answered after its worker was gone.",
             "anyOf": [
               {
                 "type": "string",
                 "enum": [
-                  "slack",
                   "web",
+                  "slack",
                   "api"
                 ]
               },
               {
                 "type": "null"
               }
-            ],
-            "description": "Where the instruction came from: `slack` (a mention, DM or thread reply), `web` (the console) or `api` (an API key). Null for a turn from before it was recorded, or one the platform queued itself, such as an approval answered after its worker was gone."
+            ]
           },
-          "author_name": {
-            "description": "Display name of the person who sent the instruction; for an API key, the person who created the key. Null when no person is recorded: an API key no person created, or a turn the platform queued itself.",
-            "type": [
-              "string",
-              "null"
+          "created_by": {
+            "default": null,
+            "description": "Who sent the instruction: the signed-in person, the Slack user's linked account, or for an API key the person who created the key. Null when no person is recorded: an API key no person created, or a turn the platform queued itself.",
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "user_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "display_name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "user_id",
+                  "display_name"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "terminal_reason": {
@@ -4683,8 +4725,8 @@
           "session_id",
           "status",
           "message",
-          "source",
-          "author_name",
+          "channel",
+          "created_by",
           "terminal_reason",
           "checkpoint_revision",
           "created_at",
@@ -24241,8 +24283,11 @@
                       "session_id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
                       "status": "completed",
                       "message": "Add a health check endpoint and a test for it.",
-                      "source": "web",
-                      "author_name": "Mina Park",
+                      "channel": "web",
+                      "created_by": {
+                        "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                        "display_name": "Mina Park"
+                      },
                       "terminal_reason": null,
                       "checkpoint_revision": 2,
                       "created_at": "2026-10-11T08:00:00Z",
@@ -24254,8 +24299,11 @@
                       "session_id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
                       "status": "running",
                       "message": "Now add the endpoint to the README.",
-                      "source": "web",
-                      "author_name": "Mina Park",
+                      "channel": "web",
+                      "created_by": {
+                        "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                        "display_name": "Mina Park"
+                      },
                       "terminal_reason": null,
                       "checkpoint_revision": null,
                       "created_at": "2026-10-11T08:14:00Z",
@@ -24512,8 +24560,11 @@
                   "session_id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
                   "status": "completed",
                   "message": "Add a health check endpoint and a test for it.",
-                  "source": "web",
-                  "author_name": "Mina Park",
+                  "channel": "web",
+                  "created_by": {
+                    "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                    "display_name": "Mina Park"
+                  },
                   "terminal_reason": null,
                   "checkpoint_revision": 2,
                   "created_at": "2026-10-11T08:00:00Z",

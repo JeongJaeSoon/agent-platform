@@ -1,5 +1,5 @@
 {
-  "id": "95548912-3f7a-4c01-a21b-cecc7b484ae2",
+  "id": "608120b7-e73b-468b-8289-e937d7333815",
   "prevId": "b25c9ab9-b95b-4a46-a85a-35ade87f30a9",
   "version": "7",
   "dialect": "postgresql",
@@ -8327,8 +8327,8 @@
           "primaryKey": false,
           "notNull": false
         },
-        "source": {
-          "name": "source",
+        "channel": {
+          "name": "channel",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -8380,7 +8380,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "turns_channel_check": {
+          "name": "turns_channel_check",
+          "value": "\"turns\".\"channel\" IN ('web','slack','api')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.unassigned_sessions": {

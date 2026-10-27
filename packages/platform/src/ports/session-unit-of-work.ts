@@ -87,6 +87,8 @@ export type AppendMessageInput = {
   payloadHash: string;
   message: string;
   limits: InputLimits;
+  // Where the input came from; left out, the turn records none.
+  channel?: SurfaceKind;
 };
 
 export type AppendMessageResult =

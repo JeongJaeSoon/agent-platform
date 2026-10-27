@@ -130,6 +130,7 @@ integration("session reader on PostgreSQL", () => {
     const append = (
       key: string,
       kind: "user" | "api_key" | "installation",
+      channel: "web" | "api" | "slack",
       actorUserId: string | null,
     ) =>
       uow.appendInputAtomic({
@@ -147,23 +148,25 @@ integration("session reader on PostgreSQL", () => {
         payloadHash: key,
         message: key,
         limits: { queuedInputLimitPerSession: 100, storageLimitBytes: 1e15 },
+        channel,
       });
-    await append("from-web", "user", userId);
-    await append("from-key", "api_key", null);
-    await append("from-slack", "installation", userId);
+    await append("from-web", "user", "web", userId);
+    await append("from-key", "api_key", "api", null);
+    await append("from-slack", "installation", "slack", userId);
 
     const listed = await createPostgresSessionReader(db).listTurns(
       OWNER,
       sessionId,
       { limit: 10 },
     );
+    const mina = { user_id: userId, display_name: "Mina Park" };
     expect(
-      listed?.items.map(({ source, author_name }) => [source, author_name]),
+      listed?.items.map(({ channel, created_by }) => [channel, created_by]),
     ).toEqual([
       [null, null],
-      ["web", "Mina Park"],
+      ["web", mina],
       ["api", null],
-      ["slack", "Mina Park"],
+      ["slack", mina],
     ]);
   });
 
