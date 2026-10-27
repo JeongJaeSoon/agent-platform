@@ -34,10 +34,10 @@ describe("demo fixture scan", () => {
         path: "/Users/someone/work",
       }),
     ).toEqual([
+      "email outside example.test",
       "tailnet host",
       "private address",
       "home path",
-      "email outside example.test",
     ]);
   });
 
@@ -93,6 +93,31 @@ describe("demo fixture scan", () => {
         d: "http://LocalHost:8000/",
       }),
     ).toEqual(Array(5).fill("private address"));
+  });
+
+  test("a decoding step cannot hide what the raw text shows", () => {
+    expect(
+      scan({
+        a: "\\fd00::1",
+        b: "fd00::1%2567",
+        c: "https://x.example.test/?h=fd00%5Cu003a%5Cu003a1",
+      }),
+    ).toEqual(Array(3).fill("private address"));
+  });
+
+  test("text still changing at the decoding cap fails", () => {
+    let deep = "a@corp.example.com";
+    for (let i = 0; i < 9; i += 1) deep = encodeURIComponent(deep);
+    expect(scan({ deep })).toEqual(["still encoded after the decoding cap"]);
+    let five = "a@corp.example.com";
+    for (let i = 0; i < 5; i += 1) five = encodeURIComponent(five);
+    expect(scan({ five })).toEqual(["email outside example.test"]);
+  });
+
+  test("deep nesting does not end the scan", () => {
+    let nested: unknown = "fd00::1";
+    for (let i = 0; i < 20_000; i += 1) nested = [nested];
+    expect(scan(nested)).toEqual(["private address"]);
   });
 
   test("demo addresses pass in any case", () => {

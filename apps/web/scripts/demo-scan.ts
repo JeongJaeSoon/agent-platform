@@ -63,53 +63,81 @@ export function scanFixtures(fixtures: {
 }): Finding[] {
   const findings: Finding[] = [];
   Object.entries(fixtures.responses).forEach(([key, response], answer) => {
-    const text = [key, ...strings(response)].map(reveal).join("\n");
-    for (const [rule, pattern] of RULES)
-      for (const [match] of text.matchAll(pattern))
+    for (const value of [key, ...strings(response)]) {
+      const { stages, encoded } = reveal(value);
+      // One value per string: its decoding stages repeat it.
+      const seen = new Set<string>();
+      const found = (rule: string, match: string) => {
+        if (seen.has(`${rule}\n${match}`)) return;
+        seen.add(`${rule}\n${match}`);
         findings.push({ rule, match, answer });
-    for (const [match] of text.matchAll(EMAIL))
-      if (!ALLOWED_EMAIL.test(match))
-        findings.push({ rule: "email outside example.test", match, answer });
-    for (const [match] of text.matchAll(IPV6_CANDIDATE))
-      if (isPrivateIpv6(match))
-        findings.push({ rule: "private address", match, answer });
+      };
+      if (encoded) found("still encoded after the decoding cap", "");
+      const text = stages.join("\n");
+      for (const [rule, pattern] of RULES)
+        for (const [match] of text.matchAll(pattern)) found(rule, match);
+      for (const [match] of text.matchAll(EMAIL))
+        if (!ALLOWED_EMAIL.test(match))
+          found("email outside example.test", match);
+      for (const [match] of text.matchAll(IPV6_CANDIDATE))
+        if (isPrivateIpv6(match)) found("private address", match);
+    }
   });
   return findings;
 }
 
-/** Every string in an answer, object keys included, as JavaScript reads it. */
-function strings(value: unknown): string[] {
-  if (typeof value === "string") return [value];
-  if (Array.isArray(value)) return value.flatMap(strings);
-  if (typeof value === "object" && value !== null)
-    return Object.entries(value).flatMap(([k, v]) => [k, ...strings(v)]);
-  return [];
+/**
+ * Every string in an answer, object keys included, as JavaScript reads it.
+ * A stack rather than recursion: deep nesting must not end the scan.
+ */
+function strings(root: unknown): string[] {
+  const out: string[] = [];
+  const stack = [root];
+  while (stack.length > 0) {
+    const value = stack.pop();
+    if (typeof value === "string") out.push(value);
+    else if (typeof value === "object" && value !== null) {
+      // Pushed in reverse so they come off in document order.
+      const children = Array.isArray(value)
+        ? value
+        : Object.entries(value).flat();
+      for (let i = children.length - 1; i >= 0; i -= 1) stack.push(children[i]);
+    }
+  }
+  return out;
 }
+
+const DECODE_ROUNDS = 8;
 
 /**
  * What a reader of the published demo could recover from a string. SSE
  * frames carry JSON as text, so its escapes are still literal; URLs and
- * fixture keys are percent-encoded, sometimes twice. Decoding only reveals,
- * so the decoded text is the one scanned.
+ * fixture keys are percent-encoded, sometimes more than once, and either
+ * can hide the other. Every stage is scanned, the raw text included, since a
+ * decoding step can also join a value to its neighbour.
  */
-function reveal(text: string): string {
-  let current = text.replace(
-    /\\u([0-9a-f]{4})|\\([bfnrt"\\/])/gi,
-    (_, hex: string | undefined, char: string | undefined) =>
-      hex
-        ? String.fromCharCode(Number.parseInt(hex, 16))
-        : ({ b: "\b", f: "\f", n: "\n", r: "\r", t: "\t" }[char as "b"] ??
-          (char as string)),
-  );
-  for (let round = 0; round < 4; round += 1) {
-    // Byte-wise, so one stray `%` does not leave the rest encoded.
-    const next = current.replace(/%([0-9a-f]{2})/gi, (_, hex: string) =>
-      String.fromCharCode(Number.parseInt(hex, 16)),
-    );
-    if (next === current) break;
+function reveal(text: string): { stages: string[]; encoded: boolean } {
+  const stages = [text];
+  let current = text;
+  for (let round = 0; round < DECODE_ROUNDS; round += 1) {
+    const next = current
+      .replace(
+        /\\u([0-9a-f]{4})|\\([bfnrt"\\/])/gi,
+        (_, hex: string | undefined, char: string | undefined) =>
+          hex
+            ? String.fromCharCode(Number.parseInt(hex, 16))
+            : ({ b: "\b", f: "\f", n: "\n", r: "\r", t: "\t" }[char as "b"] ??
+              (char as string)),
+      )
+      // Byte-wise, so one stray `%` does not leave the rest encoded.
+      .replace(/%([0-9a-f]{2})/gi, (_, hex: string) =>
+        String.fromCharCode(Number.parseInt(hex, 16)),
+      );
+    if (next === current) return { stages, encoded: false };
+    stages.push(next);
     current = next;
   }
-  return current;
+  return { stages, encoded: true };
 }
 
 const IPV6_CANDIDATE =
