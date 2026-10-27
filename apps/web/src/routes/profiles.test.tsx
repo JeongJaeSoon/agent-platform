@@ -508,6 +508,9 @@ describe("실행 프로필", () => {
     await screen.findByRole("region", { name: "strict 새 판 만들기" });
     reply();
     await screen.findByText("ws_acme_fresh_v1 판을 만들었습니다.");
+    expect(
+      screen.getByRole("region", { name: "strict 새 판 만들기" }),
+    ).toBeDefined();
     expect(screen.queryAllByText("새 판으로 저장").length).toBe(1);
   });
 
@@ -538,9 +541,8 @@ describe("실행 프로필", () => {
     );
     await waitFor(() => expect(screen.queryAllByRole("dialog").length).toBe(0));
     reply();
-    await waitFor(() =>
-      expect(screen.queryAllByRole("alert").length).toBeGreaterThan(0),
-    );
+    await waitFor(() => expect(screen.queryAllByRole("alert").length).toBe(1));
+    expect(screen.getByRole("alert").textContent?.trim()).not.toBe("");
   });
 
   test("losing the manage role closes the open editor and retire dialog", async () => {
