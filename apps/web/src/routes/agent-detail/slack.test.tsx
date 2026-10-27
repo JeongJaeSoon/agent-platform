@@ -84,6 +84,12 @@ const BINDING: components["schemas"]["ListSlackBindingsResponse"]["items"][numbe
     created_at: AT,
     revoked_at: null,
   };
+// The home of a test whose own channel is not it.
+const HOME_ROW: typeof BINDING = {
+  ...BINDING,
+  id: "00000000-0000-4000-8000-0000000000aa",
+  external_surface_id: "C0HOME",
+};
 function routes(app: typeof APP | null = null, installed = false) {
   return {
     ...agentServer().routes,
@@ -91,7 +97,9 @@ function routes(app: typeof APP | null = null, installed = false) {
     [`GET ${PATH}/slack/app`]: () => json(200, appResponse(app)),
     [`GET ${PATH}/identities`]: () =>
       json(200, { items: installed ? [IDENTITY] : [] }),
-    [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [] }),
+    // An installed agent already has its home unless a test says otherwise.
+    [`GET ${PATH}/slack-bindings`]: () =>
+      json(200, { items: installed ? [BINDING] : [] }),
     [`GET ${PATH}/slack/app/settings`]: () =>
       json(200, { default_mode: "mention" }),
     [`GET ${PATH}/slack/channels`]: () =>
@@ -122,7 +130,9 @@ describe("Slack management", () => {
     );
     const state = screen.getByRole("region", { name: "상태" });
     // Home and DM both read as unknown.
-    expect(within(state).getAllByText("—")).toHaveLength(2);
+    await waitFor(() =>
+      expect(within(state).getAllByText("—")).toHaveLength(2),
+    );
     expect(screen.queryByText("설정 안 됨") === null).toBe(true);
     expect(screen.queryByRole("switch", { name: "DM 받기" }) === null).toBe(
       true,
@@ -134,7 +144,7 @@ describe("Slack management", () => {
       ),
     );
     expect(screen.queryByText("연결된 채널이 없습니다") === null).toBe(true);
-    await user.click(screen.getByRole("button", { name: "채널 추가" }));
+    await user.click(await screen.findByRole("button", { name: "채널 추가" }));
     expect(
       screen.queryByText(
         "찾은 채널이 없습니다. 비공개 채널은 먼저 /invite로 초대하세요.",
@@ -142,15 +152,22 @@ describe("Slack management", () => {
     ).toBe(true);
   });
 
-  test("explains an empty binding list and omits empty search result borders", async () => {
-    renderAt(DETAIL, routes(APP, true));
+  test("asks for the home channel first and omits empty search result borders", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [] }),
+    });
     const user = await setupUser();
     await screen.findByRole("navigation", { name: "Slack 구역" });
-    await screen.findByText("연결된 채널이 없습니다");
-    expect(screen.queryByRole("list", { name: "연결된 채널" }) === null).toBe(
-      true,
-    );
-    await user.click(screen.getByRole("button", { name: "채널 추가" }));
+    await screen.findByRole("heading", { name: "홈 채널 지정" });
+    // Channels and basic settings wait for the home; advanced stays.
+    expect(screen.queryByRole("region", { name: "기본" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "채널 추가" })).toBeNull();
+    expect(screen.queryByText("연결된 채널이 없습니다")).toBeNull();
+    expect(screen.getByRole("region", { name: "고급" })).toBeDefined();
+    expect(screen.getByRole("region", { name: "위험 구역" })).toBeDefined();
+    expect(screen.queryByRole("link", { name: "기본" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "홈 채널 고르기" }));
     await screen.findByText(
       "찾은 채널이 없습니다. 비공개 채널은 먼저 /invite로 초대하세요.",
     );
@@ -159,6 +176,27 @@ describe("Slack management", () => {
         "[data-slot=dialog-content] [data-slot=row-list]",
       ) === null,
     ).toBe(true);
+  });
+
+  test("offers no channel actions until the bindings say which step it is", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: async () => {
+        await gate;
+        return json(200, { items: [] });
+      },
+    });
+    await screen.findByRole("region", { name: "고급" });
+    expect(screen.queryByRole("button", { name: "채널 추가" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "홈 지정" })).toBeNull();
+    release();
+    await screen.findByRole("button", { name: "홈 채널 고르기" });
+    expect(screen.queryByRole("button", { name: "채널 추가" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "기본" })).toBeNull();
   });
 
   test("shows DM immediately but keeps the home placeholder until channel names arrive", async () => {
@@ -195,8 +233,7 @@ describe("Slack management", () => {
       },
     });
     try {
-      await screen.findByText("홈 채널");
-      const status = screen.getByRole("region", { name: "상태" });
+      const status = await screen.findByRole("region", { name: "상태" });
       await waitFor(() =>
         expect(within(status).queryByText("꺼짐") !== null).toBe(true),
       );
@@ -468,11 +505,53 @@ describe("Slack management", () => {
     expect(puts()).toEqual(["mention", "off", "mention"]);
   });
 
+  test("saves the channel picked in the home step as in use and home, then opens the tab", async () => {
+    let items: (typeof BINDING)[] = [{ ...BINDING, home: false, mode: "off" }];
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () => json(200, { items }),
+      [`GET ${PATH}/slack/channels`]: () =>
+        json(200, {
+          items: [
+            { id: "C123", name: "general", is_private: false, is_member: true },
+            { id: "G9", name: "secret", is_private: true, is_member: false },
+          ],
+          next_cursor: null,
+          stale: false,
+          truncated: false,
+        }),
+      [`PUT ${PATH}/slack-bindings`]: async (request: Request) => {
+        const body = await request.json();
+        items = [{ ...BINDING, mode: body.mode, home: body.home }];
+        return json(200, { slack_binding: items[0], receipt_id: ID });
+      },
+    });
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "홈 채널 지정" });
+    await user.click(screen.getByRole("button", { name: "홈 채널 고르기" }));
+    const dialog = screen.getByRole("dialog");
+    // A private channel tells how to let the bot in before it is picked.
+    await within(dialog).findByText("#secret");
+    expect(within(dialog).getAllByText("/invite 필요")).toHaveLength(1);
+    await user.click(
+      within(dialog).getByRole("button", { name: "#general 홈 지정" }),
+    );
+    await screen.findByRole("heading", { name: "연결된 채널" });
+    expect(screen.getByRole("region", { name: "기본" })).toBeDefined();
+    expect(api.calls.find((call) => call.method === "PUT")?.body).toEqual({
+      channel_id: "C123",
+      mode: "mention",
+      home: true,
+      ceiling: BINDING.ceiling,
+    });
+  });
+
   test("changes home from the picker while preserving the channel mode and ceiling", async () => {
     let row = { ...BINDING, home: false, mode: "off" as const };
     const { api } = renderAt(DETAIL, {
       ...routes(APP, true),
-      [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [row] }),
+      [`GET ${PATH}/slack-bindings`]: () =>
+        json(200, { items: [{ ...HOME_ROW, home: !row.home }, row] }),
       [`GET ${PATH}/slack/channels`]: () =>
         json(200, {
           items: [
@@ -510,7 +589,7 @@ describe("Slack management", () => {
   });
 
   test("saves the default response on the server and applies it to a newly connected channel", async () => {
-    let items: (typeof BINDING)[] = [];
+    let items: (typeof BINDING)[] = [HOME_ROW];
     let mode = "ambient";
     const { api } = renderAt(DETAIL, {
       ...routes(APP, true),
@@ -538,7 +617,7 @@ describe("Slack management", () => {
       [`PUT ${PATH}/slack-bindings`]: async (request: Request) => {
         const body = await request.json();
         const row = { ...BINDING, mode: body.mode, home: body.home };
-        items = [row];
+        items = [HOME_ROW, row];
         return json(200, { slack_binding: row, receipt_id: ID });
       },
     });
@@ -604,6 +683,7 @@ describe("Slack management", () => {
       [`GET ${PATH}/slack-bindings`]: () =>
         json(200, {
           items: [
+            HOME_ROW,
             row("C1", "public_channel", "joined"),
             row("C2", "private_channel", "awaiting_invite"),
             row("C3", "public_channel", "join_failed"),
@@ -798,6 +878,7 @@ describe("Slack management", () => {
   test("announces a failed channel connection in a toast", async () => {
     renderAt(DETAIL, {
       ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [HOME_ROW] }),
       [`GET ${PATH}/slack/channels`]: () =>
         json(200, {
           items: [
@@ -833,6 +914,7 @@ describe("Slack management", () => {
   test("announces a copy made inside the open channel picker", async () => {
     renderAt(DETAIL, {
       ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [HOME_ROW] }),
       [`GET ${PATH}/slack/channels`]: () =>
         json(200, {
           items: [
@@ -893,6 +975,7 @@ describe("Slack management", () => {
         [`GET ${PATH}/slack-bindings`]: () =>
           json(200, {
             items: [
+              HOME_ROW,
               {
                 ...BINDING,
                 surface_kind: "private_channel",
@@ -1258,7 +1341,8 @@ describe("Slack management", () => {
     };
     const { api } = renderAt(DETAIL, {
       ...routes(APP, true),
-      [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [dm] }),
+      [`GET ${PATH}/slack-bindings`]: () =>
+        json(200, { items: [HOME_ROW, dm] }),
       [`PUT ${PATH}/slack-bindings`]: async (request: Request) => {
         const body = await request.json();
         dm = { ...dm, mode: body.mode };
