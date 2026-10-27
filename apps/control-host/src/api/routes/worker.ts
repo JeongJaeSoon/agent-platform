@@ -9,6 +9,8 @@ import {
   finalizeResponseSchema,
   heartbeatRequestSchema,
   heartbeatResponseSchema,
+  invalidateApprovalCheckpointRequestSchema,
+  invalidateApprovalCheckpointResponseSchema,
   nextInputRequestSchema,
   nextInputResponseSchema,
   parkDeclinedRequestSchema,
@@ -168,6 +170,12 @@ export function registerWorkerRoutes(
     requestParkRequestSchema,
     requestParkResponseSchema,
     (principal, body) => gateway.requestPark(principal, body),
+  );
+  call(
+    "/invalidate-approval-checkpoint",
+    invalidateApprovalCheckpointRequestSchema,
+    invalidateApprovalCheckpointResponseSchema,
+    (principal, body) => gateway.invalidateApprovalCheckpoint(principal, body),
   );
   call(
     "/finalize",

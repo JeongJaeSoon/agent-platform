@@ -10,6 +10,8 @@ import type {
   FinalizeResponse,
   HeartbeatRequest,
   HeartbeatResponse,
+  InvalidateApprovalCheckpointRequest,
+  InvalidateApprovalCheckpointResponse,
   NextInputRequest,
   NextInputResponse,
   ParkDeclinedRequest,
@@ -58,6 +60,14 @@ export interface WorkerGatewayClient {
    * still the open pause.
    */
   parkDeclined(request: ParkDeclinedRequest): Promise<ParkDeclinedResponse>;
+  /**
+   * Before the engine admits a tool past an approval-wait checkpoint this
+   * attempt committed: from then on that checkpoint no longer holds the
+   * workspace the tool will leave.
+   */
+  invalidateApprovalCheckpoint(
+    request: InvalidateApprovalCheckpointRequest,
+  ): Promise<InvalidateApprovalCheckpointResponse>;
   /**
    * Once the claim's restore is done and the engine has loaded it, before
    * the first input poll: a session resumed out of `paused` only admits input

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  type CheckpointRef,
   type ControlIntent,
   type ParkedDelivery,
   PENDING_SETTLEMENTS_MAX,
@@ -55,6 +56,22 @@ export type PendingRequestsOptions = {
 };
 
 type Settled = Omit<PendingSettlement, "request_id">;
+
+/**
+ * An approval-wait checkpoint captured for a request, its lease still held.
+ * `settle` ends that lease: with `maybeCommitted` once a registration that
+ * carried it may have landed, which the caller answers by guarding every
+ * later tool admission against it first.
+ */
+export type ApprovalCapture = {
+  ref: CheckpointRef & { answers_through: number };
+  settle(maybeCommitted: boolean): void;
+};
+
+/** Takes a checkpoint of the run as it waits on `waiting`; null when none can be. */
+export type ApprovalCheckpointer = (
+  waiting: ParkedApproval[],
+) => Promise<ApprovalCapture | null>;
 
 const CANCELLED: Settled = { outcome: "cancelled" };
 const PARK_CANCELLED: Settled = { outcome: "cancelled", reason: "park" };
@@ -127,6 +144,11 @@ export class PendingRequestRegistry {
     return this.pending.size;
   }
 
+  /** The last answer sequence this worker took and applied. */
+  get answersThrough(): number {
+    return this.answersAfter;
+  }
+
   /**
    * Registers one approval the run asked for; `answer` is called at most
    * once, with whatever settles it, and never after `withdraw`. What it
@@ -135,6 +157,7 @@ export class PendingRequestRegistry {
   request(
     request: ApprovalRequested,
     answer: (decision: ApprovalDecisionPayload) => Promise<AnswerResult>,
+    checkpointer?: ApprovalCheckpointer,
   ): void {
     if (this.stopped) {
       void answer({
@@ -160,8 +183,9 @@ export class PendingRequestRegistry {
       timer: undefined,
     });
     this.arm(requestId);
-    const registration = this.register(requestId, request).finally(() =>
-      this.registering.delete(registration),
+    const capture = checkpointer?.(this.peekParked());
+    const registration = this.register(requestId, request, capture).finally(
+      () => this.registering.delete(registration),
     );
     this.registering.add(registration);
   }
@@ -395,6 +419,40 @@ export class PendingRequestRegistry {
   private async register(
     requestId: string,
     request: ApprovalRequested,
+    capturing?: Promise<ApprovalCapture | null>,
+  ): Promise<void> {
+    let capture: ApprovalCapture | null = null;
+    // A call that carried the checkpoint and did not come back refused may
+    // have committed it, whatever this worker heard.
+    let carried = false;
+    try {
+      capture = (await capturing?.catch(() => null)) ?? null;
+      await this.registerWith(requestId, request, () => capture, {
+        mayHaveLanded: () => {
+          if (capture !== null) carried = true;
+        },
+        refused: () => {
+          capture?.settle(carried);
+          capture = null;
+        },
+        closed: () => capture?.settle(carried),
+      });
+    } finally {
+      capture?.settle(carried);
+    }
+  }
+
+  private async registerWith(
+    requestId: string,
+    request: ApprovalRequested,
+    checkpoint: () => ApprovalCapture | null,
+    on: {
+      mayHaveLanded(): void;
+      /** The gateway refused the checkpoint; the request goes on without it. */
+      refused(): void;
+      /** The callback is gone while the registration may still be retried. */
+      closed(): void;
+    },
   ): Promise<void> {
     const tool = request.tool.name;
     const toolUseId = request.toolCallId;
@@ -445,7 +503,9 @@ export class PendingRequestRegistry {
     let sent = false;
     let backoff = interval;
     while (!this.stopped && (sent || this.pending.has(requestId))) {
+      if (sent && !this.pending.has(requestId)) on.closed();
       sent = true;
+      const capture = checkpoint();
       try {
         const response = await this.options.gateway.registerPending({
           ...this.options.scope(),
@@ -457,7 +517,9 @@ export class PendingRequestRegistry {
           // reads `announce`: the API ships before the worker image that
           // sends it (the request schema is strict).
           announce: { tool_use_id: toolUseId, tool },
+          ...(capture === null ? {} : { checkpoint: capture.ref }),
         });
+        on.mayHaveLanded();
         const entry = this.pending.get(requestId);
         if (entry === undefined) {
           // The settlement may have gone out before the row existed and been
@@ -484,6 +546,28 @@ export class PendingRequestRegistry {
           this.cancelAll("shutdown", "This worker no longer owns the session");
           this.stop();
           return;
+        }
+        // The checkpoint did not verify, and nothing was written: the
+        // request is registered without one, and a crash leaves its turn
+        // as it always did.
+        if (
+          capture !== null &&
+          error instanceof WorkerGatewayRequestError &&
+          error.code === "CHECKPOINT_UNAVAILABLE"
+        ) {
+          on.refused();
+          continue;
+        }
+        // Only a request the gateway answered as refused wrote nothing.
+        if (
+          !(
+            error instanceof WorkerGatewayRequestError &&
+            error.code !== null &&
+            error.status < 500 &&
+            !error.retryable
+          )
+        ) {
+          on.mayHaveLanded();
         }
         if (!isRetryable(error)) {
           // A refused call left no row, or found one already settled.

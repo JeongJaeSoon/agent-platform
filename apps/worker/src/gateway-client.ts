@@ -15,6 +15,9 @@ import {
   type HeartbeatRequest,
   type HeartbeatResponse,
   heartbeatResponseSchema,
+  type InvalidateApprovalCheckpointRequest,
+  type InvalidateApprovalCheckpointResponse,
+  invalidateApprovalCheckpointResponseSchema,
   type NextInputRequest,
   type NextInputResponse,
   nextInputResponseSchema,
@@ -117,6 +120,16 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
 
   parkDeclined(request: ParkDeclinedRequest): Promise<ParkDeclinedResponse> {
     return this.post("/park-declined", request, parkDeclinedResponseSchema);
+  }
+
+  invalidateApprovalCheckpoint(
+    request: InvalidateApprovalCheckpointRequest,
+  ): Promise<InvalidateApprovalCheckpointResponse> {
+    return this.post(
+      "/invalidate-approval-checkpoint",
+      request,
+      invalidateApprovalCheckpointResponseSchema,
+    );
   }
 
   requestCheckpoint(

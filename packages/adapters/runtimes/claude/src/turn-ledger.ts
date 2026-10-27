@@ -1,5 +1,7 @@
 import type {
+  AdmissionHold,
   CheckpointLeaseGrant,
+  CheckpointPoint,
   CheckpointPreparation,
   ParkReadiness,
 } from "@werft-ai/runtime-core";
@@ -53,6 +55,12 @@ export class TurnLedger {
   private sessionId: string | undefined;
   private streaming = false;
   private readonly toolsInFlight = new Set<string>();
+  /**
+   * Calls that ended on this run, whose tool_result an approval-wait
+   * checkpoint has to find mirrored; dropped once it has been.
+   */
+  private readonly settledTools = new Set<string>();
+  #admissionGuard: ((toolUseId: string) => Promise<void>) | undefined;
 
   constructor(resume?: string) {
     this.sessionId = resume;
@@ -99,7 +107,10 @@ export class TurnLedger {
       this.backgroundTasks = liveTaskIds(message);
     }
     if (message.type === "user") {
-      for (const id of toolResultIds(message)) this.toolsInFlight.delete(id);
+      for (const id of toolResultIds(message)) {
+        this.toolsInFlight.delete(id);
+        this.settledTools.add(id);
+      }
     }
     if (message.type !== "result") {
       this.streaming = this.pending.size > 0;
@@ -139,6 +150,37 @@ export class TurnLedger {
   /** PostToolUse, PostToolUseFailure, PermissionDenied, or a permission denial. */
   toolSettled(toolUseId: string): void {
     this.toolsInFlight.delete(toolUseId);
+    this.settledTools.add(toolUseId);
+  }
+
+  /** What PreToolUse awaits before it admits a call, while a host holds one. */
+  get admissionGuard(): ((toolUseId: string) => Promise<void>) | undefined {
+    return this.#admissionGuard;
+  }
+
+  holdAdmission(guard: (toolUseId: string) => Promise<void>): AdmissionHold {
+    this.#admissionGuard = guard;
+    return {
+      release: () => {
+        if (this.#admissionGuard === guard) this.#admissionGuard = undefined;
+      },
+    };
+  }
+
+  /** The calls waiting on a person, whose tool_use a checkpoint must hold. */
+  awaitingIds(): readonly string[] {
+    return this.asking;
+  }
+
+  /**
+   * The settled calls whose tool_result `mirrored` does not hold yet; the
+   * ones it does are forgotten.
+   */
+  unmirroredResults(mirrored: ReadonlySet<string>): string[] {
+    for (const id of this.settledTools) {
+      if (mirrored.has(id)) this.settledTools.delete(id);
+    }
+    return [...this.settledTools];
   }
 
   /** A permission callback opened; pair an admitted one with permissionSettled(). */
@@ -189,7 +231,10 @@ export class TurnLedger {
     this.consumed = true;
   }
 
-  prepareCheckpoint(): CheckpointPreparation {
+  prepareCheckpoint(
+    point: CheckpointPoint = "turn_end",
+  ): CheckpointPreparation {
+    if (point === "approval_wait") return this.prepareApprovalCheckpoint();
     if (this.mirrorError !== undefined) {
       return {
         status: "rejected",
@@ -244,11 +289,72 @@ export class TurnLedger {
   }
 
   /**
+   * Mid-turn by definition: what has to hold is that every call the engine
+   * admitted has either settled or waits on a person. Whether the mirror
+   * already holds their transcript is the caller's barrier.
+   */
+  private prepareApprovalCheckpoint(): CheckpointPreparation {
+    if (this.mirrorError !== undefined) {
+      return {
+        status: "rejected",
+        reason: "mirror_error",
+        detail: this.mirrorError,
+      };
+    }
+    if (this.lease !== undefined) {
+      return {
+        status: "rejected",
+        reason: "checkpoint_lease_held",
+        detail: "Another checkpoint holds the lease",
+      };
+    }
+    if (this.asking.length === 0) {
+      return {
+        status: "rejected",
+        reason: "turn_in_flight",
+        detail: "No permission callback is waiting",
+      };
+    }
+    const executing = [...this.toolsInFlight].filter(
+      (id) => !this.asking.includes(id),
+    );
+    if (executing.length > 0) {
+      return {
+        status: "rejected",
+        reason: "tool_in_flight",
+        detail: `${executing.length} tool call(s) still running`,
+      };
+    }
+    if (this.backgroundTasks.length > 0) {
+      return {
+        status: "rejected",
+        reason: "background_writer",
+        detail: `Background task(s) still running: ${this.backgroundTasks.join(", ")}`,
+      };
+    }
+    if (this.sessionId === undefined) {
+      return {
+        status: "rejected",
+        reason: "no_engine_session",
+        detail: "No SDK session has started",
+      };
+    }
+    return {
+      status: "ready",
+      checkpoint: {
+        engine: "claude",
+        resume: this.sessionId,
+        sdkVersion: CLAUDE_AGENT_SDK_VERSION,
+      },
+    };
+  }
+
+  /**
    * Judges the run and, when it is quiescent, takes the lease in the same
    * synchronous step: no hook answer can land between the two.
    */
-  leaseCheckpoint(): CheckpointLeaseGrant {
-    const preparation = this.prepareCheckpoint();
+  leaseCheckpoint(point: CheckpointPoint = "turn_end"): CheckpointLeaseGrant {
+    const preparation = this.prepareCheckpoint(point);
     if (preparation.status === "rejected") return { lease: null, preparation };
     const held = {};
     this.lease = held;

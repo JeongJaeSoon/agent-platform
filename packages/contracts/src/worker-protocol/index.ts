@@ -443,6 +443,16 @@ export const registerPendingRequestSchema = workerScopeSchema
       .object({ tool_use_id: z.string().min(1), tool: z.string().min(1) })
       .strict()
       .optional(),
+    // The approval-wait checkpoint captured while the engine waits on this
+    // request, committed with the row and never moved onto the session
+    // pointer here. `answers_through` is the last answer sequence the worker
+    // had applied when it captured: an answer delivered past it may have let
+    // a tool run that the checkpoint does not hold. A server older than the
+    // field refuses the body, so servers deploy first.
+    checkpoint: checkpointRefSchema
+      .extend({ answers_through: z.number().int().nonnegative() })
+      .strict()
+      .optional(),
   })
   .strict();
 // `expires_in_ms` is what is left, measured on the server's clock: a replay
@@ -591,6 +601,17 @@ export const requestParkRequestSchema = workerScopeSchema
   .strict();
 export const requestParkResponseSchema = z.object({
   pause_control_id: z.string().min(1),
+});
+
+// Sent before the engine admits a tool after an approval-wait checkpoint was
+// committed: past this, that checkpoint no longer holds what the workspace
+// will. `invalidated` is false only when no such checkpoint of this attempt
+// exists; the worker admits the tool either way once the call succeeds.
+export const invalidateApprovalCheckpointRequestSchema = workerScopeSchema
+  .extend({ manifest_ref: z.string().min(1) })
+  .strict();
+export const invalidateApprovalCheckpointResponseSchema = z.object({
+  invalidated: z.boolean(),
 });
 
 // Asks the server where the next checkpoint goes. The runtime's own verdict
@@ -875,6 +896,12 @@ export type ParkDeclinedRequest = z.infer<typeof parkDeclinedRequestSchema>;
 export type ParkDeclinedResponse = z.infer<typeof parkDeclinedResponseSchema>;
 export type RequestParkRequest = z.infer<typeof requestParkRequestSchema>;
 export type RequestParkResponse = z.infer<typeof requestParkResponseSchema>;
+export type InvalidateApprovalCheckpointRequest = z.infer<
+  typeof invalidateApprovalCheckpointRequestSchema
+>;
+export type InvalidateApprovalCheckpointResponse = z.infer<
+  typeof invalidateApprovalCheckpointResponseSchema
+>;
 
 // What the engine made of the proxy's refusal: a 403 it calls an
 // authentication failure, the refusal text, the last retry's status.
