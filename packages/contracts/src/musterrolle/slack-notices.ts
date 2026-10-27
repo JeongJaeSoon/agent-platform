@@ -18,7 +18,11 @@ export const SLACK_NOTICE_MESSAGES = {
     "연결 설정이 바뀌어 시작하지 못했어요. 에이전트 관리자에게 문의하세요",
   failed: "지금은 요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요",
   repositoryRequired:
-    "이 에이전트는 저장소를 골라야 시작할 수 있어 Slack에서는 쓸 수 없어요. 웹 콘솔에서 저장소를 골라 세션을 시작해 주세요",
+    "이 에이전트의 release에 쓸 수 있는 저장소가 없어 시작하지 못했어요(저장소를 고르지 않았거나 카탈로그에서 빠졌어요). 에이전트 관리자가 웹 콘솔에서 저장소를 골라 다시 release해야 해요",
+  profileUnavailable:
+    "이 에이전트의 release가 쓰는 실행 프로필이 지금 카탈로그에 없거나 바뀌어 시작하지 못했어요. 에이전트 관리자가 웹 콘솔에서 다시 release해야 해요",
+  noActiveRelease:
+    "이 에이전트는 아직 활성화된 release가 없어요. 에이전트 관리자가 웹 콘솔에서 release를 활성화해야 해요",
 } as const;
 
 type NoticeKey = keyof typeof SLACK_NOTICE_MESSAGES;

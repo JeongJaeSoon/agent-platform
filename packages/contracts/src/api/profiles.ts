@@ -102,6 +102,11 @@ export const profileSummarySchema = z
     billing: z.enum(["metered", "none"]),
     repository_mode: repositoryModeSchema,
     // Optional so a reader ahead of its server reads a profile without it.
+    repository_ids: z.array(z.string().min(1)).optional().meta({
+      description:
+        "The catalog repositories that allow this profile, which a session or an agent release of it may name as `repository_id`.",
+    }),
+    // Optional so a reader ahead of its server reads a profile without it.
     permission_wait: permissionWaitSchema.optional(),
     // Set exactly when `source` is `workspace`.
     workspace: z

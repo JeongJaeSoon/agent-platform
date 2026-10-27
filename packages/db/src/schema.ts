@@ -2638,6 +2638,7 @@ export const agentReleases = pgTable(
     versionId: uuid("version_id").notNull(),
     cardSha256: text("card_sha256").notNull(),
     runtimeProfileId: text("runtime_profile_id").notNull(),
+    repositoryId: text("repository_id"),
     profileDigest: text("profile_digest").notNull(),
     runtimeConfigSnapshot: jsonb("runtime_config_snapshot").notNull(),
     effectiveTools: jsonb("effective_tools").notNull(),

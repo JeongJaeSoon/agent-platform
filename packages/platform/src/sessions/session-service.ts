@@ -298,7 +298,11 @@ export function createSessionService(deps: {
     ): Promise<
       Pick<
         AgentRelease,
-        "id" | "agent_id" | "runtime_profile_id" | "runtime_config_snapshot"
+        | "id"
+        | "agent_id"
+        | "runtime_profile_id"
+        | "repository_id"
+        | "runtime_config_snapshot"
       >
     >;
   };
@@ -467,7 +471,10 @@ export function createSessionService(deps: {
       actor.ownerId,
       body.agent_release_id,
     );
-    if (release.runtime_profile_id !== body.profile_id) {
+    if (
+      body.profile_id !== undefined &&
+      release.runtime_profile_id !== body.profile_id
+    ) {
       throw new SessionServiceError(
         "RELEASE_PROFILE_MISMATCH",
         `Release ${release.id} runs on profile ${release.runtime_profile_id}, not ${body.profile_id}`,
@@ -535,6 +542,9 @@ export function createSessionService(deps: {
       },
     ): Promise<CreateSessionResponse> {
       const release = await pinnedRelease(actor, input.body);
+      // The contract refuses a body with neither.
+      const profileId = (input.body.profile_id ??
+        release?.runtime_profile_id) as string;
       // An unbound name refuses a new session but not the replay of one
       // accepted before the unbind, which only the acceptance can tell.
       const credentialsUnbound = await requirePermitted(
@@ -563,15 +573,16 @@ export function createSessionService(deps: {
       );
       // A pair the catalog does not allow is as unknown as a missing id: the
       // repository did not grant this profile its trust.
-      const repositoryId = input.body.repository_id ?? null;
+      const repositoryId =
+        input.body.repository_id ?? release?.repository_id ?? null;
       const workspaceRefusal = await workspaceProfileRefusalOf(
         actor,
-        input.body.profile_id,
+        profileId,
         release !== null,
       );
       const allowed =
         workspaceRefusal === null
-          ? allowedRun(catalog, input.body.profile_id, repositoryId)
+          ? allowedRun(catalog, profileId, repositoryId)
           : null;
       // A model the profile does not offer is refused like a pair the
       // catalog does not allow; a replay of an earlier acceptance still
@@ -587,7 +598,7 @@ export function createSessionService(deps: {
         principal: actor,
         idempotencyKey: input.idempotencyKey,
         payloadHash: payloadHash(input.body),
-        profileId: input.body.profile_id,
+        profileId,
         channel: actor.subject.surface.kind,
         title:
           input.body.title === undefined
@@ -640,9 +651,9 @@ export function createSessionService(deps: {
           throw new SessionServiceError(
             "UNSUPPORTED_CAPABILITY",
             allowed && !runs
-              ? `Profile ${input.body.profile_id} does not offer model ${input.body.model}`
+              ? `Profile ${profileId} does not offer model ${input.body.model}`
               : (workspaceRefusal?.message ??
-                  repositoryRefusal(input.body.profile_id, repositoryId)),
+                  repositoryRefusal(profileId, repositoryId)),
           );
         case "actor_inactive":
           throw new SessionServiceError(

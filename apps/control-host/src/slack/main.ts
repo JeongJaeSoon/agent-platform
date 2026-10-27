@@ -29,6 +29,7 @@ import {
   type StructuredLogger,
 } from "@werft-ai/observability";
 import {
+  allowedRun,
   createAuthorizationPolicy,
   createLoggingSlackNoticeSink,
   createOutboxSlackNoticeSink,
@@ -41,7 +42,6 @@ import {
   drainSlackInbox,
   drainSlackOutbox,
   installationLimitsFromEnv,
-  profileNeedsRepository,
   resolveAgentRelease,
   type SecretKey,
   type SessionCatalogConfig,
@@ -195,8 +195,17 @@ export function slackSessionHandler(deps: {
     sessionLinks: createPostgresSessionLinkStore(db),
     sessions,
     agentDetails: agentStore,
-    profileNeedsRepository: (profileId) =>
-      profileNeedsRepository(catalog, profileId),
+    releaseRepositoryUnusable: async (workspaceId, releaseId) => {
+      const release = await agentStore.findRelease(workspaceId, releaseId);
+      return (
+        release !== null &&
+        allowedRun(
+          catalog,
+          release.runtime_profile_id,
+          release.repository_id,
+        ) === null
+      );
+    },
     slack: createSlackBotApi({
       apiUrl: deps.slackApiUrl ?? slackApiUrlFrom(environment),
     }),
