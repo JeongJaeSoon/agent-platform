@@ -226,7 +226,7 @@ describe("실행 프로필", () => {
     ]);
     expect(
       within(editor).getByText(
-        "auto와 bypassPermissions는 바탕 프로필이 그 모드일 때만 고를 수 있습니다. 운영자가 설치 설정 PLATFORM_ALLOW_UNATTENDED_PERMISSIONS를 켜고 그런 운영자 프로필을 등록해야 합니다.",
+        "auto는 바탕 프로필이 auto나 bypassPermissions일 때, bypassPermissions는 bypassPermissions일 때만 고를 수 있습니다. 운영자가 설치 설정 PLATFORM_ALLOW_UNATTENDED_PERMISSIONS를 켜고 그런 운영자 프로필을 등록해야 합니다.",
       ),
     ).toBeDefined();
     expect(
@@ -347,6 +347,37 @@ describe("실행 프로필", () => {
         tools: ["Read", "Edit", "Bash"],
         permission_mode: "bypassPermissions",
       },
+    ]);
+  });
+
+  test("saving without touching the mode sends the auto it started at", async () => {
+    const server = catalog([
+      ...PROFILES,
+      {
+        ...(PROFILES[0] as ProfileSummary),
+        id: "coding-auto",
+        permission_mode: "auto",
+      },
+    ]);
+    const { api } = renderAt("/profiles", server.routes);
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "프로필 만들기" }),
+    );
+    const editor = await screen.findByRole("region", {
+      name: "프로필 만들기",
+    });
+    await user.type(within(editor).getByLabelText("이름"), "quick");
+    await user.click(
+      within(editor).getByRole("button", { name: "새 버전으로 저장" }),
+    );
+    await screen.findByText("ws_acme_quick_v1 버전을 저장했습니다.");
+    expect(
+      api.calls
+        .filter((call) => call.method === "POST")
+        .map((call) => call.body),
+    ).toMatchObject([
+      { base_profile_id: "coding-auto", permission_mode: "auto" },
     ]);
   });
 
