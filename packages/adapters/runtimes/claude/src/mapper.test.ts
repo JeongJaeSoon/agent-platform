@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { sessionEventSchema } from "@werft-ai/contracts";
+import {
+  PLATFORM_SYSTEM_SUBTYPE_VALUES,
+  sessionEventSchema,
+} from "@werft-ai/contracts";
 
 import { approvalView, frameFromNativeMessage, sdkAnswers } from "./mapper.ts";
 
@@ -57,6 +60,32 @@ describe("native SDK message mapping", () => {
         }),
       }),
     );
+  });
+
+  test("an engine system subtype the platform also writes goes out wrapped (EX-4 R37)", () => {
+    for (const subtype of PLATFORM_SYSTEM_SUBTYPE_VALUES) {
+      const frame = frameFromNativeMessage(
+        { type: "system", subtype },
+        "correlation-r37",
+        "r37",
+      );
+      expect(frame.events.map((item) => item.data)).toEqual([
+        expect.objectContaining({
+          type: "system",
+          subtype: "sdk_event",
+          native_type: subtype,
+        }),
+      ]);
+    }
+    const own = frameFromNativeMessage(
+      { type: "system", subtype: "compact_boundary" },
+      "correlation-r37",
+      "own",
+    );
+    expect(own.events[0]?.data).toEqual({
+      type: "system",
+      subtype: "compact_boundary",
+    });
   });
 
   test("redacts credentials without losing request IDs or the working directory", () => {

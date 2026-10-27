@@ -371,10 +371,13 @@ async function sessionOf(fixture: Fixture) {
   return session.id;
 }
 
-const text = (value: string) => ({ type: "text", text: value });
-const toolUse = { type: "tool_use", id: "tu1", name: "Read", input: {} };
+const text = (value: string) => ({ text: value });
+const toolUse = { tool_call: { id: "tu1", name: "Read", input: {} } };
 
-/** Ends turn `sequence` as the worker would, with these assistant events. */
+/**
+ * Ends turn `sequence` as the worker would, with these assistant events: one
+ * stored event per block, with its engine-neutral fields.
+ */
 async function endTurn(
   sessionId: string,
   sequence: number,
@@ -389,7 +392,7 @@ async function endTurn(
     .returning({ id: turns.id });
   if (!turn) throw new Error("no turn");
   let sourceSequence = 0;
-  for (const content of said) {
+  for (const block of said.flat()) {
     sourceSequence += 1;
     await db.insert(events).values({
       sessionId,
@@ -397,11 +400,7 @@ async function endTurn(
       attemptId,
       sourceSequence,
       type: "assistant",
-      payload: {
-        type: "assistant",
-        parent_tool_use_id: null,
-        message: { role: "assistant", content },
-      },
+      payload: { type: "assistant", parent_tool_use_id: null, ...block },
     });
   }
 }

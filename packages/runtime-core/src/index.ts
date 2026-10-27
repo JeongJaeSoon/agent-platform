@@ -22,6 +22,7 @@ export {
   transcriptWarnBytes,
 } from "./checkpoint-manifest.ts";
 export type * from "./descriptor.ts";
+export type * from "./event-codec.ts";
 export type * from "./events.ts";
 export * from "./features.ts";
 export * from "./git-bundle.ts";

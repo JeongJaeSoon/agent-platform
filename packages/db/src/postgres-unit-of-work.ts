@@ -32,6 +32,7 @@ import type {
   AppendMessageInput,
   AppendMessageResult,
   EventPage,
+  NeutralizeEvent,
   ReadEventsQuery,
   SessionDetailRecord,
   SessionReader,
@@ -581,12 +582,17 @@ type EventPageRow = {
 
 export function createPostgresSessionReader(
   db: Database,
-  options: { logger?: StructuredLogger } = {},
+  options: {
+    logger?: StructuredLogger;
+    // Fills the neutral fields of a row stored before they were written.
+    neutralize?: NeutralizeEvent;
+  } = {},
 ): SessionReader {
   async function ownedSession(ownerId: string, sessionId: string) {
     const [row] = await db
       .select({
         id: sessions.id,
+        profileId: sessions.profileId,
         retiredCheckpointRevision: sessions.contextResetCheckpointRevision,
       })
       .from(sessions)
@@ -1190,7 +1196,8 @@ export function createPostgresSessionReader(
       query: ReadEventsQuery,
     ): Promise<EventPage | null> {
       const after = decodeEventCursor(query.after);
-      if (!(await ownedSession(ownerId, sessionId))) return null;
+      const owned = await ownedSession(ownerId, sessionId);
+      if (!owned) return null;
       // events.id is global, so a well-formed cursor from another session
       // would silently skip this one's history and a forged future cursor
       // would stream nothing forever. A nonzero cursor must name a row of
@@ -1229,6 +1236,10 @@ export function createPostgresSessionReader(
       return {
         items: rows.map((row) => {
           const stored = readStoredEvent(row.type, row.payload);
+          const payload =
+            stored.readable && options.neutralize
+              ? options.neutralize(owned.profileId, stored.payload)
+              : stored.payload;
           if (!stored.readable) {
             options.logger?.warn("Stored event does not match the contract", {
               session_id: sessionId,
@@ -1238,7 +1249,7 @@ export function createPostgresSessionReader(
           }
           return sseEventSchema.parse({
             id: encodeEventCursor(Number(row.id)),
-            event: stored.payload.event,
+            event: payload.event,
             data: {
               schema_version: SSE_SCHEMA_VERSION,
               session_id: sessionId,
@@ -1246,7 +1257,7 @@ export function createPostgresSessionReader(
                 row.turn_sequence === null ? null : String(row.turn_sequence),
               attempt_id: row.attempt_id,
               occurred_at: new Date(Number(row.occurred_ms)).toISOString(),
-              data: stored.payload.data,
+              data: payload.data,
             },
           });
         }),

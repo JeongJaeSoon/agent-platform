@@ -234,7 +234,8 @@ export type ClaimResult =
 // name any other one: the numbers are guessable, so without this a holder of
 // a token that is about to be revoked could pre-address the next revision.
 export type ResolvedCredential =
-  | ({ kind: "session" } & WorkerFence)
+  // `profileId` is the session's, which names its runtime.
+  | ({ kind: "session"; profileId?: string | null } & WorkerFence)
   // A launch nonce: valid only for bootstrapClaim.
   | { kind: "bootstrap" }
   | null;

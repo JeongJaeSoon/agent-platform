@@ -467,6 +467,7 @@ integration("worker gateway on PostgreSQL", () => {
       kind: "session",
       attemptId: first.attempt_id,
       sessionId: first.session_id,
+      profileId: "claude-coding-v1",
       leaseEpoch: retry.lease_epoch,
       executionGeneration: retry.execution_generation,
       authRevision: retry.auth_revision,

@@ -43,23 +43,21 @@ const scopesOf = (sessionIds: SQL) => sql`
   WHERE sk.scope_key IS NOT NULL AND ak.agent_key IS NOT NULL
     AND s.id IN (${sessionIds})`;
 
-// A tool_use block becomes a call once: a replayed event, or a second block
-// with an id already seen in its session and attempt, does nothing.
+// A tool_use event's call becomes a call once: a replayed event, or a
+// second one with an id already seen in its session and attempt, does
+// nothing. An event holds one call, at ord 1.
 async function applyUses(tx: Database, from: number, to: number) {
   await tx.execute(sql`
     WITH blocks AS (
-      SELECT e.id, b.ord::integer AS ord, e.session_id,
+      SELECT e.id, 1 AS ord, e.session_id,
         coalesce(e.attempt_id, '') AS attempt_key,
-        CASE WHEN jsonb_typeof(b.block->'id') = 'string' THEN b.block->>'id' END AS tool_use_id,
-        b.block->>'name' AS name, e.occurred_at, e.created_at
+        e.payload->'tool_call'->>'id' AS tool_use_id,
+        e.payload->'tool_call'->>'name' AS name, e.occurred_at, e.created_at
       FROM events e
-      CROSS JOIN LATERAL jsonb_array_elements(
-        CASE WHEN jsonb_typeof(e.payload->'message'->'content') = 'array'
-          THEN e.payload->'message'->'content' ELSE '[]'::jsonb END
-      ) WITH ORDINALITY AS b(block, ord)
       WHERE e.id > ${from} AND e.id <= ${to} AND e.type = 'tool_use'
-        AND b.block->>'type' = 'tool_use' AND jsonb_typeof(b.block->'name') = 'string'
-      ORDER BY e.id, b.ord
+        AND jsonb_typeof(e.payload->'tool_call'->'id') = 'string'
+        AND jsonb_typeof(e.payload->'tool_call'->'name') = 'string'
+      ORDER BY e.id
     ),
     inserted AS (
       INSERT INTO tool_calls (use_event_id, ord, session_id, attempt_key, tool_use_id, name, used_at, at, created_at)
@@ -81,26 +79,24 @@ async function applyUses(tx: Database, from: number, to: number) {
 
 // A result settles the call it pairs with when that call has none yet or
 // this one came earlier by (occurred_at, id); the day rows then trade the
-// old result's share for the new one's. tool_result data is whatever block
-// the engine sent: only a string tool_use_id pairs, and an is_error that is
-// there but not a boolean leaves the outcome unknown.
+// old result's share for the new one's. A null is_error (the engine said
+// neither) leaves the outcome unknown.
 async function applyResults(tx: Database, from: number, to: number) {
   await tx.execute(sql`
     WITH results AS (
-      SELECT DISTINCT ON (e.session_id, coalesce(e.attempt_id, ''), e.payload->>'tool_use_id')
+      SELECT DISTINCT ON (e.session_id, coalesce(e.attempt_id, ''), e.payload->'tool_result'->>'tool_call_id')
         e.id, e.session_id, coalesce(e.attempt_id, '') AS attempt_key,
-        e.payload->>'tool_use_id' AS tool_use_id, e.occurred_at,
-        CASE
-          WHEN NOT e.payload ? 'is_error' THEN 'ok'
-          WHEN jsonb_typeof(e.payload->'is_error') <> 'boolean' THEN 'unknown'
-          WHEN (e.payload->'is_error')::boolean THEN 'failed'
-          ELSE 'ok'
+        e.payload->'tool_result'->>'tool_call_id' AS tool_use_id, e.occurred_at,
+        CASE e.payload->'tool_result'->'is_error'
+          WHEN 'true'::jsonb THEN 'failed'
+          WHEN 'false'::jsonb THEN 'ok'
+          ELSE 'unknown'
         END AS outcome
       FROM events e
       WHERE e.id > ${from} AND e.id <= ${to} AND e.type = 'tool_result'
         AND jsonb_typeof(e.payload) = 'object'
-        AND jsonb_typeof(e.payload->'tool_use_id') = 'string'
-      ORDER BY e.session_id, coalesce(e.attempt_id, ''), e.payload->>'tool_use_id',
+        AND jsonb_typeof(e.payload->'tool_result'->'tool_call_id') = 'string'
+      ORDER BY e.session_id, coalesce(e.attempt_id, ''), e.payload->'tool_result'->>'tool_call_id',
         coalesce(e.occurred_at, 'infinity'), e.id
     ),
     changed AS (
@@ -160,7 +156,7 @@ async function applyDescriptions(tx: Database, from: number, to: number) {
         THEN e.payload->'tools' ELSE '[]'::jsonb END
     ) AS t(tool)
     WHERE e.id > ${from} AND e.id <= ${to} AND e.type = 'system'
-      AND e.payload->>'subtype' = 'init'
+      AND e.payload->'engine_event'->>'category' = 'started'
       AND jsonb_typeof(t.tool->'name') = 'string'
       AND jsonb_typeof(t.tool->'description') = 'string'
       AND char_length(t.tool->>'description') BETWEEN 1 AND 200
@@ -262,6 +258,17 @@ function projectBatch(
     );
     if (!progress) throw new Error("tool_call_progress has no row");
     const cursor = Number(progress.applied_through);
+    // Calls are read from the neutral fields, so history stored before
+    // them is read only once the fill has given it those (neutral-fields.ts).
+    const [fill] = rowsOf<{ filled_through: string; history_through: string }>(
+      await tx.execute(
+        sql`SELECT filled_through, history_through FROM neutral_field_progress WHERE id = 1`,
+      ),
+    );
+    const ceiling =
+      fill && Number(fill.filled_through) < Number(fill.history_through)
+        ? Number(fill.filled_through)
+        : null;
     // Re-reading from the cursor each pass covers what the margin held
     // back; within a pass, batches move on from the last one read.
     const from = read === null ? cursor : Math.max(read, cursor);
@@ -273,7 +280,9 @@ function projectBatch(
       await tx.execute(sql`
           SELECT count(*) AS n, max(id) AS hi,
             max(id) FILTER (WHERE created_at < now() - make_interval(secs => ${margin})) AS safe
-          FROM (SELECT id, created_at FROM events WHERE id > ${from} ORDER BY id LIMIT ${batchSize}) AS b`),
+          FROM (SELECT id, created_at FROM events WHERE id > ${from}${
+            ceiling === null ? sql`` : sql` AND id <= ${ceiling}`
+          } ORDER BY id LIMIT ${batchSize}) AS b`),
     );
     const n = Number(bounds?.n ?? 0);
     if (n === 0 || bounds?.hi == null) {

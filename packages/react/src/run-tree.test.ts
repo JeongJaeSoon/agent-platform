@@ -34,10 +34,7 @@ function use(
       event: "tool_use",
       data: {
         type: "assistant",
-        message: {
-          role: "assistant",
-          content: [{ type: "tool_use", id, name, input }],
-        },
+        tool_call: { id, name, input },
         parent_tool_use_id: parent,
       },
     },
@@ -51,12 +48,7 @@ function result(seconds: number, id: string, isError = false): RunTreeFrame {
     turnId: TURN,
     payload: {
       event: "tool_result",
-      data: {
-        type: "tool_result",
-        tool_use_id: id,
-        content: "…",
-        is_error: isError,
-      },
+      data: { tool_result: { tool_call_id: id, is_error: isError, text: "…" } },
     },
   };
 }
@@ -451,32 +443,6 @@ describe("buildRunTree", () => {
       expect(buildRunTree(shuffle(frames, seed))).toEqual(tree);
     }
     expect(buildRunTree([...frames].reverse())).toEqual(tree);
-  });
-
-  test("calls sharing one frame keep their block order", () => {
-    const ids = Array.from({ length: 12 }, (_, i) => `t${i}`);
-    const tree = buildRunTree([
-      {
-        id: "c-many",
-        occurredAt: at(1),
-        turnId: TURN,
-        payload: {
-          event: "tool_use",
-          data: {
-            type: "assistant",
-            message: {
-              content: ids.map((id) => ({
-                type: "tool_use",
-                id,
-                name: "Read",
-                input: {},
-              })),
-            },
-          },
-        },
-      },
-    ]);
-    expect(tree.root.tools.map((tool) => tool.id)).toEqual(ids);
   });
 
   test("frames that disagree about one call: the earlier one wins in any order", () => {

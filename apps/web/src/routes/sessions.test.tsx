@@ -1251,17 +1251,17 @@ describe("session detail", () => {
       stream.emit("ev_1", "status", { phase: "running" });
       stream.emit("ev_2", "assistant", {
         type: "assistant",
-        message: { content: [{ type: "text", text: "Listing files" }] },
+        text: "Listing files",
       });
       stream.emit("ev_3", "tool_use", {
         type: "assistant",
-        message: { content: [{ type: "tool_use", name: "Bash" }] },
+        tool_call: { id: "tu_0", name: "Bash", input: {} },
       });
       // A resumed stream replays from Last-Event-ID; a frame seen once is
       // not drawn twice.
       stream.emit("ev_2", "assistant", {
         type: "assistant",
-        message: { content: [{ type: "text", text: "Listing files" }] },
+        text: "Listing files",
       });
     });
     expect(await screen.findByText("Listing files")).toBeTruthy();
@@ -1281,8 +1281,7 @@ describe("session detail", () => {
     act(() =>
       stream.emit("ev_5", "system", {
         type: "system",
-        subtype: "sdk_event",
-        native_type: "command_lifecycle",
+        engine_event: { name: "command_lifecycle", category: "internal" },
       }),
     );
     expect(screen.queryByText("command_lifecycle")).toBeNull();
@@ -1309,7 +1308,7 @@ describe("session detail", () => {
     act(() =>
       stream.emit("ev_6", "assistant", {
         type: "assistant",
-        message: { content: [{ type: "text", text: "Back again" }] },
+        text: "Back again",
       }),
     );
     expect(await screen.findByText("Back again")).toBeTruthy();
@@ -1329,21 +1328,10 @@ describe("session detail", () => {
     act(() => {
       stream.emit("ev_call", "tool_use", {
         type: "assistant",
-        message: {
-          content: [
-            {
-              type: "tool_use",
-              id: "tu_1",
-              name: "Bash",
-              input: { command: "make" },
-            },
-          ],
-        },
+        tool_call: { id: "tu_1", name: "Bash", input: { command: "make" } },
       });
       stream.emit("ev_result", "tool_result", {
-        type: "tool_result",
-        tool_use_id: "tu_1",
-        content: "built",
+        tool_result: { tool_call_id: "tu_1", is_error: false, text: "built" },
       });
       for (let i = 0; i < 199; i += 1) {
         stream.emit(`ev_s${i}`, "status", { phase: "running" });
@@ -1360,66 +1348,20 @@ describe("session detail", () => {
     act(() =>
       stream.emit("ev_call", "tool_use", {
         type: "assistant",
-        message: {
-          content: [
-            {
-              type: "tool_use",
-              id: "tu_1",
-              name: "Bash",
-              input: { command: "make" },
-            },
-          ],
-        },
+        tool_call: { id: "tu_1", name: "Bash", input: { command: "make" } },
       }),
     );
     const call = (await screen.findByText("Bash: make")).closest("li");
     expect(call?.textContent).toContain("실행 중");
     act(() =>
       stream.emit("ev_result", "tool_result", {
-        type: "tool_result",
-        tool_use_id: "tu_1",
-        content: "built",
+        tool_result: { tool_call_id: "tu_1", is_error: false, text: "built" },
       }),
     );
     expect(await screen.findByText("Bash 결과 · 성공 · built")).toBeTruthy();
     const list = screen.getByRole("list", { name: "이벤트" });
     expect(list.querySelectorAll("li")).toHaveLength(1);
     expect(list.textContent).not.toContain("실행 중");
-  });
-
-  test("a result for one of several calls in an event stays a row of its own", async () => {
-    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
-    await waitFor(() => expect(stream.requests).toHaveLength(1));
-    await act(async () => stream.open());
-    act(() => {
-      stream.emit("ev_calls", "tool_use", {
-        type: "assistant",
-        message: {
-          content: [
-            {
-              type: "tool_use",
-              id: "tu_a",
-              name: "Bash",
-              input: { command: "make" },
-            },
-            {
-              type: "tool_use",
-              id: "tu_b",
-              name: "Bash",
-              input: { command: "test" },
-            },
-          ],
-        },
-      });
-      stream.emit("ev_result", "tool_result", {
-        type: "tool_result",
-        tool_use_id: "tu_a",
-        content: "built",
-      });
-    });
-    expect(await screen.findByText("Bash 결과 · 성공 · built")).toBeTruthy();
-    const list = screen.getByRole("list", { name: "이벤트" });
-    expect(list.querySelectorAll("li")).toHaveLength(2);
   });
 
   test("a run of status lines folds into one button that opens it", async () => {
@@ -1459,7 +1401,7 @@ describe("session detail", () => {
     act(() => {
       stream.emit("ev_a1", "assistant", {
         type: "assistant",
-        message: { content: [{ type: "text", text: "첫 답" }] },
+        text: "첫 답",
       });
     });
     const asked = async (turnId: string) => {
@@ -1485,7 +1427,7 @@ describe("session detail", () => {
         "assistant",
         {
           type: "assistant",
-          message: { content: [{ type: "text", text: "두 번째 답" }] },
+          text: "두 번째 답",
         },
         "2",
       );
@@ -1503,20 +1445,20 @@ describe("session detail", () => {
       for (const id of ["ev_t1", "ev_t2", "ev_t3"]) {
         stream.emit(id, "system", {
           type: "system",
-          subtype: "thinking_tokens",
+          engine_event: { name: "thinking_tokens", category: "thinking" },
         });
       }
       // The next turn's tick starts its own line.
       stream.emit(
         "ev_t4",
         "system",
-        { type: "system", subtype: "thinking_tokens" },
+        {
+          type: "system",
+          engine_event: { name: "thinking_tokens", category: "thinking" },
+        },
         "2",
       );
-      stream.emit("ev_empty", "assistant", {
-        type: "assistant",
-        message: { content: [] },
-      });
+      stream.emit("ev_empty", "assistant", { type: "assistant" });
     });
     expect(await screen.findByText("생각 중 (3)")).toBeTruthy();
     expect(screen.getByText("생각 중 (1)")).toBeTruthy();

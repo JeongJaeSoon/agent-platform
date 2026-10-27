@@ -76,35 +76,35 @@ export function activityQuery(ids: readonly string[]) {
       CROSS JOIN LATERAL (
         SELECT id, type, turn_id, created_at,
                coalesce(occurred_at, created_at) AS at,
-               CASE WHEN type IN ('tool_result', 'question')
+               CASE WHEN type = 'tool_result'
+                    THEN ${str(sql`payload -> 'tool_result' -> 'tool_call_id'`)}
+                    WHEN type = 'question'
                     THEN ${str(sql`payload -> 'tool_use_id'`)} END AS ref_tool,
                CASE WHEN type = 'tool_result'
-                    THEN payload -> 'is_error' = 'true'::jsonb END AS error,
+                    THEN payload -> 'tool_result' -> 'is_error' = 'true'::jsonb END AS error,
                CASE WHEN type = 'status' THEN payload ->> 'phase' END AS phase,
                CASE WHEN type IN ('assistant', 'tool_use')
                     THEN ${str(sql`payload -> 'parent_tool_use_id'`)} END AS parent,
                CASE WHEN type IN ('assistant', 'tool_use')
-                     AND jsonb_typeof(payload -> 'message' -> 'content') = 'array'
-                    THEN payload -> 'message' -> 'content' END AS content
+                    THEN payload END AS said
         FROM ${events}
         WHERE session_id = p.session_id
         ORDER BY id DESC
         LIMIT ${window}
       ) e
-      -- Rows stay narrow for the sorts below; the two blocks shown are read
-      -- again by id at the end.
+      -- Rows stay narrow for the sorts below; the two events shown are read
+      -- again by id at the end. An event holds one call or one text, at ord 1.
       LEFT JOIN LATERAL (
-        SELECT ord,
-               CASE WHEN block ->> 'type' = 'text' THEN 'text' ELSE 'use' END AS kind,
-               CASE WHEN block ->> 'type' = 'tool_use' THEN block ->> 'id' END AS tool_id,
-               block -> 'name' IN ('"Task"'::jsonb, '"Agent"'::jsonb) AS spawns
-        FROM jsonb_array_elements(e.content) WITH ORDINALITY AS c(block, ord)
-        WHERE (block ->> 'type' = 'tool_use'
-               AND jsonb_typeof(block -> 'id') = 'string'
-               AND block ->> 'id' NOT IN ('', ${ROOT_RUN_ID}))
-           OR (block ->> 'type' = 'text'
-               AND jsonb_typeof(block -> 'text') = 'string'
-               AND block ->> 'text' ~ '\\S')
+        SELECT 1 AS ord,
+               CASE WHEN call ->> 'id' IS NOT NULL THEN 'use' ELSE 'text' END AS kind,
+               call ->> 'id' AS tool_id,
+               call -> 'name' IN ('"Task"'::jsonb, '"Agent"'::jsonb) AS spawns
+        FROM (SELECT CASE WHEN jsonb_typeof(e.said -> 'tool_call' -> 'id') = 'string'
+                           AND e.said -> 'tool_call' ->> 'id' NOT IN ('', ${ROOT_RUN_ID})
+                          THEN e.said -> 'tool_call' END AS call) AS c
+        WHERE call IS NOT NULL
+           OR (jsonb_typeof(e.said -> 'text') = 'string'
+               AND e.said ->> 'text' ~ '\\S')
       ) b ON true
     ),
     flagged AS (
@@ -189,14 +189,14 @@ export function activityQuery(ids: readonly string[]) {
            coalesce(rc.subagent_count, 0) AS subagent_count,
            l.kind AS last_kind,
            CASE WHEN l.kind = 'text' THEN
-             left(btrim((SELECT line FROM regexp_split_to_table(lb.block ->> 'text', E'\\r?\\n') AS line
+             left(btrim((SELECT line FROM regexp_split_to_table(lb.said ->> 'text', E'\\r?\\n') AS line
                          WHERE line ~ '\\S' LIMIT 1), E' \\t'), ${TEXT_MAX})
            END AS last_text,
-           coalesce(${str(sql`lb.block -> 'name'`)}, '') AS last_name,
-           ${target(sql`lb.block -> 'input'`)} AS last_target,
+           coalesce(${str(sql`lb.said -> 'tool_call' -> 'name'`)}, '') AS last_name,
+           ${target(sql`lb.said -> 'tool_call' -> 'input'`)} AS last_target,
            cur.tool_id AS current_id,
-           coalesce(${str(sql`cb.block -> 'name'`)}, '') AS current_name,
-           ${target(sql`cb.block -> 'input'`)} AS current_target,
+           coalesce(${str(sql`cb.said -> 'tool_call' -> 'name'`)}, '') AS current_name,
+           ${target(sql`cb.said -> 'tool_call' -> 'input'`)} AS current_target,
            cur.waiting AS current_waiting,
            ${epochMs(sql`cur.since`)} AS current_since_ms,
            qb.payload ->> 'kind' AS request_kind,
@@ -217,12 +217,10 @@ export function activityQuery(ids: readonly string[]) {
     LEFT JOIN last l USING (session_id)
     LEFT JOIN current cur USING (session_id)
     LEFT JOIN LATERAL (
-      SELECT payload -> 'message' -> 'content' -> (l.ord::int - 1) AS block
-      FROM ${events} WHERE id = l.id
+      SELECT payload AS said FROM ${events} WHERE id = l.id
     ) lb ON true
     LEFT JOIN LATERAL (
-      SELECT payload -> 'message' -> 'content' -> (cur.use_ord::int - 1) AS block
-      FROM ${events} WHERE id = cur.use_id
+      SELECT payload AS said FROM ${events} WHERE id = cur.use_id
     ) cb ON true
     LEFT JOIN LATERAL (
       SELECT payload FROM ${events} WHERE id = cur.question_id AND cur.waiting

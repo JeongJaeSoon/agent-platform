@@ -24,10 +24,7 @@ const integration = testDatabaseUrl() ? describe : describe.skip;
 const toolUse = (id: string) =>
   JSON.stringify({
     type: "assistant",
-    message: {
-      role: "assistant",
-      content: [{ type: "tool_use", id, name: "Bash", input: {} }],
-    },
+    tool_call: { id, name: "Bash", input: {} },
   });
 
 integration("tool call projection on PostgreSQL", () => {

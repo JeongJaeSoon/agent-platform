@@ -154,7 +154,7 @@ describe("the run tree feeds the relation panel", () => {
       event: "tool_use" as const,
       data: {
         type: "assistant" as const,
-        message: { content: [{ type: "tool_use", id, name, input }] },
+        tool_call: { id, name, input },
         parent_tool_use_id: parent,
       },
     });
@@ -168,7 +168,9 @@ describe("the run tree feeds the relation panel", () => {
         frame("c2", 2, use("bash-1", "Bash", { command: "make" }, "task-a")),
         frame("c3", 3, {
           event: "tool_result",
-          data: { type: "tool_result", tool_use_id: "bash-1", is_error: true },
+          data: {
+            tool_result: { tool_call_id: "bash-1", is_error: true, text: "" },
+          },
         }),
         frame("c4", 4, use("grep-1", "Grep", { pattern: "retry" }, "task-a")),
         frame("c5", 5, { event: "status", data: { phase: "stopped" } }),

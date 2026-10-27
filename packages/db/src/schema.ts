@@ -1318,6 +1318,28 @@ export const toolCallProgress = pgTable(
 );
 
 /**
+ * How far `fillNeutralFields` has read events: every event at or below
+ * `filled_through` carries the engine-neutral fields its session's codec
+ * gives it, where one could be told. `history_through` is the newest event
+ * stored before the control plane wrote those fields itself; until the fill
+ * passes it, `projectToolCalls` reads no further than the fill. One row.
+ */
+export const neutralFieldProgress = pgTable(
+  "neutral_field_progress",
+  {
+    id: integer().primaryKey(),
+    filledThrough: bigint("filled_through", { mode: "number" })
+      .notNull()
+      .default(0),
+    historyThrough: bigint("history_through", { mode: "number" }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [check("neutral_field_progress_one_row", sql`${table.id} = 1`)],
+);
+
+/**
  * tool_calls summed per UTC day of created_at and tool name, once for each
  * scope a usage read can ask for, so a read touches days × tools rows
  * whatever the volume. A session's calls count under scope_key '' (the

@@ -1758,9 +1758,11 @@ export function createPostgresWorkerUnitOfWork(
           leaseEpoch: attempts.leaseEpoch,
           executionGeneration: attempts.executionGeneration,
           authRevision: attempts.authRevision,
+          profileId: sessions.profileId,
         })
         .from(workerCredentials)
         .innerJoin(attempts, eq(attempts.id, workerCredentials.attemptId))
+        .innerJoin(sessions, eq(sessions.id, attempts.sessionId))
         .where(
           and(
             eq(workerCredentials.tokenHash, tokenHash),

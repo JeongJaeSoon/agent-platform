@@ -132,22 +132,22 @@ const use = (
 ) =>
   insert(sessionId, "tool_use", stamp, {
     type: "assistant",
-    message: {
-      role: "assistant",
-      content: [{ type: "tool_use", id, name, input: {} }],
-    },
+    tool_call: { id, name, input: {} },
     parent_tool_use_id: stamp.parent ?? null,
   });
 
 const result = (
   sessionId: string,
-  data: Record<string, unknown>,
+  data: { tool_call_id?: unknown; is_error?: boolean | null },
   stamp: Stamp = {},
 ) =>
   insert(sessionId, "tool_result", stamp, {
     type: "tool_result",
-    content: "done",
-    ...data,
+    tool_result: {
+      tool_call_id: data.tool_call_id,
+      is_error: data.is_error === undefined ? false : data.is_error,
+      text: "done",
+    },
   });
 
 const project = (batchSize = 1000) =>
@@ -183,19 +183,20 @@ const days = (scopeKey = "", agentKey = "") =>
 const fromEvents = () =>
   figures(sql`
     WITH uses AS (
-      SELECT DISTINCT ON (e.session_id, coalesce(e.attempt_id, ''), coalesce(b->>'id', e.id::text))
-        e.session_id, coalesce(e.attempt_id, '') AS attempt_key, b->>'id' AS tool_use_id,
-        b->>'name' AS name, e.occurred_at
-      FROM events e CROSS JOIN LATERAL jsonb_array_elements(e.payload->'message'->'content') b
-      WHERE e.type = 'tool_use' AND b->>'type' = 'tool_use' AND jsonb_typeof(b->'name') = 'string'
-      ORDER BY e.session_id, coalesce(e.attempt_id, ''), coalesce(b->>'id', e.id::text), e.id
-    ), results AS (
-      SELECT DISTINCT ON (e.session_id, coalesce(e.attempt_id, ''), e.payload->>'tool_use_id')
-        e.session_id, coalesce(e.attempt_id, '') AS attempt_key, e.payload->>'tool_use_id' AS tool_use_id,
-        e.occurred_at, e.payload->'is_error' = 'true'::jsonb AS failed
+      SELECT DISTINCT ON (e.session_id, coalesce(e.attempt_id, ''), e.payload->'tool_call'->>'id')
+        e.session_id, coalesce(e.attempt_id, '') AS attempt_key, e.payload->'tool_call'->>'id' AS tool_use_id,
+        e.payload->'tool_call'->>'name' AS name, e.occurred_at
       FROM events e
-      WHERE e.type = 'tool_result' AND jsonb_typeof(e.payload->'tool_use_id') = 'string'
-      ORDER BY e.session_id, coalesce(e.attempt_id, ''), e.payload->>'tool_use_id', coalesce(e.occurred_at, 'infinity'), e.id
+      WHERE e.type = 'tool_use' AND jsonb_typeof(e.payload->'tool_call'->'id') = 'string'
+        AND jsonb_typeof(e.payload->'tool_call'->'name') = 'string'
+      ORDER BY e.session_id, coalesce(e.attempt_id, ''), e.payload->'tool_call'->>'id', e.id
+    ), results AS (
+      SELECT DISTINCT ON (e.session_id, coalesce(e.attempt_id, ''), e.payload->'tool_result'->>'tool_call_id')
+        e.session_id, coalesce(e.attempt_id, '') AS attempt_key, e.payload->'tool_result'->>'tool_call_id' AS tool_use_id,
+        e.occurred_at, e.payload->'tool_result'->'is_error' = 'true'::jsonb AS failed
+      FROM events e
+      WHERE e.type = 'tool_result' AND jsonb_typeof(e.payload->'tool_result'->'tool_call_id') = 'string'
+      ORDER BY e.session_id, coalesce(e.attempt_id, ''), e.payload->'tool_result'->>'tool_call_id', coalesce(e.occurred_at, 'infinity'), e.id
     ), calls AS (
       SELECT u.name, coalesce(r.failed, false) AS failed,
         CASE WHEN r.occurred_at IS NOT NULL AND u.occurred_at IS NOT NULL
@@ -216,49 +217,49 @@ async function everyRule() {
   await use(a, "tu-open", "Bash");
   // A time missing on either side.
   await use(a, "tu-nouse", "Read", { occurredAt: null });
-  await result(a, { tool_use_id: "tu-nouse" }, { occurredAt: at(100) });
+  await result(a, { tool_call_id: "tu-nouse" }, { occurredAt: at(100) });
   await use(a, "tu-nores", "Read", { occurredAt: at(0) });
-  await result(a, { tool_use_id: "tu-nores" }, { occurredAt: null });
-  // is_error absent, true, false, a string, null.
+  await result(a, { tool_call_id: "tu-nores" }, { occurredAt: null });
+  // is_error absent, true, false, and null (the engine said neither) twice.
   for (const [id, data, ms] of [
     ["tu-ok", {}, 100],
     ["tu-fail", { is_error: true }, 200],
     ["tu-false", { is_error: false }, 300],
-    ["tu-text", { is_error: "true" }, 400],
+    ["tu-text", { is_error: null }, 400],
     ["tu-null", { is_error: null }, 500],
   ] as const) {
     await use(a, id, "Edit", { occurredAt: at(0) });
-    await result(a, { tool_use_id: id, ...data }, { occurredAt: at(ms) });
+    await result(a, { tool_call_id: id, ...data }, { occurredAt: at(ms) });
   }
-  // A result with no string tool_use_id pairs with nothing.
+  // A result with no string tool_call_id pairs with nothing.
   await use(a, "tu-lost", "Grep", { occurredAt: at(0) });
   await result(a, { is_error: true }, { occurredAt: at(10) });
-  await result(a, { tool_use_id: 7, is_error: true }, { occurredAt: at(10) });
+  await result(a, { tool_call_id: 7, is_error: true }, { occurredAt: at(10) });
   // The same id in another session, another attempt, a null attempt.
   await use(b, "tu-open", "Bash", { occurredAt: at(0) });
   await result(
     b,
-    { tool_use_id: "tu-open", is_error: true },
+    { tool_call_id: "tu-open", is_error: true },
     { occurredAt: at(900) },
   );
   await use(a, "tu-att", "Bash", { occurredAt: at(0), attemptId: "att-1" });
   await result(
     a,
-    { tool_use_id: "tu-att" },
+    { tool_call_id: "tu-att" },
     { occurredAt: at(50), attemptId: "att-2" },
   );
   await use(a, "tu-nullatt", "Bash", { occurredAt: at(0), attemptId: null });
   await result(
     a,
-    { tool_use_id: "tu-nullatt" },
+    { tool_call_id: "tu-nullatt" },
     { occurredAt: at(70), attemptId: null },
   );
   // Of two results, the earlier one by occurred_at.
   await use(a, "tu-twice", "Bash", { occurredAt: at(0) });
-  await result(a, { tool_use_id: "tu-twice" }, { occurredAt: at(300) });
+  await result(a, { tool_call_id: "tu-twice" }, { occurredAt: at(300) });
   await result(
     a,
-    { tool_use_id: "tu-twice", is_error: true },
+    { tool_call_id: "tu-twice", is_error: true },
     { occurredAt: at(120) },
   );
   // A subagent's call, and a block that is no tool call.
@@ -267,7 +268,7 @@ async function everyRule() {
     a,
     "tool_use",
     {},
-    { type: "assistant", message: { content: [{ type: "text", text: "x" }] } },
+    { type: "assistant", text: "x" },
   );
   return { a, b };
 }
@@ -305,7 +306,7 @@ describe("projectToolCalls", () => {
     await use(s, "tu-text", "Edit", { occurredAt: at(0) });
     await result(
       s,
-      { tool_use_id: "tu-text", is_error: "yes" },
+      { tool_call_id: "tu-text", is_error: null },
       { occurredAt: at(400) },
     );
     await use(s, "tu-open", "Edit");
@@ -354,11 +355,11 @@ describe("projectToolCalls", () => {
   test("an earlier result arriving in a later pass trades the old time and outcome for its own", async () => {
     const s = await session();
     await use(s, "tu-1", "Bash", { occurredAt: at(0) });
-    await result(s, { tool_use_id: "tu-1" }, { occurredAt: at(3000) });
+    await result(s, { tool_call_id: "tu-1" }, { occurredAt: at(3000) });
     await project();
     await result(
       s,
-      { tool_use_id: "tu-1", is_error: true },
+      { tool_call_id: "tu-1", is_error: true },
       { occurredAt: at(100) },
     );
     await project();
@@ -379,12 +380,12 @@ describe("projectToolCalls", () => {
   test("the cursor passes only events older than the margin, and newer ones read again count once", async () => {
     const s = await session();
     await use(s, "tu-old", "Bash", { occurredAt: at(0) });
-    await result(s, { tool_use_id: "tu-old" }, { occurredAt: at(10) });
+    await result(s, { tool_call_id: "tu-old" }, { occurredAt: at(10) });
     const [old] = rowsOf<{ id: string }>(
       await db.execute(sql`SELECT max(id) AS id FROM events`),
     );
     await use(s, "tu-new", "Bash", { createdAt: "now" });
-    await result(s, { tool_use_id: "tu-new" }, { createdAt: "now" });
+    await result(s, { tool_call_id: "tu-new" }, { createdAt: "now" });
     const first = await project();
     expect(first.appliedThrough).toBe(Number(old?.id));
     const second = await project();
@@ -613,7 +614,7 @@ describe("toolCallTotals", () => {
       });
       await result(
         s,
-        { tool_use_id: `tu-${i}` },
+        { tool_call_id: `tu-${i}` },
         {
           createdAt: new Date(createdAt),
           occurredAt: new Date(new Date(createdAt).getTime() + 1000 * (i + 1)),

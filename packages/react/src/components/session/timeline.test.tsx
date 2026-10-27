@@ -49,19 +49,13 @@ function entry(
 const reply = (text: string, options?: Parameters<typeof entry>[2]) =>
   entry(
     "assistant",
-    { message: { content: [{ type: "text", text }] } },
+    { text },
     options,
   );
 const call = (id: string, options?: Parameters<typeof entry>[2]) =>
   entry(
     "tool_use",
-    {
-      message: {
-        content: [
-          { type: "tool_use", id, name: "Bash", input: { command: "ls" } },
-        ],
-      },
-    },
+    { tool_call: { id, name: "Bash", input: { command: "ls" } } },
     { toolCallId: id, ...options },
   );
 const result = (
@@ -71,7 +65,7 @@ const result = (
 ) =>
   entry(
     "tool_result",
-    { tool_use_id: id, is_error: isError, content: "out" },
+    { tool_result: { tool_call_id: id, is_error: isError, text: "out" } },
     { toolCallId: id, ...options },
   );
 const status = (phase: string, options?: Parameters<typeof entry>[2]) =>
@@ -90,8 +84,12 @@ describe("Timeline turn 묶음", () => {
           entry(
             "result",
             {
-              subtype: "success",
-              usage: { input_tokens: 1200, output_tokens: 340 },
+              turn: {
+                outcome: "success",
+                is_error: false,
+                terminal_reason: null,
+                tokens: 1540,
+              },
             },
             { turnId: "a" },
           ),
@@ -153,12 +151,16 @@ describe("Timeline turn 묶음", () => {
       <Timeline
         entries={[
           status("running", { turnId: "a" }),
-          entry("system", { subtype: "init" }, { turnId: null }),
+          entry("system", { engine_event: { name: "init", category: "started" } }, { turnId: null }),
           entry(
             "result",
             {
-              subtype: "success",
-              usage: { input_tokens: 1, output_tokens: 1 },
+              turn: {
+                outcome: "success",
+                is_error: false,
+                terminal_reason: null,
+                tokens: 2,
+              },
             },
             { turnId: "a" },
           ),
@@ -373,7 +375,7 @@ describe("Timeline 잡음 접기", () => {
       <Timeline
         entries={[
           status("running"),
-          entry("system", { subtype: "init" }),
+          entry("system", { engine_event: { name: "init", category: "started" } }),
           reply("hi"),
           status("idle"),
         ]}
@@ -408,7 +410,7 @@ describe("Timeline 잡음 접기", () => {
       <Timeline
         entries={[
           status("running", { turnId: null }),
-          entry("system", { subtype: "init" }, { turnId: null }),
+          entry("system", { engine_event: { name: "init", category: "started" } }, { turnId: null }),
         ]}
         formatMessage={formatMessage}
         messages={MESSAGES}
@@ -466,7 +468,7 @@ describe("Timeline 잡음 접기", () => {
   test("접힘 문구를 받지 않으면 접지 않고 한 줄씩 작게 둔다", () => {
     render(
       <Timeline
-        entries={[status("running"), entry("system", { subtype: "init" })]}
+        entries={[status("running"), entry("system", { engine_event: { name: "init", category: "started" } })]}
         formatMessage={formatMessage}
         messages={{ ...MESSAGES, folded: undefined }}
         now={START}
