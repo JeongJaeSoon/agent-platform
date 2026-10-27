@@ -252,6 +252,27 @@ integration("neutral field fill on PostgreSQL", () => {
     expect(await progress()).toBe(0);
   });
 
+  test("a row inside the margin holds the cursor across the batches of a pass", async () => {
+    const known = await session("known");
+    await stored(known, [
+      ["tool_use", { type: "assistant", message: { call: "a" } }],
+    ]);
+    await stored(
+      known,
+      [["tool_use", { type: "assistant", message: { call: "b" } }]],
+      0,
+    );
+    await stored(known, [
+      ["tool_use", { type: "assistant", message: { call: "c" } }],
+      ["tool_use", { type: "assistant", message: { call: "d" } }],
+    ]);
+    const [first] = rowsOf<{ id: string }>(
+      await db.execute(sql`SELECT min(id) AS id FROM events`),
+    );
+    await fill({ batchSize: 2, marginSeconds: 60 });
+    expect(await progress()).toBe(Number(first?.id));
+  });
+
   test("a replica that finds the fill taken leaves it alone", async () => {
     const known = await session("known");
     await stored(known, [
@@ -297,6 +318,30 @@ integration("neutral field fill on PostgreSQL", () => {
     await fill();
     expect(await frames({})).toEqual(before);
     expect(await frames({ neutralize })).toEqual(before);
+  });
+
+  test("fields filled on read count against a page's byte bound", async () => {
+    const known = await session("known");
+    const said = "x".repeat(300);
+    await stored(known, [
+      ["assistant", { type: "assistant", message: { said } }],
+      ["assistant", { type: "assistant", message: { said } }],
+    ]);
+    const reader = createPostgresSessionReader(db, { neutralize });
+    // Both rows fit as stored; with their text filled, only the first does.
+    const page = (after?: string) =>
+      reader.readEvents("owner-a", known, {
+        limit: 100,
+        maxBytes: 1_000,
+        ...(after === undefined ? {} : { after }),
+      });
+    const first = await page();
+    expect(first?.items).toHaveLength(1);
+    expect(first?.more).toBe(true);
+    const second = await page(first?.items[0]?.id);
+    expect(second?.items).toHaveLength(1);
+    expect(second?.items[0]?.data.data).toMatchObject({ text: said });
+    expect(second?.more).toBe(false);
   });
 
   test("tool calls in history stored before the neutral fields wait for the fill", async () => {

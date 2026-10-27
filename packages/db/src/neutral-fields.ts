@@ -69,7 +69,9 @@ export async function fillNeutralFields(
     pass.filled += batch.filled;
     pass.batches += 1;
     pass.filledThrough = batch.cursor;
-    pass.caughtUp = batch.n < options.batchSize;
+    // A row inside the margin ends the pass: the next batch starts past it,
+    // and the cursor must not.
+    pass.caughtUp = batch.n < options.batchSize || batch.held;
   }
   return pass;
 }
@@ -120,7 +122,9 @@ function fillBatch(
         JOIN sessions s ON s.id = b.session_id
         ORDER BY b.id`),
     );
-    if (rows.length === 0) return { n: 0, filled: 0, hi: from, cursor };
+    if (rows.length === 0) {
+      return { n: 0, filled: 0, hi: from, cursor, held: false };
+    }
     const added = rows.flatMap((row) => {
       const fields =
         row.bare && row.payload !== null
@@ -151,6 +155,12 @@ function fillBatch(
         sql`UPDATE neutral_field_progress SET filled_through = ${next}, updated_at = now() WHERE id = 1`,
       );
     }
-    return { n: rows.length, filled: added.length, hi, cursor: next };
+    return {
+      n: rows.length,
+      filled: added.length,
+      hi,
+      cursor: next,
+      held: unsafe !== -1,
+    };
   });
 }
