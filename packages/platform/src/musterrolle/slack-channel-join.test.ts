@@ -181,6 +181,7 @@ describe("the bot's invite", () => {
     const recorded: [string, SurfaceMembership][] = [];
     const welcomed: string[] = [];
     const passed: string[] = [];
+    const invited: [string, string][] = [];
     const handle = createSlackMemberJoinedHandler({
       agents: {
         resolveSlackEvent: async () => ({
@@ -203,6 +204,15 @@ describe("the bot's invite", () => {
                 home: false,
                 ...bound,
               } as SurfaceBindingRecord),
+        ensureInvitedChannel: async (_installation, channelId, kind) => {
+          invited.push([channelId, kind]);
+          return {
+            id: "b2",
+            workspaceId: WORKSPACE,
+            agentId: AGENT,
+            home: false,
+          } as SurfaceBindingRecord;
+        },
         setMembership: async (id, membership) => {
           recorded.push([id, membership]);
         },
@@ -217,7 +227,7 @@ describe("the bot's invite", () => {
         passed.push(claim.eventType);
       },
     });
-    return { handle, recorded, welcomed, passed };
+    return { handle, recorded, welcomed, passed, invited };
   }
 
   const claim = (event: Record<string, unknown>) =>
@@ -249,16 +259,51 @@ describe("the bot's invite", () => {
     expect(h.welcomed).toEqual([]);
   });
 
-  test("someone else joining, or an unbound channel, does nothing; a message goes on", async () => {
+  test("the bot invited to an unbound channel binds it, joined, with no welcome", async () => {
+    const h = handler(null);
+    await h.handle(
+      claim({
+        type: "member_joined_channel",
+        user: BOT,
+        channel: "G2",
+        channel_type: "G",
+      }),
+    );
+    await h.handle(
+      claim({
+        type: "member_joined_channel",
+        user: BOT,
+        channel: "C3",
+        channel_type: "C",
+      }),
+    );
+    expect(h.invited).toEqual([
+      ["G2", "private_channel"],
+      ["C3", "public_channel"],
+    ]);
+    expect(h.recorded).toEqual([
+      ["b2", { state: "joined", error: null }],
+      ["b2", { state: "joined", error: null }],
+    ]);
+    expect(h.welcomed).toEqual([]);
+  });
+
+  test("someone else joining, or a channel of no known kind, binds nothing; a message goes on", async () => {
     const h = handler({ home: true });
     await h.handle(
-      claim({ type: "member_joined_channel", user: "U0PERSON", channel: "G1" }),
+      claim({
+        type: "member_joined_channel",
+        user: "U0PERSON",
+        channel: "G1",
+        channel_type: "G",
+      }),
     );
     const unbound = handler(null);
     await unbound.handle(
       claim({ type: "member_joined_channel", user: BOT, channel: "G2" }),
     );
     await h.handle(claim({ type: "app_mention", user: "U0PERSON" }));
+    expect([...h.invited, ...unbound.invited]).toEqual([]);
     expect([...h.recorded, ...unbound.recorded]).toEqual([]);
     expect([...h.welcomed, ...unbound.welcomed]).toEqual([]);
     expect(h.passed).toEqual(["app_mention"]);

@@ -384,6 +384,62 @@ integration("surface bindings on PostgreSQL", () => {
     });
   });
 
+  test("an invite binds an unbound channel once and leaves a bound one as it is", async () => {
+    const owner = await person(await workspace(), "owner");
+    const { agentId, installationId } = await slackAgent(owner);
+    const invited = await store().ensureInvitedChannel(
+      installationId,
+      "G0INVITE",
+      "private_channel",
+    );
+    expect(invited).toMatchObject({
+      agentId,
+      channelId: "G0INVITE",
+      channelKind: "private_channel",
+      mode: "mention",
+      home: false,
+      ceiling: DEFAULT_SURFACE_CEILING,
+      membership: { state: "joined" },
+      revision: 1,
+    });
+    expect(
+      await store().ensureInvitedChannel(
+        installationId,
+        "G0INVITE",
+        "private_channel",
+      ),
+    ).toEqual(invited);
+    // Nobody set it, so nothing was receipted.
+    const written = await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.operation, "set_surface_binding"));
+    expect(
+      written.filter(
+        (receipt) =>
+          (receipt.targetRef as { resource?: { id?: string } }).resource?.id ===
+          invited?.id,
+      ),
+    ).toEqual([]);
+
+    await setAs(owner, agentId, { channelId: "C0OFF", mode: "off" });
+    expect(
+      await store().ensureInvitedChannel(
+        installationId,
+        "C0OFF",
+        "public_channel",
+      ),
+    ).toMatchObject({ channelId: "C0OFF", mode: "off", revision: 1 });
+    expect(await store().list(owner.ownerId, agentId, 10)).toHaveLength(2);
+    expect(
+      await store().ensureInvitedChannel(
+        randomUUID(),
+        "C0NONE",
+        "public_channel",
+      ),
+    ).toBeNull();
+  });
+
   test("a revoked or off binding is not what a channel resolves to", async () => {
     const owner = await person(await workspace(), "owner");
     const { agentId, installationId } = await slackAgent(owner);
