@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  checkComplete,
   checkIgnores,
   FIXTURES_PATH,
   scanFixtures,
@@ -46,6 +47,34 @@ describe("demo fixture scan", () => {
       }).map((finding) => finding.rule),
     ).toEqual(["email outside example.test"]);
   });
+
+  test("the key is also scanned decoded, as fixtureKey() writes it", () => {
+    expect(
+      scanFixtures({
+        responses: { "/v1/members?q=a%40corp.example.com": { status: 200 } },
+      }).map((finding) => finding.rule),
+    ).toEqual(["email outside example.test"]);
+  });
+
+  test("tailnet, IPv6 loopback and unique local addresses are caught", () => {
+    expect(
+      scan({ a: "100.101.102.103", b: "[::1]:4611", c: "fd7a:115c:a1e0::53" }),
+    ).toEqual(["private address", "private address", "private address"]);
+    expect(scan({ a: "100.200.1.1", b: "12:30:45", c: "a::b" })).toEqual([]);
+  });
+
+  test("findings name the answer by position, not by key", () => {
+    expect(
+      scanFixtures({
+        responses: { "/v1/a": {}, "/v1/b?email=x@corp.example.com": {} },
+      }).map((finding) => finding.answer),
+    ).toEqual([1]);
+  });
+
+  test("a fixture without the session answer is incomplete", () => {
+    expect(checkComplete({ responses: {} }).length).toBe(1);
+    expect(checkComplete({ responses: { "/v1/auth/me": {} } })).toEqual([]);
+  });
 });
 
 describe("gitleaks ignores for the fixture file", () => {
@@ -86,6 +115,12 @@ describe("gitleaks ignores for the fixture file", () => {
 
   test("entries for other files are left alone", () => {
     expect(check("docs/x.md:generic-api-key:3")).toEqual([]);
+  });
+
+  test("a commit-scoped entry for the fixture is refused", () => {
+    expect(check(`abc123:${entry(breakdownAgent)}`)).toEqual([
+      "gitleaks ignore in another form",
+    ]);
   });
 
   test("anything else is refused", () => {

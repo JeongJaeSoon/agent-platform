@@ -22,7 +22,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { parseArgs } from "node:util";
 import { CSRF_HEADER_NAME, CSRF_HEADER_VALUE } from "@werft-ai/client";
-import { chromium, type Page } from "playwright-core";
+import { type Browser, chromium, type Page } from "playwright-core";
 import { type DemoResponse, fixtureKey } from "../src/demo/fetch.ts";
 import { sanitize } from "./demo-scan.ts";
 
@@ -234,6 +234,8 @@ async function openEverything(page: Page): Promise<void> {
 
 const cookie = await signIn();
 const server = Bun.serve({
+  // Anyone who reaches this port reads the API as the signed-in owner.
+  hostname: "127.0.0.1",
   port: 0,
   idleTimeout: 60,
   async fetch(request) {
@@ -250,8 +252,9 @@ const server = Bun.serve({
   },
 });
 const origin = `http://127.0.0.1:${server.port}`;
-const browser = await chromium.launch({ channel: "chrome", headless: true });
+let browser: Browser | undefined;
 try {
+  browser = await chromium.launch({ channel: "chrome", headless: true });
   const page = await browser.newPage({
     viewport: { width: 1440, height: 900 },
     locale: "ko-KR",
@@ -271,7 +274,7 @@ try {
   }
   if (queue.length > 0) console.warn(`stopped with ${queue.length} unvisited`);
 } finally {
-  await browser.close();
+  await browser?.close().catch(() => {});
   // The login is the one write this script makes; take it back.
   await fetch(`${api}/v1/auth/logout`, {
     method: "POST",

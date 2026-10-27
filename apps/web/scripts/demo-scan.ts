@@ -12,8 +12,8 @@ import { parseArgs } from "node:util";
 export interface Finding {
   readonly rule: string;
   readonly match: string;
-  /** The fixture key the match sits under. */
-  readonly where: string;
+  /** Position of the answer in `responses`; its key may hold the value too. */
+  readonly answer?: number;
 }
 
 const RULES: readonly (readonly [string, RegExp])[] = [
@@ -29,7 +29,12 @@ const RULES: readonly (readonly [string, RegExp])[] = [
   ["tailnet host", /[\w.-]*\.ts\.net\b|\btailscale\b/gi],
   [
     "private address",
-    /\b(?:127\.0\.0\.1|localhost|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2})\b/g,
+    /\b(?:127\.0\.0\.1|localhost|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])(?:\.\d{1,3}){2})\b/g,
+  ],
+  // Loopback and unique local (fc00::/7) IPv6.
+  [
+    "private address",
+    /(?<![\w:])(?:::1|f[cd][0-9a-f]{2}(?::[0-9a-f]{0,4}){2,7})(?![\w:])/gi,
   ],
   ["machine name", /\b(?:jaesoon|94soon|soons?-mac[\w-]*|wjdwotns\w*)\b/gi],
   ["home path", /\/(?:Users|home)\/[\w.-]+/g],
@@ -58,16 +63,40 @@ export function scanFixtures(fixtures: {
   readonly responses: Readonly<Record<string, unknown>>;
 }): Finding[] {
   const findings: Finding[] = [];
-  for (const [where, response] of Object.entries(fixtures.responses)) {
-    const text = `${where}\n${JSON.stringify(response)}`;
+  Object.entries(fixtures.responses).forEach(([key, response], answer) => {
+    // fixtureKey() percent-encodes the query: `@` is `%40` there.
+    const decoded = decodeKey(key);
+    const text = `${decoded === key ? key : `${key}\n${decoded}`}\n${JSON.stringify(response)}`;
     for (const [rule, pattern] of RULES)
       for (const [match] of text.matchAll(pattern))
-        findings.push({ rule, match, where });
+        findings.push({ rule, match, answer });
     for (const [match] of text.matchAll(EMAIL))
       if (!ALLOWED_EMAIL.test(match))
-        findings.push({ rule: "email outside example.test", match, where });
-  }
+        findings.push({ rule: "email outside example.test", match, answer });
+  });
   return findings;
+}
+
+function decodeKey(key: string): string {
+  try {
+    return decodeURIComponent(key.replaceAll("+", " "));
+  } catch {
+    return key;
+  }
+}
+
+/** A demo without the session answer opens on an error screen. */
+export function checkComplete(fixtures: {
+  readonly responses: Readonly<Record<string, unknown>>;
+}): Finding[] {
+  return "/v1/auth/me" in fixtures.responses
+    ? []
+    : [
+        {
+          rule: "no /v1/auth/me answer (record the fixtures first)",
+          match: "",
+        },
+      ];
 }
 
 /** The fixture file as gitleaks names it, from the repository root. */
@@ -105,7 +134,12 @@ export function checkIgnores(
   const agents = agentIds(JSON.parse(fixturesText));
   const findings: Finding[] = [];
   for (const entry of ignoreText.split("\n").map((line) => line.trim())) {
-    if (!entry.startsWith(`${FIXTURES_PATH}:`)) continue;
+    if (!entry.includes(FIXTURES_PATH)) continue;
+    // gitleaks also honours `<commit>:<path>:<rule>:<line>`.
+    if (!entry.startsWith(`${FIXTURES_PATH}:`)) {
+      findings.push({ rule: "gitleaks ignore in another form", match: entry });
+      continue;
+    }
     const [rule, lineNumber] = entry.slice(FIXTURES_PATH.length + 1).split(":");
     const index = Number(lineNumber) - 1;
     const line = lines[index] ?? "";
@@ -114,11 +148,7 @@ export function checkIgnores(
       response = RESPONSE_LINE.exec(lines[i] ?? "")?.[1] ?? "";
     const value = BREAKDOWN_KEY_LINE.exec(line)?.[1];
     const fail = (why: string) =>
-      findings.push({
-        rule: `gitleaks ignore ${why}`,
-        match: entry,
-        where: response || "?",
-      });
+      findings.push({ rule: `gitleaks ignore ${why}`, match: entry });
     if (rule !== "generic-api-key") fail("for another rule");
     else if (value === undefined) fail("not on a breakdown key line");
     else if (!response.startsWith("/v1/usage/breakdown"))
@@ -140,13 +170,14 @@ export function withFixtureIgnores(
   return `${[...kept, ...[...entries].sort()].join("\n")}\n`;
 }
 
-// CI logs are public: never print what was found, only where.
+// CI logs are public: never print what was found, nor the key it sat
+// under. `jq 'keys[N]'` on the file names answer N locally.
 function report(findings: readonly Finding[]): void {
-  for (const { rule, match, where } of findings)
+  for (const { rule, match, answer } of findings)
     console.error(
-      rule.startsWith("gitleaks ignore")
-        ? `${rule}: ${match} (in ${where})`
-        : `${rule}: ${match.slice(0, 3)}… ${match.length} chars (in ${where})`,
+      answer === undefined
+        ? `${rule}${match ? `: ${match}` : ""}`
+        : `${rule}: ${match.slice(0, 3)}… ${match.length} chars (answer ${answer})`,
     );
 }
 
@@ -185,6 +216,7 @@ if (import.meta.main) {
 
   const fixtures = JSON.parse(fixturesText);
   const findings = [
+    ...checkComplete(fixtures),
     ...scanFixtures(fixtures),
     ...checkIgnores(fixturesText, ignoreText),
   ];
