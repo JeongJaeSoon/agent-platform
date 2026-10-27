@@ -28,7 +28,6 @@ import {
   type EgressPurpose,
   type FailResumeInput,
   type FailResumeResult,
-  type FenceRejection,
   type FinalizeInput,
   type FinalizeResult,
   type HeartbeatInput,
@@ -102,6 +101,12 @@ import {
 import { encodeEventCursor } from "./cursors.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { CLOSE, drainBlocker, drainOf, openDrainReceipt } from "./drain.ts";
+import {
+  type AttemptRow,
+  acquireFence,
+  leaseHeld,
+  type SessionRow,
+} from "./fence.ts";
 import { catalogMismatchCause, quarantineLaunch } from "./launch-quarantine.ts";
 import { sessionMcpOf } from "./mcp-egress.ts";
 import { openPauseReceipt, pauseReceiptResult } from "./pause-control.ts";
@@ -187,8 +192,7 @@ const RECEIPT_STATUS_BY_TERMINAL: Record<
   outcome_unknown: "unknown",
 };
 
-type SessionRow = typeof sessions.$inferSelect;
-type AttemptRow = typeof attempts.$inferSelect;
+export { acquireFence, leaseHeld };
 
 // Every fenced write repeats these predicates so a row the lock did not
 // cover (or a concurrent epoch bump) can never be written by a stale
@@ -226,19 +230,6 @@ function expectFenced(rows: unknown[], what: string) {
   }
 }
 
-type Fenced =
-  // `at` is the database clock once the row lock was granted.
-  | { outcome: "ok"; session: SessionRow; attempt: AttemptRow; at: Date }
-  | FenceRejection;
-
-// The fence is taken once, but the checks that follow it are several round
-// trips and any of them can block on a lock. The lease is therefore judged
-// again just before the first write, so nothing commits — and no work is
-// handed out — under a lease that ended mid-transaction.
-export function leaseHeld(attempt: AttemptRow, at: Date): boolean {
-  return attempt.leaseExpiresAt.getTime() > at.getTime();
-}
-
 // The worker may only ever be told less than it has. `at` came through a
 // Date, which drops the database's sub-millisecond part, so it may stand up
 // to 1ms before the instant actually read: counted from the next whole
@@ -247,56 +238,8 @@ function leaseRemainingMs(leaseExpiresAt: Date, at: Date): number {
   return Math.max(0, leaseExpiresAt.getTime() - (at.getTime() + 1));
 }
 
-// Locks the session and attempt rows and classifies why the fence does not
-// hold: an expired lease on the current epoch is LEASE_EXPIRED, anything
-// else (bumped epoch, ended attempt, unknown binding) is STALE_EPOCH.
 // The system event a restore that fell back to an earlier revision leaves.
 export const CHECKPOINT_RESTORE_FALLBACK = "checkpoint_restore_fallback";
-
-export async function acquireFence(
-  tx: Database,
-  fence: WorkerFence,
-): Promise<Fenced> {
-  const [row] = await tx
-    .select({ session: sessions, attempt: attempts })
-    .from(sessions)
-    .innerJoin(attempts, eq(attempts.sessionId, sessions.id))
-    .where(
-      and(eq(sessions.id, fence.sessionId), eq(attempts.id, fence.attemptId)),
-    )
-    .limit(1)
-    .for("update");
-  if (!row) return { outcome: "stale_epoch" };
-  const at = await dbNow(tx);
-  const { session, attempt } = row;
-  const epochMatches =
-    session.leaseEpoch === fence.leaseEpoch &&
-    session.executionGeneration === fence.executionGeneration &&
-    session.authRevision === fence.authRevision &&
-    attempt.leaseEpoch === fence.leaseEpoch &&
-    attempt.executionGeneration === fence.executionGeneration &&
-    attempt.authRevision === fence.authRevision &&
-    !ENDED_ATTEMPT_STATES.includes(attempt.state);
-  if (!epochMatches) return { outcome: "stale_epoch" };
-  if (!leaseHeld(attempt, at)) return { outcome: "lease_expired" };
-  // The token has now been accepted for something, whatever that was: an
-  // event on no turn, a poll that found nothing. That closes the one-shot
-  // bootstrap replay, which would otherwise hand this binding to whoever
-  // still holds the nonce and fence the working worker out.
-  if (attempt.state === "allocated") {
-    await tx
-      .update(attempts)
-      .set({ state: "starting" })
-      .where(eq(attempts.id, attempt.id));
-    return {
-      outcome: "ok",
-      session,
-      attempt: { ...attempt, state: "starting" },
-      at,
-    };
-  }
-  return { outcome: "ok", session, attempt, at };
-}
 
 // Two submissions of one source_sequence are the same event only if every
 // stored field matches: a reused sequence that moved to another turn or

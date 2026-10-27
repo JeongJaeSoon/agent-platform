@@ -13,6 +13,7 @@ import { and, asc, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { OPEN_TURN_STATUSES, parseTurnSequence } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
 import { DRAINING_STATES, drainOf, openDrainReceipt } from "./drain.ts";
+import { acquireFence, leaseHeld } from "./fence.ts";
 import { openPauseReceipt } from "./pause-control.ts";
 import { awaitingInputAt, publicStatus } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
@@ -24,7 +25,6 @@ import {
   recordStatus,
 } from "./session-events.ts";
 import { openInterruptFor, turnInterruptPending } from "./turn-interrupts.ts";
-import { acquireFence, leaseHeld } from "./worker-unit-of-work.ts";
 
 // What the worker's word does to the answer's receipt. `answered` means the
 // callback got it, whatever it decided; the other two mean the answer was
