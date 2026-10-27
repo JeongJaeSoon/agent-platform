@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import type { AgentFrame } from "./driver.ts";
-import { FakeAgentRuntime } from "./fake-adapter.ts";
+import { FakeAgentRuntime } from "./testing/fake-adapter.ts";
 
 const config: ClaudeRuntimeConfig = {
   claudeConfigDir: "/tmp/fake/config",

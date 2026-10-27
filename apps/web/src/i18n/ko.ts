@@ -58,7 +58,13 @@ export const slackKo = {
   "slack.eventsPending.open": "Event Subscriptions 열기",
   "slack.repositoryRequired.title": "Slack에서는 세션을 시작할 수 없습니다",
   "slack.repositoryRequired.body":
-    "이 에이전트의 프로필({profile})은 세션마다 저장소를 골라야 합니다. Slack 멘션과 DM은 저장소를 고를 수 없어 거절되고, 스레드에 안내만 남습니다. 연결은 할 수 있습니다. 저장소가 필요 없는 프로필로 release를 바꾸거나 웹 콘솔에서 세션을 시작하세요.",
+    "활성 release의 프로필({profile})은 세션마다 저장소가 필요한데 release에 쓸 수 있는 저장소가 없습니다(고르지 않았거나 카탈로그에서 빠졌습니다). Slack 멘션과 DM은 거절되고 스레드에 안내만 남습니다. 연결은 할 수 있습니다. release 탭에서 저장소를 골라 새 release를 만들고 활성화하세요.",
+  "slack.profileUnavailable.title": "Slack에서는 세션을 시작할 수 없습니다",
+  "slack.profileUnavailable.body":
+    "활성 release의 프로필({profile})이 지금 카탈로그에 없거나 release 뒤에 바뀌었습니다. Slack 멘션과 DM은 거절되고 스레드에 안내만 남습니다. release 탭에서 카탈로그에 있는 프로필로 새 release를 만들고 활성화하세요.",
+  "slack.noActiveRelease.title": "활성 release가 없습니다",
+  "slack.noActiveRelease.body":
+    "release를 활성화하기 전에는 Slack 멘션과 DM이 거절되고 스레드에 안내만 남습니다. release 탭에서 release를 만들고 활성화하세요.",
   "slack.state.error": "오류",
   "slack.createInstall": "Slack 앱 만들고 설치",
   "slack.install": "Slack 앱 설치",
@@ -86,7 +92,6 @@ export const slackKo = {
   "slack.defaultSaved":
     "새 채널의 기본 반응을 '{mode}'(으)로 바꿨습니다. 이미 연결된 채널은 그대로입니다.",
   "slack.ambient": "항상 반응",
-  "slack.notConfigured": "설정 안 됨",
   "slack.home": "홈 채널",
   "slack.setHome": "홈 지정",
   "slack.channelHome": "{channel} 홈 지정",

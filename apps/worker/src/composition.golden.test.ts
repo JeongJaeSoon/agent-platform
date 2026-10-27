@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { join } from "node:path";
 import type { RuntimeConfig } from "@werft-ai/contracts";
 
-import { claudeClaimFingerprint } from "./composition.ts";
+import { claimFingerprint as claudeClaimFingerprint } from "./composition.ts";
 import type { WorkerConfig } from "./config.ts";
 
 // The fingerprint a worker stamps a claim's checkpoints with, and the one a

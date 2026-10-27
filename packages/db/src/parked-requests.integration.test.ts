@@ -25,8 +25,12 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
-import { revokeExecutionAtomic } from "./execution-revocation.ts";
+import {
+  restoreExecutionAtomic,
+  revokeExecutionAtomic,
+} from "./execution-revocation.ts";
 import { createPostgresTurnInterrupts } from "./interrupt-control.ts";
+import { expireParkedGroups } from "./parked-group.ts";
 import { pauseBlocker } from "./pause-control.ts";
 import { createPostgresWorkerPendingStore } from "./pending-control.ts";
 import {
@@ -44,8 +48,10 @@ import {
   events,
   pendingRequests,
   permissionGrants,
+  queueMessages,
   receipts,
   sessions,
+  turnContinuations,
   turns,
   unassignedSessions,
 } from "./schema.ts";
@@ -87,14 +93,25 @@ const catalog: SessionCatalog = {
   },
 };
 
+async function until(
+  check: () => Promise<boolean>,
+  what: string,
+): Promise<void> {
+  for (let i = 0; i < 250; i += 1) {
+    if (await check()) return;
+    await Bun.sleep(10);
+  }
+  throw new Error(`timed out waiting for ${what}`);
+}
+
 function permission(command = "ls"): RegisterPendingRequest["request"] {
   return { kind: "permission", tool: "Bash", input: { command } };
 }
 
 // A park as the worker will commit it (94S-858): the turn ends interrupted
 // with its open requests marked parked, the worker releases, the execution
-// goes, and the session settles paused for input. Written here row by row,
-// since no worker parks yet.
+// goes, and the session settles paused for input. Most tests write it row by
+// row; the finalize tests go through the worker's own path.
 integration("parked pending requests on PostgreSQL", () => {
   let database: TempDatabase;
   let pool: Pool;
@@ -170,6 +187,26 @@ integration("parked pending requests on PostgreSQL", () => {
       .update(unassignedSessions)
       .set({ partition })
       .where(eq(unassignedSessions.sessionId, sessionId));
+    const { worker } = await claim(sessionId);
+    return { owner, sessionId, worker };
+  }
+
+  // A new worker for the session, handed its next input.
+  async function claim(sessionId: string) {
+    const { principal, scope, executionId, claimed } =
+      await claimOnly(sessionId);
+    const next = await gateway.nextInput(principal, scope);
+    if (!next.input) throw new Error("no input delivered");
+    const worker: Worker = {
+      principal,
+      scope: { ...scope, turn_id: next.input.turn_id },
+      executionId,
+    };
+    return { worker, claimed, input: next.input };
+  }
+
+  // A worker for the session that has claimed it and asked for nothing yet.
+  async function claimOnly(sessionId: string) {
     const { executionId, generation, nonce } = await launchSession(db, {
       sessionId,
     });
@@ -194,14 +231,13 @@ integration("parked pending requests on PostgreSQL", () => {
       execution_generation: claimed.execution_generation,
       auth_revision: claimed.auth_revision,
     };
-    const next = await gateway.nextInput(principal, scope);
-    if (!next.input) throw new Error("no input delivered");
-    const worker: Worker = {
-      principal,
-      scope: { ...scope, turn_id: next.input.turn_id },
-      executionId,
-    };
-    return { owner, sessionId, worker };
+    if (claimed.restore !== null) {
+      await gateway.ready(principal, {
+        ...scope,
+        restored_revision: claimed.restore.revision,
+      });
+    }
+    return { principal, scope, executionId, claimed };
   }
 
   async function register(worker: Worker, inputHash = HASH_A) {
@@ -279,9 +315,11 @@ integration("parked pending requests on PostgreSQL", () => {
     return row;
   }
 
-  // The finalize half of a park: turn 1 interrupted, the given requests
-  // parked. The execution is left for the caller to end.
+  // The finalize half of a park: the worker's turn interrupted, the given
+  // requests parked. The execution is left for the caller to end.
   async function parkRows(worker: Worker, requestIds: string[]) {
+    const sequence = Number(worker.scope.turn_id);
+    const revision = sequence - 1;
     const [turn] = await db
       .update(turns)
       .set({
@@ -292,7 +330,7 @@ integration("parked pending requests on PostgreSQL", () => {
       .where(
         and(
           eq(turns.sessionId, worker.scope.session_id),
-          eq(turns.sequence, 1),
+          eq(turns.sequence, sequence),
         ),
       )
       .returning({ id: turns.id });
@@ -302,15 +340,34 @@ integration("parked pending requests on PostgreSQL", () => {
         .set({ parkedAt: sql`now()` })
         .where(eq(pendingRequests.requestId, requestId));
     }
-    if (!turn) throw new Error("no turn 1");
+    if (!turn) throw new Error(`no turn ${sequence}`);
+    // As finalize does for any outcome it knows.
+    await db.delete(queueMessages).where(eq(queueMessages.turnId, turn.id));
+    // A park always commits the turn_end checkpoint it resumes from.
+    await db.insert(checkpoints).values({
+      sessionId: worker.scope.session_id,
+      revision,
+      manifestRef: `manifests/${worker.scope.session_id}/${revision}`,
+      manifestSha256: "c".repeat(64),
+      parentRevision: revision === 0 ? null : revision - 1,
+      turnId: turn.id,
+    });
+    await db
+      .update(sessions)
+      .set({ checkpointRevision: revision })
+      .where(eq(sessions.id, worker.scope.session_id));
     return turn.id;
   }
 
   // The whole park, ending paused as confirmExecutionGone will leave it.
-  async function parked() {
+  async function parked(count = 1) {
     const running = await runningSession();
-    const requestId = await register(running.worker);
-    const turnRowId = await parkRows(running.worker, [requestId]);
+    const requestIds: string[] = [];
+    for (let i = 0; i < count; i += 1) {
+      requestIds.push(await register(running.worker, String(i).repeat(64)));
+    }
+    const [requestId = ""] = requestIds;
+    const turnRowId = await parkRows(running.worker, requestIds);
     await executionGone(running.worker);
     await db
       .update(sessions)
@@ -320,7 +377,7 @@ integration("parked pending requests on PostgreSQL", () => {
         pauseReason: "awaiting_input",
       })
       .where(eq(sessions.id, running.sessionId));
-    return { ...running, requestId, turnRowId };
+    return { ...running, requestId, requestIds, turnRowId };
   }
 
   async function reads(
@@ -455,19 +512,10 @@ integration("parked pending requests on PostgreSQL", () => {
   test("a park that settles paused reports the session waiting for input", async () => {
     const { owner, sessionId, worker } = await runningSession();
     const requestId = await register(worker);
-    const turnRowId = await parkRows(worker, [requestId]);
-    await db.insert(checkpoints).values({
-      sessionId,
-      revision: 0,
-      manifestRef: `manifests/${sessionId}/0`,
-      manifestSha256: "c".repeat(64),
-      parentRevision: null,
-      turnId: turnRowId,
-    });
+    await parkRows(worker, [requestId]);
     await db
       .update(sessions)
       .set({
-        checkpointRevision: 0,
         admissionState: "pausing",
         pauseReason: "awaiting_input",
         status: "idle",
@@ -501,6 +549,88 @@ integration("parked pending requests on PostgreSQL", () => {
       admission_state: "paused",
     });
     expect((await reads(owner, sessionId)).status).toBe("needs_input");
+  });
+
+  function finalizeParked(worker: Worker, reason: string) {
+    return gateway.finalize(worker.principal, {
+      ...worker.scope,
+      finalize_key: `${worker.scope.attempt_id}:${worker.scope.turn_id}`,
+      final_source_sequence: 0,
+      terminal: { status: "interrupted", reason, result: null, usage: null },
+      checkpoint: {
+        revision: 0,
+        manifest_ref: `manifests/${worker.scope.session_id}/0`,
+        manifest_sha256: "c".repeat(64),
+      },
+    });
+  }
+
+  test("a parking finalize parks what its worker left unsettled, expiring together, and leaves the session idle on it", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const settled = await register(worker);
+    const open = await register(worker, HASH_B);
+    const answeredAfterCut = await register(worker);
+    await answer(owner, sessionId, settled);
+    await poll(worker, [{ request_id: settled, outcome: "answered" }]);
+    await db
+      .update(pendingRequests)
+      .set({ expiresAt: sql`now() + interval '2 hours'` })
+      .where(eq(pendingRequests.requestId, open));
+    await db
+      .update(pendingRequests)
+      .set({ expiresAt: sql`now() + interval '1 hour'` })
+      .where(eq(pendingRequests.requestId, answeredAfterCut));
+    // The worker cut the turn before this answer reached it.
+    await answer(owner, sessionId, answeredAfterCut);
+
+    await finalizeParked(worker, "input_wait_parked");
+
+    const rows = await Promise.all(
+      [settled, open, answeredAfterCut].map(request),
+    );
+    expect(rows.map((row) => row.parkedAt !== null)).toEqual([
+      false,
+      true,
+      true,
+    ]);
+    expect(rows[1]?.expiresAt.getTime()).toBe(rows[2]?.expiresAt.getTime());
+    expect((await sessionRow(sessionId)).status).toBe("idle");
+    expect((await reads(owner, sessionId)).status).toBe("needs_input");
+    const stages = await db
+      .select({ type: events.type, payload: events.payload })
+      .from(events)
+      .where(eq(events.sessionId, sessionId))
+      .orderBy(events.id);
+    const tail = stages.slice(-2);
+    expect(tail[0]?.payload).toEqual({
+      type: "system",
+      subtype: "input_wait",
+      stage: "parked",
+      request_ids: [open, answeredAfterCut].sort(),
+    });
+    expect(tail[1]?.payload).toMatchObject({ phase: "needs_input" });
+
+    // The drain release and the execution going leave the parked rows open.
+    await gateway.release(worker.principal, {
+      ...worker.scope,
+      turn_id: null,
+      reason: "received SIGTERM",
+      stop_kind: "drain",
+    });
+    await executionGone(worker);
+    expect((await request(open)).resolvedAt).toBeNull();
+    expect((await reads(owner, sessionId)).status).toBe("needs_input");
+  });
+
+  test("an interrupted finalize for any other reason parks nothing", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const requestId = await register(worker);
+
+    await finalizeParked(worker, "interrupted");
+
+    expect((await request(requestId)).parkedAt).toBeNull();
+    expect((await sessionRow(sessionId)).status).toBe("stopped");
+    expect((await reads(owner, sessionId)).status).toBe("stopped");
   });
 
   test("pendingControl stamps delivered_at once, when it first hands an answer over", async () => {
@@ -605,6 +735,87 @@ integration("parked pending requests on PostgreSQL", () => {
       admissionState: "stopped",
       pauseReason: null,
     });
+  });
+
+  test("a revoked and restored session carries its parked turn on when resumed from stopped", async () => {
+    const stop = async (sessionId: string) => {
+      const now = new Date();
+      await revokeExecutionAtomic(db, {
+        sessionId,
+        reason: "grant revoked",
+        now,
+      });
+      await restoreExecutionAtomic(db, {
+        sessionId,
+        reason: "grant reissued",
+        now,
+      });
+      expect((await sessionRow(sessionId)).admissionState).toBe("stopped");
+    };
+
+    // Answered first: the revocation cancels the queued turn carrying it,
+    // which leaves the group open again.
+    const before = await parked();
+    await answer(before.owner, before.sessionId, before.requestId);
+    await stop(before.sessionId);
+    expect(await continuations(before.turnRowId)).toEqual([]);
+    // Answered while stopped: kept until the resume.
+    const after = await parked();
+    await stop(after.sessionId);
+    await answer(after.owner, after.sessionId, after.requestId);
+
+    for (const { owner, sessionId, requestId, turnRowId } of [before, after]) {
+      expect((await resumeBy(owner, sessionId)).outcome).toBe("accepted");
+      const queued = (await continuations(turnRowId)).filter(
+        (turn) => turn.status === "queued",
+      );
+      expect(queued).toHaveLength(1);
+      const [grant] = await db
+        .select()
+        .from(permissionGrants)
+        .where(eq(permissionGrants.requestId, requestId));
+      expect(grant?.turnId).toBe(queued[0]?.id);
+    }
+  });
+
+  test("an answer is refused while the stopped session's checkpoint misses a turn that ran", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const requestId = await register(worker);
+    await parkRows(worker, [requestId]);
+    await executionGone(worker);
+    await followUp(owner, sessionId);
+    const later = await claim(sessionId);
+    // Turn 2 ends with no checkpoint, as a background writer can leave it.
+    await gateway.finalize(later.worker.principal, {
+      ...later.worker.scope,
+      finalize_key: `${later.worker.scope.attempt_id}:2`,
+      final_source_sequence: 0,
+      terminal: {
+        status: "completed",
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: null,
+    });
+    const now = new Date();
+    await revokeExecutionAtomic(db, {
+      sessionId,
+      reason: "grant revoked",
+      now,
+    });
+    await executionGone(later.worker);
+    await restoreExecutionAtomic(db, {
+      sessionId,
+      reason: "grant reissued",
+      now,
+    });
+    expect((await sessionRow(sessionId)).admissionState).toBe("stopped");
+
+    expect(await failure(answer(owner, sessionId, requestId))).toBe(
+      "CHECKPOINT_UNAVAILABLE",
+    );
+    expect((await request(requestId)).answeredAt).toBeNull();
   });
 
   test("a close, an interrupt or a recovery close or start_fresh cancels the parked requests", async () => {
@@ -837,6 +1048,10 @@ integration("parked pending requests on PostgreSQL", () => {
     );
     expect(result.rows).toEqual([
       {
+        conname: "permission_grants_attempt_id_attempts_id_fk",
+        confdeltype: "a",
+      },
+      {
         conname: "permission_grants_request_id_pending_requests_request_id_fk",
         confdeltype: "c",
       },
@@ -1064,7 +1279,22 @@ integration("parked pending requests on PostgreSQL", () => {
       () => null,
       (error: unknown) => error,
     );
-    await Bun.sleep(600);
+    // The decline must be queued behind the lock, and its lease over, by the
+    // time the lock is let go.
+    await until(async () => {
+      const { rows } = await pool.query(
+        `SELECT 1 FROM pg_stat_activity WHERE datname = current_database()
+           AND wait_event_type = 'Lock'`,
+      );
+      return rows.length > 0;
+    }, "the decline to wait on the receipt lock");
+    await until(async () => {
+      const { rows } = await pool.query(
+        "SELECT lease_expires_at < clock_timestamp() AS lapsed FROM attempts WHERE id = $1",
+        [worker.scope.attempt_id],
+      );
+      return rows[0]?.lapsed === true;
+    }, "the lease to end");
     release();
     await holder;
     const error = await declined;
@@ -1269,5 +1499,638 @@ integration("parked pending requests on PostgreSQL", () => {
     expect(
       (await sessionRow(accepted.response.session_id)).permissionWaitOverride,
     ).toEqual({ park_after_seconds: 0 });
+  });
+
+  function answerWith(
+    owner: Parameters<typeof service.answer>[0],
+    sessionId: string,
+    body: PostSessionAnswerRequest,
+  ) {
+    return service.answer(owner, sessionId, {
+      idempotencyKey: crypto.randomUUID(),
+      body,
+    });
+  }
+
+  function continuations(parkedTurnRowId: number) {
+    return db
+      .select({ turn: turns })
+      .from(turnContinuations)
+      .innerJoin(turns, eq(turns.id, turnContinuations.turnId))
+      .where(eq(turnContinuations.parkedTurnId, parkedTurnRowId))
+      .then((rows) => rows.map((row) => row.turn));
+  }
+
+  async function resumeBy(
+    owner: ReturnType<typeof testCaller>,
+    sessionId: string,
+  ) {
+    return controls().resumeAtomic({
+      principal: owner,
+      sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      expectedRevision: (await sessionRow(sessionId)).revision,
+      now: new Date(),
+    });
+  }
+
+  function followUp(owner: ReturnType<typeof testCaller>, sessionId: string) {
+    return createPostgresSessionUnitOfWork(db).appendInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
+      principal: owner,
+      sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      message: "and then this",
+    });
+  }
+
+  function completed(worker: Worker) {
+    return gateway.finalize(worker.principal, {
+      ...worker.scope,
+      finalize_key: `${worker.scope.attempt_id}:${worker.scope.turn_id}`,
+      final_source_sequence: 0,
+      terminal: {
+        status: "completed",
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: {
+        revision: Number(worker.scope.turn_id) - 1,
+        manifest_ref: `manifests/${worker.scope.session_id}/${worker.scope.turn_id}`,
+        manifest_sha256: "c".repeat(64),
+      },
+    });
+  }
+
+  test("an answer the parked turn could not resume on is refused and not stored", async () => {
+    // The first answer of the group is the one refused.
+    const bare = await parked(2);
+    await db
+      .update(sessions)
+      .set({ checkpointRevision: null })
+      .where(eq(sessions.id, bare.sessionId));
+    expect(
+      await failure(answer(bare.owner, bare.sessionId, bare.requestId)),
+    ).toBe("CHECKPOINT_UNAVAILABLE");
+    expect((await request(bare.requestId)).answeredAt).toBeNull();
+
+    const unknown = await parked();
+    await db
+      .update(turns)
+      .set({ status: "outcome_unknown" })
+      .where(eq(turns.id, unknown.turnRowId));
+    expect(
+      await failure(
+        answer(unknown.owner, unknown.sessionId, unknown.requestId),
+      ),
+    ).toBe("RECOVERY_REQUIRED");
+    expect((await request(unknown.requestId)).answeredAt).toBeNull();
+    expect(await continuations(unknown.turnRowId)).toEqual([]);
+
+    // Held for an operator with no turn of unknown outcome, as restores
+    // that kept failing leave it.
+    const held = await parked();
+    await db
+      .update(sessions)
+      .set({ admissionState: "recovery_required", status: "failed" })
+      .where(eq(sessions.id, held.sessionId));
+    expect(
+      await failure(answer(held.owner, held.sessionId, held.requestId)),
+    ).toBe("RECOVERY_REQUIRED");
+    expect((await request(held.requestId)).answeredAt).toBeNull();
+  });
+
+  test("answers that would not fit the turn carrying them on are refused", async () => {
+    const { owner, sessionId, requestIds, turnRowId } = await parked(2);
+    const [first = "", second = ""] = requestIds;
+    const deny = (requestId: string) =>
+      answerWith(owner, sessionId, {
+        request_id: requestId,
+        kind: "permission",
+        decision: "deny",
+        reason: "x".repeat(20 * 1024),
+      });
+    expect((await deny(first)).receipt_status).toBe("accepted");
+    expect(await failure(deny(second))).toBe("BAD_REQUEST");
+    expect((await request(second)).answeredAt).toBeNull();
+    expect(await continuations(turnRowId)).toEqual([]);
+  });
+
+  test("the last answer of a paused park resumes it, its allows granted to the turn that carries it on", async () => {
+    const { owner, sessionId, requestIds, turnRowId } = await parked(2);
+    const [allowed = "", denied = ""] = requestIds;
+    const first = await answerWith(owner, sessionId, {
+      request_id: allowed,
+      kind: "permission",
+      decision: "allow",
+    });
+    expect(first).toMatchObject({ resumed: false, waiting_for: 1 });
+    expect(await continuations(turnRowId)).toEqual([]);
+    expect((await sessionRow(sessionId)).admissionState).toBe("paused");
+
+    // Answered through a stored key, which a receipt names.
+    const byKey = {
+      ...owner,
+      actor: {
+        principal: { kind: "api_key" as const, id: crypto.randomUUID() },
+        userId: null,
+        workspaceId: null,
+        apiKeyId: null,
+      },
+    };
+    const last = await answerWith(byKey, sessionId, {
+      request_id: denied,
+      kind: "permission",
+      decision: "deny",
+      reason: "not that one",
+    });
+    expect(last).toMatchObject({ resumed: true, waiting_for: 0 });
+    const [carried] = await continuations(turnRowId);
+    expect(carried?.message).toContain("Bash call: allowed");
+    expect(carried?.message).toContain(
+      "Bash call: denied. Reason: not that one",
+    );
+    expect(await sessionRow(sessionId)).toMatchObject({
+      admissionState: "resuming",
+      pauseReason: null,
+    });
+    const resumeReceipts = await db
+      .select()
+      .from(receipts)
+      .where(
+        and(
+          eq(receipts.operation, "resume"),
+          sql`${receipts.targetRef}->>'session_id' = ${sessionId}`,
+        ),
+      );
+    expect(resumeReceipts).toHaveLength(1);
+    expect(resumeReceipts[0]?.status).toBe("accepted");
+    expect(resumeReceipts[0]?.actor).toEqual({
+      principal: byKey.actor.principal,
+      actor_user_id: null,
+      agent_id: null,
+    });
+    expect(
+      await db
+        .select({
+          requestId: permissionGrants.requestId,
+          turnId: permissionGrants.turnId,
+        })
+        .from(permissionGrants)
+        .where(eq(permissionGrants.sessionId, sessionId)),
+    ).toEqual([{ requestId: allowed, turnId: carried?.id ?? -1 }]);
+
+    // The new worker gets the grant and the carrying turn first. Handing
+    // that turn over delivers the denial; the allow waits on its grant.
+    const next = await claim(sessionId);
+    expect(next.input.turn_id).toBe(String(carried?.sequence));
+    expect(next.claimed.grants).toEqual([
+      {
+        request_id: allowed,
+        turn_id: String(carried?.sequence),
+        tool: "Bash",
+        input_hash: "0".repeat(64),
+      },
+    ]);
+    expect((await receipt(last.receipt_id))?.status).toBe("succeeded");
+    expect((await receipt(first.receipt_id))?.status).toBe("accepted");
+
+    // The turn ended without making the allowed call again.
+    await gateway.pendingControl(next.worker.principal, {
+      ...next.worker.scope,
+      answers_after: 0,
+      settled: [],
+      delivered: [{ request_id: allowed, outcome: "grant_unused" }],
+    });
+    expect(await receipt(first.receipt_id)).toMatchObject({
+      status: "failed",
+      error: { code: "REQUEST_STALE" },
+    });
+    expect(await request(allowed)).toMatchObject({
+      settledOutcome: "answered",
+      settledAnswerResult: null,
+    });
+    const [grant] = await db
+      .select()
+      .from(permissionGrants)
+      .where(eq(permissionGrants.requestId, allowed));
+    expect(grant?.consumedAt).toBeNull();
+  });
+
+  test("answers kept before their turn parked still carry it on, cut to fit one message", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const first = await register(worker);
+    const second = await register(worker, HASH_B);
+    for (const requestId of [first, second]) {
+      await answerWith(owner, sessionId, {
+        request_id: requestId,
+        kind: "permission",
+        decision: "deny",
+        reason: "x".repeat(20 * 1024),
+      });
+    }
+    const turnRowId = await parkRows(worker, [first, second]);
+    await executionGone(worker);
+
+    const [carried] = await continuations(turnRowId);
+    expect(carried?.message).toContain("[cut to fit]");
+    expect(
+      new TextEncoder().encode(carried?.message ?? "").length,
+    ).toBeLessThanOrEqual(32 * 1024);
+  });
+
+  test("an interrupt of a parked turn already carried on cancels nothing a worker may hold", async () => {
+    const { owner, sessionId, requestId } = await parked();
+    expect(await answer(owner, sessionId, requestId)).toMatchObject({
+      resumed: true,
+    });
+    // The claim carries the grant before the interrupt arrives.
+    const early = await claimOnly(sessionId);
+    expect(early.claimed.grants).toEqual([
+      expect.objectContaining({ request_id: requestId }),
+    ]);
+    const interrupt = await createPostgresTurnInterrupts(db).interruptAtomic({
+      principal: owner,
+      sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      targetTurnId: "1",
+    });
+    expect(interrupt.outcome).toBe("accepted");
+    const row = await request(requestId);
+    expect(row.settledOutcome).toBeNull();
+    expect((await receipt(row.answerReceiptId ?? ""))?.status).toBe("accepted");
+
+    const next = await gateway.nextInput(early.principal, early.scope);
+    expect(next.input?.turn_id).toBe("2");
+  });
+
+  test("after a drain park the turn that carries it on runs after input already queued", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const requestId = await register(worker);
+    const turnRowId = await parkRows(worker, [requestId]);
+    await executionGone(worker);
+    expect((await sessionRow(sessionId)).admissionState).toBe("active");
+    expect((await followUp(owner, sessionId)).outcome).toBe("accepted");
+
+    expect(await answer(owner, sessionId, requestId)).toMatchObject({
+      resumed: true,
+      waiting_for: 0,
+    });
+    const [carried] = await continuations(turnRowId);
+    // Turns run in sequence order: a checkpoint of the later one never
+    // stands for a turn that ran after it.
+    const next = await claim(sessionId);
+    expect(next.input.turn_id).toBe("2");
+    await completed(next.worker);
+    const after = await gateway.nextInput(
+      next.worker.principal,
+      next.worker.scope,
+    );
+    expect(after.input?.turn_id).toBe(String(carried?.sequence));
+    expect(carried?.sequence).toBe(3);
+    await completed({
+      ...next.worker,
+      scope: { ...next.worker.scope, turn_id: "3" },
+    });
+    await executionGone(next.worker);
+    expect((await sessionRow(sessionId)).admissionState).toBe("active");
+  });
+
+  // Turn 1 drain-parked and left open, then turn 2 parked behind it by the
+  // system, both groups waiting.
+  async function twoParks() {
+    const { owner, sessionId, worker } = await runningSession();
+    const first = await register(worker);
+    const firstTurn = await parkRows(worker, [first]);
+    await executionGone(worker);
+    await followUp(owner, sessionId);
+    const later = await claim(sessionId);
+    const second = await register(later.worker, HASH_B);
+    const secondTurn = await parkRows(later.worker, [second]);
+    await executionGone(later.worker);
+    await db
+      .update(sessions)
+      .set({
+        admissionState: "paused",
+        status: "idle",
+        pauseReason: "awaiting_input",
+      })
+      .where(eq(sessions.id, sessionId));
+    return { owner, sessionId, first, firstTurn, second, secondTurn };
+  }
+
+  test("an answer to an earlier drain park carries it on while a later park still waits", async () => {
+    const { owner, sessionId, first, firstTurn, second, secondTurn } =
+      await twoParks();
+
+    expect(await answer(owner, sessionId, first)).toMatchObject({
+      resumed: false,
+      waiting_for: 1,
+    });
+    expect(await continuations(firstTurn)).toHaveLength(1);
+    expect((await sessionRow(sessionId)).admissionState).toBe("paused");
+
+    expect(await answer(owner, sessionId, second)).toMatchObject({
+      resumed: true,
+      waiting_for: 0,
+    });
+    expect(await continuations(secondTurn)).toHaveLength(1);
+    expect(await continuations(firstTurn)).toHaveLength(1);
+    expect((await sessionRow(sessionId)).admissionState).toBe("resuming");
+  });
+
+  test("interrupting the park still waiting lifts the pause for the one already carried on", async () => {
+    const { owner, sessionId, first, firstTurn } = await twoParks();
+    await answer(owner, sessionId, first);
+    expect((await sessionRow(sessionId)).admissionState).toBe("paused");
+
+    const interrupt = await createPostgresTurnInterrupts(db).interruptAtomic({
+      principal: owner,
+      sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      targetTurnId: "2",
+    });
+    expect(interrupt.outcome).toBe("accepted");
+    expect((await sessionRow(sessionId)).admissionState).toBe("resuming");
+    const [carried] = await continuations(firstTurn);
+    expect((await claim(sessionId)).input.turn_id).toBe(
+      String(carried?.sequence),
+    );
+  });
+
+  test("interrupting a park that already expired still lifts the pause", async () => {
+    const { owner, sessionId, first, firstTurn, second } = await twoParks();
+    await answer(owner, sessionId, first);
+    await db
+      .update(pendingRequests)
+      .set({ expiresAt: sql`now() - interval '1 minute'` })
+      .where(eq(pendingRequests.requestId, second));
+    await expireParkedGroups(db, { limit: 1_000, dryRun: false });
+    expect((await request(second)).settledOutcome).toBe("expired");
+    expect((await sessionRow(sessionId)).admissionState).toBe("paused");
+
+    const interrupt = await createPostgresTurnInterrupts(db).interruptAtomic({
+      principal: owner,
+      sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      targetTurnId: "2",
+    });
+    expect(interrupt.outcome).toBe("accepted");
+    expect((await request(second)).settledOutcome).toBe("cancelled");
+    expect((await sessionRow(sessionId)).admissionState).toBe("resuming");
+    expect(await continuations(firstTurn)).toHaveLength(1);
+  });
+
+  test("a drain park whose requests all expired carries on with the denials", async () => {
+    const { sessionId, worker } = await runningSession();
+    const requestId = await register(worker);
+    const turnRowId = await parkRows(worker, [requestId]);
+    await executionGone(worker);
+    await db
+      .update(pendingRequests)
+      .set({ expiresAt: sql`now() - interval '1 minute'` })
+      .where(eq(pendingRequests.requestId, requestId));
+
+    await expireParkedGroups(db, { limit: 1_000, dryRun: false });
+    const [carried] = await continuations(turnRowId);
+    expect(carried?.message).toContain("nobody answered");
+    expect((await sessionRow(sessionId)).admissionState).toBe("active");
+  });
+
+  test("an answer while the park drains is only stored; the drain's end carries the turn on", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const requestId = await register(worker);
+    await openPark(owner, sessionId);
+    const turnRowId = await parkRows(worker, [requestId]);
+    expect(await answer(owner, sessionId, requestId)).toMatchObject({
+      resumed: false,
+      waiting_for: 0,
+    });
+    expect(await continuations(turnRowId)).toEqual([]);
+
+    await executionGone(worker);
+    expect(await continuations(turnRowId)).toHaveLength(1);
+    expect((await sessionRow(sessionId)).admissionState).toBe("resuming");
+  });
+
+  test("under a person's pause an answer is only stored, and their resume waits for every answer", async () => {
+    const { owner, sessionId, requestIds, turnRowId } = await parked(2);
+    const [first = "", second = ""] = requestIds;
+    const taken = await controls().pauseAtomic({
+      principal: owner,
+      sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      expectedRevision: (await sessionRow(sessionId)).revision,
+      reason: "mine now",
+      now: new Date(),
+    });
+    expect(taken.outcome).toBe("accepted");
+
+    expect(await answer(owner, sessionId, first)).toMatchObject({
+      resumed: false,
+      waiting_for: 1,
+    });
+    expect(await resumeBy(owner, sessionId)).toEqual({
+      outcome: "pending_requests_open",
+      waitingFor: 1,
+    });
+    expect(await answer(owner, sessionId, second)).toMatchObject({
+      resumed: false,
+      waiting_for: 0,
+    });
+    expect(await continuations(turnRowId)).toEqual([]);
+    expect((await sessionRow(sessionId)).admissionState).toBe("paused");
+
+    expect((await resumeBy(owner, sessionId)).outcome).toBe("accepted");
+    expect(await continuations(turnRowId)).toHaveLength(1);
+    expect((await sessionRow(sessionId)).admissionState).toBe("resuming");
+  });
+
+  test("expiry carries a group on when another of its requests was answered, and leaves an all-expired one paused", async () => {
+    const lapse = (requestId: string) =>
+      db
+        .update(pendingRequests)
+        .set({ expiresAt: sql`now() - interval '1 second'` })
+        .where(eq(pendingRequests.requestId, requestId));
+
+    const mixed = await parked(2);
+    const [answered = "", lapsed = ""] = mixed.requestIds;
+    await answer(mixed.owner, mixed.sessionId, answered);
+    await lapse(lapsed);
+    expect(
+      await expireParkedGroups(db, { limit: 1_000, dryRun: false }),
+    ).toContain(mixed.sessionId);
+    expect((await request(lapsed)).settledOutcome).toBe("expired");
+    const [carried] = await continuations(mixed.turnRowId);
+    expect(carried?.message).toContain("Bash call: allowed");
+    expect(carried?.message).toContain(
+      "Bash call: nobody answered before it expired, so it is denied.",
+    );
+    expect((await sessionRow(mixed.sessionId)).admissionState).toBe("resuming");
+
+    const silent = await parked();
+    await lapse(silent.requestId);
+    expect(
+      await expireParkedGroups(db, { limit: 1_000, dryRun: true }),
+    ).toContain(silent.sessionId);
+    expect((await request(silent.requestId)).settledOutcome).toBeNull();
+    await expireParkedGroups(db, { limit: 1_000, dryRun: false });
+    expect((await request(silent.requestId)).settledOutcome).toBe("expired");
+    expect(await continuations(silent.turnRowId)).toEqual([]);
+    expect(await sessionRow(silent.sessionId)).toMatchObject({
+      admissionState: "paused",
+      pauseReason: "awaiting_input",
+    });
+    expect((await systemEvents(silent.sessionId)).at(-1)?.payload).toEqual({
+      type: "system",
+      subtype: "input_wait",
+      stage: "expired",
+      request_ids: [silent.requestId],
+    });
+    // A person carries it on, the turn told nobody answered.
+    expect((await resumeBy(silent.owner, silent.sessionId)).outcome).toBe(
+      "accepted",
+    );
+    const [told] = await continuations(silent.turnRowId);
+    expect(told?.message).toContain("nobody answered before it expired");
+    expect(
+      await db
+        .select()
+        .from(permissionGrants)
+        .where(eq(permissionGrants.sessionId, silent.sessionId)),
+    ).toEqual([]);
+  });
+
+  test("request_park pauses the session for input once, and only for a turn a person must end", async () => {
+    const { sessionId, worker } = await runningSession();
+    const parkOf = (who: Worker, turnId = who.scope.turn_id) =>
+      gateway.requestPark(who.principal, { ...who.scope, turn_id: turnId });
+    const status = (work: Promise<unknown>) =>
+      work.then(
+        () => null,
+        (error) =>
+          error instanceof WorkerGatewayError ? error.status : Number.NaN,
+      );
+
+    // Nothing open to wait on.
+    expect(await status(parkOf(worker))).toBe(409);
+    expect(await status(parkOf(worker, "99"))).toBe(404);
+
+    await register(worker);
+    const opened = await parkOf(worker);
+    expect(await sessionRow(sessionId)).toMatchObject({
+      admissionState: "pausing",
+      pauseReason: "awaiting_input",
+    });
+    expect(await receipt(opened.pause_control_id)).toMatchObject({
+      operation: "pause",
+      status: "accepted",
+      actor: null,
+    });
+    // A resent request is the same park.
+    expect(await parkOf(worker)).toEqual(opened);
+    expect((await poll(worker)).control).toMatchObject({
+      control_id: opened.pause_control_id,
+      kind: "park",
+    });
+  });
+
+  test("retry_restore of a parked session reports it waiting for input", async () => {
+    const { owner, sessionId, requestId } = await parked();
+    // Its restores kept failing.
+    await db
+      .update(sessions)
+      .set({
+        admissionState: "recovery_required",
+        status: "failed",
+        restoreFailureCount: 100,
+      })
+      .where(eq(sessions.id, sessionId));
+    const decided = await controls().decideRecoveryAtomic({
+      principal: owner,
+      sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      decision: {
+        decision: "retry_restore",
+        expected_revision: (await sessionRow(sessionId)).revision,
+        reason: "try again",
+      },
+      now: new Date(),
+    });
+    expect(decided.outcome).toBe("accepted");
+    expect((await request(requestId)).resolvedAt).toBeNull();
+    const [last] = await db
+      .select({ payload: events.payload })
+      .from(events)
+      .where(and(eq(events.sessionId, sessionId), eq(events.type, "status")))
+      .orderBy(desc(events.id))
+      .limit(1);
+    expect(last?.payload).toMatchObject({ phase: "needs_input" });
+    expect((await reads(owner, sessionId)).status).toBe("needs_input");
+  });
+  test("an attempt that claimed before a grant existed goes, and the next claim carries it", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const requestId = await register(worker);
+    const turnRowId = await parkRows(worker, [requestId]);
+    await executionGone(worker);
+    // Another worker is already up on the drain-parked session when the
+    // answer comes, launched for a follow-up message.
+    expect((await followUp(owner, sessionId)).outcome).toBe("accepted");
+    const early = await claimOnly(sessionId);
+    expect(early.claimed.grants).toBeUndefined();
+    expect(await answer(owner, sessionId, requestId)).toMatchObject({
+      resumed: true,
+    });
+    const [carried] = await continuations(turnRowId);
+    const followed = await gateway.nextInput(early.principal, early.scope);
+    expect(followed.input?.turn_id).toBe("2");
+    await completed({
+      principal: early.principal,
+      scope: { ...early.scope, turn_id: "2" },
+      executionId: early.executionId,
+    });
+
+    expect(await gateway.nextInput(early.principal, early.scope)).toMatchObject(
+      { input: null, draining: true },
+    );
+    // Nothing was handed over: the carrying turn waits.
+    const [waiting] = await continuations(turnRowId);
+    expect(waiting?.status).toBe("queued");
+    await executionGone({ ...worker, executionId: early.executionId });
+
+    const next = await claim(sessionId);
+    expect(next.claimed.grants).toEqual([
+      expect.objectContaining({
+        request_id: requestId,
+        turn_id: String(carried?.sequence),
+      }),
+    ]);
+    expect(next.input.turn_id).toBe(String(carried?.sequence));
+  });
+
+  test("an allow the gone execution never reported on ends unknown", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const requestId = await register(worker);
+    await parkRows(worker, [requestId]);
+    await executionGone(worker);
+    const answered = await answer(owner, sessionId, requestId);
+    const next = await claim(sessionId);
+
+    await executionGone(next.worker);
+    expect(await request(requestId)).toMatchObject({
+      settledOutcome: "lost",
+    });
+    expect(await receipt(answered.receipt_id)).toMatchObject({
+      status: "unknown",
+      error: { code: "REQUEST_STALE" },
+    });
   });
 });

@@ -1,8 +1,10 @@
-import type {
-  CreateWorkspaceProfileRequest,
-  ListProfilesResponse,
-  ProfileSummary,
-  WorkspaceProfileChangeResponse,
+import {
+  type CreateWorkspaceProfileRequest,
+  type ListProfilesResponse,
+  type ProfileDerivationPolicy,
+  type ProfileSummary,
+  WORKSPACE_PROFILE_POLICY,
+  type WorkspaceProfileChangeResponse,
 } from "@werft-ai/contracts";
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import { NOT_FOUND } from "../musterrolle/service-errors.ts";
@@ -10,9 +12,8 @@ import type { TeamActor } from "../ports/team-store.ts";
 import type { WorkspaceProfileStore } from "../ports/workspace-profile-store.ts";
 import {
   type CatalogProfileView,
+  derivationPolicyOf,
   isUnmetered,
-  narrowedProfile,
-  narrowingRefusal,
   profileFingerprint,
   profileModels,
   repositoryModeOf,
@@ -37,6 +38,7 @@ export const WORKSPACE_PROFILE_REFRESH_MS = 10_000;
 export function createWorkspaceProfiles(
   store: Pick<WorkspaceProfileStore, "listAll">,
   now: () => number = Date.now,
+  policy: ProfileDerivationPolicy = WORKSPACE_PROFILE_POLICY,
 ): WorkspaceProfiles {
   let records: ReadonlyMap<string, WorkspaceProfileRecord> = new Map();
   let readAt = Number.NEGATIVE_INFINITY;
@@ -44,6 +46,7 @@ export function createWorkspaceProfiles(
   let applied = 0;
   let latest: { startedAt: number; done: Promise<void> } | null = null;
   return {
+    policy,
     get records() {
       return records;
     },
@@ -72,7 +75,13 @@ export function createWorkspaceProfiles(
   };
 }
 
-function summaryOf(id: string, profile: CatalogProfileView) {
+/** `trustedId` is the operator profile a repository's allow list names. */
+function summaryOf(
+  catalog: SessionCatalogView,
+  id: string,
+  trustedId: string,
+  profile: CatalogProfileView,
+) {
   return {
     id,
     model: profile.model,
@@ -83,6 +92,13 @@ function summaryOf(id: string, profile: CatalogProfileView) {
     runtime_version: profile.runtime_version,
     billing: isUnmetered(profile) ? ("none" as const) : ("metered" as const),
     repository_mode: repositoryModeOf(profile),
+    repository_ids:
+      repositoryModeOf(profile) === "none"
+        ? []
+        : Object.entries(catalog.repositories)
+            .filter(([, repository]) => repository.profiles.includes(trustedId))
+            .map(([repositoryId]) => repositoryId)
+            .sort(),
   };
 }
 
@@ -95,7 +111,12 @@ function workspaceSummary(
     : undefined;
   return {
     ...(base
-      ? summaryOf(record.id, narrowedProfile(base, record))
+      ? summaryOf(
+          catalog,
+          record.id,
+          record.base_profile_id,
+          derivationPolicyOf(catalog).apply(base, record),
+        )
       : {
           id: record.id,
           model: record.model,
@@ -109,6 +130,7 @@ function workspaceSummary(
           runtime_version: record.base_runtime_version,
           billing: record.base_billing,
           repository_mode: record.base_repository_mode,
+          repository_ids: [],
         }),
     source: "workspace",
     workspace: {
@@ -131,7 +153,7 @@ export function listCatalogProfiles(
     a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   const operator = Object.entries(catalog.profiles).map(
     ([id, profile]): ProfileSummary => ({
-      ...summaryOf(id, profile),
+      ...summaryOf(catalog, id, id, profile),
       source: "operator",
     }),
   );
@@ -223,7 +245,7 @@ export function createWorkspaceProfileService(deps: {
         tools: [...new Set(request.tools)],
         permission_mode: request.permission_mode,
       };
-      const refusal = narrowingRefusal(base, narrowing);
+      const refusal = derivationPolicyOf(catalog).refusal(base, narrowing);
       if (refusal !== null) {
         throw new SessionServiceError(
           "BAD_REQUEST",

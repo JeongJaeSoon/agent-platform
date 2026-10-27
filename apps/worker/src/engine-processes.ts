@@ -1,6 +1,6 @@
 import { readdir, readFile, readlink } from "node:fs/promises";
 import { join } from "node:path";
-import type { RuntimeProcessObserver } from "@werft-ai/runtime-claude";
+import type { RuntimeProcessObserver } from "@werft-ai/runtime-core";
 
 /** What the host needs to know about the engine processes it started. */
 export type EngineExitWatch = {

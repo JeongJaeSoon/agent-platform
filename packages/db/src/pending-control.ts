@@ -1,11 +1,18 @@
-import { postSessionAnswerRequestSchema } from "@werft-ai/contracts";
+import {
+  type PendingSettlement,
+  postSessionAnswerRequestSchema,
+} from "@werft-ai/contracts";
 import type {
+  InvalidateApprovalCheckpointInput,
+  InvalidateApprovalCheckpointResult,
   ParkDeclinedInput,
   ParkDeclinedResult,
   PendingControlInput,
   PendingControlResult,
   RegisterPendingInput,
   RegisterPendingResult,
+  RequestParkInput,
+  RequestParkResult,
   WorkerFence,
   WorkerPendingStore,
 } from "@werft-ai/platform";
@@ -13,10 +20,19 @@ import { and, asc, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { OPEN_TURN_STATUSES, parseTurnSequence } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
 import { DRAINING_STATES, drainOf, openDrainReceipt } from "./drain.ts";
-import { openPauseReceipt } from "./pause-control.ts";
+import { acquireFence, leaseHeld } from "./fence.ts";
+import { lockDeliveredParked, settleParkedDeliveries } from "./parked-group.ts";
+import { openPauseReceipt, openSystemPark } from "./pause-control.ts";
 import { awaitingInputAt, publicStatus } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
-import { pendingRequests, receipts, sessions, turns } from "./schema.ts";
+import {
+  approvalCheckpoints,
+  approvalCheckpointVoids,
+  pendingRequests,
+  receipts,
+  sessions,
+  turns,
+} from "./schema.ts";
 import {
   announceInputWaitEnded,
   inputWaitBefore,
@@ -24,29 +40,55 @@ import {
   recordStatus,
 } from "./session-events.ts";
 import { openInterruptFor, turnInterruptPending } from "./turn-interrupts.ts";
-import { acquireFence, leaseHeld } from "./worker-unit-of-work.ts";
+
+const CANCELLED_BEFORE_ANSWER = {
+  park: "the turn was parked before the answer reached the request",
+  shutdown: "the worker shut down before the answer reached the request",
+  interrupt: "the turn was interrupted before the answer reached the request",
+  refused: "the worker refused the answer for this request",
+} satisfies Record<NonNullable<PendingSettlement["reason"]>, string>;
 
 // What the worker's word does to the answer's receipt. `answered` means the
-// callback got it, whatever it decided; the other two mean the answer was
-// dropped, so the person who gave it learns it did nothing.
-const RECEIPT_BY_OUTCOME = {
-  answered: { status: "succeeded" as const, error: null },
-  expired: {
-    status: "failed" as const,
-    error: {
-      code: "REQUEST_EXPIRED",
-      message:
-        "the request timed out on the worker before the answer reached it",
-    },
-  },
-  cancelled: {
+// callback got it, whatever it decided, unless the run could not say it held
+// the request: then nobody knows whether the engine acted on it. The others
+// mean the answer was dropped, so the person who gave it learns it did
+// nothing, and why when the worker said.
+function receiptEffect(settlement: PendingSettlement) {
+  if (settlement.outcome === "answered") {
+    return settlement.answer_result === "unknown"
+      ? {
+          status: "unknown" as const,
+          error: {
+            code: "REQUEST_STALE",
+            message:
+              "the engine did not know the request when the answer reached it, so it may or may not have acted on it",
+          },
+        }
+      : { status: "succeeded" as const, error: null };
+  }
+  if (settlement.outcome === "expired") {
+    return {
+      status: "failed" as const,
+      error: {
+        code: "REQUEST_EXPIRED",
+        message:
+          "the request timed out on the worker before the answer reached it",
+      },
+    };
+  }
+  return {
     status: "failed" as const,
     error: {
       code: "REQUEST_STALE",
-      message: "the request's callback was gone before the answer reached it",
+      message:
+        settlement.answer_result === "stale"
+          ? "the engine had already closed the request when the answer reached it"
+          : settlement.reason !== undefined
+            ? CANCELLED_BEFORE_ANSWER[settlement.reason]
+            : "the request's callback was gone before the answer reached it",
     },
-  },
-};
+  };
+}
 
 // The event a worker that hands publication over would have published: the
 // display copy it registered, which is already redacted, plus the expiry
@@ -176,6 +218,33 @@ export function createPostgresWorkerPendingStore(
             now: at,
           });
         }
+        const checkpoint = input.checkpoint;
+        if (checkpoint !== undefined) {
+          const [voided] = await tx
+            .select({ at: approvalCheckpointVoids.voidedAt })
+            .from(approvalCheckpointVoids)
+            .where(
+              and(
+                eq(approvalCheckpointVoids.manifestRef, checkpoint.manifestRef),
+                eq(approvalCheckpointVoids.sessionId, fence.sessionId),
+                eq(approvalCheckpointVoids.attemptId, fence.attemptId),
+              ),
+            );
+          await tx.insert(approvalCheckpoints).values({
+            manifestRef: checkpoint.manifestRef,
+            sessionId: fence.sessionId,
+            revision: checkpoint.revision,
+            manifestSha256: checkpoint.manifestSha256,
+            manifestVersion: checkpoint.manifestVersion ?? null,
+            versionsHeld: checkpoint.versionsHeld,
+            transcriptBytes: checkpoint.transcriptBytes ?? null,
+            attemptId: fence.attemptId,
+            turnId: turn.id,
+            answersThrough: checkpoint.answersThrough,
+            createdAt: at,
+            invalidatedAt: voided?.at ?? null,
+          });
+        }
         await tx.insert(pendingRequests).values({
           requestId: input.requestId,
           sessionId: fence.sessionId,
@@ -188,7 +257,26 @@ export function createPostgresWorkerPendingStore(
           createdAt: at,
           toolUseId: input.announce?.tool_use_id ?? null,
           tool: input.announce?.tool ?? null,
+          checkpointRef: checkpoint?.manifestRef ?? null,
         });
+        if (checkpoint !== undefined) {
+          // The engine was still waiting on every row of the turn no answer
+          // has reached yet when this was captured, so it covers them too;
+          // the checkpoint they were bound to is left for collection.
+          await tx
+            .update(pendingRequests)
+            .set({ checkpointRef: checkpoint.manifestRef })
+            .where(
+              and(
+                eq(pendingRequests.sessionId, fence.sessionId),
+                eq(pendingRequests.turnId, turn.id),
+                eq(pendingRequests.attemptId, fence.attemptId),
+                isNull(pendingRequests.settledAt),
+                isNull(pendingRequests.deliveredAt),
+                isNull(pendingRequests.parkedAt),
+              ),
+            );
+        }
         if (input.announce !== undefined) {
           // The question first, then the status it opens, in this
           // transaction: a client never sees needs_input for a question it
@@ -223,6 +311,42 @@ export function createPostgresWorkerPendingStore(
       });
     },
 
+    invalidateApprovalCheckpointAtomic(
+      input: InvalidateApprovalCheckpointInput,
+    ): Promise<InvalidateApprovalCheckpointResult> {
+      const { fence } = input;
+      return db.transaction(async (tx) => {
+        const fenced = await acquireFence(tx, fence);
+        if (fenced.outcome !== "ok") return fenced;
+        const at = await dbNow(tx);
+        const voided = await tx
+          .update(approvalCheckpoints)
+          .set({
+            invalidatedAt: sql`coalesce(${approvalCheckpoints.invalidatedAt}, ${at})`,
+          })
+          .where(
+            and(
+              eq(approvalCheckpoints.manifestRef, input.manifestRef),
+              eq(approvalCheckpoints.sessionId, fence.sessionId),
+              eq(approvalCheckpoints.attemptId, fence.attemptId),
+            ),
+          )
+          .returning({ ref: approvalCheckpoints.manifestRef });
+        if (voided.length === 0) {
+          await tx
+            .insert(approvalCheckpointVoids)
+            .values({
+              manifestRef: input.manifestRef,
+              sessionId: fence.sessionId,
+              attemptId: fence.attemptId,
+              voidedAt: at,
+            })
+            .onConflictDoNothing();
+        }
+        return { outcome: "ok", invalidated: voided.length === 1 };
+      });
+    },
+
     pendingControlAtomic(
       input: PendingControlInput,
     ): Promise<PendingControlResult> {
@@ -250,6 +374,14 @@ export function createPostgresWorkerPendingStore(
                 )
                 .orderBy(asc(pendingRequests.requestId))
                 .for("update");
+        const delivered = input.delivered ?? [];
+        const parked =
+          delivered.length === 0
+            ? []
+            : await lockDeliveredParked(tx, {
+                fence,
+                requestIds: delivered.map((item) => item.request_id),
+              });
         const due = await tx
           .select({
             requestId: pendingRequests.requestId,
@@ -307,6 +439,8 @@ export function createPostgresWorkerPendingStore(
             .set({
               settledAt: at,
               settledOutcome: settlement.outcome,
+              settledReason: settlement.reason ?? null,
+              settledAnswerResult: settlement.answer_result ?? null,
               resolvedAt: row.resolvedAt ?? at,
             })
             .where(eq(pendingRequests.requestId, row.requestId));
@@ -314,7 +448,7 @@ export function createPostgresWorkerPendingStore(
           settledNow.add(row.requestId);
           settledTurns.add(row.turnId);
           if (row.answerReceiptId !== null) {
-            const effect = RECEIPT_BY_OUTCOME[settlement.outcome];
+            const effect = receiptEffect(settlement);
             await tx
               .update(receipts)
               .set({ ...effect, updatedAt: at })
@@ -337,6 +471,7 @@ export function createPostgresWorkerPendingStore(
             at,
           });
         }
+        await settleParkedDeliveries(tx, { rows: parked, delivered, at });
         const rows = due.filter((row) => !settledNow.has(row.requestId));
         if (rows.length > 0) {
           // Handed over from here: past this commit an engine may act on
@@ -453,6 +588,85 @@ export function createPostgresWorkerPendingStore(
           now,
         });
         return { outcome: "ok", reverted: true };
+      });
+    },
+
+    /**
+     * The worker's own turn is about to run past its deadline waiting on
+     * nobody but a person: the same system pause a timed park opens, named
+     * so the worker can cut, finalize and release under it. Asked again
+     * while that park is still the open pause, it names the same one.
+     */
+    requestParkAtomic(input: RequestParkInput): Promise<RequestParkResult> {
+      const { fence } = input;
+      return db.transaction(async (tx) => {
+        const fenced = await acquireFence(tx, fence);
+        if (fenced.outcome !== "ok") return fenced;
+        const { session } = fenced;
+        const sequence = parseTurnSequence(input.turnId);
+        const [turn] =
+          sequence === null
+            ? []
+            : await tx
+                .select({ id: turns.id })
+                .from(turns)
+                .where(
+                  and(
+                    eq(turns.sessionId, fence.sessionId),
+                    eq(turns.sequence, sequence),
+                    eq(turns.attemptId, fence.attemptId),
+                    inArray(turns.status, OPEN_TURN_STATUSES),
+                  ),
+                )
+                .limit(1);
+        if (!turn) return { outcome: "not_found" };
+        const [pause] =
+          session.admissionState === "pausing" &&
+          session.pauseReason === "awaiting_input"
+            ? await tx
+                .select({ id: receipts.id })
+                .from(receipts)
+                .where(openPauseReceipt(fence.sessionId))
+                .limit(1)
+            : [];
+        const open = await tx
+          .select({ answeredAt: pendingRequests.answeredAt })
+          .from(pendingRequests)
+          .where(
+            and(
+              eq(pendingRequests.turnId, turn.id),
+              eq(pendingRequests.attemptId, fence.attemptId),
+              isNull(pendingRequests.settledAt),
+              isNull(pendingRequests.parkedAt),
+            ),
+          );
+        const now = await dbNow(tx);
+        if (!leaseHeld(fenced.attempt, now)) {
+          return { outcome: "lease_expired" };
+        }
+        if (pause !== undefined) {
+          return { outcome: "ok", pauseControlId: pause.id };
+        }
+        if (session.admissionState !== "active") {
+          return {
+            outcome: "refused",
+            reason: `the session is ${session.admissionState}`,
+          };
+        }
+        if (open.length === 0) {
+          return { outcome: "refused", reason: "the turn waits on no request" };
+        }
+        // An answer already on its way would be cut off by the park.
+        if (open.some((row) => row.answeredAt !== null)) {
+          return {
+            outcome: "refused",
+            reason: "an answer has not been settled yet",
+          };
+        }
+        return {
+          outcome: "ok",
+          pauseControlId: await openSystemPark(tx, session, now),
+        };
       });
     },
 

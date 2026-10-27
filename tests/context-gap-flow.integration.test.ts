@@ -31,11 +31,9 @@ import {
   type SessionCatalog,
   type WorkerGateway,
 } from "@werft-ai/platform";
-import {
-  FakeAgentRuntime,
-  type NativeSdkMessage,
-} from "@werft-ai/runtime-claude/testing";
 import type { CheckpointPreparation } from "@werft-ai/runtime-core";
+import type { EngineMessage } from "@werft-ai/runtime-core/testing";
+import { fakeRuntimeFor } from "@werft-ai/runtime-registry/testing";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -48,6 +46,10 @@ import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/worker
 import { PostgresSessionNotifier } from "../apps/control-host/src/api/session-notifier.ts";
 import type { WorkerCheckpointPort } from "../apps/worker/src/checkpoint.ts";
 import { HttpWorkerGatewayClient } from "../apps/worker/src/gateway-client.ts";
+import {
+  SCRIPTED_KIND,
+  startScripted,
+} from "../apps/worker/src/testing/scripted-engine.ts";
 import {
   inputUuid,
   WorkerHost,
@@ -341,7 +343,7 @@ integration(
       return String(row.id);
     }
 
-    function result(uuid: string, engineSession: string): NativeSdkMessage {
+    function result(uuid: string, engineSession: string): EngineMessage {
       return {
         type: "result",
         subtype: "success",
@@ -365,7 +367,7 @@ integration(
     }) {
       const launch = await launchSession(db, { sessionId: input.sessionId });
       const executionId = launch.executionId;
-      const runtime = new FakeAgentRuntime([
+      const runtime = fakeRuntimeFor(SCRIPTED_KIND, [
         { type: "await-input" },
         {
           type: "emit",
@@ -400,23 +402,12 @@ integration(
         logger: silent,
         runtimes: {
           launcherFor: () => ({
-            start: ({ runtimeConfig, principal, ...rest }) => {
+            start: (launch) => {
               launches.push({
-                mode: rest.mode,
-                resume: rest.mode === "resume" ? rest.resume : null,
+                mode: launch.mode,
+                resume: launch.mode === "resume" ? launch.resume : null,
               });
-              return runtime.run({
-                claudeConfigDir: "/tmp/fake/config",
-                cwd: "/tmp/fake/workspace",
-                home: "/tmp/fake/home",
-                model: runtimeConfig.model,
-                profile: {
-                  ...runtimeConfig.provider,
-                  principal: { ownerScope: principal.owner_scope },
-                },
-                tools: runtimeConfig.tools,
-                ...rest,
-              });
+              return startScripted(runtime, launch);
             },
           }),
         },

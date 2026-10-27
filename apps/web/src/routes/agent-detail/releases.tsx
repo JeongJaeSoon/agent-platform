@@ -22,6 +22,7 @@ import {
   EmptyState,
   Field,
   FieldDescription,
+  FieldError,
   FieldLabel,
   formatTimestamp,
   NativeSelect,
@@ -39,10 +40,15 @@ import { type FormEvent, type ReactNode, useId, useRef, useState } from "react";
 import { membersQuery, profilesQuery, queryKeysOf } from "../../api/queries.ts";
 import { useHasPermission, useRole } from "../../auth/guard.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
+import { ProfileOptions, pickable } from "../../components/profile-options.tsx";
 import { errorKey, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
 import { MUTED, SECTION, SECTION_TITLE } from "./classes.ts";
 import { latestVersion, VersionSelect } from "./versions.tsx";
+
+// The note column no longer takes all the spare width; the columns share it,
+// so a short history does not crowd to the left with only the gutter between.
+const SPREAD = "w-auto";
 
 export function Releases({
   detail,
@@ -83,9 +89,26 @@ export function Releases({
   // A profile the catalog no longer has cannot be released again; without
   // a usable choice, offer one that runs the card's model.
   const items = profiles.data?.items ?? [];
-  const profile = items.some((item) => item.id === chosen)
+  const usable = items.filter(pickable);
+  const profile = usable.some((item) => item.id === chosen)
     ? chosen
-    : ((items.find((item) => item.model === cardModel) ?? items[0])?.id ?? "");
+    : ((usable.find((item) => item.model === cardModel) ?? usable[0])?.id ??
+      "");
+  const [chosenRepository, setRepository] = useState(
+    detail.releases.at(-1)?.repository_id ?? "",
+  );
+  const pickedProfile = items.find((item) => item.id === profile);
+  const repositoryMode = pickedProfile?.repository_mode;
+  const repositories = pickedProfile?.repository_ids ?? [];
+  // "" is no repository, which only an optional profile offers.
+  const repository =
+    repositoryMode === undefined || repositoryMode === "none"
+      ? ""
+      : repositories.includes(chosenRepository)
+        ? chosenRepository
+        : repositoryMode === "required"
+          ? (repositories[0] ?? "")
+          : "";
   const [open, setOpen] = useState(false);
   const submitted = useRef(false);
   // Only roles that list members get names; anyone else reads "a member".
@@ -114,7 +137,11 @@ export function Releases({
       unwrap(
         client.POST("/v1/agents/{id}/releases", {
           params: { path: { id: detail.agent.id } },
-          body: { version_id: versionId, runtime_profile_id: profile },
+          body: {
+            version_id: versionId,
+            runtime_profile_id: profile,
+            ...(repository === "" ? {} : { repository_id: repository }),
+          },
         }),
       ),
     onMutate: () => onOutcome(null),
@@ -204,6 +231,20 @@ export function Releases({
                   onChange={setProfile}
                 />
               )}
+              {repositoryMode === undefined ||
+              repositoryMode === "none" ? null : repositories.length === 0 &&
+                repositoryMode === "required" ? (
+                <FieldError>{t("agent.releases.repositoryMissing")}</FieldError>
+              ) : (
+                <RepositorySelect
+                  label={t("agent.releases.repository")}
+                  hint={t("agent.releases.repositoryHint")}
+                  repositories={repositories}
+                  optional={repositoryMode === "optional"}
+                  value={repository}
+                  onChange={setRepository}
+                />
+              )}
               {mismatch ? (
                 <Alert asChild variant="amber">
                   <output>
@@ -223,7 +264,10 @@ export function Releases({
                 <Button
                   type="submit"
                   disabled={
-                    release.isPending || versionId === "" || profile === ""
+                    release.isPending ||
+                    versionId === "" ||
+                    profile === "" ||
+                    (repositoryMode === "required" && repository === "")
                   }
                 >
                   {release.isPending
@@ -246,18 +290,26 @@ export function Releases({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead variant="nowrap">
+                <TableHead variant="nowrap" className={SPREAD}>
                   {t("agent.releases.colVersion")}
                 </TableHead>
-                <TableHead variant="nowrap">
+                <TableHead variant="nowrap" className={SPREAD}>
                   {t("agent.releases.colStatus")}
                 </TableHead>
-                <TableHead>{t("agent.releases.profile")}</TableHead>
-                <TableHead className="whitespace-nowrap">
+                <TableHead variant="nowrap" className={SPREAD}>
+                  {t("agent.releases.profile")}
+                </TableHead>
+                <TableHead variant="nowrap" className={SPREAD}>
+                  {t("agent.releases.repository")}
+                </TableHead>
+                <TableHead variant="nowrap" className={SPREAD}>
                   {t("agent.releases.colBy")}
                 </TableHead>
-                <TableHead variant="nowrap">
+                <TableHead variant="nowrap" className={SPREAD}>
                   {t("agent.releases.colAt")}
+                </TableHead>
+                <TableHead className="min-w-72">
+                  {t("agent.releases.colNote")}
                 </TableHead>
                 <TableHead variant="actions">
                   <span className="sr-only">
@@ -275,12 +327,15 @@ export function Releases({
                 });
                 return (
                   <TableRow key={item.id} data-active={active}>
-                    <TableCell variant="nowrap" className="font-medium">
+                    <TableCell
+                      variant="nowrap"
+                      className={`${SPREAD} font-medium`}
+                    >
                       {t("agent.versionShort", {
                         version: versionNo(item.version_id) ?? "?",
                       })}
                     </TableCell>
-                    <TableCell variant="nowrap">
+                    <TableCell variant="nowrap" className={SPREAD}>
                       <Badge variant={active ? "green" : "gray"}>
                         {active
                           ? t("agent.releases.active")
@@ -289,16 +344,43 @@ export function Releases({
                             : t("agent.releases.never")}
                       </Badge>
                     </TableCell>
-                    <TableCell className="font-mono text-caption">
-                      {item.runtime_profile_id}
+                    <TableCell variant="nowrap" className={SPREAD}>
+                      <span className="font-mono text-caption">
+                        {item.runtime_profile_id}
+                      </span>
+                      {profiles.isSuccess &&
+                      !items.some(
+                        (listed) => listed.id === item.runtime_profile_id,
+                      ) ? (
+                        <Badge variant="amber" className="ml-2">
+                          {t("agent.releases.profileGone")}
+                        </Badge>
+                      ) : null}
                     </TableCell>
-                    <TableCell>
+                    <TableCell
+                      variant="nowrap"
+                      className={`${SPREAD} font-mono text-caption`}
+                    >
+                      {item.repository_id ?? t("agent.releases.repositoryNone")}
+                    </TableCell>
+                    <TableCell variant="nowrap" className={SPREAD}>
                       {(item.created_by
                         ? names.get(item.created_by)
                         : undefined) ?? t("agent.releases.byMember")}
                     </TableCell>
-                    <TableCell variant="nowrap" className="tabular-nums">
+                    <TableCell
+                      variant="nowrap"
+                      className={`${SPREAD} tabular-nums`}
+                    >
                       {formatTimestamp(item.created_at, locale)}
+                    </TableCell>
+                    {/* Wrapped, not cut: a note runs to 200 characters. */}
+                    <TableCell className="min-w-72 break-words">
+                      {item.note ?? (
+                        <span className="text-muted-foreground">
+                          {t("agent.releases.noteNone")}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell variant="actions">
                       {active ? null : (
@@ -353,19 +435,61 @@ function ProfileSelect({
         value={value}
         onChange={(event) => onChange(event.target.value)}
       >
-        {profiles.map((profile) => (
-          <NativeSelectOption key={profile.id} value={profile.id}>
-            {t(
+        <ProfileOptions
+          profiles={profiles}
+          label={(profile) =>
+            t(
               cardModel !== undefined && profile.model !== cardModel
                 ? "agent.releases.profileOptionMismatch"
                 : "agent.releases.profileOption",
               { profile: profile.id, model: profile.model },
-            )}
+            )
+          }
+        />
+      </NativeSelect>
+      <FieldDescription>{hint}</FieldDescription>
+      <FieldDescription>{t("agent.releases.profileUnlisted")}</FieldDescription>
+    </Field>
+  );
+}
+
+function RepositorySelect({
+  label,
+  hint,
+  repositories,
+  optional,
+  value,
+  onChange,
+}: {
+  readonly label: string;
+  readonly hint: string;
+  readonly repositories: readonly string[];
+  /** Offers no repository, for a profile whose sessions may go without one. */
+  readonly optional: boolean;
+  readonly value: string;
+  readonly onChange: (id: string) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <Field className="w-auto max-w-full">
+      <FieldLabel>{label}</FieldLabel>
+      <NativeSelect
+        required={!optional}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {optional ? (
+          <NativeSelectOption value="">
+            {t("agent.releases.repositoryNone")}
+          </NativeSelectOption>
+        ) : null}
+        {repositories.map((id) => (
+          <NativeSelectOption key={id} value={id}>
+            {id}
           </NativeSelectOption>
         ))}
       </NativeSelect>
       <FieldDescription>{hint}</FieldDescription>
-      <FieldDescription>{t("agent.releases.profileUnlisted")}</FieldDescription>
     </Field>
   );
 }

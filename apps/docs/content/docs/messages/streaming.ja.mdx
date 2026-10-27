@@ -38,21 +38,23 @@ id: ev_3m
 | event | 内側の `data` |
 | --- | --- |
 | `system` | エンジンが知らせる開始・設定情報 |
-| `assistant` | モデルのメッセージ。テキストは `message.content[]` の `type: "text"` ブロック |
-| `tool_use` | モデルが呼び出したツールと入力 |
-| `tool_result` | ツールの結果。失敗なら `is_error: true` |
+| `assistant` | モデルのメッセージ。テキストは `text`、思考は `thinking` |
+| `tool_use` | モデルが呼び出したツールと入力(`tool_call` の `id`・`name`・`input`) |
+| `tool_result` | ツールの結果(`tool_result` の `tool_call_id`・`text`)。失敗なら `is_error: true` |
 | `question` | 権限リクエストまたは質問が発生した。応答の方法は[承認待ちと再開](/sessions/waiting-and-resume) |
 | `result` | エンジンがターンを終えた。完了の判定ではない |
 | `status` | セッションの状態が変わった(`phase`: `running`、`idle` など) |
 | `error` | 実行エラー |
 
+この表にない内側のフィールド(`message`、`session_id` など)はエンジンごとに異なる。エンジンが変わると消えたり形が変わったりするので読まない。
+
 ## テキストとツール結果を取り出す
 
 ```bash
 awk '/^event: assistant/ { getline; sub(/^data: /, ""); print }' events.txt \
-  | jq -r '.data.message.content[] | select(.type == "text") | .text'
+  | jq -r '.data.text // empty'
 awk '/^event: tool_result/ { getline; sub(/^data: /, ""); print }' events.txt \
-  | jq -c '.data | {is_error}'
+  | jq -c '.data.tool_result | {is_error}'
 ```
 
 ```text

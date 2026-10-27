@@ -3,7 +3,6 @@ import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { RuntimeConfig, WorkspaceRepository } from "@werft-ai/contracts";
-import { ClaudeSdkRuntime } from "@werft-ai/runtime-claude";
 import {
   type FakeAnthropicServer,
   startFakeAnthropicServer,
@@ -15,7 +14,7 @@ import {
 } from "@werft-ai/testkit/workspace";
 
 import type { RuntimeResumePlan, WorkerCheckpointPort } from "./checkpoint.ts";
-import { claudeRuntimeRegistry } from "./composition.ts";
+import { workerRuntimeRegistry } from "./composition.ts";
 import type { WorkerConfig, WorkerTimeouts } from "./config.ts";
 import { EngineProcesses } from "./engine-processes.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
@@ -180,9 +179,9 @@ async function runOneTurn(
     execution: { bootstrapNonce: "wln_local", generation: 1, id: "exec-1" },
     gateway,
     logger: silent,
-    runtimes: claudeRuntimeRegistry(config, engines),
+    runtimes: workerRuntimeRegistry(config, engines),
     timeouts,
-    workspace: new GitWorkspace(repository.workspace),
+    workspace: new GitWorkspace(repository.workspace, "CLAUDE.md"),
   });
   const summary = await host.runLoop();
   expect(summary.turns).toEqual([
@@ -194,54 +193,9 @@ function firedMarkers(repository: Repository): string[] {
   return repository.markers.filter((marker) => existsSync(marker));
 }
 
+// The negative control, that these hooks do fire when the engine loads the
+// project source itself, is the Claude adapter's project-settings test.
 describe("the repository's own Claude project settings, under the claim's profile", () => {
-  test("the fixture's hooks are live when the engine loads the project source itself", async () => {
-    // Negative control: without it, a marker that never appears would prove
-    // only that these hooks cannot fire, not that the worker stops them.
-    const repository = await repositoryWithProjectSettings();
-    git(
-      ["clone", "--quiet", repository.descriptor.repository.url, "."],
-      repository.workspace,
-    );
-    server = startFakeAnthropicServer(() => textReply("ok"));
-    const run = new ClaudeSdkRuntime({
-      endpoints: [server.url],
-      models: [MODEL],
-    }).start(
-      {
-        claudeConfigDir: repository.home,
-        correlationId: "control",
-        cwd: repository.workspace,
-        home: repository.home,
-        maxTurns: 2,
-        mode: "new",
-        model: MODEL,
-        profile: {
-          kind: "anthropic",
-          endpoint: server.url,
-          auth: { kind: "api_key", value: "placeholder-local" },
-          principal: { ownerScope: "owner-a" },
-        },
-        settingSources: ["project"],
-        tools: [],
-      },
-      {
-        onPermission: async () => ({ behavior: "deny", message: "none" }),
-      },
-    );
-    const consume = (async () => {
-      for await (const _frame of run) {
-      }
-    })();
-    run.send({ message: "hello", uuid: crypto.randomUUID() });
-    run.finishInput();
-    await consume;
-
-    expect(server.requests.length).toBeGreaterThan(0);
-    expect(firedMarkers(repository)).toEqual(repository.markers);
-    expect(JSON.stringify(server.requests[0]?.body)).toContain(INSTRUCTIONS);
-  }, 60_000);
-
   test("a profile that keeps CLAUDE.md out runs no repository hook and sends no repository text", async () => {
     const repository = await repositoryWithProjectSettings();
     server = startFakeAnthropicServer(() => textReply("ok"));

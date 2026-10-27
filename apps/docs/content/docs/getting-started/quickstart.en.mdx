@@ -104,7 +104,7 @@ What happens in a session arrives as an event stream (SSE). The server does not 
 ```bash
 curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
   | awk '/^event: assistant/ { getline; sub(/^data: /, ""); print }' \
-  | jq -r '.data.message.content[] | select(.type == "text") | .text' || true
+  | jq -r '.data.text // empty' || true
 ```
 
 ```text
@@ -112,7 +112,7 @@ curl: (28) Operation timed out after 5002 milliseconds with 3362 bytes received
 hello from Werft
 ```
 
-Each event is an `event:` line (the kind) and a `data:` line (JSON). The `data.message` of an assistant event is the message the model sent. `curl: (28) Operation timed out` is `--max-time` cutting the stream, so it is normal.
+Each event is an `event:` line (the kind) and a `data:` line (JSON). The `data.text` of an assistant event is the text the model sent. `curl: (28) Operation timed out` is `--max-time` cutting the stream, so it is normal.
 
 ## Next steps
 

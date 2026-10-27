@@ -6,6 +6,10 @@ import type {
   RuntimeFingerprint,
 } from "./checkpoint-manifest.ts";
 import type { RuntimeDescriptor, RuntimeKind } from "./descriptor.ts";
+import type {
+  TranscriptStore,
+  TranscriptStoreOptions,
+} from "./transcript-store.ts";
 
 /** What fixes how a stored transcript replays: a start short of how it resumes. */
 export type RuntimeProfileInput = {
@@ -49,6 +53,8 @@ export interface RuntimeModule {
   fingerprint(profile: RuntimeProfileInput): RuntimeFingerprint;
   createRuntime(deps: RuntimeHostDeps): AgentRuntime;
   imageFingerprint(): string;
+  /** Where this engine's transcripts are mirrored to and restored from. */
+  openTranscriptStore(options: TranscriptStoreOptions): TranscriptStore;
 }
 
 export class UnsupportedRuntime extends Error {

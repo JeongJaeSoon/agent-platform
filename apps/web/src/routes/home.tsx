@@ -100,8 +100,7 @@ const STEP_ACTION = {
 const RECENT_LIMIT = 5;
 const RECENT_COLUMNS =
   "minmax(0,2.2fr) 120px minmax(0,1.2fr) minmax(0,1.2fr) 72px";
-// Without the agent and repository columns: the agent is always "—" for now,
-// and the title needs the width at 390px.
+// Without the agent and repository columns: the title needs the width at 390px.
 const RECENT_NARROW_COLUMNS = "minmax(0,1fr) 116px 64px";
 const STALE_WAIT_MS = 30 * 60 * 1000;
 // Lines the home inbox draws before the rest go to the sessions screen.
@@ -340,7 +339,7 @@ export function HomeScreen() {
   const unmeasured = <Unmeasured />;
   const unknown = t("home.overview.unknown");
   const number = new Intl.NumberFormat(locale);
-  const { usd } = OPERATIONS_MESSAGES[locale].format;
+  const { usd, bytes } = OPERATIONS_MESSAGES[locale].format;
   // A partial sum must not pass for the whole spend.
   const costNote = (summary: UsageSummaryResponse | undefined) =>
     t(
@@ -373,7 +372,16 @@ export function HomeScreen() {
               })
             : t("home.overview.unknown"),
         },
-        { label: t("home.glance.outputs"), value: unmeasured },
+        {
+          label: t("home.glance.outputs"),
+          value: limits.data
+            ? limits.data.usage.outputs.complete
+              ? bytes(limits.data.usage.outputs.used_bytes)
+              : t("home.glance.outputsAtLeast", {
+                  value: bytes(limits.data.usage.outputs.used_bytes),
+                })
+            : unknown,
+        },
       ]}
       footer={
         installSummary
@@ -389,7 +397,7 @@ export function HomeScreen() {
       key="oversight"
       eyebrow={t("home.glance.workspace")}
       title={t("home.glance.workspaceTitle")}
-      badge={<Badge>{t("home.glance.operations")}</Badge>}
+      badge={<Badge>{t("shell.group.workspace")}</Badge>}
       value={attention === null ? t("home.overview.unknown") : attention}
       note={t("home.glance.attentionNote")}
       rows={[
@@ -1246,9 +1254,14 @@ function RecentRow({
           </span>
         </div>
       </GridTableCell>
-      {/* Sessions do not name their agent yet. */}
-      <GridTableCell hideNarrow={true} className="text-muted-foreground">
-        {t("home.overview.unknown")}
+      <GridTableCell hideNarrow={true}>
+        {session.agent ? (
+          <span className="min-w-0 truncate">{session.agent.name}</span>
+        ) : (
+          <span className="text-muted-foreground">
+            {t("home.overview.unknown")}
+          </span>
+        )}
       </GridTableCell>
       <GridTableCell hideNarrow={true}>
         <span className="flex min-w-0 items-center gap-2">

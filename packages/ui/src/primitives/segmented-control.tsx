@@ -58,7 +58,7 @@ export function SegmentedControl({
           "inline-flex max-w-full flex-wrap items-center gap-0.5 rounded-card border border-border bg-card p-0.5",
           // 28px items + 1px padding + 1px border on each side = 32px.
           size === "toolbar" &&
-            "rounded-control border-input p-px hover:border-subtle-foreground",
+            "rounded-control p-px hover:border-subtle-foreground",
           className,
         )}
         {...props}

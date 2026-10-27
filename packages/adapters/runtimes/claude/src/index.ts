@@ -12,4 +12,4 @@ export { runtimeEnvironment } from "./profile.ts";
 export { claudeProfileFingerprint } from "./profile-fingerprint.ts";
 export { type RemoteMcpServer, remoteMcpRelay } from "./remote-mcp.ts";
 export { ClaudeSdkRuntime, type RuntimeProcessObserver } from "./runtime.ts";
-export { ClaudeSessionStore, TranscriptTooLarge } from "./session-store.ts";
+export { ClaudeSessionStore } from "./session-store.ts";

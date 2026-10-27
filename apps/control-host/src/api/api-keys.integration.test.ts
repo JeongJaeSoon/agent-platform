@@ -7,6 +7,7 @@ import {
   createAgentReleaseResponseSchema,
   createApiKeyResponseSchema,
   createSessionResponseSchema,
+  listAgentsResponseSchema,
   listApiKeysResponseSchema,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
@@ -132,6 +133,7 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
       store: createPostgresAgentStore(db),
       catalog,
       credentials,
+      keys: createPostgresWorkspaceKeyStore(db),
     });
     const service = createSessionService({
       limits: {
@@ -253,7 +255,11 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
       "POST",
       `/v1/agents/${detail.agent.id}/releases`,
       asCookie(cookie),
-      { version_id: versionId, runtime_profile_id: "claude-coding-v1" },
+      {
+        version_id: versionId,
+        runtime_profile_id: "claude-coding-v1",
+        repository_id: "sample-app",
+      },
     );
     expect(released.status).toBe(200);
     const { release } = createAgentReleaseResponseSchema.parse(
@@ -421,17 +427,20 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
       asCookie(cookies.owner),
       releases.owners,
     );
-    const ownersId = createSessionResponseSchema.parse(
-      await owners.json(),
-    ).session_id;
+    const { session_id: ownersId, receipt_id: ownersReceiptId } =
+      createSessionResponseSchema.parse(await owners.json());
+    expect(
+      (await send("GET", `/v1/receipts/${receipt_id}`, bearer(agentKey)))
+        .status,
+    ).toBe(200);
     for (const path of [
       `/v1/sessions/${ownersId}`,
       `/v1/sessions/${ownersId}/turns`,
-      // A list spans agents, and a receipt names no session to check.
+      // A list spans agents.
       "/v1/sessions",
       // Narrowing to its own agent does not lift the list's refusal.
       `/v1/sessions?agent_id=${agentIds.mine}`,
-      `/v1/receipts/${receipt_id}`,
+      `/v1/receipts/${ownersReceiptId}`,
     ]) {
       expect((await send("GET", path, bearer(agentKey))).status).toBe(403);
     }
@@ -460,6 +469,68 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
         scopes: ["sessions:read"],
       });
       expect(refused.status).toBe(403);
+    }
+  });
+
+  test("an agent key that creates sessions finds its own agent's active release, and only that", async () => {
+    const activated = await send(
+      "POST",
+      `/v1/agents/${agentIds.mine}/activate`,
+      asCookie(cookies.member),
+      { release_id: releases.mine, expected_revision: -1 },
+    );
+    expect(activated.status).toBe(200);
+
+    const listed = await send("GET", "/v1/agents?limit=50", bearer(agentKey));
+    expect(listed.status).toBe(200);
+    const page = listAgentsResponseSchema.parse(await listed.json());
+    expect(page.next_cursor).toBeNull();
+    expect(
+      page.items.map(({ id, active_release_id }) => ({
+        id,
+        active_release_id,
+      })),
+    ).toEqual([{ id: agentIds.mine, active_release_id: releases.mine }]);
+
+    // The release alone names the profile and the repository.
+    const created = await send(
+      "POST",
+      "/v1/sessions",
+      { ...bearer(agentKey), "Idempotency-Key": crypto.randomUUID() },
+      { agent_release_id: releases.mine, message: "Review the change." },
+    );
+    expect(created.status).toBe(201);
+    const { session_id } = createSessionResponseSchema.parse(
+      await created.json(),
+    );
+    expect(
+      (await send("GET", `/v1/sessions/${session_id}`, bearer(agentKey)))
+        .status,
+    ).toBe(200);
+
+    const readOnly = createApiKeyResponseSchema.parse(
+      await (
+        await issue(asCookie(cookies.owner), {
+          kind: "agent",
+          agent_id: agentIds.owners,
+          scopes: ["sessions:read"],
+        })
+      ).json(),
+    ).secret;
+    for (const [headers, path, reason] of [
+      // What a card shows an admin is not the key's to read.
+      [bearer(agentKey), "/v1/agents?include=summary", undefined],
+      // The scope check refuses it before the service reads anything.
+      [bearer(readOnly), "/v1/agents", undefined],
+      [bearer(personalKey), "/v1/agents", undefined],
+      [bearer(agentKey), "/v1/agents/counts", undefined],
+      [bearer(agentKey), `/v1/agents/${agentIds.mine}`, "role"],
+    ] as const) {
+      const refused = await send("GET", path, headers);
+      expect(refused.status, path).toBe(403);
+      const error = await errorOf(refused);
+      expect(error.code).toBe("FORBIDDEN");
+      if (reason) expect(error.details).toMatchObject({ reason_code: reason });
     }
   });
 

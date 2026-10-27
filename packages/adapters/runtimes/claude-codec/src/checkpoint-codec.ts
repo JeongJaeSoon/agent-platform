@@ -133,6 +133,25 @@ const manifestSchema = z
       })
       .strict(),
     version: z.literal(2),
+    workerState: z
+      .object({
+        pendingApprovals: z
+          .array(
+            z
+              .object({
+                input: z.json(),
+                inputHash: sha256Schema,
+                kind: z.enum(["permission", "question"]),
+                requestId: z.string().min(1),
+                tool: z.string().min(1),
+                toolCallId: z.string().min(1),
+              })
+              .strict(),
+          )
+          .min(1),
+      })
+      .strict()
+      .optional(),
     workspace: z
       .object({
         baseBundles: z.array(objectRefSchema).min(1).optional(),

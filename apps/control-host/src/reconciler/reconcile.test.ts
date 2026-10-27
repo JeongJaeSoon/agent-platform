@@ -82,6 +82,10 @@ describe("reconciler run", () => {
         });
         return 2;
       },
+      expireParked: async (options) => {
+        expect(options).toEqual({ dryRun: false, limit: 12 });
+        return ["session-f"];
+      },
       announceInputReturns: async (options) => {
         expect(options).toEqual({ dryRun: false, limit: 12 });
         return [{ sessionId: "session-e", phase: "running" }];
@@ -96,6 +100,7 @@ describe("reconciler run", () => {
         appliedThrough: 31,
         caughtUp: true,
         timedOut: 1,
+        heldByFillSeconds: null,
       }),
     });
 
@@ -105,6 +110,7 @@ describe("reconciler run", () => {
     expect(result.interrupts).toHaveLength(1);
     expect(result.interruptsOverdue).toBe(3);
     expect(result.terminationsOverdue).toBe(2);
+    expect(result.parkedExpired).toEqual(["session-f"]);
     expect(result.decisionsExpired).toBe(5);
     expect(sink.records).toEqual([
       expect.objectContaining({
@@ -149,6 +155,11 @@ describe("reconciler run", () => {
         level: "info",
         message: "Overdue terminate receipts marked unknown",
         fields: { dry_run: false, overdue_count: 2 },
+      }),
+      expect.objectContaining({
+        level: "info",
+        message: "Expired parked requests settled",
+        fields: { dry_run: false, session_ids: ["session-f"] },
       }),
       expect.objectContaining({
         level: "info",
@@ -215,6 +226,10 @@ describe("reconciler run", () => {
         seen.push(dryRun);
         return 0;
       },
+      expireParked: async ({ dryRun }) => {
+        seen.push(dryRun);
+        return [];
+      },
       announceInputReturns: async ({ dryRun }) => {
         seen.push(dryRun);
         return [];
@@ -228,7 +243,7 @@ describe("reconciler run", () => {
       },
     });
 
-    expect(seen).toEqual([true, true, true, true, true, true, true]);
+    expect(seen).toEqual([true, true, true, true, true, true, true, true]);
     expect(run.toolCalls).toBeNull();
     expect(sink.records).toContainEqual(
       expect.objectContaining({
@@ -254,6 +269,41 @@ describe("reconciler run", () => {
     );
   });
 
+  test("warns when the tool call projection has waited long on the neutral field fill", async () => {
+    const records = async (heldByFillSeconds: number | null) => {
+      const sink = new MemoryLogSink();
+      await runReconciler({
+        logger: new StructuredLogger({ sinks: [sink] }),
+        reconcile: async () => [],
+        reconcileLeases: async () => [],
+        reconcileInterrupts: async () => [],
+        expireInterrupts: async () => 0,
+        expireTerminations: async () => 0,
+        expireParked: async () => [],
+        announceInputReturns: async () => [],
+        expireDecisions: async () => 0,
+        projectToolCalls: async () => ({
+          eventsRead: 10,
+          batches: 1,
+          appliedThrough: 7,
+          caughtUp: true,
+          timedOut: 0,
+          heldByFillSeconds,
+        }),
+      });
+      return sink.records.filter((record) => record.level === "warn");
+    };
+    expect(await records(null)).toEqual([]);
+    expect(await records(30)).toEqual([]);
+    expect(await records(900.4)).toEqual([
+      expect.objectContaining({
+        message:
+          "Tool call projection is waiting on the event neutral field fill",
+        fields: { applied_through: 7, fill_idle_seconds: 900 },
+      }),
+    ]);
+  });
+
   test("refuses HEARTBEAT_TTL_SEC outright, and invalid batch or dry-run settings", async () => {
     const logger = new StructuredLogger({ sinks: [] });
     const reconcile = async () => [];
@@ -261,6 +311,7 @@ describe("reconciler run", () => {
     const reconcileInterrupts = async () => [];
     const expireInterrupts = async () => 0;
     const expireTerminations = async () => 0;
+    const expireParked = async () => [];
     const announceInputReturns = async () => [];
     const expireDecisions = async () => 0;
     const projectToolCalls = async () => ({
@@ -269,6 +320,7 @@ describe("reconciler run", () => {
       appliedThrough: 0,
       caughtUp: true,
       timedOut: 0,
+      heldByFillSeconds: null,
     });
     // Valid or not: the reconciler has no TTL to be told, so a value here is
     // an operator who believes it does. It must not start and quietly
@@ -287,6 +339,7 @@ describe("reconciler run", () => {
           reconcileInterrupts,
           expireInterrupts,
           expireTerminations,
+          expireParked,
           announceInputReturns,
           expireDecisions,
           projectToolCalls,
@@ -303,6 +356,7 @@ describe("reconciler run", () => {
         reconcileInterrupts,
         expireInterrupts,
         expireTerminations,
+        expireParked,
         announceInputReturns,
         expireDecisions,
         projectToolCalls,
@@ -317,6 +371,7 @@ describe("reconciler run", () => {
         reconcileInterrupts,
         expireInterrupts,
         expireTerminations,
+        expireParked,
         announceInputReturns,
         expireDecisions,
         projectToolCalls,

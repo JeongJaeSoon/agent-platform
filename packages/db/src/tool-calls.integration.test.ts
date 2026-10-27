@@ -24,10 +24,7 @@ const integration = testDatabaseUrl() ? describe : describe.skip;
 const toolUse = (id: string) =>
   JSON.stringify({
     type: "assistant",
-    message: {
-      role: "assistant",
-      content: [{ type: "tool_use", id, name: "Bash", input: {} }],
-    },
+    tool_call: { id, name: "Bash", input: {} },
   });
 
 integration("tool call projection on PostgreSQL", () => {
@@ -52,6 +49,10 @@ integration("tool call projection on PostgreSQL", () => {
     );
     await db.execute(
       sql`UPDATE tool_call_progress SET applied_through = 0 WHERE id = 1`,
+    );
+    // Events here carry their neutral fields already: the fill has passed them.
+    await db.execute(
+      sql`UPDATE neutral_field_progress SET filled_through = 9223372036854775807 WHERE id = 1`,
     );
   });
 

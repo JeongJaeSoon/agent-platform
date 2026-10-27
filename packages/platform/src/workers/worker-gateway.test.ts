@@ -257,6 +257,57 @@ describe("WorkerGateway", () => {
     ).rejects.toMatchObject({ status: 409, code: "STALE_EPOCH" });
   });
 
+  test("appended events are stored as sent, the session runtime's neutral fields beside them", async () => {
+    const committed: unknown[] = [];
+    const neutral: unknown[] = [];
+    const asked: Array<string | null> = [];
+    const instance = createWorkerGateway({
+      work: work({
+        async commitEventsAtomic(input) {
+          committed.push(...input.events);
+          neutral.push(...input.events.map((event) => input.neutral?.(event)));
+          return { outcome: "ok", acceptedThrough: 2, cursor: "ev_2" };
+        },
+      }),
+      catalog: { profiles: {}, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      neutralize: (profileId, event) => {
+        asked.push(profileId);
+        return event.event === "assistant"
+          ? { ...event, data: { ...event.data, text: "neutral" } }
+          : event;
+      },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+        maxWaitMs: 1_000,
+        pollIntervalMs: 100,
+      },
+    });
+    const events = [
+      {
+        event: "assistant" as const,
+        data: { type: "assistant" as const, message: { content: [] } },
+        source_sequence: 1,
+        occurred_at: "2026-09-22T00:00:00.000Z",
+      },
+      {
+        event: "status" as const,
+        data: { phase: "running" as const },
+        source_sequence: 2,
+        occurred_at: "2026-09-22T00:00:00.000Z",
+      },
+    ];
+    await instance.appendEvents(
+      { ...principal, profileId: "coding" },
+      { ...scope, batch_key: "b", events },
+    );
+    expect(committed).toEqual(events);
+    expect(neutral).toEqual([{ text: "neutral" }, null]);
+    expect(asked).toEqual(["coding", "coding"]);
+  });
+
   test("finalize consults the checkpoint verifier before the transaction", async () => {
     let committed = 0;
     // The verifier has to be able to prove the manifest belongs to *this*

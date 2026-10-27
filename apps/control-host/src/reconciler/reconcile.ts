@@ -24,6 +24,8 @@ export type ReconcilerRun = {
   interrupts: ReconciledInterrupt[];
   interruptsOverdue: number;
   terminationsOverdue: number;
+  // Sessions whose parked requests this pass expired.
+  parkedExpired: string[];
   inputReturns: AnnouncedInputReturn[];
   decisionsExpired: number;
   // null on a dry run, which projects nothing.
@@ -32,7 +34,12 @@ export type ReconcilerRun = {
 
 export type ReconcilerLogger = {
   info(message: string, fields?: Readonly<Record<string, unknown>>): void;
+  warn(message: string, fields?: Readonly<Record<string, unknown>>): void;
 };
+
+// The fill (packages/db neutral-fields.ts) passes rows once 60 seconds old
+// and runs every 15 seconds; held this long, it has stopped.
+const FILL_HOLD_WARN_SECONDS = 300;
 
 export type ReconcilerEnvironment = {
   // Present only to be refused: see runReconciler.
@@ -88,6 +95,9 @@ export async function runReconciler(input: {
   // Interrupt receipts still open past their later deadline become unknown,
   // for when nothing confirms the kill above.
   expireInterrupts(options: LeaseReconcileOptions): Promise<number>;
+  // Parked requests past their deadline: settled expired, and their group
+  // closed, before the pass below reports what ended.
+  expireParked(options: { dryRun: boolean; limit: number }): Promise<string[]>;
   // Waits for input the stream still reports after they ended with nothing
   // written (expiry, a lost attempt). Last, so the lease pass above has
   // already fenced what it fences and this reports the result in one go.
@@ -156,6 +166,11 @@ export async function runReconciler(input: {
     dry_run: dryRun,
     overdue_count: terminationsOverdue,
   });
+  const parkedExpired = await input.expireParked({ dryRun, limit });
+  input.logger.info("Expired parked requests settled", {
+    dry_run: dryRun,
+    session_ids: parkedExpired,
+  });
   const inputReturns = await input.announceInputReturns({ dryRun, limit });
   input.logger.info("Ended input waits announced", {
     dry_run: dryRun,
@@ -180,12 +195,23 @@ export async function runReconciler(input: {
           timed_out_batches: toolCalls.timedOut,
         }),
   });
+  if ((toolCalls?.heldByFillSeconds ?? 0) >= FILL_HOLD_WARN_SECONDS) {
+    // Calls are delayed, not lost: the projection reads them once filled.
+    input.logger.warn(
+      "Tool call projection is waiting on the event neutral field fill",
+      {
+        applied_through: toolCalls?.appliedThrough,
+        fill_idle_seconds: Math.round(toolCalls?.heldByFillSeconds ?? 0),
+      },
+    );
+  }
   return {
     orphans: reconciled,
     leases,
     interrupts,
     interruptsOverdue,
     terminationsOverdue,
+    parkedExpired,
     inputReturns,
     decisionsExpired,
     toolCalls,

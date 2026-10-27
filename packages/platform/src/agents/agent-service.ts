@@ -16,12 +16,16 @@ import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import { ACTOR_INACTIVE, NOT_FOUND } from "../musterrolle/service-errors.ts";
 import type { SlackWelcome } from "../musterrolle/slack-welcome.ts";
 import type { AgentStore } from "../ports/agent-store.ts";
+import type { WorkspaceKeyStore } from "../ports/api-key-store.ts";
 import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
 import {
+  allowedRun,
+  type CatalogProfile,
   catalogProfile,
   profileModels,
   profilePinned,
   refreshWorkspaceProfilesFor,
+  repositoryModeOf,
   type SessionCatalog,
   type SessionCatalogView,
   workspaceProfileRefusal,
@@ -62,9 +66,14 @@ export async function resolveAgentRelease(
     }) === null
       ? catalogProfile(deps.catalog, profileId)
       : undefined;
+  if (!profile) {
+    throw new SessionServiceError(
+      "PROFILE_DIGEST_MISMATCH",
+      `Runtime profile ${profileId} of this release is not in this host's catalog; release the version again under a profile the catalog has`,
+    );
+  }
   const model = releaseModel(release);
   if (
-    !profile ||
     !profilePinned(profile, release.profile_digest) ||
     (model !== undefined && !profileModels(profile).includes(model))
   ) {
@@ -83,8 +92,28 @@ export function createAgentService(deps: {
   credentials: Pick<CredentialBindingStore, "unboundRefs">;
   /** The home channel's welcome; absent where Slack is not wired. */
   welcome?: Pick<SlackWelcome, "activated">;
+  /** Where an agent key's agent is read; absent, every key is refused. */
+  keys?: Pick<WorkspaceKeyStore, "find">;
 }) {
   const { authorization, store, catalog, credentials } = deps;
+
+  // A release is refused here for what its sessions would be refused for,
+  // so Slack, which names no repository, gets one that can start.
+  function releaseRepositoryRefusal(
+    profileId: string,
+    profile: CatalogProfile,
+    repositoryId: string | null,
+  ): string | null {
+    if (allowedRun(catalog, profileId, repositoryId) !== null) return null;
+    const mode = repositoryModeOf(profile);
+    if (mode === "required" && repositoryId === null) {
+      return `Profile ${profileId} needs a repository: send repository_id`;
+    }
+    if (mode === "none" && repositoryId !== null) {
+      return `Profile ${profileId} runs without a repository: omit repository_id`;
+    }
+    return `Repository ${repositoryId} is not in the catalog or does not allow profile ${profileId}`;
+  }
 
   function personOf(caller: Caller): string {
     const userId = caller.actor?.userId;
@@ -116,6 +145,35 @@ export function createAgentService(deps: {
     return personOf(caller);
   }
 
+  // A key that may start sessions on its agent has to find the release to
+  // name; it reads that one agent and nothing its admins manage.
+  async function keysOwnAgent(
+    caller: Caller,
+    query: ListAgentsQuery,
+  ): Promise<ListAgentsResponse> {
+    // Read by the principal the policy re-reads below, so the agent asked
+    // about is the one bound to the key that decision judges.
+    const principal = caller.subject.principal;
+    const key =
+      principal?.kind === "api_key" && principal.workspace_id !== null
+        ? await deps.keys?.find(principal.workspace_id, principal.id)
+        : null;
+    const agentId = key?.kind === "agent" ? key.agentId : null;
+    if (!agentId || query.include === "summary") {
+      throw new SessionServiceError(
+        "FORBIDDEN",
+        "Only an agent key lists agents, and only its own agent without include=summary",
+      );
+    }
+    await requirePermitted(authorization, caller, "session.submit", {
+      kind: "session",
+      id: null,
+      agent_id: agentId,
+    });
+    const detail = await store.get(caller.ownerId, agentId);
+    return { items: detail ? [detail.agent] : [], next_cursor: null };
+  }
+
   const resolveRelease = (workspaceId: string, releaseId: string) =>
     resolveAgentRelease({ store, catalog }, workspaceId, releaseId);
 
@@ -126,6 +184,9 @@ export function createAgentService(deps: {
       caller: Caller,
       query: ListAgentsQuery,
     ): Promise<ListAgentsResponse> {
+      if (caller.actor?.principal.kind === "api_key") {
+        return keysOwnAgent(caller, query);
+      }
       await onWorkspace(caller, "agent.manage");
       const page = await store.list(caller.ownerId, query);
       if (query.include !== "summary") return page;
@@ -251,6 +312,18 @@ export function createAgentService(deps: {
           `Unknown runtime_profile_id ${profileId}`,
         );
       }
+      const repositoryId = request.repository_id ?? null;
+      const refused = releaseRepositoryRefusal(
+        profileId,
+        profile,
+        repositoryId,
+      );
+      if (refused !== null) {
+        throw new SessionServiceError(
+          "UNSUPPORTED_CAPABILITY",
+          `repository_id: ${refused}`,
+        );
+      }
       const resolved = resolveReleaseContent(
         version.card,
         profileId,
@@ -267,6 +340,7 @@ export function createAgentService(deps: {
         // As stored: PostgreSQL returns a uuid in lower case.
         agent_id: version.agent_id,
         card_sha256: version.content_sha256,
+        repository_id: repositoryId,
         ...resolved.content,
       };
       const result = await store.insertRelease({

@@ -1,0 +1,1 @@
+ALTER TABLE "agent_releases" ADD COLUMN "repository_id" text;

@@ -206,7 +206,7 @@ describe("app shell", () => {
     ["/settings/preferences", "언어·테마", "form"],
     ["/settings/linked-accounts", "연동 계정", "form"],
     ["/settings/api-keys/new", "새 개인 key", "form"],
-    ["/agents/new", "새 에이전트", "form"],
+    ["/agents/new", "새 에이전트", "full"],
   ] as const) {
     test(`${path} takes the ${width} column`, async () => {
       renderAt(path, signedIn);

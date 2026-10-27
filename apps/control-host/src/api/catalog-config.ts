@@ -10,12 +10,14 @@ import {
   catalogCredentialRefs,
   credentialRefOf,
   describeConfigError,
+  ProfileFeatureGate,
   resolveSessionCatalog,
   SecretKey,
   type SessionCatalog,
   type SessionCatalogConfig,
   sessionCatalogConfigSchema,
 } from "@werft-ai/platform";
+import { installedDescriptors } from "@werft-ai/runtime-codecs";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
@@ -38,6 +40,9 @@ export const SECRET_KEY_SETTING = "PLATFORM_SECRET_KEY";
 // One bounded read per secret at startup; the API does not start without
 // them, so a hung endpoint must fail the boot rather than hold it.
 const SECRET_READ_TIMEOUT_MS = 10_000;
+
+/** The runtimes the worker image ships, as the control plane sees them. */
+export const installedRuntimes = new ProfileFeatureGate(installedDescriptors);
 
 export type SecretReader = (secretId: string) => Promise<string | undefined>;
 
@@ -153,6 +158,7 @@ export async function loadCatalogConfig(options: {
       `Profile(s) ${unattended.join(", ")} run tools without asking (permission_mode: ${UNATTENDED_PERMISSION_MODES.join(" | ")}); set ${ALLOW_UNATTENDED_SETTING}=true on the API and the slack role to allow it`,
     );
   }
+  installedRuntimes.assertProfiles(config.profiles);
   return config;
 }
 

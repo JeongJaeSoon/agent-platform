@@ -38,21 +38,23 @@ id: ev_3m
 | event | 안쪽 `data` |
 | --- | --- |
 | `system` | 엔진이 알리는 시작·설정 정보 |
-| `assistant` | 모델의 메시지. 텍스트는 `message.content[]`의 `type: "text"` 블록 |
-| `tool_use` | 모델이 부른 도구와 입력 |
-| `tool_result` | 도구의 결과. 실패면 `is_error: true` |
+| `assistant` | 모델의 메시지. 텍스트는 `text`, 생각은 `thinking` |
+| `tool_use` | 모델이 부른 도구와 입력(`tool_call`의 `id`·`name`·`input`) |
+| `tool_result` | 도구의 결과(`tool_result`의 `tool_call_id`·`text`). 실패면 `is_error: true` |
 | `question` | 권한 요청이나 질문이 생겼다. 답하는 법은 [승인 대기와 재개](/sessions/waiting-and-resume) |
 | `result` | 엔진이 turn을 마쳤다. 완료 판정이 아니다 |
 | `status` | 세션 상태가 바뀌었다(`phase`: `running`, `idle` 등) |
 | `error` | 실행 오류 |
 
+이 표에 없는 안쪽 필드(`message`, `session_id` 등)는 엔진마다 다르다. 엔진이 바뀌면 사라지거나 모양이 바뀔 수 있으니 읽지 않는다.
+
 ## 텍스트와 도구 결과 뽑기
 
 ```bash
 awk '/^event: assistant/ { getline; sub(/^data: /, ""); print }' events.txt \
-  | jq -r '.data.message.content[] | select(.type == "text") | .text'
+  | jq -r '.data.text // empty'
 awk '/^event: tool_result/ { getline; sub(/^data: /, ""); print }' events.txt \
-  | jq -c '.data | {is_error}'
+  | jq -c '.data.tool_result | {is_error}'
 ```
 
 ```text

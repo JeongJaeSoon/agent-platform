@@ -60,6 +60,18 @@ API를 업그레이드해도 이미 떠 있는 worker 컨테이너는 옛 이미
 
 2단계를 너무 일찍 배포하면 옛 쪽이 상대의 요청이나 응답을 계약 위반으로 거절한다. worker는 계약에 맞지 않는 heartbeat 응답을 재시도할 수 없는 실패로 보므로, 첫 heartbeat에서 lease를 잃었다고 판단하고 멈춘다.
 
+checkpoint manifest에 필드를 더할 때는 반대로 읽는 쪽이 먼저다. control-host(commit 전 검증·복원 계획·GC)와 worker(복원) 모두 모르는 키를 거절한다. 그래서 control-host를 먼저 올리거나 같은 릴리스로 올리고, worker는 그 뒤에 올린다. 그 필드를 쓴 checkpoint가 생긴 뒤 worker를 롤백하면, 위의 `baseBundles`와 같은 이유로 그 세션은 복원되지 않는다.
+
+| 필드 | 먼저: 읽는 쪽 | 그다음: 쓰는 쪽 |
+|---|---|---|
+| `workerState`(승인 대기 park) | control-host와 worker가 이 키가 있는 manifest를 받는다 | worker가 승인 대기 turn을 park할 때만 쓴다 |
+
+worker가 보내는 worker protocol 필드를 새로 더할 때도 API가 먼저다. API의 worker protocol 요청 schema는 strict라서, 옛 API는 모르는 필드가 실린 요청 전체를 400 `BAD_REQUEST`로 거절한다.
+
+| 필드 | 먼저 배포 | 옛 API를 만난 새 worker |
+|---|---|---|
+| pending-control 요청 `settled[].reason`·`settled[].answer_result` | API | `worker.pending.settlement_detail_refused` 경고를 한 번 남기고, 그 attempt가 끝날 때까지 `outcome`만 보낸다. receipt는 예전 규칙대로 정산되고 `pending_requests.settled_reason`·`settled_answer_result`는 비어 있다 |
+
 ## 공급망 취약점 정책
 
 **수정판이 있는 high·critical 취약점만 막는다.** 수정판이 없는 발견은 보고만 하고 실패시키지 않는다.

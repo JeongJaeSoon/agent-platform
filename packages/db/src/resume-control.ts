@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   ApiErrorCode,
   ControlAcceptedResponse,
+  ReceiptActor,
   ReceiptStatus,
   ResumeReceiptResult,
 } from "@werft-ai/contracts";
@@ -16,6 +17,7 @@ import {
   type IdempotencyScope,
 } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
+import { closeParkedGroup } from "./parked-group.ts";
 import { openPauseReceipt } from "./pause-control.ts";
 import { awaitingInputAt, publicStatus } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
@@ -268,7 +270,45 @@ async function resumePaused(
   }
   if (!hasRestorePoint(session)) return { outcome: "checkpoint_unavailable" };
   if (session.podId !== null) return { outcome: "unsupported" };
+  // A parked turn is carried on by this resume, once nothing it asked is
+  // still open: an answer or an expiry stands for each.
+  const parked = await closeParkedGroup(tx, session, {
+    by: "resume",
+    at: await dbNow(tx),
+  });
+  if (parked.outcome === "pending_requests_open") return parked;
 
+  await moveToResuming(tx, session, {
+    now,
+    statusActor: { owner_id: context.ownerId },
+  });
+  const response = await writeResumeReceipt(tx, {
+    scope: context.scope,
+    payloadHash: context.payloadHash,
+    status: "accepted",
+    result: null,
+    error: null,
+    now,
+    afterEpoch: session.leaseEpoch + 1,
+  });
+  return { outcome: "accepted", response };
+}
+
+/**
+ * `paused → resuming`: a new worker is launched to restore the pause's
+ * checkpoint, and the open resume receipt waits on it. With `answeredBy`
+ * the platform resumes on its own (an answer closed what its park waited
+ * on) and writes that receipt itself, as the answerer's; otherwise the
+ * caller writes the receipt of the request it serves.
+ */
+export async function moveToResuming(
+  tx: Database,
+  session: SessionRow,
+  input:
+    | { now: Date; statusActor: { owner_id: string } }
+    | { now: Date; answeredBy: ReceiptActor | null },
+) {
+  const { now } = input;
   await tx
     .update(sessions)
     .set({
@@ -297,21 +337,33 @@ async function resumePaused(
     extra: {
       admission_state: "resuming",
       resuming_from_checkpoint_revision: session.checkpointRevision,
-      actor: { owner_id: context.ownerId },
+      ...("statusActor" in input
+        ? { actor: input.statusActor }
+        : { resumed_by: "answer" }),
     },
     turnRowId: null,
     now,
   });
-  const response = await writeResumeReceipt(tx, {
-    scope: context.scope,
-    payloadHash: context.payloadHash,
+  if (!("answeredBy" in input)) return;
+  const targetRef: ResumeTarget = {
+    session_id: session.id,
+    turn_id: null,
+    request_id: null,
+    after_epoch: session.leaseEpoch + 1,
+  };
+  await tx.insert(receipts).values({
+    id: randomUUID(),
+    ownerId: session.ownerId,
+    actor: input.answeredBy,
+    requestId: null,
+    operation: RESUME,
+    targetRef,
     status: "accepted",
     result: null,
     error: null,
-    now,
-    afterEpoch: session.leaseEpoch + 1,
+    createdAt: now,
+    updatedAt: now,
   });
-  return { outcome: "accepted", response };
 }
 
 /**

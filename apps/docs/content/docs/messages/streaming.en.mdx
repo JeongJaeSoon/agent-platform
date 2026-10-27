@@ -38,21 +38,23 @@ id: ev_3m
 | event | Inner `data` |
 | --- | --- |
 | `system` | Start and configuration information from the engine |
-| `assistant` | A model message. The text is in the `type: "text"` blocks of `message.content[]` |
-| `tool_use` | The tool the model called and its input |
-| `tool_result` | The tool's result. `is_error: true` on failure |
+| `assistant` | A model message. The text is in `text`, the thinking in `thinking` |
+| `tool_use` | The tool the model called and its input (`id`, `name` and `input` of `tool_call`) |
+| `tool_result` | The tool's result (`tool_call_id` and `text` of `tool_result`). `is_error: true` on failure |
 | `question` | A permission request or question was raised. How to answer: [Waiting for approval and resuming](/sessions/waiting-and-resume) |
 | `result` | The engine finished the turn. This is not a completion verdict |
 | `status` | The session state changed (`phase`: `running`, `idle`, and so on) |
 | `error` | An execution error |
 
+Inner fields not in this table (`message`, `session_id` and so on) differ by engine. They can go away or change shape with another engine, so do not read them.
+
 ## Extract text and tool results
 
 ```bash
 awk '/^event: assistant/ { getline; sub(/^data: /, ""); print }' events.txt \
-  | jq -r '.data.message.content[] | select(.type == "text") | .text'
+  | jq -r '.data.text // empty'
 awk '/^event: tool_result/ { getline; sub(/^data: /, ""); print }' events.txt \
-  | jq -c '.data | {is_error}'
+  | jq -c '.data.tool_result | {is_error}'
 ```
 
 ```text

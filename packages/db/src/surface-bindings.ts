@@ -301,6 +301,25 @@ export function createPostgresSurfaceBindingStore(
       }
       return resolveSlackChannel(db, id, null);
     },
+    async ensureInvitedChannel(installationId, channelId, channelKind) {
+      if (!UUID.test(installationId)) return null;
+      const id = installationId.toLowerCase();
+      const { actions, disclosure } = DEFAULT_SURFACE_CEILING;
+      await db.execute(sql`
+        INSERT INTO ${surfaceBindings} (id, workspace_id, agent_id, surface,
+          installation_id, external_surface_id, surface_kind, mode,
+          ceiling_actions, ceiling_disclosure, membership)
+        SELECT ${randomUUID()}, i.workspace_id, i.agent_id, 'slack',
+          i.installation_id, ${channelId}, ${channelKind}, 'mention',
+          ARRAY[${sql.join(
+            actions.map((action) => sql`${action}`),
+            sql`, `,
+          )}]::text[], ${disclosure}, 'joined'
+        FROM ${agentIdentities} i
+        WHERE i.installation_id = ${id} AND i.status = 'active'
+        ON CONFLICT DO NOTHING`);
+      return resolveSlackChannel(db, id, channelId);
+    },
     async setMembership(bindingId, membership, expected) {
       if (!UUID.test(bindingId)) return;
       await db

@@ -147,7 +147,10 @@ export type ResumeSessionResult =
   // removal; the same request succeeds once it has.
   | { outcome: "workspace_reclaiming" }
   // An operator revoked the session's execution authority.
-  | { outcome: "execution_revoked" };
+  | { outcome: "execution_revoked" }
+  // The parked turn still waits on requests nobody answered and that have
+  // not expired.
+  | { outcome: "pending_requests_open"; waitingFor: number };
 
 // The states a profile change is accepted in: nothing is on its way in or
 // out. A pausing or resuming session settles first.

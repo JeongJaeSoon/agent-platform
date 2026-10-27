@@ -14,10 +14,9 @@
  */
 
 import { bootstrapClaimResponseSchema } from "@werft-ai/contracts";
-import { CLAUDE_RUNTIME_FINGERPRINT } from "@werft-ai/runtime-claude";
 import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
 
-import { claudeClaimFingerprint } from "./composition.ts";
+import { claimFingerprint, imageRuntime } from "./composition.ts";
 import type { WorkerConfig } from "./config.ts";
 
 // `workspace` only tells a session without a repository apart; absent, the
@@ -40,7 +39,7 @@ const HOST_STAND_IN: Pick<WorkerConfig, "egressCredentialUrl" | "runtime"> = {
   },
 };
 
-export const imageClaimFingerprint = claudeClaimFingerprint(HOST_STAND_IN);
+export const imageClaimFingerprint = claimFingerprint(HOST_STAND_IN);
 
 export function imageRuntimeOf(
   claims: unknown,
@@ -66,7 +65,7 @@ export function imageRuntimeOf(
       profiles[sessionId] = { error: (error as Error).message };
     }
   }
-  return { ...CLAUDE_RUNTIME_FINGERPRINT, profiles };
+  return { ...JSON.parse(imageRuntime().imageFingerprint()), profiles };
 }
 
 if (import.meta.main) {

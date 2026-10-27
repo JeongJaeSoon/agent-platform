@@ -833,6 +833,46 @@ describe("orphaned attempt directories", () => {
       expect(await present(entry)).toBe(false);
   });
 
+  test("an approval-wait checkpoint stays while a crash may still promote it, and goes once the turn's own commit passes it", async () => {
+    const part = await transcriptPart(0);
+    await commit(0, "attempt-a", [part]);
+    // Verified at registerPending, the way a turn-end candidate is at finalize.
+    const waiting = await publish(1, "attempt-a", [part]);
+    await service().verifyAttemptManifest({
+      checkpoint: waiting.checkpoint,
+      fence: fenceOf("attempt-a"),
+    });
+
+    await collector().collectSession(sessionId, { dryRun: false });
+    for (const entry of waiting.versions)
+      expect(await present(entry)).toBe(true);
+
+    // The answer came, the turn ran on and committed its end.
+    await commit(1, "attempt-a", [part]);
+    await collector().collectSession(sessionId, { dryRun: false });
+    for (const entry of waiting.versions)
+      expect(await present(entry)).toBe(false);
+  });
+
+  test("an approval-wait checkpoint a crash promoted is the pointer, and stays", async () => {
+    const part = await transcriptPart(0);
+    await commit(0, "attempt-a", [part]);
+    const waiting = await publish(1, "attempt-a", [part]);
+    const promoted = await finalizeCheckpoint(service(), session.commit, {
+      checkpoint: waiting.checkpoint,
+      fence: fenceOf("attempt-a"),
+      now: new Date("2026-09-24T00:00:00.000Z"),
+      sessionId,
+      turnId: null,
+    });
+    expect(promoted).toEqual({ outcome: "committed", revision: 1 });
+    session.fence("attempt-a");
+
+    await collector().collectSession(sessionId, { dryRun: false });
+    for (const entry of waiting.versions)
+      expect(await present(entry)).toBe(true);
+  });
+
   test("a session with no checkpoint yet loses only fenced attempts' uploads", async () => {
     const part = await transcriptPart(0);
     const live = await publish(0, "attempt-b", [part]);

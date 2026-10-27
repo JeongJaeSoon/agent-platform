@@ -41,7 +41,7 @@ const frame = (event: string, data: unknown) => {
 };
 const call = (id: string, name = "Bash") =>
   frame("tool_use", {
-    message: { content: [{ type: "tool_use", id, name, input: {} }] },
+    tool_call: { id, name, input: {} },
   });
 const ask = (id: string, kind: "permission" | "question") =>
   frame("question", {
@@ -53,7 +53,9 @@ const ask = (id: string, kind: "permission" | "question") =>
   });
 const status = (phase: string) => frame("status", { phase });
 const result = (id: string, isError = false) =>
-  frame("tool_result", { tool_use_id: id, is_error: isError, content: "" });
+  frame("tool_result", {
+    tool_result: { tool_call_id: id, is_error: isError, text: "" },
+  });
 
 describe("heldToolCalls", () => {
   test("권한 요청과 질문 모두 답이 오기 전까지 그 호출을 막는다", () => {

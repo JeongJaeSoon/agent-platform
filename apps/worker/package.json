@@ -8,14 +8,14 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "start": "bun run src/main.ts",
-    "test:unit": "bun test src --path-ignore-patterns='**/*.integration.test.ts' && bun run --cwd ../../packages/adapters/runtimes/claude test:unit",
-    "test:direct-local": "bun test .integration.test.ts && bun run --cwd ../../packages/adapters/runtimes/claude test:direct-local"
+    "test:unit": "bun test src --path-ignore-patterns='**/*.integration.test.ts' && bun run --filter @werft-ai/runtime-registry test:unit",
+    "test:direct-local": "bun test .integration.test.ts && bun run --filter @werft-ai/runtime-registry test:direct-local"
   },
   "dependencies": {
     "@werft-ai/contracts": "workspace:*",
     "@werft-ai/observability": "workspace:*",
-    "@werft-ai/runtime-claude": "workspace:*",
     "@werft-ai/runtime-core": "workspace:*",
+    "@werft-ai/runtime-registry": "workspace:*",
     "@werft-ai/storage": "workspace:*",
     "@werft-ai/system": "workspace:*"
   },

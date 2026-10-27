@@ -40,6 +40,7 @@ import {
   PageBreadcrumb,
   PageBreadcrumbCurrent,
   PageBreadcrumbLink,
+  Link as TextLink,
 } from "@werft-ai/ui";
 import {
   Check,
@@ -144,6 +145,7 @@ const KIND_FACTS: Record<KeyKind, readonly MessageKey[]> = {
     "apiKeys.guide.agent.actsAs",
     "apiKeys.guide.agent.issuerLeaves",
     "apiKeys.guide.agent.sessions",
+    "apiKeys.guide.agent.startSession",
     "apiKeys.guide.agent.approve",
   ],
 };
@@ -210,6 +212,17 @@ function KeyKindGuide({ kind }: { readonly kind: KeyKind }) {
               ))}
             </ul>
           </div>
+          <p className="m-0">
+            {t("apiKeys.docs")}{" "}
+            {/* Served by the API itself, outside the console's router. */}
+            <TextLink
+              href="/docs"
+              target="_blank"
+              newTabLabel={t("apiKeys.docsNewTab")}
+            >
+              {t("apiKeys.docsLink")}
+            </TextLink>
+          </p>
         </AlertDescription>
       </section>
     </Alert>

@@ -443,6 +443,16 @@ export const registerPendingRequestSchema = workerScopeSchema
       .object({ tool_use_id: z.string().min(1), tool: z.string().min(1) })
       .strict()
       .optional(),
+    // The approval-wait checkpoint captured while the engine waits on this
+    // request, committed with the row and never moved onto the session
+    // pointer here. `answers_through` is the last answer sequence the worker
+    // had applied when it captured: an answer delivered past it may have let
+    // a tool run that the checkpoint does not hold. A server older than the
+    // field refuses the body, so servers deploy first.
+    checkpoint: checkpointRefSchema
+      .extend({ answers_through: z.number().int().nonnegative() })
+      .strict()
+      .optional(),
   })
   .strict();
 // `expires_in_ms` is what is left, measured on the server's clock: a replay
@@ -457,12 +467,47 @@ export const registerPendingResponseSchema = z.object({
 // How a registered request ended on the worker: `answered` once the callback
 // got the delivered answer (a deny included), `expired` when nothing reached
 // it in time, `cancelled` when the callback went away first.
+//
+// `reason` says why the worker cancelled it, so a cancel is never read as a
+// person's deny. `answer_result` is what the run said of a delivered answer:
+// `unknown` stays answered (the engine may have acted on it), `stale` never
+// reached it. An older worker sends neither; a server older than them
+// refuses the poll, so servers deploy first.
+export const PENDING_CANCEL_REASON_VALUES = [
+  "park",
+  "shutdown",
+  "interrupt",
+  "refused",
+] as const;
 export const pendingSettlementSchema = z
   .object({
     request_id: requestIdSchema,
     outcome: z.enum(["answered", "expired", "cancelled"]),
+    reason: z.enum(PENDING_CANCEL_REASON_VALUES).optional(),
+    answer_result: z.enum(["applied", "stale", "unknown"]).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((settlement, context) => {
+    if (settlement.reason !== undefined && settlement.outcome !== "cancelled") {
+      context.addIssue({
+        code: "custom",
+        message: "Only a cancelled request has a reason",
+        path: ["reason"],
+      });
+    }
+    const result = settlement.answer_result;
+    if (
+      result !== undefined &&
+      settlement.outcome !== (result === "stale" ? "cancelled" : "answered")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "A stale answer settles as cancelled, an applied or unknown one as answered",
+        path: ["answer_result"],
+      });
+    }
+  });
 
 export const PENDING_SETTLEMENTS_MAX = 256;
 
@@ -526,8 +571,9 @@ export const pendingControlResponseSchema = z.object({
 });
 
 // The worker will not park after all, and says so before it has cancelled a
-// callback or interrupted the turn: `answer_applied` when the poll that
-// brought the park also brought an answer the worker applied,
+// callback or interrupted the turn: `answer_applied` when the wait the park
+// was for is already gone (an answer the same poll brought and the worker
+// applied, a request that expired, a turn that ended on its own),
 // `checkpoint_unavailable` when it could not leave a checkpoint to park on.
 // The server puts the session back to active only while the park is still
 // the open pause; a person's pause that took it over stands.
@@ -555,6 +601,17 @@ export const requestParkRequestSchema = workerScopeSchema
   .strict();
 export const requestParkResponseSchema = z.object({
   pause_control_id: z.string().min(1),
+});
+
+// Sent before the engine admits a tool after an approval-wait checkpoint was
+// committed: past this, that checkpoint no longer holds what the workspace
+// will. `invalidated` is false only when no such checkpoint of this attempt
+// exists; the worker admits the tool either way once the call succeeds.
+export const invalidateApprovalCheckpointRequestSchema = workerScopeSchema
+  .extend({ manifest_ref: z.string().min(1) })
+  .strict();
+export const invalidateApprovalCheckpointResponseSchema = z.object({
+  invalidated: z.boolean(),
 });
 
 // Asks the server where the next checkpoint goes. The runtime's own verdict
@@ -839,6 +896,12 @@ export type ParkDeclinedRequest = z.infer<typeof parkDeclinedRequestSchema>;
 export type ParkDeclinedResponse = z.infer<typeof parkDeclinedResponseSchema>;
 export type RequestParkRequest = z.infer<typeof requestParkRequestSchema>;
 export type RequestParkResponse = z.infer<typeof requestParkResponseSchema>;
+export type InvalidateApprovalCheckpointRequest = z.infer<
+  typeof invalidateApprovalCheckpointRequestSchema
+>;
+export type InvalidateApprovalCheckpointResponse = z.infer<
+  typeof invalidateApprovalCheckpointResponseSchema
+>;
 
 // What the engine made of the proxy's refusal: a 403 it calls an
 // authentication failure, the refusal text, the last retry's status.

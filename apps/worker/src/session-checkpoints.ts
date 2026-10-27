@@ -20,11 +20,6 @@ import type {
   WorkerScope,
 } from "@werft-ai/contracts";
 import {
-  ClaudeSessionStore,
-  claudeCheckpointCodec,
-  TranscriptTooLarge,
-} from "@werft-ai/runtime-claude";
-import {
   type CheckpointCodec,
   type CheckpointManifest,
   type CheckpointObjectStore,
@@ -41,6 +36,7 @@ import {
   type ReadyCheckpoint,
   type RejectedCheckpoint,
   type RuntimeFingerprint,
+  type RuntimeModule,
   restoreCwdRefusal,
   runtimeFor,
   type StoredOutput,
@@ -50,6 +46,8 @@ import {
   type TranscriptLimits,
   type TranscriptRevision,
   type TranscriptSizeProblem,
+  type TranscriptStore,
+  TranscriptTooLargeError,
   transcriptBytes,
   transcriptParts,
   transcriptSizeProblem,
@@ -71,12 +69,12 @@ import {
   clearWorkspace,
   restoreCheckpointTree,
   stageCheckpointBundle,
-  stagedClaudeMd,
+  stagedInstructions,
 } from "./checkpoint-restore.ts";
 import { isObjectStoreOutage } from "./object-store.ts";
 import type { WorkerLogger } from "./worker-host.ts";
 import {
-  committedClaudeMdOf,
+  committedInstructionsOf,
   storableRepositoryUrl,
   workerScratch,
 } from "./workspace.ts";
@@ -125,10 +123,13 @@ export type SessionCheckpointsOptions = {
    * through the store.
    */
   claudeConfigDir?: string;
-  codec?: CheckpointCodec;
+  /** The engine whose checkpoints these are: its manifest codec and transcript store. */
+  runtime: Pick<RuntimeModule, "checkpointCodec" | "openTranscriptStore">;
+  /** The engine's instruction file a restore reads at the pinned commit; null for none. */
+  instructionsFile: string | null;
   /**
-   * The commit the workspace preparer read CLAUDE.md from, for a session
-   * with nothing to restore; a restore takes the checkpoint's instead.
+   * The commit the workspace preparer read the instruction file from, for a
+   * session with nothing to restore; a restore takes the checkpoint's instead.
    */
   instructionsCommit?: () => string | null;
   /** Swapped in by tests that need a workspace refused or captured slowly. */
@@ -156,7 +157,7 @@ type Bound = {
   /** Carried into every bundle this run captures (`CHECKPOINT_INSTRUCTIONS_REF`). */
   instructions: InstructionsPin | undefined;
   runtime: RuntimeFingerprint;
-  store: ClaudeSessionStore;
+  store: TranscriptStore;
   /** The checkpoint restored from, or the last one this run saw committed. */
   committed?: PublishedCheckpoint;
   /** The last one this run published, until the next shows it committed. */
@@ -271,7 +272,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       );
     }
     this.#options = options;
-    this.#codec = options.codec ?? claudeCheckpointCodec;
+    this.#codec = options.runtime.checkpointCodec;
   }
 
   async restorePlan(
@@ -357,9 +358,9 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
   async #openFreshStore(
     claim: BootstrapClaimResponse,
     signal: AbortSignal,
-  ): Promise<ClaudeSessionStore> {
+  ): Promise<TranscriptStore> {
     for (let retries = 0; ; retries += 1) {
-      const store = new ClaudeSessionStore({
+      const store = this.#options.runtime.openTranscriptStore({
         generation: claim.execution_generation,
         objects: this.#options.objects,
         prefix: this.#transcriptPrefix(),
@@ -464,7 +465,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       return (version === undefined ? rest : { ...rest, version }) as T;
     };
 
-    const store = new ClaudeSessionStore({
+    const store = this.#options.runtime.openTranscriptStore({
       generation: claim.execution_generation,
       inherit: {
         sessionId: manifest.resume,
@@ -515,7 +516,11 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         repository: join(spool, "checkpoint.git"),
         signal,
       });
-      const claudeMd = await stagedClaudeMd(staged, signal);
+      const instructions = await stagedInstructions(
+        staged,
+        this.#options.instructionsFile,
+        signal,
+      );
       // Staged, so their disk is free before the workspace fetches a copy.
       await Promise.all(
         artifacts
@@ -591,7 +596,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         mode: "resume",
         resume: manifest.resume,
         sessionStore: store,
-        committedClaudeMd: () => committedClaudeMdOf(claudeMd),
+        committedInstructions: () => committedInstructionsOf(instructions),
         restoredRevision: restoring.revision,
       };
     } finally {
@@ -864,6 +869,20 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     );
     await this.#reportLostMirror(bound, context, undefined);
     return problem.reason;
+  }
+
+  async parkBlocked(resume: string): Promise<string | undefined> {
+    const bound = this.#bound;
+    if (bound === undefined) return "No transcript mirror is bound";
+    let sizes: Array<{ bytes: number; key: string }> | null;
+    try {
+      sizes = await bound.store.transcriptSizes(resume);
+    } catch (error) {
+      if (isOwnershipLost(error)) throw error;
+      return `The transcript could not be measured: ${describe(error)}`;
+    }
+    if (sizes === null) return undefined;
+    return transcriptSizeProblem(sizes, this.#limits())?.detail;
   }
 
   async finalizeRefused(detail: string, scope: WorkerScope): Promise<void> {
@@ -1181,7 +1200,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       bound.store
         .captureTranscripts(preparation.checkpoint.resume)
         .catch((error: unknown) => {
-          throw error instanceof TranscriptTooLarge
+          throw error instanceof TranscriptTooLargeError
             ? new TranscriptLimitReached({
                 reason: error.reason,
                 detail: error.message,
@@ -1259,6 +1278,9 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       sessionId: bound.claim.session_id,
       transcripts,
       version: 2,
+      ...(context.workerState === undefined
+        ? {}
+        : { workerState: context.workerState }),
       workspace: {
         ...(bases.length === 0 ? {} : { baseBundles: bases }),
         bundle: versioned(bundle),

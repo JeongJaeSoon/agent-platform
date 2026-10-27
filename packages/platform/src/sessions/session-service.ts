@@ -217,7 +217,8 @@ export function payloadHash(payload: unknown): string {
     .digest("hex");
 }
 
-// Every service entry asks before any store call. Over HTTP the edge has
+// Service entries authorize before store calls, except receipt reads that
+// must resolve their target before authorizing disclosure. Over HTTP the edge has
 // already refused a missing scope, so only a caller without HTTP meets the
 // FORBIDDEN here, with the same message. A decision that cannot be reached
 // is a refusal.
@@ -298,7 +299,11 @@ export function createSessionService(deps: {
     ): Promise<
       Pick<
         AgentRelease,
-        "id" | "agent_id" | "runtime_profile_id" | "runtime_config_snapshot"
+        | "id"
+        | "agent_id"
+        | "runtime_profile_id"
+        | "repository_id"
+        | "runtime_config_snapshot"
       >
     >;
   };
@@ -467,7 +472,10 @@ export function createSessionService(deps: {
       actor.ownerId,
       body.agent_release_id,
     );
-    if (release.runtime_profile_id !== body.profile_id) {
+    if (
+      body.profile_id !== undefined &&
+      release.runtime_profile_id !== body.profile_id
+    ) {
       throw new SessionServiceError(
         "RELEASE_PROFILE_MISMATCH",
         `Release ${release.id} runs on profile ${release.runtime_profile_id}, not ${body.profile_id}`,
@@ -535,6 +543,9 @@ export function createSessionService(deps: {
       },
     ): Promise<CreateSessionResponse> {
       const release = await pinnedRelease(actor, input.body);
+      // The contract refuses a body with neither.
+      const profileId = (input.body.profile_id ??
+        release?.runtime_profile_id) as string;
       // An unbound name refuses a new session but not the replay of one
       // accepted before the unbind, which only the acceptance can tell.
       const credentialsUnbound = await requirePermitted(
@@ -563,15 +574,16 @@ export function createSessionService(deps: {
       );
       // A pair the catalog does not allow is as unknown as a missing id: the
       // repository did not grant this profile its trust.
-      const repositoryId = input.body.repository_id ?? null;
+      const repositoryId =
+        input.body.repository_id ?? release?.repository_id ?? null;
       const workspaceRefusal = await workspaceProfileRefusalOf(
         actor,
-        input.body.profile_id,
+        profileId,
         release !== null,
       );
       const allowed =
         workspaceRefusal === null
-          ? allowedRun(catalog, input.body.profile_id, repositoryId)
+          ? allowedRun(catalog, profileId, repositoryId)
           : null;
       // A model the profile does not offer is refused like a pair the
       // catalog does not allow; a replay of an earlier acceptance still
@@ -587,12 +599,13 @@ export function createSessionService(deps: {
         principal: actor,
         idempotencyKey: input.idempotencyKey,
         payloadHash: payloadHash(input.body),
-        profileId: input.body.profile_id,
+        profileId,
         channel: actor.subject.surface.kind,
         title:
           input.body.title === undefined
             ? deriveSessionTitle(input.body.message)
             : normalizeSessionTitle(input.body.title),
+        titleSource: input.body.title === undefined ? "derived" : "user",
         repository:
           pair === null
             ? null
@@ -640,9 +653,9 @@ export function createSessionService(deps: {
           throw new SessionServiceError(
             "UNSUPPORTED_CAPABILITY",
             allowed && !runs
-              ? `Profile ${input.body.profile_id} does not offer model ${input.body.model}`
+              ? `Profile ${profileId} does not offer model ${input.body.model}`
               : (workspaceRefusal?.message ??
-                  repositoryRefusal(input.body.profile_id, repositoryId)),
+                  repositoryRefusal(profileId, repositoryId)),
           );
         case "actor_inactive":
           throw new SessionServiceError(
@@ -1142,6 +1155,11 @@ export function createSessionService(deps: {
           );
         case "execution_revoked":
           throw executionRevoked();
+        case "pending_requests_open":
+          throw new SessionServiceError(
+            "PENDING_REQUESTS_OPEN",
+            `${result.waitingFor} request(s) of the parked turn are neither answered nor expired; answer them or wait for them to expire`,
+          );
         default:
           return result.response;
       }
@@ -1274,19 +1292,18 @@ export function createSessionService(deps: {
     // 404 as for a receipt that never existed, and so does anyone outside
     // the share of the session it names.
     async getReceipt(actor: Caller, receiptId: string): Promise<Receipt> {
+      // Resolve only within the caller's partition. A null session would
+      // incorrectly require an agent key to read across all agents.
+      const receipt = await reader.getReceipt(actor.ownerId, receiptId);
       await requirePermitted(authorization, actor, "session.read", {
         kind: "session",
-        id: null,
+        id:
+          receipt && "session_id" in receipt.target_ref
+            ? receipt.target_ref.session_id
+            : null,
       });
-      const receipt = await reader.getReceipt(actor.ownerId, receiptId);
       if (!receipt) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
-      }
-      if ("session_id" in receipt.target_ref) {
-        await requirePermitted(authorization, actor, "session.read", {
-          kind: "session",
-          id: receipt.target_ref.session_id,
-        });
       }
       return receipt;
     },

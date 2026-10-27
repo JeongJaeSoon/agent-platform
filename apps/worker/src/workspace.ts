@@ -43,12 +43,12 @@ export interface WorkspacePreparer {
    * The repository's root CLAUDE.md as committed on the session's branch,
    * read by the last `prepare` from what it had just fetched and before any
    * engine ran; null when there is none. Throws when the committed file is
-   * one the worker will not hand over (see `readCommittedClaudeMd`), or when
+   * one the worker will not hand over (see `readCommittedInstructions`), or when
    * that `prepare` fetched nothing to read it from (a restore).
    */
-  committedClaudeMd(): string | null;
+  committedInstructions(): string | null;
   /**
-   * The commit `committedClaudeMd` was read from, which checkpoints carry
+   * The commit `committedInstructions` was read from, which checkpoints carry
    * forward (`CHECKPOINT_INSTRUCTIONS_REF`); null when nothing was fetched.
    */
   instructionsCommit(): string | null;
@@ -59,7 +59,7 @@ export const noWorkspace: WorkspacePreparer = {
   async prepare() {
     return "reuse";
   },
-  committedClaudeMd: () => null,
+  committedInstructions: () => null,
   instructionsCommit: () => null,
 };
 
@@ -68,35 +68,35 @@ export const noWorkspace: WorkspacePreparer = {
  * drop the rule that mattered or end one mid-sentence, and a model cannot
  * tell a truncated policy from a complete one.
  */
-export const COMMITTED_CLAUDE_MD_MAX_BYTES = 64 * 1024;
+export const COMMITTED_INSTRUCTIONS_MAX_BYTES = 64 * 1024;
 
-export type CommittedClaudeMd =
+export type CommittedInstructions =
   | { kind: "text"; text: string }
   | { kind: "absent" }
   | { kind: "refused"; reason: string };
 
-/** CLAUDE.md as read, and the commit it was read from. */
+/** The instruction file as read, and the commit it was read from. */
 export type PinnedInstructions = {
-  claudeMd: CommittedClaudeMd;
+  file: CommittedInstructions;
   commit: string | null;
 };
 
 const NOTHING_PINNED: PinnedInstructions = {
-  claudeMd: { kind: "absent" },
+  file: { kind: "absent" },
   commit: null,
 };
 
-/** How `committedClaudeMd` answers for what `pinInstructions` found. */
-export function committedClaudeMdOf(
-  claudeMd: CommittedClaudeMd,
+/** How `committedInstructions` answers for what `pinInstructions` found. */
+export function committedInstructionsOf(
+  file: CommittedInstructions,
 ): string | null {
-  switch (claudeMd.kind) {
+  switch (file.kind) {
     case "text":
-      return claudeMd.text;
+      return file.text;
     case "absent":
       return null;
     case "refused":
-      throw new Error(`Repository CLAUDE.md refused: ${claudeMd.reason}`);
+      throw new Error(`Repository instruction file refused: ${file.reason}`);
   }
 }
 
@@ -137,6 +137,8 @@ export class GitWorkspace implements WorkspacePreparer {
 
   constructor(
     private readonly root: string,
+    /** The runtime's instruction file, as its descriptor names it; null for none. */
+    private readonly instructionsFile: string | null,
     /**
      * The egress proxy's credential routes. A claim that gives the
      * repository a token is fetched through them and nowhere else.
@@ -144,8 +146,8 @@ export class GitWorkspace implements WorkspacePreparer {
     private readonly egressTransport: string | null = null,
   ) {}
 
-  committedClaudeMd(): string | null {
-    return committedClaudeMdOf(this.instructions.claudeMd);
+  committedInstructions(): string | null {
+    return committedInstructionsOf(this.instructions.file);
   }
 
   instructionsCommit(): string | null {
@@ -207,6 +209,7 @@ export class GitWorkspace implements WorkspacePreparer {
           git,
           this.root,
           `refs/remotes/origin/${plan.branch}`,
+          this.instructionsFile,
           input.signal,
         );
         return plan.action;
@@ -246,7 +249,7 @@ export class GitWorkspace implements WorkspacePreparer {
 
   private restored(): "restore" {
     this.instructions = {
-      claudeMd: {
+      file: {
         kind: "refused",
         reason: "a restored workspace has no freshly fetched commit behind it",
       },
@@ -546,6 +549,7 @@ export class GitWorkspace implements WorkspacePreparer {
       git,
       mirror,
       `refs/heads/${branch}`,
+      this.instructionsFile,
       signal,
     );
   }
@@ -657,7 +661,8 @@ const MAX_LINK_HOPS = 8;
 const MAX_LINK_TARGET_BYTES = 4096;
 
 /**
- * The root CLAUDE.md at `rev`, read from git's object store in `cwd` — never
+ * The root instruction file `file` (CLAUDE.md for the Claude runtime) at
+ * `rev`, read from git's object store in `cwd` — never
  * from a working tree, which the engine writes. A committed symlink is
  * followed only to another path in the same tree (`CLAUDE.md -> AGENTS.md`
  * is ordinary); one that leaves it, loops, or ends at anything but a file is
@@ -671,13 +676,14 @@ const MAX_LINK_TARGET_BYTES = 4096;
  * a repository the platform serves depends on one.
  */
 /**
- * Resolves `rev` to the commit it names now and reads CLAUDE.md from that
+ * Resolves `rev` to the commit it names now and reads `file` from that
  * commit, so the text and the commit a checkpoint later pins are the same.
  */
 export async function pinInstructions(
   git: Git,
   cwd: string,
   rev: string,
+  file: string | null,
   signal: AbortSignal,
 ): Promise<PinnedInstructions> {
   const resolved = await git(
@@ -686,25 +692,27 @@ export async function pinInstructions(
   );
   if (resolved.code !== 0) {
     return {
-      claudeMd: { kind: "refused", reason: `${rev} names no commit` },
+      file: { kind: "refused", reason: `${rev} names no commit` },
       commit: null,
     };
   }
   const commit = resolved.stdout.trim();
   return {
-    claudeMd: await readCommittedClaudeMd(git, cwd, commit, signal),
+    file: await readCommittedInstructions(git, cwd, commit, file, signal),
     commit,
   };
 }
 
-export async function readCommittedClaudeMd(
+export async function readCommittedInstructions(
   git: Git,
   cwd: string,
   rev: string,
+  file: string | null,
   signal: AbortSignal,
-): Promise<CommittedClaudeMd> {
+): Promise<CommittedInstructions> {
+  if (file === null) return { kind: "absent" };
   try {
-    return await resolveCommittedClaudeMd(git, cwd, rev);
+    return await resolveCommittedInstructions(git, cwd, rev, file);
   } catch (error) {
     // A stop is the preparation's to report. Anything else that goes wrong
     // with this file is only the business of a profile that asks for it.
@@ -716,12 +724,13 @@ export async function readCommittedClaudeMd(
   }
 }
 
-async function resolveCommittedClaudeMd(
+async function resolveCommittedInstructions(
   git: Git,
   cwd: string,
   rev: string,
-): Promise<CommittedClaudeMd> {
-  let path = "CLAUDE.md";
+  file: string,
+): Promise<CommittedInstructions> {
+  let path = file;
   for (let hop = 0; hop <= MAX_LINK_HOPS; hop++) {
     const listed = await git(
       ["--literal-pathspecs", "ls-tree", "--full-tree", "-z", rev, "--", path],
@@ -797,10 +806,10 @@ async function resolveCommittedClaudeMd(
         reason: `git cat-file failed (exit ${size.code}): ${size.stderr.trim()}`,
       };
     }
-    if (Number(size.stdout.trim()) > COMMITTED_CLAUDE_MD_MAX_BYTES) {
+    if (Number(size.stdout.trim()) > COMMITTED_INSTRUCTIONS_MAX_BYTES) {
       return {
         kind: "refused",
-        reason: `it is larger than ${COMMITTED_CLAUDE_MD_MAX_BYTES} bytes`,
+        reason: `it is larger than ${COMMITTED_INSTRUCTIONS_MAX_BYTES} bytes`,
       };
     }
     const blob = await git(["cat-file", "blob", object], { cwd });

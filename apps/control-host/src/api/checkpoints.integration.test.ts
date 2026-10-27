@@ -22,10 +22,10 @@ import {
 } from "@werft-ai/platform";
 import { finalizeCheckpoint } from "@werft-ai/platform/testing/checkpoints";
 import {
-  CLAUDE_RUNTIME_FINGERPRINT,
-  claudeCheckpointCodec,
-  digestParts,
-} from "@werft-ai/runtime-claude-codec";
+  installedCheckpointCodecs,
+  installedDescriptors,
+} from "@werft-ai/runtime-codecs";
+import { transcriptDigestFor } from "@werft-ai/runtime-codecs/testing";
 import type {
   CheckpointManifest,
   CheckpointObjectStore,
@@ -67,6 +67,27 @@ const integration =
   testDatabaseUrl() && localstackEnabled() ? describe : describe.skip;
 
 const PROFILE_SHA = "c".repeat(64);
+const ENGINE = "claude";
+const claudeCheckpointCodec = installedOrThrow(
+  installedCheckpointCodecs.find((codec) => codec.engine === ENGINE),
+);
+const claudeDescriptor = installedOrThrow(
+  installedDescriptors.find(
+    (descriptor) => descriptor.checkpointEngine === ENGINE,
+  ),
+);
+/** The build the installed codec stamps a checkpoint with, short of a profile. */
+const engineBuild = {
+  cliVersion: claudeDescriptor.engineVersion,
+  engine: claudeDescriptor.checkpointEngine,
+  sdkVersion: claudeDescriptor.runtimeVersion,
+};
+const digestParts = transcriptDigestFor(ENGINE);
+
+function installedOrThrow<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error(`No ${ENGINE} codec is installed`);
+  return value;
+}
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -358,7 +379,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
       engine: "claude",
       resume: "sdk-session-1",
       revision: 0,
-      runtime: { ...CLAUDE_RUNTIME_FINGERPRINT, profileSha256: PROFILE_SHA },
+      runtime: { ...engineBuild, profileSha256: PROFILE_SHA },
       sessionId,
       transcripts: {
         root: {
@@ -432,8 +453,8 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
 
     const runtime = {
       engine: "claude",
-      sdk_version: CLAUDE_RUNTIME_FINGERPRINT.sdkVersion,
-      cli_version: CLAUDE_RUNTIME_FINGERPRINT.cliVersion,
+      sdk_version: engineBuild.sdkVersion,
+      cli_version: engineBuild.cliVersion,
       profile_sha256: PROFILE_SHA,
     };
     expect(await gateway.restorePlan(principal, { ...scope, runtime })).toEqual(
@@ -468,7 +489,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
         {
           field: "sdkVersion",
           expected: "0.0.1",
-          found: CLAUDE_RUNTIME_FINGERPRINT.sdkVersion,
+          found: engineBuild.sdkVersion,
         },
       ],
     });
@@ -500,7 +521,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
       engine: "claude",
       resume: "sdk-session-1",
       revision: 0,
-      runtime: { ...CLAUDE_RUNTIME_FINGERPRINT, profileSha256: PROFILE_SHA },
+      runtime: { ...engineBuild, profileSha256: PROFILE_SHA },
       sessionId,
       transcripts: {
         root: {
@@ -606,8 +627,8 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
 
     const runtime = {
       engine: "claude",
-      sdk_version: CLAUDE_RUNTIME_FINGERPRINT.sdkVersion,
-      cli_version: CLAUDE_RUNTIME_FINGERPRINT.cliVersion,
+      sdk_version: engineBuild.sdkVersion,
+      cli_version: engineBuild.cliVersion,
       profile_sha256: PROFILE_SHA,
     };
     const plan = await gateway.restorePlan(principal, { ...scope, runtime });
@@ -654,8 +675,8 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
     >;
     const runtime = {
       engine: "claude",
-      sdk_version: CLAUDE_RUNTIME_FINGERPRINT.sdkVersion,
-      cli_version: CLAUDE_RUNTIME_FINGERPRINT.cliVersion,
+      sdk_version: engineBuild.sdkVersion,
+      cli_version: engineBuild.cliVersion,
       profile_sha256: PROFILE_SHA,
     };
     const first = await put(
@@ -685,7 +706,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
         engine: "claude",
         resume: `sdk-session-${revision}`,
         revision,
-        runtime: { ...CLAUDE_RUNTIME_FINGERPRINT, profileSha256: PROFILE_SHA },
+        runtime: { ...engineBuild, profileSha256: PROFILE_SHA },
         sessionId,
         transcripts: {
           root: {

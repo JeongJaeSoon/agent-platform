@@ -34,7 +34,8 @@ import {
   DEFAULT_LEASE_TTL_MS,
   type SessionCatalog,
 } from "@werft-ai/platform";
-import { FakeAgentRuntime } from "@werft-ai/runtime-claude/testing";
+import type { ScriptedRuntime } from "@werft-ai/runtime-core/testing";
+import { fakeRuntimeFor } from "@werft-ai/runtime-registry/testing";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -47,6 +48,10 @@ import {
   type FetchLike,
   HttpWorkerGatewayClient,
 } from "../apps/worker/src/gateway-client.ts";
+import {
+  SCRIPTED_KIND,
+  startScripted,
+} from "../apps/worker/src/testing/scripted-engine.ts";
 import {
   WorkerHost,
   type WorkerLogger,
@@ -227,7 +232,7 @@ integration("worker lease on the monotonic clock end to end", () => {
   function workerHost(input: {
     executionId: string;
     nonce: string;
-    runtime: FakeAgentRuntime;
+    runtime: ScriptedRuntime;
     logger: WorkerLogger;
     fetch: FetchLike;
     requestTimeoutMs: number;
@@ -252,19 +257,7 @@ integration("worker lease on the monotonic clock end to end", () => {
       logger: input.logger,
       runtimes: {
         launcherFor: () => ({
-          start: ({ runtimeConfig, principal, ...rest }) =>
-            runtime.run({
-              claudeConfigDir: "/tmp/fake/config",
-              cwd: "/tmp/fake/workspace",
-              home: "/tmp/fake/home",
-              model: runtimeConfig.model,
-              profile: {
-                ...runtimeConfig.provider,
-                principal: { ownerScope: principal.owner_scope },
-              },
-              tools: runtimeConfig.tools,
-              ...rest,
-            }),
+          start: (launch) => startScripted(runtime, launch),
         }),
       },
       timeouts: {
@@ -293,7 +286,7 @@ integration("worker lease on the monotonic clock end to end", () => {
     const { executionId, nonce } = await queuedLaunch();
 
     // The first turn runs for a minute: only the lease can end this attempt.
-    const runtime = new FakeAgentRuntime([
+    const runtime = fakeRuntimeFor(SCRIPTED_KIND, [
       { type: "await-input" },
       { type: "delay", delayMs: 60_000 },
     ]);
@@ -397,7 +390,7 @@ integration("worker lease on the monotonic clock end to end", () => {
 
   test("beats sent while the API is down and delivered after it is back cost no lease; one delivered after the exit is 401", async () => {
     const { executionId, nonce } = await queuedLaunch();
-    const runtime = new FakeAgentRuntime([
+    const runtime = fakeRuntimeFor(SCRIPTED_KIND, [
       { type: "await-input" },
       { type: "delay", delayMs: 60_000 },
     ]);
@@ -519,7 +512,7 @@ integration("worker lease on the monotonic clock end to end", () => {
     launch: TestLaunch,
     onBeat: (sentAt: number) => Promise<void>,
   ) {
-    const runtime = new FakeAgentRuntime([
+    const runtime = fakeRuntimeFor(SCRIPTED_KIND, [
       { type: "await-input" },
       { type: "delay", delayMs: 120_000 },
     ]);

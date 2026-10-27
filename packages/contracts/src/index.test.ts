@@ -663,6 +663,53 @@ describe("worker protocol", () => {
     expect(heartbeatResponseSchema.parse(fromNewServer)).toEqual(fromNewServer);
   });
 
+  test("a settlement says why a request was cancelled and what the run made of an answer", () => {
+    const poll = (settled: unknown[]) =>
+      pendingControlRequestSchema.safeParse({
+        ...scope,
+        answers_after: 0,
+        settled,
+      }).success;
+    const id = "req_01";
+    // An older worker's settlement, unchanged.
+    expect(poll([{ request_id: id, outcome: "cancelled" }])).toBe(true);
+    for (const reason of ["park", "shutdown", "interrupt", "refused"]) {
+      expect(poll([{ request_id: id, outcome: "cancelled", reason }])).toBe(
+        true,
+      );
+      expect(poll([{ request_id: id, outcome: "answered", reason }])).toBe(
+        false,
+      );
+    }
+    // An expiry is its own outcome.
+    expect(
+      poll([{ request_id: id, outcome: "cancelled", reason: "expired" }]),
+    ).toBe(false);
+    for (const answer_result of ["applied", "unknown"]) {
+      expect(
+        poll([{ request_id: id, outcome: "answered", answer_result }]),
+      ).toBe(true);
+      expect(
+        poll([{ request_id: id, outcome: "cancelled", answer_result }]),
+      ).toBe(false);
+    }
+    expect(
+      poll([{ request_id: id, outcome: "cancelled", answer_result: "stale" }]),
+    ).toBe(true);
+    expect(
+      poll([{ request_id: id, outcome: "answered", answer_result: "stale" }]),
+    ).toBe(false);
+    // An expiry delivered nothing, so the run said nothing of an answer.
+    for (const answer_result of ["applied", "unknown", "stale"]) {
+      expect(
+        poll([{ request_id: id, outcome: "expired", answer_result }]),
+      ).toBe(false);
+    }
+    expect(poll([{ request_id: id, outcome: "expired", reason: "park" }])).toBe(
+      false,
+    );
+  });
+
   test("fences every post-claim request with the same identity", () => {
     expect(workerScopeSchema.parse(scope)).toEqual(scope);
     expect(nextInputRequestSchema.safeParse(scope).success).toBe(true);

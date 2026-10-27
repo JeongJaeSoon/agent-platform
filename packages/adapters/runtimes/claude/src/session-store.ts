@@ -18,11 +18,13 @@ import {
   type PutImmutableResult,
   TRANSCRIPT_LIMITS,
   type TranscriptEntry,
+  type TranscriptInheritance,
   type TranscriptKey,
   type TranscriptLimits,
-  type TranscriptMirror,
   type TranscriptRevision,
-  type TranscriptSizeProblem,
+  type TranscriptStore,
+  type TranscriptStoreOptions,
+  TranscriptTooLargeError,
   transcriptGenerationDirectory,
   transcriptSizeProblem,
 } from "@werft-ai/runtime-core";
@@ -42,40 +44,7 @@ const LANE_COMPACT_AT = 512;
 const SESSION_COMPACT_AT = 4096;
 const MERGED_PART_BYTES = 4 * 1024 * 1024;
 
-/**
- * A capture refused because the transcript is past the limits a checkpoint
- * carries (`MAX_TRANSCRIPT_BYTES`), before anything was merged or written.
- */
-export class TranscriptTooLarge extends Error {
-  readonly reason: TranscriptSizeProblem["reason"];
-  constructor(problem: TranscriptSizeProblem) {
-    super(problem.detail);
-    this.name = "TranscriptTooLarge";
-    this.reason = problem.reason;
-  }
-}
-
-/**
- * What a resumed launch adopts: the transcripts of the checkpoint it resumes,
- * exactly as that manifest pinned them.
- */
-export type TranscriptInheritance = {
-  /** The engine session being resumed — the manifest's `resume`. */
-  readonly sessionId: string;
-  readonly transcripts: CheckpointTranscripts;
-};
-
-export type ClaudeSessionStoreOptions = {
-  readonly objects: CheckpointObjectStore;
-  /** Key namespace; one session's transcripts never share it with another. */
-  readonly prefix: string;
-  /** The execution generation this launch runs as; it writes nowhere else. */
-  readonly generation: number;
-  /** Absent for a session that has never been checkpointed. */
-  readonly inherit?: TranscriptInheritance;
-  /** `TRANSCRIPT_LIMITS` unless a test sets smaller ones. */
-  readonly transcriptLimits?: TranscriptLimits;
-};
+export type ClaudeSessionStoreOptions = TranscriptStoreOptions;
 
 /**
  * Mirrors the engine's root and subagent transcripts to the object store, and
@@ -103,7 +72,7 @@ export type ClaudeSessionStoreOptions = {
  *   ahead of its own, so restoring it needs nothing the manifest does not
  *   already say.
  */
-export class ClaudeSessionStore implements TranscriptMirror {
+export class ClaudeSessionStore implements TranscriptStore {
   /**
    * True only for a store that adopted a checkpoint: until its first append,
    * `load` answers with exactly what that checkpoint pinned, which is the one
@@ -516,7 +485,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
    * long session keeps fitting in a manifest. Merged parts are written under
    * this generation like any other part, and a merge that fails leaves the
    * store pinning what it did before. A session past the transcript limits
-   * is refused (`TranscriptTooLarge`) before any of that.
+   * is refused (`TranscriptTooLargeError`) before any of that.
    */
   async captureTranscripts(
     sessionId: string,
@@ -526,7 +495,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
     const { lanes, projectKeys, views } = found;
     const sizes = await this.#partSizes(views);
     const oversized = transcriptSizeProblem(sizes, this.#limits);
-    if (oversized !== undefined) throw new TranscriptTooLarge(oversized);
+    if (oversized !== undefined) throw new TranscriptTooLargeError(oversized);
     const total = sizes.length;
     const revisions = new Map<string, TranscriptRevision>();
     for (const lane of lanes) {

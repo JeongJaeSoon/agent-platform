@@ -62,6 +62,7 @@ import {
   type OperationsSearch,
   operationsSearch,
 } from "./operations-search.ts";
+import { builtinToolNote } from "./operations-tool-notes.ts";
 import { SESSION_FILTERS } from "./sessions.tsx";
 
 const DAY_MS = 86_400_000;
@@ -540,7 +541,7 @@ export function OperationsUsageScreen() {
 }
 
 export function OperationsToolsScreen() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { client } = useAgentPlatform();
   const filters = useUsageFilters();
   const { agent_id: agentId } = useSearch({ from: "/authed/operations/tools" });
@@ -647,6 +648,10 @@ export function OperationsToolsScreen() {
               label={t("operations.tools")}
               selected={tool?.name}
               onSelect={setPicked}
+              describe={(name) =>
+                rows?.find((row) => row.name === name)?.description ??
+                builtinToolNote(locale, name)
+              }
               searched={query !== ""}
             />
           )}

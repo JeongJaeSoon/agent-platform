@@ -8,35 +8,44 @@ import type {
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
+  Avatar,
+  avatarInitials,
+  avatarTone,
+  Badge,
   Button,
   buttonVariants,
-  Card,
-  CardAction,
-  CardDescription,
-  CardHeader,
-  CardTitle,
+  Combobox,
   ConfirmDialog,
   EmptyState,
   Field,
   FieldLabel,
   formatTimestamp,
+  GridTable,
+  GridTableCell,
+  GridTableColumnHeader,
+  GridTableHeader,
+  GridTableRow,
   Input,
-  NativeSelect,
-  NativeSelectOption,
   RowList,
   RowListItem,
-  Section,
+  SearchInput,
+  SettingRow,
   Link as TextLink,
 } from "@werft-ai/ui";
-import { ArrowLeft, ChevronRight } from "lucide-react";
-import { type FormEvent, type ReactNode, useId, useState } from "react";
+import { ArrowLeft, ChevronRight, X } from "lucide-react";
+import { type FormEvent, type ReactNode, useId, useRef, useState } from "react";
 import {
   membersQuery,
   queryKeysOf,
   teamQuery,
   teamsQuery,
 } from "../api/queries.ts";
-import { refusalText, useHasPermission, useRole } from "../auth/guard.tsx";
+import {
+  refusalText,
+  roleLabel,
+  useHasPermission,
+  useRole,
+} from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import {
@@ -47,15 +56,25 @@ import {
 } from "../components/my-teams.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { OPENS_ROW, ROW_LINK } from "../components/row-link.ts";
+import { SEARCH_MAX } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
+import { SettingsCard } from "./workspace-settings.tsx";
+import { DangerZone } from "./workspace-slack.tsx";
 
-const FORM = "flex flex-col items-start gap-4";
 // The name and its button share a row; the button drops under the field only
 // when the row is too narrow for both.
 const INLINE_FORM = "flex max-w-xl flex-wrap items-end gap-2";
 const NAME_FIELD = "min-w-0 flex-[1_1_14rem]";
 const SECONDARY = "text-muted-foreground text-sm [overflow-wrap:anywhere]";
+
+type TeamMember = TeamDetail["members"][number];
+
+function matches(member: TeamMember, needle: string): boolean {
+  return [member.display_name, member.email].some(
+    (text) => text?.normalize("NFKC").toLowerCase().includes(needle) ?? false,
+  );
+}
 function ListError({
   error,
   onRetry,
@@ -229,7 +248,6 @@ function TeamSettings({
   const queryClient = useQueryClient();
   const role = useRole();
   const [name, setName] = useState(team.name);
-  const titleId = useId();
   const path = { params: { path: { team_id: team.id } } };
 
   const fail = (error: ApiError) =>
@@ -268,10 +286,7 @@ function TeamSettings({
   };
 
   return (
-    <section className={SECTION} aria-labelledby={titleId}>
-      <h3 id={titleId} className={SECTION_TITLE}>
-        {t("teams.settings")}
-      </h3>
+    <SettingsCard title={t("teams.settings")} titleAs="h3">
       <form className={INLINE_FORM} onSubmit={submit}>
         <TeamNameField value={name} onChange={setName} />
         <Button
@@ -282,11 +297,11 @@ function TeamSettings({
           {t("teams.rename")}
         </Button>
       </form>
-    </section>
+    </SettingsCard>
   );
 }
 
-/** Deleting the team, last on the page and set apart in a red-edged card. */
+/** Deleting the team, last on the page, in the settings' danger zone. */
 function TeamDangerZone({
   team,
   onOutcome,
@@ -329,23 +344,25 @@ function TeamDangerZone({
   });
 
   return (
-    <Section title={t("teams.dangerZone")} titleAs="h3">
-      <Card className="border-[var(--ap-tone-danger-border)]">
-        <CardHeader>
-          <CardTitle>{t("teams.delete")}</CardTitle>
-          <CardDescription>{t("teams.deleteHint")}</CardDescription>
-          <CardAction>
+    <>
+      <DangerZone titleAs="h3">
+        <SettingRow
+          title={t("teams.delete")}
+          description={t("teams.deleteHint")}
+          actions={
             <Button
               type="button"
-              variant="danger"
+              variant="outline"
+              size="sm"
+              className="min-w-12 text-(color:--ap-tone-danger-fg)"
               disabled={remove.isPending}
               onClick={() => setConfirming(true)}
             >
               {t("teams.delete")}
             </Button>
-          </CardAction>
-        </CardHeader>
-      </Card>
+          }
+        />
+      </DangerZone>
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
@@ -357,7 +374,7 @@ function TeamDangerZone({
         busy={remove.isPending}
         onConfirm={() => remove.mutate()}
       />
-    </Section>
+    </>
   );
 }
 
@@ -374,52 +391,14 @@ function TeamMembers({
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   const role = useRole();
-  // Every member is read once someone reaches for the picker, not with the
-  // page.
-  const [picking, setPicking] = useState(false);
-  const members = useQuery({ ...membersQuery(client), enabled: picking });
-  const [picked, setPicked] = useState("");
-  const [removing, setRemoving] = useState<
-    TeamDetail["members"][number] | null
-  >(null);
-  const titleId = useId();
+  // Managers read every member with the page: the table's roles and the
+  // picker's people both come from it. A team's own members never ask.
+  const members = useQuery({ ...membersQuery(client), enabled: manages });
+  const [removing, setRemoving] = useState<TeamMember | null>(null);
+  const [query, setQuery] = useState("");
+  const search = useRef<HTMLInputElement>(null);
 
-  const settle = async (text: string) => {
-    onOutcome({ kind: "notice", text });
-    await Promise.all([
-      queryClient.invalidateQueries({
-        queryKey: queryKeysOf(client).team(team.id),
-      }),
-      queryClient.invalidateQueries({ queryKey: queryKeysOf(client).teams }),
-    ]);
-  };
-  const fail = (error: ApiError) =>
-    onOutcome({
-      kind: "error",
-      text: refusalText(t, error, "team.manage", role),
-    });
-
-  const add = useMutation<TeamChangeResponse, ApiError, MemberView>({
-    mutationFn: (member) =>
-      unwrap(
-        client.POST("/v1/teams/{team_id}/members", {
-          params: { path: { team_id: team.id } },
-          body: { user_id: member.user_id },
-        }),
-      ),
-    onMutate: () => onOutcome(null),
-    onSuccess: async (_result, member) => {
-      setPicked("");
-      await settle(t("teams.memberAdded", { name: member.display_name }));
-    },
-    onError: fail,
-  });
-
-  const remove = useMutation<
-    TeamChangeResponse,
-    ApiError,
-    TeamDetail["members"][number]
-  >({
+  const remove = useMutation<TeamChangeResponse, ApiError, TeamMember>({
     mutationFn: (member) =>
       unwrap(
         client.DELETE("/v1/teams/{team_id}/members/{user_id}", {
@@ -428,111 +407,188 @@ function TeamMembers({
       ),
     onMutate: () => onOutcome(null),
     onSettled: () => setRemoving(null),
-    onSuccess: (_result, member) =>
-      settle(
-        t("teams.memberRemoved", {
+    onSuccess: async (_result, member) => {
+      onOutcome({
+        kind: "notice",
+        text: t("teams.memberRemoved", {
           name: member.display_name ?? member.email,
         }),
-      ),
-    onError: fail,
+      });
+      await refreshTeam(queryClient, client, team.id);
+    },
+    onError: (error) =>
+      onOutcome({
+        kind: "error",
+        text: refusalText(t, error, "team.manage", role),
+      }),
   });
 
-  const inTeam = new Set(team.members.map((member) => member.user_id));
-  // Only active people can be added; a disabled membership is refused.
-  const candidates =
-    members.data?.items.filter(
-      (member) => member.disabled_at === null && !inTeam.has(member.user_id),
-    ) ?? [];
-  const pickReason = members.error
-    ? refusalText(t, members.error as ApiError, "member.manage", role)
-    : candidates.length === 0 && members.isSuccess
-      ? t("teams.noCandidates")
-      : undefined;
-  const chosen = candidates.find((member) => member.user_id === picked);
+  const roles = members.isSuccess
+    ? new Map(members.data.items.map((member) => [member.user_id, member.role]))
+    : undefined;
+  const needle = query.trim().normalize("NFKC").toLowerCase();
+  const shown = needle
+    ? team.members.filter((member) => matches(member, needle))
+    : team.members;
+  // Below 640px the date drops out; the name keeps what the role and the
+  // button leave.
+  const columns = [
+    "minmax(0,1fr)",
+    roles && "112px",
+    "minmax(9.5rem,0.5fr)",
+    manages && "var(--ap-row-action-min-width)",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const narrowColumns = [
+    "minmax(0,1fr)",
+    roles && "72px",
+    manages && "var(--ap-row-action-min-width)",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const clear = () => {
+    setQuery("");
+    search.current?.focus();
+  };
 
   return (
-    <section className={SECTION} aria-labelledby={titleId}>
-      <h3 id={titleId} className={SECTION_TITLE}>
-        {t("teams.members")}
-      </h3>
-      {manages && <p className={`${MUTED} text-sm`}>{t("teams.addHint")}</p>}
+    <SettingsCard
+      title={t("teams.members")}
+      titleAs="h3"
+      badge={
+        <Badge variant="gray">
+          {t("teams.memberTotal", { count: team.members.length })}
+        </Badge>
+      }
+      {...(manages && { description: t("teams.addHint") })}
+    >
       {manages && (
-        <form
-          className={FORM}
-          onPointerEnter={() => setPicking(true)}
-          onFocus={() => setPicking(true)}
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (chosen) add.mutate(chosen);
-          }}
-        >
-          <Field className="max-w-full">
-            <FieldLabel>{t("teams.pickMember")}</FieldLabel>
-            <NativeSelect
-              value={picked}
-              disabled={
-                picking &&
-                !members.isPending &&
-                !members.isFetching &&
-                candidates.length === 0
-              }
-              aria-busy={members.isFetching}
-              onChange={(event) => setPicked(event.target.value)}
-            >
-              <NativeSelectOption value="">
-                {t("teams.pickPlaceholder")}
-              </NativeSelectOption>
-              {candidates.map((member) => (
-                <NativeSelectOption key={member.user_id} value={member.user_id}>
-                  {member.display_name} ({member.email})
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
-          </Field>
-          <ReasonButton
-            type="submit"
-            className={buttonVariants({ variant: "outline" })}
-            reason={pickReason}
-            disabled={!chosen || add.isPending}
-          >
-            {t("teams.addMember")}
-          </ReasonButton>
-        </form>
+        <AddMembers team={team} members={members} onOutcome={onOutcome} />
       )}
       {team.members.length === 0 ? (
         <EmptyState title={t("teams.noMembers")} />
       ) : (
-        <RowList>
-          {team.members.map((member) => {
-            const name = member.display_name ?? member.email;
-            return (
-              <RowListItem key={member.user_id}>
-                <span className="font-medium [overflow-wrap:anywhere]">
-                  {name}
-                </span>
-                <span className={SECONDARY}>
-                  {member.email} ·{" "}
-                  {t("teams.addedAt", {
-                    at: formatTimestamp(member.added_at, locale),
-                  })}
-                </span>
-                {manages && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="ml-auto"
-                    disabled={remove.isPending}
-                    aria-label={t("teams.removeMemberFor", { name })}
-                    onClick={() => setRemoving(member)}
-                  >
-                    {t("teams.removeMember")}
-                  </Button>
-                )}
-              </RowListItem>
-            );
-          })}
-        </RowList>
+        <div className="flex flex-col gap-3">
+          {/* SearchInput sizes itself as an item of a toolbar row. */}
+          <div className="flex">
+            <SearchInput
+              ref={search}
+              type="search"
+              aria-label={t("teams.search")}
+              placeholder={t("teams.search")}
+              maxLength={SEARCH_MAX}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </div>
+          {shown.length === 0 ? (
+            <EmptyState
+              className="w-full"
+              title={t("teams.noMatch")}
+              action={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={clear}
+                >
+                  {t("members.clearSearch")}
+                </Button>
+              }
+            />
+          ) : (
+            <div className="rounded-card border bg-card">
+              <GridTable
+                aria-label={t("teams.tableLabel")}
+                columns={columns}
+                narrowAt={640}
+                narrowColumns={narrowColumns}
+              >
+                <GridTableHeader>
+                  <GridTableColumnHeader>
+                    {t("members.column.name")}
+                  </GridTableColumnHeader>
+                  {roles && (
+                    <GridTableColumnHeader>
+                      {t("members.column.role")}
+                    </GridTableColumnHeader>
+                  )}
+                  <GridTableColumnHeader hideNarrow={true}>
+                    {t("teams.column.addedAt")}
+                  </GridTableColumnHeader>
+                  {manages && (
+                    <GridTableColumnHeader align="end">
+                      {/* Over the row buttons' centred labels. */}
+                      <span className="min-w-[var(--ap-row-action-min-width)] text-center">
+                        {t("members.column.actions")}
+                      </span>
+                    </GridTableColumnHeader>
+                  )}
+                </GridTableHeader>
+                {shown.map((member) => {
+                  const name = member.display_name ?? member.email;
+                  const memberRole = roles?.get(member.user_id);
+                  return (
+                    <GridTableRow key={member.user_id}>
+                      <GridTableCell>
+                        <Avatar
+                          initials={avatarInitials(name)}
+                          tone={avatarTone(member.user_id)}
+                        />
+                        <span className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+                          <span className="truncate font-medium">{name}</span>
+                          {member.display_name !== null && (
+                            <span
+                              className="truncate text-muted-foreground text-xs"
+                              title={member.email}
+                            >
+                              {member.email}
+                            </span>
+                          )}
+                        </span>
+                      </GridTableCell>
+                      {roles && (
+                        <GridTableCell>
+                          {memberRole && (
+                            <Badge
+                              variant={
+                                memberRole === "member" ? "gray" : "blue"
+                              }
+                            >
+                              {roleLabel(t, memberRole)}
+                            </Badge>
+                          )}
+                        </GridTableCell>
+                      )}
+                      <GridTableCell
+                        hideNarrow={true}
+                        className="text-caption text-muted-foreground tabular-nums"
+                      >
+                        {formatTimestamp(member.added_at, locale)}
+                      </GridTableCell>
+                      {manages && (
+                        <GridTableCell align="end">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="min-w-[var(--ap-row-action-min-width)]"
+                            disabled={remove.isPending}
+                            aria-label={t("teams.removeMemberFor", { name })}
+                            onClick={() => setRemoving(member)}
+                          >
+                            {t("teams.removeMember")}
+                          </Button>
+                        </GridTableCell>
+                      )}
+                    </GridTableRow>
+                  );
+                })}
+              </GridTable>
+            </div>
+          )}
+        </div>
       )}
       <ConfirmDialog
         open={removing !== null}
@@ -552,6 +608,200 @@ function TeamMembers({
           if (removing) remove.mutate(removing);
         }}
       />
-    </section>
+    </SettingsCard>
+  );
+}
+
+function refreshTeam(
+  queryClient: ReturnType<typeof useQueryClient>,
+  client: ReturnType<typeof useAgentPlatform>["client"],
+  teamId: string,
+) {
+  return Promise.all([
+    queryClient.invalidateQueries({
+      queryKey: queryKeysOf(client).team(teamId),
+    }),
+    queryClient.invalidateQueries({ queryKey: queryKeysOf(client).teams }),
+  ]);
+}
+
+type AddResult = {
+  readonly added: readonly MemberView[];
+  readonly failed: readonly {
+    readonly member: MemberView;
+    readonly error: ApiError;
+  }[];
+};
+
+/**
+ * Search by name or email, pick as many as needed, add them in one go. The
+ * API takes one person per request, so the picks go one after another and
+ * whoever was refused stays picked, ready to try again.
+ */
+function AddMembers({
+  team,
+  members,
+  onOutcome,
+}: {
+  readonly team: TeamDetail;
+  readonly members: {
+    readonly data?: { readonly items: readonly MemberView[] } | undefined;
+    readonly error: unknown;
+    readonly isPending: boolean;
+    readonly isSuccess: boolean;
+  };
+  readonly onOutcome: (outcome: Outcome | null) => void;
+}) {
+  const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
+  const role = useRole();
+  const [picked, setPicked] = useState<readonly MemberView[]>([]);
+  const pickerId = useId();
+
+  const add = useMutation<AddResult, never, readonly MemberView[]>({
+    mutationFn: async (people) => {
+      const added: MemberView[] = [];
+      const failed: { member: MemberView; error: ApiError }[] = [];
+      for (const member of people) {
+        try {
+          await unwrap(
+            client.POST("/v1/teams/{team_id}/members", {
+              params: { path: { team_id: team.id } },
+              body: { user_id: member.user_id },
+            }),
+          );
+          added.push(member);
+        } catch (error) {
+          failed.push({ member, error: error as ApiError });
+        }
+      }
+      return { added, failed };
+    },
+    onMutate: () => onOutcome(null),
+    onSuccess: async ({ added, failed }) => {
+      // Only who joined leaves the picks: the refused stay for a retry, and
+      // anyone picked while the requests ran waits for the next one.
+      const joined = new Set(added.map((member) => member.user_id));
+      setPicked((list) => list.filter((member) => !joined.has(member.user_id)));
+      const [first] = added;
+      const said = [
+        added.length === 1 && first
+          ? t("teams.memberAdded", { name: first.display_name })
+          : added.length > 1
+            ? t("teams.membersAdded", { count: added.length })
+            : null,
+        failed[0]
+          ? t("teams.addFailed", {
+              names: failed.map(({ member }) => member.display_name).join(", "),
+              reason: refusalText(t, failed[0].error, "team.manage", role),
+            })
+          : null,
+      ].filter((line) => line !== null);
+      onOutcome({
+        kind: failed.length > 0 ? "error" : "notice",
+        text: said.join(" "),
+      });
+      if (added.length > 0) await refreshTeam(queryClient, client, team.id);
+    },
+  });
+
+  const taken = new Set([
+    ...team.members.map((member) => member.user_id),
+    ...picked.map((member) => member.user_id),
+  ]);
+  // Only active people can be added; a disabled membership is refused.
+  const candidates =
+    members.data?.items.filter(
+      (member) => member.disabled_at === null && !taken.has(member.user_id),
+    ) ?? [];
+  const reason = members.error
+    ? refusalText(t, members.error as ApiError, "member.manage", role)
+    : undefined;
+  const nothingLeft =
+    members.isSuccess && candidates.length === 0 && picked.length === 0;
+
+  return (
+    <form
+      className="flex flex-col gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (picked.length > 0 && !add.isPending) add.mutate(picked);
+      }}
+    >
+      <FieldLabel htmlFor={pickerId}>{t("teams.pickMember")}</FieldLabel>
+      {/* As wide as the name's row above, so both buttons end in one line. */}
+      <div className="flex max-w-xl flex-wrap items-center gap-2">
+        <Combobox
+          id={pickerId}
+          className={NAME_FIELD}
+          options={candidates.map((member) => ({
+            value: member.user_id,
+            label: member.display_name,
+            description: member.email,
+          }))}
+          value={null}
+          clearOnSelect={true}
+          onValueChange={(value) => {
+            const member = candidates.find((m) => m.user_id === value);
+            if (member) setPicked((list) => [...list, member]);
+          }}
+          placeholder={t("teams.pickPlaceholder")}
+          loading={members.isPending}
+          loadingMessage={t("teams.pickLoading")}
+          emptyMessage={t(
+            members.isSuccess && candidates.length === 0
+              ? "teams.noCandidates"
+              : "teams.pickEmpty",
+          )}
+          resultCountMessage={(count) => t("teams.pickCount", { count })}
+        />
+        <ReasonButton
+          type="submit"
+          className={buttonVariants({ variant: "outline" })}
+          reason={reason}
+          disabled={picked.length === 0 || add.isPending}
+        >
+          {picked.length > 1
+            ? t("teams.addMembers", { count: picked.length })
+            : t("teams.addMember")}
+        </ReasonButton>
+      </div>
+      {picked.length > 0 && (
+        <ul
+          aria-label={t("teams.picked")}
+          className="m-0 flex list-none flex-wrap gap-1.5 p-0"
+        >
+          {picked.map((member) => (
+            <li
+              key={member.user_id}
+              className="inline-flex items-center gap-1 rounded-full border bg-surface-sunken py-0.5 ps-2.5 pe-0.5 text-caption"
+            >
+              <span className="max-w-48 truncate" title={member.email}>
+                {member.display_name}
+              </span>
+              <button
+                type="button"
+                className="inline-grid size-5 cursor-pointer place-items-center rounded-full text-muted-foreground hover:bg-hover hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus-ring disabled:cursor-default disabled:opacity-50"
+                aria-label={t("teams.unpick", { name: member.display_name })}
+                disabled={add.isPending}
+                onClick={() => {
+                  setPicked((list) =>
+                    list.filter((m) => m.user_id !== member.user_id),
+                  );
+                  // The button leaves with its person; the search box keeps the keyboard.
+                  document.getElementById(pickerId)?.focus();
+                }}
+              >
+                <X aria-hidden="true" className="size-3" strokeWidth={2} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {nothingLeft && (
+        <p className={`${MUTED} m-0 text-caption`}>{t("teams.noCandidates")}</p>
+      )}
+    </form>
   );
 }

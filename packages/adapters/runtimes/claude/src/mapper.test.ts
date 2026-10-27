@@ -274,4 +274,67 @@ describe("native SDK message mapping", () => {
       request_path: "/v1/jobs?api_key=[REDACTED]&page=2",
     });
   });
+
+  test("the init event lists the engine's tools, each MCP tool with its server's description on one line", () => {
+    const credentialMarker = ["s", "k", "-ant-api03-marker-value"].join("");
+    const frame = frameFromNativeMessage(
+      {
+        type: "system",
+        subtype: "init",
+        tools: [
+          "Bash",
+          "mcp__docs__echo",
+          "mcp__docs__search",
+          "mcp__docs__leak",
+          "mcp__docs__blank",
+          "mcp__docs__full",
+          7,
+        ],
+      },
+      "correlation-5",
+      "init",
+      new Map([
+        ["mcp__docs__echo", "Echo\u0000 the\n\tinput back"],
+        ["mcp__docs__search", "🔎".repeat(201)],
+        ["mcp__docs__full", "🔎".repeat(200)],
+        ["mcp__docs__leak", `Uses ${credentialMarker} upstream`],
+        ["mcp__docs__blank", " \n "],
+        ["mcp__docs__unlisted", "not in init"],
+      ]),
+    );
+    expect(frame.events).toHaveLength(1);
+    const data = frame.events[0]?.data as {
+      tools: { name: string; description?: string }[];
+    };
+    expect(frame.events[0]?.event).toBe("system");
+    expect(data.tools.map((tool) => tool.name)).toEqual([
+      "Bash",
+      "mcp__docs__echo",
+      "mcp__docs__search",
+      "mcp__docs__leak",
+      "mcp__docs__blank",
+      "mcp__docs__full",
+    ]);
+    expect(data.tools[0]).toEqual({ name: "Bash" });
+    expect(data.tools[1]?.description).toBe("Echo the input back");
+    const cut = data.tools[2]?.description ?? "";
+    expect([...cut]).toHaveLength(200);
+    expect(cut).toBe(`${"🔎".repeat(199)}…`);
+    expect(data.tools[5]?.description).toBe("🔎".repeat(200));
+    expect(data.tools[3]?.description).toBe("Uses [REDACTED] upstream");
+    expect(data.tools[4]).toEqual({ name: "mcp__docs__blank" });
+    expect(JSON.stringify(frame)).not.toContain(credentialMarker);
+
+    // No relay described anything: names alone.
+    const bare = frameFromNativeMessage(
+      { type: "system", subtype: "init", tools: ["Read"] },
+      "correlation-6",
+      "init",
+    );
+    expect(bare.events[0]?.data).toEqual({
+      type: "system",
+      subtype: "init",
+      tools: [{ name: "Read" }],
+    });
+  });
 });

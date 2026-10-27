@@ -5,6 +5,7 @@ import type {
   CheckpointRef,
   FinalizeRequest,
   PauseBlockedReason,
+  PermissionGrant,
   WorkerEvent,
   WorkspaceRepository,
 } from "@werft-ai/contracts";
@@ -63,6 +64,9 @@ export type WorkerBinding = {
   costUsd: number;
   providerTokens: number;
   mcp?: SessionMcp | null;
+  // The allows a parked turn's answers left for the turn carrying it on,
+  // not yet spent.
+  grants?: readonly PermissionGrant[];
 };
 
 // A profile and repository this host may run together, with the URL and
@@ -230,7 +234,8 @@ export type ClaimResult =
 // name any other one: the numbers are guessable, so without this a holder of
 // a token that is about to be revoked could pre-address the next revision.
 export type ResolvedCredential =
-  | ({ kind: "session" } & WorkerFence)
+  // `profileId` is the session's, which names its runtime.
+  | ({ kind: "session"; profileId?: string | null } & WorkerFence)
   // A launch nonce: valid only for bootstrapClaim.
   | { kind: "bootstrap" }
   | null;
@@ -295,6 +300,9 @@ export type CommitEventsInput = {
   turnId: string | null;
   now: Date;
   events: WorkerEvent[];
+  // The engine-neutral fields stored beside a new event's data, never in it:
+  // a resend is compared against the data as the worker sent it.
+  neutral?: (event: WorkerEvent) => Record<string, unknown> | null;
 };
 export type CommitEventsResult =
   | { outcome: "ok"; acceptedThrough: number; cursor: string }

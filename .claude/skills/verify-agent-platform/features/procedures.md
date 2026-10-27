@@ -162,7 +162,7 @@ ap_web GET /v1/my-teams
 ap_as owner
 ```
 
-기대: create 201, add·get·rename·list 200. team 이름 Verify renamed와 member가 보인다. my-teams에도 그 팀이 있다. 브라우저 `/members/teams/$TID`에서 이름과 구성원, “추가할 사람”·“구성원 추가”·“팀 삭제”를 확인한다. 삭제는 아래 마지막 정리에서 한다.
+기대: create 201, add·get·rename·list 200. team 이름 Verify renamed와 member가 보인다. my-teams에도 그 팀이 있다. 브라우저 `/members/teams/$TID`에서 이름과 “팀 구성원 N명” 표(구성원·역할·추가한 날·관리 열, 640px 이하에서 추가한 날이 빠진다), 검색 combobox “추가할 사람”(이름·이메일로 찾고 고르면 칩으로 쌓이며 버튼이 “추가”→“N명 추가”), 목록 검색 칸, 위험 영역의 “팀 삭제”를 확인한다. combobox는 native select가 아니므로 `select`가 아니라 `type '[role=combobox]' '<이름>'` → `key ArrowDown` → `key Enter`로 고른다. 팀 구성원(member)에게는 역할·관리 열과 추가 칸·위험 영역이 없고 `/v1/members`를 부르지 않는다. 삭제는 아래 마지막 정리에서 한다.
 
 ## P-API-AGENTS — 카드·release·활성화·관리자
 
@@ -179,7 +179,7 @@ AID=$(printf '%s\n' "$AGENT" | head -1 | jq -r .agent.id)
 printf 'AID=%s\n' "$AID" >> "$VERIFY_RUN/ids.sh"
 VID=$(printf '%s\n' "$AGENT" | head -1 | jq -r '.versions[0].id')
 printf 'VID=%s\n' "$VID" >> "$VERIFY_RUN/ids.sh"
-RELEASE=$(ap_web POST "/v1/agents/$AID/releases" "$(jq -nc --arg v "$VID" '{version_id:$v,runtime_profile_id:"claude-coding-local"}')")
+RELEASE=$(ap_web POST "/v1/agents/$AID/releases" "$(jq -nc --arg v "$VID" '{version_id:$v,runtime_profile_id:"claude-coding-local",repository_id:"sample-app"}')")
 printf '%s\n' "$RELEASE"
 REL=$(printf '%s\n' "$RELEASE" | head -1 | jq -r .release.id)
 printf 'REL=%s\n' "$REL" >> "$VERIFY_RUN/ids.sh"

@@ -47,6 +47,7 @@ function service(kindOf: (channelId: string) => Promise<SurfaceChannelKind>) {
     list: async () => [],
     resolveSlackChannel: async () => null,
     ensureDmBinding: async () => null,
+    ensureInvitedChannel: async () => null,
     setMembership: async () => {},
   };
   const bindings = createSurfaceBindingService({

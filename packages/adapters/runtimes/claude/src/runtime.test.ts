@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { closeSync, fstatSync, openSync } from "node:fs";
 import type { ClaudeRuntimeConfig } from "./config.ts";
+import { MirrorProgress } from "./mirror-progress.ts";
 import { ResumedHistory } from "./resumed-history.ts";
-import { ClaudeSdkRun, InputStream } from "./run.ts";
+import { APPROVAL_BARRIER_MS, ClaudeSdkRun, InputStream } from "./run.ts";
 import {
   buildSdkOptions,
   ClaudeSdkRuntime,
@@ -62,6 +63,131 @@ describe("Claude SDK run", () => {
     run.send({ message: "first", uuid: "first" });
     expect(await run.holdsInput("first")).toBe(true);
     expect(await run.holdsInput("second")).toBe(false);
+  });
+
+  test("labels the init's tools with the relays' descriptions, read on init only", async () => {
+    let asked = 0;
+    const sdkQuery = {
+      async *[Symbol.asyncIterator]() {
+        yield {
+          type: "system",
+          subtype: "init",
+          tools: ["Read", "mcp__docs__find"],
+        };
+        yield { type: "system", subtype: "status" };
+      },
+    };
+    const run = new ClaudeSdkRun(
+      "init",
+      new InputStream(),
+      sdkQuery as never,
+      new AbortController(),
+      ResumedHistory.empty(),
+      new TurnLedger(),
+      () => {
+        asked += 1;
+        return new Map([["mcp__docs__find", "Finds a page"]]);
+      },
+    );
+    const data = [];
+    for await (const frame of run.events()) {
+      data.push(...frame.events.map((item) => item.data));
+    }
+    expect(asked).toBe(1);
+    expect(data).toEqual([
+      {
+        type: "system",
+        subtype: "init",
+        tools: [
+          { name: "Read" },
+          { name: "mcp__docs__find", description: "Finds a page" },
+        ],
+      },
+      { type: "system", subtype: "status" },
+    ]);
+  });
+});
+
+describe("Claude SDK run approval-wait checkpoint", () => {
+  const key = { projectKey: "p", sessionId: "s1" };
+  function mirrored() {
+    const progress = new MirrorProgress();
+    const store = progress.watch({
+      append: async () => {},
+      listSubkeys: async () => [],
+      load: async () => null,
+    });
+    const ledger = new TurnLedger("s1");
+    const run = new ClaudeSdkRun(
+      "approval",
+      new InputStream(),
+      { interrupt: async () => undefined, close: () => undefined } as never,
+      new AbortController(),
+      ResumedHistory.empty(),
+      ledger,
+      () => new Map(),
+      progress,
+    );
+    const write = (...blocks: Record<string, unknown>[]) =>
+      store.append(key, [
+        { type: "assistant", message: { content: blocks } },
+      ] as never);
+    return { ledger, run, write };
+  }
+
+  test("leases only once the mirror holds the waiting call and the results before it", async () => {
+    const { ledger, run, write } = mirrored();
+    expect(run.approvalCheckpoints).toBe(true);
+    ledger.toolStarting("toolu_done");
+    ledger.toolSettled("toolu_done");
+    ledger.toolStarting("toolu_ask");
+    ledger.permissionStarting("toolu_ask");
+    expect(await run.prepareCheckpoint("approval_wait")).toMatchObject({
+      reason: "turn_in_flight",
+    });
+
+    const leasing = run.leaseCheckpoint("approval_wait");
+    let leased = false;
+    void leasing.then(() => {
+      leased = true;
+    });
+    await write({ type: "tool_use", id: "toolu_ask" });
+    await Bun.sleep(40);
+    expect(leased).toBe(false);
+    await write({ type: "tool_result", tool_use_id: "toolu_done" });
+    const grant = await leasing;
+    expect(grant.preparation.status).toBe("ready");
+    expect(ledger.toolStarting("toolu_next").allowed).toBe(false);
+    grant.lease?.release();
+  });
+
+  test("gives up when the mirror never catches up", async () => {
+    const { ledger, run } = mirrored();
+    ledger.toolStarting("toolu_ask");
+    ledger.permissionStarting("toolu_ask");
+    const startedAt = performance.now();
+    const grant = await run.leaseCheckpoint("approval_wait");
+    expect(performance.now() - startedAt).toBeGreaterThanOrEqual(
+      APPROVAL_BARRIER_MS - 50,
+    );
+    expect(grant).toMatchObject({
+      lease: null,
+      preparation: { reason: "turn_in_flight" },
+    });
+    expect(ledger.toolStarting("toolu_next").allowed).toBe(true);
+  });
+
+  test("a run without a mirror takes none", async () => {
+    const run = new ClaudeSdkRun(
+      "plain",
+      new InputStream(),
+      { interrupt: async () => undefined, close: () => undefined } as never,
+      new AbortController(),
+      ResumedHistory.empty(),
+      new TurnLedger("s1"),
+    );
+    expect(run.approvalCheckpoints).toBe(false);
+    expect((await run.leaseCheckpoint("approval_wait")).lease).toBeNull();
   });
 });
 
@@ -274,6 +400,64 @@ describe("Claude SDK adapter options", () => {
     });
     grant.lease?.release();
     expect(ledger.prepareCheckpoint().status).toBe("ready");
+  });
+
+  test("the PreToolUse gate admits a call only past the admission guard the host holds", async () => {
+    const ledger = new TurnLedger("s1");
+    const options = buildSdkOptions(
+      config,
+      { onPermission: async () => ({ behavior: "allow" }) },
+      ledger,
+    );
+    const callback = options.hooks?.PreToolUse?.[0]?.hooks[0];
+    if (callback === undefined) throw new Error("PreToolUse hook is required");
+    const pre = (toolUseId: string) =>
+      callback(
+        {
+          hook_event_name: "PreToolUse",
+          tool_name: "Read",
+          tool_input: {},
+          tool_use_id: toolUseId,
+        } as never,
+        toolUseId,
+        { signal: new AbortController().signal },
+      );
+
+    const guarded: string[] = [];
+    let open: () => void = () => {};
+    const first = ledger.holdAdmission(async (id) => {
+      guarded.push(`first:${id}`);
+      await new Promise<void>((resolve) => {
+        open = resolve;
+      });
+    });
+    const admitting = pre("toolu_1");
+    await Bun.sleep(5);
+    // Not admitted while the guard is out, and a guard that lands meanwhile
+    // is awaited as well.
+    expect(ledger.prepareCheckpoint().status).toBe("ready");
+    first.release();
+    ledger.holdAdmission(async (id) => {
+      guarded.push(`second:${id}`);
+    });
+    open();
+    expect(await admitting).toEqual({});
+    expect(guarded).toEqual(["first:toolu_1", "second:toolu_1"]);
+    expect(ledger.prepareCheckpoint()).toMatchObject({
+      reason: "tool_in_flight",
+    });
+
+    ledger.holdAdmission(async () => {
+      throw new Error("gateway down");
+    });
+    expect(await pre("toolu_2")).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason:
+          "The platform could not record that this tool is starting, so it was not run. This is not a user decision; you may try the call again.",
+      },
+    });
   });
 
   test("a tool the permission callback denies is settled, since no PostToolUse follows", async () => {

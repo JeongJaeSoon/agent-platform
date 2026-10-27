@@ -25,7 +25,7 @@
     "@werft-ai/execution-local-docker": "workspace:*",
     "@werft-ai/observability": "workspace:*",
     "@werft-ai/platform": "workspace:*",
-    "@werft-ai/runtime-claude-codec": "workspace:*",
+    "@werft-ai/runtime-codecs": "workspace:*",
     "@werft-ai/storage": "workspace:*",
     "@aws-sdk/client-secrets-manager": "^3.888.0",
     "@hono/zod-openapi": "1.6.3",

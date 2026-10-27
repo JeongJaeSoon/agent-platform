@@ -12,6 +12,8 @@ import type {
   FinalizeResponse,
   HeartbeatRequest,
   HeartbeatResponse,
+  InvalidateApprovalCheckpointRequest,
+  InvalidateApprovalCheckpointResponse,
   NextInputRequest,
   NextInputResponse,
   ParkDeclinedRequest,
@@ -22,10 +24,13 @@ import type {
   RegisterPendingResponse,
   ReleaseRequest,
   ReleaseResponse,
+  RequestParkRequest,
+  RequestParkResponse,
   RestorePlanRequest,
   RestorePlanResponse,
   RuntimeConfig,
   SessionRuntime,
+  WorkerEvent,
   WorkerReadyRequest,
   WorkerReadyResponse,
   WorkerScope,
@@ -57,7 +62,11 @@ import {
   repoRefOf,
 } from "../ports/forge.ts";
 import type { McpEgressStore } from "../ports/mcp-egress.ts";
-import type { WorkerPendingStore } from "../ports/pending-requests.ts";
+import type {
+  ApprovalCheckpointCommit,
+  WorkerPendingStore,
+} from "../ports/pending-requests.ts";
+import type { SessionTitleStore } from "../ports/session-title-store.ts";
 import type {
   EgressBindings,
   EgressIssue,
@@ -92,6 +101,16 @@ import {
   type WorkspaceProfiles,
   workspaceCatalogProfiles,
 } from "../sessions/catalog.ts";
+import {
+  type NeutralizeEvent,
+  neutralFieldsOf,
+} from "../sessions/event-codecs.ts";
+import {
+  hashTitleToken,
+  type SessionTitler,
+  TITLE_TOKEN_PREFIX,
+  titleProfile,
+} from "../sessions/session-titler.ts";
 import { createMcpEgress, type McpEgressRequest } from "./mcp-egress.ts";
 
 const WORKSPACE_PROFILE_MAX_AGE_MS = 1000;
@@ -269,6 +288,8 @@ async function checkpointInfrastructure<T>(call: () => Promise<T>): Promise<T> {
 }
 
 // Both the replay lookup and the commit answer in the same shape.
+const FIRST_TURN_ID = "1";
+
 function finalizeAnswer(result: FinalizeResult): FinalizeResponse {
   switch (result.outcome) {
     case "turn_not_found":
@@ -428,9 +449,13 @@ export function createWorkerGateway(deps: {
   // agent's credential is still bound.
   mcp?: McpEgressStore;
   onMcpReceiptError?: (error: unknown) => void;
+  // Absent, a session keeps the title cut from its first message.
+  titles?: { store: SessionTitleStore; titler: SessionTitler };
+  // Absent, events are stored without the engine-neutral fields beside them.
+  neutralize?: NeutralizeEvent;
   options: WorkerGatewayOptions;
 }) {
-  const { work, catalog, checkpoints, pending } = deps;
+  const { work, catalog, checkpoints, pending, neutralize } = deps;
   const decideMcp =
     deps.mcp === undefined
       ? null
@@ -453,6 +478,42 @@ export function createWorkerGateway(deps: {
     return protocol;
   }
   const now = deps.options.now ?? (() => new Date());
+
+  /**
+   * An approval-wait checkpoint is verified as a finalize's would be, since
+   * a crash can make it the session's pointer with no second look.
+   */
+  async function approvalCheckpointOf(
+    fence: WorkerFence,
+    turnId: string,
+    checkpoint: NonNullable<RegisterPendingRequest["checkpoint"]>,
+  ): Promise<ApprovalCheckpointCommit> {
+    const { answers_through, ...ref } = checkpoint;
+    const verdict = await checkpointInfrastructure(() =>
+      checkpoints.verify({ fence, turnId, checkpoint: ref, at: now() }),
+    );
+    if (verdict.status === "rejected") {
+      throw new WorkerGatewayError(
+        409,
+        "CHECKPOINT_UNAVAILABLE",
+        `Checkpoint manifest rejected: ${verdict.reason}`,
+      );
+    }
+    return {
+      revision: ref.revision,
+      manifestRef: ref.manifest_ref,
+      manifestSha256: ref.manifest_sha256,
+      ...(ref.manifest_version === undefined
+        ? {}
+        : { manifestVersion: ref.manifest_version }),
+      versionsHeld: verdict.versionsHeld === true,
+      ...(verdict.transcriptBytes === undefined
+        ? {}
+        : { transcriptBytes: verdict.transcriptBytes }),
+      answersThrough: answers_through,
+    };
+  }
+
   const sleep =
     deps.options.sleep ??
     ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
@@ -724,6 +785,44 @@ export function createWorkerGateway(deps: {
     );
   }
 
+  // A title request's token, held to the session's budget and profile as
+  // the engine's calls are; null for any other token. No fence: the attempt
+  // it is charged to may have ended since its first turn. The prefix only
+  // spares the engine's calls a lookup that claims; the row decides.
+  async function authorizedTitleEgress(
+    token: string,
+  ): Promise<EgressGrant | null> {
+    if (deps.titles === undefined || !token.startsWith(TITLE_TOKEN_PREFIX)) {
+      return null;
+    }
+    const result = await deps.titles.store.authorizeAtomic({
+      tokenHash: hashTitleToken(token),
+    });
+    if (result.outcome !== "ok") return null;
+    if (result.profileId !== null) {
+      await refreshWorkspaceProfilesFor(catalog, [result.profileId]);
+    }
+    if (
+      budgetExceeded(result, {
+        costUsd: deps.options.sessionCostLimitUsd,
+        tokens: tokenLimit,
+      })
+    ) {
+      throw new WorkerGatewayError(
+        403,
+        "BUDGET_EXCEEDED",
+        "The session has reached its cost or token limit",
+      );
+    }
+    const profile = titleProfile(catalog, result);
+    if (profile === null) moved("session's profile");
+    return {
+      session_id: result.sessionId,
+      attempt_id: result.attemptId,
+      upstream: providerUpstreamOf(profile),
+    };
+  }
+
   // What an egress token stands for once its attempt still owns the session;
   // anything else is refused here, before any route looks at the request.
   async function authorizedEgress(request: {
@@ -957,6 +1056,9 @@ export function createWorkerGateway(deps: {
             remaining_budget_usd: binding.unmetered
               ? null
               : Math.max(0, deps.options.sessionCostLimitUsd - binding.costUsd),
+            ...(binding.grants === undefined || binding.grants.length === 0
+              ? {}
+              : { grants: [...binding.grants] }),
           };
         }
       }
@@ -1029,6 +1131,10 @@ export function createWorkerGateway(deps: {
       token: string;
       purpose: "provider" | "repository";
     }): Promise<EgressGrant> {
+      if (request.purpose === "provider") {
+        const titled = await authorizedTitleEgress(request.token);
+        if (titled !== null) return titled;
+      }
       const result = await authorizedEgress(request);
       const grant = (upstream: EgressUpstream): EgressGrant => ({
         session_id: result.sessionId,
@@ -1238,11 +1344,19 @@ export function createWorkerGateway(deps: {
       request: AppendEventsRequest,
     ): Promise<AppendEventsResponse> {
       const fence = requireScope(principal, request);
+      const profileId =
+        principal.kind === "session" ? (principal.profileId ?? null) : null;
       const result = await work.commitEventsAtomic({
         fence,
         turnId: request.turn_id,
         now: now(),
         events: request.events,
+        ...(neutralize === undefined
+          ? {}
+          : {
+              neutral: (event: WorkerEvent) =>
+                neutralFieldsOf(neutralize, profileId, event),
+            }),
       });
       if (result.outcome === "turn_not_found") {
         throw new WorkerGatewayError(
@@ -1284,6 +1398,14 @@ export function createWorkerGateway(deps: {
       request: RegisterPendingRequest,
     ): Promise<RegisterPendingResponse> {
       const fence = requireScope(principal, request);
+      const checkpoint =
+        request.checkpoint === undefined
+          ? undefined
+          : await approvalCheckpointOf(
+              fence,
+              request.turn_id,
+              request.checkpoint,
+            );
       const result = await requirePending().registerAtomic({
         fence,
         turnId: request.turn_id,
@@ -1294,6 +1416,7 @@ export function createWorkerGateway(deps: {
           ? {}
           : { announce: request.announce }),
         ttlMs: pendingTtlMs,
+        ...(checkpoint === undefined ? {} : { checkpoint }),
       });
       if (result.outcome === "turn_not_found") {
         throw new WorkerGatewayError(
@@ -1329,20 +1452,13 @@ export function createWorkerGateway(deps: {
       request: PendingControlRequest,
     ): Promise<PendingControlResponse> {
       const fence = requireScope(principal, request);
-      // Only a turn resumed from a park reports these, and this server
-      // resumes none yet: refused rather than dropped, so the receipts they
-      // would settle are never left looking settled.
-      if (request.delivered !== undefined) {
-        throw new WorkerGatewayError(
-          400,
-          "BAD_REQUEST",
-          "This server resumes no parked turn, so it takes no delivery reports",
-        );
-      }
       const result = await requirePending().pendingControlAtomic({
         fence,
         answersAfter: request.answers_after,
         settled: request.settled ?? [],
+        ...(request.delivered === undefined
+          ? {}
+          : { delivered: request.delivered }),
       });
       if (result.outcome !== "ok") return rejected(result);
       return {
@@ -1363,6 +1479,19 @@ export function createWorkerGateway(deps: {
       };
     },
 
+    async invalidateApprovalCheckpoint(
+      principal: WorkerPrincipal,
+      request: InvalidateApprovalCheckpointRequest,
+    ): Promise<InvalidateApprovalCheckpointResponse> {
+      const fence = requireScope(principal, request);
+      const result = await requirePending().invalidateApprovalCheckpointAtomic({
+        fence,
+        manifestRef: request.manifest_ref,
+      });
+      if (result.outcome !== "ok") return rejected(result);
+      return { invalidated: result.invalidated };
+    },
+
     async parkDeclined(
       principal: WorkerPrincipal,
       request: ParkDeclinedRequest,
@@ -1375,6 +1504,35 @@ export function createWorkerGateway(deps: {
       });
       if (result.outcome !== "ok") return rejected(result);
       return { reverted: result.reverted };
+    },
+
+    async requestPark(
+      principal: WorkerPrincipal,
+      request: RequestParkRequest,
+    ): Promise<RequestParkResponse> {
+      const fence = requireScope(principal, request);
+      const result = await requirePending().requestParkAtomic({
+        fence,
+        turnId: request.turn_id,
+      });
+      switch (result.outcome) {
+        case "ok":
+          return { pause_control_id: result.pauseControlId };
+        case "not_found":
+          throw new WorkerGatewayError(
+            404,
+            "NOT_FOUND",
+            "Unknown turn_id, or the turn is not running on this attempt",
+          );
+        case "refused":
+          throw new WorkerGatewayError(
+            409,
+            "REQUEST_STALE",
+            `The turn cannot be parked: ${result.reason}`,
+          );
+        default:
+          return rejected(result);
+      }
     },
 
     async finalize(
@@ -1437,17 +1595,28 @@ export function createWorkerGateway(deps: {
       // Verification is a network call that can outlast the lease, so the
       // fence is judged against the clock at commit time, not the one this
       // request started with.
-      return finalizeAnswer(
-        await work.finalizeAtomic({
-          ...attempt,
-          checkpointVersionsHeld,
-          ...(checkpointTranscriptBytes === undefined
-            ? {}
-            : { checkpointTranscriptBytes }),
-          ...(checkpointOutputs === undefined ? {} : { checkpointOutputs }),
-          now: now(),
-        }),
-      );
+      const finalized = await work.finalizeAtomic({
+        ...attempt,
+        checkpointVersionsHeld,
+        ...(checkpointTranscriptBytes === undefined
+          ? {}
+          : { checkpointTranscriptBytes }),
+        ...(checkpointOutputs === undefined ? {} : { checkpointOutputs }),
+        now: now(),
+      });
+      // Not awaited: naming the session must never hold up its turn.
+      if (
+        deps.titles !== undefined &&
+        finalized.outcome === "finalized" &&
+        finalized.result.status === "completed" &&
+        request.turn_id === FIRST_TURN_ID
+      ) {
+        void deps.titles.titler.afterFirstTurn({
+          sessionId: fence.sessionId,
+          attemptId: fence.attemptId,
+        });
+      }
+      return finalizeAnswer(finalized);
     },
 
     // Where the next checkpoint goes. The fenced read comes first: a stale

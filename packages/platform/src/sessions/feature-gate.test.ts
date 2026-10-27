@@ -1,0 +1,102 @@
+import { describe, expect, test } from "bun:test";
+import type { RuntimeDescriptor } from "@werft-ai/runtime-core";
+
+import { ProfileFeatureGate } from "./feature-gate.ts";
+
+const full: RuntimeDescriptor = {
+  contractVersion: "runtime-contract/v1",
+  kind: "claude_agent_sdk",
+  checkpointEngine: "claude",
+  runtimeVersion: "1",
+  engineVersion: "1",
+  capabilities: {
+    interrupt: true,
+    checkpoint: true,
+    approvalCheckpoint: false,
+    resume: true,
+    mcp: "native",
+    skills: "none",
+    permissionModes: {
+      default: "native",
+      acceptEdits: "native",
+      dontAsk: "native",
+      plan: "native",
+      bypassPermissions: "native",
+      auto: "native",
+    },
+  },
+  extraFeatures: {},
+  toolEnv: "engine_inherited",
+  instructionFiles: [],
+};
+// No classifier, and MCP only by emulation.
+const partial: RuntimeDescriptor = {
+  ...full,
+  kind: "pi_coding_agent",
+  capabilities: {
+    ...full.capabilities,
+    mcp: "emulated",
+    permissionModes: { ...full.capabilities.permissionModes, auto: "none" },
+  },
+};
+const mcpServer = {
+  name: "docs",
+  endpoint: "https://mcp.example.invalid/mcp",
+  binding: `sha256:${"0".repeat(64)}`,
+  access: { kind: "egress_token", token: "t" },
+} as const;
+
+describe("ProfileFeatureGate", () => {
+  const gate = new ProfileFeatureGate([full, partial]);
+
+  test("passes settings the runtime supports", () => {
+    expect(
+      gate.refusal("claude_agent_sdk", {
+        permission_mode: "auto",
+        mcp_servers: [mcpServer],
+      }),
+    ).toBeNull();
+  });
+
+  test("passes a feature the runtime only emulates", () => {
+    expect(
+      gate.refusal("pi_coding_agent", {
+        permission_mode: "default",
+        mcp_servers: [mcpServer],
+      }),
+    ).toBeNull();
+  });
+
+  test("refuses a feature the runtime declares none, naming it", () => {
+    expect(
+      gate.refusal("pi_coding_agent", {
+        permission_mode: "auto",
+        mcp_servers: [mcpServer],
+      }),
+    ).toBe("Runtime pi_coding_agent does not support classifier_review");
+  });
+
+  test("refuses a kind no installed runtime serves", () => {
+    expect(
+      gate.refusal("codex_app_server", { permission_mode: "default" }),
+    ).toBe(
+      "Runtime codex_app_server is not installed (installed: claude_agent_sdk, pi_coding_agent)",
+    );
+  });
+
+  test("names every refused profile at once and passes a catalog it can run", () => {
+    expect(() =>
+      gate.assertProfiles({
+        ok: { runtime_kind: "claude_agent_sdk", permission_mode: "auto" },
+        "pi-auto": { runtime_kind: "pi_coding_agent", permission_mode: "auto" },
+        codex: { runtime_kind: "codex_app_server", permission_mode: "plan" },
+      }),
+    ).toThrow(
+      "Catalog profile(s) refused: pi-auto: Runtime pi_coding_agent does not support classifier_review; codex: Runtime codex_app_server is not installed (installed: claude_agent_sdk, pi_coding_agent)",
+    );
+    gate.assertProfiles({
+      ok: { runtime_kind: "claude_agent_sdk", permission_mode: "auto" },
+      "pi-plan": { runtime_kind: "pi_coding_agent", permission_mode: "plan" },
+    });
+  });
+});

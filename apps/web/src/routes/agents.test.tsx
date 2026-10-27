@@ -11,6 +11,7 @@ import type { ApiError } from "@werft-ai/client";
 import {
   agentDetailSchema,
   CREDENTIAL_REVOKE_NOTICE,
+  type ProfileSummary,
 } from "@werft-ai/contracts";
 import { avatarTone } from "@werft-ai/ui";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
@@ -147,7 +148,10 @@ const stateOf = (link: HTMLElement) =>
 const showTable = async (user: User) =>
   user.click(await screen.findByRole("button", { name: "표" }));
 
-async function seedRelease(server: ReturnType<typeof agentServer>) {
+async function seedRelease(
+  server: ReturnType<typeof agentServer>,
+  note?: string,
+) {
   const handler = server.routes[`POST /v1/agents/${AGENT_ID}/releases`];
   const versionId = server.versions.at(-1)?.id ?? "";
   await handler?.(
@@ -156,6 +160,7 @@ async function seedRelease(server: ReturnType<typeof agentServer>) {
       body: JSON.stringify({
         version_id: versionId,
         runtime_profile_id: PROFILE,
+        ...(note === undefined ? {} : { note }),
       }),
     }),
   );
@@ -370,6 +375,7 @@ describe("에이전트 카드", () => {
       version_id: version.id,
       card_sha256: "0".repeat(64),
       runtime_profile_id: PROFILE,
+      repository_id: null,
       profile_digest: "digest-1",
       runtime_config_snapshot: {},
       effective_tools: { tools: ["Read"], mcp: [] },
@@ -941,12 +947,17 @@ describe("새 에이전트", () => {
       "프로필",
     )) as HTMLSelectElement;
     expect(profile.value).toBe(PROFILE);
+    // The profile needs a repository: the first one that allows it is offered.
+    expect((screen.getByLabelText("저장소") as HTMLSelectElement).value).toBe(
+      "sample-app",
+    );
     await user.click(screen.getByRole("button", { name: "배포 판 만들기" }));
 
     await atStep("켜기");
     expect(posted(api, `/v1/agents/${AGENT_ID}/releases`)).toEqual({
       version_id: server.versions[0]?.id,
       runtime_profile_id: PROFILE,
+      repository_id: "sample-app",
     });
     await user.click(screen.getByRole("button", { name: "에이전트 켜기" }));
     await atStep("채널 연결");
@@ -961,6 +972,61 @@ describe("새 에이전트", () => {
     expect(
       screen.getByRole("link", { name: "나중에 하기" }).getAttribute("href"),
     ).toBe(DETAIL);
+  });
+
+  test("배포 판 단계에서 고른 워크스페이스 판이 그사이 은퇴하면 쓸 수 있는 프로필로 바꿔 보낸다", async () => {
+    const server = agentServer();
+    const operator = (
+      (await (
+        server.routes["GET /v1/profiles"] as () => Response
+      )().json()) as { items: ProfileSummary[] }
+    ).items;
+    let state: "usable" | "retired" = "usable";
+    const version = (): ProfileSummary => ({
+      ...(operator[1] as ProfileSummary),
+      id: "ws_acme_strict_v1",
+      source: "workspace",
+      workspace: {
+        name: "strict",
+        version: 1,
+        base_profile_id: PROFILE,
+        state,
+        created_at: "2026-10-27T00:00:00.000Z",
+        retired_at: state === "retired" ? "2026-10-27T01:00:00.000Z" : null,
+      },
+    });
+    const { api, services } = renderAt("/agents/new", {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/profiles": () => json(200, { items: [...operator, version()] }),
+    });
+    const user = await setupUser();
+    await atStep("이름");
+    await user.type(screen.getByLabelText("이름"), "결제 담당");
+    await user.type(screen.getByLabelText("식별자"), "billing");
+    await user.click(screen.getByRole("button", { name: "다음" }));
+    await atStep("하는 일");
+    await user.type(screen.getByLabelText("역할"), CARD.role);
+    await user.type(screen.getByLabelText("지시 사항"), CARD.instructions);
+    await user.selectOptions(screen.getByLabelText("모델"), CARD.model);
+    await user.click(
+      screen.getByRole("button", { name: "초안 저장하고 다음" }),
+    );
+    await atStep("배포 판");
+    const profile = (await screen.findByLabelText(
+      "프로필",
+    )) as HTMLSelectElement;
+    await user.selectOptions(profile, "ws_acme_strict_v1");
+    state = "retired";
+    await services.queryClient.invalidateQueries();
+    await waitFor(() => expect(profile.value).toBe(PROFILE));
+    await user.click(screen.getByRole("button", { name: "배포 판 만들기" }));
+    await atStep("켜기");
+    expect(posted(api, `/v1/agents/${AGENT_ID}/releases`)).toEqual({
+      version_id: server.versions[0]?.id,
+      runtime_profile_id: PROFILE,
+      repository_id: "sample-app",
+    });
   });
 
   test("이 탭에서 다른 사람이 로그인하면 앞사람이 적던 흐름을 이어 보이지 않고 처음부터 연다", async () => {
@@ -1422,12 +1488,24 @@ describe("에이전트 상세", () => {
     // A settled request closes the dialog; the choice is kept for the retry.
     dialog = await openRelease(user);
     await user.selectOptions(dialog.getByLabelText("프로필"), PROFILE);
+    // The profile needs a repository; the release names the one offered.
+    expect((dialog.getByLabelText("저장소") as HTMLSelectElement).value).toBe(
+      "sample-app",
+    );
     await user.click(dialog.getByRole("button", { name: "release 만들기" }));
     expect(
       await screen.findByText(
         "release를 만들었습니다(version 1). 아직 활성화되지 않았습니다.",
       ),
     ).toBeDefined();
+    expect(
+      api.calls.filter((c) => c.path.endsWith("/releases")).at(-1)?.body,
+    ).toMatchObject({
+      runtime_profile_id: PROFILE,
+      repository_id: "sample-app",
+    });
+    const row = (await screen.findAllByRole("row"))[1] as HTMLElement;
+    expect(row.textContent).toContain("sample-app");
     await user.click(
       await screen.findByRole("button", {
         name: `version 1 · ${PROFILE} 활성화`,
@@ -1448,6 +1526,29 @@ describe("에이전트 상세", () => {
       expect(heading.nextElementSibling?.textContent).toBe("v1 · 활성"),
     );
     expect(agentDetailSchema.safeParse(server.detail()).success).toBe(true);
+  });
+  test("배포 기록 표는 release의 메모를 보이고, 메모가 없는 release는 —로 둔다", async () => {
+    const server = agentServer();
+    await seedRelease(server);
+    server.versions.push({
+      ...(server.versions[0] as (typeof server.versions)[number]),
+      id: "7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f",
+      version_no: 2,
+      content_sha256: "f".repeat(64),
+    });
+    await seedRelease(server, "환불 문의 규칙을 더함");
+    renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
+    const table = await screen.findByRole("table");
+    const headers = within(table)
+      .getAllByRole("columnheader")
+      .map((header) => header.textContent);
+    const at = headers.indexOf("메모");
+    expect(at).toBeGreaterThan(headers.indexOf("만든 시각"));
+    const notes = within(table)
+      .getAllByRole("row")
+      .slice(1)
+      .map((row) => within(row).getAllByRole("cell")[at]?.textContent);
+    expect(notes).toEqual(["환불 문의 규칙을 더함", "—"]);
   });
   test("release 만들기는 응답을 기다리기 전에 대화상자를 닫고, 결과 줄이 포커스를 받는다", async () => {
     const server = agentServer();

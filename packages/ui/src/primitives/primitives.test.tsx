@@ -136,7 +136,7 @@ describe("포커스", () => {
     }
   });
 
-  test("입력 칸은 네 변 모두 3:1 테두리를 두고 hover에 진해진다", () => {
+  test("입력 칸은 네 변 모두 border-input 테두리를 두고 hover에 진해진다", () => {
     const { container } = render(
       <>
         <Input aria-label="이름" />

@@ -1,17 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import type { ControlIntent } from "@werft-ai/contracts";
-import {
-  FakeAgentRuntime,
-  type FakeRuntimeOptions,
-  type FakeStep,
-  type NativeSdkMessage,
-} from "@werft-ai/runtime-claude/testing";
 import { WorkerGatewayRequestError } from "@werft-ai/runtime-core";
+import type {
+  EngineMessage,
+  ScriptedRuntimeOptions,
+  ScriptedStep,
+} from "@werft-ai/runtime-core/testing";
 
 import type { WorkerCheckpointPort } from "./checkpoint.ts";
-import { engineProfile } from "./composition.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
+import { scriptedRuntime, startScripted } from "./testing/scripted-engine.ts";
 import {
   inputUuid,
   type RuntimeRegistry,
@@ -98,7 +97,7 @@ const stale = () =>
     false,
   );
 
-function resultMessage(turn: number): NativeSdkMessage {
+function resultMessage(turn: number): EngineMessage {
   return {
     type: "result",
     subtype: "success",
@@ -110,15 +109,15 @@ function resultMessage(turn: number): NativeSdkMessage {
 }
 
 function harness(
-  steps: FakeStep[],
+  steps: ScriptedStep[],
   overrides: {
     checkpoints?: WorkerCheckpointPort;
     gateway?: FakeWorkerGateway;
-    runtime?: FakeRuntimeOptions;
+    runtime?: ScriptedRuntimeOptions;
   } = {},
 ) {
   const gateway = overrides.gateway ?? new FakeWorkerGateway();
-  const runtime = new FakeAgentRuntime(steps, overrides.runtime);
+  const runtime = scriptedRuntime(steps, overrides.runtime);
   const log: string[] = [];
   const logger: WorkerLogger = {
     info: (event) => log.push(event),
@@ -127,20 +126,7 @@ function harness(
   };
   const runtimes: RuntimeRegistry = {
     launcherFor: () => ({
-      start: ({ runtimeConfig, principal, ...launch }) =>
-        runtime.run({
-          claudeConfigDir: "/tmp/fake/config",
-          cwd: "/tmp/fake/workspace",
-          home: "/tmp/fake/home",
-          model: runtimeConfig.model,
-          profile: engineProfile(
-            runtimeConfig.provider,
-            principal.owner_scope,
-            "http://egress-proxy.test:3129",
-          ),
-          tools: runtimeConfig.tools,
-          ...launch,
-        }),
+      start: (launch) => startScripted(runtime, launch),
     }),
   };
   const host = new WorkerHost({

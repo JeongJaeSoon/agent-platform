@@ -35,6 +35,8 @@ const apps = ["control-host", "worker", "egress-proxy"] as const;
 const installingApps = ["control-host", "worker"] as const;
 const EXAMPLE_ENV_PATH = ".env.example";
 const read = (path: string) => readFileSync(join(root, path), "utf8");
+const CLAUDE_IMAGE_VERIFY =
+  "packages/adapters/runtimes/claude/src/image-verify.ts";
 
 const basePins = Object.fromEntries(
   apps.map((app) => {
@@ -155,12 +157,14 @@ describe("app Dockerfiles", () => {
     expect(basePins.worker.source).toMatch(/apt-get install .*\bxfsprogs\b/);
   });
 
-  // The notices list what the image holds, so a package the Dockerfile
-  // deletes after install is left out of them.
+  // The notices list what the image holds, so a package the image build
+  // deletes after install (the Claude runtime's image:verify) is left out of them.
   test("the worker deletes exactly what the notices leave out", () => {
     const [pattern] = REMOVED_AFTER_INSTALL.worker;
-    expect(basePins.worker.source).toContain(
-      `rm -rf node_modules/${pattern}\n`,
+    const verify = read(CLAUDE_IMAGE_VERIFY);
+    expect(verify).toContain(`new Bun.Glob("${pattern}")`);
+    expect(verify).toContain(
+      "rmSync(join(nodeModules, name), { force: true, recursive: true });",
     );
     expect(REMOVED_AFTER_INSTALL["control-host"]).toEqual([]);
     expect(REMOVED_AFTER_INSTALL["egress-proxy"]).toEqual([]);
@@ -175,7 +179,9 @@ describe("app Dockerfiles", () => {
   });
 
   test("only the worker carries the Agent SDK", () => {
-    expect(basePins.worker.source).toContain("resolvePinnedClaudeExecutable");
+    expect(basePins.worker.source).toContain(
+      "bun run --filter @werft-ai/runtime-registry image:verify",
+    );
     for (const app of ["control-host"] as const) {
       expect(basePins[app].source).toContain(
         "test ! -e node_modules/@anthropic-ai",
@@ -1049,7 +1055,7 @@ describe("compose layers", () => {
       expect(Object.keys(services).sort()).toEqual(Object.keys(merged).sort());
       /** A value as compose resolves it with nothing set. */
       const resolved = (value: string) =>
-        value.replace(/\$\{[A-Z0-9_]+:-([^}]*)\}/g, "$1");
+        value.replace(/\$\{[A-Z0-9_]+:?-([^}]*)\}/g, "$1");
       for (const [name, service] of Object.entries(services)) {
         const layered = merged[name];
         // Only the keys compose files set: a developer's ../.env adds more

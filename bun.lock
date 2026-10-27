@@ -27,7 +27,7 @@
         "@werft-ai/execution-local-docker": "workspace:*",
         "@werft-ai/observability": "workspace:*",
         "@werft-ai/platform": "workspace:*",
-        "@werft-ai/runtime-claude-codec": "workspace:*",
+        "@werft-ai/runtime-codecs": "workspace:*",
         "@werft-ai/storage": "workspace:*",
         "drizzle-orm": "0.45.2",
         "hono": "4.13.11",
@@ -137,8 +137,8 @@
       "dependencies": {
         "@werft-ai/contracts": "workspace:*",
         "@werft-ai/observability": "workspace:*",
-        "@werft-ai/runtime-claude": "workspace:*",
         "@werft-ai/runtime-core": "workspace:*",
+        "@werft-ai/runtime-registry": "workspace:*",
         "@werft-ai/storage": "workspace:*",
         "@werft-ai/system": "workspace:*",
       },
@@ -190,6 +190,22 @@
         "@werft-ai/contracts": "workspace:*",
         "@werft-ai/runtime-core": "workspace:*",
         "zod": "4.6.7",
+      },
+    },
+    "packages/adapters/runtimes/codecs": {
+      "name": "@werft-ai/runtime-codecs",
+      "version": "0.0.0",
+      "dependencies": {
+        "@werft-ai/runtime-claude-codec": "workspace:*",
+        "@werft-ai/runtime-core": "workspace:*",
+      },
+    },
+    "packages/adapters/runtimes/registry": {
+      "name": "@werft-ai/runtime-registry",
+      "version": "0.0.0",
+      "dependencies": {
+        "@werft-ai/runtime-claude": "workspace:*",
+        "@werft-ai/runtime-core": "workspace:*",
       },
     },
     "packages/client": {
@@ -1358,7 +1374,11 @@
 
     "@werft-ai/runtime-claude-codec": ["@werft-ai/runtime-claude-codec@workspace:packages/adapters/runtimes/claude-codec"],
 
+    "@werft-ai/runtime-codecs": ["@werft-ai/runtime-codecs@workspace:packages/adapters/runtimes/codecs"],
+
     "@werft-ai/runtime-core": ["@werft-ai/runtime-core@workspace:packages/runtime-core"],
+
+    "@werft-ai/runtime-registry": ["@werft-ai/runtime-registry@workspace:packages/adapters/runtimes/registry"],
 
     "@werft-ai/sdk": ["@werft-ai/sdk@workspace:packages/sdk"],
 

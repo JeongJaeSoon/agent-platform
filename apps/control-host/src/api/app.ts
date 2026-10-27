@@ -10,6 +10,7 @@ import {
   PAYLOAD_TOO_LARGE_ISSUE,
   type Principal,
   REQUEST_BODY_MAX_BYTES,
+  type RequestBodyInvalidDetails,
   readyResponseSchema,
 } from "@werft-ai/contracts";
 import {
@@ -27,6 +28,11 @@ import {
 import type { Context, Handler, MiddlewareHandler } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
+import {
+  INTERACTIVE_CONFIGURATION_ATTRIBUTE,
+  READ_ONLY_CONFIGURATION_ATTRIBUTE,
+  STYLE_NONCE_SCRIPT,
+} from "./api-reference.ts";
 import { createAuthenticator, csrfViolation } from "./auth.ts";
 import {
   BODY_DEADLINE_MS,
@@ -95,7 +101,21 @@ let apiReferenceHtml: Promise<string> | undefined;
 function readApiReferenceHtml(): Promise<string> {
   apiReferenceHtml ??= Bun.file(join(API_REFERENCE_DIRECTORY, "index.html"))
     .text()
-    .then((html) => html.replace('src="./scalar.js"', 'src="/docs/scalar.js"'));
+    .then((html) => {
+      if (!html.includes(READ_ONLY_CONFIGURATION_ATTRIBUTE))
+        throw new Error(
+          "docs/api/index.html is stale; run apps/control-host/scripts/generate-openapi.ts",
+        );
+      return html
+        .replace(
+          '<script src="./scalar.js"></script>',
+          '<script src="/docs/style-nonce.js"></script>\n    <script src="/docs/scalar.js"></script>',
+        )
+        .replace(
+          READ_ONLY_CONFIGURATION_ATTRIBUTE,
+          INTERACTIVE_CONFIGURATION_ATTRIBUTE,
+        );
+    });
   return apiReferenceHtml;
 }
 
@@ -112,7 +132,7 @@ function apiReferenceCsp(nonce: string): string {
     "script-src 'self'",
     `style-src 'nonce-${nonce}'`,
     "img-src data:",
-    "connect-src 'none'",
+    "connect-src 'self'",
     "font-src 'none'",
     "base-uri 'none'",
     "form-action 'none'",
@@ -332,7 +352,20 @@ export async function parseJsonBody<T extends z.ZodType>(
         "Request field too large",
       );
     }
-    throw new ApiHttpError(400, "BAD_REQUEST", "Request body is invalid");
+    const details: RequestBodyInvalidDetails = {
+      issues: parsed.error.issues.map((issue) => ({
+        path: issue.path.map(String).join("."),
+        message: issue.message,
+      })),
+    };
+    throw new ApiHttpError(
+      400,
+      "BAD_REQUEST",
+      "Request body is invalid",
+      false,
+      undefined,
+      details,
+    );
   }
   return parsed.data;
 }
@@ -515,6 +548,17 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
       },
     });
   });
+  app.get(
+    "/docs/style-nonce.js",
+    () =>
+      new Response(STYLE_NONCE_SCRIPT, {
+        headers: {
+          ...API_REFERENCE_SECURITY_HEADERS,
+          "Cache-Control": "public, max-age=3600",
+          "Content-Type": "text/javascript; charset=utf-8",
+        },
+      }),
+  );
   app.get(
     "/docs/scalar.js",
     () =>

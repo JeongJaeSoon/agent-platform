@@ -23,11 +23,6 @@ import type {
   RestorePlanResponse,
 } from "@werft-ai/contracts";
 import {
-  CLAUDE_RUNTIME_FINGERPRINT,
-  ClaudeSessionStore,
-  claudeCheckpointCodec,
-} from "@werft-ai/runtime-claude";
-import {
   type CheckpointCodec,
   type CheckpointManifest,
   type CheckpointPreparation,
@@ -39,9 +34,11 @@ import {
   type RuntimeFingerprint,
   readGitBundleHeader,
   type TranscriptMirror,
+  type TranscriptRevision,
   transcriptWarnBytes,
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
+import { realRuntimeFor } from "@werft-ai/runtime-registry/testing";
 import {
   createMemoryCheckpointObjectStore,
   type MemoryCheckpointObjectStore,
@@ -61,8 +58,24 @@ import type {
 } from "./workspace-capture.ts";
 import { captureWorkspace } from "./workspace-capture.ts";
 
+const claude = realRuntimeFor("claude_agent_sdk");
+const claudeCheckpointCodec = claude.checkpointCodec;
+/** The build this image runs, short of a profile. */
+const engineBuild: Omit<RuntimeFingerprint, "profileSha256"> = JSON.parse(
+  claude.imageFingerprint(),
+);
+/** What the transcript mirror a fresh plan opens does beyond `TranscriptMirror`. */
+type CapturingMirror = TranscriptMirror & {
+  captureRevision(key: {
+    projectKey: string;
+    sessionId: string;
+  }): Promise<TranscriptRevision | null>;
+  transcriptSizes(
+    sessionId: string,
+  ): Promise<Array<{ bytes: number; key: string }> | null>;
+};
 const runtime: RuntimeFingerprint = {
-  ...CLAUDE_RUNTIME_FINGERPRINT,
+  ...engineBuild,
   profileSha256: "a".repeat(64),
 };
 /** FakeWorkerGateway's default session. */
@@ -71,9 +84,9 @@ const resume = "engine-session-1";
 const ready: CheckpointPreparation = {
   status: "ready",
   checkpoint: {
-    engine: CLAUDE_RUNTIME_FINGERPRINT.engine,
+    engine: engineBuild.engine,
     resume,
-    sdkVersion: CLAUDE_RUNTIME_FINGERPRINT.sdkVersion,
+    sdkVersion: engineBuild.sdkVersion,
   },
 };
 const root = { projectKey: "-workspace", sessionId: resume };
@@ -165,10 +178,14 @@ function harness(
     objectPrefix: `sessions/${SESSION}/`,
     objects,
     workspaceRoot: workspace,
+    instructionsFile: "CLAUDE.md",
+    runtime: {
+      checkpointCodec: options.codec ?? claudeCheckpointCodec,
+      openTranscriptStore: claude.openTranscriptStore,
+    },
     ...(options.captureWorkspace === undefined
       ? {}
       : { captureWorkspace: options.captureWorkspace }),
-    ...(options.codec === undefined ? {} : { codec: options.codec }),
     ...(options.instructionsCommit === undefined
       ? {}
       : { instructionsCommit: options.instructionsCommit }),
@@ -321,6 +338,46 @@ describe("SessionCheckpoints", () => {
     expect(partBytes === undefined ? null : sha256(partBytes)).toBe(
       part.sha256,
     );
+  });
+
+  test("carries the worker state a parked turn hands it into the manifest, and none otherwise", async () => {
+    const h = harness();
+    const { claim, mirror } = await opened(h);
+    await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
+    const workerState = {
+      pendingApprovals: [
+        {
+          input: { command: "rm -rf build" },
+          inputHash: "f".repeat(64),
+          kind: "permission" as const,
+          requestId: "req_1",
+          tool: "Bash",
+          toolCallId: "toolu_1",
+        },
+      ],
+    };
+
+    const parked = await h.port.capture(ready, {
+      scope: scopeOf(claim),
+      recheck: async () => ready,
+      workerState,
+    });
+    await writeFile(join(workspace, "README.md"), "edited again\n");
+    const plain = await h.port.capture(ready, {
+      scope: { ...scopeOf(claim), turn_id: "turn-2" },
+      recheck: async () => ready,
+    });
+
+    const decoded = await Promise.all(
+      [parked, plain].map(async (ref) => {
+        const bytes =
+          ref === null ? undefined : await h.objects.get(ref.manifest_ref);
+        if (bytes === undefined) throw new Error("manifest missing");
+        return claudeCheckpointCodec.decode(bytes);
+      }),
+    );
+    expect(decoded[0]?.workerState).toEqual(workerState);
+    expect(decoded[1] !== undefined && "workerState" in decoded[1]).toBe(false);
   });
 
   test("uploads the bundle from a file in chunks, and leaves no spool behind", async () => {
@@ -1693,7 +1750,7 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
       " M CLAUDE.md\n M README.md\n",
     );
     // CLAUDE.md as fetched, not as the engine left it on disk.
-    expect(plan.committedClaudeMd?.()).toBe("rules as fetched\n");
+    expect(plan.committedInstructions?.()).toBe("rules as fetched\n");
     expect(plan.sessionStore).toBeDefined();
   });
 
@@ -2078,6 +2135,8 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
       objectPrefix: `sessions/${SESSION}/`,
       objects: from.objects,
       workspaceRoot: elsewhere,
+      instructionsFile: "CLAUDE.md",
+      runtime: claude,
     });
 
     await expect(
@@ -2345,10 +2404,10 @@ describe("transcript limits, judged against limits a test sets", () => {
         { type: "user", uuid: `u${index}`, message: "y".repeat(100) },
       ]);
     }
-    const sizes = await (mirror as ClaudeSessionStore).transcriptSizes(resume);
+    const sizes = await (mirror as CapturingMirror).transcriptSizes(resume);
     if (sizes === null) throw new Error("expected a root transcript");
     const total = sizes.reduce((sum, part) => sum + part.bytes, 0);
-    return { claim, h, mirror: mirror as ClaudeSessionStore, sizes, total };
+    return { claim, h, mirror: mirror as CapturingMirror, sizes, total };
   }
   const nearLimit = (h: ReturnType<typeof harness>) =>
     h.warnings.filter(
@@ -2459,11 +2518,7 @@ describe("restoring a transcript over the size limit", () => {
     const from = await published();
     // A real revision of one part just over the limit, pinned where nothing
     // is ever read from.
-    const elsewhere = new ClaudeSessionStore({
-      generation: 1,
-      objects: createMemoryCheckpointObjectStore(),
-      prefix: `sessions/${SESSION}/transcripts`,
-    });
+    const elsewhere = (await opened(harness())).mirror as CapturingMirror;
     await elsewhere.append(root, [
       {
         type: "user",
@@ -2649,7 +2704,7 @@ describe("a bundle built on the checkpoint before", () => {
 describe("SessionCheckpoints for a session without a repository", () => {
   test("publishes the engine's files in the bundle and restores them on a new volume with no origin", async () => {
     await rm(workspace, { force: true, recursive: true });
-    await new GitWorkspace(workspace).prepare({
+    await new GitWorkspace(workspace, "CLAUDE.md").prepare({
       descriptor: { repository: null },
       restore: null,
       signal: neverStopped(),
@@ -2703,7 +2758,7 @@ describe("SessionCheckpoints for a session without a repository", () => {
     "indexes out/ beside the bundle, which carries the symlink the index leaves out",
     async () => {
       await rm(workspace, { force: true, recursive: true });
-      await new GitWorkspace(workspace).prepare({
+      await new GitWorkspace(workspace, "CLAUDE.md").prepare({
         descriptor: { repository: null },
         restore: null,
         signal: neverStopped(),

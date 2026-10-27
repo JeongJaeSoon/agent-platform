@@ -101,6 +101,7 @@ const TOOLS = {
       total_ms: 13320000,
       median_ms: 3100,
       max_ms: 298000,
+      description: null,
     },
     {
       name: "Read",
@@ -109,6 +110,7 @@ const TOOLS = {
       total_ms: 1080000,
       median_ms: 400,
       max_ms: 9100,
+      description: null,
     },
     {
       name: "Edit",
@@ -117,6 +119,7 @@ const TOOLS = {
       total_ms: 1620000,
       median_ms: 900,
       max_ms: 14200,
+      description: null,
     },
     {
       name: "WebFetch",
@@ -125,6 +128,7 @@ const TOOLS = {
       total_ms: 3960000,
       median_ms: 12400,
       max_ms: 61000,
+      description: null,
     },
   ],
   findings: [
@@ -452,10 +456,10 @@ describe("사용량·한도", () => {
           .slice(1)
           .map((row) => row.textContent),
       ).toEqual([
-        "Bash1,8403시간 42분3.1초21",
-        "Read1,20418분0.4초2",
-        "Edit70227분0.9초12",
-        "WebFetch2141시간 6분12.4초1",
+        "Bash셸 명령1,8403시간 42분3.1초21",
+        "Read파일을 읽는다1,20418분0.4초2",
+        "Edit파일 일부를 고친다70227분0.9초12",
+        "WebFetch웹 페이지를 가져온다2141시간 6분12.4초1",
       ]),
     );
     const tabs = screen.getByRole("navigation", { name: "사용량·한도 탭" });
@@ -539,6 +543,34 @@ describe("사용량·한도", () => {
       ).toHaveLength(2),
     );
     expect(api.calls.length).toBe(before);
+  });
+
+  test("도구 활동 탭: MCP 도구는 API의 설명을, 모르는 도구는 설명 줄 없이 쓴다", async () => {
+    setSystemTime(NOW);
+    const mcp = {
+      ...TOOLS.tools[0],
+      name: "mcp__docs__find",
+      description: "Finds a page in the docs",
+    };
+    const unknown = { ...TOOLS.tools[0], name: "Mystery", description: null };
+    renderAt("/operations/tools", {
+      "GET /v1/auth/me": () => json(200, me()),
+      ...usageRoutes,
+      "GET /v1/usage/tools": () =>
+        json(200, { tools: [mcp, unknown], findings: [] }),
+    });
+    const table = await screen.findByRole("table", { name: "도구와 명령" });
+    await waitFor(() =>
+      expect(
+        within(table)
+          .getAllByRole("row")
+          .slice(1)
+          .map((row) => row.textContent),
+      ).toEqual([
+        "mcp__docs__findFinds a page in the docs1,8403시간 42분3.1초21",
+        "Mystery1,8403시간 42분3.1초21",
+      ]),
+    );
   });
 
   test("도구 활동 탭: agent_id search param은 두 API에 그대로 간다", async () => {

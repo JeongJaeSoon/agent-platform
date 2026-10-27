@@ -17,7 +17,9 @@ import {
   type CheckpointTranscripts,
   MAX_TRANSCRIPT_PART_BYTES,
   type TranscriptEntry,
+  type TranscriptInheritance,
   type TranscriptRevision,
+  TranscriptTooLargeError,
 } from "@werft-ai/runtime-core";
 import {
   createMemoryCheckpointObjectStore,
@@ -27,8 +29,6 @@ import {
   ClaudeSessionStore,
   PublishRollbackFailed,
   publishRestoredSession,
-  type TranscriptInheritance,
-  TranscriptTooLarge,
 } from "./session-store.ts";
 
 const projectKey = "-workspace";
@@ -1238,7 +1238,7 @@ describe("Claude session store merging parts, the edges", () => {
     ]);
 
     await expect(mirror.captureTranscripts(sessionId)).rejects.toMatchObject({
-      name: "TranscriptTooLarge",
+      name: "TranscriptTooLargeError",
       reason: "transcript_part_too_large",
     });
     expect(objects.keys().filter((key) => key.includes("/merged-"))).toEqual(
@@ -1271,7 +1271,7 @@ describe("Claude session store merging parts, the edges", () => {
 
     limits.totalBytes = total - 1;
     const refused = mirror.captureTranscripts(sessionId);
-    await expect(refused).rejects.toBeInstanceOf(TranscriptTooLarge);
+    await expect(refused).rejects.toBeInstanceOf(TranscriptTooLargeError);
     await expect(refused).rejects.toMatchObject({
       reason: "transcript_too_large",
     });

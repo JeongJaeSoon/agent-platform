@@ -16,7 +16,7 @@ import { join } from "node:path";
 import type { WorkspaceDescriptor } from "@werft-ai/contracts";
 
 import { RESTORED_CHECKPOINT_DIRECTORY } from "./checkpoint-restore.ts";
-import { COMMITTED_CLAUDE_MD_MAX_BYTES, GitWorkspace } from "./workspace.ts";
+import { COMMITTED_INSTRUCTIONS_MAX_BYTES, GitWorkspace } from "./workspace.ts";
 
 let scratch: string;
 let origin: string;
@@ -38,7 +38,7 @@ function descriptor(url = origin, branch = "main"): WorkspaceDescriptor {
 }
 
 function prepare(workspace: WorkspaceDescriptor, signal?: AbortSignal) {
-  return new GitWorkspace(root).prepare({
+  return new GitWorkspace(root, "CLAUDE.md").prepare({
     descriptor: workspace,
     restore: null,
     signal: signal ?? new AbortController().signal,
@@ -145,7 +145,7 @@ describe("GitWorkspace", () => {
     await writeFile(join(root, "stray.txt"), "?\n");
 
     expect(
-      await new GitWorkspace(root).prepare({
+      await new GitWorkspace(root, "CLAUDE.md").prepare({
         descriptor: descriptor(),
         restore: {
           revision: 3,
@@ -547,7 +547,7 @@ describe("GitWorkspace without a repository", () => {
 
   test("makes a local git with no origin and one empty commit by a fixed identity", async () => {
     await rm(root, { recursive: true });
-    const workspace = new GitWorkspace(root);
+    const workspace = new GitWorkspace(root, "CLAUDE.md");
 
     expect(
       await workspace.prepare({
@@ -568,7 +568,7 @@ describe("GitWorkspace without a repository", () => {
     );
     // No template: no sample hooks or description for the engine to find.
     expect((await readdir(join(root, ".git"))).sort()).not.toContain("hooks");
-    expect(workspace.committedClaudeMd()).toBeNull();
+    expect(workspace.committedInstructions()).toBeNull();
     expect(workspace.instructionsCommit()).toBeNull();
   });
 
@@ -595,7 +595,7 @@ describe("GitWorkspace without a repository", () => {
     await writeFile(join(root, "stray.txt"), "?\n");
 
     expect(
-      await new GitWorkspace(root).prepare({
+      await new GitWorkspace(root, "CLAUDE.md").prepare({
         descriptor: none,
         restore: {
           revision: 0,
@@ -654,7 +654,7 @@ describe("GitWorkspace without a repository", () => {
   });
 });
 
-describe("GitWorkspace.committedClaudeMd", () => {
+describe("GitWorkspace.committedInstructions", () => {
   /** Commits to origin's main, as the repository's authors would. */
   async function publish(
     files: Record<string, string>,
@@ -678,7 +678,7 @@ describe("GitWorkspace.committedClaudeMd", () => {
   }
 
   async function prepared(): Promise<GitWorkspace> {
-    const workspace = new GitWorkspace(root);
+    const workspace = new GitWorkspace(root, "CLAUDE.md");
     await workspace.prepare({
       descriptor: descriptor(),
       restore: null,
@@ -688,12 +688,12 @@ describe("GitWorkspace.committedClaudeMd", () => {
   }
 
   test("reads the file the branch has committed, and none when it has none", async () => {
-    expect((await prepared()).committedClaudeMd()).toBeNull();
+    expect((await prepared()).committedInstructions()).toBeNull();
     await rm(root, { force: true, recursive: true });
     await mkdir(root);
     await publish({ "CLAUDE.md": "Run bun test.\n" });
 
-    expect((await prepared()).committedClaudeMd()).toBe("Run bun test.\n");
+    expect((await prepared()).committedInstructions()).toBe("Run bun test.\n");
   });
 
   test("a retry reads the branch, not what the last attempt left in the checkout", async () => {
@@ -710,7 +710,7 @@ describe("GitWorkspace.committedClaudeMd", () => {
     expect(await Bun.file(join(root, "CLAUDE.md")).text()).toBe(
       "agent rules, uncommitted\n",
     );
-    expect(retry.committedClaudeMd()).toBe("committed rules\n");
+    expect(retry.committedInstructions()).toBe("committed rules\n");
   });
 
   test("a retry sees what the branch published since", async () => {
@@ -718,7 +718,7 @@ describe("GitWorkspace.committedClaudeMd", () => {
     await prepared();
     await publish({ "CLAUDE.md": "second\n" });
 
-    expect((await prepared()).committedClaudeMd()).toBe("second\n");
+    expect((await prepared()).committedInstructions()).toBe("second\n");
   });
 
   test("follows a committed link that stays in the tree", async () => {
@@ -727,13 +727,13 @@ describe("GitWorkspace.committedClaudeMd", () => {
       { "AGENTS.md": "docs/AGENTS.md", "CLAUDE.md": "AGENTS.md" },
     );
 
-    expect((await prepared()).committedClaudeMd()).toBe("shared rules\n");
+    expect((await prepared()).committedInstructions()).toBe("shared rules\n");
   });
 
   test("a committed link to nothing is no instructions", async () => {
     await publish({}, { "CLAUDE.md": "missing.md" });
 
-    expect((await prepared()).committedClaudeMd()).toBeNull();
+    expect((await prepared()).committedInstructions()).toBeNull();
   });
 
   test("refuses a committed link that leaves the tree, whatever the checkout holds there", async () => {
@@ -741,8 +741,8 @@ describe("GitWorkspace.committedClaudeMd", () => {
     for (const target of ["../outside.md", join(scratch, "outside.md")]) {
       await publish({}, { "CLAUDE.md": target });
       const workspace = await prepared();
-      expect(() => workspace.committedClaudeMd()).toThrow(
-        "Repository CLAUDE.md refused: it links outside the repository",
+      expect(() => workspace.committedInstructions()).toThrow(
+        "Repository instruction file refused: it links outside the repository",
       );
     }
   });
@@ -750,18 +750,20 @@ describe("GitWorkspace.committedClaudeMd", () => {
   test("refuses a directory, a link loop and a file past the cap — but only when asked", async () => {
     await publish({ "CLAUDE.md/inner.md": "x" });
     const directory = await prepared();
-    expect(() => directory.committedClaudeMd()).toThrow("not a regular file");
+    expect(() => directory.committedInstructions()).toThrow(
+      "not a regular file",
+    );
 
     await publish({}, { "CLAUDE.md": "AGENTS.md", "AGENTS.md": "CLAUDE.md" });
     const loop = await prepared();
-    expect(() => loop.committedClaudeMd()).toThrow("too many symlinks");
+    expect(() => loop.committedInstructions()).toThrow("too many symlinks");
 
     await publish({
-      "CLAUDE.md": "a".repeat(COMMITTED_CLAUDE_MD_MAX_BYTES + 1),
+      "CLAUDE.md": "a".repeat(COMMITTED_INSTRUCTIONS_MAX_BYTES + 1),
     });
     const large = await prepared();
-    expect(() => large.committedClaudeMd()).toThrow(
-      `larger than ${COMMITTED_CLAUDE_MD_MAX_BYTES} bytes`,
+    expect(() => large.committedInstructions()).toThrow(
+      `larger than ${COMMITTED_INSTRUCTIONS_MAX_BYTES} bytes`,
     );
   });
 
@@ -790,7 +792,7 @@ describe("GitWorkspace.committedClaudeMd", () => {
       restore: null,
       signal: new AbortController().signal,
     });
-    expect(() => workspace.committedClaudeMd()).toThrow(
+    expect(() => workspace.committedInstructions()).toThrow(
       "it links to an overlong path",
     );
   });
@@ -800,7 +802,7 @@ describe("GitWorkspace.committedClaudeMd", () => {
     for (const target of ["docs/", ".", "./"]) {
       await publish({}, { "CLAUDE.md": target });
       const workspace = await prepared();
-      expect(() => workspace.committedClaudeMd()).toThrow(
+      expect(() => workspace.committedInstructions()).toThrow(
         "it is not a regular file",
       );
     }
@@ -835,22 +837,22 @@ describe("GitWorkspace.committedClaudeMd", () => {
         signal: new AbortController().signal,
       }),
     ).toBe("reuse");
-    expect(() => workspace.committedClaudeMd()).toThrow(
+    expect(() => workspace.committedInstructions()).toThrow(
       "it links to a malformed path",
     );
   });
 
   test("a file exactly at the cap is whole", async () => {
-    const whole = "b".repeat(COMMITTED_CLAUDE_MD_MAX_BYTES);
+    const whole = "b".repeat(COMMITTED_INSTRUCTIONS_MAX_BYTES);
     await publish({ "CLAUDE.md": whole });
 
-    expect((await prepared()).committedClaudeMd()).toBe(whole);
+    expect((await prepared()).committedInstructions()).toBe(whole);
   });
 
   test("a restore fetched nothing, so a profile that wants the file is refused", async () => {
     await publish({ "CLAUDE.md": "committed rules\n" });
     const workspace = await prepared();
-    expect(workspace.committedClaudeMd()).toBe("committed rules\n");
+    expect(workspace.committedInstructions()).toBe("committed rules\n");
 
     await workspace.prepare({
       descriptor: descriptor(),
@@ -862,7 +864,7 @@ describe("GitWorkspace.committedClaudeMd", () => {
       signal: new AbortController().signal,
     });
 
-    expect(() => workspace.committedClaudeMd()).toThrow(
+    expect(() => workspace.committedInstructions()).toThrow(
       "no freshly fetched commit",
     );
   });

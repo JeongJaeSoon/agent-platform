@@ -9,6 +9,7 @@ import {
   DEFAULT_LEASE_TTL_MS,
   DEFAULT_NONCE_TTL_MS,
   hashWorkerToken,
+  type NeutralizeEvent,
   profileFingerprint,
   transcriptWarnBytes,
   type WorkerGateway,
@@ -165,9 +166,10 @@ integration("worker gateway on PostgreSQL", () => {
     await database.drop();
   }, 60_000);
 
-  const briefGateway = (leaseTtlMs: number) =>
+  const briefGateway = (leaseTtlMs: number, neutralize?: NeutralizeEvent) =>
     createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
+      ...(neutralize === undefined ? {} : { neutralize }),
       catalog: {
         profiles: {
           "claude-coding-v1": {
@@ -467,6 +469,7 @@ integration("worker gateway on PostgreSQL", () => {
       kind: "session",
       attemptId: first.attempt_id,
       sessionId: first.session_id,
+      profileId: "claude-coding-v1",
       leaseEpoch: retry.lease_epoch,
       executionGeneration: retry.execution_generation,
       authRevision: retry.auth_revision,
@@ -974,6 +977,63 @@ integration("worker gateway on PostgreSQL", () => {
     expect(storedRow?.stored).toBe(4);
   });
 
+  test("a batch resent across replicas that do and do not store neutral fields is still the same batch", async () => {
+    const { session, claimed } = await claimAndDeliver();
+    // A rolling deploy: a replica that stores the neutral fields beside the
+    // event and an older one that does not compare a resend the same way.
+    const plain = briefGateway(LEASE_TTL_MS);
+    const neutral = briefGateway(LEASE_TTL_MS, (_, e) =>
+      e.event === "assistant" ? { ...e, data: { ...e.data, text: "hi" } } : e,
+    );
+    const said: WorkerEvent = {
+      event: "assistant",
+      data: { type: "assistant", message: { content: "hi" } },
+      source_sequence: 1,
+      occurred_at: clock.toISOString(),
+    };
+    const batch = {
+      ...scopeOf(claimed, "1"),
+      batch_key: "batch-1",
+      events: [said],
+    };
+    await neutral.appendEvents(principalOf(claimed), batch);
+    expect(
+      (await plain.appendEvents(principalOf(claimed), batch)).accepted_through,
+    ).toBe(1);
+    expect(
+      (await neutral.appendEvents(principalOf(claimed), batch))
+        .accepted_through,
+    ).toBe(1);
+    const stored = await db.execute(
+      sql`SELECT payload, neutral FROM events WHERE session_id = ${session.session_id} AND type = 'assistant'`,
+    );
+    expect(stored.rows).toEqual([
+      { payload: said.data, neutral: { text: "hi" } },
+    ]);
+    // Fields the worker sent itself are the event: a change there is not a
+    // resend.
+    const own: WorkerEvent = {
+      event: "assistant",
+      data: { type: "assistant", text: "A" },
+      source_sequence: 2,
+      occurred_at: clock.toISOString(),
+    };
+    await neutral.appendEvents(principalOf(claimed), {
+      ...batch,
+      batch_key: "batch-2",
+      events: [own],
+    });
+    expect(
+      await failure(
+        neutral.appendEvents(principalOf(claimed), {
+          ...batch,
+          batch_key: "batch-2",
+          events: [{ ...own, data: { type: "assistant", text: "B" } }],
+        }),
+      ),
+    ).toEqual({ status: 409, code: "IDEMPOTENCY_CONFLICT" });
+  });
+
   test("finalize replayed with the same key but a different terminal is a conflict", async () => {
     const { claimed } = await claimAndDeliver();
     const request = {
@@ -1212,6 +1272,71 @@ integration("worker gateway on PostgreSQL", () => {
         ),
       ).toEqual({ status: 409, code: "IDEMPOTENCY_CONFLICT" });
     }
+  });
+
+  test("occurred_at never goes back in id order across worker and control-plane writes", async () => {
+    const { session, claimed } = await claimAndDeliver();
+    const scope = scopeOf(claimed, "1");
+    // A worker clock running ahead of the database's.
+    const ahead = new Date(Date.now() + 60 * 60_000);
+    await gateway.appendEvents(principalOf(claimed), {
+      ...scope,
+      batch_key: "ahead",
+      events: [{ ...event(1), occurred_at: ahead.toISOString() }],
+    });
+    await gateway.finalize(principalOf(claimed), {
+      ...scope,
+      turn_id: "1",
+      finalize_key: "fin-order",
+      final_source_sequence: 1,
+      terminal: {
+        status: "completed",
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: null,
+    });
+    // A frame the engine emitted past its terminal, stamped before the
+    // finalize committed and held behind it: stored after the idle status.
+    const late = {
+      ...scopeOf(claimed),
+      batch_key: "late",
+      events: [
+        {
+          event: "system" as const,
+          data: { type: "system" as const, subtype: "late" },
+          source_sequence: 2,
+          occurred_at: new Date(ahead.getTime() - 300).toISOString(),
+        },
+      ],
+    };
+    await gateway.appendEvents(principalOf(claimed), late);
+    // The worker resends its own time; the raised one still matches it.
+    await gateway.appendEvents(principalOf(claimed), late);
+
+    const rows = await db
+      .select({
+        type: events.type,
+        payload: events.payload,
+        at: events.occurredAt,
+      })
+      .from(events)
+      .where(eq(events.sessionId, session.session_id))
+      .orderBy(events.id);
+    const times = rows.map((row) => row.at?.getTime() ?? Number.NaN);
+    expect(times.every((at, i) => i === 0 || at >= (times[i - 1] ?? 0))).toBe(
+      true,
+    );
+    const idle = rows.find(
+      (row) =>
+        row.type === "status" &&
+        (row.payload as { phase?: string }).phase === "idle",
+    );
+    expect(idle?.at?.getTime()).toBe(ahead.getTime());
+    expect(rows.at(-1)?.type).toBe("system");
+    expect(rows.at(-1)?.at?.getTime()).toBe(ahead.getTime());
+    expect(rows.filter((row) => row.type === "system")).toHaveLength(1);
   });
 
   test("append and finalize racing in either order never lose the tail", async () => {

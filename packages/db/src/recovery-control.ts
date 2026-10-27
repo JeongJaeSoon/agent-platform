@@ -29,6 +29,7 @@ import {
   transactionWithBindingRetry,
 } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
+import { closeParkedGroup } from "./parked-group.ts";
 import {
   awaitingInputAt,
   cancelParkedRequests,
@@ -899,6 +900,14 @@ export function resumeAtomic(
     if (session.workspaceReclaimId !== null) {
       return { outcome: "workspace_reclaiming" };
     }
+
+    // As from a pause: a parked turn the stop left waiting goes on once
+    // nothing it asked is still open.
+    const parked = await closeParkedGroup(tx, session, {
+      by: "resume",
+      at: await dbNow(tx),
+    });
+    if (parked.outcome === "pending_requests_open") return parked;
 
     const queued = await queuedTurnCount(tx, sessionId);
     await tx

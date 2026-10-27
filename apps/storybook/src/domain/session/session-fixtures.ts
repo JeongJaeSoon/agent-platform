@@ -1,4 +1,6 @@
 import {
+  eventToolCall,
+  eventToolResult,
   presentTurnEvent,
   type SessionSummary,
   type TurnEventMessage,
@@ -67,14 +69,9 @@ type RawEvent = readonly [event: string, data: unknown, turnId?: string | null];
 export function timelineEntries(events: readonly RawEvent[]): TimelineEntry[] {
   const toolNames = new Map<string, string>();
   return events.map(([event, data, turnId = "turn_01"], index) => {
-    const blocks = (data as { message?: { content?: unknown } })?.message
-      ?.content;
-    if (Array.isArray(blocks)) {
-      for (const block of blocks) {
-        if (block?.type === "tool_use") toolNames.set(block.id, block.name);
-      }
-    }
-    const callId = (data as { tool_use_id?: string })?.tool_use_id;
+    const call = eventToolCall(data);
+    if (call) toolNames.set(call.id, call.name);
+    const callId = eventToolResult(data)?.tool_call_id;
     return {
       id: `evt_${index}`,
       occurredAt: new Date(START + index * 4000).toISOString(),
@@ -87,84 +84,58 @@ export function timelineEntries(events: readonly RawEvent[]): TimelineEntry[] {
   });
 }
 
+// Events as the runtime's codec gives them: only the engine-neutral fields
+// are read.
+const STARTED: RawEvent = [
+  "system",
+  { engine_event: { name: "init", category: "started" } },
+];
+const THINKING_TICK: RawEvent = [
+  "system",
+  { engine_event: { name: "thinking_tokens", category: "thinking" } },
+];
+const toolUse = (id: string, input: Record<string, unknown>): RawEvent => [
+  "tool_use",
+  { tool_call: { id, name: "Bash", input } },
+];
+const toolResult = (id: string, text: string, isError = false): RawEvent => [
+  "tool_result",
+  { tool_result: { tool_call_id: id, is_error: isError, text } },
+];
+const turnEnd = (outcome: string, tokens: number | null = null): RawEvent => [
+  "result",
+  {
+    turn: {
+      outcome,
+      is_error: false,
+      terminal_reason: null,
+      tokens,
+    },
+  },
+];
+
 export const TURN_EVENTS: readonly RawEvent[] = [
   ["status", { phase: "running" }],
-  ["system", { subtype: "init" }],
-  ["system", { subtype: "thinking_tokens" }],
-  ["system", { subtype: "thinking_tokens" }],
-  ["system", { subtype: "thinking_tokens" }],
-  ["system", { subtype: "sdk_event", native_type: "rate_limit_event" }],
+  STARTED,
+  THINKING_TICK,
+  THINKING_TICK,
+  THINKING_TICK,
   [
-    "assistant",
-    {
-      message: {
-        content: [
-          {
-            type: "thinking",
-            thinking: "Run the tests first, then read the failure.",
-          },
-        ],
-      },
-    },
+    "system",
+    { engine_event: { name: "rate_limit_event", category: "internal" } },
   ],
-  [
-    "tool_use",
-    {
-      message: {
-        content: [
-          {
-            type: "tool_use",
-            id: "call_1",
-            name: "Bash",
-            input: { command: "bun test", description: "Run the tests" },
-          },
-        ],
-      },
-    },
-  ],
-  [
-    "tool_result",
-    { tool_use_id: "call_1", content: "12 pass\n0 fail\nRan 12 tests" },
-  ],
-  [
-    "assistant",
-    { message: { content: [{ type: "text", text: "All 12 tests pass." }] } },
-  ],
-  [
-    "result",
-    {
-      subtype: "success",
-      usage: { input_tokens: 1200, output_tokens: 340 },
-    },
-  ],
+  ["assistant", { thinking: "Run the tests first, then read the failure." }],
+  toolUse("call_1", { command: "bun test", description: "Run the tests" }),
+  toolResult("call_1", "12 pass\n0 fail\nRan 12 tests"),
+  ["assistant", { text: "All 12 tests pass." }],
+  turnEnd("success", 1540),
   ["status", { phase: "idle" }],
 ];
 
 export const FAILED_EVENTS: readonly RawEvent[] = [
   ["status", { phase: "running" }],
-  [
-    "tool_use",
-    {
-      message: {
-        content: [
-          {
-            type: "tool_use",
-            id: "call_2",
-            name: "Bash",
-            input: { command: "bun run build" },
-          },
-        ],
-      },
-    },
-  ],
-  [
-    "tool_result",
-    {
-      tool_use_id: "call_2",
-      is_error: true,
-      content: "error: Could not resolve './missing.ts'",
-    },
-  ],
+  toolUse("call_2", { command: "bun run build" }),
+  toolResult("call_2", "error: Could not resolve './missing.ts'", true),
   ["error", { message: "The engine stopped before the turn finished." }],
   ["status", { phase: "failed" }],
 ];
@@ -182,17 +153,9 @@ export function pairedTimelineEntries(
   stepMs = 20_000,
 ): TimelineEntry[] {
   return timelineEntries(events).map((entry, index) => {
-    const data = events[index]?.[1] as {
-      tool_use_id?: string;
-      message?: { content?: unknown };
-    } | null;
-    const blocks = data?.message?.content;
-    const call = Array.isArray(blocks)
-      ? (blocks as { type?: string; id?: string }[]).find(
-          (block) => block?.type === "tool_use",
-        )?.id
-      : undefined;
-    const toolCallId = data?.tool_use_id ?? call;
+    const data = events[index]?.[1];
+    const toolCallId =
+      eventToolResult(data)?.tool_call_id ?? eventToolCall(data)?.id;
     return {
       ...entry,
       occurredAt: new Date(START + index * stepMs).toISOString(),
@@ -204,34 +167,15 @@ export function pairedTimelineEntries(
 const inTurn = (events: readonly RawEvent[], turnId: string | null) =>
   events.map(([event, data]): RawEvent => [event, data, turnId]);
 
-const toolUse = (id: string, input: Record<string, unknown>): RawEvent => [
-  "tool_use",
-  { message: { content: [{ type: "tool_use", id, name: "Bash", input }] } },
-];
-
 /** A second turn: a permission wait, then a tool call that fails. */
 export const WAIT_FAIL_EVENTS: readonly RawEvent[] = inTurn(
   [
     ["status", { phase: "running" }],
     ["question", { kind: "permission", tool: "Bash", input: {} }],
     toolUse("call_3", { command: "bun run build", description: "Build" }),
-    [
-      "tool_result",
-      {
-        tool_use_id: "call_3",
-        is_error: true,
-        content: "error: Could not resolve './missing.ts'",
-      },
-    ],
-    [
-      "assistant",
-      {
-        message: {
-          content: [{ type: "text", text: "The build cannot find a file." }],
-        },
-      },
-    ],
-    ["result", { subtype: "error_during_execution" }],
+    toolResult("call_3", "error: Could not resolve './missing.ts'", true),
+    ["assistant", { text: "The build cannot find a file." }],
+    turnEnd("error_during_execution"),
     ["status", { phase: "failed" }],
   ],
   "turn_02",
@@ -254,21 +198,9 @@ export const RUNNING_EVENTS: readonly RawEvent[] = inTurn(
 
 /** Events from before the first turn carry no turn id. */
 export const NO_TURN_EVENTS: readonly RawEvent[] = [
+  ...inTurn([STARTED, ["status", { phase: "queued" }]], null),
   ...inTurn(
-    [
-      ["system", { subtype: "init" }],
-      ["status", { phase: "queued" }],
-    ],
-    null,
-  ),
-  ...inTurn(
-    [
-      [
-        "assistant",
-        { message: { content: [{ type: "text", text: "Starting." }] } },
-      ],
-      ["result", { subtype: "success" }],
-    ],
+    [["assistant", { text: "Starting." }], turnEnd("success")],
     "turn_01",
   ),
 ];
@@ -279,31 +211,21 @@ export const LONG_DETAIL_EVENTS: readonly RawEvent[] = inTurn(
     [
       "assistant",
       {
-        message: {
-          content: [
-            {
-              type: "thinking",
-              thinking: Array.from(
-                { length: 6 },
-                (_, line) =>
-                  `Step ${line + 1}: read the failing test, then the module it imports, and check whether the fixture path changed in the last commit.`,
-              ).join("\n"),
-            },
-          ],
-        },
-      },
-    ],
-    toolUse("call_5", { command: "bun test packages/react" }),
-    [
-      "tool_result",
-      {
-        tool_use_id: "call_5",
-        content: Array.from(
-          { length: 14 },
-          (_, line) => `(pass) Timeline > case ${line + 1} [${line + 2}ms]`,
+        thinking: Array.from(
+          { length: 6 },
+          (_, line) =>
+            `Step ${line + 1}: read the failing test, then the module it imports, and check whether the fixture path changed in the last commit.`,
         ).join("\n"),
       },
     ],
+    toolUse("call_5", { command: "bun test packages/react" }),
+    toolResult(
+      "call_5",
+      Array.from(
+        { length: 14 },
+        (_, line) => `(pass) Timeline > case ${line + 1} [${line + 2}ms]`,
+      ).join("\n"),
+    ),
   ],
   "turn_01",
 );

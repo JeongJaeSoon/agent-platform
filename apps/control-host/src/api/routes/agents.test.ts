@@ -16,6 +16,7 @@ import {
   type AuthorizationPolicy,
   type Caller,
   type CatalogProfile,
+  callerFor,
   createAgentService,
   createAuthorizationPolicy,
   deriveReleaseId,
@@ -92,6 +93,7 @@ function storedRelease(profile: CatalogProfile = PROFILE): AgentRelease {
     agent_id: AGENT,
     card_sha256: "a".repeat(64),
     runtime_profile_id: "coding",
+    repository_id: null,
     profile_digest: profileFingerprint(profile),
     runtime_config_snapshot: { model: "claude-sonnet-5" },
     effective_tools: { tools: ["Read"], mcp: [] },
@@ -184,7 +186,16 @@ function app(
   const service = createAgentService({
     authorization: options.authorization ?? allowing,
     store: agentStore,
-    catalog: { profiles: { coding: PROFILE }, repositories: {} },
+    catalog: {
+      profiles: { coding: PROFILE },
+      repositories: {
+        "sample-app": {
+          url: "https://github.com/acme/sample-app",
+          branch: "main",
+          profiles: ["coding"],
+        },
+      },
+    },
     credentials: { unboundRefs: async () => options.unbound ?? [] },
   });
   const routed: Routed =
@@ -280,10 +291,75 @@ describe("GET /v1/agents", () => {
     expect(await codeOf(forged)).toBe("BAD_REQUEST");
   });
 
-  test("refuses an API key whatever its scopes", async () => {
+  test("refuses an API key that names no agent of its own, whatever its scopes", async () => {
     const response = await send(keyOnly(), "GET", "/v1/agents");
     expect(response.status).toBe(403);
     expect(await codeOf(response)).toBe("FORBIDDEN");
+  });
+
+  test("a key's agent comes from its stored row, so only an agent key gets one agent and the policy is asked about that agent", async () => {
+    const asked: unknown[] = [];
+    const policy: AuthorizationPolicy = {
+      authorize: async (request) => {
+        asked.push([request.action, request.resource.agent_id]);
+        return allowing.authorize(request);
+      },
+    };
+    const stored = (kind: "agent" | "personal") => ({
+      find: async (workspaceId: string, keyId: string) => ({
+        id: keyId,
+        workspaceId,
+        kind,
+        name: null,
+        agentId: kind === "agent" ? AGENT : null,
+        createdByUserId: null,
+        createdByDisplayName: null,
+        scopes: [],
+        createdAt: new Date(AT),
+        expiresAt: null,
+        revokedAt: null,
+        lastUsedAt: null,
+      }),
+    });
+    const service = (kind: "agent" | "personal") =>
+      createAgentService({
+        authorization: policy,
+        store: store({
+          list: () =>
+            Promise.reject(new Error("a key never lists the workspace")),
+        }),
+        catalog: { profiles: {}, repositories: {} },
+        credentials: { unboundRefs: async () => [] },
+        keys: stored(kind),
+      });
+    const key = callerFor(
+      {
+        kind: "api_key",
+        id: "key-1",
+        owner_id: "ws-1",
+        workspace_id: "ws-1",
+        scopes: ["sessions:write"],
+      },
+      { kind: "api" },
+      "request-1",
+      { creatorId: null },
+    );
+
+    expect(await service("agent").listAgents(key, { limit: 50 })).toEqual({
+      items: [detail.agent],
+      next_cursor: null,
+    });
+    expect(asked).toEqual([["session.submit", AGENT]]);
+    // Even a policy that allows everything never hears of a personal key.
+    for (const [kind, query] of [
+      ["personal", { limit: 50 }],
+      ["agent", { limit: 50, include: "summary" }],
+    ] as const) {
+      await expect(service(kind).listAgents(key, query)).rejects.toMatchObject({
+        code: "FORBIDDEN",
+      });
+    }
+    expect(asked).toHaveLength(1);
   });
 
   test("requires authentication and maps an outage to 503", async () => {
@@ -477,7 +553,11 @@ describe("PATCH /v1/agents/{id}", () => {
 
 describe("POST /v1/agents/{id}/releases", () => {
   const path = `/v1/agents/${AGENT}/releases`;
-  const body = { version_id: VERSION, runtime_profile_id: "coding" };
+  const body = {
+    version_id: VERSION,
+    runtime_profile_id: "coding",
+    repository_id: "sample-app",
+  };
 
   test("releases a version with a hash id and no credential", async () => {
     const response = await send(app(), "POST", path, body);
@@ -487,6 +567,7 @@ describe("POST /v1/agents/{id}/releases", () => {
     );
     expect(released.created).toBe(true);
     expect(released.release.id).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(released.release.repository_id).toBe("sample-app");
     expect(released.release.approved_by).toBeNull();
     expect(JSON.stringify(released)).not.toContain("catalog-provider-key");
   });
@@ -508,6 +589,19 @@ describe("POST /v1/agents/{id}/releases", () => {
       expect(response.status).toBe(400);
       expect(await codeOf(response)).toBe("BAD_REQUEST");
     }
+  });
+
+  test("a release without a repository for a profile that needs one is 422 and says why", async () => {
+    const { repository_id: _, ...bare } = body;
+    const response = await send(app(), "POST", path, bare);
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: "UNSUPPORTED_CAPABILITY",
+        message:
+          "repository_id: Profile coding needs a repository: send repository_id",
+      },
+    });
   });
 
   test("a card tool outside the profile or an unknown profile is 422", async () => {

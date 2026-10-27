@@ -8,6 +8,7 @@ import {
   type PendingRequest,
   pendingQuestionSchema,
   questionAnswerMismatch,
+  sessionMessageSchema,
 } from "@werft-ai/contracts";
 import type {
   AnswerRequestInput,
@@ -27,14 +28,18 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { contextCoverage, contextGap } from "./context-gap.ts";
 import {
   type ControlStageMeasure,
   ENDED_ATTEMPT_STATES,
+  earliestUnknownTurn,
   findIdempotent,
+  hasRestorePoint,
   lockIdempotencyScope,
   receiptActorOf,
 } from "./control-shared.ts";
 import { DB_NOW, dbNow } from "./db-clock.ts";
+import { closeParkedGroup, continuationMessage } from "./parked-group.ts";
 import type { Database } from "./queries.ts";
 import { lockRequester, lockSessionReach } from "./requester-locks.ts";
 import {
@@ -231,6 +236,40 @@ export type ClosedRequest = {
 };
 
 /**
+ * Parks what the finalized turn still waits on: every unexpired row its
+ * worker has not settled, an answer that came after the worker cut the
+ * turn included, since that answer is what resumes it. The group expires
+ * together, at its earliest expiry. Returns the parked ids.
+ */
+export async function parkTurnRequests(
+  tx: Database,
+  input: { sessionId: string; turnRowId: number; now: Date },
+): Promise<string[]> {
+  const unsettled = and(
+    eq(pendingRequests.sessionId, input.sessionId),
+    eq(pendingRequests.turnId, input.turnRowId),
+    isNull(pendingRequests.settledAt),
+    isNull(pendingRequests.parkedAt),
+    gt(pendingRequests.expiresAt, input.now),
+  );
+  const [group] = await tx
+    .select({
+      expiresAt: sql<Date | null>`min(${pendingRequests.expiresAt})`.mapWith(
+        pendingRequests.expiresAt,
+      ),
+    })
+    .from(pendingRequests)
+    .where(unsettled);
+  if (group?.expiresAt == null) return [];
+  const parked = await tx
+    .update(pendingRequests)
+    .set({ parkedAt: input.now, expiresAt: group.expiresAt })
+    .where(unsettled)
+    .returning({ requestId: pendingRequests.requestId });
+  return parked.map((row) => row.requestId).sort();
+}
+
+/**
  * The `lost` stage for the waits closeWorkerRequests ended: the question or
  * approval went with its worker unanswered (design D-12).
  */
@@ -323,7 +362,12 @@ export async function cancelParkedRequests(
           ? undefined
           : eq(pendingRequests.turnId, scope.turnRowId),
         isNotNull(pendingRequests.parkedAt),
-        isNull(pendingRequests.settledAt),
+        // An expired row is still its group's until the group closes;
+        // left as it is, the cancelled group would wait for a resume.
+        or(
+          isNull(pendingRequests.settledAt),
+          eq(pendingRequests.settledOutcome, "expired"),
+        ),
       ),
     )
     .returning({ receiptId: pendingRequests.answerReceiptId });
@@ -675,6 +719,58 @@ export function createPostgresPendingRequests(
           input.answer,
         );
         if (mismatch !== null) return { outcome: "invalid", reason: mismatch };
+        // Judged on every answer, not only the one that would close the
+        // group: a resume refused at the last answer would leave the others
+        // kept for a turn that cannot carry them on.
+        if (pending.parkedAt !== null) {
+          const unknown = await earliestUnknownTurn(tx, sessionId);
+          if (
+            unknown !== null ||
+            session.admissionState === "recovery_required"
+          ) {
+            return { outcome: "recovery_required", unconfirmedTurnId: unknown };
+          }
+          // A stopped session resumes only onto a checkpoint that covers
+          // every turn that ran, as its /resume judges.
+          if (
+            !hasRestorePoint(session) ||
+            (session.admissionState === "stopped" &&
+              contextGap(session, await contextCoverage(tx, session)))
+          ) {
+            return { outcome: "checkpoint_unavailable" };
+          }
+          // The turn that carries the group on is one input: the answers so
+          // far, this one, and an expiry line for every other row must fit
+          // it, or the group could never be carried on.
+          const group = await tx
+            .select()
+            .from(pendingRequests)
+            .where(
+              and(
+                eq(pendingRequests.turnId, pending.turnId),
+                isNotNull(pendingRequests.parkedAt),
+              ),
+            )
+            .orderBy(
+              asc(pendingRequests.createdAt),
+              asc(pendingRequests.requestId),
+            );
+          const carried = continuationMessage(
+            group.map((row) =>
+              row.requestId === pending.requestId
+                ? { ...row, answer: input.answer }
+                : row,
+            ),
+            false,
+          );
+          if (!sessionMessageSchema.safeParse({ message: carried }).success) {
+            return {
+              outcome: "invalid",
+              reason:
+                "The answers to this parked turn no longer fit in one message; answer with less text",
+            };
+          }
+        }
 
         const waitingBefore = await inputWaitBefore(tx, session, at);
         const receiptId = randomUUID();
@@ -721,6 +817,14 @@ export function createPostgresPendingRequests(
           turnRowId: pending.turnId,
           at,
         });
+        const parked =
+          pending.parkedAt === null
+            ? undefined
+            : await closeParkedGroup(tx, session, {
+                by: "answer",
+                at,
+                actor: scope.actor,
+              });
         return {
           outcome: "accepted",
           response: {
@@ -731,6 +835,8 @@ export function createPostgresPendingRequests(
               surface: input.approval.surface,
               decision_id: input.approval.decisionId,
             },
+            resumed: parked?.outcome === "ok" && parked.resumed,
+            ...(parked === undefined ? {} : { waiting_for: parked.waitingFor }),
           },
         };
       });

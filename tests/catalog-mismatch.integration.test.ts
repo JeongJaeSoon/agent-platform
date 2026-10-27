@@ -32,10 +32,8 @@ import {
   type SessionCatalog,
   type TerminateExecutionResult,
 } from "@werft-ai/platform";
-import {
-  FakeAgentRuntime,
-  type FakeStep,
-} from "@werft-ai/runtime-claude/testing";
+import type { ScriptedStep } from "@werft-ai/runtime-core/testing";
+import { fakeRuntimeFor } from "@werft-ai/runtime-registry/testing";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -46,6 +44,10 @@ import { registerSessionRoutes } from "../apps/control-host/src/api/routes/sessi
 import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/worker.ts";
 import type { WorkerCheckpointPort } from "../apps/worker/src/checkpoint.ts";
 import { HttpWorkerGatewayClient } from "../apps/worker/src/gateway-client.ts";
+import {
+  SCRIPTED_KIND,
+  startScripted,
+} from "../apps/worker/src/testing/scripted-engine.ts";
 import {
   inputUuid,
   WorkerHost,
@@ -172,7 +174,7 @@ class WorkerBackend implements ExecutionBackend {
           "1",
           await this.inputIdOf(intent.sessionId),
         );
-        const steps: FakeStep[] = [
+        const steps: ScriptedStep[] = [
           { type: "await-input" },
           {
             type: "emit",
@@ -186,7 +188,7 @@ class WorkerBackend implements ExecutionBackend {
           },
           { type: "await-input" },
         ];
-        const runtime = new FakeAgentRuntime(steps);
+        const runtime = fakeRuntimeFor(SCRIPTED_KIND, steps);
         const host = new WorkerHost({
           checkpoints: committing(),
           execution: {
@@ -202,19 +204,7 @@ class WorkerBackend implements ExecutionBackend {
           logger: silent,
           runtimes: {
             launcherFor: () => ({
-              start: ({ runtimeConfig, principal, ...rest }) =>
-                runtime.run({
-                  claudeConfigDir: "/tmp/fake/config",
-                  cwd: "/tmp/fake/workspace",
-                  home: "/tmp/fake/home",
-                  model: runtimeConfig.model,
-                  profile: {
-                    ...runtimeConfig.provider,
-                    principal: { ownerScope: principal.owner_scope },
-                  },
-                  tools: runtimeConfig.tools,
-                  ...rest,
-                }),
+              start: (launch) => startScripted(runtime, launch),
             }),
           },
           timeouts: {

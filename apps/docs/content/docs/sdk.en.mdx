@@ -123,12 +123,7 @@ await waitForTurn(werft, created.session_id, created.turn_id, {
 const stream = werft.sessions.events.stream(created.session_id);
 for await (const event of stream) {
   if (event.kind === "assistant") {
-    const message = (
-      event.payload as {
-        message?: { content?: { type: string; text?: string }[] };
-      }
-    ).message;
-    console.log(message?.content?.find((block) => block.type === "text")?.text);
+    console.log((event.payload as { text?: string }).text);
   }
   if (event.kind === "result") break;
 }

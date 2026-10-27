@@ -11,6 +11,8 @@ import {
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
 
+import { settledWithin } from "./waits.ts";
+
 /**
  * A lease as the gateway granted it: what was left of it on the database
  * clock, and the monotonic instant the request that won it was sent. The
@@ -199,7 +201,7 @@ export class Heartbeat {
           if (waiting || !this.stopped) this.refused(error);
         },
       );
-    const settled = await this.within(
+    const settled = await settledWithin(
       answered,
       Math.min(patienceMs, this.leaseLeftMs),
     );
@@ -246,19 +248,6 @@ export class Heartbeat {
     // point where the lease it granted is given up.
     this.lastRefusal = message(error);
     if (this.leaseLeftMs <= 0) this.giveUp("the gateway is unreachable");
-  }
-
-  /** True when `work` settled within `ms`. */
-  private async within(work: Promise<void>, ms: number): Promise<boolean> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const expired = new Promise<false>((resolve) => {
-      timer = setTimeout(() => resolve(false), ms);
-    });
-    try {
-      return await Promise.race([work.then(() => true), expired]);
-    } finally {
-      clearTimeout(timer);
-    }
   }
 
   /**

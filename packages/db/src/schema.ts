@@ -849,6 +849,15 @@ export const sessions = pgTable(
     // Null on rows from before it (not backfilled) and when the first
     // message had no text to derive one from.
     title: text(),
+    // `derived` (cut from the first message) is the only title a generated
+    // one replaces; `user` is one given at create or by rename. The default
+    // is `user`: rows from before it, and an API from before it still
+    // writing during a rollout, cannot tell the two kinds apart.
+    titleSource: text("title_source", {
+      enum: ["derived", "user", "generated"],
+    })
+      .notNull()
+      .default("user"),
     // 'none' marks a session accepted without a repository. A null
     // repository_id alone cannot say that: it already means a row from
     // before the catalog, which no pair matches.
@@ -1024,6 +1033,10 @@ export const sessions = pgTable(
       sql`${table.channel} IN (${sql.raw(sqlList(SURFACE_KIND_VALUES))})`,
     ),
     check(
+      "sessions_title_source_check",
+      sql`${table.titleSource} IN ('derived', 'user', 'generated')`,
+    ),
+    check(
       "sessions_restore_failure_count_check",
       sql`${table.restoreFailureCount} >= 0`,
     ),
@@ -1063,6 +1076,38 @@ export const sessions = pgTable(
       table.ownerId,
       table.workspaceId,
     ),
+  ],
+);
+
+// The one request for a generated title a session gets, made after its first
+// turn completed and charged to the attempt that ran it, which the proxy's
+// usage report names. Its token is what the egress proxy presents; a row is
+// kept once settled, so a session is never asked about twice.
+export const sessionTitleRequests = pgTable(
+  "session_title_requests",
+  {
+    sessionId: uuid("session_id")
+      .primaryKey()
+      .references(() => sessions.id),
+    attemptId: text("attempt_id")
+      .notNull()
+      .references(() => attempts.id),
+    tokenHash: bytea("token_hash").notNull(),
+    // The session's auth_revision at issue: a revocation since refuses it.
+    authRevision: integer("auth_revision").notNull(),
+    // The title at issue. One that changed since was renamed, if by an API
+    // from before title_source, so it is not replaced.
+    issuedTitle: text("issued_title"),
+    // The first authorization uses the token up: one request, one exchange.
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("session_title_requests_token_uniq").on(table.tokenHash),
   ],
 );
 
@@ -1147,6 +1192,10 @@ export const events = pgTable(
       .references(() => sessions.id),
     type: text().notNull(),
     payload: jsonb().notNull(),
+    // The engine-neutral fields the control plane derived from payload,
+    // kept apart so payload stays what the worker sent (a resend is compared
+    // against it). Null until derived; read merged under payload's own keys.
+    neutral: jsonb(),
     turnId: bigint("turn_id", { mode: "number" }).references(() => turns.id),
     attemptId: text("attempt_id"),
     sourceSequence: integer("source_sequence"),
@@ -1226,6 +1275,32 @@ export const toolCalls = pgTable(
 );
 
 /**
+ * A tool's description as a session's engine declared it at init, projected
+ * with tool_calls (94S-936). Only MCP tools have one; the adapter has already
+ * redacted it and cut it to one line. A usage read takes the newest one among
+ * the sessions it may see, so a description never crosses into a scope whose
+ * sessions did not declare it.
+ */
+export const toolDescriptions = pgTable(
+  "tool_descriptions",
+  {
+    sessionId: uuid("session_id").notNull(),
+    name: text().notNull(),
+    description: text().notNull(),
+    // The init event's id: of two inits in a session the later one wins.
+    eventId: bigint("event_id", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sessionId, table.name] }),
+    check(
+      "tool_descriptions_description_check",
+      sql`char_length(${table.description}) BETWEEN 1 AND 200`,
+    ),
+    index("tool_descriptions_name_idx").on(table.name, table.eventId.desc()),
+  ],
+);
+
+/**
  * How far `projectToolCalls` has read events: every event with an id at or
  * below `applied_through` is in tool_calls. One row.
  */
@@ -1244,6 +1319,28 @@ export const toolCallProgress = pgTable(
       .defaultNow(),
   },
   (table) => [check("tool_call_progress_one_row", sql`${table.id} = 1`)],
+);
+
+/**
+ * How far `fillNeutralFields` has read events: every event at or below
+ * `filled_through` carries the engine-neutral fields its session's codec
+ * gives it, where one could be told. `history_through` is the newest event
+ * stored before the control plane wrote those fields itself; until the fill
+ * passes it, `projectToolCalls` reads no further than the fill. One row.
+ */
+export const neutralFieldProgress = pgTable(
+  "neutral_field_progress",
+  {
+    id: integer().primaryKey(),
+    filledThrough: bigint("filled_through", { mode: "number" })
+      .notNull()
+      .default(0),
+    historyThrough: bigint("history_through", { mode: "number" }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [check("neutral_field_progress_one_row", sql`${table.id} = 1`)],
 );
 
 /**
@@ -1455,6 +1552,11 @@ export const pendingRequests = pgTable(
     // answered | expired | cancelled from the worker; lost when the
     // execution went away before it said.
     settledOutcome: text("settled_outcome"),
+    // Why the worker cancelled it (park | shutdown | interrupt | refused),
+    // and what its run said of a delivered answer (applied | stale |
+    // unknown). Null from a worker older than them and where it did not say.
+    settledReason: text("settled_reason"),
+    settledAnswerResult: text("settled_answer_result"),
     // Set when the worker handed the `question` event to the gateway
     // a replay must carry the same pair. Null for a worker that
     // publishes the event itself.
@@ -1470,6 +1572,11 @@ export const pendingRequests = pgTable(
     // When pendingControl first handed the answer to a worker. An answer
     // with none never reached an engine.
     deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    // The approval-wait checkpoint taken while the engine waited on this
+    // row; a later one of the same turn takes over every row still waiting.
+    checkpointRef: text("checkpoint_ref").references(
+      () => approvalCheckpoints.manifestRef,
+    ),
   },
   (table) => [
     index("pending_requests_unresolved_session_idx")
@@ -1501,6 +1608,58 @@ export const pendingRequests = pgTable(
   ],
 );
 
+// A checkpoint captured while a turn waited on a person (design §6.3 K),
+// committed with the request it covers. It reaches the session pointer only
+// when the execution goes with that wait intact (confirmExecutionGoneAtomic);
+// otherwise the turn's own checkpoint takes its revision and garbage
+// collection removes its objects like any other attempt directory.
+export const approvalCheckpoints = pgTable("approval_checkpoints", {
+  manifestRef: text("manifest_ref").primaryKey(),
+  sessionId: uuid("session_id")
+    .notNull()
+    .references(() => sessions.id),
+  revision: integer().notNull(),
+  manifestSha256: text("manifest_sha256").notNull(),
+  manifestVersion: text("manifest_version"),
+  versionsHeld: boolean("versions_held").notNull(),
+  transcriptBytes: bigint("transcript_bytes", { mode: "number" }),
+  attemptId: text("attempt_id")
+    .notNull()
+    .references(() => attempts.id),
+  turnId: bigint("turn_id", { mode: "number" })
+    .notNull()
+    .references(() => turns.id),
+  // The last answer sequence the worker had applied when it captured.
+  answersThrough: integer("answers_through").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  // A tool was admitted after the capture.
+  invalidatedAt: timestamp("invalidated_at", { withTimezone: true }),
+  promotedAt: timestamp("promoted_at", { withTimezone: true }),
+});
+
+// An invalidation that came before the registration carrying its checkpoint
+// committed: that registration still may, and must find it void.
+// Keyed by the attempt too: another attempt naming the same ref voids
+// nothing of this one's.
+export const approvalCheckpointVoids = pgTable(
+  "approval_checkpoint_voids",
+  {
+    manifestRef: text("manifest_ref").notNull(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id),
+    attemptId: text("attempt_id")
+      .notNull()
+      .references(() => attempts.id),
+    voidedAt: timestamp("voided_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.manifestRef, table.sessionId, table.attemptId],
+    }),
+  ],
+);
+
 // An answer to a parked permission request, to be spent once by the turn
 // that resumes it. The tool, input hash and who answered stay on the
 // request row; copying them here would let the two disagree.
@@ -1514,7 +1673,22 @@ export const permissionGrants = pgTable("permission_grants", {
   turnId: bigint("turn_id", { mode: "number" })
     .notNull()
     .references(() => turns.id),
+  // The attempt whose claim last carried it; null until one has.
+  attemptId: text("attempt_id").references(() => attempts.id),
   consumedAt: timestamp("consumed_at", { withTimezone: true }),
+});
+
+// The turn that carries a parked one on with its answers, delivered ahead of
+// the session's other queued turns. Its own table, so turns rows stay as
+// narrow as the plans over them were tuned for.
+export const turnContinuations = pgTable("turn_continuations", {
+  turnId: bigint("turn_id", { mode: "number" })
+    .primaryKey()
+    .references(() => turns.id, { onDelete: "cascade" }),
+  parkedTurnId: bigint("parked_turn_id", { mode: "number" })
+    .notNull()
+    .unique()
+    .references(() => turns.id, { onDelete: "cascade" }),
 });
 
 // A session result the platform may push to `agent/<session-id>` once a human
@@ -2638,6 +2812,7 @@ export const agentReleases = pgTable(
     versionId: uuid("version_id").notNull(),
     cardSha256: text("card_sha256").notNull(),
     runtimeProfileId: text("runtime_profile_id").notNull(),
+    repositoryId: text("repository_id"),
     profileDigest: text("profile_digest").notNull(),
     runtimeConfigSnapshot: jsonb("runtime_config_snapshot").notNull(),
     effectiveTools: jsonb("effective_tools").notNull(),

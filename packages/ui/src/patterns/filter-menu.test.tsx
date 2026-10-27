@@ -52,19 +52,19 @@ describe("FilterMenu", () => {
     expect(chip.className.split(" ")).toContain("bg-active");
   });
 
-  test("32px 컨트롤 높이·모서리에 입력 칸과 같은 테두리다", () => {
+  test("32px 컨트롤 높이·모서리에, 쉴 때 카드 선 테두리이고 hover에서 진해진다", () => {
     const { getByRole } = render(<Relation />);
     const chip = getByRole("button").className.split(" ");
     for (const name of [
       "h-[var(--ap-control-height)]",
       "rounded-control",
-      "border-input",
+      "border-border",
       "hover:border-subtle-foreground",
       "focus-visible:outline-2",
     ]) {
       expect(chip).toContain(name);
     }
-    for (const name of ["border-border", "hover:border-border-strong"]) {
+    for (const name of ["border-input", "hover:border-border-strong"]) {
       expect(chip).not.toContain(name);
     }
   });

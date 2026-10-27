@@ -878,7 +878,16 @@ describe("에이전트 상세 탭", () => {
       within(table)
         .getAllByRole("columnheader")
         .map((head) => head.textContent),
-    ).toEqual(["버전", "상태", "프로필", "만든 사람", "만든 시각", "동작"]);
+    ).toEqual([
+      "버전",
+      "상태",
+      "프로필",
+      "저장소",
+      "만든 사람",
+      "만든 시각",
+      "메모",
+      "동작",
+    ]);
     const row = within(table).getAllByRole("row")[1] as HTMLElement;
     await within(row).findByText("이민호");
     expect(row.textContent).toContain("v1");
@@ -936,6 +945,86 @@ describe("에이전트 상세 탭", () => {
     await user.click(within(dialog).getByRole("button", { name: "취소" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(document.activeElement === trigger).toBe(true);
+  });
+
+  test("새 release의 프로필은 출처별로 묶고, 새 release를 받지 않는 판은 고를 수 없으며 기본값도 되지 않는다", async () => {
+    const operator = {
+      id: "claude-coding-fast",
+      source: "operator" as const,
+      model: "claude-haiku-5",
+      models: ["claude-haiku-5"],
+      tools: ["Read"],
+      permission_mode: "default" as const,
+      runtime_kind: "claude_agent_sdk" as const,
+      runtime_version: "0.3.270",
+      billing: "metered" as const,
+      repository_mode: "required" as const,
+    };
+    const version = (
+      n: number,
+      state: "usable" | "retired" | "base_changed",
+    ) => ({
+      ...operator,
+      id: `ws_acme_strict_v${n}`,
+      source: "workspace" as const,
+      model: "claude-sonnet-5",
+      models: ["claude-sonnet-5"],
+      workspace: {
+        name: "strict",
+        version: n,
+        base_profile_id: "claude-coding-local",
+        state,
+        created_at: "2026-10-27T00:00:00.000Z",
+        retired_at: state === "retired" ? "2026-10-27T01:00:00.000Z" : null,
+      },
+    });
+    renderAt(`${DETAIL}?tab=release`, {
+      ...meOk,
+      ...agentServer().routes,
+      "GET /v1/profiles": () =>
+        json(200, {
+          items: [operator, version(1, "retired"), version(2, "base_changed")],
+        }),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "새 release" }));
+    const dialog = await screen.findByRole("dialog", { name: "새 release" });
+    const select = (await within(dialog).findByLabelText(
+      "프로필",
+    )) as HTMLSelectElement;
+    expect(
+      [...select.querySelectorAll("optgroup")].map((group) => [
+        group.label,
+        [...group.querySelectorAll("option")].map((option) => [
+          option.value,
+          option.disabled,
+          option.textContent,
+        ]),
+      ]),
+    ).toEqual([
+      [
+        "운영자 프로필",
+        [
+          [
+            "claude-coding-fast",
+            false,
+            expect.stringContaining("claude-coding-fast"),
+          ],
+        ],
+      ],
+      [
+        "워크스페이스 프로필",
+        [
+          ["ws_acme_strict_v1", true, expect.stringContaining("사용 중지됨")],
+          [
+            "ws_acme_strict_v2",
+            true,
+            expect.stringContaining("바탕 프로필 바뀜"),
+          ],
+        ],
+      ],
+    ]);
+    expect(select.value).toBe("claude-coding-fast");
   });
 });
 

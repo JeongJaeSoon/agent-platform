@@ -7,26 +7,33 @@ import {
   slackTurnDedupeKey,
 } from "./slack-outbox.ts";
 
-const said = (...content: Record<string, unknown>[]) => ({
+// One event per block, as the runtime's codec gives them.
+const said = (fields: Record<string, unknown>) => ({
   type: "assistant",
-  payload: { message: { content } },
+  payload: { type: "assistant", ...fields },
 });
-const text = (value: string) => ({ type: "text", text: value });
-const tool = { type: "tool_use", name: "Read", input: {} };
+const text = (value: string) => said({ text: value });
+const tool = said({
+  tool_call: { id: "tu_1", name: "Read", input: {} },
+});
 
 describe("finalReplyText", () => {
   test("keeps what came after the last tool call, across events", () => {
     expect(
       finalReplyText([
-        said(text("Looking."), tool),
-        said(text("Found it.")),
-        said({ type: "thinking", thinking: "hm" }, text("Here it is.")),
+        text("Looking."),
+        tool,
+        text("Found it."),
+        said({ thinking: "hm" }),
+        text("Here it is."),
+        // The engine's own message is not read.
+        said({ message: { content: [{ type: "text", text: "not shown" }] } }),
       ]),
     ).toBe("Found it.\n\nHere it is.");
   });
 
   test("is empty when the turn ended on a tool call or said nothing", () => {
-    expect(finalReplyText([said(text("Looking."), tool)])).toBe("");
+    expect(finalReplyText([text("Looking."), tool])).toBe("");
     expect(finalReplyText([{ type: "assistant", payload: null }])).toBe("");
   });
 });

@@ -60,6 +60,7 @@ import {
   EMPTY_DRAFT,
 } from "./agent-card-form.tsx";
 import { Notice } from "./auth-page.tsx";
+import { ProfileOptions, pickable } from "./profile-options.tsx";
 import { StepHeading, useStepMoved } from "./step-heading.tsx";
 
 const SlackConnect = lazy(() =>
@@ -653,6 +654,13 @@ function ReleaseStep({
   );
 }
 
+// A profile that needs a repository starts on its first; any other on none.
+function defaultRepository(profile: ProfileSummary | undefined): string {
+  return profile?.repository_mode === "required"
+    ? (profile.repository_ids?.[0] ?? "")
+    : "";
+}
+
 function ReleaseForm({
   agentId,
   versionId,
@@ -671,25 +679,45 @@ function ReleaseForm({
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
+  const first =
+    profiles.find((p) => pickable(p) && p.model === cardModel) ??
+    profiles.find(pickable);
+  const fallback = first?.id ?? "";
   const form = useStepForm(agentReleaseStep, {
     defaultValues: {
-      runtime_profile_id:
-        (profiles.find((p) => p.model === cardModel) ?? profiles[0])?.id ?? "",
+      runtime_profile_id: fallback,
+      repository_id: defaultRepository(first),
     },
   });
   const chosen = useWatch({
     control: form.control,
     name: "runtime_profile_id",
   });
-  const profileModel = profiles.find((p) => p.id === chosen)?.model;
+  const picked = profiles.find((p) => p.id === chosen);
+  const profileModel = picked?.model;
+  const repositories = picked?.repository_ids ?? [];
+  const { setValue } = form;
+  // A refetch can retire the picked version under the open form.
+  useEffect(() => {
+    if (picked !== undefined && !pickable(picked) && chosen !== fallback)
+      setValue("runtime_profile_id", fallback);
+  }, [picked, chosen, fallback, setValue]);
+  useEffect(() => {
+    setValue("repository_id", defaultRepository(picked));
+  }, [picked, setValue]);
   const { errors, isSubmitting } = form.formState;
   const release = async ({
     runtime_profile_id,
+    repository_id,
   }: z.output<typeof agentReleaseStep>) => {
     const result = await unwrap(
       client.POST("/v1/agents/{id}/releases", {
         params: { path: { id: agentId } },
-        body: { version_id: versionId, runtime_profile_id },
+        body: {
+          version_id: versionId,
+          runtime_profile_id,
+          ...(repository_id === "" ? {} : { repository_id }),
+        },
       }),
     );
     await queryClient.invalidateQueries({
@@ -706,16 +734,17 @@ function ReleaseForm({
       <Field>
         <FieldLabel>{t("agent.releases.profile")}</FieldLabel>
         <NativeSelect {...form.register("runtime_profile_id")}>
-          {profiles.map((profile) => (
-            <NativeSelectOption key={profile.id} value={profile.id}>
-              {t(
+          <ProfileOptions
+            profiles={profiles}
+            label={(profile) =>
+              t(
                 cardModel === undefined || profile.model === cardModel
                   ? "agent.releases.profileOption"
                   : "agent.releases.profileOptionMismatch",
                 { profile: profile.id, model: profile.model },
-              )}
-            </NativeSelectOption>
-          ))}
+              )
+            }
+          />
         </NativeSelect>
         <FieldDescription>{t("agent.releases.profileHint")}</FieldDescription>
         <FieldDescription>
@@ -735,7 +764,34 @@ function ReleaseForm({
         ) : null}
         <FieldError>{errors.runtime_profile_id?.message}</FieldError>
       </Field>
-      <Alerts lines={formAlerts(errors, ["runtime_profile_id"])} />
+      {picked === undefined ||
+      picked.repository_mode === "none" ? null : repositories.length === 0 &&
+        picked.repository_mode === "required" ? (
+        <FieldError>{t("agent.releases.repositoryMissing")}</FieldError>
+      ) : (
+        <Field>
+          <FieldLabel>{t("agent.releases.repository")}</FieldLabel>
+          <NativeSelect {...form.register("repository_id")}>
+            {picked.repository_mode === "optional" ? (
+              <NativeSelectOption value="">
+                {t("agent.releases.repositoryNone")}
+              </NativeSelectOption>
+            ) : null}
+            {repositories.map((id) => (
+              <NativeSelectOption key={id} value={id}>
+                {id}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+          <FieldDescription>
+            {t("agent.releases.repositoryHint")}
+          </FieldDescription>
+          <FieldError>{errors.repository_id?.message}</FieldError>
+        </Field>
+      )}
+      <Alerts
+        lines={formAlerts(errors, ["runtime_profile_id", "repository_id"])}
+      />
       <div>
         <Button type="submit" disabled={isSubmitting}>
           {isSubmitting

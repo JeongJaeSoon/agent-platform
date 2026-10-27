@@ -6,13 +6,18 @@ import type {
   TerminalReason,
 } from "@anthropic-ai/claude-agent-sdk";
 import type {
+  AdmissionHold,
   AgentInput,
   CheckpointLeaseGrant,
+  CheckpointPoint,
   CheckpointPreparation,
+  ParkReadiness,
+  RejectedCheckpoint,
 } from "@werft-ai/runtime-core";
 
 import type { AgentFrame, DriverRun, NativeSdkMessage } from "./driver.ts";
-import { frameFromNativeMessage } from "./mapper.ts";
+import { frameFromNativeMessage, isEngineInit } from "./mapper.ts";
+import type { MirrorProgress } from "./mirror-progress.ts";
 import type { ResumedHistory } from "./resumed-history.ts";
 import type { TurnLedger } from "./turn-ledger.ts";
 
@@ -33,6 +38,14 @@ export function endedByAbort(message: NativeSdkMessage): boolean {
     ABORTED_TERMINAL_REASONS.has(message.terminal_reason as TerminalReason)
   );
 }
+
+/**
+ * How long an approval-wait checkpoint waits for the mirror to hold the
+ * waiting calls and the results before them, and for a concurrent call to
+ * settle. T-7 saw 26-109ms.
+ */
+export const APPROVAL_BARRIER_MS = 2_000;
+const APPROVAL_BARRIER_POLL_MS = 25;
 
 /** The fields of the result an interrupted turn ends with. */
 export type InterruptedResult = Pick<
@@ -121,6 +134,12 @@ export class InputStream implements AsyncIterable<SDKUserMessage> {
   }
 }
 
+const noMirror: RejectedCheckpoint = {
+  status: "rejected",
+  reason: "turn_in_flight",
+  detail: "This run mirrors no transcript to checkpoint while it waits",
+};
+
 export class ClaudeSdkRun implements DriverRun {
   constructor(
     private readonly correlationId: string,
@@ -130,7 +149,18 @@ export class ClaudeSdkRun implements DriverRun {
     private readonly history: ResumedHistory,
     /** Shared with the SDK options' tool gate, which feeds and consults it. */
     private readonly ledger: TurnLedger,
+    private readonly toolDescriptions: () => ReadonlyMap<string, string> = () =>
+      new Map(),
+    private readonly mirror?: MirrorProgress,
   ) {}
+
+  get approvalCheckpoints(): boolean {
+    return this.mirror !== undefined;
+  }
+
+  holdAdmission(guard: (toolCallId: string) => Promise<void>): AdmissionHold {
+    return this.ledger.holdAdmission(guard);
+  }
 
   send(input: AgentInput): void {
     this.ledger.queued(input.uuid);
@@ -175,12 +205,78 @@ export class ClaudeSdkRun implements DriverRun {
     this.sdkQuery.close();
   }
 
-  async leaseCheckpoint(): Promise<CheckpointLeaseGrant> {
-    return this.ledger.leaseCheckpoint();
+  async leaseCheckpoint(
+    point: CheckpointPoint = "turn_end",
+  ): Promise<CheckpointLeaseGrant> {
+    if (point === "turn_end") return this.ledger.leaseCheckpoint();
+    const mirror = this.mirror;
+    if (mirror === undefined) {
+      return { lease: null, preparation: noMirror };
+    }
+    const deadline = performance.now() + APPROVAL_BARRIER_MS;
+    for (;;) {
+      // A macrotask first: an answer handed over just before has run its
+      // callback's settlement into the ledger by then.
+      await Bun.sleep(0);
+      const verdict = this.ledger.prepareCheckpoint("approval_wait");
+      if (
+        verdict.status === "rejected" &&
+        verdict.reason !== "tool_in_flight"
+      ) {
+        return { lease: null, preparation: verdict };
+      }
+      const missing =
+        verdict.status === "ready" ? this.unmirrored(mirror) : undefined;
+      // The verdict, the barrier and the lease in one synchronous step.
+      if (missing !== undefined && missing.length === 0) {
+        return this.ledger.leaseCheckpoint("approval_wait");
+      }
+      const left = deadline - performance.now();
+      if (left <= 0) {
+        return {
+          lease: null,
+          preparation:
+            verdict.status === "rejected"
+              ? verdict
+              : {
+                  status: "rejected",
+                  reason: "turn_in_flight",
+                  detail: `The transcript mirror does not hold ${(missing ?? []).join(", ")} after ${APPROVAL_BARRIER_MS}ms`,
+                },
+        };
+      }
+      await mirror.next(Math.min(left, APPROVAL_BARRIER_POLL_MS));
+    }
   }
 
-  async prepareCheckpoint(): Promise<CheckpointPreparation> {
-    return this.ledger.prepareCheckpoint();
+  async prepareCheckpoint(
+    point: CheckpointPoint = "turn_end",
+  ): Promise<CheckpointPreparation> {
+    if (point === "turn_end") return this.ledger.prepareCheckpoint();
+    const mirror = this.mirror;
+    if (mirror === undefined) return noMirror;
+    const verdict = this.ledger.prepareCheckpoint("approval_wait");
+    if (verdict.status === "rejected") return verdict;
+    const missing = this.unmirrored(mirror);
+    return missing.length === 0
+      ? verdict
+      : {
+          status: "rejected",
+          reason: "turn_in_flight",
+          detail: `The transcript mirror does not hold ${missing.join(", ")} yet`,
+        };
+  }
+
+  /** The waiting calls and settled results the mirror has not written. */
+  private unmirrored(mirror: MirrorProgress): string[] {
+    return [
+      ...this.ledger.awaitingIds().filter((id) => !mirror.uses.has(id)),
+      ...this.ledger.unmirroredResults(mirror.results),
+    ];
+  }
+
+  parkable(): ParkReadiness {
+    return this.ledger.parkable();
   }
 
   events(): AsyncIterable<AgentFrame> {
@@ -198,6 +294,7 @@ export class ClaudeSdkRun implements DriverRun {
           native,
           this.correlationId,
           `sdk:${cursor}`,
+          isEngineInit(native) ? this.toolDescriptions() : undefined,
         );
         cursor += 1;
       }

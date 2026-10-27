@@ -13,11 +13,17 @@ import {
   type FinalizeResponse,
   type HeartbeatRequest,
   type HeartbeatResponse,
+  type InvalidateApprovalCheckpointRequest,
+  type InvalidateApprovalCheckpointResponse,
   type NextInputRequest,
   type NextInputResponse,
+  type ParkDeclinedRequest,
+  type ParkDeclinedResponse,
+  type ParkedDelivery,
   type PendingControlRequest,
   type PendingControlResponse,
   type PendingSettlement,
+  type PermissionGrant,
   type PostSessionAnswerRequest,
   type RegisterPendingRequest,
   type RegisterPendingResponse,
@@ -96,6 +102,17 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   readonly releases: ReleaseRequest[] = [];
   /** Every registration that landed, in order, keyed by nothing: replays repeat. */
   readonly registrations: RegisterPendingRequest[] = [];
+  /** Every park the worker declined, in order. */
+  readonly parkDeclines: ParkDeclinedRequest[] = [];
+  readonly invalidations: InvalidateApprovalCheckpointRequest[] = [];
+  /** Set, invalidateApprovalCheckpoint throws it. */
+  invalidationFailure: Error | undefined;
+  /** Thrown by the next registerPending calls, one each, after recording them. */
+  readonly registerFailures: Error[] = [];
+  /** How each parked request's answer reached the turn that resumed it. */
+  readonly delivered: ParkedDelivery[] = [];
+  /** Handed to the claim as its `grants`; absent while empty. */
+  grants: PermissionGrant[] = [];
   /** How each registered request ended, as the worker reported it. */
   readonly settled: PendingSettlement[] = [];
   credential: string | undefined;
@@ -306,6 +323,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       principal: { owner_scope: this.options.ownerScope },
       restore: this.options.restore ?? null,
       remaining_budget_usd: this.options.remainingBudgetUsd,
+      ...(this.grants.length === 0 ? {} : { grants: [...this.grants] }),
     };
   }
 
@@ -401,6 +419,8 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   ): Promise<RegisterPendingResponse> {
     this.calls.push("registerPending");
     this.registrations.push(request);
+    const failure = this.registerFailures.shift();
+    if (failure !== undefined) throw failure;
     return {
       request_id: request.request_id,
       expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
@@ -412,6 +432,17 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     request: PendingControlRequest,
   ): Promise<PendingControlResponse> {
     this.calls.push("pendingControl");
+    for (const item of request.delivered ?? []) {
+      if (
+        !this.delivered.some(
+          (done) =>
+            done.request_id === item.request_id &&
+            done.outcome === item.outcome,
+        )
+      ) {
+        this.delivered.push(item);
+      }
+    }
     for (const item of request.settled ?? []) {
       // Like the real gateway: a request with no row has nothing to settle,
       // and the first word on one stands.
@@ -442,6 +473,29 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
           ),
       ),
     };
+  }
+
+  async invalidateApprovalCheckpoint(
+    request: InvalidateApprovalCheckpointRequest,
+  ): Promise<InvalidateApprovalCheckpointResponse> {
+    this.calls.push("invalidateApprovalCheckpoint");
+    if (this.invalidationFailure !== undefined) throw this.invalidationFailure;
+    this.invalidations.push(request);
+    return {
+      invalidated: this.registrations.some(
+        (entry) => entry.checkpoint?.manifest_ref === request.manifest_ref,
+      ),
+    };
+  }
+
+  async parkDeclined(
+    request: ParkDeclinedRequest,
+  ): Promise<ParkDeclinedResponse> {
+    this.calls.push("parkDeclined");
+    this.parkDeclines.push(request);
+    const reverted = this.control?.control_id === request.pause_control_id;
+    if (reverted) this.control = null;
+    return { reverted };
   }
 
   async finalize(request: FinalizeRequest): Promise<FinalizeResponse> {

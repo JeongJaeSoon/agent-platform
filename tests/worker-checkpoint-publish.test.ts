@@ -19,7 +19,6 @@ import {
   type CommitCheckpoint,
   finalizeCheckpoint,
 } from "@werft-ai/platform/testing/checkpoints";
-import { claudeCheckpointCodec } from "@werft-ai/runtime-claude";
 import { WorkerGatewayRequestError } from "@werft-ai/runtime-core";
 import {
   createGitWorkspaceBundleVerifier,
@@ -41,8 +40,9 @@ import {
 } from "@werft-ai/testkit/workspace";
 
 import {
-  claudeClaimFingerprint,
-  claudeRuntimeRegistry,
+  claimFingerprint,
+  imageRuntime,
+  workerRuntimeRegistry,
 } from "../apps/worker/src/composition.ts";
 import type {
   WorkerConfig,
@@ -264,17 +264,19 @@ function workerOn(input: {
     runtime: { claudeConfigDir: home, cwd: workspace, home },
   } as WorkerConfig;
   const engines = new EngineProcesses();
-  const prepared = new GitWorkspace(workspace);
+  const prepared = new GitWorkspace(workspace, "CLAUDE.md");
   const prefix = `sessions/${SESSION_ID}/`;
   return new WorkerHost({
     checkpoints: new SessionCheckpoints({
-      fingerprint: claudeClaimFingerprint(config),
+      fingerprint: claimFingerprint(config),
       gateway,
       instructionsCommit: () => prepared.instructionsCommit(),
       logger,
       objectPrefix: prefix,
       objects: scopedCheckpointObjectStore(input.bucket, prefix),
       workspaceRoot: workspace,
+      instructionsFile: "CLAUDE.md",
+      runtime: imageRuntime(),
       ...(input.limits === undefined ? {} : { limits: input.limits }),
     }),
     engines,
@@ -285,7 +287,7 @@ function workerOn(input: {
     },
     gateway,
     logger,
-    runtimes: claudeRuntimeRegistry(config, engines),
+    runtimes: workerRuntimeRegistry(config, engines),
     timeouts,
     workspace: prepared,
   });
@@ -333,7 +335,7 @@ describe("the worker's checkpoints against the control plane's service", () => {
     const bucket = createMemoryCheckpointObjectStore({ versioned: true });
     const pointers = memoryPointerStore();
     const service = createCheckpointService({
-      codecs: { claude: claudeCheckpointCodec },
+      codecs: { claude: imageRuntime().checkpointCodec },
       objects: bucket,
       store: pointers,
       workspaceBundles: createGitWorkspaceBundleVerifier(),
@@ -485,7 +487,7 @@ describe("the worker's checkpoints against the control plane's service", () => {
     const gateway = new ApprovingGateway({
       checkpoints: servedBy(
         createCheckpointService({
-          codecs: { claude: claudeCheckpointCodec },
+          codecs: { claude: imageRuntime().checkpointCodec },
           objects: bucket,
           store: pointers,
           workspaceBundles: createGitWorkspaceBundleVerifier(),
@@ -527,21 +529,25 @@ describe("the worker's checkpoints against the control plane's service", () => {
     ]);
     expect(gateway.finalized[0]?.checkpoint).toBeNull();
     expect(pointers.pointer()).toBeNull();
+    // The approval-wait capture, then the turn's end.
     expect(recorded.failures).toEqual([
       expect.objectContaining({ stage: "workspace" }),
+      expect.objectContaining({ stage: "workspace" }),
     ]);
+    expect(gateway.registrations).toHaveLength(1);
+    expect(gateway.registrations[0]?.checkpoint).toBeUndefined();
     expect(
       gateway.checkpointRequests
         .map((request) => request.preparation)
         .filter((preparation) => preparation.status === "rejected"),
-    ).toEqual([
-      {
+    ).toEqual(
+      Array(2).fill({
         status: "rejected",
         reason: "publish_failed",
         detail: expect.stringMatching(
           /^workspace: the workspace bundle is over/,
         ),
-      },
-    ]);
+      }),
+    );
   }, 180_000);
 });

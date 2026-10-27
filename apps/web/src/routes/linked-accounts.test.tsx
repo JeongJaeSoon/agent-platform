@@ -39,7 +39,7 @@ describe("연동 계정", () => {
     expect(linkedAccountSchema.safeParse(slack).success).toBe(true);
   });
 
-  test("GitHub 줄은 공식 마크를, 로고 사용 허락이 없는 Slack·Google Workspace는 글자 마크를 보인다", async () => {
+  test("GitHub 줄은 공식 마크를, 로고 사용 허락이 없는 Slack·Google Workspace는 브랜드가 아닌 아이콘을 보인다", async () => {
     renderAt("/settings/linked-accounts", {
       ...meOk,
       "GET /v1/linked-accounts": () => json(200, { items: [] }),
@@ -58,13 +58,13 @@ describe("연동 계정", () => {
     expect(githubMark?.textContent).toBe("");
     // The mark is decoration: the row is named by its heading alone.
     expect(screen.getAllByText("GitHub").length).toBe(1);
-    expect(
-      mark(screen.getByRole("heading", { name: "Slack" }))?.textContent,
-    ).toBe("S");
-    expect(
-      mark(screen.getByRole("heading", { name: "Google Workspace" }))
-        ?.textContent,
-    ).toBe("GW");
+    for (const name of ["Slack", "Google Workspace"]) {
+      const icon = mark(screen.getByRole("heading", { name }));
+      expect(icon?.querySelector("svg")?.getAttribute("class")).toContain(
+        "lucide",
+      );
+      expect(icon?.textContent).toBe("");
+    }
   });
 
   test("연결이 없으면 연결 버튼이 Slack 동의 화면으로 보낸다", async () => {

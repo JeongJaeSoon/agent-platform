@@ -80,6 +80,18 @@ export interface SurfaceBindingStore {
    */
   ensureDmBinding(installationId: string): Promise<SurfaceBindingRecord | null>;
   /**
+   * The live binding of a channel the install's bot was invited to, made
+   * when it has none (`mention`, the default ceiling, `joined`, no receipt:
+   * no person set it). A binding already there is returned as it is, so a
+   * channel someone switched off stays off. Null when the install has no
+   * live agent identity.
+   */
+  ensureInvitedChannel(
+    installationId: string,
+    channelId: string,
+    channelKind: "public_channel" | "private_channel",
+  ): Promise<SurfaceBindingRecord | null>;
+  /**
    * Records what Slack said about the bot's place in a live binding's
    * channel. Observed state, not a setting: no revision, no receipt.
    * With `expected`, only while the binding still holds it, so a slow

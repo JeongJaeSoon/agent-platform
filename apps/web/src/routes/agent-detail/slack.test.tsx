@@ -1063,7 +1063,7 @@ describe("Slack management", () => {
       await screen.findByText("Slack에서는 세션을 시작할 수 없습니다"),
     ).toBeDefined();
     expect(document.body.textContent).toContain(
-      "이 에이전트의 프로필(claude-coding-local)은 세션마다 저장소를 골라야 합니다.",
+      "활성 release의 프로필(claude-coding-local)은 세션마다 저장소가 필요한데 release에 쓸 수 있는 저장소가 없습니다",
     );
     expect(
       screen.getByRole("button", { name: "Slack 앱 만들고 설치" }),
@@ -1104,6 +1104,34 @@ describe("Slack management", () => {
       expect(status.textContent).not.toContain("Verify");
     });
   }
+
+  test("says when the active release's profile left the catalog", async () => {
+    renderAt(DETAIL, {
+      ...routes(),
+      [`GET ${PATH}/slack/app`]: () =>
+        json(
+          200,
+          appResponse(null, [
+            { code: "profile_unavailable", profile_id: "general" },
+          ]),
+        ),
+    });
+    expect(
+      await screen.findByText("Slack에서는 세션을 시작할 수 없습니다"),
+    ).toBeDefined();
+    expect(document.body.textContent).toContain(
+      "활성 release의 프로필(general)이 지금 카탈로그에 없거나 release 뒤에 바뀌었습니다.",
+    );
+  });
+
+  test("says when no release is active", async () => {
+    renderAt(DETAIL, {
+      ...routes(),
+      [`GET ${PATH}/slack/app`]: () =>
+        json(200, appResponse(null, [{ code: "no_active_release" }])),
+    });
+    expect(await screen.findByText("활성 release가 없습니다")).toBeDefined();
+  });
 
   test("shows no repository warning when the profile needs none", async () => {
     renderAt(DETAIL, routes(APP, true));
@@ -1239,6 +1267,43 @@ describe("Slack management", () => {
       home: false,
       ceiling: BINDING.ceiling,
     });
+  });
+
+  test("reads a missing DM binding as on, as the server answers a first DM", async () => {
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`PUT ${PATH}/slack-bindings`]: async (request: Request) => {
+        const body = await request.json();
+        return json(200, {
+          slack_binding: {
+            ...BINDING,
+            external_surface_id: null,
+            surface_kind: "dm",
+            home: false,
+            mode: body.mode,
+          },
+          receipt_id: ID,
+        });
+      },
+    });
+    const user = await setupUser();
+    await screen.findByRole("navigation", { name: "Slack 구역" });
+    const toggle = await screen.findByRole("switch", { name: "DM 받기" });
+    await waitFor(() =>
+      expect(toggle.getAttribute("aria-disabled")).toBe("false"),
+    );
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    const status = screen.getByRole("region", { name: "상태" });
+    expect(within(status).queryByText("켜짐")).not.toBeNull();
+    expect(screen.queryByText("설정 안 됨") === null).toBe(true);
+    await user.click(toggle);
+    await waitFor(() =>
+      expect(api.calls.find((call) => call.method === "PUT")?.body).toEqual({
+        channel_id: null,
+        mode: "off",
+        home: false,
+      }),
+    );
   });
 
   test("merges overlapping channel pages by ID", async () => {

@@ -17,6 +17,7 @@ import type {
 } from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 import type { SessionViewer } from "./session-share-store.ts";
+import type { SessionTitleSource } from "./session-title-store.ts";
 
 // Checked inside the acceptance transaction, after an idempotent replay has
 // been answered: a replay is never refused for a limit.
@@ -41,6 +42,8 @@ export type AcceptSessionInput = {
   channel?: SurfaceKind;
   // As given, or derived from the message; null when neither has text.
   title?: string | null;
+  // `user` when the request gave one; left out, it is `derived`.
+  titleSource?: SessionTitleSource;
   // null when the catalog no longer lists the profile/repository: a replay
   // of an earlier acceptance must still succeed, a new request must not.
   // "none" when the profile is allowed to run without one.

@@ -104,7 +104,7 @@ curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq '{
 ```bash
 curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
   | awk '/^event: assistant/ { getline; sub(/^data: /, ""); print }' \
-  | jq -r '.data.message.content[] | select(.type == "text") | .text' || true
+  | jq -r '.data.text // empty' || true
 ```
 
 ```text
@@ -112,7 +112,7 @@ curl: (28) Operation timed out after 5002 milliseconds with 3362 bytes received
 hello from Werft
 ```
 
-イベントは 1 つにつき `event:` 行 (種類) と `data:` 行 (JSON) からなる。assistant イベントの `data.message` がモデルの送ったメッセージである。`curl: (28) Operation timed out` は `--max-time` による切断なので正常である。
+イベントは 1 つにつき `event:` 行 (種類) と `data:` 行 (JSON) からなる。assistant イベントの `data.text` がモデルの送ったテキストである。`curl: (28) Operation timed out` は `--max-time` による切断なので正常である。
 
 ## 次のステップ
 

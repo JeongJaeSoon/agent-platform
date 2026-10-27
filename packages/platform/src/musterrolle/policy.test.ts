@@ -44,7 +44,17 @@ function services(authorization: AuthorizationPolicy) {
     authorization,
     inputs: unreachable,
     controls: unreachable,
-    reader: unreachable,
+    reader: new Proxy(
+      {},
+      {
+        get: (_target, name) =>
+          name === "getReceipt"
+            ? async () => null
+            : () => {
+                throw new Error("the store must not be reached");
+              },
+      },
+    ) as never,
     catalog: unreachable,
     limits: unreachable,
   });
@@ -170,7 +180,7 @@ function without(scope: SessionScope): SessionScope[] {
 describe("service entry points without HTTP", () => {
   for (const [name, action, call] of entryPoints) {
     const scope = ACTION_SCOPES[action] as SessionScope;
-    test(`${name} is FORBIDDEN before any store call without ${scope}`, async () => {
+    test(`${name} is FORBIDDEN without ${scope}`, async () => {
       const error = await call(
         services(policy),
         testCaller("owner-a", without(scope)),

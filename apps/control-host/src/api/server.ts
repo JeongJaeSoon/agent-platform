@@ -21,6 +21,7 @@ import {
   createPostgresSessionControl,
   createPostgresSessionReader,
   createPostgresSessionShareStore,
+  createPostgresSessionTitleStore,
   createPostgresSessionUnitOfWork,
   createPostgresSlackAppStore,
   createPostgresSlackConfigTokenStore,
@@ -42,6 +43,7 @@ import {
 import { createLogger, sanitizeText } from "@werft-ai/observability";
 import {
   agentSlackBotToken,
+  allowedRun,
   catalogRevision,
   composeSlackFinalize,
   createAgentAdminService,
@@ -61,6 +63,7 @@ import {
   createSessionOutputService,
   createSessionService,
   createSessionShareService,
+  createSessionTitler,
   createSlackAppService,
   createSlackBotApi,
   createSlackChannelJoiner,
@@ -85,7 +88,8 @@ import {
   forgettingChannelsOnBindingPut,
   InstallationConfigError,
   installationLimitsFromEnv,
-  profileNeedsRepository,
+  resolveAgentRelease,
+  SessionServiceError,
   WORKSPACE_PROFILE_REFRESH_MS,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -122,11 +126,13 @@ import {
 import {
   createEgressAuthorizer,
   egressAuthorizerConfigFromEnv,
+  sessionTitleEgressUrlFromEnv,
 } from "./egress-authorizer.ts";
 import { forgesOf } from "./forge-github.ts";
 import { createGitPusher } from "./git-push.ts";
 import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
+import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { createReadinessProbe } from "./readiness.ts";
@@ -289,6 +295,10 @@ const backfillModels = (): void => {
   );
 };
 backfillModels();
+const neutralize = eventNeutralizer(catalog, logger);
+startNeutralFill(db, neutralize, logger, () =>
+  workspaceProfileVersions.refresh(),
+);
 if (checkpointStorage !== "disabled") {
   await assertCheckpointObjectsPresent(checkpointStorage, {
     hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
@@ -350,6 +360,7 @@ const agents = createAgentService({
   catalog,
   credentials: credentialBindings,
   ...(slackWelcome === null ? {} : { welcome: slackWelcome }),
+  keys: createPostgresWorkspaceKeyStore(db),
 });
 const sessions = createSessionService({
   authorization,
@@ -358,7 +369,7 @@ const sessions = createSessionService({
     connect: () => pool.connect(),
     logger,
   }),
-  reader: createPostgresSessionReader(db, { logger }),
+  reader: createPostgresSessionReader(db, { logger, neutralize }),
   catalog,
   releases: agents,
   credentials: credentialBindings,
@@ -452,11 +463,35 @@ const slackApps = createSlackAppService({
   consoleOrigin,
   eventsPublicUrl: slackEventsPublicUrlFrom(process.env),
   onAgentAppChanged: (agentId) => slackSigningSecrets?.invalidate(agentId),
-  repositoryRequiredProfile: async (workspaceId, agentId) => {
-    const profileId = (await agentStore.get(workspaceId, agentId))
-      ?.active_release?.runtime_profile_id;
-    return profileId !== undefined && profileNeedsRepository(catalog, profileId)
-      ? profileId
+  activeReleaseWarning: async (workspaceId, agentId) => {
+    const release = (await agentStore.get(workspaceId, agentId))
+      ?.active_release;
+    if (!release) return { code: "no_active_release" };
+    try {
+      await resolveAgentRelease(
+        { store: agentStore, catalog },
+        workspaceId,
+        release.id,
+      );
+    } catch (error) {
+      if (
+        error instanceof SessionServiceError &&
+        error.code === "PROFILE_DIGEST_MISMATCH"
+      ) {
+        return {
+          code: "profile_unavailable",
+          profile_id: release.runtime_profile_id,
+        };
+      }
+      throw error;
+    }
+    // Missing and dropped from the catalog take the same fix: a new release.
+    return allowedRun(
+      catalog,
+      release.runtime_profile_id,
+      release.repository_id,
+    ) === null
+      ? { code: "repository_required", profile_id: release.runtime_profile_id }
       : null;
   },
 });
@@ -569,9 +604,18 @@ const interrupts = createInterruptService({
   store: createPostgresTurnInterrupts(db, { logger }),
 });
 const shutdown = createShutdown({ logger });
+const titleEgressUrl = sessionTitleEgressUrlFromEnv(process.env);
+const titleStore = createPostgresSessionTitleStore(db);
+if (titleEgressUrl === null) {
+  logger.info(
+    "Generated session titles are off (SESSION_TITLE_EGRESS_URL unset)",
+    {},
+  );
+}
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db, { logger }),
   catalog,
+  neutralize,
   // The storage-backed verifier: a checkpoint is promoted only after its
   // manifest, objects and workspace bundle were read back from S3 (checked by
   // git), and the pointer itself advances inside the turn's own transaction.
@@ -586,6 +630,26 @@ const workers = createWorkerGateway({
     logger.error("MCP refusal receipt not recorded", {
       error: error instanceof Error ? error.name : "error",
     }),
+  ...(titleEgressUrl === null
+    ? {}
+    : {
+        titles: {
+          store: titleStore,
+          titler: createSessionTitler({
+            store: titleStore,
+            catalog,
+            egressUrl: titleEgressUrl,
+            onError: (error, context) =>
+              logger.warn(
+                "Session title not generated; the derived one stays",
+                {
+                  session_id: context.sessionId,
+                  error: error instanceof Error ? error.message : "error",
+                },
+              ),
+          }),
+        },
+      }),
   options: {
     sessionCostLimitUsd: limits.sessionCostLimitUsd,
     sessionTokenLimit: limits.sessionTokenLimit,

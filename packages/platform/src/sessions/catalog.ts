@@ -5,13 +5,17 @@ import {
   credentialRefSchema,
   MCP_TOOL_PREFIX,
   mcpServerIdSchema,
-  NARROWER_PERMISSION_MODES,
+  narrowOnlyPolicy,
+  type ProfileDerivationPolicy,
   permissionModeSchema,
   projectSettingsSchema,
   type RepositoryMode,
   type RuntimeConfig,
+  type RuntimeKind,
   repositoryModeSchema,
   type runtimeConfigSchema,
+  runtimeKindSchema,
+  WORKSPACE_PROFILE_POLICY,
   type WorkspaceProfileState,
 } from "@werft-ai/contracts";
 import { z } from "zod";
@@ -26,9 +30,10 @@ import { type GitCredential, repoRefOf } from "../ports/forge.ts";
 // therefore means changing the secret and restarting the API; a claim
 // already answered keeps the key it was given.
 //
-// Only Claude profiles exist: the config block below is the Claude engine's
-// shape, and a profile that names another runtime kind with it would run
-// nothing. Other kinds get their own block when an adapter for them lands.
+// The config block below is the Claude engine's shape whatever kind a
+// profile names; the API refuses at load a kind no installed runtime serves
+// (`ProfileFeatureGate`). Other kinds get their own block when an adapter
+// for them lands.
 
 function hasControlCharacter(value: string): boolean {
   for (let i = 0; i < value.length; i += 1) {
@@ -172,12 +177,15 @@ export function isPrivateEndpointHost(hostname: string): boolean {
 }
 export const catalogProfileConfigSchema = z
   .object({
-    runtime_kind: z.literal("claude_agent_sdk"),
+    runtime_kind: runtimeKindSchema,
     runtime_version: z.string().min(1),
     model: z.string().min(1),
     // Other models a session may name at create; `model` is the default.
     // Not part of what a session is pinned to, so adding one stops nothing.
     models: z.array(z.string().min(1)).min(1).optional(),
+    // The model that names a session after its first turn; the session's own
+    // when absent. Not pinned either: it never runs the session.
+    title_model: z.string().min(1).optional(),
     tools: z.array(z.string().min(1)),
     permission_mode: permissionModeSchema,
     provider: catalogProviderSchema,
@@ -401,10 +409,11 @@ export type CredentialRef = { value_env: string } | { secret_id: string };
 // What the services hold: each credential resolved, its reference kept so
 // the fingerprint can name where it came from without the value.
 export type CatalogProfile = {
-  runtime_kind: "claude_agent_sdk";
+  runtime_kind: RuntimeKind;
   runtime_version: string;
   model: string;
   models?: string[] | undefined;
+  title_model?: string | undefined;
   tools: string[];
   permission_mode: z.infer<typeof permissionModeSchema>;
   project_settings?: z.infer<typeof projectSettingsSchema> | undefined;
@@ -472,6 +481,8 @@ export type WorkspaceProfileRecord = {
  */
 export interface WorkspaceProfiles {
   readonly records: ReadonlyMap<string, WorkspaceProfileRecord>;
+  /** How its versions may differ from their bases; `WORKSPACE_PROFILE_POLICY` when unset. */
+  readonly policy?: ProfileDerivationPolicy;
   /** Reads them again unless the last read began within `maxAgeMs`. */
   refresh(maxAgeMs?: number): Promise<void>;
 }
@@ -634,24 +645,15 @@ export type ProfileLookup<P extends CatalogProfileView> = {
   workspace_profiles?: WorkspaceProfiles | undefined;
 };
 
-/** The narrowing a workspace profile version applies to its base. */
 export type ProfileNarrowing = Pick<
   WorkspaceProfileRecord,
   "model" | "models" | "tools" | "permission_mode"
 >;
 
-/** The base with a narrowing applied, assumed to be one `narrowingRefusal` passed. */
-export function narrowedProfile<P extends CatalogProfileView>(
-  base: P,
-  narrowing: ProfileNarrowing,
-): P {
-  return {
-    ...base,
-    model: narrowing.model,
-    models: [...narrowing.models],
-    tools: [...narrowing.tools],
-    permission_mode: narrowing.permission_mode,
-  };
+export function derivationPolicyOf(catalog: {
+  workspace_profiles?: WorkspaceProfiles | undefined;
+}): ProfileDerivationPolicy {
+  return catalog.workspace_profiles?.policy ?? WORKSPACE_PROFILE_POLICY;
 }
 
 /**
@@ -662,35 +664,7 @@ export function narrowingRefusal(
   base: CatalogProfileView,
   narrowing: ProfileNarrowing,
 ): { field: keyof ProfileNarrowing; message: string } | null {
-  const offered = profileModels(base);
-  const unknownModel = narrowing.models.find((m) => !offered.includes(m));
-  if (unknownModel !== undefined) {
-    return {
-      field: "models",
-      message: `The base profile does not offer model ${unknownModel}`,
-    };
-  }
-  if (!narrowing.models.includes(narrowing.model)) {
-    return { field: "model", message: "model must be one of models" };
-  }
-  const unknownTool = narrowing.tools.find((t) => !base.tools.includes(t));
-  if (unknownTool !== undefined) {
-    return {
-      field: "tools",
-      message: `The base profile does not allow tool ${unknownTool}`,
-    };
-  }
-  if (
-    !NARROWER_PERMISSION_MODES[base.permission_mode].includes(
-      narrowing.permission_mode,
-    )
-  ) {
-    return {
-      field: "permission_mode",
-      message: `A profile over a ${base.permission_mode} base may run ${NARROWER_PERMISSION_MODES[base.permission_mode].join(", ")}`,
-    };
-  }
-  return null;
+  return narrowOnlyPolicy.refusal(base, narrowing);
 }
 
 /** Whether a workspace profile version takes new releases and sessions. */
@@ -703,16 +677,19 @@ export function workspaceProfileState(
     ? catalog.profiles[record.base_profile_id]
     : undefined;
   if (!base) return "base_missing";
-  return baseHolds(base, record) ? "usable" : "base_changed";
+  return baseHolds(derivationPolicyOf(catalog), base, record)
+    ? "usable"
+    : "base_changed";
 }
 
 function baseHolds(
+  policy: ProfileDerivationPolicy,
   base: CatalogProfileView,
   record: WorkspaceProfileRecord,
 ): boolean {
   return (
     profileFingerprint(base) === record.base_fingerprint &&
-    narrowingRefusal(base, record) === null
+    policy.refusal(base, record) === null
   );
 }
 
@@ -734,8 +711,9 @@ export function catalogProfile<P extends CatalogProfileView>(
   const base = Object.hasOwn(catalog.profiles, record.base_profile_id)
     ? catalog.profiles[record.base_profile_id]
     : undefined;
-  return base && baseHolds(base, record)
-    ? narrowedProfile(base, record)
+  const policy = derivationPolicyOf(catalog);
+  return base && baseHolds(policy, base, record)
+    ? policy.apply(base, record)
     : undefined;
 }
 
@@ -920,6 +898,7 @@ export function profileFingerprint(profile: CatalogProfileView): string {
     models: _models,
     model: _model,
     repository: _repository,
+    title_model: _titleModel,
     ...runs
   } = withoutSecret(profile);
   return sha256({
@@ -929,7 +908,11 @@ export function profileFingerprint(profile: CatalogProfileView): string {
 }
 
 function profileFingerprintV1(profile: CatalogProfileView): string {
-  const { models: _models, ...runs } = withoutSecret(profile);
+  const {
+    models: _models,
+    title_model: _titleModel,
+    ...runs
+  } = withoutSecret(profile);
   return sha256({ fingerprint_version: 1, profile: runs });
 }
 
