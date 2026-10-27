@@ -86,7 +86,6 @@ export const slackJa = {
   "slack.defaultSaved":
     "新しいチャンネルの既定の応答を「{mode}」に変更しました。接続済みのチャンネルはそのままです。",
   "slack.ambient": "常に応答",
-  "slack.notConfigured": "未設定",
   "slack.home": "ホームチャンネル",
   "slack.setHome": "ホームに設定",
   "slack.channelHome": "{channel} をホームに設定",
