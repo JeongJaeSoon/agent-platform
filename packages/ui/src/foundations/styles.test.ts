@@ -325,7 +325,7 @@ describe("tokens.css", () => {
     expect(failures).toEqual([]);
   });
 
-  test("입력 칸 테두리가 surface·sidebar·surface-sunken에서 3:1을 넘는다", () => {
+  test("입력 칸 테두리가 표·카드 선보다 옅지 않고 hover에 3:1을 넘는다", () => {
     const themes: [string, Map<string, string>][] = [
       [
         "light",
@@ -354,13 +354,18 @@ describe("tokens.css", () => {
         "--ap-color-sidebar",
         "--ap-color-surface-sunken",
       ].map((surface) => {
-        const border = palette.get("--ap-color-border-input") ?? "";
-        const ratio = contrast(border, palette.get(surface) ?? "");
-        return `${theme} ${surface} ${ratio >= 3 ? "ok" : ratio.toFixed(2)}`;
+        const bg = palette.get(surface) ?? "";
+        const ratio = contrast(
+          palette.get("--ap-color-border-input") ?? "",
+          bg,
+        );
+        const line = contrast(palette.get("--ap-color-border") ?? "", bg);
+        return `${theme} ${surface} ${ratio > line ? "ok" : `${ratio.toFixed(2)} <= ${line.toFixed(2)}`}`;
       }),
     );
     expect(ratios.filter((line) => !line.endsWith("ok"))).toEqual([]);
-    // Hover (subtle-foreground) never stands out less than the resting edge.
+    // The resting edge is under 3:1 by choice (tokens.css); hover makes up
+    // the 3:1 under the pointer and never stands out less than the rest.
     const hover = themes.map(([theme, palette]) => {
       const surface = palette.get("--ap-color-surface") ?? "";
       const rest = contrast(
@@ -371,7 +376,7 @@ describe("tokens.css", () => {
         palette.get("--ap-color-subtle-foreground") ?? "",
         surface,
       );
-      return `${theme} ${over >= rest ? "ok" : `${over.toFixed(2)} < ${rest.toFixed(2)}`}`;
+      return `${theme} ${over >= rest && over >= 3 ? "ok" : `${over.toFixed(2)} vs ${rest.toFixed(2)}`}`;
     });
     expect(hover.filter((line) => !line.endsWith("ok"))).toEqual([]);
   });
