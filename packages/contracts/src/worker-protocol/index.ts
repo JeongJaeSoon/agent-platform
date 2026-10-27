@@ -488,7 +488,7 @@ export const pendingSettlementSchema = z
     const result = settlement.answer_result;
     if (
       result !== undefined &&
-      (result === "stale") !== (settlement.outcome === "cancelled")
+      settlement.outcome !== (result === "stale" ? "cancelled" : "answered")
     ) {
       context.addIssue({
         code: "custom",

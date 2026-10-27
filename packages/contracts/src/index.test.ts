@@ -699,6 +699,15 @@ describe("worker protocol", () => {
     expect(
       poll([{ request_id: id, outcome: "answered", answer_result: "stale" }]),
     ).toBe(false);
+    // An expiry delivered nothing, so the run said nothing of an answer.
+    for (const answer_result of ["applied", "unknown", "stale"]) {
+      expect(
+        poll([{ request_id: id, outcome: "expired", answer_result }]),
+      ).toBe(false);
+    }
+    expect(poll([{ request_id: id, outcome: "expired", reason: "park" }])).toBe(
+      false,
+    );
   });
 
   test("fences every post-claim request with the same identity", () => {
