@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { WORKER_EXIT_LEASE_LOST } from "@werft-ai/contracts";
 import type { Pool } from "pg";
 import { inputUuid } from "../../apps/worker/src/worker-host.ts";
 import {
@@ -1024,8 +1025,7 @@ describe.skipIf(env === null)("D2 gate", () => {
           "a worker that was paused past its lease is refused and stops as lost",
         input:
           "docker pause for 40s (lease TTL 30s) under the periodic reconciler, one more pass by hand, docker unpause",
-        expected:
-          "attempt lost; the worker's later gateway calls answered 401/409; worker.stopping lost; exit 1 without release",
+        expected: `attempt lost; the worker's later gateway calls answered 401/409; worker.stopping lost; exit ${WORKER_EXIT_LEASE_LOST} without release`,
         actual: {
           attempts: lost,
           late_calls: late.map(
@@ -1058,7 +1058,7 @@ describe.skipIf(env === null)("D2 gate", () => {
             (line) => line.event === "worker.stopping" && line.kind === "lost",
           ) &&
           !log.some((line) => line.event === "worker.released") &&
-          exitCode === 1,
+          exitCode === WORKER_EXIT_LEASE_LOST,
       });
     } finally {
       await run(["docker", "unpause", worker.name], { allowFail: true });
