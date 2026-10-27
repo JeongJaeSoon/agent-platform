@@ -2817,7 +2817,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Set how the agent answers in one Slack channel or its DMs",
     description:
-      "Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_id` is null, creating it the first time. The channel's kind is what Slack's `conversations.info` answers with the bot token; `channel_kind`, when sent, only has to agree on whether this is the DM row (400 when Slack names a DM or does not know the channel, 503 when Slack cannot be read). `mode` is `off` (the channel takes nothing; a mention there is refused) or `mention`. `home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. The bot does not join the channel here. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.",
+      "Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_id` is null, creating it the first time. The channel's kind is what Slack's `conversations.info` answers with the bot token; `channel_kind`, when sent, only has to agree on whether this is the DM row (400 when Slack names a DM or does not know the channel, 503 when Slack cannot be read). `mode` is `off` (the channel takes nothing; a mention there is refused), `mention` (in use, answers a mention) or `ambient` (in use, answers any person's top-level message without a mention). `home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. The bot does not join the channel here. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.",
     auth: "session",
     body: "PutSlackBindingRequest",
     success: { status: 200, schema: "PutSlackBindingResponse" },
@@ -2912,13 +2912,13 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Read the default response mode for new Slack channels",
     description:
-      "Returns the agent's saved default mode, initially off. Agent managers with a web session only.",
+      "Returns how a channel added to the agent answers at first: `mention` (only when mentioned, the initial value) or `ambient` (any person's top-level message). A new channel is always in use. Agent managers with a web session only.",
     auth: "session",
     success: {
       status: 200,
       schema: "SlackAppSettings",
       description: "The saved default mode.",
-      example: { default_mode: "off" },
+      example: { default_mode: "mention" },
     },
     errors: [401, 403, 404, 503],
   },
@@ -2929,10 +2929,10 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Save the default response mode for new Slack channels",
     description:
-      "Saves off or mention for the agent. Defaults to off. Agent managers with a web session only. Applying this default to new bindings is handled separately.",
+      "Saves `mention` or `ambient` for the channels added to the agent from now on, in the console or by inviting its bot. Channels already connected keep theirs. Agent managers with a web session only.",
     auth: "session",
     body: "SlackAppSettings",
-    requestExample: { default_mode: "mention" },
+    requestExample: { default_mode: "ambient" },
     success: {
       status: 200,
       schema: "SlackAppSettings",

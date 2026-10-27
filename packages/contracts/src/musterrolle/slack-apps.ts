@@ -184,7 +184,8 @@ export const getSlackAppResponseSchema = z
 
 export const slackAppSettingsSchema = z
   .object({
-    default_mode: z.enum(["off", "mention"]),
+    // A new channel is always in use; this says whether it waits for a mention.
+    default_mode: z.enum(["mention", "ambient"]),
   })
   .strict();
 

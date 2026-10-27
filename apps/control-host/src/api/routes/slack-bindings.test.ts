@@ -109,7 +109,7 @@ describe("PUT /v1/agents/{id}/slack-bindings", () => {
   test("a malformed body, agent id or oversized body never reaches the service", async () => {
     const untouched = app({});
     for (const body of [
-      { ...BODY, mode: "ambient" },
+      { ...BODY, mode: "all" },
       { ...BODY, channel_id: "c0-lowercase" },
       { ...BODY, channel_id: null },
       { ...BODY, channel_kind: "dm" },

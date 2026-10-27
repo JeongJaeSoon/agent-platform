@@ -417,14 +417,14 @@ integration("agent identities over HTTP on PostgreSQL", () => {
       [null, "dm", false],
     ]);
 
-    // A member, ambient, a home DM, an agent with no app, someone else's agent.
+    // A member, an unknown mode, a home DM, an agent with no app, someone else's agent.
     await addMember("ops-member@example.com");
     const member = await login("ops-member@example.com");
     const body = { channel_id: "C0X", channel_kind: "public_channel" };
     for (const [cookie, path, request, status, code] of [
       [member, bindingsOf, { ...body, mode: "mention" }, 403, "FORBIDDEN"],
       [member, bindingsOf, undefined, 403, "FORBIDDEN"],
-      [admin, bindingsOf, { ...body, mode: "ambient" }, 400, "BAD_REQUEST"],
+      [admin, bindingsOf, { ...body, mode: "all" }, 400, "BAD_REQUEST"],
       [
         admin,
         bindingsOf,

@@ -431,6 +431,18 @@ integration("surface bindings on PostgreSQL", () => {
       ),
     ).toMatchObject({ channelId: "C0OFF", mode: "off", revision: 1 });
     expect(await store().list(owner.ownerId, agentId, 10)).toHaveLength(2);
+    // A channel invited to later takes the agent's default mode then.
+    await db
+      .update(agents)
+      .set({ slackDefaultMode: "ambient" })
+      .where(eq(agents.id, agentId));
+    expect(
+      await store().ensureInvitedChannel(
+        installationId,
+        "C0AMBIENT",
+        "public_channel",
+      ),
+    ).toMatchObject({ mode: "ambient", membership: { state: "joined" } });
     expect(
       await store().ensureInvitedChannel(
         randomUUID(),

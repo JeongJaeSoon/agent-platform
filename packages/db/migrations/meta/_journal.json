@@ -645,6 +645,13 @@
       "when": 1793093040138,
       "tag": "0182_neutral_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 183,
+      "version": "7",
+      "when": 1793128601385,
+      "tag": "0183_slack_default_use_mention",
+      "breakpoints": true
     }
   ]
 }
