@@ -3,7 +3,7 @@ title: "Choose a run profile"
 description: The run profile that decides which model, tools, and permission mode a session runs with
 ---
 
-A run profile (profile) decides how a session runs: the runtime and its version, the model, the tool list, the permission mode, the model provider, and whether it uses a repository. The operator registers profiles in the installation's catalog (`config/profiles.yaml`), and users choose one by id. The list of profiles that can run for each repository is also in a catalog (`config/repositories.yaml`).
+A run profile (profile) decides how a session runs: the runtime and its version, the model, the tool list, the permission mode, the model provider, and whether it uses a repository. Operator profiles (installation ceilings) live in the installation's database, and users choose one by id. Each profile's row also holds the repositories it can run against. A new installation fills them once, while the database is empty, from `config/profiles.yaml` and the `profiles` lists in `config/repositories.yaml`; editing those files later changes nothing. Model provider connections are in `config/connections.yaml`.
 
 ## List profiles
 
@@ -99,12 +99,30 @@ Workspace owners and admins can make a profile that only this workspace uses, ba
 - A saved version never changes. Each save after **Edit** makes a new version id `ws_<workspace slug>_<name>_v<n>`, which the screen shows before you save. A release on an earlier version changes only when you make a new release on the new version. The list shows one row per name with its latest version; press **Earlier versions (N)** to unfold the rest.
 - Pressing a row opens its detail (`/profiles/<id>`): models, tools, permission mode, base profile, the versions under the same name, and the agents whose active release uses that version. Only people who can manage agents see the agent list. On an **Available** version, an owner or admin opens the editor with the current values from **Edit** (**Make again** when the base profile changed; a turned-off version or one without its base profile has neither). An owner or admin starts a new workspace profile from an operator profile's detail with **Make a profile from this**.
 - The list (`GET /v1/profiles`) holds the operator's profiles (`source: "operator"`) and this workspace's versions (`source: "workspace"`) together. The console cannot change an operator profile. The operator catalog cannot use ids starting with `ws_`, so the two never collide.
-- When the operator changes the base profile, the version becomes **Base profile changed**; when the operator removes it, **Base profile removed**. No new release or session can use that version. Use **Make again** on a version whose base profile changed to make a new one.
+- When the operator changes the base profile, the version becomes **Base profile changed**; when the operator removes it, **Base profile removed**; when an owner blocks it, **Base profile blocked**. No new release or session can use that version. Use **Make again** on a version whose base profile changed to make a new one.
 - A version that is **Turned off** cannot be picked by new releases or sessions. Releases and sessions that already use it keep running. Turning a version off cannot be undone.
 - A release's profile list shows operator profiles and workspace profiles in separate groups, and a version that takes no new release cannot be picked.
 - Members only read the list. Only owners and admins signed in to the console can make, edit and turn off versions (`POST /v1/workspace-profiles`, `POST /v1/workspace-profiles/{profile_id}/retire`); an API key gets 403.
 
 Auto rules and the script ceiling have a place on the screen but cannot be changed yet.
+
+## Block an operator profile
+
+An owner can stop one operator profile, including the sessions running on it now. Turning a profile off (retire) only keeps new releases and sessions away; blocking stops everything that runs on it. Only an owner does this, with the web login cookie; an admin, a member or an API key gets 403. The example below uses the `WEB` header from [Create](/agents/create#log-in).
+
+```bash
+curl -sS -X POST "$API/v1/installation-profiles/claude-coding-local/block" "${WEB[@]}" \
+  | jq -c '{state: .profile.installation.state, receipt_id}'
+```
+
+```text
+{"state":"blocked","receipt_id":"…"}
+```
+
+- The profile becomes **Blocked** (`blocked`), and the workspace profiles on it become **Base profile blocked** (`base_blocked`).
+- New releases and sessions are refused with 422. A session waiting for its next input ends with `catalog_mismatch` when its next turn starts, and a turn running now loses its model and repository requests within about a second.
+- `POST /v1/installation-profiles/{profile_id}/unblock` puts the profile back as it was. Sessions and turns that ended do not run again on their own; send the input again.
+- When the profile is already in that state nothing changes and `receipt_id` is `null`.
 
 ## Next steps
 

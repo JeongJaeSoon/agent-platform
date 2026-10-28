@@ -163,7 +163,18 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops   # TEST_OPS_
 
 ## 카탈로그
 
-`PLATFORM_CATALOG_DIR`에 `profiles.yaml`과 `repositories.yaml`을 둔다. API 컨테이너(uid 1000)가 읽을 수 있게 파일은 `0644`로 둔다. 카탈로그에는 값이 아니라 참조만 적으므로 비밀이 없다. 형식은 `config/profiles.yaml`과 `config/repositories.yaml`의 주석을 따른다. test-ops에서는 provider를 실제 Messages API로, key를 `value_env: ANTHROPIC_API_KEY`로 적는다.
+`PLATFORM_CATALOG_DIR`에 `connections.yaml`, `repositories.yaml`, `profiles.yaml`을 둔다. `connections.yaml`이 없으면 API가 뜨지 않는다. `profiles.yaml`과 `repositories.yaml`의 `profiles` 배열은 DB가 비어 있는 첫 `deploy` 때만 상한과 저장소 허용으로 들어가고, 그 뒤로는 고쳐도 DB가 바뀌지 않는다. API 컨테이너(uid 1000)가 읽을 수 있게 파일은 `0644`로 둔다. 카탈로그에는 값이 아니라 참조만 적으므로 비밀이 없다. 형식은 `config/` 아래 같은 이름 파일의 주석을 따른다. test-ops에서는 provider를 실제 Messages API로, key를 `value_env: ANTHROPIC_API_KEY`로 적는다. profile의 `provider`는 연결 하나와 똑같아야 돈다.
+
+```yaml
+# connections.yaml
+connections:
+  anthropic:
+    kind: anthropic
+    endpoint: https://api.anthropic.com
+    auth:
+      kind: api_key
+      value_env: ANTHROPIC_API_KEY
+```
 
 ```yaml
 # profiles.yaml
@@ -199,7 +210,7 @@ repositories:
 bun run scripts/lib/test-ops.ts catalog-revision /etc/agent-platform/catalog
 ```
 
-profile 설정을 제자리에서 바꾸면 그 profile로 만든 세션이 모두 `CATALOG_MISMATCH`로 멈춘다. 설정을 바꿀 때는 새 profile id를 만든다.
+상한 설정은 DB 행이 정본이고 행은 바뀌지 않는다. 설정을 바꿀 때는 `POST /v1/installation-profiles`로 새 버전을 만든다([api-server.md](api-server.md#운영자-카탈로그-agent-profile--repository)).
 
 ## release manifest
 

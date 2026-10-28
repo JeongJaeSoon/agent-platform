@@ -9,7 +9,7 @@ tests/e2e/run.sh --local-model
 ## 준비물
 
 - [quickstart 0장](../quickstart.md#0-준비물)과 같은 Docker·bun.
-- `127.0.0.1:11434`에서 도는 Ollama와 `gemma4:26b-mlx` 모델. 다른 모델을 쓰려면 `config/local-model/profiles.yaml`의 `model`과 `infra/local-model/litellm.yaml`의 `model`을 함께 바꾼다.
+- `127.0.0.1:11434`에서 도는 Ollama와 `gemma4:26b-mlx` 모델. 다른 모델을 쓰려면 `config/local-model/profiles.yaml`의 `model`과 `infra/local-model/litellm.yaml`의 `model`을 함께 바꾼다. `profiles.yaml`은 DB가 비어 있을 때만 읽으므로 새 스택(볼륨 없음)으로 띄운다.
 - Docker를 건드리기 전에 다음 중 하나면 exit 2로 끝난다. Ollama가 응답하지 않을 때, 두 경로가 부르는 모델(위의 두 파일에서 읽는다)이 `/api/tags`에 없을 때(`ollama pull <모델>`을 안내한다), 셸에 `LITELLM_MASTER_KEY`가 없는데 `openssl rand`로 만들지 못할 때.
 
 ## overlay가 바꾸는 것
