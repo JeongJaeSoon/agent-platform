@@ -182,6 +182,8 @@ if (done.state === "pushed")
 
 ## 9. 예제 실행 (로컬 스택, fake model)
 
+유즈케이스별 샘플과 어떤 API를 어느 샘플이 쓰는지는 [examples/README.md](../examples/README.md)에 있다. 아래는 그 가운데 하나다.
+
 [`examples/sdk-approver/src/session-close.ts`](../examples/sdk-approver/src/session-close.ts)는 세션 생성 → 메시지 → 이벤트 스트림으로 turn 대기 → 권한 요청 허락 → close → 닫힌 상태 확인을 한 번에 돈다. 메시지는 fake model이 재생하는 `GATE-SPEC` 대본이다([Quickstart](quickstart.md)).
 
 1. [Quickstart](quickstart.md)대로 `scripts/local.sh up --fake-model`로 스택을 띄운다.

@@ -212,6 +212,8 @@ const approver = werft.withOptions({ apiKey: approverKey });
 
 ## 저장소의 예제
 
+[examples](https://github.com/JeongJaeSoon/agent-platform/blob/main/examples/README.md)에는 유즈케이스별 샘플이 있다. key와 카탈로그 확인, 세션 목록, 이벤트 스트림 이어 받기, 재시도와 Idempotency-Key, 질문·권한 요청 답변, 세션 제어와 복구, 막힌 close, push 승인과 PR을 다루고, 어떤 SDK API를 어느 샘플이 쓰는지 표로 정리했다.
+
 `examples/sdk-approver/src/session-close.ts`는 세션 생성, 이벤트를 받으며 turn 대기, 권한 요청 허락, close, 닫힌 뒤의 메시지 거절까지 한 번에 돈다.
 
 ```bash

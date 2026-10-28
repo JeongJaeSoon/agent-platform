@@ -204,6 +204,8 @@ const approver = werft.withOptions({ apiKey: approverKey });
 
 ## リポジトリのサンプル
 
+[examples](https://github.com/JeongJaeSoon/agent-platform/blob/main/examples/README.md) には、ユースケースごとのサンプルがある。キーとカタログの確認、セッション一覧、イベントストリームの再開、再試行と Idempotency-Key、質問·権限リクエストへの回答、セッションの制御と復旧、詰まった close、push の承認と PR を扱い、どの SDK API をどのサンプルが使うかを表にまとめている。
+
 `examples/sdk-approver/src/session-close.ts` は、セッションの作成、イベントを受け取りながらのターンの待機、権限リクエストの許可、close、閉じたあとのメッセージの拒否までを一度に実行する。
 
 ```bash
