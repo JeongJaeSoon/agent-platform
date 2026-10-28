@@ -182,21 +182,33 @@ function app(
     authorization?: AuthorizationPolicy;
     person?: boolean;
     unbound?: string[];
+    blocked?: boolean;
   } = {},
 ) {
+  const catalog = withSeededInstallation({
+    profiles: { coding: PROFILE },
+    repositories: {
+      "sample-app": {
+        url: "https://github.com/acme/sample-app",
+        branch: "main",
+        profiles: ["coding"],
+      },
+    },
+  });
+  const coding = catalog.installation?.get("coding");
   const service = createAgentService({
     authorization: options.authorization ?? allowing,
     store: agentStore,
-    catalog: withSeededInstallation({
-      profiles: { coding: PROFILE },
-      repositories: {
-        "sample-app": {
-          url: "https://github.com/acme/sample-app",
-          branch: "main",
-          profiles: ["coding"],
-        },
-      },
-    }),
+    catalog:
+      options.blocked && catalog.installation && coding
+        ? {
+            ...catalog,
+            installation: new Map([
+              ...catalog.installation,
+              ["coding", { ...coding, state: "blocked" }],
+            ]),
+          }
+        : catalog,
     credentials: { unboundRefs: async () => options.unbound ?? [] },
   });
   const routed: Routed =
@@ -601,6 +613,22 @@ describe("POST /v1/agents/{id}/releases", () => {
         code: "UNSUPPORTED_CAPABILITY",
         message:
           "repository_id: Profile coding needs a repository: send repository_id",
+      },
+    });
+  });
+
+  test("a profile the operator blocked is 409 PROFILE_BLOCKED naming it", async () => {
+    const response = await send(
+      app(store(), { blocked: true }),
+      "POST",
+      path,
+      body,
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: "PROFILE_BLOCKED",
+        details: { reason_code: "blocked", profile_id: "coding" },
       },
     });
   });

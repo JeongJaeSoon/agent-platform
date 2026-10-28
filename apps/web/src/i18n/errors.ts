@@ -33,6 +33,8 @@ export const errorsKo = {
     "다른 곳에서 먼저 바꿨습니다 — 다시 불러온 뒤 시도하세요.",
   "error.PROFILE_DIGEST_MISMATCH":
     "릴리스를 만든 뒤 프로필 설정이 바뀌었습니다 — 새 릴리스를 만드세요.",
+  "error.PROFILE_BLOCKED":
+    "운영자가 이 프로필의 설치 상한을 차단했습니다 — 차단이 풀릴 때까지 새 릴리스와 세션에 쓸 수 없습니다.",
   "error.ALREADY_EXISTS": "같은 식별자(slug)가 이미 있습니다.",
   "error.SLACK_LINK_NOT_CONFIGURED":
     "Slack 계정 연결을 아직 쓸 수 없습니다 — 워크스페이스 관리자에게 Slack 연결 설정을 요청하세요.",
@@ -75,6 +77,8 @@ export const errorsEn: Record<keyof typeof errorsKo, string> = {
     "Someone changed this first — reload and try again.",
   "error.PROFILE_DIGEST_MISMATCH":
     "The profile changed after this release was created — create a new release.",
+  "error.PROFILE_BLOCKED":
+    "The operator blocked this profile's installation ceiling — no new release or session can use it until it is unblocked.",
   "error.ALREADY_EXISTS": "That identifier (slug) is already taken.",
   "error.SLACK_LINK_NOT_CONFIGURED":
     "Slack account linking isn't available yet — ask a workspace admin to set up the Slack connection.",
@@ -122,6 +126,8 @@ export const errorsJa: Record<keyof typeof errorsKo, string> = {
     "ほかの人が先に変更しました。再読み込みしてから、もう一度お試しください。",
   "error.PROFILE_DIGEST_MISMATCH":
     "このリリースの作成後にプロファイルが変更されました。新しいリリースを作成してください。",
+  "error.PROFILE_BLOCKED":
+    "運用担当者がこのプロファイルのインストール上限をブロックしました。解除されるまで、新しいリリースとセッションでは使えません。",
   "error.ALREADY_EXISTS": "この識別子（slug）はすでに使われています。",
   "error.SLACK_LINK_NOT_CONFIGURED":
     "Slack アカウント連携はまだ使えません。ワークスペースの管理者に Slack 連携の設定を依頼してください。",

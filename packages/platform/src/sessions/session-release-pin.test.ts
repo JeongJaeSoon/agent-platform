@@ -64,7 +64,7 @@ function setup(
     unbound?: string[];
     contacts?: AgentContact[];
     /** What the acceptance finds: an earlier acceptance, or an unbind. */
-    accept?: "replayed" | "credential_unbound";
+    accept?: "replayed" | "credential_unbound" | "unsupported";
     catalog?: SessionCatalog;
     releaseProfile?: string;
   } = {},
@@ -505,5 +505,28 @@ describe("attachment rules", () => {
         retiredAllowed: true,
       }),
     ).toMatchObject({ state: "blocked" });
+  });
+
+  test("a session without a release on a blocked ceiling, or a version over it, is refused as PROFILE_BLOCKED naming the profile", async () => {
+    const refusal = async (profileId: string) => {
+      const { service, caller } = setup({
+        catalog: catalogIn("blocked"),
+        accept: "unsupported",
+      });
+      return service
+        .createSession(caller, {
+          idempotencyKey: "k",
+          body: { ...body, profile_id: profileId },
+        })
+        .catch((error: unknown) => error);
+    };
+    expect(await refusal("coding-v1")).toMatchObject({
+      code: "PROFILE_BLOCKED",
+      details: { reason_code: "blocked", profile_id: "coding-v1" },
+    });
+    expect(await refusal(over.id)).toMatchObject({
+      code: "PROFILE_BLOCKED",
+      details: { reason_code: "base_blocked", profile_id: over.id },
+    });
   });
 });

@@ -343,6 +343,47 @@ describe("agent service", () => {
     ).toBe("UNSUPPORTED_CAPABILITY");
   });
 
+  test("a blocked ceiling refuses a new release and the activation of one made before by name", async () => {
+    const memory = memoryStore();
+    const { release: made } = await serviceOver(memory.store).createRelease(
+      owner,
+      AGENT,
+      release,
+    );
+    const open = catalogOf(PROFILE);
+    const coding = open.installation?.get("coding");
+    if (!open.installation || !coding) throw new Error("no seeded ceiling");
+    const blocked = createAgentService({
+      authorization: createAuthorizationPolicy(),
+      store: memory.store,
+      catalog: {
+        ...open,
+        installation: new Map([
+          ...open.installation,
+          ["coding", { ...coding, state: "blocked" }],
+        ]),
+      },
+      credentials: { unboundRefs: async () => [] },
+    });
+    const byName = {
+      code: "PROFILE_BLOCKED",
+      details: { reason_code: "blocked", profile_id: "coding" },
+    };
+    expect(
+      await blocked
+        .activateAgent(owner, AGENT, {
+          release_id: made.id,
+          expected_revision: -1,
+        })
+        .catch((error: unknown) => error),
+    ).toMatchObject(byName);
+    expect(
+      await blocked
+        .createRelease(owner, AGENT, release)
+        .catch((error: unknown) => error),
+    ).toMatchObject(byName);
+  });
+
   test("activation refuses a release whose profile changed, or of another agent, without reaching the store", async () => {
     const memory = memoryStore();
     const { release: made } = await serviceOver(memory.store).createRelease(

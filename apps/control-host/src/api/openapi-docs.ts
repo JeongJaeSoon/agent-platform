@@ -219,6 +219,8 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
     "The release names a credential its agent has no live binding for; an agent admin must bind it first.",
   PROFILE_DIGEST_MISMATCH:
     "The runtime profile's settings changed since the release was made; release the agent again.",
+  PROFILE_BLOCKED:
+    "The operator blocked the installation profile named, or the one the workspace profile named narrows. `error.details.reason_code` is `blocked` (the profile named) or `base_blocked` (its base), and `error.details.profile_id` is the profile named. Nothing new runs on it until the operator unblocks it.",
   LOGIN_LINK_REQUIRED:
     "The verified address already has an account. It is never joined by email: sign in with the existing account and link the external login there.",
   PUSH_SOURCE_MISSING:

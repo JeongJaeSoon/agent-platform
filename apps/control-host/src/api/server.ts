@@ -538,7 +538,8 @@ const slackApps = createSlackAppService({
     } catch (error) {
       if (
         error instanceof SessionServiceError &&
-        error.code === "PROFILE_DIGEST_MISMATCH"
+        (error.code === "PROFILE_DIGEST_MISMATCH" ||
+          error.code === "PROFILE_BLOCKED")
       ) {
         return {
           code: "profile_unavailable",

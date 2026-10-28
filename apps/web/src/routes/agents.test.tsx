@@ -195,6 +195,30 @@ describe("agentRefusal", () => {
       `${translate("ko", "error.BAD_REQUEST")} card.model: required`,
     );
   });
+
+  test("운영자 차단은 막힌 프로필을 이름으로 말한다", () => {
+    const blocked = (locale: Locale, details: unknown) =>
+      agentRefusal(
+        (key, vars) => translate(locale, key, vars),
+        {
+          code: "PROFILE_BLOCKED",
+          message: "Profile coding-v1 is blocked by the operator",
+          status: 409,
+          details,
+        } as unknown as ApiError,
+        "owner",
+      );
+    const ceiling = { reason_code: "blocked", profile_id: "coding-v1" };
+    const over = { reason_code: "base_blocked", profile_id: "ws_acme_v1" };
+    expect(blocked("ko", ceiling)).toBe(
+      "운영자가 설치 상한 coding-v1을(를) 차단했습니다. 차단이 풀릴 때까지 이 프로필로는 릴리스를 만들거나 활성화할 수 없습니다.",
+    );
+    expect(blocked("en", over)).toBe(
+      "The operator blocked the installation ceiling that profile ws_acme_v1 narrows. Until it is unblocked, no release on it can be created or activated.",
+    );
+    expect(blocked("ja", ceiling)).toContain("coding-v1");
+    expect(blocked("ko", null)).toBe(translate("ko", "error.PROFILE_BLOCKED"));
+  });
 });
 
 describe("에이전트 목록", () => {

@@ -89,6 +89,19 @@ export class SessionServiceError extends Error {
   }
 }
 
+/** An operator block as its own error, or null for any other refusal. */
+export function profileBlockedError(
+  profileId: string,
+  refusal: { state: string; message: string } | null,
+): SessionServiceError | null {
+  return refusal?.state === "blocked" || refusal?.state === "base_blocked"
+    ? new SessionServiceError("PROFILE_BLOCKED", refusal.message, undefined, {
+        reason_code: refusal.state,
+        profile_id: profileId,
+      })
+    : null;
+}
+
 export function idempotencyConflict(): never {
   throw new SessionServiceError(
     "IDEMPOTENCY_CONFLICT",
@@ -648,12 +661,15 @@ export function createSessionService(deps: {
         case "storage_exhausted":
           throw limitError(result);
         case "unsupported":
-          throw new SessionServiceError(
-            "UNSUPPORTED_CAPABILITY",
-            allowed && !runs
-              ? `Profile ${profileId} does not offer model ${input.body.model}`
-              : (workspaceRefusal?.message ??
-                  repositoryRefusal(profileId, repositoryId)),
+          throw (
+            profileBlockedError(profileId, workspaceRefusal) ??
+            new SessionServiceError(
+              "UNSUPPORTED_CAPABILITY",
+              allowed && !runs
+                ? `Profile ${profileId} does not offer model ${input.body.model}`
+                : (workspaceRefusal?.message ??
+                    repositoryRefusal(profileId, repositoryId)),
+            )
           );
         case "actor_inactive":
           throw new SessionServiceError(

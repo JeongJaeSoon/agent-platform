@@ -367,7 +367,10 @@ export function createSlackSessionHandler(
         await notice("repository_required", {
           text: SLACK_NOTICE_MESSAGES.repositoryRequired,
         });
-      } else if (error.code === "PROFILE_DIGEST_MISMATCH") {
+      } else if (
+        error.code === "PROFILE_DIGEST_MISMATCH" ||
+        error.code === "PROFILE_BLOCKED"
+      ) {
         await notice("profile_unavailable", {
           text: SLACK_NOTICE_MESSAGES.profileUnavailable,
         });

@@ -120,7 +120,7 @@ curl -sS -X POST "$API/v1/installation-profiles/claude-coding-local/block" "${WE
 ```
 
 - プロファイルは **ブロック中** (`blocked`) になり、その上のワークスペースのプロファイルは **ベースプロファイルブロック中** (`base_blocked`) になる。
-- 新しいリリースとセッションは 422 で拒否される。次の入力を待っていたセッションは次のターンを始めるときに `catalog_mismatch` で終わり、いま動いているターンは 1 秒ほどでモデルとリポジトリへのリクエストが切れる。
+- 新しいリリース、リリースの有効化、セッションは `409 PROFILE_BLOCKED` で拒否される。`error.details.reason_code` は `blocked`(選んだプロファイルがブロック中)か `base_blocked`(そのベースがブロック中)で、`error.details.profile_id` は選んだプロファイルである。次の入力を待っていたセッションは次のターンを始めるときに `catalog_mismatch` で終わり、いま動いているターンは 1 秒ほどでモデルとリポジトリへのリクエストが切れる。
 - `POST /v1/installation-profiles/{profile_id}/unblock` で解除すると元の状態に戻る。終わったセッションとターンは自動では動き直さないので、必要な入力をもう一度送る。
 - すでにその状態なら何も変わらず、`receipt_id` は `null` になる。
 

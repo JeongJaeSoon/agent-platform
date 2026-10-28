@@ -71,6 +71,8 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
     "owner 역할을 주거나 owner의 역할을 바꾸는 일은 owner만 할 수 있습니다 — owner에게 요청하세요.",
   PROFILE_DIGEST_MISMATCH:
     "이 release를 만든 뒤 실행 프로필 설정이 바뀌었습니다 — 같은 버전을 다시 release한 뒤 활성화하세요.",
+  PROFILE_BLOCKED:
+    "운영자가 이 프로필의 설치 상한을 차단했습니다 — 차단이 풀릴 때까지 기다리거나 다른 프로필을 고르세요.",
   ALREADY_EXISTS: "같은 이름이 이미 있습니다 — 다른 slug를 고르세요.",
   CATALOG_MISMATCH:
     "이 세션의 프로필·저장소 조합이 더 이상 허용되지 않아 입력이 처리되지 않았습니다 — 운영자가 카탈로그를 되돌린 뒤 다시 보내세요.",

@@ -420,19 +420,26 @@ describe("installation ceilings from the API", () => {
       )?.workspace?.state;
       expect(narrowedState).toBe("base_blocked");
       const newRelease = await releaseOn(V2);
-      expect(newRelease.status).toBeGreaterThanOrEqual(400);
+      expect([newRelease.status, reasonOf(newRelease.body)]).toEqual([
+        409,
+        "blocked",
+      ]);
       const bare = await api.request("POST", "/v1/sessions", {
         profile_id: narrowedId,
         repository_id: REPOSITORY_ID,
         message: scripted("ceiling-blocked", [], "ceiling-blocked done"),
       });
-      expect(bare.status).toBeGreaterThanOrEqual(400);
+      expect([bare.status, reasonOf(bare.body)]).toEqual([409, "base_blocked"]);
       const onRelease = await api.request("POST", "/v1/sessions", {
         agent_release_id: releasedV2.body.release.id,
         repository_id: REPOSITORY_ID,
         message: scripted("ceiling-release", [], "ceiling-release done"),
       });
-      expect(onRelease.status).toBeGreaterThanOrEqual(400);
+      expect([
+        onRelease.status,
+        (onRelease.body as ErrorBody).error?.code,
+        reasonOf(onRelease.body),
+      ]).toEqual([409, "PROFILE_BLOCKED", "blocked"]);
       const next = await api.send(
         running.session_id,
         scripted("ceiling-next", [], "ceiling-next done"),
