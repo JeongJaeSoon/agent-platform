@@ -38,7 +38,14 @@ const write = (n: number) => ({
   expires_at: `2026-10-29T00:30:0${n}Z`,
 });
 
-function fakeQuestions(options: { lastTurn: "completed" | "failed" }) {
+function fakeQuestions(options: {
+  lastTurn: "completed" | "failed";
+  conflict?: [number, string];
+}) {
+  const [conflictStatus, conflictCode] = options.conflict ?? [
+    409,
+    "IDEMPOTENCY_CONFLICT",
+  ];
   const requests = [question, write(2), write(3)];
   let turns = 1;
   const answers = new Map<string, unknown>();
@@ -65,7 +72,7 @@ function fakeQuestions(options: { lastTurn: "completed" | "failed" }) {
       );
       const stored = answers.get(request_id);
       if (stored && JSON.stringify(stored) !== JSON.stringify(body))
-        return apiError(409, "IDEMPOTENCY_CONFLICT");
+        return apiError(conflictStatus, conflictCode);
       answers.set(request_id, body);
       return json(
         { receipt_id: `answer-${request_id}`, receipt_status: "accepted" },
@@ -147,4 +154,15 @@ test("fails when a turn does not complete", async () => {
   );
   expect(exit).toBe(1);
   expect(stderr).toContain("a turn did not complete");
+});
+
+test("fails when a second answer is refused for another reason", async () => {
+  const { exit, stdout, stderr } = await runSample(
+    SAMPLE,
+    fakeQuestions({ lastTurn: "completed", conflict: [403, "FORBIDDEN"] })
+      .route,
+  );
+  expect(exit).toBe(1);
+  expect(stdout).not.toContain("second answer:");
+  expect(stderr).toContain("was not refused as a conflict");
 });

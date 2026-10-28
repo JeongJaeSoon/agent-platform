@@ -51,7 +51,8 @@ async function run(): Promise<void> {
   const second = await first.nextPage();
   if (!second) throw new Error("expected a second page");
   console.log(`page 2: ${describe(second)}`);
-  console.log(`page 3: ${(await second.nextPage()) ?? "null"}`);
+  if (await second.nextPage()) throw new Error("expected no third page");
+  console.log("page 3: null");
 
   // `for await` walks every page.
   const seen: string[] = [];

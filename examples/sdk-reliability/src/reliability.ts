@@ -77,8 +77,10 @@ async function run(): Promise<void> {
         new URL(request.url).pathname.endsWith("/messages");
       if (message) keys.push(request.headers.get("idempotency-key"));
       const response = await fetch(request);
-      if (message && keys.length === 1)
+      if (message && keys.length === 1) {
+        await response.body?.cancel();
         throw new TypeError("connection reset after the server answered");
+      }
       return response;
     },
   });
