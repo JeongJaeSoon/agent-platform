@@ -146,13 +146,6 @@
         "@werft-ai/testkit": "workspace:*",
       },
     },
-    "examples/sdk-approver": {
-      "name": "@werft-ai/example-sdk-approver",
-      "version": "0.0.0",
-      "dependencies": {
-        "@werft-ai/sdk": "workspace:*",
-      },
-    },
     "packages/adapters/execution/kubernetes": {
       "name": "@werft-ai/execution-kubernetes",
       "version": "0.0.0",
@@ -1367,8 +1360,6 @@
     "@werft-ai/docs": ["@werft-ai/docs@workspace:apps/docs"],
 
     "@werft-ai/egress-proxy": ["@werft-ai/egress-proxy@workspace:apps/egress-proxy"],
-
-    "@werft-ai/example-sdk-approver": ["@werft-ai/example-sdk-approver@workspace:examples/sdk-approver"],
 
     "@werft-ai/execution-kubernetes": ["@werft-ai/execution-kubernetes@workspace:packages/adapters/execution/kubernetes"],
 

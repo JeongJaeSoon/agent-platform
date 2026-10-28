@@ -4,7 +4,7 @@
 
 ## 준비
 
-저장소 루트에서 `bun install --frozen-lockfile`을 실행한다. 이 샘플은 workspace의 `@werft-ai/sdk`(`packages/sdk`)를 쓴다. 저장소 밖에서는 npm 배포본을 `npm install @werft-ai/sdk`로 설치하고 같은 파일을 Node 22.18 이상(`node session-close.ts`)이나 Bun으로 돌린다. SDK는 서버나 스크립트에서 사용하고 브라우저에 API key를 넣지 않는다.
+저장소 루트에서 `bun install --frozen-lockfile`을 실행한다. 이 샘플은 workspace의 `@werft-ai/sdk`(`packages/sdk`)를 쓰고, 루트 `tsconfig.json`이 타입 검사한다. 저장소 밖에서는 npm 배포본을 `npm install @werft-ai/sdk`로 설치하고 같은 파일을 Node 22.18 이상(`node session-close.ts`)이나 Bun으로 돌린다. SDK는 서버나 스크립트에서 사용하고 브라우저에 API key를 넣지 않는다.
 
 이 디렉터리는 SDK와 같이 [Apache License 2.0](../LICENSE)을 따른다.
 

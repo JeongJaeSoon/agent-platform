@@ -7,8 +7,7 @@
     "apps/*",
     "packages/*",
     "packages/adapters/execution/*",
-    "packages/adapters/runtimes/*",
-    "examples/*"
+    "packages/adapters/runtimes/*"
   ],
   "scripts": {
     "typecheck": "bun run --filter '*' typecheck && tsc -p .",
