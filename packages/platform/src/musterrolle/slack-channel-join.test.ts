@@ -160,7 +160,7 @@ describe("joining a bound channel", () => {
       workspaceId: WORKSPACE,
       agentId: AGENT,
       channelId: "C1",
-      mode: "mention",
+      mode: "on",
       membership: null,
     } as SurfaceBindingRecord;
     expect(await joiner(base)).toEqual({ state: "joined", error: null });

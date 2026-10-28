@@ -324,7 +324,7 @@ async function installedAgent() {
   const bind = (channelId: string, home: boolean) =>
     bindings.putSlackBinding(owner, agentId, {
       channel_id: channelId,
-      mode: "mention",
+      mode: "on",
       home,
     });
   const finalize = () =>

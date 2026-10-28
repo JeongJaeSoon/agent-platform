@@ -202,7 +202,7 @@ function bind(channelId: string | null, binding: Binding) {
     installationId: INSTALLATION,
     channelId,
     channelKind: channelId === null ? "dm" : "public_channel",
-    mode: "mention",
+    mode: "on",
     ceiling: everything,
     home: false,
     memoryWritePolicy: "deny",

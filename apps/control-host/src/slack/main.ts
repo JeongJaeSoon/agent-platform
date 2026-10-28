@@ -22,6 +22,7 @@ import {
   createPostgresSurfaceBindingStore,
   createPostgresWorkspaceProfileStore,
   type Database,
+  getSlackAppSettings,
 } from "@werft-ai/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import {
@@ -234,6 +235,10 @@ export function slackSessionHandler(deps: {
     agents: identities,
     links: createPostgresLinkedAccountStore(db),
     bindings,
+    settings: {
+      getSettings: (workspaceId, agentId) =>
+        getSlackAppSettings(db, workspaceId, agentId),
+    },
     sessionLinks: createPostgresSessionLinkStore(db),
     sessions,
     agentDetails: agentStore,

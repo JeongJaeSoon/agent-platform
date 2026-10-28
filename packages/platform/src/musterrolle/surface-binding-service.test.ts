@@ -82,7 +82,7 @@ describe("a Slack binding's channel kind is Slack's answer (94S-177)", () => {
     const put = await bindings.putSlackBinding(caller, AGENT, {
       channel_id: "C0OPS",
       channel_kind: "public_channel",
-      mode: "mention",
+      mode: "on",
       home: false,
     });
     expect(put.slack_binding.surface_kind).toBe("private_channel");
@@ -94,7 +94,7 @@ describe("a Slack binding's channel kind is Slack's answer (94S-177)", () => {
     const { bindings, asked, stored } = service(async () => "dm");
     await bindings.putSlackBinding(caller, AGENT, {
       channel_id: null,
-      mode: "mention",
+      mode: "on",
       home: false,
     });
     expect(asked).toEqual([]);
@@ -102,7 +102,7 @@ describe("a Slack binding's channel kind is Slack's answer (94S-177)", () => {
       await codeOf(
         bindings.putSlackBinding(caller, AGENT, {
           channel_id: "D0SOMEONE",
-          mode: "mention",
+          mode: "on",
           home: false,
         }),
       ),
