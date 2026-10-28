@@ -198,11 +198,14 @@ describe("app shell", () => {
     });
   }
 
-  // One form or settings column stops inside the frame; lists use it all.
+  // Every settings tab and form stops at one width inside the frame, head
+  // and sections alike; other lists use it all.
   for (const [path, title, width] of [
     ["/sessions", "세션", "full"],
-    ["/settings/api-keys", "API 키", "full"],
+    ["/settings/api-keys", "API 키", "form"],
     ["/settings/workspace", "일반", "form"],
+    ["/settings/workspace/slack", "Slack 연결 설정", "form"],
+    ["/settings/workspace/api-keys", "조직 관리 키", "form"],
     ["/settings/preferences", "언어·테마", "form"],
     ["/settings/linked-accounts", "연동 계정", "form"],
     ["/settings/api-keys/new", "새 개인 키", "form"],
@@ -215,10 +218,7 @@ describe("app shell", () => {
         name: title,
       });
       expect(
-        heading
-          .closest('[data-slot="page"]')
-          ?.querySelector("[data-width]")
-          ?.getAttribute("data-width"),
+        heading.closest('[data-slot="page"]')?.getAttribute("data-width"),
       ).toBe(width);
     });
   }

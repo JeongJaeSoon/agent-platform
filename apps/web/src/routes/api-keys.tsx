@@ -378,6 +378,7 @@ function KeysScreen({ kind }: { readonly kind: KeyKind }) {
     // The head comes first, as on every page; the two key screens' tabs open
     // its body.
     <Page
+      width="form"
       title={t("apiKeys.title")}
       description={t(screen.intro)}
       actions={
