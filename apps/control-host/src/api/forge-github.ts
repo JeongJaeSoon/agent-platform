@@ -447,10 +447,44 @@ function failure(
     request: what,
     ...(status === undefined ? {} : { status }),
     error,
+    ...githubReason(cause),
   });
   return new ForgeCredentialError(
     `GitHub ${what} failed${status === undefined ? ` (${error})` : ` (${status})`}`,
   );
+}
+
+const REASON_MAX_LENGTH = 200;
+
+/**
+ * GitHub's own words for a refused call (a 422 says which field and why).
+ * The error body echoes no token: it carries `message`, `errors` and a
+ * documentation link, and only those first two are kept, cut short.
+ */
+function githubReason(cause: unknown): {
+  github_message?: string;
+  github_errors?: string[];
+} {
+  const data = (cause as { response?: { data?: unknown } })?.response?.data;
+  if (typeof data !== "object" || data === null) return {};
+  const cut = (text: string) => text.slice(0, REASON_MAX_LENGTH);
+  const { message, errors } = data as { message?: unknown; errors?: unknown };
+  const reasons = Array.isArray(errors)
+    ? errors.slice(0, 5).map((entry) =>
+        cut(
+          typeof entry === "string"
+            ? entry
+            : ["resource", "field", "code", "message"]
+                .map((key) => (entry as Record<string, unknown>)?.[key])
+                .filter((part) => typeof part === "string")
+                .join(" "),
+        ),
+      )
+    : [];
+  return {
+    ...(typeof message === "string" ? { github_message: cut(message) } : {}),
+    ...(reasons.length > 0 ? { github_errors: reasons } : {}),
+  };
 }
 
 /**

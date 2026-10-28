@@ -87,6 +87,32 @@ describe("GitHub forge pull requests", () => {
     expect(github.tokenRequests.length - tokensBefore).toBe(1);
   });
 
+  test("a refused create logs GitHub's reason, not only its status", async () => {
+    const { forge, warnings } = appForge();
+    const error = await forge
+      .createPullRequest(repo, {
+        head: "agent/missing",
+        base: "main",
+        title: "nowhere",
+        body: "",
+      })
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
+    expect(error).toBeInstanceOf(ForgeCredentialError);
+    expect(warnings).toEqual([
+      {
+        message: "GitHub request failed",
+        request: "pull request create",
+        status: 422,
+        error: "HttpError",
+        github_message: "Validation Failed",
+        github_errors: ["head"],
+      },
+    ]);
+  });
+
   test("an open pull request is found even when a newer one for the branch is closed", async () => {
     const { forge } = appForge();
     const pulls = github.pullRequests("acme", "app");
