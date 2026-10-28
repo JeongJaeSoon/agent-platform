@@ -46,7 +46,7 @@
 | `created_at` | timestamptz NOT NULL default now() | |
 | `retired_at`, `retired_by` | timestamptz, uuid FK users | 0174와 같은 짝 CHECK |
 
-- **행은 바뀌지 않는다.** 바뀌는 것은 `retired_at`·`retired_by`뿐이다. 상한을 고치면 같은 `name`의 다음 버전이 새 id로 생긴다(오너 결정 2). 기존 워크스페이스 판과 release는 옛 id를 그대로 가리키므로 멈추지 않는다. 지금은 YAML을 제자리에서 고치면 그 id의 세션이 모두 `CATALOG_MISMATCH`가 되는데(`docs/operator/api-server.md:88`), 이 경로가 없어진다. 가져온 행을 바꾸는 CLI·API도 두지 않는다.
+- **행은 바뀌지 않는다.** 바뀌는 것은 `retired_at`·`retired_by`뿐이다. 상한을 고치면 같은 `name`의 다음 버전이 새 id로 생긴다(오너 결정 2). 기존 워크스페이스 판과 release는 옛 id를 그대로 가리키므로 멈추지 않는다. 지금은 YAML을 제자리에서 고쳐 지문에 드는 실행 설정(tools·permission_mode·endpoint·runtime 등)을 바꾸거나 쓰던 모델을 빼면 그 id의 release·세션·판이 거절된다(`docs/operator/api-server.md:88`, `catalog.ts:896-903`, `685-694`). 모델을 더하는 것은 멈추지 않는다(`catalog.ts:183-184`). 불변 버전에서는 바꾼 내용이 새 id로 가므로 옛 id 쪽은 어느 경우에도 멈추지 않는다. 가져온 행을 바꾸는 CLI·API도 두지 않는다.
 - **`definition`을 프로필 항목 그대로 두는 이유.** DB 행을 `SessionCatalogConfig`의 한 항목으로 되돌린 뒤 지금의 `sessionCatalogView`(`catalog.ts:1170-1194`)와 `resolveSessionCatalog`(`catalog.ts:1202-1238`)를 그대로 통과시킨다. YAML에서 읽은 것과 DB에서 읽은 것이 같은 함수를 지나므로 같은 항목이면 같은 객체가 나온다. 열을 나눠 다시 조립하면 키 하나(`repository` 생략 규칙, `catalog.ts:420-421`, `1185`)만 어긋나도 지문이 달라진다.
 - **이름 공간.** YAML에 `ws_`로 시작하는 id가 있으면 지금처럼 기동을 거부한다(`catalog.ts:348-355`). `op_`는 거부하지 않는다. 지금 유효한 `op_…` id가 있을 수 있고, 그 id를 바꾸면 release·세션 핀이 깨지기 때문이다. 콘솔이 만들 id가 이미 있는 행(가져온 `op_…` 포함)과 같으면 저장은 `409`(`reason_code: id_taken`)이고 다른 이름을 고른다. 콘솔의 `name`은 `[a-z0-9-]`만 받으므로(`profiles.ts:32-34`와 같은 규칙) 이 충돌은 YAML id가 `op_<name>_v<n>` 모양일 때만 생긴다.
 
@@ -73,7 +73,8 @@ connections:
 - 항목 하나는 지금 프로필의 `provider` 값 하나와 같은 모양이다(`catalog.ts:116-133`).
 - DB 행의 `definition.provider`는 어떤 연결과 정확히 같아야 돈다(canonical JSON 비교). 같은 연결이 없으면 그 행의 상태는 `connection_missing`이고 아무것도 돌리지 않는다.
 - 자격 증명은 연결의 참조만 푼다. 지금 `catalogCredentialRefs`가 프로필에서 참조를 모으는 자리(`catalog-config.ts:176-189`)가 연결에서 모으게 된다. 그래서 DB 행이 새 `value_env`·`secret_id`나 새 endpoint를 들여올 길이 없다. 콘솔에서 상한을 만들 때는 `connection_id`만 고르고, 서버가 그 연결의 provider를 `definition`에 복사한다.
-- 연결 집합은 `connections.yaml`의 항목과 `profiles.yaml` 각 항목의 provider(그 프로필 id를 이름으로)를 합친 것이다. `profiles.yaml`이 없어지는 PD-5부터는 `connections.yaml`만 남는다. 이 파일을 읽는 일은 PD-2(확장)부터 한다. 그래야 PD-3에서 새 연결과 그 위의 상한을 만든 뒤 PD-2 이미지로 되돌려도 그 연결의 자격 증명이 풀린다.
+- 연결 집합은 하나의 출처에서만 온다. `connections.yaml`이 있으면 그 파일의 항목만이다. 없으면(PD-2~PD-4 기간에 아직 파일을 만들지 않은 설치) `profiles.yaml` 각 항목의 provider를 그 프로필 id를 이름으로 한 연결로 본다. 둘을 합치지 않는 것은 연결을 빼는 일이 회수 수단으로 늘 작동하게 하기 위해서다. 합치면 YAML 프로필에 남은 provider가 파일에서 뺀 연결을 되살린다.
+- 이 파일을 읽는 일은 PD-2(확장)부터 한다. 그래야 PD-3에서 새 연결과 그 위의 상한을 만든 뒤 PD-2 이미지로 되돌려도 그 연결의 자격 증명이 풀린다. `profiles.yaml`에서 `connections.yaml`을 만드는 CLI(`bun run profiles connections-from-yaml`)도 PD-2가 만들고, `profiles import --check`는 연결이 없는 행을 보고한다. PD-5 이미지는 `connections.yaml`이 없으면 기동하지 않는다.
 
 ### 저장소 허용
 
@@ -129,11 +130,13 @@ connections:
 - **언제:** api 역할이 기동할 때, 레지스트리를 처음 읽기 전에 한 번. slack 역할은 가져오지 않고 레지스트리를 읽기만 한다. 워크스페이스가 아직 없는 빈 설치(bootstrap 전)에서도 돈다. 가져오기는 워크스페이스에 묶이지 않는다.
 - **무엇을:** `profiles.yaml`의 각 항목을 `installation_profiles` 행 하나로(`origin = 'catalog'`, `version = 1`, `name = id`, `repository_ids = []`).
 - **멱등 키는 `id`다.** `INSERT … ON CONFLICT (id) DO NOTHING`. 같은 YAML로 두 번, 세 번 돌려도 행 수와 내용이 같다. 여러 replica가 같이 떠도 advisory lock(`profiles:import`) 아래에서 차례로 돈다. bootstrap이 같은 방식을 쓴다(`identity.ts:78-79`).
-- **시드 규칙(오너 결정 4, 오너 확인 대기·기본값 적용):** PD-2~PD-4는 기동마다 위 insert-if-absent를 한다(확장·전환 기간에 YAML에 새 id를 더하던 운영이 그대로 된다). PD-5부터는 `installation_profiles`가 비어 있을 때만 한다(새 설치와 로컬 스택이 바로 뜨는 초기 시드). 은퇴한 행이 있는 id는 이미 있는 id이므로 다시 넣지 않는다.
+- **시드 규칙(오너 결정 4, 오너 확인 대기·기본값 적용):** PD-2~PD-4는 기동마다 위 insert-if-absent를 한다. PD-5부터는 `installation_profiles`가 비어 있을 때만 한다(새 설치와 로컬 스택이 바로 뜨는 초기 시드). 은퇴한 행이 있는 id는 이미 있는 id이므로 다시 넣지 않는다.
+- **PD-2~PD-4 기간의 YAML 운영 규칙(한 가지):** 새 id를 더하는 것은 된다. 지금의 카탈로그 변경과 같아서 revision이 바뀌고 지금의 `catalog-authority` 롤아웃 절차(`api-server.md:43-52`)를 그대로 밟는다. 이미 있는 id를 고치거나 지우지는 않는다. 지워도 행은 남고(가져오기는 넣기만 한다), PD-3부터는 은퇴로 대신한다.
+- **어느 replica든 같은 집합을 본다:** PD-2 이미지는 자기 YAML에 있는 id는 그 YAML 값으로, 나머지 `origin = 'catalog'` 행(다른 replica가 넣었거나 YAML에서 지운 id)과 `op_` 행은 DB 값으로 푼다. 자기 YAML도 기동 때 DB에 넣었으므로 결과 id 집합은 언제나 DB의 집합이다. 그래서 replica A의 YAML이 `{a}`, B가 `{a, b}`여도 둘 다 `{a, b}`를 풀고, `catalogRevision`(`catalog.ts:1043-1059`)도 같은 집합으로 계산한다. 0단계 이미지만 자기 YAML 집합으로 계산하므로, 0단계와 섞인 동안 두 집합이 다르면 지금 카탈로그가 다른 replica가 섞일 때와 같다.
 - **이미 있는 id의 내용이 다를 때(충돌):** 비교 대상은 지문이 아니라 정규화한 `definition` 전체다(canonical JSON). 지문은 모델 목록을 빼므로 충돌을 놓친다. 행은 불변이라 덮어쓰지 않고, 기동 로그에 `Profile import conflict`(id, 서로 다른 최상위 칸 이름)를 남긴다.
   - 확장(PD-2): 그 replica는 자기 YAML 값으로 그 id를 푼다. replica마다 YAML이 다른 것은 지금도 있는 상황이고, 지금처럼 활성 catalog revision이 어느 replica가 세션을 실패시킬지 정한다(`api-server.md:43-52`).
   - 전환(PD-3) 이후: DB 값이 이긴다. YAML 값은 쓰지 않는다.
-  - 그래서 PD-3을 올리기 전에 각 replica의 설정 디렉터리로 `bun run profiles import --check`(PD-2가 만드는 읽기 전용 CLI)를 돌려 충돌 0을 확인한다. 충돌이 있으면 YAML을 DB 값으로 되돌리거나, 바꾼 내용을 새 id로 옮긴다. 같은 id의 제자리 수정은 지금도 그 id의 세션을 멈추게 하므로 권하지 않는 일이다(`api-server.md:246`).
+  - 그래서 PD-3을 올리기 전에 각 replica의 설정 디렉터리로 `bun run profiles import --check`(PD-2가 만드는 읽기 전용 CLI)를 돌린다. 보고하는 것: 같은 id의 `definition` 충돌, DB의 `origin = 'catalog'` id 중 이 YAML에 없는 것, 이 YAML의 id 중 DB에 없는 것, 연결이 없는 행, 그리고 이 YAML만으로 계산한 revision과 DB 집합으로 계산한 revision. 앞의 넷이 0이고 두 revision이 같아야 0으로 끝난다. 그래야 PD-3에서 PD-2로, PD-2에서 0단계로 되돌린 이미지가 같은 집합·같은 revision을 본다. 충돌이 있으면 YAML을 DB 값으로 되돌리거나 바꾼 내용을 새 id로 옮긴다. YAML에 없는 DB id가 있으면 그 id를 YAML에 되살린다(0단계로 되돌릴 일이 없다고 판단하면 남겨 두고 PD-3에서 은퇴시킨다).
 
 ### 기존 id와 프로필 객체를 지키는 방법
 
@@ -169,8 +172,8 @@ PD-2의 검증: `config/`, `config/fake-model/`, `config/fake-model-unattended/`
 |---|---|---|---|
 | 0. 지금 | — | YAML만 읽는다 | — |
 | 1. 확장 | PD-2 | 테이블 추가, 기동 때 가져오기, `connections.yaml` 읽기, 레지스트리(api·slack). 가져온 id의 정본은 그 replica의 YAML, `op_` 행은 DB | 0단계 이미지는 새 테이블과 `connections.yaml`을 읽지 않고 YAML을 읽는다. 가져온 행과 YAML은 같은 객체·revision이므로 release·세션·워크스페이스 판이 같은 프로필로 풀린다. 이 단계에는 `op_` 행을 만드는 API가 없으므로 0단계 이미지가 모르는 프로필도 없다 |
-| 2. 전환 | PD-3(API), PD-4(콘솔) | DB가 정본. 상한 쓰기 API. `profiles.yaml`은 없어도 뜬다 | 1단계 이미지는 `op_` 행, `repository_ids`, `connections.yaml`의 새 연결을 이미 읽으므로 콘솔에서 만든 상한과 그 위의 판·release가 계속 돈다. 가져온 행은 YAML과 같다(전환 전 `import --check` 충돌 0). 운영자는 전환 기간에 `profiles.yaml`을 지우지도 고치지도 않는다 |
-| 3. 정리 | PD-5 | `profiles.yaml`은 빈 테이블일 때의 시드로만 읽는다. 그 provider를 연결로 읽던 일을 멈춘다 | 2단계 이미지는 이미 `profiles.yaml` 없이 뜨고 `connections.yaml`을 읽는다. 행과 revision은 그대로다. `profiles.yaml`은 정리 이미지가 안정된 뒤에 지운다. 지우기 전에 그 provider가 모두 `connections.yaml`에 있어야 한다(PD-5의 CLI가 만든다) |
+| 2. 전환 | PD-3(API), PD-4(콘솔) | DB가 정본. 상한 쓰기 API. `profiles.yaml`은 없어도 뜬다 | 1단계 이미지는 `op_` 행, `repository_ids`, `connections.yaml`의 새 연결을 이미 읽으므로 콘솔에서 만든 상한과 그 위의 판·release가 계속 돈다. 가져온 행의 집합·내용·revision은 YAML과 같다(전환 전 `import --check`가 0). 운영자는 전환 기간에 `profiles.yaml`의 기존 id를 고치거나 지우지 않는다 |
+| 3. 정리 | PD-5 | `profiles.yaml`은 빈 테이블일 때의 시드로만 읽는다. 연결은 `connections.yaml`에서만 읽고, 이 파일이 없으면 기동하지 않는다 | **PD-5를 올리기 전에** 운영자가 `connections-from-yaml`로 `connections.yaml`을 만들고 `import --check`로 연결 없는 행 0을 확인한다(PD-2부터 할 수 있다). 2단계 이미지는 이미 그 파일을 유일한 연결 출처로 읽고 `profiles.yaml` 없이도 뜬다. 행과 revision은 그대로다. `profiles.yaml`은 정리 이미지가 안정된 뒤에 지운다 |
 
 알려진 한계: 0단계 이미지로 되돌리면 `op_` 상한과 그 위 판으로 만든 세션은 0단계 이미지가 모르는 id라 첫 claim에서 `catalog_mismatch`가 되고 입력은 남는다. 0174 배포 때와 같은 한계이고 같은 규칙으로 막는다: 모든 replica가 1단계 이상이 된 뒤에 2단계를 올린다(`api-server.md:96`). 2단계에서 0단계로 한 번에 내리지 않는다.
 
@@ -194,7 +197,7 @@ PD-2의 검증: `config/`, `config/fake-model/`, `config/fake-model-unattended/`
 | 새 release, release 없는 새 세션, 새 판의 바탕 | 거절 | 거절 | 거절 |
 | 이미 만든 release의 새 세션, 진행 중인 세션 | 돈다 | 돈다 | 돌지 않는다 |
 
-은퇴는 지금 판의 규칙(`api-server.md:90`)처럼 새 부착만 막는다. 상한을 실행 중에도 멈춰야 하는 경우(보안 회수)의 수단은 `bypassPermissions`에 대해서는 env이고, 그 밖에는 연결을 `connections.yaml`에서 빼는 것이다(`connection_missing`).
+은퇴는 지금 판의 규칙(`api-server.md:90`)처럼 새 부착만 막는다. 상한을 실행 중에도 멈춰야 하는 경우(보안 회수)의 수단은 `bypassPermissions`에 대해서는 env이고, 그 밖에는 연결을 빼는 것이다(`connection_missing`). `connections.yaml`이 있는 설치에서는 그 파일에서 빼면 된다. 아직 없는 설치(PD-2~PD-4)에서는 먼저 `connections-from-yaml`로 파일을 만든 뒤 뺀다. 연결 출처가 하나라 이 순서면 어느 단계 이미지로 되돌려도 뺀 연결이 되살아나지 않는다.
 
 - 새 경로는 `apps/control-host/src/api/openapi.ts`(지금 프로필 경로는 `3404`, `3438`, `3469`), `route-error-coverage.ts:86-87`, `packages/core`의 응답 표, `packages/client` 생성물에 같이 들어간다.
 
@@ -216,10 +219,10 @@ PD-2의 검증: `config/`, `config/fake-model/`, `config/fake-model-unattended/`
 
 | PR | 범위 | 검증 |
 |---|---|---|
-| PD-2 마이그레이션·이전(확장) | migration(다음 번호, 작성 시점 `0187`)으로 `installation_profiles` 추가. 기동 때 가져오기(advisory lock, insert-if-absent). `connections.yaml` 읽기와 연결 기반 자격 증명 해석. [한 레지스트리](#한-레지스트리)(api·slack, gateway claim 후보 포함). 저장소 허용 관계. env·연결·지문 검사. `profiles import --check` CLI | 실제 postgres 통합 테스트: 같은 카탈로그로 가져오기를 두 번 돌려 행 수·내용이 같다. 빈 DB(bootstrap 전)에서 가져오기. 두 replica가 동시에 기동. [위 비교 목록](#기존-id와-프로필-객체를-지키는-방법)을 네 카탈로그 전부에서. DB에 `op_` 행을 직접 넣고 release 생성·세션 시작·claim·provider egress가 그 행으로 도는지, env를 끈 프로세스에서는 bypass 상한과 그 위 판이 네 경로 모두에서 거절되는지(gateway·agent-service·slack 테스트). 0단계 이미지와 같은 DB에서 revision이 같다. `bun run typecheck`, `bun test` |
+| PD-2 마이그레이션·이전(확장) | migration(다음 번호, 작성 시점 `0187`)으로 `installation_profiles` 추가. 기동 때 가져오기(advisory lock, insert-if-absent). `connections.yaml` 읽기와 연결 기반 자격 증명 해석. [한 레지스트리](#한-레지스트리)(api·slack, gateway claim 후보 포함). 저장소 허용 관계. env·연결·지문 검사. `profiles import --check`, `profiles connections-from-yaml` CLI | 실제 postgres 통합 테스트: 같은 카탈로그로 가져오기를 두 번 돌려 행 수·내용이 같다. 빈 DB(bootstrap 전)에서 가져오기. 두 replica가 동시에 기동. YAML 집합이 다른 두 replica가 같은 id 집합과 revision을 푼다. `connections.yaml`이 있으면 YAML provider를 연결로 보지 않는다(빼면 `connection_missing`). [위 비교 목록](#기존-id와-프로필-객체를-지키는-방법)을 네 카탈로그 전부에서. DB에 `op_` 행을 직접 넣고 release 생성·세션 시작·claim·provider egress가 그 행으로 도는지, env를 끈 프로세스에서는 bypass 상한과 그 위 판이 네 경로 모두에서 거절되는지(gateway·agent-service·slack 테스트). 0단계 이미지와 같은 DB에서 revision이 같다. `bun run typecheck`, `bun test` |
 | PD-3 API 전환 | DB 정본으로 해석. 쓰기 API·`options`·`profile.installation.manage`. 상태·부착 규칙. `profiles.yaml` 없이 기동. OpenAPI·SDK·core 응답 표 | 서비스 테스트: owner만 상한 저장, admin·member `403`, API key `403`, env 꺼짐에서 bypass 저장 `400`, `id_taken`. 부착 규칙 표의 각 칸. **운영자 상한 E2E**(`tests/e2e`, fake model): owner가 상한 v2를 만들고 admin이 그 위에 판을 만들어 세션이 돈다. 상한 v1의 기존 release는 계속 돈다. v1을 은퇴하면 v1 위의 새 release는 거절되고 기존 release의 새 세션은 돈다. 같은 DB에서 PD-2 이미지로 되돌려 같은 세션이 계속 돈다 |
 | PD-4 콘솔 | 목록·상세·`/profiles/new`·`pickable`·i18n·stories | web 테스트, 390px 포함 화면 확인과 스크린샷, ui-review |
-| PD-5 YAML 읽기 정리 | `profiles.yaml`을 빈 테이블 시드로만. `profiles.yaml`의 provider로 `connections.yaml`을 만드는 CLI. 운영 문서(`docs/operator/api-server.md:80-96`, `240-250`), `apps/docs` | `profiles.yaml` 없이 기동, 같은 파일로 PD-4 이미지 기동(정리 → 전환 롤백). 빈 DB에서 `scripts/local.sh up --fake-model`이 시드로 뜬다. 채워진 DB에서는 YAML에 새 id를 더해도 넣지 않는다 |
+| PD-5 YAML 읽기 정리 | `profiles.yaml`을 빈 테이블 시드로만, `connections.yaml` 필수. 저장소의 네 설정 디렉터리(`config/`, `config/fake-model/`, `config/fake-model-unattended/`, `config/local-model/`)에 `connections.yaml`을 더한다(지금은 어디에도 없다). 운영 문서(`docs/operator/api-server.md:80-96`, `240-250`)에 "PD-5 전에 연결 파일 만들기" 단계, `apps/docs` | 기존 설치 업그레이드: PD-4에서 연결 파일을 만든 상태로 PD-5 기동, `profiles.yaml` 없이 기동, 같은 파일로 PD-4 이미지 기동(정리 → 전환 롤백). 연결 파일 없이 PD-5를 띄우면 이름을 대며 기동 거부. 빈 DB에서 `scripts/local.sh up --fake-model`이 시드와 그 디렉터리의 연결 파일로 뜬다. 채워진 DB에서는 YAML에 새 id를 더해도 넣지 않는다 |
 
 각 PR의 첫 커밋 전에 이 문서의 해당 절을 다시 읽고, 계약과 다르게 가야 하면 이 문서를 먼저 고친다.
 
@@ -232,12 +235,12 @@ PD-2의 검증: `config/`, `config/fake-model/`, `config/fake-model-unattended/`
 - **한 테이블에 두 종류.** [위](#한-테이블로-합치지-않은-이유)의 이유로 고르지 않았다.
 - **상한은 설치 설정에 두고(`limits`) 프로필만 DB로.** 상한을 바꿀 때마다 재배포가 남는다. 오너가 없애려는 재배포가 바로 이것이라 고르지 않았다.
 - **연결·자격 참조까지 전부 DB로.** 콘솔 쓰기 하나로 임의 endpoint와 API가 가진 다른 자격 증명 참조를 묶을 수 있다(`catalog.ts:814-823`가 그 값을 upstream 헤더에 싣는다). 고르지 않았다.
-- **상한을 제자리에서 고치기.** 고칠 때마다 그 위의 판과 release가 멈춘다(`catalog.ts:685-694`). 오너 결정 2의 B안이다.
+- **상한을 제자리에서 고치기.** 지문에 드는 실행 설정을 바꾸거나 쓰던 모델을 뺄 때마다 그 위의 판과 release가 거절된다(`catalog.ts:685-694`, `agent-service.ts:75-82`). 모델을 더하는 것만 무사하다. 오너 결정 2의 B안이다.
 - **DB 허용을 `repositories.<id>.profiles` 배열로 되돌려 넣기.** revision과 저장소 binding이 상한마다 바뀐다. [저장소 허용](#저장소-허용) 참고.
 
 ## 오너 결정 (모두 오너 확인 대기, 기본값 적용)
 
-1. 운영자 판별: **A 워크스페이스 owner(기본)** / B env로 지정 / C 별도 테이블.
+1. 운영자 판별: **A 워크스페이스 owner(기본)** / B env로 지정 / C 별도 테이블. 어느 안이든 운영자는 모델·도구·권한 모드·저장소 쌍을 옛 YAML보다 넓힐 수 있다(연결·자격 증명·billing·bypass 스위치는 못 바꾼다).
 2. 상한을 바꾸는 방식: **A 불변 버전 + 은퇴(기본)** / B 제자리 변경.
 3. 저장소 허용: **A 콘솔에서 만든 상한은 행의 `repository_ids`로 DB에서, 운영자만 고친다. 가져온 id는 `repositories.yaml` 그대로(기본)** / B 모두 `repositories.yaml`(새 상한 계열마다 재배포).
 4. 정리 단계 뒤 `profiles.yaml`: **A 빈 테이블일 때의 초기 시드(기본)** / B 읽지 않음.
