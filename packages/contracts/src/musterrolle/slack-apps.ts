@@ -125,7 +125,8 @@ export const slackWarningSchema = z
  * connecting still goes ahead. `repository_required`: the active release
  * runs on a profile whose sessions must name a repository and names none.
  * `profile_unavailable`: the catalog no longer has the active release's
- * profile, or defines it otherwise than it was released. `no_active_release`:
+ * profile, defines it otherwise than it was released, or an owner blocked
+ * it. `no_active_release`:
  * nothing is activated yet.
  */
 export const slackAgentWarningSchema = z.discriminatedUnion("code", [
