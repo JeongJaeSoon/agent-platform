@@ -46,8 +46,10 @@ console.log(zombies);
 # runs, not only under compose's `init: true`.
 api_init_smoke() {
   local image="$1" cid
-  # The image carries no catalog: without one mounted the API must
-  # refuse to start rather than run someone's example profiles.
+  # The image carries no config: without one mounted the API must refuse
+  # to start rather than run someone's example. profiles.yaml is optional
+  # (rows live in the database), so the missing file named is the
+  # repositories one.
   local refused status
   refused="$(timeout 60 docker run --rm --label "$smoke_label" \
     -e DATABASE_URL=postgres://smoke:smoke@127.0.0.1:1/smoke \
@@ -58,7 +60,7 @@ api_init_smoke() {
     "$image" 2>&1)" && status=0 || status=$?
   # A pattern match, not `| grep -q`: under pipefail grep's early exit can
   # fail the printf with SIGPIPE.
-  if [ "$status" = 0 ] || [ "$status" = 124 ] || [[ "$refused" != *"profiles.yaml is missing"* ]]; then
+  if [ "$status" = 0 ] || [ "$status" = 124 ] || [[ "$refused" != *"repositories.yaml is missing"* ]]; then
     printf '%s\n' "$refused" >&2
     echo "expected the API to refuse to start without a catalog (exit $status)" >&2
     exit 1
