@@ -24,6 +24,7 @@ import {
   createPostgresAgentIdentityStore,
   createPostgresAgentStore,
   createPostgresCredentialBindingStore,
+  createPostgresInstallationProfileStore,
   createPostgresSessionLinkStore,
   createPostgresSlackAppStore,
   createPostgresSlackInboundEventStore,
@@ -49,6 +50,7 @@ import {
   type Caller,
   type CatalogProfile,
   callerFor,
+  catalogImports,
   createAgentService,
   createAuthorizationPolicy,
   drainSlackInbox,
@@ -182,6 +184,10 @@ function useDatabase(engine: string) {
         await database.drop();
       };
     }
+    // The api role's startup import: the registry reads ceilings from rows.
+    await createPostgresInstallationProfileStore(db).importCatalog(
+      catalogImports(catalog.profiles),
+    );
     slack.statuses.length = 0;
     slack.failures.clear();
     slack.channels.clear();
