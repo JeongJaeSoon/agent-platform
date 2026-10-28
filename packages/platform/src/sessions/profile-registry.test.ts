@@ -37,12 +37,16 @@ import {
   type Connections,
   catalogConnections,
   catalogImports,
+  catalogRows,
   createProfileRegistry,
   installationProfileSnapshot,
   profileCatalog,
   type SnapshotSources,
 } from "./profile-registry.ts";
-import { createWorkspaceProfileService } from "./workspace-profiles.ts";
+import {
+  createWorkspaceProfileService,
+  createWorkspaceProfiles,
+} from "./workspace-profiles.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const OWNER = "019a0000-0000-7000-8000-0000000000b1";
@@ -93,7 +97,6 @@ function sourcesOf(
   options: { connections?: Connections; allowUnattended?: boolean } = {},
 ): SnapshotSources<CatalogProfile> {
   return {
-    own,
     connections: options.connections ?? catalogConnections(own, undefined),
     allowUnattended: options.allowUnattended ?? false,
     runtimeSupported: () => true,
@@ -165,7 +168,9 @@ function workspaceVersion(
     base_runtime_version: baseProfile.runtime_version,
     base_billing: "metered",
     base_repository_mode: "required",
+    created_by: OWNER,
     created_at: AT,
+    retired_by: null,
     retired_at: null,
   };
 }
@@ -193,32 +198,44 @@ const stateOf = (
 ): string | undefined => catalog.installation.get(id)?.state;
 
 describe("installation profile snapshot", () => {
-  test("a row the YAML also has runs the YAML value; a row it lacks runs the stored one", () => {
+  test("a row runs its stored value, whatever this replica's YAML says", () => {
     const yaml = definition();
     const stored = definition({ tools: ["Read", "Grep"] });
     const snapshot = installationProfileSnapshot(sourcesOf({ coding: yaml }), [
       row("coding", stored),
       row("elsewhere", stored),
     ]);
-    expect(snapshot.profiles.coding?.tools).toEqual(["Read"]);
+    expect(snapshot.profiles.coding?.tools).toEqual(["Read", "Grep"]);
     expect(snapshot.profiles.elsewhere?.tools).toEqual(["Read", "Grep"]);
+  });
+
+  test("an id no row has runs nothing, though this replica's YAML has it", () => {
+    const snapshot = installationProfileSnapshot(
+      sourcesOf({ coding: definition() }),
+      [],
+    );
+    expect(snapshot.profiles).toEqual({});
+    expect(snapshot.installation.size).toBe(0);
   });
 
   test("with connections.yaml the YAML providers are no connection of their own", () => {
     const own = { coding: definition() };
+    const rows = [row("coding", definition())];
     const without = installationProfileSnapshot(
       sourcesOf(own, { connections: { other: OTHER_PROVIDER } }),
-      [],
+      rows,
     );
     expect(without.installation.get("coding")?.state).toBe(
       "connection_missing",
     );
+    expect(without.installation.get("coding")?.connection_id).toBeNull();
     expect(Object.keys(without.profiles)).toEqual([]);
     const listed = installationProfileSnapshot(
       sourcesOf(own, { connections: { main: definition().provider } }),
-      [],
+      rows,
     );
     expect(listed.installation.get("coding")?.state).toBe("usable");
+    expect(listed.installation.get("coding")?.connection_id).toBe("main");
   });
 
   test("a row edited behind the table's back runs nothing", () => {
@@ -243,8 +260,9 @@ describe("installation profile snapshot", () => {
       runtimeSupported: () => false,
     };
     expect(
-      installationProfileSnapshot(sources, []).installation.get("coding")
-        ?.state,
+      installationProfileSnapshot(sources, [
+        row("coding", definition()),
+      ]).installation.get("coding")?.state,
     ).toBe("runtime_unsupported");
   });
 });
@@ -285,9 +303,14 @@ describe("two replicas over one database", () => {
     expect(catalogRevision(one)).not.toBe(catalogRevision(two));
   });
 
-  test("before its first read a replica runs its own YAML, as the YAML-only image did", () => {
+  test("once read, the imported rows run what the YAML-only image ran, at its revision", async () => {
     const own = { coding: definition() };
-    const catalog = replica(own, { installation: [], workspace: [] });
+    const catalog = replica(own, {
+      installation: catalogRows(own),
+      workspace: [],
+    });
+    expect(catalog.profiles).toEqual({});
+    await catalog.workspace_profiles.refresh();
     const yamlOnly = resolveSessionCatalog(
       { profiles: own, repositories: REPOSITORIES },
       () => KEY,
@@ -504,7 +527,13 @@ describe("releases and sessions over the registry", () => {
   test("a release made under the YAML resolves the same once the profile comes from its row", async () => {
     const coding = definition();
     const { store } = agentStore();
-    const yaml = replica({ coding }, { installation: [], workspace: [] });
+    const yaml = {
+      ...resolveSessionCatalog(
+        { profiles: { coding }, repositories: REPOSITORIES },
+        () => KEY,
+      ),
+      workspace_profiles: createWorkspaceProfiles({ listAll: async () => [] }),
+    } as unknown as ReturnType<typeof replica>;
     const { release } = await releasesOver(yaml, store).create("coding");
     const fromRow = replica(
       {},

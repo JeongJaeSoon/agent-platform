@@ -368,6 +368,43 @@ describe("실행 프로필 상세", () => {
     expect(screen.queryByRole("button", { name: "다시 만들기" })).toBeNull();
   });
 
+  const RETIRED: ProfileSummary = {
+    ...OPERATOR,
+    installation: {
+      name: OPERATOR.id,
+      version: 1,
+      origin: "console",
+      state: "retired",
+      connection_id: null,
+      title_model: null,
+      project_settings: { claude_md: false },
+      previous_id: null,
+      created_by: null,
+      created_at: "2026-10-27T00:00:00.000Z",
+      retired_by: null,
+      retired_at: "2026-10-27T01:00:00.000Z",
+    },
+  };
+
+  test("a ceiling that does not run here offers nothing to make from it", async () => {
+    renderAt("/profiles/coding-claude", catalog(me(), [RETIRED]));
+    // The heading already shows the id while loading.
+    await waitFor(() => expect(values()["도구"]).toBe("ReadEditBash"));
+    expect(
+      screen.queryAllByRole("button", { name: "이 프로필로 만들기" }),
+    ).toHaveLength(0);
+  });
+
+  test("a version over a ceiling that does not run here offers no new version", async () => {
+    renderAt(
+      "/profiles/ws_acme_strict_v1",
+      catalog(me(), [RETIRED, version(1, "usable")]),
+    );
+    await screen.findByRole("heading", { level: 1, name: "strict" });
+    expect(values()["바탕 프로필"]).toBe("coding-claude");
+    expect(screen.queryAllByRole("button", { name: "수정" })).toHaveLength(0);
+  });
+
   test("an unknown id says the profile is not there", async () => {
     renderAt("/profiles/nope", catalog());
     await screen.findByRole("heading", {

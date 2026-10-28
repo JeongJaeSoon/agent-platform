@@ -34,6 +34,11 @@ export const profilesKo = {
   "profiles.state.base_changed": "바탕 프로필 바뀜",
   "profiles.state.base_missing": "바탕 프로필 없음",
   "profiles.state.retired": "사용 중지됨",
+  "profiles.state.base_retired": "바탕 프로필 사용 중지됨",
+  "profiles.state.connection_missing": "연결 없음",
+  "profiles.state.unattended_off": "이 설치에서 꺼짐",
+  "profiles.state.definition_drift": "설정이 바뀜",
+  "profiles.state.runtime_unsupported": "지원하지 않는 런타임",
   "profiles.newVersion": "수정",
   "profiles.remake": "다시 만들기",
   "profiles.retire": "사용 중지",
@@ -96,6 +101,8 @@ export const profilesKo = {
     "프로필에는 200자 이하의 이름만 담습니다. 이름이 긴 모델이나 도구를 빼고 저장하세요.",
   "profiles.error.unknownBase":
     "운영자가 그 바탕 프로필을 지웠습니다. 목록을 다시 불러오세요.",
+  "profiles.error.baseUnusable":
+    "그 바탕 프로필은 지금 쓸 수 없습니다. 사용할 수 있는 바탕 프로필을 고르세요.",
   "profiles.error.widens":
     "바탕 프로필이 허용하지 않는 값입니다. 목록을 다시 불러와 바탕 프로필을 확인하세요.",
   "profiles.error.versionTaken":
@@ -169,6 +176,11 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.state.base_changed": "Base profile changed",
   "profiles.state.base_missing": "Base profile removed",
   "profiles.state.retired": "Turned off",
+  "profiles.state.base_retired": "Base profile turned off",
+  "profiles.state.connection_missing": "No connection",
+  "profiles.state.unattended_off": "Off on this installation",
+  "profiles.state.definition_drift": "Settings changed",
+  "profiles.state.runtime_unsupported": "Runtime not supported",
   "profiles.newVersion": "Edit",
   "profiles.remake": "Make again",
   "profiles.retire": "Turn off",
@@ -232,6 +244,8 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
     "A profile holds names of up to 200 characters. Leave out the model or tool with the long name and save again.",
   "profiles.error.unknownBase":
     "The operator removed that base profile. Reload the list.",
+  "profiles.error.baseUnusable":
+    "That base profile cannot be used now. Pick one that is usable.",
   "profiles.error.widens":
     "The base profile does not allow a value you picked. Reload the list and check the base profile.",
   "profiles.error.versionTaken":
@@ -306,6 +320,11 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.state.base_changed": "もとが変更",
   "profiles.state.base_missing": "もとがない",
   "profiles.state.retired": "使用停止",
+  "profiles.state.base_retired": "もとが使用停止",
+  "profiles.state.connection_missing": "接続がない",
+  "profiles.state.unattended_off": "このインストールでは無効",
+  "profiles.state.definition_drift": "設定が変更",
+  "profiles.state.runtime_unsupported": "未対応のランタイム",
   "profiles.newVersion": "編集",
   "profiles.remake": "作り直す",
   "profiles.retire": "使用停止",
@@ -370,6 +389,8 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "プロファイルに入る名前は 200 文字までです。名前の長いモデルやツールを外してから保存してください。",
   "profiles.error.unknownBase":
     "運営者がそのもとのプロファイルを削除しました。一覧を再読み込みしてください。",
+  "profiles.error.baseUnusable":
+    "そのもとのプロファイルはいま使えません。使えるもとのプロファイルを選んでください。",
   "profiles.error.widens":
     "もとのプロファイルが許可しない値です。一覧を再読み込みしてもとのプロファイルを確認してください。",
   "profiles.error.versionTaken":

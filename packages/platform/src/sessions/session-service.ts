@@ -69,7 +69,6 @@ import {
   repositoryModeOf,
   type SessionCatalogView,
   sessionProfile,
-  WORKSPACE_PROFILE_PREFIX,
   workspaceProfileRefusal,
 } from "./catalog.ts";
 import { deriveSessionTitle } from "./session-title.ts";
@@ -351,12 +350,11 @@ export function createSessionService(deps: {
       : allowedRun(catalog, profileId, record.repository_id);
   }
 
-  async function workspaceProfileRefusalOf(
+  async function profileRefusalOf(
     actor: Caller,
     profileId: string,
     retiredAllowed: boolean,
   ) {
-    if (!profileId.startsWith(WORKSPACE_PROFILE_PREFIX)) return null;
     await refreshWorkspaceProfilesFor(catalog, [profileId], {
       strict: !retiredAllowed,
     });
@@ -576,7 +574,7 @@ export function createSessionService(deps: {
       // repository did not grant this profile its trust.
       const repositoryId =
         input.body.repository_id ?? release?.repository_id ?? null;
-      const workspaceRefusal = await workspaceProfileRefusalOf(
+      const workspaceRefusal = await profileRefusalOf(
         actor,
         profileId,
         release !== null,
@@ -891,11 +889,7 @@ export function createSessionService(deps: {
       }
       const wanted = input.body.profile_id;
       await refreshWorkspaceProfilesFor(catalog, [wanted, record.profile_id]);
-      const workspaceRefusal = await workspaceProfileRefusalOf(
-        actor,
-        wanted,
-        false,
-      );
+      const workspaceRefusal = await profileRefusalOf(actor, wanted, false);
       const pair = workspaceRefusal === null ? runOf(record, wanted) : null;
       // The session row keeps no runtime of its own: only its profile, as the
       // catalog still defines it, says which runtime took its checkpoints.

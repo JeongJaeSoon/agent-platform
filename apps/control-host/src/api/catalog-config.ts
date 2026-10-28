@@ -17,6 +17,7 @@ import {
   catalogConnections,
   catalogConnectionsSchema,
   catalogCredentialRefs,
+  catalogRows,
   credentialRefOf,
   describeConfigError,
   installationProfileSnapshot,
@@ -35,7 +36,8 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
 // The operator's catalog: two YAML files (three with remote MCP servers) in one directory, read
-// once at startup. Anything wrong — a missing file, a schema error, a
+// once at startup. Anything wrong — a missing file other than
+// `profiles.yaml`, a schema error, a
 // credential that does not resolve — stops the API with a message naming
 // the file and path, never a value.
 
@@ -96,7 +98,9 @@ export async function readCatalogConfig(
   const repositoriesPath = resolve(dir, REPOSITORIES_FILE);
   const mcpServersPath = resolve(dir, MCP_SERVERS_FILE);
   const parsed = sessionCatalogConfigSchema.safeParse({
-    profiles: section(await readYaml(profilesPath), "profiles", profilesPath),
+    profiles: (await Bun.file(profilesPath).exists())
+      ? section(await readYaml(profilesPath), "profiles", profilesPath)
+      : {},
     repositories: section(
       await readYaml(repositoriesPath),
       "repositories",
@@ -197,12 +201,10 @@ export function unattendedAllowed(
 
 /** What a replica holding no provider key builds its profile snapshot from. */
 export function profileViewSources(
-  config: SessionCatalogConfig,
   connections: Connections,
   env: Record<string, string | undefined>,
 ): SnapshotSources<CatalogProfileView> {
   return {
-    own: config.profiles,
     connections,
     allowUnattended: unattendedAllowed(env),
     runtimeSupported: runtimeServes,
@@ -217,7 +219,7 @@ export function profileViewSources(
   };
 }
 
-function runtimeServes(profile: CatalogProfileConfig): boolean {
+export function runtimeServes(profile: CatalogProfileConfig): boolean {
   try {
     installedRuntimes.assertProfiles({ profile });
     return true;
@@ -277,7 +279,6 @@ export async function loadProfileSources(options: {
   }
   const resolved = resolveSessionCatalog({ ...config, profiles: {} }, lookup);
   const sources: SnapshotSources<CatalogProfile> = {
-    own: config.profiles,
     connections,
     allowUnattended: unattendedAllowed(options.env),
     runtimeSupported: runtimeServes,
@@ -290,24 +291,26 @@ export async function loadProfileSources(options: {
       return profile;
     },
   };
-  return {
-    config,
-    connections,
-    catalog: {
-      ...resolved,
-      profiles: installationProfileSnapshot(sources, []).profiles,
-    },
-    sources,
-  };
+  return { config, connections, catalog: resolved, sources };
 }
 
-/** The catalog this replica's own YAML runs, credentials resolved. */
+/**
+ * The catalog this directory runs once its `profiles.yaml` is imported,
+ * credentials resolved: what a fresh installation's registry first reads.
+ */
 export async function loadSessionCatalog(options: {
   dir: string;
   env: Record<string, string | undefined>;
   readSecret: SecretReader;
 }): Promise<SessionCatalog> {
-  return (await loadProfileSources(options)).catalog;
+  const loaded = await loadProfileSources(options);
+  return {
+    ...loaded.catalog,
+    profiles: installationProfileSnapshot(
+      loaded.sources,
+      catalogRows(loaded.config.profiles),
+    ).profiles,
+  };
 }
 
 const platformConfigSchema = z

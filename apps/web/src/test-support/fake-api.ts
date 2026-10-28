@@ -117,6 +117,7 @@ export const PERMISSIONS: Record<WorkspaceRole, AuthMeResponse["permissions"]> =
       "audit_retention.manage",
       "agent.restore",
       "usage.installation_read",
+      "profile.installation.manage",
     ],
   };
 
