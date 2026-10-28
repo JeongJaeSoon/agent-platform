@@ -18,9 +18,7 @@ const [agentId, mode, channel = "C0VERIFY", seq = "1"] = process.argv.slice(1);
 // `mention` and `plain` are top-level posts by U0MOCK in `channel`, with
 // or without a mention; each sequence number is its own event and thread.
 const posted = mode === "mention" || mode === "plain";
-const ts = posted
-  ? `${1792800000 + Number(seq)}.000001`
-  : "1792800000.000001";
+const ts = posted ? `${1792800000 + Number(seq)}.000001` : "1792800000.000001";
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 try {
   const db = drizzle(pool, { schema });
