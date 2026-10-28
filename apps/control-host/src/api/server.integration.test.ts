@@ -9,18 +9,26 @@ import {
   apiKeys,
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
-  sessions,
 } from "@werft-ai/db";
 import { launchSession } from "@werft-ai/db/testing/launches";
-import { acceptAllCheckpoints, createWorkerGateway } from "@werft-ai/platform";
+import {
+  acceptAllCheckpoints,
+  createWorkerGateway,
+  withSeededInstallation,
+} from "@werft-ai/platform";
+import {
+  createTempDatabase,
+  type TempDatabase,
+  testDatabaseUrl,
+} from "@werft-ai/testkit/postgres";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
 import { SHUTDOWN_DRAIN_MS } from "./shutdown.ts";
 
-const databaseUrl = process.env.QUEUE_DATABASE_URL;
-const integration = databaseUrl ? describe : describe.skip;
+const integration = testDatabaseUrl() ? describe : describe.skip;
+// profiles.yaml seeds only an empty table, so the suite owns its database.
+let databaseUrl: string;
 
 // Thirty seconds leaves room for server startup under CI load while still
 // classifying a hang promptly. The test timeout is a separate total budget:
@@ -144,6 +152,14 @@ const PROFILES = `profiles:
         kind: api_key
         value_env: INTEGRATION_PROVIDER_KEY
 `;
+const CONNECTIONS = `connections:
+  main:
+    kind: anthropic
+    endpoint: https://api.anthropic.invalid
+    auth:
+      kind: api_key
+      value_env: INTEGRATION_PROVIDER_KEY
+`;
 const REPOSITORIES = `repositories:
   app:
     url: https://git.example.invalid/team/app.git
@@ -158,6 +174,7 @@ async function configDir(
 ): Promise<string> {
   const dir = join(root, name);
   await Bun.write(join(dir, "profiles.yaml"), profiles);
+  await writeFile(join(dir, "connections.yaml"), CONNECTIONS);
   await writeFile(join(dir, "repositories.yaml"), REPOSITORIES);
   return dir;
 }
@@ -302,6 +319,7 @@ async function heldConnection(port: number) {
 }
 
 integration("API server on PostgreSQL", () => {
+  let database: TempDatabase;
   let db: NodePgDatabase<typeof schema>;
   let pool: Pool;
   let root: string;
@@ -309,25 +327,15 @@ integration("API server on PostgreSQL", () => {
 
   beforeAll(async () => {
     root = await mkdtemp(join(tmpdir(), "server-integration-"));
+    database = await createTempDatabase({ prefix: "server_it" });
+    databaseUrl = database.url;
     pool = new Pool({ connectionString: databaseUrl, max: 2 });
     db = drizzle(pool, { schema });
-    const state = await pool.query<{ sessions: string | null }>(
-      "SELECT to_regclass('public.sessions') AS sessions",
-    );
-    if (state.rows[0]?.sessions === null) {
-      await migrate(db, {
-        migrationsFolder: `${import.meta.dir}/../../../../packages/db/migrations`,
-      });
-    }
   }, 60_000);
 
   afterAll(async () => {
-    await db
-      .update(sessions)
-      .set({ createdByApiKeyId: null })
-      .where(eq(sessions.ownerId, ownerId));
-    await db.delete(apiKeys).where(eq(apiKeys.ownerId, ownerId));
     await pool.end();
+    await database.drop();
     await rm(root, { recursive: true, force: true });
   }, 60_000);
 
@@ -695,7 +703,7 @@ integration("API server on PostgreSQL", () => {
       const repositoryId = `long-poll-${crypto.randomUUID()}`;
       const gateway = createWorkerGateway({
         work: createPostgresWorkerUnitOfWork(db),
-        catalog: {
+        catalog: withSeededInstallation({
           profiles: {
             coding: {
               runtime_kind: "claude_agent_sdk",
@@ -721,7 +729,7 @@ integration("API server on PostgreSQL", () => {
               profiles: ["coding"],
             },
           },
-        },
+        }),
         checkpoints: acceptAllCheckpoints,
         options: {
           sessionCostLimitUsd: 25,
@@ -863,13 +871,17 @@ integration("API server on PostgreSQL", () => {
   test(
     "an invalid profile, an unresolved credential or a bad HEARTBEAT_TTL_SEC stops the server",
     async () => {
+      // The suite's database is seeded already, and a filled table never
+      // opens profiles.yaml.
+      const empty = await createTempDatabase({ prefix: "server_seed_it" });
       const invalid = await refusedStart({
+        DATABASE_URL: empty.url,
         PLATFORM_CONFIG_DIR: await configDir(
           root,
           "invalid",
           PROFILES.replace("permission_mode: default", "permission_mode: yolo"),
         ),
-      });
+      }).finally(() => empty.drop());
       expect(invalid.exitCode).not.toBe(0);
       expect(invalid.stderr).toContain("profiles.coding.permission_mode");
 
@@ -879,7 +891,7 @@ integration("API server on PostgreSQL", () => {
       });
       expect(unresolved.exitCode).not.toBe(0);
       expect(unresolved.stderr).toContain(
-        "profiles.coding.provider.auth.value_env: INTEGRATION_PROVIDER_KEY is not set",
+        "connections.main.auth.value_env: INTEGRATION_PROVIDER_KEY is not set",
       );
 
       const ttl = await refusedStart({

@@ -47,6 +47,7 @@ import {
   createSessionShareService,
   createUsageService,
   type SessionCatalog,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq } from "drizzle-orm";
@@ -78,7 +79,7 @@ const PASSWORD = "an adequately long password";
 // Long enough that only the share change's NOTIFY can end a stream in time.
 const KEEPALIVE_MS = 30_000;
 
-const catalog: SessionCatalog = {
+const catalog: SessionCatalog = withSeededInstallation({
   profiles: {
     "claude-coding-v1": {
       runtime_kind: "claude_agent_sdk",
@@ -104,7 +105,7 @@ const catalog: SessionCatalog = {
       profiles: ["claude-coding-v1"],
     },
   },
-};
+});
 
 // Design 4.6 on every session surface: outside the share a session does not
 // exist, owner and admin included.

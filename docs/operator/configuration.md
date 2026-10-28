@@ -1,6 +1,6 @@
 # 설정 레퍼런스
 
-설치 상한, API 설정, scheduler·worker 컨테이너·egress 설정을 적는다. reconciler·scheduler 감독 루프의 설정은 [실행 기반과 worker 격리](execution.md)에, 카탈로그(`profiles.yaml`·`repositories.yaml`)와 인증 설정은 [API 서버](api-server.md)에, Kubernetes backend의 설정은 [Kubernetes 실행 backend](kubernetes-backend.md)에 있다.
+설치 상한, API 설정, scheduler·worker 컨테이너·egress 설정을 적는다. reconciler·scheduler 감독 루프의 설정은 [실행 기반과 worker 격리](execution.md)에, 카탈로그(`connections.yaml`·`repositories.yaml`, 빈 DB의 시드 `profiles.yaml`)와 인증 설정은 [API 서버](api-server.md)에, Kubernetes backend의 설정은 [Kubernetes 실행 backend](kubernetes-backend.md)에 있다.
 
 ## 설치 상한
 

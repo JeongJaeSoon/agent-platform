@@ -7,11 +7,13 @@ import { MAX_RESTORE_PROFILES } from "@werft-ai/contracts";
 import {
   type CatalogProfile,
   type CheckpointPointer,
+  catalogRows,
   createCheckpointService,
+  type InstallationProfileRecord,
   manifestRefFor,
   profileFingerprint,
   profileWithModel,
-  resolveSessionCatalog,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   CLAUDE_RUNTIME_FINGERPRINT,
@@ -33,7 +35,11 @@ import {
   createGitBundleChain,
   type GitBundleFixture,
 } from "@werft-ai/testkit/git-bundle";
-import { readCatalogConfig } from "../apps/control-host/src/api/catalog-config.ts";
+import {
+  databaseCatalog,
+  readCatalogConfig,
+  readSeedProfiles,
+} from "../apps/control-host/src/api/catalog-config.ts";
 import {
   imageClaimFingerprint,
   imageRuntimeOf,
@@ -704,12 +710,24 @@ describe("backup → restore re-pin", () => {
 describe("plans against a target worker image (verify-restore.sh --image)", () => {
   const PROFILE_ID = "claude-coding-real";
   const REPOSITORY_ID = "sample-app";
-  // The API's default catalog, credentials standing in as verify-restore's do.
-  const catalog = async () =>
-    resolveSessionCatalog(
-      await readCatalogConfig(join(import.meta.dir, "../config")),
-      () => "verify-restore-reads-no-credential",
+  const CONFIG_DIR = join(import.meta.dir, "../config");
+  // The rows the API's default config seeds an empty database with.
+  const seededRows = async () => {
+    const config = await readCatalogConfig(CONFIG_DIR);
+    return catalogRows(
+      await readSeedProfiles(CONFIG_DIR, config),
+      config.repositories,
     );
+  };
+  // What verify-restore builds: those rows, credentials standing in.
+  const catalogOver = async (rows: InstallationProfileRecord[]) =>
+    databaseCatalog({
+      dir: CONFIG_DIR,
+      installations: { listAll: async () => rows },
+      workspaces: { listAll: async () => [] },
+      credential: () => "verify-restore-reads-no-credential",
+    });
+  const catalog = async () => catalogOver(await seededRows());
   const sessionOf = async (overrides: {
     branch?: string;
     model?: string | null;
@@ -740,6 +758,33 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     claims: Record<string, unknown>,
     fingerprint?: Parameters<typeof imageRuntimeOf>[1],
   ) => parseImageRuntime(JSON.stringify(imageRuntimeOf(claims, fingerprint)));
+
+  test("a ceiling the database holds and profiles.yaml never had gives its session a claim", async () => {
+    const rows = await seededRows();
+    const imported = rows.find((row) => row.id === PROFILE_ID);
+    if (imported === undefined) throw new Error("no seeded row");
+    const consoleId = "op_restore_v1";
+    const resolved = await catalogOver([
+      ...rows,
+      {
+        ...imported,
+        id: consoleId,
+        name: "restore",
+        origin: "console",
+        repository_ids: [REPOSITORY_ID],
+      },
+    ]);
+    const profile = resolved.profiles[consoleId] as CatalogProfile;
+    expect(profile).toBeDefined();
+    const claim = sessionClaim(
+      await sessionOf({
+        profileId: consoleId,
+        profileFingerprint: profileFingerprint(profile),
+      }),
+      resolved,
+    );
+    expect(claim).toBeDefined();
+  });
 
   test("an image whose profile digest computation changed makes the plan incompatible; the sealing image stays ready", async () => {
     const claim = sessionClaim(await sessionOf({}), await catalog());
@@ -792,7 +837,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     const repository = resolved.repositories[REPOSITORY_ID];
     if (repository === undefined) throw new Error("no sample repository");
     const switchedProfile = { ...earlierProfile, model: "claude-haiku-4-5" };
-    const switchedCatalog = {
+    const switchedCatalog = withSeededInstallation({
       profiles: { ...resolved.profiles, "switch-haiku": switchedProfile },
       repositories: {
         ...resolved.repositories,
@@ -801,7 +846,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
           profiles: [...repository.profiles, "switch-haiku"],
         },
       },
-    };
+    });
     const earlierClaim = sessionClaim(await sessionOf({}), switchedCatalog);
     const objects = createMemoryCheckpointObjectStore({ versioned: true });
     const seeded = await seed(
@@ -852,7 +897,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     const repository = resolved.repositories[REPOSITORY_ID];
     if (repository === undefined) throw new Error("no sample repository");
     const extra = Array.from({ length: 18 }, (_, n) => `p${n}`);
-    const switched = {
+    const switched = withSeededInstallation({
       profiles: {
         ...resolved.profiles,
         ...Object.fromEntries(
@@ -864,7 +909,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
         ...resolved.repositories,
         [REPOSITORY_ID]: { ...repository, profiles: ["p0"] },
       },
-    };
+    });
     const made = (id: string) => ({
       profileId: id,
       profileFingerprint: profileFingerprint(
@@ -1010,10 +1055,10 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       repository: "optional",
       project_settings: { claude_md: true },
     };
-    const withGeneral = {
+    const withGeneral = withSeededInstallation({
       ...resolved,
       profiles: { ...resolved.profiles, general },
-    };
+    });
     const session = {
       branch: null,
       model: general.model,

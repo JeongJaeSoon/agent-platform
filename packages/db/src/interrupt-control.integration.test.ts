@@ -15,6 +15,7 @@ import {
   type WorkerGateway,
   WorkerGatewayError,
   type WorkerPrincipal,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { testCaller } from "@werft-ai/testkit/callers";
 import {
@@ -47,7 +48,7 @@ const integration = testDatabaseUrl() ? describe : describe.skip;
 
 const bootstrap: WorkerPrincipal = { kind: "bootstrap" };
 
-const catalog: SessionCatalog = {
+const catalog: SessionCatalog = withSeededInstallation({
   profiles: {
     "claude-coding-v1": {
       runtime_kind: "claude_agent_sdk",
@@ -73,7 +74,7 @@ const catalog: SessionCatalog = {
       profiles: ["claude-coding-v1"],
     },
   },
-};
+});
 
 integration("turn interrupts on PostgreSQL", () => {
   let database: TempDatabase;

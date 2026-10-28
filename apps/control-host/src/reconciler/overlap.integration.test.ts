@@ -24,6 +24,7 @@ import {
   type SessionCatalog,
   type WorkerGateway,
   type WorkerPrincipal,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { testCaller } from "@werft-ai/testkit/callers";
 import {
@@ -38,7 +39,7 @@ import { reconcileOnce } from "./main.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-const catalog: SessionCatalog = {
+const catalog: SessionCatalog = withSeededInstallation({
   profiles: {
     "claude-coding-v1": {
       runtime_kind: "claude_agent_sdk",
@@ -64,7 +65,7 @@ const catalog: SessionCatalog = {
       profiles: ["claude-coding-v1"],
     },
   },
-};
+});
 
 const PASSES = 4;
 

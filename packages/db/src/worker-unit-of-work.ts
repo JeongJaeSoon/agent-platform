@@ -144,6 +144,7 @@ import {
   checkpoints,
   events,
   executions,
+  installationProfiles,
   MAX_SESSION_COST_USD,
   pendingRequests,
   permissionGrants,
@@ -157,6 +158,7 @@ import {
   workerCredentials,
   workerLaunches,
   workers,
+  workspaceProfiles,
 } from "./schema.ts";
 import {
   notBefore,
@@ -1058,6 +1060,7 @@ function budgetEnded(
  * operator activated gives up; any other answers "nothing to
  * claim" and writes nothing, leaving the existing failure count as the net.
  * With none activated there is one replica, and its catalog is the one.
+ * A blocked ceiling is the exception: its row says the same to every replica.
  */
 async function giveUpOnCatalogMismatch(
   tx: Database,
@@ -1103,7 +1106,13 @@ async function giveUpOnCatalogMismatch(
     .from(catalogAuthority)
     .limit(1)
     .for("share");
-  if (authority !== undefined && authority.revision !== input.catalogRevision) {
+  // A block leaves the ceiling out of the revision, so the replica that read
+  // it no longer matches the activated one; the row, read here, decides.
+  if (
+    authority !== undefined &&
+    authority.revision !== input.catalogRevision &&
+    !(await profileBlocked(tx, session.profileId))
+  ) {
     return null;
   }
   // Skipped when locked, as the candidate query does: another claim holding
@@ -1169,6 +1178,30 @@ async function giveUpOnCatalogMismatch(
     .where(eq(workerLaunches.executionId, launch.executionId));
   await quarantineLaunch(tx, ref, session.id, catalogMismatchCause(detail));
   return "catalog_mismatch";
+}
+
+/**
+ * Whether `profileId`, or the ceiling a workspace version of that id is on,
+ * is blocked. Held until the claim commits, so an unblock waits for the
+ * give-up judged under the block.
+ */
+async function profileBlocked(
+  tx: Database,
+  profileId: string | null,
+): Promise<boolean> {
+  if (profileId === null) return false;
+  const [version] = await tx
+    .select({ baseProfileId: workspaceProfiles.baseProfileId })
+    .from(workspaceProfiles)
+    .where(eq(workspaceProfiles.id, profileId))
+    .limit(1);
+  const [ceiling] = await tx
+    .select({ blockedAt: installationProfiles.blockedAt })
+    .from(installationProfiles)
+    .where(eq(installationProfiles.id, version?.baseProfileId ?? profileId))
+    .limit(1)
+    .for("share");
+  return ceiling !== undefined && ceiling.blockedAt !== null;
 }
 
 async function drainRequested(

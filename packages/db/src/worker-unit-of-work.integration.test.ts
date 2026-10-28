@@ -15,6 +15,7 @@ import {
   type WorkerGateway,
   WorkerGatewayError,
   type WorkerPrincipal,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -95,7 +96,7 @@ integration("worker gateway on PostgreSQL", () => {
     db = drizzle(pool, { schema });
     gateway = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
-      catalog: {
+      catalog: withSeededInstallation({
         profiles: {
           "claude-coding-v1": {
             runtime_kind: "claude_agent_sdk",
@@ -121,7 +122,7 @@ integration("worker gateway on PostgreSQL", () => {
             profiles: ["claude-coding-v1"],
           },
         },
-      },
+      }),
       checkpoints: {
         async verify({ checkpoint }) {
           if (checkpoint.manifest_ref.startsWith("bad/")) {
@@ -170,7 +171,7 @@ integration("worker gateway on PostgreSQL", () => {
     createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
       ...(neutralize === undefined ? {} : { neutralize }),
-      catalog: {
+      catalog: withSeededInstallation({
         profiles: {
           "claude-coding-v1": {
             runtime_kind: "claude_agent_sdk",
@@ -196,7 +197,7 @@ integration("worker gateway on PostgreSQL", () => {
             profiles: ["claude-coding-v1"],
           },
         },
-      },
+      }),
       checkpoints: {
         async verify() {
           return { status: "verified" };
@@ -278,7 +279,7 @@ integration("worker gateway on PostgreSQL", () => {
   const skewedGateway = (offsetMs: number, leaseTtlMs: number) =>
     createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
-      catalog: {
+      catalog: withSeededInstallation({
         profiles: {
           "claude-coding-v1": {
             runtime_kind: "claude_agent_sdk",
@@ -304,7 +305,7 @@ integration("worker gateway on PostgreSQL", () => {
             profiles: ["claude-coding-v1"],
           },
         },
-      },
+      }),
       checkpoints: {
         async verify() {
           return { status: "verified" };
@@ -1615,7 +1616,7 @@ integration("worker gateway on PostgreSQL", () => {
     // the fence has to judge the commit by the clock at commit time.
     const slow = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
-      catalog: {
+      catalog: withSeededInstallation({
         profiles: {
           "claude-coding-v1": {
             runtime_kind: "claude_agent_sdk",
@@ -1641,7 +1642,7 @@ integration("worker gateway on PostgreSQL", () => {
             profiles: ["claude-coding-v1"],
           },
         },
-      },
+      }),
       checkpoints: {
         async verify() {
           await sleep(500);
@@ -1753,7 +1754,7 @@ integration("worker gateway on PostgreSQL", () => {
     };
     const host = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
-      catalog: {
+      catalog: withSeededInstallation({
         profiles: {
           "claude-coding-v1": { ...coding, repository: "optional" },
           general,
@@ -1765,7 +1766,7 @@ integration("worker gateway on PostgreSQL", () => {
             profiles: ["claude-coding-v1"],
           },
         },
-      },
+      }),
       checkpoints: {
         async verify() {
           return { status: "verified" };
@@ -1915,7 +1916,7 @@ integration("worker gateway on PostgreSQL", () => {
     const withTokenTtl = (sessionTokenTtlMs: number) =>
       createWorkerGateway({
         work: uow,
-        catalog: {
+        catalog: withSeededInstallation({
           profiles: {
             "claude-coding-v1": {
               runtime_kind: "claude_agent_sdk",
@@ -1941,7 +1942,7 @@ integration("worker gateway on PostgreSQL", () => {
               profiles: ["claude-coding-v1"],
             },
           },
-        },
+        }),
         checkpoints: {
           async verify() {
             return { status: "verified" };
@@ -3046,10 +3047,10 @@ integration("worker gateway on PostgreSQL", () => {
     ): WorkerGateway =>
       createWorkerGateway({
         work: createPostgresWorkerUnitOfWork(db),
-        catalog: {
+        catalog: withSeededInstallation({
           profiles: { "claude-coding-v1": profile, other: profile },
           repositories,
-        },
+        }),
         checkpoints: {
           async verify() {
             return { status: "verified" };

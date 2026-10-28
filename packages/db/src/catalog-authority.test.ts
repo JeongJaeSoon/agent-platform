@@ -9,6 +9,7 @@ import {
   type SessionCatalog,
   type WorkerGateway,
   WorkerGatewayError,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { testCaller } from "@werft-ai/testkit/callers";
 import { eq } from "drizzle-orm";
@@ -27,8 +28,10 @@ import * as schema from "./schema.ts";
 import {
   catalogAuthority,
   executions,
+  installationProfiles,
   sessions,
   unassignedSessions,
+  users,
   workerLaunches,
 } from "./schema.ts";
 import { launchSession, type TestLaunch } from "./testing/launches.ts";
@@ -71,23 +74,23 @@ function repository(name: string) {
 }
 
 // What the session was created under.
-const CREATED: SessionCatalog = {
+const CREATED: SessionCatalog = withSeededInstallation({
   profiles: { [PROFILE_ID]: PROFILE },
   repositories: { "sample-app": repository("sample-app") },
-};
+});
 // Two catalogs that both lack the session's pair and differ otherwise, as
 // an old replica's and a new one's do.
-const A: SessionCatalog = {
+const A: SessionCatalog = withSeededInstallation({
   profiles: { [PROFILE_ID]: PROFILE },
   repositories: { "other-app": repository("other-app") },
-};
-const B: SessionCatalog = {
+});
+const B: SessionCatalog = withSeededInstallation({
   profiles: { [PROFILE_ID]: PROFILE },
   repositories: {
     "other-app": repository("other-app"),
     "third-app": repository("third-app"),
   },
-};
+});
 
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
@@ -241,6 +244,71 @@ describe("catalog authority", () => {
     expect(after.session?.status).toBe("failed");
     expect(after.launch?.launchFailureCount).toBe(1);
     expect(after.launch?.nonceHash).toBeNull();
+    expect(after.execution?.desiredState).toBe("terminated");
+  });
+
+  test("a ceiling blocked in its row fails its sessions, though the block moved the host off the activated revision", async () => {
+    const activated = await activateCatalogRevision(db, {
+      revision: catalogRevision(CREATED),
+      expected: null,
+    });
+    expect(activated.outcome).toBe("activated");
+    // What the registry reads once the row is blocked: the ceiling runs
+    // nothing, so it leaves the revision.
+    const blocked: SessionCatalog = {
+      ...CREATED,
+      profiles: {},
+      installation: new Map([
+        [
+          PROFILE_ID,
+          {
+            id: PROFILE_ID,
+            origin: "catalog",
+            state: "blocked",
+            repository_ids: ["sample-app"],
+          },
+        ],
+      ]),
+    };
+    expect(catalogRevision(blocked)).not.toBe(catalogRevision(CREATED));
+    const ownerId = crypto.randomUUID();
+    await db.insert(users).values({
+      id: ownerId,
+      email: `${ownerId}@example.invalid`,
+      displayName: "owner",
+    });
+    await db.insert(installationProfiles).values({
+      id: PROFILE_ID,
+      version: 1,
+      origin: "catalog",
+      definition: { permission_mode: "default" },
+      permissionMode: "default",
+      fingerprint: "sha256:test",
+      repositoryIds: ["sample-app"],
+    });
+
+    // The row not blocked: this host is off the activated revision and
+    // leaves the session alone.
+    const left = await createSession();
+    const leftLaunch = await launchSession(db, { sessionId: left });
+    const before = await stateOf(left, leftLaunch.executionId);
+    expect(await refusal(claim(gatewayOf(blocked), leftLaunch))).toEqual({
+      status: 404,
+      code: "NOT_FOUND",
+    });
+    expect(await stateOf(left, leftLaunch.executionId)).toEqual(before);
+
+    await db
+      .update(installationProfiles)
+      .set({ blockedAt: new Date(), blockedBy: ownerId });
+    const sessionId = await createSession();
+    const launch = await launchSession(db, { sessionId });
+    expect(await refusal(claim(gatewayOf(blocked), launch))).toEqual({
+      status: 409,
+      code: "CATALOG_MISMATCH",
+    });
+    const after = await stateOf(sessionId, launch.executionId);
+    expect(after.session?.status).toBe("failed");
     expect(after.execution?.desiredState).toBe("terminated");
   });
 

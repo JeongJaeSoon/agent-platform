@@ -31,6 +31,7 @@ import {
   createAuthorizationPolicy,
   createSessionService,
   type SessionCatalog,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { asc, count, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -58,7 +59,7 @@ const coding: CatalogProfile = {
     },
   },
 };
-const catalog: SessionCatalog = {
+const catalog: SessionCatalog = withSeededInstallation({
   profiles: {
     "claude-coding-v1": coding,
     "claude-coding-optional": { ...coding, repository: "optional" },
@@ -71,7 +72,7 @@ const catalog: SessionCatalog = {
       profiles: ["claude-coding-v1", "claude-coding-optional"],
     },
   },
-};
+});
 
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const integration = databaseUrl ? describe : describe.skip;
@@ -1403,13 +1404,13 @@ integration("sessions API on PostgreSQL", () => {
             inputs: createPostgresSessionUnitOfWork(db),
             controls: createPostgresSessionControl(db),
             reader: createPostgresSessionReader(db),
-            catalog: {
+            catalog: withSeededInstallation({
               profiles: {
                 "claude-coding-v1": coding,
                 "claude-coding-optional": coding,
               },
               repositories: catalog.repositories,
-            },
+            }),
           }),
         ),
     });

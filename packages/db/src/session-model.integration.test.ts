@@ -17,6 +17,7 @@ import {
   profileFingerprint,
   profilePins,
   type SessionCatalog,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -77,7 +78,7 @@ const profile: CatalogProfile = {
     },
   },
 };
-const catalog: SessionCatalog = {
+const catalog: SessionCatalog = withSeededInstallation({
   profiles: { [PROFILE_ID]: profile },
   repositories: {
     "sample-app": {
@@ -86,7 +87,7 @@ const catalog: SessionCatalog = {
       profiles: [PROFILE_ID],
     },
   },
-};
+});
 const pins = profilePins(profile);
 const V1_SONNET = pins[2]?.fingerprint ?? "";
 const V1_OPUS = pins[3]?.fingerprint ?? "";

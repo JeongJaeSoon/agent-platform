@@ -50,8 +50,10 @@ import { createLogger } from "@werft-ai/observability";
 import {
   type Caller,
   type CatalogProfile,
+  type Connections,
   callerFor,
   catalogImports,
+  catalogRepositoryIds,
   createAgentService,
   createAuthorizationPolicy,
   drainSlackInbox,
@@ -61,6 +63,7 @@ import {
   type SlackInboundClaim,
   type SlackInboundEventStore,
   slackConversationKey,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { createMemorySlackNoticeSink } from "@werft-ai/platform/testing/slack";
 import { startFakeSlackApi } from "@werft-ai/testkit/fake-slack-api";
@@ -74,9 +77,11 @@ import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { Pool } from "pg";
 import {
+  CONNECTIONS_FILE,
   loadSessionCatalog,
   PROFILES_FILE,
   REPOSITORIES_FILE,
+  readSeedProfiles,
 } from "../api/catalog-config.ts";
 import { slackRoleStartup, slackSessionHandler } from "./main.ts";
 
@@ -154,6 +159,7 @@ const noSecret = async () => {
 
 let root = "";
 let catalog: SessionCatalogConfig;
+let connections: Connections;
 
 afterAll(async () => {
   slack.stop();
@@ -186,9 +192,11 @@ function useDatabase(engine: string) {
       };
     }
     // The api role's startup import: the registry reads ceilings from rows.
-    await createPostgresInstallationProfileStore(db).importCatalog(
-      catalogImports(catalog.profiles),
-    );
+    await createPostgresInstallationProfileStore(db).seedCatalog({
+      entries: async () =>
+        catalogImports(await readSeedProfiles(root, catalog)),
+      repositoryIdsOf: catalogRepositoryIds(catalog.repositories),
+    });
     slack.statuses.length = 0;
     slack.failures.clear();
     slack.channels.clear();
@@ -201,6 +209,10 @@ async function loadCatalog() {
   root = await mkdtemp(join(tmpdir(), "slack-session-"));
   await writeFile(join(root, PROFILES_FILE), PROFILES);
   await writeFile(
+    join(root, CONNECTIONS_FILE),
+    "connections:\n  main:\n    kind: anthropic\n    endpoint: https://api.anthropic.invalid\n    auth:\n      kind: api_key\n      value_env: PROVIDER_KEY\n",
+  );
+  await writeFile(
     join(root, REPOSITORIES_FILE),
     "repositories:\n  notes-repo:\n    url: https://github.com/acme/notes\n    branch: main\n    profiles: [coding]\n",
   );
@@ -212,6 +224,7 @@ async function loadCatalog() {
     noSecret,
   );
   catalog = started.catalog;
+  connections = started.connections;
 }
 
 type Fixture = Awaited<ReturnType<typeof agentInSlack>>;
@@ -425,6 +438,7 @@ function handler(inbox?: Pick<SlackInboundEventStore, "renew">) {
       environment: LIMITS,
       logger,
       catalog,
+      connections,
       secretKey: key,
       leaseMs: 30_000,
       notices: notices.sink,
@@ -695,18 +709,19 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
   test("a release whose repository left the catalog says so, even for a profile that may run without one", async () => {
     const fixture = await agentInSlack("drafting", {
       repositoryId: "old-repo",
-      releasedUnder: (loaded) => ({
-        ...loaded,
-        repositories: {
-          ...loaded.repositories,
-          "old-repo": {
-            ...(loaded.repositories[
-              "notes-repo"
-            ] as SessionCatalog["repositories"][string]),
-            profiles: ["drafting"],
+      releasedUnder: (loaded) =>
+        withSeededInstallation({
+          ...loaded,
+          repositories: {
+            ...loaded.repositories,
+            "old-repo": {
+              ...(loaded.repositories[
+                "notes-repo"
+              ] as SessionCatalog["repositories"][string]),
+              profiles: ["drafting"],
+            },
           },
-        },
-      }),
+        }),
     });
     const { handle, notices } = handler();
     await deliver(fixture, mention("100.000100"));

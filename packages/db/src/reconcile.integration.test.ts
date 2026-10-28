@@ -14,6 +14,7 @@ import {
   createWorkerGateway,
   type WorkerGateway,
   type WorkerPrincipal,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -304,7 +305,7 @@ integration("expired lease reconciliation on PostgreSQL", () => {
     db = drizzle(pool, { schema });
     gateway = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
-      catalog: {
+      catalog: withSeededInstallation({
         profiles: Object.fromEntries(
           RECOVERY_MODES.map((mode) => [
             profileFor(mode),
@@ -333,7 +334,7 @@ integration("expired lease reconciliation on PostgreSQL", () => {
             profiles: RECOVERY_MODES.map(profileFor),
           },
         },
-      },
+      }),
       checkpoints: {
         async verify() {
           return { status: "verified" };

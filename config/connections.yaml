@@ -1,0 +1,12 @@
+# The provider connections installation ceilings run against: the API does
+# not start without this file. Each entry is a profile's `provider` block,
+# and a ceiling runs only while its provider equals one entry here, so
+# removing an entry stops every ceiling on it. A ceiling made in the console
+# names a connection by id; its endpoint and credential reference stay here.
+connections:
+  anthropic:
+    kind: anthropic
+    endpoint: https://api.anthropic.com
+    auth:
+      kind: api_key
+      value_env: ANTHROPIC_API_KEY

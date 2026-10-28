@@ -25,6 +25,7 @@ import {
   createWorkerGateway,
   type SessionCatalog,
   type WorkerGateway,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import type {
   EngineMessage,
@@ -67,7 +68,7 @@ const integration = databaseUrl ? describe : describe.skip;
 
 const PROFILE_ID = "claude-coding-v1";
 
-const catalog: SessionCatalog = {
+const catalog: SessionCatalog = withSeededInstallation({
   profiles: {
     [PROFILE_ID]: {
       runtime_kind: "claude_agent_sdk",
@@ -93,7 +94,7 @@ const catalog: SessionCatalog = {
       profiles: ["claude-coding-v1"],
     },
   },
-};
+});
 
 const silent: WorkerLogger = {
   info: () => {},

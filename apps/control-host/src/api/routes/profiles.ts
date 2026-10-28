@@ -96,4 +96,25 @@ export function registerProfileRoutes(
       retired,
     );
   });
+
+  for (const [operationId, blocked] of [
+    ["blockInstallationProfile", true],
+    ["unblockInstallationProfile", false],
+  ] as const) {
+    apiRoute(router, operationId, async (context) => {
+      const params = requireParams(context, installationProfileIdParamsSchema);
+      const changed = await mapped(() =>
+        installation.setBlocked(
+          context.get("caller"),
+          params.profile_id,
+          blocked,
+        ),
+      );
+      return jsonWithSchema(
+        context,
+        installationProfileChangeResponseSchema,
+        changed,
+      );
+    });
+  }
 }

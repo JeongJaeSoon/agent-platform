@@ -50,6 +50,8 @@ export const STATE_BADGE: Record<ProfileState, "green" | "red" | "gray"> = {
   base_missing: "red",
   retired: "gray",
   base_retired: "gray",
+  base_blocked: "red",
+  blocked: "red",
   connection_missing: "red",
   unattended_off: "red",
   definition_drift: "red",

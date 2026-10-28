@@ -7,6 +7,7 @@ import {
   type WorkerGateway,
   WorkerGatewayError,
   type WorkerPrincipal,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -53,7 +54,7 @@ const SPEC = {
   resources: { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 256 },
 };
 
-const catalog: SessionCatalog = {
+const catalog: SessionCatalog = withSeededInstallation({
   profiles: {
     "claude-coding-v1": {
       runtime_kind: "claude_agent_sdk",
@@ -79,7 +80,7 @@ const catalog: SessionCatalog = {
       profiles: ["claude-coding-v1"],
     },
   },
-};
+});
 
 integration(
   "resume from paused and pause cancellation preserve the PostgreSQL receipt contract",

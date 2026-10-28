@@ -230,6 +230,10 @@ export const responseSchemas = {
   "POST /v1/installation-profiles": installationProfileChangeResponseSchema,
   "POST /v1/installation-profiles/{profile_id}/retire":
     installationProfileChangeResponseSchema,
+  "POST /v1/installation-profiles/{profile_id}/block":
+    installationProfileChangeResponseSchema,
+  "POST /v1/installation-profiles/{profile_id}/unblock":
+    installationProfileChangeResponseSchema,
   "GET /v1/limits": limitsResponseSchema,
   "GET /v1/usage/summary": usageSummaryResponseSchema,
   "GET /v1/usage/series": usageSeriesResponseSchema,

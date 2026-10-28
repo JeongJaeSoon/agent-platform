@@ -103,23 +103,6 @@ describe("control host executable", () => {
       const dir = await mkdtemp(join(tmpdir(), "slack-once-"));
       try {
         await writeFile(
-          join(dir, "profiles.yaml"),
-          `profiles:
-  coding:
-    runtime_kind: codex_app_server
-    runtime_version: "0.3.270"
-    model: claude-sonnet-5
-    tools: [Read]
-    permission_mode: default
-    provider:
-      kind: anthropic
-      endpoint: https://api.anthropic.invalid
-      auth:
-        kind: api_key
-        value_env: PROVIDER_KEY
-`,
-        );
-        await writeFile(
           join(dir, "repositories.yaml"),
           `repositories:
   sample-app:
@@ -134,9 +117,7 @@ describe("control host executable", () => {
           PLATFORM_CONFIG_DIR: dir,
         });
         expect(once.exitCode).not.toBe(0);
-        expect(once.stderr).toContain(
-          "Runtime codex_app_server is not installed",
-        );
+        expect(once.stderr).toContain("connections.yaml is missing");
       } finally {
         await rm(dir, { recursive: true, force: true });
       }

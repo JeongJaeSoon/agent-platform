@@ -33,7 +33,6 @@ import {
 import {
   allowedRun,
   type Connections,
-  catalogConnections,
   createAuthorizationPolicy,
   createLoggingSlackNoticeSink,
   createOutboxSlackNoticeSink,
@@ -125,10 +124,7 @@ export async function slackRoleStartup(
   slackDatabaseUrl(environment);
   const dir = environment.PLATFORM_CONFIG_DIR ?? DEFAULT_CONFIG_DIR;
   const catalog = await loadCatalogConfig({ dir, env: environment });
-  const connections = catalogConnections(
-    catalog.profiles,
-    await readConnections(dir),
-  );
+  const connections = await readConnections(dir);
   const secretKey = await loadSecretKey({ dir, env: environment, readSecret });
   return {
     catalog,
@@ -153,7 +149,11 @@ export function slackProfileCatalog(
     createProfileRegistry({
       workspaces: createPostgresWorkspaceProfileStore(db),
       installations: createPostgresInstallationProfileStore(db),
-      sources: profileViewSources(connections, environment),
+      sources: profileViewSources(
+        connections,
+        config.repositories,
+        environment,
+      ),
     }),
   );
 }
@@ -164,8 +164,7 @@ export function slackSessionHandler(deps: {
   environment: Environment;
   logger: StructuredLogger;
   catalog: SessionCatalogConfig;
-  /** `slackRoleStartup`'s; each profile's own provider when absent. */
-  connections?: Connections;
+  connections: Connections;
   /** Null without a master key: an event that needs a bot token waits. */
   secretKey: SecretKey | null;
   leaseMs: number;
@@ -177,7 +176,7 @@ export function slackSessionHandler(deps: {
   const catalog = slackProfileCatalog(
     db,
     deps.catalog,
-    deps.connections ?? catalogConnections(deps.catalog.profiles, undefined),
+    deps.connections,
     environment,
   );
   setInterval(() => {

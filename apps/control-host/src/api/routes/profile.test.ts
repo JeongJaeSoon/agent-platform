@@ -11,6 +11,7 @@ import {
   type SessionCatalog,
   type SessionControl,
   type SessionDetailRecord,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerSessionRoutes } from "./sessions.ts";
@@ -41,7 +42,7 @@ const sonnet: SessionCatalog["profiles"][string] = {
   },
 };
 const haiku = { ...sonnet, model: "claude-haiku-5" };
-const catalog: SessionCatalog = {
+const catalog: SessionCatalog = withSeededInstallation({
   profiles: {
     "coding-sonnet": { ...sonnet, models: ["claude-opus-5"] },
     "coding-haiku": haiku,
@@ -65,7 +66,7 @@ const catalog: SessionCatalog = {
       ],
     },
   },
-};
+});
 
 const record: SessionDetailRecord = {
   id: sessionId,

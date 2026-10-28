@@ -1,0 +1,9 @@
+# The format is config/connections.yaml's; the same fake as
+# config/fake-model.
+connections:
+  fake-messages:
+    kind: anthropic
+    endpoint: http://fake-messages:4010
+    auth:
+      kind: api_key
+      secret_id: agent-platform/local/fake-messages

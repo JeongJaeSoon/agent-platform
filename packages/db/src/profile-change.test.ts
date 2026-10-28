@@ -10,6 +10,7 @@ import {
   type SessionCatalog,
   SessionServiceError,
   type WorkerGateway,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { testCaller } from "@werft-ai/testkit/callers";
 import { and, eq, isNull } from "drizzle-orm";
@@ -74,7 +75,7 @@ const SONNET = profile("claude-sonnet-5", "https://sonnet.invalid");
 const HAIKU = profile("claude-haiku-5", "https://haiku.invalid");
 const OPUS = profile("claude-opus-5", "https://opus.invalid");
 const LOCAL = profile("local-model", "http://10.0.0.5:4000", "none");
-const CATALOG: SessionCatalog = {
+const CATALOG: SessionCatalog = withSeededInstallation({
   profiles: {
     sonnet: { ...SONNET, models: ["claude-sonnet-5-long"] },
     haiku: HAIKU,
@@ -84,7 +85,7 @@ const CATALOG: SessionCatalog = {
   repositories: {
     app: { ...REPOSITORY, profiles: ["sonnet", "haiku", "opus", "local"] },
   },
-};
+});
 
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;

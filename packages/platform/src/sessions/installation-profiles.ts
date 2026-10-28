@@ -49,7 +49,7 @@ const badRequest = (message: string, reason_code: string, field?: string) =>
  */
 export function createInstallationProfileService(deps: {
   authorization: AuthorizationPolicy;
-  store: Pick<InstallationProfileStore, "create" | "retire">;
+  store: Pick<InstallationProfileStore, "create" | "retire" | "setBlocked">;
   catalog: SessionCatalogView & { workspace_profiles: WorkspaceProfiles };
   connections: Connections;
   allowUnattended: boolean;
@@ -285,6 +285,39 @@ export function createInstallationProfileService(deps: {
           return changed(
             result.record,
             result.outcome === "retired" ? receiptId : null,
+          );
+      }
+    },
+
+    /**
+     * Stops (`blocked`) or lets run again everything on one ceiling, the
+     * workspace versions over it and their running sessions included.
+     */
+    async setBlocked(
+      caller: Caller,
+      profileId: string,
+      blocked: boolean,
+    ): Promise<WorkspaceProfileChangeResponse> {
+      const actor = await operator(caller);
+      await reread();
+      if (operatorSummary(catalog, profileId) === undefined) throw NOT_FOUND();
+      const receiptId = newId();
+      const result = await store.setBlocked({
+        actor,
+        receiptId,
+        profileId,
+        blocked,
+      });
+      switch (result.outcome) {
+        case "not_found":
+          throw NOT_FOUND();
+        case "actor_inactive":
+          throw OUTRANKED();
+        default:
+          await reread();
+          return changed(
+            result.record,
+            result.outcome === "changed" ? receiptId : null,
           );
       }
     },

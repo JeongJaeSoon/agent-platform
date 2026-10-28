@@ -1,5 +1,5 @@
-import type { SessionCatalogConfig } from "@werft-ai/platform";
-import { readCatalogConfig } from "./catalog-config.ts";
+import type { Connections } from "@werft-ai/platform";
+import { readConnections } from "./catalog-config.ts";
 import {
   DEMO_ACCOUNTS,
   DEMO_PASSWORD,
@@ -21,19 +21,23 @@ const MODEL = "claude-sonnet-5";
 
 /**
  * Why this process must not seed demo data, or null: every refusal of the
- * demo accounts, and any profile the seed uses that would reach a provider
- * other than the fake one.
+ * demo accounts, and any connection that would reach a provider other than
+ * the fake one. A ceiling runs only on a connection, so no profile the seed
+ * uses can reach one either.
  */
 export function demoDataRefusal(
   env: Record<string, string | undefined>,
-  catalog: Pick<SessionCatalogConfig, "profiles">,
+  connections: Connections,
 ): string | null {
   const refusal = demoAccountsRefusal(env);
   if (refusal) return refusal;
-  for (const id of [REPOSITORY_PROFILE, NO_REPOSITORY_PROFILE]) {
-    const endpoint = catalog.profiles[id]?.provider?.endpoint;
-    if (endpoint !== FAKE_MESSAGES_ENDPOINT) {
-      return `profile ${id} does not call the fake model at ${FAKE_MESSAGES_ENDPOINT}; start the stack with --fake-model`;
+  const ids = Object.keys(connections);
+  if (ids.length === 0) {
+    return "connections.yaml names no connection; start the stack with --fake-model";
+  }
+  for (const id of ids) {
+    if (connections[id]?.endpoint !== FAKE_MESSAGES_ENDPOINT) {
+      return `connection ${id} does not call the fake model at ${FAKE_MESSAGES_ENDPOINT}; start the stack with --fake-model`;
     }
   }
   return null;
@@ -754,7 +758,7 @@ async function main(): Promise<void> {
     try {
       refusal = demoDataRefusal(
         process.env,
-        await readCatalogConfig(process.env.PLATFORM_CONFIG_DIR ?? ""),
+        await readConnections(process.env.PLATFORM_CONFIG_DIR ?? ""),
       );
     } catch (error) {
       refusal = `cannot read the catalog in PLATFORM_CONFIG_DIR: ${error instanceof Error ? error.message : String(error)}`;

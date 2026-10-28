@@ -139,7 +139,7 @@ import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
-import { importCatalogProfiles } from "./profile-import.ts";
+import { SeedProfilesError, seedCatalogProfiles } from "./profile-import.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { createReadinessProbe } from "./readiness.ts";
 import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
@@ -228,7 +228,7 @@ const catalogSource = {
 const profileSources = await loadProfileSources(catalogSource);
 if (Object.keys(profileSources.connections).length === 0) {
   logger.warn(
-    "No provider connections: add connections.yaml (or profiles.yaml) to PLATFORM_CONFIG_DIR; no profile runs until then",
+    "No provider connections in connections.yaml; no profile runs until one is added",
     {},
   );
 }
@@ -289,13 +289,6 @@ const logCatalog = (message: string): void => {
     });
   }
 };
-logCatalog("Session catalog loaded");
-const unattended = unattendedProfiles(catalog);
-if (unattended.length > 0) {
-  logger.warn("Profiles run tools without asking for approval", {
-    profiles: unattended,
-  });
-}
 const refreshWorkspaceProfiles = (): void => {
   workspaceProfileVersions
     .refresh(WORKSPACE_PROFILE_REFRESH_MS)
@@ -310,17 +303,35 @@ const refreshWorkspaceProfiles = (): void => {
 // waits on that read rather than this one.
 const PROFILE_IMPORT_RETRY_MS = 30_000;
 const importProfiles = (): void => {
-  importCatalogProfiles(installationProfileStore, profileSources.config, logger)
+  seedCatalogProfiles(
+    installationProfileStore,
+    { dir: catalogSource.dir, config: profileSources.config },
+    logger,
+  )
     .then(() => workspaceProfileVersions.refresh())
     .then(
       () => {
-        logCatalog("Profile registry read");
+        // Logged only now: every ceiling is a row, so the revision before
+        // this read is not the one catalog-authority compares.
+        logCatalog("Session catalog loaded");
+        const unattended = unattendedProfiles(catalog);
+        if (unattended.length > 0) {
+          logger.warn("Profiles run tools without asking for approval", {
+            profiles: unattended,
+          });
+        }
         setInterval(
           refreshWorkspaceProfiles,
           WORKSPACE_PROFILE_REFRESH_MS,
         ).unref();
       },
       (error: unknown) => {
+        if (error instanceof SeedProfilesError) {
+          logger.error("Refusing to start: profiles.yaml cannot seed", {
+            problem: error.message,
+          });
+          process.exit(1);
+        }
         logger.warn("Profiles could not be imported; retrying", {
           error_name: error instanceof Error ? error.name : typeof error,
         });

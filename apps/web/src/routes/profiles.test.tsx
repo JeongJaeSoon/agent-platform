@@ -260,6 +260,18 @@ describe("실행 프로필", () => {
             base_profile_id: "e-old",
           },
         },
+        imported("f-stop", {}, "blocked"),
+        {
+          ...version(1, "base_blocked"),
+          id: "ws_acme_y_v1",
+          workspace: {
+            ...(version(1, "base_blocked").workspace as NonNullable<
+              ProfileSummary["workspace"]
+            >),
+            name: "y",
+            base_profile_id: "f-stop",
+          },
+        },
       ]),
     );
     const table = await screen.findByRole("table", { name: "실행 프로필" });
@@ -274,7 +286,9 @@ describe("실행 프로필", () => {
       ["설정이 바뀜", "danger"],
       ["지원하지 않는 런타임", "danger"],
       ["사용 중지됨", "neutral"],
+      ["차단됨", "danger"],
       ["바탕 프로필 사용 중지됨", "neutral"],
+      ["바탕 프로필 차단됨", "danger"],
     ]);
   });
 

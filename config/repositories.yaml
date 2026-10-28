@@ -1,12 +1,13 @@
 # Repositories sessions may run against. A session names one by
 # id; the worker is handed the URL and branch registered here at claim time.
 #
-# `profiles` is the allowlist of profiles that may run against this
-# repository: the (profile, repository) pair is the unit of trust. A create
-# naming a pair not listed answers 422. A session whose pair has since been
-# removed, or whose id now points at another URL or branch, is failed with
-# CATALOG_MISMATCH at its next launch; restoring the pair lets the next
-# message run it again, and nothing reruns on its own (docs/operator/api-server.md).
+# `profiles` (optional) is a seed: the profiles.yaml ceilings that may run
+# against this repository when they are first written to the database. The
+# database's repository_ids is the allowlist after that, edited as a new
+# ceiling version in the console; changing this list later changes nothing.
+# A create naming a pair the database does not allow answers 422. A session
+# whose id now points at another URL or branch is failed with
+# CATALOG_MISMATCH at its next launch (docs/operator/api-server.md).
 #
 # URLs must be http:// or https:// (a worker's only way out is the HTTP(S)
 # egress proxy) and must not carry a credential (no userinfo, no query

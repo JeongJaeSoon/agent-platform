@@ -6,6 +6,7 @@ import {
   createSessionService,
   type SessionCatalog,
   SessionServiceError,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { testCaller } from "@werft-ai/testkit/callers";
 import { eq } from "drizzle-orm";
@@ -38,7 +39,7 @@ const PROFILE: CatalogProfile = {
     },
   },
 };
-const CATALOG: SessionCatalog = {
+const CATALOG: SessionCatalog = withSeededInstallation({
   profiles: {
     sonnet: PROFILE,
     general: { ...PROFILE, repository: "optional" },
@@ -50,7 +51,7 @@ const CATALOG: SessionCatalog = {
       profiles: ["sonnet", "general"],
     },
   },
-};
+});
 
 // Markers planted where a stored URL may hold a credential; none of them
 // may reach a response.

@@ -15,6 +15,7 @@ import {
   createWorkerGateway,
   mcpBinding,
   type SessionCatalog,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq } from "drizzle-orm";
@@ -27,7 +28,7 @@ import {
 const AUTHORIZER_TOKEN = "authorizer-token-of-at-least-32-characters";
 const SERVICE_ACCOUNT = "sa-value-kept-from-the-worker";
 
-const catalog: SessionCatalog = {
+const catalog: SessionCatalog = withSeededInstallation({
   profiles: {
     coding: {
       runtime_kind: "claude_agent_sdk",
@@ -65,7 +66,7 @@ const catalog: SessionCatalog = {
       workspaces: ["default"],
     },
   },
-};
+});
 
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;

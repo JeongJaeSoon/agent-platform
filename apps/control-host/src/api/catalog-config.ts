@@ -14,14 +14,17 @@ import {
   type CatalogProfileView,
   type Connections,
   type CredentialRef,
-  catalogConnections,
   catalogConnectionsSchema,
   catalogCredentialRefs,
+  catalogRepositoryIds,
   catalogRows,
+  createProfileRegistry,
   credentialRefOf,
   describeConfigError,
+  type InstallationProfileStore,
   installationProfileSnapshot,
   ProfileFeatureGate,
+  profileCatalog,
   resolveCredential,
   resolveSessionCatalog,
   SecretKey,
@@ -30,16 +33,18 @@ import {
   type SnapshotSources,
   sessionCatalogConfigSchema,
   sessionCatalogView,
+  type WorkspaceProfileStore,
 } from "@werft-ai/platform";
 import { installedDescriptors } from "@werft-ai/runtime-codecs";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
-// The operator's catalog: two YAML files (three with remote MCP servers) in one directory, read
-// once at startup. Anything wrong — a missing file other than
-// `profiles.yaml`, a schema error, a
-// credential that does not resolve — stops the API with a message naming
-// the file and path, never a value.
+// The installation's files: connections.yaml and repositories.yaml (and
+// mcp-servers.yaml with remote MCP servers) in one directory, read once at
+// startup. Anything wrong — a missing file, a schema error, a credential
+// that does not resolve — stops the API with a message naming the file and
+// path, never a value. profiles.yaml is read only to seed an empty
+// database (readSeedProfiles).
 
 /** The repository's own `config/`, wherever the process was started from. */
 export const DEFAULT_CONFIG_DIR = resolve(
@@ -91,16 +96,14 @@ function section(document: unknown, key: string, path: string): unknown {
   return (document as Record<string, unknown>)[key];
 }
 
+/** The directory's repositories and MCP servers; `profiles` is always empty. */
 export async function readCatalogConfig(
   dir: string,
 ): Promise<SessionCatalogConfig> {
-  const profilesPath = resolve(dir, PROFILES_FILE);
   const repositoriesPath = resolve(dir, REPOSITORIES_FILE);
   const mcpServersPath = resolve(dir, MCP_SERVERS_FILE);
   const parsed = sessionCatalogConfigSchema.safeParse({
-    profiles: (await Bun.file(profilesPath).exists())
-      ? section(await readYaml(profilesPath), "profiles", profilesPath)
-      : {},
+    profiles: {},
     repositories: section(
       await readYaml(repositoriesPath),
       "repositories",
@@ -122,6 +125,29 @@ export async function readCatalogConfig(
     );
   }
   return parsed.data;
+}
+
+/**
+ * profiles.yaml under the catalog's rules, or none without the file: what
+ * an empty installation_profiles table is seeded with.
+ */
+export async function readSeedProfiles(
+  dir: string,
+  config: SessionCatalogConfig,
+): Promise<SessionCatalogConfig["profiles"]> {
+  const path = resolve(dir, PROFILES_FILE);
+  if (!(await Bun.file(path).exists())) return {};
+  const parsed = sessionCatalogConfigSchema.safeParse({
+    ...config,
+    profiles: section(await readYaml(path), "profiles", path),
+  });
+  if (!parsed.success) {
+    throw new Error(
+      `Catalog config in ${dir} is invalid: ${describeConfigError(parsed.error)}`,
+    );
+  }
+  installedRuntimes.assertProfiles(parsed.data.profiles);
+  return parsed.data.profiles;
 }
 
 export function secretsManagerReader(
@@ -163,23 +189,15 @@ export async function loadCatalogConfig(options: {
   if (options.env.SESSION_CATALOG_JSON !== undefined) {
     // Two sources would let one quietly win; the old one is gone.
     throw new Error(
-      `SESSION_CATALOG_JSON is no longer read: move the catalog to ${PROFILES_FILE} and ${REPOSITORIES_FILE} (PLATFORM_CONFIG_DIR) and unset it`,
+      `SESSION_CATALOG_JSON is no longer read: move the catalog to ${CONNECTIONS_FILE}, ${REPOSITORIES_FILE} and the ${PROFILES_FILE} seed (PLATFORM_CONFIG_DIR) and unset it`,
     );
   }
-  const config = await readCatalogConfig(options.dir);
-  installedRuntimes.assertProfiles(config.profiles);
-  return config;
+  return readCatalogConfig(options.dir);
 }
 
-/**
- * `connections.yaml`, or undefined without one: then each profile's own
- * provider is its connection (`catalogConnections`).
- */
-export async function readConnections(
-  dir: string,
-): Promise<Connections | undefined> {
+/** `connections.yaml`: the only providers any ceiling runs against. */
+export async function readConnections(dir: string): Promise<Connections> {
   const path = resolve(dir, CONNECTIONS_FILE);
-  if (!(await Bun.file(path).exists())) return undefined;
   const parsed = catalogConnectionsSchema.safeParse(
     section(await readYaml(path), "connections", path),
   );
@@ -202,10 +220,12 @@ export function unattendedAllowed(
 /** What a replica holding no provider key builds its profile snapshot from. */
 export function profileViewSources(
   connections: Connections,
+  repositories: SessionCatalogConfig["repositories"],
   env: Record<string, string | undefined>,
 ): SnapshotSources<CatalogProfileView> {
   return {
     connections,
+    repositoryIdsOf: catalogRepositoryIds(repositories),
     allowUnattended: unattendedAllowed(env),
     runtimeSupported: runtimeServes,
     materialize: (id, definition) => {
@@ -243,15 +263,14 @@ export async function loadProfileSources(options: {
   catalog: SessionCatalog;
   sources: SnapshotSources<CatalogProfile>;
 }> {
+  const connections = await readConnections(options.dir);
   const config = await loadCatalogConfig(options);
-  const file = await readConnections(options.dir);
-  const connections = catalogConnections(config.profiles, file);
   const secrets = new Map<string, string>();
   // An endpoint that is not up, like the local stack's secrets service
   // without --fake-model, fails on DNS or a refused connection; naming it says which.
   const endpoint = options.env.AWS_ENDPOINT_URL_SECRETS_MANAGER;
   const from = endpoint === undefined ? "" : ` from ${endpoint}`;
-  for (const { path, ref } of catalogCredentialRefs(config, file)) {
+  for (const { path, ref } of catalogCredentialRefs(config, connections)) {
     if (!("secret_id" in ref) || secrets.has(ref.secret_id)) continue;
     let value: string | undefined;
     try {
@@ -272,14 +291,15 @@ export async function loadProfileSources(options: {
   // Every connection's credential resolves before the API starts, as every
   // profile's did when profiles carried them.
   for (const { path, ref } of catalogCredentialRefs(
-    { profiles: file === undefined ? config.profiles : {}, repositories: {} },
-    file,
+    { profiles: {}, repositories: {} },
+    connections,
   )) {
     resolveCredential(path, ref, lookup);
   }
   const resolved = resolveSessionCatalog({ ...config, profiles: {} }, lookup);
   const sources: SnapshotSources<CatalogProfile> = {
     connections,
+    repositoryIdsOf: catalogRepositoryIds(config.repositories),
     allowUnattended: unattendedAllowed(options.env),
     runtimeSupported: runtimeServes,
     materialize: (id, definition) => {
@@ -295,8 +315,9 @@ export async function loadProfileSources(options: {
 }
 
 /**
- * The catalog this directory runs once its `profiles.yaml` is imported,
- * credentials resolved: what a fresh installation's registry first reads.
+ * The catalog this directory runs once its `profiles.yaml` seeds an empty
+ * database, credentials resolved: what a fresh installation's registry
+ * first reads.
  */
 export async function loadSessionCatalog(options: {
   dir: string;
@@ -304,13 +325,52 @@ export async function loadSessionCatalog(options: {
   readSecret: SecretReader;
 }): Promise<SessionCatalog> {
   const loaded = await loadProfileSources(options);
-  return {
-    ...loaded.catalog,
-    profiles: installationProfileSnapshot(
-      loaded.sources,
-      catalogRows(loaded.config.profiles),
-    ).profiles,
-  };
+  const { profiles, installation } = installationProfileSnapshot(
+    loaded.sources,
+    catalogRows(
+      await readSeedProfiles(options.dir, loaded.config),
+      loaded.config.repositories,
+    ),
+  );
+  return { ...loaded.catalog, profiles, installation };
+}
+
+/**
+ * The catalog the api's registry reads from `dir` and the database, every
+ * credential standing in as `credential`: for a check on the host, without
+ * the API's secrets, of what a claim would carry. Runtimes and the
+ * unattended switch are left to the caller's own check.
+ */
+export async function databaseCatalog(options: {
+  dir: string;
+  installations: Pick<InstallationProfileStore, "listAll">;
+  workspaces: Pick<WorkspaceProfileStore, "listAll">;
+  credential: () => string;
+}): Promise<SessionCatalog> {
+  const config = await readCatalogConfig(options.dir);
+  const registry = createProfileRegistry({
+    workspaces: options.workspaces,
+    installations: options.installations,
+    sources: {
+      connections: await readConnections(options.dir),
+      repositoryIdsOf: catalogRepositoryIds(config.repositories),
+      allowUnattended: true,
+      runtimeSupported: () => true,
+      materialize: (id, definition) => {
+        const profile = resolveSessionCatalog(
+          { profiles: { [id]: definition }, repositories: {} },
+          options.credential,
+        ).profiles[id];
+        if (!profile) throw new Error(`profile ${id} did not resolve`);
+        return profile;
+      },
+    },
+  });
+  await registry.refresh();
+  return profileCatalog(
+    resolveSessionCatalog(config, options.credential),
+    registry,
+  );
 }
 
 const platformConfigSchema = z

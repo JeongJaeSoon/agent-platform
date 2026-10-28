@@ -286,16 +286,16 @@ const catalogRepositoryAuthSchema = z.discriminatedUnion("kind", [
   githubAppAuthSchema,
 ]);
 
-// A repository lists the profiles allowed to run against it. The pair is
-// the unit of trust: a profile that lets the repository's
-// CLAUDE.md into the system prompt must not carry that trust to a
-// repository whose authors it was never granted for. Checked at create and
-// again at claim.
+// The pair of profile and repository is the unit of trust: a profile that
+// lets the repository's CLAUDE.md into the system prompt must not carry
+// that trust to a repository whose authors it was never granted for.
+// Checked at create and again at claim, against the ceiling's
+// `repository_ids` in the database; `profiles` here only seeds them.
 export const catalogRepositorySchema = z
   .object({
     url: webUrl,
     branch: z.string().min(1),
-    profiles: z.array(z.string().min(1)).min(1),
+    profiles: z.array(z.string().min(1)).min(1).optional(),
     // Absent for a repository anyone may read.
     auth: catalogRepositoryAuthSchema.optional(),
   })
@@ -367,7 +367,7 @@ export const sessionCatalogConfigSchema = z
       });
     }
     for (const [id, repository] of Object.entries(config.repositories)) {
-      repository.profiles.forEach((profileId, index) => {
+      repository.profiles?.forEach((profileId, index) => {
         if (
           Object.hasOwn(config.profiles, profileId) &&
           config.profiles[profileId]?.repository === "none"
@@ -700,6 +700,10 @@ export function workspaceProfileState(
   catalog: ProfileLookup<CatalogProfileView>,
   record: WorkspaceProfileRecord,
 ): WorkspaceProfileState {
+  // Before retired: a block stops the version's existing releases too.
+  if (catalog.installation?.get(record.base_profile_id)?.state === "blocked") {
+    return "base_blocked";
+  }
   if (record.retired_at !== null) return "retired";
   const base = Object.hasOwn(catalog.profiles, record.base_profile_id)
     ? catalog.profiles[record.base_profile_id]
@@ -774,12 +778,18 @@ export function workspaceProfileRefusal(
   profileId: string,
   options: { retiredAllowed?: boolean } = {},
 ): {
-  state: WorkspaceProfileState | "unknown";
+  state: WorkspaceProfileState | "blocked" | "unknown";
   message: string;
 } | null {
   if (!profileId.startsWith(WORKSPACE_PROFILE_PREFIX)) {
-    return !options.retiredAllowed &&
-      catalog.installation?.get(profileId)?.state === "retired"
+    const state = catalog.installation?.get(profileId)?.state;
+    if (state === "blocked") {
+      return {
+        state,
+        message: `Profile ${profileId} is blocked by the operator`,
+      };
+    }
+    return !options.retiredAllowed && state === "retired"
       ? {
           state: "retired",
           message: `Profile ${profileId} is retired: pick a newer version`,
@@ -805,7 +815,9 @@ export function workspaceProfileRefusal(
         ? `Profile ${profileId} is retired: pick a newer version`
         : state === "base_retired"
           ? `The base of profile ${profileId} is retired: make a new version over a newer one`
-          : `The operator changed or removed the base of profile ${profileId}: make a new version`,
+          : state === "base_blocked"
+            ? `The base of profile ${profileId} is blocked by the operator`
+            : `The operator changed or removed the base of profile ${profileId}: make a new version`,
   };
 }
 
@@ -856,21 +868,17 @@ function trustedProfileId(
 }
 
 /**
- * Whether the repository lets `profileId` (or the ceiling a workspace
- * version narrows) run against it: named in its `profiles`, or, for a
- * ceiling made in the console, among the ceiling's own `repository_ids`.
+ * Whether `profileId` (or the ceiling a workspace version narrows) may run
+ * against the repository: among the ceiling's `repository_ids`.
  */
 export function profileAllowsRepository(
   catalog: ProfileLookup<CatalogProfileView>,
   profileId: string,
   repositoryId: string,
-  repository: Pick<CatalogRepositoryView, "profiles">,
 ): boolean {
-  const trusted = trustedProfileId(catalog, profileId);
   return (
-    repository.profiles.includes(trusted) ||
     catalog.installation
-      ?.get(trusted)
+      ?.get(trustedProfileId(catalog, profileId))
       ?.repository_ids.includes(repositoryId) === true
   );
 }
@@ -1157,7 +1165,7 @@ export function allowedPair<
   if (
     !profile ||
     !repository ||
-    !profileAllowsRepository(catalog, profileId, repositoryId, repository)
+    !profileAllowsRepository(catalog, profileId, repositoryId)
   ) {
     return null;
   }

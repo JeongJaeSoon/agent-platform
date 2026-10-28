@@ -22,6 +22,7 @@ import {
   deriveReleaseId,
   InvalidCursorError,
   profileFingerprint,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerAgentRoutes } from "./agents.ts";
@@ -186,7 +187,7 @@ function app(
   const service = createAgentService({
     authorization: options.authorization ?? allowing,
     store: agentStore,
-    catalog: {
+    catalog: withSeededInstallation({
       profiles: { coding: PROFILE },
       repositories: {
         "sample-app": {
@@ -195,7 +196,7 @@ function app(
           profiles: ["coding"],
         },
       },
-    },
+    }),
     credentials: { unboundRefs: async () => options.unbound ?? [] },
   });
   const routed: Routed =

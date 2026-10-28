@@ -28,6 +28,7 @@ export const profileSourceSchema = z.enum(["operator", "workspace"]);
  * the operator removed the base. `retired`: an owner or admin retired it;
  * what already uses it keeps running. `base_retired`: the operator retired
  * its base; it takes nothing new, and what already uses it keeps running.
+ * `base_blocked`: the operator blocked its base; it runs nothing.
  */
 export const workspaceProfileStateSchema = z.enum([
   "usable",
@@ -35,12 +36,14 @@ export const workspaceProfileStateSchema = z.enum([
   "base_missing",
   "retired",
   "base_retired",
+  "base_blocked",
 ]);
 
 /**
  * Whether an installation ceiling runs on this replica. Only `usable` takes
  * new releases, sessions and workspace versions; `retired` still runs what
- * already uses it. The rest run nothing: `connection_missing` (its provider
+ * already uses it. The rest run nothing: `blocked` (the operator stopped it
+ * and everything over it, running sessions included), `connection_missing` (its provider
  * is none of the installation's connections), `unattended_off` (its mode
  * needs PLATFORM_ALLOW_UNATTENDED_PERMISSIONS), `definition_drift` (the row
  * no longer reads as it was written), `runtime_unsupported` (no installed
@@ -49,6 +52,7 @@ export const workspaceProfileStateSchema = z.enum([
 export const installationProfileStateSchema = z.enum([
   "usable",
   "retired",
+  "blocked",
   "connection_missing",
   "unattended_off",
   "definition_drift",
@@ -149,6 +153,9 @@ export const profileSummarySchema = z
         created_at: timestampSchema,
         retired_by: userIdSchema.nullable(),
         retired_at: timestampSchema.nullable(),
+        // Optional so a reader ahead of its server reads a ceiling without them.
+        blocked_by: userIdSchema.nullable().optional(),
+        blocked_at: timestampSchema.nullable().optional(),
       })
       .strict()
       .optional(),

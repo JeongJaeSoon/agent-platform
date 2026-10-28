@@ -32,22 +32,30 @@ worker 컨테이너 env에도, claim 응답에도 provider 키와 저장소 로�
 
 ## 운영자 카탈로그 (Agent Profile · repository)
 
-API는 기동 시 `PLATFORM_CONFIG_DIR`(기본: 저장소의 `config/`)에서 `profiles.yaml`과 `repositories.yaml`을 한 번 읽는다. 파일이 없거나 schema에 맞지 않거나 자격 증명 참조가 풀리지 않으면 파일·경로를 적은 메시지와 함께 기동하지 않는다. 옛 `SESSION_CATALOG_JSON`은 더 읽지 않으며 설정돼 있으면 기동을 거부한다. 저장소의 `config/`는 실제 Messages API용 카탈로그다([real-claude.md](../real-claude.md)). `config/fake-model/`은 key 없이 도는 fake 카탈로그이고, `--fake-model` overlay(`infra/compose.fake-model.yml`)가 `PLATFORM_CONFIG_DIR`를 그 디렉터리로 바꾼다([quickstart.md](../quickstart.md)).
+API는 기동 시 `PLATFORM_CONFIG_DIR`(기본: 저장소의 `config/`)에서 `connections.yaml`과 `repositories.yaml`을 한 번 읽는다. 파일이 없거나 schema에 맞지 않거나 자격 증명 참조가 풀리지 않으면 파일·경로를 적은 메시지와 함께 기동하지 않는다. 예를 들어 `connections.yaml`이 없으면 `<디렉터리>/connections.yaml is missing`을 남긴다. 옛 `SESSION_CATALOG_JSON`은 더 읽지 않으며 설정돼 있으면 기동을 거부한다. 저장소의 `config/`는 실제 Messages API용 카탈로그다([real-claude.md](../real-claude.md)). `config/fake-model/`은 key 없이 도는 fake 카탈로그이고, `--fake-model` overlay(`infra/compose.fake-model.yml`)가 `PLATFORM_CONFIG_DIR`를 그 디렉터리로 바꾼다([quickstart.md](../quickstart.md)). 네 설정 디렉터리(`config/`, `config/fake-model/`, `config/fake-model-unattended/`, `config/local-model/`)에 모두 `connections.yaml`이 있다.
 
-프로필을 DB로 옮기는 중이다([설계](../contributing/decisions/profile-db.md)). 지금 단계(확장)에서는 다음이 더해졌다.
+설치 상한 profile(운영자 profile)의 정본은 DB의 `installation_profiles`다([설계](../contributing/decisions/profile-db.md)). 파일은 다음처럼만 쓴다.
 
-- API는 뜰 때 `profiles.yaml`의 각 id를 `installation_profiles`에 없을 때만 넣는다(advisory lock 아래, 덮어쓰지 않는다). 넣은 id는 `Profiles imported`, 같은 id인데 내용이 다르면 `Profile import conflict`(id, 다른 칸 이름)로 남는다. 이 replica는 자기 YAML에 있는 id를 YAML 값으로 풀고, 나머지 행은 DB 값으로 푼다. 가져오기가 끝나기 전에는 YAML만으로 돈다.
-- `PLATFORM_CONFIG_DIR`에 `connections.yaml`(최상위 키 `connections`, 항목 하나가 profile의 `provider` 값 하나)이 있으면 provider 자격 증명은 그 파일의 연결에서만 푼다. 연결과 정확히 같은 provider를 가진 profile만 돌고, 나머지는 `connection_missing`으로 빠진다. 파일이 없으면 지금처럼 `profiles.yaml` 각 항목의 provider가 연결이다.
-- `bun run profiles connections-from-yaml`은 지금 `profiles.yaml`의 provider로 `connections.yaml` 내용을 stdout에 쓴다. `bun run profiles import --check`는 이 replica의 설정과 DB 행을 비교해 충돌, DB에만 있는 id, YAML에만 있는 id, 연결이 없는 행, 두 revision(YAML만, DB 집합)을 적고 모두 맞을 때만 0으로 끝난다. 다음 단계(전환)를 올리기 전에 각 replica에서 돌린다.
-- 이 단계에서는 `profiles.yaml`에 새 id를 더하는 것만 한다. 이미 있는 id를 고치거나 지우지 않는다(행은 남고 덮어쓰지 않는다).
+- **`connections.yaml`이 유일한 연결 출처다.** 최상위 키 `connections` 아래 항목 하나가 연결 하나(profile의 `provider` 값과 같은 모양)다. provider 자격 증명은 이 파일의 연결에서만 푼다. 상한은 provider가 연결 하나와 정확히 같을 때만 돌고, 아니면 `connection_missing`으로 빠진다. 연결을 빼면 그 위의 상한이 모두 멈춘다.
+- **`profiles.yaml`은 빈 DB의 시드다.** API(`api` 역할)는 뜰 때 advisory lock 하나와 transaction 하나 안에서 `installation_profiles`가 비었는지 보고, 비었을 때만 `profiles.yaml`을 읽어 검증한 뒤 넣는다. 넣으면 `Profiles seeded`(id 목록)를 남긴다. 두 replica가 빈 DB에서 같이 떠도 한쪽만 넣는다. 행이 하나라도 있으면 파일을 열지 않는다. 그 뒤로는 파일에 id를 더하거나 고치거나 파일을 지우거나 깨뜨려도 DB와 기동에 아무 영향이 없다. 상한은 콘솔이나 `POST /v1/installation-profiles`로 바꾼다. 빈 DB에서 파일이 깨졌으면 `Refusing to start: profiles.yaml cannot seed`를 남기고 기동하지 않는다. 파일이 없으면 상한 없이 뜬다.
+- **`repositories.yaml`의 `profiles` 배열은 선택 항목이고 시드로만 읽는다.** 빈 DB에 시드할 때 각 상한의 `repository_ids`가 이 배열에서 정해진다. 그 뒤 허용은 DB의 `repository_ids`만 본다(아래). 배열을 남겨 두면 저장소 객체에 그대로 들어가 catalog revision이 바뀌지 않는다. 지우면 revision이 한 번 바뀐다.
+- `bun run profiles connections-from-yaml`은 `profiles.yaml`의 provider로 `connections.yaml` 내용을 stdout에 쓴다. 연결 파일이 없는 설치를 올리기 전에 이것으로 파일을 만든다. 옛 `bun run profiles import --check`는 없어졌다.
+
+**배포(migration 0190).** 이 migration은 상한 행에 차단 칸(`blocked_at`·`blocked_by`)을 더하고, `profiles.yaml`에서 가져온 행(`origin = 'catalog'`)의 `repository_ids`를 NULL로 둔다. 새 API는 기동 때 시드와 같은 lock·transaction 안에서 NULL인 행만 `repositories.yaml` 배열로 한 번 채우고 `Profile repositories moved to the database`(id 목록)를 남긴다. 두 번 떠도 결과가 같다. 순서는 이렇다.
+
+1. 올리기 전에 모든 설정 디렉터리에 `connections.yaml`을 둔다(`connections-from-yaml`).
+2. 옛 API replica를 모두 내린다. 옛 API는 NULL인 `repository_ids`와 차단 칸을 모르므로 새 API와 섞어 돌리지 않는다. 되돌리지도 않는다.
+3. migration을 적용하고 새 API를 올린다. 이전이 끝나기 전에는 모든 역할이 NULL인 행을 그 replica의 `repositories.yaml` 배열로 읽는다. 이전이 쓸 값과 같으므로 그동안에도 허용과 revision은 업그레이드 전과 같다.
+4. 이전이 끝나면 `repositories.yaml` 배열을 고쳐도 허용은 바뀌지 않는다. 가져온 상한의 저장소를 바꾸려면 그 id를 `previous_id`로 하는 새 상한 버전을 `POST /v1/installation-profiles`로 저장한다.
 
 - profile의 `provider.auth`에는 값 대신 참조를 하나만 적는다: API 프로세스 환경 변수 `value_env`, 또는 Secrets Manager `secret_id`(`AWS_ENDPOINT_URL_SECRETS_MANAGER`로 endpoint 지정, `AWS_ENDPOINT_URL`은 따르지 않는다). 값은 기동 시 한 번 해석되고 worker에는 가지 않는다. egress proxy의 credential route가 요청마다 authorizer에 물어 upstream 요청에 붙인다(위 절).
 - profile의 `models`는 세션이 `POST /v1/sessions`의 `model`로 고를 수 있는 모델 목록이다. `model`은 기본값이고 늘 고를 수 있다. 목록에 없는 모델로 만들면 `422 UNSUPPORTED_CAPABILITY`이고 세션은 생기지 않는다. `model`을 생략하면 `agent_release_id`가 있을 때는 release 카드의 모델, 없으면 profile의 `model`로 돈다. 세션은 고른 모델을 `sessions.model`에 적고(세션 응답의 `model`), profile 지문과 이 모델에 묶인다. 그래서 목록에 모델을 더하거나 기본 `model`을 바꿔도 기존 세션은 그대로 돈다. 세션이 쓰는 모델을 목록에서 빼면 그 세션은 아래와 같이 `CATALOG_MISMATCH`가 된다. provider·`billing`·tools는 profile 단위라 모델을 골라도 바뀌지 않고, 비용은 응답이 밝힌 모델 가격으로 매겨져 세션 상한에 그대로 걸린다.
 - 세션 제목: 만들 때 `title`이 없으면 첫 메시지를 80자에서 자른 값이 제목이 된다. 첫 turn이 `completed`로 끝나면 API가 그 turn의 메시지와 답을 보여 주고 짧은 제목을 한 번 받아 바꾼다. 호출은 `SESSION_TITLE_EGRESS_URL`(compose 기본값 `http://egress-proxy:3129`)의 provider route로 가므로, proxy가 profile의 자격 증명을 붙이고 usage를 첫 turn의 attempt에 적는다. 그래서 비용은 세션 usage와 세션 상한에 들어간다. 모델은 profile의 선택 필드 `title_model`이고, 없으면 세션의 모델이다. `title_model`은 지문에 들어가지 않아 더하거나 바꿔도 기존 세션은 그대로 돈다. 사용자가 만들 때 준 제목이나 `PATCH /v1/sessions/{id}`로 바꾼 제목(`sessions.title_source = 'user'`)은 덮어쓰지 않는다. 생성 결과가 PATCH보다 늦게 와도 마찬가지다. 호출이 실패하거나 빈 답이면 첫 메시지 제목이 남는다. 변수를 비우면 이 기능은 꺼진다. 이 판보다 앞선 API replica와 함께 도는 rollout 동안에는 변수를 비워 둔다. 앞선 API에서 첫 메시지 제목과 같은 값으로 rename하면 DB에 아무것도 남지 않아, 그 세션의 첫 turn이 나중에(rollout 뒤라도) 끝날 때 생성 제목이 그 값을 덮을 수 있다. 변수를 비워도 그렇게 rename된 세션은 막지 못하고 새로 노출되는 범위만 줄인다.
-- `repositories.<id>.profiles`가 그 저장소에서 돌 수 있는 profile allowlist다. `(profile, repository)` 쌍이 신뢰 단위이며, 목록에 없는 쌍이나 모르는 id로 `POST /v1/sessions`를 부르면 `422`다.
-- 이미 만든 세션의 쌍이 빠졌거나, id가 다른 URL·branch를 가리키게 되거나, 같은 profile id의 설정(tools·permission_mode·endpoint·runtime version·project_settings·자격 증명 참조 위치)이 세션을 만들 때와 달라지거나 세션의 모델이 `models`에서 빠지면, 세션 상세의 `attention`이 `CATALOG_MISMATCH`가 되고 그 세션으로 뜬 worker의 첫 claim이 `409 CATALOG_MISMATCH`를 받는다. 그 자리에서 대기 중이던 turn은 `failed`(`terminal_reason: catalog_mismatch`), 해당 receipt는 `CATALOG_MISMATCH`, 세션은 `failed`가 되고 status 이벤트에 같은 코드가 남는다. worker는 claim timeout을 기다리지 않고 바로 나가며, 다음 scheduler pass가 슬롯을 돌려받아 다른 세션을 띄운다. 메시지에는 저장소 id만 적히고 URL은 나오지 않는다. `resuming` 중인 세션이면 resume이 `CATALOG_MISMATCH`로 실패해 `recovery_required`로 가고, 대기 중인 입력은 복구 결정을 위해 남는다.
+- 상한 행의 `repository_ids`가 그 상한이 돌 수 있는 저장소 allowlist다. `(profile, repository)` 쌍이 신뢰 단위이며, 허용되지 않은 쌍이나 모르는 id로 `POST /v1/sessions`를 부르면 `422`다. 행은 바뀌지 않으므로 허용을 바꾸려면 새 상한 버전을 저장한다. 옛 버전과 그 위의 세션은 옛 허용 그대로 돈다.
+- 이미 만든 세션의 상한이 차단되거나 연결을 잃었거나, id가 다른 URL·branch를 가리키게 되거나, 같은 profile id의 설정(tools·permission_mode·endpoint·runtime version·project_settings·자격 증명 참조 위치)이 세션을 만들 때와 달라지거나 세션의 모델이 `models`에서 빠지면, 세션 상세의 `attention`이 `CATALOG_MISMATCH`가 되고 그 세션으로 뜬 worker의 첫 claim이 `409 CATALOG_MISMATCH`를 받는다. 그 자리에서 대기 중이던 turn은 `failed`(`terminal_reason: catalog_mismatch`), 해당 receipt는 `CATALOG_MISMATCH`, 세션은 `failed`가 되고 status 이벤트에 같은 코드가 남는다. worker는 claim timeout을 기다리지 않고 바로 나가며, 다음 scheduler pass가 슬롯을 돌려받아 다른 세션을 띄운다. 메시지에는 저장소 id만 적히고 URL은 나오지 않는다. `resuming` 중인 세션이면 resume이 `CATALOG_MISMATCH`로 실패해 `recovery_required`로 가고, 대기 중인 입력은 복구 결정을 위해 남는다.
 - **카탈로그를 되돌려도 저절로 다시 실행되지는 않는다.** 되돌리면 `attention`이 사라지고, 그 세션에 새 메시지를 보내면 새 generation으로 다시 뜬다. 실패한 turn은 재시도되지 않으므로 필요한 입력은 다시 보낸다. 되돌리지 않은 채 메시지를 보내면 그 입력도 첫 claim에서 곧바로 같은 코드로 실패한다(추가 메시지를 422로 막지는 않는다 — 받은 입력은 receipt로 결말을 알린다).
 - **이 즉시 실패는 권위 있는 카탈로그만 쓴다.** 각 API는 기동 시 읽은 자기 카탈로그로 판단한다. 그래서 카탈로그가 다른 replica가 섞인 rolling update 동안에는 요청을 받은 replica에 따라, 다른 replica라면 돌릴 세션이 실패할 수 있다. 이를 막으려고 DB에 **활성 catalog revision**(`catalog_authority`, 행 하나)을 둔다. 기동 로그 `Session catalog loaded`의 `revision`이 활성 revision과 같은 replica만 세션을 실패시킨다. 다른 replica는 아무것도 쓰지 않고 claim에 `404 NOT_FOUND`(잡을 세션 없음)로 답한다. worker는 claim timeout 뒤 나가고, launch 실패 횟수·격리가 안전망으로 남는다. 활성 revision은 API가 스스로 정하지 않고 운영자가 compare-and-swap으로만 바꾼다. API 기동은 이 행을 읽지 않고, 불일치 경로에서만 읽는다.
+  - **차단은 예외다.** 상한을 차단하면 그 상한이 카탈로그에서 빠져 replica의 revision이 활성 revision과 달라진다. 그래도 claim은 그 transaction 안에서 상한 행을 다시 읽고, 차단돼 있으면 세션을 실패시킨다. 차단은 모든 replica에 같은 DB 행이기 때문이다.
   - **한 replica(compose 기본):** 행이 없으면 모든 API가 권위 있는 것으로 본다. 활성화하지 않아도 위 동작(첫 claim에 즉시 실패)은 그대로다.
   - **둘 이상 띄우기 전:** 지금 카탈로그의 revision을 활성화한다: `bun run catalog-authority activate <revision> --expected none`. compose 밖이라면 API 이미지 안에서 `DATABASE_URL`을 주고 `bun run apps/control-host/src/api/catalog-authority.ts …`로 같은 명령을 쓴다. 활성화한 뒤로는 행을 지우지 않는다.
   - **카탈로그 변경:** 활성화를 롤아웃의 첫 단계로 한다.
@@ -69,6 +77,17 @@ API는 기동 시 `PLATFORM_CONFIG_DIR`(기본: 저장소의 `config/`)에서 `p
   - 업그레이드 전 세션은 v1 지문을 그대로 쓰고, 새 API가 그 세션에 주는 provider token도 v1이다. 그래서 옛 API에서도, 새 API에서도 claim되고 모델 호출이 통과한다.
   - **되돌리지 않는다.** 새 API가 v2로 만든 세션·release는 옛 API에서 위와 같이 실패한다. 문제가 생기면 앞으로 고쳐 다시 올린다.
 
+### 설치 상한 차단
+
+owner는 상한 하나를 실행 중에도 멈출 수 있다. 은퇴(`POST /v1/installation-profiles/{profile_id}/retire`)는 새 부착만 막고, 차단은 그 상한으로 도는 모든 것을 막는다.
+
+- **API.** `POST /v1/installation-profiles/{profile_id}/block`과 `POST /v1/installation-profiles/{profile_id}/unblock`. 로그인한 owner만, cookie 세션으로만 한다. admin·member와 API key는 `403`이다. 저장할 때 역할을 다시 확인한다. 응답은 `{ profile, receipt_id }`이고 receipt는 `block_installation_profile`·`unblock_installation_profile`이다. 이미 그 상태면 아무것도 바뀌지 않고 `receipt_id`가 null이다. 없는 id는 `404`다.
+- **차단하면.** 상한의 상태가 `blocked`가 되고(다른 어떤 상태보다 먼저 정한다), 그 위의 워크스페이스 판은 `base_blocked`가 된다. 차단은 DB 상태라 모든 replica가 같은 결과를 본다(프로필 snapshot을 다시 읽는 최대 1초 뒤).
+  - 새 release, release가 있든 없든 새 세션, 그 상한을 바탕으로 한 새 판은 거절된다.
+  - 다음 턴을 기다리는 세션은 다음 claim에서 `catalog_mismatch`로 실패하고 입력은 남는다.
+  - 지금 도는 턴은 egress proxy의 다음 재허가에서 provider·저장소 요청이 끊긴다. 연결을 뺄 때와 같은 경로다.
+- **해제하면** 상한이 원래 상태(`usable`·`retired` 등)로 돌아온다. 이미 실패한 세션과 턴은 저절로 다시 돌지 않는다. 필요한 입력을 다시 보내면 새 generation으로 뜬다.
+
 ### 저장소 모드 (`repository`)
 
 profile의 `repository`는 그 profile로 만든 세션이 저장소를 갖는지 정한다. `GET /v1/profiles`는 이 값을 `repository_mode`로 보여 준다.
@@ -80,7 +99,7 @@ profile의 `repository`는 그 profile로 만든 세션이 저장소를 갖는�
 | `optional` | 보내도 되고 빼도 된다 | 보내면 `required`처럼, 빼면 `none`처럼 돈다 |
 
 - `repository_id`를 보냈으면 `optional`이어도 위의 쌍 allowlist를 지나야 한다. 없는 쌍은 `422`다.
-- `none` profile을 `repositories.<id>.profiles`에 적거나, `none` profile에 `project_settings.claude_md: true`를 주면 API가 기동하지 않는다. 저장소가 없으니 읽을 CLAUDE.md도 없다. `optional` profile의 `claude_md`는 저장소 없이 만든 세션에서는 읽지 않는다.
+- 빈 DB를 시드할 때 `none` profile이 `repositories.<id>.profiles`에 있거나 `project_settings.claude_md: true`를 가지면 API가 기동하지 않는다. 콘솔과 `POST /v1/installation-profiles`도 `none` 상한에 저장소나 `claude_md`를 주는 저장을 거절한다. 저장소가 없으니 읽을 CLAUDE.md도 없다. `optional` profile의 `claude_md`는 저장소 없이 만든 세션에서는 읽지 않는다.
 - 모든 profile이 `required`일 때만 `repositories`에 저장소가 하나 이상 있어야 한다.
 - 저장소 없이 만든 세션의 profile을 `required` profile로 바꾸는 요청(`POST /v1/sessions/{id}/profile`)은 `422 UNSUPPORTED_CAPABILITY`다.
 
@@ -88,14 +107,14 @@ profile의 `repository`는 그 profile로 만든 세션이 저장소를 갖는�
 
 워크스페이스 owner·admin은 콘솔(설정 › 실행 프로필) 또는 `POST /v1/workspace-profiles`로 운영자 profile 하나를 골라 좁힌 판을 만든다. 운영자 카탈로그 파일과 함께 쓸 때의 규칙은 아래와 같다.
 
-1. **두 층.** provider·endpoint·자격 증명·billing·runtime·저장소 신뢰 쌍은 운영자 파일에만 있다. 워크스페이스 판은 그 위에서 `models`·`tools`를 부분 집합으로 고르고 `permission_mode`를 더 조심스럽게만 바꾼다. 기준보다 넓히는 요청(기준에 없는 모델·도구, 승인 없이 도는 쪽으로 바꾸는 모드)은 `400 BAD_REQUEST`이고 `details.field`가 그 칸을 적는다.
+1. **두 층.** provider·endpoint·자격 증명·billing·runtime·저장소 신뢰 쌍은 설치 상한(연결은 `connections.yaml`)에만 있다. 워크스페이스 판은 그 위에서 `models`·`tools`를 부분 집합으로 고르고 `permission_mode`를 더 조심스럽게만 바꾼다. 기준보다 넓히는 요청(기준에 없는 모델·도구, 승인 없이 도는 쪽으로 바꾸는 모드)은 `400 BAD_REQUEST`이고 `details.field`가 그 칸을 적는다.
    - 기준 모드별로 고를 수 있는 모드: `bypassPermissions` → `bypassPermissions`·`auto`·`acceptEdits`·`default`·`plan`, `auto` → `auto`·`acceptEdits`·`default`·`plan`, `acceptEdits` → `acceptEdits`·`default`·`plan`, `default` → `default`·`plan`, `dontAsk` → `dontAsk`·`plan`, `plan` → `plan`.
-2. **이름 공간.** 워크스페이스 판의 id는 `ws_<워크스페이스 slug>_<이름>_v<n>`이다(slug가 `[a-z0-9-]` 밖이면 slug 대신 워크스페이스 id). 운영자 파일에 `ws_`로 시작하는 profile id가 있으면 API가 기동하지 않으므로 두 출처가 한 id를 두고 다투지 않는다. `GET /v1/profiles`는 운영자 profile(`source: operator`)과 호출자 워크스페이스의 판(`source: workspace`)을 함께, 출처와 함께 보여 준다.
+2. **이름 공간.** 워크스페이스 판의 id는 `ws_<워크스페이스 slug>_<이름>_v<n>`이다(slug가 `[a-z0-9-]` 밖이면 slug 대신 워크스페이스 id). 상한 id는 `ws_`로 시작할 수 없으므로(시드하는 `profiles.yaml`에 있으면 기동하지 않고, DB CHECK도 막는다) 두 출처가 한 id를 두고 다투지 않는다. `GET /v1/profiles`는 운영자 profile(`source: operator`)과 호출자 워크스페이스의 판(`source: workspace`)을 함께, 출처와 함께 보여 준다.
 3. **판은 바뀌지 않는다.** 저장할 때마다 같은 이름의 다음 판(`v<n+1>`)이 새 id로 생긴다. 이미 만든 release·세션은 옛 판 id를 그대로 쓰며, 새 판으로 옮기려면 release를 새 판으로 다시 만든다. 같은 이름을 동시에 두 번 저장하면 뒤의 것은 `409 REVISION_CONFLICT`이고 다시 저장하면 그다음 판이 된다.
 4. **기준이 바뀌면 멈춘다.** 판은 저장할 때 기준 profile의 지문을 적어 둔다. 운영자가 기준의 설정(tools·permission_mode·endpoint·runtime 등)을 바꾸거나 판이 고른 모델을 기준 `models`에서 빼면 그 판은 `base_changed`가 된다. 새 release·세션은 `422 UNSUPPORTED_CAPABILITY`로 거절되고, 이미 그 판으로 만든 세션은 운영자 profile을 고쳤을 때와 같이 `CATALOG_MISMATCH`로 끝난다. 운영자가 기준을 되돌리면 다시 돈다. 콘솔의 "다시 만들기"는 바뀐 기준 위에 다음 판을 만든다.
 5. **기준이 사라지면** `base_missing`이다. 목록에는 판을 만들 때의 runtime·billing·저장소 모드로 남지만 아무것도 돌리지 않는다.
 6. **은퇴는 새 부착만 막는다.** `POST /v1/workspace-profiles/{profile_id}/retire`(receipt `retire_workspace_profile`)로 은퇴한 판은 새 release와 release 없는 새 세션을 받지 않는다. 이미 그 판으로 만든 release의 새 세션과 진행 중인 세션은 계속 돈다. 이미 은퇴한 판을 다시 은퇴하면 아무것도 바뀌지 않고 `receipt_id`가 null이다.
-7. **저장소 신뢰 쌍은 기준에서 물려받는다.** `repositories.<id>.profiles`에 기준 id가 있으면 그 저장소에서 판도 돈다. 저장소 allowlist에 `ws_` id를 적을 일은 없다.
+7. **저장소 신뢰 쌍은 기준에서 물려받는다.** 기준 상한의 `repository_ids`에 있는 저장소에서 판도 돈다. 판에는 저장소 allowlist가 따로 없다.
 8. **카탈로그 revision에 들지 않는다.** 판은 DB(`workspace_profiles`, migration 0174)가 정본이다. replica는 세션 생성·release 생성·profile 변경 때 DB를 다시 읽고, worker claim과 provider egress 재허가 때는 1초 안에 읽은 것을 쓴다. 그 밖의 화면(세션 상세의 runtime 등)은 10초마다 다시 읽는다. 그래서 판을 만들고 지워도 `catalog-authority` 롤아웃 절차는 필요 없다.
 9. **누가.** 만들기·은퇴는 로그인한 owner·admin(`workspace.manage`)만, cookie 세션으로만 한다(workspace key로는 안 된다). 저장 시점에 역할을 다시 확인하므로 그사이 역할을 잃으면 `403`이다. 읽기(`GET /v1/profiles`)는 구성원과 read scope key 모두 한다. 다른 워크스페이스의 판은 목록에 나오지 않고, 그 id로 세션·release를 만들면 모르는 profile처럼 거절된다.
 10. **auto 규칙·스크립트 상한은 아직 칸만 있다.** 콘솔에 자리와 안내만 있고 저장하지 않는다(확장 설계 v2 결론 뒤).
@@ -196,7 +215,7 @@ API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토�
 
 비공개 저장소와 PAT로 확인하는 절차다. `scripts/local.sh up --fake-model`로 띄운 스택에 카탈로그 overlay를 겹친다. PAT 값은 셸에서 `read -rs`로 받아 화면과 파일에 남기지 않는다.
 
-1. 위 형식으로 `repositories.yaml`과 `config/fake-model/profiles.yaml` 사본을 디렉터리 하나에 둔다. 저장소의 `profiles`는 `[claude-coding-local]`이다.
+1. 위 형식으로 `repositories.yaml`과 `config/fake-model/connections.yaml`·`profiles.yaml` 사본을 디렉터리 하나에 둔다. 저장소의 `profiles`는 `[claude-coding-local]`이다. 이 배열은 빈 DB를 시드할 때만 읽으므로 새 스택(볼륨 없음)으로 띄운다. 이미 띄운 스택이면 `POST /v1/installation-profiles`로 `claude-coding-local`을 `previous_id`로 하고 그 저장소를 `repository_ids`에 넣은 다음 버전을 저장한 뒤, 새 id로 세션을 만든다.
 2. overlay를 만든다. `api`에 `volumes: ["<그 디렉터리>:/app/config/fake-model:ro"]`과 `environment: { APP_GITHUB_PAT: ${APP_GITHUB_PAT:?} }`를 준다(`--fake-model` overlay가 `PLATFORM_CONFIG_DIR`를 `/app/config/fake-model`로 고정하므로 그 자리에 mount한다).
 3. `read -rs APP_GITHUB_PAT; export APP_GITHUB_PAT EGRESS_CREDENTIAL_ALLOWLIST=api.anthropic.com:443,github.com:443 COMPOSE_FILE="compose.yaml:<overlay>"` 뒤 `scripts/local.sh up --fake-model`.
 4. API 기동 로그 `Session catalog loaded`의 `repositories` 수를 보고, quickstart 2·3장처럼 `repository_id`를 그 저장소로 바꿔 세션을 만든다.
@@ -250,7 +269,7 @@ profile의 `permission_mode`는 `default`·`acceptEdits`·`dontAsk`·`plan`·`by
 - `bypassPermissions`: 파일 쓰기·Bash·`git commit`을 포함해 모든 도구 호출을 그대로 실행한다. 권한 pending-request를 만들지 않는다.
 - `auto`: 엔진이 원래 물었을 도구 호출(예: Bash)마다 모델 분류기가 허용·거부를 정한다. 분류기 호출도 같은 provider route로 나가므로 세션 비용에 잡힌다(2026-10-13 실측: Bash 호출 하나에 분류기 요청 하나, 첫 요청 약 0.11달러, 이후 약 0.009달러). 분류기를 쓸 수 없으면 엔진은 그 호출을 거부한다(fail closed).
 
-- **지정하는 곳은 카탈로그뿐이다.** 세션 생성 요청은 profile id만 고르고 모드를 바꿀 수 없다. 모드는 fingerprint에 들어가므로, 같은 id의 모드를 바꾸면 그 id로 만든 세션은 새 모드로 돌지 않고 `CATALOG_MISMATCH`가 된다. 자율 모드는 새 profile id로 등록하고 `repositories.<id>.profiles`에 더한다. 저장소의 기본 예시 카탈로그 중 `config/`에는 `claude-coding-real-auto`, `config/fake-model/`에는 `claude-coding-auto`가 `auto` 바탕으로 있고(기존 id와 모드만 다르다), `config/local-model/`에는 자율 모드 profile이 없다. `bypassPermissions` profile은 어느 기본 카탈로그에도 없다.
+- **지정하는 곳은 카탈로그뿐이다.** 세션 생성 요청은 profile id만 고르고 모드를 바꿀 수 없다. 모드는 fingerprint에 들어가므로, 같은 id의 모드를 바꾸면 그 id로 만든 세션은 새 모드로 돌지 않고 `CATALOG_MISMATCH`가 된다. 자율 모드는 새 상한으로 저장하고(`POST /v1/installation-profiles`, 빈 DB라면 시드하는 `profiles.yaml`) 그 상한의 `repository_ids`에 저장소를 넣는다. 저장소의 기본 예시 카탈로그 중 `config/`에는 `claude-coding-real-auto`, `config/fake-model/`에는 `claude-coding-auto`가 `auto` 바탕으로 있고(기존 id와 모드만 다르다), `config/local-model/`에는 자율 모드 profile이 없다. `bypassPermissions` profile은 어느 기본 카탈로그에도 없다.
 - **워크스페이스 프로필로 쓰려면 바탕이 있어야 한다.** 워크스페이스 판은 바탕보다 좁게만 고르므로, 콘솔에서 `auto` 판을 만들려면 `auto`나 `bypassPermissions`, `bypassPermissions` 판을 만들려면 `bypassPermissions` 운영자 profile이 카탈로그에 있어야 한다. 콘솔의 새 프로필은 `auto`를 허용하는 바탕을 먼저 고르고 `auto`에서 시작한다. 바탕이 허용하지 않는 모드는 비활성 선택지로 보이고 이유를 한 줄 적는다. `bypassPermissions`를 고르면 판정 없이 모두 실행된다는 위험 안내가 뜬다. 판을 저장하는 것은 다른 판과 같이 owner·admin(`workspace.manage`)뿐이고 member의 저장은 `403 FORBIDDEN`(`reason_code: role`)이다. 그래서 `bypassPermissions` 판은 이 모드의 운영자 profile을 등록한(아래 설치 설정을 켠) 설치에서 owner·admin만 만들 수 있다. bypass opt-in 예시는 `config/fake-model-unattended/`(fake model 위에 `claude-coding-bypass`)와 그것을 읽게 하는 overlay `infra/compose.fake-model-unattended.yml`(API·slack 역할에 그 카탈로그를 `/app/config/fake-model` 자리로 마운트하고 `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true`)이다. 로컬에서는 `COMPOSE_FILE=compose.yaml:infra/compose.fake-model-unattended.yml scripts/local.sh up --fake-model`로 띄운다. 실제 provider 설치에서는 그 profile을 그 설치의 카탈로그에 새 id로 더하고, API와 slack 역할에 이 변수를 `true`로 준 뒤 다시 띄운다.
 - **`bypassPermissions`는 설치가 허용해야 돈다.** API 환경 변수 `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true`가 없으면 이 모드의 profile(YAML 항목이든 `installation_profiles` 행이든)은 그 프로세스의 카탈로그에서 빠진다. API는 그대로 뜨고 기동 로그 `Profiles left out of this replica's catalog`에 id와 `unattended_off`를 적는다. 그 profile과 그 위의 워크스페이스 판으로는 release·세션·claim이 돌지 않는다. DB 행 하나 때문에 설치가 멈추지 않게 하려는 것이다. 값은 정확히 `true`만 받는다. `auto` profile은 이 변수 없이 뜬다: 분류기가 호출마다 판정하고, 분류기를 쓸 수 없으면 거부하기 때문이다. 둘 중 어느 모드든 profile이 있으면 기동 로그에 `Profiles run tools without asking for approval`(대상 profile id 목록) 경고가 남는다. 카탈로그는 설치 사이를 옮겨 다니므로, 이 설치의 격리를 보증하는 일은 카탈로그가 아니라 설치 설정이 맡는다. compose 설치(`infra/compose.local.yml`)는 셸이나 저장소 `.env`의 같은 이름 변수를 API에 넘기고, 없으면 `false`다.
 - **남는 경계.** 사람 승인이 빠지면 남는 것은 세션마다 하나인 worker 컨테이너(root 아님), egress proxy 허용 목록(Messages API·저장소 route·object store route만), profile `tools` 목록, 세션 비용 상한(`SESSION_COST_LIMIT_USD`, turn의 `maxBudgetUsd`)이다. `tools` 목록은 이 모드에서도 PreToolUse hook이 강제하고, 비용 상한과 checkpoint 중 도구 차단도 그대로다. 이 넷 중 하나라도 없는 설치(예: worker를 host 네트워크로 띄우는 경우)에서는 켜지 않는다. 저장소 자격 증명은 worker에 가지 않으므로([위 절](#provider-키와-저장소-자격-증명은-worker에-가지-않는다)) 자율 세션도 push할 수 없고, 바뀐 내용은 checkpoint로만 나간다.

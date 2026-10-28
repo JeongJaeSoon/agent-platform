@@ -41,6 +41,8 @@ export const profilesKo = {
   "profiles.state.base_missing": "바탕 프로필 없음",
   "profiles.state.retired": "사용 중지됨",
   "profiles.state.base_retired": "바탕 프로필 사용 중지됨",
+  "profiles.state.blocked": "차단됨",
+  "profiles.state.base_blocked": "바탕 프로필 차단됨",
   "profiles.state.connection_missing": "연결 없음",
   "profiles.state.unattended_off": "이 설치에서 꺼짐",
   "profiles.state.definition_drift": "설정이 바뀜",
@@ -63,6 +65,10 @@ export const profilesKo = {
     "저장한 정의가 이 버전의 서버에서 같은 값으로 읽히지 않아 아무것도 돌리지 않습니다. 새 버전을 만드세요.",
   "profiles.stateReason.runtime_unsupported":
     "이 설치의 worker가 이 런타임이나 권한 모드를 받지 않아 아무것도 돌리지 않습니다.",
+  "profiles.stateReason.blocked":
+    "운영자가 차단했습니다. 새 릴리스와 세션을 만들 수 없고, 이미 쓰는 세션도 다음 턴에서 멈춥니다. 해제하면 다시 고를 수 있지만, 멈춘 턴은 다시 돌지 않습니다. 그 세션은 새 메시지를 보내야 다시 돕니다.",
+  "profiles.stateReason.base_blocked":
+    "바탕 프로필 {base}가 차단됐습니다. 이 버전을 쓰는 릴리스와 세션도 멈추고, 새로 고를 수 없습니다.",
   "profiles.newVersion": "새 버전",
   "profiles.remake": "다시 만들기",
   "profiles.retire": "사용 중지",
@@ -301,6 +307,8 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.state.base_missing": "Base profile removed",
   "profiles.state.retired": "Turned off",
   "profiles.state.base_retired": "Base profile turned off",
+  "profiles.state.blocked": "Blocked",
+  "profiles.state.base_blocked": "Base profile blocked",
   "profiles.state.connection_missing": "No connection",
   "profiles.state.unattended_off": "Off on this installation",
   "profiles.state.definition_drift": "Settings changed",
@@ -323,6 +331,10 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
     "This server no longer reads the saved definition the same way, so it runs nothing. Create a new version.",
   "profiles.stateReason.runtime_unsupported":
     "No worker on this installation takes this runtime or permission mode, so it runs nothing.",
+  "profiles.stateReason.blocked":
+    "The operator blocked it. No new release or session can use it, and sessions already on it stop at their next turn. After unblocking it can be picked again, but a stopped turn does not run again: send that session a new message.",
+  "profiles.stateReason.base_blocked":
+    "The base profile {base} is blocked. Releases and sessions on this version stop too, and nothing new can pick it.",
   "profiles.newVersion": "New version",
   "profiles.remake": "Recreate",
   "profiles.retire": "Turn off",
@@ -565,6 +577,8 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.state.base_missing": "ベースプロファイルなし",
   "profiles.state.retired": "使用停止",
   "profiles.state.base_retired": "ベースプロファイル使用停止",
+  "profiles.state.blocked": "ブロック中",
+  "profiles.state.base_blocked": "ベースプロファイルブロック中",
   "profiles.state.connection_missing": "接続なし",
   "profiles.state.unattended_off": "このインストールでは無効",
   "profiles.state.definition_drift": "設定変更済み",
@@ -587,6 +601,10 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "保存した定義をこのサーバーが同じ値として読めないため、何も動かしません。新しいバージョンを作ってください。",
   "profiles.stateReason.runtime_unsupported":
     "このインストールの worker がこのランタイムか権限モードを受け付けないため、何も動かしません。",
+  "profiles.stateReason.blocked":
+    "運用担当者がブロックしました。新しいリリースとセッションでは使えず、すでに使っているセッションも次のターンで止まります。解除すると再び選べますが、止まったターンは再実行されません。そのセッションには新しいメッセージを送ってください。",
+  "profiles.stateReason.base_blocked":
+    "ベースプロファイル {base} がブロックされました。このバージョンを使うリリースとセッションも止まり、新しく選ぶことはできません。",
   "profiles.newVersion": "新しいバージョン",
   "profiles.remake": "作り直す",
   "profiles.retire": "使用停止",

@@ -82,16 +82,10 @@ function summaryOf(
     repository_ids:
       repositoryModeOf(profile) === "none"
         ? []
-        : Object.entries(catalog.repositories)
-            .filter(([repositoryId, repository]) =>
-              profileAllowsRepository(
-                catalog,
-                trustedId,
-                repositoryId,
-                repository,
-              ),
+        : Object.keys(catalog.repositories)
+            .filter((repositoryId) =>
+              profileAllowsRepository(catalog, trustedId, repositoryId),
             )
-            .map(([repositoryId]) => repositoryId)
             .sort(),
   };
 }
@@ -171,13 +165,17 @@ export function operatorSummary(
   const current =
     entry?.record !== undefined &&
     (written === undefined ||
-      entry.record.retired_at?.getTime() ===
-        written.record.retired_at?.getTime());
+      (entry.record.retired_at?.getTime() ===
+        written.record.retired_at?.getTime() &&
+        entry.record.blocked_at?.getTime() ===
+          written.record.blocked_at?.getTime()));
   const state = current
     ? entry.state
-    : written?.record.retired_at
-      ? "retired"
-      : "usable";
+    : written?.record.blocked_at
+      ? "blocked"
+      : written?.record.retired_at
+        ? "retired"
+        : "usable";
   const summary = summaryOf(catalog, id, id, profile);
   const repositoryIds =
     current || !written || summary.repository_mode === "none"
@@ -185,7 +183,7 @@ export function operatorSummary(
       : [
           ...new Set([
             ...summary.repository_ids,
-            ...written.record.repository_ids.filter((repositoryId) =>
+            ...(written.record.repository_ids ?? []).filter((repositoryId) =>
               Object.hasOwn(catalog.repositories, repositoryId),
             ),
           ]),
@@ -212,6 +210,8 @@ export function operatorSummary(
             created_at: record.created_at.toISOString(),
             retired_by: record.retired_by,
             retired_at: record.retired_at?.toISOString() ?? null,
+            blocked_by: record.blocked_by,
+            blocked_at: record.blocked_at?.toISOString() ?? null,
           },
         }
       : {}),

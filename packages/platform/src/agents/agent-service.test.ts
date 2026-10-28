@@ -12,6 +12,7 @@ import {
   profilePins,
   type SessionCatalog,
 } from "../sessions/catalog.ts";
+import { withSeededInstallation } from "../sessions/profile-registry.ts";
 import { SessionServiceError } from "../sessions/session-service.ts";
 import { createAgentService } from "./agent-service.ts";
 import { deriveReleaseId } from "./release-ids.ts";
@@ -41,25 +42,26 @@ const PROFILE: CatalogProfile = {
   },
 };
 
-const catalogOf = (profile: CatalogProfile): SessionCatalog => ({
-  profiles: {
-    coding: profile,
-    scratch: { ...profile, repository: "none" },
-    either: { ...profile, repository: "optional" },
-  },
-  repositories: {
-    "sample-app": {
-      url: "https://github.com/acme/sample-app",
-      branch: "main",
-      profiles: ["coding", "either"],
+const catalogOf = (profile: CatalogProfile): SessionCatalog =>
+  withSeededInstallation({
+    profiles: {
+      coding: profile,
+      scratch: { ...profile, repository: "none" },
+      either: { ...profile, repository: "optional" },
     },
-    "other-app": {
-      url: "https://github.com/acme/other-app",
-      branch: "main",
-      profiles: ["either"],
+    repositories: {
+      "sample-app": {
+        url: "https://github.com/acme/sample-app",
+        branch: "main",
+        profiles: ["coding", "either"],
+      },
+      "other-app": {
+        url: "https://github.com/acme/other-app",
+        branch: "main",
+        profiles: ["either"],
+      },
     },
-  },
-});
+  });
 
 function cardWith(tools: string[]) {
   return agentCardSchema.parse({

@@ -555,23 +555,15 @@ export function createWorkerGateway(deps: {
           }))
         : [];
     };
+    const ceilings = [...(catalog.installation?.values() ?? [])];
     return [
       ...Object.entries(catalog.repositories).flatMap(
         ([repositoryId, repository]) =>
-          repository.profiles.flatMap((profileId) =>
-            pairsOf(profileId, repositoryId, repository),
-          ),
-      ),
-      // A console ceiling's own repositories, after the YAML's pairs so a
-      // row from before the pin keeps binding where it did.
-      ...[...(catalog.installation?.values() ?? [])].flatMap(
-        ({ id, repository_ids }) =>
-          repository_ids.flatMap((repositoryId) => {
-            const repository = own(catalog.repositories, repositoryId);
-            return repository && !repository.profiles.includes(id)
-              ? pairsOf(id, repositoryId, repository)
-              : [];
-          }),
+          ceilings
+            .filter(({ repository_ids }) =>
+              repository_ids.includes(repositoryId),
+            )
+            .flatMap(({ id }) => pairsOf(id, repositoryId, repository)),
       ),
       ...Object.entries(catalog.profiles).flatMap(([profileId, profile]) =>
         repositoryModeOf(profile) === "required"
@@ -611,10 +603,20 @@ export function createWorkerGateway(deps: {
         revision: catalogRevision(catalog),
         settled: new Set([
           ...Object.keys(profiles),
+          // Blocked is the same on every replica: its sessions are failed,
+          // not left for one that runs it.
+          ...[...(catalog.installation?.values() ?? [])]
+            .filter(({ state }) => state === "blocked")
+            .map(({ id }) => id),
           // A version whose base runs here fails or runs alike everywhere;
           // one whose base does not may be another replica's to run.
           ...[...(records?.values() ?? [])]
-            .filter((record) => Object.hasOwn(profiles, record.base_profile_id))
+            .filter(
+              (record) =>
+                Object.hasOwn(profiles, record.base_profile_id) ||
+                catalog.installation?.get(record.base_profile_id)?.state ===
+                  "blocked",
+            )
             .map((record) => record.id),
         ]),
       };
@@ -629,7 +631,7 @@ export function createWorkerGateway(deps: {
       ...workspace.flatMap(({ id, profile }) => [
         ...Object.entries(catalog.repositories).flatMap(
           ([repositoryId, repository]) =>
-            profileAllowsRepository(catalog, id, repositoryId, repository)
+            profileAllowsRepository(catalog, id, repositoryId)
               ? profilePins(profile).map((pin) => ({
                   profileId: id,
                   profileFingerprint: pin.fingerprint,

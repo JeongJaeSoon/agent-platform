@@ -23,6 +23,7 @@ import {
   repositoryBinding,
   type SessionCatalog,
 } from "../sessions/catalog.ts";
+import { withSeededInstallation } from "../sessions/profile-registry.ts";
 import {
   type CheckpointProtocol,
   createWorkerGateway,
@@ -635,7 +636,7 @@ describe("WorkerGateway", () => {
           return { outcome: "claimed", binding };
         },
       }),
-      catalog: {
+      catalog: withSeededInstallation({
         profiles: { "claude-coding-v1": profile, other: profile },
         repositories: {
           "sample-app": {
@@ -649,7 +650,7 @@ describe("WorkerGateway", () => {
             profiles: ["other"],
           },
         },
-      },
+      }),
       checkpoints: acceptAllCheckpoints,
       options: {
         sessionCostLimitUsd: 1_000,
@@ -906,7 +907,7 @@ describe("WorkerGateway", () => {
             return { outcome: "claimed", binding: bound };
           },
         }),
-        catalog: {
+        catalog: withSeededInstallation({
           profiles: { required: base, optional, general },
           repositories: {
             app: {
@@ -915,7 +916,7 @@ describe("WorkerGateway", () => {
               profiles: ["required", "optional"],
             },
           },
-        },
+        }),
         checkpoints: acceptAllCheckpoints,
         options: {
           sessionCostLimitUsd: 1_000,
@@ -1844,7 +1845,7 @@ describe("authorizeEgress", () => {
           return answer;
         },
       }),
-      catalog,
+      catalog: withSeededInstallation(catalog),
       checkpoints: acceptAllCheckpoints,
       options: {
         sessionCostLimitUsd: 1_000,
@@ -2086,7 +2087,10 @@ describe("authorizeEgress through a forge", () => {
           repository: { id: "app", url: repository.url, branch: "main" },
         }),
       }),
-      catalog: { profiles: { p: profile }, repositories: { app: repository } },
+      catalog: withSeededInstallation({
+        profiles: { p: profile },
+        repositories: { app: repository },
+      }),
       checkpoints: acceptAllCheckpoints,
       ...(forges === undefined ? {} : { forges }),
       options: {
@@ -2297,7 +2301,7 @@ describe("unmetered sessions", () => {
             },
           }),
         }),
-        catalog: {
+        catalog: withSeededInstallation({
           profiles: { local },
           repositories: {
             app: {
@@ -2306,7 +2310,7 @@ describe("unmetered sessions", () => {
               profiles: ["local"],
             },
           },
-        },
+        }),
         checkpoints: acceptAllCheckpoints,
         options: {
           sessionCostLimitUsd: 1,

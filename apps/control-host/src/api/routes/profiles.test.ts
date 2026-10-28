@@ -16,6 +16,7 @@ import {
   type SessionCatalog,
   SessionServiceError,
   type WorkspaceProfileService,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { hashApiKey } from "../keys.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
@@ -80,7 +81,7 @@ function listingWithKey(scopes: SessionScope[]) {
     authorization: {} as never,
     store: {} as never,
     catalog: {
-      ...catalog,
+      ...withSeededInstallation(catalog),
       workspace_profiles: { records: new Map(), refresh: async () => {} },
     },
   });
@@ -504,3 +505,52 @@ describe("POST /v1/installation-profiles/{profile_id}/retire", () => {
     ).toBe(503);
   });
 });
+
+for (const [action, blocked] of [
+  ["block", true],
+  ["unblock", false],
+] as const) {
+  describe(`POST /v1/installation-profiles/{profile_id}/${action}`, () => {
+    const path = `/v1/installation-profiles/${CEILING.id}/${action}`;
+
+    test(`${action}s, and every refusal maps to its status`, async () => {
+      let asked: unknown;
+      const changed = await onInstallation(
+        {
+          setBlocked: async (_caller, profileId, wanted) => {
+            asked = [profileId, wanted];
+            return { profile: CEILING, receipt_id: RECEIPT };
+          },
+        },
+        "POST",
+        path,
+      );
+      expect(changed.status).toBe(200);
+      expect(asked).toEqual([CEILING.id, blocked]);
+      expect(
+        installationProfileChangeResponseSchema.parse(await changed.json()),
+      ).toEqual({ profile: CEILING, receipt_id: RECEIPT });
+      expect(
+        (
+          await onInstallation(
+            { setBlocked: refusing("FORBIDDEN") },
+            "POST",
+            path,
+          )
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await onInstallation(
+            { setBlocked: refusing("NOT_FOUND") },
+            "POST",
+            path,
+          )
+        ).status,
+      ).toBe(404);
+      expect(
+        (await onInstallation({ setBlocked: outage }, "POST", path)).status,
+      ).toBe(503);
+    });
+  });
+}

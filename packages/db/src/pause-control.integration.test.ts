@@ -10,6 +10,7 @@ import {
   type WorkerGateway,
   WorkerGatewayError,
   type WorkerPrincipal,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -48,7 +49,7 @@ const integration = testDatabaseUrl() ? describe : describe.skip;
 const bootstrap: WorkerPrincipal = { kind: "bootstrap" };
 const MANIFEST_SHA = "c".repeat(64);
 
-const catalog: SessionCatalog = {
+const catalog: SessionCatalog = withSeededInstallation({
   profiles: {
     "claude-coding-v1": {
       runtime_kind: "claude_agent_sdk",
@@ -74,7 +75,7 @@ const catalog: SessionCatalog = {
       profiles: ["claude-coding-v1"],
     },
   },
-};
+});
 
 integration("pause on PostgreSQL", () => {
   let database: TempDatabase;

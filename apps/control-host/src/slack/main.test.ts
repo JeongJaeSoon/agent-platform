@@ -5,11 +5,13 @@ import { join } from "node:path";
 import { catalogRows, installationProfileSnapshot } from "@werft-ai/platform";
 import {
   ALLOW_UNATTENDED_SETTING,
+  CONNECTIONS_FILE,
   loadProfileSources,
   loadSessionCatalog,
   PROFILES_FILE,
   profileViewSources,
   REPOSITORIES_FILE,
+  readSeedProfiles,
 } from "../api/catalog-config.ts";
 import { slackRoleSettings, slackRoleStartup } from "./main.ts";
 
@@ -33,6 +35,14 @@ const REPOSITORIES = `repositories:
     branch: main
     profiles: [coding]
 `;
+const CONNECTIONS = `connections:
+  main:
+    kind: anthropic
+    endpoint: https://api.anthropic.invalid
+    auth:
+      kind: api_key
+      value_env: PROVIDER_KEY
+`;
 
 let root: string;
 const noSecrets = async () => {
@@ -50,6 +60,7 @@ async function catalogDir(mode: string): Promise<string> {
   const dir = await mkdtemp(join(root, "catalog-"));
   await writeFile(join(dir, PROFILES_FILE), profiles(mode));
   await writeFile(join(dir, REPOSITORIES_FILE), REPOSITORIES);
+  await writeFile(join(dir, CONNECTIONS_FILE), CONNECTIONS);
   return dir;
 }
 
@@ -66,11 +77,14 @@ const failure = (promise: Promise<unknown>) =>
 describe("slack role startup", () => {
   test("loads the catalog the api would, without its provider key", async () => {
     const dir = await catalogDir("default");
-    const { catalog, secretKeySet } = await slackRoleStartup(
+    const { catalog, connections, secretKeySet } = await slackRoleStartup(
       { ...base, PLATFORM_CONFIG_DIR: dir },
       noSecrets,
     );
-    expect(Object.keys(catalog.profiles)).toEqual(["coding"]);
+    // The slack role reads no profiles.yaml: its ceilings are the api's rows.
+    expect(Object.keys(catalog.profiles)).toEqual([]);
+    expect(Object.keys(catalog.repositories)).toEqual(["sample-app"]);
+    expect(Object.keys(connections)).toEqual(["main"]);
     expect(secretKeySet).toBe(false);
     expect(
       await failure(
@@ -89,15 +103,18 @@ describe("slack role startup", () => {
         env: { ...environment, PROVIDER_KEY: "value-from-environment" },
         readSecret: noSecrets,
       });
+      const rows = catalogRows(await readSeedProfiles(dir, role.catalog));
       const states = [
-        profileViewSources(role.connections, environment),
+        profileViewSources(
+          role.connections,
+          role.catalog.repositories,
+          environment,
+        ),
         api.sources,
       ].map(
         (sources) =>
-          installationProfileSnapshot(
-            sources,
-            catalogRows(role.catalog.profiles),
-          ).installation.get("coding")?.state,
+          installationProfileSnapshot(sources, rows).installation.get("coding")
+            ?.state,
       );
       expect(states[0]).toBe(states[1]);
       return states[0];

@@ -35,13 +35,14 @@ import {
 } from "./catalog.ts";
 import {
   type Connections,
-  catalogConnections,
   catalogImports,
+  catalogRepositoryIds,
   catalogRows,
   createProfileRegistry,
   installationProfileSnapshot,
   profileCatalog,
   type SnapshotSources,
+  withSeededInstallation,
 } from "./profile-registry.ts";
 import {
   createWorkspaceProfileService,
@@ -97,7 +98,12 @@ function sourcesOf(
   options: { connections?: Connections; allowUnattended?: boolean } = {},
 ): SnapshotSources<CatalogProfile> {
   return {
-    connections: options.connections ?? catalogConnections(own, undefined),
+    connections:
+      options.connections ??
+      Object.fromEntries(
+        Object.entries(own).map(([id, made]) => [id, made.provider]),
+      ),
+    repositoryIdsOf: catalogRepositoryIds(REPOSITORIES),
     allowUnattended: options.allowUnattended ?? false,
     runtimeSupported: () => true,
     materialize: (id, made) => {
@@ -127,12 +133,14 @@ function row(
     definition: JSON.parse(JSON.stringify(made)),
     permission_mode: made.permission_mode,
     fingerprint: entry.fingerprint,
-    repository_ids: [],
+    repository_ids: catalogRepositoryIds(REPOSITORIES)(id),
     previous_id: null,
     created_by: null,
     created_at: AT,
     retired_at: null,
     retired_by: null,
+    blocked_at: null,
+    blocked_by: null,
     ...overrides,
   };
 }
@@ -442,6 +450,74 @@ describe("the gateway's claim", () => {
     // Both still settle the YAML profile: its failures are every replica's.
     expect(without.settledProfileIds.has("coding")).toBe(true);
   });
+
+  test("a blocked ceiling and the versions over it are no candidate, but settled, so a claim fails their sessions", async () => {
+    const coding = definition();
+    const rows = {
+      installation: [row("coding", coding)],
+      workspace: [] as WorkspaceProfileRecord[],
+    };
+    const catalog = replica({ coding }, rows);
+    await catalog.workspace_profiles.refresh();
+    const base = catalogProfile(catalog, "coding");
+    if (!base) throw new Error("no base");
+    rows.workspace.push(workspaceVersion("ws_acme_narrow_v1", "coding", base));
+    rows.installation[0] = row("coding", coding, {
+      blocked_at: AT,
+      blocked_by: OWNER,
+    });
+    await catalog.workspace_profiles.refresh();
+    const claim = await claimOnce(catalog);
+    expect(stateOf(catalog, "coding")).toBe("blocked");
+    expect(Object.hasOwn(catalog.profiles, "coding")).toBe(false);
+    expect(
+      claim.runnable.filter((pair) =>
+        ["coding", "ws_acme_narrow_v1"].includes(pair.profileId),
+      ),
+    ).toEqual([]);
+    expect(claim.settledProfileIds.has("coding")).toBe(true);
+    expect(claim.settledProfileIds.has("ws_acme_narrow_v1")).toBe(true);
+  });
+
+  test("an imported ceiling runs only on its repository_ids, whatever repositories.yaml lists", async () => {
+    const coding = definition();
+    const catalog = replica(
+      { coding },
+      {
+        installation: [row("coding", coding, { repository_ids: ["docs"] })],
+        workspace: [],
+      },
+    );
+    const pairs = (await claimOnce(catalog)).runnable
+      .filter((pair) => pair.profileId === "coding")
+      .map((pair) => pair.repositoryId);
+    expect(new Set(pairs)).toEqual(new Set(["docs"]));
+    expect(REPOSITORIES["sample-app"]?.profiles).toContain("coding");
+  });
+
+  test("before the api fills an imported row, it runs on the repositories repositories.yaml names it for", async () => {
+    const coding = definition();
+    const filled = replica(
+      { coding },
+      { installation: [row("coding", coding)], workspace: [] },
+    );
+    const unfilled = replica(
+      { coding },
+      {
+        installation: [row("coding", coding, { repository_ids: null })],
+        workspace: [],
+      },
+    );
+    const [before, after] = await Promise.all([
+      claimOnce(unfilled),
+      claimOnce(filled),
+    ]);
+    expect(before.runnable).toEqual(after.runnable);
+    expect(
+      before.runnable.some((pair) => pair.repositoryId === "sample-app"),
+    ).toBe(true);
+    expect(before.catalogRevision).toBe(after.catalogRevision);
+  });
 });
 
 const card = agentCardSchema.parse({
@@ -528,9 +604,11 @@ describe("releases and sessions over the registry", () => {
     const coding = definition();
     const { store } = agentStore();
     const yaml = {
-      ...resolveSessionCatalog(
-        { profiles: { coding }, repositories: REPOSITORIES },
-        () => KEY,
+      ...withSeededInstallation(
+        resolveSessionCatalog(
+          { profiles: { coding }, repositories: REPOSITORIES },
+          () => KEY,
+        ),
       ),
       workspace_profiles: createWorkspaceProfiles({ listAll: async () => [] }),
     } as unknown as ReturnType<typeof replica>;

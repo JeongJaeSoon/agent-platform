@@ -36,18 +36,20 @@ export type Connections = Readonly<
 >;
 
 /**
- * The connections a replica holds: `connections.yaml` when it exists, else
- * each `profiles.yaml` entry's provider under that profile's id. Never both,
- * so taking a connection out of the file always takes it away.
+ * The repositories each imported id may run against, as the `profiles`
+ * arrays of repositories.yaml named them: read only to seed and to fill
+ * rows from before the database held them.
  */
-export function catalogConnections(
-  profiles: SessionCatalogConfig["profiles"],
-  file: Connections | undefined,
-): Connections {
-  if (file !== undefined) return file;
-  return Object.fromEntries(
-    Object.entries(profiles).map(([id, profile]) => [id, profile.provider]),
-  );
+export function catalogRepositoryIds(
+  repositories: Readonly<
+    Record<string, { profiles?: readonly string[] | undefined }>
+  >,
+): (profileId: string) => string[] {
+  return (profileId) =>
+    Object.entries(repositories)
+      .filter(([, repository]) => repository.profiles?.includes(profileId))
+      .map(([id]) => id)
+      .sort();
 }
 
 /** The rows `profiles.yaml` imports as: its ids, its entries as parsed. */
@@ -60,18 +62,6 @@ export function catalogImports(
     permission_mode: definition.permission_mode,
     fingerprint: definitionFingerprint(id, definition),
   }));
-}
-
-/** The top-level keys two definitions differ in, compared as canonical JSON. */
-export function differingDefinitionFields(
-  stored: unknown,
-  wanted: unknown,
-): string[] {
-  const a = (stored ?? {}) as Record<string, unknown>;
-  const b = (wanted ?? {}) as Record<string, unknown>;
-  return [...new Set([...Object.keys(a), ...Object.keys(b)])]
-    .filter((key) => canonicalJson(a[key]) !== canonicalJson(b[key]))
-    .sort();
 }
 
 export function definitionFingerprint(
@@ -95,6 +85,11 @@ export type InstallationSnapshot<P extends CatalogProfileView> = {
 
 export type SnapshotSources<P extends CatalogProfileView> = {
   connections: Connections;
+  /**
+   * What a row with no `repository_ids` yet runs against: the value the api
+   * role fills it with, so every replica reads the same pairs before it does.
+   */
+  repositoryIdsOf: (profileId: string) => string[];
   allowUnattended: boolean;
   runtimeSupported: (profile: CatalogProfileConfig) => boolean;
   /** The profile a definition runs; may throw when a credential does not resolve. */
@@ -103,7 +98,7 @@ export type SnapshotSources<P extends CatalogProfileView> = {
 
 /**
  * The ceilings `rows` run here; the database is their only record. A row
- * runs nothing when its provider is no connection here, it needs the
+ * runs nothing when it is blocked, its provider is no connection here, it needs the
  * unattended switch this process has off, no installed runtime serves it,
  * or it no longer parses to its stored fingerprint.
  */
@@ -118,7 +113,12 @@ export function installationProfileSnapshot<P extends CatalogProfileView>(
   }
   const profiles: Record<string, P> = {};
   const installation = new Map<string, InstallationProfileEntry>();
-  for (const row of rows) {
+  for (const stored of rows) {
+    const row = {
+      ...stored,
+      repository_ids:
+        stored.repository_ids ?? sources.repositoryIdsOf(stored.id),
+    };
     const { id } = row;
     const parsed = parsedDefinition(row);
     const definition = storedDefinition(id, row, parsed);
@@ -127,7 +127,7 @@ export function installationProfileSnapshot<P extends CatalogProfileView>(
         id,
         origin: row.origin,
         state,
-        repository_ids: row.origin === "console" ? [...row.repository_ids] : [],
+        repository_ids: [...row.repository_ids],
         record: row,
         definition: parsed ?? undefined,
         connection_id:
@@ -136,6 +136,12 @@ export function installationProfileSnapshot<P extends CatalogProfileView>(
             : (connections.get(canonicalJson(parsed.provider)) ?? null),
       });
     };
+    // Before every state a replica decides for itself: a block is the same
+    // everywhere, so a claim may fail what it stops.
+    if (row.blocked_at !== null) {
+      entry("blocked");
+      continue;
+    }
     if (definition === null) {
       entry("definition_drift");
       continue;
@@ -191,24 +197,58 @@ function storedDefinition(
 }
 
 /**
- * `profiles.yaml` entries as the rows importing them would be, for a
- * comparison made before (or without) the import.
+ * `profiles.yaml` entries as the rows seeding them would be, with the
+ * repositories `repositories` names them for.
  */
 export function catalogRows(
   profiles: SessionCatalogConfig["profiles"],
+  repositories: Parameters<typeof catalogRepositoryIds>[0] = {},
 ): InstallationProfileRecord[] {
+  const repositoryIdsOf = catalogRepositoryIds(repositories);
   return catalogImports(profiles).map((entry) => ({
     ...entry,
     name: null,
     version: 1,
     origin: "catalog",
-    repository_ids: [],
+    repository_ids: repositoryIdsOf(entry.id),
     previous_id: null,
     created_by: null,
     created_at: new Date(0),
     retired_at: null,
     retired_by: null,
+    blocked_at: null,
+    blocked_by: null,
   }));
+}
+
+/**
+ * `catalog` with the ceilings seeding an empty database from it would give:
+ * each profile usable, on the repositories whose `profiles` name it. For a
+ * catalog put together in memory instead of read through the registry.
+ */
+export function withSeededInstallation<
+  C extends {
+    profiles: Readonly<Record<string, unknown>>;
+    repositories: Parameters<typeof catalogRepositoryIds>[0];
+  },
+>(
+  catalog: C,
+): C & { installation: ReadonlyMap<string, InstallationProfileEntry> } {
+  const repositoryIdsOf = catalogRepositoryIds(catalog.repositories);
+  return {
+    ...catalog,
+    installation: new Map(
+      Object.keys(catalog.profiles).map((id) => [
+        id,
+        {
+          id,
+          origin: "catalog",
+          state: "usable",
+          repository_ids: repositoryIdsOf(id),
+        },
+      ]),
+    ),
+  };
 }
 
 /** Ids among `snapshot` that this replica leaves out, with why. */

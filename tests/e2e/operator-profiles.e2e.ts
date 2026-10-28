@@ -23,7 +23,7 @@ import {
 const env = e2eEnv();
 const bootstrapToken = process.env.E2E_BOOTSTRAP_TOKEN ?? "";
 const TIMEOUT = 600_000;
-const CONNECTION = "claude-coding-local";
+const CONNECTION = "fake-messages";
 const RUN = randomBytes(3).toString("hex");
 const NAME = `e2e-ceiling-${RUN}`;
 const V1 = `op_${NAME}_v1`;
@@ -101,6 +101,7 @@ let admin: Web;
 let agentId = "";
 let versionId = "";
 let releaseV1 = "";
+let narrowedId = "";
 
 async function sessionTurn(start: {
   profile_id?: string;
@@ -221,7 +222,7 @@ describe("installation ceilings from the API", () => {
       const ids = options.body.connections.map((c) => c.id);
       expect(ids).toContain(CONNECTION);
       expect(options.body.unattended_allowed).toBe(false);
-      expect(JSON.stringify(options.body)).not.toContain("fake-messages");
+      expect(JSON.stringify(options.body)).not.toContain("fake-messages:4010");
       const denied = await admin("GET", "/v1/installation-profiles/options");
       expect(denied.status).toBe(403);
       console.log(
@@ -290,6 +291,7 @@ describe("installation ceilings from the API", () => {
         },
       );
       expect(narrowed.status).toBe(201);
+      narrowedId = narrowed.body.profile.id;
       expect(await sessionTurn({ profile_id: narrowed.body.profile.id })).toBe(
         "completed",
       );
@@ -369,6 +371,96 @@ describe("installation ceilings from the API", () => {
       );
       console.log(
         `retire v1: ${retired.status}, receipt ${retired.body.receipt_id !== null}; again: receipt ${again.body.receipt_id}; new release on v1 ${newRelease.status} ${reasonOf(newRelease.body)}; session on v1 without a release ${bare.status} ${reasonOf(bare.body)}; v1's existing release ran a new session to completed`,
+      );
+    },
+    TIMEOUT,
+  );
+
+  test(
+    "only the owner blocks v2: new releases and sessions on it are refused, a running session stops at its next turn, and unblocking lets it run again",
+    async () => {
+      type Change = {
+        profile: { installation: { state: string } };
+        receipt_id: string | null;
+      };
+      const releasedV2 = await releaseOn(V2);
+      expect(releasedV2.status).toBe(200);
+      const running = await api.expect<{ session_id: string; turn_id: string }>(
+        201,
+        "POST",
+        "/v1/sessions",
+        {
+          profile_id: narrowedId,
+          repository_id: REPOSITORY_ID,
+          message: scripted("ceiling-running", [], "ceiling-running done"),
+        },
+      );
+      started.push(running.session_id);
+      expect(
+        (await api.settledTurn(running.session_id, running.turn_id)).status,
+      ).toBe("completed");
+
+      const path = (action: "block" | "unblock") =>
+        `/v1/installation-profiles/${V2}/${action}`;
+      const byAdmin = await admin("POST", path("block"), {});
+      const byKey = await api.request("POST", path("block"), {});
+      expect([byAdmin.status, byKey.status]).toEqual([403, 403]);
+      const blocked = await owner<Change>("POST", path("block"), {});
+      expect(blocked.status).toBe(200);
+      expect(blocked.body.receipt_id).not.toBeNull();
+      expect(blocked.body.profile.installation.state).toBe("blocked");
+      const again = await owner<Change>("POST", path("block"), {});
+      expect(again.body.receipt_id).toBeNull();
+
+      const listed = await owner<{
+        items: { id: string; workspace?: { state: string } }[];
+      }>("GET", "/v1/profiles");
+      const narrowedState = listed.body.items.find(
+        (profile) => profile.id === narrowedId,
+      )?.workspace?.state;
+      expect(narrowedState).toBe("base_blocked");
+      const newRelease = await releaseOn(V2);
+      expect(newRelease.status).toBeGreaterThanOrEqual(400);
+      const bare = await api.request("POST", "/v1/sessions", {
+        profile_id: narrowedId,
+        repository_id: REPOSITORY_ID,
+        message: scripted("ceiling-blocked", [], "ceiling-blocked done"),
+      });
+      expect(bare.status).toBeGreaterThanOrEqual(400);
+      const onRelease = await api.request("POST", "/v1/sessions", {
+        agent_release_id: releasedV2.body.release.id,
+        repository_id: REPOSITORY_ID,
+        message: scripted("ceiling-release", [], "ceiling-release done"),
+      });
+      expect(onRelease.status).toBeGreaterThanOrEqual(400);
+      const next = await api.send(
+        running.session_id,
+        scripted("ceiling-next", [], "ceiling-next done"),
+      );
+      const stopped = await api.settledTurn(running.session_id, next.turn_id);
+      expect(stopped.status).toBe("failed");
+      // A worker still up for the session loses its provider at the proxy
+      // (api_error); one launched for the turn is refused at claim.
+      expect(["api_error", "catalog_mismatch"]).toContain(
+        String(stopped.terminal_reason),
+      );
+
+      const unblockByAdmin = await admin("POST", path("unblock"), {});
+      expect(unblockByAdmin.status).toBe(403);
+      const unblocked = await owner<Change>("POST", path("unblock"), {});
+      expect(unblocked.status).toBe(200);
+      expect(unblocked.body.receipt_id).not.toBeNull();
+      expect(unblocked.body.profile.installation.state).toBe("usable");
+      const resumed = await api.send(
+        running.session_id,
+        scripted("ceiling-resumed", [], "ceiling-resumed done"),
+      );
+      expect(
+        (await api.settledTurn(running.session_id, resumed.turn_id)).status,
+      ).toBe("completed");
+      expect(await sessionTurn({ profile_id: narrowedId })).toBe("completed");
+      console.log(
+        `block v2: admin ${byAdmin.status}, api key ${byKey.status}, owner ${blocked.status} ${blocked.body.profile.installation.state}; again: receipt ${again.body.receipt_id}; ${narrowedId} ${narrowedState}; new release on v2 ${newRelease.status} ${reasonOf(newRelease.body)}; new session ${bare.status} ${reasonOf(bare.body)}; session on v2's release ${onRelease.status} ${reasonOf(onRelease.body)}; running session's next turn ${stopped.status} ${stopped.terminal_reason}; unblock: admin ${unblockByAdmin.status}, owner ${unblocked.status} ${unblocked.body.profile.installation.state}; the stopped session's next turn and a new session completed`,
       );
     },
     TIMEOUT,

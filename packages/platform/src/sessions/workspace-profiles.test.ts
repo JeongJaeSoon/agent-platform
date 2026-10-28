@@ -27,6 +27,7 @@ import {
   workspaceProfileRefusal,
   workspaceProfileState,
 } from "./catalog.ts";
+import { withSeededInstallation } from "./profile-registry.ts";
 import { SessionServiceError } from "./session-service.ts";
 import {
   createWorkspaceProfileService,
@@ -80,7 +81,7 @@ function catalogWith(
   records: WorkspaceProfileRecord[],
   profiles: Record<string, CatalogProfile> = { coding: base },
 ): SessionCatalog {
-  return {
+  return withSeededInstallation({
     profiles,
     repositories: {
       app: {
@@ -93,7 +94,7 @@ function catalogWith(
       records: new Map(records.map((r) => [r.id, r])),
       refresh: async () => {},
     },
-  };
+  });
 }
 
 describe("narrowing", () => {
@@ -167,6 +168,31 @@ describe("a workspace version in the catalog", () => {
         retiredAllowed: true,
       }),
     ).toBeNull();
+  });
+
+  test("a retired version over a blocked base reads base_blocked, and its releases stop too", () => {
+    const retired = version({ retired_at: new Date("2026-10-28T00:00:00Z") });
+    const catalog: SessionCatalog = {
+      ...catalogWith([retired]),
+      profiles: {},
+      installation: new Map([
+        [
+          "coding",
+          {
+            id: "coding",
+            origin: "catalog",
+            state: "blocked",
+            repository_ids: ["app"],
+          },
+        ],
+      ]),
+    };
+    expect(workspaceProfileState(catalog, retired)).toBe("base_blocked");
+    expect(
+      workspaceProfileRefusal(catalog, WORKSPACE, retired.id, {
+        retiredAllowed: true,
+      })?.state,
+    ).toBe("base_blocked");
   });
 
   test("another workspace's version reads as unknown; an operator id is never refused here", () => {
@@ -358,8 +384,9 @@ function service(
   const writes: unknown[] = [];
   const catalog = catalogWith([], operators);
   if (!readable && catalog.workspace_profiles) {
+    // Down once the write is made: the read before it must still see the base.
     catalog.workspace_profiles.refresh = async () => {
-      throw new Error("database down");
+      if (writes.length > 0) throw new Error("database down");
     };
   }
   const profiles = createWorkspaceProfileService({

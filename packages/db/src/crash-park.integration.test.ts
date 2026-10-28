@@ -12,6 +12,7 @@ import {
   type WorkerGateway,
   WorkerGatewayError,
   type WorkerPrincipal,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { testCaller } from "@werft-ai/testkit/callers";
 import {
@@ -48,7 +49,7 @@ const bootstrap: WorkerPrincipal = { kind: "bootstrap" };
 const HASH_A = "a".repeat(64);
 const HASH_B = "b".repeat(64);
 
-const catalog: SessionCatalog = {
+const catalog: SessionCatalog = withSeededInstallation({
   profiles: {
     "claude-coding-v1": {
       runtime_kind: "claude_agent_sdk",
@@ -74,7 +75,7 @@ const catalog: SessionCatalog = {
       profiles: ["claude-coding-v1"],
     },
   },
-};
+});
 
 type Worker = {
   principal: WorkerPrincipal;

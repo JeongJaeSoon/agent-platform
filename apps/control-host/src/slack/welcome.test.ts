@@ -36,6 +36,7 @@ import { createLogger } from "@werft-ai/observability";
 import {
   agentSlackBotToken,
   type Caller,
+  type Connections,
   callerFor,
   createAgentService,
   createAuthorizationPolicy,
@@ -65,6 +66,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { Pool } from "pg";
 import {
+  CONNECTIONS_FILE,
   loadSessionCatalog,
   PROFILES_FILE,
   REPOSITORIES_FILE,
@@ -119,6 +121,7 @@ const key = SecretKey.fromHex(randomBytes(32).toString("hex"), "TEST_KEY");
 
 let root = "";
 let catalog: SessionCatalogConfig;
+let connections: Connections;
 let db: Database;
 
 afterAll(async () => {
@@ -135,17 +138,21 @@ function useDatabase(engine: string) {
       root = await mkdtemp(join(tmpdir(), "slack-welcome-"));
       await writeFile(join(root, PROFILES_FILE), PROFILES);
       await writeFile(join(root, REPOSITORIES_FILE), "repositories: {}\n");
-      catalog = (
-        await slackRoleStartup(
-          {
-            DATABASE_URL: "postgres://nobody@127.0.0.1:1/none",
-            PLATFORM_CONFIG_DIR: root,
-          },
-          async () => {
-            throw new Error("no secret is read");
-          },
-        )
-      ).catalog;
+      await writeFile(
+        join(root, CONNECTIONS_FILE),
+        "connections:\n  main:\n    kind: anthropic\n    endpoint: https://api.anthropic.invalid\n    auth:\n      kind: api_key\n      value_env: PROVIDER_KEY\n",
+      );
+      const started = await slackRoleStartup(
+        {
+          DATABASE_URL: "postgres://nobody@127.0.0.1:1/none",
+          PLATFORM_CONFIG_DIR: root,
+        },
+        async () => {
+          throw new Error("no secret is read");
+        },
+      );
+      catalog = started.catalog;
+      connections = started.connections;
     }
     if (engine === "PGlite") {
       const client = new PGlite();
@@ -401,6 +408,7 @@ async function invited(
       environment: ENVIRONMENT,
       logger,
       catalog,
+      connections,
       secretKey: key,
       leaseMs: 30_000,
       slackApiUrl: slack.url,

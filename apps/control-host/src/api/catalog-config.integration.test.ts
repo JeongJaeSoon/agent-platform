@@ -63,6 +63,17 @@ integration("catalog credentials from LocalStack Secrets Manager", () => {
     profiles: [p]
 `,
     );
+    await writeFile(
+      join(dir, "connections.yaml"),
+      `connections:
+  main:
+    kind: anthropic
+    endpoint: https://api.anthropic.invalid
+    auth:
+      kind: api_key
+      secret_id: ${secretId}
+`,
+    );
   });
 
   afterAll(async () => {
@@ -98,7 +109,7 @@ integration("catalog credentials from LocalStack Secrets Manager", () => {
         secretsManagerReader(env)(id === secretId ? missing : id),
     });
     await expect(load).rejects.toThrow(
-      `profiles.p.provider.auth.secret_id: ${secretId} could not be read from ${env.AWS_ENDPOINT_URL_SECRETS_MANAGER} (ResourceNotFoundException)`,
+      `connections.main.auth.secret_id: ${secretId} could not be read from ${env.AWS_ENDPOINT_URL_SECRETS_MANAGER} (ResourceNotFoundException)`,
     );
   });
 });
