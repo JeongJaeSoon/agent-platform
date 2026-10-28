@@ -7,7 +7,7 @@ export const flowKo = {
 } as const;
 
 export const flowEn: Record<keyof typeof flowKo, string> = {
-  "flow.stepCompleted": "completed",
+  "flow.stepCompleted": "Completed",
   "flow.reset":
     "Your earlier input no longer fits this form, so it starts again from the first step.",
   "flow.reset.dismiss": "Dismiss",

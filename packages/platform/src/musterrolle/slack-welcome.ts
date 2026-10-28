@@ -16,7 +16,7 @@ import type { SlackInstallFinalize } from "./slack-install-service.ts";
 
 /** The welcome's words; the outbox escapes them, so a name mentions no one. */
 export function slackWelcomeText(agentName: string): string {
-  return `안녕하세요, ${agentName}입니다. 이 채널에 배포됐어요. 멘션하면 답할게요`;
+  return `안녕하세요, ${agentName}입니다. 이 채널에 연결됐어요. 멘션하면 답할게요`;
 }
 
 /**

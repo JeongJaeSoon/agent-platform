@@ -177,7 +177,7 @@ describe("실행 프로필 상세", () => {
     expect(cells(agents)).toEqual([["결제 담당", "에이전트 v1"]]);
     expect(
       within(agents)
-        .getByRole("link", { name: "결제 담당의 release 보기" })
+        .getByRole("link", { name: "결제 담당의 릴리스 보기" })
         .getAttribute("href"),
     ).toBe(`/agents/${AGENTS[0]?.id}?tab=release`);
 

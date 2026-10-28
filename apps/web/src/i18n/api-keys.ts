@@ -1,8 +1,8 @@
 export const apiKeysKo = {
-  "apiKeys.title": "API key",
-  "apiKeys.guideTitle": "key 종류",
+  "apiKeys.title": "API 키",
+  "apiKeys.guideTitle": "키 종류",
   "apiKeys.guide.personal.actsAs":
-    "발급한 사람으로 동작합니다. 이 key로 시작한 세션은 그 사람의 세션입니다.",
+    "발급한 사람으로 동작합니다. 이 키로 시작한 세션은 그 사람의 세션입니다.",
   "apiKeys.guide.personal.issuerLeaves":
     "발급한 사람이 워크스페이스를 떠나거나 계정이 정지되면 바로 멈춥니다. 권한도 그 사람의 지금 역할을 넘지 않습니다.",
   "apiKeys.guide.personal.sessions":
@@ -10,50 +10,50 @@ export const apiKeysKo = {
   "apiKeys.guide.personal.approve":
     "'요청에 답하기'(sessions:approve) 권한을 넣을 수 있습니다.",
   "apiKeys.guide.agent.actsAs":
-    "사람이 아니라 key 자체로 동작합니다. 이 key로 시작한 세션은 key의 세션입니다.",
+    "사람이 아니라 키 자체로 동작합니다. 이 키로 시작한 세션은 키의 세션입니다.",
   "apiKeys.guide.agent.issuerLeaves":
     "발급한 사람이 떠나도 계속 유효합니다. 필요 없어지면 직접 폐기하세요.",
   "apiKeys.guide.agent.sessions":
-    "고른 에이전트의 세션에만 닿습니다. 세션을 시작할 때도 그 에이전트의 release를 지정해야 합니다.",
+    "고른 에이전트의 세션에만 닿습니다. 세션을 시작할 때도 그 에이전트의 릴리스를 지정해야 합니다.",
   "apiKeys.guide.agent.startSession":
-    "세션을 만들려면 '세션 만들기'와 '세션 보기' 권한을 넣으세요. 이 key로 GET /v1/agents를 부르면 그 에이전트의 active_release_id가 나오고, 그 값을 POST /v1/sessions의 agent_release_id로 보냅니다.",
+    "세션을 만들려면 '세션 만들기'와 '세션 보기' 권한을 넣으세요. 이 키로 GET /v1/agents를 부르면 그 에이전트의 active_release_id가 나오고, 그 값을 POST /v1/sessions의 agent_release_id로 보냅니다.",
   "apiKeys.guide.agent.approve":
     "'요청에 답하기'(sessions:approve) 권한이 없습니다. 승인과 질문 답변은 사람이 합니다.",
   "apiKeys.docs":
-    "API 문서에서 key를 Bearer 칸에 넣고 Test Request로 실제 요청을 보내 볼 수 있습니다.",
+    "API 문서에서 키를 Bearer 칸에 넣고 Test Request로 실제 요청을 보내 볼 수 있습니다.",
   "apiKeys.docsLink": "API 문서 열기",
   "apiKeys.docsNewTab": "(새 탭에서 열림)",
-  "apiKeys.nav": "key 목록",
+  "apiKeys.nav": "키 목록",
   "apiKeys.navCount": "{count}개",
-  "apiKeys.personalTitle": "개인 key",
+  "apiKeys.personalTitle": "개인 키",
   "apiKeys.personalIntro":
-    "나로 동작하는 key입니다. CLI나 스크립트가 내 권한 안에서 API를 부를 때 씁니다.",
-  "apiKeys.agentTitle": "에이전트 key",
+    "나로 동작하는 키입니다. CLI나 스크립트가 내 권한 안에서 API를 부를 때 씁니다.",
+  "apiKeys.agentTitle": "에이전트 키",
   "apiKeys.agentIntro":
-    "사람이 아니라 에이전트 하나에 속한 key입니다. 그 에이전트의 세션에만 닿고, 발급한 사람이 떠나도 계속 동작합니다.",
-  "apiKeys.orgTitle": "조직 관리 key",
+    "사람이 아니라 에이전트 하나에 속한 키입니다. 그 에이전트의 세션에만 닿고, 발급한 사람이 떠나도 계속 동작합니다.",
+  "apiKeys.orgTitle": "조직 관리 키",
   "apiKeys.orgIntro":
-    "사람에 묶이지 않는 조직 소유 key입니다. Terraform·CI·SCIM 같은 자동화가 워크스페이스 관리 API를 부를 때 씁니다.",
+    "사람에 묶이지 않는 조직 소유 키입니다. Terraform·CI·SCIM 같은 자동화가 워크스페이스 관리 API를 부를 때 씁니다.",
   "apiKeys.orgPending": "준비 중입니다",
   "apiKeys.orgPendingBody":
-    "아직 발급할 수 없습니다. 세션을 다루는 자동화에는 에이전트 key를 쓰세요. 발급할 수 있게 되면 만료일은 반드시 정해야 합니다.",
-  "apiKeys.new": "새 key",
-  "apiKeys.newPersonalTitle": "새 개인 key",
-  "apiKeys.newAgentTitle": "새 에이전트 key",
-  "apiKeys.generate": "key 만들기",
-  "apiKeys.emptyPersonal": "아직 만든 개인 key가 없습니다.",
-  "apiKeys.emptyAgent": "아직 에이전트 key가 없습니다.",
+    "아직 발급할 수 없습니다. 세션을 다루는 자동화에는 에이전트 키를 쓰세요. 발급할 수 있게 되면 만료일은 반드시 정해야 합니다.",
+  "apiKeys.new": "새 키",
+  "apiKeys.newPersonalTitle": "새 개인 키",
+  "apiKeys.newAgentTitle": "새 에이전트 키",
+  "apiKeys.generate": "키 만들기",
+  "apiKeys.emptyPersonal": "아직 만든 개인 키가 없습니다.",
+  "apiKeys.emptyAgent": "아직 에이전트 키가 없습니다.",
   "apiKeys.survivesIssuerShort": "발급자가 떠나도 유효",
   "apiKeys.agent": "에이전트",
   "apiKeys.pickAgent": "에이전트를 고르세요",
   "apiKeys.agentHint":
-    "key를 쓸 에이전트입니다. 발급한 뒤에는 바꿀 수 없습니다.",
+    "키를 쓸 에이전트입니다. 발급한 뒤에는 바꿀 수 없습니다.",
   "apiKeys.noAgents": "관리하는 에이전트가 없습니다.",
   "apiKeys.agentNeedsScope": "권한을 하나 이상 고르세요.",
   "apiKeys.agentNoApprove":
-    "'요청에 답하기'(sessions:approve)는 에이전트 key에 넣을 수 없습니다. 승인과 질문 답변은 사람이 합니다.",
+    "'요청에 답하기'(sessions:approve)는 에이전트 키에 넣을 수 없습니다. 승인과 질문 답변은 사람이 합니다.",
   "apiKeys.name": "이름(필수 아님)",
-  "apiKeys.nameHint": "목록에서 이 key를 알아보는 이름입니다. 예: ci-deploy",
+  "apiKeys.nameHint": "목록에서 이 키를 알아보는 이름입니다. 예: ci-deploy",
   "apiKeys.scopes": "권한",
   "apiKeys.scope.read": "세션 보기",
   "apiKeys.scope.write": "세션 만들기",
@@ -72,20 +72,20 @@ export const apiKeysKo = {
   "apiKeys.expiresHint": "비워 두면 폐기할 때까지 유효합니다.",
   "apiKeys.agentExpiresHint":
     "기본은 90일 뒤입니다. 비워 두면 폐기할 때까지 유효합니다.",
-  "apiKeys.secretTitle": "새 key",
-  "apiKeys.createdTitle": "key를 만들었습니다",
+  "apiKeys.secretTitle": "새 키",
+  "apiKeys.createdTitle": "키를 만들었습니다",
   "apiKeys.secretOnce":
     "지금 복사해 두세요. 이 화면을 떠나면 값을 다시 볼 수 없습니다.",
-  "apiKeys.secret": "key 값",
+  "apiKeys.secret": "키 값",
   "apiKeys.copy": "복사",
   "apiKeys.copied": "복사했습니다",
   "apiKeys.copyFailed":
     "복사하지 못했습니다. 위 칸의 값을 직접 선택해 복사하세요.",
   "apiKeys.toList": "목록으로",
-  "apiKeys.listTitle": "발급된 key",
+  "apiKeys.listTitle": "발급된 키",
   "apiKeys.unnamed": "이름 없음",
-  "apiKeys.kind.personal": "개인 key",
-  "apiKeys.kind.agent": "에이전트 key",
+  "apiKeys.kind.personal": "개인 키",
+  "apiKeys.kind.agent": "에이전트 키",
   "apiKeys.createdAt": "발급 {at}",
   "apiKeys.expiresAt": "만료 {at}",
   "apiKeys.expiresSoon": "곧 만료 · {at}",
@@ -96,14 +96,14 @@ export const apiKeysKo = {
   "apiKeys.revokedAt": "폐기됨 {at}",
   "apiKeys.revoke": "폐기",
   "apiKeys.revokeFor": "{key} 폐기",
-  "apiKeys.revokeTitle": "ID {id} key를 폐기할까요?",
+  "apiKeys.revokeTitle": "ID {id} 키를 폐기할까요?",
   "apiKeys.keyId": "ID {id}",
   "apiKeys.idLabel": "ID",
   "apiKeys.copyIdFor": "ID {id} 복사",
   "apiKeys.copyIdFailed": "복사하지 못했습니다. ID를 직접 선택해 복사하세요.",
   "apiKeys.revokeConsequence":
-    "이 key를 쓰는 곳은 바로 동작을 멈춥니다. 되돌릴 수 없습니다.",
-  "apiKeys.revoked": "key를 폐기했습니다.",
+    "이 키를 쓰는 곳은 바로 동작을 멈춥니다. 되돌릴 수 없습니다.",
+  "apiKeys.revoked": "키를 폐기했습니다.",
 };
 
 export const apiKeysEn: Record<keyof typeof apiKeysKo, string> = {

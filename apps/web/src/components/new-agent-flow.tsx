@@ -211,7 +211,7 @@ function writeDraft(flow: string, draft: SavedDraft) {
 }
 
 /**
- * Making an agent in four steps. The job step saves the agent as a draft
+ * Making an agent in five steps. The job step saves the agent as a draft
  * (D9), so leaving after it keeps the agent; going back to the first two
  * steps afterwards edits that draft instead of making another.
  */

@@ -10,6 +10,8 @@ import {
   sessionsJa,
   sessionsKo,
 } from "@werft-ai/react";
+import { AGENT_MAP_MESSAGES } from "../../../../packages/react/src/components/agent-map/messages.ts";
+import { OPERATIONS_MESSAGES } from "../../../../packages/react/src/components/operations/messages.ts";
 import { agentsEn, agentsJa, agentsKo } from "./agents.ts";
 import { apiKeysEn, apiKeysJa, apiKeysKo } from "./api-keys.ts";
 import { authEn, authJa, authKo } from "./auth.ts";
@@ -43,6 +45,41 @@ const catalogs = { ko, ja, en } as const;
 const variables = (text: string) => (text.match(/\{\w+\}/g) ?? []).sort();
 
 describe("i18n", () => {
+  test("session states have the same names on every console surface", () => {
+    const states = [
+      "queued",
+      "running",
+      "needs_input",
+      "idle",
+      "failed",
+      "stopped",
+    ] as const;
+    for (const locale of LOCALES) {
+      for (const state of states) {
+        const label = catalogs[locale][`sessions.status.${state}`];
+        expect(AGENT_MAP_MESSAGES[locale].status(state)).toBe(label);
+        expect(OPERATIONS_MESSAGES[locale].sessionCounts.status(state)).toBe(
+          label,
+        );
+      }
+      expect(AGENT_MAP_MESSAGES[locale].lane("queued")).toBe(
+        catalogs[locale]["sessions.status.queued"],
+      );
+      expect(AGENT_MAP_MESSAGES[locale].run("wait")).toBe(
+        catalogs[locale]["sessions.status.needs_input"],
+      );
+      expect(AGENT_MAP_MESSAGES[locale].run("idle")).not.toBe(
+        AGENT_MAP_MESSAGES[locale].run("wait"),
+      );
+      expect(catalogs[locale]["workspace.danger"]).toBe(
+        catalogs[locale]["slack.danger"],
+      );
+      expect(catalogs[locale]["profiles.title"]).toBe(
+        catalogs[locale]["nav.profiles"],
+      );
+    }
+  });
+
   test("every locale has exactly the Korean keys", () => {
     for (const locale of LOCALES) {
       expect(Object.keys(catalogs[locale]).sort()).toEqual(

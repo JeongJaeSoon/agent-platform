@@ -15,7 +15,7 @@ const COPY: Record<
   },
   en: {
     standing: "Read-only demo · sample data, changes are not saved",
-    leave: "The demo does not leave for other sites.",
+    leave: "Links to other sites are disabled in the demo.",
     download: "Files cannot be downloaded in the demo.",
   },
   ja: {

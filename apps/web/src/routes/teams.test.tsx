@@ -772,7 +772,7 @@ describe("팀 화면", () => {
     );
 
     // Deleting sits last on the page, in its own danger zone, behind a confirm.
-    const danger = screen.getByRole("region", { name: "위험 영역" });
+    const danger = screen.getByRole("region", { name: "위험 구역" });
     expect(screen.getAllByRole("region").at(-1) === danger).toBe(true);
     const teamPath = `/v1/teams/${TEAM_ID}`;
     await user.click(within(danger).getByRole("button", { name: "팀 삭제" }));
@@ -937,7 +937,7 @@ describe("에이전트 관리자", () => {
     const user = await setupUser();
     expect(
       (await screen.findByText("Mate")).closest("li")?.textContent,
-    ).toContain("mate@example.com · 10/11부터 담당");
+    ).toContain("mate@example.com · 10/11부터 관리자");
     await screen.findByRole("option", { name: "결제팀" });
     // The list's summaries name the admins, so a change marks it stale; the
     // overview watches the list, so it may be read again at once.

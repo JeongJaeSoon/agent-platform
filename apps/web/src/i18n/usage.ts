@@ -3,7 +3,7 @@ export const usageKo = {
   "usage.duration.minutes": "{m}분",
   "usage.duration.seconds": "{s}초",
   "usage.kpi.estimated": "추정",
-  "usage.kpi.costNote": "provider 청구액과 다를 수 있음",
+  "usage.kpi.costNote": "제공업체 청구액과 다를 수 있음",
 };
 
 export const usageEn: Record<keyof typeof usageKo, string> = {
@@ -19,5 +19,5 @@ export const usageJa: Record<keyof typeof usageKo, string> = {
   "usage.duration.minutes": "{m}分",
   "usage.duration.seconds": "{s}秒",
   "usage.kpi.estimated": "推定",
-  "usage.kpi.costNote": "provider の請求額と異なる場合あり",
+  "usage.kpi.costNote": "プロバイダーの請求額と異なる場合があります",
 };

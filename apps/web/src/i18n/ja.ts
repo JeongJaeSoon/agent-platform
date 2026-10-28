@@ -107,7 +107,7 @@ export const slackJa = {
   "slack.connectedChannels": "接続済みチャンネル",
   "slack.noConnectedChannels": "接続済みチャンネルはありません",
   "slack.addChannelHint":
-    "チャンネルを追加から、このエージェントが反応する場所を選んでください。",
+    "「チャンネルを追加」から、このエージェントが応答するチャンネルを選んでください。",
   "slack.addChannel": "チャンネルを追加",
   "slack.basic": "基本",
   "slack.advanced": "詳細",
@@ -137,7 +137,7 @@ export const slackJa = {
   "slack.privateInvite": "/invite が必要",
   "slack.add": "接続",
   "slack.noChannels":
-    "チャンネルがありません。非公開チャンネルには /invite で先に招待してください。",
+    "一致するチャンネルがありません。非公開チャンネルには、先に /invite でボットを招待してください。",
   "slack.partial":
     "一部のチャンネルが表示されないか、古い結果の可能性があります。",
   "slack.more": "もっと見る",

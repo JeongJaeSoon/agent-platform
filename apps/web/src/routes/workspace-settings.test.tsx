@@ -612,9 +612,9 @@ describe("워크스페이스 설정", () => {
       },
     });
     expect(await screen.findByText("설정 안 됨")).toBeDefined();
-    expect(screen.queryByRole("heading", { name: "위험 영역" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "위험 구역" })).toBeNull();
     const user = await setupUser();
-    await user.click(screen.getByRole("button", { name: "token 넣기" }));
+    await user.click(screen.getByRole("button", { name: "토큰 넣기" }));
     const input = screen.getByLabelText("새 App Configuration Token");
     expect(document.activeElement === input).toBe(true);
     await user.type(input, "fake-config-value");
@@ -626,7 +626,7 @@ describe("워크스페이스 설정", () => {
       api.calls.filter((c) => c.method === "PUT").map((c) => c.body),
     ).toEqual([{ value: "fake-config-value" }]);
     expect(await screen.findByText("설정됨")).toBeDefined();
-    expect(screen.getByRole("heading", { name: "위험 영역" })).toBeDefined();
+    expect(screen.getByRole("heading", { name: "위험 구역" })).toBeDefined();
     // The form is gone; focus is on the button that opens it again.
     await waitFor(() =>
       expect(document.activeElement?.textContent).toBe("교체"),
@@ -665,7 +665,7 @@ describe("워크스페이스 설정", () => {
       },
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "token 넣기" }));
+    await user.click(await screen.findByRole("button", { name: "토큰 넣기" }));
     await user.type(
       screen.getByLabelText("새 App Configuration Token"),
       "fake-config-value",
@@ -689,10 +689,10 @@ describe("워크스페이스 설정", () => {
       "GET /v1/auth/me": () => json(200, me()),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "token 넣기" }));
+    await user.click(await screen.findByRole("button", { name: "토큰 넣기" }));
     await user.click(screen.getByRole("button", { name: "취소" }));
     expect(screen.queryByLabelText("새 App Configuration Token")).toBeNull();
-    expect(document.activeElement?.textContent).toBe("token 넣기");
+    expect(document.activeElement?.textContent).toBe("토큰 넣기");
   });
 
   const ACTIVE_TOKEN = {
@@ -737,7 +737,7 @@ describe("워크스페이스 설정", () => {
         }),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "token 넣기" }));
+    await user.click(await screen.findByRole("button", { name: "토큰 넣기" }));
     await user.type(
       screen.getByLabelText("새 App Configuration Token"),
       "fake-config-value",
@@ -755,7 +755,7 @@ describe("워크스페이스 설정", () => {
         apiError(403, "FORBIDDEN", "Only an owner or admin can set it"),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "token 넣기" }));
+    await user.click(await screen.findByRole("button", { name: "토큰 넣기" }));
     await user.type(
       screen.getByLabelText("새 App Configuration Token"),
       "fake-config-value",
@@ -773,7 +773,7 @@ describe("워크스페이스 설정", () => {
         apiError(503, "BACKEND_UNAVAILABLE", "The secret store is off"),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "token 넣기" }));
+    await user.click(await screen.findByRole("button", { name: "토큰 넣기" }));
     await user.type(
       screen.getByLabelText("새 App Configuration Token"),
       "fake-config-value",
@@ -791,7 +791,7 @@ describe("워크스페이스 설정", () => {
         apiError(503, "BACKEND_UNAVAILABLE", "Try again", true),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "token 넣기" }));
+    await user.click(await screen.findByRole("button", { name: "토큰 넣기" }));
     await user.type(
       screen.getByLabelText("새 App Configuration Token"),
       "fake-config-value",

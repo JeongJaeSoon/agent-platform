@@ -70,8 +70,8 @@ describe("slackNoticeFor", () => {
       noRequestRight: "이 채널에서 이 에이전트에게 요청할 권한이 없어요",
       noApproveRight: "이 요청을 승인할 권한이 없어요",
       guestDisabled:
-        "이 워크스페이스는 guest의 에이전트 사용을 허용하지 않아요",
-      membersOnly: "이 에이전트는 이 워크스페이스 멤버만 쓸 수 있어요",
+        "이 워크스페이스는 게스트의 에이전트 사용을 허용하지 않아요",
+      membersOnly: "이 에이전트는 이 워크스페이스 구성원만 쓸 수 있어요",
     });
     for (const text of Object.values(SLACK_NOTICE_MESSAGES)) {
       expect(text).not.toMatch(/Musterrolle|Werft|Kollegium|Kiel|Lotse/);

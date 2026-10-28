@@ -261,7 +261,7 @@ function AgentCard({
       </CardContent>
       <CardFooter className="justify-between gap-3 border-t pt-4 text-control">
         <span className="min-w-0 truncate text-muted-foreground">
-          {t("agents.cards.admins")}{" "}
+          {t("agents.cards.admins")}:{" "}
           <Detail query={admins} inline>
             {admins.data
               ? admins.data.length === 0

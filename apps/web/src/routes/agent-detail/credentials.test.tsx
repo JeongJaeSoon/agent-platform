@@ -27,7 +27,7 @@ function serverNaming(...refs: string[]) {
 }
 
 const step = async () =>
-  (await screen.findByRole("heading", { name: "자격 연결" })).closest(
+  (await screen.findByRole("heading", { name: "자격 증명 연결" })).closest(
     "section",
   ) as HTMLElement;
 
@@ -209,12 +209,12 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
     const server = serverNaming("github/app", "slack:bot");
     const { api } = renderAt(DETAIL, { ...meOk, ...server.routes });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "새 release" }));
+    await user.click(await screen.findByRole("button", { name: "새 릴리스" }));
     await user.click(
-      await screen.findByRole("button", { name: "release 만들기" }),
+      await screen.findByRole("button", { name: "릴리스 만들기" }),
     );
     const activate = await screen.findByRole("button", {
-      name: `version 1 · ${PROFILE} 활성화`,
+      name: `버전 1 · ${PROFILE} 활성화`,
     });
     await user.click(activate);
 
@@ -225,15 +225,15 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
     expect(alert.textContent).toContain("github/app, slack:bot");
     // Shown in the releases section, where the button was pressed.
     const releases = screen
-      .getByRole("heading", { name: "배포 기록" })
+      .getByRole("heading", { name: "릴리스 기록" })
       .closest("section") as HTMLElement;
     expect(releases.contains(alert)).toBe(true);
     expect(document.activeElement?.contains(alert)).toBe(true);
 
     await user.click(
-      within(alert).getByRole("button", { name: "자격 연결로 가기" }),
+      within(alert).getByRole("button", { name: "자격 증명 연결로 가기" }),
     );
-    const heading = screen.getByRole("heading", { name: "자격 연결" });
+    const heading = screen.getByRole("heading", { name: "자격 증명 연결" });
     expect(document.activeElement).toBe(heading);
     const section = await step();
     expect(
@@ -250,11 +250,11 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
     await within(section).findByText("slack:bot을(를) 연결했습니다.");
 
     await user.click(
-      screen.getByRole("button", { name: `version 1 · ${PROFILE} 활성화` }),
+      screen.getByRole("button", { name: `버전 1 · ${PROFILE} 활성화` }),
     );
     expect(
       await screen.findByText(
-        `활성화됐습니다 — 이제 새 세션은 version 1 · ${PROFILE}(으)로 시작합니다.`,
+        `활성화됐습니다 — 이제 새 세션은 버전 1 · ${PROFILE}(으)로 시작합니다.`,
       ),
     ).toBeDefined();
     expect(
@@ -286,18 +286,18 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
         }),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "새 release" }));
+    await user.click(await screen.findByRole("button", { name: "새 릴리스" }));
     await user.click(
-      await screen.findByRole("button", { name: "release 만들기" }),
+      await screen.findByRole("button", { name: "릴리스 만들기" }),
     );
     await user.click(
       await screen.findByRole("button", {
-        name: `version 1 · ${PROFILE} 활성화`,
+        name: `버전 1 · ${PROFILE} 활성화`,
       }),
     );
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain(
-      "이 release가 쓰는 자격 github/app이(가)",
+      "이 릴리스가 쓰는 자격 증명 github/app이(가)",
     );
     const section = await step();
     await user.click(
@@ -321,21 +321,21 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
         apiError(409, "CREDENTIAL_UNBOUND", "unbound"),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "새 release" }));
+    await user.click(await screen.findByRole("button", { name: "새 릴리스" }));
     await user.click(
-      await screen.findByRole("button", { name: "release 만들기" }),
+      await screen.findByRole("button", { name: "릴리스 만들기" }),
     );
     await user.click(
       await screen.findByRole("button", {
-        name: `version 1 · ${PROFILE} 활성화`,
+        name: `버전 1 · ${PROFILE} 활성화`,
       }),
     );
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain(
-      "이 release가 쓰는 자격 중 연결되지 않은 것이 있습니다",
+      "이 릴리스가 쓰는 자격 증명 중 연결되지 않은 것이 있습니다",
     );
     expect(
-      within(alert).getByRole("button", { name: "자격 연결로 가기" }),
+      within(alert).getByRole("button", { name: "자격 증명 연결로 가기" }),
     ).toBeDefined();
   });
 });
