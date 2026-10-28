@@ -38,7 +38,7 @@ export const membersKo = {
   "members.enableFor": "{name} 다시 활성화",
   "members.disableTitle": "{name} 계정을 비활성화할까요?",
   "members.disableConsequence":
-    "이 사람의 웹 로그인과 개인 API key가 바로 끊기고, 이 사람이 시작한 세션은 소유자가 넘겨받을 때까지 멈춥니다. 다시 활성화해도 끊긴 로그인과 key는 돌아오지 않습니다.",
+    "이 사람의 웹 로그인과 개인 API 키가 바로 끊기고, 이 사람이 시작한 세션은 소유자가 넘겨받을 때까지 멈춥니다. 다시 활성화해도 끊긴 로그인과 키는 돌아오지 않습니다.",
   "members.disabled": "{name} 계정을 비활성화했습니다.",
   "members.enable": "다시 활성화",
   "members.enabled":

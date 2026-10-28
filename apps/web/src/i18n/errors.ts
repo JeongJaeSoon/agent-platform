@@ -2,7 +2,7 @@ export const errorsKo = {
   "error.BAD_REQUEST": "입력을 확인하고 다시 보내세요.",
   "error.UNAUTHORIZED": "이메일 또는 비밀번호가 맞지 않습니다.",
   "error.SCOPE_NOT_GRANTABLE":
-    "내가 가진 것보다 많은 권한을 key에 줄 수 없습니다.",
+    "내가 가진 것보다 많은 권한을 키에 줄 수 없습니다.",
   "error.FORBIDDEN": "권한이 없습니다 — 소유자나 관리자에게 요청하세요.",
   "error.BOOTSTRAP_DONE": "이미 소유자가 있습니다. 로그인해 주세요.",
   "error.RATE_LIMITED": "시도가 너무 많습니다 — 잠시 뒤 다시 시도하세요.",
@@ -32,7 +32,7 @@ export const errorsKo = {
   "error.REVISION_CONFLICT":
     "다른 곳에서 먼저 바꿨습니다 — 다시 불러온 뒤 시도하세요.",
   "error.PROFILE_DIGEST_MISMATCH":
-    "release를 만든 뒤 프로필 설정이 바뀌었습니다 — 새 release를 만드세요.",
+    "릴리스를 만든 뒤 프로필 설정이 바뀌었습니다 — 새 릴리스를 만드세요.",
   "error.ALREADY_EXISTS": "같은 식별자(slug)가 이미 있습니다.",
   "error.SLACK_LINK_NOT_CONFIGURED":
     "Slack 계정 연결을 아직 쓸 수 없습니다 — 워크스페이스 관리자에게 Slack 연결 설정을 요청하세요.",

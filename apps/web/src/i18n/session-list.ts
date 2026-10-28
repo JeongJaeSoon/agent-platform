@@ -48,7 +48,7 @@ export const sessionListEn: Record<keyof typeof sessionListKo, string> = {
   "sessionList.relation.started": "Started by me",
   "sessionList.relation.shared": "Shared with me",
   "sessionList.relation.administered": "Agents I manage",
-  "sessionList.column.agent": "Agent · Model",
+  "sessionList.column.agent": "Agent · model",
   "sessionList.column.startedBy": "Started by",
   "sessionList.open": "Open session: {name}",
   "sessionList.column.recent": "Recent",

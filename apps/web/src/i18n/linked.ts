@@ -43,7 +43,7 @@ export const linkedEn: Record<keyof typeof linkedKo, string> = {
   "linked.slackAccount": "Slack user {user} (workspace {team})",
   "linked.slackNamed": "{user} · {team}",
   "linked.slackIds": "User ID {user} · workspace ID {team}",
-  "linked.verified": "verified {at}",
+  "linked.verified": "Verified {at}",
   "linked.stale":
     "Slack says this account was deactivated, so requests from it are not matched to you — unlink it and link it again.",
   "linked.unlink": "Unlink",

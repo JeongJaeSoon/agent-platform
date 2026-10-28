@@ -152,10 +152,10 @@ describe("API key", () => {
       ]),
     });
     expect(
-      await screen.findByRole("heading", { level: 1, name: "API key" }),
+      await screen.findByRole("heading", { level: 1, name: "API 키" }),
     ).toBeDefined();
     await screen.findByText("4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f7a");
-    expect(rows().map((row) => badgeOf(row).textContent)).toEqual(["개인 key"]);
+    expect(rows().map((row) => badgeOf(row).textContent)).toEqual(["개인 키"]);
     const guide = screen.getByTestId("guide-personal");
     expect(
       within(guide)
@@ -168,7 +168,7 @@ describe("API key", () => {
       apiKeysKo["apiKeys.guide.personal.approve"],
     ]);
     expect(screen.queryByTestId("guide-agent")).toBeNull();
-    const docs = within(screen.getByRole("region", { name: "key 종류" }))
+    const docs = within(screen.getByRole("region", { name: "키 종류" }))
       .getAllByRole("link")
       .find((link) =>
         link.textContent?.startsWith(apiKeysKo["apiKeys.docsLink"]),
@@ -179,7 +179,7 @@ describe("API key", () => {
     expect(docs.getAttribute("target")).toBe("_blank");
     expect(docs.getAttribute("rel")).toContain("noopener");
     // The list comes before the guide.
-    const list = screen.getByRole("list", { name: "발급된 key" });
+    const list = screen.getByRole("list", { name: "발급된 키" });
     expect(
       list.compareDocumentPosition(guide) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
@@ -226,9 +226,9 @@ describe("API key", () => {
     await screen.findByText("Billing · 이름 없음");
     const listed = rows();
     expect(listed.map((row) => badgeOf(row).textContent)).toEqual([
-      "에이전트 key",
-      "에이전트 key",
-      "에이전트 key",
+      "에이전트 키",
+      "에이전트 키",
+      "에이전트 키",
     ]);
     expect(
       within(listed[1] as HTMLElement).getByText("Billing · ci-deploy"),
@@ -244,7 +244,7 @@ describe("API key", () => {
     }
     expect(screen.getByTestId("guide-agent")).toBeDefined();
     expect(screen.queryByTestId("guide-personal")).toBeNull();
-    expect(document.body.textContent).not.toContain("서비스 key");
+    expect(document.body.textContent).not.toContain("서비스 키");
   });
 
   test("탭은 개인 key · 에이전트 key 순서이고, 머리글은 같은 API key다", async () => {
@@ -252,34 +252,34 @@ describe("API key", () => {
       ...ownerOk,
       ...keysServer([key({ kind: "personal", agent_id: null })]),
     });
-    const nav = await screen.findByRole("navigation", { name: "key 목록" });
+    const nav = await screen.findByRole("navigation", { name: "키 목록" });
     // Counts wait for the list; the parent path is not current on its child.
     const personal = await within(nav).findByRole("link", {
-      name: "개인 key 1개",
+      name: "개인 키 1개",
     });
     const agentTab = within(nav).getByRole("link", {
-      name: "에이전트 key 0개",
+      name: "에이전트 키 0개",
     });
     expect(
       within(nav)
         .getAllByRole("link")
         .map((link) => link.textContent?.replace(/ \d.*$/, "")),
-    ).toEqual(["개인 key", "에이전트 key"]);
+    ).toEqual(["개인 키", "에이전트 키"]);
     expect(personal.getAttribute("aria-current")).toBe("page");
     expect(agentTab.getAttribute("aria-current")).toBeNull();
     const user = await setupUser();
     await user.click(agentTab);
     expect(
-      await screen.findByText("아직 에이전트 key가 없습니다."),
+      await screen.findByText("아직 에이전트 키가 없습니다."),
     ).toBeDefined();
     expect(
-      screen.getByRole("heading", { level: 1, name: "API key" }),
+      screen.getByRole("heading", { level: 1, name: "API 키" }),
     ).toBeDefined();
-    expect(screen.getByRole("button", { name: "새 key" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "새 키" })).toBeDefined();
     // The personal list is the other lists' parent path; only the screen
     // being shown is current.
     expect(
-      within(screen.getByRole("navigation", { name: "key 목록" }))
+      within(screen.getByRole("navigation", { name: "키 목록" }))
         .getAllByRole("link")
         .map((link) => link.getAttribute("aria-current")),
     ).toEqual([null, "page"]);
@@ -292,19 +292,19 @@ describe("API key", () => {
     await user.click(
       within(
         within(settings).getByRole("group", { name: "워크스페이스" }),
-      ).getByRole("link", { name: "조직 관리 key" }),
+      ).getByRole("link", { name: "조직 관리 키" }),
     );
     expect(
-      await screen.findByRole("heading", { level: 1, name: "조직 관리 key" }),
+      await screen.findByRole("heading", { level: 1, name: "조직 관리 키" }),
     ).toBeDefined();
     expect(history.location.pathname).toBe(ORG);
     expect(screen.getByText(apiKeysKo["apiKeys.orgIntro"])).toBeDefined();
     expect(screen.getByText(apiKeysKo["apiKeys.orgPendingBody"])).toBeDefined();
-    expect(screen.queryByRole("button", { name: "새 key" })).toBeNull();
-    expect(screen.queryByRole("navigation", { name: "key 목록" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "새 키" })).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "키 목록" })).toBeNull();
     expect(
       within(settings)
-        .getByRole("link", { name: "조직 관리 key" })
+        .getByRole("link", { name: "조직 관리 키" })
         .getAttribute("aria-current"),
     ).toBe("page");
   });
@@ -315,16 +315,16 @@ describe("API key", () => {
       ...keysServer(),
     });
     expect(
-      await screen.findByRole("heading", { level: 1, name: "조직 관리 key" }),
+      await screen.findByRole("heading", { level: 1, name: "조직 관리 키" }),
     ).toBeDefined();
     expect(history.location.pathname).toBe(ORG);
   });
 
   test("조직 관리 key 자리는 서버가 api_key.manage를 준 사람에게만 보인다", async () => {
     renderAt(PERSONAL, { ...memberOk, ...keysServer() });
-    const nav = await screen.findByRole("navigation", { name: "key 목록" });
-    await within(nav).findByRole("link", { name: /^에이전트 key/ });
-    expect(screen.queryByRole("link", { name: "조직 관리 key" })).toBeNull();
+    const nav = await screen.findByRole("navigation", { name: "키 목록" });
+    await within(nav).findByRole("link", { name: /^에이전트 키/ });
+    expect(screen.queryByRole("link", { name: "조직 관리 키" })).toBeNull();
   });
 
   test("권한이 없는 사람이 조직 관리 key 주소로 오면 볼 권한이 없다고 한다", async () => {
@@ -406,14 +406,14 @@ describe("API key", () => {
   test("새 key 버튼은 만들기 화면으로 가고, 취소하면 목록으로 돌아온다", async () => {
     const { history } = renderAt(PERSONAL, { ...ownerOk, ...keysServer() });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "새 key" }));
+    await user.click(await screen.findByRole("button", { name: "새 키" }));
     expect(
-      await screen.findByRole("heading", { level: 1, name: "새 개인 key" }),
+      await screen.findByRole("heading", { level: 1, name: "새 개인 키" }),
     ).toBeDefined();
     expect(history.location.pathname).toBe(NEW_PERSONAL);
     await user.click(screen.getByRole("link", { name: "취소" }));
     expect(
-      await screen.findByRole("heading", { level: 1, name: "API key" }),
+      await screen.findByRole("heading", { level: 1, name: "API 키" }),
     ).toBeDefined();
     expect(history.location.pathname).toBe(PERSONAL);
   });
@@ -423,25 +423,25 @@ describe("API key", () => {
       ...ownerOk,
       ...keysServer(),
     });
-    await screen.findByRole("heading", { level: 1, name: "새 에이전트 key" });
+    await screen.findByRole("heading", { level: 1, name: "새 에이전트 키" });
     const foot = document.querySelector("[data-slot=card-footer]");
     expect(foot?.closest("[data-slot=card]")).not.toBeNull();
     expect(
       [...(foot?.querySelectorAll("a, button") ?? [])].map(
         (el) => el.textContent,
       ),
-    ).toEqual(["취소", "key 만들기"]);
+    ).toEqual(["취소", "키 만들기"]);
     // A crumb above the title, not a button in the head's actions
     // (V4-PAGE-FRAME).
     const trail = screen.getByRole("navigation", { name: "위치" });
-    const back = within(trail).getByRole("link", { name: "에이전트 key" });
+    const back = within(trail).getByRole("link", { name: "에이전트 키" });
     expect(trail.querySelector("[aria-current=page]")?.textContent).toBe(
-      "새 에이전트 key",
+      "새 에이전트 키",
     );
     const user = await setupUser();
     await user.click(back);
     expect(
-      await screen.findByRole("heading", { level: 1, name: "API key" }),
+      await screen.findByRole("heading", { level: 1, name: "API 키" }),
     ).toBeDefined();
     expect(history.location.pathname).toBe(AGENTS);
   });
@@ -455,7 +455,7 @@ describe("API key", () => {
     const select = screen.getByLabelText("에이전트") as HTMLSelectElement;
     expect(select.required).toBe(true);
     expect(select.value).toBe("");
-    const button = screen.getByRole("button", { name: "key 만들기" });
+    const button = screen.getByRole("button", { name: "키 만들기" });
     expect(button.getAttribute("aria-disabled")).toBe("true");
     expect(
       document.getElementById(button.getAttribute("aria-describedby") ?? "")
@@ -484,11 +484,11 @@ describe("API key", () => {
     await screen.findByRole("option", { name: "Billing" });
     await user.selectOptions(screen.getByLabelText("에이전트"), AGENT_ID);
     await user.type(screen.getByLabelText(/^이름/), "  ci-deploy ");
-    await user.click(screen.getByRole("button", { name: "key 만들기" }));
+    await user.click(screen.getByRole("button", { name: "키 만들기" }));
 
-    const secret = await screen.findByRole("region", { name: "새 key" });
+    const secret = await screen.findByRole("region", { name: "새 키" });
     expect(
-      (within(secret).getByLabelText("key 값") as HTMLInputElement).value,
+      (within(secret).getByLabelText("키 값") as HTMLInputElement).value,
     ).toBe(SECRET);
     expect(
       within(secret).getByText(apiKeysKo["apiKeys.secretOnce"]),
@@ -509,7 +509,7 @@ describe("API key", () => {
     expect(expires_at).toBe(end.toISOString());
     expect(api.calls.some((c) => c.path === "/v1/agents")).toBe(false);
     // Nothing else is issued from here while the secret shows.
-    expect(screen.queryByRole("button", { name: "key 만들기" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "키 만들기" })).toBeNull();
     // The whole id, not a prefix.
     expect(
       within(secret).getByText(
@@ -529,7 +529,7 @@ describe("API key", () => {
     // Coming back to the page shows a fresh form, not the secret.
     await act(async () => history.back());
     expect(
-      await screen.findByRole("button", { name: "key 만들기" }),
+      await screen.findByRole("button", { name: "키 만들기" }),
     ).toBeDefined();
     expect(screen.queryByDisplayValue(SECRET)).toBeNull();
   });
@@ -541,7 +541,7 @@ describe("API key", () => {
     });
     expect(await screen.findByText("세션 보기, 세션 만들기")).toBeDefined();
     const user = await setupUser();
-    await user.click(screen.getByRole("button", { name: "새 key" }));
+    await user.click(screen.getByRole("button", { name: "새 키" }));
     const read = await screen.findByRole("checkbox", {
       name: "세션 보기 sessions:read",
     });
@@ -580,7 +580,7 @@ describe("API key", () => {
     expect(screen.getByText(apiKeysKo["apiKeys.agentNoApprove"])).toBeDefined();
     await user.selectOptions(screen.getByLabelText("에이전트"), AGENT_ID);
     await user.click(screen.getByRole("checkbox", { name: /sessions:read/ }));
-    const button = screen.getByRole("button", { name: "key 만들기" });
+    const button = screen.getByRole("button", { name: "키 만들기" });
     expect(button.getAttribute("aria-disabled")).toBe("true");
     expect(
       document.getElementById(button.getAttribute("aria-describedby") ?? "")
@@ -595,7 +595,7 @@ describe("API key", () => {
         apiError(503, "BACKEND_UNAVAILABLE", "Backend unavailable"),
       ...keysServer(),
     });
-    const button = await screen.findByRole("button", { name: "key 만들기" });
+    const button = await screen.findByRole("button", { name: "키 만들기" });
     await waitFor(() =>
       expect(
         document.getElementById(button.getAttribute("aria-describedby") ?? "")
@@ -612,16 +612,16 @@ describe("API key", () => {
       ...keysServer(),
     });
     expect(
-      await screen.findByRole("heading", { level: 1, name: "API key" }),
+      await screen.findByRole("heading", { level: 1, name: "API 키" }),
     ).toBeDefined();
     await waitFor(() =>
       expect(
         services.queryClient.getQueryState(keys.administeredAgents)?.status,
       ).toBe("success"),
     );
-    expect(screen.queryByRole("navigation", { name: "key 목록" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "에이전트 key" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "조직 관리 key" })).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "키 목록" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "에이전트 키" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "조직 관리 키" })).toBeNull();
     expect(document.body.textContent).not.toContain("api_key.manage");
   });
 
@@ -635,9 +635,9 @@ describe("API key", () => {
     expect(name.maxLength).toBe(64);
     await user.type(name, "laptop");
     await user.type(screen.getByLabelText(/^만료일/), "2026-12-31");
-    await user.click(screen.getByRole("button", { name: "key 만들기" }));
-    const secret = await screen.findByRole("region", { name: "새 key" });
-    const field = within(secret).getByLabelText("key 값");
+    await user.click(screen.getByRole("button", { name: "키 만들기" }));
+    const secret = await screen.findByRole("region", { name: "새 키" });
+    const field = within(secret).getByLabelText("키 값");
     await waitFor(() => expect(document.activeElement === field).toBe(true));
     const [body] = api.calls
       .filter((c) => c.method === "POST")
@@ -649,7 +649,7 @@ describe("API key", () => {
       new Date(String(body?.expires_at)).getTime() >
         new Date("2026-12-31T00:00:00").getTime(),
     ).toBe(true);
-    expect(badgeOf(secret).textContent).toBe("개인 key");
+    expect(badgeOf(secret).textContent).toBe("개인 키");
   });
 
   test("만료일은 오늘부터 고를 수 있다", async () => {
@@ -677,8 +677,8 @@ describe("API key", () => {
     ).toBeDefined();
     await user.selectOptions(screen.getByLabelText("에이전트"), AGENT_ID);
     await user.clear(date);
-    await user.click(screen.getByRole("button", { name: "key 만들기" }));
-    await screen.findByRole("region", { name: "새 key" });
+    await user.click(screen.getByRole("button", { name: "키 만들기" }));
+    await screen.findByRole("region", { name: "새 키" });
     const [body] = api.calls
       .filter((c) => c.method === "POST")
       .map((c) => c.body as Record<string, unknown>);
@@ -702,7 +702,7 @@ describe("API key", () => {
     const { api } = renderAt(PERSONAL, { ...ownerOk, ...keysServer() });
     const user = await setupUser();
     // Each screen draws its own tabs, so look them up after every move.
-    for (const name of ["에이전트 key", "개인 key", "조직 관리 key"]) {
+    for (const name of ["에이전트 키", "개인 키", "조직 관리 키"]) {
       await user.click(
         await screen.findByRole("link", { name: new RegExp(`^${name}`) }),
       );
@@ -736,17 +736,17 @@ describe("API key", () => {
     await user.selectOptions(screen.getByLabelText("에이전트"), AGENT_ID);
     await user.clear(screen.getByLabelText(/^만료일/));
     await user.type(screen.getByLabelText(/^만료일/), "2020-01-01");
-    await user.click(screen.getByRole("button", { name: "key 만들기" }));
+    await user.click(screen.getByRole("button", { name: "키 만들기" }));
     expect(api.calls.some((c) => c.method === "POST")).toBe(false);
-    expect(screen.queryByRole("region", { name: "새 key" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "새 키" })).toBeNull();
   });
 
   test("이름을 비워 두면 이름 없이 보낸다", async () => {
     const { api } = renderAt(NEW_PERSONAL, { ...ownerOk, ...keysServer() });
     const user = await setupUser();
     await user.type(await screen.findByLabelText(/^이름/), "   ");
-    await user.click(screen.getByRole("button", { name: "key 만들기" }));
-    await screen.findByRole("region", { name: "새 key" });
+    await user.click(screen.getByRole("button", { name: "키 만들기" }));
+    await screen.findByRole("region", { name: "새 키" });
     const [body] = api.calls
       .filter((c) => c.method === "POST")
       .map((c) => c.body as Record<string, unknown>);
@@ -756,9 +756,9 @@ describe("API key", () => {
   test("값 복사에 실패하면 그렇다고 알리고 값 칸에 포커스를 둔다", async () => {
     renderAt(NEW_PERSONAL, { ...ownerOk, ...keysServer() });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "key 만들기" }));
-    const secret = await screen.findByRole("region", { name: "새 key" });
-    const field = within(secret).getByLabelText("key 값");
+    await user.click(await screen.findByRole("button", { name: "키 만들기" }));
+    const secret = await screen.findByRole("region", { name: "새 키" });
+    const field = within(secret).getByLabelText("키 값");
 
     const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
     Object.defineProperty(navigator, "clipboard", {
@@ -787,8 +787,8 @@ describe("API key", () => {
   test("값 복사에 성공하면 status 영역이 그렇다고 알린다", async () => {
     renderAt(NEW_PERSONAL, { ...ownerOk, ...keysServer() });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "key 만들기" }));
-    const secret = await screen.findByRole("region", { name: "새 key" });
+    await user.click(await screen.findByRole("button", { name: "키 만들기" }));
+    const secret = await screen.findByRole("region", { name: "새 키" });
 
     const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
     Object.defineProperty(navigator, "clipboard", {
@@ -826,18 +826,18 @@ describe("API key", () => {
     const user = await setupUser();
     await user.click(
       await screen.findByRole("button", {
-        name: `에이전트 key · Billing · 이름 없음 (${KEY_ID}) 폐기`,
+        name: `에이전트 키 · Billing · 이름 없음 (${KEY_ID}) 폐기`,
       }),
     );
     const dialog = await screen.findByRole("dialog");
     expect(
-      within(dialog).getByText(`ID ${KEY_ID} key를 폐기할까요?`),
+      within(dialog).getByText(`ID ${KEY_ID} 키를 폐기할까요?`),
     ).toBeDefined();
     await user.click(within(dialog).getByRole("button", { name: "폐기" }));
     await waitFor(() =>
       expect(
         screen.getAllByRole("status").map((status) => status.textContent),
-      ).toContain("key를 폐기했습니다."),
+      ).toContain("키를 폐기했습니다."),
     );
     await waitFor(() => expect(screen.getByText(/^폐기됨/)).toBeDefined());
     expect(screen.queryByRole("button", { name: /폐기$/ })).toBeNull();
@@ -855,9 +855,9 @@ describe("API key", () => {
         ),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "key 만들기" }));
+    await user.click(await screen.findByRole("button", { name: "키 만들기" }));
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "내가 가진 것보다 많은 권한을 key에 줄 수 없습니다.",
+      "내가 가진 것보다 많은 권한을 키에 줄 수 없습니다.",
     );
   });
 
@@ -875,14 +875,14 @@ describe("API key", () => {
     const user = await setupUser();
     await screen.findByRole("option", { name: "Billing" });
     await user.selectOptions(screen.getByLabelText("에이전트"), AGENT_ID);
-    await user.click(screen.getByRole("button", { name: "key 만들기" }));
+    await user.click(screen.getByRole("button", { name: "키 만들기" }));
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "에이전트 key 발급 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
+      "에이전트 키 발급 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
     );
   });
 
   for (const [locale, catalog, button] of [
-    ["ko", apiKeysKo, "key 만들기"],
+    ["ko", apiKeysKo, "키 만들기"],
     ["en", apiKeysEn, "Generate key"],
   ] as const) {
     test(`권한마다 무엇을 허락하는지 한 줄 설명이 붙는다 (${locale})`, async () => {
@@ -916,9 +916,9 @@ describe("API key", () => {
       });
       const user = await setupUser();
       await user.click(
-        await screen.findByRole("button", { name: "key 만들기" }),
+        await screen.findByRole("button", { name: "키 만들기" }),
       );
-      await screen.findByRole("region", { name: "새 key" });
+      await screen.findByRole("region", { name: "새 키" });
       const queries = services.queryClient.getQueryCache().getAll();
       expect(
         queries.some((q) =>

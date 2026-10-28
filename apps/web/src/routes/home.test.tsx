@@ -655,7 +655,7 @@ describe("홈 요약", () => {
           value: "$69.46",
           rows: [
             ["세션", "12"],
-            ["동시 실행", "3 / 8 slot"],
+            ["동시 실행", "3 / 8 슬롯"],
             ["결과물 저장", "300 MB"],
           ],
         },
@@ -692,7 +692,7 @@ describe("홈 요약", () => {
     // The install's sum is partial; the viewer's own is whole.
     expect(
       within(overview).getByText(
-        "추정 비용 · 진행 중이거나 비용을 보고하지 않은 turn은 빠짐",
+        "추정 비용 · 진행 중이거나 비용을 보고하지 않은 턴은 빠짐",
       ),
     ).toBeTruthy();
     expect(within(overview).getByText("추정 비용")).toBeTruthy();
