@@ -56,7 +56,7 @@ bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup
 | `integration (worker)` | 없음 | 없음 | `bun test <worker 파일>` | 집계로 |
 | `integration` | 없음 | 없음 | 일곱 도메인 job의 결과가 `success`인지 확인 | ✅ |
 | `workspace-quota` | 없음 — xfs+prjquota loop 파일을 data root로 쓰는 dind daemon을 job이 직접 띄운다 | `DOCKER_BACKEND_TEST=1`, `DOCKER_HOST` | `bun test packages/adapters/execution/local-docker/src/workspace.integration.test.ts` | ❌ (아래 참고) |
-| `e2e` | 없음 — compose `apps` profile 전체를 job이 직접 띄운다(runner의 Docker daemon, 28 이상) | `E2E_API_URL`·`E2E_API_KEY`(run.sh가 설정) | `tests/e2e/run.sh` — 이미지 빌드 → 스택 → key → `bun test ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts` | ✅ |
+| `e2e` | 없음 — compose `apps` profile 전체를 job이 직접 띄운다(runner의 Docker daemon, 28 이상) | `E2E_API_URL`·`E2E_API_KEY`(run.sh가 설정) | `tests/e2e/run.sh` — 이미지 빌드 → 스택 → key → `bun test ./tests/e2e/remote-mcp.e2e.ts ./tests/e2e/operator-profiles.e2e.ts ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts` | ✅ |
 | `quickstart` | 없음 — `docs/quickstart.md`와 `docs/api-guide.md`가 차례로 띄우는 기본 project·포트 그대로 | 없음 | `tests/e2e/quickstart.sh [문서]` — 두 문서의 `bash` 블록을 각각 한 셸(`bash -euo pipefail`)에서 실행. runner에 Bun을 설치하지 않는다 | ✅ |
 | `agent-sdk-compat` | 없음 | 없음 | `scripts/agent-sdk-compat`의 `probe:version`·`check` (uv로 `litellm[proxy]==1.100.1` 설치) | ❌ |
 

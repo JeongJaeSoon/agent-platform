@@ -498,6 +498,8 @@ describe("readCatalogConfig", () => {
       "fake-model",
       "local-model",
       "fake-model-unattended",
+      // scripts/d2-gate/compose.yml mounts it as the API's /app/config.
+      "../scripts/d2-gate/config",
     ]) {
       const path = join(DEFAULT_CONFIG_DIR, dir);
       const config = await readCatalog(path);

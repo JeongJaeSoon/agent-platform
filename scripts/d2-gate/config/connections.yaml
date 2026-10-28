@@ -1,0 +1,9 @@
+# The format is config/connections.yaml's. The gate's own fake Messages
+# API (scripts/d2-gate/fake-messages.ts), as profiles.yaml names it.
+connections:
+  gate-messages:
+    kind: anthropic
+    endpoint: http://gate-messages:4010
+    auth:
+      kind: api_key
+      value_env: GATE_PROVIDER_KEY

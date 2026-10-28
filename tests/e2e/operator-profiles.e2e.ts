@@ -3,19 +3,20 @@
  * the owner saves and retires ceilings, an admin narrows one into a
  * workspace profile, and sessions run on what is attached.
  *
- * It bootstraps the first owner, so it runs on a stack of its own rather
- * than after the suites run.sh runs:
+ * tests/e2e/run.sh runs it with the other suites; alone, on a kept stack:
  *
  *   E2E_UP_ONLY=1 tests/e2e/run.sh
  *   source <out>/vars.sh
  *   bun test ./tests/e2e/operator-profiles.e2e.ts
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import {
   Api,
   type ErrorBody,
   e2eEnv,
+  firstOwnerCookie,
+  passwordOf,
   REPOSITORY_ID,
   scripted,
 } from "./client.ts";
@@ -28,12 +29,6 @@ const RUN = randomBytes(3).toString("hex");
 const NAME = `e2e-ceiling-${RUN}`;
 const V1 = `op_${NAME}_v1`;
 const V2 = `op_${NAME}_v2`;
-/** Derived, so a second run logs in as the people the first one made. */
-const passwordOf = (who: string) =>
-  createHash("sha256")
-    .update(`${bootstrapToken}:${who}`)
-    .digest("base64url")
-    .slice(0, 24);
 
 type Web = <T>(
   method: string,
@@ -66,7 +61,7 @@ function webAs(cookie: string): Web {
 async function login(email: string): Promise<string | null> {
   const response = await webAs("")("POST", "/v1/auth/login", {
     email,
-    password: passwordOf(email),
+    password: passwordOf(bootstrapToken, email),
   });
   if (response.status !== 200) return null;
   return (
@@ -133,19 +128,7 @@ beforeAll(async () => {
   if (!bootstrapToken) {
     throw new Error("E2E_BOOTSTRAP_TOKEN is unset: run tests/e2e/run.sh");
   }
-  const ownerEmail = "ceiling-owner@example.test";
-  const booted = await webAs("")("POST", "/v1/auth/bootstrap", {
-    bootstrap_token: bootstrapToken,
-    email: ownerEmail,
-    password: passwordOf(ownerEmail),
-    display_name: "Ceiling Owner",
-    workspace_name: "Ceilings",
-    workspace_slug: "ceilings",
-  });
-  expect([201, 409]).toContain(booted.status);
-  const ownerCookie = await login(ownerEmail);
-  if (!ownerCookie) throw new Error("the owner could not log in");
-  owner = webAs(ownerCookie);
+  owner = webAs(await firstOwnerCookie(env.apiUrl, bootstrapToken));
 
   const adminEmail = "ceiling-admin@example.test";
   if ((await login(adminEmail)) === null) {
@@ -157,7 +140,7 @@ beforeAll(async () => {
     expect(invite.status).toBe(201);
     const accepted = await webAs("")("POST", "/v1/invites/accept", {
       token: invite.body.invite_token,
-      password: passwordOf(adminEmail),
+      password: passwordOf(bootstrapToken, adminEmail),
       display_name: "Ceiling Admin",
     });
     expect(accepted.status).toBe(200);

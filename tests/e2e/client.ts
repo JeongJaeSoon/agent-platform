@@ -5,6 +5,7 @@
  * exception is test scaffolding, not product: the fake Messages API's
  * control port, which says when a scripted model call is in flight.
  */
+import { createHash } from "node:crypto";
 
 export type E2eEnv = { apiKey: string; apiUrl: string; messagesUrl: string };
 
@@ -29,6 +30,63 @@ export const PROFILE_ID = "claude-coding-local";
 export const REPOSITORY_ID = "sample-app";
 /** config/fake-model/profiles.yaml's profile with `repository: none`. */
 export const NO_REPOSITORY_PROFILE_ID = "general";
+
+/**
+ * Derived from the bootstrap token, so every suite on one stack, and a
+ * second run on it, logs in as the people the first one made.
+ */
+export function passwordOf(bootstrapToken: string, email: string): string {
+  return createHash("sha256")
+    .update(`${bootstrapToken}:${email}`)
+    .digest("base64url")
+    .slice(0, 24);
+}
+
+/**
+ * The session cookie of the stack's first owner, in the `verify` workspace
+ * config/fake-model/mcp-servers.yaml allows. A stack bootstraps once, so
+ * every suite asks for the same owner: the first call makes it, the rest get
+ * 409 and log in.
+ */
+export async function firstOwnerCookie(
+  apiUrl: string,
+  bootstrapToken: string,
+): Promise<string> {
+  const email = "e2e-owner@example.test";
+  const password = passwordOf(bootstrapToken, email);
+  const post = (path: string, body: unknown) =>
+    fetch(`${apiUrl}${path}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": crypto.randomUUID(),
+        "x-requested-with": "agent-platform-web",
+      },
+      body: JSON.stringify(body),
+    });
+  const booted = await post("/v1/auth/bootstrap", {
+    bootstrap_token: bootstrapToken,
+    email,
+    password,
+    display_name: "E2E Owner",
+    workspace_name: "Verify",
+    workspace_slug: "verify",
+  });
+  if (booted.status !== 201 && booted.status !== 409) {
+    throw new Error(`bootstrap answered ${booted.status}`);
+  }
+  const login = await post("/v1/auth/login", { email, password });
+  const cookie = login.headers
+    .getSetCookie()
+    .find((value) => value.startsWith("__Host-ap_session="))
+    ?.split(";")[0];
+  if (login.status !== 200 || !cookie) {
+    throw new Error(
+      `the first owner could not log in (${login.status}): another owner bootstrapped this stack`,
+    );
+  }
+  return cookie;
+}
 
 export type Step = {
   delayMs?: number;
