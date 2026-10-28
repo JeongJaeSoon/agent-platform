@@ -150,7 +150,7 @@ describe("GitHub App forge", () => {
     expect(github.tokenRequests.length - before).toBe(1);
   });
 
-  test("a failing token endpoint fails the ask, naming only the status", async () => {
+  test("a failing token endpoint fails the ask, naming the status and GitHub's message", async () => {
     const { forge, warnings } = appForge();
     const before = github.tokenRequests.length;
     github.failTokens(true);
@@ -169,6 +169,7 @@ describe("GitHub App forge", () => {
           request: "installation token request",
           status: 500,
           error: "HttpError",
+          github_reason: "Server Error",
         },
       ]);
       expect(github.tokenRequests.length - before).toBe(3);
