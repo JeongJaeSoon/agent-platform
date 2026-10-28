@@ -700,16 +700,15 @@ export function workspaceProfileState(
   catalog: ProfileLookup<CatalogProfileView>,
   record: WorkspaceProfileRecord,
 ): WorkspaceProfileState {
+  // Before retired: a block stops the version's existing releases too.
+  if (catalog.installation?.get(record.base_profile_id)?.state === "blocked") {
+    return "base_blocked";
+  }
   if (record.retired_at !== null) return "retired";
   const base = Object.hasOwn(catalog.profiles, record.base_profile_id)
     ? catalog.profiles[record.base_profile_id]
     : undefined;
-  if (!base) {
-    return catalog.installation?.get(record.base_profile_id)?.state ===
-      "blocked"
-      ? "base_blocked"
-      : "base_missing";
-  }
+  if (!base) return "base_missing";
   if (!baseHolds(derivationPolicyOf(catalog), base, record)) {
     return "base_changed";
   }

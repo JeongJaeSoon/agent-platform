@@ -170,6 +170,31 @@ describe("a workspace version in the catalog", () => {
     ).toBeNull();
   });
 
+  test("a retired version over a blocked base reads base_blocked, and its releases stop too", () => {
+    const retired = version({ retired_at: new Date("2026-10-28T00:00:00Z") });
+    const catalog: SessionCatalog = {
+      ...catalogWith([retired]),
+      profiles: {},
+      installation: new Map([
+        [
+          "coding",
+          {
+            id: "coding",
+            origin: "catalog",
+            state: "blocked",
+            repository_ids: ["app"],
+          },
+        ],
+      ]),
+    };
+    expect(workspaceProfileState(catalog, retired)).toBe("base_blocked");
+    expect(
+      workspaceProfileRefusal(catalog, WORKSPACE, retired.id, {
+        retiredAllowed: true,
+      })?.state,
+    ).toBe("base_blocked");
+  });
+
   test("another workspace's version reads as unknown; an operator id is never refused here", () => {
     const catalog = catalogWith([version()]);
     expect(
