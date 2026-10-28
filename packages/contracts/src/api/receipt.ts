@@ -102,6 +102,8 @@ export const RECEIPT_OPERATION_VALUES = [
   "delete_slack_secret",
   "create_workspace_profile",
   "retire_workspace_profile",
+  "create_installation_profile",
+  "retire_installation_profile",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);

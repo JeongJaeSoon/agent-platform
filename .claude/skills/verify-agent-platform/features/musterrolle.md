@@ -123,9 +123,9 @@ Preconditions:
 
   ```sh
   ap_as owner                                                  # c의 4는 member cookie로 끝난다
-  ap_web PUT "/v1/agents/$AID/slack-bindings" '{"channel_id":"C0VERIFY","channel_kind":"public_channel","mode":"mention","home":true}'
-  ap_web PUT "/v1/agents/$AID/slack-bindings" '{"channel_id":"C0NARROW","channel_kind":"public_channel","mode":"mention","ceiling":{"actions":["session.read","session.submit"],"disclosure":"full"}}'
-  ap_web PUT "/v1/agents/$AID/slack-bindings" '{"channel_id":"C0SUMMARY","channel_kind":"public_channel","mode":"mention","ceiling":{"actions":["session.read","session.submit","session.control","session.approve"],"disclosure":"summary"}}'
+  ap_web PUT "/v1/agents/$AID/slack-bindings" '{"channel_id":"C0VERIFY","channel_kind":"public_channel","mode":"on","home":true}'
+  ap_web PUT "/v1/agents/$AID/slack-bindings" '{"channel_id":"C0NARROW","channel_kind":"public_channel","mode":"on","ceiling":{"actions":["session.read","session.submit"],"disclosure":"full"}}'
+  ap_web PUT "/v1/agents/$AID/slack-bindings" '{"channel_id":"C0SUMMARY","channel_kind":"public_channel","mode":"on","ceiling":{"actions":["session.read","session.submit","session.control","session.approve"],"disclosure":"summary"}}'
   ap_web GET "/v1/agents/$AID/slack-bindings"
   DECIDE='import { Pool } from "pg"; import { drizzle } from "drizzle-orm/node-postgres"; import * as schema from "@werft-ai/db"; import * as platform from "@werft-ai/platform";
   const pool = new Pool({ connectionString: process["env"]["DATABASE_URL"] }); const db = drizzle(pool, { schema });

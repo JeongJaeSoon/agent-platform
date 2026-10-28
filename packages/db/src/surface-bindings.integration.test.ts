@@ -134,7 +134,7 @@ integration("surface bindings on PostgreSQL", () => {
     channel: {
       channelId: string | null;
       channelKind?: SurfaceChannelKind;
-      mode?: "off" | "mention";
+      mode?: "off" | "on";
       home?: boolean;
     },
   ) =>
@@ -146,7 +146,7 @@ integration("surface bindings on PostgreSQL", () => {
       channelKind:
         channel.channelKind ??
         (channel.channelId === null ? "dm" : "public_channel"),
-      mode: channel.mode ?? "mention",
+      mode: channel.mode ?? "on",
       home: channel.home ?? false,
       ceiling: DEFAULT_SURFACE_CEILING,
       managerRoles: MANAGERS,
@@ -167,7 +167,7 @@ integration("surface bindings on PostgreSQL", () => {
       installationId,
       channelId: "C0TEST",
       channelKind: "public_channel",
-      mode: "mention",
+      mode: "on",
       home: true,
       ceiling: DEFAULT_SURFACE_CEILING,
       status: "ready",
@@ -228,7 +228,7 @@ integration("surface bindings on PostgreSQL", () => {
       surfaceKind: (externalSurfaceId === null
         ? "dm"
         : "private_channel") as SurfaceChannelKind,
-      mode: "mention" as const,
+      mode: "on" as const,
       ceilingActions: ["session.read"],
       ceilingDisclosure: "full" as const,
     });
@@ -298,7 +298,7 @@ integration("surface bindings on PostgreSQL", () => {
           agentId: (await slackAgent(owner)).agentId,
           installationId,
           surfaceKind: "dm",
-          mode: "mention",
+          mode: "on",
           home: true,
           ceilingActions: [],
           ceilingDisclosure: "full",
@@ -396,7 +396,7 @@ integration("surface bindings on PostgreSQL", () => {
       agentId,
       channelId: "G0INVITE",
       channelKind: "private_channel",
-      mode: "mention",
+      mode: "on",
       home: false,
       ceiling: DEFAULT_SURFACE_CEILING,
       membership: { state: "joined" },
@@ -431,18 +431,6 @@ integration("surface bindings on PostgreSQL", () => {
       ),
     ).toMatchObject({ channelId: "C0OFF", mode: "off", revision: 1 });
     expect(await store().list(owner.ownerId, agentId, 10)).toHaveLength(2);
-    // A channel invited to later takes the agent's default mode then.
-    await db
-      .update(agents)
-      .set({ slackDefaultMode: "ambient" })
-      .where(eq(agents.id, agentId));
-    expect(
-      await store().ensureInvitedChannel(
-        installationId,
-        "C0AMBIENT",
-        "public_channel",
-      ),
-    ).toMatchObject({ mode: "ambient", membership: { state: "joined" } });
     expect(
       await store().ensureInvitedChannel(
         randomUUID(),

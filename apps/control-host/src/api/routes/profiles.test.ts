@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   apiErrorResponseSchema,
+  type InstallationProfileOptionsResponse,
+  installationProfileChangeResponseSchema,
+  installationProfileOptionsResponseSchema,
   listProfilesResponseSchema,
   type ProfileSummary,
   REQUEST_BODY_MAX_BYTES,
@@ -9,6 +12,7 @@ import {
 } from "@werft-ai/contracts";
 import {
   createWorkspaceProfileService,
+  type InstallationProfileService,
   type SessionCatalog,
   SessionServiceError,
   type WorkspaceProfileService,
@@ -97,7 +101,8 @@ function listingWithKey(scopes: SessionScope[]) {
           : null;
       },
     },
-    registerRoutes: (router) => registerProfileRoutes(router, service),
+    registerRoutes: (router) =>
+      registerProfileRoutes(router, service, {} as InstallationProfileService),
   });
   return (path: string) =>
     app.request(path, { headers: { Authorization: `Bearer ${plaintext}` } });
@@ -197,11 +202,18 @@ const refusing = (code: string) => async () => {
   });
 };
 
-function app(profiles: Partial<WorkspaceProfileService>) {
+function app(
+  profiles: Partial<WorkspaceProfileService>,
+  installation: Partial<InstallationProfileService> = {},
+) {
   return createApiApp({
     authMode: "none",
     registerRoutes: (router) =>
-      registerProfileRoutes(router, profiles as WorkspaceProfileService),
+      registerProfileRoutes(
+        router,
+        profiles as WorkspaceProfileService,
+        installation as InstallationProfileService,
+      ),
   });
 }
 
@@ -212,6 +224,19 @@ function post(
 ) {
   return app(profiles).request(path, {
     method: "POST",
+    headers: { "X-Owner-Id": WORKSPACE, "Content-Type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+}
+
+function onInstallation(
+  installation: Partial<InstallationProfileService>,
+  method: "GET" | "POST",
+  path: string,
+  body?: unknown,
+) {
+  return app({}, installation).request(path, {
+    method,
     headers: { "X-Owner-Id": WORKSPACE, "Content-Type": "application/json" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
@@ -304,5 +329,178 @@ describe("POST /v1/workspace-profiles/{profile_id}/retire", () => {
     const missing = await post({ retire: refusing("NOT_FOUND") }, path);
     expect(missing.status).toBe(404);
     expect((await post({ retire: outage }, path)).status).toBe(503);
+  });
+});
+
+const CEILING: ProfileSummary = {
+  id: "op_coding_v1",
+  source: "operator",
+  model: "claude-sonnet-5",
+  models: ["claude-sonnet-5"],
+  tools: ["Read"],
+  permission_mode: "default",
+  runtime_kind: "claude_agent_sdk",
+  runtime_version: "0.3.270",
+  billing: "metered",
+  repository_mode: "required",
+  repository_ids: ["sample-app"],
+  installation: {
+    name: "coding",
+    version: 1,
+    origin: "console",
+    state: "usable",
+    connection_id: "main",
+    title_model: null,
+    project_settings: { claude_md: false },
+    previous_id: null,
+    created_by: "019a0000-0000-7000-8000-0000000000b1",
+    created_at: "2026-10-28T00:00:00.000Z",
+    retired_by: null,
+    retired_at: null,
+  },
+};
+const CEILING_REQUEST = {
+  name: "coding",
+  connection_id: "main",
+  runtime_kind: "claude_agent_sdk",
+  runtime_version: "0.3.270",
+  model: "claude-sonnet-5",
+  models: ["claude-sonnet-5"],
+  tools: ["Read"],
+  permission_mode: "default",
+  repository_ids: ["sample-app"],
+};
+
+describe("GET /v1/installation-profiles/options", () => {
+  const path = "/v1/installation-profiles/options";
+
+  test("answers the options, and every refusal maps to its status", async () => {
+    const options: InstallationProfileOptionsResponse = {
+      connections: [{ id: "main", kind: "anthropic", billing: "metered" }],
+      runtimes: [
+        { runtime_kind: "claude_agent_sdk", permission_modes: ["default"] },
+      ],
+      repositories: [{ id: "sample-app" }],
+      unattended_allowed: false,
+    };
+    const answered = await onInstallation(
+      { options: async () => structuredClone(options) },
+      "GET",
+      path,
+    );
+    expect(answered.status).toBe(200);
+    expect(
+      installationProfileOptionsResponseSchema.parse(await answered.json()),
+    ).toEqual(options);
+    expect(
+      (await onInstallation({ options: refusing("FORBIDDEN") }, "GET", path))
+        .status,
+    ).toBe(403);
+    expect(
+      (await onInstallation({ options: outage }, "GET", path)).status,
+    ).toBe(503);
+  });
+});
+
+describe("POST /v1/installation-profiles", () => {
+  const path = "/v1/installation-profiles";
+
+  test("saves a ceiling, and every refusal maps to its status", async () => {
+    let asked: unknown;
+    const created = await onInstallation(
+      {
+        create: async (_caller, request) => {
+          asked = request;
+          return { profile: CEILING, receipt_id: RECEIPT };
+        },
+      },
+      "POST",
+      path,
+      CEILING_REQUEST,
+    );
+    expect(created.status).toBe(201);
+    expect(asked).toEqual(CEILING_REQUEST);
+    expect(
+      installationProfileChangeResponseSchema.parse(await created.json()),
+    ).toEqual({ profile: CEILING, receipt_id: RECEIPT });
+    for (const bad of [
+      { ...CEILING_REQUEST, name: "Coding" },
+      { ...CEILING_REQUEST, models: [] },
+      { ...CEILING_REQUEST, permission_mode: "yolo" },
+      { ...CEILING_REQUEST, endpoint: "https://elsewhere.invalid" },
+    ]) {
+      expect((await onInstallation({}, "POST", path, bad)).status).toBe(400);
+    }
+    expect(
+      (
+        await onInstallation(
+          { create: refusing("BAD_REQUEST") },
+          "POST",
+          path,
+          CEILING_REQUEST,
+        )
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await onInstallation({}, "POST", path, {
+          ...CEILING_REQUEST,
+          pad: "x".repeat(REQUEST_BODY_MAX_BYTES),
+        })
+      ).status,
+    ).toBe(413);
+    expect(
+      (
+        await onInstallation(
+          { create: refusing("FORBIDDEN") },
+          "POST",
+          path,
+          CEILING_REQUEST,
+        )
+      ).status,
+    ).toBe(403);
+    const raced = await onInstallation(
+      { create: refusing("REVISION_CONFLICT") },
+      "POST",
+      path,
+      CEILING_REQUEST,
+    );
+    expect(raced.status).toBe(409);
+    expect(await codeOf(raced)).toBe("REVISION_CONFLICT");
+    expect(
+      (await onInstallation({ create: outage }, "POST", path, CEILING_REQUEST))
+        .status,
+    ).toBe(503);
+  });
+});
+
+describe("POST /v1/installation-profiles/{profile_id}/retire", () => {
+  const path = `/v1/installation-profiles/${CEILING.id}/retire`;
+
+  test("retires, and every refusal maps to its status", async () => {
+    let asked: unknown;
+    const retired = await onInstallation(
+      {
+        retire: async (_caller, profileId) => {
+          asked = profileId;
+          return { profile: CEILING, receipt_id: null };
+        },
+      },
+      "POST",
+      path,
+    );
+    expect(retired.status).toBe(200);
+    expect(asked).toBe(CEILING.id);
+    expect(
+      (await onInstallation({ retire: refusing("FORBIDDEN") }, "POST", path))
+        .status,
+    ).toBe(403);
+    expect(
+      (await onInstallation({ retire: refusing("NOT_FOUND") }, "POST", path))
+        .status,
+    ).toBe(404);
+    expect(
+      (await onInstallation({ retire: outage }, "POST", path)).status,
+    ).toBe(503);
   });
 });

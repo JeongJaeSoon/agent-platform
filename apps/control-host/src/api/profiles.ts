@@ -73,6 +73,7 @@ async function main(): Promise<void> {
   try {
     const db = drizzle(pool, { schema });
     const check = checkCatalogImport({
+      own: loaded.config.profiles,
       sources: loaded.sources,
       repositories: loaded.catalog.repositories,
       rows: await createPostgresInstallationProfileStore(db).listAll(),

@@ -32,7 +32,9 @@ function recordOf(
     base_runtime_version: row.baseRuntimeVersion,
     base_billing: row.baseBilling as "metered" | "none",
     base_repository_mode: row.baseRepositoryMode as RepositoryMode,
+    created_by: row.createdBy,
     created_at: row.createdAt,
+    retired_by: row.retiredBy,
     retired_at: row.retiredAt,
   };
 }

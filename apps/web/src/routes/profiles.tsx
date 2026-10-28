@@ -38,6 +38,7 @@ import {
 } from "../auth/guard.tsx";
 import { Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { pickable } from "../components/profile-options.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import {
   allowsAuto,
@@ -64,6 +65,7 @@ export const STATE_BADGE: Record<
   base_changed: "red",
   base_missing: "red",
   retired: "gray",
+  base_retired: "gray",
 };
 
 /** The id a save of a new version under `name` would get. */
@@ -99,7 +101,8 @@ export function ProfilesScreen() {
 
   const items = profiles.data?.items ?? [];
   const operators = items.filter((item) => item.source === "operator");
-  const firstBase = operators.find(allowsAuto) ?? operators[0];
+  const bases = operators.filter(pickable);
+  const firstBase = bases.find(allowsAuto) ?? bases[0];
   const versions = items
     .filter((item) => item.source === "workspace")
     .sort(
@@ -124,7 +127,7 @@ export function ProfilesScreen() {
     });
   const nextId = (name: string) => nextVersionId(workspace, versions, name);
   const baseOf = (item: ProfileSummary) =>
-    operators.find((base) => base.id === item.workspace?.base_profile_id);
+    bases.find((base) => base.id === item.workspace?.base_profile_id);
   const stranded = versions.filter(
     (item) =>
       (item.workspace?.state === "base_changed" ||

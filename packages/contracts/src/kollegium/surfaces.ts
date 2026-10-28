@@ -28,8 +28,11 @@ export const SURFACE_CHANNEL_KIND_VALUES = [
 ] as const;
 export const surfaceChannelKindSchema = z.enum(SURFACE_CHANNEL_KIND_VALUES);
 
-/** Admission, not output: `off` stops accepting input, mute only silences. */
-export const BINDING_MODE_VALUES = ["off", "mention", "ambient"] as const;
+/**
+ * Admission, not output: `off` stops accepting input, mute only silences.
+ * Whether an `on` channel waits for a mention is the agent's one setting.
+ */
+export const BINDING_MODE_VALUES = ["off", "on"] as const;
 export const bindingModeSchema = z.enum(BINDING_MODE_VALUES);
 
 export const MEMORY_WRITE_POLICY_VALUES = ["deny", "allow_explicit"] as const;

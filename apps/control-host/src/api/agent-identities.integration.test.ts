@@ -378,7 +378,7 @@ integration("agent identities over HTTP on PostgreSQL", () => {
     const put = await send("PUT", bindingsOf, admin, {
       channel_id: "C0OPS",
       channel_kind: "public_channel",
-      mode: "mention",
+      mode: "on",
       home: true,
     });
     expect(put.status).toBe(200);
@@ -387,7 +387,7 @@ integration("agent identities over HTTP on PostgreSQL", () => {
       agent_id: agentId,
       external_surface_id: "C0OPS",
       surface_kind: "public_channel",
-      mode: "mention",
+      mode: "on",
       home: true,
       status: "ready",
       revision: 1,
@@ -404,7 +404,7 @@ integration("agent identities over HTTP on PostgreSQL", () => {
     const dm = await send("PUT", bindingsOf, ownerCookie, {
       channel_id: null,
       channel_kind: "dm",
-      mode: "mention",
+      mode: "on",
     });
     expect(dm.status).toBe(200);
     const listed = listSlackBindingsResponseSchema.parse(
@@ -422,27 +422,27 @@ integration("agent identities over HTTP on PostgreSQL", () => {
     const member = await login("ops-member@example.com");
     const body = { channel_id: "C0X", channel_kind: "public_channel" };
     for (const [cookie, path, request, status, code] of [
-      [member, bindingsOf, { ...body, mode: "mention" }, 403, "FORBIDDEN"],
+      [member, bindingsOf, { ...body, mode: "on" }, 403, "FORBIDDEN"],
       [member, bindingsOf, undefined, 403, "FORBIDDEN"],
       [admin, bindingsOf, { ...body, mode: "all" }, 400, "BAD_REQUEST"],
       [
         admin,
         bindingsOf,
-        { channel_id: null, channel_kind: "dm", mode: "mention", home: true },
+        { channel_id: null, channel_kind: "dm", mode: "on", home: true },
         400,
         "BAD_REQUEST",
       ],
       [
         admin,
         `/v1/agents/${unlinked}/slack-bindings`,
-        { ...body, mode: "mention" },
+        { ...body, mode: "on" },
         409,
         "SLACK_NOT_INSTALLED",
       ],
       [
         admin,
         `/v1/agents/${crypto.randomUUID()}/slack-bindings`,
-        { ...body, mode: "mention" },
+        { ...body, mode: "on" },
         403,
         "FORBIDDEN",
       ],
@@ -581,7 +581,7 @@ integration("agent identities over HTTP on PostgreSQL", () => {
     // Revoked, it is refused as unbound.
     await db
       .update(surfaceBindings)
-      .set({ mode: "mention", status: "revoked", revokedAt: new Date() })
+      .set({ mode: "on", status: "revoked", revokedAt: new Date() })
       .where(eq(surfaceBindings.id, set.slack_binding.id));
     expect(await outcome({ id: "C0OPS", dm: false })).toEqual([
       "deny",

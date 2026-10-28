@@ -13,6 +13,7 @@ import {
   catalogConnections,
   catalogProfile,
   catalogRevision,
+  catalogRows,
   createProfileRegistry,
   installationProfileSnapshot,
   profileCatalog,
@@ -85,10 +86,8 @@ const ON_MAIN: Record<string, Record<string, string>> = {
 
 function sourcesFor(
   config: SessionCatalogConfig,
-  own: SessionCatalogConfig["profiles"],
 ): SnapshotSources<CatalogProfile> {
   return {
-    own,
     connections: catalogConnections(config.profiles, undefined),
     allowUnattended: true,
     runtimeSupported: () => true,
@@ -156,11 +155,11 @@ integration("profiles.yaml imported into PostgreSQL", () => {
         Object.hasOwn(config.profiles, row.id),
       );
       const yaml = installationProfileSnapshot(
-        sourcesFor(config, config.profiles),
-        [],
+        sourcesFor(config),
+        catalogRows(config.profiles),
       );
       const fromDatabase = installationProfileSnapshot(
-        sourcesFor(config, {}),
+        sourcesFor(config),
         rows,
       );
       expect(fromDatabase.profiles).toEqual(yaml.profiles);
@@ -188,7 +187,9 @@ integration("profiles.yaml imported into PostgreSQL", () => {
           base_runtime_version: profile.runtime_version,
           base_billing: "metered",
           base_repository_mode: "required",
+          created_by: "019a0000-0000-7000-8000-0000000000b1",
           created_at: new Date(),
+          retired_by: null,
           retired_at: null,
         };
         expect(
@@ -220,7 +221,7 @@ integration("profiles.yaml imported into PostgreSQL", () => {
       const registry = createProfileRegistry({
         workspaces: schema.createPostgresWorkspaceProfileStore(db),
         installations: store,
-        sources: sourcesFor(config, config.profiles),
+        sources: sourcesFor(config),
       });
       await registry.refresh();
       const catalog = profileCatalog(
@@ -275,7 +276,8 @@ integration("profiles.yaml imported into PostgreSQL", () => {
     const store = createPostgresInstallationProfileStore(db);
     const check = async (own: SessionCatalogConfig["profiles"]) =>
       checkCatalogImport({
-        sources: sourcesFor({ ...config, profiles: own }, own),
+        own,
+        sources: sourcesFor({ ...config, profiles: own }),
         repositories,
         rows: (await store.listAll()).filter((row) =>
           Object.hasOwn(config.profiles, row.id),
@@ -314,7 +316,8 @@ integration("profiles.yaml imported into PostgreSQL", () => {
       Object.hasOwn(config.profiles, row.id),
     );
     const drifted = checkCatalogImport({
-      sources: sourcesFor(config, config.profiles),
+      own: config.profiles,
+      sources: sourcesFor(config),
       repositories,
       rows: rows.map((row) =>
         row.id === first ? { ...row, fingerprint: "sha256:edited" } : row,
@@ -336,8 +339,8 @@ integration("profiles.yaml imported into PostgreSQL", () => {
       const connections = await readConnections(dir);
       if (!connections) throw new Error("no connections");
       const snapshot = installationProfileSnapshot(
-        { ...sourcesFor(config, config.profiles), connections },
-        [],
+        { ...sourcesFor(config), connections },
+        catalogRows(config.profiles),
       );
       expect(
         [...snapshot.installation.values()].every(

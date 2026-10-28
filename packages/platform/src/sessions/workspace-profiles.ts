@@ -8,10 +8,12 @@ import {
 } from "@werft-ai/contracts";
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import { NOT_FOUND } from "../musterrolle/service-errors.ts";
+import type { InstallationProfileRecord } from "../ports/installation-profile-store.ts";
 import type { TeamActor } from "../ports/team-store.ts";
 import type { WorkspaceProfileStore } from "../ports/workspace-profile-store.ts";
 import {
   type CatalogProfileView,
+  catalogProfileConfigSchema,
   derivationPolicyOf,
   isUnmetered,
   profileAllowsRepository,
@@ -20,6 +22,7 @@ import {
   refreshWorkspaceProfilesFor,
   repositoryModeOf,
   type SessionCatalogView,
+  sessionCatalogView,
   type WorkspaceProfileRecord,
   type WorkspaceProfiles,
   workspaceProfileState,
@@ -129,9 +132,89 @@ function workspaceSummary(
       version: record.version,
       base_profile_id: record.base_profile_id,
       state: workspaceProfileState(catalog, record),
+      created_by: record.created_by,
       created_at: record.created_at.toISOString(),
+      retired_by: record.retired_by,
       retired_at: record.retired_at?.toISOString() ?? null,
     },
+  };
+}
+
+/**
+ * An installation ceiling as listed, whatever its state: one that does not
+ * run here is described from its stored definition. Undefined for an id
+ * with neither (a row that no longer parses).
+ *
+ * `written` is a row this process just committed, so the answer to that
+ * write holds even when the snapshot has not read it yet: a new row is
+ * `usable` (the write was refused otherwise) and a retired one `retired`.
+ */
+export function operatorSummary(
+  catalog: SessionCatalogView,
+  id: string,
+  written?: { record: InstallationProfileRecord; connectionId: string | null },
+): ProfileSummary | undefined {
+  const entry = catalog.installation?.get(id);
+  const definition =
+    entry?.definition ??
+    (written && catalogProfileConfigSchema.safeParse(written.record.definition))
+      ?.data;
+  const profile = Object.hasOwn(catalog.profiles, id)
+    ? catalog.profiles[id]
+    : definition &&
+      sessionCatalogView({
+        profiles: { [id]: definition },
+        repositories: {},
+      }).profiles[id];
+  if (!profile) return undefined;
+  const record = written?.record ?? entry?.record;
+  const current =
+    entry?.record !== undefined &&
+    (written === undefined ||
+      entry.record.retired_at?.getTime() ===
+        written.record.retired_at?.getTime());
+  const state = current
+    ? entry.state
+    : written?.record.retired_at
+      ? "retired"
+      : "usable";
+  const summary = summaryOf(catalog, id, id, profile);
+  const repositoryIds =
+    current || !written || summary.repository_mode === "none"
+      ? summary.repository_ids
+      : [
+          ...new Set([
+            ...summary.repository_ids,
+            ...written.record.repository_ids.filter((repositoryId) =>
+              Object.hasOwn(catalog.repositories, repositoryId),
+            ),
+          ]),
+        ].sort();
+  return {
+    ...summary,
+    repository_ids: repositoryIds,
+    source: "operator",
+    ...((entry || written) && record
+      ? {
+          installation: {
+            name: record.name,
+            version: record.version,
+            origin: record.origin,
+            state,
+            connection_id:
+              entry?.connection_id ?? written?.connectionId ?? null,
+            title_model: profile.title_model ?? null,
+            project_settings: profile.project_settings ?? {
+              claude_md: false,
+            },
+            previous_id: record.previous_id,
+            created_by: record.created_by,
+            created_at: record.created_at.toISOString(),
+            retired_by: record.retired_by,
+            retired_at: record.retired_at?.toISOString() ?? null,
+          },
+        }
+      : {}),
   };
 }
 
@@ -142,12 +225,15 @@ export function listCatalogProfiles(
 ): ListProfilesResponse {
   const byId = (a: { id: string }, b: { id: string }) =>
     a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-  const operator = Object.entries(catalog.profiles).map(
-    ([id, profile]): ProfileSummary => ({
-      ...summaryOf(catalog, id, id, profile),
-      source: "operator",
-    }),
-  );
+  const operator = [
+    ...new Set([
+      ...Object.keys(catalog.profiles),
+      ...(catalog.installation?.keys() ?? []),
+    ]),
+  ].flatMap((id) => {
+    const summary = operatorSummary(catalog, id);
+    return summary ? [summary] : [];
+  });
   const workspace =
     workspaceId === null
       ? []
@@ -225,14 +311,17 @@ export function createWorkspaceProfileService(deps: {
       const base = Object.hasOwn(catalog.profiles, request.base_profile_id)
         ? catalog.profiles[request.base_profile_id]
         : undefined;
-      if (
-        catalog.installation?.get(request.base_profile_id)?.state === "retired"
-      ) {
+      const baseState = catalog.installation?.get(
+        request.base_profile_id,
+      )?.state;
+      if (baseState !== undefined && baseState !== "usable") {
         throw new SessionServiceError(
           "BAD_REQUEST",
-          `Operator profile ${request.base_profile_id} is retired: pick a newer version`,
+          baseState === "retired"
+            ? `Operator profile ${request.base_profile_id} is retired: pick a newer version`
+            : `Operator profile ${request.base_profile_id} does not run here (${baseState}): pick a usable one`,
           undefined,
-          { reason_code: "retired", field: "base_profile_id" },
+          { reason_code: baseState, field: "base_profile_id" },
         );
       }
       if (!base) {

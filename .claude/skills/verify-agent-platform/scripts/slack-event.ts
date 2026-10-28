@@ -14,7 +14,11 @@ import {
   secretsManagerReader,
 } from "./apps/control-host/src/api/catalog-config.ts";
 
-const [agentId, mode] = process.argv.slice(1);
+const [agentId, mode, channel = "C0VERIFY", seq = "1"] = process.argv.slice(1);
+// `mention` and `plain` are top-level posts by U0MOCK in `channel`, with
+// or without a mention; each sequence number is its own event and thread.
+const posted = mode === "mention" || mode === "plain";
+const ts = posted ? `${1792800000 + Number(seq)}.000001` : "1792800000.000001";
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 try {
   const db = drizzle(pool, { schema });
@@ -36,15 +40,30 @@ try {
           type: "event_callback",
           api_app_id: app.appId,
           team_id: "T0MOCK",
-          event_id: mode === "bot" ? "EvVerifyBot" : "EvVerify1",
-          event: {
-            type: "app_mention",
-            user: "U0MOCK",
-            channel: "C0VERIFY",
-            ts: "1792800000.000001",
-            text: "verify inbox",
-            ...(mode === "bot" ? { bot_id: "B0VERIFY" } : {}),
-          },
+          event_id:
+            mode === "bot"
+              ? "EvVerifyBot"
+              : posted
+                ? `EvVerify${mode}${channel}${seq}`
+                : "EvVerify1",
+          event:
+            mode === "plain"
+              ? {
+                  type: "message",
+                  channel_type: "channel",
+                  user: "U0MOCK",
+                  channel,
+                  ts,
+                  text: "verify plain post",
+                }
+              : {
+                  type: "app_mention",
+                  user: "U0MOCK",
+                  channel: posted ? channel : "C0VERIFY",
+                  ts,
+                  text: "verify inbox",
+                  ...(mode === "bot" ? { bot_id: "B0VERIFY" } : {}),
+                },
         };
   const body = mode === "malformed" ? "{" : JSON.stringify(payload);
   const timestamp = String(

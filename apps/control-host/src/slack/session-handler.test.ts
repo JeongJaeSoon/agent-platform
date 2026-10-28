@@ -19,11 +19,13 @@ import {
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
+  agents,
   authzDecisions,
   createDatabaseIdentityReader,
   createPostgresAgentIdentityStore,
   createPostgresAgentStore,
   createPostgresCredentialBindingStore,
+  createPostgresInstallationProfileStore,
   createPostgresSessionLinkStore,
   createPostgresSlackAppStore,
   createPostgresSlackInboundEventStore,
@@ -49,6 +51,7 @@ import {
   type Caller,
   type CatalogProfile,
   callerFor,
+  catalogImports,
   createAgentService,
   createAuthorizationPolicy,
   drainSlackInbox,
@@ -182,6 +185,10 @@ function useDatabase(engine: string) {
         await database.drop();
       };
     }
+    // The api role's startup import: the registry reads ceilings from rows.
+    await createPostgresInstallationProfileStore(db).importCatalog(
+      catalogImports(catalog.profiles),
+    );
     slack.statuses.length = 0;
     slack.failures.clear();
     slack.channels.clear();
@@ -216,7 +223,8 @@ async function agentInSlack(
     /** The catalog the release is made against; the handler's stays as loaded. */
     releasedUnder?: (catalog: SessionCatalog) => SessionCatalog;
     activate?: boolean;
-    mode?: "off" | "mention" | "ambient";
+    mode?: "off" | "on";
+    mentionOnly?: boolean;
   } = {},
 ) {
   const workspaceId = randomUUID();
@@ -324,12 +332,19 @@ async function agentInSlack(
     agentId,
     channelId: CHANNEL,
     channelKind: "public_channel",
-    mode: options.mode ?? "mention",
+    mode: options.mode ?? "on",
     home: false,
     ceiling: DEFAULT_SURFACE_CEILING,
     managerRoles: MANAGERS,
   });
   if (bound.outcome !== "set") throw new Error(bound.outcome);
+  // Set after the channel was connected: it covers that channel too.
+  if (options.mentionOnly === false) {
+    await db
+      .update(agents)
+      .set({ slackMentionOnly: false })
+      .where(eq(agents.id, agentId));
+  }
   await db.insert(linkedAccounts).values({
     id: randomUUID(),
     workspaceId,
@@ -727,8 +742,8 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(await inboxStatuses()).toEqual(Array(7).fill("processed"));
   });
 
-  test("an ambient channel opens a session on an unmentioned top-level post, not on a stray reply", async () => {
-    const fixture = await agentInSlack("general", { mode: "ambient" });
+  test("an agent not waiting for a mention opens a session on an unmentioned top-level post, not on a stray reply", async () => {
+    const fixture = await agentInSlack("general", { mentionOnly: false });
     const { handle, notices } = handler();
     await deliver(fixture, message("100.000100"));
     await deliver(fixture, message("100.000200", { thread_ts: "100.000100" }));
@@ -754,7 +769,10 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
   });
 
   test("an unused channel takes no unmentioned post", async () => {
-    const fixture = await agentInSlack("general", { mode: "off" });
+    const fixture = await agentInSlack("general", {
+      mode: "off",
+      mentionOnly: false,
+    });
     const { handle, notices } = handler();
     await deliver(fixture, message("100.000100"));
     await drain(handle);
@@ -814,7 +832,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
       .from(surfaceBindings)
       .where(eq(surfaceBindings.surfaceKind, "dm"));
     expect(dm).toHaveLength(1);
-    expect(dm[0]).toMatchObject({ mode: "mention", externalSurfaceId: null });
+    expect(dm[0]).toMatchObject({ mode: "on", externalSurfaceId: null });
   });
 
   test("concurrent first DMs make one DM binding", async () => {

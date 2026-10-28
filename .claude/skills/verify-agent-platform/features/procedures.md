@@ -779,6 +779,28 @@ claim은 thread head를 DB advisory lock·SKIP LOCKED로 직렬화하고 lease�
 
 Slack 연결 콜백 화면·연결 해제는 [musterrolle.md](musterrolle.md) c의 4와 [web-settings.md](web-settings.md) 4를 이어서 실행한다. 에이전트 신원 수동 연결/회수·Slack 채널 binding·처리 시점 권한 판정은 c·g의 진단 블록이다. 함수 직접 호출 결과와 HTTP inbound 증거를 구분한다.
 
+## P-SLACK-MENTION-ONLY — 채널 사용과 에이전트 멘션 설정
+
+전제: P-SLACK-SETUP, 그리고 owner가 [musterrolle.md](musterrolle.md) c의 4로 Slack 계정(`U0MOCK`)을 연결한 상태. mock의 채널 목록은 비어 있어 이름을 모르는 채널은 화면에 "채널 ID: …"로 보인다. 이름이 보여야 하면 api 컨테이너에서 `http://mock-slack:4020/fake/channels`에 `{app_id, channels:[{name}]}`를 POST하고, 돌아온 id로 binding을 만든다(목록이 고른 채널처럼).
+
+```sh
+# Actor: owner.
+ap_as owner
+ap_web PUT "/v1/agents/$AID/slack-bindings" "{\"channel_id\":\"$SUP\",\"mode\":\"on\",\"home\":true}"
+ap_web PUT "/v1/agents/$AID/slack-bindings" "{\"channel_id\":\"$ALR\",\"mode\":\"off\"}"
+ap_web PUT "/v1/agents/$AID/slack-bindings" "{\"channel_id\":\"$ALR\",\"mode\":\"mention\"}"   # 400
+ap_web GET "/v1/agents/$AID/slack/app/settings"                                            # mention_only:true
+node "$U" "$RUN" slack-event "$AID" plain "$SUP" 1
+node "$U" "$RUN" slack-event "$AID" mention "$SUP" 2
+node "$U" "$RUN" slack-event "$AID" mention "$ALR" 3
+ap_web PUT "/v1/agents/$AID/slack/app/settings" '{"mention_only":false}'
+node "$U" "$RUN" slack-event "$AID" plain "$SUP" 4
+node "$U" "$RUN" slack-event "$AID" plain "$ALR" 5
+ap_compose exec -T postgres psql -U postgres -d sessions -c "select surface_ref from session_links order by created_at"
+```
+
+기대: binding PUT 200, 옛 값 `mention`은 400(`expected one of "off"|"on"`). 이벤트는 모두 200 `ok:true`이고 `slack_inbound_events`는 processed. session_links는 `<SUP>:1792800002.000001`(멘션)과 `<SUP>:1792800004.000001`(꺼진 뒤 멘션 없는 글) 둘뿐이다. 1(켜짐인데 멘션 없음), 3·5(사용 꺼진 채널)는 세션을 열지 않는다. `slack-event`의 `mention`·`plain`은 `[channel seq]`를 받아 seq마다 새 event id와 thread를 만든다. `plain`은 `channel_type: channel`이라 비공개 채널(G…)에 보내면 채널 종류 불일치로 거절된다. 2026-10-28 run `20261028-193529-12255`에서 이 순서로 확인했다.
+
 ## P-DEMO-SEED — 데모 별도 run
 
 전제: 새 run. 기본 bootstrap 절차를 같이 실행하지 않는다.

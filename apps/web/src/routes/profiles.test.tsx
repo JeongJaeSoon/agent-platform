@@ -8,7 +8,7 @@ import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { apiError, json, me, memberMe } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor, within } = await appHarness();
+const { act, renderAt, screen, waitFor, within } = await appHarness();
 
 const RECEIPT_ID = "00000000-0000-4000-8000-000000000001";
 
@@ -864,5 +864,147 @@ describe("실행 프로필", () => {
     expect(
       screen.queryAllByRole("button", { name: "프로필 만들기" }).length,
     ).toBe(0);
+  });
+
+  const inState = (
+    profile: ProfileSummary,
+    state: NonNullable<ProfileSummary["installation"]>["state"],
+  ): ProfileSummary => ({
+    ...profile,
+    installation: {
+      name: profile.id,
+      version: 1,
+      origin: "console",
+      state,
+      connection_id: null,
+      title_model: null,
+      project_settings: { claude_md: false },
+      previous_id: null,
+      created_by: null,
+      created_at: "2026-10-27T00:00:00.000Z",
+      retired_by: null,
+      retired_at: state === "retired" ? "2026-10-27T01:00:00.000Z" : null,
+    },
+  });
+
+  test("a ceiling that does not run here is listed disabled with its state, never the base a form starts on or a version is made from", async () => {
+    const [coding, general] = PROFILES as [ProfileSummary, ProfileSummary];
+    renderAt(
+      "/profiles",
+      catalog([
+        inState(coding, "retired"),
+        inState(general, "usable"),
+        version(1, "usable"),
+      ]).routes,
+    );
+    const user = await setupUser();
+    const table = await screen.findByRole("table", {
+      name: "워크스페이스 프로필",
+    });
+    expect(rows(table).at(-1)).toEqual([
+      "strict v1ws_acme_strict_v1",
+      "coding-claudeclaude-sonnet-5",
+      "사용 가능",
+      "사용 중지",
+    ]);
+    await user.click(
+      await screen.findByRole("button", { name: "프로필 만들기" }),
+    );
+    const editor = await screen.findByRole("region", {
+      name: "프로필 만들기",
+    });
+    const base = within(editor).getByLabelText(
+      "바탕 프로필",
+    ) as HTMLSelectElement;
+    expect(base.value).toBe("general-read");
+    expect(
+      Array.from(base.options, (option) => [
+        option.value,
+        option.disabled,
+        option.textContent,
+      ]),
+    ).toEqual([
+      ["coding-claude", true, "coding-claude · 사용 중지됨"],
+      ["general-read", false, "general-read"],
+    ]);
+  });
+
+  test("with no ceiling that runs here there is nothing to make a profile from", async () => {
+    renderAt(
+      "/profiles",
+      catalog(PROFILES.map((profile) => inState(profile, "connection_missing")))
+        .routes,
+    );
+    await screen.findByRole("table", { name: "운영자 프로필" });
+    expect(
+      screen.queryAllByRole("button", { name: "프로필 만들기" }).length,
+    ).toBe(0);
+  });
+
+  test("a base the list read again as retired is refused before the request", async () => {
+    const server = catalog();
+    const { api, services } = renderAt("/profiles", server.routes);
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "프로필 만들기" }),
+    );
+    const editor = await screen.findByRole("region", {
+      name: "프로필 만들기",
+    });
+    const base = within(editor).getByLabelText(
+      "바탕 프로필",
+    ) as HTMLSelectElement;
+    const picked = base.value;
+    const at = server.items.findIndex((item) => item.id === picked);
+    server.items[at] = inState(server.items[at] as ProfileSummary, "retired");
+    await act(() => services.queryClient.invalidateQueries());
+    await waitFor(() =>
+      expect(
+        Array.from(base.options).find((option) => option.value === picked)
+          ?.disabled,
+      ).toBe(true),
+    );
+    await user.type(within(editor).getByLabelText("이름"), "strict");
+    await user.click(
+      within(editor).getByRole("button", { name: "새 버전으로 저장" }),
+    );
+    expect(
+      await within(editor).findByText(
+        "그 바탕 프로필은 지금 쓸 수 없습니다. 사용할 수 있는 바탕 프로필을 고르세요.",
+      ),
+    ).toBeDefined();
+    expect(api.calls.filter((call) => call.method !== "GET")).toEqual([]);
+  });
+
+  test("a save over a base retired meanwhile says to pick a usable one", async () => {
+    renderAt("/profiles", {
+      ...catalog().routes,
+      "POST /v1/workspace-profiles": () =>
+        json(400, {
+          error: {
+            code: "BAD_REQUEST",
+            message: "retired",
+            retryable: false,
+            request_id: "req-1",
+            details: { reason_code: "retired", field: "base_profile_id" },
+          },
+        }),
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "프로필 만들기" }),
+    );
+    const editor = await screen.findByRole("region", {
+      name: "프로필 만들기",
+    });
+    await user.type(within(editor).getByLabelText("이름"), "strict");
+    await user.click(
+      within(editor).getByRole("button", { name: "새 버전으로 저장" }),
+    );
+    expect(
+      await within(editor).findByText(
+        "그 바탕 프로필은 지금 쓸 수 없습니다. 사용할 수 있는 바탕 프로필을 고르세요.",
+      ),
+    ).toBeDefined();
   });
 });

@@ -358,6 +358,9 @@ export const AUTHORIZATION_ACTION_VALUES = [
   // One agent's summed usage: its workspace's managers and its admins
   // (94S-1016), recorded under its own name rather than agent.manage.
   "usage.agent_read",
+  // Making and retiring installation ceilings: the operator, who is the
+  // workspace owner (docs/contributing/decisions/profile-db.md §2).
+  "profile.installation.manage",
   "memory.read",
   "memory.write",
   "artifact.read",
@@ -406,6 +409,7 @@ const ACTION_RESOURCE_KINDS: Record<
   "session.admin_list": new Set(["workspace"]),
   "usage.installation_read": new Set(["workspace"]),
   "usage.agent_read": new Set(["agent"]),
+  "profile.installation.manage": new Set(["workspace"]),
   "memory.read": new Set(["workspace", "agent", "memory"]),
   "memory.write": new Set(["workspace", "agent", "memory"]),
   "artifact.read": new Set(["artifact", "session"]),
