@@ -741,7 +741,9 @@ jobs:
   # pending request, answer, follow-up, interrupt, pause, resume, terminate,
   # recovery, resume — plus the concurrency regressions, the pause coverage
   # branches, and a paused session whose workspace volume is deleted coming
-  # back from its checkpoint, with and without a repository. A real Claude Code
+  # back from its checkpoint, with and without a repository; a remote MCP
+  # call through the egress proxy; and installation ceilings saved, retired
+  # and blocked from the API. A real Claude Code
   # runs in every worker; the compose fake Messages API answers it, so no
   # model account is involved. tests/e2e/run.sh does all of it and prints
   # the record the delivery plan asks for: command, tested SHA, image ids,
