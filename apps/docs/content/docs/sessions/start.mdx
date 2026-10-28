@@ -110,6 +110,7 @@ curl -sS -X PATCH "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" \
 | 401 | key가 없거나 틀렸거나 폐기됐다 |
 | 403 | key에 `sessions:write`가 없다 |
 | 409 `IDEMPOTENCY_CONFLICT` | 같은 key에 다른 본문 |
+| 409 `PROFILE_BLOCKED` | owner가 [운영자 프로필을 차단](/agents/run-profiles#운영자-프로필-차단하기)했다. 워크스페이스 프로필이면 그 바탕 프로필이 막혔다(`details.reason_code`가 `base_blocked`). 다시 보내도 같다 |
 | 413 | 메시지가 32,768바이트를 넘는다. 저장소 상한이면 `STORAGE_LIMIT_EXCEEDED` |
 | 422 `UNSUPPORTED_CAPABILITY` | 프로필이나 저장소가 없거나, 그 짝이 허용되지 않았거나, 모델을 프로필이 허용하지 않는다 |
 | 429 `RATE_LIMITED` | 잠시 뒤 다시 보낸다 |

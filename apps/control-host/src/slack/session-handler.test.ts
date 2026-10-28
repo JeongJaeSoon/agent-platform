@@ -31,6 +31,7 @@ import {
   createPostgresSlackInboundEventStore,
   createPostgresSurfaceBindingStore,
   type Database,
+  installationProfiles,
   linkedAccounts,
   memberships,
   registerSlackInstallation,
@@ -662,6 +663,24 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
         },
       }),
     });
+    const { handle, notices } = handler();
+    await deliver(fixture, mention("100.000100"));
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({
+      reason: "profile_unavailable",
+      notice: { text: SLACK_NOTICE_MESSAGES.profileUnavailable },
+    });
+    expect(await inboxStatuses()).toEqual(["processed"]);
+  });
+
+  test("a release whose profile the operator blocked says so in the thread", async () => {
+    const fixture = await agentInSlack("general");
+    await db
+      .update(installationProfiles)
+      .set({ blockedAt: new Date(), blockedBy: fixture.ownerId })
+      .where(eq(installationProfiles.id, "general"));
     const { handle, notices } = handler();
     await deliver(fixture, mention("100.000100"));
     await drain(handle);
