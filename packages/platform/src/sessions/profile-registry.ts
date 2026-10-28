@@ -121,10 +121,14 @@ export function installationProfileSnapshot<P extends CatalogProfileView>(
     ),
   );
   const stored = new Map(rows.map((row) => [row.id, row]));
-  const ids = [...new Set([...Object.keys(sources.own), ...stored.keys()])];
+  // The YAML's own order first, as the YAML-only image listed them.
+  const ids = new Set([
+    ...Object.keys(sources.own),
+    ...[...stored.keys()].sort(),
+  ]);
   const profiles: Record<string, P> = {};
   const installation = new Map<string, InstallationProfileEntry>();
-  for (const id of ids.sort()) {
+  for (const id of ids) {
     const row = stored.get(id);
     const own = Object.hasOwn(sources.own, id) ? sources.own[id] : undefined;
     const origin = own !== undefined ? "catalog" : (row?.origin ?? "catalog");

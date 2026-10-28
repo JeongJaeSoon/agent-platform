@@ -3,6 +3,7 @@ import {
   type AgentDetail,
   type AgentRelease,
   agentCardSchema,
+  scopesForRole,
 } from "@werft-ai/contracts";
 import {
   createAgentService,
@@ -41,6 +42,7 @@ import {
   profileCatalog,
   type SnapshotSources,
 } from "./profile-registry.ts";
+import { createWorkspaceProfileService } from "./workspace-profiles.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const OWNER = "019a0000-0000-7000-8000-0000000000b1";
@@ -582,6 +584,70 @@ describe("releases and sessions over the registry", () => {
         retiredAllowed: true,
       }),
     ).toBeNull();
+  });
+
+  test("a ceiling another replica retired takes no new version here, though this replica read it usable", async () => {
+    const coding = definition();
+    const rows = {
+      installation: [row("coding", coding)],
+      workspace: [] as WorkspaceProfileRecord[],
+    };
+    let clock = AT.getTime();
+    const catalog = profileCatalog(
+      { repositories: REPOSITORIES },
+      createProfileRegistry({
+        workspaces: { listAll: async () => rows.workspace },
+        installations: { listAll: async () => rows.installation },
+        sources: sourcesOf({ coding }),
+        now: () => clock,
+      }),
+    );
+    await catalog.workspace_profiles.refresh();
+    rows.installation[0] = {
+      ...row("coding", coding),
+      retired_at: AT,
+      retired_by: OWNER,
+    };
+    clock += 2_000;
+    const writes: unknown[] = [];
+    const versions = createWorkspaceProfileService({
+      authorization: createAuthorizationPolicy(),
+      store: {
+        listAll: async () => [],
+        async create(input) {
+          writes.push(input);
+          throw new Error("nothing is saved over a retired ceiling");
+        },
+        retire: async () => ({ outcome: "not_found" }),
+      },
+      catalog,
+    });
+    const manager = callerFor(
+      {
+        kind: "user",
+        id: OWNER,
+        workspace_id: WORKSPACE,
+        role: "owner",
+        scopes: [...scopesForRole("owner")],
+      },
+      { kind: "web" },
+      crypto.randomUUID(),
+    );
+    const error = await versions
+      .create(manager, {
+        name: "narrow",
+        base_profile_id: "coding",
+        model: coding.model,
+        models: [coding.model],
+        tools: [],
+        permission_mode: "default",
+      })
+      .then(
+        () => null,
+        (e: { details?: unknown }) => e.details,
+      );
+    expect(error).toMatchObject({ reason_code: "retired" });
+    expect(writes).toEqual([]);
   });
 
   test("with the unattended switch off, a bypass ceiling and the version over it run nowhere", async () => {

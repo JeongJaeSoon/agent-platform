@@ -17,6 +17,7 @@ import {
   profileAllowsRepository,
   profileFingerprint,
   profileModels,
+  refreshWorkspaceProfilesFor,
   repositoryModeOf,
   type SessionCatalogView,
   type WorkspaceProfileRecord,
@@ -218,6 +219,9 @@ export function createWorkspaceProfileService(deps: {
       request: CreateWorkspaceProfileRequest,
     ): Promise<WorkspaceProfileChangeResponse> {
       const actor = await manager(caller);
+      await refreshWorkspaceProfilesFor(catalog, [request.base_profile_id], {
+        strict: true,
+      });
       const base = Object.hasOwn(catalog.profiles, request.base_profile_id)
         ? catalog.profiles[request.base_profile_id]
         : undefined;
