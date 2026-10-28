@@ -137,6 +137,49 @@ export function ProfileDetailScreen() {
       ),
   });
 
+  // Which way the dialog goes is fixed when it opens, so a list refresh
+  // underneath cannot turn a block into an unblock.
+  const [blocking, setBlocking] = useState<{
+    readonly id: string;
+    readonly block: boolean;
+  } | null>(null);
+  const [blockError, setBlockError] = useState<string | null>(null);
+  const block = useMutation<
+    WorkspaceProfileChangeResponse,
+    ApiError,
+    { readonly id: string; readonly block: boolean }
+  >({
+    mutationFn: ({ id, block }) =>
+      unwrap(
+        block
+          ? client.POST("/v1/installation-profiles/{profile_id}/block", {
+              params: { path: { profile_id: id } },
+            })
+          : client.POST("/v1/installation-profiles/{profile_id}/unblock", {
+              params: { path: { profile_id: id } },
+            }),
+      ),
+    onMutate: () => setBlockError(null),
+    onSuccess: async ({ profile: changed }, { block }) => {
+      setBlocking(null);
+      setNotice({
+        on: changed.id,
+        text: t(block ? "profiles.blockDone" : "profiles.unblockDone", {
+          id: changed.id,
+        }),
+      });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeysOf(client).profiles,
+      });
+    },
+    onError: (failure) =>
+      setBlockError(
+        failure.code === "FORBIDDEN"
+          ? t("profiles.blockOwnerOnly")
+          : refusalText(t, failure, "workspace.manage", role),
+      ),
+  });
+
   const breadcrumb = (
     <PageBreadcrumb label={t("shell.breadcrumb")}>
       <PageBreadcrumbLink asChild>
@@ -260,9 +303,28 @@ export function ProfileDetailScreen() {
         {t("profiles.retire")}
       </Button>,
     );
+  // Only the owner blocks a ceiling; a retired one can be blocked too.
+  if (ceiling && operates) {
+    const blocked = state === "blocked";
+    actions.push(
+      <Button
+        key="block"
+        type="button"
+        variant="outline"
+        onClick={() => {
+          setBlockError(null);
+          setBlocking({ id: profile.id, block: !blocked });
+        }}
+      >
+        {t(blocked ? "profiles.unblock" : "profiles.block")}
+      </Button>,
+    );
+  }
 
   // Losing the role closes the dialog; a request already sent still reports here.
   const retireOpen = retiring === profile.id && changes;
+  const blockOpen = blocking?.id === profile.id && ceiling && operates;
+  const blockAction = blocking?.block ?? true;
 
   return (
     <Page
@@ -295,6 +357,11 @@ export function ProfileDetailScreen() {
       {retireError === null || retireOpen ? null : (
         <Alert variant="red" role="alert">
           <AlertDescription>{retireError}</AlertDescription>
+        </Alert>
+      )}
+      {blockError === null || blockOpen ? null : (
+        <Alert variant="red" role="alert">
+          <AlertDescription>{blockError}</AlertDescription>
         </Alert>
       )}
       {state === "usable" ? null : (
@@ -346,6 +413,42 @@ export function ProfileDetailScreen() {
         {retireError === null ? null : (
           <Alert variant="red" role="alert">
             <AlertDescription>{retireError}</AlertDescription>
+          </Alert>
+        )}
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={blockOpen}
+        onOpenChange={(next) => {
+          if (!next && !block.isPending) {
+            setBlocking(null);
+            setBlockError(null);
+          }
+        }}
+        title={t(
+          blockAction ? "profiles.blockTitle" : "profiles.unblockTitle",
+          {
+            id: profile.id,
+          },
+        )}
+        consequence={t(
+          blockAction ? "profiles.blockText" : "profiles.unblockText",
+        )}
+        confirmLabel={
+          block.isPending
+            ? t(blockAction ? "profiles.blocking" : "profiles.unblocking")
+            : t(blockAction ? "profiles.block" : "profiles.unblock")
+        }
+        cancelLabel={t("common.cancel")}
+        tone={blockAction ? "danger" : "default"}
+        busy={block.isPending}
+        onConfirm={() => {
+          if (blockOpen && !block.isPending)
+            block.mutate({ id: profile.id, block: blockAction });
+        }}
+      >
+        {blockError === null ? null : (
+          <Alert variant="red" role="alert">
+            <AlertDescription>{blockError}</AlertDescription>
           </Alert>
         )}
       </ConfirmDialog>
