@@ -178,8 +178,21 @@ export function operatorSummary(
     : written?.record.retired_at
       ? "retired"
       : "usable";
+  const summary = summaryOf(catalog, id, id, profile);
+  const repositoryIds =
+    current || !written || summary.repository_mode === "none"
+      ? summary.repository_ids
+      : [
+          ...new Set([
+            ...summary.repository_ids,
+            ...written.record.repository_ids.filter((repositoryId) =>
+              Object.hasOwn(catalog.repositories, repositoryId),
+            ),
+          ]),
+        ].sort();
   return {
-    ...summaryOf(catalog, id, id, profile),
+    ...summary,
+    repository_ids: repositoryIds,
     source: "operator",
     ...((entry || written) && record
       ? {

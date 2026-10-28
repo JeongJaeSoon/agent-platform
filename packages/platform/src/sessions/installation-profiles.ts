@@ -269,6 +269,10 @@ export function createInstallationProfileService(deps: {
       profileId: string,
     ): Promise<WorkspaceProfileChangeResponse> {
       const actor = await operator(caller);
+      // A row whose definition no longer parses is not listed, so it is not
+      // found here either rather than retired with nothing to answer.
+      await reread();
+      if (operatorSummary(catalog, profileId) === undefined) throw NOT_FOUND();
       const receiptId = newId();
       const result = await store.retire({ actor, receiptId, profileId });
       switch (result.outcome) {

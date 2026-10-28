@@ -394,9 +394,27 @@ describe("a write whose re-read fails", () => {
       connection_id: "main",
       version: 1,
     });
+    expect(saved.profile.repository_ids).toEqual(["docs"]);
     const retired = await service.retire(caller("owner"), "seed");
     expect(retired.receipt_id).not.toBeNull();
     expect(retired.profile.installation?.state).toBe("retired");
+  });
+});
+
+describe("a row whose definition no longer parses", () => {
+  test("is neither listed nor retired, and nothing is written", async () => {
+    const rows = catalogRows({ seed: SEED, broken: SEED }).map((row) =>
+      row.id === "broken" ? { ...row, definition: { runtime_kind: 1 } } : row,
+    );
+    const { service, catalog } = setup({ rows });
+    await catalog.workspace_profiles.refresh();
+    expect(
+      listCatalogProfiles(catalog, WORKSPACE).items.map((item) => item.id),
+    ).toEqual(["seed"]);
+    expect(
+      (await refusal(service.retire(caller("owner"), "broken"))).code,
+    ).toBe("NOT_FOUND");
+    expect(rows.find((row) => row.id === "broken")?.retired_at).toBeNull();
   });
 });
 
