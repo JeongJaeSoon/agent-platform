@@ -1290,7 +1290,7 @@ describe("Slack management", () => {
       await screen.findByText("Slack에서는 세션을 시작할 수 없습니다"),
     ).toBeDefined();
     expect(document.body.textContent).toContain(
-      "활성 릴리스의 프로필(general)이 지금 카탈로그에 없거나, 릴리스 뒤에 바뀌었거나, owner가 차단했습니다.",
+      "활성 릴리스의 프로필(general)이 지금 카탈로그에 없거나, 릴리스 뒤에 바뀌었거나, 운영자가 차단했습니다.",
     );
   });
 
