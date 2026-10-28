@@ -268,6 +268,15 @@ describe("실행 프로필 상세", () => {
     ]);
   });
 
+  test("an earlier ceiling version offers no 새 버전, which only the latest takes", async () => {
+    renderAt(
+      "/profiles/op_wide_v1",
+      catalog([CODING, ceiling("wide", 1), ceiling("wide", 2)]),
+    );
+    await screen.findByRole("region", { name: "기록" });
+    expect(actions()).toEqual(["이 상한으로 프로필 만들기", "사용 중지"]);
+  });
+
   test("an imported ceiling says where it came from", async () => {
     renderAt("/profiles/coding-claude", catalog());
     // The title is the id while it loads too; wait for the record itself.

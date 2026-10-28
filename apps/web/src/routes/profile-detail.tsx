@@ -201,7 +201,11 @@ export function ProfileDetailScreen() {
           {t("profiles.detail.createFrom")}
         </Link>,
       );
-    if (operates)
+    // A version after this one exists: the server takes new ones only there.
+    if (
+      operates &&
+      !items.some((item) => item.installation?.previous_id === profile.id)
+    )
       actions.push(
         <Link
           key="version"
