@@ -40,9 +40,10 @@ export interface AgentMapProps {
 }
 
 // From xl up the map takes the screen's height (a 0px basis, so the long
-// board does not count) and each column scrolls within it on its own.
+// board does not count) and each column scrolls within it on its own. Below
+// xl the one column must not grow to its widest line.
 const COLUMNS =
-  "grid items-start gap-6 xl:flex-[1_1_0px] xl:grid-cols-[360px_minmax(0,1fr)]";
+  "grid grid-cols-[minmax(0,1fr)] items-start gap-6 xl:flex-[1_1_0px] xl:grid-cols-[360px_minmax(0,1fr)]";
 // Out of the flow, a column's content adds nothing to the row's height; the
 // inset and scroll padding leave a focused card's outline room inside the
 // scroller. Only a screen too short for 20rem scrolls the page.
