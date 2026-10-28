@@ -309,6 +309,7 @@
       },
       "devDependencies": {
         "@werft-ai/contracts": "workspace:*",
+        "tsdown": "0.23.0",
       },
     },
     "packages/storage": {

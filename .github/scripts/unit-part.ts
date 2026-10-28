@@ -4,7 +4,7 @@
 // `check` runs the suite without services in parts named after the repo
 // layout: `packages` is every discovered file under packages/, `worker-web`
 // every one under apps/worker/ and apps/web/, and `rest` every other one —
-// the other apps and tests/ today. `rest` is the complement by construction,
+// the other apps, tests/ and examples/ today. `rest` is the complement by construction,
 // so a file cannot fall between the parts, and a new directory the `test`
 // filters pick up lands in `rest` rather than nowhere.
 //

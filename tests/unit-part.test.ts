@@ -40,7 +40,7 @@ describe("unit-part.ts", () => {
   test("the parts of this repo cover its suite exactly once", async () => {
     const outcomes = await Promise.all(PARTS.map((name) => part([name])));
     const all = outcomes.flatMap((outcome) => outcome.lines);
-    const suite = discover(repo, ["tests", "packages", "apps"]).map(
+    const suite = discover(repo, ["tests", "packages", "apps", "examples"]).map(
       (path) => `./${path}`,
     );
 

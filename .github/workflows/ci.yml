@@ -191,6 +191,7 @@ jobs:
               - packages/contracts/
               - packages/client/
               - packages/sdk/
+              - examples/
               - packages/core/
               - packages/react/
               - apps/web/
@@ -276,6 +277,7 @@ jobs:
               - tests/integration-jobs.
               - tests/local-sh.
               - tests/preview-reap.
+              - tests/sdk-release.
               - tests/supply-chain.
               - tests/test-files.
               - tests/third-party-notices.

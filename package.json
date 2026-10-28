@@ -12,7 +12,7 @@
   "scripts": {
     "typecheck": "bun run --filter '*' typecheck && tsc -p .",
     "lint": "biome check .",
-    "test": "bun test tests packages apps",
+    "test": "bun test tests packages apps examples",
     "check": "bun run typecheck && bun run lint && bun run test",
     "keys": "docker compose --profile apps exec -T api bun run apps/control-host/src/api/keys.ts",
     "grants": "docker compose --profile apps exec -T api bun run apps/control-host/src/api/grants.ts",

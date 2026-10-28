@@ -3,10 +3,10 @@ title: "TypeScript SDK"
 description: "Create a session, answer permission requests, and close it with @werft-ai/sdk"
 ---
 
-`@werft-ai/sdk` is a TypeScript client for calling the Werft API from servers and scripts. It works with sessions through an API key. It follows the HTTP API's rules as they are (scope, Idempotency-Key, error codes, event stream), and handles retries, key generation, and waiting for a turn for you. It runs on Node 20 or later and on Bun.
+`@werft-ai/sdk` is a TypeScript client for calling the Werft API from servers and scripts. It works with sessions through an API key. It follows the HTTP API's rules as they are (scope, Idempotency-Key, error codes, event stream), and handles retries, key generation, and waiting for a turn for you. It runs on Node 20.3 or later and on Bun.
 
 <Callout type="warn">
-The SDK is not published to npm. It is a workspace package of this repository (`packages/sdk`, version 0.x), so you can import `@werft-ai/sdk` only from scripts inside the repository.
+The SDK ships as the public npm package `@werft-ai/sdk` (version 0.x, Apache License 2.0). Until its first version is on npm, it is a workspace package of this repository (`packages/sdk`), so you can import it only from scripts inside the repository. Once it is published, install it with `npm install @werft-ai/sdk`.
 </Callout>
 
 ## Preparation
@@ -204,10 +204,10 @@ const approver = werft.withOptions({ apiKey: approverKey });
 
 ## Examples in the repository
 
-`packages/sdk/examples/session-close.ts` runs through the whole flow at once: create a session, wait for the turn while receiving events, allow a permission request, close, and have a message rejected after the session is closed.
+`examples/sdk-approver/src/session-close.ts` runs through the whole flow at once: create a session, wait for the turn while receiving events, allow a permission request, close, and have a message rejected after the session is closed.
 
 ```bash
-WERFT_BASE_URL="$API" WERFT_API_KEY="$KEY" bun packages/sdk/examples/session-close.ts | tail -7
+WERFT_BASE_URL="$API" WERFT_API_KEY="$KEY" bun examples/sdk-approver/src/session-close.ts | tail -7
 ```
 
 ```text

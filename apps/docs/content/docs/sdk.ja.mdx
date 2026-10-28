@@ -3,10 +3,10 @@ title: "TypeScript SDK"
 description: "@werft-ai/sdk でセッションを作成し、権限リクエストに回答し、閉じる"
 ---
 
-`@werft-ai/sdk` は、サーバーやスクリプトから Werft API を呼ぶ TypeScript クライアントである。API キーでセッションを扱う。HTTP API の規則(scope、Idempotency-Key、エラーコード、イベントストリーム)にそのまま従い、リトライ·キーの生成·ターンの待機を代わりに行う。Node 20 以上と Bun で動く。
+`@werft-ai/sdk` は、サーバーやスクリプトから Werft API を呼ぶ TypeScript クライアントである。API キーでセッションを扱う。HTTP API の規則(scope、Idempotency-Key、エラーコード、イベントストリーム)にそのまま従い、リトライ·キーの生成·ターンの待機を代わりに行う。Node 20.3 以上と Bun で動く。
 
 <Callout type="warn">
-SDK は npm に公開されていない。このリポジトリの workspace パッケージ(`packages/sdk`、バージョン 0.x)なので、リポジトリ内のスクリプトからのみ `@werft-ai/sdk` として import できる。
+SDK は npm の公開パッケージ `@werft-ai/sdk`(バージョン 0.x、Apache License 2.0)として配布する。npm に最初のバージョンが公開されるまでは、このリポジトリの workspace パッケージ(`packages/sdk`)なので、リポジトリ内のスクリプトからのみ import できる。公開後は `npm install @werft-ai/sdk` でインストールする。
 </Callout>
 
 ## 準備
@@ -204,10 +204,10 @@ const approver = werft.withOptions({ apiKey: approverKey });
 
 ## リポジトリのサンプル
 
-`packages/sdk/examples/session-close.ts` は、セッションの作成、イベントを受け取りながらのターンの待機、権限リクエストの許可、close、閉じたあとのメッセージの拒否までを一度に実行する。
+`examples/sdk-approver/src/session-close.ts` は、セッションの作成、イベントを受け取りながらのターンの待機、権限リクエストの許可、close、閉じたあとのメッセージの拒否までを一度に実行する。
 
 ```bash
-WERFT_BASE_URL="$API" WERFT_API_KEY="$KEY" bun packages/sdk/examples/session-close.ts | tail -7
+WERFT_BASE_URL="$API" WERFT_API_KEY="$KEY" bun examples/sdk-approver/src/session-close.ts | tail -7
 ```
 
 ```text

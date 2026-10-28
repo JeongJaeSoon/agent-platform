@@ -14,6 +14,7 @@ describe("test-files.ts", () => {
       "tests",
       "packages",
       "apps",
+      "examples",
     ]);
     expect(() => testFilters("bun test --timeout 5000 tests")).toThrow(
       /no longer `bun test <dirs>`/,

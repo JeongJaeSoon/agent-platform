@@ -3,10 +3,10 @@ title: "TypeScript SDK"
 description: "@werft-ai/sdk로 세션을 만들고, 권한 요청에 답하고, 닫는다"
 ---
 
-`@werft-ai/sdk`는 서버와 스크립트에서 Werft API를 부르는 TypeScript 클라이언트다. API key로 세션을 다룬다. HTTP API의 규칙(scope, Idempotency-Key, 오류 코드, 이벤트 스트림)을 그대로 따르고, 재시도·key 생성·turn 대기를 대신 해 준다. Node 20 이상과 Bun에서 돈다.
+`@werft-ai/sdk`는 서버와 스크립트에서 Werft API를 부르는 TypeScript 클라이언트다. API key로 세션을 다룬다. HTTP API의 규칙(scope, Idempotency-Key, 오류 코드, 이벤트 스트림)을 그대로 따르고, 재시도·key 생성·turn 대기를 대신 해 준다. Node 20.3 이상과 Bun에서 돈다.
 
 <Callout type="warn">
-SDK는 npm에 올라가 있지 않다. 이 저장소의 workspace 패키지(`packages/sdk`, 버전 0.x)라서 저장소 안의 스크립트에서만 `@werft-ai/sdk`로 가져올 수 있다.
+SDK는 npm 공개 패키지 `@werft-ai/sdk`(버전 0.x, Apache License 2.0)로 배포한다. npm에 첫 버전이 올라가기 전에는 이 저장소의 workspace 패키지(`packages/sdk`)라서 저장소 안의 스크립트에서만 가져올 수 있다. 올라간 뒤에는 `npm install @werft-ai/sdk`로 설치한다.
 </Callout>
 
 ## 준비
@@ -202,12 +202,20 @@ const approver = werft.withOptions({ apiKey: approverKey });
 
 `sessions.list`와 `turns.list`는 `await`하면 첫 페이지, `for await`하면 모든 항목을 준다. 필드 이름은 API와 같은 snake_case다. 에이전트·멤버·key 관리처럼 웹 로그인으로만 부르는 API는 감싸지 않는다. `limits.get`은 로그인한 workspace owner만 읽으므로 API key로 부르면 403이다.
 
+## 에이전트 key로 실행하기
+
+위 첫 스크립트는 세션 생성과 승인을 모두 할 수 있는 사용자 key를 전제로 한다. 에이전트 key는 자기 에이전트의 `agent_release_id`로 세션을 만들어야 하며 `sessions:approve`를 받을 수 없다. `profile_id`와 `repository_id` 대신 배포의 ID를 보내고, 승인에는 해당 세션을 읽고 답할 수 있는 별도 사용자 key를 쓴다.
+
+기존 샘플은 `WERFT_AGENT_RELEASE_ID`와 `WERFT_APPROVER_API_KEY`를 지원한다. 에이전트 key에는 `sessions:read`, `sessions:write`, `sessions:control`, 승인자 key에는 `sessions:read`, `sessions:approve`가 필요하다. 생성한 세션의 공유 범위에도 승인자가 포함되어야 한다.
+
+설정과 실제 출력은 [샘플 README](https://github.com/JeongJaeSoon/agent-platform/blob/main/examples/sdk-approver/README.md)에 있다. 이 샘플은 FAKE 모델 전용이며, turn 실패나 close 실패를 성공으로 처리하지 않고 종료 코드 1을 반환한다.
+
 ## 저장소의 예제
 
-`packages/sdk/examples/session-close.ts`는 세션 생성, 이벤트를 받으며 turn 대기, 권한 요청 허락, close, 닫힌 뒤의 메시지 거절까지 한 번에 돈다.
+`examples/sdk-approver/src/session-close.ts`는 세션 생성, 이벤트를 받으며 turn 대기, 권한 요청 허락, close, 닫힌 뒤의 메시지 거절까지 한 번에 돈다.
 
 ```bash
-WERFT_BASE_URL="$API" WERFT_API_KEY="$KEY" bun packages/sdk/examples/session-close.ts | tail -7
+WERFT_BASE_URL="$API" WERFT_API_KEY="$KEY" bun examples/sdk-approver/src/session-close.ts | tail -7
 ```
 
 ```text
