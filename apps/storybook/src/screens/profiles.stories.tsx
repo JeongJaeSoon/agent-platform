@@ -496,7 +496,7 @@ function NewWorkspace({ role }: { readonly role: Role }) {
           </FieldSet>
           <div className="flex flex-wrap items-center justify-end gap-2 border-t pt-4">
             <Button variant="outline">취소</Button>
-            <Button>새 버전으로 저장</Button>
+            <Button>저장</Button>
           </div>
         </form>
       </div>

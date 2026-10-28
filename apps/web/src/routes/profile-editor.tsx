@@ -48,6 +48,15 @@ type Draft = Omit<CreateWorkspaceProfileRequest, "name"> & {
   readonly name: string;
 };
 
+const EDITOR_FIELDS = [
+  "base_profile_id",
+  "models",
+  "model",
+  "tools",
+  "permission_mode",
+] as const;
+type EditorField = (typeof EDITOR_FIELDS)[number];
+
 const draftOf = (
   base: ProfileSummary,
   name: string,
@@ -100,7 +109,10 @@ export function ProfileEditor({
       : fromVersion(start.from, start.base),
   );
   const [submitted, setSubmitted] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{
+    readonly field: EditorField | null;
+    readonly text: string;
+  } | null>(null);
   const base = operators.find((item) => item.id === draft.base_profile_id);
   const choices = base ? WORKSPACE_PROFILE_POLICY.choices(base) : undefined;
   // Listed disabled, so the console says why they are missing.
@@ -132,20 +144,45 @@ export function ProfileEditor({
     onError: (failure) => setError(saveRefusal(failure)),
   });
 
-  function saveRefusal(failure: ApiError): string {
-    const reason = (failure.details as { reason_code?: unknown } | null)
-      ?.reason_code;
-    if (reason === "unknown_base") return t("profiles.error.unknownBase");
-    if (reason === "widens_base") return t("profiles.error.widens");
-    if (
-      (failure.details as { field?: unknown } | null)?.field ===
-      "base_profile_id"
-    )
-      return t("profiles.error.baseUnusable");
+  function saveRefusal(failure: ApiError): {
+    field: EditorField | null;
+    text: string;
+  } {
+    const details = (failure.details ?? {}) as {
+      readonly reason_code?: unknown;
+      readonly field?: unknown;
+    };
+    const path =
+      typeof details.field === "string"
+        ? details.field.split(".")[0]
+        : undefined;
+    const field = EDITOR_FIELDS.find((item) => item === path) ?? null;
+    if (details.reason_code === "unknown_base")
+      return { field, text: t("profiles.error.unknownBase") };
+    if (details.reason_code === "widens_base")
+      return { field, text: t("profiles.error.widens") };
+    if (field === "base_profile_id")
+      return { field, text: t("profiles.error.baseUnusable") };
     if (failure.code === "REVISION_CONFLICT")
-      return t("profiles.error.versionTaken");
-    return refusalText(t, failure, "workspace.manage", role);
+      return { field: null, text: t("profiles.error.versionTaken") };
+    return {
+      field: null,
+      text: refusalText(t, failure, "workspace.manage", role),
+    };
   }
+  // A refusal for a field this form does not draw goes above the buttons.
+  const drawn = (field: EditorField) =>
+    field === "base_profile_id"
+      ? !fixed
+      : field === "model"
+        ? draft.models.length > 1
+        : choices !== undefined;
+  const beside = (field: EditorField) =>
+    error?.field === field && drawn(field) ? error.text : undefined;
+  const banner =
+    error !== null && (error.field === null || !drawn(error.field))
+      ? error.text
+      : null;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -153,7 +190,10 @@ export function ProfileEditor({
     if (save.isPending || !name.success || modelsError) return;
     // A refetch can take the base out of service under the open form.
     if (!base || !pickable(base)) {
-      setError(t("profiles.error.baseUnusable"));
+      setError({
+        field: "base_profile_id",
+        text: t("profiles.error.baseUnusable"),
+      });
       return;
     }
     // The operator catalog has no such caps; the request does.
@@ -167,9 +207,12 @@ export function ProfileEditor({
           issue.path.length === 1 &&
           (issue.path[0] === "models" || issue.path[0] === "tools"),
       );
-      setError(
-        t(tooMany ? "profiles.editor.tooLarge" : "profiles.editor.tooLong"),
-      );
+      setError({
+        field: null,
+        text: t(
+          tooMany ? "profiles.editor.tooLarge" : "profiles.editor.tooLong",
+        ),
+      });
       return;
     }
     save.mutate(request.data);
@@ -186,8 +229,8 @@ export function ProfileEditor({
 
   // The review compares with the version it follows, or the base picked now.
   const before = start.mode === "new" ? base : start.from;
-  const join = (values: readonly string[]) =>
-    values.length === 0 ? t("profiles.noTools") : values.join(", ");
+  const join = (values: readonly string[], empty = "—") =>
+    values.length === 0 ? empty : values.join(", ");
 
   return (
     <form
@@ -210,6 +253,7 @@ export function ProfileEditor({
           >
             <ProfileOptions profiles={operators} label={(item) => item.id} />
           </NativeSelect>
+          <FieldError>{beside("base_profile_id")}</FieldError>
         </Field>
       )}
       {base ? <BaseSummary base={base} /> : null}
@@ -263,7 +307,9 @@ export function ProfileEditor({
                 </FieldContent>
               </Field>
             ))}
-            <FieldError>{submitted ? modelsError : undefined}</FieldError>
+            <FieldError>
+              {(submitted ? modelsError : undefined) ?? beside("models")}
+            </FieldError>
           </FieldSet>
 
           {draft.models.length > 1 ? (
@@ -282,6 +328,7 @@ export function ProfileEditor({
                   </NativeSelectOption>
                 ))}
               </NativeSelect>
+              <FieldError>{beside("model")}</FieldError>
             </Field>
           ) : null}
 
@@ -311,6 +358,7 @@ export function ProfileEditor({
                 </FieldContent>
               </Field>
             ))}
+            <FieldError>{beside("tools")}</FieldError>
           </FieldSet>
 
           <Field className="w-auto max-w-full">
@@ -348,6 +396,7 @@ export function ProfileEditor({
                 )}
               </FieldDescription>
             ))}
+            <FieldError>{beside("permission_mode")}</FieldError>
           </Field>
           {bypassChosen ? (
             <Alert id={riskId} variant="amber">
@@ -390,8 +439,8 @@ export function ProfileEditor({
           {
             id: "tools",
             label: t("profiles.editor.tools"),
-            before: join(before?.tools ?? []),
-            after: join(draft.tools),
+            before: join(before?.tools ?? [], t("profiles.noTools")),
+            after: join(draft.tools, t("profiles.noTools")),
           },
           {
             id: "mode",
@@ -402,9 +451,9 @@ export function ProfileEditor({
         ]}
       />
 
-      {error === null ? null : (
+      {banner === null ? null : (
         <Alert variant="red" role="alert">
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>{banner}</AlertDescription>
         </Alert>
       )}
 
@@ -432,7 +481,9 @@ export function ProfileEditor({
           >
             {save.isPending
               ? t("profiles.editor.saving")
-              : t("profiles.editor.save")}
+              : start.mode === "new"
+                ? t("profiles.ceiling.save")
+                : t("profiles.editor.save")}
           </Button>
         </div>
       </div>

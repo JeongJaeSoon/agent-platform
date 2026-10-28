@@ -196,6 +196,18 @@ export function CeilingForm({
     draftOf(options, operators, template, fixedName ?? ""),
   );
   const [draft, setDraft] = useState<Draft>(initial);
+  // The review compares with the template as saved: `initial` already swapped
+  // out what this installation no longer offers, and that swap is a change.
+  const saved: Draft = template
+    ? {
+        ...initial,
+        connection_id: template.installation?.connection_id ?? "",
+        runtime_kind: template.runtime_kind,
+        runtime_version: template.runtime_version,
+        permission_mode: template.permission_mode,
+        repository_ids: template.repository_ids ?? [],
+      }
+    : initial;
   const [submitted, setSubmitted] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const riskId = useId();
@@ -258,7 +270,7 @@ export function CeilingForm({
       const refused = refusalOf(failure);
       // The link opens the latest version from the list; this one may not
       // have it yet.
-      if (refused.latestId)
+      if (refused.field === null && refused.latestId)
         await queryClient.invalidateQueries({
           queryKey: queryKeysOf(client).profiles,
         });
@@ -345,8 +357,8 @@ export function CeilingForm({
   const bypassClosed =
     modes.includes("bypassPermissions") && !options.unattended_allowed;
   const pending = save.isPending;
-  const join = (values: readonly string[]) =>
-    values.length === 0 ? t("profiles.noTools") : values.join(", ");
+  const join = (values: readonly string[], empty = "—") =>
+    values.length === 0 ? empty : values.join(", ");
 
   return (
     <form
@@ -627,65 +639,69 @@ export function CeilingForm({
             {
               id: "connection",
               label: t("profiles.ceiling.connection"),
-              before: initial.connection_id,
+              before: saved.connection_id,
               after: draft.connection_id,
             },
             {
               id: "runtime",
               label: t("profiles.ceiling.runtime"),
-              before: `${initial.runtime_kind} ${initial.runtime_version.trim()}`,
+              before: `${saved.runtime_kind} ${saved.runtime_version.trim()}`,
               after: `${draft.runtime_kind} ${runtimeVersion}`,
             },
             {
               id: "models",
               label: t("profiles.editor.models"),
-              before: join(lines(initial.models)),
+              before: join(lines(saved.models)),
               after: join(models),
             },
             {
               id: "model",
               label: t("profiles.editor.defaultModel"),
-              before: initial.model,
+              before: saved.model,
               after: model,
             },
             {
               id: "title",
               label: t("profiles.ceiling.titleModel"),
-              before: initial.title_model.trim(),
+              before: saved.title_model.trim(),
               after: titleModel,
             },
             {
               id: "tools",
               label: t("profiles.editor.tools"),
-              before: join(lines(initial.tools)),
-              after: join(tools),
+              before: join(lines(saved.tools), t("profiles.noTools")),
+              after: join(tools, t("profiles.noTools")),
             },
             {
               id: "mode",
               label: t("profiles.editor.permissionMode"),
-              before: initial.permission_mode,
+              before: saved.permission_mode,
               after: draft.permission_mode,
             },
             {
               id: "claude-md",
               label: t("profiles.ceiling.claudeMd"),
-              before: t(initial.claude_md ? "profiles.on" : "profiles.off"),
+              before: t(saved.claude_md ? "profiles.on" : "profiles.off"),
               after: t(draft.claude_md ? "profiles.on" : "profiles.off"),
             },
             {
               id: "repository-mode",
               label: t("profiles.ceiling.repositoryMode"),
-              before: t(`profiles.repository.${initial.repository_mode}`),
+              before: t(`profiles.repository.${saved.repository_mode}`),
               after: t(`profiles.repository.${draft.repository_mode}`),
             },
             {
               id: "repositories",
               label: t("profiles.ceiling.repositories"),
-              before: join([...initial.repository_ids].sort()),
+              before: join(
+                [...saved.repository_ids].sort(),
+                t("profiles.detail.noRepositories"),
+              ),
               after: join(
                 draft.repository_mode === "none"
                   ? []
                   : [...draft.repository_ids].sort(),
+                t("profiles.detail.noRepositories"),
               ),
             },
           ]}

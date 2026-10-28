@@ -149,7 +149,7 @@ describe("프로필 만들기 (워크스페이스)", () => {
       ["도구", "Read, Edit, Bash → Read, Edit"],
       ["권한 모드", "acceptEdits → plan"],
     ]);
-    await user.click(screen.getByRole("button", { name: "새 버전으로 저장" }));
+    await user.click(screen.getByRole("button", { name: "저장" }));
 
     await waitFor(() =>
       expect(history.location.pathname).toBe("/profiles/ws_acme_strict_v1"),
@@ -214,7 +214,7 @@ describe("프로필 만들기 (워크스페이스)", () => {
     expect(mode.getAttribute("aria-describedby")?.split(" ")).toContain(
       warning?.id,
     );
-    await user.click(screen.getByRole("button", { name: "새 버전으로 저장" }));
+    await user.click(screen.getByRole("button", { name: "저장" }));
     await waitFor(() => expect(posted(api)).toHaveLength(1));
     expect(posted(api)[0]).toMatchObject({
       base_profile_id: "coding-bypass",
@@ -299,7 +299,7 @@ describe("프로필 만들기 (워크스페이스)", () => {
     const { api } = renderAt("/profiles/new", catalog([wide]).routes);
     const user = await setupUser();
     await user.type(await screen.findByLabelText("이름"), "Strict Review");
-    await user.click(screen.getByRole("button", { name: "새 버전으로 저장" }));
+    await user.click(screen.getByRole("button", { name: "저장" }));
     expect(
       await screen.findByText(
         "이름은 영문 소문자나 숫자로 시작하고, 영문 소문자·숫자·-로 40자까지 씁니다.",
@@ -307,7 +307,7 @@ describe("프로필 만들기 (워크스페이스)", () => {
     ).toBeDefined();
     await user.clear(screen.getByLabelText("이름"));
     await user.type(screen.getByLabelText("이름"), "wide");
-    await user.click(screen.getByRole("button", { name: "새 버전으로 저장" }));
+    await user.click(screen.getByRole("button", { name: "저장" }));
     expect(
       await screen.findByText(
         "한 프로필에는 모델 32개, 도구 64개까지 담습니다. 줄인 뒤 다시 저장하세요.",
@@ -327,19 +327,28 @@ describe("프로필 만들기 (워크스페이스)", () => {
     });
     const user = await setupUser();
     await user.type(await screen.findByLabelText("이름"), "strict");
-    await user.click(screen.getByRole("button", { name: "새 버전으로 저장" }));
-    expect(
-      await screen.findByText(
-        "바탕 프로필이 허용하지 않는 값입니다. 목록을 다시 불러와 바탕 프로필을 확인하세요.",
-      ),
-    ).toBeDefined();
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    // Each beside the field the server named, not in a banner.
+    const widens = await screen.findByText(
+      "바탕 프로필이 허용하지 않는 값입니다. 목록을 다시 불러와 바탕 프로필을 확인하세요.",
+    );
+    expect(screen.getByRole("group", { name: "도구" }).contains(widens)).toBe(
+      true,
+    );
     details = { reason_code: "retired", field: "base_profile_id" };
-    await user.click(screen.getByRole("button", { name: "새 버전으로 저장" }));
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    const retired = await screen.findByText(
+      "그 바탕 프로필은 지금 쓸 수 없습니다. 사용할 수 있는 바탕 프로필을 고르세요.",
+    );
     expect(
-      await screen.findByText(
-        "그 바탕 프로필은 지금 쓸 수 없습니다. 사용할 수 있는 바탕 프로필을 고르세요.",
-      ),
-    ).toBeDefined();
+      screen
+        .getByLabelText("바탕 프로필")
+        .closest("[data-slot=field]")
+        ?.contains(retired),
+    ).toBe(true);
+    expect(
+      form().querySelectorAll("[data-slot=alert][role=alert]"),
+    ).toHaveLength(0);
   });
 
   test("a base the list read again as retired is refused before the request", async () => {
@@ -359,7 +368,7 @@ describe("프로필 만들기 (워크스페이스)", () => {
     );
     const user = await setupUser();
     await user.type(screen.getByLabelText("이름"), "strict");
-    await user.click(screen.getByRole("button", { name: "새 버전으로 저장" }));
+    await user.click(screen.getByRole("button", { name: "저장" }));
     expect(
       await screen.findByText(
         "그 바탕 프로필은 지금 쓸 수 없습니다. 사용할 수 있는 바탕 프로필을 고르세요.",
@@ -580,6 +589,38 @@ describe("프로필 만들기 (설치 상한)", () => {
       repository_ids: ["platform", "docs"],
       previous_id: "op_wide_v2",
     });
+  });
+
+  test("what the installation no longer offers is reviewed as a change", async () => {
+    renderAt(
+      "/profiles/new?kind=installation&from=op_free_v1&mode=version",
+      catalog([
+        CODING,
+        ceiling("free", 1, { permission_mode: "bypassPermissions" }),
+      ]).routes,
+    );
+    const review = await screen.findByRole("group", { name: "검토" });
+    expect(
+      Array.from(review.querySelectorAll("dt"), (term) => [
+        term.textContent,
+        term.nextElementSibling?.textContent,
+      ]),
+    ).toEqual([["권한 모드", "bypassPermissions → default"]]);
+  });
+
+  test("the review names an empty repository list as such", async () => {
+    renderAt("/profiles/new?kind=installation&from=op_bare_v1&mode=version", {
+      ...catalog([CODING, ceiling("bare", 1, { repository_ids: [] })]).routes,
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("checkbox", { name: "docs" }));
+    const review = screen.getByRole("group", { name: "검토" });
+    expect(
+      Array.from(review.querySelectorAll("dt"), (term) => [
+        term.textContent,
+        term.nextElementSibling?.textContent,
+      ]),
+    ).toEqual([["허용할 저장소", "허용한 저장소 없음 → docs"]]);
   });
 
   test("a new version of an imported ceiling takes a new name and names the import as previous", async () => {
