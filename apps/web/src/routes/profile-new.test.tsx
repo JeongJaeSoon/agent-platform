@@ -730,7 +730,7 @@ describe("프로필 만들기 (설치 상한)", () => {
     await screen.findByLabelText("이름");
     await user.click(screen.getByRole("button", { name: "저장" }));
     const taken = await screen.findByText(
-      "이 이름으로 만들 id가 이미 있습니다. 다른 이름을 고르세요.",
+      "이 이름으로 만들 ID가 이미 있습니다. 다른 이름을 고르세요.",
     );
     expect(
       screen

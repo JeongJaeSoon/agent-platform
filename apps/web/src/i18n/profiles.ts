@@ -194,7 +194,7 @@ export const profilesKo = {
     "앞 버전으로 고른 프로필이 없습니다. 목록을 다시 불러오세요.",
   "profiles.ceiling.error.invalid": "이 값은 프로필로 저장할 수 없습니다.",
   "profiles.ceiling.error.idTaken":
-    "이 이름으로 만들 id가 이미 있습니다. 다른 이름을 고르세요.",
+    "이 이름으로 만들 ID가 이미 있습니다. 다른 이름을 고르세요.",
   "profiles.ceiling.error.stalePrevious":
     "이 이름의 최신 버전은 {id}입니다. 새 버전은 최신 버전에서 만듭니다.",
   "profiles.ceiling.error.noVersion":
@@ -457,7 +457,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
     "The previous version you named is gone. Reload the list.",
   "profiles.ceiling.error.invalid": "This value cannot be saved in a profile.",
   "profiles.ceiling.error.idTaken":
-    "The id this name would get is taken. Pick another name.",
+    "The ID this name would get is taken. Pick another name.",
   "profiles.ceiling.error.stalePrevious":
     "The latest version of this name is {id}. A new version is made from the latest one.",
   "profiles.ceiling.error.noVersion":
@@ -725,7 +725,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.ceiling.error.invalid":
     "この値はプロファイルとして保存できません。",
   "profiles.ceiling.error.idTaken":
-    "この名前で作る id はすでにあります。別の名前を選んでください。",
+    "この名前で作る ID はすでにあります。別の名前を選んでください。",
   "profiles.ceiling.error.stalePrevious":
     "この名前の最新バージョンは {id} です。新しいバージョンは最新バージョンから作ります。",
   "profiles.ceiling.error.noVersion":
