@@ -937,7 +937,7 @@ describe("에이전트 관리자", () => {
     const user = await setupUser();
     expect(
       (await screen.findByText("Mate")).closest("li")?.textContent,
-    ).toContain("mate@example.com · 10/11부터 담당");
+    ).toContain("mate@example.com · 10/11부터 관리자");
     await screen.findByRole("option", { name: "결제팀" });
     // The list's summaries name the admins, so a change marks it stale; the
     // overview watches the list, so it may be read again at once.
