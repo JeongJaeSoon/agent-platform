@@ -58,6 +58,11 @@ import {
 } from "./routes/operations-search.ts";
 import { PreferencesScreen } from "./routes/preferences.tsx";
 import { ProfileDetailScreen } from "./routes/profile-detail.tsx";
+import {
+  ProfileNewScreen,
+  type ProfileNewSearch,
+  profileNewSearch,
+} from "./routes/profile-new.tsx";
 import { ProfilesScreen } from "./routes/profiles.tsx";
 import {
   SessionDetailScreen,
@@ -327,6 +332,15 @@ const profiles = createRoute({
   component: ProfilesScreen,
 });
 
+// A path of its own beats /profiles/$profileId.
+const newProfile = createRoute({
+  getParentRoute: () => authed,
+  path: "/profiles/new",
+  validateSearch: (search: Record<string, unknown>): ProfileNewSearch =>
+    profileNewSearch(search),
+  component: ProfileNewScreen,
+});
+
 const profile = createRoute({
   getParentRoute: () => authed,
   path: "/profiles/$profileId",
@@ -419,6 +433,7 @@ const routeTree = root.addChildren([
     orgKeys,
     oldUsage,
     profiles,
+    newProfile,
     profile,
     operations.addChildren([
       operationsOverview,

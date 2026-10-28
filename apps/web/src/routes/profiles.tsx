@@ -1,9 +1,8 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { type ApiError, unwrap } from "@werft-ai/client";
 import type {
+  InstallationProfileState,
   ProfileSummary,
-  WorkspaceProfileChangeResponse,
   WorkspaceProfileState,
 } from "@werft-ai/contracts";
 import { workspaceProfileId } from "@werft-ai/core/forms";
@@ -13,8 +12,7 @@ import {
   AlertDescription,
   AlertTitle,
   Badge,
-  Button,
-  ConfirmDialog,
+  buttonVariants,
   cn,
   EmptyState,
   GridTable,
@@ -24,49 +22,51 @@ import {
   GridTableRow,
   GridTableRowOpener,
   Page,
-  Section,
+  SegmentedControl,
+  SegmentedControlItem,
   Skeleton,
 } from "@werft-ai/ui";
 import { ChevronDown, ChevronRight, Lock, Plus } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { profilesQuery, queryKeysOf } from "../api/queries.ts";
-import {
-  refusalText,
-  useHasPermission,
-  useMe,
-  useRole,
-} from "../auth/guard.tsx";
-import { Notice } from "../components/auth-page.tsx";
+import { profilesQuery } from "../api/queries.ts";
+import { useHasPermission } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { pickable } from "../components/profile-options.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import {
-  allowsAuto,
-  type EditorStart,
-  ProfileEditor,
-} from "./profile-editor.tsx";
 
-const PROFILE_COLUMNS = "minmax(0,1.2fr) minmax(0,1fr) minmax(0,1.4fr)";
-// The base column leaves a phone; the detail and the editor show it again.
-const VERSION_COLUMNS = {
-  manage: [
-    "minmax(0,1.4fr) minmax(0,1fr) 128px 184px",
-    "minmax(0,1fr) 104px 96px",
-  ],
-  read: ["minmax(0,1.4fr) minmax(0,1fr) 128px", "minmax(0,1fr) 104px"],
-} as const;
+// Name, version, kind, base, default model, permission mode, state; a phone
+// keeps the name and the state, and the name cell says the kind.
+const COLUMNS = [
+  "minmax(0,1.6fr) 64px 112px minmax(0,1fr) minmax(0,1fr) 128px 152px",
+  "minmax(0,1fr) 128px",
+] as const;
 const META = "text-caption text-muted-foreground";
 
-export const STATE_BADGE: Record<
-  WorkspaceProfileState,
-  "green" | "red" | "gray"
-> = {
+export type ProfileState = WorkspaceProfileState | InstallationProfileState;
+
+export const STATE_BADGE: Record<ProfileState, "green" | "red" | "gray"> = {
   usable: "green",
   base_changed: "red",
   base_missing: "red",
   retired: "gray",
   base_retired: "gray",
+  connection_missing: "red",
+  unattended_off: "red",
+  definition_drift: "red",
+  runtime_unsupported: "red",
 };
+
+type Filter = "all" | "installation" | "workspace";
+
+export const stateOf = (profile: ProfileSummary): ProfileState =>
+  profile.workspace?.state ?? profile.installation?.state ?? "usable";
+
+/** What a profile is called: an imported ceiling has only its id. */
+export const profileName = (profile: ProfileSummary): string =>
+  profile.workspace?.name ?? profile.installation?.name ?? profile.id;
+
+export const versionOf = (profile: ProfileSummary): number =>
+  profile.workspace?.version ?? profile.installation?.version ?? 1;
 
 /** The id a save of a new version under `name` would get. */
 export function nextVersionId(
@@ -86,48 +86,75 @@ export function nextVersionId(
   );
 }
 
+/**
+ * The versions of one line, newest first; each group's head is its latest.
+ * A workspace profile's line is its name. A ceiling's is its `previous_id`
+ * chain, which may change name (a catalog import's next version takes one)
+ * while another ceiling may share a name without being linked.
+ */
+function groupsOf(items: readonly ProfileSummary[]): ProfileSummary[][] {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const line = (item: ProfileSummary): { key: string; rank: number } => {
+    if (item.source !== "operator")
+      return { key: `workspace:${profileName(item)}`, rank: versionOf(item) };
+    let at = item;
+    let rank = 0;
+    for (
+      let prev = byId.get(at.installation?.previous_id ?? "");
+      prev && rank < items.length;
+      prev = byId.get(at.installation?.previous_id ?? "")
+    ) {
+      at = prev;
+      rank += 1;
+    }
+    return { key: `operator:${at.id}`, rank };
+  };
+  const groups = new Map<string, { rank: number; item: ProfileSummary }[]>();
+  for (const item of items) {
+    const { key, rank } = line(item);
+    const group = groups.get(key);
+    if (group) group.push({ rank, item });
+    else groups.set(key, [{ rank, item }]);
+  }
+  return [...groups.values()]
+    .map((group) =>
+      group.sort((a, b) => b.rank - a.rank).map(({ item }) => item),
+    )
+    .sort(([a], [b]) =>
+      a && b
+        ? // Ceilings first, as a workspace profile narrows one of them.
+          (a.source === b.source ? 0 : a.source === "operator" ? -1 : 1) ||
+          profileName(a).localeCompare(profileName(b)) ||
+          a.id.localeCompare(b.id)
+        : 0,
+    );
+}
+
 export function ProfilesScreen() {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
-  const queryClient = useQueryClient();
-  const role = useRole();
-  const workspace = useMe()?.workspace;
   const profiles = useQuery(profilesQuery(client));
   const manages = useHasPermission("workspace.manage");
-  const [editor, setEditor] = useState<EditorStart | null>(null);
-  const [retiring, setRetiring] = useState<ProfileSummary | null>(null);
-  const [retireError, setRetireError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const operates = useHasPermission("profile.installation.manage");
+  const [filter, setFilter] = useState<Filter>("all");
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
 
   const items = profiles.data?.items ?? [];
-  const operators = items.filter((item) => item.source === "operator");
-  const bases = operators.filter(pickable);
-  const firstBase = bases.find(allowsAuto) ?? bases[0];
-  const versions = items
-    .filter((item) => item.source === "workspace")
-    .sort(
-      (a, b) =>
-        (a.workspace?.name ?? "").localeCompare(b.workspace?.name ?? "") ||
-        (b.workspace?.version ?? 0) - (a.workspace?.version ?? 0),
-    );
-  // `versions` is sorted by name, newest first, so each group's head is its latest.
-  const groups: ProfileSummary[][] = [];
-  for (const item of versions) {
-    const last = groups.at(-1);
-    if (last && last[0]?.workspace?.name === item.workspace?.name)
-      last.push(item);
-    else groups.push([item]);
-  }
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
-  const toggle = (name: string) =>
+  const ceilings = items.filter((item) => item.source === "operator");
+  const versions = items.filter((item) => item.source === "workspace");
+  const shown =
+    filter === "installation"
+      ? ceilings
+      : filter === "workspace"
+        ? versions
+        : items;
+  const groups = groupsOf(shown);
+  const toggle = (id: string) =>
     setExpanded((current) => {
       const next = new Set(current);
-      if (!next.delete(name)) next.add(name);
+      if (!next.delete(id)) next.add(id);
       return next;
     });
-  const nextId = (name: string) => nextVersionId(workspace, versions, name);
-  const baseOf = (item: ProfileSummary) =>
-    bases.find((base) => base.id === item.workspace?.base_profile_id);
   const stranded = versions.filter(
     (item) =>
       (item.workspace?.state === "base_changed" ||
@@ -135,50 +162,39 @@ export function ProfilesScreen() {
       !versions.some(
         (other) =>
           other.workspace?.name === item.workspace?.name &&
-          (other.workspace?.version ?? 0) > (item.workspace?.version ?? 0),
+          versionOf(other) > versionOf(item),
       ),
   );
 
-  const retire = useMutation<WorkspaceProfileChangeResponse, ApiError, string>({
-    mutationFn: (id) =>
-      unwrap(
-        client.POST("/v1/workspace-profiles/{profile_id}/retire", {
-          params: { path: { profile_id: id } },
-        }),
-      ),
-    onMutate: () => setRetireError(null),
-    onSuccess: async ({ profile }) => {
-      setRetiring(null);
-      setNotice(t("profiles.retired", { id: profile.id }));
-      await queryClient.invalidateQueries({
-        queryKey: queryKeysOf(client).profiles,
-      });
-    },
-    onError: (failure) =>
-      setRetireError(refusalText(t, failure, "workspace.manage", role)),
-  });
-
-  // Losing the role closes the dialog; a request already sent still reports here.
-  const retireOpen = retiring !== null && manages;
-
-  const open = (start: EditorStart) => {
-    setNotice(null);
-    setEditor(start);
-  };
-
   return (
     <Page
+      headClassName="max-md:flex-col max-md:items-stretch"
       title={t("profiles.title")}
       description={t("profiles.description")}
       actions={
-        manages && firstBase !== undefined ? (
-          <Button
-            type="button"
-            onClick={() => open({ mode: "new", base: firstBase })}
-          >
-            <Plus aria-hidden="true" />
-            {t("profiles.create")}
-          </Button>
+        manages || operates ? (
+          <div className="flex flex-wrap gap-2">
+            {operates ? (
+              <Link
+                className={buttonVariants({ variant: "outline" })}
+                to="/profiles/new"
+                search={{ kind: "installation" }}
+              >
+                <Plus aria-hidden="true" />
+                {t("profiles.createCeiling")}
+              </Link>
+            ) : null}
+            {manages && ceilings.some(pickable) ? (
+              <Link
+                className={buttonVariants()}
+                to="/profiles/new"
+                search={{ kind: "workspace" }}
+              >
+                <Plus aria-hidden="true" />
+                {t("profiles.create")}
+              </Link>
+            ) : null}
+          </div>
         ) : null
       }
     >
@@ -190,13 +206,7 @@ export function ProfilesScreen() {
           onRetry={() => void profiles.refetch()}
         />
       ) : (
-        <div className="flex flex-col gap-[var(--ap-space-section)]">
-          <Notice>{notice ?? undefined}</Notice>
-          {retireError === null || retireOpen ? null : (
-            <Alert variant="red" role="alert">
-              <AlertDescription>{retireError}</AlertDescription>
-            </Alert>
-          )}
+        <div className="flex flex-col gap-[var(--ap-space-block)]">
           {stranded.map((item) => (
             <Alert key={item.id} variant="red">
               <AlertTitle>
@@ -204,7 +214,7 @@ export function ProfilesScreen() {
                   item.workspace?.state === "base_missing"
                     ? "profiles.baseMissing.title"
                     : "profiles.baseChanged.title",
-                  { name: item.workspace?.name ?? item.id },
+                  { name: profileName(item) },
                 )}
               </AlertTitle>
               <AlertDescription>
@@ -213,7 +223,7 @@ export function ProfilesScreen() {
                     ? "profiles.baseMissing.text"
                     : "profiles.baseChanged.text",
                   {
-                    name: item.workspace?.name ?? item.id,
+                    name: profileName(item),
                     base: item.workspace?.base_profile_id ?? "",
                     id: item.id,
                   },
@@ -221,182 +231,105 @@ export function ProfilesScreen() {
               </AlertDescription>
             </Alert>
           ))}
-          {editor === null || !manages ? null : (
-            <ProfileEditor
-              key={editor.mode === "new" ? "new" : editor.from.id}
-              start={editor}
-              operators={operators}
-              nextId={nextId}
-              onCancel={() => setEditor(null)}
-              onSaved={(id) => {
-                // A late reply must not close an editor opened meanwhile.
-                setEditor((current) => (current === editor ? null : current));
-                setNotice(t("profiles.saved", { id }));
-              }}
-            />
+          {manages ? null : (
+            <p className={cn("m-0 flex items-center gap-1", META)}>
+              <Lock aria-hidden="true" className="size-3.5 shrink-0" />
+              {t("profiles.locked")}
+            </p>
           )}
-          <Section
-            title={t("profiles.workspace.title")}
-            badge={
-              groups.length === 0 ? null : (
-                <Badge variant="gray">
-                  {t("profiles.count", { count: groups.length })}
-                </Badge>
-              )
-            }
-            description={t("profiles.workspace.description")}
+          <SegmentedControl
+            aria-label={t("profiles.filter.label")}
+            size="toolbar"
+            value={filter}
+            onValueChange={(next) => setFilter(next as Filter)}
           >
-            {manages ? null : (
-              <p className={cn("m-0 mb-3 flex items-center gap-1", META)}>
-                <Lock aria-hidden="true" className="size-3.5 shrink-0" />
-                {t("profiles.locked")}
-              </p>
-            )}
-            {versions.length === 0 ? (
-              <EmptyState
-                title={t("profiles.emptyWorkspace.title")}
-                description={t("profiles.emptyWorkspace.text")}
-              />
-            ) : (
-              <div className="rounded-card border bg-card">
-                <GridTable
-                  aria-label={t("profiles.workspace.title")}
-                  columns={VERSION_COLUMNS[manages ? "manage" : "read"][0]}
-                  narrowAt={640}
-                  narrowColumns={
-                    VERSION_COLUMNS[manages ? "manage" : "read"][1]
-                  }
-                >
-                  <GridTableHeader>
-                    <GridTableColumnHeader>
-                      {t("profiles.column.name")}
-                    </GridTableColumnHeader>
-                    <GridTableColumnHeader hideNarrow>
-                      {t("profiles.column.base")}
-                    </GridTableColumnHeader>
-                    <GridTableColumnHeader>
-                      {t("profiles.column.state")}
-                    </GridTableColumnHeader>
-                    {manages ? (
-                      <GridTableColumnHeader>
-                        {t("profiles.column.actions")}
-                      </GridTableColumnHeader>
-                    ) : null}
-                  </GridTableHeader>
-                  {groups.flatMap(([latest, ...older]) => {
-                    if (latest === undefined) return [];
-                    const name = latest.workspace?.name ?? latest.id;
-                    const shown = expanded.has(name) ? older : [];
-                    return [latest, ...shown].map((item) => (
-                      <VersionRow
-                        key={item.id}
-                        profile={item}
-                        manages={manages}
-                        base={baseOf(item)}
-                        older={
-                          item === latest && older.length > 0
-                            ? {
-                                count: older.length,
-                                expanded: expanded.has(name),
-                                onToggle: () => toggle(name),
-                              }
-                            : undefined
-                        }
-                        onEdit={(mode, base) =>
-                          open({ mode, from: item, base })
-                        }
-                        onRetire={() => {
-                          setRetireError(null);
-                          setRetiring(item);
-                        }}
-                      />
-                    ));
-                  })}
-                </GridTable>
-              </div>
-            )}
-          </Section>
-          <Section
-            title={t("profiles.operator.title")}
-            badge={
-              operators.length === 0 ? null : (
-                <Badge variant="gray">
-                  {t("profiles.count", { count: operators.length })}
-                </Badge>
-              )
-            }
-            description={t("profiles.operator.description")}
-          >
-            {operators.length === 0 ? (
-              <EmptyState title={t("profiles.empty")} />
-            ) : (
-              <div className="rounded-card border bg-card">
-                <GridTable
-                  aria-label={t("profiles.operator.title")}
-                  columns={PROFILE_COLUMNS}
-                >
-                  <GridTableHeader>
-                    <GridTableColumnHeader>
-                      {t("profiles.column.profile")}
-                    </GridTableColumnHeader>
-                    <GridTableColumnHeader>
-                      {t("profiles.column.model")}
-                    </GridTableColumnHeader>
-                    <GridTableColumnHeader>
-                      {t("profiles.column.environment")}
-                    </GridTableColumnHeader>
-                  </GridTableHeader>
-                  {operators.map((profile) => (
-                    <ProfileRow key={profile.id} profile={profile} />
-                  ))}
-                </GridTable>
-              </div>
-            )}
-          </Section>
+            <SegmentedControlItem value="all" count={items.length}>
+              {t("profiles.filter.all")}
+            </SegmentedControlItem>
+            <SegmentedControlItem value="installation" count={ceilings.length}>
+              {t("profiles.kind.installation")}
+            </SegmentedControlItem>
+            <SegmentedControlItem value="workspace" count={versions.length}>
+              {t("profiles.kind.workspace")}
+            </SegmentedControlItem>
+          </SegmentedControl>
+          {groups.length === 0 ? (
+            <EmptyState
+              title={t(
+                filter === "workspace"
+                  ? "profiles.emptyWorkspace.title"
+                  : "profiles.empty",
+              )}
+              description={
+                filter === "workspace"
+                  ? t("profiles.emptyWorkspace.text")
+                  : undefined
+              }
+            />
+          ) : (
+            <div className="rounded-card border bg-card">
+              <GridTable
+                aria-label={t("profiles.title")}
+                columns={COLUMNS[0]}
+                narrowAt={860}
+                narrowColumns={COLUMNS[1]}
+              >
+                <GridTableHeader>
+                  <GridTableColumnHeader>
+                    {t("profiles.column.name")}
+                  </GridTableColumnHeader>
+                  <GridTableColumnHeader hideNarrow>
+                    {t("profiles.column.version")}
+                  </GridTableColumnHeader>
+                  <GridTableColumnHeader hideNarrow>
+                    {t("profiles.column.kind")}
+                  </GridTableColumnHeader>
+                  <GridTableColumnHeader hideNarrow>
+                    {t("profiles.column.base")}
+                  </GridTableColumnHeader>
+                  <GridTableColumnHeader hideNarrow>
+                    {t("profiles.column.model")}
+                  </GridTableColumnHeader>
+                  <GridTableColumnHeader hideNarrow>
+                    {t("profiles.editor.permissionMode")}
+                  </GridTableColumnHeader>
+                  <GridTableColumnHeader>
+                    {t("profiles.column.state")}
+                  </GridTableColumnHeader>
+                </GridTableHeader>
+                {groups.flatMap(([latest, ...older]) => {
+                  if (latest === undefined) return [];
+                  const open = expanded.has(latest.id);
+                  return [latest, ...(open ? older : [])].map((item) => (
+                    <ProfileRow
+                      key={item.id}
+                      profile={item}
+                      older={
+                        item === latest && older.length > 0
+                          ? {
+                              count: older.length,
+                              expanded: open,
+                              onToggle: () => toggle(latest.id),
+                            }
+                          : undefined
+                      }
+                    />
+                  ));
+                })}
+              </GridTable>
+            </div>
+          )}
         </div>
       )}
-      <ConfirmDialog
-        open={retireOpen}
-        onOpenChange={(next) => {
-          if (!next && !retire.isPending) {
-            setRetiring(null);
-            setRetireError(null);
-          }
-        }}
-        title={t("profiles.retireTitle", { id: retiring?.id ?? "" })}
-        consequence={t("profiles.retireText")}
-        confirmLabel={
-          retire.isPending ? t("profiles.retiring") : t("profiles.retire")
-        }
-        cancelLabel={t("common.cancel")}
-        tone="danger"
-        busy={retire.isPending}
-        onConfirm={() => {
-          if (retiring !== null && manages && !retire.isPending)
-            retire.mutate(retiring.id);
-        }}
-      >
-        {retireError === null ? null : (
-          <Alert variant="red" role="alert">
-            <AlertDescription>{retireError}</AlertDescription>
-          </Alert>
-        )}
-      </ConfirmDialog>
     </Page>
   );
 }
 
-function VersionRow({
+function ProfileRow({
   profile,
-  manages,
-  base,
   older,
-  onEdit,
-  onRetire,
 }: {
   readonly profile: ProfileSummary;
-  readonly manages: boolean;
-  readonly base: ProfileSummary | undefined;
   /** On the latest version of a name that has earlier ones. */
   readonly older:
     | {
@@ -405,11 +338,10 @@ function VersionRow({
         readonly onToggle: () => void;
       }
     | undefined;
-  readonly onEdit: (mode: "version" | "remake", base: ProfileSummary) => void;
-  readonly onRetire: () => void;
 }) {
   const { t } = useI18n();
-  const state = profile.workspace?.state ?? "usable";
+  const state = stateOf(profile);
+  const kind = profile.source === "operator" ? "installation" : "workspace";
   const Chevron = older?.expanded ? ChevronDown : ChevronRight;
   return (
     <GridTableRow>
@@ -424,12 +356,7 @@ function VersionRow({
           first={
             <>
               <span className="font-medium text-foreground">
-                {profile.workspace?.name ?? profile.id}
-              </span>{" "}
-              <span className={META}>
-                {t("profiles.versionTag", {
-                  version: profile.workspace?.version ?? 0,
-                })}
+                {profileName(profile)}
               </span>
               {older ? (
                 <>
@@ -458,86 +385,39 @@ function VersionRow({
           }
           second={profile.id}
           secondClassName="font-mono"
+          narrow={t("profiles.narrowKind", {
+            kind: t(`profiles.kind.${kind}`),
+            version: versionOf(profile),
+          })}
         />
       </GridTableCell>
       <GridTableCell hideNarrow>
-        <Stack
-          first={profile.workspace?.base_profile_id ?? ""}
-          firstClassName="font-mono text-caption"
-          second={profile.models.join(", ")}
-        />
+        <span className={META}>
+          {t("profiles.versionTag", { version: versionOf(profile) })}
+        </span>
+      </GridTableCell>
+      <GridTableCell hideNarrow>
+        <span className={META}>{t(`profiles.kind.${kind}`)}</span>
+      </GridTableCell>
+      <GridTableCell hideNarrow>
+        <span className="font-mono text-caption wrap-anywhere">
+          {profile.workspace?.base_profile_id ?? "—"}
+        </span>
+      </GridTableCell>
+      <GridTableCell hideNarrow>
+        <span className="font-mono text-caption wrap-anywhere">
+          {profile.model}
+        </span>
+      </GridTableCell>
+      <GridTableCell hideNarrow>
+        <span className="font-mono text-caption">
+          {profile.permission_mode}
+        </span>
       </GridTableCell>
       <GridTableCell>
         <Badge variant={STATE_BADGE[state]}>
           {t(`profiles.state.${state}`)}
         </Badge>
-      </GridTableCell>
-      {manages ? (
-        <GridTableCell raised>
-          <div className="flex flex-wrap gap-2">
-            {base && (state === "usable" || state === "base_changed") ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  onEdit(state === "usable" ? "version" : "remake", base)
-                }
-              >
-                {t(
-                  state === "usable"
-                    ? "profiles.newVersion"
-                    : "profiles.remake",
-                )}
-              </Button>
-            ) : null}
-            {state === "retired" ? null : (
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                aria-label={`${t("profiles.retire")} ${profile.id}`}
-                onClick={onRetire}
-              >
-                {t("profiles.retire")}
-              </Button>
-            )}
-          </div>
-        </GridTableCell>
-      ) : null}
-    </GridTableRow>
-  );
-}
-
-function ProfileRow({ profile }: { readonly profile: ProfileSummary }) {
-  const { t } = useI18n();
-  return (
-    <GridTableRow>
-      <GridTableCell>
-        <GridTableRowOpener
-          asChild
-          aria-label={t("profiles.open", { name: profile.id })}
-        >
-          <Link to="/profiles/$profileId" params={{ profileId: profile.id }} />
-        </GridTableRowOpener>
-        <Stack
-          first={profile.id}
-          firstClassName="font-medium font-mono text-foreground"
-          second={t("profiles.runtime", { version: profile.runtime_version })}
-        />
-      </GridTableCell>
-      <GridTableCell>
-        <Stack
-          first={profile.model}
-          firstClassName="font-mono text-caption"
-          second={t(`profiles.billing.${profile.billing}`)}
-        />
-      </GridTableCell>
-      <GridTableCell>
-        <Stack
-          first={t(`profiles.repository.${profile.repository_mode}`)}
-          second={profile.tools.join(", ") || t("profiles.noTools")}
-        />
       </GridTableCell>
     </GridTableRow>
   );
@@ -547,22 +427,30 @@ function ProfileRow({ profile }: { readonly profile: ProfileSummary }) {
 // in full instead.
 function Stack({
   first,
-  firstClassName,
   second,
   secondClassName,
+  narrow,
 }: {
   readonly first: ReactNode;
-  readonly firstClassName?: string;
   readonly second: string;
   readonly secondClassName?: string;
+  /** A third line only a phone shows, for the columns it hides. */
+  readonly narrow: string;
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
-      <span className={cn("wrap-anywhere leading-5", firstClassName)}>
-        {first}
-      </span>
+      <span className="wrap-anywhere leading-5">{first}</span>
       <span className={cn("wrap-anywhere leading-4", META, secondClassName)}>
         {second}
+      </span>
+      {/* GridTable's narrowAt={860} breakpoint, the width the columns drop at. */}
+      <span
+        className={cn(
+          "hidden wrap-anywhere leading-4 [@container(max-width:860px)]:block",
+          META,
+        )}
+      >
+        {narrow}
       </span>
     </div>
   );
