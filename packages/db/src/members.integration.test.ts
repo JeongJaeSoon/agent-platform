@@ -7,6 +7,7 @@ import {
   type Principal,
   type WorkerGateway,
   type WorkerPrincipal,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -60,7 +61,7 @@ integration("members, identity and takeover on PostgreSQL", () => {
     db = drizzle(pool, { schema });
     gateway = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
-      catalog: {
+      catalog: withSeededInstallation({
         profiles: {
           "claude-coding-v1": {
             runtime_kind: "claude_agent_sdk",
@@ -86,7 +87,7 @@ integration("members, identity and takeover on PostgreSQL", () => {
             profiles: ["claude-coding-v1"],
           },
         },
-      },
+      }),
       checkpoints: {
         async verify() {
           return { status: "verified" };

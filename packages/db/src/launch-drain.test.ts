@@ -7,6 +7,7 @@ import {
   type SessionCatalog,
   type WorkerGateway,
   type WorkerPrincipal,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { testCaller } from "@werft-ai/testkit/callers";
 import { eq } from "drizzle-orm";
@@ -31,7 +32,7 @@ import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const PROFILE_ID = "claude-coding-v1";
 const OWNER = testCaller("owner-a");
-const CATALOG: SessionCatalog = {
+const CATALOG: SessionCatalog = withSeededInstallation({
   profiles: {
     [PROFILE_ID]: {
       runtime_kind: "claude_agent_sdk",
@@ -57,7 +58,7 @@ const CATALOG: SessionCatalog = {
       profiles: [PROFILE_ID],
     },
   },
-};
+});
 const LIMITS = { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 };
 
 let client: PGlite;

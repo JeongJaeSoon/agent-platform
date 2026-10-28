@@ -97,66 +97,83 @@ const apiKey = callerFor(
 function memoryStore(rows: InstallationProfileRecord[]) {
   const writes: CreateInstallationProfileInput[] = [];
   const reads = { failing: false };
-  const store: Pick<InstallationProfileStore, "listAll" | "create" | "retire"> =
-    {
-      listAll: async () => {
-        if (reads.failing) throw new Error("the database went away");
-        return rows.map((row) => ({ ...row }));
-      },
-      async create(input) {
-        writes.push(input);
-        const versions = rows.filter(
-          (row) => row.origin === "console" && row.name === input.name,
-        );
-        const latest = versions.sort((a, b) => b.version - a.version)[0];
-        if (latest && input.previousId !== latest.id) {
-          return { outcome: "stale_previous", latestId: latest.id };
-        }
-        if (
-          !latest &&
-          input.previousId !== null &&
-          !rows.some((row) => row.id === input.previousId)
-        ) {
-          return { outcome: "unknown_previous" };
-        }
-        const version = (latest?.version ?? 0) + 1;
-        const id = `op_${input.name}_v${version}`;
-        if (rows.some((row) => row.id === id)) {
-          return { outcome: "id_taken", id };
-        }
-        const record: InstallationProfileRecord = {
-          id,
-          name: input.name,
-          version,
-          origin: "console",
-          definition: JSON.parse(JSON.stringify(input.definition)),
-          permission_mode: input.permission_mode,
-          fingerprint: input.fingerprint,
-          repository_ids: input.repository_ids,
-          previous_id: input.previousId,
-          created_by: input.actor.userId,
-          created_at: new Date("2026-10-28T00:00:00Z"),
-          retired_at: null,
-          retired_by: null,
-        };
-        rows.push(record);
-        return { outcome: "created", record };
-      },
-      async retire(input) {
-        const index = rows.findIndex((row) => row.id === input.profileId);
-        const row = rows[index];
-        if (!row) return { outcome: "not_found" };
-        if (row.retired_at !== null)
-          return { outcome: "unchanged", record: row };
-        const retired = {
-          ...row,
-          retired_at: new Date("2026-10-28T01:00:00Z"),
-          retired_by: input.actor.userId,
-        };
-        rows[index] = retired;
-        return { outcome: "retired", record: retired };
-      },
-    };
+  const store: Pick<
+    InstallationProfileStore,
+    "listAll" | "create" | "retire" | "setBlocked"
+  > = {
+    listAll: async () => {
+      if (reads.failing) throw new Error("the database went away");
+      return rows.map((row) => ({ ...row }));
+    },
+    async create(input) {
+      writes.push(input);
+      const versions = rows.filter(
+        (row) => row.origin === "console" && row.name === input.name,
+      );
+      const latest = versions.sort((a, b) => b.version - a.version)[0];
+      if (latest && input.previousId !== latest.id) {
+        return { outcome: "stale_previous", latestId: latest.id };
+      }
+      if (
+        !latest &&
+        input.previousId !== null &&
+        !rows.some((row) => row.id === input.previousId)
+      ) {
+        return { outcome: "unknown_previous" };
+      }
+      const version = (latest?.version ?? 0) + 1;
+      const id = `op_${input.name}_v${version}`;
+      if (rows.some((row) => row.id === id)) {
+        return { outcome: "id_taken", id };
+      }
+      const record: InstallationProfileRecord = {
+        id,
+        name: input.name,
+        version,
+        origin: "console",
+        definition: JSON.parse(JSON.stringify(input.definition)),
+        permission_mode: input.permission_mode,
+        fingerprint: input.fingerprint,
+        repository_ids: input.repository_ids,
+        previous_id: input.previousId,
+        created_by: input.actor.userId,
+        created_at: new Date("2026-10-28T00:00:00Z"),
+        retired_at: null,
+        retired_by: null,
+        blocked_at: null,
+        blocked_by: null,
+      };
+      rows.push(record);
+      return { outcome: "created", record };
+    },
+    async retire(input) {
+      const index = rows.findIndex((row) => row.id === input.profileId);
+      const row = rows[index];
+      if (!row) return { outcome: "not_found" };
+      if (row.retired_at !== null) return { outcome: "unchanged", record: row };
+      const retired = {
+        ...row,
+        retired_at: new Date("2026-10-28T01:00:00Z"),
+        retired_by: input.actor.userId,
+      };
+      rows[index] = retired;
+      return { outcome: "retired", record: retired };
+    },
+    async setBlocked(input) {
+      const index = rows.findIndex((row) => row.id === input.profileId);
+      const row = rows[index];
+      if (!row) return { outcome: "not_found" };
+      if ((row.blocked_at !== null) === input.blocked)
+        return { outcome: "unchanged", record: row };
+      const changed = {
+        ...row,
+        blocked_at: input.blocked ? new Date("2026-10-28T02:00:00Z") : null,
+        blocked_by: input.blocked ? input.actor.userId : null,
+      };
+      rows[index] = changed;
+      return { outcome: "changed", record: changed };
+    },
+  };
   return { store, writes, reads };
 }
 
@@ -166,7 +183,7 @@ function setup(
     rows?: InstallationProfileRecord[];
   } = {},
 ) {
-  const rows = options.rows ?? catalogRows({ seed: SEED });
+  const rows = options.rows ?? catalogRows({ seed: SEED }, REPOSITORIES);
   const { store, writes, reads } = memoryStore(rows);
   const connections = { main: MAIN };
   const catalog = profileCatalog(
@@ -452,6 +469,79 @@ describe("retiring an installation ceiling", () => {
         }),
       ),
     ).toEqual({ code: "BAD_REQUEST", reason: "retired" });
+  });
+});
+
+describe("blocking an installation ceiling", () => {
+  const NARROW = {
+    name: "narrow",
+    base_profile_id: "seed",
+    model: "claude-sonnet-5",
+    models: ["claude-sonnet-5"],
+    tools: ["Read"],
+    permission_mode: "default" as const,
+  };
+
+  test("blocks once with a receipt and takes it out of what runs; unblocking restores it", async () => {
+    const { service, catalog } = setup();
+    const blocked = await service.setBlocked(caller("owner"), "seed", true);
+    expect(blocked.receipt_id).not.toBeNull();
+    expect(blocked.profile.installation).toMatchObject({
+      state: "blocked",
+      blocked_by: USERS.owner,
+    });
+    expect(Object.hasOwn(catalog.profiles, "seed")).toBe(false);
+    expect(
+      (await service.setBlocked(caller("owner"), "seed", true)).receipt_id,
+    ).toBeNull();
+    const unblocked = await service.setBlocked(caller("owner"), "seed", false);
+    expect(unblocked.receipt_id).not.toBeNull();
+    expect(unblocked.profile.installation).toMatchObject({
+      state: "usable",
+      blocked_by: null,
+      blocked_at: null,
+    });
+    expect(Object.hasOwn(catalog.profiles, "seed")).toBe(true);
+    expect(
+      (await service.setBlocked(caller("owner"), "seed", false)).receipt_id,
+    ).toBeNull();
+    expect(
+      (await refusal(service.setBlocked(caller("owner"), "nope", true))).code,
+    ).toBe("NOT_FOUND");
+  });
+
+  test("a retired ceiling blocked reads blocked, and retired again once unblocked", async () => {
+    const { service } = setup();
+    await service.retire(caller("owner"), "seed");
+    expect(
+      (await service.setBlocked(caller("owner"), "seed", true)).profile
+        .installation?.state,
+    ).toBe("blocked");
+    expect(
+      (await service.setBlocked(caller("owner"), "seed", false)).profile
+        .installation?.state,
+    ).toBe("retired");
+  });
+
+  test("only the owner blocks or unblocks: an admin, a member and an API key are 403", async () => {
+    const { service, rows } = setup();
+    for (const who of [caller("admin"), caller("member"), apiKey]) {
+      for (const blocked of [true, false]) {
+        expect(
+          (await refusal(service.setBlocked(who, "seed", blocked))).code,
+        ).toBe("FORBIDDEN");
+      }
+    }
+    expect(rows.map((row) => row.blocked_at)).toEqual([null]);
+  });
+
+  test("a blocked ceiling is no base for a new workspace version", async () => {
+    const { service, versions } = setup();
+    await service.setBlocked(caller("owner"), "seed", true);
+    expect(await refusal(versions.create(caller("admin"), NARROW))).toEqual({
+      code: "BAD_REQUEST",
+      reason: "blocked",
+    });
   });
 });
 

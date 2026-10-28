@@ -19,6 +19,7 @@ import {
   acceptAllCheckpoints,
   createWorkerGateway,
   launchNonceFingerprint,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import {
@@ -216,7 +217,7 @@ integration(
       // because the allowlist below names it.
       const gateway = createWorkerGateway({
         work: createPostgresWorkerUnitOfWork(db),
-        catalog: {
+        catalog: withSeededInstallation({
           profiles: {
             [PROFILE_ID]: {
               runtime_kind: "claude_agent_sdk",
@@ -242,7 +243,7 @@ integration(
               profiles: ["claude-coding-v1"],
             },
           },
-        },
+        }),
         checkpoints: acceptAllCheckpoints,
         options: {
           leaseTtlMs: 60_000,

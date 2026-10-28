@@ -13,7 +13,10 @@ import {
   profileFingerprint,
   type SessionCatalog,
   type WorkspaceProfileRecord,
+  workspaceProfileRefusal,
+  workspaceProfileState,
 } from "./catalog.ts";
+import { withSeededInstallation } from "./profile-registry.ts";
 import {
   createSessionService,
   SessionServiceError,
@@ -41,7 +44,7 @@ const profile: SessionCatalog["profiles"][string] = {
     },
   },
 };
-const catalog: SessionCatalog = {
+const catalog: SessionCatalog = withSeededInstallation({
   profiles: { "coding-v1": profile, "review-v1": profile },
   repositories: {
     app: {
@@ -50,7 +53,7 @@ const catalog: SessionCatalog = {
       profiles: ["coding-v1", "review-v1"],
     },
   },
-};
+});
 
 const unreached = async () => {
   throw new Error("not reached");
@@ -408,7 +411,7 @@ describe("attachment rules", () => {
     id: "coding-v1",
     origin: "catalog",
     state,
-    repository_ids: [],
+    repository_ids: ["app"],
   });
   const over: WorkspaceProfileRecord = {
     id: "ws_acme_narrow_v1",
@@ -480,6 +483,7 @@ describe("attachment rules", () => {
 
   test("any other state runs nothing, with a release or without, on the ceiling or a version over it", async () => {
     for (const state of [
+      "blocked",
       "connection_missing",
       "unattended_off",
       "definition_drift",
@@ -490,5 +494,16 @@ describe("attachment rules", () => {
         expect(await starts(state, id, true)).not.toBe("runs");
       }
     }
+  });
+
+  test("a blocked ceiling is refused by name, a release's session too, and a version over it reads base_blocked", () => {
+    expect(workspaceProfileState(catalogIn("blocked"), over)).toBe(
+      "base_blocked",
+    );
+    expect(
+      workspaceProfileRefusal(catalogIn("blocked"), WORKSPACE, "coding-v1", {
+        retiredAllowed: true,
+      }),
+    ).toMatchObject({ state: "blocked" });
   });
 });

@@ -10,6 +10,7 @@ import {
   SessionServiceError,
   type WorkerGateway,
   WorkerGatewayError,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { testCaller } from "@werft-ai/testkit/callers";
 import { eq } from "drizzle-orm";
@@ -69,12 +70,12 @@ function profile(
 }
 
 function catalogOf(entry: CatalogProfile): SessionCatalog {
-  return {
+  return withSeededInstallation({
     profiles: { [PROFILE_ID]: entry },
     repositories: {
       "sample-app": { ...REPOSITORY, profiles: [PROFILE_ID] },
     },
-  };
+  });
 }
 
 const ORIGINAL = catalogOf(profile());

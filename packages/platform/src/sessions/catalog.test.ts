@@ -8,6 +8,7 @@ import {
   describeConfigError,
   environmentCredentials,
   fingerprintModel,
+  type InstallationProfileEntry,
   isUnmetered,
   mcpBinding,
   mcpUpstreamOf,
@@ -28,6 +29,7 @@ import {
   sessionCatalogView,
   sessionProfile,
 } from "./catalog.ts";
+import { withSeededInstallation } from "./profile-registry.ts";
 
 // What an operator writes: the credential is a reference, never a value.
 const configured = {
@@ -62,7 +64,7 @@ function load(
 ): ReturnType<typeof resolveSessionCatalog> {
   const parsed = sessionCatalogConfigSchema.safeParse(input);
   if (!parsed.success) throw new Error(describeConfigError(parsed.error));
-  return resolveSessionCatalog(parsed.data, lookup);
+  return withSeededInstallation(resolveSessionCatalog(parsed.data, lookup));
 }
 
 describe("catalog config schema", () => {
@@ -483,14 +485,14 @@ describe("catalog config schema", () => {
     expect(repositoryModeOf(catalog.profiles.p as CatalogProfile)).toBe("none");
   });
 
-  test("a repository must name the profiles allowed against it; one this file lacks may be another's row", () => {
+  test("a repository's profiles only seed the database: absent is none, empty is refused", () => {
     expect(() =>
       load(config(configured, { app: { ...repository, profiles: [] } })),
     ).toThrow(/repositories\.app\.profiles/);
     const { profiles: _profiles, ...withoutList } = repository;
-    expect(() => load(config(configured, { app: withoutList }))).toThrow(
-      /repositories\.app\.profiles/,
-    );
+    const unlisted = load(config(configured, { app: withoutList }));
+    expect(unlisted.repositories.app?.profiles).toBeUndefined();
+    expect(allowedPair(unlisted, "p", "app")).toBeNull();
     expect(
       load(config(configured, { app: { ...repository, profiles: ["p", "q"] } }))
         .repositories.app?.profiles,
@@ -855,6 +857,24 @@ describe("profile fingerprint and catalog revision", () => {
 });
 
 describe("allowedPair", () => {
+  test("only a ceiling's repository_ids let it run, whatever the repository lists", () => {
+    const seeded = load({
+      profiles: { p: configured },
+      repositories: { app: repository },
+    });
+    const moved = {
+      ...seeded,
+      installation: new Map<string, InstallationProfileEntry>([
+        [
+          "p",
+          { id: "p", origin: "catalog", state: "usable", repository_ids: [] },
+        ],
+      ]),
+    };
+    expect(allowedPair(seeded, "p", "app")).not.toBeNull();
+    expect(allowedPair(moved, "p", "app")).toBeNull();
+  });
+
   test("only a repository that lists the profile lets it run", () => {
     const catalog = load({
       profiles: { p: configured, q: configured },

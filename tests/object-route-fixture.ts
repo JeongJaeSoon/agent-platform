@@ -10,7 +10,11 @@ import {
   launchSession,
 } from "@werft-ai/db/testing/launches";
 import { createLogger } from "@werft-ai/observability";
-import { acceptAllCheckpoints, createWorkerGateway } from "@werft-ai/platform";
+import {
+  acceptAllCheckpoints,
+  createWorkerGateway,
+  withSeededInstallation,
+} from "@werft-ai/platform";
 import { createObjectRouteSigner } from "@werft-ai/storage";
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
@@ -62,7 +66,7 @@ export async function startObjectRouteFixture(options: {
   });
   const gateway = createWorkerGateway({
     work: createPostgresWorkerUnitOfWork(db),
-    catalog: {
+    catalog: withSeededInstallation({
       profiles: {
         [PROFILE_ID]: {
           runtime_kind: "claude_agent_sdk",
@@ -88,7 +92,7 @@ export async function startObjectRouteFixture(options: {
           profiles: [PROFILE_ID],
         },
       },
-    },
+    }),
     checkpoints: acceptAllCheckpoints,
     options: {
       sessionCostLimitUsd: 1_000,

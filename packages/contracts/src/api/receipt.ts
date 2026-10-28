@@ -104,6 +104,8 @@ export const RECEIPT_OPERATION_VALUES = [
   "retire_workspace_profile",
   "create_installation_profile",
   "retire_installation_profile",
+  "block_installation_profile",
+  "unblock_installation_profile",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);

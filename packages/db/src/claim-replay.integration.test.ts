@@ -6,6 +6,7 @@ import {
   type WorkerGateway,
   WorkerGatewayError,
   type WorkerPrincipal,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -59,7 +60,7 @@ integration("claim replay against the session's current binding", () => {
   const gatewayWithLease = (leaseTtlMs: number) =>
     createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
-      catalog: {
+      catalog: withSeededInstallation({
         profiles: {
           "claude-coding-v1": {
             runtime_kind: "claude_agent_sdk",
@@ -85,7 +86,7 @@ integration("claim replay against the session's current binding", () => {
             profiles: ["claude-coding-v1"],
           },
         },
-      },
+      }),
       checkpoints: {
         async verify() {
           return { status: "verified" };

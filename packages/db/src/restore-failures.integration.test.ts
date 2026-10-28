@@ -5,6 +5,7 @@ import {
   type SessionCatalog,
   type WorkerGateway,
   type WorkerPrincipal,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -46,7 +47,7 @@ const SPEC = {
   resources: { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 256 },
 };
 
-const catalog: SessionCatalog = {
+const catalog: SessionCatalog = withSeededInstallation({
   profiles: {
     "claude-coding-v1": {
       runtime_kind: "claude_agent_sdk",
@@ -72,7 +73,7 @@ const catalog: SessionCatalog = {
       profiles: ["claude-coding-v1"],
     },
   },
-};
+});
 
 integration("startup failures before ready on PostgreSQL", () => {
   let database: TempDatabase;

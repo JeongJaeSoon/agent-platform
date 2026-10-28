@@ -6,6 +6,7 @@ import {
   createSessionService,
   type SessionCatalog,
   SessionServiceError,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { testCaller } from "@werft-ai/testkit/callers";
 import { and, eq } from "drizzle-orm";
@@ -48,7 +49,7 @@ const PROFILE: CatalogProfile = {
     },
   },
 };
-const CATALOG: SessionCatalog = {
+const CATALOG: SessionCatalog = withSeededInstallation({
   profiles: { sonnet: PROFILE },
   repositories: {
     app: {
@@ -57,7 +58,7 @@ const CATALOG: SessionCatalog = {
       profiles: ["sonnet"],
     },
   },
-};
+});
 
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;

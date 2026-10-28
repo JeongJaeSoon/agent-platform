@@ -27,6 +27,7 @@ import {
   workspaceProfileRefusal,
   workspaceProfileState,
 } from "./catalog.ts";
+import { withSeededInstallation } from "./profile-registry.ts";
 import { SessionServiceError } from "./session-service.ts";
 import {
   createWorkspaceProfileService,
@@ -80,7 +81,7 @@ function catalogWith(
   records: WorkspaceProfileRecord[],
   profiles: Record<string, CatalogProfile> = { coding: base },
 ): SessionCatalog {
-  return {
+  return withSeededInstallation({
     profiles,
     repositories: {
       app: {
@@ -93,7 +94,7 @@ function catalogWith(
       records: new Map(records.map((r) => [r.id, r])),
       refresh: async () => {},
     },
-  };
+  });
 }
 
 describe("narrowing", () => {
@@ -358,8 +359,9 @@ function service(
   const writes: unknown[] = [];
   const catalog = catalogWith([], operators);
   if (!readable && catalog.workspace_profiles) {
+    // Down once the write is made: the read before it must still see the base.
     catalog.workspace_profiles.refresh = async () => {
-      throw new Error("database down");
+      if (writes.length > 0) throw new Error("database down");
     };
   }
   const profiles = createWorkspaceProfileService({

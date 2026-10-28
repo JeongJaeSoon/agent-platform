@@ -18,6 +18,7 @@ import {
   createWorkerGateway,
   priceProviderUsage,
   type WorkerGateway,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { ClaudeSdkRuntime, runtimeEnvironment } from "@werft-ai/runtime-claude";
 import {
@@ -124,7 +125,7 @@ async function topology(): Promise<Topology> {
 
   const gateway = createWorkerGateway({
     work: createPostgresWorkerUnitOfWork(db),
-    catalog: {
+    catalog: withSeededInstallation({
       profiles: {
         [PROFILE_ID]: {
           runtime_kind: "claude_agent_sdk",
@@ -156,7 +157,7 @@ async function topology(): Promise<Topology> {
           },
         },
       },
-    },
+    }),
     checkpoints: acceptAllCheckpoints,
     options: {
       sessionCostLimitUsd: 1_000,

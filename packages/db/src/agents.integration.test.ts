@@ -18,6 +18,7 @@ import {
   resolveReleaseContent,
   type SessionCatalog,
   SessionServiceError,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -75,7 +76,7 @@ const PROFILE: CatalogProfile = {
     },
   },
 };
-const CATALOG: SessionCatalog = {
+const CATALOG: SessionCatalog = withSeededInstallation({
   profiles: { coding: PROFILE },
   repositories: {
     app: {
@@ -84,7 +85,7 @@ const CATALOG: SessionCatalog = {
       profiles: ["coding"],
     },
   },
-};
+});
 
 function cardWith(instructions: string, tools: string[] | null = ["Read"]) {
   return agentCardSchema.parse({

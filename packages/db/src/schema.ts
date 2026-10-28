@@ -3151,7 +3151,9 @@ export const installationProfiles = pgTable(
     definition: jsonb().$type<Record<string, unknown>>().notNull(),
     permissionMode: text("permission_mode").notNull(),
     fingerprint: text().notNull(),
-    repositoryIds: jsonb("repository_ids").$type<string[]>().notNull(),
+    // Null on a `catalog` row until startup fills it once from the
+    // `profiles` arrays of repositories.yaml.
+    repositoryIds: jsonb("repository_ids").$type<string[]>(),
     previousId: text("previous_id"),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -3159,6 +3161,8 @@ export const installationProfiles = pgTable(
       .defaultNow(),
     retiredAt: timestamp("retired_at", { withTimezone: true }),
     retiredBy: uuid("retired_by").references(() => users.id),
+    blockedAt: timestamp("blocked_at", { withTimezone: true }),
+    blockedBy: uuid("blocked_by").references(() => users.id),
   },
   (table) => [
     uniqueIndex("installation_profiles_console_version_key")
@@ -3185,6 +3189,14 @@ export const installationProfiles = pgTable(
     check(
       "installation_profiles_retired_check",
       sql`(${table.retiredAt} IS NULL) = (${table.retiredBy} IS NULL)`,
+    ),
+    check(
+      "installation_profiles_blocked_check",
+      sql`(${table.blockedAt} IS NULL) = (${table.blockedBy} IS NULL)`,
+    ),
+    check(
+      "installation_profiles_repository_ids_check",
+      sql`${table.repositoryIds} IS NOT NULL OR ${table.origin} = 'catalog'`,
     ),
   ],
 );

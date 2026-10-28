@@ -11,6 +11,7 @@ import {
   type WorkerGateway,
   WorkerGatewayError,
   type WorkerPrincipal,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -60,7 +61,7 @@ integration("installation limits on PostgreSQL", () => {
   const gatewayWith = (sessionTokenLimit: number | null) =>
     createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
-      catalog: {
+      catalog: withSeededInstallation({
         profiles: {
           "claude-coding-v1": {
             runtime_kind: "claude_agent_sdk",
@@ -86,7 +87,7 @@ integration("installation limits on PostgreSQL", () => {
             profiles: ["claude-coding-v1"],
           },
         },
-      },
+      }),
       checkpoints: {
         async verify() {
           return { status: "verified" };

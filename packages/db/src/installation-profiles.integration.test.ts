@@ -73,126 +73,156 @@ integration("installation profiles on PostgreSQL", () => {
       .orderBy(asc(installationProfiles.id))
       .then((rows) => rows.filter((row) => row.id.startsWith(prefix)));
 
-  test("imports on an install with no owner or workspace yet", async () => {
-    const [people] = await db.select({ n: count() }).from(users);
-    const [spaces] = await db.select({ n: count() }).from(workspaces);
-    expect([people?.n, spaces?.n]).toEqual([0, 0]);
-    const prefix = `empty-${ids()}`;
-    const result = await createPostgresInstallationProfileStore(
-      db,
-    ).importCatalog(catalogImports({ [`${prefix}-a`]: definition() }));
-    expect(result).toEqual({ inserted: [`${prefix}-a`], conflicts: [] });
-    const [row] = await rowsOf(prefix);
-    expect(row).toMatchObject({
-      origin: "catalog",
-      name: null,
-      version: 1,
-      repositoryIds: [],
-      createdBy: null,
-      previousId: null,
-      retiredAt: null,
-      permissionMode: "default",
-    });
-  });
-
-  test("importing the same catalog twice leaves the same rows", async () => {
-    const prefix = `twice-${ids()}`;
-    const catalog = {
-      [`${prefix}-a`]: definition(),
-      [`${prefix}-b`]: definition({ permission_mode: "auto", tools: [] }),
-    };
-    const store = createPostgresInstallationProfileStore(db);
-    const first = await store.importCatalog(catalogImports(catalog));
-    const afterFirst = await rowsOf(prefix);
-    const second = await store.importCatalog(catalogImports(catalog));
-    const afterSecond = await rowsOf(prefix);
-    expect(first.inserted).toEqual([`${prefix}-a`, `${prefix}-b`]);
-    expect(second).toEqual({ inserted: [], conflicts: [] });
-    expect(afterSecond).toHaveLength(2);
-    expect(afterSecond).toEqual(afterFirst);
-  });
-
-  test("replicas starting together import each id once", async () => {
-    const prefix = `race-${ids()}`;
-    const catalog = Object.fromEntries(
-      Array.from({ length: 6 }, (_, i) => [`${prefix}-${i}`, definition()]),
-    );
-    const replicas = Array.from({ length: 4 }, () => {
-      const replicaPool = new Pool({ connectionString: database.url, max: 2 });
-      return {
-        pool: replicaPool,
-        store: createPostgresInstallationProfileStore(
-          drizzle(replicaPool, { schema }),
-        ),
-      };
-    });
+  // Seeding only acts on an empty table, so each seed test owns a database.
+  async function emptyDatabase<T>(
+    run: (db: NodePgDatabase<typeof schema>, url: string) => Promise<T>,
+  ): Promise<T> {
+    const fresh = await createTempDatabase({ prefix: "profile_seed_it" });
+    const freshPool = new Pool({ connectionString: fresh.url, max: 4 });
     try {
-      const results = await Promise.all(
-        replicas.map(({ store }) =>
-          store.importCatalog(catalogImports(catalog)),
-        ),
-      );
-      expect(results.flatMap((result) => result.inserted).sort()).toEqual(
-        Object.keys(catalog).sort(),
-      );
-      expect(results.every((result) => result.conflicts.length === 0)).toBe(
-        true,
-      );
-      expect(await rowsOf(prefix)).toHaveLength(6);
+      return await run(drizzle(freshPool, { schema }), fresh.url);
     } finally {
-      await Promise.all(replicas.map(({ pool: p }) => p.end()));
+      await freshPool.end();
+      await fresh.drop();
     }
-  });
+  }
 
-  test("an id already there with another definition is reported, not overwritten", async () => {
-    const prefix = `conflict-${ids()}`;
-    const store = createPostgresInstallationProfileStore(db);
-    await store.importCatalog(
-      catalogImports({ [`${prefix}-a`]: definition() }),
-    );
-    const before = await rowsOf(prefix);
-    const result = await store.importCatalog(
-      catalogImports({
-        [`${prefix}-a`]: definition({ models: ["claude-sonnet"], tools: [] }),
-      }),
-    );
-    expect(result).toEqual({
-      inserted: [],
-      conflicts: [
-        { id: `${prefix}-a`, origin: "catalog", fields: ["models", "tools"] },
-      ],
-    });
-    expect(await rowsOf(prefix)).toEqual(before);
-  });
-
-  test("a YAML id a console row already holds is not imported", async () => {
-    const id = `op_clash${ids()}_v1`;
-    const made = definition();
-    const [entry] = catalogImports({ [id]: made });
-    if (!entry) throw new Error("no entry");
-    await db.insert(installationProfiles).values({
-      id,
-      name: id.slice(3, -3),
-      version: 1,
-      origin: "console",
-      definition: made,
-      permissionMode: "default",
-      fingerprint: entry.fingerprint,
-      repositoryIds: ["sample-app"],
-    });
-    const result = await createPostgresInstallationProfileStore(
-      db,
-    ).importCatalog([entry]);
-    expect(result).toEqual({
-      inserted: [],
-      conflicts: [{ id, origin: "console", fields: [] }],
-    });
-    const [row] = await db
+  const allRows = (on: NodePgDatabase<typeof schema>) =>
+    on
       .select()
       .from(installationProfiles)
-      .where(eq(installationProfiles.id, id));
-    expect(row?.origin).toBe("console");
-  });
+      .orderBy(asc(installationProfiles.id));
+
+  const seedOf = (profiles: Record<string, CatalogProfileConfig>) => async () =>
+    catalogImports(profiles);
+
+  test("an empty table is seeded on an install with no owner or workspace yet", async () => {
+    await emptyDatabase(async (fresh) => {
+      const [people] = await fresh.select({ n: count() }).from(users);
+      const [spaces] = await fresh.select({ n: count() }).from(workspaces);
+      expect([people?.n, spaces?.n]).toEqual([0, 0]);
+      const result = await createPostgresInstallationProfileStore(
+        fresh,
+      ).seedCatalog({
+        entries: seedOf({ b: definition(), a: definition() }),
+        repositoryIdsOf: (id) => (id === "a" ? ["app", "docs"] : []),
+      });
+      expect(result).toEqual({ seeded: ["a", "b"], migrated: [] });
+      const [row] = await allRows(fresh);
+      expect(row).toMatchObject({
+        id: "a",
+        origin: "catalog",
+        name: null,
+        version: 1,
+        repositoryIds: ["app", "docs"],
+        createdBy: null,
+        previousId: null,
+        retiredAt: null,
+        blockedAt: null,
+        permissionMode: "default",
+      });
+    });
+  }, 60_000);
+
+  test("a populated table is not changed by the YAML: new ids, edited entries or a broken file", async () => {
+    await emptyDatabase(async (fresh) => {
+      const store = createPostgresInstallationProfileStore(fresh);
+      await store.seedCatalog({
+        entries: seedOf({ a: definition() }),
+        repositoryIdsOf: () => ["app"],
+      });
+      const before = await allRows(fresh);
+      let read = 0;
+      const again = await store.seedCatalog({
+        entries: async () => {
+          read += 1;
+          throw new Error("profiles.yaml is broken");
+        },
+        repositoryIdsOf: () => ["elsewhere"],
+      });
+      const edited = await store.seedCatalog({
+        entries: seedOf({
+          a: definition({ tools: [] }),
+          z: definition(),
+        }),
+        repositoryIdsOf: () => ["elsewhere"],
+      });
+      expect([again, edited]).toEqual([
+        { seeded: [], migrated: [] },
+        { seeded: [], migrated: [] },
+      ]);
+      expect(read).toBe(0);
+      expect(await allRows(fresh)).toEqual(before);
+    });
+  }, 60_000);
+
+  test("replicas starting together seed the empty table once", async () => {
+    await emptyDatabase(async (_fresh, url) => {
+      const profiles = Object.fromEntries(
+        Array.from({ length: 6 }, (_, i) => [`p${i}`, definition()]),
+      );
+      const replicas = Array.from({ length: 4 }, () => {
+        const replicaPool = new Pool({ connectionString: url, max: 2 });
+        return {
+          pool: replicaPool,
+          store: createPostgresInstallationProfileStore(
+            drizzle(replicaPool, { schema }),
+          ),
+        };
+      });
+      try {
+        const results = await Promise.all(
+          replicas.map(({ store }) =>
+            store.seedCatalog({
+              entries: seedOf(profiles),
+              repositoryIdsOf: () => [],
+            }),
+          ),
+        );
+        expect(results.flatMap((result) => result.seeded).sort()).toEqual(
+          Object.keys(profiles).sort(),
+        );
+        expect(
+          results.filter((result) => result.seeded.length > 0),
+        ).toHaveLength(1);
+      } finally {
+        await Promise.all(replicas.map(({ pool: p }) => p.end()));
+      }
+    });
+  }, 60_000);
+
+  test("imported rows from before the move get repositories.yaml's allowance once", async () => {
+    await emptyDatabase(async (fresh) => {
+      const [entry] = catalogImports({ old: definition() });
+      if (!entry) throw new Error("no entry");
+      await fresh.insert(installationProfiles).values({
+        id: entry.id,
+        name: null,
+        version: 1,
+        origin: "catalog",
+        definition: entry.definition as Record<string, unknown>,
+        permissionMode: entry.permission_mode,
+        fingerprint: entry.fingerprint,
+        repositoryIds: null,
+      });
+      const store = createPostgresInstallationProfileStore(fresh);
+      const first = await store.seedCatalog({
+        entries: seedOf({ other: definition() }),
+        repositoryIdsOf: (id) => (id === "old" ? ["app"] : ["wrong"]),
+      });
+      const afterFirst = await allRows(fresh);
+      const second = await store.seedCatalog({
+        entries: seedOf({ other: definition() }),
+        repositoryIdsOf: () => ["changed-since"],
+      });
+      expect(first).toEqual({ seeded: [], migrated: ["old"] });
+      expect(second).toEqual({ seeded: [], migrated: [] });
+      expect(afterFirst.map((row) => [row.id, row.repositoryIds])).toEqual([
+        ["old", ["app"]],
+      ]);
+      expect(await allRows(fresh)).toEqual(afterFirst);
+    });
+  }, 60_000);
 
   test("the table refuses rows outside the contract", async () => {
     const made = definition();
@@ -204,7 +234,7 @@ integration("installation profiles on PostgreSQL", () => {
       definition: made,
       permissionMode: "default",
       fingerprint: "sha256:x",
-      repositoryIds: [],
+      repositoryIds: [] as string[] | null,
     };
     const refused = async (
       values: Partial<typeof valid>,
@@ -226,6 +256,14 @@ integration("installation profiles on PostgreSQL", () => {
       "installation_profiles_origin_check",
     );
     await refused({ version: 0 }, "installation_profiles_version_check");
+    await refused(
+      { origin: "console", name: `nulls${ids()}`, repositoryIds: null },
+      "installation_profiles_repository_ids_check",
+    );
+    await refused(
+      { blockedAt: new Date() } as Partial<typeof valid>,
+      "installation_profiles_blocked_check",
+    );
     await refused(
       { permissionMode: "bypassPermissions" },
       "installation_profiles_definition_mode_check",
@@ -249,6 +287,21 @@ integration("installation profiles on PostgreSQL", () => {
       "installation_profiles_console_version_key",
     );
   });
+
+  async function imported(id: string) {
+    const [entry] = catalogImports({ [id]: definition() });
+    if (!entry) throw new Error("no entry");
+    await db.insert(installationProfiles).values({
+      id,
+      name: null,
+      version: 1,
+      origin: "catalog",
+      definition: entry.definition as Record<string, unknown>,
+      permissionMode: entry.permission_mode,
+      fingerprint: entry.fingerprint,
+      repositoryIds: ["app"],
+    });
+  }
 
   async function person(workspaceId: string, role: WorkspaceRole) {
     const userId = randomUUID();
@@ -347,20 +400,19 @@ integration("installation profiles on PostgreSQL", () => {
   test("a first version replaces an existing row or nothing, and never takes an imported id", async () => {
     const owner = await person(await workspace(), "owner");
     const store = createPostgresInstallationProfileStore(db);
-    const imported = `op_taken${ids()}_v1`;
-    await store.importCatalog(catalogImports({ [imported]: definition() }));
-    expect(
-      await store.create(save(owner, imported.slice(3, -3), null)),
-    ).toEqual({ outcome: "id_taken", id: imported });
+    const taken = `op_taken${ids()}_v1`;
+    await imported(taken);
+    expect(await store.create(save(owner, taken.slice(3, -3), null))).toEqual({
+      outcome: "id_taken",
+      id: taken,
+    });
     expect(await store.create(save(owner, `fresh${ids()}`, "nowhere"))).toEqual(
       { outcome: "unknown_previous" },
     );
-    const replacing = await store.create(
-      save(owner, `fresh${ids()}`, imported),
-    );
+    const replacing = await store.create(save(owner, `fresh${ids()}`, taken));
     expect(
       replacing.outcome === "created" && replacing.record.previous_id,
-    ).toBe(imported);
+    ).toBe(taken);
   });
 
   test("only a live owner writes: an admin, or an owner since removed, is actor_inactive", async () => {
@@ -403,7 +455,7 @@ integration("installation profiles on PostgreSQL", () => {
     const owner = await person(await workspace(), "owner");
     const store = createPostgresInstallationProfileStore(db);
     const id = `retire-${ids()}`;
-    await store.importCatalog(catalogImports({ [id]: definition() }));
+    await imported(id);
     const input = { actor: owner, receiptId: randomUUID(), profileId: id };
     const first = await store.retire(input);
     expect(first).toMatchObject({
@@ -420,5 +472,49 @@ integration("installation profiles on PostgreSQL", () => {
       .from(receipts)
       .where(eq(receipts.operation, "retire_installation_profile"));
     expect(written).toHaveLength(1);
+  });
+
+  test("blocking and unblocking each write one receipt, and only a live owner does it", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const admin = await person(workspaceId, "admin");
+    const store = createPostgresInstallationProfileStore(db);
+    const id = `block-${ids()}`;
+    await imported(id);
+    const input = (blocked: boolean, actor = owner) => ({
+      actor,
+      receiptId: randomUUID(),
+      profileId: id,
+      blocked,
+    });
+    expect(await store.setBlocked(input(true, admin))).toEqual({
+      outcome: "actor_inactive",
+    });
+    const blocking = input(true);
+    expect(await store.setBlocked(blocking)).toMatchObject({
+      outcome: "changed",
+      record: { id, blocked_by: owner.userId },
+    });
+    expect((await store.setBlocked(input(true))).outcome).toBe("unchanged");
+    const unblocking = input(false);
+    expect(await store.setBlocked(unblocking)).toMatchObject({
+      outcome: "changed",
+      record: { id, blocked_by: null, blocked_at: null },
+    });
+    expect((await store.setBlocked(input(false))).outcome).toBe("unchanged");
+    expect(
+      await store.setBlocked({ ...input(true), profileId: "nowhere" }),
+    ).toEqual({ outcome: "not_found" });
+    const written = await db
+      .select({ id: receipts.id, operation: receipts.operation })
+      .from(receipts)
+      .where(eq(receipts.ownerId, workspaceId));
+    expect(written.map((row) => row.operation).sort()).toEqual([
+      "block_installation_profile",
+      "unblock_installation_profile",
+    ]);
+    expect(written.map((row) => row.id).sort()).toEqual(
+      [blocking.receiptId, unblocking.receiptId].sort(),
+    );
   });
 });

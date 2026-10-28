@@ -9,6 +9,7 @@ import {
   type SessionCatalog,
   type WorkerGateway,
   WorkerGatewayError,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { testCaller } from "@werft-ai/testkit/callers";
 import { eq } from "drizzle-orm";
@@ -71,23 +72,23 @@ function repository(name: string) {
 }
 
 // What the session was created under.
-const CREATED: SessionCatalog = {
+const CREATED: SessionCatalog = withSeededInstallation({
   profiles: { [PROFILE_ID]: PROFILE },
   repositories: { "sample-app": repository("sample-app") },
-};
+});
 // Two catalogs that both lack the session's pair and differ otherwise, as
 // an old replica's and a new one's do.
-const A: SessionCatalog = {
+const A: SessionCatalog = withSeededInstallation({
   profiles: { [PROFILE_ID]: PROFILE },
   repositories: { "other-app": repository("other-app") },
-};
-const B: SessionCatalog = {
+});
+const B: SessionCatalog = withSeededInstallation({
   profiles: { [PROFILE_ID]: PROFILE },
   repositories: {
     "other-app": repository("other-app"),
     "third-app": repository("third-app"),
   },
-};
+});
 
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;

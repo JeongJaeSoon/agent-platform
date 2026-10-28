@@ -33,6 +33,7 @@ import {
   createWorkerGateway,
   DEFAULT_LEASE_TTL_MS,
   type SessionCatalog,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import type { ScriptedRuntime } from "@werft-ai/runtime-core/testing";
 import { fakeRuntimeFor } from "@werft-ai/runtime-registry/testing";
@@ -74,7 +75,7 @@ const LEASE_TTL_MS = 10_000;
 const MARGIN_MS = 3_000;
 const HEARTBEAT_MS = 300;
 
-const catalog: SessionCatalog = {
+const catalog: SessionCatalog = withSeededInstallation({
   profiles: {
     [PROFILE_ID]: {
       runtime_kind: "claude_agent_sdk",
@@ -100,7 +101,7 @@ const catalog: SessionCatalog = {
       profiles: [PROFILE_ID],
     },
   },
-};
+});
 
 const noCheckpoints: WorkerCheckpointPort = {
   restorePlan: async () => ({ mode: "new" }),

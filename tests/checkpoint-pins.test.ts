@@ -12,6 +12,7 @@ import {
   profileFingerprint,
   profileWithModel,
   resolveSessionCatalog,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   CLAUDE_RUNTIME_FINGERPRINT,
@@ -33,7 +34,10 @@ import {
   createGitBundleChain,
   type GitBundleFixture,
 } from "@werft-ai/testkit/git-bundle";
-import { readCatalogConfig } from "../apps/control-host/src/api/catalog-config.ts";
+import {
+  readCatalogConfig,
+  readSeedProfiles,
+} from "../apps/control-host/src/api/catalog-config.ts";
 import {
   imageClaimFingerprint,
   imageRuntimeOf,
@@ -705,11 +709,16 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
   const PROFILE_ID = "claude-coding-real";
   const REPOSITORY_ID = "sample-app";
   // The API's default catalog, credentials standing in as verify-restore's do.
-  const catalog = async () =>
-    resolveSessionCatalog(
-      await readCatalogConfig(join(import.meta.dir, "../config")),
-      () => "verify-restore-reads-no-credential",
+  const catalog = async () => {
+    const dir = join(import.meta.dir, "../config");
+    const config = await readCatalogConfig(dir);
+    return withSeededInstallation(
+      resolveSessionCatalog(
+        { ...config, profiles: await readSeedProfiles(dir, config) },
+        () => "verify-restore-reads-no-credential",
+      ),
     );
+  };
   const sessionOf = async (overrides: {
     branch?: string;
     model?: string | null;
@@ -792,7 +801,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     const repository = resolved.repositories[REPOSITORY_ID];
     if (repository === undefined) throw new Error("no sample repository");
     const switchedProfile = { ...earlierProfile, model: "claude-haiku-4-5" };
-    const switchedCatalog = {
+    const switchedCatalog = withSeededInstallation({
       profiles: { ...resolved.profiles, "switch-haiku": switchedProfile },
       repositories: {
         ...resolved.repositories,
@@ -801,7 +810,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
           profiles: [...repository.profiles, "switch-haiku"],
         },
       },
-    };
+    });
     const earlierClaim = sessionClaim(await sessionOf({}), switchedCatalog);
     const objects = createMemoryCheckpointObjectStore({ versioned: true });
     const seeded = await seed(
@@ -852,7 +861,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     const repository = resolved.repositories[REPOSITORY_ID];
     if (repository === undefined) throw new Error("no sample repository");
     const extra = Array.from({ length: 18 }, (_, n) => `p${n}`);
-    const switched = {
+    const switched = withSeededInstallation({
       profiles: {
         ...resolved.profiles,
         ...Object.fromEntries(
@@ -864,7 +873,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
         ...resolved.repositories,
         [REPOSITORY_ID]: { ...repository, profiles: ["p0"] },
       },
-    };
+    });
     const made = (id: string) => ({
       profileId: id,
       profileFingerprint: profileFingerprint(
@@ -1010,10 +1019,10 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       repository: "optional",
       project_settings: { claude_md: true },
     };
-    const withGeneral = {
+    const withGeneral = withSeededInstallation({
       ...resolved,
       profiles: { ...resolved.profiles, general },
-    };
+    });
     const session = {
       branch: null,
       model: general.model,

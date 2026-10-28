@@ -2,13 +2,12 @@ import {
   installationProfileId,
   type PermissionMode,
 } from "@werft-ai/contracts";
-import {
-  differingDefinitionFields,
-  type InstallationProfileRecord,
-  type InstallationProfileStore,
-  type TeamActor,
+import type {
+  InstallationProfileRecord,
+  InstallationProfileStore,
+  TeamActor,
 } from "@werft-ai/platform";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { lockPeople, receiptActorOf } from "./control-shared.ts";
 import type { Database } from "./queries.ts";
 import { installationProfiles, receipts } from "./schema.ts";
@@ -28,7 +27,11 @@ async function writeReceipt(
   actor: TeamActor,
   input: {
     id: string;
-    operation: "create_installation_profile" | "retire_installation_profile";
+    operation:
+      | "create_installation_profile"
+      | "retire_installation_profile"
+      | "block_installation_profile"
+      | "unblock_installation_profile";
     result: Record<string, unknown>;
   },
 ) {
@@ -58,12 +61,15 @@ function recordOf(
     definition: row.definition,
     permission_mode: row.permissionMode as PermissionMode,
     fingerprint: row.fingerprint,
-    repository_ids: row.repositoryIds,
+    // Null only until the api role's seed fills it, before its first read.
+    repository_ids: row.repositoryIds ?? [],
     previous_id: row.previousId,
     created_by: row.createdBy,
     created_at: row.createdAt,
     retired_at: row.retiredAt,
     retired_by: row.retiredBy,
+    blocked_at: row.blockedAt,
+    blocked_by: row.blockedBy,
   };
 }
 
@@ -79,59 +85,47 @@ export function createPostgresInstallationProfileStore(
       return rows.map(recordOf);
     },
 
-    async importCatalog(entries) {
-      if (entries.length === 0) return { inserted: [], conflicts: [] };
+    async seedCatalog(input) {
       return db.transaction(async (tx) => {
         await lockWrites(tx);
-        const inserted = await tx
-          .insert(installationProfiles)
-          .values(
-            entries.map((entry) => ({
-              id: entry.id,
-              name: null,
-              version: 1,
-              origin: "catalog",
-              definition: entry.definition as Record<string, unknown>,
-              permissionMode: entry.permission_mode,
-              fingerprint: entry.fingerprint,
-              repositoryIds: [],
-            })),
-          )
-          .onConflictDoNothing({ target: installationProfiles.id })
-          .returning({ id: installationProfiles.id });
-        const fresh = new Set(inserted.map((row) => row.id));
-        const kept = entries.filter((entry) => !fresh.has(entry.id));
-        const existing =
-          kept.length === 0
+        const [any] = await tx
+          .select({ id: installationProfiles.id })
+          .from(installationProfiles)
+          .limit(1);
+        const entries = any ? [] : await input.entries();
+        const seeded =
+          entries.length === 0
             ? []
             : await tx
-                .select()
-                .from(installationProfiles)
-                .where(
-                  inArray(
-                    installationProfiles.id,
-                    kept.map((entry) => entry.id),
-                  ),
-                );
-        const byId = new Map(existing.map((row) => [row.id, row]));
-        const conflicts = kept.flatMap((entry) => {
-          const row = byId.get(entry.id);
-          if (!row) return [];
-          const fields = differingDefinitionFields(
-            row.definition,
-            entry.definition,
-          );
-          return row.origin === "console" || fields.length > 0
-            ? [
-                {
-                  id: entry.id,
-                  origin: row.origin as InstallationProfileRecord["origin"],
-                  fields,
-                },
-              ]
-            : [];
-        });
-        return { inserted: [...fresh].sort(), conflicts };
+                .insert(installationProfiles)
+                .values(
+                  entries.map((entry) => ({
+                    id: entry.id,
+                    name: null,
+                    version: 1,
+                    origin: "catalog",
+                    definition: entry.definition as Record<string, unknown>,
+                    permissionMode: entry.permission_mode,
+                    fingerprint: entry.fingerprint,
+                    repositoryIds: input.repositoryIdsOf(entry.id),
+                  })),
+                )
+                .returning({ id: installationProfiles.id });
+        const unmigrated = await tx
+          .select({ id: installationProfiles.id })
+          .from(installationProfiles)
+          .where(isNull(installationProfiles.repositoryIds))
+          .orderBy(asc(installationProfiles.id));
+        for (const { id } of unmigrated) {
+          await tx
+            .update(installationProfiles)
+            .set({ repositoryIds: input.repositoryIdsOf(id) })
+            .where(eq(installationProfiles.id, id));
+        }
+        return {
+          seeded: seeded.map((row) => row.id).sort(),
+          migrated: unmigrated.map((row) => row.id),
+        };
       });
     },
 
@@ -240,6 +234,45 @@ export function createPostgresInstallationProfileStore(
           result: { profile_id: record.id },
         });
         return { outcome: "retired" as const, record };
+      });
+    },
+
+    async setBlocked(input) {
+      const { actor } = input;
+      return db.transaction(async (tx) => {
+        if (!(await actorOperates(tx, actor))) {
+          return { outcome: "actor_inactive" as const };
+        }
+        const [row] = await tx
+          .select()
+          .from(installationProfiles)
+          .where(eq(installationProfiles.id, input.profileId))
+          .for("update");
+        if (!row) return { outcome: "not_found" as const };
+        if ((row.blockedAt !== null) === input.blocked) {
+          return { outcome: "unchanged" as const, record: recordOf(row) };
+        }
+        const [changed] = await tx
+          .update(installationProfiles)
+          .set(
+            input.blocked
+              ? { blockedAt: sql`now()`, blockedBy: actor.userId }
+              : { blockedAt: null, blockedBy: null },
+          )
+          .where(eq(installationProfiles.id, row.id))
+          .returning();
+        if (!changed) {
+          throw new Error("installation profile update returned no row");
+        }
+        const record = recordOf(changed);
+        await writeReceipt(tx, actor, {
+          id: input.receiptId,
+          operation: input.blocked
+            ? "block_installation_profile"
+            : "unblock_installation_profile",
+          result: { profile_id: record.id },
+        });
+        return { outcome: "changed" as const, record };
       });
     },
   };

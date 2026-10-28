@@ -694,6 +694,13 @@
       "when": 1793182413000,
       "tag": "0189_drop_slack_default_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 190,
+      "version": "7",
+      "when": 1793187420337,
+      "tag": "0190_installation_profile_blocks",
+      "breakpoints": true
     }
   ]
 }

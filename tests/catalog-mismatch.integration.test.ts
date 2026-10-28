@@ -31,6 +31,7 @@ import {
   runScheduler,
   type SessionCatalog,
   type TerminateExecutionResult,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import type { ScriptedStep } from "@werft-ai/runtime-core/testing";
 import { fakeRuntimeFor } from "@werft-ai/runtime-registry/testing";
@@ -92,7 +93,7 @@ const PROFILE: CatalogProfile = {
 };
 
 function catalogAt(url: string): SessionCatalog {
-  return {
+  return withSeededInstallation({
     profiles: {
       [PROFILE_ID]: PROFILE,
       general: { ...PROFILE, tools: ["Read", "Write"], repository: "none" },
@@ -100,7 +101,7 @@ function catalogAt(url: string): SessionCatalog {
     repositories: {
       "sample-app": { url, branch: "main", profiles: [PROFILE_ID] },
     },
-  };
+  });
 }
 
 const silent: WorkerLogger = {
