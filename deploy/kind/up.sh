@@ -201,10 +201,15 @@ if [ "$KIND_MODEL" = fake ]; then
   bun -e '
     const read = async (name) =>
       Bun.YAML.parse(await Bun.file(`${process.argv[1]}/${name}.yaml`).text());
+    const { connections } = await read("connections");
     const { profiles } = await read("profiles");
     const { repositories } = await read("repositories");
     console.log(JSON.stringify({
-      catalog: { profiles: { "claude-coding-real": null, ...profiles }, repositories },
+      catalog: {
+        connections: { anthropic: null, ...connections },
+        profiles: { "claude-coding-real": null, ...profiles },
+        repositories,
+      },
     }));
   ' "$root/config/fake-model" >"$STATE_DIR/catalog-fake-model.json"
   values+=(-f "$STATE_DIR/catalog-fake-model.json")
