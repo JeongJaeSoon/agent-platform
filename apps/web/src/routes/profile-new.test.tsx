@@ -521,6 +521,16 @@ describe("프로필 만들기 (설치 상한)", () => {
       screen.getByText("런타임 버전을 200자 이하로 적으세요."),
     ).toBeDefined();
     expect(screen.getByText("모델을 하나 이상 고르세요.")).toBeDefined();
+    // 저장소 필요 with none picked would leave no session able to start.
+    expect(
+      screen
+        .getByRole("group", { name: "허용할 저장소" })
+        .contains(
+          screen.getByText(
+            "저장소를 하나 이상 고르세요. 저장소 없이 돌리려면 '저장소 쓰지 않음'을 고릅니다.",
+          ),
+        ),
+    ).toBe(true);
     expect(
       (screen.getByLabelText("이름") as HTMLInputElement).getAttribute(
         "aria-invalid",
@@ -667,7 +677,7 @@ describe("프로필 만들기 (설치 상한)", () => {
       reason_code: "id_taken",
       field: "name",
     });
-    const server = catalog([CODING, ceiling("wide", 1), ceiling("wide", 2)]);
+    const server = catalog([CODING, ceiling("wide", 1)]);
     const { history } = renderAt(
       "/profiles/new?kind=installation&from=op_wide_v1&mode=version",
       {
@@ -688,6 +698,8 @@ describe("프로필 만들기 (설치 상한)", () => {
         ?.contains(taken),
     ).toBe(true);
 
+    // Another owner saved v2 after this page read the list.
+    server.items.push(ceiling("wide", 2));
     answer = refusal(409, "REVISION_CONFLICT", {
       reason_code: "stale_previous",
       latest_id: "op_wide_v2",

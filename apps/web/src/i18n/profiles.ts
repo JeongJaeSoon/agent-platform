@@ -172,6 +172,8 @@ export const profilesKo = {
   "profiles.ceiling.repositoriesHint":
     "이 상한의 세션과 release가 쓸 수 있는 저장소입니다.",
   "profiles.ceiling.noRepositories": "이 설치에 저장소가 없습니다.",
+  "profiles.ceiling.repositoriesEmpty":
+    "저장소를 하나 이상 고르세요. 저장소 없이 돌리려면 '저장소 쓰지 않음'을 고릅니다.",
   "profiles.ceiling.preview": "{name} v{version}으로 저장합니다.",
   "profiles.ceiling.saveNote":
     "저장한 버전은 바뀌지 않습니다. 고치려면 새 버전을 만듭니다.",
@@ -433,6 +435,8 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.ceiling.repositoriesHint":
     "The repositories sessions and releases on this ceiling may use.",
   "profiles.ceiling.noRepositories": "This installation has no repositories.",
+  "profiles.ceiling.repositoriesEmpty":
+    "Pick at least one repository. To run without one, choose 'No repository'.",
   "profiles.ceiling.preview": "Saves as {name} v{version}.",
   "profiles.ceiling.saveNote":
     "A saved version never changes. To change it, make a new version.",
@@ -698,6 +702,8 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "この上限のセッションと release が使えるリポジトリです。",
   "profiles.ceiling.noRepositories":
     "このインストールにはリポジトリがありません。",
+  "profiles.ceiling.repositoriesEmpty":
+    "リポジトリを1つ以上選んでください。リポジトリなしで動かすには「リポジトリを使わない」を選びます。",
   "profiles.ceiling.preview": "{name} v{version} として保存します。",
   "profiles.ceiling.saveNote":
     "保存したバージョンは変わりません。変更するには新しいバージョンを作ります。",

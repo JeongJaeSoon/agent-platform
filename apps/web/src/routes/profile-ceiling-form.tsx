@@ -230,6 +230,11 @@ export function CeilingForm({
     ...(titleModel.length > 200
       ? { title_model: t("profiles.editor.tooLong") }
       : {}),
+    // The server takes it, but no session could then start on the ceiling.
+    ...(draft.repository_mode === "required" &&
+    draft.repository_ids.length === 0
+      ? { repository_ids: t("profiles.ceiling.repositoriesEmpty") }
+      : {}),
   };
   const errorOf = (field: CeilingField) =>
     (submitted ? local[field] : undefined) ??
@@ -249,7 +254,16 @@ export function CeilingForm({
       });
       onSaved(profile.id);
     },
-    onError: (failure) => setRefusal(refusalOf(failure)),
+    onError: async (failure) => {
+      const refused = refusalOf(failure);
+      // The link opens the latest version from the list; this one may not
+      // have it yet.
+      if (refused.latestId)
+        await queryClient.invalidateQueries({
+          queryKey: queryKeysOf(client).profiles,
+        });
+      setRefusal(refused);
+    },
   });
 
   function refusalOf(failure: ApiError): Refusal {

@@ -86,23 +86,48 @@ export function nextVersionId(
   );
 }
 
-/** The versions of one name, newest first; each group's head is its latest. */
+/**
+ * The versions of one line, newest first; each group's head is its latest.
+ * A workspace profile's line is its name. A ceiling's is its `previous_id`
+ * chain, which may change name (a catalog import's next version takes one)
+ * while another ceiling may share a name without being linked.
+ */
 function groupsOf(items: readonly ProfileSummary[]): ProfileSummary[][] {
-  const key = (item: ProfileSummary) => `${item.source}:${profileName(item)}`;
-  const sorted = [...items].sort(
-    (a, b) =>
-      // Ceilings first, as a workspace profile narrows one of them.
-      (a.source === b.source ? 0 : a.source === "operator" ? -1 : 1) ||
-      profileName(a).localeCompare(profileName(b)) ||
-      versionOf(b) - versionOf(a),
-  );
-  const groups: ProfileSummary[][] = [];
-  for (const item of sorted) {
-    const last = groups.at(-1);
-    if (last?.[0] && key(last[0]) === key(item)) last.push(item);
-    else groups.push([item]);
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const line = (item: ProfileSummary): { key: string; rank: number } => {
+    if (item.source !== "operator")
+      return { key: `workspace:${profileName(item)}`, rank: versionOf(item) };
+    let at = item;
+    let rank = 0;
+    for (
+      let prev = byId.get(at.installation?.previous_id ?? "");
+      prev && rank < items.length;
+      prev = byId.get(at.installation?.previous_id ?? "")
+    ) {
+      at = prev;
+      rank += 1;
+    }
+    return { key: `operator:${at.id}`, rank };
+  };
+  const groups = new Map<string, { rank: number; item: ProfileSummary }[]>();
+  for (const item of items) {
+    const { key, rank } = line(item);
+    const group = groups.get(key);
+    if (group) group.push({ rank, item });
+    else groups.set(key, [{ rank, item }]);
   }
-  return groups;
+  return [...groups.values()]
+    .map((group) =>
+      group.sort((a, b) => b.rank - a.rank).map(({ item }) => item),
+    )
+    .sort(([a], [b]) =>
+      a && b
+        ? // Ceilings first, as a workspace profile narrows one of them.
+          (a.source === b.source ? 0 : a.source === "operator" ? -1 : 1) ||
+          profileName(a).localeCompare(profileName(b)) ||
+          a.id.localeCompare(b.id)
+        : 0,
+    );
 }
 
 export function ProfilesScreen() {

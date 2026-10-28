@@ -212,6 +212,30 @@ describe("실행 프로필", () => {
     expect(rows(table)).toHaveLength(3);
   });
 
+  test("a ceiling folds under the version that names it as previous, not under a name it shares", async () => {
+    renderAt(
+      "/profiles",
+      routes([
+        // A catalog import whose id is a console ceiling's name, unlinked.
+        imported("wide", {}, "retired"),
+        ceiling("wide", 1),
+        // The import's next version took a name of its own.
+        ceiling("coding", 1, {}, { previous_id: "coding-claude" }),
+        CODING,
+      ]),
+    );
+    const table = await screen.findByRole("table", { name: "실행 프로필" });
+    expect(
+      rows(table)
+        .slice(1)
+        .map((row) => row[0]),
+    ).toEqual([
+      "coding 이전 버전 1개op_coding_v1설치 상한 · v1",
+      "wideop_wide_v1설치 상한 · v1",
+      "widewide설치 상한 · v1",
+    ]);
+  });
+
   test("every state a ceiling or a version can be in shows as its badge", async () => {
     renderAt(
       "/profiles",
