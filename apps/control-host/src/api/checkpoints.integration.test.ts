@@ -19,6 +19,7 @@ import {
   manifestRefFor,
   sessionObjectPrefix,
   type WorkerPrincipal,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { finalizeCheckpoint } from "@werft-ai/platform/testing/checkpoints";
 import {
@@ -149,7 +150,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
     service = checkpoints.protocol as CheckpointService;
     gateway = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
-      catalog: {
+      catalog: withSeededInstallation({
         profiles: {
           "claude-coding-v1": {
             runtime_kind: "claude_agent_sdk",
@@ -175,7 +176,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
             profiles: ["claude-coding-v1"],
           },
         },
-      },
+      }),
       checkpoints: checkpoints.verifier,
       checkpointProtocol: checkpoints.protocol,
       options: {
