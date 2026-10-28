@@ -863,7 +863,7 @@ export function SessionComposer({
   };
 
   return (
-    <div ref={rootRef} className="flex flex-col gap-2">
+    <div ref={rootRef} className="flex flex-col">
       <Composer
         messages={{
           label: t("session.composer.label"),
@@ -893,7 +893,13 @@ export function SessionComposer({
           );
         }}
       />
-      <OutcomeLine ref={noticeRef} outcome={notice} />
+      {/* Empty, the line would leave a gap under the send button, the
+          page's last control. */}
+      <OutcomeLine
+        ref={noticeRef}
+        outcome={notice}
+        className="not-empty:mt-2"
+      />
     </div>
   );
 }
