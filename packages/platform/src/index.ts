@@ -81,6 +81,7 @@ export * from "./secrets/secret-cipher.ts";
 export * from "./sessions/catalog.ts";
 export * from "./sessions/event-codecs.ts";
 export * from "./sessions/feature-gate.ts";
+export * from "./sessions/installation-profiles.ts";
 export * from "./sessions/interrupt-service.ts";
 export * from "./sessions/output-service.ts";
 export * from "./sessions/pending-service.ts";

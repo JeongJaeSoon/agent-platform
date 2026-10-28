@@ -6,6 +6,7 @@ import type {
   ApiKeyService,
   CredentialBindingService,
   IdentityStore,
+  InstallationProfileService,
   InterruptService,
   InviteService,
   InviteStore,
@@ -134,7 +135,11 @@ function apiApp() {
       registerCloseRoutes(router, {} as SessionService);
       registerUsageRoutes(router, {} as UsageService);
       registerSessionOutputRoutes(router, {} as SessionOutputService);
-      registerProfileRoutes(router, {} as WorkspaceProfileService);
+      registerProfileRoutes(
+        router,
+        {} as WorkspaceProfileService,
+        {} as InstallationProfileService,
+      );
       registerWorkspaceRoutes(router, {} as WorkspaceRouteDeps);
       registerSlackSecretRoutes(router, {} as SlackSecretService);
       registerSlackAppRoutes(router, {

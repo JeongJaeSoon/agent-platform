@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installationProfileSnapshot } from "@werft-ai/platform";
+import { catalogRows, installationProfileSnapshot } from "@werft-ai/platform";
 import {
   ALLOW_UNATTENDED_SETTING,
   loadProfileSources,
@@ -90,12 +90,14 @@ describe("slack role startup", () => {
         readSecret: noSecrets,
       });
       const states = [
-        profileViewSources(role.catalog, role.connections, environment),
+        profileViewSources(role.connections, environment),
         api.sources,
       ].map(
         (sources) =>
-          installationProfileSnapshot(sources, []).installation.get("coding")
-            ?.state,
+          installationProfileSnapshot(
+            sources,
+            catalogRows(role.catalog.profiles),
+          ).installation.get("coding")?.state,
       );
       expect(states[0]).toBe(states[1]);
       return states[0];

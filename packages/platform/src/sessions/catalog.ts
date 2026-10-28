@@ -1,6 +1,7 @@
 import { createHash, createPrivateKey } from "node:crypto";
 import { isIP } from "node:net";
 import {
+  type InstallationProfileState as ContractInstallationProfileState,
   canonicalJson,
   credentialRefSchema,
   MCP_TOOL_PREFIX,
@@ -20,6 +21,7 @@ import {
 } from "@werft-ai/contracts";
 import { z } from "zod";
 import { type GitCredential, repoRefOf } from "../ports/forge.ts";
+import type { InstallationProfileRecord } from "../ports/installation-profile-store.ts";
 
 // Operator-registered profiles and repositories. The operator
 // writes `config/profiles.yaml` and `config/repositories.yaml`; the API reads
@@ -333,19 +335,11 @@ export const catalogMcpServerSchema = z
 
 export const WORKSPACE_PROFILE_PREFIX = "ws_";
 
-function nonEmpty<T extends z.ZodType>(record: T, what: string) {
-  return record.refine(
-    (value) => Object.keys(value as object).length > 0,
-    `at least one ${what} is required`,
-  );
-}
-
 export const sessionCatalogConfigSchema = z
   .object({
-    profiles: nonEmpty(
-      z.record(z.string().min(1), catalogProfileConfigSchema),
-      "profile",
-    ),
+    // Empty when the installation keeps no `profiles.yaml`: the database
+    // holds the profiles, and the file only seeds it.
+    profiles: z.record(z.string().min(1), catalogProfileConfigSchema),
     repositories: z.record(z.string().min(1), catalogRepositorySchema),
     mcp_servers: z.record(mcpServerIdSchema, catalogMcpServerSchema).optional(),
   })
@@ -362,6 +356,7 @@ export const sessionCatalogConfigSchema = z
     }
     if (
       Object.keys(config.repositories).length === 0 &&
+      Object.keys(config.profiles).length > 0 &&
       Object.values(config.profiles).every(
         (profile) => profile.repository === "required",
       )
@@ -373,15 +368,14 @@ export const sessionCatalogConfigSchema = z
           "at least one repository is required unless a profile's repository is optional or none",
       });
     }
+    // A profile id this file does not have may be a row another replica's
+    // file imported; the registry decides what it allows, so it is no error.
     for (const [id, repository] of Object.entries(config.repositories)) {
       repository.profiles.forEach((profileId, index) => {
-        if (!Object.hasOwn(config.profiles, profileId)) {
-          ctx.addIssue({
-            code: "custom",
-            path: ["repositories", id, "profiles", index],
-            message: `names profile ${profileId}, which is not in profiles`,
-          });
-        } else if (config.profiles[profileId]?.repository === "none") {
+        if (
+          Object.hasOwn(config.profiles, profileId) &&
+          config.profiles[profileId]?.repository === "none"
+        ) {
           ctx.addIssue({
             code: "custom",
             path: ["repositories", id, "profiles", index],
@@ -462,13 +456,7 @@ export type SessionCatalog = {
  * already uses it; `runtime_unsupported` is this image's worker lacking the
  * runtime or its mode.
  */
-export type InstallationProfileState =
-  | "usable"
-  | "retired"
-  | "connection_missing"
-  | "unattended_off"
-  | "definition_drift"
-  | "runtime_unsupported";
+export type InstallationProfileState = ContractInstallationProfileState;
 
 export type InstallationProfileEntry = {
   id: string;
@@ -476,6 +464,12 @@ export type InstallationProfileEntry = {
   state: InstallationProfileState;
   /** Repositories a console ceiling runs against beside `repositories.<id>.profiles`. */
   repository_ids: readonly string[];
+  /** The row as stored, for listing; absent in a snapshot built without rows. */
+  record?: InstallationProfileRecord | undefined;
+  /** The row's definition when it still parses, whatever the state. */
+  definition?: CatalogProfileConfig | undefined;
+  /** The connection its provider is, when it is one. */
+  connection_id?: string | null | undefined;
 };
 
 /** Every installation ceiling this process has read, by id. */
@@ -505,7 +499,9 @@ export type WorkspaceProfileRecord = {
   base_runtime_version: string;
   base_billing: "metered" | "none";
   base_repository_mode: RepositoryMode;
+  created_by: string;
   created_at: Date;
+  retired_by: string | null;
   retired_at: Date | null;
 };
 
@@ -713,9 +709,12 @@ export function workspaceProfileState(
     ? catalog.profiles[record.base_profile_id]
     : undefined;
   if (!base) return "base_missing";
-  return baseHolds(derivationPolicyOf(catalog), base, record)
-    ? "usable"
-    : "base_changed";
+  if (!baseHolds(derivationPolicyOf(catalog), base, record)) {
+    return "base_changed";
+  }
+  return catalog.installation?.get(record.base_profile_id)?.state === "retired"
+    ? "base_retired"
+    : "usable";
 }
 
 function baseHolds(
@@ -779,14 +778,12 @@ export function workspaceProfileRefusal(
   profileId: string,
   options: { retiredAllowed?: boolean } = {},
 ): {
-  state: WorkspaceProfileState | "unknown" | "base_retired";
+  state: WorkspaceProfileState | "unknown";
   message: string;
 } | null {
-  const retiredCeiling = (id: string) =>
-    !options.retiredAllowed &&
-    catalog.installation?.get(id)?.state === "retired";
   if (!profileId.startsWith(WORKSPACE_PROFILE_PREFIX)) {
-    return retiredCeiling(profileId)
+    return !options.retiredAllowed &&
+      catalog.installation?.get(profileId)?.state === "retired"
       ? {
           state: "retired",
           message: `Profile ${profileId} is retired: pick a newer version`,
@@ -798,13 +795,11 @@ export function workspaceProfileRefusal(
     return { state: "unknown", message: `Unknown profile ${profileId}` };
   }
   const state = workspaceProfileState(catalog, record);
-  if (state === "usable" && retiredCeiling(record.base_profile_id)) {
-    return {
-      state: "base_retired",
-      message: `The base of profile ${profileId} is retired: make a new version over a newer one`,
-    };
-  }
-  if (state === "usable" || (state === "retired" && options.retiredAllowed)) {
+  if (
+    state === "usable" ||
+    (options.retiredAllowed &&
+      (state === "retired" || state === "base_retired"))
+  ) {
     return null;
   }
   return {
@@ -812,7 +807,9 @@ export function workspaceProfileRefusal(
     message:
       state === "retired"
         ? `Profile ${profileId} is retired: pick a newer version`
-        : `The operator changed or removed the base of profile ${profileId}: make a new version`,
+        : state === "base_retired"
+          ? `The base of profile ${profileId} is retired: make a new version over a newer one`
+          : `The operator changed or removed the base of profile ${profileId}: make a new version`,
   };
 }
 

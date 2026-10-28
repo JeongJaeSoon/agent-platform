@@ -247,7 +247,9 @@ describe("a session pinned to an agent release", () => {
       base_runtime_version: "0.3.270",
       base_billing: "metered",
       base_repository_mode: "required",
+      created_by: "019a0000-0000-7000-8000-0000000000b1",
       created_at: new Date("2026-10-27T00:00:00Z"),
+      retired_by: null,
       retired_at: null,
     };
     const { service, caller, accepted } = setup({

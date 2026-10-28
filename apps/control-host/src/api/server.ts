@@ -53,6 +53,7 @@ import {
   createApiKeyService,
   createAuthorizationPolicy,
   createCredentialBindingService,
+  createInstallationProfileService,
   createInterruptService,
   createInviteService,
   createLinkedAccountService,
@@ -111,6 +112,7 @@ import {
 } from "./auth.ts";
 import {
   DEFAULT_CONFIG_DIR,
+  installedRuntimes,
   loadProfileSources,
   loadSecretKey,
   SECRET_KEY_SETTING,
@@ -224,6 +226,12 @@ const catalogSource = {
   readSecret: secretsManagerReader(process.env),
 };
 const profileSources = await loadProfileSources(catalogSource);
+if (Object.keys(profileSources.connections).length === 0) {
+  logger.warn(
+    "No provider connections: add connections.yaml (or profiles.yaml) to PLATFORM_CONFIG_DIR; no profile runs until then",
+    {},
+  );
+}
 const secretKey = await loadSecretKey(catalogSource);
 if (secretKey === null) {
   logger.warn(
@@ -297,8 +305,9 @@ const refreshWorkspaceProfiles = (): void => {
       });
     });
 };
-// Until the import lands this replica runs its own YAML alone, as the
-// YAML-only image did; the registry is read only after it.
+// The registry runs only what the database holds. Until the first read a
+// profile id it does not know reads the database itself, so a request
+// waits on that read rather than this one.
 const PROFILE_IMPORT_RETRY_MS = 30_000;
 const importProfiles = (): void => {
   importCatalogProfiles(installationProfileStore, profileSources.config, logger)
@@ -610,6 +619,14 @@ const workspaceProfiles = createWorkspaceProfileService({
   store: workspaceProfileStore,
   catalog,
 });
+const installationProfiles = createInstallationProfileService({
+  authorization,
+  store: installationProfileStore,
+  catalog,
+  connections: profileSources.connections,
+  allowUnattended: profileSources.sources.allowUnattended,
+  runtimes: installedRuntimes,
+});
 const agentAdmins = createAgentAdminService({
   authorization,
   store: createPostgresAgentAdminStore(db),
@@ -799,7 +816,7 @@ const app = createApiApp({
     registerCloseRoutes(router, sessions);
     registerReceiptRoutes(router, sessions);
     registerUsageRoutes(router, usage);
-    registerProfileRoutes(router, workspaceProfiles);
+    registerProfileRoutes(router, workspaceProfiles, installationProfiles);
     registerPendingRoutes(router, pendingRequests);
     registerPushRequestRoutes(router, pushRequests);
     registerPullRequestRoutes(router, pullRequests);

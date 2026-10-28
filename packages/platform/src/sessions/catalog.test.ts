@@ -470,10 +470,8 @@ describe("catalog config schema", () => {
     ).toThrow(/profiles\.p\.provider\.auth\.kind: /);
   });
 
-  test("an empty catalog is refused: a host that can run nothing is a misconfiguration", () => {
-    expect(() => load({ profiles: {}, repositories: {} })).toThrow(
-      /profiles: at least one profile is required/,
-    );
+  test("no profiles is a catalog: the database holds them, and the file only seeds it", () => {
+    expect(load({ profiles: {}, repositories: {} }).profiles).toEqual({});
     expect(() => load(config(configured, {}))).toThrow(
       /repositories: at least one repository is required/,
     );
@@ -485,7 +483,7 @@ describe("catalog config schema", () => {
     expect(repositoryModeOf(catalog.profiles.p as CatalogProfile)).toBe("none");
   });
 
-  test("a repository must name the profiles allowed against it, and only real ones", () => {
+  test("a repository must name the profiles allowed against it; one this file lacks may be another's row", () => {
     expect(() =>
       load(config(configured, { app: { ...repository, profiles: [] } })),
     ).toThrow(/repositories\.app\.profiles/);
@@ -493,13 +491,10 @@ describe("catalog config schema", () => {
     expect(() => load(config(configured, { app: withoutList }))).toThrow(
       /repositories\.app\.profiles/,
     );
-    expect(() =>
-      load(
-        config(configured, { app: { ...repository, profiles: ["p", "q"] } }),
-      ),
-    ).toThrow(
-      /repositories\.app\.profiles\.1: names profile q, which is not in profiles/,
-    );
+    expect(
+      load(config(configured, { app: { ...repository, profiles: ["p", "q"] } }))
+        .repositories.app?.profiles,
+    ).toEqual(["p", "q"]);
   });
 
   test("a URL carrying a credential is refused; login names without one are not", () => {

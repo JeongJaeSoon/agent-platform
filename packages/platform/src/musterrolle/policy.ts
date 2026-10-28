@@ -255,6 +255,7 @@ export const MANAGEMENT_ROLES: Partial<
   "session.admin_list": ["owner", "admin"],
   "usage.installation_read": ["owner"],
   "usage.agent_read": ["owner", "admin"],
+  "profile.installation.manage": ["owner"],
 };
 
 const WORKSPACE_MANAGERS: readonly WorkspaceRole[] = ["owner", "admin"];

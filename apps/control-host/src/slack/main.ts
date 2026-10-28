@@ -152,7 +152,7 @@ export function slackProfileCatalog(
     createProfileRegistry({
       workspaces: createPostgresWorkspaceProfileStore(db),
       installations: createPostgresInstallationProfileStore(db),
-      sources: profileViewSources(config, connections, environment),
+      sources: profileViewSources(connections, environment),
     }),
   );
 }

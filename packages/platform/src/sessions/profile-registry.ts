@@ -74,7 +74,8 @@ export function differingDefinitionFields(
     .sort();
 }
 
-function definitionFingerprint(
+/** The fingerprint a ceiling row stores for `definition` under `id`. */
+export function definitionFingerprint(
   id: string,
   definition: CatalogProfileConfig,
 ): string {
@@ -94,8 +95,6 @@ export type InstallationSnapshot<P extends CatalogProfileView> = {
 };
 
 export type SnapshotSources<P extends CatalogProfileView> = {
-  /** This replica's `profiles.yaml`: its ids resolve from it, not the database. */
-  own: SessionCatalogConfig["profiles"];
   connections: Connections;
   allowUnattended: boolean;
   runtimeSupported: (profile: CatalogProfileConfig) => boolean;
@@ -104,43 +103,39 @@ export type SnapshotSources<P extends CatalogProfileView> = {
 };
 
 /**
- * The ceilings `rows` and this replica's own YAML run here. An id in both
- * runs the YAML value (the expansion stage: the replica's YAML is its
- * record), keeping the row's retirement. A row runs nothing when its
- * provider is no connection here, it needs the unattended switch this
- * process has off, no installed runtime serves it, or it no longer parses
- * to its stored fingerprint.
+ * The ceilings `rows` run here; the database is their only record. A row
+ * runs nothing when its provider is no connection here, it needs the
+ * unattended switch this process has off, no installed runtime serves it,
+ * or it no longer parses to its stored fingerprint.
  */
 export function installationProfileSnapshot<P extends CatalogProfileView>(
   sources: SnapshotSources<P>,
   rows: readonly InstallationProfileRecord[],
 ): InstallationSnapshot<P> {
-  const connections = new Set(
-    Object.values(sources.connections).map((provider) =>
-      canonicalJson(provider),
-    ),
-  );
-  const stored = new Map(rows.map((row) => [row.id, row]));
-  // The YAML's own order first, as the YAML-only image listed them.
-  const ids = new Set([
-    ...Object.keys(sources.own),
-    ...[...stored.keys()].sort(),
-  ]);
+  // The first id in name order, when two connections are the same provider.
+  const connections = new Map<string, string>();
+  for (const id of Object.keys(sources.connections).sort()) {
+    const key = canonicalJson(sources.connections[id]);
+    if (!connections.has(key)) connections.set(key, id);
+  }
   const profiles: Record<string, P> = {};
   const installation = new Map<string, InstallationProfileEntry>();
-  for (const id of ids) {
-    const row = stored.get(id);
-    const own = Object.hasOwn(sources.own, id) ? sources.own[id] : undefined;
-    const origin = own !== undefined ? "catalog" : (row?.origin ?? "catalog");
-    const retired = row?.origin === origin && row.retired_at !== null;
-    const definition = own ?? storedDefinition(id, row);
+  for (const row of rows) {
+    const { id } = row;
+    const parsed = parsedDefinition(row);
+    const definition = storedDefinition(id, row, parsed);
     const entry = (state: InstallationProfileState) => {
       installation.set(id, {
         id,
-        origin,
+        origin: row.origin,
         state,
-        repository_ids:
-          origin === "console" ? [...(row?.repository_ids ?? [])] : [],
+        repository_ids: row.origin === "console" ? [...row.repository_ids] : [],
+        record: row,
+        definition: parsed ?? undefined,
+        connection_id:
+          parsed === null
+            ? null
+            : (connections.get(canonicalJson(parsed.provider)) ?? null),
       });
     };
     if (definition === null) {
@@ -172,23 +167,50 @@ export function installationProfileSnapshot<P extends CatalogProfileView>(
       continue;
     }
     profiles[id] = profile;
-    entry(retired ? "retired" : "usable");
+    entry(row.retired_at !== null ? "retired" : "usable");
   }
   return { profiles, installation };
+}
+
+function parsedDefinition(
+  row: InstallationProfileRecord,
+): CatalogProfileConfig | null {
+  const parsed = catalogProfileConfigSchema.safeParse(row.definition);
+  return parsed.success ? parsed.data : null;
 }
 
 // A row runs only while it parses as written and hashes as it did then.
 function storedDefinition(
   id: string,
-  row: InstallationProfileRecord | undefined,
+  row: InstallationProfileRecord,
+  parsed: CatalogProfileConfig | null,
 ): CatalogProfileConfig | null {
-  if (!row) return null;
-  const parsed = catalogProfileConfigSchema.safeParse(row.definition);
-  if (!parsed.success) return null;
-  return definitionFingerprint(id, parsed.data) === row.fingerprint &&
-    parsed.data.permission_mode === row.permission_mode
-    ? parsed.data
+  if (parsed === null) return null;
+  return definitionFingerprint(id, parsed) === row.fingerprint &&
+    parsed.permission_mode === row.permission_mode
+    ? parsed
     : null;
+}
+
+/**
+ * `profiles.yaml` entries as the rows importing them would be, for a
+ * comparison made before (or without) the import.
+ */
+export function catalogRows(
+  profiles: SessionCatalogConfig["profiles"],
+): InstallationProfileRecord[] {
+  return catalogImports(profiles).map((entry) => ({
+    ...entry,
+    name: null,
+    version: 1,
+    origin: "catalog",
+    repository_ids: [],
+    previous_id: null,
+    created_by: null,
+    created_at: new Date(0),
+    retired_at: null,
+    retired_by: null,
+  }));
 }
 
 /** Ids among `snapshot` that this replica leaves out, with why. */

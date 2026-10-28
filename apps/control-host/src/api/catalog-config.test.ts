@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   catalogConnections,
+  catalogRows,
   installationProfileSnapshot,
   profileFingerprint,
   profilePinned,
@@ -224,16 +225,19 @@ describe("unattended permission modes", () => {
   // is left out the same way: the rest of the catalog still runs.
   test("a profile that skips approval is left out until the installation allows it", async () => {
     expect(bypass).not.toBe(PROFILES);
-    const { catalog, sources } = await loadProfileSources({
+    const { config, sources } = await loadProfileSources({
       dir: await dirWith({ [PROFILES_FILE]: bypass }),
       env: { PROVIDER_KEY: ENV_VALUE },
       readSecret: secrets,
     });
-    expect(Object.keys(catalog.profiles)).toEqual(["claude-coding-v1"]);
-    expect(
-      installationProfileSnapshot(sources, []).installation.get("from-secrets")
-        ?.state,
-    ).toBe("unattended_off");
+    const imported = installationProfileSnapshot(
+      sources,
+      catalogRows(config.profiles),
+    );
+    expect(Object.keys(imported.profiles)).toEqual(["claude-coding-v1"]);
+    expect(imported.installation.get("from-secrets")?.state).toBe(
+      "unattended_off",
+    );
   });
 
   test("anything but the literal true keeps it out", async () => {
@@ -371,11 +375,10 @@ describe("installed runtimes", () => {
         [
           ...installationProfileSnapshot(
             profileViewSources(
-              config,
               catalogConnections(config.profiles, undefined),
               env,
             ),
-            [],
+            catalogRows(config.profiles),
           ).installation.values(),
         ].map((entry) => [entry.id, entry.state]),
       );

@@ -7,6 +7,7 @@ import {
   type Connections,
   catalogImports,
   catalogRevision,
+  catalogRows,
   differingDefinitionFields,
   type InstallationProfileRecord,
   type InstallationProfileStore,
@@ -57,13 +58,15 @@ export type ImportCheck = {
  * one, sees the same profiles and the same revision.
  */
 export function checkCatalogImport<P extends CatalogProfileView>(input: {
+  /** This replica's `profiles.yaml`. */
+  own: SessionCatalogConfig["profiles"];
   sources: SnapshotSources<P>;
   repositories: Record<string, CatalogRepository>;
   rows: readonly InstallationProfileRecord[];
 }): ImportCheck {
   const { sources, rows } = input;
   const byId = new Map(rows.map((row) => [row.id, row]));
-  const conflicts = catalogImports(sources.own).flatMap((entry) => {
+  const conflicts = catalogImports(input.own).flatMap((entry) => {
     const row = byId.get(entry.id);
     if (!row) return [];
     const fields = differingDefinitionFields(row.definition, entry.definition);
@@ -71,16 +74,12 @@ export function checkCatalogImport<P extends CatalogProfileView>(input: {
       ? [{ id: entry.id, origin: row.origin, fields }]
       : [];
   });
-  const own = new Set(Object.keys(sources.own));
+  const own = new Set(Object.keys(input.own));
   const databaseOnly = rows
     .filter((row) => row.origin === "catalog" && !own.has(row.id))
     .map((row) => row.id);
   const yamlOnly = [...own].filter((id) => !byId.has(id)).sort();
-  // Every row, as a replica without this YAML would resolve it.
-  const fromDatabase = installationProfileSnapshot(
-    { ...sources, own: {} },
-    rows,
-  );
+  const fromDatabase = installationProfileSnapshot(sources, rows);
   const connectionMissing = [...fromDatabase.installation.values()]
     .filter((entry) => entry.state === "connection_missing")
     .map((entry) => entry.id);
@@ -95,7 +94,9 @@ export function checkCatalogImport<P extends CatalogProfileView>(input: {
     databaseOnly,
     yamlOnly,
     connectionMissing,
-    yamlRevision: revisionOf(installationProfileSnapshot(sources, [])),
+    yamlRevision: revisionOf(
+      installationProfileSnapshot(sources, catalogRows(input.own)),
+    ),
     databaseRevision: revisionOf(fromDatabase),
   };
 }

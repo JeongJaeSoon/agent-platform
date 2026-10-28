@@ -20,6 +20,7 @@ import {
   refreshWorkspaceProfilesFor,
   repositoryModeOf,
   type SessionCatalogView,
+  sessionCatalogView,
   type WorkspaceProfileRecord,
   type WorkspaceProfiles,
   workspaceProfileState,
@@ -129,9 +130,56 @@ function workspaceSummary(
       version: record.version,
       base_profile_id: record.base_profile_id,
       state: workspaceProfileState(catalog, record),
+      created_by: record.created_by,
       created_at: record.created_at.toISOString(),
+      retired_by: record.retired_by,
       retired_at: record.retired_at?.toISOString() ?? null,
     },
+  };
+}
+
+/**
+ * An installation ceiling as listed, whatever its state: one that does not
+ * run here is described from its stored definition. Undefined for an id
+ * with neither (a row that no longer parses).
+ */
+export function operatorSummary(
+  catalog: SessionCatalogView,
+  id: string,
+): ProfileSummary | undefined {
+  const entry = catalog.installation?.get(id);
+  const profile = Object.hasOwn(catalog.profiles, id)
+    ? catalog.profiles[id]
+    : entry?.definition &&
+      sessionCatalogView({
+        profiles: { [id]: entry.definition },
+        repositories: {},
+      }).profiles[id];
+  if (!profile) return undefined;
+  const record = entry?.record;
+  return {
+    ...summaryOf(catalog, id, id, profile),
+    source: "operator",
+    ...(entry && record
+      ? {
+          installation: {
+            name: record.name,
+            version: record.version,
+            origin: record.origin,
+            state: entry.state,
+            connection_id: entry.connection_id ?? null,
+            title_model: profile.title_model ?? null,
+            project_settings: profile.project_settings ?? {
+              claude_md: false,
+            },
+            previous_id: record.previous_id,
+            created_by: record.created_by,
+            created_at: record.created_at.toISOString(),
+            retired_by: record.retired_by,
+            retired_at: record.retired_at?.toISOString() ?? null,
+          },
+        }
+      : {}),
   };
 }
 
@@ -142,12 +190,15 @@ export function listCatalogProfiles(
 ): ListProfilesResponse {
   const byId = (a: { id: string }, b: { id: string }) =>
     a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-  const operator = Object.entries(catalog.profiles).map(
-    ([id, profile]): ProfileSummary => ({
-      ...summaryOf(catalog, id, id, profile),
-      source: "operator",
-    }),
-  );
+  const operator = [
+    ...new Set([
+      ...Object.keys(catalog.profiles),
+      ...(catalog.installation?.keys() ?? []),
+    ]),
+  ].flatMap((id) => {
+    const summary = operatorSummary(catalog, id);
+    return summary ? [summary] : [];
+  });
   const workspace =
     workspaceId === null
       ? []
@@ -225,14 +276,17 @@ export function createWorkspaceProfileService(deps: {
       const base = Object.hasOwn(catalog.profiles, request.base_profile_id)
         ? catalog.profiles[request.base_profile_id]
         : undefined;
-      if (
-        catalog.installation?.get(request.base_profile_id)?.state === "retired"
-      ) {
+      const baseState = catalog.installation?.get(
+        request.base_profile_id,
+      )?.state;
+      if (baseState !== undefined && baseState !== "usable") {
         throw new SessionServiceError(
           "BAD_REQUEST",
-          `Operator profile ${request.base_profile_id} is retired: pick a newer version`,
+          baseState === "retired"
+            ? `Operator profile ${request.base_profile_id} is retired: pick a newer version`
+            : `Operator profile ${request.base_profile_id} does not run here (${baseState}): pick a usable one`,
           undefined,
-          { reason_code: "retired", field: "base_profile_id" },
+          { reason_code: baseState, field: "base_profile_id" },
         );
       }
       if (!base) {

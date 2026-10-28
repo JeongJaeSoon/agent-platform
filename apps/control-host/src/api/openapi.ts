@@ -42,6 +42,7 @@ import {
   createApiKeyResponseSchema,
   createCredentialBindingRequestSchema,
   createCredentialBindingResponseSchema,
+  createInstallationProfileRequestSchema,
   createInviteRequestSchema,
   createInviteResponseSchema,
   createPushRequestRequestSchema,
@@ -64,6 +65,8 @@ import {
   googleLoginCallbackRequestSchema,
   healthResponseSchema,
   installationLimitsResponseSchema,
+  installationProfileIdParamsSchema,
+  installationProfileOptionsResponseSchema,
   interruptSessionRequestSchema,
   inviteIdParamsSchema,
   issuePasswordResetRequestSchema,
@@ -268,6 +271,7 @@ const requestComponents = {
   CreateApiKeyRequest: createApiKeyRequestSchema,
   CreateTeamRequest: createTeamRequestSchema,
   CreateWorkspaceProfileRequest: createWorkspaceProfileRequestSchema,
+  CreateInstallationProfileRequest: createInstallationProfileRequestSchema,
   SetSessionShareRequest: setSessionShareRequestSchema,
   AuditReadRequest: auditReadRequestSchema,
   AdminTerminateSessionRequest: adminTerminateSessionRequestSchema,
@@ -354,6 +358,7 @@ const responseComponents = {
   CountAgentsResponse: countAgentsResponseSchema,
   ListProfilesResponse: listProfilesResponseSchema,
   WorkspaceProfileChangeResponse: workspaceProfileChangeResponseSchema,
+  InstallationProfileOptionsResponse: installationProfileOptionsResponseSchema,
   AgentDetail: agentDetailSchema,
   CreateAgentReleaseResponse: createAgentReleaseResponseSchema,
   ActivateAgentResponse: activateAgentResponseSchema,
@@ -642,7 +647,37 @@ const WORKSPACE_PROFILE_EXAMPLE = {
     version: 2,
     base_profile_id: "claude-coding-real",
     state: "usable",
+    created_by: "019a0000-0000-7000-8000-0000000000b1",
     created_at: "2026-10-27T01:00:00.000Z",
+    retired_by: null,
+    retired_at: null,
+  },
+} as const;
+
+const INSTALLATION_PROFILE_EXAMPLE = {
+  id: "op_coding_v2",
+  source: "operator",
+  model: "claude-sonnet-5",
+  models: ["claude-sonnet-5", "claude-haiku-5"],
+  tools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+  permission_mode: "acceptEdits",
+  runtime_kind: "claude_agent_sdk",
+  runtime_version: "0.3.270",
+  billing: "metered",
+  repository_mode: "required",
+  repository_ids: ["sample-app"],
+  installation: {
+    name: "coding",
+    version: 2,
+    origin: "console",
+    state: "usable",
+    connection_id: "anthropic-main",
+    title_model: "claude-haiku-5",
+    project_settings: { claude_md: true },
+    previous_id: "op_coding_v1",
+    created_by: "019a0000-0000-7000-8000-0000000000b1",
+    created_at: "2026-10-28T01:00:00.000Z",
+    retired_by: null,
     retired_at: null,
   },
 } as const;
@@ -1259,6 +1294,7 @@ export const API_ROUTE_DECLARATIONS = [
           "session.admin_list",
           "usage.installation_read",
           "usage.agent_read",
+          "profile.installation.manage",
         ],
       },
     },
@@ -3406,7 +3442,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The runtime profiles this workspace can run",
     description:
-      "Lists the profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`: the operator's (`source: operator`, from the catalog config read at startup) and the caller's workspace's (`source: workspace`, ids starting `ws_`), each with the models it offers, its tools, permission mode and `repository_mode`: whether a session of it names a repository (`required`), may (`optional`) or never does (`none`). A workspace profile lists every version, each with its `workspace.state`; only `usable` takes a new release or session. A profile's provider endpoint and credential are not included.",
+      "Lists the profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`: the installation ceilings (`source: operator`, imported from `profiles.yaml` or saved by the operator, each with an `installation` object) and the caller's workspace's (`source: workspace`, ids starting `ws_`), each with the models it offers, its tools, permission mode and `repository_mode`: whether a session of it names a repository (`required`), may (`optional`) or never does (`none`). Every ceiling and every workspace version is listed with its state (`installation.state`, `workspace.state`); only `usable` takes a new release or session. A profile's provider endpoint and credential are not included.",
     scope: "read",
     success: {
       status: 200,
@@ -3427,6 +3463,7 @@ export const API_ROUTE_DECLARATIONS = [
             billing: "metered",
             repository_mode: "required",
           },
+          INSTALLATION_PROFILE_EXAMPLE,
           WORKSPACE_PROFILE_EXAMPLE,
         ],
       },
@@ -3487,6 +3524,109 @@ export const API_ROUTE_DECLARATIONS = [
           },
         },
         receipt_id: "019a0000-0000-7000-8000-0000000000e2",
+      },
+    },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/installation-profiles/options",
+    operationId: "getInstallationProfileOptions",
+    tag: "Agents",
+    summary: "What a new installation ceiling may name",
+    description:
+      "The operator (`profile.installation.manage`, the workspace owner), signed in. The installation's connections by id, `kind` and `billing` (never an endpoint or a credential reference), the installed runtimes with the permission modes each accepts, the catalog repositories, and whether `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` lets a ceiling run `bypassPermissions` here.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "InstallationProfileOptionsResponse",
+      description: "What a new ceiling may name on this installation.",
+      example: {
+        connections: [
+          { id: "anthropic-main", kind: "anthropic", billing: "metered" },
+        ],
+        runtimes: [
+          {
+            runtime_kind: "claude_agent_sdk",
+            permission_modes: [
+              "default",
+              "acceptEdits",
+              "dontAsk",
+              "plan",
+              "bypassPermissions",
+              "auto",
+            ],
+          },
+        ],
+        repositories: [{ id: "sample-app" }],
+        unattended_allowed: false,
+      },
+    },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/installation-profiles",
+    operationId: "createInstallationProfile",
+    tag: "Agents",
+    summary: "Save a new version of an installation ceiling",
+    description:
+      "The operator (`profile.installation.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Saves the next version of `name` with a new id (`op_<name>_v<n>`) on the connection `connection_id`, whose provider the server copies in; earlier versions, and the workspace profiles and releases on them, stay as they were. A new version of an existing name sends that name's latest id as `previous_id`; anything else is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`), as is the second of two saves at once. A first version may name the ceiling it replaces in `previous_id` (400 `unknown_previous` when there is none). 400 `details.reason_code`: `unknown_connection`, `runtime_not_installed`, `unattended_not_allowed` (`bypassPermissions` while `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` is not `true`), `unknown_repository`, `model_not_in_models` or `invalid_profile`, each with `details.field`. 409 `details.reason_code: id_taken` when the id is already an imported profile's. A ceiling saved with `repository_ids` runs against those repositories beside the ones `repositories.yaml` lists it under. Writes a `create_installation_profile` receipt.",
+    auth: "session",
+    body: "CreateInstallationProfileRequest",
+    requestExample: {
+      name: "coding",
+      connection_id: "anthropic-main",
+      runtime_kind: "claude_agent_sdk",
+      runtime_version: "0.3.270",
+      model: "claude-sonnet-5",
+      models: ["claude-sonnet-5", "claude-haiku-5"],
+      title_model: "claude-haiku-5",
+      tools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+      permission_mode: "acceptEdits",
+      project_settings: { claude_md: true },
+      repository_mode: "required",
+      repository_ids: ["sample-app"],
+      previous_id: "op_coding_v1",
+    },
+    success: {
+      status: 201,
+      schema: "WorkspaceProfileChangeResponse",
+      description: "The ceiling saved, and its receipt.",
+      example: {
+        profile: INSTALLATION_PROFILE_EXAMPLE,
+        receipt_id: "019a0000-0000-7000-8000-0000000000e3",
+      },
+    },
+    errors: [400, 401, 403, 409, 413, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/installation-profiles/{profile_id}/retire",
+    operationId: "retireInstallationProfile",
+    tag: "Agents",
+    summary: "Retire an installation ceiling",
+    description:
+      "The operator (`profile.installation.manage`, the workspace owner), signed in. Any ceiling, imported or saved in the console. A retired ceiling takes no new release, no session without a release and no new workspace profile over it, and a workspace profile over it reads `base_retired`; releases already made on either, and their sessions, keep running. Retiring one already retired changes nothing and answers a null `receipt_id`; otherwise writes a `retire_installation_profile` receipt.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "WorkspaceProfileChangeResponse",
+      description: "The ceiling as retired.",
+      example: {
+        profile: {
+          ...INSTALLATION_PROFILE_EXAMPLE,
+          installation: {
+            ...INSTALLATION_PROFILE_EXAMPLE.installation,
+            state: "retired",
+            retired_by: "019a0000-0000-7000-8000-0000000000b1",
+            retired_at: "2026-10-28T02:00:00.000Z",
+          },
+        },
+        receipt_id: "019a0000-0000-7000-8000-0000000000e4",
       },
     },
     errors: [401, 403, 404, 503],
@@ -3969,6 +4109,8 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path.startsWith("/v1/teams/{team_id}")) return teamIdParamsSchema;
   if (path.startsWith("/v1/workspace-profiles/{profile_id}"))
     return workspaceProfileIdParamsSchema;
+  if (path.startsWith("/v1/installation-profiles/{profile_id}"))
+    return installationProfileIdParamsSchema;
   if (path.startsWith("/v1/workspaces/{id}/members/{userId}"))
     return memberParamsSchema;
   if (path.includes("{app_id}/secrets/{purpose}"))
