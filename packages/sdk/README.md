@@ -21,7 +21,7 @@ console.log(turn.status);
 ```
 
 - 사용 안내: [TypeScript SDK](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/sdk.md)
-- 에이전트 key와 별도 승인자로 세션을 돌리는 샘플: [examples/sdk-approver](https://github.com/JeongJaeSoon/agent-platform/tree/main/examples/sdk-approver)
+- 유즈케이스별 샘플(세션 목록, 이벤트 스트림, 재시도, 질문·권한 답변, 세션 제어, close, push): [examples](https://github.com/JeongJaeSoon/agent-platform/tree/main/examples)
 - HTTP API 규칙: [API 유즈케이스 가이드](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/api-guide.md)
 
 ## 라이선스

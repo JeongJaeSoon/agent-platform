@@ -15,7 +15,8 @@ export type ApiClient = Client<paths>;
  */
 export interface ApiClientOptions extends ContractOptions {
   readonly baseUrl?: string;
-  readonly fetch?: typeof fetch;
+  /** Called with one Request, as openapi-fetch does; `fetch` itself fits. */
+  readonly fetch?: (input: Request) => Promise<Response>;
   /** Defaults to same-origin, the web console's login cookie. */
   readonly credentials?: "omit" | "same-origin" | "include";
   /** Sent with every request and every event stream. */

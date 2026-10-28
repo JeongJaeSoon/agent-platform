@@ -14,7 +14,7 @@ on:
       - packages/sdk/**
       - packages/client/**
       - packages/contracts/**
-      - examples/sdk-approver/**
+      - examples/**
       - scripts/sdk-pack-smoke.ts
       - bun.lock
       - .github/actions/bun-setup/**
@@ -63,7 +63,7 @@ jobs:
             exit 1
           fi
       - run: bun install --frozen-lockfile
-      - run: bun test packages/sdk examples/sdk-approver
+      - run: bun test packages/sdk examples
       - name: SDK_VERSION matches package.json
         run: |
           version=$(node -p 'require("./packages/sdk/package.json").version')
