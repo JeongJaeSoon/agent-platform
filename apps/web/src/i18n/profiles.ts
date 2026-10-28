@@ -213,6 +213,20 @@ export const profilesKo = {
     "이미 이 상한을 쓰는 릴리스와 세션, 그 위의 워크스페이스 프로필은 계속 동작합니다. 새 릴리스·세션·워크스페이스 프로필은 이 상한을 고를 수 없습니다. 사용 중지는 되돌릴 수 없습니다.",
   "profiles.retiring": "사용 중지하는 중…",
   "profiles.retired": "{id} 버전을 사용 중지했습니다.",
+  "profiles.block": "차단",
+  "profiles.unblock": "차단 해제",
+  "profiles.blockTitle": "설치 상한 {id}을(를) 차단할까요?",
+  "profiles.unblockTitle": "설치 상한 {id}의 차단을 해제할까요?",
+  "profiles.blockText":
+    "이 상한과 그 위의 워크스페이스 프로필로는 새 릴리스와 세션을 만들 수 없습니다. 이미 쓰는 세션도 다음 턴에서 멈추고, 지금 도는 턴은 모델·저장소 요청이 1초 남짓 안에 끊깁니다. 해제할 수 있지만 멈춘 턴은 다시 돌지 않습니다.",
+  "profiles.unblockText":
+    "이 상한을 다시 고를 수 있습니다. 차단 중에 멈춘 세션과 턴은 저절로 다시 돌지 않으니, 필요한 세션에는 새 메시지를 보내세요.",
+  "profiles.blocking": "차단하는 중…",
+  "profiles.unblocking": "차단을 해제하는 중…",
+  "profiles.blockDone": "설치 상한 {id}을(를) 차단했습니다.",
+  "profiles.unblockDone": "설치 상한 {id}의 차단을 해제했습니다.",
+  "profiles.blockOwnerOnly":
+    "설치 상한은 워크스페이스 owner만 차단하고 해제할 수 있습니다.",
   "profiles.open": "{name} 자세히 보기",
   "profiles.detail.notFound.title": "프로필을 찾을 수 없습니다",
   "profiles.detail.notFound.text":
@@ -482,6 +496,20 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
     "Releases, sessions and workspace profiles already on this ceiling keep running. New releases, sessions and workspace profiles cannot pick it. Turning it off cannot be undone.",
   "profiles.retiring": "Turning off…",
   "profiles.retired": "Turned off version {id}.",
+  "profiles.block": "Block",
+  "profiles.unblock": "Unblock",
+  "profiles.blockTitle": "Block installation ceiling {id}?",
+  "profiles.unblockTitle": "Unblock installation ceiling {id}?",
+  "profiles.blockText":
+    "No new release or session can use this ceiling or the workspace profiles over it. Sessions already on it stop at their next turn, and a running turn loses its model and repository requests within about a second. You can unblock it, but a stopped turn does not run again.",
+  "profiles.unblockText":
+    "This ceiling can be picked again. Sessions and turns stopped while it was blocked do not run again on their own: send those sessions a new message.",
+  "profiles.blocking": "Blocking…",
+  "profiles.unblocking": "Unblocking…",
+  "profiles.blockDone": "Blocked installation ceiling {id}.",
+  "profiles.unblockDone": "Unblocked installation ceiling {id}.",
+  "profiles.blockOwnerOnly":
+    "Only a workspace owner blocks and unblocks installation ceilings.",
   "profiles.open": "Open {name}",
   "profiles.detail.notFound.title": "Profile not found",
   "profiles.detail.notFound.text":
@@ -756,6 +784,20 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "すでにこの上限を使っているリリース・セッションと、その上のワークスペースのプロファイルは動き続けます。新しいリリース・セッション・ワークスペースのプロファイルではこの上限を選べません。使用停止は元に戻せません。",
   "profiles.retiring": "使用停止しています…",
   "profiles.retired": "バージョン {id} を使用停止しました。",
+  "profiles.block": "ブロック",
+  "profiles.unblock": "ブロック解除",
+  "profiles.blockTitle": "インストール上限 {id} をブロックしますか?",
+  "profiles.unblockTitle": "インストール上限 {id} のブロックを解除しますか?",
+  "profiles.blockText":
+    "この上限とその上のワークスペースのプロファイルでは、新しいリリースとセッションを作成できません。すでに使っているセッションも次のターンで止まり、いま動いているターンは 1 秒ほどでモデルとリポジトリへのリクエストが切れます。解除できますが、止まったターンは再実行されません。",
+  "profiles.unblockText":
+    "この上限を再び選べるようになります。ブロック中に止まったセッションとターンは自動では再実行されません。必要なセッションには新しいメッセージを送ってください。",
+  "profiles.blocking": "ブロックしています…",
+  "profiles.unblocking": "ブロックを解除しています…",
+  "profiles.blockDone": "インストール上限 {id} をブロックしました。",
+  "profiles.unblockDone": "インストール上限 {id} のブロックを解除しました。",
+  "profiles.blockOwnerOnly":
+    "インストール上限はワークスペースのオーナーだけがブロック・解除できます。",
   "profiles.open": "{name} の詳細を見る",
   "profiles.detail.notFound.title": "プロファイルが見つかりません",
   "profiles.detail.notFound.text":

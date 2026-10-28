@@ -56,6 +56,33 @@ describe("PageHeader", () => {
     );
   });
 
+  test("좁은 폭에서는 동작이 제목·설명 아래로 가고, 넓으면 오른쪽에 선다", () => {
+    const head = (stackBelow?: "md" | "lg") => {
+      const { container } = render(
+        <PageHeader
+          title="세션"
+          description="요약"
+          actions={<button type="button">새로 만들기</button>}
+          stackBelow={stackBelow}
+        />,
+      );
+      const header = container.querySelector('[data-slot="page-header"]');
+      return {
+        head: header?.className.split(" ") ?? [],
+        actions: header?.lastElementChild?.className.split(" ") ?? [],
+      };
+    };
+    const md = head();
+    expect(md.head).toContain("flex-col");
+    expect(md.head).toContain("md:flex-row");
+    expect(md.head).not.toContain("justify-between");
+    expect(md.actions).toContain("flex-wrap");
+    expect(md.actions).toContain("md:flex-none");
+    const lg = head("lg");
+    expect(lg.head).toContain("lg:flex-row");
+    expect(lg.head).not.toContain("md:flex-row");
+  });
+
   test("breadcrumb은 제목 위 줄에 위치 nav로 놓이고, 마지막이 지금 페이지다", () => {
     const { getByRole, container } = render(
       <PageHeader

@@ -170,7 +170,6 @@ export function ProfilesScreen() {
 
   return (
     <Page
-      headClassName="max-md:flex-col max-md:items-stretch"
       title={t("profiles.title")}
       description={t("profiles.description")}
       actions={

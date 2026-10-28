@@ -539,9 +539,11 @@ function PanelLine({
         }
       />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <p className="m-0 flex min-w-0 items-center gap-2 font-medium text-control leading-5">
-          <span className="min-w-16 truncate">{heading}</span>
-          <Badge variant="amber" className="min-w-0 max-w-max shrink">
+        {/* On a narrow line the badge goes under the title rather than
+            both being cut. */}
+        <p className="m-0 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-medium text-control leading-5">
+          <span className="min-w-16 max-w-full truncate">{heading}</span>
+          <Badge variant="amber" className="min-w-0 max-w-full shrink">
             <span className="truncate">
               {request.kind === "question"
                 ? t("session.pending.question")

@@ -28,15 +28,26 @@ export const SESSION_OVERVIEW_COLUMNS =
 /**
  * Console v4 `.t-sess`: title, status, agent · model, repository, started
  * by, recent. At 820px of table width and below, repository and started by
- * drop out for SESSION_OVERVIEW_NARROW_TEMPLATE.
+ * drop out for SESSION_OVERVIEW_NARROW_TEMPLATE; below 600px each row
+ * stacks (PHONE). The status column fits en "Waiting for an answer · 59 min";
+ * a longer wait truncates.
  */
 export const SESSION_OVERVIEW_TEMPLATE =
-  "minmax(0,2.2fr) 120px minmax(0,1.1fr) minmax(0,1.1fr) minmax(0,1fr) 72px";
+  "minmax(0,2.2fr) 200px minmax(0,1.1fr) minmax(0,1.1fr) minmax(0,1fr) 72px";
 /** v4 `.t-sess-home`: the same without the started-by column. */
 export const SESSION_OVERVIEW_HOME_TEMPLATE =
-  "minmax(0,2.2fr) 120px minmax(0,1.2fr) minmax(0,1.2fr) 72px";
+  "minmax(0,2.2fr) 200px minmax(0,1.2fr) minmax(0,1.2fr) 72px";
 export const SESSION_OVERVIEW_NARROW_TEMPLATE =
   "minmax(0,2fr) 116px minmax(0,1.2fr) 64px";
+
+// A phone's table has no room for four columns side by side: the title
+// takes the first line, status, agent and time the second, and the column
+// names stay for screen readers only.
+const PHONE = {
+  row: "[@container(width<600px)]:grid-cols-[auto_minmax(0,1fr)_auto]! [@container(width<600px)]:gap-y-1",
+  title: "[@container(width<600px)]:col-span-full",
+  header: "[@container(width<600px)]:sr-only",
+} as const;
 
 /** The id a person can tell rows apart by; the full id stays in the title. */
 export function shortSessionId(id: string): string {
@@ -88,7 +99,7 @@ export function SessionOverviewTable({
         narrowAt={820}
         narrowColumns={SESSION_OVERVIEW_NARROW_TEMPLATE}
       >
-        <GridTableHeader>
+        <GridTableHeader className={cn(PHONE.row, PHONE.header)}>
           {/* One line each: a narrow column cuts its name rather than wrap. */}
           <GridTableColumnHeader>
             <span className="truncate">{messages.session}</span>
@@ -189,9 +200,9 @@ export function SessionOverviewRow({
     <GridTableRow
       data-slot="session-overview-row"
       data-status={session.status}
-      className={className}
+      className={cn(PHONE.row, className)}
     >
-      <GridTableCell lines={true}>
+      <GridTableCell lines={true} className={PHONE.title}>
         <SessionRowOpener
           name={messages.open ? messages.open(name) : name}
           // The opener covers the row, so its hover text is the one shown.

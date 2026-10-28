@@ -108,7 +108,7 @@ auto 규칙과 스크립트 상한은 화면에 자리만 있고 아직 고칠 �
 
 ## 운영자 프로필 차단하기
 
-owner는 운영자 프로필 하나를 지금 도는 세션까지 멈출 수 있다. 사용 중지(retire)는 새 release와 세션만 막지만, 차단은 그 프로필로 도는 모든 것을 막는다. 웹 로그인 cookie로 owner만 한다. admin·member와 API key는 403이다. 아래 예제는 [만들기](/agents/create#로그인)의 `WEB` 헤더를 쓴다.
+owner는 운영자 프로필 하나를 지금 도는 세션까지 멈출 수 있다. 사용 중지(retire)는 새 release와 세션만 막지만, 차단은 그 프로필로 도는 모든 것을 막는다. 웹 로그인 cookie로 owner만 한다. admin·member와 API key는 403이다. 콘솔에서는 운영자 프로필 상세의 **차단**·**차단 해제**로 하고, 확인 창을 거친다. 아래 예제는 [만들기](/agents/create#로그인)의 `WEB` 헤더를 쓴다.
 
 ```bash
 curl -sS -X POST "$API/v1/installation-profiles/claude-coding-local/block" "${WEB[@]}" \

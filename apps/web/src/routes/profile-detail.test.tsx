@@ -96,6 +96,19 @@ function catalog(
     items[at] = retired;
     return json(200, { profile: retired, receipt_id: RECEIPT_ID });
   };
+  const setBlocked = (id: string, blocked: boolean) => {
+    const at = items.findIndex((item) => item.id === id);
+    const item = items[at] as ProfileSummary;
+    const changed: ProfileSummary = {
+      ...item,
+      installation: {
+        ...(item.installation as NonNullable<ProfileSummary["installation"]>),
+        state: blocked ? "blocked" : "usable",
+      },
+    };
+    items[at] = changed;
+    return json(200, { profile: changed, receipt_id: RECEIPT_ID });
+  };
   return {
     "GET /v1/auth/me": () => json(200, signedIn),
     "GET /v1/profiles": () => json(200, { items }),
@@ -104,6 +117,10 @@ function catalog(
       retire("ws_acme_strict_v2"),
     "POST /v1/installation-profiles/op_wide_v2/retire": () =>
       retire("op_wide_v2"),
+    "POST /v1/installation-profiles/op_wide_v2/block": () =>
+      setBlocked("op_wide_v2", true),
+    "POST /v1/installation-profiles/op_wide_v2/unblock": () =>
+      setBlocked("op_wide_v2", false),
   };
 }
 
@@ -282,6 +299,7 @@ describe("실행 프로필 상세", () => {
       "이 상한으로 프로필 만들기",
       "새 버전",
       "사용 중지",
+      "차단",
     ]);
   });
 
@@ -291,7 +309,11 @@ describe("실행 프로필 상세", () => {
       catalog([CODING, ceiling("wide", 1), ceiling("wide", 2)]),
     );
     await screen.findByRole("region", { name: "기록" });
-    expect(actions()).toEqual(["이 상한으로 프로필 만들기", "사용 중지"]);
+    expect(actions()).toEqual([
+      "이 상한으로 프로필 만들기",
+      "사용 중지",
+      "차단",
+    ]);
   });
 
   test("a ceiling followed only under another name still offers 새 버전", async () => {
@@ -309,6 +331,7 @@ describe("실행 프로필 상세", () => {
       "이 상한으로 프로필 만들기",
       "새 버전",
       "사용 중지",
+      "차단",
     ]);
   });
 
@@ -381,6 +404,57 @@ describe("실행 프로필 상세", () => {
     ).toBeDefined();
   });
 
+  test("an owner blocks a ceiling after a warning, then unblocks it from the same button", async () => {
+    const { api } = renderAt(
+      "/profiles/op_wide_v2",
+      catalog([CODING, ceiling("wide", 2)]),
+    );
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "차단" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "설치 상한 op_wide_v2을(를) 차단할까요?",
+    });
+    expect(
+      within(dialog).getByText(/이미 쓰는 세션도 다음 턴에서 멈추고/),
+    ).toBeDefined();
+    expect(api.calls.filter((call) => call.method === "POST")).toEqual([]);
+    await user.click(within(dialog).getByRole("button", { name: "차단" }));
+    await screen.findByText("설치 상한 op_wide_v2을(를) 차단했습니다.");
+    expect((await screen.findAllByText("차단됨")).length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "차단 해제" }));
+    const undo = await screen.findByRole("dialog", {
+      name: "설치 상한 op_wide_v2의 차단을 해제할까요?",
+    });
+    await user.click(within(undo).getByRole("button", { name: "차단 해제" }));
+    await screen.findByText("설치 상한 op_wide_v2의 차단을 해제했습니다.");
+    expect(
+      api.calls
+        .filter((call) => call.method === "POST")
+        .map((call) => call.path),
+    ).toEqual([
+      "/v1/installation-profiles/op_wide_v2/block",
+      "/v1/installation-profiles/op_wide_v2/unblock",
+    ]);
+  });
+
+  test("a refused block says only an owner may block", async () => {
+    renderAt("/profiles/op_wide_v2", {
+      ...catalog([CODING, ceiling("wide", 2)]),
+      "POST /v1/installation-profiles/op_wide_v2/block": () =>
+        apiError(403, "FORBIDDEN", "role"),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "차단" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "차단" }));
+    expect(
+      await within(dialog).findByText(
+        "설치 상한은 워크스페이스 owner만 차단하고 해제할 수 있습니다.",
+      ),
+    ).toBeDefined();
+  });
+
   test("an admin narrows a ceiling but neither versions nor retires it", async () => {
     renderAt(
       "/profiles/op_wide_v2",
@@ -434,7 +508,7 @@ describe("실행 프로필 상세", () => {
     expect(
       await screen.findByText(/^이 상한의 연결이 이 설치에 없어/),
     ).toBeDefined();
-    expect(actions()).toEqual(["새 버전", "사용 중지"]);
+    expect(actions()).toEqual(["새 버전", "사용 중지", "차단"]);
   });
 
   test("an unknown id says the profile is not there", async () => {
