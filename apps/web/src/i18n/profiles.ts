@@ -101,6 +101,8 @@ export const profilesKo = {
     "프로필에는 200자 이하의 이름만 담습니다. 이름이 긴 모델이나 도구를 빼고 저장하세요.",
   "profiles.error.unknownBase":
     "운영자가 그 바탕 프로필을 지웠습니다. 목록을 다시 불러오세요.",
+  "profiles.error.baseUnusable":
+    "그 바탕 프로필은 지금 쓸 수 없습니다. 사용할 수 있는 바탕 프로필을 고르세요.",
   "profiles.error.widens":
     "바탕 프로필이 허용하지 않는 값입니다. 목록을 다시 불러와 바탕 프로필을 확인하세요.",
   "profiles.error.versionTaken":
@@ -242,6 +244,8 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
     "A profile holds names of up to 200 characters. Leave out the model or tool with the long name and save again.",
   "profiles.error.unknownBase":
     "The operator removed that base profile. Reload the list.",
+  "profiles.error.baseUnusable":
+    "That base profile cannot be used now. Pick one that is usable.",
   "profiles.error.widens":
     "The base profile does not allow a value you picked. Reload the list and check the base profile.",
   "profiles.error.versionTaken":
@@ -385,6 +389,8 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "プロファイルに入る名前は 200 文字までです。名前の長いモデルやツールを外してから保存してください。",
   "profiles.error.unknownBase":
     "運営者がそのもとのプロファイルを削除しました。一覧を再読み込みしてください。",
+  "profiles.error.baseUnusable":
+    "そのもとのプロファイルはいま使えません。使えるもとのプロファイルを選んでください。",
   "profiles.error.widens":
     "もとのプロファイルが許可しない値です。一覧を再読み込みしてもとのプロファイルを確認してください。",
   "profiles.error.versionTaken":

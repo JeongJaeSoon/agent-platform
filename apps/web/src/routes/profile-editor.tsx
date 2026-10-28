@@ -34,6 +34,7 @@ import {
 import { type FormEvent, useId, useState } from "react";
 import { queryKeysOf } from "../api/queries.ts";
 import { refusalText, useRole } from "../auth/guard.tsx";
+import { ProfileOptions, pickable } from "../components/profile-options.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
 export type EditorStart =
@@ -137,6 +138,11 @@ export function ProfileEditor({
       ?.reason_code;
     if (reason === "unknown_base") return t("profiles.error.unknownBase");
     if (reason === "widens_base") return t("profiles.error.widens");
+    if (
+      (failure.details as { field?: unknown } | null)?.field ===
+      "base_profile_id"
+    )
+      return t("profiles.error.baseUnusable");
     if (failure.code === "REVISION_CONFLICT")
       return t("profiles.error.versionTaken");
     return refusalText(t, failure, "workspace.manage", role);
@@ -146,6 +152,11 @@ export function ProfileEditor({
     event.preventDefault();
     setSubmitted(true);
     if (save.isPending || !name.success || modelsError) return;
+    // A refetch can take the base out of service under the open form.
+    if (!base || !pickable(base)) {
+      setError(t("profiles.error.baseUnusable"));
+      return;
+    }
     // The operator catalog has no such caps; the request does.
     const request = workspaceProfileStep.safeParse({
       ...draft,
@@ -204,11 +215,7 @@ export function ProfileEditor({
                 if (next) setDraft(fromBase(next, draft.name));
               }}
             >
-              {operators.map((item) => (
-                <NativeSelectOption key={item.id} value={item.id}>
-                  {item.id}
-                </NativeSelectOption>
-              ))}
+              <ProfileOptions profiles={operators} label={(item) => item.id} />
             </NativeSelect>
           </Field>
         )}
