@@ -41,8 +41,8 @@ export function PageFrame({
 export type PageProps = Omit<PageHeaderProps, "className"> & {
   readonly children?: ReactNode;
   /**
-   * `form` stops the sections at `--ap-w-form` for a page that is one form
-   * or settings column; the page and its head keep the frame's width.
+   * `form` stops the page at `--ap-w-form` for a page that is one form or
+   * settings column; its head stops there too, so both end on one edge.
    */
   readonly width?: "full" | "form" | undefined;
   /** Layout for the header row, such as stacking the actions when narrow. */
@@ -61,15 +61,16 @@ export function Page({
   ...header
 }: PageProps): JSX.Element {
   return (
-    <div data-slot="page" className="flex flex-col">
+    <div
+      data-slot="page"
+      data-width={width}
+      className={cn(
+        "flex flex-col",
+        width === "form" && "w-full max-w-[var(--ap-w-form)]",
+      )}
+    >
       <PageHeader {...header} className={headClassName} />
-      <div
-        data-width={width}
-        className={cn(
-          "flex flex-col gap-[var(--ap-space-section)]",
-          width === "form" && "w-full max-w-[var(--ap-w-form)]",
-        )}
-      >
+      <div className="flex flex-col gap-[var(--ap-space-section)]">
         {children}
       </div>
     </div>
