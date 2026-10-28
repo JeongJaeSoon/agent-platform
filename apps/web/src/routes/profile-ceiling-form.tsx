@@ -484,6 +484,8 @@ export function CeilingForm({
         <Field className="w-auto max-w-full">
           <FieldLabel>{t("profiles.editor.defaultModel")}</FieldLabel>
           <NativeSelect
+            // Empty until a model is listed; keep it a field, not a sliver.
+            className="min-w-48"
             value={model}
             disabled={pending || models.length === 0}
             aria-invalid={errorOf("model") ? true : undefined}
