@@ -5,6 +5,8 @@ metadata:
   labels:
     {{- include "ap.labels" (dict "root" . "component" "api") | nindent 4 }}
 data:
+  connections.yaml: |
+    {{- dict "connections" .Values.catalog.connections | toYaml | nindent 4 }}
   profiles.yaml: |
     {{- dict "profiles" .Values.catalog.profiles | toYaml | nindent 4 }}
   repositories.yaml: |

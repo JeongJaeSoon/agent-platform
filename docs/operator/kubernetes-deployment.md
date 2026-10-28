@@ -19,7 +19,7 @@ worker Pod 하나의 메모리(`worker.memoryMb`)는 transcript 상한에 맞춰
 | egress-proxy Deployment + Service(3128, 3129) | 2 | worker의 유일한 바깥 경로 |
 | migrate Job | install·upgrade마다 1 | `pre-install,pre-upgrade` hook |
 | checkpoint GC CronJob | 주 1회 | `checkpointGc.schedule` |
-| 카탈로그 ConfigMap | 1 | `catalog.profiles`·`catalog.repositories` |
+| 카탈로그 ConfigMap | 1 | `catalog.connections`(필수)·`catalog.profiles`(빈 DB 시드)·`catalog.repositories` |
 | NetworkPolicy | 5 | worker는 egress-proxy로만 나간다. 제어 영역 Pod 중 바깥 연결을 막는 것은 slack 하나다 |
 | Ingress, ExternalSecret | 선택 | `ingress.enabled`, `secrets.externalSecret.enabled` |
 
@@ -83,7 +83,7 @@ kubectl create namespace agent-platform
 kubectl -n agent-platform create secret generic agent-platform --from-file=<secret-dir>
 ```
 
-설치별 값은 values 파일 하나에 둔다. 최소한 세 이미지의 digest, 카탈로그(`catalog.repositories`는 하나 이상), checkpoint bucket이 들어간다. 기본값과 설명은 `values.yaml`에 있다. 같은 명령이 처음 설치와 업그레이드를 모두 한다. **kind**(`-f deploy/kind/values.yaml -f <digest만 담은 파일>`)
+설치별 값은 values 파일 하나에 둔다. 최소한 세 이미지의 digest, 카탈로그(`catalog.connections`와 `catalog.repositories`는 하나 이상), checkpoint bucket이 들어간다. `catalog.connections`가 없으면 api와 slack이 `connections.yaml is missing`으로 뜨지 않는다. 기본값과 설명은 `values.yaml`에 있다. 같은 명령이 처음 설치와 업그레이드를 모두 한다. **kind**(`-f deploy/kind/values.yaml -f <digest만 담은 파일>`)
 
 ```bash
 helm upgrade --install agent-platform deploy/helm/agent-platform \

@@ -76,9 +76,20 @@ serviceAccounts:
     annotations: {}
 
 # The operator catalog, mounted at PLATFORM_CONFIG_DIR. Same schema as
-# config/profiles.yaml and config/repositories.yaml; an invalid catalog stops
-# the api.
+# config/connections.yaml, config/profiles.yaml and config/repositories.yaml;
+# an invalid catalog stops the api.
 catalog:
+  # Required: the api and slack do not start without connections.yaml. A
+  # ceiling runs only while its provider equals one entry here.
+  connections:
+    anthropic:
+      kind: anthropic
+      endpoint: https://api.anthropic.com
+      auth:
+        kind: api_key
+        value_env: ANTHROPIC_API_KEY
+  # Seeds an empty database only; once it holds ceilings, edit them in the
+  # console or POST /v1/installation-profiles.
   profiles:
     claude-coding-real:
       runtime_kind: claude_agent_sdk
