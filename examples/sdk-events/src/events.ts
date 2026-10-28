@@ -123,8 +123,10 @@ async function run(): Promise<void> {
     { signal },
   );
   const next = await page.nextPage();
+  if (!next || (await next.nextPage()))
+    throw new Error("expected exactly two pages of one turn");
   console.log(
-    `turns page 1: turn ${page.items[0]?.turn_id}, page 2: turn ${next?.items[0]?.turn_id}, then ${(await next?.nextPage()) ?? "null"}`,
+    `turns page 1: turn ${page.items[0]?.turn_id}, page 2: turn ${next.items[0]?.turn_id}, then null`,
   );
   const statuses: string[] = [];
   for await (const turn of client.sessions.turns.list(sessionId, undefined, {

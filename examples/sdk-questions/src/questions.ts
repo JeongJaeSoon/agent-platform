@@ -184,7 +184,8 @@ async function run(): Promise<void> {
       { signal },
     )
     .catch((error: unknown) => error);
-  if (!isApiError(changed)) throw new Error("a second answer was accepted");
+  if (!isApiError(changed, "IDEMPOTENCY_CONFLICT"))
+    throw new Error("a second, different answer was not refused as a conflict");
   console.log(`second answer: ${changed.status} ${changed.code}`);
 
   const third = await waitForTurn(client, sessionId, pending.turn_id, {
