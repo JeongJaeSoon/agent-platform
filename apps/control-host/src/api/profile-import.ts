@@ -96,7 +96,7 @@ export function checkCatalogImport<P extends CatalogProfileView>(input: {
     yamlOnly,
     connectionMissing,
     yamlRevision: revisionOf(installationProfileSnapshot(sources, [])),
-    databaseRevision: revisionOf(installationProfileSnapshot(sources, rows)),
+    databaseRevision: revisionOf(fromDatabase),
   };
 }
 

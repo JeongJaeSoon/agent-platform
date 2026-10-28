@@ -309,6 +309,20 @@ integration("profiles.yaml imported into PostgreSQL", () => {
       "not-imported": firstProfile,
     });
     expect(added.yamlOnly).toEqual(["not-imported"]);
+
+    const rows = (await store.listAll()).filter((row) =>
+      Object.hasOwn(config.profiles, row.id),
+    );
+    const drifted = checkCatalogImport({
+      sources: sourcesFor(config, config.profiles),
+      repositories,
+      rows: rows.map((row) =>
+        row.id === first ? { ...row, fingerprint: "sha256:edited" } : row,
+      ),
+    });
+    expect(drifted.conflicts).toEqual([]);
+    expect(drifted.databaseRevision).not.toBe(drifted.yamlRevision);
+    expect(importCheckClean(drifted)).toBe(false);
   });
 
   test("connections-from-yaml writes a file every profile's provider is a connection in", async () => {
