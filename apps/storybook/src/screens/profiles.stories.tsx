@@ -124,6 +124,7 @@ function List({ role }: { readonly role: Role }) {
   );
   return (
     <Page
+      headClassName="max-md:flex-col max-md:items-stretch"
       title="실행 프로필"
       description="에이전트가 쓸 모델과 도구를 정합니다. 설치 상한은 이 설치에서 쓸 수 있는 가장 넓은 값이고, 워크스페이스 프로필은 상한 하나를 줄여 만듭니다."
       actions={
@@ -209,6 +210,7 @@ function List({ role }: { readonly role: Role }) {
 function Detail({ role }: { readonly role: Role }) {
   return (
     <Page
+      headClassName="max-md:flex-col max-md:items-stretch"
       breadcrumb={<Crumbs current="op_wide_v2" />}
       title="wide"
       titleAside={<Badge variant="green">사용 가능</Badge>}
