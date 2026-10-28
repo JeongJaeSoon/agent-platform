@@ -14,6 +14,7 @@ import {
   type CatalogProfileView,
   derivationPolicyOf,
   isUnmetered,
+  profileAllowsRepository,
   profileFingerprint,
   profileModels,
   repositoryModeOf,
@@ -22,6 +23,7 @@ import {
   type WorkspaceProfiles,
   workspaceProfileState,
 } from "./catalog.ts";
+import { latestReads } from "./profile-registry.ts";
 import { requirePermitted, SessionServiceError } from "./session-service.ts";
 
 /**
@@ -41,37 +43,18 @@ export function createWorkspaceProfiles(
   policy: ProfileDerivationPolicy = WORKSPACE_PROFILE_POLICY,
 ): WorkspaceProfiles {
   let records: ReadonlyMap<string, WorkspaceProfileRecord> = new Map();
-  let readAt = Number.NEGATIVE_INFINITY;
-  let begun = 0;
-  let applied = 0;
-  let latest: { startedAt: number; done: Promise<void> } | null = null;
   return {
     policy,
     get records() {
       return records;
     },
-    refresh(maxAgeMs = 0) {
-      const oldest = now() - maxAgeMs;
-      if (maxAgeMs > 0 && readAt >= oldest) return Promise.resolve();
-      if (latest !== null && latest.startedAt > oldest) return latest.done;
-      const startedAt = now();
-      begun += 1;
-      const order = begun;
-      const done = store.listAll().then(
-        (rows) => {
-          if (order < applied) return;
-          records = new Map(rows.map((row) => [row.id, row]));
-          applied = order;
-          readAt = startedAt;
-        },
-        (error: unknown) => {
-          if (latest?.done === done) latest = null;
-          throw error;
-        },
-      );
-      latest = { startedAt, done };
-      return done;
-    },
+    refresh: latestReads(
+      () => store.listAll(),
+      (rows) => {
+        records = new Map(rows.map((row) => [row.id, row]));
+      },
+      now,
+    ),
   };
 }
 
@@ -96,7 +79,14 @@ function summaryOf(
       repositoryModeOf(profile) === "none"
         ? []
         : Object.entries(catalog.repositories)
-            .filter(([, repository]) => repository.profiles.includes(trustedId))
+            .filter(([repositoryId, repository]) =>
+              profileAllowsRepository(
+                catalog,
+                trustedId,
+                repositoryId,
+                repository,
+              ),
+            )
             .map(([repositoryId]) => repositoryId)
             .sort(),
   };
@@ -231,6 +221,16 @@ export function createWorkspaceProfileService(deps: {
       const base = Object.hasOwn(catalog.profiles, request.base_profile_id)
         ? catalog.profiles[request.base_profile_id]
         : undefined;
+      if (
+        catalog.installation?.get(request.base_profile_id)?.state === "retired"
+      ) {
+        throw new SessionServiceError(
+          "BAD_REQUEST",
+          `Operator profile ${request.base_profile_id} is retired: pick a newer version`,
+          undefined,
+          { reason_code: "retired", field: "base_profile_id" },
+        );
+      }
       if (!base) {
         throw new SessionServiceError(
           "BAD_REQUEST",

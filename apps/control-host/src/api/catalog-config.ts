@@ -9,16 +9,26 @@ import {
 } from "@werft-ai/contracts";
 import {
   CatalogCredentialError,
+  type CatalogProfile,
+  type CatalogProfileConfig,
+  type CatalogProfileView,
+  type Connections,
   type CredentialRef,
+  catalogConnections,
+  catalogConnectionsSchema,
   catalogCredentialRefs,
   credentialRefOf,
   describeConfigError,
+  installationProfileSnapshot,
   ProfileFeatureGate,
+  resolveCredential,
   resolveSessionCatalog,
   SecretKey,
   type SessionCatalog,
   type SessionCatalogConfig,
+  type SnapshotSources,
   sessionCatalogConfigSchema,
+  sessionCatalogView,
 } from "@werft-ai/platform";
 import { installedDescriptors } from "@werft-ai/runtime-codecs";
 import { parse as parseYaml } from "yaml";
@@ -36,6 +46,7 @@ export const DEFAULT_CONFIG_DIR = resolve(
 );
 export const PROFILES_FILE = "profiles.yaml";
 export const REPOSITORIES_FILE = "repositories.yaml";
+export const CONNECTIONS_FILE = "connections.yaml";
 const MCP_SERVERS_FILE = "mcp-servers.yaml";
 export const ALLOW_UNATTENDED_SETTING = "PLATFORM_ALLOW_UNATTENDED_PERMISSIONS";
 export const PLATFORM_FILE = "platform.yaml";
@@ -152,28 +163,93 @@ export async function loadCatalogConfig(options: {
     );
   }
   const config = await readCatalogConfig(options.dir);
-  const optIn = optInProfiles(config);
-  if (optIn.length > 0 && options.env[ALLOW_UNATTENDED_SETTING] !== "true") {
-    throw new Error(
-      `Profile(s) ${optIn.join(", ")} run every tool call unjudged (permission_mode: ${OPT_IN_PERMISSION_MODES.join(" | ")}); set ${ALLOW_UNATTENDED_SETTING}=true on the API and the slack role to allow it`,
-    );
-  }
   installedRuntimes.assertProfiles(config.profiles);
   return config;
 }
 
-export async function loadSessionCatalog(options: {
+/**
+ * `connections.yaml`, or undefined without one: then each profile's own
+ * provider is its connection (`catalogConnections`).
+ */
+export async function readConnections(
+  dir: string,
+): Promise<Connections | undefined> {
+  const path = resolve(dir, CONNECTIONS_FILE);
+  if (!(await Bun.file(path).exists())) return undefined;
+  const parsed = catalogConnectionsSchema.safeParse(
+    section(await readYaml(path), "connections", path),
+  );
+  if (!parsed.success) {
+    throw new Error(`${path} is invalid: ${describeConfigError(parsed.error)}`);
+  }
+  return parsed.data;
+}
+
+/**
+ * Whether this process may run a profile nothing judges. A catalog is
+ * copied between installations and cannot vouch for the one it lands in.
+ */
+export function unattendedAllowed(
+  env: Record<string, string | undefined>,
+): boolean {
+  return env[ALLOW_UNATTENDED_SETTING] === "true";
+}
+
+/** What a replica holding no provider key builds its profile snapshot from. */
+export function profileViewSources(
+  config: SessionCatalogConfig,
+  connections: Connections,
+  env: Record<string, string | undefined>,
+): SnapshotSources<CatalogProfileView> {
+  return {
+    own: config.profiles,
+    connections,
+    allowUnattended: unattendedAllowed(env),
+    runtimeSupported: runtimeServes,
+    materialize: (id, definition) => {
+      const view = sessionCatalogView({
+        profiles: { [id]: definition },
+        repositories: {},
+      }).profiles[id];
+      if (!view) throw new Error(`profile ${id} has no view`);
+      return view;
+    },
+  };
+}
+
+function runtimeServes(profile: CatalogProfileConfig): boolean {
+  try {
+    installedRuntimes.assertProfiles({ profile });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The catalog with every credential resolved, and what its profile snapshot
+ * is built from: a provider credential is resolved from the connections
+ * alone, so a database row can bring in no reference of its own.
+ */
+export async function loadProfileSources(options: {
   dir: string;
   env: Record<string, string | undefined>;
   readSecret: SecretReader;
-}): Promise<SessionCatalog> {
+}): Promise<{
+  config: SessionCatalogConfig;
+  connections: Connections;
+  catalog: SessionCatalog;
+  sources: SnapshotSources<CatalogProfile>;
+}> {
   const config = await loadCatalogConfig(options);
+  const file = await readConnections(options.dir);
+  const connections = catalogConnections(config.profiles, file);
   const secrets = new Map<string, string>();
   // An endpoint that is not up, like the local stack's secrets service
   // without --fake-model, fails on DNS or a refused connection; naming it says which.
   const endpoint = options.env.AWS_ENDPOINT_URL_SECRETS_MANAGER;
   const from = endpoint === undefined ? "" : ` from ${endpoint}`;
-  for (const { path, ref } of catalogCredentialRefs(config)) {
+  for (const { path, ref } of catalogCredentialRefs(config, file)) {
     if (!("secret_id" in ref) || secrets.has(ref.secret_id)) continue;
     let value: string | undefined;
     try {
@@ -187,11 +263,51 @@ export async function loadSessionCatalog(options: {
     }
     if (value) secrets.set(ref.secret_id, value);
   }
-  return resolveSessionCatalog(config, (ref: CredentialRef) =>
+  const lookup = (ref: CredentialRef) =>
     "value_env" in ref
       ? options.env[ref.value_env]
-      : secrets.get(ref.secret_id),
-  );
+      : secrets.get(ref.secret_id);
+  // Every connection's credential resolves before the API starts, as every
+  // profile's did when profiles carried them.
+  for (const { path, ref } of catalogCredentialRefs(
+    { profiles: file === undefined ? config.profiles : {}, repositories: {} },
+    file,
+  )) {
+    resolveCredential(path, ref, lookup);
+  }
+  const resolved = resolveSessionCatalog({ ...config, profiles: {} }, lookup);
+  const sources: SnapshotSources<CatalogProfile> = {
+    own: config.profiles,
+    connections,
+    allowUnattended: unattendedAllowed(options.env),
+    runtimeSupported: runtimeServes,
+    materialize: (id, definition) => {
+      const profile = resolveSessionCatalog(
+        { profiles: { [id]: definition }, repositories: {} },
+        lookup,
+      ).profiles[id];
+      if (!profile) throw new Error(`profile ${id} did not resolve`);
+      return profile;
+    },
+  };
+  return {
+    config,
+    connections,
+    catalog: {
+      ...resolved,
+      profiles: installationProfileSnapshot(sources, []).profiles,
+    },
+    sources,
+  };
+}
+
+/** The catalog this replica's own YAML runs, credentials resolved. */
+export async function loadSessionCatalog(options: {
+  dir: string;
+  env: Record<string, string | undefined>;
+  readSecret: SecretReader;
+}): Promise<SessionCatalog> {
+  return (await loadProfileSources(options)).catalog;
 }
 
 const platformConfigSchema = z

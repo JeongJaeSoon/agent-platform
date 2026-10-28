@@ -7,6 +7,7 @@ import {
   createPostgresAgentStore,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
+  createPostgresInstallationProfileStore,
   createPostgresLinkedAccountStore,
   createPostgresSecretStore,
   createPostgresSessionControl,
@@ -30,18 +31,21 @@ import {
 } from "@werft-ai/observability";
 import {
   allowedRun,
+  type Connections,
+  catalogConnections,
   createAuthorizationPolicy,
   createLoggingSlackNoticeSink,
   createOutboxSlackNoticeSink,
+  createProfileRegistry,
   createSessionService,
   createSlackBotApi,
   createSlackMemberJoinedHandler,
   createSlackSessionHandler,
   createSlackWelcome,
-  createWorkspaceProfiles,
   drainSlackInbox,
   drainSlackOutbox,
   installationLimitsFromEnv,
+  profileCatalog,
   resolveAgentRelease,
   type SecretKey,
   type SessionCatalogConfig,
@@ -59,6 +63,8 @@ import {
   DEFAULT_CONFIG_DIR,
   loadCatalogConfig,
   loadSecretKey,
+  profileViewSources,
+  readConnections,
   SECRET_KEY_SETTING,
   type SecretReader,
   secretsManagerReader,
@@ -110,6 +116,7 @@ export async function slackRoleStartup(
   readSecret: SecretReader = secretsManagerReader(environment),
 ): Promise<{
   catalog: SessionCatalogConfig;
+  connections: Connections;
   secretKeySet: boolean;
   secretKey: SecretKey | null;
 }> {
@@ -117,8 +124,37 @@ export async function slackRoleStartup(
   slackDatabaseUrl(environment);
   const dir = environment.PLATFORM_CONFIG_DIR ?? DEFAULT_CONFIG_DIR;
   const catalog = await loadCatalogConfig({ dir, env: environment });
+  const connections = catalogConnections(
+    catalog.profiles,
+    await readConnections(dir),
+  );
   const secretKey = await loadSecretKey({ dir, env: environment, readSecret });
-  return { catalog, secretKeySet: secretKey !== null, secretKey };
+  return {
+    catalog,
+    connections,
+    secretKeySet: secretKey !== null,
+    secretKey,
+  };
+}
+
+/**
+ * The api's registry without credentials: the slack role imports nothing,
+ * it reads what the api imported.
+ */
+export function slackProfileCatalog(
+  db: Database,
+  config: SessionCatalogConfig,
+  connections: Connections,
+  environment: Environment,
+) {
+  return profileCatalog(
+    sessionCatalogView(config),
+    createProfileRegistry({
+      workspaces: createPostgresWorkspaceProfileStore(db),
+      installations: createPostgresInstallationProfileStore(db),
+      sources: profileViewSources(config, connections, environment),
+    }),
+  );
 }
 
 export function slackSessionHandler(deps: {
@@ -127,6 +163,8 @@ export function slackSessionHandler(deps: {
   environment: Environment;
   logger: StructuredLogger;
   catalog: SessionCatalogConfig;
+  /** `slackRoleStartup`'s; each profile's own provider when absent. */
+  connections?: Connections;
   /** Null without a master key: an event that needs a bot token waits. */
   secretKey: SecretKey | null;
   leaseMs: number;
@@ -135,12 +173,12 @@ export function slackSessionHandler(deps: {
   inbox?: Pick<SlackInboundEventStore, "renew">;
 }): SlackInboundHandler {
   const { db, environment, logger } = deps;
-  const catalog = {
-    ...sessionCatalogView(deps.catalog),
-    workspace_profiles: createWorkspaceProfiles(
-      createPostgresWorkspaceProfileStore(db),
-    ),
-  };
+  const catalog = slackProfileCatalog(
+    db,
+    deps.catalog,
+    deps.connections ?? catalogConnections(deps.catalog.profiles, undefined),
+    environment,
+  );
   setInterval(() => {
     catalog.workspace_profiles
       .refresh(WORKSPACE_PROFILE_REFRESH_MS)
@@ -262,19 +300,12 @@ export async function main(
     // so a steady stream of mentions cannot starve the answers.
     const started = Date.now();
     const deadline = started + settings.passBudgetMs;
-    const { catalog, secretKey } = await slackRoleStartup(environment);
-    const workspaceProfiles = createWorkspaceProfiles(
-      createPostgresWorkspaceProfileStore(db),
-    );
-    await workspaceProfiles.refresh();
+    const { catalog, connections, secretKey } =
+      await slackRoleStartup(environment);
+    const profiles = slackProfileCatalog(db, catalog, connections, environment);
+    await profiles.workspace_profiles.refresh();
     const outbox = createPostgresSlackOutboxStore(db, {
-      neutralize: eventNeutralizer(
-        {
-          ...sessionCatalogView(catalog),
-          workspace_profiles: workspaceProfiles,
-        },
-        logger,
-      ),
+      neutralize: eventNeutralizer(profiles, logger),
     });
     const drain = await drainSlackInbox({
       inbox: createPostgresSlackInboundEventStore(db),
@@ -284,6 +315,7 @@ export async function main(
         environment,
         logger,
         catalog,
+        connections,
         secretKey,
         leaseMs: settings.leaseMs,
         notices: createOutboxSlackNoticeSink(outbox),

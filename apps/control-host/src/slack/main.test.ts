@@ -2,10 +2,13 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { installationProfileSnapshot } from "@werft-ai/platform";
 import {
   ALLOW_UNATTENDED_SETTING,
+  loadProfileSources,
   loadSessionCatalog,
   PROFILES_FILE,
+  profileViewSources,
   REPOSITORIES_FILE,
 } from "../api/catalog-config.ts";
 import { slackRoleSettings, slackRoleStartup } from "./main.ts";
@@ -76,25 +79,30 @@ describe("slack role startup", () => {
     ).toContain("PROVIDER_KEY");
   });
 
-  test("an unattended profile stops it for the api's reason, until allowed", async () => {
+  test("an unattended profile is left out for the api's reason, until allowed", async () => {
     const dir = await catalogDir("bypassPermissions");
     const env = { ...base, PLATFORM_CONFIG_DIR: dir };
-    const role = await failure(slackRoleStartup(env, noSecrets));
-    const api = await failure(
-      loadSessionCatalog({
+    const stateOf = async (environment: Record<string, string>) => {
+      const role = await slackRoleStartup(environment, noSecrets);
+      const api = await loadProfileSources({
         dir,
-        env: { ...env, PROVIDER_KEY: "value-from-environment" },
+        env: { ...environment, PROVIDER_KEY: "value-from-environment" },
         readSecret: noSecrets,
-      }),
-    );
-    expect(role).toBe(api);
-    expect(role).toContain(`${ALLOW_UNATTENDED_SETTING}=true`);
-    const allowed = await slackRoleStartup(
-      { ...env, [ALLOW_UNATTENDED_SETTING]: "true" },
-      noSecrets,
-    );
-    expect(allowed.catalog.profiles.coding?.permission_mode).toBe(
-      "bypassPermissions",
+      });
+      const states = [
+        profileViewSources(role.catalog, role.connections, environment),
+        api.sources,
+      ].map(
+        (sources) =>
+          installationProfileSnapshot(sources, []).installation.get("coding")
+            ?.state,
+      );
+      expect(states[0]).toBe(states[1]);
+      return states[0];
+    };
+    expect(await stateOf(env)).toBe("unattended_off");
+    expect(await stateOf({ ...env, [ALLOW_UNATTENDED_SETTING]: "true" })).toBe(
+      "usable",
     );
   });
 

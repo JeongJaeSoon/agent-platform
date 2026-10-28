@@ -3,6 +3,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  catalogConnections,
+  installationProfileSnapshot,
   profileFingerprint,
   profilePinned,
   repositoryModeOf,
@@ -13,9 +15,11 @@ import {
   DEFAULT_CONFIG_DIR,
   installedRuntimes,
   loadCatalogConfig,
+  loadProfileSources,
   loadSessionCatalog,
   optInProfiles,
   PROFILES_FILE,
+  profileViewSources,
   REPOSITORIES_FILE,
   readCatalogConfig,
   type SecretReader,
@@ -216,29 +220,30 @@ describe("unattended permission modes", () => {
     "tools: [Read]\n    permission_mode: bypassPermissions",
   );
 
-  test("a profile that skips approval stops the load until the installation allows it", async () => {
+  // A row in the database must not stop the API, so the YAML's own entry
+  // is left out the same way: the rest of the catalog still runs.
+  test("a profile that skips approval is left out until the installation allows it", async () => {
     expect(bypass).not.toBe(PROFILES);
-    const message = await failure(
-      loadSessionCatalog({
-        dir: await dirWith({ [PROFILES_FILE]: bypass }),
-        env: { PROVIDER_KEY: ENV_VALUE },
-        readSecret: secrets,
-      }),
-    );
-    expect(message).toContain("from-secrets");
-    expect(message).toContain(`${ALLOW_UNATTENDED_SETTING}=true`);
-    expect(message).not.toContain("claude-coding-v1");
+    const { catalog, sources } = await loadProfileSources({
+      dir: await dirWith({ [PROFILES_FILE]: bypass }),
+      env: { PROVIDER_KEY: ENV_VALUE },
+      readSecret: secrets,
+    });
+    expect(Object.keys(catalog.profiles)).toEqual(["claude-coding-v1"]);
+    expect(
+      installationProfileSnapshot(sources, []).installation.get("from-secrets")
+        ?.state,
+    ).toBe("unattended_off");
   });
 
-  test("anything but the literal true keeps it refused", async () => {
+  test("anything but the literal true keeps it out", async () => {
     for (const value of ["1", "TRUE", "yes", ""]) {
-      await failure(
-        loadSessionCatalog({
-          dir: await dirWith({ [PROFILES_FILE]: bypass }),
-          env: { PROVIDER_KEY: ENV_VALUE, [ALLOW_UNATTENDED_SETTING]: value },
-          readSecret: secrets,
-        }),
-      );
+      const catalog = await loadSessionCatalog({
+        dir: await dirWith({ [PROFILES_FILE]: bypass }),
+        env: { PROVIDER_KEY: ENV_VALUE, [ALLOW_UNATTENDED_SETTING]: value },
+        readSecret: secrets,
+      });
+      expect(Object.hasOwn(catalog.profiles, "from-secrets")).toBe(false);
     }
   });
 
@@ -361,16 +366,27 @@ describe("installed runtimes", () => {
       "claude-coding-auto",
       "claude-coding-bypass",
     ]);
-    expect(await failure(loadCatalogConfig({ dir, env: {} }))).toContain(
-      `${ALLOW_UNATTENDED_SETTING}=true`,
-    );
-    const allowed = await loadCatalogConfig({
-      dir,
-      env: { [ALLOW_UNATTENDED_SETTING]: "true" },
-    });
-    expect(allowed.profiles["claude-coding-bypass"]?.permission_mode).toBe(
-      "bypassPermissions",
-    );
+    const states = (env: Record<string, string>) =>
+      new Map(
+        [
+          ...installationProfileSnapshot(
+            profileViewSources(
+              config,
+              catalogConnections(config.profiles, undefined),
+              env,
+            ),
+            [],
+          ).installation.values(),
+        ].map((entry) => [entry.id, entry.state]),
+      );
+    expect([...states({})].filter(([, state]) => state !== "usable")).toEqual([
+      ["claude-coding-bypass", "unattended_off"],
+    ]);
+    expect(
+      states({ [ALLOW_UNATTENDED_SETTING]: "true" }).get(
+        "claude-coding-bypass",
+      ),
+    ).toBe("usable");
   });
 
   test("a profile of a kind the image does not ship parses, then stops the load", async () => {

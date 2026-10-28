@@ -81,11 +81,14 @@ import type {
 } from "../ports/worker-unit-of-work.ts";
 import {
   allowedPair,
+  type CatalogProfile,
+  type CatalogRepository,
   catalogProfile,
   catalogRevision,
   type EgressUpstream,
   mcpBinding,
   type ProfilePin,
+  profileAllowsRepository,
   profileFingerprint,
   profilePins,
   providerUpstreamOf,
@@ -532,76 +535,120 @@ export function createWorkerGateway(deps: {
   // through a queue slot. It waits for a host that knows the profile — as
   // the session was created with it — and that still lets it run
   // against the session's repository, or without one.
-  const operatorRunnable: RunnablePair[] = [
-    ...Object.entries(catalog.repositories).flatMap(
-      ([repositoryId, repository]) =>
-        repository.profiles.flatMap((profileId) => {
-          const profile = own(catalog.profiles, profileId);
-          // A row from before the pin binds to the first pair that
-          // matches it: the current fingerprint and the default model.
-          return profile
-            ? profilePins(profile).map((pin) => ({
-                profileId,
-                profileFingerprint: pin.fingerprint,
-                model: pin.model,
-                repositoryId,
-                url: repository.url,
-                branch: repository.branch,
-              }))
-            : [];
-        }),
-    ),
-    ...Object.entries(catalog.profiles).flatMap(([profileId, profile]) =>
-      repositoryModeOf(profile) === "required"
-        ? []
-        : profilePins(profile).map((pin) => ({
+  function operatorRunnable(): RunnablePair[] {
+    const pairsOf = (
+      profileId: string,
+      repositoryId: string,
+      repository: CatalogRepository,
+    ) => {
+      const profile = own(catalog.profiles, profileId);
+      // A row from before the pin binds to the first pair that
+      // matches it: the current fingerprint and the default model.
+      return profile
+        ? profilePins(profile).map((pin) => ({
             profileId,
             profileFingerprint: pin.fingerprint,
             model: pin.model,
-            repositoryId: null,
-          })),
-    ),
-  ];
+            repositoryId,
+            url: repository.url,
+            branch: repository.branch,
+          }))
+        : [];
+    };
+    return [
+      ...Object.entries(catalog.repositories).flatMap(
+        ([repositoryId, repository]) =>
+          repository.profiles.flatMap((profileId) =>
+            pairsOf(profileId, repositoryId, repository),
+          ),
+      ),
+      // A console ceiling's own repositories, after the YAML's pairs so a
+      // row from before the pin keeps binding where it did.
+      ...[...(catalog.installation?.values() ?? [])].flatMap(
+        ({ id, repository_ids }) =>
+          repository_ids.flatMap((repositoryId) => {
+            const repository = own(catalog.repositories, repositoryId);
+            return repository && !repository.profiles.includes(id)
+              ? pairsOf(id, repositoryId, repository)
+              : [];
+          }),
+      ),
+      ...Object.entries(catalog.profiles).flatMap(([profileId, profile]) =>
+        repositoryModeOf(profile) === "required"
+          ? []
+          : profilePins(profile).map((pin) => ({
+              profileId,
+              profileFingerprint: pin.fingerprint,
+              model: pin.model,
+              repositoryId: null,
+            })),
+      ),
+    ];
+  }
 
+  // The claim's candidates, its revision and the ids it may give up on all
+  // come from one read of the registry, and are made again when it moves.
   let runnableOf: {
     records: WorkspaceProfiles["records"] | undefined;
+    profiles: SessionCatalog["profiles"];
     pairs: RunnablePair[];
+    revision: string;
+    settled: ReadonlySet<string>;
   } | null = null;
-  function runnablePairs(): RunnablePair[] {
+  function claimCatalog(): NonNullable<typeof runnableOf> {
     const records = catalog.workspace_profiles?.records;
-    if (runnableOf?.records !== records || runnableOf === null) {
-      runnableOf = { records, pairs: buildRunnablePairs() };
+    const profiles = catalog.profiles;
+    if (
+      runnableOf === null ||
+      runnableOf.records !== records ||
+      runnableOf.profiles !== profiles
+    ) {
+      const workspace = workspaceCatalogProfiles(catalog);
+      runnableOf = {
+        records,
+        profiles,
+        pairs: buildRunnablePairs(workspace),
+        revision: catalogRevision(catalog),
+        settled: new Set([
+          ...Object.keys(profiles),
+          // A version whose base runs here fails or runs alike everywhere;
+          // one whose base does not may be another replica's to run.
+          ...[...(records?.values() ?? [])]
+            .filter((record) => Object.hasOwn(profiles, record.base_profile_id))
+            .map((record) => record.id),
+        ]),
+      };
     }
-    return runnableOf.pairs;
+    return runnableOf;
   }
-  function buildRunnablePairs(): RunnablePair[] {
+  function buildRunnablePairs(
+    workspace: ReturnType<typeof workspaceCatalogProfiles<CatalogProfile>>,
+  ): RunnablePair[] {
     return [
-      ...operatorRunnable,
-      ...workspaceCatalogProfiles(catalog).flatMap(
-        ({ id, baseId, profile }) => [
-          ...Object.entries(catalog.repositories).flatMap(
-            ([repositoryId, repository]) =>
-              repository.profiles.includes(baseId)
-                ? profilePins(profile).map((pin) => ({
-                    profileId: id,
-                    profileFingerprint: pin.fingerprint,
-                    model: pin.model,
-                    repositoryId,
-                    url: repository.url,
-                    branch: repository.branch,
-                  }))
-                : [],
-          ),
-          ...(repositoryModeOf(profile) === "required"
-            ? []
-            : profilePins(profile).map((pin) => ({
-                profileId: id,
-                profileFingerprint: pin.fingerprint,
-                model: pin.model,
-                repositoryId: null,
-              }))),
-        ],
-      ),
+      ...operatorRunnable(),
+      ...workspace.flatMap(({ id, profile }) => [
+        ...Object.entries(catalog.repositories).flatMap(
+          ([repositoryId, repository]) =>
+            profileAllowsRepository(catalog, id, repositoryId, repository)
+              ? profilePins(profile).map((pin) => ({
+                  profileId: id,
+                  profileFingerprint: pin.fingerprint,
+                  model: pin.model,
+                  repositoryId,
+                  url: repository.url,
+                  branch: repository.branch,
+                }))
+              : [],
+        ),
+        ...(repositoryModeOf(profile) === "required"
+          ? []
+          : profilePins(profile).map((pin) => ({
+              profileId: id,
+              profileFingerprint: pin.fingerprint,
+              model: pin.model,
+              repositoryId: null,
+            }))),
+      ]),
     ];
   }
 
@@ -610,8 +657,6 @@ export function createWorkerGateway(deps: {
       ?.refresh(WORKSPACE_PROFILE_MAX_AGE_MS)
       .catch(() => undefined);
   }
-
-  const revision = catalogRevision(catalog);
 
   function claimedMcp(mcp: SessionMcp | null | undefined) {
     const server = mcp ? own(catalog.mcp_servers ?? {}, mcp.server) : undefined;
@@ -951,12 +996,11 @@ export function createWorkerGateway(deps: {
       const objectStoreToken = generateEgressToken("object_store");
       const mcpToken = generateEgressToken("mcp");
       await refreshForClaim();
+      const claimable = claimCatalog();
       const result = await work.claimAtomic({
-        runnable: runnablePairs(),
-        catalogRevision: revision,
-        workspaceProfileIds: new Set(
-          catalog.workspace_profiles?.records.keys() ?? [],
-        ),
+        runnable: claimable.pairs,
+        catalogRevision: claimable.revision,
+        settledProfileIds: claimable.settled,
         costLimitUsd: deps.options.sessionCostLimitUsd,
         tokenLimit,
         nonceHash: hashWorkerToken(request.credential.nonce),

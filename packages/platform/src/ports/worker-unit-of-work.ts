@@ -106,11 +106,11 @@ export type ClaimInput = {
   // given up on for a pair missing from it only while it is the revision an
   // operator activated, or none is.
   catalogRevision: string;
-  // The workspace profile versions this host had read when it built
-  // `runnable`. A pinned launch of a version not among them is not given up
-  // on: another replica may have made it since, and this host runs it once
-  // it has read it.
-  workspaceProfileIds: ReadonlySet<string>;
+  // The profile ids whose runnability here is every replica's: this host's
+  // runnable profiles and the workspace versions over them. A pinned launch
+  // of any other id is not given up on: another replica may have made it
+  // since, or hold the connection or setting it needs, and runs it.
+  settledProfileIds: ReadonlySet<string>;
   // A session that has spent this much is not bound: it would only be told
   // to release again at its first nextInput.
   costLimitUsd: number;

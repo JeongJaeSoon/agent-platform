@@ -55,7 +55,6 @@ import {
   TRANSCRIPT_LIMITS,
   transcriptLimitReachedEvent,
   transcriptWarnBytes,
-  WORKSPACE_PROFILE_PREFIX,
   type WorkerBinding,
   type WorkerFence,
   type WorkerUnitOfWork,
@@ -1068,7 +1067,7 @@ async function giveUpOnCatalogMismatch(
     ClaimInput,
     | "runnable"
     | "catalogRevision"
-    | "workspaceProfileIds"
+    | "settledProfileIds"
     | "costLimitUsd"
     | "tokenLimit"
   >,
@@ -1090,8 +1089,8 @@ async function giveUpOnCatalogMismatch(
     session.executionId !== launch.executionId ||
     budgetExceeded(session, budgetOf(input)) ||
     runnablePairOf(session, runnable) !== undefined ||
-    (session.profileId?.startsWith(WORKSPACE_PROFILE_PREFIX) === true &&
-      !input.workspaceProfileIds.has(session.profileId))
+    (session.profileId !== null &&
+      !input.settledProfileIds.has(session.profileId))
   ) {
     return null;
   }

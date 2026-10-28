@@ -97,7 +97,7 @@ class ClaimingBackend implements ExecutionBackend {
     for (const { intent, nonce } of this.starting.splice(0)) {
       const result = await createPostgresWorkerUnitOfWork(this.db).claimAtomic({
         catalogRevision: "catalog-under-test",
-        workspaceProfileIds: new Set(),
+        settledProfileIds: new Set([PROFILE_ID]),
         runnable: this.runnable,
         costLimitUsd: 1_000,
         tokenLimit: null,
@@ -374,7 +374,7 @@ integration("claim against a catalog that dropped the pair", () => {
 
     const result = await createPostgresWorkerUnitOfWork(db).claimAtomic({
       catalogRevision: "catalog-under-test",
-      workspaceProfileIds: new Set(),
+      settledProfileIds: new Set([PROFILE_ID]),
       runnable: [pairAt(REGISTERED)],
       costLimitUsd: 1_000,
       tokenLimit: null,
@@ -451,7 +451,7 @@ integration("claim against a catalog that dropped the pair", () => {
 
     const result = await createPostgresWorkerUnitOfWork(db).claimAtomic({
       catalogRevision: "catalog-under-test",
-      workspaceProfileIds: new Set(),
+      settledProfileIds: new Set([PROFILE_ID]),
       runnable: [pairAt(REGISTERED)],
       costLimitUsd: 1_000,
       tokenLimit: null,
@@ -524,11 +524,11 @@ integration("claim against a catalog that dropped the pair", () => {
     function claim(
       launch: { ref: ExecutionRef; nonce: string },
       costLimitUsd = 1_000,
-      workspaceProfileIds: ReadonlySet<string> = new Set(),
+      settledProfileIds: ReadonlySet<string> = new Set([PROFILE_ID]),
     ) {
       return createPostgresWorkerUnitOfWork(db).claimAtomic({
         catalogRevision: "catalog-under-test",
-        workspaceProfileIds,
+        settledProfileIds,
         runnable: [pairAt(REGISTERED)],
         costLimitUsd,
         tokenLimit: null,
@@ -604,6 +604,22 @@ integration("claim against a catalog that dropped the pair", () => {
       await untouched(session.session_id, launch.ref);
       expect(
         (await claim(launch, 1_000, new Set(["ws_acme_strict_v1"]))).outcome,
+      ).toBe("catalog_mismatch");
+    });
+
+    // A console ceiling may need a connection or setting only another
+    // replica holds; that replica runs the session.
+    test("an installation ceiling this host does not run", async () => {
+      const session = await queuedSession();
+      const launch = await reserved(session.session_id);
+      await db
+        .update(sessions)
+        .set({ profileId: "op_wide_v1" })
+        .where(eq(sessions.id, session.session_id));
+      expect((await claim(launch)).outcome).toBe("no_session");
+      await untouched(session.session_id, launch.ref);
+      expect(
+        (await claim(launch, 1_000, new Set(["op_wide_v1"]))).outcome,
       ).toBe("catalog_mismatch");
     });
 

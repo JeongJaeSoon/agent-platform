@@ -10,6 +10,7 @@ import {
   createPostgresAuditRetention,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
+  createPostgresInstallationProfileStore,
   createPostgresInviteStore,
   createPostgresLinkedAccountStore,
   createPostgresMcpEgressStore,
@@ -57,6 +58,7 @@ import {
   createLinkedAccountService,
   createMemberService,
   createPendingRequestService,
+  createProfileRegistry,
   createPullRequestService,
   createPushExecutor,
   createPushRequestService,
@@ -83,13 +85,14 @@ import {
   createUsageService,
   createWorkerGateway,
   createWorkspaceProfileService,
-  createWorkspaceProfiles,
   fingerprintModel,
   forgettingChannelsOnBindingPut,
   InstallationConfigError,
   installationLimitsFromEnv,
+  profileCatalog,
   resolveAgentRelease,
   SessionServiceError,
+  unrunnableProfiles,
   WORKSPACE_PROFILE_REFRESH_MS,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -108,8 +111,8 @@ import {
 } from "./auth.ts";
 import {
   DEFAULT_CONFIG_DIR,
+  loadProfileSources,
   loadSecretKey,
-  loadSessionCatalog,
   SECRET_KEY_SETTING,
   secretsManagerReader,
   unattendedProfiles,
@@ -134,6 +137,7 @@ import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
+import { importCatalogProfiles } from "./profile-import.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { createReadinessProbe } from "./readiness.ts";
 import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
@@ -219,24 +223,13 @@ const catalogSource = {
   env: process.env,
   readSecret: secretsManagerReader(process.env),
 };
-const catalog = await loadSessionCatalog(catalogSource);
+const profileSources = await loadProfileSources(catalogSource);
 const secretKey = await loadSecretKey(catalogSource);
 if (secretKey === null) {
   logger.warn(
     `Secret store is off (${SECRET_KEY_SETTING} unset); Slack secrets cannot be set`,
     {},
   );
-}
-logger.info("Session catalog loaded", {
-  revision: catalogRevision(catalog),
-  profiles: Object.keys(catalog.profiles).length,
-  repositories: Object.keys(catalog.repositories).length,
-});
-const unattended = unattendedProfiles(catalog);
-if (unattended.length > 0) {
-  logger.warn("Profiles run tools without asking for approval", {
-    profiles: unattended,
-  });
 }
 
 // Checked before the pool exists: a bucket that is missing is a startup
@@ -265,8 +258,36 @@ if (checkpointStorage !== "disabled") {
 const pool = createApiPool(databaseUrl, logger);
 const db = drizzle(pool, { schema });
 const workspaceProfileStore = createPostgresWorkspaceProfileStore(db);
-const workspaceProfileVersions = createWorkspaceProfiles(workspaceProfileStore);
-catalog.workspace_profiles = workspaceProfileVersions;
+const installationProfileStore = createPostgresInstallationProfileStore(db);
+const workspaceProfileVersions = createProfileRegistry({
+  workspaces: workspaceProfileStore,
+  installations: installationProfileStore,
+  sources: profileSources.sources,
+});
+const catalog = profileCatalog(
+  profileSources.catalog,
+  workspaceProfileVersions,
+);
+const logCatalog = (message: string): void => {
+  logger.info(message, {
+    revision: catalogRevision(catalog),
+    profiles: Object.keys(catalog.profiles).length,
+    repositories: Object.keys(catalog.repositories).length,
+  });
+  const skipped = unrunnableProfiles(catalog);
+  if (skipped.length > 0) {
+    logger.warn("Profiles left out of this replica's catalog", {
+      profiles: skipped,
+    });
+  }
+};
+logCatalog("Session catalog loaded");
+const unattended = unattendedProfiles(catalog);
+if (unattended.length > 0) {
+  logger.warn("Profiles run tools without asking for approval", {
+    profiles: unattended,
+  });
+}
 const refreshWorkspaceProfiles = (): void => {
   workspaceProfileVersions
     .refresh(WORKSPACE_PROFILE_REFRESH_MS)
@@ -276,8 +297,29 @@ const refreshWorkspaceProfiles = (): void => {
       });
     });
 };
-refreshWorkspaceProfiles();
-setInterval(refreshWorkspaceProfiles, WORKSPACE_PROFILE_REFRESH_MS).unref();
+// Until the import lands this replica runs its own YAML alone, as the
+// YAML-only image did; the registry is read only after it.
+const PROFILE_IMPORT_RETRY_MS = 30_000;
+const importProfiles = (): void => {
+  importCatalogProfiles(installationProfileStore, profileSources.config, logger)
+    .then(() => workspaceProfileVersions.refresh())
+    .then(
+      () => {
+        logCatalog("Profile registry read");
+        setInterval(
+          refreshWorkspaceProfiles,
+          WORKSPACE_PROFILE_REFRESH_MS,
+        ).unref();
+      },
+      (error: unknown) => {
+        logger.warn("Profiles could not be imported; retrying", {
+          error_name: error instanceof Error ? error.name : typeof error,
+        });
+        setTimeout(importProfiles, PROFILE_IMPORT_RETRY_MS).unref();
+      },
+    );
+};
+importProfiles();
 // Not awaited: the API starts without its database, and a version 1
 // fingerprint names its model, so nothing waits on the column being filled.
 const MODEL_BACKFILL_RETRY_MS = 30_000;
@@ -566,7 +608,7 @@ const teams = createTeamService({
 const workspaceProfiles = createWorkspaceProfileService({
   authorization,
   store: workspaceProfileStore,
-  catalog: { ...catalog, workspace_profiles: workspaceProfileVersions },
+  catalog,
 });
 const agentAdmins = createAgentAdminService({
   authorization,
