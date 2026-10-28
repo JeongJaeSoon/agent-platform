@@ -277,6 +277,36 @@ describe("실행 프로필 상세", () => {
     expect(actions()).toEqual(["이 상한으로 프로필 만들기", "사용 중지"]);
   });
 
+  test("a ceiling followed only under another name still offers 새 버전", async () => {
+    renderAt(
+      "/profiles/op_wide_v1",
+      catalog([
+        CODING,
+        ceiling("wide", 1),
+        ceiling("other", 1, {}, { previous_id: "op_wide_v1" }),
+        ceiling("coding", 1, {}, { previous_id: "coding-claude" }),
+      ]),
+    );
+    await screen.findByRole("region", { name: "기록" });
+    expect(actions()).toEqual([
+      "이 상한으로 프로필 만들기",
+      "새 버전",
+      "사용 중지",
+    ]);
+  });
+
+  test("an imported ceiling with a successor still offers 새 버전 under a new name", async () => {
+    renderAt(
+      "/profiles/coding-claude",
+      catalog([
+        CODING,
+        ceiling("coding", 1, {}, { previous_id: "coding-claude" }),
+      ]),
+    );
+    await screen.findByRole("region", { name: "기록" });
+    expect(actions()).toContain("새 버전");
+  });
+
   test("an imported ceiling says where it came from", async () => {
     renderAt("/profiles/coding-claude", catalog());
     // The title is the id while it loads too; wait for the record itself.

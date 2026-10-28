@@ -201,10 +201,19 @@ export function ProfileDetailScreen() {
           {t("profiles.detail.createFrom")}
         </Link>,
       );
-    // A version after this one exists: the server takes new ones only there.
+    // The server takes a new version of a name only from its latest; an
+    // imported ceiling has no name, so any new name may follow it.
+    const name = profile.installation?.name;
     if (
       operates &&
-      !items.some((item) => item.installation?.previous_id === profile.id)
+      !(
+        name &&
+        items.some(
+          (item) =>
+            item.installation?.name === name &&
+            versionOf(item) > versionOf(profile),
+        )
+      )
     )
       actions.push(
         <Link
