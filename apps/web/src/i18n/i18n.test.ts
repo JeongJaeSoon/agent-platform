@@ -62,6 +62,15 @@ describe("i18n", () => {
           label,
         );
       }
+      expect(AGENT_MAP_MESSAGES[locale].lane("queued")).toBe(
+        catalogs[locale]["sessions.status.queued"],
+      );
+      expect(AGENT_MAP_MESSAGES[locale].run("wait")).toBe(
+        catalogs[locale]["sessions.status.needs_input"],
+      );
+      expect(AGENT_MAP_MESSAGES[locale].run("idle")).not.toBe(
+        AGENT_MAP_MESSAGES[locale].run("wait"),
+      );
       expect(catalogs[locale]["workspace.danger"]).toBe(
         catalogs[locale]["slack.danger"],
       );

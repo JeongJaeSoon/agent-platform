@@ -315,10 +315,10 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "エージェントは運用担当者のプロファイルをそのまま使います。運用担当者のプロファイルをもとに、モデルやツールを減らしたプロファイルを作れます。",
   "profiles.baseChanged.title": "{name} のベースプロファイルが変わりました",
   "profiles.baseChanged.text":
-    "運用担当者が {base} を変更しました。{id} では新しい リリース を作れず、このバージョンを使う リリース も新しいセッションを開始できません。作り直して新しいバージョンに移してください。",
+    "運用担当者が {base} を変更しました。{id} では新しいリリースを作成できず、このバージョンを使うリリースも新しいセッションを開始できません。作り直して新しいバージョンに移してください。",
   "profiles.baseMissing.title": "{name} のベースプロファイルがなくなりました",
   "profiles.baseMissing.text":
-    "運用担当者が {base} を削除しました。{id} では新しい リリース を作れず、このバージョンを使う リリース も新しいセッションを開始できません。別の運用担当者のプロファイルから新しく作ってください。",
+    "運用担当者が {base} を削除しました。{id} では新しいリリースを作成できず、このバージョンを使うリリースも新しいセッションを開始できません。別の運用担当者のプロファイルから新しく作成してください。",
   "profiles.editor.createTitle": "プロファイルを作成",
   "profiles.editor.versionTitle": "{name} を編集",
   "profiles.editor.remakeTitle": "{name} を作り直す",
@@ -358,7 +358,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.editor.scriptHint":
     "エージェントが拡張スクリプトを呼べる上限です。下げることだけができます。",
   "profiles.editor.saveNote":
-    "新しいバージョンとして保存します。前のバージョンを使う リリース は新しいバージョンに移すまで変わりません。",
+    "新しいバージョンとして保存します。前のバージョンを使うリリースは、新しいバージョンに移すまで変わりません。",
   "profiles.editor.save": "新しいバージョンとして保存",
   "profiles.editor.saving": "保存中…",
   "profiles.editor.nameInvalid":
@@ -377,7 +377,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.saved": "バージョン {id} を保存しました。",
   "profiles.retireTitle": "バージョン {id} を使用停止しますか?",
   "profiles.retireText":
-    "すでにこのバージョンを使っている リリース とセッションは動き続けます。新しい リリース とセッションはこのバージョンを選べません。使用停止は元に戻せません。",
+    "すでにこのバージョンを使っているリリースとセッションは動き続けます。新しいリリースとセッションではこのバージョンを選べません。使用停止は元に戻せません。",
   "profiles.retiring": "使用停止しています…",
   "profiles.retired": "バージョン {id} を使用停止しました。",
   "profiles.open": "{name} の詳細を見る",

@@ -274,7 +274,7 @@ export const homeJa: Record<keyof typeof homeKo, string> = {
   "home.glance.relink": "再接続",
   "home.overview.basis": "直近30日 · UTC 基準",
   "home.glance.costPartial":
-    "推定コスト · 実行中またはコスト未報告の ターン は含まない",
+    "推定コスト · 実行中またはコスト未報告のターンは含みません",
   "home.recent.activity": "最近のアクティビティ",
   "home.recent.open": "セッションを開く: {title}",
 };

@@ -334,8 +334,8 @@ describe("LaneBoard", () => {
 
   test("an empty lane says so instead of disappearing", () => {
     const view = withPlatform(<Board />);
-    expect(view.getByRole("region", { name: "대기" }).textContent).toBe(
-      "대기0없음",
+    expect(view.getByRole("region", { name: "대기 중" }).textContent).toBe(
+      "대기 중0없음",
     );
   });
 });

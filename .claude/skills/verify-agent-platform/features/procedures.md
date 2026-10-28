@@ -208,7 +208,7 @@ node "$B" "$RUN" open "/agents/$AID"
 node "$B" "$RUN" press 카드 Enter
 node "$B" "$RUN" eval '({search:location.search,tabs:[...document.querySelectorAll("[role=tab]")].map(x=>({text:x.innerText,selected:x.getAttribute("aria-selected")}))})'
 node "$B" "$RUN" eval 'document.querySelector("main").innerText'
-node "$B" "$RUN" press 배포 Enter
+node "$B" "$RUN" press 릴리스 Enter
 node "$B" "$RUN" eval '({search:location.search,tabs:[...document.querySelectorAll("[role=tab]")].map(x=>({text:x.innerText,selected:x.getAttribute("aria-selected")}))})'
 node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 node "$B" "$RUN" press 관리자 Enter
@@ -218,7 +218,7 @@ node "$B" "$RUN" open /agents/new
 node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 ```
 
-기대: 목록 “전체”·“관리하는 에이전트” SegmentedControl과 개수, 카드/표 보기. 상세 탭은 개요·카드·배포·관리자. 배포에는 자격 연결 단계가 있다. 각 탭의 `aria-selected`가 true인지 출력으로 확인한다. Radix 탭은 `el.click()`만으로 활성화되지 않으므로 `press … Enter`를 쓴다. 탭 주소 `?tab=card|release|admins`, 개요는 생략한다. 새 에이전트 마법사 이름 → 하는 일 → 배포 판 → 켜기. 아래 마법사를 한 번 실행한다(이름이 겹치면 실패).
+기대: 목록 “전체”·“관리하는 에이전트” SegmentedControl과 개수, 카드/표 보기. 상세 탭은 개요·카드·릴리스·관리자. 배포에는 자격 연결 단계가 있다. 각 탭의 `aria-selected`가 true인지 출력으로 확인한다. Radix 탭은 `el.click()`만으로 활성화되지 않으므로 `press … Enter`를 쓴다. 탭 주소 `?tab=card|release|admins`, 개요는 생략한다. 새 에이전트 마법사 이름 → 하는 일 → 릴리스 → 켜기. 아래 마법사를 한 번 실행한다(이름이 겹치면 실패).
 
 ```sh
 node "$B" "$RUN" type @0 'Member Helper'
@@ -227,13 +227,13 @@ node "$B" "$RUN" type @0 'verify helper'
 node "$B" "$RUN" type @1 'Answer briefly.'
 node "$B" "$RUN" select @3 claude-sonnet-5
 node "$B" "$RUN" click '초안 저장하고 다음'
-node "$B" "$RUN" click '배포 판 만들기'
+node "$B" "$RUN" click '릴리스 만들기'
 node "$B" "$RUN" click '에이전트 켜기'
 node "$B" "$RUN" click '에이전트 보기'
 node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 ```
 
-기대: 새 상세에 Member Helper가 활성화되어 있다. 상세에서 카드 저장 후 버전 증가, 배포 탭 release·활성화 후 활성 버전을 API로 재조회한다. API PATCH 카드·관리자 삭제·자격 연결/해제·활성화 충돌은 같은 파일의 상세 절차와 [musterrolle.md](musterrolle.md) f를 쓴다. f는 secret catalog 전제가 없으면 생략 사유를 기록한다.
+기대: 새 상세에 Member Helper가 활성화되어 있다. 상세에서 카드 저장 후 버전 증가, 릴리스 탭 release·활성화 후 활성 버전을 API로 재조회한다. API PATCH 카드·관리자 삭제·자격 연결/해제·활성화 충돌은 같은 파일의 상세 절차와 [musterrolle.md](musterrolle.md) f를 쓴다. f는 secret catalog 전제가 없으면 생략 사유를 기록한다.
 
 ## P-API-CREDENTIALS — 자격 이름 연결·해제
 

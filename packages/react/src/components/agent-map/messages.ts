@@ -95,9 +95,9 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
     status: (status) => STATUS_KO[status],
     run: (status) =>
       ({
-        wait: "기다리는 중",
+        wait: "답변 대기",
         run: "작업 중",
-        idle: "대기",
+        idle: "실행 대기",
         done: "끝남",
         failed: "실패",
       })[status],
@@ -113,7 +113,7 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
       ({
         attention: "답변 필요",
         running: "작업 중",
-        queued: "대기",
+        queued: "대기 중",
         idle: "쉬는 중",
       })[lane],
     done: "최근 종료",
@@ -174,9 +174,9 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
     status: (status) => STATUS_JA[status],
     run: (status) =>
       ({
-        wait: "待機中",
+        wait: "回答待ち",
         run: "作業中",
-        idle: "待機",
+        idle: "実行待ち",
         done: "完了",
         failed: "失敗",
       })[status],
@@ -192,7 +192,7 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
       ({
         attention: "回答が必要",
         running: "作業中",
-        queued: "待機",
+        queued: "待機中",
         idle: "入力待ち",
       })[lane],
     done: "最近終了",
@@ -252,7 +252,7 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
     status: (status) => STATUS_EN[status],
     run: (status) =>
       ({
-        wait: "Waiting",
+        wait: "Waiting for an answer",
         run: "Working",
         idle: "Idle",
         done: "Done",

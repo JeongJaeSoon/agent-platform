@@ -24,9 +24,9 @@ export const agentsKo = {
   "agents.tabs.label": "보여 줄 에이전트",
   "agents.tabs.all": "전체",
   "agents.tabs.administered": "관리하는 에이전트",
-  "agents.cards.released": "v{version} 배포됨",
+  "agents.cards.released": "v{version} 릴리스됨",
   "agents.cards.profile": "실행 프로필",
-  "agents.cards.notReleased": "배포 전",
+  "agents.cards.notReleased": "릴리스 전",
   "agents.cards.mcp": "MCP",
   "agents.cards.credentials": "자격 증명",
   "agents.cards.credentialsNone": "필요 없음",
@@ -93,7 +93,7 @@ export const agentsKo = {
   "agentCard.forbiddenHint":
     "한 줄에 하나. 에이전트는 이 도구를 쓸 수 없습니다",
   "agent.created":
-    "에이전트를 만들었습니다(버전 1). 세션에서 쓰려면 아래 릴리스에서 버전과 프로필을 골라 릴리스를 만들고 활성화하세요.",
+    "에이전트를 만들었습니다(버전 1). 세션에서 쓰려면 릴리스 탭에서 버전과 프로필을 골라 릴리스를 만들고 활성화하세요.",
   "agent.noActive": "없음",
   "agent.releaseLabel": "버전 {version} · {profile}",
   "agent.versionLabel": "버전 {version}",
@@ -251,14 +251,15 @@ export const agentsKo = {
   "agent.sessions.all": "모든 세션",
   "agent.card.summaryTitle": "에이전트 카드",
   "agent.card.subActive": "새 세션에 쓰이는 버전입니다. 읽기 전용.",
-  "agent.card.subDraft": "아직 배포하지 않은 최신 버전입니다. 읽기 전용.",
+  "agent.card.subDraft":
+    "아직 릴리스를 만들지 않은 최신 버전입니다. 읽기 전용.",
   "agent.card.subReleased":
     "릴리스는 만들었지만 아직 켜지 않은 버전입니다. 읽기 전용.",
   "agent.card.subStopped":
     "활성 릴리스의 버전이지만 에이전트가 {status} 상태라 새 세션은 쓰지 않습니다. 읽기 전용.",
   "agent.card.raw": "카드 원문",
   "agent.card.rawSub": "최신 버전 기준 · 읽기 전용",
-  "agent.card.rawSubActive": "배포된 버전 기준 · 읽기 전용",
+  "agent.card.rawSubActive": "릴리스된 버전 기준 · 읽기 전용",
   "agent.card.edit": "카드 편집",
   "agent.card.copy": "복사",
   "agent.card.copied": "복사했습니다",
@@ -684,7 +685,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agentCard.forbiddenHint":
     "1 行に 1 つ。エージェントはこれらを使用できません",
   "agent.created":
-    "エージェントを作成しました（バージョン 1）。セッションで使うには、下の「リリース」でバージョンとプロファイルを選んでリリースを作成し、有効化してください。",
+    "エージェントを作成しました（バージョン 1）。セッションで使うには、「リリース」タブでバージョンとプロファイルを選んでリリースを作成し、有効化してください。",
   "agent.noActive": "なし",
   "agent.releaseLabel": "バージョン {version} · {profile}",
   "agent.versionLabel": "バージョン {version}",

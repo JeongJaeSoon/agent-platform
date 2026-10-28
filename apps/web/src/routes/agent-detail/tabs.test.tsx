@@ -762,7 +762,7 @@ describe("에이전트 상세 탭", () => {
     expect(
       await within(summary).findByText(/릴리스는 만들었지만 아직 켜지 않은/),
     ).toBeDefined();
-    expect(within(summary).queryByText(/아직 배포하지 않은/)).toBeNull();
+    expect(within(summary).queryByText(/아직 릴리스를 만들지 않은/)).toBeNull();
   });
 
   test("version이 없는 에이전트도 카드 탭에 이름과 식별자를 보인다", async () => {

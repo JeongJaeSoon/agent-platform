@@ -442,7 +442,7 @@ describe("에이전트 카드", () => {
   test("배포 판·역할·지시문·실행 프로필·MCP·자격 증명·담당을 카드에 모은다", async () => {
     renderAt("/agents", { ...meOk, ...releasedServer() });
     const card = await cardFor("결제 담당");
-    await waitFor(() => expect(card.textContent).toContain("v1 배포됨"));
+    await waitFor(() => expect(card.textContent).toContain("v1 릴리스됨"));
     expect(card.textContent).toContain(CARD.role);
     expect(card.textContent).toContain(`지시문${CARD.instructions}`);
     expect(fact(card, "실행 프로필")).toBe(PROFILE);
@@ -458,7 +458,7 @@ describe("에이전트 카드", () => {
   test("API에 없는 답변 대기·스킬 줄은 두지 않고, 카드는 이름 하나로 열린다", async () => {
     renderAt("/agents", { ...meOk, ...releasedServer() });
     const card = await cardFor("결제 담당");
-    await waitFor(() => expect(card.textContent).toContain("v1 배포됨"));
+    await waitFor(() => expect(card.textContent).toContain("v1 릴리스됨"));
     expect(
       [...card.querySelectorAll("dt")].map((dt) => dt.textContent),
     ).toEqual(["실행 프로필", "MCP", "자격 증명"]);
@@ -474,7 +474,7 @@ describe("에이전트 카드", () => {
     const long = `mcp-${"x".repeat(28)}`;
     renderAt("/agents", { ...meOk, ...releasedServer([long]) });
     const card = await cardFor("결제 담당");
-    await waitFor(() => expect(card.textContent).toContain("v1 배포됨"));
+    await waitFor(() => expect(card.textContent).toContain("v1 릴리스됨"));
     const chip = [...card.querySelectorAll("dt")]
       .find((dt) => dt.textContent === "MCP")
       ?.nextElementSibling?.querySelector("[data-slot=badge]");
