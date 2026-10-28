@@ -28,6 +28,7 @@ import {
   createSessionService,
   type SessionCatalog,
   type SessionOutputSource,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import type { StoredOutput } from "@werft-ai/runtime-core";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
@@ -49,7 +50,7 @@ const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 const BOOTSTRAP_TOKEN = "outputs-bootstrap-token-0123456789";
 const PASSWORD = "outputs-password-0123456789";
 
-const catalog: SessionCatalog = {
+const catalog: SessionCatalog = withSeededInstallation({
   profiles: {
     "claude-coding-v1": {
       runtime_kind: "claude_agent_sdk",
@@ -75,7 +76,7 @@ const catalog: SessionCatalog = {
       profiles: ["claude-coding-v1"],
     },
   },
-};
+});
 
 const REPORT = new TextEncoder().encode("# report\n");
 const REPORT_SHA256 = createHash("sha256").update(REPORT).digest("hex");

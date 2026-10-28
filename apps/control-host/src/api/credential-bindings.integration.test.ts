@@ -39,6 +39,7 @@ import {
   createCredentialBindingService,
   createSessionService,
   type SessionCatalog,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq } from "drizzle-orm";
@@ -63,7 +64,7 @@ const BOOTSTRAP_TOKEN = "integration-bootstrap-token-0123456789";
 const PASSWORD = "an adequately long password";
 const REF = "notion_token";
 
-const catalog: SessionCatalog = {
+const catalog: SessionCatalog = withSeededInstallation({
   profiles: {
     "claude-coding-v1": {
       runtime_kind: "claude_agent_sdk",
@@ -89,7 +90,7 @@ const catalog: SessionCatalog = {
       profiles: ["claude-coding-v1"],
     },
   },
-};
+});
 
 const card = {
   role: "기록 정리",

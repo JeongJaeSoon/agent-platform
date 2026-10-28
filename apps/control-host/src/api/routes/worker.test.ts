@@ -24,7 +24,11 @@ import {
   insertUnreservedLaunch,
   launchSession,
 } from "@werft-ai/db/testing/launches";
-import { acceptAllCheckpoints, createWorkerGateway } from "@werft-ai/platform";
+import {
+  acceptAllCheckpoints,
+  createWorkerGateway,
+  withSeededInstallation,
+} from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { and, count, eq, isNotNull } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
@@ -47,7 +51,7 @@ beforeEach(async () => {
   clock = new Date("2026-09-22T00:00:00.000Z");
   gateway = createWorkerGateway({
     work: createPostgresWorkerUnitOfWork(db),
-    catalog: {
+    catalog: withSeededInstallation({
       profiles: {
         "claude-coding-v1": {
           runtime_kind: "claude_agent_sdk",
@@ -73,7 +77,7 @@ beforeEach(async () => {
           profiles: ["claude-coding-v1"],
         },
       },
-    },
+    }),
     checkpoints: acceptAllCheckpoints,
     options: {
       sessionCostLimitUsd: 1_000,

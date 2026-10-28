@@ -36,6 +36,7 @@ import {
   createAuthorizationPolicy,
   createSessionService,
   type SessionCatalog,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq, sql } from "drizzle-orm";
@@ -64,7 +65,7 @@ const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 const BOOTSTRAP_TOKEN = "integration-bootstrap-token-0123456789";
 const PASSWORD = "an adequately long password";
 
-const catalog: SessionCatalog = {
+const catalog: SessionCatalog = withSeededInstallation({
   profiles: {
     "claude-coding-v1": {
       runtime_kind: "claude_agent_sdk",
@@ -90,7 +91,7 @@ const catalog: SessionCatalog = {
       profiles: ["claude-coding-v1"],
     },
   },
-};
+});
 
 const card = {
   role: "리뷰어",

@@ -31,6 +31,7 @@ import {
   createInviteService,
   createMemberService,
   createSessionService,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { eq, sql } from "drizzle-orm";
@@ -92,7 +93,7 @@ integration("members and actors over HTTP on PostgreSQL", () => {
       inputs: createPostgresSessionUnitOfWork(db),
       controls: createPostgresSessionControl(db),
       reader: createPostgresSessionReader(db),
-      catalog: {
+      catalog: withSeededInstallation({
         profiles: {
           "claude-coding-v1": {
             runtime_kind: "claude_agent_sdk",
@@ -117,7 +118,7 @@ integration("members and actors over HTTP on PostgreSQL", () => {
             profiles: ["claude-coding-v1"],
           },
         },
-      },
+      }),
     });
     const members = createMemberService({
       authorization,

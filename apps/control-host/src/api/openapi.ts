@@ -679,6 +679,8 @@ const INSTALLATION_PROFILE_EXAMPLE = {
     created_at: "2026-10-28T01:00:00.000Z",
     retired_by: null,
     retired_at: null,
+    blocked_by: null,
+    blocked_at: null,
   },
 } as const;
 
@@ -3572,7 +3574,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Save a new version of an installation ceiling",
     description:
-      "The operator (`profile.installation.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Saves the next version of `name` with a new id (`op_<name>_v<n>`) on the connection `connection_id`, whose provider the server copies in; earlier versions, and the workspace profiles and releases on them, stay as they were. A new version of an existing name sends that name's latest id as `previous_id`; anything else is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`), as is the second of two saves at once. A first version may name the ceiling it replaces in `previous_id` (400 `unknown_previous` when there is none). 400 `details.reason_code`: `unknown_connection`, `runtime_not_installed`, `unattended_not_allowed` (`bypassPermissions` while `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` is not `true`), `unknown_repository`, `model_not_in_models` or `invalid_profile`, each with `details.field`. 409 `details.reason_code: id_taken` when the id is already an imported profile's. A ceiling saved with `repository_ids` runs against those repositories beside the ones `repositories.yaml` lists it under. Writes a `create_installation_profile` receipt.",
+      "The operator (`profile.installation.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Saves the next version of `name` with a new id (`op_<name>_v<n>`) on the connection `connection_id`, whose provider the server copies in; earlier versions, and the workspace profiles and releases on them, stay as they were. A new version of an existing name sends that name's latest id as `previous_id`; anything else is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`), as is the second of two saves at once. A first version may name the ceiling it replaces in `previous_id` (400 `unknown_previous` when there is none). 400 `details.reason_code`: `unknown_connection`, `runtime_not_installed`, `unattended_not_allowed` (`bypassPermissions` while `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` is not `true`), `unknown_repository`, `model_not_in_models` or `invalid_profile`, each with `details.field`. 409 `details.reason_code: id_taken` when the id is already an imported profile's. A ceiling runs against its `repository_ids` and no other repository. Writes a `create_installation_profile` receipt.",
     auth: "session",
     body: "CreateInstallationProfileRequest",
     requestExample: {
@@ -3627,6 +3629,56 @@ export const API_ROUTE_DECLARATIONS = [
           },
         },
         receipt_id: "019a0000-0000-7000-8000-0000000000e4",
+      },
+    },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/installation-profiles/{profile_id}/block",
+    operationId: "blockInstallationProfile",
+    tag: "Agents",
+    summary: "Block an installation ceiling",
+    description:
+      "The operator (`profile.installation.manage`, the workspace owner), signed in. Stops everything on one ceiling, imported or saved in the console, within a second on every replica: it reads `blocked` and the workspace profiles over it `base_blocked`; new releases, sessions (with a release or without) and workspace profiles on either are refused; a session waiting for its next turn fails at its next claim (`catalog_mismatch`, its input kept); a running turn loses its provider and repository access at the egress proxy's next regrant. Unblocking lets it run again but revives no failed session. Blocking one already blocked changes nothing and answers a null `receipt_id`; otherwise writes a `block_installation_profile` receipt.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "WorkspaceProfileChangeResponse",
+      description: "The ceiling as blocked.",
+      example: {
+        profile: {
+          ...INSTALLATION_PROFILE_EXAMPLE,
+          installation: {
+            ...INSTALLATION_PROFILE_EXAMPLE.installation,
+            state: "blocked",
+            blocked_by: "019a0000-0000-7000-8000-0000000000b1",
+            blocked_at: "2026-10-28T03:00:00.000Z",
+          },
+        },
+        receipt_id: "019a0000-0000-7000-8000-0000000000e5",
+      },
+    },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/installation-profiles/{profile_id}/unblock",
+    operationId: "unblockInstallationProfile",
+    tag: "Agents",
+    summary: "Unblock an installation ceiling",
+    description:
+      "The operator (`profile.installation.manage`, the workspace owner), signed in. The ceiling returns to the state it would have without the block (`usable`, or `retired` when it was retired); sessions failed while it was blocked stay failed. Unblocking one not blocked changes nothing and answers a null `receipt_id`; otherwise writes an `unblock_installation_profile` receipt.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "WorkspaceProfileChangeResponse",
+      description: "The ceiling as unblocked.",
+      example: {
+        profile: INSTALLATION_PROFILE_EXAMPLE,
+        receipt_id: "019a0000-0000-7000-8000-0000000000e6",
       },
     },
     errors: [401, 403, 404, 503],

@@ -1,0 +1,10 @@
+# The format is config/connections.yaml's. The compose `fake-messages`
+# service, with the placeholder key seeded into the local Secrets Manager
+# (infra/localstack/secrets-init).
+connections:
+  fake-messages:
+    kind: anthropic
+    endpoint: http://fake-messages:4010
+    auth:
+      kind: api_key
+      secret_id: agent-platform/local/fake-messages

@@ -1,6 +1,12 @@
-# Agent Profiles the API may run. Read once at API startup from
-# PLATFORM_CONFIG_DIR (default: this directory); an invalid profile, or a
-# credential reference that does not resolve, stops the API.
+# The installation ceilings an empty database starts with. The API reads
+# this file from PLATFORM_CONFIG_DIR (default: this directory) only while
+# installation_profiles has no row, and writes these entries in; once the
+# table holds a row the file is never read again, and ceilings change in
+# the console or through POST /v1/installation-profiles. An invalid profile
+# here stops a first start.
+#
+# Each provider block must equal a connection in connections.yaml, or the
+# ceiling seeded from it does not run.
 #
 # A profile never holds a credential value. `provider.auth` names where the
 # API reads it at startup — exactly one of:

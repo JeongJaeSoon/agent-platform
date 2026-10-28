@@ -1,113 +1,53 @@
 import { canonicalJson } from "@werft-ai/contracts";
 import type { StructuredLogger } from "@werft-ai/observability";
 import {
-  type CatalogImportResult,
-  type CatalogProfileView,
-  type CatalogRepository,
+  type CatalogSeedResult,
   type Connections,
   catalogImports,
-  catalogRevision,
-  catalogRows,
-  differingDefinitionFields,
-  type InstallationProfileRecord,
+  catalogRepositoryIds,
   type InstallationProfileStore,
-  installationProfileSnapshot,
   type SessionCatalogConfig,
-  type SnapshotSources,
 } from "@werft-ai/platform";
 import { stringify as stringifyYaml } from "yaml";
+import { readSeedProfiles } from "./catalog-config.ts";
+
+/** `profiles.yaml` could not seed an empty table; retrying will not fix it. */
+export class SeedProfilesError extends Error {
+  override name = "SeedProfilesError";
+}
 
 /**
- * Puts each `profiles.yaml` id absent from `installation_profiles` in it,
- * as the api role does before it reads the registry. Never overwrites.
+ * Seeds an empty `installation_profiles` from `profiles.yaml`, as the api
+ * role does before it reads the registry, and moves the repositories.yaml
+ * allow lists of imported rows that predate the database holding them. A
+ * filled table never opens `profiles.yaml`.
  */
-export async function importCatalogProfiles(
-  store: Pick<InstallationProfileStore, "importCatalog">,
-  config: Pick<SessionCatalogConfig, "profiles">,
-  logger: Pick<StructuredLogger, "info" | "warn">,
-): Promise<CatalogImportResult> {
-  const result = await store.importCatalog(catalogImports(config.profiles));
-  if (result.inserted.length > 0) {
-    logger.info("Profiles imported", { profiles: result.inserted });
+export async function seedCatalogProfiles(
+  store: Pick<InstallationProfileStore, "seedCatalog">,
+  input: { dir: string; config: SessionCatalogConfig },
+  logger: Pick<StructuredLogger, "info">,
+): Promise<CatalogSeedResult> {
+  const result = await store.seedCatalog({
+    entries: async () => {
+      try {
+        return catalogImports(await readSeedProfiles(input.dir, input.config));
+      } catch (error) {
+        throw new SeedProfilesError(
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    },
+    repositoryIdsOf: catalogRepositoryIds(input.config.repositories),
+  });
+  if (result.seeded.length > 0) {
+    logger.info("Profiles seeded", { profiles: result.seeded });
   }
-  for (const conflict of result.conflicts) {
-    logger.warn("Profile import conflict", {
-      profile_id: conflict.id,
-      origin: conflict.origin,
-      fields: conflict.fields,
+  if (result.migrated.length > 0) {
+    logger.info("Profile repositories moved to the database", {
+      profiles: result.migrated,
     });
   }
   return result;
-}
-
-export type ImportCheck = {
-  conflicts: CatalogImportResult["conflicts"];
-  /** `catalog` rows this YAML does not have. */
-  databaseOnly: string[];
-  /** YAML ids the database does not have yet. */
-  yamlOnly: string[];
-  /** Rows whose provider is none of this replica's connections. */
-  connectionMissing: string[];
-  yamlRevision: string;
-  databaseRevision: string;
-};
-
-/**
- * What `profiles import --check` reports for one replica's config against
- * the rows: clean only when a rollback to this image, or to the YAML-only
- * one, sees the same profiles and the same revision.
- */
-export function checkCatalogImport<P extends CatalogProfileView>(input: {
-  own: SessionCatalogConfig["profiles"];
-  sources: SnapshotSources<P>;
-  repositories: Record<string, CatalogRepository>;
-  rows: readonly InstallationProfileRecord[];
-}): ImportCheck {
-  const { sources, rows } = input;
-  const byId = new Map(rows.map((row) => [row.id, row]));
-  const conflicts = catalogImports(input.own).flatMap((entry) => {
-    const row = byId.get(entry.id);
-    if (!row) return [];
-    const fields = differingDefinitionFields(row.definition, entry.definition);
-    return row.origin === "console" || fields.length > 0
-      ? [{ id: entry.id, origin: row.origin, fields }]
-      : [];
-  });
-  const own = new Set(Object.keys(input.own));
-  const databaseOnly = rows
-    .filter((row) => row.origin === "catalog" && !own.has(row.id))
-    .map((row) => row.id);
-  const yamlOnly = [...own].filter((id) => !byId.has(id)).sort();
-  const fromDatabase = installationProfileSnapshot(sources, rows);
-  const connectionMissing = [...fromDatabase.installation.values()]
-    .filter((entry) => entry.state === "connection_missing")
-    .map((entry) => entry.id);
-  const revisionOf = (snapshot: typeof fromDatabase) =>
-    catalogRevision({
-      profiles: snapshot.profiles,
-      installation: snapshot.installation,
-      repositories: input.repositories,
-    });
-  return {
-    conflicts,
-    databaseOnly,
-    yamlOnly,
-    connectionMissing,
-    yamlRevision: revisionOf(
-      installationProfileSnapshot(sources, catalogRows(input.own)),
-    ),
-    databaseRevision: revisionOf(fromDatabase),
-  };
-}
-
-export function importCheckClean(check: ImportCheck): boolean {
-  return (
-    check.conflicts.length === 0 &&
-    check.databaseOnly.length === 0 &&
-    check.yamlOnly.length === 0 &&
-    check.connectionMissing.length === 0 &&
-    check.yamlRevision === check.databaseRevision
-  );
 }
 
 /**

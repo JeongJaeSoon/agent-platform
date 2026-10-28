@@ -7766,7 +7766,9 @@
               "create_workspace_profile",
               "retire_workspace_profile",
               "create_installation_profile",
-              "retire_installation_profile"
+              "retire_installation_profile",
+              "block_installation_profile",
+              "unblock_installation_profile"
             ]
           },
           "target_ref": {
@@ -11516,7 +11518,8 @@
                         "base_changed",
                         "base_missing",
                         "retired",
-                        "base_retired"
+                        "base_retired",
+                        "base_blocked"
                       ]
                     },
                     "created_by": {
@@ -11602,6 +11605,7 @@
                       "enum": [
                         "usable",
                         "retired",
+                        "blocked",
                         "connection_missing",
                         "unattended_off",
                         "definition_drift",
@@ -11683,6 +11687,30 @@
                       ]
                     },
                     "retired_at": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "blocked_by": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "blocked_at": {
                       "anyOf": [
                         {
                           "type": "string",
@@ -11883,7 +11911,8 @@
                       "base_changed",
                       "base_missing",
                       "retired",
-                      "base_retired"
+                      "base_retired",
+                      "base_blocked"
                     ]
                   },
                   "created_by": {
@@ -11969,6 +11998,7 @@
                     "enum": [
                       "usable",
                       "retired",
+                      "blocked",
                       "connection_missing",
                       "unattended_off",
                       "definition_drift",
@@ -12050,6 +12080,30 @@
                     ]
                   },
                   "retired_at": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "blocked_by": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "blocked_at": {
                     "anyOf": [
                       {
                         "type": "string",
@@ -46660,7 +46714,9 @@
                         "created_by": "019a0000-0000-7000-8000-0000000000b1",
                         "created_at": "2026-10-28T01:00:00.000Z",
                         "retired_by": null,
-                        "retired_at": null
+                        "retired_at": null,
+                        "blocked_by": null,
+                        "blocked_at": null
                       }
                     },
                     {
@@ -47612,7 +47668,7 @@
           "Agents"
         ],
         "summary": "Save a new version of an installation ceiling",
-        "description": "The operator (`profile.installation.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Saves the next version of `name` with a new id (`op_\u003cname>_v\u003cn>`) on the connection `connection_id`, whose provider the server copies in; earlier versions, and the workspace profiles and releases on them, stay as they were. A new version of an existing name sends that name's latest id as `previous_id`; anything else is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`), as is the second of two saves at once. A first version may name the ceiling it replaces in `previous_id` (400 `unknown_previous` when there is none). 400 `details.reason_code`: `unknown_connection`, `runtime_not_installed`, `unattended_not_allowed` (`bypassPermissions` while `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` is not `true`), `unknown_repository`, `model_not_in_models` or `invalid_profile`, each with `details.field`. 409 `details.reason_code: id_taken` when the id is already an imported profile's. A ceiling saved with `repository_ids` runs against those repositories beside the ones `repositories.yaml` lists it under. Writes a `create_installation_profile` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "The operator (`profile.installation.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Saves the next version of `name` with a new id (`op_\u003cname>_v\u003cn>`) on the connection `connection_id`, whose provider the server copies in; earlier versions, and the workspace profiles and releases on them, stay as they were. A new version of an existing name sends that name's latest id as `previous_id`; anything else is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`), as is the second of two saves at once. A first version may name the ceiling it replaces in `previous_id` (400 `unknown_previous` when there is none). 400 `details.reason_code`: `unknown_connection`, `runtime_not_installed`, `unattended_not_allowed` (`bypassPermissions` while `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` is not `true`), `unknown_repository`, `model_not_in_models` or `invalid_profile`, each with `details.field`. 409 `details.reason_code: id_taken` when the id is already an imported profile's. A ceiling runs against its `repository_ids` and no other repository. Writes a `create_installation_profile` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -47720,7 +47776,9 @@
                       "created_by": "019a0000-0000-7000-8000-0000000000b1",
                       "created_at": "2026-10-28T01:00:00.000Z",
                       "retired_by": null,
-                      "retired_at": null
+                      "retired_at": null,
+                      "blocked_by": null,
+                      "blocked_at": null
                     }
                   },
                   "receipt_id": "019a0000-0000-7000-8000-0000000000e3"
@@ -48071,10 +48129,578 @@
                       "created_by": "019a0000-0000-7000-8000-0000000000b1",
                       "created_at": "2026-10-28T01:00:00.000Z",
                       "retired_by": "019a0000-0000-7000-8000-0000000000b1",
-                      "retired_at": "2026-10-28T02:00:00.000Z"
+                      "retired_at": "2026-10-28T02:00:00.000Z",
+                      "blocked_by": null,
+                      "blocked_at": null
                     }
                   },
                   "receipt_id": "019a0000-0000-7000-8000-0000000000e4"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceProfileChangeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "- `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/installation-profiles/{profile_id}/block": {
+      "post": {
+        "operationId": "blockInstallationProfile",
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Block an installation ceiling",
+        "description": "The operator (`profile.installation.manage`, the workspace owner), signed in. Stops everything on one ceiling, imported or saved in the console, within a second on every replica: it reads `blocked` and the workspace profiles over it `base_blocked`; new releases, sessions (with a release or without) and workspace profiles on either are refused; a session waiting for its next turn fails at its next claim (`catalog_mismatch`, its input kept); a running turn loses its provider and repository access at the egress proxy's next regrant. Unblocking lets it run again but revives no failed session. Blocking one already blocked changes nothing and answers a null `receipt_id`; otherwise writes a `block_installation_profile` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `agent-platform-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "agent-platform-web"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The ceiling as blocked.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "profile": {
+                    "id": "op_coding_v2",
+                    "source": "operator",
+                    "model": "claude-sonnet-5",
+                    "models": [
+                      "claude-sonnet-5",
+                      "claude-haiku-5"
+                    ],
+                    "tools": [
+                      "Read",
+                      "Edit",
+                      "Write",
+                      "Glob",
+                      "Grep",
+                      "Bash"
+                    ],
+                    "permission_mode": "acceptEdits",
+                    "runtime_kind": "claude_agent_sdk",
+                    "runtime_version": "0.3.270",
+                    "billing": "metered",
+                    "repository_mode": "required",
+                    "repository_ids": [
+                      "sample-app"
+                    ],
+                    "installation": {
+                      "name": "coding",
+                      "version": 2,
+                      "origin": "console",
+                      "state": "blocked",
+                      "connection_id": "anthropic-main",
+                      "title_model": "claude-haiku-5",
+                      "project_settings": {
+                        "claude_md": true
+                      },
+                      "previous_id": "op_coding_v1",
+                      "created_by": "019a0000-0000-7000-8000-0000000000b1",
+                      "created_at": "2026-10-28T01:00:00.000Z",
+                      "retired_by": null,
+                      "retired_at": null,
+                      "blocked_by": "019a0000-0000-7000-8000-0000000000b1",
+                      "blocked_at": "2026-10-28T03:00:00.000Z"
+                    }
+                  },
+                  "receipt_id": "019a0000-0000-7000-8000-0000000000e5"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceProfileChangeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "- `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/installation-profiles/{profile_id}/unblock": {
+      "post": {
+        "operationId": "unblockInstallationProfile",
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Unblock an installation ceiling",
+        "description": "The operator (`profile.installation.manage`, the workspace owner), signed in. The ceiling returns to the state it would have without the block (`usable`, or `retired` when it was retired); sessions failed while it was blocked stay failed. Unblocking one not blocked changes nothing and answers a null `receipt_id`; otherwise writes an `unblock_installation_profile` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `agent-platform-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "agent-platform-web"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The ceiling as unblocked.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "profile": {
+                    "id": "op_coding_v2",
+                    "source": "operator",
+                    "model": "claude-sonnet-5",
+                    "models": [
+                      "claude-sonnet-5",
+                      "claude-haiku-5"
+                    ],
+                    "tools": [
+                      "Read",
+                      "Edit",
+                      "Write",
+                      "Glob",
+                      "Grep",
+                      "Bash"
+                    ],
+                    "permission_mode": "acceptEdits",
+                    "runtime_kind": "claude_agent_sdk",
+                    "runtime_version": "0.3.270",
+                    "billing": "metered",
+                    "repository_mode": "required",
+                    "repository_ids": [
+                      "sample-app"
+                    ],
+                    "installation": {
+                      "name": "coding",
+                      "version": 2,
+                      "origin": "console",
+                      "state": "usable",
+                      "connection_id": "anthropic-main",
+                      "title_model": "claude-haiku-5",
+                      "project_settings": {
+                        "claude_md": true
+                      },
+                      "previous_id": "op_coding_v1",
+                      "created_by": "019a0000-0000-7000-8000-0000000000b1",
+                      "created_at": "2026-10-28T01:00:00.000Z",
+                      "retired_by": null,
+                      "retired_at": null,
+                      "blocked_by": null,
+                      "blocked_at": null
+                    }
+                  },
+                  "receipt_id": "019a0000-0000-7000-8000-0000000000e6"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/WorkspaceProfileChangeResponse"

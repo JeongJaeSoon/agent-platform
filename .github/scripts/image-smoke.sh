@@ -47,9 +47,8 @@ console.log(zombies);
 api_init_smoke() {
   local image="$1" cid
   # The image carries no config: without one mounted the API must refuse
-  # to start rather than run someone's example. profiles.yaml is optional
-  # (rows live in the database), so the missing file named is the
-  # repositories one.
+  # to start rather than run someone's example. connections.yaml is read
+  # first; profiles.yaml is only a seed for an empty database.
   local refused status
   refused="$(timeout 60 docker run --rm --label "$smoke_label" \
     -e DATABASE_URL=postgres://smoke:smoke@127.0.0.1:1/smoke \
@@ -60,7 +59,7 @@ api_init_smoke() {
     "$image" 2>&1)" && status=0 || status=$?
   # A pattern match, not `| grep -q`: under pipefail grep's early exit can
   # fail the printf with SIGPIPE.
-  if [ "$status" = 0 ] || [ "$status" = 124 ] || [[ "$refused" != *"repositories.yaml is missing"* ]]; then
+  if [ "$status" = 0 ] || [ "$status" = 124 ] || [[ "$refused" != *"connections.yaml is missing"* ]]; then
     printf '%s\n' "$refused" >&2
     echo "expected the API to refuse to start without a catalog (exit $status)" >&2
     exit 1
@@ -69,6 +68,15 @@ api_init_smoke() {
   # A minimal catalog whose credential comes from the environment, readable
   # by the image's uid 1000.
   config_dir="$(mktemp -d)"
+  cat >"$config_dir/connections.yaml" <<'YAML'
+connections:
+  smoke:
+    kind: anthropic
+    endpoint: https://api.anthropic.invalid
+    auth:
+      kind: api_key
+      value_env: SMOKE_PROVIDER_KEY
+YAML
   cat >"$config_dir/profiles.yaml" <<'YAML'
 profiles:
   smoke:

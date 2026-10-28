@@ -49,8 +49,10 @@ import { createLogger, type LogRecord } from "@werft-ai/observability";
 import {
   type Caller,
   type CatalogProfileView,
+  type Connections,
   callerFor,
   catalogImports,
+  catalogRepositoryIds,
   createAgentService,
   createAuthorizationPolicy,
   createOutboxSlackNoticeSink,
@@ -77,9 +79,11 @@ import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { Pool } from "pg";
 import {
+  CONNECTIONS_FILE,
   loadSessionCatalog,
   PROFILES_FILE,
   REPOSITORIES_FILE,
+  readSeedProfiles,
 } from "../api/catalog-config.ts";
 import { eventNeutralizer } from "../api/neutral-fields.ts";
 import { slackRoleStartup, slackSessionHandler } from "./main.ts";
@@ -98,6 +102,14 @@ const PROFILES = `profiles:
       auth:
         kind: api_key
         value_env: PROVIDER_KEY
+`;
+const CONNECTIONS = `connections:
+  main:
+    kind: anthropic
+    endpoint: https://api.anthropic.invalid
+    auth:
+      kind: api_key
+      value_env: PROVIDER_KEY
 `;
 const APP_ID = "A0OUTBOX";
 const TEAM = "T0ACME";
@@ -138,6 +150,7 @@ const key = SecretKey.fromHex(randomBytes(32).toString("hex"), "TEST_KEY");
 
 let root = "";
 let catalog: SessionCatalogConfig;
+let connections: Connections;
 let db: Database;
 
 afterAll(async () => {
@@ -169,9 +182,11 @@ function useDatabase(engine: string) {
       };
     }
     // The api role's startup import: the registry reads ceilings from rows.
-    await createPostgresInstallationProfileStore(db).importCatalog(
-      catalogImports(catalog.profiles),
-    );
+    await createPostgresInstallationProfileStore(db).seedCatalog({
+      entries: async () =>
+        catalogImports(await readSeedProfiles(root, catalog)),
+      repositoryIdsOf: catalogRepositoryIds(catalog.repositories),
+    });
     slack.statuses.length = 0;
     slack.messages.length = 0;
     slack.failures.clear();
@@ -187,6 +202,7 @@ async function loadCatalog() {
   root = await mkdtemp(join(tmpdir(), "slack-outbox-"));
   await writeFile(join(root, PROFILES_FILE), PROFILES);
   await writeFile(join(root, REPOSITORIES_FILE), "repositories: {}\n");
+  await writeFile(join(root, CONNECTIONS_FILE), CONNECTIONS);
   const started = await slackRoleStartup(
     {
       DATABASE_URL: "postgres://nobody@127.0.0.1:1/none",
@@ -197,6 +213,7 @@ async function loadCatalog() {
     },
   );
   catalog = started.catalog;
+  connections = started.connections;
 }
 
 type Fixture = Awaited<ReturnType<typeof agentInSlack>>;
@@ -359,6 +376,7 @@ async function mention(fixture: Fixture, ts: string, user = PERSON) {
       environment: ENVIRONMENT,
       logger,
       catalog,
+      connections,
       secretKey: key,
       leaseMs: 30_000,
       notices: createOutboxSlackNoticeSink(createPostgresSlackOutboxStore(db)),

@@ -26,6 +26,7 @@ import { createLogger, MemoryLogSink } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
   createSessionService,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -128,7 +129,7 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
       reader: createPostgresSessionReader(db, {
         logger: createLogger({ sinks: [sink] }),
       }),
-      catalog: {
+      catalog: withSeededInstallation({
         profiles: {
           "claude-coding-v1": {
             runtime_kind: "claude_agent_sdk",
@@ -153,7 +154,7 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
             profiles: ["claude-coding-v1"],
           },
         },
-      },
+      }),
     });
     notifier = new PostgresSessionNotifier(
       databaseUrl ?? "",

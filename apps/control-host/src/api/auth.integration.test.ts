@@ -22,6 +22,7 @@ import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
   createSessionService,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { eq, sql } from "drizzle-orm";
@@ -86,7 +87,7 @@ integration("auth API on PostgreSQL", () => {
       inputs: createPostgresSessionUnitOfWork(db),
       controls: createPostgresSessionControl(db),
       reader: createPostgresSessionReader(db),
-      catalog: {
+      catalog: withSeededInstallation({
         profiles: {
           "claude-coding-v1": {
             runtime_kind: "claude_agent_sdk",
@@ -111,7 +112,7 @@ integration("auth API on PostgreSQL", () => {
             profiles: ["claude-coding-v1"],
           },
         },
-      },
+      }),
     });
     app = createApiApp({
       authMode: "api-key",

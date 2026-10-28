@@ -11,6 +11,7 @@ import {
   acceptAllCheckpoints,
   createWorkerGateway,
   WorkerGatewayError,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import { createObjectRouteSigner } from "@werft-ai/storage";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
@@ -37,7 +38,7 @@ beforeEach(async () => {
   db = drizzle(client, { schema });
   gateway = createWorkerGateway({
     work: createPostgresWorkerUnitOfWork(db),
-    catalog: {
+    catalog: withSeededInstallation({
       profiles: {
         "claude-coding-v1": {
           runtime_kind: "claude_agent_sdk",
@@ -69,7 +70,7 @@ beforeEach(async () => {
           },
         },
       },
-    },
+    }),
     checkpoints: acceptAllCheckpoints,
     options: {
       sessionCostLimitUsd: 1_000,

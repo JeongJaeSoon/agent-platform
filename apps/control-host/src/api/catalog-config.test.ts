@@ -3,7 +3,6 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  catalogConnections,
   catalogRows,
   installationProfileSnapshot,
   profileFingerprint,
@@ -11,11 +10,12 @@ import {
   repositoryModeOf,
   resolveSessionCatalog,
 } from "@werft-ai/platform";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import {
   ALLOW_UNATTENDED_SETTING,
+  CONNECTIONS_FILE,
   DEFAULT_CONFIG_DIR,
   installedRuntimes,
-  loadCatalogConfig,
   loadProfileSources,
   loadSessionCatalog,
   optInProfiles,
@@ -23,9 +23,18 @@ import {
   profileViewSources,
   REPOSITORIES_FILE,
   readCatalogConfig,
+  readConnections,
+  readSeedProfiles,
   type SecretReader,
   unattendedProfiles,
 } from "./catalog-config.ts";
+import { connectionsFromProfiles } from "./profile-import.ts";
+
+// The directory's catalog with its profiles.yaml read as the seed.
+async function readCatalog(dir: string) {
+  const config = await readCatalogConfig(dir);
+  return { ...config, profiles: await readSeedProfiles(dir, config) };
+}
 
 const PROFILES = `profiles:
   claude-coding-v1:
@@ -82,6 +91,12 @@ async function dirWith(
     ...files,
   };
   await Bun.write(join(dir, ".keep"), "");
+  // The connections the shared profiles name, unless the test writes its own.
+  if (!Object.hasOwn(files, CONNECTIONS_FILE)) {
+    contents[CONNECTIONS_FILE] = connectionsFromProfiles(
+      parseYaml(PROFILES).profiles,
+    );
+  }
   for (const [name, text] of Object.entries(contents)) {
     if (text !== undefined) await writeFile(join(dir, name), text);
   }
@@ -129,8 +144,18 @@ describe("loadSessionCatalog", () => {
       "value_env: PROVIDER_KEY",
       "secret_id: agent-platform/provider",
     );
+    const provider = parseYaml(twice).profiles["claude-coding-v1"].provider;
+    const connections = stringifyYaml({
+      connections: {
+        a: provider,
+        b: { ...provider, endpoint: "https://elsewhere.invalid" },
+      },
+    });
     await loadSessionCatalog({
-      dir: await dirWith({ [PROFILES_FILE]: twice }),
+      dir: await dirWith({
+        [PROFILES_FILE]: twice,
+        [CONNECTIONS_FILE]: connections,
+      }),
       env: {},
       readSecret: async (id) => {
         reads.push(id);
@@ -149,7 +174,7 @@ describe("loadSessionCatalog", () => {
       }),
     );
     expect(missing).toBe(
-      "profiles.from-secrets.provider.auth.secret_id: agent-platform/provider is not set",
+      "connections.from-secrets.auth.secret_id: agent-platform/provider is not set",
     );
     const thrown = await failure(
       loadSessionCatalog({
@@ -163,7 +188,7 @@ describe("loadSessionCatalog", () => {
       }),
     );
     expect(thrown).toBe(
-      "profiles.from-secrets.provider.auth.secret_id: agent-platform/provider could not be read (AccessDeniedException)",
+      "connections.from-secrets.auth.secret_id: agent-platform/provider could not be read (AccessDeniedException)",
     );
     expect(thrown).not.toContain(SECRET_VALUE);
   });
@@ -184,7 +209,7 @@ describe("loadSessionCatalog", () => {
       }),
     );
     expect(thrown).toBe(
-      "profiles.from-secrets.provider.auth.secret_id: agent-platform/provider could not be read from http://secrets:4566 (DNSException)",
+      "connections.from-secrets.auth.secret_id: agent-platform/provider could not be read from http://secrets:4566 (DNSException)",
     );
   });
 
@@ -198,7 +223,7 @@ describe("loadSessionCatalog", () => {
         }),
       ),
     ).toBe(
-      "profiles.claude-coding-v1.provider.auth.value_env: PROVIDER_KEY is not set",
+      "connections.claude-coding-v1.auth.value_env: PROVIDER_KEY is not set",
     );
   });
 
@@ -225,14 +250,15 @@ describe("unattended permission modes", () => {
   // is left out the same way: the rest of the catalog still runs.
   test("a profile that skips approval is left out until the installation allows it", async () => {
     expect(bypass).not.toBe(PROFILES);
+    const dir = await dirWith({ [PROFILES_FILE]: bypass });
     const { config, sources } = await loadProfileSources({
-      dir: await dirWith({ [PROFILES_FILE]: bypass }),
+      dir,
       env: { PROVIDER_KEY: ENV_VALUE },
       readSecret: secrets,
     });
     const imported = installationProfileSnapshot(
       sources,
-      catalogRows(config.profiles),
+      catalogRows(await readSeedProfiles(dir, config)),
     );
     expect(Object.keys(imported.profiles)).toEqual(["claude-coding-v1"]);
     expect(imported.installation.get("from-secrets")?.state).toBe(
@@ -288,7 +314,7 @@ describe("installed runtimes", () => {
       "local-model",
       "fake-model-unattended",
     ]) {
-      const config = await readCatalogConfig(join(DEFAULT_CONFIG_DIR, dir));
+      const config = await readCatalog(join(DEFAULT_CONFIG_DIR, dir));
       expect(Object.keys(config.profiles).length).toBeGreaterThan(0);
       installedRuntimes.assertProfiles(config.profiles);
     }
@@ -301,10 +327,7 @@ describe("installed runtimes", () => {
       "local-model": [],
     };
     for (const [dir, auto] of Object.entries(expected)) {
-      const config = await loadCatalogConfig({
-        dir: join(DEFAULT_CONFIG_DIR, dir),
-        env: {},
-      });
+      const config = await readCatalog(join(DEFAULT_CONFIG_DIR, dir));
       expect(unattendedProfiles(config)).toEqual(auto);
       expect(optInProfiles(config)).toEqual([]);
       for (const id of auto) {
@@ -342,7 +365,7 @@ describe("installed runtimes", () => {
     const shared = new Map<string, string>();
     for (const [dir, pinned] of Object.entries(onMain)) {
       const config = resolveSessionCatalog(
-        await readCatalogConfig(join(DEFAULT_CONFIG_DIR, dir)),
+        await readCatalog(join(DEFAULT_CONFIG_DIR, dir)),
         () => "placeholder-credential-value",
       );
       for (const [id, digest] of Object.entries(pinned)) {
@@ -359,7 +382,8 @@ describe("installed runtimes", () => {
 
   test("only the bypass example needs the installation's opt-in", async () => {
     const dir = join(DEFAULT_CONFIG_DIR, "fake-model-unattended");
-    const config = await readCatalogConfig(dir);
+    const config = await readCatalog(dir);
+    const connections = await readConnections(dir);
     expect(unattendedProfiles(config)).toEqual([
       "claude-coding-auto",
       "claude-coding-bypass",
@@ -374,10 +398,7 @@ describe("installed runtimes", () => {
       new Map(
         [
           ...installationProfileSnapshot(
-            profileViewSources(
-              catalogConnections(config.profiles, undefined),
-              env,
-            ),
+            profileViewSources(connections, env),
             catalogRows(config.profiles),
           ).installation.values(),
         ].map((entry) => [entry.id, entry.state]),
@@ -392,16 +413,18 @@ describe("installed runtimes", () => {
     ).toBe("usable");
   });
 
-  test("a profile of a kind the image does not ship parses, then stops the load", async () => {
+  test("a profile of a kind the image does not ship stops the seed's load", async () => {
     const dir = await dirWith({
       [PROFILES_FILE]: PROFILES.replace(
         "from-secrets:\n    runtime_kind: claude_agent_sdk",
         "from-secrets:\n    runtime_kind: codex_app_server",
       ),
     });
-    expect((await readCatalogConfig(dir)).profiles["from-secrets"]).toEqual(
-      expect.objectContaining({ runtime_kind: "codex_app_server" }),
-    );
+    expect(
+      parseYaml(await Bun.file(join(dir, PROFILES_FILE)).text()).profiles[
+        "from-secrets"
+      ],
+    ).toEqual(expect.objectContaining({ runtime_kind: "codex_app_server" }));
     expect(
       await failure(
         loadSessionCatalog({
@@ -423,7 +446,7 @@ describe("readCatalogConfig", () => {
       `${join(noRepositories, REPOSITORIES_FILE)} is missing`,
     );
     const broken = await dirWith({ [PROFILES_FILE]: "profiles: [unclosed" });
-    expect(await failure(readCatalogConfig(broken))).toStartWith(
+    expect(await failure(readCatalog(broken))).toStartWith(
       `${join(broken, PROFILES_FILE)} is not valid YAML: `,
     );
     for (const text of [
@@ -433,18 +456,63 @@ describe("readCatalogConfig", () => {
       "",
     ]) {
       const dir = await dirWith({ [PROFILES_FILE]: text });
-      expect(await failure(readCatalogConfig(dir))).toBe(
+      expect(await failure(readCatalog(dir))).toBe(
         `${join(dir, PROFILES_FILE)} must hold exactly one top-level key: profiles`,
       );
     }
   });
 
-  test("without profiles.yaml the catalog has no profiles to import and the repositories still load", async () => {
-    const config = await readCatalogConfig(
+  test("without profiles.yaml there is nothing to seed and the repositories still load", async () => {
+    const config = await readCatalog(
       await dirWith({ [PROFILES_FILE]: undefined }),
     );
     expect(config.profiles).toEqual({});
     expect(Object.keys(config.repositories)).toEqual(["sample-app"]);
+  });
+
+  test("profiles.yaml is never part of the catalog itself, only the seed", async () => {
+    const dir = await dirWith();
+    expect((await readCatalogConfig(dir)).profiles).toEqual({});
+    expect(Object.keys((await readCatalog(dir)).profiles).sort()).toEqual([
+      "claude-coding-v1",
+      "from-secrets",
+    ]);
+  });
+
+  test("a directory without connections.yaml refuses to load, naming the file", async () => {
+    const dir = await dirWith({ [CONNECTIONS_FILE]: undefined });
+    expect(
+      await failure(
+        loadSessionCatalog({
+          dir,
+          env: { PROVIDER_KEY: ENV_VALUE },
+          readSecret: async () => undefined,
+        }),
+      ),
+    ).toBe(`${join(dir, CONNECTIONS_FILE)} is missing`);
+  });
+
+  test("every shipped directory carries the connections its seed profiles run on", async () => {
+    for (const dir of [
+      ".",
+      "fake-model",
+      "local-model",
+      "fake-model-unattended",
+    ]) {
+      const path = join(DEFAULT_CONFIG_DIR, dir);
+      const config = await readCatalog(path);
+      const snapshot = installationProfileSnapshot(
+        profileViewSources(await readConnections(path), {
+          [ALLOW_UNATTENDED_SETTING]: "true",
+        }),
+        catalogRows(config.profiles, config.repositories),
+      );
+      expect(
+        [...snapshot.installation.values()].filter(
+          (entry) => entry.state !== "usable",
+        ),
+      ).toEqual([]);
+    }
   });
 
   test("a key defined twice is refused, not resolved to the last one", async () => {
@@ -466,7 +534,7 @@ describe("readCatalogConfig", () => {
   from-secrets:`,
       ),
     });
-    expect(await failure(readCatalogConfig(dir))).toStartWith(
+    expect(await failure(readCatalog(dir))).toStartWith(
       `${join(dir, PROFILES_FILE)} is not valid YAML: Map keys must be unique`,
     );
   });
@@ -478,16 +546,16 @@ describe("readCatalogConfig", () => {
         "permission_mode: yolo",
       ),
     });
-    expect(await failure(readCatalogConfig(dir))).toStartWith(
+    expect(await failure(readCatalog(dir))).toStartWith(
       `Catalog config in ${dir} is invalid: profiles.claude-coding-v1.permission_mode: `,
     );
   });
 
   test("the example config shipped in the repository loads", async () => {
-    const config = await readCatalogConfig(DEFAULT_CONFIG_DIR);
+    const config = await readCatalog(DEFAULT_CONFIG_DIR);
     expect(Object.keys(config.profiles).length).toBeGreaterThan(0);
     for (const repository of Object.values(config.repositories)) {
-      for (const id of repository.profiles) {
+      for (const id of repository.profiles ?? []) {
         expect(Object.hasOwn(config.profiles, id)).toBe(true);
       }
     }
@@ -508,7 +576,7 @@ describe("readCatalogConfig", () => {
     };
     for (const [dir, expected] of Object.entries(before)) {
       const catalog = resolveSessionCatalog(
-        await readCatalogConfig(join(DEFAULT_CONFIG_DIR, dir)),
+        await readCatalog(join(DEFAULT_CONFIG_DIR, dir)),
         () => "placeholder-credential-value",
       );
       const pinned = Object.keys(expected).map((id) => {
@@ -529,7 +597,7 @@ describe("readCatalogConfig", () => {
 
   test("the fake-model catalog offers a profile that runs without a repository", async () => {
     const catalog = resolveSessionCatalog(
-      await readCatalogConfig(join(DEFAULT_CONFIG_DIR, "fake-model")),
+      await readCatalog(join(DEFAULT_CONFIG_DIR, "fake-model")),
       () => "placeholder-credential-value",
     );
     const general = catalog.profiles.general;

@@ -3,7 +3,7 @@
 # Opt-in example: config/fake-model plus an operator profile in
 # `bypassPermissions`, which runs every tool call with nothing judging it, so
 # a workspace profile over it may pick `bypassPermissions` (a workspace
-# profile only narrows its base). The API refuses to start on this catalog
+# profile only narrows its base). The API leaves the bypass ceiling out
 # unless the installation sets PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true;
 # infra/compose.fake-model-unattended.yml does both over the fake-model
 # overlay. Read docs/operator/api-server.md (자율 모드) before copying this

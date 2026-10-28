@@ -1,0 +1,15 @@
+# The format is config/connections.yaml's: the local model servers
+# config/local-model/profiles.yaml runs on.
+connections:
+  ollama:
+    kind: anthropic
+    endpoint: http://ollama.internal:11434
+    auth:
+      kind: api_key
+      value_env: LOCAL_OLLAMA_API_KEY
+  litellm:
+    kind: litellm
+    endpoint: http://litellm:4000
+    auth:
+      kind: bearer
+      value_env: LITELLM_MASTER_KEY

@@ -2258,7 +2258,7 @@ export interface paths {
         put?: never;
         /**
          * Save a new version of an installation ceiling
-         * @description The operator (`profile.installation.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Saves the next version of `name` with a new id (`op_<name>_v<n>`) on the connection `connection_id`, whose provider the server copies in; earlier versions, and the workspace profiles and releases on them, stay as they were. A new version of an existing name sends that name's latest id as `previous_id`; anything else is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`), as is the second of two saves at once. A first version may name the ceiling it replaces in `previous_id` (400 `unknown_previous` when there is none). 400 `details.reason_code`: `unknown_connection`, `runtime_not_installed`, `unattended_not_allowed` (`bypassPermissions` while `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` is not `true`), `unknown_repository`, `model_not_in_models` or `invalid_profile`, each with `details.field`. 409 `details.reason_code: id_taken` when the id is already an imported profile's. A ceiling saved with `repository_ids` runs against those repositories beside the ones `repositories.yaml` lists it under. Writes a `create_installation_profile` receipt.
+         * @description The operator (`profile.installation.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Saves the next version of `name` with a new id (`op_<name>_v<n>`) on the connection `connection_id`, whose provider the server copies in; earlier versions, and the workspace profiles and releases on them, stay as they were. A new version of an existing name sends that name's latest id as `previous_id`; anything else is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`), as is the second of two saves at once. A first version may name the ceiling it replaces in `previous_id` (400 `unknown_previous` when there is none). 400 `details.reason_code`: `unknown_connection`, `runtime_not_installed`, `unattended_not_allowed` (`bypassPermissions` while `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` is not `true`), `unknown_repository`, `model_not_in_models` or `invalid_profile`, each with `details.field`. 409 `details.reason_code: id_taken` when the id is already an imported profile's. A ceiling runs against its `repository_ids` and no other repository. Writes a `create_installation_profile` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -2285,6 +2285,50 @@ export interface paths {
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["retireInstallationProfile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/installation-profiles/{profile_id}/block": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Block an installation ceiling
+         * @description The operator (`profile.installation.manage`, the workspace owner), signed in. Stops everything on one ceiling, imported or saved in the console, within a second on every replica: it reads `blocked` and the workspace profiles over it `base_blocked`; new releases, sessions (with a release or without) and workspace profiles on either are refused; a session waiting for its next turn fails at its next claim (`catalog_mismatch`, its input kept); a running turn loses its provider and repository access at the egress proxy's next regrant. Unblocking lets it run again but revives no failed session. Blocking one already blocked changes nothing and answers a null `receipt_id`; otherwise writes a `block_installation_profile` receipt.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["blockInstallationProfile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/installation-profiles/{profile_id}/unblock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unblock an installation ceiling
+         * @description The operator (`profile.installation.manage`, the workspace owner), signed in. The ceiling returns to the state it would have without the block (`usable`, or `retired` when it was retired); sessions failed while it was blocked stay failed. Unblocking one not blocked changes nothing and answers a null `receipt_id`; otherwise writes an `unblock_installation_profile` receipt.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["unblockInstallationProfile"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4187,7 +4231,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "change_profile" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "share_session" | "request_push" | "decide_push" | "push" | "open_pull_request" | "comment_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "create_workspace_profile" | "retire_workspace_profile" | "create_installation_profile" | "retire_installation_profile";
+            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "change_profile" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "share_session" | "request_push" | "decide_push" | "push" | "open_pull_request" | "comment_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "create_workspace_profile" | "retire_workspace_profile" | "create_installation_profile" | "retire_installation_profile" | "block_installation_profile" | "unblock_installation_profile";
             target_ref: {
                 /** Format: uuid */
                 session_id: string;
@@ -4881,7 +4925,7 @@ export interface components {
                     version: number;
                     base_profile_id: string;
                     /** @enum {string} */
-                    state: "usable" | "base_changed" | "base_missing" | "retired" | "base_retired";
+                    state: "usable" | "base_changed" | "base_missing" | "retired" | "base_retired" | "base_blocked";
                     created_by?: string | null;
                     /** Format: date-time */
                     created_at: string;
@@ -4894,7 +4938,7 @@ export interface components {
                     /** @enum {string} */
                     origin: "catalog" | "console";
                     /** @enum {string} */
-                    state: "usable" | "retired" | "connection_missing" | "unattended_off" | "definition_drift" | "runtime_unsupported";
+                    state: "usable" | "retired" | "blocked" | "connection_missing" | "unattended_off" | "definition_drift" | "runtime_unsupported";
                     connection_id: string | null;
                     title_model: string | null;
                     project_settings: {
@@ -4906,6 +4950,8 @@ export interface components {
                     created_at: string;
                     retired_by: string | null;
                     retired_at: string | null;
+                    blocked_by?: string | null;
+                    blocked_at?: string | null;
                 };
             }[];
         };
@@ -4943,7 +4989,7 @@ export interface components {
                     version: number;
                     base_profile_id: string;
                     /** @enum {string} */
-                    state: "usable" | "base_changed" | "base_missing" | "retired" | "base_retired";
+                    state: "usable" | "base_changed" | "base_missing" | "retired" | "base_retired" | "base_blocked";
                     created_by?: string | null;
                     /** Format: date-time */
                     created_at: string;
@@ -4956,7 +5002,7 @@ export interface components {
                     /** @enum {string} */
                     origin: "catalog" | "console";
                     /** @enum {string} */
-                    state: "usable" | "retired" | "connection_missing" | "unattended_off" | "definition_drift" | "runtime_unsupported";
+                    state: "usable" | "retired" | "blocked" | "connection_missing" | "unattended_off" | "definition_drift" | "runtime_unsupported";
                     connection_id: string | null;
                     title_model: string | null;
                     project_settings: {
@@ -4968,6 +5014,8 @@ export interface components {
                     created_at: string;
                     retired_by: string | null;
                     retired_at: string | null;
+                    blocked_by?: string | null;
+                    blocked_at?: string | null;
                 };
             };
             receipt_id: string | null;
@@ -19982,7 +20030,9 @@ export interface operations {
                      *             "created_by": "019a0000-0000-7000-8000-0000000000b1",
                      *             "created_at": "2026-10-28T01:00:00.000Z",
                      *             "retired_by": null,
-                     *             "retired_at": null
+                     *             "retired_at": null,
+                     *             "blocked_by": null,
+                     *             "blocked_at": null
                      *           }
                      *         },
                      *         {
@@ -20580,7 +20630,9 @@ export interface operations {
                      *           "created_by": "019a0000-0000-7000-8000-0000000000b1",
                      *           "created_at": "2026-10-28T01:00:00.000Z",
                      *           "retired_by": null,
-                     *           "retired_at": null
+                     *           "retired_at": null,
+                     *           "blocked_by": null,
+                     *           "blocked_at": null
                      *         }
                      *       },
                      *       "receipt_id": "019a0000-0000-7000-8000-0000000000e3"
@@ -20759,10 +20811,314 @@ export interface operations {
                      *           "created_by": "019a0000-0000-7000-8000-0000000000b1",
                      *           "created_at": "2026-10-28T01:00:00.000Z",
                      *           "retired_by": "019a0000-0000-7000-8000-0000000000b1",
-                     *           "retired_at": "2026-10-28T02:00:00.000Z"
+                     *           "retired_at": "2026-10-28T02:00:00.000Z",
+                     *           "blocked_by": null,
+                     *           "blocked_at": null
                      *         }
                      *       },
                      *       "receipt_id": "019a0000-0000-7000-8000-0000000000e4"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["WorkspaceProfileChangeResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    blockInstallationProfile: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The ceiling as blocked. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "profile": {
+                     *         "id": "op_coding_v2",
+                     *         "source": "operator",
+                     *         "model": "claude-sonnet-5",
+                     *         "models": [
+                     *           "claude-sonnet-5",
+                     *           "claude-haiku-5"
+                     *         ],
+                     *         "tools": [
+                     *           "Read",
+                     *           "Edit",
+                     *           "Write",
+                     *           "Glob",
+                     *           "Grep",
+                     *           "Bash"
+                     *         ],
+                     *         "permission_mode": "acceptEdits",
+                     *         "runtime_kind": "claude_agent_sdk",
+                     *         "runtime_version": "0.3.270",
+                     *         "billing": "metered",
+                     *         "repository_mode": "required",
+                     *         "repository_ids": [
+                     *           "sample-app"
+                     *         ],
+                     *         "installation": {
+                     *           "name": "coding",
+                     *           "version": 2,
+                     *           "origin": "console",
+                     *           "state": "blocked",
+                     *           "connection_id": "anthropic-main",
+                     *           "title_model": "claude-haiku-5",
+                     *           "project_settings": {
+                     *             "claude_md": true
+                     *           },
+                     *           "previous_id": "op_coding_v1",
+                     *           "created_by": "019a0000-0000-7000-8000-0000000000b1",
+                     *           "created_at": "2026-10-28T01:00:00.000Z",
+                     *           "retired_by": null,
+                     *           "retired_at": null,
+                     *           "blocked_by": "019a0000-0000-7000-8000-0000000000b1",
+                     *           "blocked_at": "2026-10-28T03:00:00.000Z"
+                     *         }
+                     *       },
+                     *       "receipt_id": "019a0000-0000-7000-8000-0000000000e5"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["WorkspaceProfileChangeResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    unblockInstallationProfile: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The ceiling as unblocked. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "profile": {
+                     *         "id": "op_coding_v2",
+                     *         "source": "operator",
+                     *         "model": "claude-sonnet-5",
+                     *         "models": [
+                     *           "claude-sonnet-5",
+                     *           "claude-haiku-5"
+                     *         ],
+                     *         "tools": [
+                     *           "Read",
+                     *           "Edit",
+                     *           "Write",
+                     *           "Glob",
+                     *           "Grep",
+                     *           "Bash"
+                     *         ],
+                     *         "permission_mode": "acceptEdits",
+                     *         "runtime_kind": "claude_agent_sdk",
+                     *         "runtime_version": "0.3.270",
+                     *         "billing": "metered",
+                     *         "repository_mode": "required",
+                     *         "repository_ids": [
+                     *           "sample-app"
+                     *         ],
+                     *         "installation": {
+                     *           "name": "coding",
+                     *           "version": 2,
+                     *           "origin": "console",
+                     *           "state": "usable",
+                     *           "connection_id": "anthropic-main",
+                     *           "title_model": "claude-haiku-5",
+                     *           "project_settings": {
+                     *             "claude_md": true
+                     *           },
+                     *           "previous_id": "op_coding_v1",
+                     *           "created_by": "019a0000-0000-7000-8000-0000000000b1",
+                     *           "created_at": "2026-10-28T01:00:00.000Z",
+                     *           "retired_by": null,
+                     *           "retired_at": null,
+                     *           "blocked_by": null,
+                     *           "blocked_at": null
+                     *         }
+                     *       },
+                     *       "receipt_id": "019a0000-0000-7000-8000-0000000000e6"
                      *     }
                      */
                     "application/json": components["schemas"]["WorkspaceProfileChangeResponse"];

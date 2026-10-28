@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { join } from "node:path";
-import { readCatalogConfig } from "./catalog-config.ts";
+import { readConnections } from "./catalog-config.ts";
 import {
   DEMO_SESSIONS,
   DemoClient,
@@ -16,41 +16,34 @@ const local = {
 const configRoot = join(import.meta.dir, "../../../../config");
 
 describe("demoDataRefusal", () => {
-  test("allows the local stack on the fake-model catalog", async () => {
-    const catalog = await readCatalogConfig(join(configRoot, "fake-model"));
-    expect(demoDataRefusal(local, catalog)).toBeNull();
+  test("allows the local stack on the fake-model connections", async () => {
+    const connections = await readConnections(join(configRoot, "fake-model"));
+    expect(demoDataRefusal(local, connections)).toBeNull();
   });
 
-  test("refuses the real-model catalog", async () => {
-    const catalog = await readCatalogConfig(configRoot);
-    expect(demoDataRefusal(local, catalog)).toContain(
+  test("refuses the real-model connections, and none at all", async () => {
+    const connections = await readConnections(configRoot);
+    expect(demoDataRefusal(local, connections)).toContain(
       "does not call the fake model",
     );
+    expect(demoDataRefusal(local, {})).toContain("names no connection");
   });
 
-  test("refuses a fake profile pointed at another endpoint", async () => {
-    const catalog = await readCatalogConfig(join(configRoot, "fake-model"));
-    const general = catalog.profiles.general;
-    if (!general?.provider) throw new Error("fake catalog lost general");
+  test("refuses a second connection pointed at another endpoint", async () => {
+    const connections = await readConnections(join(configRoot, "fake-model"));
+    const fake = connections["fake-messages"];
+    if (!fake) throw new Error("fake connections lost fake-messages");
     const moved = {
-      profiles: {
-        ...catalog.profiles,
-        general: {
-          ...general,
-          provider: {
-            ...general.provider,
-            endpoint: "https://api.anthropic.com",
-          },
-        },
-      },
+      ...connections,
+      other: { ...fake, endpoint: "https://api.anthropic.com" },
     };
     expect(demoDataRefusal(local, moved)).toContain(
-      "profile general does not call the fake model",
+      "connection other does not call the fake model",
     );
   });
 
   test("refuses whatever the demo accounts refuse", async () => {
-    const catalog = await readCatalogConfig(join(configRoot, "fake-model"));
+    const catalog = await readConnections(join(configRoot, "fake-model"));
     expect(
       demoDataRefusal(
         { ...local, KUBERNETES_SERVICE_HOST: "10.0.0.1" },
@@ -100,7 +93,7 @@ describe("demoDataRefusal", () => {
     );
     expect(result.exitCode).toBe(2);
     expect(result.stderr.toString()).toContain(
-      "demo data refused: profile claude-coding-local does not call the fake model",
+      "demo data refused: connection anthropic does not call the fake model",
     );
   });
 });
