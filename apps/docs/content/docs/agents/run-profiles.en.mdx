@@ -108,7 +108,7 @@ Auto rules and the script ceiling have a place on the screen but cannot be chang
 
 ## Block an operator profile
 
-An owner can stop one operator profile, including the sessions running on it now. Turning a profile off (retire) only keeps new releases and sessions away; blocking stops everything that runs on it. Only an owner does this, with the web login cookie; an admin, a member or an API key gets 403. The example below uses the `WEB` header from [Create](/agents/create#log-in).
+An owner can stop one operator profile, including the sessions running on it now. Turning a profile off (retire) only keeps new releases and sessions away; blocking stops everything that runs on it. Only an owner does this, with the web login cookie; an admin, a member or an API key gets 403. In the console, use **Block** or **Unblock** on the operator profile's detail page and confirm. The example below uses the `WEB` header from [Create](/agents/create#log-in).
 
 ```bash
 curl -sS -X POST "$API/v1/installation-profiles/claude-coding-local/block" "${WEB[@]}" \

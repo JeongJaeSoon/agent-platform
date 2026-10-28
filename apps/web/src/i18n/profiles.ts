@@ -793,7 +793,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.unblockText":
     "この上限を再び選べるようになります。ブロック中に止まったセッションとターンは自動では再実行されません。必要なセッションには新しいメッセージを送ってください。",
   "profiles.blocking": "ブロックしています…",
-  "profiles.unblocking": "ブロックを解除中…",
+  "profiles.unblocking": "ブロックを解除しています…",
   "profiles.blockDone": "インストール上限 {id} をブロックしました。",
   "profiles.unblockDone": "インストール上限 {id} のブロックを解除しました。",
   "profiles.blockOwnerOnly":
