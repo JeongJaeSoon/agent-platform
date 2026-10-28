@@ -119,9 +119,10 @@ async function streamSlot(): Promise<() => void> {
 async function upstreamGet(
   path: string,
   headers: Record<string, string>,
+  signal: AbortSignal,
 ): Promise<Response> {
   for (let attempt = 1; ; attempt++) {
-    const upstream = await fetch(`${api}${path}`, { headers });
+    const upstream = await fetch(`${api}${path}`, { headers, signal });
     if (upstream.status !== 429 || attempt === RETRIES) return upstream;
     await upstream.body?.cancel();
     const wait = Number(upstream.headers.get("retry-after")) || attempt;
@@ -176,16 +177,20 @@ async function proxy(request: Request, cookie: string): Promise<Response> {
   const release = accept.includes("text/event-stream")
     ? await streamSlot()
     : () => {};
+  // Cancelling the body leaves Bun's socket open, and the API frees a
+  // stream's slot only when its connection closes.
+  const hangUp = new AbortController();
   let upstream: Response;
   try {
-    upstream = await upstreamGet(`${url.pathname}${url.search}`, {
-      cookie,
-      accept,
-      [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
-    });
+    upstream = await upstreamGet(
+      `${url.pathname}${url.search}`,
+      { cookie, accept, [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE },
+      hangUp.signal,
+    );
     const type = upstream.headers.get("content-type") ?? "";
     if (type.startsWith("text/event-stream")) {
       const sse = await recordStream(upstream);
+      hangUp.abort();
       responses.set(key, { status: 200, sse });
       return new Response(sse, {
         headers: { "content-type": "text/event-stream" },
