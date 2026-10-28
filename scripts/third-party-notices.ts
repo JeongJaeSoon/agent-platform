@@ -581,7 +581,7 @@ function baseSection(rows: readonly Row[], base: BaseImage): string {
     "",
     "- **라이선스.** 각 패키지의 저작권 표시와 라이선스 조건은 이미지 안 `/usr/share/doc/<패키지>/copyright`에 있다. GPL·LGPL·Apache-2.0처럼 여러 패키지가 쓰는 라이선스는 이 파일이 전문 대신 `/usr/share/common-licenses/`의 사본을 가리킨다. images.yml이 빌드한 이미지마다 설치된 모든 패키지에 copyright 파일이 있는지 확인한다.",
     "- **대응 소스.** 이미지마다 `/app/DEBIAN_SOURCES.md`가 설치된 모든 Debian 패키지의 source package 이름과 정확한 버전, 그 소스가 보관된 https://snapshot.debian.org/ 주소를 적는다. GPL·LGPL 패키지도 모두 여기에 들어 있다. 이 목록은 빌드할 때 그 이미지의 dpkg 데이터베이스에서 만든다(`bun scripts/third-party-notices.ts --debian-sources`). images.yml은 빌드한 이미지마다 목록이 실제 설치 상태와 같은지, snapshot.debian.org가 각 소스를 실제로 갖고 있는지 확인한다. snapshot에 없는 소스는 PR·main·매일 실행에서 경고이고, 릴리스(tag)에서는 실패다. `apt-get upgrade` 때문에 빌드마다 버전이 달라질 수 있어, 목록은 저장소가 아니라 이미지에 둔다.",
-    "- **Dockerfile이 추가로 설치하는 Debian 패키지.** control-host는 git(GPL-2.0)·tini(MIT), worker는 ca-certificates(MPL-2.0·GPL-2.0+)·git·tini·xfsprogs(GPL-2.0·LGPL-2.1)다. egress-proxy는 추가 패키지가 없다.",
+    "- **Dockerfile이 추가로 설치하는 Debian 패키지.** control-host는 ca-certificates(MPL-2.0·GPL-2.0+)·git(GPL-2.0)·tini(MIT), worker는 ca-certificates·git·tini·xfsprogs(GPL-2.0·LGPL-2.1)다. egress-proxy는 추가 패키지가 없다.",
   ];
   if (sdk !== undefined) {
     const embedded = CLAUDE_CODE_BUN[sdk.version] ?? UNREVIEWED;

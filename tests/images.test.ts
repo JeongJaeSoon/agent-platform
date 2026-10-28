@@ -157,6 +157,17 @@ describe("app Dockerfiles", () => {
     expect(basePins.worker.source).toMatch(/apt-get install .*\bxfsprogs\b/);
   });
 
+  // The API pushes approved sessions over https with git, the worker clones
+  // through the proxy's TLS tunnel; both verify the remote.
+  test.each(["control-host", "worker"] as const)(
+    "the %s image carries ca-certificates for git over https",
+    (app) => {
+      expect(basePins[app].source).toMatch(
+        /apt-get install .*\bca-certificates\b/,
+      );
+    },
+  );
+
   // The notices list what the image holds, so a package the image build
   // deletes after install (the Claude runtime's image:verify) is left out of them.
   test("the worker deletes exactly what the notices leave out", () => {
