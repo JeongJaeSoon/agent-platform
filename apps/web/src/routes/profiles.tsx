@@ -66,6 +66,7 @@ export const STATE_BADGE: Record<
   base_missing: "red",
   retired: "gray",
   base_retired: "gray",
+  base_blocked: "red",
 };
 
 /** The id a save of a new version under `name` would get. */

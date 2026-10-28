@@ -65,6 +65,8 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   retire_workspace_profile: "실행 프로필 사용 중지",
   create_installation_profile: "설치 상한 새 버전 저장",
   retire_installation_profile: "설치 상한 사용 중지",
+  block_installation_profile: "설치 상한 차단",
+  unblock_installation_profile: "설치 상한 차단 해제",
   set_slack_secret: "Slack 비밀값 설정",
   delete_slack_secret: "Slack 비밀값 삭제",
 };
