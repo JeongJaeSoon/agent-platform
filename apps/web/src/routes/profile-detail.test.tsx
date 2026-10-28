@@ -137,7 +137,7 @@ const actions = () => {
 
 describe("실행 프로필 상세", () => {
   test("a workspace row opens its version with settings, record, history and the agents on it", async () => {
-    renderAt("/profiles", catalog());
+    const { history } = renderAt("/profiles", catalog());
     const user = await setupUser();
     await user.click(
       await screen.findByRole("link", {
@@ -174,6 +174,23 @@ describe("실행 프로필 상세", () => {
     });
     expect(cells(agents)).toEqual([["결제 담당", "에이전트 v1"]]);
     expect(actions()).toEqual(["새 버전", "사용 중지"]);
+    expect(
+      within(agents)
+        .getByRole("link", { name: "결제 담당의 릴리스 보기" })
+        .getAttribute("href"),
+    ).toBe(`/agents/${AGENTS[0]?.id}?tab=release`);
+
+    await user.click(
+      screen.getByRole("link", { name: "ws_acme_strict_v1 자세히 보기" }),
+    );
+    await waitFor(() =>
+      expect(history.location.pathname).toBe("/profiles/ws_acme_strict_v1"),
+    );
+    await waitFor(() =>
+      expect(
+        cells(screen.getByRole("table", { name: "이 프로필을 쓰는 에이전트" })),
+      ).toEqual([["리뷰 담당", "에이전트 v2"]]),
+    );
   });
 
   test("새 버전 opens the creation page on this version", async () => {
@@ -343,9 +360,7 @@ describe("실행 프로필 상세", () => {
         .map((call) => call.path),
     ).toEqual(["/v1/installation-profiles/op_wide_v2/retire"]);
     expect(
-      await screen.findByText(
-        /^사용 중지했습니다\. 이미 쓰는 release와 세션은/,
-      ),
+      await screen.findByText(/^사용 중지했습니다\. 이미 쓰는 릴리스와 세션은/),
     ).toBeDefined();
   });
 

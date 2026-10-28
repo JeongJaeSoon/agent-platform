@@ -98,12 +98,12 @@ const RETRY_CASES: ReadonlyArray<{
     after: /아직 팀이 없습니다/,
   },
   {
-    name: "API key 목록",
+    name: "API 키 목록",
     path: "/settings/api-keys",
     routes: meOk,
     failingKey: "GET /v1/api-keys",
     answer: () => json(200, { items: [], next_cursor: null }),
-    after: /아직 만든 개인 key가 없습니다/,
+    after: /아직 만든 개인 키가 없습니다/,
   },
   {
     name: "세션 목록",

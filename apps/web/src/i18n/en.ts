@@ -39,7 +39,7 @@ export const slackEn = {
   "slack.verifyNeeded":
     "The app is installed, but event registration needs verification. Contact your administrator.",
   "slack.joinHintAuto":
-    "The bot joins a public channel once its response is on. Invite the bot to private channels with /invite.",
+    "The bot automatically joins public channels when responses are enabled. Invite the bot to private channels with /invite.",
   "slack.appId": "App ID",
   "slack.state.none": "Not created",
   "slack.state.pending": "Awaiting installation",
@@ -62,13 +62,13 @@ export const slackEn = {
     "The Request URL was sent to Slack again. The status changes once Slack checks it.",
   "slack.repositoryRequired.title": "Sessions can't start from Slack",
   "slack.repositoryRequired.body":
-    "The active release's profile ({profile}) needs a repository for every session, and the release has none it can use (none was chosen, or it left the catalog). Slack mentions and DMs are refused and only a notice is left in the thread. You can still connect. Create a release with a repository on the Releases tab and activate it.",
+    "The active release's profile ({profile}) needs a repository for every session, and the release has none it can use (none was chosen, or it left the catalog). Slack mentions and DMs are refused and only a notice is left in the thread. You can still connect. Create a release with a repository on the Release tab and activate it.",
   "slack.profileUnavailable.title": "Sessions can't start from Slack",
   "slack.profileUnavailable.body":
-    "The active release's profile ({profile}) is no longer in the catalog, or changed after the release. Slack mentions and DMs are refused and only a notice is left in the thread. Create a release under a profile the catalog has on the Releases tab and activate it.",
+    "The active release's profile ({profile}) is no longer in the catalog, or changed after the release. Slack mentions and DMs are refused and only a notice is left in the thread. Create a release under a profile the catalog has on the Release tab and activate it.",
   "slack.noActiveRelease.title": "No active release",
   "slack.noActiveRelease.body":
-    "Until a release is activated, Slack mentions and DMs are refused and only a notice is left in the thread. Create and activate a release on the Releases tab.",
+    "Until a release is activated, Slack mentions and DMs are refused and only a notice is left in the thread. Create and activate a release on the Release tab.",
   "slack.state.error": "Error",
   "slack.createInstall": "Create and install Slack app",
   "slack.install": "Install Slack app",
@@ -132,7 +132,7 @@ export const slackEn = {
   "slack.inUseOf": "Use in {channel}",
   "slack.mentionOnly": "Respond only when mentioned",
   "slack.search": "Find channels",
-  "slack.invite": "Awaiting participation",
+  "slack.invite": "Waiting to join",
   "slack.privateInvite": "/invite required",
   "slack.add": "Connect",
   "slack.noChannels":

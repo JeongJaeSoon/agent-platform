@@ -241,7 +241,7 @@ describe("사용량·한도", () => {
       ["실패1", "/sessions?status=failed"],
       ["멈춤12", "/sessions?status=stopped"],
     ]);
-    expect(await screen.findByText("동시 실행 slot · 설치 전체")).toBeTruthy();
+    expect(await screen.findByText("동시 실행 슬롯 · 설치 전체")).toBeTruthy();
     const tabs = screen.getByRole("navigation", { name: "사용량·한도 탭" });
     expect(
       within(tabs)
@@ -403,7 +403,7 @@ describe("사용량·한도", () => {
           .map((a) => a.textContent),
       ).toEqual(["개요", "사용량", "도구 활동"]);
       expect(screen.queryByRole("group", { name: "집계 범위" })).toBeNull();
-      expect(screen.queryByText("동시 실행 slot · 설치 전체")).toBeNull();
+      expect(screen.queryByText("동시 실행 슬롯 · 설치 전체")).toBeNull();
       expect(api.calls.some((call) => call.path === "/v1/limits")).toBe(false);
       expect(
         api.calls

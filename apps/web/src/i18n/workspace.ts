@@ -50,22 +50,22 @@ export const workspaceKo = {
   "workspace.tokenActive": "설정됨",
   "workspace.tokenNeedsReentry": "다시 넣어야 함",
   "workspace.tokenNeedsReentryHint":
-    "Slack이 저장된 token을 더 받지 않습니다. 새 token을 저장할 때까지 새 Slack 앱을 만들 수 없습니다. 이미 연결된 에이전트는 그대로 동작합니다.",
+    "Slack이 저장된 토큰을 더 받지 않습니다. 새 토큰을 저장할 때까지 새 Slack 앱을 만들 수 없습니다. 이미 연결된 에이전트는 그대로 동작합니다.",
   "workspace.tokenSavedBy": "{at} 저장 · 저장한 사람 {by}",
   "workspace.tokenSavedAt": "{at} 저장",
-  "workspace.tokenAdd": "token 넣기",
+  "workspace.tokenAdd": "토큰 넣기",
   "workspace.tokenReplace": "교체",
   "workspace.tokenNew": "새 App Configuration Token",
   "workspace.tokenNewHint":
-    "값은 암호화해 저장하고, 저장한 뒤에는 다시 보여 주지 않습니다. 이 token을 만든 사람이 자동으로 만드는 앱의 협업자가 됩니다.",
-  "workspace.tokenMissing": "저장하려면 새 token을 넣어 주세요.",
+    "값은 암호화해 저장하고, 저장한 뒤에는 다시 보여 주지 않습니다. 이 토큰을 만든 사람이 자동으로 만드는 앱의 협업자가 됩니다.",
+  "workspace.tokenMissing": "저장하려면 새 토큰을 넣어 주세요.",
   "workspace.tokenStored": "App Configuration Token을 저장했습니다.",
   "workspace.tokenRejected":
-    "Slack이 이 token을 받지 않았습니다. 새로 만든 Refresh Token인지 확인하세요.",
-  "workspace.danger": "위험 영역",
+    "Slack이 이 토큰을 받지 않았습니다. 새로 만든 Refresh Token인지 확인하세요.",
+  "workspace.danger": "위험 구역",
   "workspace.tokenDelete": "App Configuration Token 삭제",
   "workspace.tokenDeleteHint":
-    "새 token을 저장할 때까지 새 Slack 앱을 만들 수 없습니다. 이미 연결된 에이전트는 그대로 동작합니다.",
+    "새 토큰을 저장할 때까지 새 Slack 앱을 만들 수 없습니다. 이미 연결된 에이전트는 그대로 동작합니다.",
   "workspace.tokenDeleteTitle": "App Configuration Token을 삭제할까요?",
   "workspace.delete": "삭제",
   "workspace.tokenIssuer": "발급자 {id}",
@@ -84,11 +84,12 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.nameHint": "The name shown in the console and in notifications.",
   "workspace.nameFoot": "It can't be changed from the console yet.",
   "workspace.id": "Workspace ID",
-  "workspace.idHint": "Use it to point at this workspace from the API and CLI.",
+  "workspace.idHint":
+    "Use this ID to identify the workspace in the API and CLI.",
   "workspace.idCopied": "Copied the workspace ID.",
   "workspace.models": "Allowed models",
   "workspace.modelsHint":
-    "The most a session can choose from. Agent limits and profiles narrow it further.",
+    "Models available to sessions. Agent restrictions and profiles can further limit this list.",
   "workspace.modelsFoot":
     "Managed in the installation settings · read-only in the console",
   "workspace.modelsEmpty": "This installation has no models registered.",
@@ -129,7 +130,7 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.tokenActive": "Set",
   "workspace.tokenNeedsReentry": "Needs re-entry",
   "workspace.tokenNeedsReentryHint":
-    "Slack no longer takes the stored token. No new Slack app can be made until a new token is saved. Agents already connected keep working.",
+    "Slack no longer accepts the stored token. Save a new token before creating more Slack apps. Agents already connected will keep working.",
   "workspace.tokenSavedBy": "Saved {at} · by {by}",
   "workspace.tokenSavedAt": "Saved {at}",
   "workspace.tokenAdd": "Add token",
@@ -140,7 +141,7 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.tokenMissing": "Enter a new token to save.",
   "workspace.tokenStored": "Saved the App Configuration Token.",
   "workspace.tokenRejected":
-    "Slack did not take this token. Check that it is a newly made Refresh Token.",
+    "Slack rejected this token. Check that it is a newly created Refresh Token.",
   "workspace.danger": "Danger zone",
   "workspace.tokenDelete": "Delete App Configuration Token",
   "workspace.tokenDeleteHint":

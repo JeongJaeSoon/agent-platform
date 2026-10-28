@@ -35,7 +35,7 @@ export const SLACK_OUTBOX_MAX_ATTEMPTS = 10;
 
 export const SLACK_OUTBOX_MESSAGES = {
   emptyReply: "답변을 마쳤어요. 내용은 웹에서 확인해 주세요",
-  needsInput: "웹에서 승인이 필요해요",
+  needsInput: "웹에서 답변이 필요한 요청을 확인해 주세요",
   uncertain: "답을 보냈는지 확인하지 못했어요. 웹에서 확인해 주세요",
   link: "웹에서 열기",
   web: "웹 콘솔",

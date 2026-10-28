@@ -91,7 +91,7 @@ export const sessionsKo = {
   "session.profile.submit": "프로필 바꾸기",
   "session.profile.changed": "다음 작업부터 {profile} 프로필을 씁니다.",
   "session.profile.refused.release":
-    "이 프로필로 바꿀 수 없습니다. 에이전트 release로 만든 세션은 그 release의 프로필만 씁니다.",
+    "이 프로필로 바꿀 수 없습니다. 에이전트 릴리스로 만든 세션은 그 릴리스의 프로필만 씁니다.",
   "session.profile.refused.capability":
     "이 프로필로 바꿀 수 없습니다. 이 세션의 저장소·런타임·과금 방식과 맞지 않는 프로필이거나, 지금 프로필의 설정이 바뀌었습니다.",
   "session.profile.none":
@@ -102,14 +102,14 @@ export const sessionsKo = {
   "session.usage": "사용량",
   "session.usage.amount": "누적 비용",
   "session.usage.unmetered": "과금 없음",
-  "session.usage.incomplete": "진행 중인 turn이 있어 아직 확정되지 않았습니다",
+  "session.usage.incomplete": "진행 중인 턴이 있어 아직 확정되지 않았습니다",
   "session.usage.unreported":
-    "비용을 보고하지 않고 끝난 turn이 있어 실제보다 적을 수 있습니다",
+    "비용을 보고하지 않고 끝난 턴이 있어 실제보다 적을 수 있습니다",
   "session.usage.costLimit": "비용 한도",
   "session.usage.tokens": "토큰",
   "session.usage.tokenLimit": "토큰 한도",
   "session.usage.noLimit": "없음",
-  "session.usage.budgetExceeded": "한도에 도달해 새 turn을 시작하지 않습니다.",
+  "session.usage.budgetExceeded": "한도에 도달해 새 턴을 시작하지 않습니다.",
 
   "session.pending": "답변 대기 요청",
   "session.pending.empty": "답을 기다리는 요청이 없습니다.",
@@ -123,7 +123,7 @@ export const sessionsKo = {
   "session.answer.allowFor": "허용: {tool} · {session}",
   "session.answer.denyFor": "거부: {tool} · {session}",
   "session.answer.notAnswerer":
-    "이 세션을 만든 사람, 에이전트 관리자, 워크스페이스 owner·admin만 답할 수 있습니다.",
+    "이 세션을 시작한 사람, 에이전트 관리자, 워크스페이스 소유자·관리자만 답할 수 있습니다.",
   "session.answer.denyReason": "거부하는 이유",
   "session.answer.denySubmit": "거부 보내기",
   "session.answer.cancel": "취소",
@@ -134,13 +134,13 @@ export const sessionsKo = {
   "session.answer.sent": "답을 보냈습니다.",
 
   "session.control": "세션 제어",
-  "session.control.interrupt": "지금 turn 멈추기",
+  "session.control.interrupt": "지금 턴 멈추기",
   "session.control.pause": "일시 정지",
   "session.control.resume": "다시 시작",
   "session.control.terminate": "세션 종료",
   "session.control.terminate.title": "세션을 종료할까요?",
   "session.control.terminate.consequence":
-    "기다리는 메시지와 요청이 취소되고 실행이 강제로 멈춥니다. 이미 밖에서 한 일(커밋·푸시 등)은 되돌리지 않습니다. 나중에 마지막 checkpoint에서 다시 시작할 수 있습니다.",
+    "기다리는 메시지와 요청이 취소되고 실행이 강제로 멈춥니다. 이미 밖에서 한 일(커밋·푸시 등)은 되돌리지 않습니다. 나중에 마지막 체크포인트에서 다시 시작할 수 있습니다.",
   "session.control.terminate.confirm": "종료",
   "session.control.cancel": "취소",
   "session.control.none": "지금 할 수 있는 제어가 없습니다.",
@@ -150,10 +150,10 @@ export const sessionsKo = {
   "session.composer.label": "다음 지시",
   "session.composer.send": "보내기",
   "session.composer.hint":
-    "Ctrl+Enter(⌘+Enter)로도 보냅니다. 지금 turn이 끝나면 다음 turn으로 이어집니다.",
+    "Ctrl+Enter(⌘+Enter)로도 보냅니다. 지금 턴이 끝나면 다음 턴으로 이어집니다.",
   "session.composer.queued": "기다리는 메시지",
   "session.composer.inactive": "진행 중인 세션만 메시지를 받습니다.",
-  "session.composer.sent": "메시지를 보냈습니다(turn {turn}).",
+  "session.composer.sent": "메시지를 보냈습니다(턴 {turn}).",
 
   "session.command.refused": "요청이 거절되었습니다.",
   "session.refused.REQUEST_EXPIRED":
@@ -161,7 +161,7 @@ export const sessionsKo = {
   "session.refused.REQUEST_STALE":
     "세션이 그새 다음으로 넘어가 이 요청은 더 이상 유효하지 않습니다.",
   "session.refused.TURN_NOT_STARTED":
-    "이 turn은 아직 시작 전이라 멈출 것이 없습니다.",
+    "이 턴은 아직 시작 전이라 멈출 것이 없습니다.",
   "session.refused.REVISION_CONFLICT":
     "그새 세션 상태가 바뀌었습니다. 바뀐 상태를 보고 다시 시도하세요.",
   "session.refused.PAUSE_COMMITTING":
@@ -187,7 +187,7 @@ export const sessionsKo = {
   "session.events.closed":
     "이벤트 연결이 끊겼습니다. 새로고침하면 다시 연결합니다.",
   "session.events.debug": "내부 이벤트도 보기",
-  "session.events.turn": "turn {turn}",
+  "session.events.turn": "턴 {turn}",
   "session.events.prompt": "지시",
   "session.events.folded": "이벤트 {count}개",
   "session.events.running": "실행 중",
@@ -225,7 +225,7 @@ export const sessionsKo = {
   "session.event.kind.toolResult": "도구 결과",
   "session.event.kind.permission": "권한 요청",
   "session.event.kind.question": "질문",
-  "session.event.kind.result": "turn 끝",
+  "session.event.kind.result": "턴 끝",
   "session.event.kind.error": "오류",
   "session.event.phase.interrupting": "멈추는 중",
   "session.event.phase.engine_stopped": "엔진이 멈춤",
@@ -238,8 +238,8 @@ export const sessionsKo = {
   "session.event.toolResult.ok": "성공",
   "session.event.toolResult.error": "오류",
   "session.event.toolResult.lines": "{count}줄",
-  "session.event.result.success": "turn 완료",
-  "session.event.result.other": "turn 끝남({subtype})",
+  "session.event.result.success": "턴 완료",
+  "session.event.result.other": "턴 끝남({subtype})",
   "session.event.result.tokens": "토큰 {count}",
 } as const;
 
@@ -320,16 +320,16 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
     "This session cannot be found. It was removed, or you may not see it.",
   "session.overview": "Status",
   "session.currentTurn": "Work in progress",
-  "session.queuedTurns": "Work waiting",
+  "session.queuedTurns": "Queued turns",
   "session.attention": "Needs attention",
   "session.updated": "Last changed",
 
   "session.profile": "Profile",
-  "session.profile.next": "Profile from the next piece of work",
+  "session.profile.next": "Profile for the next turn",
   "session.profile.hint":
-    "Work already running finishes on the current profile; the conversation continues on the new one from the next piece of work.",
+    "The current turn finishes with the current profile. The conversation continues with the new profile from the next turn.",
   "session.profile.submit": "Change profile",
-  "session.profile.changed": "From the next piece of work, {profile} is used.",
+  "session.profile.changed": "The next turn will use the {profile} profile.",
   "session.profile.refused.release":
     "The session cannot move to this profile. A session made from an agent release runs only that release's profile.",
   "session.profile.refused.capability":
@@ -355,8 +355,9 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.pending.empty": "Nothing is waiting for an answer.",
   "session.pending.permission": "Permission request: {tool}",
   "session.pending.question": "Question",
-  "session.pending.expires": "until {at}",
-  "session.pending.expired": "This request expired and takes no answer.",
+  "session.pending.expires": "Expires {at}",
+  "session.pending.expired":
+    "This request has expired and can no longer be answered.",
   "session.answer.input": "Show request",
   "session.answer.allow": "Allow",
   "session.answer.deny": "Deny",
@@ -427,7 +428,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.events.closed":
     "The event connection ended. Reload the page to reconnect.",
   "session.events.debug": "Show internal events",
-  "session.events.turn": "turn {turn}",
+  "session.events.turn": "Turn {turn}",
   "session.events.prompt": "Instruction",
   "session.events.folded": "{count} events",
   "session.events.running": "Running",
@@ -476,8 +477,8 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.event.thought": "Thought",
   "session.event.toolResult": "{tool} result",
   "session.event.toolResult.unknown": "Tool result",
-  "session.event.toolResult.ok": "succeeded",
-  "session.event.toolResult.error": "failed",
+  "session.event.toolResult.ok": "Succeeded",
+  "session.event.toolResult.error": "Failed",
   "session.event.toolResult.lines": "{count} lines",
   "session.event.result.success": "Turn complete",
   "session.event.result.other": "Turn ended ({subtype})",
@@ -506,7 +507,7 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "sessions.status.queued": "待機中",
   "sessions.status.running": "作業中",
   "sessions.status.needs_input": "回答待ち",
-  "sessions.status.idle": "アイドル",
+  "sessions.status.idle": "入力待ち",
   "sessions.status.failed": "失敗",
   "sessions.status.stopped": "停止",
 
@@ -606,7 +607,7 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.answer.allowFor": "許可: {tool} · {session}",
   "session.answer.denyFor": "拒否: {tool} · {session}",
   "session.answer.notAnswerer":
-    "このセッションを作った人、エージェントの管理者、ワークスペースの owner・admin だけが答えられます。",
+    "このセッションを開始した人、エージェント管理者、ワークスペースのオーナー・管理者のみ回答できます。",
   "session.answer.denyReason": "拒否する理由",
   "session.answer.denySubmit": "拒否を送信",
   "session.answer.cancel": "キャンセル",

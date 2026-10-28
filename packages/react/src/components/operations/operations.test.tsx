@@ -243,7 +243,7 @@ describe("SessionCounts", () => {
     const { getAllByRole, queryByRole, getByText } = withPlatform(
       <SessionCounts counts={undefined} slots={null} statusLink={link} />,
     );
-    expect(getByText("동시 실행 slot · 설치 전체")).toBeTruthy();
+    expect(getByText("동시 실행 슬롯 · 설치 전체")).toBeTruthy();
     expect(queryByRole("meter")).toBeNull();
     expect(getAllByRole("status").map((s) => s.textContent)).toEqual([
       "세션 수를 읽는 중",
@@ -594,13 +594,13 @@ describe("InstallationLimits", () => {
           .map((cell) => cell.textContent),
       );
     expect(rows).toEqual([
-      ["동시 실행 slot", "7 / 10", "10"],
+      ["동시 실행 슬롯", "7 / 10", "10"],
       ["입력 메시지 저장", "2 GB", "10 GB"],
       ["결과물 저장", "512 MB", "한도 없음"],
       ["세션당 비용", "세션마다 셉니다", "$25.00"],
       ["세션당 토큰", "세션마다 셉니다", "설정 안 됨"],
       ["세션당 대기 입력", "세션마다 셉니다", "20건"],
-      ["turn 최대 시간", "세션마다 셉니다", "1시간 0분"],
+      ["턴 최대 시간", "세션마다 셉니다", "1시간 0분"],
     ]);
     expect(document.body.textContent).toContain(
       "설치 전체에 적용됩니다 · 오후 9:40 기준",
@@ -649,7 +649,7 @@ describe("InstallationLimits", () => {
     ).toEqual([
       "결과물 저장",
       "512 MB 이상",
-      "결과물을 세기 전 checkpoint가 남아 있어 실제보다 적을 수 있습니다",
+      "결과물을 세기 전 체크포인트가 남아 있어 실제보다 적을 수 있습니다",
     ]);
   });
 

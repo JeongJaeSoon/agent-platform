@@ -411,7 +411,7 @@ function NewCeiling({ refused }: { readonly refused: boolean }) {
               허용할 저장소
             </FieldLegend>
             <FieldDescription>
-              이 상한의 세션과 release가 쓸 수 있는 저장소입니다.
+              이 상한의 세션과 릴리스가 쓸 수 있는 저장소입니다.
             </FieldDescription>
             <Field orientation="horizontal">
               <Checkbox />

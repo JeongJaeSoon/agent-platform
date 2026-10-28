@@ -46,15 +46,15 @@ export const profilesKo = {
   "profiles.state.definition_drift": "설정이 바뀜",
   "profiles.state.runtime_unsupported": "지원하지 않는 런타임",
   "profiles.stateReason.usable":
-    "새 release와 세션이 이 프로필을 고를 수 있습니다.",
+    "새 릴리스와 세션이 이 프로필을 고를 수 있습니다.",
   "profiles.stateReason.base_changed":
-    "바탕 프로필 {base}가 이 버전을 만든 뒤 바뀌었습니다. 새 release를 만들 수 없고, 이 버전을 쓰는 release도 새 세션을 시작하지 못합니다. 다시 만들어 새 버전으로 옮기세요.",
+    "바탕 프로필 {base}가 이 버전을 만든 뒤 바뀌었습니다. 새 릴리스를 만들 수 없고, 이 버전을 쓰는 릴리스도 새 세션을 시작하지 못합니다. 다시 만들어 새 버전으로 옮기세요.",
   "profiles.stateReason.base_missing":
-    "바탕 프로필 {base}가 없습니다. 새 release를 만들 수 없고, 이 버전을 쓰는 release도 새 세션을 시작하지 못합니다.",
+    "바탕 프로필 {base}가 없습니다. 새 릴리스를 만들 수 없고, 이 버전을 쓰는 릴리스도 새 세션을 시작하지 못합니다.",
   "profiles.stateReason.retired":
-    "사용 중지했습니다. 이미 쓰는 release와 세션은 계속 동작하고, 새 release와 세션은 고를 수 없습니다.",
+    "사용 중지했습니다. 이미 쓰는 릴리스와 세션은 계속 동작하고, 새 릴리스와 세션은 고를 수 없습니다.",
   "profiles.stateReason.base_retired":
-    "바탕 프로필 {base}가 사용 중지됐습니다. 이미 쓰는 release와 세션은 계속 동작하고, 새로 고를 수는 없습니다.",
+    "바탕 프로필 {base}가 사용 중지됐습니다. 이미 쓰는 릴리스와 세션은 계속 동작하고, 새로 고를 수는 없습니다.",
   "profiles.stateReason.connection_missing":
     "이 상한의 연결이 이 설치에 없어 아무것도 돌리지 않습니다. 연결을 다시 두거나 다른 연결로 새 버전을 만드세요.",
   "profiles.stateReason.unattended_off":
@@ -71,10 +71,10 @@ export const profilesKo = {
     "에이전트는 설치 상한을 그대로 씁니다. 상한을 바탕으로 모델이나 도구를 줄인 프로필을 만들 수 있습니다.",
   "profiles.baseChanged.title": "{name}의 바탕 프로필이 바뀌었습니다",
   "profiles.baseChanged.text":
-    "{base}가 바뀌었습니다. {id}로는 새 release를 만들 수 없고, 이 버전을 쓰는 release도 새 세션을 시작하지 못합니다. 다시 만들어 새 버전으로 옮기세요.",
+    "{base}가 바뀌었습니다. {id}로는 새 릴리스를 만들 수 없고, 이 버전을 쓰는 릴리스도 새 세션을 시작하지 못합니다. 다시 만들어 새 버전으로 옮기세요.",
   "profiles.baseMissing.title": "{name}의 바탕 프로필이 없어졌습니다",
   "profiles.baseMissing.text":
-    "{base}가 없어졌습니다. {id}로는 새 release를 만들 수 없고, 이 버전을 쓰는 release도 새 세션을 시작하지 못합니다. 다른 설치 상한으로 새로 만드세요.",
+    "{base}가 없어졌습니다. {id}로는 새 릴리스를 만들 수 없고, 이 버전을 쓰는 릴리스도 새 세션을 시작하지 못합니다. 다른 설치 상한으로 새로 만드세요.",
   "profiles.editor.versionTitle": "{name} 새 버전",
   "profiles.editor.remakeTitle": "{name} 다시 만들기",
   "profiles.editor.description":
@@ -111,7 +111,7 @@ export const profilesKo = {
   "profiles.editor.scriptHint":
     "에이전트가 확장 스크립트를 부를 수 있는 한도입니다. 낮추기만 할 수 있습니다.",
   "profiles.editor.saveNote":
-    "새 버전으로 저장합니다. 이전 버전을 쓰는 release는 새 버전으로 옮겨야 바뀝니다.",
+    "새 버전으로 저장합니다. 이전 버전을 쓰는 릴리스는 새 버전으로 옮겨야 바뀝니다.",
   "profiles.editor.save": "새 버전으로 저장",
   "profiles.editor.saving": "저장하는 중…",
   "profiles.editor.nameInvalid":
@@ -170,7 +170,7 @@ export const profilesKo = {
   "profiles.ceiling.repositoryMode": "저장소",
   "profiles.ceiling.repositories": "허용할 저장소",
   "profiles.ceiling.repositoriesHint":
-    "이 상한의 세션과 release가 쓸 수 있는 저장소입니다.",
+    "이 상한의 세션과 릴리스가 쓸 수 있는 저장소입니다.",
   "profiles.ceiling.noRepositories": "이 설치에 저장소가 없습니다.",
   "profiles.ceiling.repositoriesEmpty":
     "저장소를 하나 이상 고르세요. 저장소 없이 돌리려면 '저장소 쓰지 않음'을 고릅니다.",
@@ -202,9 +202,9 @@ export const profilesKo = {
   "profiles.ceiling.error.openLatest": "최신 버전에서 다시 만들기",
   "profiles.retireTitle": "{id} 버전을 사용 중지할까요?",
   "profiles.retireText":
-    "이미 이 버전을 쓰는 release와 세션은 계속 동작합니다. 새 release와 세션은 이 버전을 고를 수 없습니다. 사용 중지는 되돌릴 수 없습니다.",
+    "이미 이 버전을 쓰는 릴리스와 세션은 계속 동작합니다. 새 릴리스와 세션은 이 버전을 고를 수 없습니다. 사용 중지는 되돌릴 수 없습니다.",
   "profiles.retireCeilingText":
-    "이미 이 상한을 쓰는 release와 세션, 그 위의 워크스페이스 프로필은 계속 동작합니다. 새 release·세션·워크스페이스 프로필은 이 상한을 고를 수 없습니다. 사용 중지는 되돌릴 수 없습니다.",
+    "이미 이 상한을 쓰는 릴리스와 세션, 그 위의 워크스페이스 프로필은 계속 동작합니다. 새 릴리스·세션·워크스페이스 프로필은 이 상한을 고를 수 없습니다. 사용 중지는 되돌릴 수 없습니다.",
   "profiles.retiring": "사용 중지하는 중…",
   "profiles.retired": "{id} 버전을 사용 중지했습니다.",
   "profiles.open": "{name} 자세히 보기",
@@ -238,7 +238,7 @@ export const profilesKo = {
   "profiles.detail.audit.you": "{id} (나)",
   "profiles.detail.history.title": "버전 기록",
   "profiles.detail.history.ceilingDescription":
-    "앞 버전으로 이어진 상한입니다. 이전 버전을 쓰던 release는 그대로 동작합니다.",
+    "앞 버전으로 이어진 상한입니다. 이전 버전을 쓰던 릴리스는 그대로 동작합니다.",
   "profiles.detail.history.version": "버전",
   "profiles.detail.history.named": "{name} v{version}",
   "profiles.detail.history.current": "지금 보는 버전",
@@ -249,23 +249,23 @@ export const profilesKo = {
     "이 상한을 바탕으로 만든 워크스페이스 프로필이 없습니다.",
   "profiles.detail.agents.title": "이 프로필을 쓰는 에이전트",
   "profiles.detail.agents.description":
-    "지금 활성 release가 이 프로필(버전)을 쓰는 에이전트입니다. 이전 release는 세지 않습니다.",
+    "지금 활성 릴리스가 이 프로필(버전)을 쓰는 에이전트입니다. 이전 릴리스는 세지 않습니다.",
   "profiles.detail.agents.withheld":
     "에이전트 목록은 에이전트를 관리할 수 있는 사람만 봅니다",
   "profiles.detail.agents.empty": "지금 이 프로필을 쓰는 에이전트가 없습니다.",
   "profiles.detail.agents.agent": "에이전트",
-  "profiles.detail.agents.release": "활성 release",
+  "profiles.detail.agents.release": "활성 릴리스",
   "profiles.detail.agents.releaseVersion": "에이전트 v{version}",
-  "profiles.detail.agents.open": "{name}의 release 보기",
+  "profiles.detail.agents.open": "{name}의 릴리스 보기",
 };
 
 export const profilesEn: Record<keyof typeof profilesKo, string> = {
-  "nav.profiles": "Run profiles",
-  "profiles.title": "Run profiles",
+  "nav.profiles": "Runtime profiles",
+  "profiles.title": "Runtime profiles",
   "profiles.description":
     "The models and tools an agent uses. An installation ceiling is the widest this installation allows; a workspace profile narrows one ceiling.",
-  "profiles.create": "Make a profile",
-  "profiles.createCeiling": "Make a ceiling",
+  "profiles.create": "Create profile",
+  "profiles.createCeiling": "Create ceiling",
   "profiles.kind.installation": "Installation ceiling",
   "profiles.kind.workspace": "Workspace profile",
   "profiles.filter.label": "Profile kind",
@@ -281,7 +281,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.column.kind": "Kind",
   "profiles.column.base": "Based on",
   "profiles.column.model": "Default model",
-  "profiles.column.state": "State",
+  "profiles.column.state": "Status",
   "profiles.narrowKind": "{kind} · v{version}",
   "profiles.repository.required": "Repository required",
   "profiles.repository.optional": "Repository optional",
@@ -291,7 +291,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.noTools": "No tools",
   "profiles.on": "On",
   "profiles.off": "Off",
-  "profiles.empty": "This installation has no run profiles.",
+  "profiles.empty": "This installation has no runtime profiles.",
   "profiles.versionTag": "v{version}",
   "profiles.olderVersions": "Earlier versions ({count})",
   "profiles.origin.catalog": "Imported from the installation settings file",
@@ -308,7 +308,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.stateReason.usable":
     "New releases and sessions can pick this profile.",
   "profiles.stateReason.base_changed":
-    "The base profile {base} changed after this version was made. No new release can use it, and releases on it cannot start new sessions. Make it again as a new version.",
+    "The base profile {base} changed after this version was made. No new release can use it, and releases on it cannot start new sessions. Recreate it as a new version.",
   "profiles.stateReason.base_missing":
     "The base profile {base} is gone. No new release can use this version, and releases on it cannot start new sessions.",
   "profiles.stateReason.retired":
@@ -320,23 +320,23 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.stateReason.unattended_off":
     "This is a bypassPermissions ceiling and PLATFORM_ALLOW_UNATTENDED_PERMISSIONS is off here, so it runs nothing.",
   "profiles.stateReason.definition_drift":
-    "This server no longer reads the saved definition the same way, so it runs nothing. Make a new version.",
+    "This server no longer reads the saved definition the same way, so it runs nothing. Create a new version.",
   "profiles.stateReason.runtime_unsupported":
     "No worker on this installation takes this runtime or permission mode, so it runs nothing.",
   "profiles.newVersion": "New version",
-  "profiles.remake": "Make again",
+  "profiles.remake": "Recreate",
   "profiles.retire": "Turn off",
   "profiles.emptyWorkspace.title": "No workspace profiles yet",
   "profiles.emptyWorkspace.text":
     "Agents use the installation ceilings as they are. You can make a profile from one with fewer models or tools.",
   "profiles.baseChanged.title": "The base profile of {name} changed",
   "profiles.baseChanged.text":
-    "{base} changed. No new release can use {id}, and releases that use it cannot start new sessions. Make it again and move to the new version.",
+    "{base} changed. No new release can use {id}, and releases that use it cannot start new sessions. Recreate it and move to the new version.",
   "profiles.baseMissing.title": "The base profile of {name} was removed",
   "profiles.baseMissing.text":
-    "{base} is gone. No new release can use {id}, and releases that use it cannot start new sessions. Make a new one from another installation ceiling.",
+    "{base} is gone. No new release can use {id}, and releases that use it cannot start new sessions. Create a new one from another installation ceiling.",
   "profiles.editor.versionTitle": "New version of {name}",
-  "profiles.editor.remakeTitle": "Make {name} again",
+  "profiles.editor.remakeTitle": "Recreate {name}",
   "profiles.editor.description":
     "From the installation ceiling it is based on, you can only remove models and tools or make the permission mode stricter.",
   "profiles.editor.base": "Base profile",
@@ -351,7 +351,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.editor.name": "Name",
   "profiles.editor.nameHint":
     "Starts with a lowercase letter or digit; lowercase letters, digits and - up to 40 characters.",
-  "profiles.editor.preview": "Id of the version to save: {id}",
+  "profiles.editor.preview": "ID of the version to save: {id}",
   "profiles.editor.models": "Models",
   "profiles.editor.modelsHint":
     "The models a session may pick. Only the base profile's models are offered.",
@@ -359,9 +359,9 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.editor.toolsHint":
     "Only the base profile's tools can be turned on.",
   "profiles.editor.modeHint":
-    "Only the base profile's mode or one that has a person check more.",
+    "Choose the base profile's permission mode or a mode that requires more human review.",
   "profiles.editor.autoClosed":
-    "auto can be picked only over a base profile in auto or bypassPermissions.",
+    "auto is available only when the base profile uses auto or bypassPermissions.",
   "profiles.editor.bypassClosed":
     "bypassPermissions can be picked only over a base profile in bypassPermissions. The installation setting PLATFORM_ALLOW_UNATTENDED_PERMISSIONS has to be on and an owner has to make such a ceiling.",
   "profiles.editor.bypassRisk":
@@ -370,7 +370,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.editor.scriptNone": "Not run",
   "profiles.editor.scriptLater": "From stage 2a",
   "profiles.editor.scriptHint":
-    "How far an agent may call extension scripts. It can only be lowered.",
+    "The maximum level of access to extension scripts. You can only lower it.",
   "profiles.editor.saveNote":
     "This saves a new version. Releases on an earlier version change only when moved to the new one.",
   "profiles.editor.save": "Save as new version",
@@ -393,7 +393,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.review.text": "What differs from {id}.",
   "profiles.review.none": "Nothing differs from {id}.",
   "profiles.review.change": "{before} → {after}",
-  "profiles.new.ceilingTitle": "Make an installation ceiling",
+  "profiles.new.ceilingTitle": "Create installation ceiling",
   "profiles.new.ceilingVersionTitle": "New version of {name}",
   "profiles.new.ceilingDescription":
     "The widest values this installation allows. Workspace profiles can only narrow them. Connections, credentials and cost limits are set in the installation settings.",
@@ -474,16 +474,16 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.detail.notFound.title": "Profile not found",
   "profiles.detail.notFound.text":
     "There is no profile {id}. The address may be wrong.",
-  "profiles.detail.back": "Back to run profiles",
+  "profiles.detail.back": "Back to runtime profiles",
   "profiles.detail.workspaceDescription":
     "Made in this workspace from an installation ceiling. Editing saves a new version; this version stays as it is.",
   "profiles.detail.ceilingDescription":
     "The widest values this installation allows. A saved version never changes; editing makes a new one.",
   "profiles.detail.ownerOnly":
     "Only a workspace owner changes installation ceilings",
-  "profiles.detail.createFrom": "Make a profile from this",
+  "profiles.detail.createFrom": "Create a profile from this",
   "profiles.detail.settings": "Settings",
-  "profiles.detail.id": "id",
+  "profiles.detail.id": "ID",
   "profiles.detail.models": "Models to choose from",
   "profiles.detail.titleModelDefault": "Default model",
   "profiles.detail.noRepositories": "No repository allowed",
@@ -543,7 +543,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.column.name": "名前",
   "profiles.column.version": "バージョン",
   "profiles.column.kind": "種類",
-  "profiles.column.base": "もとのプロファイル",
+  "profiles.column.base": "ベースプロファイル",
   "profiles.column.model": "既定のモデル",
   "profiles.column.state": "状態",
   "profiles.narrowKind": "{kind} · v{version}",
@@ -561,24 +561,24 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.origin.catalog": "インストール設定ファイルから取り込み",
   "profiles.origin.console": "コンソールで作成",
   "profiles.state.usable": "使用可能",
-  "profiles.state.base_changed": "もとが変更",
-  "profiles.state.base_missing": "もとがない",
+  "profiles.state.base_changed": "ベースプロファイル変更済み",
+  "profiles.state.base_missing": "ベースプロファイルなし",
   "profiles.state.retired": "使用停止",
-  "profiles.state.base_retired": "もとが使用停止",
-  "profiles.state.connection_missing": "接続がない",
+  "profiles.state.base_retired": "ベースプロファイル使用停止",
+  "profiles.state.connection_missing": "接続なし",
   "profiles.state.unattended_off": "このインストールでは無効",
-  "profiles.state.definition_drift": "設定が変更",
+  "profiles.state.definition_drift": "設定変更済み",
   "profiles.state.runtime_unsupported": "未対応のランタイム",
   "profiles.stateReason.usable":
-    "新しい release とセッションがこのプロファイルを選べます。",
+    "新しいリリースとセッションがこのプロファイルを選べます。",
   "profiles.stateReason.base_changed":
-    "もとのプロファイル {base} がこのバージョンの作成後に変わりました。新しい release は作れず、このバージョンを使う release も新しいセッションを開始できません。作り直して新しいバージョンに移してください。",
+    "ベースプロファイル {base} がこのバージョンの作成後に変わりました。新しいリリースは作成できず、このバージョンを使うリリースも新しいセッションを開始できません。作り直して新しいバージョンに移してください。",
   "profiles.stateReason.base_missing":
-    "もとのプロファイル {base} がありません。新しい release は作れず、このバージョンを使う release も新しいセッションを開始できません。",
+    "ベースプロファイル {base} がありません。新しいリリースは作成できず、このバージョンを使うリリースも新しいセッションを開始できません。",
   "profiles.stateReason.retired":
-    "使用停止しました。すでに使っている release とセッションは動き続け、新しいものは選べません。",
+    "使用停止しました。すでに使っているリリースとセッションは動き続け、新しいものは選べません。",
   "profiles.stateReason.base_retired":
-    "もとのプロファイル {base} が使用停止されました。すでに使っているものは動き続け、新しく選ぶことはできません。",
+    "ベースプロファイル {base} が使用停止されました。すでに使っているものは動き続け、新しく選ぶことはできません。",
   "profiles.stateReason.connection_missing":
     "この上限の接続がこのインストールにないため、何も動かしません。接続を戻すか、別の接続で新しいバージョンを作ってください。",
   "profiles.stateReason.unattended_off":
@@ -593,18 +593,18 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.emptyWorkspace.title":
     "ワークスペースのプロファイルはまだありません",
   "profiles.emptyWorkspace.text":
-    "エージェントはインストール上限をそのまま使います。上限をもとに、モデルやツールを減らしたプロファイルを作れます。",
-  "profiles.baseChanged.title": "{name} のもとのプロファイルが変わりました",
+    "エージェントはインストール上限をそのまま使います。上限をもとに、モデルやツールを減らしたプロファイルを作成できます。",
+  "profiles.baseChanged.title": "{name} のベースプロファイルが変わりました",
   "profiles.baseChanged.text":
-    "{base} が変わりました。{id} では新しい release を作れず、このバージョンを使う release も新しいセッションを開始できません。作り直して新しいバージョンに移してください。",
-  "profiles.baseMissing.title": "{name} のもとのプロファイルがなくなりました",
+    "{base} が変わりました。{id} では新しいリリースを作成できず、このバージョンを使うリリースも新しいセッションを開始できません。作り直して新しいバージョンに移してください。",
+  "profiles.baseMissing.title": "{name} のベースプロファイルがなくなりました",
   "profiles.baseMissing.text":
-    "{base} がなくなりました。{id} では新しい release を作れず、このバージョンを使う release も新しいセッションを開始できません。別のインストール上限から新しく作ってください。",
+    "{base} がなくなりました。{id} では新しいリリースを作成できず、このバージョンを使うリリースも新しいセッションを開始できません。別のインストール上限から新しく作成してください。",
   "profiles.editor.versionTitle": "{name} の新しいバージョン",
   "profiles.editor.remakeTitle": "{name} を作り直す",
   "profiles.editor.description":
-    "もとのインストール上限から、モデル・ツールを減らすか、権限モードをより厳しくすることだけができます。",
-  "profiles.editor.base": "もとのプロファイル",
+    "ベースのインストール上限から、モデル・ツールを減らすか、権限モードをより厳しくすることだけができます。",
+  "profiles.editor.base": "ベースプロファイル",
   "profiles.editor.baseHeading": "インストール上限 {id}",
   "profiles.editor.engineModel": "エンジン・モデル",
   "profiles.editor.engineModelValue": "Claude Agent SDK {version} · {model}",
@@ -615,20 +615,20 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "auto ルール(環境・許可・soft deny・hard deny、すべてのシェルコマンドの分類)はここでは変更しません。設定する画面は次の段階でできます。",
   "profiles.editor.name": "名前",
   "profiles.editor.nameHint":
-    "英小文字か数字で始め、英小文字・数字・- で 40 文字まで。",
-  "profiles.editor.preview": "保存するバージョンの id: {id}",
+    "英小文字または数字で始め、英小文字・数字・ハイフン（-）を使って40文字以内で入力してください。",
+  "profiles.editor.preview": "保存するバージョンの ID: {id}",
   "profiles.editor.models": "モデル",
   "profiles.editor.modelsHint":
-    "セッションが選べるモデルです。もとのプロファイルにあるモデルだけを選べます。",
+    "セッションが選べるモデルです。ベースプロファイルにあるモデルだけを選べます。",
   "profiles.editor.defaultModel": "既定のモデル",
   "profiles.editor.toolsHint":
-    "もとのプロファイルにあるツールだけをオンにできます。",
+    "ベースプロファイルにあるツールだけをオンにできます。",
   "profiles.editor.modeHint":
-    "もとのプロファイルと同じか、人がより多く確認するモードだけを選べます。",
+    "ベースプロファイルと同じか、人がより多く確認するモードだけを選べます。",
   "profiles.editor.autoClosed":
-    "auto はもとのプロファイルが auto か bypassPermissions のときだけ選べます。",
+    "auto はベースプロファイルが auto か bypassPermissions のときだけ選べます。",
   "profiles.editor.bypassClosed":
-    "bypassPermissions はもとのプロファイルが bypassPermissions のときだけ選べます。インストール設定 PLATFORM_ALLOW_UNATTENDED_PERMISSIONS が有効で、オーナーがそのようなインストール上限を作る必要があります。",
+    "bypassPermissions はベースプロファイルが bypassPermissions のときだけ選べます。インストール設定 PLATFORM_ALLOW_UNATTENDED_PERMISSIONS が有効で、オーナーがそのようなインストール上限を作成する必要があります。",
   "profiles.editor.bypassRisk":
     "bypassPermissions はすべてのツール呼び出しを判定なしで実行します。ファイルの書き込み・シェルコマンド・git commit も人や分類器が確認せず、制限はコンテナ・外部接続の許可リスト・ツール一覧・コスト上限だけです。危険な呼び出しを分類器に止めさせるには auto を選んでください。",
   "profiles.editor.scriptCeiling": "スクリプト上限",
@@ -637,7 +637,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.editor.scriptHint":
     "エージェントが拡張スクリプトを呼べる上限です。下げることだけができます。",
   "profiles.editor.saveNote":
-    "新しいバージョンとして保存します。前のバージョンを使う release は新しいバージョンに移すまで変わりません。",
+    "新しいバージョンとして保存します。前のバージョンを使うリリースは、新しいバージョンに移すまで変わりません。",
   "profiles.editor.save": "新しいバージョンとして保存",
   "profiles.editor.saving": "保存中…",
   "profiles.editor.nameInvalid":
@@ -648,11 +648,11 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.editor.tooLong":
     "プロファイルに入る名前は 200 文字までです。名前の長いモデルやツールを外してから保存してください。",
   "profiles.error.unknownBase":
-    "そのもとのプロファイルはありません。一覧を再読み込みしてください。",
+    "そのベースプロファイルはありません。一覧を再読み込みしてください。",
   "profiles.error.baseUnusable":
-    "そのもとのプロファイルはいま使えません。使えるもとのプロファイルを選んでください。",
+    "そのベースプロファイルは現在使用できません。使用できるベースプロファイルを選んでください。",
   "profiles.error.widens":
-    "もとのプロファイルが許可しない値です。一覧を再読み込みしてもとのプロファイルを確認してください。",
+    "ベースプロファイルが許可しない値です。一覧を再読み込みしてベースプロファイルを確認してください。",
   "profiles.error.versionTaken":
     "同じ名前の新しいバージョンがいま保存されました。もう一度保存するとその次のバージョンになります。",
   "profiles.review.title": "確認",
@@ -699,7 +699,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.ceiling.repositoryMode": "リポジトリ",
   "profiles.ceiling.repositories": "許可するリポジトリ",
   "profiles.ceiling.repositoriesHint":
-    "この上限のセッションと release が使えるリポジトリです。",
+    "この上限のセッションとリリースが使えるリポジトリです。",
   "profiles.ceiling.noRepositories":
     "このインストールにはリポジトリがありません。",
   "profiles.ceiling.repositoriesEmpty":
@@ -733,9 +733,9 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.ceiling.error.openLatest": "最新バージョンから作り直す",
   "profiles.retireTitle": "バージョン {id} を使用停止しますか?",
   "profiles.retireText":
-    "すでにこのバージョンを使っている release とセッションは動き続けます。新しい release とセッションはこのバージョンを選べません。使用停止は元に戻せません。",
+    "すでにこのバージョンを使っているリリースとセッションは動き続けます。新しいリリースとセッションではこのバージョンを選べません。使用停止は元に戻せません。",
   "profiles.retireCeilingText":
-    "すでにこの上限を使っている release・セッションと、その上のワークスペースのプロファイルは動き続けます。新しい release・セッション・ワークスペースのプロファイルはこの上限を選べません。使用停止は元に戻せません。",
+    "すでにこの上限を使っているリリース・セッションと、その上のワークスペースのプロファイルは動き続けます。新しいリリース・セッション・ワークスペースのプロファイルではこの上限を選べません。使用停止は元に戻せません。",
   "profiles.retiring": "使用停止しています…",
   "profiles.retired": "バージョン {id} を使用停止しました。",
   "profiles.open": "{name} の詳細を見る",
@@ -749,9 +749,9 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "このインストールで使える最も広い値です。保存したバージョンは変わらず、編集すると新しいバージョンになります。",
   "profiles.detail.ownerOnly":
     "インストール上限はワークスペースのオーナーだけが変更できます",
-  "profiles.detail.createFrom": "この上限からプロファイルを作る",
+  "profiles.detail.createFrom": "この上限からプロファイルを作成",
   "profiles.detail.settings": "設定",
-  "profiles.detail.id": "id",
+  "profiles.detail.id": "ID",
   "profiles.detail.models": "選べるモデル",
   "profiles.detail.titleModelDefault": "既定のモデル",
   "profiles.detail.noRepositories": "許可したリポジトリなし",
@@ -769,7 +769,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.detail.audit.you": "{id} (自分)",
   "profiles.detail.history.title": "バージョン履歴",
   "profiles.detail.history.ceilingDescription":
-    "前のバージョンでつながった上限です。前のバージョンを使う release はそのまま動きます。",
+    "前のバージョンでつながった上限です。前のバージョンを使うリリースはそのまま動きます。",
   "profiles.detail.history.version": "バージョン",
   "profiles.detail.history.named": "{name} v{version}",
   "profiles.detail.history.current": "表示中",
@@ -781,13 +781,13 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "この上限から作ったワークスペースのプロファイルはありません。",
   "profiles.detail.agents.title": "このプロファイルを使うエージェント",
   "profiles.detail.agents.description":
-    "有効な release がこのプロファイル(バージョン)を使うエージェントです。以前の release は数えません。",
+    "有効なリリースでこのプロファイル（バージョン）を使用しているエージェントです。以前のリリースは含みません。",
   "profiles.detail.agents.withheld":
     "エージェント一覧はエージェントを管理できる人だけが見られます",
   "profiles.detail.agents.empty":
     "今このプロファイルを使うエージェントはありません。",
   "profiles.detail.agents.agent": "エージェント",
-  "profiles.detail.agents.release": "有効な release",
+  "profiles.detail.agents.release": "有効なリリース",
   "profiles.detail.agents.releaseVersion": "エージェント v{version}",
-  "profiles.detail.agents.open": "{name} の release を見る",
+  "profiles.detail.agents.open": "{name}のリリースを表示",
 };

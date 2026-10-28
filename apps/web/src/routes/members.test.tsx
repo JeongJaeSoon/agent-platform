@@ -461,7 +461,7 @@ describe("구성원 화면", () => {
     );
     const dialog = await screen.findByRole("dialog");
     expect(dialog.textContent).toContain(
-      "웹 로그인과 개인 API key가 바로 끊기고",
+      "웹 로그인과 개인 API 키가 바로 끊기고",
     );
     await user.click(within(dialog).getByRole("button", { name: "비활성화" }));
     expect(

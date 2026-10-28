@@ -73,7 +73,7 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.memberCount": "Members: {count}",
   "teams.mine.title": "Your teams",
   "teams.mine.intro":
-    "An owner or admin put you in these teams. When a team is named an agent's admin, you manage that agent.",
+    "These are the teams an owner or admin added you to. When a team is assigned as an agent admin, its members can manage that agent.",
   "teams.mine.empty": "You are not in any team yet.",
   "teams.back": "All teams",
   "teams.settings": "Team settings",
@@ -95,7 +95,7 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.pickEmpty": "Nobody matches.",
   "teams.pickCount": "{count} people found.",
   "teams.picked": "People to add",
-  "teams.unpick": "Take {name} off the people to add",
+  "teams.unpick": "Remove {name} from the selection",
   "teams.addMember": "Add",
   "teams.addMembers": "Add {count}",
   "teams.noCandidates": "There are no more active members to add.",
@@ -112,7 +112,7 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.removeMemberFor": "Remove {name} from the team",
   "teams.removeMemberTitle": "Remove {name} from the {team} team?",
   "teams.removeMemberConsequence":
-    "They stay in the workspace, but can no longer manage agents through this team. Adding them again restores it.",
+    "They stay in the workspace but lose the ability to manage agents through this team. Adding them again restores that access.",
 };
 
 export const teamsJa: Record<keyof typeof teamsKo, string> = {

@@ -12,7 +12,7 @@ export const homeKo = {
   "home.checklist.invite": "구성원 초대하기",
   "home.checklist.inviteHint": "구성원 화면에서 초대 링크를 만듭니다.",
   "home.checklist.agent": "에이전트 준비하기",
-  "home.checklist.agentHint": "release를 활성화하면 준비됩니다.",
+  "home.checklist.agentHint": "릴리스를 활성화하면 준비됩니다.",
   "home.checklist.session": "첫 세션 확인하기",
   "home.checklist.sessionHint": "API로 시작한 세션이 목록에 보입니다.",
   "home.checklist.unknown": "확인할 수 없음",
@@ -34,7 +34,7 @@ export const homeKo = {
   "home.glance.estimatedCost": "추정 비용",
   "home.glance.sessions": "세션",
   "home.glance.slots": "동시 실행",
-  "home.glance.slotsValue": "{used} / {limit} slot",
+  "home.glance.slotsValue": "{used} / {limit} 슬롯",
   "home.glance.outputs": "결과물 저장",
   "home.glance.outputsAtLeast": "{value} 이상",
   "home.glance.refreshed": "{at} 기준",
@@ -85,13 +85,13 @@ export const homeKo = {
   "home.glance.relink": "다시 연결",
   "home.overview.basis": "최근 30일 · UTC 기준",
   "home.glance.costPartial":
-    "추정 비용 · 진행 중이거나 비용을 보고하지 않은 turn은 빠짐",
+    "추정 비용 · 진행 중이거나 비용을 보고하지 않은 턴은 빠짐",
   "home.recent.activity": "최근 활동",
   "home.recent.open": "세션 열기: {title}",
 };
 
 export const homeEn: Record<keyof typeof homeKo, string> = {
-  "home.intro.owner": "Whole-install status and workspace checks.",
+  "home.intro.owner": "Installation-wide status and workspace checks.",
   "home.intro.admin":
     "Your sessions, the agents you manage, and workspace checks.",
   "home.intro.manager":
@@ -122,7 +122,7 @@ export const homeEn: Record<keyof typeof homeKo, string> = {
   "home.overview.agentsWithheld": "Only owners and admins see the full list",
   "home.recent.title": "Recent sessions",
   "home.glance.installation":
-    "Whole install · visible to install operators only",
+    "Entire installation · visible to installation operators only",
   "home.glance.installationTitle": "Total usage",
   "home.glance.estimatedCost": "Estimated cost",
   "home.glance.sessions": "Sessions",
@@ -151,13 +151,13 @@ export const homeEn: Record<keyof typeof homeKo, string> = {
   "home.glance.running": "Working",
   "home.glance.idle": "Idle",
   "home.glance.toSessions": "View sessions",
-  "home.glance.accounts": "Connected accounts",
+  "home.glance.accounts": "Linked accounts",
   "home.glance.accountsTitle": "Connection status",
   "home.glance.myAccounts": "My accounts",
-  "home.glance.linkedNote": "Connected accounts",
+  "home.glance.linkedNote": "Linked accounts",
   "home.glance.accountsFooter":
-    "Used when sessions reach repos, alerts, and docs",
-  "home.glance.toAccounts": "View connected accounts",
+    "Used when sessions access repositories, notifications and documents",
+  "home.glance.toAccounts": "View linked accounts",
   "home.glance.agent": "Agents I manage",
   "home.glance.agentWaitingNote": "Requests awaiting reply",
   "home.glance.recentSessions": "Sessions, last 7 days",
@@ -216,7 +216,8 @@ export const homeJa: Record<keyof typeof homeKo, string> = {
   "home.overview.agentsNote": "有効 {active} · 下書き {draft}",
   "home.overview.agentsWithheld": "全件はオーナーと管理者のみ表示できます",
   "home.recent.title": "最近のセッション",
-  "home.glance.installation": "インストール全体 · インストール運用者のみ閲覧可",
+  "home.glance.installation":
+    "インストール全体 · インストール運用担当者のみ閲覧可",
   "home.glance.installationTitle": "全体の使用量",
   "home.glance.estimatedCost": "推定コスト",
   "home.glance.sessions": "セッション",
@@ -243,7 +244,7 @@ export const homeJa: Record<keyof typeof homeKo, string> = {
   "home.glance.now": "いま",
   "home.glance.openNote": "開いているセッション",
   "home.glance.running": "作業中",
-  "home.glance.idle": "待機中",
+  "home.glance.idle": "入力待ち",
   "home.glance.toSessions": "セッションを見る",
   "home.glance.accounts": "連携アカウント",
   "home.glance.accountsTitle": "接続状態",
@@ -273,7 +274,7 @@ export const homeJa: Record<keyof typeof homeKo, string> = {
   "home.glance.relink": "再接続",
   "home.overview.basis": "直近30日 · UTC 基準",
   "home.glance.costPartial":
-    "推定コスト · 実行中またはコスト未報告の turn は含まない",
+    "推定コスト · 実行中またはコスト未報告のターンは含みません",
   "home.recent.activity": "最近のアクティビティ",
   "home.recent.open": "セッションを開く: {title}",
 };
