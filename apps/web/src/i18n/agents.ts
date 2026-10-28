@@ -44,7 +44,7 @@ export const agentsKo = {
   "agents.status.archived": "보관됨",
   "agents.newTitle": "새 에이전트",
   "agents.newIntro":
-    "빈 카드에서 네 단계로 만듭니다. '하는 일'까지 마치면 초안으로 저장되어, 그 뒤에 나가도 목록에 초안으로 남습니다.",
+    "빈 카드에서 다섯 단계로 만듭니다. '하는 일'까지 마치면 초안으로 저장되어, 그 뒤에 나가도 목록에 초안으로 남습니다.",
   "agents.name": "이름",
   "agents.slug": "식별자",
   "agents.slugHint":
@@ -345,7 +345,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.status.archived": "Archived",
   "agents.newTitle": "New agent",
   "agents.newIntro":
-    "Make it from a blank card in four steps. Once 'What it does' is done the agent is saved as a draft, so it stays in the list as a draft if you leave after that.",
+    "Create an agent from a blank card in five steps. Once 'What it does' is done the agent is saved as a draft, so it stays in the list as a draft if you leave after that.",
   "agents.name": "Name",
   "agents.slug": "Identifier",
   "agents.slugHint":
@@ -635,7 +635,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.status.archived": "アーカイブ済み",
   "agents.newTitle": "新規エージェント",
   "agents.newIntro":
-    "空のカードから 4 ステップで作成します。「役割」まで完了すると下書きとして保存され、その後に離れても一覧に下書きとして残ります。",
+    "空のカードから5ステップで作成します。「役割」まで完了すると下書きとして保存され、その後に離れても一覧に下書きとして残ります。",
   "agents.name": "名前",
   "agents.slug": "識別子",
   "agents.slugHint":
