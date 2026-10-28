@@ -45,7 +45,7 @@ API는 기동 시 `PLATFORM_CONFIG_DIR`(기본: 저장소의 `config/`)에서 `c
 
 1. 올리기 전에 모든 설정 디렉터리에 `connections.yaml`을 둔다(`connections-from-yaml`).
 2. 옛 API replica를 모두 내린다. 옛 API는 NULL인 `repository_ids`와 차단 칸을 모르므로 새 API와 섞어 돌리지 않는다. 되돌리지도 않는다.
-3. migration을 적용하고 새 API를 올린다. `api` 역할이 이전을 끝내기 전에는 `slack` 역할이 NULL인 행을 저장소 없는 상한으로 본다. `api`를 먼저 올린다.
+3. migration을 적용하고 새 API를 올린다. 이전이 끝나기 전에는 모든 역할이 NULL인 행을 그 replica의 `repositories.yaml` 배열로 읽는다. 이전이 쓸 값과 같으므로 그동안에도 허용과 revision은 업그레이드 전과 같다.
 4. 이전이 끝나면 `repositories.yaml` 배열을 고쳐도 허용은 바뀌지 않는다. 가져온 상한의 저장소를 바꾸려면 그 id를 `previous_id`로 하는 새 상한 버전을 `POST /v1/installation-profiles`로 저장한다.
 
 - profile의 `provider.auth`에는 값 대신 참조를 하나만 적는다: API 프로세스 환경 변수 `value_env`, 또는 Secrets Manager `secret_id`(`AWS_ENDPOINT_URL_SECRETS_MANAGER`로 endpoint 지정, `AWS_ENDPOINT_URL`은 따르지 않는다). 값은 기동 시 한 번 해석되고 worker에는 가지 않는다. egress proxy의 credential route가 요청마다 authorizer에 물어 upstream 요청에 붙인다(위 절).
@@ -55,6 +55,7 @@ API는 기동 시 `PLATFORM_CONFIG_DIR`(기본: 저장소의 `config/`)에서 `c
 - 이미 만든 세션의 상한이 차단되거나 연결을 잃었거나, id가 다른 URL·branch를 가리키게 되거나, 같은 profile id의 설정(tools·permission_mode·endpoint·runtime version·project_settings·자격 증명 참조 위치)이 세션을 만들 때와 달라지거나 세션의 모델이 `models`에서 빠지면, 세션 상세의 `attention`이 `CATALOG_MISMATCH`가 되고 그 세션으로 뜬 worker의 첫 claim이 `409 CATALOG_MISMATCH`를 받는다. 그 자리에서 대기 중이던 turn은 `failed`(`terminal_reason: catalog_mismatch`), 해당 receipt는 `CATALOG_MISMATCH`, 세션은 `failed`가 되고 status 이벤트에 같은 코드가 남는다. worker는 claim timeout을 기다리지 않고 바로 나가며, 다음 scheduler pass가 슬롯을 돌려받아 다른 세션을 띄운다. 메시지에는 저장소 id만 적히고 URL은 나오지 않는다. `resuming` 중인 세션이면 resume이 `CATALOG_MISMATCH`로 실패해 `recovery_required`로 가고, 대기 중인 입력은 복구 결정을 위해 남는다.
 - **카탈로그를 되돌려도 저절로 다시 실행되지는 않는다.** 되돌리면 `attention`이 사라지고, 그 세션에 새 메시지를 보내면 새 generation으로 다시 뜬다. 실패한 turn은 재시도되지 않으므로 필요한 입력은 다시 보낸다. 되돌리지 않은 채 메시지를 보내면 그 입력도 첫 claim에서 곧바로 같은 코드로 실패한다(추가 메시지를 422로 막지는 않는다 — 받은 입력은 receipt로 결말을 알린다).
 - **이 즉시 실패는 권위 있는 카탈로그만 쓴다.** 각 API는 기동 시 읽은 자기 카탈로그로 판단한다. 그래서 카탈로그가 다른 replica가 섞인 rolling update 동안에는 요청을 받은 replica에 따라, 다른 replica라면 돌릴 세션이 실패할 수 있다. 이를 막으려고 DB에 **활성 catalog revision**(`catalog_authority`, 행 하나)을 둔다. 기동 로그 `Session catalog loaded`의 `revision`이 활성 revision과 같은 replica만 세션을 실패시킨다. 다른 replica는 아무것도 쓰지 않고 claim에 `404 NOT_FOUND`(잡을 세션 없음)로 답한다. worker는 claim timeout 뒤 나가고, launch 실패 횟수·격리가 안전망으로 남는다. 활성 revision은 API가 스스로 정하지 않고 운영자가 compare-and-swap으로만 바꾼다. API 기동은 이 행을 읽지 않고, 불일치 경로에서만 읽는다.
+  - **차단은 예외다.** 상한을 차단하면 그 상한이 카탈로그에서 빠져 replica의 revision이 활성 revision과 달라진다. 그래도 claim은 그 transaction 안에서 상한 행을 다시 읽고, 차단돼 있으면 세션을 실패시킨다. 차단은 모든 replica에 같은 DB 행이기 때문이다.
   - **한 replica(compose 기본):** 행이 없으면 모든 API가 권위 있는 것으로 본다. 활성화하지 않아도 위 동작(첫 claim에 즉시 실패)은 그대로다.
   - **둘 이상 띄우기 전:** 지금 카탈로그의 revision을 활성화한다: `bun run catalog-authority activate <revision> --expected none`. compose 밖이라면 API 이미지 안에서 `DATABASE_URL`을 주고 `bun run apps/control-host/src/api/catalog-authority.ts …`로 같은 명령을 쓴다. 활성화한 뒤로는 행을 지우지 않는다.
   - **카탈로그 변경:** 활성화를 롤아웃의 첫 단계로 한다.

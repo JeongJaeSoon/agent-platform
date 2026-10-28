@@ -80,7 +80,7 @@ connections:
 
 ### 저장소 허용
 
-**PD-5부터(오너 결정 3을 d81-1 A로 넓혔다, 2026-10-28): 허용은 DB `repository_ids`만 본다.** 가져온 상한도 같다. `repositories.<id>.profiles` 배열은 두 번만 읽는다. 빈 테이블에 시드할 때 각 행의 `repository_ids`로, 그리고 PD-5 마이그레이션이 NULL로 둔 가져온 행을 기동 때 한 번 채울 때. 둘 다 시드와 같은 lock·transaction 안이고, NULL인 행만 채우므로 두 번 돌려도 결과가 같다. 그 뒤로 배열을 고쳐도 허용은 바뀌지 않는다. 배열은 선택 항목이 되고, 남아 있으면 지금처럼 저장소 객체에 들어가 `catalogRevision`·`repositoryBinding`이 업그레이드로 바뀌지 않는다(지우면 revision이 한 번 바뀐다). 가져온 상한의 저장소를 바꾸려면 그 id를 `previous_id`로 한 콘솔 버전을 만든다. 아래는 PD-2~PD-4 기간의 규칙이다.
+**PD-5부터(오너 결정 3을 d81-1 A로 넓혔다, 2026-10-28): 허용은 DB `repository_ids`만 본다.** 가져온 상한도 같다. `repositories.<id>.profiles` 배열은 두 번만 읽는다. 빈 테이블에 시드할 때 각 행의 `repository_ids`로, 그리고 PD-5 마이그레이션이 NULL로 둔 가져온 행을 기동 때 한 번 채울 때. 둘 다 시드와 같은 lock·transaction 안이고, NULL인 행만 채우므로 두 번 돌려도 결과가 같다. 채우기 전에 행을 읽는 replica(다른 api, slack 역할)는 NULL을 자기 배열로 읽는다. 채울 값과 같으므로 그 창에서도 쌍과 revision이 업그레이드 전과 같다. 그 뒤로 배열을 고쳐도 허용은 바뀌지 않는다. 배열은 선택 항목이 되고, 남아 있으면 지금처럼 저장소 객체에 들어가 `catalogRevision`·`repositoryBinding`이 업그레이드로 바뀌지 않는다(지우면 revision이 한 번 바뀐다). 가져온 상한의 저장소를 바꾸려면 그 id를 `previous_id`로 한 콘솔 버전을 만든다. 아래는 PD-2~PD-4 기간의 규칙이다.
 
 지금 "이 프로필이 이 저장소에서 돈다"는 `repositories.<id>.profiles`에 프로필 id를 적는 것이다(`catalog.ts:370-386`). 이 배열은 저장소 객체 안에 있어 `catalogRevision`(`catalog.ts:1043-1059`)과 저장소 route 토큰의 `repositoryBinding`(`catalog.ts:1026-1035`, `862-866`이 `profiles`를 남긴다)에 순서까지 들어간다. 그래서 DB에서 만든 허용을 이 배열에 다시 넣으면 상한 하나를 만들 때마다 revision과 binding이 바뀌어 권위 replica가 바뀌고 발급된 저장소 토큰이 끊긴다.
 
