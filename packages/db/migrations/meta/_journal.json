@@ -680,6 +680,20 @@
       "when": 1793170234679,
       "tag": "0187_installation_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 188,
+      "version": "7",
+      "when": 1793182393669,
+      "tag": "0188_slack_mention_only",
+      "breakpoints": true
+    },
+    {
+      "idx": 189,
+      "version": "7",
+      "when": 1793182413000,
+      "tag": "0189_drop_slack_default_mode",
+      "breakpoints": true
     }
   ]
 }

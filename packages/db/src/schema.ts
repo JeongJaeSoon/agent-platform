@@ -2364,10 +2364,7 @@ export const agents = pgTable(
     status: text().notNull().default("active"),
     activeReleaseId: text("active_release_id"),
     activationRevision: integer("activation_revision").notNull().default(-1),
-    slackDefaultMode: text("slack_default_mode")
-      .$type<"mention" | "ambient">()
-      .notNull()
-      .default("mention"),
+    slackMentionOnly: boolean("slack_mention_only").notNull().default(true),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -2378,10 +2375,6 @@ export const agents = pgTable(
   },
   (table) => [
     uniqueIndex("agents_workspace_slug_idx").on(table.workspaceId, table.slug),
-    check(
-      "agents_slack_default_mode_check",
-      sql`${table.slackDefaultMode} IN ('mention', 'ambient')`,
-    ),
     // What agent_admins and api_keys reference, so neither can name another
     // workspace's agent.
     unique("agents_workspace_id_key").on(table.workspaceId, table.id),
@@ -2682,7 +2675,7 @@ export const surfaceBindings = pgTable(
     surfaceKind: text("surface_kind").$type<
       "public_channel" | "private_channel" | "dm"
     >(),
-    mode: text().$type<"off" | "mention" | "ambient">().notNull(),
+    mode: text().$type<"off" | "on">().notNull(),
     /** The channel's ceiling; `surfaceCeilingSchema` split in two columns. */
     ceilingActions: text("ceiling_actions").array().notNull(),
     ceilingDisclosure: text("ceiling_disclosure")

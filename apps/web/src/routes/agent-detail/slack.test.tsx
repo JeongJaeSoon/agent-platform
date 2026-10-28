@@ -74,7 +74,7 @@ const BINDING: components["schemas"]["ListSlackBindingsResponse"]["items"][numbe
     external_surface_id: "C123",
     surface_kind: "public_channel",
     agent_id: AGENT_ID,
-    mode: "mention",
+    mode: "on",
     ceiling: { actions: ["session.read"], disclosure: "summary" },
     home: true,
     memory_write_policy: "deny",
@@ -100,8 +100,7 @@ function routes(app: typeof APP | null = null, installed = false) {
     // An installed agent already has its home unless a test says otherwise.
     [`GET ${PATH}/slack-bindings`]: () =>
       json(200, { items: installed ? [BINDING] : [] }),
-    [`GET ${PATH}/slack/app/settings`]: () =>
-      json(200, { default_mode: "mention" }),
+    [`GET ${PATH}/slack/app/settings`]: () => json(200, { mention_only: true }),
     [`GET ${PATH}/slack/channels`]: () =>
       json(200, {
         items: [],
@@ -463,13 +462,11 @@ describe("Slack management", () => {
     ).toBe(true);
   });
 
-  test("splits a channel's use from whether it waits for a mention", async () => {
-    let row: typeof BINDING = { ...BINDING, mode: "ambient" };
+  test("gives a channel one switch, its use, and no mention choice of its own", async () => {
+    let row: typeof BINDING = { ...BINDING };
     const { api } = renderAt(DETAIL, {
       ...routes(APP, true),
       [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [row] }),
-      [`GET ${PATH}/slack/app/settings`]: () =>
-        json(200, { default_mode: "ambient" }),
       [`PUT ${PATH}/slack-bindings`]: async (request: Request) => {
         row = { ...row, mode: (await request.json()).mode };
         return json(200, { slack_binding: row, receipt_id: ID });
@@ -480,29 +477,19 @@ describe("Slack management", () => {
     const use = await within(list).findByRole("switch", {
       name: "채널 ID: C123에서 사용",
     });
-    const mention = within(list).getByRole("switch", {
-      name: "채널 ID: C123 멘션할 때만 반응",
-    });
+    expect(within(list).getAllByRole("switch")).toEqual([use]);
+    expect(list.textContent).not.toContain("멘션");
+    expect(list.textContent).not.toContain("꺼짐");
     expect(use.getAttribute("aria-checked")).toBe("true");
-    expect(mention.getAttribute("aria-checked")).toBe("false");
-    expect(within(list).getByText("멘션 없이도 반응")).toBeDefined();
     const puts = () =>
       api.calls
         .filter((call) => call.method === "PUT")
         .map((call) => (call.body as { mode: string }).mode);
-    await user.click(mention);
-    await waitFor(() =>
-      expect(mention.getAttribute("aria-checked")).toBe("true"),
-    );
     await user.click(use);
     await waitFor(() => expect(use.getAttribute("aria-checked")).toBe("false"));
-    // An unused channel has no mention choice to make.
-    expect(mention.getAttribute("aria-disabled")).toBe("true");
-    await user.click(mention);
-    // Back in use, the channel waits for a mention whatever the default.
     await user.click(use);
     await waitFor(() => expect(use.getAttribute("aria-checked")).toBe("true"));
-    expect(puts()).toEqual(["mention", "off", "mention"]);
+    expect(puts()).toEqual(["off", "on"]);
   });
 
   test("saves the channel picked in the home step as in use and home, then opens the tab", async () => {
@@ -540,7 +527,7 @@ describe("Slack management", () => {
     expect(screen.getByRole("region", { name: "기본" })).toBeDefined();
     expect(api.calls.find((call) => call.method === "PUT")?.body).toEqual({
       channel_id: "C123",
-      mode: "mention",
+      mode: "on",
       home: true,
       ceiling: BINDING.ceiling,
     });
@@ -588,17 +575,17 @@ describe("Slack management", () => {
     });
   });
 
-  test("saves the default response on the server and applies it to a newly connected channel", async () => {
+  test("saves mention-only for the whole agent with a toast, and connects a new channel in use", async () => {
     let items: (typeof BINDING)[] = [HOME_ROW];
-    let mode = "ambient";
+    let mentionOnly = false;
     const { api } = renderAt(DETAIL, {
       ...routes(APP, true),
       [`GET ${PATH}/slack-bindings`]: () => json(200, { items }),
       [`GET ${PATH}/slack/app/settings`]: () =>
-        json(200, { default_mode: mode }),
+        json(200, { mention_only: mentionOnly }),
       [`PUT ${PATH}/slack/app/settings`]: async (request: Request) => {
-        mode = (await request.json()).default_mode;
-        return json(200, { default_mode: mode });
+        mentionOnly = (await request.json()).mention_only;
+        return json(200, { mention_only: mentionOnly });
       },
       [`GET ${PATH}/slack/channels`]: () =>
         json(200, {
@@ -623,23 +610,30 @@ describe("Slack management", () => {
     });
     const user = await setupUser();
     await screen.findByRole("navigation", { name: "Slack 구역" });
-    const toggle = await screen.findByRole("switch", {
-      name: "새 채널: 멘션할 때만 반응",
+    const basic = screen.getByRole("region", { name: "기본" });
+    const toggle = await within(basic).findByRole("switch", {
+      name: "멘션했을 때만 반응",
     });
     await waitFor(() =>
       expect(toggle.getAttribute("aria-disabled")).toBe("false"),
     );
     expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(
+      within(basic).getByText(
+        "켜면 @멘션했을 때만, 끄면 멘션 없이도 채널 메시지에 반응합니다.",
+      ),
+    ).toBeDefined();
     await user.click(toggle);
-    await screen.findByText(
-      "새 채널의 기본 반응을 '멘션할 때만'(으)로 바꿨습니다. 이미 연결된 채널은 그대로입니다.",
-    );
+    const toast = await screen.findByText("@멘션했을 때만 반응합니다.");
+    expect(toast.closest("[data-slot=toast]")).not.toBeNull();
     expect(toggle.getAttribute("aria-checked")).toBe("true");
+    // The row keeps no saved sentence of its own; the status reads on/off.
+    expect(basic.textContent).not.toContain("@멘션했을 때만 반응합니다.");
     const saved = api.calls.find(
       (call) =>
         call.method === "PUT" && call.path === `${PATH}/slack/app/settings`,
     );
-    expect(saved?.body).toEqual({ default_mode: "mention" });
+    expect(saved?.body).toEqual({ mention_only: true });
     expect(
       (saved?.headers.get("Idempotency-Key") ?? "").length,
     ).toBeGreaterThan(0);
@@ -656,7 +650,7 @@ describe("Slack management", () => {
             call.method === "PUT" && call.path === `${PATH}/slack-bindings`,
         )
         .map((call) => call.body),
-    ).toEqual([{ channel_id: "C123", mode: "mention", home: false }]);
+    ).toEqual([{ channel_id: "C123", mode: "on", home: false }]);
   });
 
   test("asks for /invite only on a private channel the bot has not joined", async () => {
@@ -732,13 +726,19 @@ describe("Slack management", () => {
   });
 
   for (const refused of [false, true]) {
-    test(`does not connect a new channel while the default response is ${refused ? "unreadable" : "loading"}`, async () => {
+    test(`connects a new channel in use while mention-only is ${refused ? "unreadable" : "loading"}`, async () => {
       const { api } = renderAt(DETAIL, {
         ...routes(APP, true),
         [`GET ${PATH}/slack/app/settings`]: () =>
           refused
             ? apiError(403, "FORBIDDEN", "internal message")
             : new Promise<Response>(() => {}),
+        [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [HOME_ROW] }),
+        [`PUT ${PATH}/slack-bindings`]: () =>
+          json(200, {
+            slack_binding: { ...BINDING, home: false },
+            receipt_id: ID,
+          }),
         [`GET ${PATH}/slack/channels`]: () =>
           json(200, {
             items: [
@@ -763,16 +763,17 @@ describe("Slack management", () => {
       const connect = await within(dialog).findByRole("button", {
         name: "#general 연결",
       });
-      // The picker says why it cannot connect.
-      if (refused) await within(dialog).findByRole("alert");
-      expect(connect.hasAttribute("disabled")).toBe(true);
+      await waitFor(() => expect(connect.hasAttribute("disabled")).toBe(false));
       await user.click(connect);
-      expect(api.calls.some((call) => call.method === "PUT")).toBe(false);
+      await screen.findByText("채널을 연결했습니다.");
+      expect(
+        api.calls.find((call) => call.method === "PUT")?.body,
+      ).toMatchObject({ channel_id: "C123", mode: "on" });
     });
   }
 
-  test("keeps a saved default response when an older read lands after the save", async () => {
-    let mode = "ambient";
+  test("keeps a saved mention-only setting when an older read lands after the save", async () => {
+    let mentionOnly = false;
     let reads = 0;
     let release = () => {};
     const gate = new Promise<void>((resolve) => {
@@ -782,18 +783,18 @@ describe("Slack management", () => {
       ...routes(APP, true),
       [`GET ${PATH}/slack/app/settings`]: async () => {
         reads += 1;
-        const seen = mode;
+        const seen = mentionOnly;
         if (reads === 2) await gate;
-        return json(200, { default_mode: seen });
+        return json(200, { mention_only: seen });
       },
       [`PUT ${PATH}/slack/app/settings`]: async (request: Request) => {
-        mode = (await request.json()).default_mode;
-        return json(200, { default_mode: mode });
+        mentionOnly = (await request.json()).mention_only;
+        return json(200, { mention_only: mentionOnly });
       },
     });
     const user = await setupUser();
     const toggle = await screen.findByRole("switch", {
-      name: "새 채널: 멘션할 때만 반응",
+      name: "멘션했을 때만 반응",
     });
     await waitFor(() =>
       expect(toggle.getAttribute("aria-disabled")).toBe("false"),
@@ -802,16 +803,14 @@ describe("Slack management", () => {
     await user.click(screen.getByRole("button", { name: "새로고침" }));
     await waitFor(() => expect(reads).toBe(2));
     await user.click(toggle);
-    await screen.findByText(
-      "새 채널의 기본 반응을 '멘션할 때만'(으)로 바꿨습니다. 이미 연결된 채널은 그대로입니다.",
-    );
+    await screen.findByText("@멘션했을 때만 반응합니다.");
     release();
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(toggle.getAttribute("aria-checked")).toBe("true");
   });
 
-  test("keeps a saved default response when a read started during the save lands after it", async () => {
-    let mode = "ambient";
+  test("keeps a saved mention-only setting when a read started during the save lands after it", async () => {
+    let mentionOnly = false;
     let reads = 0;
     let saved = () => {};
     const saving = new Promise<void>((resolve) => {
@@ -825,20 +824,20 @@ describe("Slack management", () => {
       ...routes(APP, true),
       [`GET ${PATH}/slack/app/settings`]: async () => {
         reads += 1;
-        const seen = mode;
+        const seen = mentionOnly;
         if (reads === 2) await stale;
-        return json(200, { default_mode: seen });
+        return json(200, { mention_only: seen });
       },
       [`PUT ${PATH}/slack/app/settings`]: async (request: Request) => {
-        const next = (await request.json()).default_mode;
+        const next = (await request.json()).mention_only;
         await saving;
-        mode = next;
-        return json(200, { default_mode: mode });
+        mentionOnly = next;
+        return json(200, { mention_only: mentionOnly });
       },
     });
     const user = await setupUser();
     const toggle = await screen.findByRole("switch", {
-      name: "새 채널: 멘션할 때만 반응",
+      name: "멘션했을 때만 반응",
     });
     await waitFor(() =>
       expect(toggle.getAttribute("aria-disabled")).toBe("false"),
@@ -848,9 +847,7 @@ describe("Slack management", () => {
     await user.click(screen.getByRole("button", { name: "새로고침" }));
     await waitFor(() => expect(reads).toBe(2));
     saved();
-    await screen.findByText(
-      "새 채널의 기본 반응을 '멘션할 때만'(으)로 바꿨습니다. 이미 연결된 채널은 그대로입니다.",
-    );
+    await screen.findByText("@멘션했을 때만 반응합니다.");
     late();
     await new Promise((resolve) => setTimeout(resolve, 50));
     await waitFor(() =>
@@ -858,7 +855,7 @@ describe("Slack management", () => {
     );
   });
 
-  test("withholds the default response switch when its setting cannot be read", async () => {
+  test("withholds the mention-only switch when its setting cannot be read", async () => {
     renderAt(DETAIL, {
       ...routes(APP, true),
       [`GET ${PATH}/slack/app/settings`]: () =>
@@ -869,7 +866,7 @@ describe("Slack management", () => {
       expect(within(basic).queryByText("—") !== null).toBe(true),
     );
     expect(
-      within(basic).queryByRole("switch", { name: "새 채널의 기본 반응" }),
+      within(basic).queryByRole("switch", { name: "멘션했을 때만 반응" }),
     ).toBeNull();
     expect(within(basic).getByRole("alert")).toBeDefined();
     expect(document.body.textContent).not.toContain("internal message");
@@ -1402,7 +1399,7 @@ describe("Slack management", () => {
       external_surface_id: null,
       surface_kind: "dm" as const,
       home: false,
-      mode: "off" as "off" | "mention",
+      mode: "off" as "off" | "on",
     };
     const { api } = renderAt(DETAIL, {
       ...routes(APP, true),
@@ -1427,17 +1424,17 @@ describe("Slack management", () => {
     expect(
       await screen.findByText("DM 받기 설정을 저장했습니다."),
     ).toBeDefined();
-    // A switch reads on/off, not the binding's mention mode.
     const status = screen.getByRole("region", { name: "상태" });
     await waitFor(() =>
       expect(within(status).queryByText("켜짐")).not.toBeNull(),
     );
+    // The DM row and the agent's mention-only row.
     expect(
       within(screen.getByRole("region", { name: "기본" })).getAllByText("켜짐"),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
     expect(api.calls.find((call) => call.method === "PUT")?.body).toEqual({
       channel_id: null,
-      mode: "mention",
+      mode: "on",
       home: false,
       ceiling: BINDING.ceiling,
     });
@@ -1532,26 +1529,26 @@ describe("Slack management", () => {
     const user = await setupUser();
     await screen.findByRole("navigation", { name: "Slack 구역" });
     const toggle = await screen.findByRole("switch", {
-      name: "채널 ID: C123 멘션할 때만 반응",
+      name: "채널 ID: C123에서 사용",
     });
     toggle.focus();
     await user.keyboard(" ");
-    await screen.findByText("채널 반응을 저장했습니다.");
+    await screen.findByText("채널 사용 설정을 저장했습니다.");
     await user.keyboard(" ");
     try {
       await waitFor(() =>
-        expect(screen.queryByText("채널 반응을 저장했습니다.") === null).toBe(
-          true,
-        ),
+        expect(
+          screen.queryByText("채널 사용 설정을 저장했습니다.") === null,
+        ).toBe(true),
       );
       expect(document.activeElement === toggle).toBe(true);
     } finally {
       release();
     }
-    await screen.findByText("채널 반응을 저장했습니다.");
+    await screen.findByText("채널 사용 설정을 저장했습니다.");
     await user.keyboard(" ");
     await screen.findByRole("alert");
-    expect(screen.queryByText("채널 반응을 저장했습니다.")).toBeNull();
+    expect(screen.queryByText("채널 사용 설정을 저장했습니다.")).toBeNull();
     expect(toggle.getAttribute("aria-checked")).toBe("true");
   });
 
@@ -1706,7 +1703,9 @@ describe("Slack management", () => {
       home: true,
       ceiling: BINDING.ceiling,
     });
-    expect(await screen.findByText("채널 반응을 저장했습니다.")).toBeDefined();
+    expect(
+      await screen.findByText("채널 사용 설정을 저장했습니다."),
+    ).toBeDefined();
   });
   test("debounces a search and passes the page cursor with the same query", async () => {
     const { api } = renderAt(DETAIL, {

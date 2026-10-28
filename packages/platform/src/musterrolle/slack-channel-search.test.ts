@@ -527,7 +527,7 @@ describe("searching an agent's Slack channels", () => {
       await bindings.putSlackBinding(owner, AGENT, {
         channel_id: "C0X",
         channel_kind: "public_channel",
-        mode: "mention",
+        mode: "on",
         home: false,
       }),
     ).toBe(set);

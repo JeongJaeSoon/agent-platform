@@ -301,7 +301,7 @@ async function agentInSlack() {
     agentId,
     channelId: CHANNEL,
     channelKind: "public_channel",
-    mode: "mention",
+    mode: "on",
     home: false,
     ceiling: DEFAULT_SURFACE_CEILING,
     managerRoles: MANAGERS,

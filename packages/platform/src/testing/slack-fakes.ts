@@ -341,7 +341,7 @@ export function createMemorySlackAppStore(input: {
     async getSettings(workspaceId, agentId) {
       const agent = input.agents.get(agentId);
       if (agent?.workspaceId !== workspaceId) return null;
-      return settings.get(agentId) ?? { default_mode: "mention" };
+      return settings.get(agentId) ?? { mention_only: true };
     },
     async putSettings(change) {
       const agent = input.agents.get(change.agentId);

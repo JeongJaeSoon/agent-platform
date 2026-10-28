@@ -95,9 +95,9 @@ Still `pending` after finalize means Slack has not reached the address yet. Publ
 
 `GET /v1/agents/{id}/slack-channels?ids=C1,C2` resolves at most 50 IDs. Each item has `id`, `name`, and `state`; only IDs Slack reports as missing or inaccessible have name and state `unknown`. Transport failures and upstream errors return 503 for the request without caching; a revoked or invalid bot token returns 409 `SLACK_NOT_INSTALLED`. There is no cursor or full scan. Results are cached per app and channel for 60 seconds. Slack 429 returns 503 with `Retry-After`.
 
-`GET` and `PUT /v1/agents/{id}/slack/app/settings` read and save `{ "default_mode": "mention" }` or `ambient`. A new channel is always in use; this value decides whether it responds only when mentioned (`mention`) or without a mention too (`ambient`). The initial value is `mention`, and settings can be saved before app creation. There is no app-wide on/off switch.
+`GET` and `PUT /v1/agents/{id}/slack/app/settings` read and save `{ "mention_only": true }`. With `true` the agent responds only when @mentioned; with `false` it responds to channel messages without a mention too. It applies to every channel in use, the ones already connected included, and not to DMs. The initial value is `true`, and settings can be saved before app creation. There is no app-wide on/off switch.
 
-A binding's `mode` is `off` (not used in this channel), `mention` or `ambient`. In an `ambient` channel a person's top-level message opens a session without a mention. A reply in a thread the agent is not part of gets no response.
+A binding's `mode` is `off` (not used in this channel) or `on` (in use). When `mention_only` is `false`, a person's top-level message in a channel in use opens a session without a mention. A reply in a thread the agent is not part of gets no response.
 
 Each agent has its own Slack app. To connect it, send the app id, the team id, and the name of a credential reference that holds the bot token (`credential_ref`, not the value).
 
@@ -110,7 +110,7 @@ Without a confirmed Slack installation this returns 409 `SLACK_NOT_INSTALLED`. T
 
 ## Channel joins and the deployment welcome
 
-When you save one of the agent's channels (`PUT /v1/agents/{id}/slack-bindings`), the server puts the bot in that channel. The bot joins a public channel itself. Slack does not let a bot join a private channel, so invite it there with `/invite @<bot>`; the server notices the invite and carries on. The binding's `membership.state` shows the result. Inviting the bot to a channel you never saved also connects that channel, in use and with the agent's `default_mode`. A channel you already saved keeps its settings, so one you switched off stays off.
+When you save one of the agent's channels (`PUT /v1/agents/{id}/slack-bindings`), the server puts the bot in that channel. The bot joins a public channel itself. Slack does not let a bot join a private channel, so invite it there with `/invite @<bot>`; the server notices the invite and carries on. The binding's `membership.state` shows the result. Inviting the bot to a channel you never saved also connects that channel, in use (`on`). A channel you already saved keeps its settings, so one you switched off stays off.
 
 | `membership.state` | Meaning |
 | --- | --- |

@@ -238,31 +238,34 @@ describe("the agent Slack app API", () => {
     const path = `${appPath(IDLE_AGENT)}/settings`;
     const owner = cookieFor("owner");
     expect((await call("GET", path, { cookie: owner })).json).toEqual({
-      default_mode: "mention",
+      mention_only: true,
     });
     expect(
       (
         await call("PUT", path, {
           cookie: owner,
-          body: { default_mode: "ambient" },
+          body: { mention_only: false },
         })
       ).status,
     ).toBe(200);
     expect((await call("GET", path, { cookie: owner })).json).toEqual({
-      default_mode: "ambient",
+      mention_only: false,
     });
-    // A new channel is always in use, so "off" is no default any more.
-    for (const default_mode of ["all", "off"]) {
-      expect(
-        (await call("PUT", path, { cookie: owner, body: { default_mode } }))
-          .status,
-      ).toBe(400);
+    // The per-channel modes and the old field are gone.
+    for (const body of [
+      { mention_only: "false" },
+      { default_mode: "mention" },
+      { mention_only: true, default_mode: "mention" },
+    ]) {
+      expect((await call("PUT", path, { cookie: owner, body })).status).toBe(
+        400,
+      );
     }
     expect(
       (
         await call("PUT", path, {
           cookie: owner,
-          body: { default_mode: "a".repeat(70_000) },
+          body: { mention_only: true, pad: "a".repeat(70_000) },
         })
       ).status,
     ).toBe(413);
@@ -270,7 +273,7 @@ describe("the agent Slack app API", () => {
       (
         await call("PUT", path, {
           cookie: cookieFor("member"),
-          body: { default_mode: "mention" },
+          body: { mention_only: true },
         })
       ).status,
     ).toBe(403);
@@ -306,7 +309,7 @@ describe("the agent Slack app API", () => {
       (
         await appWith(false)("PUT", path, {
           cookie: owner,
-          body: { default_mode: "mention" },
+          body: { mention_only: true },
         })
       ).status,
     ).toBe(503);
@@ -314,7 +317,7 @@ describe("the agent Slack app API", () => {
       (
         await call("PUT", `${appPath(OTHER_AGENT)}/settings`, {
           cookie: owner,
-          body: { default_mode: "mention" },
+          body: { mention_only: true },
         })
       ).status,
     ).toBe(404);

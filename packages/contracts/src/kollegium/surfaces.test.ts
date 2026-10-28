@@ -19,7 +19,7 @@ const BINDING = {
   external_surface_id: "C01",
   surface_kind: "private_channel",
   agent_id: AGENT_ID,
-  mode: "mention",
+  mode: "on",
   ceiling: { actions: ["session.read", "session.submit"], disclosure: "full" },
   home: false,
   memory_write_policy: "deny",

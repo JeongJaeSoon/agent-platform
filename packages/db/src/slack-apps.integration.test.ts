@@ -360,18 +360,18 @@ integration("Slack apps and the config token on PostgreSQL", () => {
       const owner = await person(workspaceId, "owner");
       const actor = { principal: owner.principal, managerRoles: BINDERS };
       expect(await store().getSettings(workspaceId, agentId)).toEqual({
-        default_mode: "mention",
+        mention_only: true,
       });
       expect(
         await store().putSettings({
           workspaceId,
           agentId,
           actor,
-          settings: { default_mode: "ambient" },
+          settings: { mention_only: false },
         }),
       ).toBe("saved");
       expect(await store().getSettings(workspaceId, agentId)).toEqual({
-        default_mode: "ambient",
+        mention_only: false,
       });
       expect(await store().getSettings(otherWorkspaceId, agentId)).toBeNull();
       await db
@@ -383,11 +383,11 @@ integration("Slack apps and the config token on PostgreSQL", () => {
           workspaceId,
           agentId,
           actor,
-          settings: { default_mode: "mention" },
+          settings: { mention_only: true },
         }),
       ).toBe("outranked");
       expect(await store().getSettings(workspaceId, agentId)).toEqual({
-        default_mode: "ambient",
+        mention_only: false,
       });
     });
 
