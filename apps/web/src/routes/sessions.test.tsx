@@ -1222,7 +1222,7 @@ describe("session detail", () => {
     // Why no new turn starts sits above the composer it holds back.
     expect(
       await within(screen.getByRole("tabpanel")).findByText(
-        "한도에 도달해 새 turn을 시작하지 않습니다.",
+        "한도에 도달해 새 턴을 시작하지 않습니다.",
       ),
     ).toBeTruthy();
     await setupInfo();
@@ -1232,10 +1232,10 @@ describe("session detail", () => {
     expect(screen.getByText("$25.00")).toBeTruthy();
     expect(info.getByText("1234")).toBeTruthy();
     expect(
-      info.getByText(/진행 중인 turn이 있어 아직 확정되지 않았습니다/),
+      info.getByText(/진행 중인 턴이 있어 아직 확정되지 않았습니다/),
     ).toBeTruthy();
     expect(
-      info.getByText("한도에 도달해 새 turn을 시작하지 않습니다."),
+      info.getByText("한도에 도달해 새 턴을 시작하지 않습니다."),
     ).toBeTruthy();
     await (await setupUser()).click(screen.getByRole("tab", { name: "진행" }));
     expect(await screen.findByText("권한 요청: Bash")).toBeTruthy();
@@ -1415,7 +1415,7 @@ describe("session detail", () => {
       });
     });
     const asked = async (turnId: string) => {
-      const head = await screen.findByText(`turn ${turnId}`);
+      const head = await screen.findByText(`턴 ${turnId}`);
       const group = head.closest("[data-slot='timeline-turn']");
       return group?.querySelector("[data-slot='message']") ?? null;
     };
@@ -1596,9 +1596,9 @@ describe("session detail", () => {
     });
     await setupInfo();
     expect(
-      await screen.findByText(/비용을 보고하지 않고 끝난 turn이 있어/),
+      await screen.findByText(/비용을 보고하지 않고 끝난 턴이 있어/),
     ).toBeTruthy();
-    expect(screen.queryByText(/진행 중인 turn이 있어/)).toBeNull();
+    expect(screen.queryByText(/진행 중인 턴이 있어/)).toBeNull();
   });
 
   test("someone else's private session reads as not found and asks nothing more", async () => {
@@ -1946,7 +1946,7 @@ describe("session profile", () => {
         json(202, { receipt_id: RECEIPT_ID, receipt_status: "accepted" }),
     });
     const stop = await screen.findByRole("button", {
-      name: "지금 turn 멈추기",
+      name: "지금 턴 멈추기",
     });
     stop.focus();
     await user.keyboard("{Enter}");
@@ -2102,9 +2102,7 @@ describe("session profile", () => {
     state = { ...detail, current_turn_id: null };
     act(() => stream.emit("ev_1", "status", { phase: "idle" }));
     await new Promise((resolve) => setTimeout(resolve, 500));
-    expect(
-      screen.queryByRole("button", { name: "지금 turn 멈추기" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "지금 턴 멈추기" })).toBeNull();
     expect(document.activeElement?.tagName).toBe("BODY");
   });
 
@@ -2185,9 +2183,7 @@ describe("session profile", () => {
     await screen.findByText("권한 요청: Bash");
     await user.click(await screen.findByRole("textbox", { name: "다음 지시" }));
     await user.keyboard("next step{Control>}{Enter}{/Control}");
-    expect(
-      await screen.findByText("메시지를 보냈습니다(turn 2)."),
-    ).toBeTruthy();
+    expect(await screen.findByText("메시지를 보냈습니다(턴 2).")).toBeTruthy();
     const post = api.calls.find((call) => call.method === "POST");
     expect(post?.path).toBe(`/v1/sessions/${SESSION_ID}/messages`);
     expect(post?.body).toEqual({ message: "next step", mode: "enqueue" });
@@ -2241,7 +2237,7 @@ describe("session profile", () => {
         }),
       );
       expect(
-        await screen.findByText("메시지를 보냈습니다(turn 2)."),
+        await screen.findByText("메시지를 보냈습니다(턴 2)."),
       ).toBeTruthy();
     };
     return { accept, answer };
@@ -2310,7 +2306,7 @@ describe("session profile", () => {
     const { accept } = await sendThenPause();
     await accept();
     expect(document.activeElement?.textContent).toBe(
-      "메시지를 보냈습니다(turn 2).",
+      "메시지를 보냈습니다(턴 2).",
     );
   });
 
@@ -2340,9 +2336,7 @@ describe("session profile", () => {
     expect(
       await screen.findByRole("button", { name: "다시 시작" }),
     ).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "지금 turn 멈추기" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "지금 턴 멈추기" })).toBeNull();
     expect(
       (
         (await screen.findByRole("textbox", {
@@ -2374,7 +2368,7 @@ describe("session profile", () => {
     expect(
       screen.queryByText("나는 이 세션의 요청에 답할 수 있습니다."),
     ).toBeNull();
-    const stop = screen.getByRole("button", { name: "지금 turn 멈추기" });
+    const stop = screen.getByRole("button", { name: "지금 턴 멈추기" });
     expect(stop.getAttribute("aria-disabled")).toBe("true");
     expect(
       document.getElementById(stop.getAttribute("aria-describedby") ?? "")
@@ -2414,7 +2408,7 @@ describe("session profile", () => {
     ).toBe(true);
     expect(
       screen.getByText(
-        "이 세션을 만든 사람, 에이전트 관리자, 워크스페이스 owner·admin만 답할 수 있습니다.",
+        "이 세션을 시작한 사람, 에이전트 관리자, 워크스페이스 소유자·관리자만 답할 수 있습니다.",
       ),
     ).toBeTruthy();
     expect(
@@ -2505,7 +2499,7 @@ describe("세션 상세 레이아웃", () => {
       .getAllByRole("button")
       .filter((button) => button.dataset.action !== undefined);
     expect(commands.map((button) => button.textContent)).toEqual([
-      "지금 turn 멈추기",
+      "지금 턴 멈추기",
       "일시 정지",
       "세션 종료",
     ]);
@@ -2692,9 +2686,7 @@ describe("세션 상세 레이아웃", () => {
     expect(
       await within(ops).findByText("나는 이 세션의 요청에 답할 수 있습니다."),
     ).toBeTruthy();
-    expect(ops.textContent).toContain(
-      "지금 turn 멈추기 · 일시 정지 · 세션 종료",
-    );
+    expect(ops.textContent).toContain("지금 턴 멈추기 · 일시 정지 · 세션 종료");
     expect(within(ops).getByText("할 수 있음")).toBeTruthy();
     expect(within(ops).queryAllByRole("button")).toHaveLength(0);
   });

@@ -98,7 +98,7 @@ describe("useFunnel", () => {
 const STEPS = [
   { id: "name", label: "이름" },
   { id: "role", label: "하는 일" },
-  { id: "release", label: "배포 판" },
+  { id: "release", label: "릴리스" },
 ];
 
 function stepper(options: StepperOptions, locale: Locale = "ko") {
@@ -148,6 +148,6 @@ describe("useStepper", () => {
   test("the finished-step wording follows the locale", () => {
     const options = { steps: STEPS, currentStepId: "role" };
     expect(stepper(options, "ko").completedLabel).toBe("완료");
-    expect(stepper(options, "en").completedLabel).toBe("completed");
+    expect(stepper(options, "en").completedLabel).toBe("Completed");
   });
 });

@@ -118,7 +118,7 @@ describe("app shell", () => {
       ["연동 계정", "/settings/linked-accounts"],
       ["언어한국어", null],
       ["테마시스템 설정", null],
-      ["API key", "/settings/api-keys"],
+      ["API 키", "/settings/api-keys"],
       ["로그아웃", null],
     ]);
   });
@@ -127,7 +127,7 @@ describe("app shell", () => {
     renderAt("/settings/api-keys", signedIn);
     // The page head is a <header> too; the top bar comes first.
     const [header] = await screen.findAllByRole("banner");
-    await waitFor(() => expect(header?.textContent).toBe("메뉴 열기API key"));
+    await waitFor(() => expect(header?.textContent).toBe("메뉴 열기API 키"));
   });
 
   test("a member on their teams still reads 구성원 in the top bar", async () => {
@@ -158,13 +158,13 @@ describe("app shell", () => {
 
   // V4-PAGE-FRAME: settings and forms used to stop at 1100px.
   for (const [path, title] of [
-    ["/settings/api-keys", "API key"],
+    ["/settings/api-keys", "API 키"],
     ["/settings/workspace", "일반"],
     ["/settings/workspace/", "일반"],
     ["/settings/workspace/slack", "Slack 연결 설정"],
     ["/settings/preferences", "언어·테마"],
     ["/settings/linked-accounts", "연동 계정"],
-    ["/settings/api-keys/new", "새 개인 key"],
+    ["/settings/api-keys/new", "새 개인 키"],
   ] as const) {
     test(`${path} sits in the one page frame`, async () => {
       renderAt(path, signedIn);
@@ -201,11 +201,11 @@ describe("app shell", () => {
   // One form or settings column stops inside the frame; lists use it all.
   for (const [path, title, width] of [
     ["/sessions", "세션", "full"],
-    ["/settings/api-keys", "API key", "full"],
+    ["/settings/api-keys", "API 키", "full"],
     ["/settings/workspace", "일반", "form"],
     ["/settings/preferences", "언어·테마", "form"],
     ["/settings/linked-accounts", "연동 계정", "form"],
-    ["/settings/api-keys/new", "새 개인 key", "form"],
+    ["/settings/api-keys/new", "새 개인 키", "form"],
     ["/agents/new", "새 에이전트", "full"],
   ] as const) {
     test(`${path} takes the ${width} column`, async () => {
@@ -365,12 +365,12 @@ describe("app shell", () => {
       "연동 계정",
       "언어한국어",
       "테마시스템 설정",
-      "API key",
+      "API 키",
       "로그아웃",
     ]);
     expect(
       within(menu)
-        .getByRole("menuitem", { name: "API key" })
+        .getByRole("menuitem", { name: "API 키" })
         .getAttribute("href"),
     ).toBe("/settings/api-keys");
     expect(
@@ -425,12 +425,12 @@ describe("app shell", () => {
     const region = await screen.findByRole("region", { name: "사용자 메뉴" });
     const user = await setupUser();
     await user.click(within(region).getByRole("button", { name: /Owner/ }));
-    await user.click(screen.getByRole("menuitem", { name: "API key" }));
+    await user.click(screen.getByRole("menuitem", { name: "API 키" }));
     expect(history.location.pathname).toBe("/settings/api-keys");
     expect(screen.queryByRole("menu")).toBeNull();
     const title = await screen.findByRole("heading", {
       level: 1,
-      name: "API key",
+      name: "API 키",
     });
     await waitFor(() => expect(document.activeElement === title).toBe(true));
   });

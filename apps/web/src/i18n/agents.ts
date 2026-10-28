@@ -2,7 +2,7 @@ export const agentsKo = {
   "agents.title": "에이전트",
   "agents.new": "새 에이전트",
   "agents.intro":
-    "에이전트는 카드·배포 판·관리자를 가진 작업자입니다. 관리자는 그 에이전트 세션의 요청에 답합니다.",
+    "에이전트는 카드·릴리스·관리자를 가진 작업자입니다. 관리자는 그 에이전트 세션의 요청에 답합니다.",
   "agents.column.agent": "에이전트",
   "agents.column.state": "상태",
   "agents.column.updated": "수정",
@@ -55,7 +55,7 @@ export const agentsKo = {
   "agents.flow.label": "에이전트 만들기 단계",
   "agents.flow.name": "이름",
   "agents.flow.job": "하는 일",
-  "agents.flow.release": "배포 판",
+  "agents.flow.release": "릴리스",
   "agents.flow.activate": "켜기",
   "agents.flow.next": "다음",
   "agents.flow.jobIntro":
@@ -63,9 +63,9 @@ export const agentsKo = {
   "agents.flow.saveDraft": "초안 저장하고 다음",
   "agents.flow.saving": "저장하는 중…",
   "agents.flow.releaseIntro":
-    "초안으로 저장했습니다. 카드를 프로필에 묶어 배포 판(release)을 만듭니다. 만들기만 해서는 세션이 쓰지 않습니다.",
-  "agents.flow.createRelease": "배포 판 만들기",
-  "agents.flow.activateIntro": "켜면 새 세션이 이 배포 판으로 시작합니다.",
+    "초안으로 저장했습니다. 카드와 프로필을 묶어 릴리스를 만듭니다. 활성화해야 새 세션에서 사용됩니다.",
+  "agents.flow.createRelease": "릴리스 만들기",
+  "agents.flow.activateIntro": "켜면 새 세션이 이 릴리스로 시작합니다.",
   "agents.flow.turnOn": "에이전트 켜기",
   "agents.flow.activating": "켜는 중…",
   "agents.flow.later": "나중에 하기",
@@ -83,7 +83,7 @@ export const agentsKo = {
   "agentCard.language": "답변 언어",
   "agentCard.model": "모델",
   "agentCard.modelHint":
-    "release할 때 고르는 프로필의 모델과 정확히 같아야 합니다",
+    "릴리스할 때 고르는 프로필의 모델과 정확히 같아야 합니다",
   "agentCard.tools": "쓸 수 있는 도구",
   "agentCard.toolsAll": "프로필이 허용하는 도구 전부",
   "agentCard.toolsList": "고른 도구만",
@@ -93,41 +93,41 @@ export const agentsKo = {
   "agentCard.forbiddenHint":
     "한 줄에 하나. 에이전트는 이 도구를 쓸 수 없습니다",
   "agent.created":
-    "에이전트를 만들었습니다(version 1). 세션에서 쓰려면 아래 release에서 version과 프로필을 골라 release를 만들고 활성화하세요.",
+    "에이전트를 만들었습니다(버전 1). 세션에서 쓰려면 아래 릴리스에서 버전과 프로필을 골라 릴리스를 만들고 활성화하세요.",
   "agent.noActive": "없음",
-  "agent.releaseLabel": "version {version} · {profile}",
-  "agent.versionLabel": "version {version}",
+  "agent.releaseLabel": "버전 {version} · {profile}",
+  "agent.versionLabel": "버전 {version}",
   "agent.versionShort": "v{version}",
   "agent.headStatus": "v{version} · {status}",
   "agent.saved":
-    "저장했습니다 — version {version}. 아직 활성화되지 않았습니다. 배포 탭에서 release를 만들고 활성화해야 반영됩니다.",
+    "저장했습니다 — 버전 {version}. 아직 활성화되지 않았습니다. 릴리스 탭에서 릴리스를 만들고 활성화해야 반영됩니다.",
   "agent.savedExisting":
-    "저장했습니다. 같은 카드가 이미 있어(version {version}) 새 version은 생기지 않았습니다.",
+    "저장했습니다. 같은 카드가 이미 있어(버전 {version}) 새 버전은 생기지 않았습니다.",
   "agent.savedNoChange":
-    "저장했습니다. 카드 내용이 같아 새 version은 생기지 않았습니다.",
+    "저장했습니다. 카드 내용이 같아 새 버전은 생기지 않았습니다.",
   "agent.activated":
     "활성화됐습니다 — 이제 새 세션은 {release}(으)로 시작합니다.",
-  "agent.alreadyActive": "이미 활성 release입니다. 바뀐 것은 없습니다.",
-  "agent.conflict.title": "다른 곳에서 활성 release를 먼저 바꿨습니다",
+  "agent.alreadyActive": "이미 활성 릴리스입니다. 바뀐 것은 없습니다.",
+  "agent.conflict.title": "다른 곳에서 활성 릴리스를 먼저 바꿨습니다",
   "agent.conflict.body":
-    "이 화면을 연 뒤 다른 사람이나 다른 탭에서 활성 release를 바꿨기 때문에 덮어쓰지 않고 멈췄습니다. 최신 상태를 불러와 무엇이 바뀌었는지 확인한 뒤 다시 정하세요.",
+    "이 화면을 연 뒤 다른 사람이나 다른 탭에서 활성 릴리스를 바꿨기 때문에 덮어쓰지 않고 멈췄습니다. 최신 상태를 불러와 무엇이 바뀌었는지 확인한 뒤 다시 정하세요.",
   "agent.conflict.reload": "최신 상태 불러오기",
   "agent.conflict.reloaded":
-    "보던 화면의 활성 release: {seen}. 지금 활성 release: {now}. 아래 차이를 확인하고 필요하면 다시 활성화하세요.",
+    "보던 화면의 활성 릴리스: {seen}. 지금 활성 릴리스: {now}. 아래 차이를 확인하고 필요하면 다시 활성화하세요.",
   "agent.card.title": "카드",
   "agent.card.intro":
-    "저장하면 새 version이 생깁니다. 활성 release는 그대로입니다.",
+    "저장하면 새 버전이 생깁니다. 활성 릴리스는 그대로입니다.",
   "agent.card.save": "저장",
   "agent.card.saving": "저장하는 중…",
   "agent.card.stale":
-    "다른 곳에서 카드를 저장해 최신이 version {version}입니다. 고치던 내용은 그대로 두었습니다. 이대로 저장하면 이 내용이 다음 version이 됩니다.",
+    "다른 곳에서 카드를 저장해 최신이 버전 {version}입니다. 고치던 내용은 그대로 두었습니다. 이대로 저장하면 이 내용이 다음 버전이 됩니다.",
   "agent.card.takeLatest": "최신 카드 불러오기",
-  "agent.versions.title": "version 기록",
+  "agent.versions.title": "버전 기록",
   "agent.versions.active": "활성",
   "agent.versions.before": "비교 기준",
   "agent.versions.after": "비교 대상",
-  "agent.releases.title": "배포 기록",
-  "agent.releases.new": "새 release",
+  "agent.releases.title": "릴리스 기록",
+  "agent.releases.new": "새 릴리스",
   "agent.releases.colVersion": "버전",
   "agent.releases.colStatus": "상태",
   "agent.releases.colBy": "만든 사람",
@@ -140,13 +140,13 @@ export const agentsKo = {
   "agent.releases.never": "활성화 전",
   "agent.releases.byMember": "구성원",
   "agent.releases.emptyBody":
-    "새 release로 version과 프로필을 묶으면 여기에 쌓입니다.",
+    "새 릴리스로 버전과 프로필을 묶으면 여기에 쌓입니다.",
   "agent.releases.intro":
-    "release는 version을 프로필에 묶어 고정한 것입니다. 만들기만 해서는 쓰이지 않고, 활성화해야 새 세션이 씁니다.",
-  "agent.releases.version": "version",
+    "릴리스는 버전을 프로필에 묶어 고정한 것입니다. 만들기만 해서는 쓰이지 않고, 활성화해야 새 세션이 씁니다.",
+  "agent.releases.version": "버전",
   "agent.releases.profile": "프로필",
   "agent.releases.profileHint":
-    "각 프로필과 그 프로필이 쓰는 모델. 카드 모델과 같은 모델의 프로필만 release할 수 있습니다",
+    "각 프로필과 그 프로필이 쓰는 모델. 카드 모델과 같은 모델의 프로필만 릴리스할 수 있습니다",
   "agent.releases.profileOption": "{profile} · {model}",
   "agent.releases.profileUnlisted":
     "프로필의 권한 모드는 아직 이 화면에 나오지 않습니다.",
@@ -155,14 +155,14 @@ export const agentsKo = {
     "Slack 세션과 저장소를 따로 보내지 않은 API 세션이 이 저장소에서 시작합니다",
   "agent.releases.repositoryNone": "저장소 없음",
   "agent.releases.repositoryMissing":
-    "카탈로그에 이 프로필을 허용하는 저장소가 없어 release할 수 없습니다. 운영자에게 저장소 추가를 요청하세요.",
+    "카탈로그에 이 프로필을 허용하는 저장소가 없어 릴리스할 수 없습니다. 운영자에게 저장소 추가를 요청하세요.",
   "agent.releases.profileGone": "카탈로그에 없음",
   "agent.releases.profilesLoading": "프로필 목록을 불러오는 중…",
   "agent.releases.profilesFailed":
     "프로필 목록을 불러오지 못했습니다: {reason}",
-  "agent.releases.create": "release 만들기",
+  "agent.releases.create": "릴리스 만들기",
   "agent.releases.creating": "만드는 중…",
-  "agent.releases.empty": "아직 release가 없습니다.",
+  "agent.releases.empty": "아직 릴리스가 없습니다.",
   "agent.releases.approved": "{at} 처음 활성화",
   "agent.releases.notApproved": "아직 활성화된 적 없음",
   "agent.releases.active": "활성",
@@ -170,12 +170,12 @@ export const agentsKo = {
   "agent.releases.activating": "활성화하는 중…",
   "agent.releases.activateFor": "{release} 활성화",
   "agent.releaseCreated":
-    "release를 만들었습니다(version {version}). 아직 활성화되지 않았습니다.",
+    "릴리스를 만들었습니다(버전 {version}). 아직 활성화되지 않았습니다.",
   "agent.releaseExisted":
-    "같은 내용의 release가 이미 있어 그것을 씁니다. 아직 활성화되지 않았다면 활성화하세요.",
-  "agent.credentials.title": "자격 연결",
+    "같은 내용의 릴리스가 이미 있어 그것을 씁니다. 아직 활성화되지 않았다면 활성화하세요.",
+  "agent.credentials.title": "자격 증명 연결",
   "agent.credentials.intro":
-    "카드가 쓰는 자격의 이름을 이 에이전트에 연결합니다. 연결되지 않은 이름이 있는 release는 활성화할 수 없고 새 세션도 시작하지 않습니다. 여기서는 이름만 다루고 값은 다루지 않습니다.",
+    "카드가 쓰는 자격의 이름을 이 에이전트에 연결합니다. 연결되지 않은 이름이 있는 릴리스는 활성화할 수 없고 새 세션도 시작하지 않습니다. 여기서는 이름만 다루고 값은 다루지 않습니다.",
   "agent.credentials.unboundList": "연결되지 않은 자격",
   "agent.credentials.boundList": "연결된 자격",
   "agent.credentials.neededToActivate": "활성화에 필요 · 연결 안 됨",
@@ -194,29 +194,29 @@ export const agentsKo = {
   "agent.credentials.revokeFor": "{name} 연결 해제",
   "agent.credentials.revokeTitle": "{name}의 연결을 해제할까요?",
   "agent.credentials.revokeConsequence":
-    "이 이름을 쓰는 release는 다음 세션부터 시작하지 못하고, 실행 중인 세션도 다음 메시지부터 막힙니다. 원격 MCP 호출은 30초 안에 끊기지만 이미 보낸 호출은 끝까지 실행되니, 값 자체는 외부 서비스에서 폐기하세요.",
+    "이 이름을 쓰는 릴리스는 다음 세션부터 시작하지 못하고, 실행 중인 세션도 다음 메시지부터 막힙니다. 원격 MCP 호출은 30초 안에 끊기지만 이미 보낸 호출은 끝까지 실행되니, 값 자체는 외부 서비스에서 폐기하세요.",
   "agent.credentials.revokeRunning":
     "지금 실행 중인 세션이 {count}개 있습니다.",
   "agent.credentials.revoked": "{name}의 연결을 해제했습니다.",
   "agent.unbound.title": "연결되지 않은 자격이 있어 활성화하지 못했습니다",
   "agent.unbound.body":
-    "이 release가 쓰는 자격 {names}이(가) 에이전트에 연결되어 있지 않습니다. 자격 연결에서 연결한 뒤 다시 활성화하세요.",
+    "이 릴리스가 쓰는 자격 증명 {names}이(가) 에이전트에 연결되어 있지 않습니다. 자격 증명 연결에서 연결한 뒤 다시 활성화하세요.",
   "agent.unbound.bodyUnnamed":
-    "이 release가 쓰는 자격 중 연결되지 않은 것이 있습니다. 자격 연결에서 연결한 뒤 다시 활성화하세요.",
-  "agent.unbound.go": "자격 연결로 가기",
+    "이 릴리스가 쓰는 자격 증명 중 연결되지 않은 것이 있습니다. 자격 증명 연결에서 연결한 뒤 다시 활성화하세요.",
+  "agent.unbound.go": "자격 증명 연결로 가기",
   "agent.tabs.label": "에이전트 상세",
   "agent.tabs.overview": "개요",
   "agent.tabs.card": "카드",
-  "agent.tabs.release": "배포",
+  "agent.tabs.release": "릴리스",
   "agent.tabs.admins": "관리자",
-  "agent.tabs.toRelease": "배포 탭으로",
+  "agent.tabs.toRelease": "릴리스 탭으로",
   "agent.back": "에이전트 목록",
   "agent.panel.none": "없음",
   "agent.overview.notActive":
-    "아직 켜지지 않았습니다. 배포 탭에서 release를 만들고 활성화하면 새 세션이 이 에이전트를 씁니다.",
+    "아직 켜지지 않았습니다. 릴리스 탭에서 릴리스를 만들고 활성화하면 새 세션이 이 에이전트를 씁니다.",
   "agent.overview.newerVersion":
-    "최신 version {latest}은(는) 아직 쓰이지 않습니다. 새 세션은 version {active}(으)로 시작합니다.",
-  "agent.overview.upToDate": "새 세션은 최신 version으로 시작합니다.",
+    "최신 버전 {latest}은(는) 아직 쓰이지 않습니다. 새 세션은 버전 {active}(으)로 시작합니다.",
+  "agent.overview.upToDate": "새 세션은 최신 버전으로 시작합니다.",
   "agent.newSession": "이 에이전트로 새 세션",
   "agent.glance.label": "에이전트 현황",
   "agent.glance.cost": "최근 7일 비용",
@@ -236,26 +236,26 @@ export const agentsKo = {
   "agent.ready.credentialsBound": "필요한 {count}개를 모두 연결했습니다.",
   "agent.ready.credentialsMissing": "연결이 필요합니다: {names}",
   "agent.ready.credentialsUnknown": "연결 상태를 불러오지 못했습니다.",
-  "agent.ready.release": "release 만들기",
-  "agent.ready.releaseDone": "release {count}개가 있습니다.",
+  "agent.ready.release": "릴리스 만들기",
+  "agent.ready.releaseDone": "릴리스 {count}개가 있습니다.",
   "agent.ready.releaseTodo":
-    "배포 탭에서 version과 실행 프로필로 release를 만듭니다.",
+    "릴리스 탭에서 버전과 실행 프로필로 릴리스를 만듭니다.",
   "agent.ready.activate": "활성화",
   "agent.ready.notRunnable":
     "에이전트가 {status} 상태라 새 세션이 이 에이전트를 쓰지 않습니다.",
   "agent.sessions.title": "최근 세션",
   "agent.sessions.empty":
     "이 에이전트로 만든 세션 중 볼 수 있는 세션이 없습니다.",
-  "agent.sessions.release": "release",
+  "agent.sessions.release": "릴리스",
   "agent.sessions.open": "세션 열기: {name}",
   "agent.sessions.all": "모든 세션",
   "agent.card.summaryTitle": "에이전트 카드",
-  "agent.card.subActive": "새 세션에 쓰이는 version입니다. 읽기 전용.",
-  "agent.card.subDraft": "아직 배포하지 않은 최신 version입니다. 읽기 전용.",
+  "agent.card.subActive": "새 세션에 쓰이는 버전입니다. 읽기 전용.",
+  "agent.card.subDraft": "아직 배포하지 않은 최신 버전입니다. 읽기 전용.",
   "agent.card.subReleased":
-    "release는 만들었지만 아직 켜지 않은 version입니다. 읽기 전용.",
+    "릴리스는 만들었지만 아직 켜지 않은 버전입니다. 읽기 전용.",
   "agent.card.subStopped":
-    "활성 release의 version이지만 에이전트가 {status} 상태라 새 세션은 쓰지 않습니다. 읽기 전용.",
+    "활성 릴리스의 버전이지만 에이전트가 {status} 상태라 새 세션은 쓰지 않습니다. 읽기 전용.",
   "agent.card.raw": "카드 원문",
   "agent.card.rawSub": "최신 버전 기준 · 읽기 전용",
   "agent.card.rawSubActive": "배포된 버전 기준 · 읽기 전용",
@@ -267,11 +267,11 @@ export const agentsKo = {
   "diff.caption": "{before} → {after}",
   "diff.added": "추가: ",
   "diff.removed": "삭제: ",
-  "diff.same": "두 version의 카드가 같습니다.",
+  "diff.same": "두 버전의 카드가 같습니다.",
 
   "agentAdmins.title": "에이전트 관리자",
   "agentAdmins.intro":
-    "에이전트 관리자는 이 에이전트의 카드·release·자격 증명 연결과 에이전트 key를 관리합니다. 사람이나 팀을 관리자로 추가하세요.",
+    "에이전트 관리자는 이 에이전트의 카드·릴리스·자격 증명 연결과 에이전트 키를 관리합니다. 사람이나 팀을 관리자로 추가하세요.",
   "agentAdmins.empty":
     "아직 에이전트 관리자가 없습니다. 워크스페이스 소유자와 관리자는 여기에 추가하지 않아도 모든 에이전트를 관리할 수 있습니다.",
   "agentAdmins.person": "사람",
@@ -304,10 +304,10 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.intro":
     "An agent is a worker with a card, a release and admins. Its admins answer the requests from its sessions.",
   "agents.column.agent": "Agent",
-  "agents.column.state": "State",
+  "agents.column.state": "Status",
   "agents.column.updated": "Updated",
   "agents.listWithheld":
-    "Only owners and admins see every agent. An agent you create appears under 'Agents you administer' below.",
+    "Only owners and admins can see the full agent list. Agents you create appear under 'Agents I manage' below.",
   "agent.notFound.title": "Agent not found",
   "agent.notFound.body":
     "It was deleted, the address is wrong, or you cannot see it.",
@@ -335,8 +335,8 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.cards.unavailable": "Could not load",
   "agents.cards.open": "Details",
   "agents.cards.instructions": "Instructions",
-  "agents.cards.admins": "Owners",
-  "agents.updated": "updated {at}",
+  "agents.cards.admins": "Admins",
+  "agents.updated": "Updated {at}",
   "agents.state.notReleased": "Not usable yet",
   "agents.state.draft": "Draft",
   "agents.status.active": "Active",
@@ -393,10 +393,10 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agentCard.forbidden": "Blocked tools",
   "agentCard.forbiddenHint": "One per line. The agent can never use these",
   "agent.created":
-    "Agent created as version 1. To use it in sessions, pick a version and a profile under Releases below, create the release and activate it.",
-  "agent.noActive": "none",
-  "agent.releaseLabel": "version {version} · {profile}",
-  "agent.versionLabel": "version {version}",
+    "Agent created as version 1. To use it in sessions, choose a version and a profile on the Release tab, then create and activate a release.",
+  "agent.noActive": "None",
+  "agent.releaseLabel": "Version {version} · {profile}",
+  "agent.versionLabel": "Version {version}",
   "agent.versionShort": "v{version}",
   "agent.headStatus": "v{version} · {status}",
   "agent.saved":
@@ -422,7 +422,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "Someone else saved this card; the latest is now version {version}. Your edits are kept, and saving now makes them the next version.",
   "agent.card.takeLatest": "Load the latest card",
   "agent.versions.title": "Version history",
-  "agent.versions.active": "active",
+  "agent.versions.active": "Active",
   "agent.versions.before": "Compare from",
   "agent.versions.after": "Compare to",
   "agent.releases.title": "Release history",
@@ -439,13 +439,13 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.never": "Never active",
   "agent.releases.byMember": "A member",
   "agent.releases.emptyBody":
-    "Releases you make with New release, a version on a profile, appear here.",
+    "Releases that pair a version with a profile appear here.",
   "agent.releases.intro":
     "A release pins a version to a profile. Creating one changes nothing until you activate it.",
   "agent.releases.version": "Version",
   "agent.releases.profile": "Profile",
   "agent.releases.profileHint":
-    "Each profile and the model it runs. Only a profile running the card's model can be released to",
+    "Each profile is shown with its model. Choose a profile that uses the same model as the card.",
   "agent.releases.profileOption": "{profile} · {model}",
   "agent.releases.profileUnlisted":
     "A profile's permission mode is not shown on this screen yet.",
@@ -454,15 +454,15 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "Slack sessions, and API sessions that send no repository, start on this repository",
   "agent.releases.repositoryNone": "No repository",
   "agent.releases.repositoryMissing":
-    "No catalog repository allows this profile, so it can't be released to. Ask an operator to add one.",
+    "No repository in the catalog allows this profile, so a release cannot be created. Ask an operator to add a repository.",
   "agent.releases.profileGone": "Not in catalog",
   "agent.releases.profilesLoading": "Loading profiles…",
   "agent.releases.profilesFailed": "Could not load the profiles: {reason}",
   "agent.releases.create": "Create release",
   "agent.releases.creating": "Creating…",
   "agent.releases.empty": "No releases yet.",
-  "agent.releases.approved": "first activated {at}",
-  "agent.releases.notApproved": "never activated",
+  "agent.releases.approved": "First activated {at}",
+  "agent.releases.notApproved": "Never activated",
   "agent.releases.active": "Active",
   "agent.releases.activate": "Activate",
   "agent.releases.activating": "Activating…",
@@ -534,14 +534,14 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.ready.credentialsMissing": "Still to connect: {names}",
   "agent.ready.credentialsUnknown": "Could not load the connections.",
   "agent.ready.release": "Create a release",
-  "agent.ready.releaseDone": "{count} release(s) exist.",
+  "agent.ready.releaseDone": "Releases created: {count}.",
   "agent.ready.releaseTodo":
     "On the Release tab, create a release from a version and a runtime profile.",
   "agent.ready.activate": "Activate",
   "agent.ready.notRunnable":
     "The agent is {status}, so new sessions do not use it.",
   "agent.sessions.title": "Recent sessions",
-  "agent.sessions.empty": "No sessions of this agent that you can see.",
+  "agent.sessions.empty": "No sessions from this agent are available to you.",
   "agent.sessions.release": "Release",
   "agent.sessions.open": "Open session: {name}",
   "agent.sessions.all": "All sessions",
@@ -560,8 +560,8 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.card.copyFailed":
     "Could not copy. Select the source and copy it yourself.",
   "diff.caption": "{before} → {after}",
-  "diff.added": "added: ",
-  "diff.removed": "removed: ",
+  "diff.added": "Added: ",
+  "diff.removed": "Removed: ",
   "diff.same": "Both versions have the same card.",
 
   "agentAdmins.title": "Agent admins",
@@ -575,7 +575,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agentAdmins.removeFor": "Remove {name} as an admin",
   "agentAdmins.removeTitle": "Remove {name} as an admin?",
   "agentAdmins.removeConsequence":
-    "The rights to manage this agent that came with being its admin go away. Adding them again restores them.",
+    "They lose the permission granted by this admin assignment to manage the agent. Adding them again restores that permission.",
   "agentAdmins.removeSelfConsequence":
     "Removing yourself takes away your admin rights. Unless a team you are in is an admin, you can no longer change this agent or add yourself back.",
   "agentAdmins.pick": "Person or team to add as admin",
@@ -586,7 +586,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agentAdmins.since": "Admin since {date}",
   "agentAdmins.added": "Added {name} as an admin.",
   "agentAdmins.removed": "{name} is no longer an admin.",
-  "agentAdmins.mine.title": "Agents you administer",
+  "agentAdmins.mine.title": "Agents I manage",
   "agentAdmins.mine.intro":
     "You were named their admin directly or through a team. Open one to manage its card and admins.",
   "agentAdmins.mine.empty": "You are not named an admin of any agent yet.",
@@ -627,7 +627,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.cards.instructions": "指示文",
   "agents.cards.admins": "担当",
   "agents.updated": "{at}に更新",
-  "agents.state.notReleased": "未公開",
+  "agents.state.notReleased": "まだ使用できません",
   "agents.state.draft": "下書き",
   "agents.status.active": "有効",
   "agents.status.paused": "一時停止",
@@ -731,13 +731,13 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.releases.never": "有効化前",
   "agent.releases.byMember": "メンバー",
   "agent.releases.emptyBody":
-    "新しいリリースでバージョンとプロファイルを結ぶと、ここに並びます。",
+    "バージョンとプロファイルを組み合わせて作成したリリースがここに表示されます。",
   "agent.releases.intro":
     "リリースはバージョンをプロファイルに固定します。作成しただけでは何も変わらず、有効化すると反映されます。",
   "agent.releases.version": "バージョン",
   "agent.releases.profile": "プロファイル",
   "agent.releases.profileHint":
-    "各プロファイルと、そのプロファイルが実行するモデルです。カードのモデルを実行するプロファイルにのみリリースできます",
+    "各プロファイルと使用するモデルを表示しています。カードと同じモデルを使うプロファイルを選択してください。",
   "agent.releases.profileOption": "{profile} · {model}",
   "agent.releases.profileUnlisted":
     "プロファイルの権限モードは、この画面にはまだ表示されません。",
@@ -746,7 +746,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "Slack のセッションと、リポジトリを指定しない API セッションはこのリポジトリで始まります",
   "agent.releases.repositoryNone": "リポジトリなし",
   "agent.releases.repositoryMissing":
-    "このプロファイルを許可するリポジトリがカタログにないため、リリースできません。運用者にリポジトリの追加を依頼してください。",
+    "このプロファイルを許可するリポジトリがカタログにないため、リリースできません。運用担当者にリポジトリの追加を依頼してください。",
   "agent.releases.profileGone": "カタログにありません",
   "agent.releases.profilesLoading": "プロファイルを読み込み中…",
   "agent.releases.profilesFailed":
@@ -785,7 +785,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.credentials.revokeFor": "{name}の接続を解除",
   "agent.credentials.revokeTitle": "{name}の接続を解除しますか？",
   "agent.credentials.revokeConsequence":
-    "この認証情報を指定するリリースは、次のセッションを開始しなくなります。実行中のセッションは終了するまで使い続けます。すぐに止めるには、外部サービス側で取り消してください。",
+    "この認証情報を使うリリースでは新しいセッションを開始できなくなり、実行中のセッションも次のメッセージから受け付けなくなります。リモート MCP 呼び出しは30秒以内に遮断されますが、送信済みの呼び出しは最後まで実行されます。認証情報そのものは外部サービスで失効させてください。",
   "agent.credentials.revokeRunning": "現在 {count}件のセッションが実行中です。",
   "agent.credentials.revoked": "{name}の接続を解除しました。",
   "agent.unbound.title": "有効化できませんでした: 認証情報が接続されていません",

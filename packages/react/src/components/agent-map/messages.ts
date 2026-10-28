@@ -77,14 +77,14 @@ const STATUS_JA: Record<SessionStatus, string> = {
   queued: "待機中",
   running: "作業中",
   needs_input: "回答待ち",
-  idle: "休止中",
+  idle: "入力待ち",
   failed: "失敗",
   stopped: "停止",
 };
 const STATUS_EN: Record<SessionStatus, string> = {
   queued: "Queued",
   running: "Working",
-  needs_input: "Needs answer",
+  needs_input: "Waiting for an answer",
   idle: "Idle",
   failed: "Failed",
   stopped: "Stopped",
@@ -193,7 +193,7 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
         attention: "回答が必要",
         running: "作業中",
         queued: "待機",
-        idle: "休止中",
+        idle: "入力待ち",
       })[lane],
     done: "最近終了",
     expandDone: "展開",
@@ -260,15 +260,15 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
       })[status],
     toolState: (state) =>
       ({
-        ok: "succeeded",
-        error: "failed",
-        running: "running",
-        waiting: "awaiting approval",
-        interrupted: "interrupted",
+        ok: "Succeeded",
+        error: "Failed",
+        running: "Running",
+        waiting: "Awaiting approval",
+        interrupted: "Interrupted",
       })[state],
     lane: (lane) =>
       ({
-        attention: "Needs answer",
+        attention: "Waiting for an answer",
         running: "Working",
         queued: "Queued",
         idle: "Idle",
@@ -282,16 +282,17 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
     waitingLine: (agent, title, minutes) =>
       `${agent} · ${title} · ${minutes} min`,
     open: "View",
-    subagents: (count) => `· ${count} sub`,
+    subagents: (count) => `· Subagents: ${count}`,
     tools: (count) => `${count} tools`,
     errors: (count) => `${count} errors`,
-    approvals: (count) => `${count} approval`,
-    questions: (count) => `${count} question`,
-    requests: (count) => `${count} request`,
+    approvals: (count) => `Approvals: ${count}`,
+    questions: (count) => `Questions: ${count}`,
+    requests: (count) => `Requests: ${count}`,
     pinned: "Waiting to tidy",
     ownRun: "Direct calls",
     sessionRun: "Session run",
-    runTotals: (tools, subagents) => `${tools} tools · ${subagents} sub`,
+    runTotals: (tools, subagents) =>
+      `Tools: ${tools} · Subagents: ${subagents}`,
     noTools: "No tool calls yet",
     live: "Live · last event",
     edge: (kind) =>
@@ -314,7 +315,7 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
       "Sessions at work now, with the subagents inside them and the tools they used.",
     listUpdated: (seconds) =>
       seconds === null ? "Reading the list" : `List updated ${seconds}s ago`,
-    liveScope: "live for the selected session only",
+    liveScope: "Live updates for the selected session only",
     tidy: (count) => `Tidy up (${count})`,
     changes: (changes, added) =>
       [

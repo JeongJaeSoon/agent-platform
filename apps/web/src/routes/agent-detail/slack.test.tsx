@@ -1171,7 +1171,7 @@ describe("Slack management", () => {
       await screen.findByText("Slack에서는 세션을 시작할 수 없습니다"),
     ).toBeDefined();
     expect(document.body.textContent).toContain(
-      "활성 release의 프로필(claude-coding-local)은 세션마다 저장소가 필요한데 release에 쓸 수 있는 저장소가 없습니다",
+      "활성 릴리스의 프로필(claude-coding-local)은 세션마다 저장소가 필요한데 릴리스에 쓸 수 있는 저장소가 없습니다",
     );
     expect(
       screen.getByRole("button", { name: "Slack 앱 만들고 설치" }),
@@ -1293,7 +1293,7 @@ describe("Slack management", () => {
       await screen.findByText("Slack에서는 세션을 시작할 수 없습니다"),
     ).toBeDefined();
     expect(document.body.textContent).toContain(
-      "활성 release의 프로필(general)이 지금 카탈로그에 없거나 release 뒤에 바뀌었습니다.",
+      "활성 릴리스의 프로필(general)이 지금 카탈로그에 없거나 릴리스 뒤에 바뀌었습니다.",
     );
   });
 
@@ -1303,7 +1303,7 @@ describe("Slack management", () => {
       [`GET ${PATH}/slack/app`]: () =>
         json(200, appResponse(null, [{ code: "no_active_release" }])),
     });
-    expect(await screen.findByText("활성 release가 없습니다")).toBeDefined();
+    expect(await screen.findByText("활성 릴리스가 없습니다")).toBeDefined();
   });
 
   test("shows no repository warning when the profile needs none", async () => {

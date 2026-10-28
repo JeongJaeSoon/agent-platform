@@ -529,7 +529,7 @@ describe("ApprovalInbox", () => {
       timeout: 4000,
     });
     expect(document.activeElement?.textContent).toBe(
-      "This request expired and takes no answer.",
+      "This request has expired and can no longer be answered.",
     );
     expect(document.activeElement?.closest("[hidden]")).toBeNull();
   });
@@ -546,7 +546,7 @@ describe("ApprovalInbox", () => {
       timeout: 4000,
     });
     expect(document.activeElement?.textContent).toContain(
-      "This request expired and takes no answer.",
+      "This request has expired and can no longer be answered.",
     );
     expect(document.activeElement?.closest("[hidden]")).toBeNull();
   });
@@ -568,7 +568,7 @@ describe("ApprovalInbox", () => {
     );
     await waitFor(() =>
       expect(document.activeElement?.textContent).toContain(
-        "This request expired and takes no answer.",
+        "This request has expired and can no longer be answered.",
       ),
     );
     expect(document.activeElement?.closest("[hidden]")).toBeNull();

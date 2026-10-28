@@ -10,19 +10,19 @@ export const SLACK_NOTICE_MESSAGES = {
   connect: "웹에서 Slack 계정을 연결해 주세요",
   noRequestRight: "이 채널에서 이 에이전트에게 요청할 권한이 없어요",
   noApproveRight: "이 요청을 승인할 권한이 없어요",
-  guestDisabled: "이 워크스페이스는 guest의 에이전트 사용을 허용하지 않아요",
-  membersOnly: "이 에이전트는 이 워크스페이스 멤버만 쓸 수 있어요",
+  guestDisabled: "이 워크스페이스는 게스트의 에이전트 사용을 허용하지 않아요",
+  membersOnly: "이 에이전트는 이 워크스페이스 구성원만 쓸 수 있어요",
   outOfShare:
     "이 세션은 공유 범위 밖이라 요청할 수 없어요. 세션을 만든 사람에게 공유를 요청하세요",
   credentialUnbound:
     "연결 설정이 바뀌어 시작하지 못했어요. 에이전트 관리자에게 문의하세요",
   failed: "지금은 요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요",
   repositoryRequired:
-    "이 에이전트의 release에 쓸 수 있는 저장소가 없어 시작하지 못했어요(저장소를 고르지 않았거나 카탈로그에서 빠졌어요). 에이전트 관리자가 웹 콘솔에서 저장소를 골라 다시 release해야 해요",
+    "이 에이전트의 릴리스에 쓸 수 있는 저장소가 없어 시작하지 못했어요(저장소를 고르지 않았거나 카탈로그에서 빠졌어요). 에이전트 관리자가 웹 콘솔에서 저장소를 골라 새 릴리스를 만들고 활성화해야 해요",
   profileUnavailable:
-    "이 에이전트의 release가 쓰는 실행 프로필이 지금 카탈로그에 없거나 바뀌어 시작하지 못했어요. 에이전트 관리자가 웹 콘솔에서 다시 release해야 해요",
+    "이 에이전트의 릴리스가 쓰는 실행 프로필이 지금 카탈로그에 없거나 바뀌어 시작하지 못했어요. 에이전트 관리자가 웹 콘솔에서 새 릴리스를 만들고 활성화해야 해요",
   noActiveRelease:
-    "이 에이전트는 아직 활성화된 release가 없어요. 에이전트 관리자가 웹 콘솔에서 release를 활성화해야 해요",
+    "이 에이전트는 아직 활성화된 릴리스가 없어요. 에이전트 관리자가 웹 콘솔에서 릴리스를 활성화해야 해요",
 } as const;
 
 type NoticeKey = keyof typeof SLACK_NOTICE_MESSAGES;
