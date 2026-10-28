@@ -1,8 +1,9 @@
 /**
  * Installs the packed @werft-ai/sdk into an empty npm project, the way an
  * outside consumer would, and fails unless the tarball carries exactly the
- * files it should, the README example and examples/sdk-approver type-check
- * with skipLibCheck off, and the sample runs under Node against a fake API.
+ * files it should, the README example and every sample under examples/
+ * type-check with skipLibCheck off, and examples/sdk-approver runs under
+ * Node against a fake API.
  *
  *   bun run --cwd packages/sdk build:package
  *   bun scripts/sdk-pack-smoke.ts [--keep]
@@ -14,12 +15,20 @@
 
 import { cpSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 
 const ROOT = join(import.meta.dir, "..");
 const PACKAGE_DIR = join(ROOT, "packages/sdk/dist");
-const SAMPLE = join(ROOT, "examples/sdk-approver/src/session-close.ts");
+const EXAMPLES = join(ROOT, "examples");
+// Each sample's runnable files, as a consumer copies them: tests stay behind.
+const SAMPLES = readdirSync(EXAMPLES, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory() && entry.name.startsWith("sdk-"))
+  .flatMap((entry) =>
+    readdirSync(join(EXAMPLES, entry.name, "src"))
+      .filter((file) => file.endsWith(".ts") && !file.endsWith(".test.ts"))
+      .map((file) => join(entry.name, file)),
+  );
 const README = join(ROOT, "packages/sdk/README.md");
 
 const PACKED_FILES = [
@@ -231,13 +240,17 @@ try {
           verbatimModuleSyntax: true,
           types: ["node"],
         },
-        include: ["*.ts"],
+        include: ["*.ts", "sdk-*/*.ts"],
       },
       null,
       2,
     )}\n`,
   );
-  cpSync(SAMPLE, join(app, "session-close.ts"));
+  for (const sample of SAMPLES)
+    cpSync(
+      join(EXAMPLES, dirname(sample), "src", basename(sample)),
+      join(app, sample),
+    );
   await Bun.write(
     join(app, "readme-example.ts"),
     `${await readmeExample()}export {};\n`,
@@ -268,14 +281,16 @@ try {
     `installed ${installed.name}@${installed.version} (${installed.license})`,
   );
 
-  step("type-check the README example and the sample, skipLibCheck off");
+  step(
+    `type-check the README example and ${SAMPLES.length} sample files, skipLibCheck off`,
+  );
   await mustRun(["npx", "--no-install", "tsc", "-p", "."], app);
 
   step("run the sample under Node against a fake API");
   const fake = fakeApi();
   try {
     const { code, stdout, stderr } = await run(
-      ["node", "session-close.ts"],
+      ["node", "sdk-approver/session-close.ts"],
       app,
       {
         PATH: process.env.PATH ?? "",

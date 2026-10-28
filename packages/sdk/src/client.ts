@@ -29,7 +29,8 @@ export interface ClientOptions {
   timeoutMs?: number;
   /** Can never set Authorization or Idempotency-Key. */
   defaultHeaders?: Record<string, string>;
-  fetch?: typeof globalThis.fetch;
+  /** Called with one Request; `fetch` itself fits, and so does a plain wrapper. */
+  fetch?: (input: Request) => Promise<Response>;
   /** Construction throws where `window` exists unless true: an API key in a page leaks. */
   dangerouslyAllowBrowser?: boolean;
   /** Construction throws for http:// to a non-loopback host unless true: the key would cross the wire in clear text. */

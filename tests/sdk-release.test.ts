@@ -96,7 +96,7 @@ describe("sdk-release.yml", () => {
   test("build tests, builds, smokes and packs the tarball it uploads", () => {
     const script = runs(build as Job);
     const order = [
-      "bun test packages/sdk examples/sdk-approver",
+      "bun test packages/sdk examples",
       "bun run --cwd packages/sdk build:package",
       "bun scripts/sdk-pack-smoke.ts",
       "npm pack ./packages/sdk/dist",

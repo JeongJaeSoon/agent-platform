@@ -61,7 +61,7 @@ describe("GitHub forge pull requests", () => {
         status: 201,
         body: {
           repositories: ["app"],
-          permissions: { pull_requests: "write" },
+          permissions: { contents: "read", pull_requests: "write" },
         },
       }),
     ]);
@@ -146,7 +146,10 @@ describe("GitHub forge pull requests", () => {
       github.tokenRequests.slice(before).map((asked) => asked.body),
     ).toEqual([
       { repositories: ["app"], permissions: { contents: "write" } },
-      { repositories: ["app"], permissions: { pull_requests: "write" } },
+      {
+        repositories: ["app"],
+        permissions: { contents: "read", pull_requests: "write" },
+      },
     ]);
   });
 

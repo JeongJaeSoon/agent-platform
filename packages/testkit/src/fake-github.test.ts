@@ -149,7 +149,12 @@ test("pull request calls need pull_requests (or issues, for comments) and are re
     });
   await github.writeUnrelatedCommit("acme", "app", "feature");
   expect((await open(await grant({ contents: "write" }))).status).toBe(403);
-  const writer = await grant({ pull_requests: "write" });
+  const blind = await open(await grant({ pull_requests: "write" }));
+  expect(blind.status).toBe(422);
+  expect(await blind.json()).toMatchObject({
+    errors: [{ message: "not all refs are readable" }],
+  });
+  const writer = await grant({ contents: "read", pull_requests: "write" });
   expect((await open(writer)).status).toBe(201);
   expect((await open(writer)).status).toBe(422);
 

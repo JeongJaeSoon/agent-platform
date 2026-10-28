@@ -1,0 +1,69 @@
+# SDK 샘플
+
+`@werft-ai/sdk`([packages/sdk](../packages/sdk))를 유즈케이스별로 실제로 부르는 작은 CLI 모음이다. 샘플마다 `src/`에 실행 파일과 가짜 API로 도는 단위 테스트가 있고, README에 필요한 key·scope, 실행 명령, 실제 스택에서 본 출력이 있다. 이 디렉터리는 SDK와 같이 [Apache License 2.0](LICENSE)을 따른다.
+
+| 샘플 | 무엇을 보여 주나 | key |
+| --- | --- | --- |
+| [sdk-discovery](sdk-discovery) | client 만들기와 생성 시 거절, key의 scope, profile 카탈로그, 버전 상수 | 아무 key(`sessions:read`) |
+| [sdk-inventory](sdk-inventory) | 세션 목록의 검색·필터·페이지, 상세·사용량·공유 범위 | 개인 key(`read`·`write`·`control`) |
+| [sdk-events](sdk-events) | 이벤트 스트림, 저장한 cursor로 이어 받기, turn 목록 페이지 | 에이전트 key(`read`·`write`·`control`) |
+| [sdk-reliability](sdk-reliability) | Idempotency-Key 재생, 잃은 응답의 재시도, 오류 클래스 | 개인 key(`read`·`write`·`control`) |
+| [sdk-questions](sdk-questions) | 질문 답변, 권한 거절·허락, 열린 요청 한 번 처리, 같은 요청에 다른 답 | 개인 key(`read`·`write`·`approve`·`control`) |
+| [sdk-control](sdk-control) | interrupt, pause·resume, profile 바꾸기, terminate 뒤 복구 결정 | 개인 key(`read`·`write`·`control`·`recover`) |
+| [sdk-close](sdk-close) | 열린 질문 때문에 막힌 close와 `CLOSE_BLOCKED`, 대기 입력 취소 | 개인 key(`read`·`write`·`approve`·`control`) |
+| [sdk-push](sdk-push) | push 요청·거부·승인, push 결과, PR 열기·코멘트 | 에이전트 key + 승인자 개인 key(`approve`) |
+| [sdk-approver](sdk-approver) | 에이전트 key로 세션을 돌리고 별도 승인자가 권한 요청에 답한 뒤 close | 에이전트 key + 승인자 개인 key(`approve`) |
+
+## 준비
+
+저장소 루트에서 `bun install --frozen-lockfile`을 실행한다. 샘플은 workspace의 `@werft-ai/sdk`를 쓰고, 루트 `tsconfig.json`이 타입 검사한다. 저장소 밖에서는 `npm install @werft-ai/sdk`로 설치하고 같은 파일을 Node 22.18 이상(`node discover.ts`)이나 Bun으로 돌린다. 실행 파일은 `@werft-ai/sdk`와 Node 기본 모듈만 쓴다. SDK는 서버나 스크립트에서 쓰고 브라우저에 API key를 넣지 않는다.
+
+1. 자기 스택을 `scripts/local.sh up --fake-model`로 띄운다([Quickstart](../docs/quickstart.md)). 실제 모델 key는 필요 없다. 메시지의 `GATE-SPEC`은 FAKE 모델이 재생하는 대본이라 실제 모델에서는 쓰지 않는다.
+2. 웹 콘솔에서 owner로 로그인한다.
+3. 개인 key는 콘솔의 설정 → API key에서 그 샘플의 scope로 발급한다. owner는 다섯 scope를 모두 줄 수 있다.
+4. 에이전트 key가 필요한 샘플(`sdk-events`, `sdk-push`, `sdk-approver`)은 콘솔에서 에이전트를 만들고 `claude-coding-local` 프로필과 `sample-app` 저장소로 릴리스를 만들어 켠 뒤, 그 에이전트의 key를 `sessions:read`, `sessions:write`, `sessions:control`로 발급한다. 에이전트 key에는 `sessions:approve`를 줄 수 없으므로 승인은 별도 개인 key가 한다.
+
+환경 변수는 샘플마다 README에 있다. 모두 쓰는 것은 둘이다. key는 소스·README·출력에 붙여 넣지 않는다.
+
+| 환경 변수 | 값 |
+| --- | --- |
+| `WERFT_BASE_URL` | 자기 스택의 API URL(예: `http://127.0.0.1:3000`) |
+| `WERFT_API_KEY` | 그 샘플의 key |
+
+```sh
+export WERFT_BASE_URL=http://127.0.0.1:3000
+read -rs WERFT_API_KEY && export WERFT_API_KEY
+bun examples/sdk-discovery/src/discover.ts
+```
+
+각 샘플은 실패하면 종료 코드 1이고, API 오류면 code·message·request ID를 stderr에 쓴다. 만든 세션은 끝에 close해서 worker를 돌려준다. 실패한 실행은 세션을 그대로 두므로 출력된 session ID로 콘솔에서 확인하고 닫는다.
+
+단위 테스트는 `bun test examples`다. 샘플 CLI를 그대로 띄워 [testing/sample-server.ts](testing/sample-server.ts)의 가짜 `/v1`에 대고 돌리고, 출력과 보낸 요청을 확인한다. CI는 이 테스트와 타입 검사를 돌리고, `sdk-release` workflow는 npm 배포본을 빈 프로젝트에 설치해 샘플 실행 파일을 모두 `skipLibCheck` 없이 타입 검사한다. 실제 스택에 대고 도는 실행은 CI에 없다. 샘플 하나가 worker 기동을 포함해 수십 초에서 몇 분 걸리고, `sdk-close`는 drain 60초를 기다리며, 세션 경로 전체는 이미 `e2e` job(`tests/e2e`)이 같은 스택에서 확인한다.
+
+## 어떤 API를 어느 샘플이 쓰나
+
+| SDK 공개 API | 샘플 |
+| --- | --- |
+| `new Werft(options)`: `baseUrl`·`apiKey`·`maxRetries`·`timeoutMs`·`defaultHeaders`·`fetch`, 생성 시 거절 | discovery, reliability |
+| `withOptions` | discovery, reliability, push, approver |
+| `root.get`, `auth.me`, `profiles.list`, `limits.get` | discovery |
+| `SDK_VERSION`, `API_SPEC_VERSION`, `SUPPORTED_SSE_SCHEMA_VERSIONS` | discovery |
+| `sessions.create` | 모든 세션 샘플(`agent_release_id`: events, push, approver / `title`: inventory / 저장소 없는 profile: questions) |
+| `sessions.get`, `sessions.list`(`q`·`relation`·`status`·`limit`, `nextPage`, `for await`) | inventory(목록), 모든 세션 샘플(상세) |
+| `sessions.usage`, `sessions.share` | inventory |
+| `sessions.messages.send` | events, reliability, questions, control, close, approver |
+| `sessions.turns.get`, `sessions.turns.list` | events, reliability, control, close |
+| `sessions.events.stream`(`lastEventId`, `close()`, `signal`) | events, approver(`waitForTurn`의 `events`) |
+| `sessions.requests.list`, `sessions.requests.answer` | questions, close |
+| `sessions.interrupt`, `pause`, `resume`, `terminate`, `changeProfile`, `recoveryDecisions.create` | control |
+| `sessions.close` | 모든 세션 샘플 |
+| `sessions.pushRequests.create`·`list`·`get`·`decide`·`openPullRequest`·`commentPullRequest` | push |
+| `receipts.get` | questions·control·close·push(`waitForReceipt`를 거쳐) |
+| `waitForTurn`(`onRequest`·`onAnswer`·`events`), `answerPending` | questions, close, push, approver |
+| `waitForReceipt`, `waitForPushRequest` | `waitForReceipt`: 세션 샘플 모두 / `waitForPushRequest`: push |
+| `closeResult`, `closeBlocked`, `isClosing`, `CLOSE_BLOCKED`, `SESSION_ADMISSION_CLOSING`, `SESSION_CLOSING` | close(`closeResult`: approver도) |
+| `isApiError`, `APIError` 필드(`status`·`code`·`retryable`·`requestId`·`details`) | 모든 샘플 |
+| `WerftError`, `ConnectionError`, `TimeoutError`, `AbortedError`, `idempotencyKey`·`attempts` | reliability |
+| `TurnBlockedError` | control |
+
+타입(`ClientOptions`, `Page`, `EventStream`, `StreamOptions`, `RequestOptions`, `MutationOptions`, `PendingRequestHandlers`, `WaitForTurnOptions`, `AnswerOutcome`, `CloseParams`, `CloseReceiptResult`, `CloseBlockedAttention`, `ClientErrorCode`)은 위 샘플이 값에 붙여 쓴다.

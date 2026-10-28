@@ -28,8 +28,25 @@ export interface PageHeaderProps {
    * that held it goes away; the title then takes `tabIndex={-1}`.
    */
   readonly titleRef?: Ref<HTMLHeadingElement> | undefined;
+  /**
+   * Below this breakpoint the actions go under the description, so the
+   * title and description keep the full width (owner decision 2026-10-29).
+   * `lg` for a head whose title needs more room beside its actions.
+   */
+  readonly stackBelow?: "md" | "lg" | undefined;
   readonly className?: string | undefined;
 }
+
+const STACK = {
+  md: {
+    head: "md:flex-row md:items-start md:justify-between md:gap-4",
+    actions: "md:flex-none md:flex-nowrap",
+  },
+  lg: {
+    head: "lg:flex-row lg:items-start lg:justify-between lg:gap-4",
+    actions: "lg:flex-none lg:flex-nowrap",
+  },
+} as const;
 
 /**
  * The head of a console page (console v35): a 20/28 title, a 13/20
@@ -42,6 +59,7 @@ export function PageHeader({
   actions,
   breadcrumb,
   titleRef,
+  stackBelow = "md",
   className,
 }: PageHeaderProps): JSX.Element {
   const descriptionId = useId();
@@ -61,7 +79,8 @@ export function PageHeader({
     <header
       data-slot="page-header"
       className={cn(
-        "mb-[var(--ap-space-page-head)] flex items-start justify-between gap-4",
+        "mb-[var(--ap-space-page-head)] flex flex-col gap-3",
+        STACK[stackBelow].head,
         className,
       )}
     >
@@ -85,7 +104,14 @@ export function PageHeader({
         ) : null}
       </div>
       {actions ? (
-        <div className="flex flex-none items-center gap-2">{actions}</div>
+        <div
+          className={cn(
+            "flex flex-wrap items-center gap-2",
+            STACK[stackBelow].actions,
+          )}
+        >
+          {actions}
+        </div>
       ) : null}
     </header>
   );

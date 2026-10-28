@@ -45,8 +45,6 @@ export type PageProps = Omit<PageHeaderProps, "className"> & {
    * settings column; its head stops there too, so both end on one edge.
    */
   readonly width?: "full" | "form" | undefined;
-  /** Layout for the header row, such as stacking the actions when narrow. */
-  readonly headClassName?: string | undefined;
 };
 
 /**
@@ -57,7 +55,6 @@ export type PageProps = Omit<PageHeaderProps, "className"> & {
 export function Page({
   children,
   width = "full",
-  headClassName,
   ...header
 }: PageProps): JSX.Element {
   return (
@@ -69,7 +66,7 @@ export function Page({
         width === "form" && "w-full max-w-[var(--ap-w-form)]",
       )}
     >
-      <PageHeader {...header} className={headClassName} />
+      <PageHeader {...header} />
       <div className="flex flex-col gap-[var(--ap-space-section)]">
         {children}
       </div>

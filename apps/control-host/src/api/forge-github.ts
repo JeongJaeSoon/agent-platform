@@ -121,8 +121,10 @@ function clientOf(
 /**
  * GitHub, or a GHES host when `apiBase` is its `/api/v3`. An App issues
  * an installation token per repository and permission set, scoped to that
- * one repository: `contents: <access>` for git, `pull_requests: write` for
- * pull requests and their comments. A PAT is used as it is.
+ * one repository: `contents: <access>` for git, `pull_requests: write` with
+ * `contents: read` for pull requests and their comments (github.com refuses
+ * to open one with "not all refs are readable" when the token cannot read
+ * the branches). A PAT is used as it is.
  */
 export function createGitHubForge(options: {
   apiBase: string;
@@ -197,7 +199,10 @@ export function createGitHubForge(options: {
     return turn;
   }
 
-  const pullRequests: Permissions = { pull_requests: "write" };
+  const pullRequests: Permissions = {
+    contents: "read",
+    pull_requests: "write",
+  };
   const target = (repo: RepoRef) => ({ owner: repo.owner, repo: repo.name });
 
   // Anyone can paste a marker into a comment, so only one this credential

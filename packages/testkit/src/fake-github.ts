@@ -390,6 +390,23 @@ export async function startFakeGitHub(
     }
     if (rest === "/pulls" && method === "POST") {
       if (!can("pull_requests", "write")) return forbidden();
+      // github.com answers a token that cannot read the branches this way
+      // (measured 2026-10-29 with an App token narrowed to pull_requests).
+      if (!can("contents", "read")) {
+        return Response.json(
+          {
+            message: "Validation Failed",
+            errors: [
+              {
+                resource: "PullRequest",
+                code: "custom",
+                message: "not all refs are readable",
+              },
+            ],
+          },
+          { status: 422 },
+        );
+      }
       const head = String(input.head ?? "");
       const base = String(input.base ?? "");
       const refs = await runTestGit(

@@ -36,12 +36,15 @@ FROM ${BUN_IMAGE} AS runtime
 # git: the checkpoint verifier fetches each workspace bundle into a scratch
 # repository (94S-228); without the executable every checkpoint finalize
 # fails with ENOENT and no pointer ever advances. The smoke test checks it.
+# ca-certificates: the approved push runs git over https from this container
+# (packages/platform/src/sessions/push-executor.ts). --no-install-recommends
+# drops it from git, and without it every https push fails at ls-remote.
 # tini: see ENTRYPOINT.
 # The upgrade: see APT_UPGRADE_KEY in apps/worker/Dockerfile.
 ARG APT_UPGRADE_KEY=
 RUN apt-get update --error-on=any \
   && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --with-new-pkgs \
-  && apt-get install -y --no-install-recommends git tini \
+  && apt-get install -y --no-install-recommends ca-certificates git tini \
   && rm -rf /var/lib/apt/lists/*
 # The base image ships a non-root `bun` user as 1000:1000; the API runs as it.
 RUN test "$(id -u bun)" = 1000

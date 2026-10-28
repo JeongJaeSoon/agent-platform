@@ -87,7 +87,7 @@ export function AgentHead({
 }) {
   return (
     <PageHeader
-      className="max-md:flex-col"
+      stackBelow="lg"
       title={
         <div className="flex min-w-0 items-center gap-3">
           <Avatar name={agent.name} />
