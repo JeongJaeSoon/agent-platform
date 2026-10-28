@@ -82,6 +82,27 @@ describe("ApprovalRow", () => {
     expect(line.className).toContain("justify-end");
   });
 
+  test("heading이 있으면 좁은 줄에서 배지가 제목 아래로 내려가고 둘 다 줄 폭을 넘지 않는다", () => {
+    const view = render(
+      <ApprovalRow
+        request={REQUEST}
+        messages={MESSAGES}
+        onAllow={() => {}}
+        onDeny={() => {}}
+        now={NOW}
+        locale="en"
+        heading="Deploy check"
+      />,
+    );
+    const heading = view.getByText("Deploy check");
+    const line = heading.parentElement as HTMLElement;
+    expect(line.className).toContain("flex-wrap");
+    expect(heading.className).toContain("max-w-full");
+    const badge = view.getByText("Bash asks").parentElement as HTMLElement;
+    expect(badge.parentElement === line).toBe(true);
+    expect(badge.className).toContain("max-w-full");
+  });
+
   test("입력은 펼칠 때만 줄 아래에 보이고, 입력 보기는 줄에 남는다", async () => {
     const user = await setupUser();
     const view = render(

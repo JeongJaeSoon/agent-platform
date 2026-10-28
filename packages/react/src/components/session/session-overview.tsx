@@ -29,8 +29,8 @@ export const SESSION_OVERVIEW_COLUMNS =
  * Console v4 `.t-sess`: title, status, agent · model, repository, started
  * by, recent. At 820px of table width and below, repository and started by
  * drop out for SESSION_OVERVIEW_NARROW_TEMPLATE; below 600px each row
- * stacks (PHONE). The status column fits the longest status with its wait,
- * en "Waiting for an answer · 59 min".
+ * stacks (PHONE). The status column fits en "Waiting for an answer · 59 min";
+ * a longer wait truncates.
  */
 export const SESSION_OVERVIEW_TEMPLATE =
   "minmax(0,2.2fr) 200px minmax(0,1.1fr) minmax(0,1.1fr) minmax(0,1fr) 72px";

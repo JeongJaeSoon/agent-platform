@@ -611,6 +611,38 @@ describe("SessionOverviewRow", () => {
       heads.filter((head) => head.className.includes("hidden")),
     ).toHaveLength(1);
   });
+
+  test("표 폭이 600px 미만이면 행은 제목 한 줄 아래에 나머지를 두고 열 이름은 화면 읽기용으로만 남긴다", () => {
+    const { getAllByRole, getByRole } = render(
+      <SessionOverviewTable
+        label="sessions"
+        messages={{
+          session: "세션",
+          status: "상태",
+          model: "모델",
+          repository: "저장소",
+          recent: "최근",
+        }}
+      >
+        <SessionOverviewRow
+          session={SESSION}
+          renderLink={(link) => <a href="/sessions/abc" {...link} />}
+          messages={OVERVIEW_MESSAGES}
+        />
+      </SessionOverviewTable>,
+    );
+    const [header, row] = getAllByRole("row");
+    expect(header?.className).toContain("[@container(width<600px)]:sr-only");
+    expect(row?.className).toContain(
+      "[@container(width<600px)]:grid-cols-[auto_minmax(0,1fr)_auto]!",
+    );
+    const title = getByRole("link", { name: SESSION.id }).closest(
+      '[role="cell"]',
+    );
+    expect(title?.className).toContain(
+      "[@container(width<600px)]:col-span-full",
+    );
+  });
 });
 
 describe("rows' relative time", () => {
