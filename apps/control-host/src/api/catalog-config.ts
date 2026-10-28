@@ -36,7 +36,8 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
 // The operator's catalog: two YAML files (three with remote MCP servers) in one directory, read
-// once at startup. Anything wrong — a missing file, a schema error, a
+// once at startup. Anything wrong — a missing file other than
+// `profiles.yaml`, a schema error, a
 // credential that does not resolve — stops the API with a message naming
 // the file and path, never a value.
 
@@ -97,8 +98,6 @@ export async function readCatalogConfig(
   const repositoriesPath = resolve(dir, REPOSITORIES_FILE);
   const mcpServersPath = resolve(dir, MCP_SERVERS_FILE);
   const parsed = sessionCatalogConfigSchema.safeParse({
-    // Only a seed now (docs/contributing/decisions/profile-db.md §5): the
-    // database is where profiles are, so an installation may go without it.
     profiles: (await Bun.file(profilesPath).exists())
       ? section(await readYaml(profilesPath), "profiles", profilesPath)
       : {},

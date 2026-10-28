@@ -58,7 +58,6 @@ export type ImportCheck = {
  * one, sees the same profiles and the same revision.
  */
 export function checkCatalogImport<P extends CatalogProfileView>(input: {
-  /** This replica's `profiles.yaml`. */
   own: SessionCatalogConfig["profiles"];
   sources: SnapshotSources<P>;
   repositories: Record<string, CatalogRepository>;

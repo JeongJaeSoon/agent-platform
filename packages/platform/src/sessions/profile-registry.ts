@@ -74,7 +74,6 @@ export function differingDefinitionFields(
     .sort();
 }
 
-/** The fingerprint a ceiling row stores for `definition` under `id`. */
 export function definitionFingerprint(
   id: string,
   definition: CatalogProfileConfig,
@@ -112,7 +111,6 @@ export function installationProfileSnapshot<P extends CatalogProfileView>(
   sources: SnapshotSources<P>,
   rows: readonly InstallationProfileRecord[],
 ): InstallationSnapshot<P> {
-  // The first id in name order, when two connections are the same provider.
   const connections = new Map<string, string>();
   for (const id of Object.keys(sources.connections).sort()) {
     const key = canonicalJson(sources.connections[id]);
@@ -267,8 +265,8 @@ export interface ProfileRegistry<P extends CatalogProfileView>
 }
 
 /**
- * Before its first read the registry runs this replica's own YAML alone, as
- * the YAML-only image did: an operator profile never waits on the database.
+ * Runs no ceiling before its first read: the snapshot holds only the rows
+ * `installations` last listed.
  */
 export function createProfileRegistry<P extends CatalogProfileView>(deps: {
   workspaces: Pick<WorkspaceProfileStore, "listAll">;

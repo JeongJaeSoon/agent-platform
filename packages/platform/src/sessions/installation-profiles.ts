@@ -219,7 +219,6 @@ export function createInstallationProfileService(deps: {
         previousId: request.previous_id ?? null,
         definition,
         permission_mode: definition.permission_mode,
-        // Independent of the id: the fingerprint hashes what runs.
         fingerprint: definitionFingerprint(request.name, definition),
         repository_ids: repositoryIds,
         connectionId: request.connection_id,

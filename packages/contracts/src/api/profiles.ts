@@ -6,8 +6,6 @@ import {
 } from "../shared/ids.ts";
 import { permissionModeSchema, runtimeKindSchema } from "./session.ts";
 
-// The worker protocol's `project_settings`; spelled here, since that module
-// imports this one's siblings.
 const projectSettingsSchema = z.object({ claude_md: z.boolean() }).strict();
 
 /**

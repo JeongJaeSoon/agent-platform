@@ -527,7 +527,6 @@ describe("releases and sessions over the registry", () => {
   test("a release made under the YAML resolves the same once the profile comes from its row", async () => {
     const coding = definition();
     const { store } = agentStore();
-    // The YAML-only image's catalog: its profiles straight from the file.
     const yaml = {
       ...resolveSessionCatalog(
         { profiles: { coding }, repositories: REPOSITORIES },

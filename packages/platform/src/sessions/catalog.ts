@@ -337,8 +337,6 @@ export const WORKSPACE_PROFILE_PREFIX = "ws_";
 
 export const sessionCatalogConfigSchema = z
   .object({
-    // Empty when the installation keeps no `profiles.yaml`: the database
-    // holds the profiles, and the file only seeds it.
     profiles: z.record(z.string().min(1), catalogProfileConfigSchema),
     repositories: z.record(z.string().min(1), catalogRepositorySchema),
     mcp_servers: z.record(mcpServerIdSchema, catalogMcpServerSchema).optional(),
@@ -368,8 +366,6 @@ export const sessionCatalogConfigSchema = z
           "at least one repository is required unless a profile's repository is optional or none",
       });
     }
-    // A profile id this file does not have may be a row another replica's
-    // file imported; the registry decides what it allows, so it is no error.
     for (const [id, repository] of Object.entries(config.repositories)) {
       repository.profiles.forEach((profileId, index) => {
         if (

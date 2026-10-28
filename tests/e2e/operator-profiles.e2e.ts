@@ -30,7 +30,6 @@ const statePath = process.env.E2E_OPERATOR_STATE ?? "";
 const rollbackPath = process.env.E2E_OPERATOR_ROLLBACK ?? "";
 const TIMEOUT = 600_000;
 const CONNECTION = "claude-coding-local";
-// Per run, so the suite runs again on the same stack.
 const RUN = randomBytes(3).toString("hex");
 const NAME = `e2e-ceiling-${RUN}`;
 /** Derived, so a second run logs in as the people the first one made. */
@@ -100,7 +99,6 @@ type State = {
 const started: string[] = [];
 let api: Api;
 
-/** Runs one scripted turn to the end: in `start` if it is a session id, else in a new session. */
 async function runTurn(
   id: string,
   start: { profile_id?: string; agent_release_id?: string } | string,
@@ -120,7 +118,6 @@ async function runTurn(
   return (await api.settledTurn(created.session_id, created.turn_id)).status;
 }
 
-// A run that hands its state to the rollback check leaves its sessions up.
 afterAll(async () => {
   if (statePath !== "") return;
   for (const sessionId of started) {

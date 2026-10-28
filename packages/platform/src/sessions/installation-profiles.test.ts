@@ -82,7 +82,6 @@ function caller(who: keyof typeof USERS): Caller {
   return callerFor(principal, { kind: "web" }, crypto.randomUUID());
 }
 
-/** An owner's key with every scope an owner holds. */
 const apiKey = callerFor(
   {
     kind: "api_key",
@@ -95,7 +94,6 @@ const apiKey = callerFor(
   crypto.randomUUID(),
 );
 
-/** The store as Postgres keeps it: version numbers, previous ids, id clashes. */
 function memoryStore(rows: InstallationProfileRecord[]) {
   const writes: CreateInstallationProfileInput[] = [];
   const store: Pick<InstallationProfileStore, "listAll" | "create" | "retire"> =

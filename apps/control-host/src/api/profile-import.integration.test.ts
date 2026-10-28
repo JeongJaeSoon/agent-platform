@@ -154,7 +154,6 @@ integration("profiles.yaml imported into PostgreSQL", () => {
       const rows = (await store.listAll()).filter((row) =>
         Object.hasOwn(config.profiles, row.id),
       );
-      // The rows the YAML imports as, before any database round trip.
       const yaml = installationProfileSnapshot(
         sourcesFor(config),
         catalogRows(config.profiles),

@@ -63,7 +63,6 @@ function setup(
     /** What the acceptance finds: an earlier acceptance, or an unbind. */
     accept?: "replayed" | "credential_unbound";
     catalog?: SessionCatalog;
-    /** The profile release rel-1 was made on. */
     releaseProfile?: string;
   } = {},
 ) {
@@ -419,7 +418,6 @@ describe("attachment rules", () => {
     base_profile_id: "coding-v1",
     base_fingerprint: profileFingerprint(profile),
     model: "claude-sonnet-5",
-    // rel-1 runs claude-opus-5-5.
     models: ["claude-sonnet-5", "claude-opus-5-5"],
     tools: ["Read"],
     permission_mode: "default",
@@ -431,7 +429,6 @@ describe("attachment rules", () => {
     retired_by: null,
     retired_at: null,
   };
-  // A ceiling that runs here keeps its profile; any other state leaves it out.
   const catalogIn = (state: InstallationProfileState): SessionCatalog => ({
     ...catalog,
     profiles:
@@ -453,7 +450,6 @@ describe("attachment rules", () => {
       catalog: catalogIn(state),
       releaseProfile: profileId,
     });
-    // The acceptance refuses a session it is handed with no pair to run.
     return service
       .createSession(caller, {
         idempotencyKey: "k",
