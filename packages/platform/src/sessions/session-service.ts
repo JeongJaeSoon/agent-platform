@@ -69,7 +69,6 @@ import {
   repositoryModeOf,
   type SessionCatalogView,
   sessionProfile,
-  WORKSPACE_PROFILE_PREFIX,
   workspaceProfileRefusal,
 } from "./catalog.ts";
 import { deriveSessionTitle } from "./session-title.ts";
@@ -356,7 +355,8 @@ export function createSessionService(deps: {
     profileId: string,
     retiredAllowed: boolean,
   ) {
-    if (!profileId.startsWith(WORKSPACE_PROFILE_PREFIX)) return null;
+    // An installation ceiling is refused here too: one retired takes no new
+    // session without a release.
     await refreshWorkspaceProfilesFor(catalog, [profileId], {
       strict: !retiredAllowed,
     });

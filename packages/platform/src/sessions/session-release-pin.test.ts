@@ -8,6 +8,8 @@ import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import type { AgentContact } from "../ports/credential-binding-store.ts";
 import type { AcceptSessionInput } from "../ports/session-unit-of-work.ts";
 import {
+  type InstallationProfileEntry,
+  type InstallationProfileState,
   profileFingerprint,
   type SessionCatalog,
   type WorkspaceProfileRecord,
@@ -61,6 +63,8 @@ function setup(
     /** What the acceptance finds: an earlier acceptance, or an unbind. */
     accept?: "replayed" | "credential_unbound";
     catalog?: SessionCatalog;
+    /** The profile release rel-1 was made on. */
+    releaseProfile?: string;
   } = {},
 ) {
   const accepted: AcceptSessionInput[] = [];
@@ -84,7 +88,7 @@ function setup(
         return {
           id: releaseId,
           agent_id: AGENT,
-          runtime_profile_id: "coding-v1",
+          runtime_profile_id: options.releaseProfile ?? "coding-v1",
           repository_id: releaseId === "rel-app" ? "app" : null,
           runtime_config_snapshot: { model: "claude-opus-5-5" },
         };
@@ -393,5 +397,102 @@ describe("a session pinned to an agent release", () => {
       },
     });
     expect(accepted[0]?.credentialsUnbound).toBeUndefined();
+  });
+});
+
+// docs/contributing/decisions/profile-db.md §6, the attachment table: a new
+// session with no release, against one of a release made before.
+describe("attachment rules", () => {
+  const ceiling = (
+    state: InstallationProfileState,
+  ): InstallationProfileEntry => ({
+    id: "coding-v1",
+    origin: "catalog",
+    state,
+    repository_ids: [],
+  });
+  const over: WorkspaceProfileRecord = {
+    id: "ws_acme_narrow_v1",
+    workspace_id: WORKSPACE,
+    name: "narrow",
+    version: 1,
+    base_profile_id: "coding-v1",
+    base_fingerprint: profileFingerprint(profile),
+    model: "claude-sonnet-5",
+    // rel-1 runs claude-opus-5-5.
+    models: ["claude-sonnet-5", "claude-opus-5-5"],
+    tools: ["Read"],
+    permission_mode: "default",
+    base_runtime_version: "0.3.270",
+    base_billing: "metered",
+    base_repository_mode: "required",
+    created_by: MEMBER,
+    created_at: new Date("2026-10-27T00:00:00Z"),
+    retired_by: null,
+    retired_at: null,
+  };
+  // A ceiling that runs here keeps its profile; any other state leaves it out.
+  const catalogIn = (state: InstallationProfileState): SessionCatalog => ({
+    ...catalog,
+    profiles:
+      state === "usable" || state === "retired"
+        ? catalog.profiles
+        : { "review-v1": profile },
+    installation: new Map([["coding-v1", ceiling(state)]]),
+    workspace_profiles: {
+      records: new Map([[over.id, over]]),
+      refresh: async () => {},
+    },
+  });
+  async function starts(
+    state: InstallationProfileState,
+    profileId: string,
+    release: boolean,
+  ): Promise<string> {
+    const { service, caller, accepted } = setup({
+      catalog: catalogIn(state),
+      releaseProfile: profileId,
+    });
+    // The acceptance refuses a session it is handed with no pair to run.
+    return service
+      .createSession(caller, {
+        idempotencyKey: "k",
+        body: {
+          ...body,
+          profile_id: profileId,
+          ...(release ? { agent_release_id: "rel-1" } : {}),
+        },
+      })
+      .then(
+        () =>
+          accepted[0]?.profileFingerprint === undefined ? "no pair" : "runs",
+        (error: { code?: string }) => error.code ?? "thrown",
+      );
+  }
+
+  test("a retired ceiling: no new session without a release; a release's session still runs", async () => {
+    expect(await starts("usable", "coding-v1", false)).toBe("runs");
+    expect(await starts("retired", "coding-v1", false)).not.toBe("runs");
+    expect(await starts("retired", "coding-v1", true)).toBe("runs");
+  });
+
+  test("a version over a retired ceiling (base_retired): the same", async () => {
+    expect(await starts("usable", over.id, false)).toBe("runs");
+    expect(await starts("retired", over.id, false)).not.toBe("runs");
+    expect(await starts("retired", over.id, true)).toBe("runs");
+  });
+
+  test("any other state runs nothing, with a release or without, on the ceiling or a version over it", async () => {
+    for (const state of [
+      "connection_missing",
+      "unattended_off",
+      "definition_drift",
+      "runtime_unsupported",
+    ] as const) {
+      for (const id of ["coding-v1", over.id]) {
+        expect(await starts(state, id, false)).not.toBe("runs");
+        expect(await starts(state, id, true)).not.toBe("runs");
+      }
+    }
   });
 });
