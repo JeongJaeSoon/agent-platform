@@ -66,7 +66,7 @@ export const profilesKo = {
   "profiles.stateReason.runtime_unsupported":
     "이 설치의 worker가 이 런타임이나 권한 모드를 받지 않아 아무것도 돌리지 않습니다.",
   "profiles.stateReason.blocked":
-    "운영자가 차단했습니다. 새 릴리스와 세션을 만들 수 없고, 이미 쓰는 세션도 다음 턴에서 멈춥니다. 해제하면 다시 돕니다.",
+    "운영자가 차단했습니다. 새 릴리스와 세션을 만들 수 없고, 이미 쓰는 세션도 다음 턴에서 멈춥니다. 해제하면 다시 고를 수 있지만, 멈춘 턴은 다시 돌지 않습니다. 그 세션은 새 메시지를 보내야 다시 돕니다.",
   "profiles.stateReason.base_blocked":
     "바탕 프로필 {base}가 차단됐습니다. 이 버전을 쓰는 릴리스와 세션도 멈추고, 새로 고를 수 없습니다.",
   "profiles.newVersion": "새 버전",
@@ -332,7 +332,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.stateReason.runtime_unsupported":
     "No worker on this installation takes this runtime or permission mode, so it runs nothing.",
   "profiles.stateReason.blocked":
-    "The operator blocked it. No new release or session can use it, and sessions already on it stop at their next turn. Unblocking lets them run again.",
+    "The operator blocked it. No new release or session can use it, and sessions already on it stop at their next turn. After unblocking it can be picked again, but a stopped turn does not run again: send that session a new message.",
   "profiles.stateReason.base_blocked":
     "The base profile {base} is blocked. Releases and sessions on this version stop too, and nothing new can pick it.",
   "profiles.newVersion": "New version",
@@ -602,7 +602,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.stateReason.runtime_unsupported":
     "このインストールの worker がこのランタイムか権限モードを受け付けないため、何も動かしません。",
   "profiles.stateReason.blocked":
-    "運用担当者がブロックしました。新しいリリースとセッションでは使えず、すでに使っているセッションも次のターンで止まります。解除すると再び動きます。",
+    "運用担当者がブロックしました。新しいリリースとセッションでは使えず、すでに使っているセッションも次のターンで止まります。解除すると再び選べますが、止まったターンは再実行されません。そのセッションには新しいメッセージを送ってください。",
   "profiles.stateReason.base_blocked":
     "ベースプロファイル {base} がブロックされました。このバージョンを使うリリースとセッションも止まり、新しく選ぶことはできません。",
   "profiles.newVersion": "新しいバージョン",
