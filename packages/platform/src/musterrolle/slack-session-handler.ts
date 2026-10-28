@@ -14,6 +14,7 @@ import type {
   SessionLinkRecord,
   SessionLinkStore,
 } from "../ports/session-link-store.ts";
+import type { SlackAppStore } from "../ports/slack-app-store.ts";
 import type { SlackInboundEventStore } from "../ports/slack-inbound-event-store.ts";
 import type { SlackNoticeSink } from "../ports/slack-notice-sink.ts";
 import type { SurfaceBindingStore } from "../ports/surface-binding-store.ts";
@@ -95,6 +96,8 @@ export type SlackSessionHandlerDeps = {
     SurfaceBindingStore,
     "resolveSlackChannel" | "ensureDmBinding"
   >;
+  /** Whether the agent waits for a mention in every channel in use. */
+  settings: Pick<SlackAppStore, "getSettings">;
   sessionLinks: SessionLinkStore;
   sessions: Pick<SessionService, "createSession" | "appendMessage">;
   /** The agent's active release, which a new thread's session runs. */
@@ -176,18 +179,28 @@ export function createSlackSessionHandler(
           agent.installationId,
           event.channel,
         );
-    // An ambient channel takes a person's top-level message unmentioned,
-    // never a reply in a thread the agent is not part of.
-    const ambient =
-      binding?.mode === "ambient" && event.thread_ts === undefined;
-    if (found === null && !mentioned && !dm && !ambient) return;
+    // Unless the agent waits for a mention, a channel in use takes a
+    // person's top-level message unmentioned, never a reply in a thread the
+    // agent is not part of.
+    if (
+      found === null &&
+      !mentioned &&
+      !dm &&
+      !(
+        binding?.mode === "on" &&
+        event.thread_ts === undefined &&
+        (await deps.settings.getSettings(agent.workspaceId, agent.agentId))
+          ?.mention_only === false
+      )
+    )
+      return;
     const botToken = await deps.botToken(claim.workspaceId, claim.slackAppId);
     if (botToken === null) {
       throw new Error("The Slack app has no bot token stored");
     }
     const user = await deps.slack.userInfo(botToken, event.user);
     const notice = async (reason: string, text: SlackNotice) => {
-      // Someone talking in an ambient channel did not ask the agent, so a
+      // Someone talking unmentioned did not ask the agent, so a
       // refusal is not theirs to read on every message.
       if (found === null && !mentioned && !dm) return;
       await deps.notices.record({

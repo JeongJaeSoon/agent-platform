@@ -12,10 +12,10 @@ import { receiptIdSchema } from "../shared/index.ts";
 // install's single row with no channel id.
 
 /**
- * `off`: the channel is not used. `mention`: in use, answers a mention.
- * `ambient`: in use, answers any person's top-level message there.
+ * `off`: the channel is not used. `on`: in use; the agent's `mention_only`
+ * setting says whether it waits for a mention.
  */
-export const SLACK_BINDING_MODE_VALUES = ["off", "mention", "ambient"] as const;
+export const SLACK_BINDING_MODE_VALUES = ["off", "on"] as const;
 export const slackBindingModeSchema = z.enum(SLACK_BINDING_MODE_VALUES);
 
 // Slack's channel ids (`C…`, `G…`); names are resolved by the console.

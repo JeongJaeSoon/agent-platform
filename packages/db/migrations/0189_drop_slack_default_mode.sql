@@ -1,0 +1,1 @@
+ALTER TABLE "agents" DROP COLUMN "slack_default_mode";

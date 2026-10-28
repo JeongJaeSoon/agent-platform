@@ -32,7 +32,7 @@ const VIEW: SurfaceBinding = {
   external_surface_id: "C0OPS",
   surface_kind: "public_channel",
   agent_id: AGENT,
-  mode: "mention",
+  mode: "on",
   ceiling: DEFAULT_SURFACE_CEILING,
   home: true,
   memory_write_policy: "deny",
@@ -46,7 +46,7 @@ const VIEW: SurfaceBinding = {
 const BODY = {
   channel_id: "C0OPS",
   channel_kind: "public_channel",
-  mode: "mention",
+  mode: "on",
   home: true,
 };
 
@@ -113,7 +113,7 @@ describe("PUT /v1/agents/{id}/slack-bindings", () => {
       { ...BODY, channel_id: "c0-lowercase" },
       { ...BODY, channel_id: null },
       { ...BODY, channel_kind: "dm" },
-      { channel_id: null, channel_kind: "dm", mode: "mention", home: true },
+      { channel_id: null, channel_kind: "dm", mode: "on", home: true },
       {
         ...BODY,
         ceiling: { actions: ["session.recover"], disclosure: "full" },

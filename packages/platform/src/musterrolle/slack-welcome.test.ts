@@ -48,7 +48,7 @@ function binding(
     installationId: INSTALLATION,
     channelId,
     channelKind: "public_channel",
-    mode: "mention",
+    mode: "on",
     ceiling: DEFAULT_SURFACE_CEILING as SurfaceBindingRecord["ceiling"],
     home: false,
     memoryWritePolicy: "deny",

@@ -1,6 +1,7 @@
 import {
   SLACK_APP_SECRET_PURPOSE_VALUES,
   type SlackAppSecretPurpose,
+  type SlackAppSettings,
 } from "@werft-ai/contracts";
 import {
   type SecretKey,
@@ -163,6 +164,25 @@ async function lockedApp(
   return row;
 }
 
+// Needs no secret key, so the Slack event handler reads it without the store.
+export async function getSlackAppSettings(
+  db: Database,
+  workspaceId: string,
+  agentId: string,
+): Promise<SlackAppSettings | null> {
+  if (!UUID.test(agentId)) return null;
+  const [row] = await db
+    .select({ mention_only: agents.slackMentionOnly })
+    .from(agents)
+    .where(
+      and(
+        eq(agents.workspaceId, workspaceId),
+        eq(agents.id, agentId.toLowerCase()),
+      ),
+    );
+  return row ?? null;
+}
+
 export function createPostgresSlackAppStore(
   db: Database,
   key: SecretKey,
@@ -225,19 +245,8 @@ export function createPostgresSlackAppStore(
           ),
         );
     },
-    async getSettings(workspaceId, agentId) {
-      if (!UUID.test(agentId)) return null;
-      const [row] = await db
-        .select({ default_mode: agents.slackDefaultMode })
-        .from(agents)
-        .where(
-          and(
-            eq(agents.workspaceId, workspaceId),
-            eq(agents.id, agentId.toLowerCase()),
-          ),
-        );
-      return row ?? null;
-    },
+    getSettings: (workspaceId, agentId) =>
+      getSlackAppSettings(db, workspaceId, agentId),
     putSettings(input) {
       return db.transaction(async (tx) => {
         const refused = await actorRefusal(
@@ -249,7 +258,7 @@ export function createPostgresSlackAppStore(
         if (refused) return refused;
         const [row] = await tx
           .update(agents)
-          .set({ slackDefaultMode: input.settings.default_mode })
+          .set({ slackMentionOnly: input.settings.mention_only })
           .where(
             and(
               eq(agents.workspaceId, input.workspaceId),

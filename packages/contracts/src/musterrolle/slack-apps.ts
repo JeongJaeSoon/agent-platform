@@ -188,8 +188,8 @@ export const getSlackAppResponseSchema = z
 
 export const slackAppSettingsSchema = z
   .object({
-    // A new channel is always in use; this says whether it waits for a mention.
-    default_mode: z.enum(["mention", "ambient"]),
+    // Every channel in use, connected before or after, follows it; DMs do not.
+    mention_only: z.boolean(),
   })
   .strict();
 
