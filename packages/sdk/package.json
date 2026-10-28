@@ -3,18 +3,42 @@
   "description": "Werft TypeScript SDK for servers and scripts: sessions, turns, events, approvals and push over an API key",
   "version": "0.1.0",
   "private": true,
-  "license": "PolyForm-Small-Business-1.0.0",
+  "license": "Apache-2.0",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JeongJaeSoon/agent-platform.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://jeongjaesoon.github.io/agent-platform/",
+  "bugs": {
+    "url": "https://github.com/JeongJaeSoon/agent-platform/issues"
+  },
+  "keywords": [
+    "werft",
+    "agent",
+    "claude",
+    "sdk"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
+    "build:package": "bun scripts/build-package.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "@werft-ai/client": "workspace:*"
   },
   "devDependencies": {
-    "@werft-ai/contracts": "workspace:*"
+    "@werft-ai/contracts": "workspace:*",
+    "tsdown": "0.23.0"
   }
 }

@@ -1,0 +1,15 @@
+{
+  "name": "@werft-ai/example-sdk-approver",
+  "description": "Sample CLI: run a session with an agent key and answer its permission requests with a separate approver key",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "start": "bun src/session-close.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@werft-ai/sdk": "workspace:*"
+  }
+}

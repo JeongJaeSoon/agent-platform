@@ -1,6 +1,12 @@
 # TypeScript SDK (`@werft-ai/sdk`)
 
-서버와 스크립트에서 API key로 세션을 다루는 TypeScript SDK다. 위치는 `packages/sdk`이고, 이 저장소의 workspace 패키지로만 쓴다. npm에는 올리지 않는다(`private`, 버전 0.x). Node 20 이상과 Bun에서 돈다.
+서버와 스크립트에서 API key로 세션을 다루는 TypeScript SDK다. 위치는 `packages/sdk`이고, npm 공개 패키지 `@werft-ai/sdk`(버전 0.x)로 배포한다. Node 20 이상과 Bun에서 돈다. 이 디렉터리와 npm 배포본은 [Apache License 2.0](../packages/sdk/LICENSE)을 따른다. 저장소의 나머지는 PolyForm Small Business 1.0.0이다([README 라이선스](../README.md#라이선스)).
+
+```sh
+npm install @werft-ai/sdk
+```
+
+npm에 첫 버전이 올라가기 전에는 이 저장소의 workspace에서만 `@werft-ai/sdk`로 가져올 수 있다. 빌드·검사·배포 절차는 [packages/sdk/README.md](../packages/sdk/README.md)에 있다.
 
 HTTP API 자체의 규칙(scope, Idempotency-Key, 오류 코드, 이벤트 스트림)은 [API 유즈케이스 가이드](api-guide.md)가 정본이다. 이 문서는 SDK가 그 규칙을 어떻게 감싸는지만 적는다.
 
@@ -176,7 +182,7 @@ if (done.state === "pushed")
 
 ## 9. 예제 실행 (로컬 스택, fake model)
 
-[`packages/sdk/examples/session-close.ts`](../packages/sdk/examples/session-close.ts)는 세션 생성 → 메시지 → 이벤트 스트림으로 turn 대기 → 권한 요청 허락 → close → 닫힌 상태 확인을 한 번에 돈다. 메시지는 fake model이 재생하는 `GATE-SPEC` 대본이다([Quickstart](quickstart.md)).
+[`examples/sdk-approver/src/session-close.ts`](../examples/sdk-approver/src/session-close.ts)는 세션 생성 → 메시지 → 이벤트 스트림으로 turn 대기 → 권한 요청 허락 → close → 닫힌 상태 확인을 한 번에 돈다. 메시지는 fake model이 재생하는 `GATE-SPEC` 대본이다([Quickstart](quickstart.md)).
 
 1. [Quickstart](quickstart.md)대로 `scripts/local.sh up --fake-model`로 스택을 띄운다.
 2. `sessions:read,sessions:write,sessions:approve,sessions:control` scope의 key를 한 owner로 발급한다(`scripts/local.sh key <owner> --scopes …`).
@@ -185,7 +191,7 @@ if (done.state === "pushed")
 ```sh
 export WERFT_BASE_URL=http://127.0.0.1:3000
 read -rs WERFT_API_KEY && export WERFT_API_KEY
-bun packages/sdk/examples/session-close.ts
+bun examples/sdk-approver/src/session-close.ts
 ```
 
 `WERFT_PROFILE_ID`(기본 `claude-coding-local`)와 `WERFT_REPOSITORY_ID`(기본 `sample-app`)로 profile과 저장소를 바꾼다. 출력 예:

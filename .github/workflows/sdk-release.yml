@@ -1,0 +1,117 @@
+name: sdk-release
+
+# Builds, smokes and packs @werft-ai/sdk, and keeps the tarball as an artifact.
+# Only a push of an `sdk-v*` tag publishes it to npm with provenance, and only
+# after a person approves the `release` environment. Pull requests and manual
+# runs stop after the pack; they are the dry run. A failed publish is retried
+# by re-running the tag's run. The steps a person takes around a release are
+# in packages/sdk/README.md (빌드와 배포).
+on:
+  push:
+    tags: ["sdk-v*"]
+  pull_request:
+    paths:
+      - packages/sdk/**
+      - packages/client/**
+      - packages/contracts/**
+      - examples/sdk-approver/**
+      - scripts/sdk-pack-smoke.ts
+      - bun.lock
+      - .github/actions/bun-setup/**
+      - .github/workflows/sdk-release.yml
+  workflow_dispatch:
+
+# Read-only for every job but `publish`, which alone sees NPM_TOKEN and may
+# mint the OIDC token provenance signs with.
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-release-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  # A release run waiting on approval must not be cancelled by a second push.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # Here, not in `publish`: a tag off main must fail before any job that
+      # holds the npm token starts.
+      - if: startsWith(github.ref, 'refs/tags/sdk-v')
+        name: Tagged commit must be on main
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::${GITHUB_REF_NAME} points at ${GITHUB_SHA}, which is not on main"
+            exit 1
+          fi
+      - uses: ./.github/actions/bun-setup
+      # The consumer's toolchain is npm's, as an outside app's would be.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - if: startsWith(github.ref, 'refs/tags/sdk-v')
+        name: Tag names the package version
+        run: |
+          version=$(node -p 'require("./packages/sdk/package.json").version')
+          if [ "${GITHUB_REF_NAME#sdk-v}" != "$version" ]; then
+            echo "::error::${GITHUB_REF_NAME} does not match packages/sdk version ${version}"
+            exit 1
+          fi
+      - run: bun install --frozen-lockfile
+      - run: bun test packages/sdk examples/sdk-approver
+      - name: SDK_VERSION matches package.json
+        run: |
+          version=$(node -p 'require("./packages/sdk/package.json").version')
+          grep -qx "export const SDK_VERSION = \"${version}\";" packages/sdk/src/version.ts \
+            || { echo "::error::packages/sdk/src/version.ts SDK_VERSION is not ${version}"; exit 1; }
+      - name: Build the package
+        run: bun run --cwd packages/sdk build:package
+      - name: Install, type-check and run the sample in an empty project
+        run: bun scripts/sdk-pack-smoke.ts
+      - name: Pack
+        run: |
+          mkdir -p "$RUNNER_TEMP/sdk-package"
+          npm pack ./packages/sdk/dist --pack-destination "$RUNNER_TEMP/sdk-package"
+          tar -tzf "$RUNNER_TEMP"/sdk-package/*.tgz
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sdk-package
+          path: ${{ runner.temp }}/sdk-package/*.tgz
+          if-no-files-found: error
+          # A release run may wait on approval for days.
+          retention-days: 30
+
+  # Only a `push` of an `sdk-v*` tag qualifies: `workflow_dispatch` can name
+  # any ref, tags included, so the event is checked as well as the ref. The
+  # tagged commit must already be on main and name the package version, which
+  # `build` checks. `release` has a required reviewer and a deployment policy
+  # listing the tag patterns it accepts; a pattern not on it is refused, not
+  # run. No checkout: this job publishes the tarball `build` tested, nothing
+  # else.
+  publish:
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/sdk-v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: read
+      # npm's provenance statement is signed with this job's OIDC token.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: sdk-package
+          path: pkg
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: npm publish pkg/*.tgz --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
