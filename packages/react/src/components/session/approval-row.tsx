@@ -191,12 +191,13 @@ export function ApprovalRow({
           <div className="flex min-w-0 flex-1 basis-60 flex-col gap-0.5">
             <p
               id={titleId}
-              className="flex min-w-0 items-center gap-2 font-medium text-control leading-5"
+              className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-medium text-control leading-5"
             >
-              {/* Both give way on a narrow line; a long tool name is cut,
-                  never pushed past the frame. */}
-              <span className="min-w-16 truncate">{heading}</span>
-              <Badge variant="amber" className="min-w-0 max-w-max shrink">
+              {/* On a narrow line the badge goes under the title rather than
+                  both being cut; a long tool name is still cut, never pushed
+                  past the frame. */}
+              <span className="min-w-16 max-w-full truncate">{heading}</span>
+              <Badge variant="amber" className="min-w-0 max-w-full shrink">
                 <span className="truncate">{messages.title(request.tool)}</span>
               </Badge>
             </p>

@@ -267,7 +267,6 @@ export function ProfileDetailScreen() {
   return (
     <Page
       breadcrumb={breadcrumb}
-      headClassName="max-md:flex-col max-md:items-stretch"
       title={
         <span className="[overflow-wrap:anywhere]">{profileName(profile)}</span>
       }
