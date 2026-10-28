@@ -1,6 +1,6 @@
 # TypeScript SDK (`@werft-ai/sdk`)
 
-서버와 스크립트에서 API key로 세션을 다루는 TypeScript SDK다. 위치는 `packages/sdk`이고, npm 공개 패키지 `@werft-ai/sdk`(버전 0.x)로 배포한다. Node 20 이상과 Bun에서 돈다. 이 디렉터리와 npm 배포본은 [Apache License 2.0](../packages/sdk/LICENSE)을 따른다. 저장소의 나머지는 PolyForm Small Business 1.0.0이다([README 라이선스](../README.md#라이선스)).
+서버와 스크립트에서 API key로 세션을 다루는 TypeScript SDK다. 위치는 `packages/sdk`이고, npm 공개 패키지 `@werft-ai/sdk`(버전 0.x)로 배포한다. Node 20.3 이상과 Bun에서 돈다. 이 디렉터리와 npm 배포본은 [Apache License 2.0](../packages/sdk/LICENSE)을 따른다. 저장소의 나머지는 PolyForm Small Business 1.0.0이다([README 라이선스](../README.md#라이선스)).
 
 ```sh
 npm install @werft-ai/sdk

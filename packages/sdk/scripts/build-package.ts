@@ -48,7 +48,8 @@ const bundled: Manifest[] = await Promise.all(
 const dependencies: Record<string, string> = {};
 for (const deps of [source, ...bundled].map((pkg) => pkg.dependencies)) {
   for (const [name, version] of Object.entries(deps ?? {})) {
-    if (!WORKSPACE.test(name)) dependencies[name] = version;
+    // A caret range, so a consumer's own zod 4 is shared instead of doubled.
+    if (!WORKSPACE.test(name)) dependencies[name] = `^${version}`;
   }
 }
 
@@ -101,7 +102,11 @@ const manifest = {
   sideEffects: false,
   types: "./index.d.ts",
   exports: {
-    ".": { types: "./index.d.ts", import: "./index.js" },
+    ".": {
+      types: "./index.d.ts",
+      import: "./index.js",
+      default: "./index.js",
+    },
     "./package.json": "./package.json",
   },
   files: ["index.js", "index.d.ts", "LICENSE", "NOTICE", "README.md"],

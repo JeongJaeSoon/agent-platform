@@ -1,6 +1,6 @@
 # @werft-ai/sdk
 
-서버와 스크립트에서 API key로 Werft 세션을 다루는 TypeScript SDK다. 세션 생성, 메시지, 이벤트 스트림, 권한 요청 답변, push 요청, close를 감싸고 재시도·Idempotency-Key·turn 대기를 대신 한다. Node 20 이상과 Bun에서 돈다. 브라우저에서는 API key가 새므로 막혀 있다.
+서버와 스크립트에서 API key로 Werft 세션을 다루는 TypeScript SDK다. 세션 생성, 메시지, 이벤트 스트림, 권한 요청 답변, push 요청, close를 감싸고 재시도·Idempotency-Key·turn 대기를 대신 한다. Node 20.3 이상과 Bun에서 돈다. 브라우저에서는 API key가 새므로 막혀 있다.
 
 ```sh
 npm install @werft-ai/sdk
@@ -34,4 +34,9 @@ console.log(turn.status);
 
 `bun scripts/sdk-pack-smoke.ts`는 배포본을 `npm pack`한 tarball을 빈 디렉터리에 `npm install`하고, `skipLibCheck` 없이 타입 검사한 뒤, [examples/sdk-approver](https://github.com/JeongJaeSoon/agent-platform/blob/main/examples/sdk-approver/src/session-close.ts) 샘플을 Node로 가짜 API에 대고 돌린다.
 
-배포는 [.github/workflows/sdk-release.yml](../../.github/workflows/sdk-release.yml)이 한다. pull request와 수동 실행은 빌드·검사·pack까지만 하는 dry run이다. main에 있는 커밋에 `sdk-v<버전>` 태그를 push하면, `release` environment 승인 뒤 `npm publish --provenance --access public`으로 그 tarball을 올린다. 실패한 배포는 그 태그의 실행을 다시 돌린다. 토큰은 `release` environment의 `NPM_TOKEN` secret이다. 버전은 `package.json`의 `version`과 `src/version.ts`의 `SDK_VERSION`을 함께 올린다. `tests/sdk-release.test.ts`가 이 게이트를 검사한다.
+배포는 [.github/workflows/sdk-release.yml](https://github.com/JeongJaeSoon/agent-platform/blob/main/.github/workflows/sdk-release.yml)이 한다. pull request와 수동 실행은 빌드·검사·pack까지만 하는 dry run이다. main에 있는 커밋에 `sdk-v<버전>` 태그를 push하면, `release` environment 승인 뒤 `npm publish --provenance --access public`으로 그 tarball을 올린다. 실패한 배포는 그 태그의 실행을 다시 돌린다. 토큰은 `release` environment의 `NPM_TOKEN` secret이다. 버전은 `package.json`의 `version`과 `src/version.ts`의 `SDK_VERSION`을 함께 올린다. `tests/sdk-release.test.ts`가 이 게이트를 검사한다.
+
+처음 한 번은 사람이 다음을 준비한다. 둘 다 없으면 첫 태그의 `publish`가 environment에서 거부되거나 401로 실패한다.
+
+1. `release` environment의 배포 정책에 태그 패턴 `sdk-v*`를 더한다. 지금 정책은 `v*`뿐이고 `v*`는 `sdk-v0.1.0`에 맞지 않는다.
+2. npm에서 `@werft-ai` scope에 publish 권한이 있는 granular access token을 발급해, `NPM_TOKEN`이라는 이름의 **`release` environment secret**으로 등록한다(`gh secret set NPM_TOKEN --env release`). repository secret으로 두면 어느 브랜치의 어느 워크플로든 읽을 수 있으므로 쓰지 않는다.

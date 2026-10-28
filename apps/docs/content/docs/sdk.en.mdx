@@ -3,7 +3,7 @@ title: "TypeScript SDK"
 description: "Create a session, answer permission requests, and close it with @werft-ai/sdk"
 ---
 
-`@werft-ai/sdk` is a TypeScript client for calling the Werft API from servers and scripts. It works with sessions through an API key. It follows the HTTP API's rules as they are (scope, Idempotency-Key, error codes, event stream), and handles retries, key generation, and waiting for a turn for you. It runs on Node 20 or later and on Bun.
+`@werft-ai/sdk` is a TypeScript client for calling the Werft API from servers and scripts. It works with sessions through an API key. It follows the HTTP API's rules as they are (scope, Idempotency-Key, error codes, event stream), and handles retries, key generation, and waiting for a turn for you. It runs on Node 20.3 or later and on Bun.
 
 <Callout type="warn">
 The SDK ships as the public npm package `@werft-ai/sdk` (version 0.x, Apache License 2.0). Until its first version is on npm, it is a workspace package of this repository (`packages/sdk`), so you can import it only from scripts inside the repository. Once it is published, install it with `npm install @werft-ai/sdk`.

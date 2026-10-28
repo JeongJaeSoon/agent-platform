@@ -3,7 +3,7 @@ title: "TypeScript SDK"
 description: "@werft-ai/sdk로 세션을 만들고, 권한 요청에 답하고, 닫는다"
 ---
 
-`@werft-ai/sdk`는 서버와 스크립트에서 Werft API를 부르는 TypeScript 클라이언트다. API key로 세션을 다룬다. HTTP API의 규칙(scope, Idempotency-Key, 오류 코드, 이벤트 스트림)을 그대로 따르고, 재시도·key 생성·turn 대기를 대신 해 준다. Node 20 이상과 Bun에서 돈다.
+`@werft-ai/sdk`는 서버와 스크립트에서 Werft API를 부르는 TypeScript 클라이언트다. API key로 세션을 다룬다. HTTP API의 규칙(scope, Idempotency-Key, 오류 코드, 이벤트 스트림)을 그대로 따르고, 재시도·key 생성·turn 대기를 대신 해 준다. Node 20.3 이상과 Bun에서 돈다.
 
 <Callout type="warn">
 SDK는 npm 공개 패키지 `@werft-ai/sdk`(버전 0.x, Apache License 2.0)로 배포한다. npm에 첫 버전이 올라가기 전에는 이 저장소의 workspace 패키지(`packages/sdk`)라서 저장소 안의 스크립트에서만 가져올 수 있다. 올라간 뒤에는 `npm install @werft-ai/sdk`로 설치한다.
