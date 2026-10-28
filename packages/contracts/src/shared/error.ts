@@ -98,6 +98,9 @@ export const API_ERROR_CODE_VALUES = [
   // A release was made against a runtime profile whose settings have changed
   // since; it has to be released again before it can run.
   "PROFILE_DIGEST_MISMATCH",
+  // The operator blocked the installation profile named, or the one a
+  // workspace profile narrows; nothing new runs on it until it is unblocked.
+  "PROFILE_BLOCKED",
   "ALREADY_EXISTS",
   "NOT_READY",
   "CURSOR_EXPIRED",

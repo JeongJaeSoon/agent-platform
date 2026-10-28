@@ -31,6 +31,7 @@ import {
   workspaceProfileRefusal,
 } from "../sessions/catalog.ts";
 import {
+  profileBlockedError,
   requirePermitted,
   SessionServiceError,
   viewerOf,
@@ -60,12 +61,16 @@ export async function resolveAgentRelease(
   assertReleaseIdentity(release);
   const profileId = release.runtime_profile_id;
   await refreshWorkspaceProfilesFor(deps.catalog, [profileId]);
+  const refusal = workspaceProfileRefusal(
+    deps.catalog,
+    workspaceId,
+    profileId,
+    { retiredAllowed: true },
+  );
+  const blocked = profileBlockedError(profileId, refusal);
+  if (blocked) throw blocked;
   const profile =
-    workspaceProfileRefusal(deps.catalog, workspaceId, profileId, {
-      retiredAllowed: true,
-    }) === null
-      ? catalogProfile(deps.catalog, profileId)
-      : undefined;
+    refusal === null ? catalogProfile(deps.catalog, profileId) : undefined;
   if (!profile) {
     throw new SessionServiceError(
       "PROFILE_DIGEST_MISMATCH",
@@ -298,11 +303,14 @@ export function createAgentService(deps: {
         profileId,
       );
       if (workspaceRefusal !== null) {
-        throw new SessionServiceError(
-          "UNSUPPORTED_CAPABILITY",
-          workspaceRefusal.message,
-          undefined,
-          { reason_code: workspaceRefusal.state },
+        throw (
+          profileBlockedError(profileId, workspaceRefusal) ??
+          new SessionServiceError(
+            "UNSUPPORTED_CAPABILITY",
+            workspaceRefusal.message,
+            undefined,
+            { reason_code: workspaceRefusal.state },
+          )
         );
       }
       const profile = catalogProfile(catalog, profileId);

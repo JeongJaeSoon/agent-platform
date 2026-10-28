@@ -110,6 +110,7 @@ The error body has the same shape in every API. Resend with the same key only wh
 | 401 | The key is missing, wrong, or revoked |
 | 403 | The key lacks `sessions:write` |
 | 409 `IDEMPOTENCY_CONFLICT` | The same key with a different body |
+| 409 `PROFILE_BLOCKED` | An owner [blocked the operator profile](/agents/run-profiles#block-an-operator-profile). For a workspace profile, its base is blocked (`details.reason_code` is `base_blocked`). Sending it again gets the same answer |
 | 413 | The message exceeds 32,768 bytes. `STORAGE_LIMIT_EXCEEDED` if the storage limit is exceeded |
 | 422 `UNSUPPORTED_CAPABILITY` | The profile or repository does not exist, the pair is not allowed, or the profile does not allow the model |
 | 429 `RATE_LIMITED` | Send again after a short wait |

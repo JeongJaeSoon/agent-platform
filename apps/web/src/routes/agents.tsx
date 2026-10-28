@@ -66,6 +66,19 @@ export function agentRefusal(
     return permissionReason(t, "agent.manage", role);
   // Only making an agent answers this: its slug is taken.
   if (error.code === "ALREADY_EXISTS") return t("agents.slugTaken");
+  if (error.code === "PROFILE_BLOCKED") {
+    const details = error.details as {
+      readonly reason_code?: unknown;
+      readonly profile_id?: unknown;
+    } | null;
+    if (typeof details?.profile_id === "string")
+      return t(
+        details.reason_code === "base_blocked"
+          ? "agent.releases.baseProfileBlocked"
+          : "agent.releases.profileBlocked",
+        { profile: details.profile_id },
+      );
+  }
   const model =
     error.code === "UNSUPPORTED_CAPABILITY"
       ? MODEL_REFUSAL.exec(error.message)

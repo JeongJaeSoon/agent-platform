@@ -110,6 +110,7 @@ curl -sS -X PATCH "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" \
 | 401 | キーがない、誤っている、または失効している |
 | 403 | キーに `sessions:write` がない |
 | 409 `IDEMPOTENCY_CONFLICT` | 同じキーで本文が異なる |
+| 409 `PROFILE_BLOCKED` | オーナーが[運用担当者のプロファイルをブロック](/agents/run-profiles#運用担当者のプロファイルをブロックする)した。ワークスペースプロファイルなら、そのベースがブロックされている(`details.reason_code` が `base_blocked`)。送り直しても同じになる |
 | 413 | メッセージが 32,768 バイトを超えている。ストレージ容量の上限なら `STORAGE_LIMIT_EXCEEDED` |
 | 422 `UNSUPPORTED_CAPABILITY` | プロファイルまたはリポジトリが存在しない、その組み合わせが許可されていない、またはプロファイルがそのモデルを許可していない |
 | 429 `RATE_LIMITED` | 少し待ってからもう一度送る |

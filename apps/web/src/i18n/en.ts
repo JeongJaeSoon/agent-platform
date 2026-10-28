@@ -65,7 +65,7 @@ export const slackEn = {
     "The active release's profile ({profile}) needs a repository for every session, and the release has none it can use (none was chosen, or it left the catalog). Slack mentions and DMs are refused and only a notice is left in the thread. You can still connect. Create a release with a repository on the Release tab and activate it.",
   "slack.profileUnavailable.title": "Sessions can't start from Slack",
   "slack.profileUnavailable.body":
-    "The active release's profile ({profile}) is no longer in the catalog, or changed after the release. Slack mentions and DMs are refused and only a notice is left in the thread. Create a release under a profile the catalog has on the Release tab and activate it.",
+    "The active release's profile ({profile}) is no longer in the catalog, changed after the release, or was blocked by the operator. Slack mentions and DMs are refused and only a notice is left in the thread. Create a release under a profile you can use on the Release tab and activate it.",
   "slack.noActiveRelease.title": "No active release",
   "slack.noActiveRelease.body":
     "Until a release is activated, Slack mentions and DMs are refused and only a notice is left in the thread. Create and activate a release on the Release tab.",
