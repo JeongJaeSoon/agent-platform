@@ -34,8 +34,8 @@
 | 열 | 타입 | 규칙 |
 |---|---|---|
 | `id` | text PK | 가져온 것은 YAML id 그대로(`claude-coding-real` 등). 콘솔에서 만든 것은 `op_<name>_v<n>`. `CHECK (id NOT LIKE 'ws\_%')` |
-| `name` | text NOT NULL | 버전 계열 이름. 가져온 것은 YAML id |
-| `version` | integer NOT NULL | `>= 1`. 가져온 것은 1. `UNIQUE (name, version)` |
+| `name` | text | 콘솔에서 만든 행의 버전 계열 이름. 가져온 행은 NULL이다(가져온 행의 이름은 id다). `CHECK ((origin = 'catalog') = (name IS NULL))` |
+| `version` | integer NOT NULL | `>= 1`. 가져온 것은 1. 유일 제약은 콘솔 행에만 건다: `UNIQUE (name, version) WHERE origin = 'console'`. 그래서 가져온 id와 콘솔 이름은 서로 다른 이름 공간이고, YAML에 `foo`를 더해도 콘솔의 `foo` v1과 부딪히지 않는다 |
 | `origin` | text NOT NULL | `CHECK IN ('catalog', 'console')`. YAML에서 가져왔는지, 콘솔에서 만들었는지 |
 | `definition` | jsonb NOT NULL | `catalogProfileConfigSchema`(`catalog.ts:178-217`)로 파싱한 프로필 항목 그대로. provider는 endpoint·`auth.kind`·참조 이름(`value_env`/`secret_id`)·billing만 있고 값은 없다 |
 | `permission_mode` | text NOT NULL | 6개 값 CHECK(0174와 같은 목록) + `CHECK (permission_mode = definition->>'permission_mode')`. DB 수준에서 모드로 거르고 막기 위한 열 |
@@ -46,9 +46,9 @@
 | `created_at` | timestamptz NOT NULL default now() | |
 | `retired_at`, `retired_by` | timestamptz, uuid FK users | 0174와 같은 짝 CHECK |
 
-- **행은 바뀌지 않는다.** 바뀌는 것은 `retired_at`·`retired_by`뿐이다. 상한을 고치면 같은 `name`의 다음 버전이 새 id로 생긴다(오너 결정 2). 기존 워크스페이스 판과 release는 옛 id를 그대로 가리키므로 멈추지 않는다. 지금은 YAML을 제자리에서 고쳐 지문에 드는 실행 설정(tools·permission_mode·endpoint·runtime 등)을 바꾸거나 쓰던 모델을 빼면 그 id의 release·세션·판이 거절된다(`docs/operator/api-server.md:88`, `catalog.ts:896-903`, `685-694`). 모델을 더하는 것은 멈추지 않는다(`catalog.ts:183-184`). 불변 버전에서는 바꾼 내용이 새 id로 가므로 옛 id 쪽은 어느 경우에도 멈추지 않는다. 가져온 행을 바꾸는 CLI·API도 두지 않는다.
+- **행은 바뀌지 않는다.** 바뀌는 것은 `retired_at`·`retired_by`뿐이다. 상한을 고치면 다음 버전이 새 id로 생긴다(오너 결정 2). 콘솔 행은 같은 `name`의 `version + 1`이고, 가져온 행을 고치면 운영자가 고른 `name`의 v1이 되며 `previous_id`가 가져온 id를 가리킨다. 기존 워크스페이스 판과 release는 옛 id를 그대로 가리키므로 멈추지 않는다. 지금은 YAML을 제자리에서 고쳐 지문에 드는 실행 설정(tools·permission_mode·endpoint·runtime 등)을 바꾸거나 쓰던 모델을 빼면 그 id의 release·세션·판이 거절된다(`docs/operator/api-server.md:88`, `catalog.ts:896-903`, `685-694`). 모델을 더하거나 `title_model`을 바꾸는 것처럼 핀에 들지 않는 변경은 멈추지 않는다(`catalog.ts:183-188`). 불변 버전에서는 바꾼 내용이 새 id로 가므로 옛 id 쪽은 어느 경우에도 멈추지 않는다. 가져온 행을 바꾸는 CLI·API도 두지 않는다.
 - **`definition`을 프로필 항목 그대로 두는 이유.** DB 행을 `SessionCatalogConfig`의 한 항목으로 되돌린 뒤 지금의 `sessionCatalogView`(`catalog.ts:1170-1194`)와 `resolveSessionCatalog`(`catalog.ts:1202-1238`)를 그대로 통과시킨다. YAML에서 읽은 것과 DB에서 읽은 것이 같은 함수를 지나므로 같은 항목이면 같은 객체가 나온다. 열을 나눠 다시 조립하면 키 하나(`repository` 생략 규칙, `catalog.ts:420-421`, `1185`)만 어긋나도 지문이 달라진다.
-- **이름 공간.** YAML에 `ws_`로 시작하는 id가 있으면 지금처럼 기동을 거부한다(`catalog.ts:348-355`). `op_`는 거부하지 않는다. 지금 유효한 `op_…` id가 있을 수 있고, 그 id를 바꾸면 release·세션 핀이 깨지기 때문이다. 콘솔이 만들 id가 이미 있는 행(가져온 `op_…` 포함)과 같으면 저장은 `409`(`reason_code: id_taken`)이고 다른 이름을 고른다. 콘솔의 `name`은 `[a-z0-9-]`만 받으므로(`profiles.ts:32-34`와 같은 규칙) 이 충돌은 YAML id가 `op_<name>_v<n>` 모양일 때만 생긴다.
+- **이름 공간.** YAML에 `ws_`로 시작하는 id가 있으면 지금처럼 기동을 거부한다(`catalog.ts:348-355`). `op_`는 거부하지 않는다. 지금 유효한 `op_…` id가 있을 수 있고, 그 id를 바꾸면 release·세션 핀이 깨지기 때문이다. 콘솔의 `name`은 `[a-z0-9-]`만 받으므로(`profiles.ts:32-34`와 같은 규칙) 두 출처의 id가 부딪히는 것은 YAML id가 `op_<name>_v<n>` 모양일 때뿐이다. 콘솔이 만들 id가 이미 있으면 저장은 `409`(`reason_code: id_taken`)이고 다른 이름을 고른다. 거꾸로 YAML에 새로 더한 id가 이미 콘솔 행의 id면 가져오기는 그 id를 넣지 않고 충돌로 보고한다(아래 충돌 처리와 같다). 그 YAML id를 다른 이름으로 바꾼다.
 
 ### `workspace_profiles` (바꾸지 않는다)
 
@@ -107,7 +107,8 @@ connections:
 그래서 PD-2는 **프로필 레지스트리 하나**를 만든다.
 
 - 레지스트리는 DB의 두 테이블과 연결·저장소를 한 번에 읽어 검증한 snapshot을 낸다: 돌 수 있는 상한(연결 일치, 지문 일치, env 검사를 통과한 것), 워크스페이스 판, 저장소 허용 관계. `catalog.profiles`와 `catalog.workspace_profiles`는 둘 다 이 snapshot에서 온다.
-- gateway의 claim 후보(운영자 몫 포함)는 snapshot이 바뀔 때 다시 만든다.
+- gateway의 claim 후보(운영자 몫 포함)와 claim이 비교하는 catalog revision은 같은 snapshot에서 얻고, snapshot이 바뀔 때 함께 다시 만든다. 지금은 revision도 gateway를 만들 때 한 번 계산해 고정한다(`worker-gateway.ts:614`, `956`).
+- 상태와 부착 규칙([6절](#상태와-부착-규칙))의 **읽기**도 PD-2에 넣는다. 은퇴는 PD-3의 API로만 생기지만, PD-3에서 PD-2로 되돌린 뒤에도 은퇴한 상한에 새 release가 붙지 않아야 하기 때문이다.
 - 모르는 id가 오면 `ws_` 여부와 상관없이 다시 읽는다(지금 `catalog.ts:782-785`의 규칙을 모든 id로).
 - api·slack 두 역할이 같은 레지스트리를 쓴다. slack의 기동(`slack/main.ts:119`)과 release 해석(`slack/main.ts:175-181`)도 이 레지스트리로 옮긴다.
 
@@ -128,11 +129,11 @@ connections:
 ### 가져오기(import)
 
 - **언제:** api 역할이 기동할 때, 레지스트리를 처음 읽기 전에 한 번. slack 역할은 가져오지 않고 레지스트리를 읽기만 한다. 워크스페이스가 아직 없는 빈 설치(bootstrap 전)에서도 돈다. 가져오기는 워크스페이스에 묶이지 않는다.
-- **무엇을:** `profiles.yaml`의 각 항목을 `installation_profiles` 행 하나로(`origin = 'catalog'`, `version = 1`, `name = id`, `repository_ids = []`).
+- **무엇을:** `profiles.yaml`의 각 항목을 `installation_profiles` 행 하나로(`origin = 'catalog'`, `version = 1`, `name = NULL`, `repository_ids = []`).
 - **멱등 키는 `id`다.** `INSERT … ON CONFLICT (id) DO NOTHING`. 같은 YAML로 두 번, 세 번 돌려도 행 수와 내용이 같다. 여러 replica가 같이 떠도 advisory lock(`profiles:import`) 아래에서 차례로 돈다. bootstrap이 같은 방식을 쓴다(`identity.ts:78-79`).
 - **시드 규칙(오너 결정 4, 오너 확인 대기·기본값 적용):** PD-2~PD-4는 기동마다 위 insert-if-absent를 한다. PD-5부터는 `installation_profiles`가 비어 있을 때만 한다(새 설치와 로컬 스택이 바로 뜨는 초기 시드). 은퇴한 행이 있는 id는 이미 있는 id이므로 다시 넣지 않는다.
 - **PD-2~PD-4 기간의 YAML 운영 규칙(한 가지):** 새 id를 더하는 것은 된다. 지금의 카탈로그 변경과 같아서 revision이 바뀌고 지금의 `catalog-authority` 롤아웃 절차(`api-server.md:43-52`)를 그대로 밟는다. 이미 있는 id를 고치거나 지우지는 않는다. 지워도 행은 남고(가져오기는 넣기만 한다), PD-3부터는 은퇴로 대신한다.
-- **어느 replica든 같은 집합을 본다:** PD-2 이미지는 자기 YAML에 있는 id는 그 YAML 값으로, 나머지 `origin = 'catalog'` 행(다른 replica가 넣었거나 YAML에서 지운 id)과 `op_` 행은 DB 값으로 푼다. 자기 YAML도 기동 때 DB에 넣었으므로 결과 id 집합은 언제나 DB의 집합이다. 그래서 replica A의 YAML이 `{a}`, B가 `{a, b}`여도 둘 다 `{a, b}`를 풀고, `catalogRevision`(`catalog.ts:1043-1059`)도 같은 집합으로 계산한다. 0단계 이미지만 자기 YAML 집합으로 계산하므로, 0단계와 섞인 동안 두 집합이 다르면 지금 카탈로그가 다른 replica가 섞일 때와 같다.
+- **어느 replica든 같은 후보 집합을 본다:** PD-2 이미지는 자기 YAML에 있는 id는 그 YAML 값으로, 나머지 `origin = 'catalog'` 행(다른 replica가 넣었거나 YAML에서 지운 id)과 콘솔 행은 DB 값으로 푼다. 자기 YAML도 기동 때 DB에 넣었으므로 후보 id 집합은 언제나 DB의 집합이다. 그 가운데 실제로 도는 집합은 그 replica의 연결·env·worker runtime 검사를 통과한 것이다. 그래서 **같은 연결 집합과 같은 env를 가진 replica끼리는** A의 YAML이 `{a}`, B가 `{a, b}`여도 둘 다 `{a, b}`를 풀고 `catalogRevision`(`catalog.ts:1043-1059`, 도는 집합으로 계산)이 같다. `connections.yaml` 없이 두 replica의 YAML provider가 다르면, 다른 provider를 쓰는 id는 그것이 없는 replica에서 `connection_missing`이고 revision도 달라진다. 이것은 지금 카탈로그가 다른 replica가 섞일 때와 같은 상황이고 같은 `catalog-authority` 규칙이 다룬다(revision이 다른 replica는 세션을 실패시키지 않는다, `api-server.md:43`). 이런 replica를 피하려면 provider가 다른 id를 YAML에 더하기 전에 `connections.yaml`을 만들어 모든 replica에 같이 둔다. 0단계 이미지는 자기 YAML 집합으로 계산하므로 0단계와 섞인 동안도 같다.
 - **이미 있는 id의 내용이 다를 때(충돌):** 비교 대상은 지문이 아니라 정규화한 `definition` 전체다(canonical JSON). 지문은 모델 목록을 빼므로 충돌을 놓친다. 행은 불변이라 덮어쓰지 않고, 기동 로그에 `Profile import conflict`(id, 서로 다른 최상위 칸 이름)를 남긴다.
   - 확장(PD-2): 그 replica는 자기 YAML 값으로 그 id를 푼다. replica마다 YAML이 다른 것은 지금도 있는 상황이고, 지금처럼 활성 catalog revision이 어느 replica가 세션을 실패시킬지 정한다(`api-server.md:43-52`).
   - 전환(PD-3) 이후: DB 값이 이긴다. YAML 값은 쓰지 않는다.
@@ -197,7 +198,7 @@ PD-2의 검증: `config/`, `config/fake-model/`, `config/fake-model-unattended/`
 | 새 release, release 없는 새 세션, 새 판의 바탕 | 거절 | 거절 | 거절 |
 | 이미 만든 release의 새 세션, 진행 중인 세션 | 돈다 | 돈다 | 돌지 않는다 |
 
-은퇴는 지금 판의 규칙(`api-server.md:90`)처럼 새 부착만 막는다. 상한을 실행 중에도 멈춰야 하는 경우(보안 회수)의 수단은 `bypassPermissions`에 대해서는 env이고, 그 밖에는 연결을 빼는 것이다(`connection_missing`). `connections.yaml`이 있는 설치에서는 그 파일에서 빼면 된다. 아직 없는 설치(PD-2~PD-4)에서는 먼저 `connections-from-yaml`로 파일을 만든 뒤 뺀다. 연결 출처가 하나라 이 순서면 어느 단계 이미지로 되돌려도 뺀 연결이 되살아나지 않는다.
+은퇴는 지금 판의 규칙(`api-server.md:90`)처럼 새 부착만 막는다. 상한을 실행 중에도 멈춰야 하는 경우(보안 회수)의 수단은 `bypassPermissions`에 대해서는 env이고, 그 밖에는 연결을 빼는 것이다(`connection_missing`). `connections.yaml`이 있는 설치에서는 그 파일에서 빼면 된다. 아직 없는 설치(PD-2~PD-4)에서는 먼저 `connections-from-yaml`로 파일을 만든 뒤 뺀다. 연결 출처가 하나라 이 순서면 PD-2 이상의 어느 이미지로 되돌려도 뺀 연결이 되살아나지 않는다. 0단계 이미지는 `connections.yaml`을 읽지 않고 `profiles.yaml`의 provider를 다시 쓰므로, 연결을 이렇게 회수한 뒤에는 0단계로 되돌리지 않는다. 어느 이미지에서도 통하는 회수는 자격 증명 자체를 폐기하거나 바꾸는 것(provider 쪽 키 폐기, env·secret 값 교체 뒤 재시작)이다.
 
 - 새 경로는 `apps/control-host/src/api/openapi.ts`(지금 프로필 경로는 `3404`, `3438`, `3469`), `route-error-coverage.ts:86-87`, `packages/core`의 응답 표, `packages/client` 생성물에 같이 들어간다.
 
@@ -211,7 +212,7 @@ PD-2의 검증: `config/`, `config/fake-model/`, `config/fake-model-unattended/`
   2. 바탕(워크스페이스) 또는 연결(설치 상한, `options`의 `connections`). 워크스페이스는 `usable` 상한만, `auto`를 허용하는 것을 먼저 보인다(지금 `profiles.tsx:101-102`의 순서).
   3. 값: 기본 모델과 모델 목록, 도구, 권한 모드. 워크스페이스 판은 `WORKSPACE_PROFILE_POLICY.choices`가 고를 수 있는 것을 정한다. 설치 상한은 runtime(`options.runtimes`), `title_model`, `project_settings`, 저장소 모드와 저장소(`options.repositories`)도 고른다. `options.unattended_allowed`가 false면 `bypassPermissions`는 비활성과 이유 한 줄, 고르면 위험 안내(PR JeongJaeSoon/agent-platform#894의 문구를 다시 쓴다).
   4. 검토: 바탕 또는 앞 버전과 달라진 칸만 보여 준다. 저장하면 새 프로필의 상세 페이지로 간다.
-- **`/profiles/$profileId` 상세:** 설정 전체, 상태와 그 이유, 같은 `name`의 버전 목록, (상한이면) 이 상한을 바탕으로 한 워크스페이스 판, 만든 사람·시각·은퇴한 사람·시각. 버튼: 새 버전(`/profiles/new?from=<id>&mode=version`), 다시 만들기(바탕이 바뀐 판), 은퇴(확인 대화 상자).
+- **`/profiles/$profileId` 상세:** 설정 전체, 상태와 그 이유, 같은 계열의 버전 목록(`previous_id`로 이어진 것), (상한이면) 이 상한을 바탕으로 한 워크스페이스 판, 만든 사람·시각·은퇴한 사람·시각. 버튼: 새 버전(`/profiles/new?from=<id>&mode=version`), 다시 만들기(바탕이 바뀐 판), 은퇴(확인 대화 상자).
 - **release 탭과 새 에이전트 흐름의 프로필 선택:** 지금 `pickable`은 운영자 프로필을 상태와 상관없이 고를 수 있게 둔다(`apps/web/src/components/profile-options.tsx:5-6`). PD-4는 이것을 "상한은 `installation.state`가, 판은 `workspace.state`가 `usable`일 때만"으로 바꾼다. 목록에는 모든 프로필이 상태와 함께 보이고, 고를 수 있는 것만 선택지가 된다.
 - i18n ko·en·ja를 같이 고친다.
 
@@ -219,7 +220,7 @@ PD-2의 검증: `config/`, `config/fake-model/`, `config/fake-model-unattended/`
 
 | PR | 범위 | 검증 |
 |---|---|---|
-| PD-2 마이그레이션·이전(확장) | migration(다음 번호, 작성 시점 `0187`)으로 `installation_profiles` 추가. 기동 때 가져오기(advisory lock, insert-if-absent). `connections.yaml` 읽기와 연결 기반 자격 증명 해석. [한 레지스트리](#한-레지스트리)(api·slack, gateway claim 후보 포함). 저장소 허용 관계. env·연결·지문 검사. `profiles import --check`, `profiles connections-from-yaml` CLI | 실제 postgres 통합 테스트: 같은 카탈로그로 가져오기를 두 번 돌려 행 수·내용이 같다. 빈 DB(bootstrap 전)에서 가져오기. 두 replica가 동시에 기동. YAML 집합이 다른 두 replica가 같은 id 집합과 revision을 푼다. `connections.yaml`이 있으면 YAML provider를 연결로 보지 않는다(빼면 `connection_missing`). [위 비교 목록](#기존-id와-프로필-객체를-지키는-방법)을 네 카탈로그 전부에서. DB에 `op_` 행을 직접 넣고 release 생성·세션 시작·claim·provider egress가 그 행으로 도는지, env를 끈 프로세스에서는 bypass 상한과 그 위 판이 네 경로 모두에서 거절되는지(gateway·agent-service·slack 테스트). 0단계 이미지와 같은 DB에서 revision이 같다. `bun run typecheck`, `bun test` |
+| PD-2 마이그레이션·이전(확장) | migration(다음 번호, 작성 시점 `0187`)으로 `installation_profiles` 추가. 기동 때 가져오기(advisory lock, insert-if-absent). `connections.yaml` 읽기와 연결 기반 자격 증명 해석. [한 레지스트리](#한-레지스트리)(api·slack, gateway claim 후보 포함). 저장소 허용 관계. env·연결·지문 검사. `profiles import --check`, `profiles connections-from-yaml` CLI | 실제 postgres 통합 테스트: 같은 카탈로그로 가져오기를 두 번 돌려 행 수·내용이 같다. 빈 DB(bootstrap 전)에서 가져오기. 두 replica가 동시에 기동. YAML 집합이 다른 두 replica가 같은 연결 파일 아래에서 같은 id 집합과 revision을 푼다. 연결 파일 없이 provider가 다른 경우에는 없는 쪽이 `connection_missing`이고 revision이 달라 그 replica가 세션을 실패시키지 않는다. 콘솔 행과 같은 id의 YAML 항목은 넣지 않고 충돌로 보고한다. 은퇴 행이 PD-2 이미지에서도 새 부착을 막는다. gateway의 후보와 revision이 같은 snapshot에서 나온다. `connections.yaml`이 있으면 YAML provider를 연결로 보지 않는다(빼면 `connection_missing`). [위 비교 목록](#기존-id와-프로필-객체를-지키는-방법)을 네 카탈로그 전부에서. DB에 `op_` 행을 직접 넣고 release 생성·세션 시작·claim·provider egress가 그 행으로 도는지, env를 끈 프로세스에서는 bypass 상한과 그 위 판이 네 경로 모두에서 거절되는지(gateway·agent-service·slack 테스트). 0단계 이미지와 같은 DB에서 revision이 같다. `bun run typecheck`, `bun test` |
 | PD-3 API 전환 | DB 정본으로 해석. 쓰기 API·`options`·`profile.installation.manage`. 상태·부착 규칙. `profiles.yaml` 없이 기동. OpenAPI·SDK·core 응답 표 | 서비스 테스트: owner만 상한 저장, admin·member `403`, API key `403`, env 꺼짐에서 bypass 저장 `400`, `id_taken`. 부착 규칙 표의 각 칸. **운영자 상한 E2E**(`tests/e2e`, fake model): owner가 상한 v2를 만들고 admin이 그 위에 판을 만들어 세션이 돈다. 상한 v1의 기존 release는 계속 돈다. v1을 은퇴하면 v1 위의 새 release는 거절되고 기존 release의 새 세션은 돈다. 같은 DB에서 PD-2 이미지로 되돌려 같은 세션이 계속 돈다 |
 | PD-4 콘솔 | 목록·상세·`/profiles/new`·`pickable`·i18n·stories | web 테스트, 390px 포함 화면 확인과 스크린샷, ui-review |
 | PD-5 YAML 읽기 정리 | `profiles.yaml`을 빈 테이블 시드로만, `connections.yaml` 필수. 저장소의 네 설정 디렉터리(`config/`, `config/fake-model/`, `config/fake-model-unattended/`, `config/local-model/`)에 `connections.yaml`을 더한다(지금은 어디에도 없다). 운영 문서(`docs/operator/api-server.md:80-96`, `240-250`)에 "PD-5 전에 연결 파일 만들기" 단계, `apps/docs` | 기존 설치 업그레이드: PD-4에서 연결 파일을 만든 상태로 PD-5 기동, `profiles.yaml` 없이 기동, 같은 파일로 PD-4 이미지 기동(정리 → 전환 롤백). 연결 파일 없이 PD-5를 띄우면 이름을 대며 기동 거부. 빈 DB에서 `scripts/local.sh up --fake-model`이 시드와 그 디렉터리의 연결 파일로 뜬다. 채워진 DB에서는 YAML에 새 id를 더해도 넣지 않는다 |
@@ -235,7 +236,7 @@ PD-2의 검증: `config/`, `config/fake-model/`, `config/fake-model-unattended/`
 - **한 테이블에 두 종류.** [위](#한-테이블로-합치지-않은-이유)의 이유로 고르지 않았다.
 - **상한은 설치 설정에 두고(`limits`) 프로필만 DB로.** 상한을 바꿀 때마다 재배포가 남는다. 오너가 없애려는 재배포가 바로 이것이라 고르지 않았다.
 - **연결·자격 참조까지 전부 DB로.** 콘솔 쓰기 하나로 임의 endpoint와 API가 가진 다른 자격 증명 참조를 묶을 수 있다(`catalog.ts:814-823`가 그 값을 upstream 헤더에 싣는다). 고르지 않았다.
-- **상한을 제자리에서 고치기.** 지문에 드는 실행 설정을 바꾸거나 쓰던 모델을 뺄 때마다 그 위의 판과 release가 거절된다(`catalog.ts:685-694`, `agent-service.ts:75-82`). 모델을 더하는 것만 무사하다. 오너 결정 2의 B안이다.
+- **상한을 제자리에서 고치기.** 지문에 드는 실행 설정을 바꾸거나 쓰던 모델을 뺄 때마다 그 위의 판과 release가 거절된다(`catalog.ts:685-694`, `agent-service.ts:75-82`). 모델 추가나 `title_model` 변경처럼 핀에 들지 않는 변경만 무사하고(`catalog.ts:183-188`), 모델 제거는 그 모델을 쓰던 release·세션·판만 멈춘다. 오너 결정 2의 B안이다.
 - **DB 허용을 `repositories.<id>.profiles` 배열로 되돌려 넣기.** revision과 저장소 binding이 상한마다 바뀐다. [저장소 허용](#저장소-허용) 참고.
 
 ## 오너 결정 (모두 오너 확인 대기, 기본값 적용)
