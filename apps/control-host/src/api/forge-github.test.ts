@@ -169,7 +169,7 @@ describe("GitHub App forge", () => {
           request: "installation token request",
           status: 500,
           error: "HttpError",
-          github_message: "Server Error",
+          github_reason: "Server Error",
         },
       ]);
       expect(github.tokenRequests.length - before).toBe(3);

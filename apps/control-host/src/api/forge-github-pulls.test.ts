@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
+import { sanitizeFields } from "@werft-ai/observability";
 import { ForgeCredentialError } from "@werft-ai/platform";
 import { type FakeGitHub, startFakeGitHub } from "@werft-ai/testkit";
 import { createGitHubForge, RATE_LIMIT_RETRIES } from "./forge-github.ts";
@@ -101,16 +102,16 @@ describe("GitHub forge pull requests", () => {
         (e: unknown) => e,
       );
     expect(error).toBeInstanceOf(ForgeCredentialError);
-    expect(warnings).toEqual([
-      {
-        message: "GitHub request failed",
-        request: "pull request create",
-        status: 422,
-        error: "HttpError",
-        github_message: "Validation Failed",
-        github_errors: ["head"],
-      },
-    ]);
+    const fields = {
+      request: "pull request create",
+      status: 422,
+      error: "HttpError",
+      github_reason: "Validation Failed",
+      github_errors: ["head"],
+    };
+    expect(warnings).toEqual([{ message: "GitHub request failed", ...fields }]);
+    // The production logger drops message-like keys; these survive it.
+    expect(sanitizeFields(fields)).toEqual(fields);
   });
 
   test("an open pull request is found even when a newer one for the branch is closed", async () => {

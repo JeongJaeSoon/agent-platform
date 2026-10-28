@@ -430,8 +430,9 @@ function issuer(
   };
 }
 
-// Only the status and the error's class: an octokit error carries the
-// request, whose headers hold the JWT, and a response body may echo a token.
+// The status, the error's class and GitHub's reason (githubReason), never the
+// error itself: an octokit error carries the request, whose headers hold the
+// JWT or the token.
 function failure(
   logger: Logger | undefined,
   what: string,
@@ -458,11 +459,12 @@ const REASON_MAX_LENGTH = 200;
 
 /**
  * GitHub's own words for a refused call (a 422 says which field and why).
- * The error body echoes no token: it carries `message`, `errors` and a
- * documentation link, and only those first two are kept, cut short.
+ * Only the response body is read, and of it only `message` and `errors`, cut
+ * short; GitHub does not echo the request's credential there. The field
+ * names avoid "message": the log redaction drops keys that look like one.
  */
 function githubReason(cause: unknown): {
-  github_message?: string;
+  github_reason?: string;
   github_errors?: string[];
 } {
   const data = (cause as { response?: { data?: unknown } })?.response?.data;
@@ -481,9 +483,10 @@ function githubReason(cause: unknown): {
         ),
       )
     : [];
+  const kept = reasons.filter((reason) => reason !== "");
   return {
-    ...(typeof message === "string" ? { github_message: cut(message) } : {}),
-    ...(reasons.length > 0 ? { github_errors: reasons } : {}),
+    ...(typeof message === "string" ? { github_reason: cut(message) } : {}),
+    ...(kept.length > 0 ? { github_errors: kept } : {}),
   };
 }
 
