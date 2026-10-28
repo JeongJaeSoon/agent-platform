@@ -49,6 +49,8 @@ export function DemoNotice({ notices }: { readonly notices: EventTarget }) {
   }, [notices, notify]);
   return (
     <>
+      {/* Room below the page, so its last line scrolls clear of the badge. */}
+      <div aria-hidden="true" className="h-16" />
       <p
         data-slot="demo-badge"
         className="pointer-events-none fixed right-4 bottom-4 z-50 m-0 max-w-[calc(100vw-2rem)] rounded-full border bg-popover px-3 py-1.5 text-caption text-popover-foreground shadow-pop sm:right-6 sm:bottom-6"

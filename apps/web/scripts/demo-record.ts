@@ -46,6 +46,11 @@ const STREAM_IDLE_MS = 2_000;
 const STREAM_MAX_MS = 15_000;
 const PAGE_IDLE_MS = 600;
 const PAGE_MAX_MS = 10_000;
+// The API admits 8 open event streams per owner and answers 429 past that.
+// A stream keeps recording after the page has moved on, so without a cap the
+// crawl outruns it.
+const STREAM_SLOTS = 4;
+const RETRIES = 5;
 
 /** Query variants no link carries: the filters a person picks on screen. */
 const SEEDS = [
@@ -98,6 +103,31 @@ async function signIn(): Promise<string> {
 const responses = new Map<string, DemoResponse>();
 let inflight = 0;
 let lastActivity = Date.now();
+let openStreams = 0;
+const streamWaiters: (() => void)[] = [];
+
+async function streamSlot(): Promise<() => void> {
+  while (openStreams >= STREAM_SLOTS)
+    await new Promise<void>((resolve) => streamWaiters.push(resolve));
+  openStreams += 1;
+  return () => {
+    openStreams -= 1;
+    streamWaiters.shift()?.();
+  };
+}
+
+async function upstreamGet(
+  path: string,
+  headers: Record<string, string>,
+): Promise<Response> {
+  for (let attempt = 1; ; attempt++) {
+    const upstream = await fetch(`${api}${path}`, { headers });
+    if (upstream.status !== 429 || attempt === RETRIES) return upstream;
+    await upstream.body?.cancel();
+    const wait = Number(upstream.headers.get("retry-after")) || attempt;
+    await Bun.sleep(wait * 1_000);
+  }
+}
 
 async function recordStream(upstream: Response): Promise<string> {
   const reader = upstream.body?.getReader();
@@ -142,21 +172,29 @@ async function proxy(request: Request, cookie: string): Promise<Response> {
           headers: { "content-type": "text/event-stream" },
         })
       : Response.json(known.json, { status: known.status });
-  const upstream = await fetch(`${api}${url.pathname}${url.search}`, {
-    headers: {
+  const accept = request.headers.get("accept") ?? "*/*";
+  const release = accept.includes("text/event-stream")
+    ? await streamSlot()
+    : () => {};
+  let upstream: Response;
+  try {
+    upstream = await upstreamGet(`${url.pathname}${url.search}`, {
       cookie,
-      accept: request.headers.get("accept") ?? "*/*",
+      accept,
       [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
-    },
-  });
-  const type = upstream.headers.get("content-type") ?? "";
-  if (type.startsWith("text/event-stream")) {
-    const sse = await recordStream(upstream);
-    responses.set(key, { status: 200, sse });
-    return new Response(sse, {
-      headers: { "content-type": "text/event-stream" },
     });
+    const type = upstream.headers.get("content-type") ?? "";
+    if (type.startsWith("text/event-stream")) {
+      const sse = await recordStream(upstream);
+      responses.set(key, { status: 200, sse });
+      return new Response(sse, {
+        headers: { "content-type": "text/event-stream" },
+      });
+    }
+  } finally {
+    release();
   }
+  const type = upstream.headers.get("content-type") ?? "";
   if (upstream.status === 204) {
     responses.set(key, { status: 204, json: null });
     return new Response(null, { status: 204 });
@@ -270,6 +308,8 @@ try {
     console.log(`${seen.size} ${path} (${responses.size} answers)`);
   }
   if (queue.length > 0) console.warn(`stopped with ${queue.length} unvisited`);
+  // Streams the crawl left behind are still being recorded.
+  while (inflight > 0) await Bun.sleep(200);
 } finally {
   await browser?.close().catch(() => {});
   // The login is the one write this script makes; take it back.
@@ -278,6 +318,15 @@ try {
     headers: { cookie, [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE },
   }).catch(() => {});
   server?.stop(true);
+}
+
+const limited = [...responses.keys()].filter(
+  (key) => responses.get(key)?.status === 429,
+);
+if (limited.length > 0) {
+  console.error(`429 after ${RETRIES} tries, nothing written:`);
+  for (const key of limited) console.error(`  ${key}`);
+  process.exit(1);
 }
 
 const sorted = Object.fromEntries(
