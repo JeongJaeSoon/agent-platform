@@ -105,7 +105,11 @@ describe("slack role startup", () => {
       });
       const rows = catalogRows(await readSeedProfiles(dir, role.catalog));
       const states = [
-        profileViewSources(role.connections, environment),
+        profileViewSources(
+          role.connections,
+          role.catalog.repositories,
+          environment,
+        ),
         api.sources,
       ].map(
         (sources) =>

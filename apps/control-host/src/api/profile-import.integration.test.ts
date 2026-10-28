@@ -87,6 +87,7 @@ const ON_MAIN: Record<string, Record<string, string>> = {
 function sourcesFor(connections: Connections): SnapshotSources<CatalogProfile> {
   return {
     connections,
+    repositoryIdsOf: () => [],
     allowUnattended: true,
     runtimeSupported: () => true,
     materialize: (id, definition) => {

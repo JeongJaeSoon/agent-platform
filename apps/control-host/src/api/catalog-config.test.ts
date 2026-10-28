@@ -398,7 +398,7 @@ describe("installed runtimes", () => {
       new Map(
         [
           ...installationProfileSnapshot(
-            profileViewSources(connections, env),
+            profileViewSources(connections, config.repositories, env),
             catalogRows(config.profiles),
           ).installation.values(),
         ].map((entry) => [entry.id, entry.state]),
@@ -502,7 +502,7 @@ describe("readCatalogConfig", () => {
       const path = join(DEFAULT_CONFIG_DIR, dir);
       const config = await readCatalog(path);
       const snapshot = installationProfileSnapshot(
-        profileViewSources(await readConnections(path), {
+        profileViewSources(await readConnections(path), config.repositories, {
           [ALLOW_UNATTENDED_SETTING]: "true",
         }),
         catalogRows(config.profiles, config.repositories),

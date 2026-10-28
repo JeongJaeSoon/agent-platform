@@ -85,6 +85,11 @@ export type InstallationSnapshot<P extends CatalogProfileView> = {
 
 export type SnapshotSources<P extends CatalogProfileView> = {
   connections: Connections;
+  /**
+   * What a row with no `repository_ids` yet runs against: the value the api
+   * role fills it with, so every replica reads the same pairs before it does.
+   */
+  repositoryIdsOf: (profileId: string) => string[];
   allowUnattended: boolean;
   runtimeSupported: (profile: CatalogProfileConfig) => boolean;
   /** The profile a definition runs; may throw when a credential does not resolve. */
@@ -108,7 +113,12 @@ export function installationProfileSnapshot<P extends CatalogProfileView>(
   }
   const profiles: Record<string, P> = {};
   const installation = new Map<string, InstallationProfileEntry>();
-  for (const row of rows) {
+  for (const stored of rows) {
+    const row = {
+      ...stored,
+      repository_ids:
+        stored.repository_ids ?? sources.repositoryIdsOf(stored.id),
+    };
     const { id } = row;
     const parsed = parsedDefinition(row);
     const definition = storedDefinition(id, row, parsed);

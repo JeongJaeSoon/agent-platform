@@ -16,6 +16,7 @@ import {
   type CredentialRef,
   catalogConnectionsSchema,
   catalogCredentialRefs,
+  catalogRepositoryIds,
   catalogRows,
   credentialRefOf,
   describeConfigError,
@@ -215,10 +216,12 @@ export function unattendedAllowed(
 /** What a replica holding no provider key builds its profile snapshot from. */
 export function profileViewSources(
   connections: Connections,
+  repositories: SessionCatalogConfig["repositories"],
   env: Record<string, string | undefined>,
 ): SnapshotSources<CatalogProfileView> {
   return {
     connections,
+    repositoryIdsOf: catalogRepositoryIds(repositories),
     allowUnattended: unattendedAllowed(env),
     runtimeSupported: runtimeServes,
     materialize: (id, definition) => {
@@ -292,6 +295,7 @@ export async function loadProfileSources(options: {
   const resolved = resolveSessionCatalog({ ...config, profiles: {} }, lookup);
   const sources: SnapshotSources<CatalogProfile> = {
     connections,
+    repositoryIdsOf: catalogRepositoryIds(config.repositories),
     allowUnattended: unattendedAllowed(options.env),
     runtimeSupported: runtimeServes,
     materialize: (id, definition) => {

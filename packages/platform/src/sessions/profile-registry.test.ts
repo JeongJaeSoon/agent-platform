@@ -103,6 +103,7 @@ function sourcesOf(
       Object.fromEntries(
         Object.entries(own).map(([id, made]) => [id, made.provider]),
       ),
+    repositoryIdsOf: catalogRepositoryIds(REPOSITORIES),
     allowUnattended: options.allowUnattended ?? false,
     runtimeSupported: () => true,
     materialize: (id, made) => {
@@ -492,6 +493,30 @@ describe("the gateway's claim", () => {
       .map((pair) => pair.repositoryId);
     expect(new Set(pairs)).toEqual(new Set(["docs"]));
     expect(REPOSITORIES["sample-app"]?.profiles).toContain("coding");
+  });
+
+  test("before the api fills an imported row, it runs on the repositories repositories.yaml names it for", async () => {
+    const coding = definition();
+    const filled = replica(
+      { coding },
+      { installation: [row("coding", coding)], workspace: [] },
+    );
+    const unfilled = replica(
+      { coding },
+      {
+        installation: [row("coding", coding, { repository_ids: null })],
+        workspace: [],
+      },
+    );
+    const [before, after] = await Promise.all([
+      claimOnce(unfilled),
+      claimOnce(filled),
+    ]);
+    expect(before.runnable).toEqual(after.runnable);
+    expect(
+      before.runnable.some((pair) => pair.repositoryId === "sample-app"),
+    ).toBe(true);
+    expect(before.catalogRevision).toBe(after.catalogRevision);
   });
 });
 

@@ -24,6 +24,7 @@ import {
 import { ProfileFeatureGate } from "./feature-gate.ts";
 import { createInstallationProfileService } from "./installation-profiles.ts";
 import {
+  catalogRepositoryIds,
   catalogRows,
   createProfileRegistry,
   profileCatalog,
@@ -193,6 +194,7 @@ function setup(
       installations: store,
       sources: {
         connections,
+        repositoryIdsOf: catalogRepositoryIds(REPOSITORIES),
         allowUnattended: options.allowUnattended ?? false,
         runtimeSupported: () => true,
         materialize: (id, definition) => {

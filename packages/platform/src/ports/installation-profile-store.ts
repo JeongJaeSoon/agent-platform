@@ -16,8 +16,12 @@ export type InstallationProfileRecord = {
   permission_mode: PermissionMode;
   /** `profileFingerprint` when written: a row that no longer hashes to it runs nothing. */
   fingerprint: string;
-  /** The repositories the ceiling may run against: the only record of it. */
-  repository_ids: string[];
+  /**
+   * The repositories the ceiling may run against: the only record of it.
+   * Null on a `catalog` row the api role has not yet filled from the
+   * `profiles` arrays of repositories.yaml.
+   */
+  repository_ids: string[] | null;
   previous_id: string | null;
   created_by: string | null;
   created_at: Date;

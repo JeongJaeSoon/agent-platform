@@ -183,7 +183,7 @@ export function operatorSummary(
       : [
           ...new Set([
             ...summary.repository_ids,
-            ...written.record.repository_ids.filter((repositoryId) =>
+            ...(written.record.repository_ids ?? []).filter((repositoryId) =>
               Object.hasOwn(catalog.repositories, repositoryId),
             ),
           ]),

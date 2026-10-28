@@ -61,8 +61,7 @@ function recordOf(
     definition: row.definition,
     permission_mode: row.permissionMode as PermissionMode,
     fingerprint: row.fingerprint,
-    // Null only until the api role's seed fills it, before its first read.
-    repository_ids: row.repositoryIds ?? [],
+    repository_ids: row.repositoryIds,
     previous_id: row.previousId,
     created_by: row.createdBy,
     created_at: row.createdAt,
