@@ -108,7 +108,7 @@ connections:
 
 - 레지스트리는 DB의 두 테이블과 연결·저장소를 한 번에 읽어 검증한 snapshot을 낸다: 돌 수 있는 상한(연결 일치, 지문 일치, env 검사를 통과한 것), 워크스페이스 판, 저장소 허용 관계. `catalog.profiles`와 `catalog.workspace_profiles`는 둘 다 이 snapshot에서 온다.
 - gateway의 claim 후보(운영자 몫 포함)와 claim이 비교하는 catalog revision은 같은 snapshot에서 얻고, snapshot이 바뀔 때 함께 다시 만든다. 지금은 revision도 gateway를 만들 때 한 번 계산해 고정한다(`worker-gateway.ts:614`, `956`).
-- **claim이 세션을 실패시키는 조건을 DB 상한까지 넓힌다.** 지금 gateway는 revision이 활성 revision과 같아도, 세션의 `ws_` 프로필을 그 replica가 아직 읽지 못했으면 실패시키지 않고 넘긴다(`packages/db/src/worker-unit-of-work.ts:1093-1094`, 그 밖에는 `1107`, `1171`에서 `catalog_mismatch`로 격리한다). 콘솔 상한은 revision에 들지 않으므로 같은 보호가 필요하다. 세션의 프로필이 DB의 상한(또는 그 위의 판)이고 이 replica에서 돌지 않는 이유가 replica에 따라 다를 수 있는 것(snapshot에 아직 없음, `connection_missing`, `unattended_off`, worker runtime 미지원)이면 실패시키지 않고 넘긴다. 실패시키는 것은 모든 replica에서 같은 이유(은퇴 뒤 새 부착, 바탕 지문 변경, 지운 모델)뿐이다. 운영 규칙도 같이 둔다: 새 연결·env는 모든 replica에 배포한 뒤에 그것을 쓰는 상한을 만든다.
+- **claim이 세션을 실패시키는 조건을 DB 상한까지 넓힌다.** 지금 gateway는 revision이 활성 revision과 같아도, 세션의 `ws_` 프로필을 그 replica가 아직 읽지 못했으면 실패시키지 않고 넘긴다(`packages/db/src/worker-unit-of-work.ts:1093-1094`, 그 밖에는 `1107`, `1171`에서 `catalog_mismatch`로 격리한다). 콘솔 상한은 revision에 들지 않으므로 같은 보호가 필요하다. 세션의 프로필이 DB의 상한(또는 그 위의 판)이고 이 replica에서 돌지 않는 이유가 replica에 따라 다를 수 있는 것(snapshot에 아직 없음, `connection_missing`, `unattended_off`, worker runtime 미지원)이면 실패시키지 않고 넘긴다. 실패시키는 것은 모든 replica에서 같은 이유(은퇴 뒤 새 부착, 바탕 지문 변경, 지운 모델)뿐이다. 구현은 claim에 `settledProfileIds`를 넘긴다: 이 replica에서 도는 상한 id와, 바탕이 이 replica에서 도는 워크스페이스 판 id. 세션의 프로필이 이 집합에 없으면 claim은 실패시키지 않고 넘긴다. 운영 규칙도 같이 둔다: 새 연결·env는 모든 replica에 배포한 뒤에 그것을 쓰는 상한을 만든다.
 - 상태와 부착 규칙([6절](#상태와-부착-규칙))의 **읽기**도 PD-2에 넣는다. 은퇴는 PD-3의 API로만 생기지만, PD-3에서 PD-2로 되돌린 뒤에도 은퇴한 상한에 새 release가 붙지 않아야 하기 때문이다.
 - 모르는 id가 오면 `ws_` 여부와 상관없이 다시 읽는다(지금 `catalog.ts:782-785`의 규칙을 모든 id로).
 - api·slack 두 역할이 같은 레지스트리를 쓴다. slack의 기동(`slack/main.ts:119`)과 release 해석(`slack/main.ts:175-181`)도 이 레지스트리로 옮긴다.
@@ -136,7 +136,7 @@ connections:
 - **PD-2~PD-4 기간의 YAML 운영 규칙(한 가지):** 새 id를 더하는 것은 된다. 지금의 카탈로그 변경과 같아서 revision이 바뀌고 지금의 `catalog-authority` 롤아웃 절차(`api-server.md:43-52`)를 그대로 밟는다. 이미 있는 id를 고치거나 지우지는 않는다. 지워도 행은 남고(가져오기는 넣기만 한다), PD-3부터는 은퇴로 대신한다.
 - **어느 replica든 같은 후보 집합을 본다:** PD-2 이미지는 자기 YAML에 있는 id는 그 YAML 값으로, 나머지 `origin = 'catalog'` 행(다른 replica가 넣었거나 YAML에서 지운 id)과 콘솔 행은 DB 값으로 푼다. 자기 YAML도 기동 때 DB에 넣었으므로 후보 id 집합은 언제나 DB의 집합이다. 그 가운데 실제로 도는 집합은 그 replica의 연결·env·worker runtime 검사를 통과한 것이다. 그래서 **같은 연결 집합·env·저장소 설정·worker runtime 지원을 가지고 가져온 id에 충돌이 없는 replica끼리는** A의 YAML이 `{a}`, B가 `{a, b}`여도 둘 다 `{a, b}`를 풀고 `catalogRevision`(`catalog.ts:1043-1059`, 도는 집합으로 계산)이 같다. `connections.yaml` 없이 두 replica의 YAML provider가 다르면, 다른 provider를 쓰는 id는 그것이 없는 replica에서 `connection_missing`이고 revision도 달라진다. 이것은 지금 카탈로그가 다른 replica가 섞일 때와 같은 상황이고 같은 `catalog-authority` 규칙이 다룬다(revision이 다른 replica는 세션을 실패시키지 않는다, `api-server.md:43`). 이런 replica를 피하려면 provider가 다른 id를 YAML에 더하기 전에 `connections.yaml`을 만들어 모든 replica에 같이 둔다. 0단계 이미지는 자기 YAML 집합으로 계산하므로 0단계와 섞인 동안도 같다.
 - **이미 있는 id의 내용이 다를 때(충돌):** 비교 대상은 지문이 아니라 정규화한 `definition` 전체다(canonical JSON). 지문은 모델 목록을 빼므로 충돌을 놓친다. 행은 불변이라 덮어쓰지 않고, 기동 로그에 `Profile import conflict`(id, 서로 다른 최상위 칸 이름)를 남긴다.
-  - 확장(PD-2): 그 replica는 자기 YAML 값으로 그 id를 푼다. replica마다 YAML이 다른 것은 지금도 있는 상황이고, 지금처럼 활성 catalog revision이 어느 replica가 세션을 실패시킬지 정한다(`api-server.md:43-52`).
+  - 확장(PD-2): 그 replica는 자기 YAML 값으로 그 id를 푼다. 같은 id가 콘솔 행이어도 그렇다(0단계 이미지와 같은 값을 보게 하려는 것이다). `import --check`가 이 충돌을 보고하므로 그 YAML id를 다른 이름으로 바꾼다. replica마다 YAML이 다른 것은 지금도 있는 상황이고, 지금처럼 활성 catalog revision이 어느 replica가 세션을 실패시킬지 정한다(`api-server.md:43-52`).
   - 전환(PD-3) 이후: DB 값이 이긴다. YAML 값은 쓰지 않는다.
   - 그래서 PD-3을 올리기 전에 각 replica의 설정 디렉터리로 `bun run profiles import --check`(PD-2가 만드는 읽기 전용 CLI)를 돌린다. 보고하는 것: 같은 id의 `definition` 충돌, DB의 `origin = 'catalog'` id 중 이 YAML에 없는 것, 이 YAML의 id 중 DB에 없는 것, 연결이 없는 행, 그리고 이 YAML만으로 계산한 revision과 DB 집합으로 계산한 revision. 앞의 넷이 0이고 두 revision이 같아야 0으로 끝난다. 그래야 PD-3에서 PD-2로, PD-2에서 0단계로 되돌린 이미지가 같은 집합·같은 revision을 본다. 충돌이 있으면 YAML을 DB 값으로 되돌리거나 바꾼 내용을 새 id로 옮긴다. YAML에 없는 DB id가 있으면 그 id를 YAML에 되살린다(0단계로 되돌릴 일이 없다고 판단하면 남겨 두고 PD-3에서 은퇴시킨다).
 
@@ -191,7 +191,7 @@ PD-2의 검증: `config/`, `config/fake-model/`, `config/fake-model-unattended/`
 
 ### 상태와 부착 규칙
 
-- 상한의 상태: `usable`, `retired`, `connection_missing`, `unattended_off`, `definition_drift`. 워크스페이스 판에는 `base_retired`(바탕이 은퇴함)를 더한다. `workspaceProfileStateSchema`(`profiles.ts:25-30`)에 값을 더하는 것이라 같은 PR에서 web·SDK 생성물을 함께 갱신한다.
+- 상한의 상태: `usable`, `retired`, `connection_missing`, `unattended_off`, `definition_drift`, `runtime_unsupported`(이 이미지의 worker가 그 runtime이나 권한 모드를 받지 않음). 워크스페이스 판에는 `base_retired`(바탕이 은퇴함)를 더한다. PD-2는 이 상태를 레지스트리 안에서만 쓴다(기동 로그 `Profiles left out of this replica's catalog`에 id와 상태). API 응답에 내보내는 것은 PD-3이다. `workspaceProfileStateSchema`(`profiles.ts:25-30`)에 값을 더하는 것이라 같은 PR에서 web·SDK 생성물을 함께 갱신한다.
 - 지금 `workspaceProfileRefusal`은 `ws_`가 아닌 id를 바로 통과시키고(`catalog.ts:746`), 은퇴 예외는 정확히 `retired`만 본다(`catalog.ts:751-753`). PD-2가 이 함수를 상한 id까지 보는 부착 검사로 넓히고(롤백한 이미지도 은퇴를 지키도록), PD-3은 은퇴를 만드는 쓰기 API를 더한다.
 
 | 쓰임 | 상한 `retired` | 판 `base_retired` | 그 밖의 비 `usable` |

@@ -132,6 +132,12 @@ const catalogProviderSchema = z.discriminatedUnion("kind", [
     .strict(),
 ]);
 
+/** `connections.yaml`'s one section: a provider per connection id. */
+export const catalogConnectionsSchema = z.record(
+  z.string().min(1),
+  catalogProviderSchema,
+);
+
 const PRIVATE_NAME_SUFFIXES = [
   ".internal",
   ".local",
@@ -448,7 +454,35 @@ export type SessionCatalog = {
   repositories: Record<string, CatalogRepository>;
   mcp_servers?: Record<string, CatalogMcpServer>;
   workspace_profiles?: WorkspaceProfiles;
+  installation?: InstallationProfiles;
 };
+
+/**
+ * Why an installation ceiling runs here or not. `retired` still runs what
+ * already uses it; `runtime_unsupported` is this image's worker lacking the
+ * runtime or its mode.
+ */
+export type InstallationProfileState =
+  | "usable"
+  | "retired"
+  | "connection_missing"
+  | "unattended_off"
+  | "definition_drift"
+  | "runtime_unsupported";
+
+export type InstallationProfileEntry = {
+  id: string;
+  origin: "catalog" | "console";
+  state: InstallationProfileState;
+  /** Repositories a console ceiling runs against beside `repositories.<id>.profiles`. */
+  repository_ids: readonly string[];
+};
+
+/** Every installation ceiling this process has read, by id. */
+export type InstallationProfiles = ReadonlyMap<
+  string,
+  InstallationProfileEntry
+>;
 
 /**
  * A version of a workspace profile as stored: an operator profile narrowed
@@ -509,6 +543,7 @@ export type SessionCatalogView = {
   profiles: Record<string, CatalogProfileView>;
   repositories: Record<string, CatalogRepositoryView>;
   workspace_profiles?: WorkspaceProfiles;
+  installation?: InstallationProfiles;
 };
 
 /** A remote MCP server the session's agent release names, as claimed. */
@@ -643,6 +678,7 @@ export function repositoryModeOf(profile: CatalogProfileView): RepositoryMode {
 export type ProfileLookup<P extends CatalogProfileView> = {
   profiles: Readonly<Record<string, P>>;
   workspace_profiles?: WorkspaceProfiles | undefined;
+  installation?: InstallationProfiles | undefined;
 };
 
 export type ProfileNarrowing = Pick<
@@ -742,13 +778,32 @@ export function workspaceProfileRefusal(
   workspaceId: string,
   profileId: string,
   options: { retiredAllowed?: boolean } = {},
-): { state: WorkspaceProfileState | "unknown"; message: string } | null {
-  if (!profileId.startsWith(WORKSPACE_PROFILE_PREFIX)) return null;
+): {
+  state: WorkspaceProfileState | "unknown" | "base_retired";
+  message: string;
+} | null {
+  const retiredCeiling = (id: string) =>
+    !options.retiredAllowed &&
+    catalog.installation?.get(id)?.state === "retired";
+  if (!profileId.startsWith(WORKSPACE_PROFILE_PREFIX)) {
+    return retiredCeiling(profileId)
+      ? {
+          state: "retired",
+          message: `Profile ${profileId} is retired: pick a newer version`,
+        }
+      : null;
+  }
   const record = catalog.workspace_profiles?.records.get(profileId);
   if (!record || record.workspace_id !== workspaceId) {
     return { state: "unknown", message: `Unknown profile ${profileId}` };
   }
   const state = workspaceProfileState(catalog, record);
+  if (state === "usable" && retiredCeiling(record.base_profile_id)) {
+    return {
+      state: "base_retired",
+      message: `The base of profile ${profileId} is retired: make a new version over a newer one`,
+    };
+  }
   if (state === "usable" || (state === "retired" && options.retiredAllowed)) {
     return null;
   }
@@ -770,16 +825,27 @@ const WORKSPACE_PROFILE_KNOWN_MAX_AGE_MS = 1000;
  * new use of a version, which a retirement elsewhere must stop.
  */
 export async function refreshWorkspaceProfilesFor(
-  catalog: Pick<ProfileLookup<CatalogProfileView>, "workspace_profiles">,
+  catalog: Pick<ProfileLookup<CatalogProfileView>, "workspace_profiles"> &
+    Partial<ProfileLookup<CatalogProfileView>>,
   profileIds: ReadonlyArray<string | null | undefined>,
   options: { strict?: boolean } = {},
 ): Promise<void> {
   const registry = catalog.workspace_profiles;
+  // With installation ceilings in the database any id may be one another
+  // replica made or retired, not only a workspace version.
   const named = profileIds.filter(
-    (id): id is string => id?.startsWith(WORKSPACE_PROFILE_PREFIX) === true,
+    (id): id is string =>
+      typeof id === "string" &&
+      (catalog.installation !== undefined ||
+        id.startsWith(WORKSPACE_PROFILE_PREFIX)),
   );
   if (!registry || named.length === 0) return;
-  const unread = named.some((id) => !registry.records.has(id));
+  const unread = named.some(
+    (id) =>
+      !registry.records.has(id) &&
+      !catalog.installation?.has(id) &&
+      !Object.hasOwn(catalog.profiles ?? {}, id),
+  );
   const read = registry.refresh(
     unread ? 0 : WORKSPACE_PROFILE_KNOWN_MAX_AGE_MS,
   );
@@ -793,6 +859,26 @@ function trustedProfileId(
   return (
     catalog.workspace_profiles?.records.get(profileId)?.base_profile_id ??
     profileId
+  );
+}
+
+/**
+ * Whether the repository lets `profileId` (or the ceiling a workspace
+ * version narrows) run against it: named in its `profiles`, or, for a
+ * ceiling made in the console, among the ceiling's own `repository_ids`.
+ */
+export function profileAllowsRepository(
+  catalog: ProfileLookup<CatalogProfileView>,
+  profileId: string,
+  repositoryId: string,
+  repository: Pick<CatalogRepositoryView, "profiles">,
+): boolean {
+  const trusted = trustedProfileId(catalog, profileId);
+  return (
+    repository.profiles.includes(trusted) ||
+    catalog.installation
+      ?.get(trusted)
+      ?.repository_ids.includes(repositoryId) === true
   );
 }
 
@@ -1038,16 +1124,20 @@ export function repositoryBinding(
  * The operator's catalog as loaded, without workspace versions, for audit
  * and logs: it moves whenever any operator profile or repository does, so it
  * is not what a session should be matched against (an unrelated edit would
- * fail every claim).
+ * fail every claim). Ceilings made in the console are left out, as
+ * workspace versions are: making one must not move the revision.
  */
-export function catalogRevision(catalog: SessionCatalog): string {
+export function catalogRevision(
+  catalog: Pick<SessionCatalog, "repositories" | "installation"> & {
+    profiles: Readonly<Record<string, CatalogProfileView>>;
+  },
+): string {
   return sha256({
     fingerprint_version: BINDING_FINGERPRINT_VERSION,
     profiles: Object.fromEntries(
-      Object.entries(catalog.profiles).map(([id, profile]) => [
-        id,
-        withoutSecret(profile),
-      ]),
+      Object.entries(catalog.profiles)
+        .filter(([id]) => catalog.installation?.get(id)?.origin !== "console")
+        .map(([id, profile]) => [id, withoutSecret(profile)]),
     ),
     repositories: Object.fromEntries(
       Object.entries(catalog.repositories).map(([id, repository]) => [
@@ -1074,7 +1164,7 @@ export function allowedPair<
   if (
     !profile ||
     !repository ||
-    !repository.profiles.includes(trustedProfileId(catalog, profileId))
+    !profileAllowsRepository(catalog, profileId, repositoryId, repository)
   ) {
     return null;
   }
@@ -1127,17 +1217,27 @@ export class CatalogCredentialError extends Error {
   }
 }
 
-/** Every credential reference in the catalog, with where it sits. */
+/**
+ * Every credential reference in the catalog, with where it sits. With
+ * `connections` a provider credential is a connection's, never a profile's.
+ */
 export function catalogCredentialRefs(
   config: SessionCatalogConfig,
+  connections?: Readonly<Record<string, CatalogProfileConfig["provider"]>>,
 ): Array<{ path: string; ref: CredentialRef }> {
   const refs: Array<{ path: string; ref: CredentialRef }> = [];
-  for (const [id, profile] of Object.entries(config.profiles)) {
-    const { kind: _kind, ...fields } = profile.provider.auth;
-    refs.push({
-      path: `profiles.${id}.provider.auth`,
-      ref: credentialRefOf(fields),
-    });
+  const providers = connections
+    ? Object.entries(connections).map(([id, provider]) => ({
+        path: `connections.${id}.auth`,
+        provider,
+      }))
+    : Object.entries(config.profiles).map(([id, profile]) => ({
+        path: `profiles.${id}.provider.auth`,
+        provider: profile.provider,
+      }));
+  for (const { path, provider } of providers) {
+    const { kind: _kind, ...fields } = provider.auth;
+    refs.push({ path, ref: credentialRefOf(fields) });
   }
   for (const [id, repository] of Object.entries(config.repositories)) {
     if (repository.auth === undefined) continue;
@@ -1193,6 +1293,34 @@ export function sessionCatalogView(
   return { profiles, repositories };
 }
 
+/** One reference's value, refused naming `path` when it cannot go into a header. */
+export function resolveCredential(
+  path: string,
+  ref: CredentialRef,
+  lookup: (ref: CredentialRef) => string | undefined,
+): string {
+  const value = lookup(ref);
+  if (!value) throw new CatalogCredentialError(path, ref);
+  // It goes into a header as it is (or base64'd with the login): a
+  // trailing newline from `echo` into a secret, say, would pass here and
+  // be refused by the egress proxy on every call.
+  if (hasControlCharacter(value) || value.trim() !== value) {
+    throw new CatalogCredentialError(
+      path,
+      ref,
+      "has a control character or surrounding whitespace",
+    );
+  }
+  if (Buffer.byteLength(value, "utf8") < MIN_CREDENTIAL_BYTES) {
+    throw new CatalogCredentialError(
+      path,
+      ref,
+      `is shorter than ${MIN_CREDENTIAL_BYTES} bytes`,
+    );
+  }
+  return value;
+}
+
 /**
  * The resolved catalog. `lookup` hands back each reference's value, already
  * fetched (a Secrets Manager read is the loader's job, not this pure step);
@@ -1203,28 +1331,8 @@ export function resolveSessionCatalog(
   config: SessionCatalogConfig,
   lookup: (ref: CredentialRef) => string | undefined,
 ): SessionCatalog {
-  const resolved = (path: string, ref: CredentialRef): string => {
-    const value = lookup(ref);
-    if (!value) throw new CatalogCredentialError(path, ref);
-    // It goes into a header as it is (or base64'd with the login): a
-    // trailing newline from `echo` into a secret, say, would pass here and
-    // be refused by the egress proxy on every call.
-    if (hasControlCharacter(value) || value.trim() !== value) {
-      throw new CatalogCredentialError(
-        path,
-        ref,
-        "has a control character or surrounding whitespace",
-      );
-    }
-    if (Buffer.byteLength(value, "utf8") < MIN_CREDENTIAL_BYTES) {
-      throw new CatalogCredentialError(
-        path,
-        ref,
-        `is shorter than ${MIN_CREDENTIAL_BYTES} bytes`,
-      );
-    }
-    return value;
-  };
+  const resolved = (path: string, ref: CredentialRef): string =>
+    resolveCredential(path, ref, lookup);
   const profiles: Record<string, CatalogProfile> = {};
   for (const [id, profile] of Object.entries(
     sessionCatalogView(config).profiles,

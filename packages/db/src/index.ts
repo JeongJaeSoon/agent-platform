@@ -15,6 +15,7 @@ export * from "./enqueue.ts";
 export * from "./execution-revocation.ts";
 export * from "./identity.ts";
 export * from "./identity-reader.ts";
+export * from "./installation-profiles.ts";
 export * from "./interrupt-control.ts";
 export * from "./invites.ts";
 export * from "./lease-reconcile.ts";

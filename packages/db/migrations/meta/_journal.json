@@ -673,6 +673,13 @@
       "when": 1793140842344,
       "tag": "0186_slack_outbox_instruction",
       "breakpoints": true
+    },
+    {
+      "idx": 187,
+      "version": "7",
+      "when": 1793170234679,
+      "tag": "0187_installation_profiles",
+      "breakpoints": true
     }
   ]
 }

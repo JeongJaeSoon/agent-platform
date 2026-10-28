@@ -106,11 +106,11 @@ describe("control host executable", () => {
           join(dir, "profiles.yaml"),
           `profiles:
   coding:
-    runtime_kind: claude_agent_sdk
+    runtime_kind: codex_app_server
     runtime_version: "0.3.270"
     model: claude-sonnet-5
     tools: [Read]
-    permission_mode: bypassPermissions
+    permission_mode: default
     provider:
       kind: anthropic
       endpoint: https://api.anthropic.invalid
@@ -135,7 +135,7 @@ describe("control host executable", () => {
         });
         expect(once.exitCode).not.toBe(0);
         expect(once.stderr).toContain(
-          "PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true",
+          "Runtime codex_app_server is not installed",
         );
       } finally {
         await rm(dir, { recursive: true, force: true });

@@ -3143,3 +3143,55 @@ export const workspaceProfiles = pgTable(
     ),
   ],
 );
+
+// The installation's ceilings (docs/contributing/decisions/profile-db.md §1).
+// A row never changes but `retired_at`/`retired_by`; `definition` is the
+// profile entry as `catalogProfileConfigSchema` parses it, credential
+// references only.
+export const installationProfiles = pgTable(
+  "installation_profiles",
+  {
+    id: text().primaryKey(),
+    name: text(),
+    version: integer().notNull(),
+    origin: text().notNull(),
+    definition: jsonb().$type<Record<string, unknown>>().notNull(),
+    permissionMode: text("permission_mode").notNull(),
+    fingerprint: text().notNull(),
+    repositoryIds: jsonb("repository_ids").$type<string[]>().notNull(),
+    previousId: text("previous_id"),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    retiredAt: timestamp("retired_at", { withTimezone: true }),
+    retiredBy: uuid("retired_by").references(() => users.id),
+  },
+  (table) => [
+    uniqueIndex("installation_profiles_console_version_key")
+      .on(table.name, table.version)
+      .where(sql`${table.origin} = 'console'`),
+    check("installation_profiles_id_check", sql`${table.id} NOT LIKE 'ws\\_%'`),
+    check(
+      "installation_profiles_origin_check",
+      sql`${table.origin} IN ('catalog', 'console')`,
+    ),
+    check(
+      "installation_profiles_name_check",
+      sql`(${table.origin} = 'catalog') = (${table.name} IS NULL)`,
+    ),
+    check("installation_profiles_version_check", sql`${table.version} >= 1`),
+    check(
+      "installation_profiles_permission_mode_check",
+      sql`${table.permissionMode} IN (${sql.raw(sqlList(PERMISSION_MODE_VALUES))})`,
+    ),
+    check(
+      "installation_profiles_definition_mode_check",
+      sql`${table.permissionMode} = ${table.definition}->>'permission_mode'`,
+    ),
+    check(
+      "installation_profiles_retired_check",
+      sql`(${table.retiredAt} IS NULL) = (${table.retiredBy} IS NULL)`,
+    ),
+  ],
+);

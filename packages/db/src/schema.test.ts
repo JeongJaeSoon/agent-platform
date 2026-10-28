@@ -80,6 +80,7 @@ describe("database schema", () => {
       "executions",
       "grants",
       "idempotency_keys",
+      "installation_profiles",
       "invites",
       "linked_accounts",
       "login_methods",
