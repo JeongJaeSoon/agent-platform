@@ -439,6 +439,14 @@ describe("readCatalogConfig", () => {
     }
   });
 
+  test("without profiles.yaml the catalog has no profiles to import and the repositories still load", async () => {
+    const config = await readCatalogConfig(
+      await dirWith({ [PROFILES_FILE]: undefined }),
+    );
+    expect(config.profiles).toEqual({});
+    expect(Object.keys(config.repositories)).toEqual(["sample-app"]);
+  });
+
   test("a key defined twice is refused, not resolved to the last one", async () => {
     const dir = await dirWith({
       [PROFILES_FILE]: PROFILES.replace(
