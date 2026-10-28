@@ -35,7 +35,7 @@ export const agentsKo = {
   "agents.cards.unavailable": "불러오지 못함",
   "agents.cards.open": "자세히",
   "agents.cards.instructions": "지시문",
-  "agents.cards.admins": "담당",
+  "agents.cards.admins": "관리자",
   "agents.updated": "{at} 수정",
   "agents.state.notReleased": "아직 쓸 수 없음",
   "agents.state.draft": "초안",
@@ -289,7 +289,7 @@ export const agentsKo = {
   "agentAdmins.add": "관리자로 추가",
   "agentAdmins.nothingLeft":
     "추가할 수 있는 사람이나 팀이 없습니다. 활성 구성원과 팀이 모두 이미 관리자입니다.",
-  "agentAdmins.since": "{date}부터 담당",
+  "agentAdmins.since": "{date}부터 관리자",
   "agentAdmins.added": "{name}을(를) 관리자로 추가했습니다.",
   "agentAdmins.removed": "{name}을(를) 관리자에서 뺐습니다.",
   "agentAdmins.mine.title": "내가 관리하는 에이전트",
@@ -349,7 +349,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.name": "Name",
   "agents.slug": "Identifier",
   "agents.slugHint":
-    "Tells this agent apart in the workspace, shows in the list and on its page, and no other agent can use it. Lowercase letters, digits and hyphens (-). Filled in from the name; you can change it. Cannot be changed once saved",
+    "Tells this agent apart in the workspace, shows in the list and on its page, and no other agent can use it. Lowercase letters, digits and hyphens (-). Filled in from the name; you can change it. Cannot be changed once saved.",
   "agents.slugLocked":
     "The draft is saved, so the identifier can no longer change",
   "agents.slugTaken":
@@ -626,7 +626,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.cards.unavailable": "読み込めません",
   "agents.cards.open": "詳細",
   "agents.cards.instructions": "指示文",
-  "agents.cards.admins": "担当",
+  "agents.cards.admins": "管理者",
   "agents.updated": "{at}に更新",
   "agents.state.notReleased": "まだ使用できません",
   "agents.state.draft": "下書き",
@@ -879,7 +879,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agentAdmins.add": "管理者に追加",
   "agentAdmins.nothingLeft":
     "追加できる人やチームがいません。有効なメンバーとチームはすべて管理者です。",
-  "agentAdmins.since": "{date}から担当",
+  "agentAdmins.since": "{date}から管理者",
   "agentAdmins.added": "{name}を管理者に追加しました。",
   "agentAdmins.removed": "{name}を管理者から外しました。",
   "agentAdmins.mine.title": "管理しているエージェント",

@@ -754,7 +754,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         description:
           "Counts only sessions shared with you or started by you · Pick a status to open the session list · Refreshed every 30 seconds",
         status: (status) => STATUS_EN[status],
-        slots: "Concurrent slots · entire installation",
+        slots: "Concurrent slots · whole installation",
         slotsUsed: (used, limit) => [used, ` / ${limit} in use`],
         slotsMeter: "Concurrent slot use, whole installation",
         loading: "Loading session counts",

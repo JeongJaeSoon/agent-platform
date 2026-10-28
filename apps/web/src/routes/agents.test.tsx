@@ -452,7 +452,7 @@ describe("에이전트 카드", () => {
     const dot = card.querySelector("[data-slot=status-dot]");
     expect(dot?.getAttribute("data-status")).toBe("failed");
     expect(dot?.getAttribute("aria-hidden")).toBe("true");
-    expect(card.textContent).toContain("담당 Owner");
+    expect(card.textContent).toContain("관리자: Owner");
   });
 
   test("API에 없는 답변 대기·스킬 줄은 두지 않고, 카드는 이름 하나로 열린다", async () => {
@@ -644,7 +644,7 @@ describe("에이전트 카드", () => {
       expect(fact(card, "MCP")).toBe("linear");
       expect(fact(card, "자격 증명")).toBe("연결 필요 1개");
       expect(card.textContent).toContain(CARD.instructions);
-      expect(card.textContent).toContain("담당 Owner, 재무팀");
+      expect(card.textContent).toContain("관리자: Owner, 재무팀");
       expect(api.calls.find((c) => c.path === "/v1/agents")?.search).toContain(
         "include=summary",
       );
@@ -656,7 +656,7 @@ describe("에이전트 카드", () => {
     test("창이나 네트워크로 돌아와도 이미 불러온 카드를 다시 부르지 않는다", async () => {
       const { api } = renderAt("/agents", { ...meOk, ...releasedServer() });
       const card = await cardFor("결제 담당");
-      await waitFor(() => expect(card.textContent).toContain("담당 Owner"));
+      await waitFor(() => expect(card.textContent).toContain("관리자: Owner"));
       await waitFor(() => expect(detailCalls(api).length).toBe(3));
       act(() => {
         focusManager.setFocused(false);
