@@ -29,7 +29,6 @@ import {
   KeyValueList,
   NativeSelect,
   NativeSelectOption,
-  Section,
 } from "@werft-ai/ui";
 import { type FormEvent, useId, useState } from "react";
 import { queryKeysOf } from "../api/queries.ts";
@@ -185,240 +184,306 @@ export function ProfileEditor({
       model: models.includes(draft.model) ? draft.model : (models[0] ?? ""),
     });
 
-  const title =
-    start.mode === "new"
-      ? t("profiles.editor.createTitle")
-      : t(
-          start.mode === "version"
-            ? "profiles.editor.versionTitle"
-            : "profiles.editor.remakeTitle",
-          { name: start.from.workspace?.name ?? start.from.id },
-        );
+  // The review compares with the version it follows, or the base picked now.
+  const before = start.mode === "new" ? base : start.from;
+  const join = (values: readonly string[]) =>
+    values.length === 0 ? t("profiles.noTools") : values.join(", ");
 
   return (
-    <Section title={title} description={t("profiles.editor.description")}>
-      <form
-        className="flex flex-col gap-[var(--ap-space-block)] rounded-card border bg-card p-4"
-        noValidate
-        onSubmit={submit}
-      >
-        {fixed ? null : (
-          <Field className="w-auto max-w-full">
-            <FieldLabel>{t("profiles.editor.base")}</FieldLabel>
-            <NativeSelect
-              value={draft.base_profile_id}
-              disabled={save.isPending}
-              onChange={(event) => {
-                const next = operators.find(
-                  (item) => item.id === event.target.value,
-                );
-                if (next) setDraft(fromBase(next, draft.name));
-              }}
-            >
-              <ProfileOptions profiles={operators} label={(item) => item.id} />
-            </NativeSelect>
-          </Field>
-        )}
-        {base ? <BaseSummary base={base} /> : null}
-
-        <Alert variant="blue">
-          <AlertDescription>
-            {t("profiles.editor.autoRulesNote")}
-          </AlertDescription>
-        </Alert>
-
-        <Field>
-          <FieldLabel>{t("profiles.editor.name")}</FieldLabel>
-          <Input
-            name="profile-name"
-            autoComplete="off"
-            maxLength={40}
-            value={draft.name}
-            readOnly={fixed || save.isPending}
-            onChange={(event) =>
-              setDraft({ ...draft, name: event.target.value })
-            }
-          />
-          <FieldDescription>
-            {name.success
-              ? t("profiles.editor.preview", {
-                  id: nextId(name.data),
-                })
-              : t("profiles.editor.nameHint")}
-          </FieldDescription>
-          <FieldError>{submitted ? nameError : undefined}</FieldError>
+    <form
+      className="flex flex-col gap-[var(--ap-space-block)] rounded-card border bg-card p-4"
+      noValidate
+      onSubmit={submit}
+    >
+      {fixed ? null : (
+        <Field className="w-auto max-w-full">
+          <FieldLabel>{t("profiles.editor.base")}</FieldLabel>
+          <NativeSelect
+            value={draft.base_profile_id}
+            disabled={save.isPending}
+            onChange={(event) => {
+              const next = operators.find(
+                (item) => item.id === event.target.value,
+              );
+              if (next) setDraft(fromBase(next, draft.name));
+            }}
+          >
+            <ProfileOptions profiles={operators} label={(item) => item.id} />
+          </NativeSelect>
         </Field>
+      )}
+      {base ? <BaseSummary base={base} /> : null}
 
-        {choices ? (
-          <>
-            <FieldSet className="gap-3">
-              <FieldLegend variant="label" className="mb-0">
-                {t("profiles.editor.models")}
-              </FieldLegend>
-              <FieldDescription>
-                {t("profiles.editor.modelsHint")}
-              </FieldDescription>
-              {choices.models.map((model) => (
-                <Field key={model} orientation="horizontal">
-                  <Checkbox
-                    checked={draft.models.includes(model)}
-                    disabled={save.isPending}
-                    onCheckedChange={(checked) =>
-                      setModels(toggle(draft.models, model, checked === true))
-                    }
-                  />
-                  <FieldContent>
-                    <FieldLabel className="font-mono">{model}</FieldLabel>
-                  </FieldContent>
-                </Field>
-              ))}
-              <FieldError>{submitted ? modelsError : undefined}</FieldError>
-            </FieldSet>
+      <Alert variant="blue">
+        <AlertDescription>
+          {t("profiles.editor.autoRulesNote")}
+        </AlertDescription>
+      </Alert>
 
-            {draft.models.length > 1 ? (
-              <Field className="w-auto max-w-full">
-                <FieldLabel>{t("profiles.editor.defaultModel")}</FieldLabel>
-                <NativeSelect
-                  value={draft.model}
+      <Field>
+        <FieldLabel>{t("profiles.editor.name")}</FieldLabel>
+        <Input
+          name="profile-name"
+          autoComplete="off"
+          maxLength={40}
+          value={draft.name}
+          readOnly={fixed || save.isPending}
+          onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+        />
+        <FieldDescription>
+          {name.success
+            ? t("profiles.editor.preview", {
+                id: nextId(name.data),
+              })
+            : t("profiles.editor.nameHint")}
+        </FieldDescription>
+        <FieldError>{submitted ? nameError : undefined}</FieldError>
+      </Field>
+
+      {choices ? (
+        <>
+          <FieldSet className="gap-3">
+            <FieldLegend variant="label" className="mb-0">
+              {t("profiles.editor.models")}
+            </FieldLegend>
+            <FieldDescription>
+              {t("profiles.editor.modelsHint")}
+            </FieldDescription>
+            {choices.models.map((model) => (
+              <Field key={model} orientation="horizontal">
+                <Checkbox
+                  checked={draft.models.includes(model)}
                   disabled={save.isPending}
-                  onChange={(event) =>
-                    setDraft({ ...draft, model: event.target.value })
+                  onCheckedChange={(checked) =>
+                    setModels(toggle(draft.models, model, checked === true))
                   }
-                >
-                  {draft.models.map((model) => (
-                    <NativeSelectOption key={model} value={model}>
-                      {model}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
+                />
+                <FieldContent>
+                  <FieldLabel className="font-mono">{model}</FieldLabel>
+                </FieldContent>
               </Field>
-            ) : null}
+            ))}
+            <FieldError>{submitted ? modelsError : undefined}</FieldError>
+          </FieldSet>
 
-            <FieldSet className="gap-3">
-              <FieldLegend variant="label" className="mb-0">
-                {t("profiles.editor.tools")}
-              </FieldLegend>
-              <FieldDescription>
-                {choices.tools.length === 0
-                  ? t("profiles.noTools")
-                  : t("profiles.editor.toolsHint")}
-              </FieldDescription>
-              {choices.tools.map((tool) => (
-                <Field key={tool} orientation="horizontal">
-                  <Checkbox
-                    checked={draft.tools.includes(tool)}
-                    disabled={save.isPending}
-                    onCheckedChange={(checked) =>
-                      setDraft({
-                        ...draft,
-                        tools: toggle(draft.tools, tool, checked === true),
-                      })
-                    }
-                  />
-                  <FieldContent>
-                    <FieldLabel className="font-mono">{tool}</FieldLabel>
-                  </FieldContent>
-                </Field>
-              ))}
-            </FieldSet>
-
+          {draft.models.length > 1 ? (
             <Field className="w-auto max-w-full">
-              <FieldLabel>{t("profiles.editor.permissionMode")}</FieldLabel>
+              <FieldLabel>{t("profiles.editor.defaultModel")}</FieldLabel>
               <NativeSelect
-                value={draft.permission_mode}
+                value={draft.model}
                 disabled={save.isPending}
-                aria-describedby={bypassChosen ? riskId : undefined}
                 onChange={(event) =>
-                  setDraft({
-                    ...draft,
-                    permission_mode: event.target
-                      .value as Draft["permission_mode"],
-                  })
+                  setDraft({ ...draft, model: event.target.value })
                 }
               >
-                {choices.permission_modes.map((mode) => (
-                  <NativeSelectOption key={mode} value={mode}>
-                    {mode}
-                  </NativeSelectOption>
-                ))}
-                {closedModes.map((mode) => (
-                  <NativeSelectOption key={mode} value={mode} disabled>
-                    {mode}
+                {draft.models.map((model) => (
+                  <NativeSelectOption key={model} value={model}>
+                    {model}
                   </NativeSelectOption>
                 ))}
               </NativeSelect>
-              <FieldDescription>
-                {t("profiles.editor.modeHint")}
-              </FieldDescription>
-              {closedModes.map((mode) => (
-                <FieldDescription key={mode}>
-                  {t(
-                    mode === "auto"
-                      ? "profiles.editor.autoClosed"
-                      : "profiles.editor.bypassClosed",
-                  )}
-                </FieldDescription>
-              ))}
             </Field>
-            {bypassChosen ? (
-              <Alert id={riskId} variant="amber">
-                <AlertDescription>
-                  {t("profiles.editor.bypassRisk")}
-                </AlertDescription>
-              </Alert>
-            ) : null}
-          </>
-        ) : null}
+          ) : null}
 
-        <Field className="w-auto max-w-full">
-          <div className="flex items-center gap-2">
-            <FieldLabel>{t("profiles.editor.scriptCeiling")}</FieldLabel>
-            <Badge variant="gray">{t("profiles.editor.scriptLater")}</Badge>
-          </div>
-          <NativeSelect disabled value="none" onChange={() => undefined}>
-            <NativeSelectOption value="none">
-              {t("profiles.editor.scriptNone")}
-            </NativeSelectOption>
-          </NativeSelect>
-          <FieldDescription>{t("profiles.editor.scriptHint")}</FieldDescription>
-        </Field>
+          <FieldSet className="gap-3">
+            <FieldLegend variant="label" className="mb-0">
+              {t("profiles.editor.tools")}
+            </FieldLegend>
+            <FieldDescription>
+              {choices.tools.length === 0
+                ? t("profiles.noTools")
+                : t("profiles.editor.toolsHint")}
+            </FieldDescription>
+            {choices.tools.map((tool) => (
+              <Field key={tool} orientation="horizontal">
+                <Checkbox
+                  checked={draft.tools.includes(tool)}
+                  disabled={save.isPending}
+                  onCheckedChange={(checked) =>
+                    setDraft({
+                      ...draft,
+                      tools: toggle(draft.tools, tool, checked === true),
+                    })
+                  }
+                />
+                <FieldContent>
+                  <FieldLabel className="font-mono">{tool}</FieldLabel>
+                </FieldContent>
+              </Field>
+            ))}
+          </FieldSet>
 
-        {error === null ? null : (
-          <Alert variant="red" role="alert">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-          <p className="m-0 text-caption text-muted-foreground">
-            {t("profiles.editor.saveNote")}
-          </p>
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="aria-disabled:opacity-50"
-              aria-disabled={save.isPending || undefined}
-              onClick={() => {
-                if (!save.isPending) onCancel();
-              }}
+          <Field className="w-auto max-w-full">
+            <FieldLabel>{t("profiles.editor.permissionMode")}</FieldLabel>
+            <NativeSelect
+              value={draft.permission_mode}
+              disabled={save.isPending}
+              aria-describedby={bypassChosen ? riskId : undefined}
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  permission_mode: event.target
+                    .value as Draft["permission_mode"],
+                })
+              }
             >
-              {t("common.cancel")}
-            </Button>
-            {/* aria-disabled, not disabled: Enter on it keeps the focus there. */}
-            <Button
-              type="submit"
-              className="aria-disabled:opacity-50"
-              aria-disabled={save.isPending || undefined}
-            >
-              {save.isPending
-                ? t("profiles.editor.saving")
-                : t("profiles.editor.save")}
-            </Button>
-          </div>
+              {choices.permission_modes.map((mode) => (
+                <NativeSelectOption key={mode} value={mode}>
+                  {mode}
+                </NativeSelectOption>
+              ))}
+              {closedModes.map((mode) => (
+                <NativeSelectOption key={mode} value={mode} disabled>
+                  {mode}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+            <FieldDescription>{t("profiles.editor.modeHint")}</FieldDescription>
+            {closedModes.map((mode) => (
+              <FieldDescription key={mode}>
+                {t(
+                  mode === "auto"
+                    ? "profiles.editor.autoClosed"
+                    : "profiles.editor.bypassClosed",
+                )}
+              </FieldDescription>
+            ))}
+          </Field>
+          {bypassChosen ? (
+            <Alert id={riskId} variant="amber">
+              <AlertDescription>
+                {t("profiles.editor.bypassRisk")}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+        </>
+      ) : null}
+
+      <Field className="w-auto max-w-full">
+        <div className="flex items-center gap-2">
+          <FieldLabel>{t("profiles.editor.scriptCeiling")}</FieldLabel>
+          <Badge variant="gray">{t("profiles.editor.scriptLater")}</Badge>
         </div>
-      </form>
-    </Section>
+        <NativeSelect disabled value="none" onChange={() => undefined}>
+          <NativeSelectOption value="none">
+            {t("profiles.editor.scriptNone")}
+          </NativeSelectOption>
+        </NativeSelect>
+        <FieldDescription>{t("profiles.editor.scriptHint")}</FieldDescription>
+      </Field>
+
+      <ChangeReview
+        against={start.mode === "new" ? draft.base_profile_id : start.from.id}
+        rows={[
+          {
+            id: "models",
+            label: t("profiles.editor.models"),
+            before: join(before?.models ?? []),
+            after: join(draft.models),
+          },
+          {
+            id: "model",
+            label: t("profiles.editor.defaultModel"),
+            before: before?.model ?? "",
+            after: draft.model,
+          },
+          {
+            id: "tools",
+            label: t("profiles.editor.tools"),
+            before: join(before?.tools ?? []),
+            after: join(draft.tools),
+          },
+          {
+            id: "mode",
+            label: t("profiles.editor.permissionMode"),
+            before: before?.permission_mode ?? "",
+            after: draft.permission_mode,
+          },
+        ]}
+      />
+
+      {error === null ? null : (
+        <Alert variant="red" role="alert">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+        <p className="m-0 text-caption text-muted-foreground">
+          {t("profiles.editor.saveNote")}
+        </p>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="aria-disabled:opacity-50"
+            aria-disabled={save.isPending || undefined}
+            onClick={() => {
+              if (!save.isPending) onCancel();
+            }}
+          >
+            {t("common.cancel")}
+          </Button>
+          {/* aria-disabled, not disabled: Enter on it keeps the focus there. */}
+          <Button
+            type="submit"
+            className="aria-disabled:opacity-50"
+            aria-disabled={save.isPending || undefined}
+          >
+            {save.isPending
+              ? t("profiles.editor.saving")
+              : t("profiles.editor.save")}
+          </Button>
+        </div>
+      </div>
+    </form>
+  );
+}
+
+/** The fields that differ from what a new profile starts from; the rest are left out. */
+export function ChangeReview({
+  against,
+  rows,
+}: {
+  /** The profile the values are compared with. */
+  readonly against: string;
+  readonly rows: readonly {
+    readonly id: string;
+    readonly label: string;
+    readonly before: string;
+    readonly after: string;
+  }[];
+}) {
+  const { t } = useI18n();
+  const changed = rows.filter((row) => row.before !== row.after);
+  return (
+    <FieldSet className="gap-2 rounded-card border bg-muted/40 p-3">
+      <FieldLegend variant="label" className="mb-0">
+        {t("profiles.review.title")}
+      </FieldLegend>
+      <FieldDescription>
+        {t(
+          changed.length === 0
+            ? "profiles.review.none"
+            : "profiles.review.text",
+          {
+            id: against,
+          },
+        )}
+      </FieldDescription>
+      {changed.length === 0 ? null : (
+        <KeyValueList
+          items={changed.map((row) => ({
+            id: row.id,
+            label: row.label,
+            value: t("profiles.review.change", {
+              before: row.before || "—",
+              after: row.after || "—",
+            }),
+          }))}
+        />
+      )}
+    </FieldSet>
   );
 }
 
@@ -426,12 +491,9 @@ function BaseSummary({ base }: { readonly base: ProfileSummary }) {
   const { t } = useI18n();
   return (
     <div className="flex flex-col gap-2 rounded-card border bg-muted/40 p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="font-medium text-body">
-          {t("profiles.editor.baseHeading", { id: base.id })}
-        </span>
-        <Badge variant="gray">{t("profiles.editor.managedInSettings")}</Badge>
-      </div>
+      <span className="font-medium text-body">
+        {t("profiles.editor.baseHeading", { id: base.id })}
+      </span>
       <KeyValueList
         items={[
           {
