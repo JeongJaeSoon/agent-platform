@@ -8,10 +8,12 @@ import {
 } from "@werft-ai/contracts";
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import { NOT_FOUND } from "../musterrolle/service-errors.ts";
+import type { InstallationProfileRecord } from "../ports/installation-profile-store.ts";
 import type { TeamActor } from "../ports/team-store.ts";
 import type { WorkspaceProfileStore } from "../ports/workspace-profile-store.ts";
 import {
   type CatalogProfileView,
+  catalogProfileConfigSchema,
   derivationPolicyOf,
   isUnmetered,
   profileAllowsRepository,
@@ -142,32 +144,52 @@ function workspaceSummary(
  * An installation ceiling as listed, whatever its state: one that does not
  * run here is described from its stored definition. Undefined for an id
  * with neither (a row that no longer parses).
+ *
+ * `written` is a row this process just committed, so the answer to that
+ * write holds even when the snapshot has not read it yet: a new row is
+ * `usable` (the write was refused otherwise) and a retired one `retired`.
  */
 export function operatorSummary(
   catalog: SessionCatalogView,
   id: string,
+  written?: { record: InstallationProfileRecord; connectionId: string | null },
 ): ProfileSummary | undefined {
   const entry = catalog.installation?.get(id);
+  const definition =
+    entry?.definition ??
+    (written && catalogProfileConfigSchema.safeParse(written.record.definition))
+      ?.data;
   const profile = Object.hasOwn(catalog.profiles, id)
     ? catalog.profiles[id]
-    : entry?.definition &&
+    : definition &&
       sessionCatalogView({
-        profiles: { [id]: entry.definition },
+        profiles: { [id]: definition },
         repositories: {},
       }).profiles[id];
   if (!profile) return undefined;
-  const record = entry?.record;
+  const record = written?.record ?? entry?.record;
+  const current =
+    entry?.record !== undefined &&
+    (written === undefined ||
+      entry.record.retired_at?.getTime() ===
+        written.record.retired_at?.getTime());
+  const state = current
+    ? entry.state
+    : written?.record.retired_at
+      ? "retired"
+      : "usable";
   return {
     ...summaryOf(catalog, id, id, profile),
     source: "operator",
-    ...(entry && record
+    ...((entry || written) && record
       ? {
           installation: {
             name: record.name,
             version: record.version,
             origin: record.origin,
-            state: entry.state,
-            connection_id: entry.connection_id ?? null,
+            state,
+            connection_id:
+              entry?.connection_id ?? written?.connectionId ?? null,
             title_model: profile.title_model ?? null,
             project_settings: profile.project_settings ?? {
               claude_md: false,

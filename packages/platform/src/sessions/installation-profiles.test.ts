@@ -96,9 +96,13 @@ const apiKey = callerFor(
 
 function memoryStore(rows: InstallationProfileRecord[]) {
   const writes: CreateInstallationProfileInput[] = [];
+  const reads = { failing: false };
   const store: Pick<InstallationProfileStore, "listAll" | "create" | "retire"> =
     {
-      listAll: async () => rows.map((row) => ({ ...row })),
+      listAll: async () => {
+        if (reads.failing) throw new Error("the database went away");
+        return rows.map((row) => ({ ...row }));
+      },
       async create(input) {
         writes.push(input);
         const versions = rows.filter(
@@ -153,7 +157,7 @@ function memoryStore(rows: InstallationProfileRecord[]) {
         return { outcome: "retired", record: retired };
       },
     };
-  return { store, writes };
+  return { store, writes, reads };
 }
 
 function setup(
@@ -163,7 +167,7 @@ function setup(
   } = {},
 ) {
   const rows = options.rows ?? catalogRows({ seed: SEED });
-  const { store, writes } = memoryStore(rows);
+  const { store, writes, reads } = memoryStore(rows);
   const connections = { main: MAIN };
   const catalog = profileCatalog(
     { repositories: REPOSITORIES },
@@ -209,7 +213,7 @@ function setup(
     },
     catalog,
   });
-  return { service, versions, catalog, rows, writes };
+  return { service, versions, catalog, rows, writes, reads };
 }
 
 const REQUEST: CreateInstallationProfileRequest = {
@@ -375,6 +379,24 @@ describe("saving an installation ceiling", () => {
       expect([refused.code, refused.reason]).toEqual(["BAD_REQUEST", reason]);
     }
     expect(writes).toEqual([]);
+  });
+});
+
+describe("a write whose re-read fails", () => {
+  test("still answers what it committed: the new version usable, the retired one retired", async () => {
+    const { service, catalog, reads } = setup();
+    await catalog.workspace_profiles.refresh();
+    reads.failing = true;
+    const saved = await service.create(caller("owner"), REQUEST);
+    expect(saved.profile.id).toBe("op_coding_v1");
+    expect(saved.profile.installation).toMatchObject({
+      state: "usable",
+      connection_id: "main",
+      version: 1,
+    });
+    const retired = await service.retire(caller("owner"), "seed");
+    expect(retired.receipt_id).not.toBeNull();
+    expect(retired.profile.installation?.state).toBe("retired");
   });
 });
 

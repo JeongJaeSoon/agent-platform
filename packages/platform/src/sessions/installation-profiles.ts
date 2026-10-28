@@ -9,7 +9,10 @@ import {
 } from "@werft-ai/contracts";
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import { NOT_FOUND } from "../musterrolle/service-errors.ts";
-import type { InstallationProfileStore } from "../ports/installation-profile-store.ts";
+import type {
+  InstallationProfileRecord,
+  InstallationProfileStore,
+} from "../ports/installation-profile-store.ts";
 import type { TeamActor } from "../ports/team-store.ts";
 import {
   type CatalogProfileConfig,
@@ -85,11 +88,18 @@ export function createInstallationProfileService(deps: {
   }
 
   function changed(
-    id: string,
+    record: InstallationProfileRecord,
     receiptId: string | null,
+    connectionId: string | null = null,
   ): WorkspaceProfileChangeResponse {
-    const profile: ProfileSummary | undefined = operatorSummary(catalog, id);
-    if (!profile) throw new Error(`installation profile ${id} did not list`);
+    const profile: ProfileSummary | undefined = operatorSummary(
+      catalog,
+      record.id,
+      { record, connectionId },
+    );
+    if (!profile) {
+      throw new Error(`installation profile ${record.id} did not list`);
+    }
     return { profile, receipt_id: receiptId };
   }
 
@@ -250,7 +260,7 @@ export function createInstallationProfileService(deps: {
           );
         default:
           await reread();
-          return changed(result.record.id, receiptId);
+          return changed(result.record, receiptId, request.connection_id);
       }
     },
 
@@ -269,7 +279,7 @@ export function createInstallationProfileService(deps: {
         default:
           await reread();
           return changed(
-            result.record.id,
+            result.record,
             result.outcome === "retired" ? receiptId : null,
           );
       }
