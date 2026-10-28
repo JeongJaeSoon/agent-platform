@@ -13,7 +13,7 @@ owner·admin은 웹 콘솔 `/members`에서 초대 대화상자로 링크를 만
 - `disable` "비활성화"(`aria-label` "<이름> 비활성화")는 확인 대화상자 "<이름> 계정을 비활성화할까요?"를 거친다 → "<이름> 계정을 비활성화했습니다." 비활성화된 사람의 cookie 세션은 바로 끊긴다(`ap_web`이 401). "다시 활성화"는 바로 된다 → "… 다시 활성화했습니다. 이제 다시 로그인할 수 있습니다."
 - `agent-create` `/agents/new`(`?new-agent.step=name|job|release|activate`). ① "이름": 이름·식별자(이름에서 채워진다), "다음". ② "하는 일": 역할·지시 사항·답변 언어(select `ko`|`en`)·모델(select, 로컬 스택은 `claude-sonnet-5`)·도구 radio·금지 도구, "초안 저장하고 다음"(여기서 `POST /v1/agents`, 이후 나가도 초안으로 남는다). ③ "릴리스": 프로필 select("claude-coding-local · claude-sonnet-5", 카드 모델과 같은 프로필이 먼저 골라진다), "릴리스 만들기"(또는 "나중에 하기"). ④ "켜기": "에이전트 켜기" → "<이름>을(를) 켰습니다. 이제 새 세션이 이 에이전트를 씁니다."와 "에이전트 보기" 링크. owner·admin·member 모두 만든다(`me.permissions`의 `agent.create`).
 - `agent-save` 상세의 "카드" 탭(`?tab=card`)에서 고쳐 "저장"하면 "저장했습니다 — 버전 N. 아직 활성화되지 않았습니다. 릴리스 탭에서 릴리스를 만들고 활성화해야 반영됩니다." 바뀐 것 없으면 "저장했습니다. 카드 내용이 같아 새 버전은 생기지 않았습니다." version이 둘 이상이면 "비교 기준"·"비교 대상" select가 생긴다.
-- `release-activate` "릴리스" 탭(`?tab=release`)의 release 폼은 version select와 프로필 select다. "릴리스 만들기" → "release를 만들었습니다(버전 N). 아직 활성화되지 않았습니다.", 그 release의 "활성화" → "활성화됐습니다 — 이제 새 세션은 버전 N · claude-coding-local(으)로 시작합니다." 저장·release·활성화 문구는 서로 다르다.
+- `release-activate` "릴리스" 탭(`?tab=release`)의 release 폼은 version select와 프로필 select다. "릴리스 만들기" → "릴리스를 만들었습니다(버전 N). 아직 활성화되지 않았습니다.", 그 release의 "활성화" → "활성화됐습니다 — 이제 새 세션은 버전 N · claude-coding-local(으)로 시작합니다." 저장·release·활성화 문구는 서로 다르다.
 - `activate-conflict` 다른 탭이 먼저 활성화했으면 409 "다른 곳에서 활성 release를 먼저 바꿨습니다"와 "… 덮어쓰지 않고 멈췄습니다". "최신 상태 불러오기" 뒤 "보던 화면의 활성 release: …. 지금 활성 release: …."와 두 카드의 차이가 보이고, 그다음에야 다시 활성화된다.
 - `checklist` 홈 "시작하기"의 "구성원 초대하기"는 구성원이 둘 이상이거나 초대가 있으면, "에이전트 준비하기"는 활성 release가 있는 에이전트가 있으면 완료. 조회가 실패하면(member는 구성원 목록을 못 본다) "확인할 수 없음".
 

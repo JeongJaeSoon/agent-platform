@@ -218,7 +218,7 @@ node "$B" "$RUN" open /agents/new
 node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 ```
 
-기대: 목록 “전체”·“관리하는 에이전트” SegmentedControl과 개수, 카드/표 보기. 상세 탭은 개요·카드·릴리스·관리자. 배포에는 자격 연결 단계가 있다. 각 탭의 `aria-selected`가 true인지 출력으로 확인한다. Radix 탭은 `el.click()`만으로 활성화되지 않으므로 `press … Enter`를 쓴다. 탭 주소 `?tab=card|release|admins`, 개요는 생략한다. 새 에이전트 마법사 이름 → 하는 일 → 릴리스 → 켜기. 아래 마법사를 한 번 실행한다(이름이 겹치면 실패).
+기대: 목록 “전체”·“관리하는 에이전트” SegmentedControl과 개수, 카드/표 보기. 상세 탭은 개요·카드·릴리스·관리자. 릴리스 탭에는 자격 연결 단계가 있다. 각 탭의 `aria-selected`가 true인지 출력으로 확인한다. Radix 탭은 `el.click()`만으로 활성화되지 않으므로 `press … Enter`를 쓴다. 탭 주소 `?tab=card|release|admins`, 개요는 생략한다. 새 에이전트 마법사 이름 → 하는 일 → 릴리스 → 켜기. 아래 마법사를 한 번 실행한다(이름이 겹치면 실패).
 
 ```sh
 node "$B" "$RUN" type @0 'Member Helper'
