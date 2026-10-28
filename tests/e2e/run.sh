@@ -129,8 +129,8 @@ export EXECUTION_INSTALLATION_ID="e2e${run_id}"
 export API_IMAGE="agent-platform-control-host:${project}"
 export WORKER_IMAGE="agent-platform-worker:${project}"
 export EGRESS_PROXY_IMAGE="agent-platform-egress-proxy:${project}"
-# The first owner's, for tests/e2e/remote-mcp.e2e.ts: infra/compose.core.yml
-# passes it to the API.
+# The first owner's, for firstOwnerCookie in tests/e2e/client.ts:
+# infra/compose.core.yml passes it to the API.
 export BOOTSTRAP_TOKEN="$(openssl rand -hex 24)"
 label="agent-platform.installation=${EXECUTION_INSTALLATION_ID}"
 # E2E_COMPOSE_OVERRIDE: one more overlay after ours; CI passes
@@ -256,9 +256,9 @@ set +e
 if [ -n "$real_model$local_model" ]; then
   suites=(./tests/e2e/real-model.e2e.ts)
 else
-  # remote-mcp first: the other suites leave their sessions holding every
-  # execution slot.
-  suites=(./tests/e2e/remote-mcp.e2e.ts ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts)
+  # remote-mcp and operator-profiles first: the other suites leave their
+  # sessions holding every execution slot.
+  suites=(./tests/e2e/remote-mcp.e2e.ts ./tests/e2e/operator-profiles.e2e.ts ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts)
 fi
 # The suites drive the public API and never need the provider key.
 env -u ANTHROPIC_API_KEY bun test "${suites[@]}" --timeout 900000 \

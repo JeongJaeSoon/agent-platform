@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { randomBytes } from "node:crypto";
 import {
   Api,
   bash,
   type ErrorBody,
   e2eEnv,
+  firstOwnerCookie,
   PROFILE_ID,
   poll,
   REPOSITORY_ID,
@@ -18,8 +18,9 @@ import {
  * An agent whose card names the catalog's `fake` MCP server
  * (config/fake-model/mcp-servers.yaml) calls it through the egress proxy
  * with its service account, on the stack tests/e2e/run.sh started. The
- * agent, its binding and the web key come from a user this suite bootstraps
- * into the `verify` workspace the catalog allows. The fake server's control
+ * agent, its binding and the web key come from the stack's first owner
+ * (firstOwnerCookie), in the `verify` workspace the catalog allows. The
+ * fake server's control
  * port reports how many tool calls reached it and the sha256 of each bearer
  * it accepted, never the bearer.
  */
@@ -161,24 +162,7 @@ function textOf(event: SseEvent | undefined): string {
 }
 
 beforeAll(async () => {
-  const email = "mcp-owner@example.test";
-  const password = randomBytes(18).toString("base64url");
-  const booted = await web("POST", "/v1/auth/bootstrap", {
-    bootstrap_token: bootstrapToken,
-    email,
-    password,
-    display_name: "MCP Owner",
-    workspace_name: "Verify",
-    workspace_slug: "verify",
-  });
-  expect(booted.status).toBe(201);
-  const login = await web("POST", "/v1/auth/login", { email, password });
-  expect(login.status).toBe(200);
-  cookie =
-    login.headers
-      .getSetCookie()
-      .find((value) => value.startsWith("__Host-ap_session="))
-      ?.split(";")[0] ?? "";
+  cookie = await firstOwnerCookie(env.apiUrl, bootstrapToken);
   const key = await web<{ secret: string }>("POST", "/v1/api-keys", {
     kind: "personal",
     scopes: [
