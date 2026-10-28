@@ -14,10 +14,13 @@
  */
 
 import * as schema from "@werft-ai/db";
-import { createPostgresCheckpointStore } from "@werft-ai/db";
+import {
+  createPostgresCheckpointStore,
+  createPostgresInstallationProfileStore,
+  createPostgresWorkspaceProfileStore,
+} from "@werft-ai/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
-import { resolveSessionCatalog } from "@werft-ai/platform";
 import { claudeCheckpointCodec } from "@werft-ai/runtime-claude-codec";
 import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
 import {
@@ -26,7 +29,7 @@ import {
   describeBucketProtection,
 } from "@werft-ai/storage";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { readCatalogConfig } from "../../apps/control-host/src/api/catalog-config.ts";
+import { databaseCatalog } from "../../apps/control-host/src/api/catalog-config.ts";
 import {
   API_CHECKPOINT_CODECS,
   assertCheckpointBucketEncryption,
@@ -185,7 +188,8 @@ async function repin(dir: string) {
  * session pointer, and every object of every ready plan read back by the
  * version the plan names and found held. With an image, each plan is asked
  * for as a worker of that image would ask: its engine build, and the profile
- * digest its code computes from the claim the catalog in `configDir` gives.
+ * digest its code computes from the claim that `configDir` and the database's
+ * ceilings give.
  */
 async function plans(
   image: { name: string; configDir: string } | undefined,
@@ -264,10 +268,13 @@ async function plans(
   if (image !== undefined) {
     // Credentials are resolved to a stand-in: the claim carries a token in
     // their place and the digest reads neither.
-    const catalog = resolveSessionCatalog(
-      await readCatalogConfig(image.configDir),
-      () => "verify-restore-reads-no-credential",
-    );
+    const db = drizzle(pool, { schema });
+    const catalog = await databaseCatalog({
+      dir: image.configDir,
+      installations: createPostgresInstallationProfileStore(db),
+      workspaces: createPostgresWorkspaceProfileStore(db),
+      credential: () => "verify-restore-reads-no-credential",
+    });
     const claims: Record<string, unknown> = {};
     for (const pointer of pointers) {
       try {

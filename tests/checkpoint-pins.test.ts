@@ -7,11 +7,12 @@ import { MAX_RESTORE_PROFILES } from "@werft-ai/contracts";
 import {
   type CatalogProfile,
   type CheckpointPointer,
+  catalogRows,
   createCheckpointService,
+  type InstallationProfileRecord,
   manifestRefFor,
   profileFingerprint,
   profileWithModel,
-  resolveSessionCatalog,
   withSeededInstallation,
 } from "@werft-ai/platform";
 import {
@@ -35,6 +36,7 @@ import {
   type GitBundleFixture,
 } from "@werft-ai/testkit/git-bundle";
 import {
+  databaseCatalog,
   readCatalogConfig,
   readSeedProfiles,
 } from "../apps/control-host/src/api/catalog-config.ts";
@@ -708,17 +710,24 @@ describe("backup → restore re-pin", () => {
 describe("plans against a target worker image (verify-restore.sh --image)", () => {
   const PROFILE_ID = "claude-coding-real";
   const REPOSITORY_ID = "sample-app";
-  // The API's default catalog, credentials standing in as verify-restore's do.
-  const catalog = async () => {
-    const dir = join(import.meta.dir, "../config");
-    const config = await readCatalogConfig(dir);
-    return withSeededInstallation(
-      resolveSessionCatalog(
-        { ...config, profiles: await readSeedProfiles(dir, config) },
-        () => "verify-restore-reads-no-credential",
-      ),
+  const CONFIG_DIR = join(import.meta.dir, "../config");
+  // The rows the API's default config seeds an empty database with.
+  const seededRows = async () => {
+    const config = await readCatalogConfig(CONFIG_DIR);
+    return catalogRows(
+      await readSeedProfiles(CONFIG_DIR, config),
+      config.repositories,
     );
   };
+  // What verify-restore builds: those rows, credentials standing in.
+  const catalogOver = async (rows: InstallationProfileRecord[]) =>
+    databaseCatalog({
+      dir: CONFIG_DIR,
+      installations: { listAll: async () => rows },
+      workspaces: { listAll: async () => [] },
+      credential: () => "verify-restore-reads-no-credential",
+    });
+  const catalog = async () => catalogOver(await seededRows());
   const sessionOf = async (overrides: {
     branch?: string;
     model?: string | null;
@@ -749,6 +758,33 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     claims: Record<string, unknown>,
     fingerprint?: Parameters<typeof imageRuntimeOf>[1],
   ) => parseImageRuntime(JSON.stringify(imageRuntimeOf(claims, fingerprint)));
+
+  test("a ceiling the database holds and profiles.yaml never had gives its session a claim", async () => {
+    const rows = await seededRows();
+    const imported = rows.find((row) => row.id === PROFILE_ID);
+    if (imported === undefined) throw new Error("no seeded row");
+    const consoleId = "op_restore_v1";
+    const resolved = await catalogOver([
+      ...rows,
+      {
+        ...imported,
+        id: consoleId,
+        name: "restore",
+        origin: "console",
+        repository_ids: [REPOSITORY_ID],
+      },
+    ]);
+    const profile = resolved.profiles[consoleId] as CatalogProfile;
+    expect(profile).toBeDefined();
+    const claim = sessionClaim(
+      await sessionOf({
+        profileId: consoleId,
+        profileFingerprint: profileFingerprint(profile),
+      }),
+      resolved,
+    );
+    expect(claim).toBeDefined();
+  });
 
   test("an image whose profile digest computation changed makes the plan incompatible; the sealing image stays ready", async () => {
     const claim = sessionClaim(await sessionOf({}), await catalog());

@@ -18,10 +18,13 @@ import {
   catalogCredentialRefs,
   catalogRepositoryIds,
   catalogRows,
+  createProfileRegistry,
   credentialRefOf,
   describeConfigError,
+  type InstallationProfileStore,
   installationProfileSnapshot,
   ProfileFeatureGate,
+  profileCatalog,
   resolveCredential,
   resolveSessionCatalog,
   SecretKey,
@@ -30,6 +33,7 @@ import {
   type SnapshotSources,
   sessionCatalogConfigSchema,
   sessionCatalogView,
+  type WorkspaceProfileStore,
 } from "@werft-ai/platform";
 import { installedDescriptors } from "@werft-ai/runtime-codecs";
 import { parse as parseYaml } from "yaml";
@@ -329,6 +333,44 @@ export async function loadSessionCatalog(options: {
     ),
   );
   return { ...loaded.catalog, profiles, installation };
+}
+
+/**
+ * The catalog the api's registry reads from `dir` and the database, every
+ * credential standing in as `credential`: for a check on the host, without
+ * the API's secrets, of what a claim would carry. Runtimes and the
+ * unattended switch are left to the caller's own check.
+ */
+export async function databaseCatalog(options: {
+  dir: string;
+  installations: Pick<InstallationProfileStore, "listAll">;
+  workspaces: Pick<WorkspaceProfileStore, "listAll">;
+  credential: () => string;
+}): Promise<SessionCatalog> {
+  const config = await readCatalogConfig(options.dir);
+  const registry = createProfileRegistry({
+    workspaces: options.workspaces,
+    installations: options.installations,
+    sources: {
+      connections: await readConnections(options.dir),
+      repositoryIdsOf: catalogRepositoryIds(config.repositories),
+      allowUnattended: true,
+      runtimeSupported: () => true,
+      materialize: (id, definition) => {
+        const profile = resolveSessionCatalog(
+          { profiles: { [id]: definition }, repositories: {} },
+          options.credential,
+        ).profiles[id];
+        if (!profile) throw new Error(`profile ${id} did not resolve`);
+        return profile;
+      },
+    },
+  });
+  await registry.refresh();
+  return profileCatalog(
+    resolveSessionCatalog(config, options.credential),
+    registry,
+  );
 }
 
 const platformConfigSchema = z
