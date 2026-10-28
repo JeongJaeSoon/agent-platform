@@ -8,7 +8,7 @@ import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { apiError, json, me, memberMe } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor, within } = await appHarness();
+const { act, renderAt, screen, waitFor, within } = await appHarness();
 
 const RECEIPT_ID = "00000000-0000-4000-8000-000000000001";
 
@@ -939,6 +939,41 @@ describe("실행 프로필", () => {
     expect(
       screen.queryAllByRole("button", { name: "프로필 만들기" }).length,
     ).toBe(0);
+  });
+
+  test("a base the list read again as retired is refused before the request", async () => {
+    const server = catalog();
+    const { api, services } = renderAt("/profiles", server.routes);
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "프로필 만들기" }),
+    );
+    const editor = await screen.findByRole("region", {
+      name: "프로필 만들기",
+    });
+    const base = within(editor).getByLabelText(
+      "바탕 프로필",
+    ) as HTMLSelectElement;
+    const picked = base.value;
+    const at = server.items.findIndex((item) => item.id === picked);
+    server.items[at] = inState(server.items[at] as ProfileSummary, "retired");
+    await act(() => services.queryClient.invalidateQueries());
+    await waitFor(() =>
+      expect(
+        Array.from(base.options).find((option) => option.value === picked)
+          ?.disabled,
+      ).toBe(true),
+    );
+    await user.type(within(editor).getByLabelText("이름"), "strict");
+    await user.click(
+      within(editor).getByRole("button", { name: "새 버전으로 저장" }),
+    );
+    expect(
+      await within(editor).findByText(
+        "그 바탕 프로필은 지금 쓸 수 없습니다. 사용할 수 있는 바탕 프로필을 고르세요.",
+      ),
+    ).toBeDefined();
+    expect(api.calls.filter((call) => call.method !== "GET")).toEqual([]);
   });
 
   test("a save over a base retired meanwhile says to pick a usable one", async () => {

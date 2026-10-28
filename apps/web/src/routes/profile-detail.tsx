@@ -29,6 +29,7 @@ import { agentsQuery, profilesQuery } from "../api/queries.ts";
 import { useHasPermission, useMe } from "../auth/guard.tsx";
 import { Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { pickable } from "../components/profile-options.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { type EditorStart, ProfileEditor } from "./profile-editor.tsx";
 import { nextVersionId, STATE_BADGE } from "./profiles.tsx";
@@ -60,7 +61,7 @@ export function ProfileDetailScreen() {
   const profile = items.find((item) => item.id === profileId);
   const operators = items.filter((item) => item.source === "operator");
   const base = operators.find(
-    (item) => item.id === profile?.workspace?.base_profile_id,
+    (item) => item.id === profile?.workspace?.base_profile_id && pickable(item),
   );
   const state = profile?.workspace?.state;
 
@@ -114,7 +115,9 @@ export function ProfileDetailScreen() {
   const start: EditorStart | null = !manages
     ? null
     : profile.source === "operator"
-      ? { mode: "new", base: profile }
+      ? pickable(profile)
+        ? { mode: "new", base: profile }
+        : null
       : base !== undefined && (state === "usable" || state === "base_changed")
         ? {
             mode: state === "usable" ? "version" : "remake",
