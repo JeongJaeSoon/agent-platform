@@ -55,29 +55,29 @@ describe("Page", () => {
     expect(sections?.textContent).toBe("목록");
   });
 
-  test("폼 화면은 머리는 페이지 폭 그대로, 섹션 열만 폼 폭에서 멈춘다", () => {
+  test("폼 화면은 머리와 섹션이 함께 폼 폭에서 멈춘다", () => {
     const { container } = render(
       <Page title="워크스페이스 설정" width="form">
         <section>설정</section>
       </Page>,
     );
-    const header = container.querySelector('[data-slot="page-header"]');
-    const sections = header?.nextElementSibling;
-    expect(sections?.getAttribute("data-width")).toBe("form");
-    expect(sections?.className).toContain("max-w-[var(--ap-w-form)]");
+    const page = container.querySelector('[data-slot="page"]');
+    expect(page?.getAttribute("data-width")).toBe("form");
+    expect(page?.className).toContain("max-w-[var(--ap-w-form)]");
+    const header = page?.querySelector('[data-slot="page-header"]');
+    expect(header?.parentElement === page).toBe(true);
     expect(header?.className).not.toContain("max-w-");
+    expect(header?.nextElementSibling?.className).not.toContain("max-w-");
   });
 
-  test("목록 화면은 섹션도 페이지 폭을 다 쓴다", () => {
+  test("목록 화면은 페이지 폭을 다 쓴다", () => {
     const { container } = render(
       <Page title="세션">
         <section>목록</section>
       </Page>,
     );
-    const sections = container.querySelector(
-      '[data-slot="page-header"]',
-    )?.nextElementSibling;
-    expect(sections?.getAttribute("data-width")).toBe("full");
-    expect(sections?.className).not.toContain("max-w-");
+    const page = container.querySelector('[data-slot="page"]');
+    expect(page?.getAttribute("data-width")).toBe("full");
+    expect(page?.className).not.toContain("max-w-");
   });
 });
