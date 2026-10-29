@@ -674,6 +674,34 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(await inboxStatuses()).toEqual(["processed"]);
   });
 
+  test("a reply in a thread whose profile the operator blocked since queues nothing and says so", async () => {
+    const fixture = await agentInSlack("general");
+    const { handle, notices } = handler();
+    await deliver(fixture, mention("100.000100"));
+    await drain(handle);
+    await db
+      .update(installationProfiles)
+      .set({ blockedAt: new Date(), blockedBy: fixture.ownerId })
+      .where(eq(installationProfiles.id, "general"));
+    // A profile read within the last second is not read again.
+    await Bun.sleep(1_100);
+    await deliver(
+      fixture,
+      message("100.000300", { thread_ts: "100.000100", text: "more" }),
+    );
+    await drain(handle);
+    const [session, ...others] = await sessionsOf(fixture);
+    expect(others).toEqual([]);
+    expect((await turnsOf(session?.id)).map((turn) => turn.message)).toEqual([
+      "summarize the thread",
+    ]);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({
+      reason: "profile_unavailable",
+      notice: { message: "profileUnavailable" },
+    });
+  });
+
   test("a release whose profile the operator blocked says so in the thread", async () => {
     const fixture = await agentInSlack("general");
     await db
