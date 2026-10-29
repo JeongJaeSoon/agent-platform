@@ -3,6 +3,7 @@ export * from "./api-keys.ts";
 export * from "./auth.ts";
 export * from "./authorization.ts";
 export * from "./credential-bindings.ts";
+export * from "./github-app.ts";
 export * from "./linked-accounts.ts";
 export * from "./session-shares.ts";
 export * from "./slack-apps.ts";

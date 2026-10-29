@@ -505,6 +505,36 @@ export const slackConfigTokens = pgTable(
   ],
 );
 
+// The workspace's GitHub App, registered in the console. Its private key is
+// a secret_values row owned by `github_app:<id>`. One per workspace for now;
+// a second App would drop the unique on workspace_id.
+export const githubApps = pgTable(
+  "github_apps",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    appId: bigint("app_id", { mode: "number" }).notNull(),
+    slug: text().notNull(),
+    name: text().notNull(),
+    htmlUrl: text("html_url").notNull(),
+    apiBase: text("api_base").notNull(),
+    /** No foreign key: the row outlives the account. */
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("github_apps_workspace_uniq").on(table.workspaceId),
+    check("github_apps_app_id_check", sql`${table.appId} > 0`),
+  ],
+);
+
 export const slackApps = pgTable(
   "slack_apps",
   {

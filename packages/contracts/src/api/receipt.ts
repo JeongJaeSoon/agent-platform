@@ -100,6 +100,10 @@ export const RECEIPT_OPERATION_VALUES = [
   // names its purpose and last four characters, never the value.
   "set_slack_secret",
   "delete_slack_secret",
+  // The workspace's GitHub App registered, replaced or removed; the receipt
+  // names the App id, never the key.
+  "set_github_app",
+  "delete_github_app",
   "create_workspace_profile",
   "retire_workspace_profile",
   "create_installation_profile",

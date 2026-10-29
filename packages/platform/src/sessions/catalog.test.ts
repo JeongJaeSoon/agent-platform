@@ -4,6 +4,7 @@ import {
   allowedPair,
   allowedRun,
   type CatalogProfile,
+  catalogCredentialRefs,
   catalogRevision,
   describeConfigError,
   environmentCredentials,
@@ -409,6 +410,47 @@ describe("catalog config schema", () => {
         expect(
           sessionCatalogConfigSchema.safeParse(config(configured, { app }))
             .success,
+        ).toBe(false);
+      }
+    });
+
+    test("{ kind: github_app } alone uses the App registered in the console, with no key to resolve", () => {
+      const registered = { ...github, auth: { kind: "github_app" } };
+      const catalog = load(
+        config(configured, { app: registered }),
+        environmentCredentials(env),
+      );
+      const app = catalog.repositories.app;
+      if (!app) throw new Error("no repository");
+      expect(app.auth).toEqual({ kind: "github_app", registered: true });
+      expect(
+        catalogCredentialRefs(
+          sessionCatalogConfigSchema.parse(
+            config(configured, { app: registered }),
+          ),
+        ).some(({ path }) => path.startsWith("repositories.")),
+      ).toBe(false);
+      expect(() => repositoryUpstreamOf(app)).toThrow(
+        /needs an issued credential/,
+      );
+      // Moving to it from a keyed entry moves the binding once.
+      const keyedApp = load(config(configured, { app: github }), keyed(pem))
+        .repositories.app;
+      if (!keyedApp) throw new Error("no repository");
+      expect(repositoryBinding("app", app)).not.toBe(
+        repositoryBinding("app", keyedApp),
+      );
+      // Half of the keyed form is neither.
+      for (const auth of [
+        { kind: "github_app", app_id: 101 },
+        { kind: "github_app", installation_id: 202 },
+        { kind: "github_app", value_env: "GITHUB_APP_KEY" },
+        { kind: "github_app", api_base: "https://ghes.example.invalid/api/v3" },
+      ]) {
+        expect(
+          sessionCatalogConfigSchema.safeParse(
+            config(configured, { app: { ...github, auth } }),
+          ).success,
         ).toBe(false);
       }
     });

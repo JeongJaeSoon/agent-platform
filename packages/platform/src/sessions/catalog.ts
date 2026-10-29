@@ -255,13 +255,15 @@ const staticRepositoryAuthSchema = z
 
 // A GitHub App installation: the API signs a JWT with the App's private key
 // (the referenced value, a PEM) and trades it for an installation token
-// scoped to this one repository and the access a route needs.
+// scoped to this one repository and the access a route needs. Written as
+// just `{ kind: github_app }`, the repository uses the App registered in the
+// console and the installation GitHub reports for it.
 export const GITHUB_API_BASE = "https://api.github.com";
 const githubAppAuthSchema = z
   .object({
     kind: z.literal("github_app"),
-    app_id: z.number().int().positive(),
-    installation_id: z.number().int().positive(),
+    app_id: z.number().int().positive().optional(),
+    installation_id: z.number().int().positive().optional(),
     ...credentialRefFields,
     // GHES: `https://<host>/api/v3`. The JWT and the token cross it, so
     // plain http only to a host inside the operator's network.
@@ -273,13 +275,39 @@ const githubAppAuthSchema = z
           isPrivateEndpointHost(new URL(value).hostname),
         { message: "must be https unless the host is private" },
       )
-      .default(GITHUB_API_BASE),
+      .optional(),
   })
   .strict()
   .refine(
-    (auth) => (auth.value_env === undefined) !== (auth.secret_id === undefined),
-    { message: "name exactly one of value_env or secret_id" },
+    (auth) =>
+      isRegisteredGitHubApp(auth) ||
+      (auth.app_id !== undefined &&
+        auth.installation_id !== undefined &&
+        (auth.value_env === undefined) !== (auth.secret_id === undefined)),
+    {
+      message:
+        "name app_id, installation_id and exactly one of value_env or secret_id, or none of them to use the App registered in the console",
+    },
   );
+
+/** `{ kind: github_app }` alone: the App registered in the console. */
+export function isRegisteredGitHubApp(auth: {
+  kind: string;
+  app_id?: number | undefined;
+  installation_id?: number | undefined;
+  value_env?: string | undefined;
+  secret_id?: string | undefined;
+  api_base?: string | undefined;
+}): boolean {
+  return (
+    auth.kind === "github_app" &&
+    auth.app_id === undefined &&
+    auth.installation_id === undefined &&
+    auth.value_env === undefined &&
+    auth.secret_id === undefined &&
+    auth.api_base === undefined
+  );
+}
 
 const catalogRepositoryAuthSchema = z.discriminatedUnion("kind", [
   staticRepositoryAuthSchema,
@@ -396,7 +424,9 @@ export type RepositoryCredential =
       /** The App's private key, PEM. */
       value: string;
       ref: CredentialRef;
-    };
+    }
+  // Resolved per request from the App registered in the console.
+  | { kind: "github_app"; registered: true };
 export type CatalogRepository = Omit<CatalogRepositoryConfig, "auth"> & {
   auth?: RepositoryCredential | undefined;
 };
@@ -947,7 +977,9 @@ function basicAuthorization(login: { username: string; password: string }) {
 }
 
 function withoutRepositorySecret(repository: CatalogRepository) {
-  if (repository.auth === undefined) return repository;
+  if (repository.auth === undefined || "registered" in repository.auth) {
+    return repository;
+  }
   const { value: _value, ...auth } = repository.auth;
   return { ...repository, auth };
 }
@@ -1241,7 +1273,12 @@ export function catalogCredentialRefs(
     refs.push({ path, ref: credentialRefOf(fields) });
   }
   for (const [id, repository] of Object.entries(config.repositories)) {
-    if (repository.auth === undefined) continue;
+    if (
+      repository.auth === undefined ||
+      isRegisteredGitHubApp(repository.auth)
+    ) {
+      continue;
+    }
     refs.push({
       path: `repositories.${id}.auth`,
       ref: credentialRefOf(repository.auth),
@@ -1352,6 +1389,13 @@ export function resolveSessionCatalog(
       repositories[id] = rest;
       continue;
     }
+    if (isRegisteredGitHubApp(auth)) {
+      repositories[id] = {
+        ...rest,
+        auth: { kind: "github_app", registered: true },
+      };
+      continue;
+    }
     const ref = credentialRefOf(auth);
     const path = `repositories.${id}.auth`;
     if (auth.kind === "github_app") {
@@ -1359,9 +1403,10 @@ export function resolveSessionCatalog(
         ...rest,
         auth: {
           kind: "github_app",
-          app_id: auth.app_id,
-          installation_id: auth.installation_id,
-          api_base: auth.api_base,
+          // Both present: the schema refuses an entry with only some.
+          app_id: auth.app_id as number,
+          installation_id: auth.installation_id as number,
+          api_base: auth.api_base ?? GITHUB_API_BASE,
           value: privateKeyPem(path, ref, lookup(ref)),
           ref,
         },

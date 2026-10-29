@@ -122,6 +122,9 @@ export type FakeGitHubOptions = {
   /** Lifetime of an issued token; GitHub's is an hour. */
   tokenTtlSeconds?: number;
   now?: () => Date;
+  /** The one installation `GET /app/installations` and lookups report. */
+  installationId?: number;
+  slug?: string;
 };
 
 type Issued = {
@@ -496,6 +499,50 @@ export async function startFakeGitHub(
     return notFound();
   }
 
+  // What a console asks with the App's JWT: the App itself, its one
+  // installation (every served repository is in it), and which
+  // installation covers a repository.
+  const installationId = options.installationId ?? 1;
+  const slug = options.slug ?? "fake-app";
+  function appCall(request: Request, path: string): Response | undefined {
+    const repository = /^\/repos\/([^/]+)\/([^/]+)\/installation$/.exec(path);
+    if (
+      request.method !== "GET" ||
+      (path !== "/app" && path !== "/app/installations" && !repository)
+    ) {
+      return undefined;
+    }
+    if (verifiedJwt(request.headers.get("authorization")) === undefined) {
+      return Response.json(
+        { message: "A JSON web token could not be decoded" },
+        { status: 401 },
+      );
+    }
+    if (path === "/app") {
+      return Response.json({
+        id: options.appId,
+        slug,
+        name: `Fake ${slug}`,
+        html_url: `${origin()}/apps/${slug}`,
+      });
+    }
+    if (repository) {
+      return served.has(`${repository[1]}/${repository[2]}`)
+        ? Response.json({ id: installationId, app_id: options.appId })
+        : Response.json({ message: "Not Found" }, { status: 404 });
+    }
+    const [owner = "fake"] = [...served.keys()].map((key) => key.split("/")[0]);
+    return Response.json([
+      {
+        id: installationId,
+        app_id: options.appId,
+        account: { login: owner, type: "Organization" },
+        repository_selection: "selected",
+        html_url: `${origin()}/organizations/${owner}/settings/installations/${installationId}`,
+      },
+    ]);
+  }
+
   const server = Bun.serve({
     hostname: options.hostname ?? "127.0.0.1",
     port: options.port ?? 0,
@@ -503,6 +550,8 @@ export async function startFakeGitHub(
       const url = new URL(request.url);
       const path = url.pathname.replace(/^\/api\/v3(?=\/)/, "");
       if (path === "/healthz") return new Response("ok");
+      const app = appCall(request, path);
+      if (app !== undefined) return app;
       const tokens = /^\/app\/installations\/(\d+)\/access_tokens$/.exec(path);
       if (tokens?.[1] && request.method === "POST") {
         return await accessTokens(request, Number(tokens[1]));

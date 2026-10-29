@@ -708,6 +708,13 @@
       "when": 1793263655633,
       "tag": "0191_user_locale",
       "breakpoints": true
+    },
+    {
+      "idx": 192,
+      "version": "7",
+      "when": 1793297150285,
+      "tag": "0192_github_apps",
+      "breakpoints": true
     }
   ]
 }
