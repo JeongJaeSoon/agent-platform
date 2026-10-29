@@ -78,6 +78,7 @@ describe("database schema", () => {
       "credential_bindings",
       "events",
       "executions",
+      "github_apps",
       "grants",
       "idempotency_keys",
       "installation_profiles",
