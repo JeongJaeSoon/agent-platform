@@ -70,6 +70,7 @@ Judge whether a turn has finished by this `status` alone. If it is one of the fi
 | 409 `RECOVERY_REQUIRED` | A recovery decision comes first ([Close](/sessions/close)) |
 | 409 `SESSION_CLOSING`, `SESSION_CLOSED` | The session is closing or closed |
 | 409 `CHECKPOINT_UNAVAILABLE` | A checkpoint problem prevents accepting a new turn. The cause is in the response's `message`. If the transcript is over its limit, open a new session |
+| 409 `PROFILE_BLOCKED` | An owner [blocked the operator profile](/agents/run-profiles#block-an-operator-profile) this session runs on. For a workspace profile, its base is blocked (`details.reason_code` is `base_blocked`). Nothing is queued. Once it is unblocked, the same session takes messages again |
 | 413 | The message is too long |
 | 429 | Queued inputs reached the limit |
 

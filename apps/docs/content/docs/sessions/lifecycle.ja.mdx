@@ -103,6 +103,7 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{status, 
 | `TRANSCRIPT_LIMIT` | 会話履歴が上限に近づいた、または超えた。新しいセッションに移るタイミングである |
 | `STARTUP_FAILED`, `RESTORE_FAILED` | worker が起動できない、または checkpoint を復元できない |
 | `CATALOG_MISMATCH` | セッションを作った後に、運用者がプロファイルまたはリポジトリの設定を変更した |
+| `PROFILE_BLOCKED` | オーナーがセッションのプロファイル(`reason_code: blocked`)またはそのベース(`base_blocked`)をブロックした。`profile_id` がそのプロファイル。解除されるまで、新しいメッセージは 409 `PROFILE_BLOCKED` で拒否される |
 | `CONTEXT_GAP` | 復旧判断により、以前の会話の一部が欠けている |
 
 ## 使用量

@@ -103,6 +103,7 @@ When the session is waiting for a person, `attention` carries a `code` and a rea
 | `TRANSCRIPT_LIMIT` | The transcript is near or over its limit. Time to move to a new session |
 | `STARTUP_FAILED`, `RESTORE_FAILED` | The worker cannot start or restore a checkpoint |
 | `CATALOG_MISMATCH` | An operator changed the profile or repository settings after the session was created |
+| `PROFILE_BLOCKED` | An owner blocked the session's profile (`reason_code: blocked`) or its base (`base_blocked`); `profile_id` names it. Until it is unblocked, new messages are refused with 409 `PROFILE_BLOCKED` |
 | `CONTEXT_GAP` | A recovery decision dropped part of the earlier conversation |
 
 ## Usage

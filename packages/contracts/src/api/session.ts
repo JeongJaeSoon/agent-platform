@@ -186,6 +186,16 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
     code: z.literal("CATALOG_MISMATCH"),
     reason: z.string().min(1),
   }),
+  // The operator blocked the session's profile (`blocked`) or the
+  // installation profile its workspace profile narrows (`base_blocked`).
+  // Said in place of CATALOG_MISMATCH: new messages are refused with 409
+  // PROFILE_BLOCKED until the operator unblocks it, and then run again.
+  z.object({
+    code: z.literal("PROFILE_BLOCKED"),
+    reason: z.string().min(1),
+    reason_code: z.enum(["blocked", "base_blocked"]),
+    profile_id: z.string().min(1),
+  }),
   // Workers claimed with the session's checkpoint kept ending before the
   // restore finished. While retry_at is set the next launch waits
   // for it; null means the limit was reached and the session is held in

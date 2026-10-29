@@ -1699,12 +1699,15 @@ export const API_ROUTE_DECLARATIONS = [
         "SESSION_CLOSED",
         "CHECKPOINT_UNAVAILABLE",
         "TAKEOVER_REQUIRED",
+        "PROFILE_BLOCKED",
       ],
       413: ["PAYLOAD_TOO_LARGE", "STORAGE_LIMIT_EXCEEDED"],
     },
     errorNotes: {
       RATE_LIMITED:
         "The session already holds the installation's maximum of queued inputs; `Retry-After` is 5.",
+      PROFILE_BLOCKED:
+        "The operator blocked the session's profile, or the installation profile its workspace profile narrows; nothing is queued. The session's `attention` says the same, and it takes messages again once the operator unblocks it.",
       CHECKPOINT_UNAVAILABLE:
         "A pending checkpoint problem holds new work, so a new turn could not be checkpointed; `message` names it.",
     },

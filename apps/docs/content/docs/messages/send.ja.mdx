@@ -70,6 +70,7 @@ curl -sS "$API/v1/sessions/$SID/turns/$TURN" -H "Authorization: Bearer $KEY" | j
 | 409 `RECOVERY_REQUIRED` | 先に復旧判断が必要である([クローズ](/sessions/close)) |
 | 409 `SESSION_CLOSING`, `SESSION_CLOSED` | 閉じている途中、または閉じている |
 | 409 `CHECKPOINT_UNAVAILABLE` | checkpoint の問題で新しいターンを受け付けない。原因はレスポンスの `message` にある。会話履歴が上限を超えた場合は、新しいセッションを開く |
+| 409 `PROFILE_BLOCKED` | オーナーがこのセッションの[運用担当者のプロファイルをブロック](/agents/run-profiles#運用担当者のプロファイルをブロックする)した。ワークスペースプロファイルなら、そのベースがブロックされている(`details.reason_code` が `base_blocked`)。何もキューに入らない。ブロックが解除されれば、同じセッションにまた送れる |
 | 413 | メッセージが長すぎる |
 | 429 | 待機中の入力が上限に達した |
 

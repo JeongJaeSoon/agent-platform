@@ -6,7 +6,10 @@ import {
 } from "@werft-ai/contracts";
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import type { AgentContact } from "../ports/credential-binding-store.ts";
-import type { AcceptSessionInput } from "../ports/session-unit-of-work.ts";
+import type {
+  AcceptSessionInput,
+  SessionDetailRecord,
+} from "../ports/session-unit-of-work.ts";
 import {
   type InstallationProfileEntry,
   type InstallationProfileState,
@@ -67,9 +70,12 @@ function setup(
     accept?: "replayed" | "credential_unbound" | "unsupported";
     catalog?: SessionCatalog;
     releaseProfile?: string;
+    /** The session getSession and appendMessage find. */
+    session?: SessionDetailRecord;
   } = {},
 ) {
   const accepted: AcceptSessionInput[] = [];
+  const appended: string[] = [];
   const asked: AuthorizationRequest[] = [];
   const policy = createAuthorizationPolicy({
     credentials: { unboundRefs: async () => options.unbound ?? [] },
@@ -116,7 +122,17 @@ function setup(
           },
         };
       },
-      appendInputAtomic: unreached,
+      async appendInputAtomic(input) {
+        appended.push(input.message);
+        return {
+          outcome: "accepted",
+          response: {
+            turn_id: "2",
+            receipt_id: RECEIPT,
+            receipt_status: "accepted",
+          },
+        };
+      },
     },
     controls: {
       terminateAtomic: unreached,
@@ -136,7 +152,7 @@ function setup(
     reader: {
       listSessions: unreached,
       countSessions: unreached,
-      getSession: unreached,
+      getSession: async () => options.session ?? null,
       listTurns: unreached,
       getTurn: unreached,
       getReceipt: unreached,
@@ -160,7 +176,7 @@ function setup(
     { kind: "web" },
     "r",
   );
-  return { service, caller, accepted, asked };
+  return { service, caller, accepted, appended, asked };
 }
 
 const body = { profile_id: "coding-v1", repository_id: "app", message: "hi" };
@@ -529,4 +545,112 @@ describe("attachment rules", () => {
       details: { reason_code: "base_blocked", profile_id: over.id },
     });
   });
+
+  describe("a session made before the block", () => {
+    const on = (state: InstallationProfileState, profileId: string) =>
+      setup({ catalog: catalogIn(state), session: sessionOn(profileId) });
+
+    test("names the block in its attention instead of CATALOG_MISMATCH", async () => {
+      for (const [id, reasonCode] of [
+        ["coding-v1", "blocked"],
+        [over.id, "base_blocked"],
+      ] as const) {
+        const { service, caller } = on("blocked", id);
+        const { attention } = await service.getSession(caller, SESSION);
+        expect(attention).toEqual({
+          code: "PROFILE_BLOCKED",
+          reason:
+            reasonCode === "blocked"
+              ? "Profile coding-v1 is blocked by the operator"
+              : `The base of profile ${over.id} is blocked by the operator`,
+          reason_code: reasonCode,
+          profile_id: id,
+        });
+      }
+      const { service, caller } = on("definition_drift", "coding-v1");
+      expect(
+        (await service.getSession(caller, SESSION)).attention,
+      ).toMatchObject({ code: "CATALOG_MISMATCH" });
+    });
+
+    test("refuses a new message as PROFILE_BLOCKED and queues nothing", async () => {
+      for (const [id, reasonCode] of [
+        ["coding-v1", "blocked"],
+        [over.id, "base_blocked"],
+      ] as const) {
+        const { service, caller, appended } = on("blocked", id);
+        const refused = await service
+          .appendMessage(caller, SESSION, {
+            idempotencyKey: "m",
+            body: { message: "next", mode: "enqueue" },
+          })
+          .catch((error: unknown) => error);
+        expect(refused).toMatchObject({
+          code: "PROFILE_BLOCKED",
+          details: { reason_code: reasonCode, profile_id: id },
+        });
+        expect(appended).toEqual([]);
+      }
+    });
+
+    test("takes a message on a usable or retired ceiling, as before", async () => {
+      for (const state of ["usable", "retired"] as const) {
+        const { service, caller, appended } = on(state, "coding-v1");
+        expect(
+          await service.appendMessage(caller, SESSION, {
+            idempotencyKey: "m",
+            body: { message: "next", mode: "enqueue" },
+          }),
+        ).toMatchObject({ turn_id: "2" });
+        expect(appended).toEqual(["next"]);
+        expect(
+          (await service.getSession(caller, SESSION)).attention,
+        ).toBeNull();
+      }
+    });
+  });
 });
+
+const SESSION = "019a0000-0000-7000-8000-00000000d0a1";
+
+function sessionOn(profileId: string): SessionDetailRecord {
+  return {
+    id: SESSION,
+    title: "On a ceiling",
+    agent: null,
+    created_by: null,
+    channel: null,
+    revision: 1,
+    admission_state: "active",
+    status: "idle",
+    repository_id: "app",
+    repository: { id: "app", full_name: "app", branch: "main" },
+    current_turn_id: null,
+    queued_turn_count: 0,
+    last_event_at: null,
+    created_at: "2026-10-29T00:00:00.000Z",
+    updated_at: "2026-10-29T00:00:00.000Z",
+    execution: null,
+    checkpoint_revision: null,
+    pending_request_count: 0,
+    attention: null,
+    durability: {
+      last_transcript_persisted_at: null,
+      checkpoint_committed_at: null,
+      checkpoint_revision: null,
+      last_completed_turn_id: null,
+      last_checkpointed_turn_id: null,
+      checkpoint_pending_reason: null,
+      checkpoint_fallback_revision: null,
+      context_reset_turn_id: null,
+    },
+    profile_id: profileId,
+    model: "claude-sonnet-5",
+    cost_usd: 0,
+    provider_tokens: 0,
+    repo_url: "https://example.invalid/app.git",
+    branch: "main",
+    repository_mode: "repository",
+    profile_fingerprint: null,
+  };
+}
