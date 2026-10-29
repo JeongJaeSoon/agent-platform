@@ -230,6 +230,36 @@ integration("claim against a catalog that dropped the pair", () => {
     return row;
   }
 
+  test("a blocked profile refuses a new message but replays one accepted before", async () => {
+    const session = await queuedSession();
+    const message = (key: string, profileBlocked?: true) =>
+      inputs().appendInputAtomic({
+        principal: { ownerId: session.ownerId },
+        sessionId: session.session_id,
+        idempotencyKey: key,
+        payloadHash: `hash-${key}`,
+        message: "again",
+        limits: LIMITS,
+        ...(profileBlocked ? { profileBlocked } : {}),
+      });
+    const before = await message("before");
+    if (before.outcome !== "accepted") throw new Error(before.outcome);
+
+    expect(await message("before", true)).toEqual({
+      outcome: "replayed",
+      response: before.response,
+    });
+    expect(await message("after", true)).toEqual({
+      outcome: "profile_blocked",
+    });
+    const sequences = await db
+      .select({ sequence: turns.sequence })
+      .from(turns)
+      .where(eq(turns.sessionId, session.session_id))
+      .orderBy(asc(turns.sequence));
+    expect(sequences).toEqual([{ sequence: 1 }, { sequence: 2 }]);
+  });
+
   test("slot 1: a session the catalog dropped is failed at its first claim and the next session launches in the following pass", async () => {
     const backend = new ClaimingBackend(db);
     // Created against a URL the catalog has since moved away from, and

@@ -352,6 +352,7 @@ export function createPostgresSessionUnitOfWork(
             response: postSessionMessageResponseSchema.parse(existing.result),
           };
         }
+        if (input.profileBlocked) return { outcome: "profile_blocked" };
 
         const requester = await lockRequester(
           tx,

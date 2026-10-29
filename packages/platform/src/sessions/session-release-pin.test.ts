@@ -72,6 +72,8 @@ function setup(
     releaseProfile?: string;
     /** The session getSession and appendMessage find. */
     session?: SessionDetailRecord;
+    /** Idempotency keys of messages accepted earlier. */
+    appendedKeys?: string[];
   } = {},
 ) {
   const accepted: AcceptSessionInput[] = [];
@@ -123,9 +125,13 @@ function setup(
         };
       },
       async appendInputAtomic(input) {
-        appended.push(input.message);
+        const replay = options.appendedKeys?.includes(input.idempotencyKey);
+        if (!replay && input.profileBlocked) {
+          return { outcome: "profile_blocked" };
+        }
+        if (!replay) appended.push(input.message);
         return {
-          outcome: "accepted",
+          outcome: replay ? "replayed" : "accepted",
           response: {
             turn_id: "2",
             receipt_id: RECEIPT,
@@ -591,6 +597,44 @@ describe("attachment rules", () => {
         });
         expect(appended).toEqual([]);
       }
+    });
+
+    test("keeps a stored attention but still refuses the message", async () => {
+      const stored = {
+        code: "CONTEXT_GAP",
+        last_ran_turn_id: "1",
+        checkpointed_turn_id: null,
+      } as const;
+      const { service, caller } = setup({
+        catalog: catalogIn("blocked"),
+        session: { ...sessionOn("coding-v1"), attention: stored },
+      });
+      expect((await service.getSession(caller, SESSION)).attention).toEqual(
+        stored,
+      );
+      expect(
+        await service
+          .appendMessage(caller, SESSION, {
+            idempotencyKey: "m",
+            body: { message: "next", mode: "enqueue" },
+          })
+          .catch((error: unknown) => error),
+      ).toMatchObject({ code: "PROFILE_BLOCKED" });
+    });
+
+    test("still replays a message accepted before the block", async () => {
+      const { service, caller, appended } = setup({
+        catalog: catalogIn("blocked"),
+        session: sessionOn("coding-v1"),
+        appendedKeys: ["m"],
+      });
+      expect(
+        await service.appendMessage(caller, SESSION, {
+          idempotencyKey: "m",
+          body: { message: "next", mode: "enqueue" },
+        }),
+      ).toMatchObject({ turn_id: "2" });
+      expect(appended).toEqual([]);
     });
 
     test("takes a message on a usable or retired ceiling, as before", async () => {

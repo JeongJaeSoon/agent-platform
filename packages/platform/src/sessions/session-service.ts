@@ -729,7 +729,6 @@ export function createSessionService(deps: {
         (await reader.getSession(actor.ownerId, sessionId))?.profile_id ?? null;
       await refreshWorkspaceProfilesFor(catalog, [profileId]);
       const block = sessionBlock(actor.ownerId, profileId);
-      if (block) throw blockedError(block);
       const result = await inputs.appendInputAtomic({
         principal: actor,
         sessionId,
@@ -738,10 +737,14 @@ export function createSessionService(deps: {
         message: input.body.message,
         limits: inputLimits,
         channel: actor.subject.surface.kind,
+        ...(block ? { profileBlocked: true as const } : {}),
       });
       switch (result.outcome) {
         case "conflict":
           return idempotencyConflict();
+        case "profile_blocked":
+          if (!block) throw new Error("Only a blocked profile refuses input");
+          throw blockedError(block);
         case "not_found":
           throw new SessionServiceError("NOT_FOUND", "Resource not found");
         case "rejected": {
