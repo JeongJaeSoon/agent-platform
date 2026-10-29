@@ -267,7 +267,7 @@
     },
     {
       "behavior": "deny",
-      "message": "Not on this workspace"
+      "message": "The user denied this request. Their reason: Not on this workspace"
     },
     {
       "behavior": "allow",

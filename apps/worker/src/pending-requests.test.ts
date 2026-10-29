@@ -328,6 +328,21 @@ describe("PendingRequestRegistry", () => {
     });
   });
 
+  test("leaves a denial with no reason for the runtime to word", async () => {
+    const harness = registry();
+    const decision = harness.ask(permission("req-bare"));
+    await harness.answer({
+      request_id: "req-bare",
+      kind: "permission",
+      decision: "deny",
+    });
+
+    expect(await decision).toEqual({
+      kind: "selected",
+      optionKind: "reject_once",
+    });
+  });
+
   test("registers the run's questions and hands their answer back by id", async () => {
     const harness = registry();
     const decision = harness.ask(question("req-question"));

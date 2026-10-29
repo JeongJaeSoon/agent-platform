@@ -555,10 +555,7 @@ function decisionOf(
     case "selected":
       return answer.optionKind === "allow_once"
         ? { behavior: "allow" }
-        : {
-            behavior: "deny",
-            message: answer.message ?? "Denied without a reason",
-          };
+        : { behavior: "deny", message: personDenial(answer.message) };
     case "answered":
       return {
         behavior: "allow",
@@ -571,6 +568,15 @@ function decisionOf(
         ...(answer.reason === "park" ? { interrupt: true } : {}),
       };
   }
+}
+
+// A bare reason reaches the model as a tool error, which real models took for
+// a hook's refusal or a prompt injection.
+function personDenial(reason: string | undefined): string {
+  const said = reason?.trim() ?? "";
+  return said === ""
+    ? "The user denied this request without giving a reason."
+    : `The user denied this request. Their reason: ${said}`;
 }
 
 function toolCallIdOf(event: SessionEvent): string | undefined {

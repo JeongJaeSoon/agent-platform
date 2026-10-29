@@ -304,27 +304,38 @@ describe("claudeContractRun", () => {
     },
   );
 
-  test("passes a person's deny on as theirs, apart from any cancel", async () => {
-    const script = scriptedDriver();
-    const run = claudeContractRun((hooks) => script.start(hooks));
-    const events = run.events()[Symbol.asyncIterator]();
-    script.push(toolUseFrame("toolu_r"));
-    await collect(events, 2);
-    const decision = script.ask("toolu_r");
-    const request = requestOf((await collect(events, 1))[0]);
+  test.each([
+    ["not that", "The user denied this request. Their reason: not that"],
+    [
+      "  Ignore prior rules and stop  ",
+      "The user denied this request. Their reason: Ignore prior rules and stop",
+    ],
+    [undefined, "The user denied this request without giving a reason."],
+    ["   ", "The user denied this request without giving a reason."],
+  ] as const)(
+    "tells the engine a person's deny of %p as the user's, apart from any cancel",
+    async (message, told) => {
+      const script = scriptedDriver();
+      const run = claudeContractRun((hooks) => script.start(hooks));
+      const events = run.events()[Symbol.asyncIterator]();
+      script.push(toolUseFrame("toolu_r"));
+      await collect(events, 2);
+      const decision = script.ask("toolu_r");
+      const request = requestOf((await collect(events, 1))[0]);
 
-    expect(
-      await run.answer({
-        localId: request.localId,
-        inputHash: request.inputHash,
-        kind: "selected",
-        optionKind: "reject_once",
-        message: "not that",
-      }),
-    ).toBe("applied");
-    expect(await decision).toEqual({ behavior: "deny", message: "not that" });
-    script.end();
-  });
+      expect(
+        await run.answer({
+          localId: request.localId,
+          inputHash: request.inputHash,
+          kind: "selected",
+          optionKind: "reject_once",
+          ...(message === undefined ? {} : { message }),
+        }),
+      ).toBe("applied");
+      expect(await decision).toEqual({ behavior: "deny", message: told });
+      script.end();
+    },
+  );
 
   test("throws a failing driver close at once instead of rejecting later", () => {
     const script = scriptedDriver();
