@@ -357,7 +357,10 @@ describe("WorkerHost park", () => {
 
     expect(runtime.permissionDecisions).toEqual([
       { behavior: "allow" },
-      { behavior: "deny", message: "Denied without a reason" },
+      {
+        behavior: "deny",
+        message: "The user denied this request without giving a reason.",
+      },
     ]);
     expect(gateway.registrations[0]?.request.kind).toBe("permission");
     expect(summary.turns[0]?.status).toBe("completed");
@@ -403,7 +406,10 @@ describe("WorkerHost park", () => {
     const summary = await loop;
 
     expect(runtime.permissionDecisions).toEqual([
-      { behavior: "deny", message: "Denied without a reason" },
+      {
+        behavior: "deny",
+        message: "The user denied this request without giving a reason.",
+      },
     ]);
     expect(summary.turns[0]?.status).toBe("completed");
     expect(gateway.delivered).toEqual([

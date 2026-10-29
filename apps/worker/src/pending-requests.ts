@@ -749,7 +749,9 @@ export class PendingRequestRegistry {
           : {
               kind: "selected",
               optionKind: "reject_once",
-              message: answer.reason ?? "Denied without a reason",
+              ...(answer.reason === undefined
+                ? {}
+                : { message: answer.reason }),
             },
       );
       return true;

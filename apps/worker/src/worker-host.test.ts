@@ -560,7 +560,11 @@ describe("WorkerHost approvals", () => {
     expect(summary.turns[0]?.status).toBe("completed");
     expect(runtime.permissionDecisions).toEqual([
       { behavior: "allow" },
-      { behavior: "deny", message: "Not on this workspace" },
+      {
+        behavior: "deny",
+        message:
+          "The user denied this request. Their reason: Not on this workspace",
+      },
       {
         behavior: "allow",
         updatedInput: {
