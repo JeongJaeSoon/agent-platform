@@ -2,6 +2,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Database } from "@werft-ai/db";
+import { createLogger } from "@werft-ai/observability";
 import { catalogRows, installationProfileSnapshot } from "@werft-ai/platform";
 import {
   ALLOW_UNATTENDED_SETTING,
@@ -13,7 +15,11 @@ import {
   REPOSITORIES_FILE,
   readSeedProfiles,
 } from "../api/catalog-config.ts";
-import { slackRoleSettings, slackRoleStartup } from "./main.ts";
+import {
+  slackRoleSettings,
+  slackRoleStartup,
+  slackSessionHandler,
+} from "./main.ts";
 
 const profiles = (mode: string) => `profiles:
   coding:
@@ -146,6 +152,52 @@ describe("slack role startup", () => {
     expect(
       await failure(slackRoleStartup({ PLATFORM_CONFIG_DIR: dir }, noSecrets)),
     ).toContain("DATABASE_URL or QUEUE_DATABASE_URL is required");
+  });
+
+  // One pass child serves pass after pass, each building a handler: a timer
+  // a handler starts outlives its pass and keeps reading a closed pool.
+  test("a pass's handler leaves no timer running in the pass child", async () => {
+    const dir = await catalogDir("default");
+    const { catalog, connections } = await slackRoleStartup(
+      { ...base, PLATFORM_CONFIG_DIR: dir },
+      noSecrets,
+    );
+    const original = globalThis.setInterval;
+    const started: ReturnType<typeof setInterval>[] = [];
+    globalThis.setInterval = ((...args: Parameters<typeof setInterval>) => {
+      const timer = original(...args);
+      started.push(timer);
+      return timer;
+    }) as typeof setInterval;
+    try {
+      for (let pass = 0; pass < 3; pass += 1) {
+        slackSessionHandler({
+          db: {} as Database,
+          pool: {
+            connect: () => {
+              throw new Error("no connection is opened");
+            },
+          },
+          environment: {
+            EXECUTION_SLOT_LIMIT: "10",
+            MAX_TURN_SECONDS: "3600",
+            PROVIDER_MAX_RETRIES: "2",
+            QUEUED_INPUT_LIMIT_PER_SESSION: "20",
+            SESSION_COST_LIMIT_USD: "25",
+            STORAGE_LIMIT_BYTES: "1073741824",
+          },
+          logger: createLogger({ level: "error", sinks: [] }),
+          catalog,
+          connections,
+          secretKey: null,
+          leaseMs: 60_000,
+        });
+      }
+    } finally {
+      globalThis.setInterval = original;
+      for (const timer of started) clearInterval(timer);
+    }
+    expect(started.length).toBe(0);
   });
 
   test("settings default to a 60s lease, batches of 10 and half the pass timeout", () => {

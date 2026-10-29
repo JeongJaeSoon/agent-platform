@@ -55,7 +55,6 @@ import {
   type SlackNoticeSink,
   sessionCatalogView,
   slackBotToken,
-  WORKSPACE_PROFILE_REFRESH_MS,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { Pool } from "pg";
@@ -171,23 +170,16 @@ export function slackSessionHandler(deps: {
   notices?: SlackNoticeSink;
   slackApiUrl?: string;
   inbox?: Pick<SlackInboundEventStore, "renew">;
+  /**
+   * The pass's catalog, already read. No timer reads it again: the pass
+   * child outlives the pass, and lookups of an unread id read it themselves.
+   */
+  profiles?: ReturnType<typeof slackProfileCatalog>;
 }): SlackInboundHandler {
   const { db, environment, logger } = deps;
-  const catalog = slackProfileCatalog(
-    db,
-    deps.catalog,
-    deps.connections,
-    environment,
-  );
-  setInterval(() => {
-    catalog.workspace_profiles
-      .refresh(WORKSPACE_PROFILE_REFRESH_MS)
-      .catch((error: unknown) => {
-        logger.warn("Workspace profiles could not be read; retrying", {
-          error_name: error instanceof Error ? error.name : typeof error,
-        });
-      });
-  }, WORKSPACE_PROFILE_REFRESH_MS).unref();
+  const catalog =
+    deps.profiles ??
+    slackProfileCatalog(db, deps.catalog, deps.connections, environment);
   const credentials = createPostgresCredentialBindingStore(db);
   const authorization = createAuthorizationPolicy({
     identity: createDatabaseIdentityReader(db),
@@ -323,6 +315,7 @@ export async function main(
         secretKey,
         leaseMs: settings.leaseMs,
         notices: createOutboxSlackNoticeSink(outbox),
+        profiles,
       }),
       logger,
       batchSize: settings.batchSize,
