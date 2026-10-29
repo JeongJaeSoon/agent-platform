@@ -666,7 +666,12 @@ describe("who the cache belongs to", () => {
     return {
       ...base,
       principal: { ...base.principal, id: MATE_ID },
-      user: { id: MATE_ID, email: "mate@example.com", display_name: "Mate" },
+      user: {
+        id: MATE_ID,
+        email: "mate@example.com",
+        display_name: "Mate",
+        locale: null,
+      },
     };
   };
   const MATE_SCOPE = { actor: `user:${MATE_ID}`, workspace: WORKSPACE_ID };

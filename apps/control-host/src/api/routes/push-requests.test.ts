@@ -53,6 +53,7 @@ function cookieFor(userId: string): string {
     userId,
     email: "owner@example.com",
     displayName: "owner",
+    locale: null,
     workspaceId: WORKSPACE,
     role: "owner",
     expiresAt: new Date(Date.now() + 60_000),

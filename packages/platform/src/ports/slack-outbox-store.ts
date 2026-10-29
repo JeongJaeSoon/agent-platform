@@ -1,4 +1,4 @@
-import type { SlackNotice } from "@werft-ai/contracts";
+import type { UserLocale } from "@werft-ai/contracts";
 
 /**
  * `reply`: a turn's answer in its thread. `failure_notice`: a turn the model
@@ -32,9 +32,13 @@ export type SlackOutboxStatus =
  * What goes out, before Slack controls are escaped. `mention_user_ids`: the
  * only Slack users the text may notify (a reply's requester). `sender`: the
  * name an instruction is shown under, and the Slack account whose profile
- * image goes with it.
+ * image goes with it. `locale`: the language of the words the platform adds,
+ * the link's label included; rows from before it have none and read Korean.
  */
-export type SlackOutboxBody = SlackNotice & {
+export type SlackOutboxBody = {
+  text: string;
+  link_url?: string;
+  locale?: UserLocale;
   mention_user_ids?: string[];
   sender?: { username: string; slack_user_id?: string };
 };
@@ -70,8 +74,12 @@ export type SlackOutboxClaim = SlackOutboxEntry &
 /** A row the lease ran out on mid-send, now `uncertain`. */
 export type SlackOutboxLost = SlackOutboxEntry & { id: string };
 
-/** Where a linked session's turns answer: the link's thread. */
+/**
+ * Where a linked session's turns answer: the link's thread. `locale`: that
+ * of whoever started the session, whom the thread is in their language for.
+ */
 export type SlackLinkedTurnTarget = {
+  locale: UserLocale | null;
   sessionLinkId: string;
   sessionId: string;
   workspaceId: string;
@@ -130,6 +138,12 @@ export interface SlackOutboxStore {
     entry: SlackOutboxEntry,
     whileHome?: { bindingId: string; releaseId: string },
   ): Promise<"enqueued" | "duplicate" | "not_home">;
+  /** The language of the user that Slack account is linked to, if any. */
+  readerLocale(reader: {
+    workspaceId: string;
+    teamId: string;
+    slackUserId: string;
+  }): Promise<UserLocale | null>;
   /**
    * Moves each live link's mark past the turns that need nothing more: those
    * with their outbox row, interrupted or cancelled, or ended before the

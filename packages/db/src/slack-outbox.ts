@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   type SessionEventPayload,
+  type UserLocale,
   withStoredNeutralFields,
 } from "@werft-ai/contracts";
 import type {
@@ -73,6 +74,17 @@ const owesInstruction = (turn: SQL, link: SQL, settled = false) => sql`(
     SELECT 1 FROM slack_outbox oi
     WHERE oi.dedupe_key = 'instruction:' || ${link}.id || ':' || ${turn}.sequence
       ${settled ? sql`AND oi.status NOT IN ('pending', 'sending')` : sql``}
+  )
+)`;
+
+// The thread's language: that of whoever started the session, its first
+// turn's actor, else the person whose message opened the link.
+const starterLocale = sql<UserLocale | null>`(
+  SELECT su.locale FROM users su
+  WHERE su.id = coalesce(
+    (SELECT st.actor_id FROM turns st
+     WHERE st.session_id = ${sessionLinks.sessionId} AND st.sequence = 1),
+    ${sessionLinks.createdBy}
   )
 )`;
 
@@ -152,6 +164,25 @@ export function createPostgresSlackOutboxStore(
       });
     },
 
+    async readerLocale(reader) {
+      // A stale link still names who reads; at most one row is not revoked.
+      const [row] = await db
+        .select({ locale: users.locale })
+        .from(linkedAccounts)
+        .innerJoin(users, eq(users.id, linkedAccounts.userId))
+        .where(
+          and(
+            eq(linkedAccounts.workspaceId, reader.workspaceId),
+            eq(linkedAccounts.provider, "slack"),
+            eq(linkedAccounts.externalTenant, reader.teamId),
+            eq(linkedAccounts.externalUserId, reader.slackUserId),
+            ne(linkedAccounts.status, "revoked"),
+          ),
+        )
+        .limit(1);
+      return row?.locale ?? null;
+    },
+
     async advanceAnswered() {
       // Writes only links whose mark moves, so a quiet pass writes nothing.
       const { rows } = (await db.execute(sql`
@@ -204,6 +235,7 @@ export function createPostgresSlackOutboxStore(
           message: turns.message,
           senderName: users.displayName,
           senderSlackUserId: linkedAccounts.externalUserId,
+          locale: starterLocale,
         })
         .from(sessionLinks)
         .innerJoin(
@@ -277,6 +309,7 @@ export function createPostgresSlackOutboxStore(
           status: turns.status,
           attemptId: turns.attemptId,
           requesterSlackUserId: linkedAccounts.externalUserId,
+          locale: starterLocale,
         })
         .from(sessionLinks)
         .innerJoin(sessions, eq(sessions.id, sessionLinks.sessionId))

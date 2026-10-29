@@ -62,6 +62,7 @@ function cookieFor(
     userId: options.userId ?? crypto.randomUUID(),
     email: `${role}@example.com`,
     displayName: role,
+    locale: null,
     workspaceId: options.workspaceId ?? WORKSPACE,
     role,
     expiresAt: new Date(Date.now() + 60_000),

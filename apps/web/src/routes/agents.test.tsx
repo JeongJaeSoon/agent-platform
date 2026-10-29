@@ -1060,7 +1060,12 @@ describe("새 에이전트", () => {
     const mate = {
       ...me(),
       principal: { ...me().principal, id: MATE_ID },
-      user: { id: MATE_ID, email: "mate@example.com", display_name: "Mate" },
+      user: {
+        id: MATE_ID,
+        email: "mate@example.com",
+        display_name: "Mate",
+        locale: null,
+      },
     };
     let who: "owner" | "mate" = "owner";
     const { services } = renderAt("/agents/new", {

@@ -20,6 +20,7 @@ import {
   passwordResetResponseSchema,
   scopesForRole,
   startGoogleLoginResponseSchema,
+  updateAuthMeRequestSchema,
   type Workspace,
   type WorkspaceRole,
   workspaceSettingsSchema,
@@ -617,6 +618,23 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
     return context.body(null, 204);
   });
 
+  apiRoute(router, "updateAuthMe", async (context) => {
+    const principal = context.get("principal");
+    const session = context.get("webSession");
+    if (principal.kind !== "user" || !session) {
+      throw new ApiHttpError(
+        403,
+        "FORBIDDEN",
+        "A user's settings change from their own session only",
+      );
+    }
+    const body = await parseJsonBody(context, updateAuthMeRequestSchema);
+    await storageMapped(() =>
+      deps.identity.setUserLocale(session.userId, body.locale),
+    );
+    return context.body(null, 204);
+  });
+
   apiRoute(router, "issuePasswordReset", async (context) => {
     const principal = context.get("principal");
     const session = context.get("webSession");
@@ -728,6 +746,7 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
           id: session.userId,
           email: session.email,
           display_name: session.displayName,
+          locale: session.locale,
         },
         workspace: workspaceView(workspace),
         scopes: principal.scopes,

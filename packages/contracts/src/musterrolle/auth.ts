@@ -127,6 +127,12 @@ export const loginMethodsResponseSchema = z
   .object({ methods: z.array(loginMethodSchema) })
   .strict();
 
+/** The language a person reads the console and their Slack notices in. */
+export const USER_LOCALE_VALUES = ["ko", "ja", "en"] as const;
+export const userLocaleSchema = z.enum(USER_LOCALE_VALUES);
+/** What a reader with no language of their own is told in. */
+export const DEFAULT_USER_LOCALE = "ko" satisfies UserLocale;
+
 /** What the web app boots from: who is authenticated and under which key. */
 export const authMeResponseSchema = z
   .object({
@@ -136,6 +142,8 @@ export const authMeResponseSchema = z
         id: userIdSchema,
         email: emailSchema,
         display_name: displayNameSchema,
+        /** Null until the person picks one; the console then sets it. */
+        locale: userLocaleSchema.nullable(),
       })
       .strict()
       .nullable(),
@@ -210,6 +218,11 @@ export const authMeResponseSchema = z
     }
   });
 
+/** A cookie session's own settings. */
+export const updateAuthMeRequestSchema = z
+  .object({ locale: userLocaleSchema })
+  .strict();
+
 /**
  * Redeeming an invite. It never touches an existing account's password: a
  * known email proves it and joins the workspace, an unknown one gets an
@@ -269,6 +282,8 @@ export type BootstrapResponse = z.infer<typeof bootstrapResponseSchema>;
 export type LoginRequest = z.infer<typeof loginRequestSchema>;
 export type LoginResponse = z.infer<typeof loginResponseSchema>;
 export type AuthMeResponse = z.infer<typeof authMeResponseSchema>;
+export type UserLocale = z.infer<typeof userLocaleSchema>;
+export type UpdateAuthMeRequest = z.infer<typeof updateAuthMeRequestSchema>;
 export type LoginMethod = z.infer<typeof loginMethodSchema>;
 export type LoginMethodsResponse = z.infer<typeof loginMethodsResponseSchema>;
 export type StartGoogleLoginResponse = z.infer<

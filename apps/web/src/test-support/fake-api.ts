@@ -138,7 +138,12 @@ export function me(
       role,
       scopes,
     },
-    user: { id: USER_ID, email: "owner@example.com", display_name: "Owner" },
+    user: {
+      id: USER_ID,
+      email: "owner@example.com",
+      display_name: "Owner",
+      locale: null,
+    },
     workspace: {
       id: WORKSPACE_ID,
       slug: "acme",

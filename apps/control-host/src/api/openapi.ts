@@ -178,6 +178,7 @@ import {
   turnIdParamsSchema,
   turnSummarySchema,
   updateAgentRequestSchema,
+  updateAuthMeRequestSchema,
   updateMemberRequestSchema,
   updateSessionRequestSchema,
   updateTeamRequestSchema,
@@ -344,6 +345,7 @@ const responseComponents = {
   SlackEventsResponse: slackEventsResponseSchema,
   PasswordResetResponse: passwordResetResponseSchema,
   AuthMeResponse: authMeResponseSchema,
+  UpdateAuthMeRequest: updateAuthMeRequestSchema,
   InstallationLimitsResponse: installationLimitsResponseSchema,
   MemberLimitsResponse: memberLimitsResponseSchema,
   LimitsResponse: limitsResponseSchema,
@@ -1275,6 +1277,7 @@ export const API_ROUTE_DECLARATIONS = [
           id: EXAMPLE_USER_ID,
           email: "owner@example.com",
           display_name: "Ada Owner",
+          locale: "ko",
         },
         workspace: EXAMPLE_WORKSPACE,
         scopes: ALL_SCOPES,
@@ -1304,6 +1307,24 @@ export const API_ROUTE_DECLARATIONS = [
     errorNotes: {
       UNAUTHORIZED: "Also when the session's workspace no longer exists.",
     },
+  },
+  {
+    method: "patch",
+    path: "/v1/auth/me",
+    operationId: "updateAuthMe",
+    tag: "Auth",
+    summary: "Save the signed-in user's language",
+    description:
+      "Saves `locale` (`ko`, `ja` or `en`) on the signed-in user: what `user.locale` in GET /v1/auth/me returns and the language the user's Slack notices are written in. Slack's ephemeral notices follow the reader's language; a thread's replies and notices follow the language of whoever started the session. A user who never saved one reads Korean.",
+    auth: "session",
+    body: "UpdateAuthMeRequest",
+    requestExample: { locale: "en" },
+    success: { status: 204, description: "The language is saved." },
+    errors: [400, 401, 403, 413, 503],
+    errorNotes: {
+      FORBIDDEN: "Also when the caller is not a cookie session (an API key).",
+    },
+    idempotent: false,
   },
   {
     method: "post",

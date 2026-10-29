@@ -1,4 +1,8 @@
-import type { ListMembersQuery, WorkspaceRole } from "@werft-ai/contracts";
+import type {
+  ListMembersQuery,
+  UserLocale,
+  WorkspaceRole,
+} from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 
 export type IdentityUser = {
@@ -88,6 +92,7 @@ export type ResolvedWebSession = {
   userId: string;
   email: string;
   displayName: string;
+  locale: UserLocale | null;
   workspaceId: string;
   role: MembershipRole;
   expiresAt: Date;
@@ -184,6 +189,7 @@ export interface IdentityStore {
     renewAfterMs: number,
   ): Promise<Date | null>;
   revokeWebSession(tokenHash: Uint8Array): Promise<void>;
+  setUserLocale(userId: string, locale: UserLocale): Promise<void>;
 }
 
 export class BootstrapDoneError extends Error {

@@ -1,7 +1,6 @@
 import {
   formatSurfaceRef,
   messageTextSchema,
-  SLACK_NOTICE_MESSAGES,
   type SlackNotice,
   type SurfaceChannelKind,
   slackNoticeFor,
@@ -255,9 +254,7 @@ export function createSlackSessionHandler(
       );
       if (!detail?.active_release) {
         deps.logger.warn("Slack agent has no active release; refused", ids);
-        await notice("no_active_release", {
-          text: SLACK_NOTICE_MESSAGES.noActiveRelease,
-        });
+        await notice("no_active_release", { message: "noActiveRelease" });
         return;
       }
       release = detail.active_release;
@@ -364,18 +361,14 @@ export function createSlackSessionHandler(
           link.releaseId,
         ))
       ) {
-        await notice("repository_required", {
-          text: SLACK_NOTICE_MESSAGES.repositoryRequired,
-        });
+        await notice("repository_required", { message: "repositoryRequired" });
       } else if (
         error.code === "PROFILE_DIGEST_MISMATCH" ||
         error.code === "PROFILE_BLOCKED"
       ) {
-        await notice("profile_unavailable", {
-          text: SLACK_NOTICE_MESSAGES.profileUnavailable,
-        });
+        await notice("profile_unavailable", { message: "profileUnavailable" });
       } else {
-        await notice(error.code, { text: SLACK_NOTICE_MESSAGES.failed });
+        await notice(error.code, { message: "failed" });
       }
     }
   };

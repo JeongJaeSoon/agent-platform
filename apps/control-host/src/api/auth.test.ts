@@ -8,6 +8,7 @@ import {
   issuePasswordResetResponseSchema,
   loginResponseSchema,
   passwordResetResponseSchema,
+  type UserLocale,
   WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
@@ -324,10 +325,15 @@ class MemoryIdentityStore implements IdentityStore {
       userId: user.id,
       email: user.email,
       displayName: user.displayName,
+      locale: this.locales.get(user.id) ?? null,
       workspaceId: membership.workspaceId,
       role: membership.role,
       expiresAt: session.expiresAt,
     };
+  }
+  locales = new Map<string, UserLocale>();
+  async setUserLocale(userId: string, locale: UserLocale) {
+    this.locales.set(userId, locale);
   }
   async renewWebSession(
     sessionId: string,
@@ -1110,6 +1116,59 @@ describe("login, logout, me", () => {
       headers: { Cookie: cookie },
     });
     expect(after.status).toBe(401);
+  });
+
+  test("a session saves its user's language, which me then returns", async () => {
+    const h = harness();
+    await h.bootstrap();
+    const cookie = cookieOf(await h.login());
+    const patch = (body: unknown, headers: Record<string, string> = {}) =>
+      h.app.request("/v1/auth/me", {
+        method: "PATCH",
+        headers: {
+          Cookie: cookie,
+          [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
+          "Content-Type": "application/json",
+          ...headers,
+        },
+        body: JSON.stringify(body),
+      });
+    const me = async () =>
+      authMeResponseSchema.parse(
+        await (
+          await h.app.request("/v1/auth/me", { headers: { Cookie: cookie } })
+        ).json(),
+      ).user?.locale;
+
+    expect(await me()).toBeNull();
+    expect((await patch({ locale: "ja" })).status).toBe(204);
+    expect(await me()).toBe("ja");
+
+    expect((await patch({ locale: "fr" })).status).toBe(400);
+    expect((await patch({ locale: "en", extra: 1 })).status).toBe(400);
+    expect((await patch({ locale: "x".repeat(65 * 1024) })).status).toBe(413);
+    expect(await me()).toBe("ja");
+
+    const withKey = await h.app.request("/v1/auth/me", {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ locale: "en" }),
+    });
+    expect(withKey.status).toBe(403);
+    const anonymous = await h.app.request("/v1/auth/me", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ locale: "en" }),
+    });
+    expect(anonymous.status).toBe(401);
+
+    h.identity.setUserLocale = async () => {
+      throw Object.assign(new Error("connection lost"), { code: "08006" });
+    };
+    expect((await patch({ locale: "en" })).status).toBe(503);
   });
 
   test("me for an API key has no user and no workspace", async () => {

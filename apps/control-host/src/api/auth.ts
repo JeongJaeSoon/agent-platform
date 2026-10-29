@@ -8,6 +8,7 @@ import {
   type Principal,
   SESSION_SCOPE_VALUES,
   scopesForRole,
+  type UserLocale,
   WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
 import {
@@ -25,6 +26,7 @@ import {
   resolveWebSession,
   retireBootstrapToken,
   revokeWebSession,
+  setUserLocale,
   signInWithExternalIdentity,
 } from "@werft-ai/db";
 import type { StructuredLogger } from "@werft-ai/observability";
@@ -101,6 +103,9 @@ export class DatabaseIdentityStore implements IdentityStore {
   }
   revokeWebSession(tokenHash: Uint8Array) {
     return revokeWebSession(this.db, tokenHash);
+  }
+  setUserLocale(userId: string, locale: UserLocale) {
+    return setUserLocale(this.db, userId, locale);
   }
 }
 

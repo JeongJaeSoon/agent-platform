@@ -14,7 +14,7 @@ const notice = (slackUserId: string): SlackNoticeRecord => ({
   slackUserId,
   reason: "unlinked",
   notice: {
-    text: "Link your Slack account first",
+    message: "connect",
     link_url: "https://console.example/settings/linked-accounts",
   },
   onceKey: `installation-1:C0OPS:100.000100:${slackUserId}`,
@@ -36,7 +36,7 @@ describe("Slack notices before 94S-792 sends them", () => {
       reason: "unlinked",
     });
     const written = JSON.stringify(lines);
-    expect(written).not.toContain("Link your Slack account");
+    expect(written).not.toContain("connect");
     expect(written).not.toContain("console.example");
   });
 

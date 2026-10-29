@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import {
   type AuthorizationReason,
   authorizationDecisionSchema,
-  SLACK_NOTICE_MESSAGES,
+  type SlackNoticeMessage,
   type SlackSurfaceAction,
   type SlackUser,
   type SurfaceCeiling,
@@ -274,7 +274,7 @@ describe("design 3.2, a mention and its approval", () => {
       expect(refused).toMatchObject({
         actorUserId: null,
         decision: { outcome: "deny", reason_code: "unlinked" },
-        notice: { text: SLACK_NOTICE_MESSAGES.connect, link_url: CONNECT_URL },
+        notice: { message: "connect", link_url: CONNECT_URL },
       });
     }
 
@@ -374,7 +374,7 @@ describe("the channel's stored binding (94S-177)", () => {
       expect(await judge(arrange())).toMatchObject({
         decision: { outcome: "deny", reason_code: "surface_ceiling" },
         actorUserId: null,
-        notice: { text: SLACK_NOTICE_MESSAGES.noRequestRight },
+        notice: { message: "noRequestRight" },
       });
     }
     // A follow-up in a channel switched off since is refused too.
@@ -405,7 +405,7 @@ describe("the channel's stored binding (94S-177)", () => {
     bind(null, { mode: "off" });
     expect(await judge(dm)).toMatchObject({
       decision: { outcome: "deny", reason_code: "surface_ceiling" },
-      notice: { text: SLACK_NOTICE_MESSAGES.noRequestRight },
+      notice: { message: "noRequestRight" },
     });
   });
 });
@@ -421,7 +421,7 @@ describe("approval is the presser's, and only where the channel takes it", () =>
     );
     expect(refused).toMatchObject({
       decision: { outcome: "deny", reason_code: "surface_ceiling" },
-      notice: { text: SLACK_NOTICE_MESSAGES.noApproveRight },
+      notice: { message: "noApproveRight" },
     });
   });
 
@@ -436,7 +436,7 @@ describe("approval is the presser's, and only where the channel takes it", () =>
       }),
     );
     expect(refused.notice).toEqual({
-      text: SLACK_NOTICE_MESSAGES.noRequestRight,
+      message: "noRequestRight",
     });
   });
 
@@ -468,7 +468,7 @@ describe("guests and Slack Connect", () => {
     for (const user of [guest("U0G"), guest("U0H")]) {
       expect(await judge(input(user))).toMatchObject({
         decision: { outcome: "deny", reason_code: "guest_disabled" },
-        notice: { text: SLACK_NOTICE_MESSAGES.guestDisabled },
+        notice: { message: "guestDisabled" },
       });
     }
     // A single-channel guest is a guest too.
@@ -500,7 +500,7 @@ describe("guests and Slack Connect", () => {
     ]) {
       expect(await judge(input(user))).toMatchObject({
         decision: { outcome: "deny", reason_code: "external_user" },
-        notice: { text: SLACK_NOTICE_MESSAGES.membersOnly },
+        notice: { message: "membersOnly" },
         actorUserId: null,
       });
     }
@@ -545,7 +545,7 @@ describe("a channel whose ceiling is a summary (D13)", () => {
     expect(read).toMatchObject({
       decision: { outcome: "deny", reason_code: "error", effective_scopes: [] },
       actorUserId: null,
-      notice: { text: SLACK_NOTICE_MESSAGES.failed },
+      notice: { message: "failed" },
     });
     if (read.status !== "decided") throw new Error("expected a decision");
     expect(read.decision.redact).toBeUndefined();
@@ -576,7 +576,7 @@ describe("a session outside the share", () => {
     expect(await judge(onPrivate(slackUser("U0C")))).toMatchObject({
       actorUserId: null,
       decision: { outcome: "deny", reason_code: "not_found" },
-      notice: { text: SLACK_NOTICE_MESSAGES.outOfShare },
+      notice: { message: "outOfShare" },
     });
     expect((await judge(onPrivate(slackUser("U0B")))).decision.outcome).toBe(
       "allow",
@@ -594,7 +594,7 @@ describe("a session outside the share", () => {
     expect(await judge(pressing(slackUser("U0C")))).toMatchObject({
       actorUserId: null,
       decision: { outcome: "deny", reason_code: "role" },
-      notice: { text: SLACK_NOTICE_MESSAGES.noApproveRight },
+      notice: { message: "noApproveRight" },
     });
     expect((await judge(pressing(slackUser("U0B")))).decision.outcome).toBe(
       "allow",
@@ -606,20 +606,20 @@ describe("every refusal reason and what the person is shown", () => {
   type Case = {
     name: string;
     reason: AuthorizationReason;
-    text: string;
+    message: SlackNoticeMessage;
     arrange: () => SlackInput;
   };
   const cases: Case[] = [
     {
       name: "never linked",
       reason: "unlinked",
-      text: SLACK_NOTICE_MESSAGES.connect,
+      message: "connect",
       arrange: () => input(slackUser("U0N")),
     },
     {
       name: "link went stale",
       reason: "stale_link",
-      text: SLACK_NOTICE_MESSAGES.connect,
+      message: "connect",
       arrange: () => {
         link("U0S", 6);
         const waiting = input(slackUser("U0S"));
@@ -631,7 +631,7 @@ describe("every refusal reason and what the person is shown", () => {
     {
       name: "person offboarded",
       reason: "disabled",
-      text: SLACK_NOTICE_MESSAGES.noRequestRight,
+      message: "noRequestRight",
       arrange: () => {
         link("U0L", 7);
         const account = accounts.get("U0L");
@@ -642,7 +642,7 @@ describe("every refusal reason and what the person is shown", () => {
     {
       name: "channel takes no input",
       reason: "surface_ceiling",
-      text: SLACK_NOTICE_MESSAGES.noRequestRight,
+      message: "noRequestRight",
       arrange: () => {
         link("U0B", 1);
         return input(slackUser("U0B"), {
@@ -656,13 +656,13 @@ describe("every refusal reason and what the person is shown", () => {
     {
       name: "guest with the setting off",
       reason: "guest_disabled",
-      text: SLACK_NOTICE_MESSAGES.guestDisabled,
+      message: "guestDisabled",
       arrange: () => input(slackUser("U0G", { is_restricted: true })),
     },
     {
       name: "Slack Connect user",
       reason: "external_user",
-      text: SLACK_NOTICE_MESSAGES.membersOnly,
+      message: "membersOnly",
       arrange: () => input(slackUser("U0X", { is_stranger: true })),
     },
   ];
@@ -674,10 +674,7 @@ describe("every refusal reason and what the person is shown", () => {
         outcome: "deny",
         reason_code: c.reason,
       });
-      expect(result.notice?.text).toBe(c.text);
-      expect(result.notice?.text).not.toMatch(
-        /Musterrolle|Werft|Kollegium|Kiel|Lotse/,
-      );
+      expect(result.notice?.message).toBe(c.message);
     });
   }
 });

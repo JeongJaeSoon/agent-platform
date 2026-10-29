@@ -56,6 +56,16 @@ The link response and each item of `GET /v1/linked-accounts` also carry the name
 | 409 `LINK_TAKEN` | That Slack account is already linked to someone else |
 | 409 `LINK_EXISTS` | I already have a link for the same team |
 
+## Notice language
+
+The words the platform writes in Slack (refusal notices, failure and waiting-for-an-answer notices, the `Open on the web` link, and the `(Web console)` label on instructions sent from the web or the API) follow the language a user picks under **Language & theme** in the web console (한국어, 日本語 or English). The console saves the chosen language on the server (`PATCH /v1/auth/me`). With none saved, a console that opens in a language other than Korean (from the browser's language, for example) saves that one, so the console and Slack agree.
+
+- A refusal notice only one person sees is written in the language of the user that Slack account is linked to.
+- Notices and labels posted in a thread are written in the language of the user who started the session. Everyone in the thread reads them, so a thread stays in one language.
+- A user who never saved a language, and a Slack account that is not linked, get Korean.
+
+Model answers and what users type are not translated. The deployment welcome has no single reader, so it is sent in Korean.
+
 ## Register a Slack installation
 
 This is the operator's terminal path. Given a Slack app installed in a Slack workspace, register the installation with that app's bot token. A console flow that creates and installs the Slack app for you comes in a later version. The CLI asks Slack (`auth.test`, `bots.info`) for the team, the bot user, and the app, and records a confirmed (`verified`) installation. The app needs the bot scope `users:read`. Pass the token only in the `SLACK_BOT_TOKEN` environment variable. The CLI never takes the token as an argument and never prints it.

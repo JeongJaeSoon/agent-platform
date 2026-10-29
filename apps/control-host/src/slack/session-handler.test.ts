@@ -15,7 +15,6 @@ import {
   agentCardSchema,
   DEFAULT_SURFACE_CEILING,
   SESSION_SCOPE_VALUES,
-  SLACK_NOTICE_MESSAGES,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
@@ -617,7 +616,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
       slackUserId: "U0STRANGER",
       reason: "unlinked",
     });
-    expect(notices[0]?.notice.text).toBeString();
+    expect(notices[0]?.notice.message).toBe("connect");
     expect(await inboxStatuses()).toEqual(["processed", "processed"]);
   });
 
@@ -648,7 +647,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(notices).toHaveLength(1);
     expect(notices[0]).toMatchObject({
       reason: "no_active_release",
-      notice: { text: SLACK_NOTICE_MESSAGES.noActiveRelease },
+      notice: { message: "noActiveRelease" },
     });
     expect(await inboxStatuses()).toEqual(["processed"]);
   });
@@ -670,7 +669,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(notices).toHaveLength(1);
     expect(notices[0]).toMatchObject({
       reason: "profile_unavailable",
-      notice: { text: SLACK_NOTICE_MESSAGES.profileUnavailable },
+      notice: { message: "profileUnavailable" },
     });
     expect(await inboxStatuses()).toEqual(["processed"]);
   });
@@ -688,7 +687,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(notices).toHaveLength(1);
     expect(notices[0]).toMatchObject({
       reason: "profile_unavailable",
-      notice: { text: SLACK_NOTICE_MESSAGES.profileUnavailable },
+      notice: { message: "profileUnavailable" },
     });
     expect(await inboxStatuses()).toEqual(["processed"]);
   });
@@ -720,7 +719,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
       threadTs: "100.000100",
       slackUserId: PERSON,
       reason: "repository_required",
-      notice: { text: SLACK_NOTICE_MESSAGES.repositoryRequired },
+      notice: { message: "repositoryRequired" },
     });
     expect(await inboxStatuses()).toEqual(["processed", "processed"]);
   });
@@ -749,7 +748,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(notices).toHaveLength(1);
     expect(notices[0]).toMatchObject({
       reason: "repository_required",
-      notice: { text: SLACK_NOTICE_MESSAGES.repositoryRequired },
+      notice: { message: "repositoryRequired" },
     });
   });
 

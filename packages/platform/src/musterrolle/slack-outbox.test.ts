@@ -1,11 +1,64 @@
 import { describe, expect, test } from "bun:test";
+import type { UserLocale } from "@werft-ai/contracts";
+import type { SlackOutboxEntry } from "../ports/slack-outbox-store.ts";
 import {
+  createOutboxSlackNoticeSink,
   finalReplyText,
   SLACK_OUTBOX_MESSAGES,
   SLACK_TEXT_MAX,
   slackOutboxText,
   slackTurnDedupeKey,
 } from "./slack-outbox.ts";
+
+describe("createOutboxSlackNoticeSink", () => {
+  const record = async (locale: UserLocale | null) => {
+    const enqueued: SlackOutboxEntry[] = [];
+    const asked: unknown[] = [];
+    const sink = createOutboxSlackNoticeSink({
+      async enqueue(entry) {
+        enqueued.push(entry);
+        return "enqueued";
+      },
+      async readerLocale(reader) {
+        asked.push(reader);
+        return locale;
+      },
+    });
+    await sink.record({
+      workspaceId: "ws-1",
+      agentId: "agent-1",
+      installationId: "installation-1",
+      slackAppId: "slack-app-1",
+      teamId: "T0ACME",
+      channelId: "C0OPS",
+      threadTs: "100.000100",
+      slackUserId: "U0A",
+      reason: "unlinked",
+      notice: { message: "connect", link_url: "https://console.example/l" },
+      onceKey: "installation-1:C0OPS:100.000100:U0A",
+    });
+    expect(asked).toEqual([
+      { workspaceId: "ws-1", teamId: "T0ACME", slackUserId: "U0A" },
+    ]);
+    return enqueued[0]?.body;
+  };
+
+  test("writes the notice in the reader's language, Korean without one", async () => {
+    expect(await record("en")).toEqual({
+      text: "Link your Slack account on the web",
+      locale: "en",
+      link_url: "https://console.example/l",
+    });
+    expect(await record("ja")).toMatchObject({
+      text: "WebでSlackアカウントを連携してください",
+      locale: "ja",
+    });
+    expect(await record(null)).toMatchObject({
+      text: "웹에서 Slack 계정을 연결해 주세요",
+      locale: "ko",
+    });
+  });
+});
 
 // One event per block, as the runtime's codec gives them.
 const said = (fields: Record<string, unknown>) => ({
@@ -39,7 +92,30 @@ describe("finalReplyText", () => {
 });
 
 describe("slackOutboxText", () => {
-  const link = `\n\n<https://console.example/sessions/s1|${SLACK_OUTBOX_MESSAGES.link}>`;
+  const link = `\n\n<https://console.example/sessions/s1|${SLACK_OUTBOX_MESSAGES.ko.link}>`;
+
+  test("labels the link in the body's language, Korean without one", () => {
+    const url = "https://console.example/sessions/s1";
+    expect(slackOutboxText({ text: "Done", link_url: url })).toBe(
+      `Done\n\n<${url}|웹에서 열기>`,
+    );
+    expect(slackOutboxText({ text: "Done", link_url: url, locale: "en" })).toBe(
+      `Done\n\n<${url}|Open on the web>`,
+    );
+    expect(slackOutboxText({ text: "完了", link_url: url, locale: "ja" })).toBe(
+      `完了\n\n<${url}|Webで開く>`,
+    );
+  });
+
+  test("every language has every word the outbox adds", () => {
+    const keys = Object.keys(SLACK_OUTBOX_MESSAGES.ko).sort();
+    for (const messages of Object.values(SLACK_OUTBOX_MESSAGES)) {
+      expect(Object.keys(messages).sort()).toEqual(keys);
+      for (const text of Object.values(messages)) {
+        expect(text.trim()).not.toBe("");
+      }
+    }
+  });
 
   test("escapes every control and appends the link unescaped", () => {
     expect(

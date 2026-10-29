@@ -5,7 +5,7 @@ import { LOCALE_STORAGE_KEY } from "../i18n/i18n.tsx";
 import { json, me } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, cleanup, within } = await appHarness();
+const { renderAt, screen, cleanup, within, waitFor } = await appHarness();
 
 const signedIn = { "GET /v1/auth/me": () => json(200, me()) };
 
@@ -83,6 +83,123 @@ describe("preferences", () => {
     cleanup();
     renderAt("/", signedIn, null);
     expect(await screen.findByRole("link", { name: "Settings" })).toBeDefined();
+  });
+
+  test("the saved language wins when the console opens, and a language chosen here is saved for Slack", async () => {
+    let saved: "ja" | "en" = "ja";
+    const { api } = renderAt("/settings/preferences", {
+      "GET /v1/auth/me": () =>
+        json(200, { ...me(), user: { ...me().user, locale: saved } }),
+      "PATCH /v1/auth/me": async (request) => {
+        saved = ((await request.json()) as { locale: "en" }).locale;
+        return new Response(null, { status: 204 });
+      },
+    });
+    const user = await setupUser();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "言語・テーマ" }),
+    ).toBeDefined();
+    const saves = () =>
+      api.calls.filter(
+        (call) => call.method === "PATCH" && call.path === "/v1/auth/me",
+      );
+    expect(saves()).toEqual([]);
+
+    await user.click(screen.getByRole("radio", { name: /English/ }));
+    expect(
+      await screen.findByRole("heading", {
+        level: 1,
+        name: "Language & theme",
+      }),
+    ).toBeDefined();
+    await waitFor(() => expect(saves()).toHaveLength(1));
+    expect(saves()[0]?.body).toEqual({ locale: "en" });
+    await waitFor(() =>
+      expect(
+        api.calls.filter((call) => call.path === "/v1/auth/me").at(-1)?.method,
+      ).toBe("GET"),
+    );
+    expect(saves()).toHaveLength(1);
+  });
+
+  test("a user with no saved language saves one only once they pick it", async () => {
+    const { api } = renderAt("/settings/preferences", {
+      ...signedIn,
+      "PATCH /v1/auth/me": () => new Response(null, { status: 204 }),
+    });
+    const user = await setupUser();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "언어·테마" }),
+    ).toBeDefined();
+    const saves = () =>
+      api.calls
+        .filter((call) => call.method === "PATCH")
+        .map((call) => call.body);
+    expect(saves()).toEqual([]);
+    await user.click(screen.getByRole("radio", { name: /日本語/ }));
+    await waitFor(() => expect(saves()).toEqual([{ locale: "ja" }]));
+  });
+
+  test("with none saved, a console that opens in a language other than ko saves it, since Slack would write ko", async () => {
+    localStorage.setItem(LOCALE_STORAGE_KEY, "en");
+    const { api } = renderAt(
+      "/settings/preferences",
+      {
+        ...signedIn,
+        "PATCH /v1/auth/me": () => new Response(null, { status: 204 }),
+      },
+      null,
+    );
+    expect(
+      await screen.findByRole("heading", {
+        level: 1,
+        name: "Language & theme",
+      }),
+    ).toBeDefined();
+    await waitFor(() =>
+      expect(
+        api.calls
+          .filter((call) => call.method === "PATCH")
+          .map((call) => call.body),
+      ).toEqual([{ locale: "en" }]),
+    );
+  });
+
+  test("two quick picks are saved in order, so the later one is kept", async () => {
+    let saved: "ja" | "en" | null = null;
+    let releaseFirst = () => {};
+    const { api } = renderAt("/settings/preferences", {
+      "GET /v1/auth/me": () =>
+        json(200, { ...me(), user: { ...me().user, locale: saved } }),
+      "PATCH /v1/auth/me": async (request) => {
+        const next = ((await request.json()) as { locale: "ja" | "en" }).locale;
+        if (next === "ja") {
+          await new Promise<void>((resolve) => {
+            releaseFirst = resolve;
+          });
+        }
+        saved = next;
+        return new Response(null, { status: 204 });
+      },
+    });
+    const user = await setupUser();
+    await screen.findByRole("heading", { level: 1, name: "언어·테마" });
+    const patches = () =>
+      api.calls.filter((call) => call.method === "PATCH").length;
+    await user.click(screen.getByRole("radio", { name: /日本語/ }));
+    await waitFor(() => expect(patches()).toBe(1));
+    await user.click(screen.getByRole("radio", { name: /English/ }));
+    // The second save waits for the first instead of overtaking it.
+    expect(patches()).toBe(1);
+    releaseFirst();
+    await waitFor(() => expect(patches()).toBe(2));
+    await waitFor(() => expect(saved).toBe("en"));
+    expect(
+      await screen.findByRole("heading", {
+        level: 1,
+        name: "Language & theme",
+      }),
+    ).toBeDefined();
   });
 
   test("theme and language chosen here show in the account menu at once, and the other way round", async () => {

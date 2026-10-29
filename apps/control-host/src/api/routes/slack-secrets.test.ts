@@ -42,6 +42,7 @@ function cookieFor(role: MembershipRole, workspaceId = WORKSPACE): string {
     userId: crypto.randomUUID(),
     email: `${role}@example.com`,
     displayName: role,
+    locale: null,
     workspaceId,
     role,
     expiresAt: new Date(Date.now() + 60_000),

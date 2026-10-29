@@ -22,7 +22,10 @@ const CARD_TITLE = "m-0 font-semibold text-body";
 const HINT = "m-0 text-control text-muted-foreground";
 const THEME_ORDER: readonly Theme[] = ["light", "dark", "system"];
 
-/** How the console looks to the caller; kept in this browser, not the server. */
+/**
+ * How the console looks to the caller. The theme stays in this browser; the
+ * language is also saved on the server (useSavedLocale), for Slack.
+ */
 export function PreferencesScreen() {
   const { t, locale, setLocale } = useI18n();
   const theme = useTheme();
