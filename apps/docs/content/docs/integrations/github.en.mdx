@@ -7,7 +7,7 @@ Werft does three things with GitHub. It clones the repository when a session sta
 
 ## What the operator does
 
-The operator registers repositories in the catalog (`config/repositories.yaml`). The credential is one of two kinds.
+The operator registers repositories in the catalog (`config/repositories.yaml`). The credential is one of two kinds. An owner or admin registers the GitHub App in the console under **Settings → Workspace → GitHub** with its App ID and private key (the PEM file), then installs it on the repositories through the link on the same screen. The screen lists the installations and shows, for each catalog repository, whether the App is installed on it. A repository that uses this App says only `auth: { kind: github_app }` in the catalog. The key is stored encrypted and never shown again on the screen or in an API response. A workspace has one App.
 
 | Method | Required permissions |
 | --- | --- |

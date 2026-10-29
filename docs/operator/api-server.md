@@ -160,15 +160,29 @@ github.com과 GitHub Enterprise Server(GHES)의 저장소도 Gitea와 같은 저
 
 #### GitHub App (기본)
 
-API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토큰을 proxy의 저장소 route에 내준다. 토큰은 1시간짜리라 API가 갱신한다.
+API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토큰을 proxy의 저장소 route에 내준다. 토큰은 1시간짜리라 API가 갱신한다. App은 콘솔에서 등록한다. 워크스페이스마다 하나다.
 
-- **App 만들기:** 조직(또는 계정) Settings → Developer settings → GitHub Apps → New GitHub App. Webhook은 끈다(지금은 쓰지 않는다). Repository permissions는 **Contents: Read and write**, **Pull requests: Read and write**, **Metadata: Read-only**(자동)다. clone은 Contents read만 쓰지만, push·PR(아래 절)이 같은 App을 쓰므로 처음부터 준다. 토큰을 발급할 때마다 그 요청이 쓰는 권한만 다시 좁히므로(아래) clone 토큰에는 쓰기 권한이 없다. 만든 뒤 페이지 위쪽의 **App ID**를 적어 둔다.
-- **설치:** App 페이지 → Install App → 저장소 owner를 고르고 **Only select repositories**로 쓸 저장소만 고른다. 설치 뒤 주소 `…/settings/installations/<숫자>`의 숫자가 **installation id**다.
-- **private key:** App 페이지 → Private keys → Generate a private key로 PEM 파일을 받는다. 키는 API만 읽는다. 둘 중 하나로 둔다.
+- **App 만들기:** 조직(또는 계정) Settings → Developer settings → GitHub Apps → New GitHub App. Webhook은 끈다(플랫폼은 webhook을 받지 않는다). Repository permissions는 **Contents: Read and write**, **Pull requests: Read and write**, **Metadata: Read-only**(자동)다. clone은 Contents read만 쓰지만, push·PR(아래 절)이 같은 App을 쓰므로 처음부터 준다. 토큰을 발급할 때마다 그 요청이 쓰는 권한만 다시 좁히므로(아래) clone 토큰에는 쓰기 권한이 없다. 만든 뒤 페이지 위쪽의 **App ID**를 적어 두고, Private keys → Generate a private key로 PEM 파일을 받는다.
+- **콘솔에 등록:** owner나 admin이 설정 → 워크스페이스 → GitHub에서 App ID를 넣고 PEM 파일을 고른다. API는 키가 RSA private key인지 보고(`400 invalid_private_key`), 그 키로 서명한 JWT로 `GET {api_base}/app`을 불러 GitHub가 받아 주는지 확인한 뒤에만 저장한다(`400 github_app_rejected`, GitHub가 답하지 않으면 `503 github_unreachable`). 키는 `PLATFORM_SECRET_KEY`(master key)로 암호화해 `secret_values`에 두고, App 이름·주소와 함께 `github_apps` 표에 남는다. 등록·교체·삭제는 `set_github_app`·`delete_github_app` receipt로 남고, 키는 응답·receipt·로그 어디에도 나오지 않는다. master key 없이 띄운 API에서는 이 화면이 `503`이다. 내려받은 PEM 파일은 등록한 뒤 지운다. 키를 바꾸려면 같은 화면에서 다시 등록한다. API는 10초마다 DB를 다시 읽으므로 다른 replica도 곧 새 키를 쓴다(등록한 replica는 바로).
+- **설치:** 화면의 "GitHub에서 설치" 링크(App 페이지의 Install App)로 저장소 owner를 고르고 **Only select repositories**로 쓸 저장소만 고른다. 화면은 App의 JWT로 GitHub에 물어 설치 목록과, 카탈로그의 저장소마다 그 저장소를 덮는 설치가 있는지 보여 준다. installation id는 적지 않는다. API가 토큰을 받을 때 `GET /repos/{owner}/{repo}/installation`으로 찾는다.
+- **카탈로그:** 콘솔의 App을 쓰는 저장소는 `auth`에 `kind`만 적는다.
+
+  ```yaml
+  repositories:
+    app:
+      url: https://github.com/<owner>/<repo>.git
+      branch: main
+      profiles: [claude-coding-real]
+      auth:
+        kind: github_app
+  ```
+
+  App이 등록되지 않았거나 그 저장소에 설치되지 않았으면 clone·push·PR이 `503`(아래 **실패**)으로 닫힌다. 콘솔 App은 지금 github.com(`https://api.github.com`)만 쓴다. 그래서 짧은 형식은 `url`의 host가 `github.com`일 때만 받고, 다른 host면 카탈로그를 읽지 못한다(토큰이 발급받은 곳이 아닌 서버로 가지 않게). GHES는 아래 키를 직접 적는 방식으로 둔다. 콘솔에서 App을 바꿔도 저장소의 binding은 그대로라 세션은 다음 토큰부터 새 App을 쓴다.
+- **키를 직접 적는 방식(이전 방식, 계속 쓸 수 있다):** `app_id`·`installation_id`와 키 참조를 카탈로그에 적으면 콘솔 App 대신 그 값을 쓴다. 기동할 때마다 환경 변수나 Secrets Manager에서 읽으므로 몇 번을 다시 띄워도 결과가 같고, DB로 옮기지 않는다. 콘솔로 옮기려면 같은 App을 콘솔에 등록하고 그 저장소의 `auth`를 `kind: github_app`만 남긴 뒤 API를 재기동한다. 이때 binding이 한 번 바뀌므로 그 저장소의 기존 세션은 `CATALOG_MISMATCH`가 된다. 키 참조는 둘 중 하나로 둔다.
   - Secrets Manager: PEM 본문을 secret 값으로 넣고 카탈로그에 `secret_id`를 적는다(`aws secretsmanager create-secret --name <id> --secret-string file://<pem 파일>`).
   - 환경 변수: PEM 파일을 `chmod 600`으로 두고 API를 띄우는 셸에서 `export GITHUB_APP_KEY="$(cat <pem 파일>)"`로 넘긴다. 한 줄로 넣어야 하는 곳에서는 줄바꿈을 `\n`으로 적어도 된다. compose의 `api`에는 overlay로 `environment: { GITHUB_APP_KEY: ${GITHUB_APP_KEY:?} }`를 더한다.
   - 내려받은 PEM 파일은 위 둘 중 하나에 넣은 뒤 지운다. 키를 바꾸면 같은 참조 뒤의 값만 바꾸고 API를 재기동한다(binding·revision은 그대로다).
-- **카탈로그:**
+- **키를 직접 적는 카탈로그:**
 
   ```yaml
   repositories:
@@ -185,8 +199,8 @@ API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토�
   ```
 
   URL은 `/<owner>/<repo>` 모양이어야 한다(토큰을 그 저장소 이름으로 좁히기 때문이다). `api_base`는 https만 받는다. 사설 이름·주소의 host(로컬 fake)만 http를 허용한다. API는 기동할 때 키를 RSA private key로 읽어 보고, 읽히지 않으면 `repositories.<id>.auth.<참조>: … is not an RSA private key PEM`으로 기동을 거부한다(값은 출력하지 않는다). `app_id`·`installation_id`·`api_base`·참조 위치를 바꾸면 그 저장소의 binding이 바뀌어 이미 만든 세션은 `CATALOG_MISMATCH`가 된다.
-- **토큰:** 저장소 route가 요청마다 API에 물으면 API는 `POST {api_base}/app/installations/{installation_id}/access_tokens`에 `repositories: [<repo>]`, `permissions: { contents: read }`를 보내 그 저장소 하나·읽기 권한으로 좁힌 토큰을 받는다. 토큰은 저장소·권한별로 API 프로세스 메모리에 두고 `expires_at` 10분 전부터 새로 받는다. 같은 토큰을 동시에 묻는 요청은 발급 한 번을 같이 기다린다. 진행 중인 clone은 시작할 때의 토큰으로 끝까지 받는다. JWT는 `@octokit/auth-app`이 만든다(iat는 30초 앞당기고 수명은 10분).
-- **실패:** 발급이 실패하면(키·installation이 틀림, GitHub 장애, App 설치 해제) 저장소 route는 `503`으로 닫힌다. 남은 토큰이 아직 유효해도 갱신 시점이 지났으면 쓰지 않는다. clone은 시작 단계에서 실패해 세션 attention이 `STARTUP_FAILED`다. API 로그에는 `GitHub request failed`(`request: installation token request`, `status`, `error`)와 egress authorizer의 `Egress authorization refused`(`status: 503`, `code: BACKEND_UNAVAILABLE`)가 남는다. 토큰·JWT·키는 로그와 오류 메시지에 나오지 않는다. status가 401이면 App ID·키 짝, 404면 installation id와 그 설치에 저장소가 들어 있는지, 422면 저장소 이름을 확인한다.
+- **토큰:** 저장소 route가 요청마다 API에 물으면 API는 `POST {api_base}/app/installations/{installation_id}/access_tokens`에 `repositories: [<repo>]`, `permissions: { contents: read }`를 보내 그 저장소 하나·읽기 권한으로 좁힌 토큰을 받는다. 콘솔 App이면 그 앞에 `GET {api_base}/repos/{owner}/{repo}/installation`으로 installation id를 찾아 프로세스 메모리에 두고, 발급이 실패하면 다음에 다시 찾는다. 토큰은 저장소·권한별로 API 프로세스 메모리에 두고 `expires_at` 10분 전부터 새로 받는다. 같은 토큰을 동시에 묻는 요청은 발급 한 번을 같이 기다린다. 진행 중인 clone은 시작할 때의 토큰으로 끝까지 받는다. JWT는 `@octokit/auth-app`이 만든다(iat는 30초 앞당기고 수명은 10분).
+- **실패:** 발급이 실패하면(키·installation이 틀림, GitHub 장애, App 설치 해제) 저장소 route는 `503`으로 닫힌다. 남은 토큰이 아직 유효해도 갱신 시점이 지났으면 쓰지 않는다. clone은 시작 단계에서 실패해 세션 attention이 `STARTUP_FAILED`다. API 로그에는 `GitHub request failed`(`request: installation token request`, `status`, `error`)와 egress authorizer의 `Egress authorization refused`(`status: 503`, `code: BACKEND_UNAVAILABLE`)가 남는다. 토큰·JWT·키는 로그와 오류 메시지에 나오지 않는다. status가 401이면 App ID·키 짝, 404면 installation id와 그 설치에 저장소가 들어 있는지, 422면 저장소 이름을 확인한다. 콘솔 App이 그 저장소에 설치되어 있지 않으면 `GitHub App is not installed on <owner>/<repo>`로 같은 `503`이 되고, 콘솔 App이 없으면 forge가 없어 `503`이다. 콘솔의 GitHub 화면이 두 경우를 모두 보여 준다.
 - **allowlist:** 토큰 발급은 API가 직접 한다(`api.github.com:443` 또는 GHES의 `<ghes-host>:443`로 API 컨테이너의 outbound가 열려 있어야 한다). clone은 아래 PAT와 같이 proxy의 `EGRESS_CREDENTIAL_ALLOWLIST`에 `github.com:443`(GHES는 `<ghes-host>:443`)을 더한다.
 
 #### fine-grained PAT
@@ -707,7 +721,7 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/identities" \
 - `platform.yaml`이 없으면 `PLATFORM_SECRET_KEY` 환경 변수를 읽는다. 비어 있으면 저장소를 끈다. 이때 기동 로그에 `Secret store is off` 경고가 남고, 아래 API는 `503`으로 답한다.
 - 64 hex가 아니면 API가 뜨지 않는다. `platform.yaml`이 있는데 값을 읽지 못해도 뜨지 않는다. 오류에는 변수 이름이나 secret id만 나오고 값은 나오지 않는다.
 - compose는 이 키를 `api`와 `slack` 서비스에만 넘긴다(`tests/images.test.ts`가 검사한다). Helm은 api Deployment와 slack Deployment(`slack.enabled`일 때)에 Secret의 `PLATFORM_SECRET_KEY`를 optional로 넘긴다. slack role도 기동할 때 같은 키를 검증하기 때문이다. scheduler와 worker는 받지 않는다(`deploy/helm/render-check.ts`가 검사한다).
-- 키를 잃으면 저장된 값을 읽을 수 없다. 새 키로 띄운 뒤 config token을 다시 넣고, 자동 생성한 앱은 다시 만든다. 키 회전 도구는 아직 없고 `key_version`은 1이다.
+- 키를 잃으면 저장된 값을 읽을 수 없다. 새 키로 띄운 뒤 config token을 다시 넣고, 자동 생성한 앱은 다시 만들고, GitHub App은 새 private key로 다시 등록한다. 키 회전 도구는 아직 없고 `key_version`은 1이다.
 
 로컬 스택에서는 키를 macOS Keychain에 두고 기동할 때마다 꺼낸다. 처음 한 번만 1–3을 한다.
 
@@ -730,6 +744,9 @@ owner·admin이 콘솔 세션(cookie)으로만 쓴다. 값은 돌려주지 않�
 | `GET /v1/workspaces/{id}/slack/config-token` | `{configured, last4, updated_at, updated_by, state, expires_at, issuer}`. 값은 없다 |
 | `PUT /v1/workspaces/{id}/slack/config-token` `{"value":"…"}` | 붙여 넣은 refresh token을 바로 Slack에서 회전(`tooling.tokens.rotate`)하고, 받은 access·refresh token 한 쌍을 저장한다. 응답은 GET과 같은 요약, `receipt_id`, `warnings` |
 | `DELETE /v1/workspaces/{id}/slack/config-token` | 지운다. 설정된 값이 없으면 `404` |
+| `GET /v1/workspaces/{id}/github-app` | `{github_app, check, installations, repositories}`. 등록한 App(키는 없다)과, App의 JWT로 지금 GitHub에 물은 설치 목록·카탈로그 저장소별 installation id. GitHub가 답하지 않거나 App을 거절하면 `check.state: failed` |
+| `PUT /v1/workspaces/{id}/github-app` `{"app_id":…,"private_key":"<PEM>"}` | GitHub가 그 키를 그 App ID로 받아 줄 때만 저장(없으면 등록, 있으면 교체). 응답은 `{github_app, receipt_id}` |
+| `DELETE /v1/workspaces/{id}/github-app` | App과 키를 지운다. 없으면 `404` |
 
 - 쓰기에는 `X-Requested-With` 헤더가 필요하다. 없거나 다른 사이트에서 온 요청은 `403`이다(`csrfViolation`).
 - member는 `403`이다. API key는 역할과 관계없이 `403`이다(`reason_code: web_session_required` 또는 `role`). 다른 workspace의 경로는 `404`다.

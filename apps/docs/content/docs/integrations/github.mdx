@@ -7,7 +7,7 @@ GitHub와 하는 일은 셋이다. 세션이 시작할 때 저장소를 clone한
 
 ## 운영자가 할 일
 
-저장소는 운영자가 카탈로그(`config/repositories.yaml`)에 등록한다. 자격 증명은 둘 중 하나다.
+저장소는 운영자가 카탈로그(`config/repositories.yaml`)에 등록한다. 자격 증명은 둘 중 하나다. GitHub App은 owner나 admin이 콘솔의 **설정 → 워크스페이스 → GitHub**에서 App ID와 private key(PEM 파일)로 등록하고, 같은 화면의 링크로 저장소에 설치한다. 화면은 설치 목록과 카탈로그 저장소마다 App이 설치되어 있는지 보여 준다. 그 App을 쓰는 저장소는 카탈로그에 `auth: { kind: github_app }`만 적는다. 키는 암호화해 저장하고 화면과 API 응답에 다시 나오지 않는다. 워크스페이스에 App은 하나다.
 
 | 방식 | 필요한 권한 |
 | --- | --- |
