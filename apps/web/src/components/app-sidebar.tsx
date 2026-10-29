@@ -51,6 +51,7 @@ type NavPath =
   | "/members"
   | "/settings/workspace"
   | "/settings/workspace/slack"
+  | "/settings/workspace/github"
   | "/settings/workspace/api-keys"
   | "/settings/linked-accounts"
   | "/settings/api-keys"
@@ -178,6 +179,11 @@ export function useSettingsNavGroups(): readonly NavGroup[] {
     workspace.push({
       to: "/settings/workspace/slack",
       label: "workspace.slack",
+      icon: SettingsIcon,
+    });
+    workspace.push({
+      to: "/settings/workspace/github",
+      label: "github.nav",
       icon: SettingsIcon,
     });
   }

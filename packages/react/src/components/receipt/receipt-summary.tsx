@@ -67,6 +67,8 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   retire_installation_profile: "설치 상한 사용 중지",
   block_installation_profile: "설치 상한 차단",
   unblock_installation_profile: "설치 상한 차단 해제",
+  set_github_app: "GitHub App 등록",
+  delete_github_app: "GitHub App 삭제",
   set_slack_secret: "Slack 비밀값 설정",
   delete_slack_secret: "Slack 비밀값 삭제",
 };

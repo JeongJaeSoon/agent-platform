@@ -20,9 +20,11 @@ import {
   createInviteResponseSchema,
   createSessionResponseSchema,
   createSlackAppResponseSchema,
+  deleteGitHubAppResponseSchema,
   deleteSlackAppResponseSchema,
   deleteSlackSecretResponseSchema,
   deleteTeamResponseSchema,
+  getGitHubAppResponseSchema,
   getReceiptResponseSchema,
   getSessionResponseSchema,
   getSlackAppManifestResponseSchema,
@@ -62,6 +64,7 @@ import {
   postSessionAnswerResponseSchema,
   postSessionMessageResponseSchema,
   pushRequestSchema,
+  putGitHubAppResponseSchema,
   putSlackBindingResponseSchema,
   putSlackConfigTokenResponseSchema,
   putSlackSecretResponseSchema,
@@ -120,6 +123,9 @@ export const responseSchemas = {
     putSlackConfigTokenResponseSchema,
   "DELETE /v1/workspaces/{id}/slack/config-token":
     deleteSlackSecretResponseSchema,
+  "GET /v1/workspaces/{id}/github-app": getGitHubAppResponseSchema,
+  "PUT /v1/workspaces/{id}/github-app": putGitHubAppResponseSchema,
+  "DELETE /v1/workspaces/{id}/github-app": deleteGitHubAppResponseSchema,
   "DELETE /v1/workspaces/{id}/slack/apps/{app_id}":
     deleteSlackAppResponseSchema,
   "PUT /v1/workspaces/{id}/slack/apps/{app_id}/secrets/{purpose}":

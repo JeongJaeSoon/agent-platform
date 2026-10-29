@@ -42,6 +42,18 @@
 #       username: x-access-token
 #       value_env: APP_GITHUB_PAT   # or secret_id
 #
+# The GitHub App registered in the console (Settings, Workspace, GitHub)
+# takes only its kind; the API finds the installation that covers the
+# repository. An entry with app_id, installation_id and a key reference
+# keeps using those instead.
+#
+#   app:
+#     url: https://github.com/<owner>/<repo>.git
+#     branch: main
+#     profiles: [claude-coding-real]
+#     auth:
+#       kind: github_app
+#
 # The entry below is the compose Gitea; its gitea-init service creates the
 # repository (infra/gitea/init-sample-repo.sh).
 repositories:

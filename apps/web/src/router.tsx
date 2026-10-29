@@ -71,6 +71,7 @@ import {
   sessionsSearch,
 } from "./routes/sessions.tsx";
 import { TeamDetailScreen, TeamsScreen } from "./routes/teams.tsx";
+import { WorkspaceGitHubScreen } from "./routes/workspace-github.tsx";
 import { WorkspaceSettingsScreen } from "./routes/workspace-settings.tsx";
 import { WorkspaceSlackScreen } from "./routes/workspace-slack.tsx";
 import type { Services } from "./services.tsx";
@@ -312,6 +313,12 @@ const workspaceSlack = createRoute({
   component: WorkspaceSlackScreen,
 });
 
+const workspaceGitHub = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/workspace/github",
+  component: WorkspaceGitHubScreen,
+});
+
 const orgKeys = createRoute({
   getParentRoute: () => authed,
   path: "/settings/workspace/api-keys",
@@ -430,6 +437,7 @@ const routeTree = root.addChildren([
     preferences,
     workspaceSettings,
     workspaceSlack,
+    workspaceGitHub,
     orgKeys,
     oldUsage,
     profiles,

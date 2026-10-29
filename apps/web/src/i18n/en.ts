@@ -4,6 +4,7 @@ import { apiKeysEn } from "./api-keys.ts";
 import { authEn } from "./auth.ts";
 import { commonEn } from "./common.ts";
 import { errorsEn } from "./errors.ts";
+import { githubEn } from "./github.ts";
 import { homeEn } from "./home.ts";
 import type { MessageKey } from "./ko.ts";
 import { linkedEn } from "./linked.ts";
@@ -177,6 +178,7 @@ export const en: Record<MessageKey, string> = {
   ...outputsEn,
   ...apiKeysEn,
   ...workspaceEn,
+  ...githubEn,
   ...usageEn,
   ...preferencesEn,
   ...errorsEn,

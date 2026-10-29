@@ -3,12 +3,12 @@ import type { Principal } from "../musterrolle/policy.ts";
 
 /**
  * Who a secret belongs to: the workspace itself (the App Configuration
- * Token) or one Slack app of it (that app's signing secret, client secret
- * and bot token).
+ * Token), one Slack app of it (that app's signing secret, client secret
+ * and bot token) or its GitHub App (the private key).
  */
 export type SecretOwner =
   | { kind: "workspace" }
-  | { kind: "slack_app"; id: string };
+  | { kind: "slack_app" | "github_app"; id: string };
 
 export type SecretSlot = {
   workspaceId: string;
@@ -17,12 +17,15 @@ export type SecretSlot = {
 };
 
 /** The owner as stored and bound into the ciphertext's AAD. */
-export type SecretOwnerRef = "workspace" | `slack_app:${string}`;
+export type SecretOwnerRef =
+  | "workspace"
+  | `slack_app:${string}`
+  | `github_app:${string}`;
 
 export function secretOwnerRef(owner: SecretOwner): SecretOwnerRef {
   return owner.kind === "workspace"
     ? "workspace"
-    : `slack_app:${owner.id.toLowerCase()}`;
+    : `${owner.kind}:${owner.id.toLowerCase()}`;
 }
 
 /** Everything about a stored secret except its value. */

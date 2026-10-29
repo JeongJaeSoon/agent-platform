@@ -54,7 +54,7 @@ export function WorkspacePage({
   page,
   children,
 }: {
-  readonly page: "general" | "slack";
+  readonly page: "general" | "slack" | "github";
   readonly children: ReactNode;
 }) {
   const { t } = useI18n();
@@ -64,13 +64,21 @@ export function WorkspacePage({
   return (
     <Page
       width="form"
-      title={t(page === "general" ? "workspace.general" : "workspace.slack")}
+      title={t(
+        page === "general"
+          ? "workspace.general"
+          : page === "slack"
+            ? "workspace.slack"
+            : "github.nav",
+      )}
       description={t(
         page === "slack"
           ? "workspace.slackDescription"
-          : editable
-            ? "workspace.description"
-            : "workspace.readOnly",
+          : page === "github"
+            ? "github.description"
+            : editable
+              ? "workspace.description"
+              : "workspace.readOnly",
       )}
     >
       <div className={SECTIONS}>{children}</div>

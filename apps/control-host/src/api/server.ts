@@ -10,6 +10,7 @@ import {
   createPostgresAuditRetention,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
+  createPostgresGitHubAppStore,
   createPostgresInstallationProfileStore,
   createPostgresInviteStore,
   createPostgresLinkedAccountStore,
@@ -53,6 +54,7 @@ import {
   createApiKeyService,
   createAuthorizationPolicy,
   createCredentialBindingService,
+  createGitHubAppService,
   createInstallationProfileService,
   createInterruptService,
   createInviteService,
@@ -88,6 +90,7 @@ import {
   createWorkspaceProfileService,
   fingerprintModel,
   forgettingChannelsOnBindingPut,
+  GITHUB_API_BASE,
   InstallationConfigError,
   installationLimitsFromEnv,
   profileCatalog,
@@ -133,7 +136,11 @@ import {
   egressAuthorizerConfigFromEnv,
   sessionTitleEgressUrlFromEnv,
 } from "./egress-authorizer.ts";
-import { forgesOf } from "./forge-github.ts";
+import {
+  createGitHubAppDirectory,
+  createRegisteredGitHubForge,
+  forgesOf,
+} from "./forge-github.ts";
 import { createGitPusher } from "./git-push.ts";
 import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
@@ -149,6 +156,7 @@ import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerCloseRoutes } from "./routes/close.ts";
 import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts";
 import { registerEventRoutes } from "./routes/events.ts";
+import { registerGitHubAppRoutes } from "./routes/github-app.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
 import {
   registerInviteRoutes,
@@ -645,9 +653,42 @@ const agentAdmins = createAgentAdminService({
 });
 const inviteStore = createPostgresInviteStore(db);
 const invites = createInviteService({ authorization, store: inviteStore });
+const githubAppStore =
+  secretKey === null ? null : createPostgresGitHubAppStore(db, secretKey);
+const registeredGitHub = createRegisteredGitHubForge({
+  store: githubAppStore,
+  logger,
+});
+// Another replica's change arrives with the next read.
+const refreshRegisteredGitHub = (): Promise<void> =>
+  registeredGitHub.refresh().catch((error: unknown) => {
+    logger.warn("The GitHub App could not be read; retrying", {
+      error_name: error instanceof Error ? error.name : typeof error,
+    });
+  });
+void refreshRegisteredGitHub();
+setInterval(refreshRegisteredGitHub, WORKSPACE_PROFILE_REFRESH_MS).unref();
+const githubApps = createGitHubAppService({
+  authorization,
+  store: githubAppStore,
+  directory: createGitHubAppDirectory({ logger }),
+  apiBase: GITHUB_API_BASE,
+  repositories: () =>
+    Object.entries(catalog.repositories)
+      .filter(
+        ([, repository]) =>
+          repository.auth?.kind === "github_app" &&
+          "registered" in repository.auth,
+      )
+      .map(([id, repository]) => ({ id, url: repository.url })),
+  changed: () => registeredGitHub.refresh(),
+});
 // One adapter per repository, shared by clone (the gateway), push and pull
 // requests, so all draw on one token cache.
-const forges = forgesOf(catalog, { logger });
+const forges = forgesOf(catalog, {
+  logger,
+  registered: registeredGitHub.forge,
+});
 const pushStore = createPostgresPushRequests(db);
 const pushRequests = createPushRequestService({
   authorization,
@@ -821,6 +862,7 @@ const app = createApiApp({
       slackGuests,
     });
     registerSlackSecretRoutes(router, slackSecrets);
+    registerGitHubAppRoutes(router, githubApps);
     registerSessionRoutes(router, sessions);
     registerSessionOutputRoutes(router, sessionOutputs);
     registerSessionShareRoutes(router, shares, sessions);
