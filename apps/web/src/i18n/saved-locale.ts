@@ -9,8 +9,9 @@ import { type Locale, useI18n } from "./i18n.tsx";
 /**
  * Keeps the signed-in user's saved language and this browser's in step,
  * since Slack writes to the user in the saved one: it wins when the console
- * opens, and a language chosen here is saved. A failed save is not retried
- * until the language changes again; the console still switches.
+ * opens, and a language picked here is saved. Opening the console saves
+ * nothing. A failed save is not retried until the language changes again;
+ * the console still switches.
  */
 export function useSavedLocale() {
   const saved = useMe()?.user?.locale;
@@ -28,7 +29,8 @@ export function useSavedLocale() {
     // Not loaded, an API key, or an API from before the field.
     if (saved === undefined) return;
     if (sent.current === undefined) {
-      sent.current = saved;
+      // One never saved stays unsaved until the person picks one.
+      sent.current = saved ?? locale;
       if (saved !== null && saved !== locale) {
         setLocale(saved);
         return;

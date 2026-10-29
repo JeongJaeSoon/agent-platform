@@ -122,21 +122,22 @@ describe("preferences", () => {
     expect(saves()).toHaveLength(1);
   });
 
-  test("a user with no saved language saves the one this console shows", async () => {
+  test("a user with no saved language saves one only once they pick it", async () => {
     const { api } = renderAt("/settings/preferences", {
       ...signedIn,
       "PATCH /v1/auth/me": () => new Response(null, { status: 204 }),
     });
+    const user = await setupUser();
     expect(
       await screen.findByRole("heading", { level: 1, name: "언어·테마" }),
     ).toBeDefined();
-    await waitFor(() =>
-      expect(
-        api.calls
-          .filter((call) => call.method === "PATCH")
-          .map((call) => call.body),
-      ).toEqual([{ locale: "ko" }]),
-    );
+    const saves = () =>
+      api.calls
+        .filter((call) => call.method === "PATCH")
+        .map((call) => call.body);
+    expect(saves()).toEqual([]);
+    await user.click(screen.getByRole("radio", { name: /日本語/ }));
+    await waitFor(() => expect(saves()).toEqual([{ locale: "ja" }]));
   });
 
   test("theme and language chosen here show in the account menu at once, and the other way round", async () => {
