@@ -177,7 +177,7 @@ API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토�
         kind: github_app
   ```
 
-  App이 등록되지 않았거나 그 저장소에 설치되지 않았으면 clone·push·PR이 `503`(아래 **실패**)으로 닫힌다. 콘솔 App은 지금 github.com(`https://api.github.com`)만 쓴다. 그래서 짧은 형식은 `url`의 host가 `github.com`일 때만 받고, 다른 host면 카탈로그를 읽지 못한다(토큰이 발급받은 곳이 아닌 서버로 가지 않게). GHES는 아래 키를 직접 적는 방식으로 둔다. 콘솔에서 App을 바꿔도 저장소의 binding은 그대로라 세션은 다음 토큰부터 새 App을 쓴다.
+  App이 등록되지 않았거나 그 저장소에 설치되지 않았으면 clone·push·PR이 `503`(아래 **실패**)으로 닫힌다. 콘솔 App은 지금 github.com(`https://api.github.com`)만 쓴다. 그래서 짧은 형식은 `url`이 `https://github.com/`으로 시작할 때만 받고, 다른 host나 `http`면 카탈로그를 읽지 못한다(토큰이 발급받은 곳이 아닌 서버로 가지 않게). GHES는 아래 키를 직접 적는 방식으로 둔다. 콘솔에서 App을 바꿔도 저장소의 binding은 그대로라 세션은 다음 토큰부터 새 App을 쓴다.
 - **키를 직접 적는 방식(이전 방식, 계속 쓸 수 있다):** `app_id`·`installation_id`와 키 참조를 카탈로그에 적으면 콘솔 App 대신 그 값을 쓴다. 기동할 때마다 환경 변수나 Secrets Manager에서 읽으므로 몇 번을 다시 띄워도 결과가 같고, DB로 옮기지 않는다. 콘솔로 옮기려면 같은 App을 콘솔에 등록하고 그 저장소의 `auth`를 `kind: github_app`만 남긴 뒤 API를 재기동한다. 이때 binding이 한 번 바뀌므로 그 저장소의 기존 세션은 `CATALOG_MISMATCH`가 된다. 키 참조는 둘 중 하나로 둔다.
   - Secrets Manager: PEM 본문을 secret 값으로 넣고 카탈로그에 `secret_id`를 적는다(`aws secretsmanager create-secret --name <id> --secret-string file://<pem 파일>`).
   - 환경 변수: PEM 파일을 `chmod 600`으로 두고 API를 띄우는 셸에서 `export GITHUB_APP_KEY="$(cat <pem 파일>)"`로 넘긴다. 한 줄로 넣어야 하는 곳에서는 줄바꿈을 `\n`으로 적어도 된다. compose의 `api`에는 overlay로 `environment: { GITHUB_APP_KEY: ${GITHUB_APP_KEY:?} }`를 더한다.
