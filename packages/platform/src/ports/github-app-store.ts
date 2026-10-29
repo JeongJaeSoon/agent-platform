@@ -61,8 +61,8 @@ export interface GitHubAppStore {
     workspaceId: string,
     audit: SecretAudit,
   ): Promise<DeleteGitHubAppResult>;
-  /** Every registered App with its key, for the forge. */
-  credentials(): Promise<GitHubAppCredential[]>;
+  /** Every registered App with its key, or one workspace's. */
+  credentials(workspaceId?: string): Promise<GitHubAppCredential[]>;
 }
 
 export type GitHubAppInstallationView = {

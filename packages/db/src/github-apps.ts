@@ -158,8 +158,15 @@ export function createPostgresGitHubAppStore(
       });
     },
 
-    async credentials() {
-      const rows = await db.select().from(githubApps);
+    async credentials(workspaceId) {
+      const rows = await db
+        .select()
+        .from(githubApps)
+        .where(
+          workspaceId === undefined
+            ? undefined
+            : eq(githubApps.workspaceId, workspaceId),
+        );
       const held: GitHubAppCredential[] = [];
       for (const row of rows) {
         const privateKey = await secrets.get(keySlot(row));

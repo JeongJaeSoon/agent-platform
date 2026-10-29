@@ -336,6 +336,20 @@ export const catalogRepositorySchema = z
       message: "github_app needs a URL of the form <host>/<owner>/<name>",
       path: ["url"],
     },
+  )
+  // The console App's tokens come from github.com; on another host they
+  // would be handed to a server they were never issued for.
+  .refine(
+    (repository) =>
+      repository.auth === undefined ||
+      !isRegisteredGitHubApp(repository.auth) ||
+      !isWebUrl(repository.url) ||
+      new URL(repository.url).hostname === "github.com",
+    {
+      message:
+        "{ kind: github_app } alone is for github.com; name app_id, installation_id and api_base for another host",
+      path: ["url"],
+    },
   );
 
 // A remote MCP server an agent card may name. The operator fixes the

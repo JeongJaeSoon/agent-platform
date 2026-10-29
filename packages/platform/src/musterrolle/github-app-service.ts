@@ -135,18 +135,21 @@ export function createGitHubAppService(deps: {
       .repositories()
       .map(({ id, url }) => ({ id, url, installation_id: null }));
     try {
-      const installations = await directory.installations(credential);
-      const repositories: GitHubAppRepository[] = [];
-      for (const repository of unchecked) {
-        const ref = repoRefOf(repository.url);
-        repositories.push({
-          ...repository,
-          installation_id:
-            ref === null
-              ? null
-              : await directory.installationFor(credential, ref),
-        });
-      }
+      const [installations, repositories] = await Promise.all([
+        directory.installations(credential),
+        Promise.all(
+          unchecked.map(async (repository): Promise<GitHubAppRepository> => {
+            const ref = repoRefOf(repository.url);
+            return {
+              ...repository,
+              installation_id:
+                ref === null
+                  ? null
+                  : await directory.installationFor(credential, ref),
+            };
+          }),
+        ),
+      ]);
       return {
         check: { state: "ok" },
         installations: installations.map((installation) => ({
@@ -182,7 +185,9 @@ export function createGitHubAppService(deps: {
       const credential =
         record === null
           ? undefined
-          : (await store.credentials()).find((held) => held.id === record.id);
+          : (await store.credentials(workspaceId)).find(
+              (held) => held.id === record.id,
+            );
       if (record === null || credential === undefined) {
         return {
           github_app: null,

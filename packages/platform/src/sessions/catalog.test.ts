@@ -453,6 +453,18 @@ describe("catalog config schema", () => {
           ).success,
         ).toBe(false);
       }
+      // The console App's token is a github.com token.
+      expect(
+        sessionCatalogConfigSchema.safeParse(
+          config(configured, {
+            app: {
+              ...github,
+              url: "https://ghes.example.invalid/acme/app.git",
+              auth: { kind: "github_app" },
+            },
+          }),
+        ).success,
+      ).toBe(false);
     });
 
     test("its route sends the credential the forge issued, never the key", () => {
