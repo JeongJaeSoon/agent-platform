@@ -4,6 +4,7 @@ import { apiKeysKo } from "./api-keys.ts";
 import { authKo } from "./auth.ts";
 import { commonKo } from "./common.ts";
 import { errorsKo } from "./errors.ts";
+import { githubKo } from "./github.ts";
 import { homeKo } from "./home.ts";
 import { linkedKo } from "./linked.ts";
 import { membersKo } from "./members.ts";
@@ -182,6 +183,7 @@ export const ko = {
   ...outputsKo,
   ...apiKeysKo,
   ...workspaceKo,
+  ...githubKo,
   ...usageKo,
   ...preferencesKo,
   ...errorsKo,
