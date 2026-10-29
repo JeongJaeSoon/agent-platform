@@ -120,7 +120,7 @@ curl -sS -X POST "$API/v1/installation-profiles/claude-coding-local/block" "${WE
 ```
 
 - The profile becomes **Blocked** (`blocked`), and the workspace profiles on it become **Base profile blocked** (`base_blocked`).
-- New releases, release activations and sessions are refused with `409 PROFILE_BLOCKED`. `error.details.reason_code` is `blocked` (the profile you picked is blocked) or `base_blocked` (its base is), and `error.details.profile_id` is the profile you picked. A session waiting for its next input ends with `catalog_mismatch` when its next turn starts, and a turn running now loses its model and repository requests within about a second.
+- New releases, release activations and sessions are refused with `409 PROFILE_BLOCKED`. `error.details.reason_code` is `blocked` (the profile you picked is blocked) or `base_blocked` (its base is), and `error.details.profile_id` is the profile you picked. An existing session on the profile refuses a new message with `409 PROFILE_BLOCKED` (resending a message accepted before the block with the same `Idempotency-Key` returns the original response), and its `attention` in `GET /v1/sessions/{id}` becomes `PROFILE_BLOCKED`. A turn queued before the block ends with `catalog_mismatch` when it starts, and a turn running now loses its model and repository requests within about a second.
 - `POST /v1/installation-profiles/{profile_id}/unblock` puts the profile back as it was. Sessions and turns that ended do not run again on their own; send the input again.
 - When the profile is already in that state nothing changes and `receipt_id` is `null`.
 

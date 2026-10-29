@@ -3467,6 +3467,13 @@ export interface components {
                 reason: string;
             } | {
                 /** @constant */
+                code: "PROFILE_BLOCKED";
+                reason: string;
+                /** @enum {string} */
+                reason_code: "blocked" | "base_blocked";
+                profile_id: string;
+            } | {
+                /** @constant */
                 code: "RESTORE_FAILED";
                 reason: string;
                 failures: number;
@@ -10073,6 +10080,7 @@ export interface operations {
              *     - `SESSION_CLOSED`: The session is closed and accepts no further commands.
              *     - `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. A pending checkpoint problem holds new work, so a new turn could not be checkpointed; `message` names it.
              *     - `TAKEOVER_REQUIRED`: The person who asked for the session was offboarded; it takes no input until an owner takes it over.
+             *     - `PROFILE_BLOCKED`: The operator blocked the installation profile named, or the one the workspace profile named narrows. `error.details.reason_code` is `blocked` (the profile named) or `base_blocked` (its base), and `error.details.profile_id` is the profile named. Nothing new runs on it until the operator unblocks it. The operator blocked the session's profile, or the installation profile its workspace profile narrows; nothing is queued. The session's `attention` says the same, and it takes messages again once the operator unblocks it.
              */
             409: {
                 headers: {
@@ -10083,7 +10091,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "IDEMPOTENCY_CONFLICT" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "SESSION_CLOSING" | "SESSION_CLOSED" | "CHECKPOINT_UNAVAILABLE" | "TAKEOVER_REQUIRED";
+                            code?: "IDEMPOTENCY_CONFLICT" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "SESSION_CLOSING" | "SESSION_CLOSED" | "CHECKPOINT_UNAVAILABLE" | "TAKEOVER_REQUIRED" | "PROFILE_BLOCKED";
                         };
                     };
                 };

@@ -360,7 +360,7 @@ describe("installation ceilings from the API", () => {
   );
 
   test(
-    "only the owner blocks v2: new releases and sessions on it are refused, a running session stops at its next turn, and unblocking lets it run again",
+    "only the owner blocks v2: new releases and sessions on it are refused, a session already on it is refused its next message and says why, and unblocking lets it run again",
     async () => {
       type Change = {
         profile: { installation: { state: string } };
@@ -423,17 +423,26 @@ describe("installation ceilings from the API", () => {
         (onRelease.body as ErrorBody).error?.code,
         reasonOf(onRelease.body),
       ]).toEqual([409, "PROFILE_BLOCKED", "blocked"]);
-      const next = await api.send(
+      const next = await api.request(
+        "POST",
+        `/v1/sessions/${running.session_id}/messages`,
+        { message: scripted("ceiling-next", [], "ceiling-next done") },
+      );
+      expect([
+        next.status,
+        (next.body as ErrorBody).error?.code,
+        reasonOf(next.body),
+      ]).toEqual([409, "PROFILE_BLOCKED", "base_blocked"]);
+      const { attention, queued_turn_count } = await api.session(
         running.session_id,
-        scripted("ceiling-next", [], "ceiling-next done"),
       );
-      const stopped = await api.settledTurn(running.session_id, next.turn_id);
-      expect(stopped.status).toBe("failed");
-      // A worker still up for the session loses its provider at the proxy
-      // (api_error); one launched for the turn is refused at claim.
-      expect(["api_error", "catalog_mismatch"]).toContain(
-        String(stopped.terminal_reason),
-      );
+      expect(attention).toEqual({
+        code: "PROFILE_BLOCKED",
+        reason: `The base of profile ${narrowedId} is blocked by the operator`,
+        reason_code: "base_blocked",
+        profile_id: narrowedId,
+      });
+      expect(queued_turn_count).toBe(0);
 
       const unblockByAdmin = await admin("POST", path("unblock"), {});
       expect(unblockByAdmin.status).toBe(403);
@@ -450,7 +459,7 @@ describe("installation ceilings from the API", () => {
       ).toBe("completed");
       expect(await sessionTurn({ profile_id: narrowedId })).toBe("completed");
       console.log(
-        `block v2: admin ${byAdmin.status}, api key ${byKey.status}, owner ${blocked.status} ${blocked.body.profile.installation.state}; again: receipt ${again.body.receipt_id}; ${narrowedId} ${narrowedState}; new release on v2 ${newRelease.status} ${reasonOf(newRelease.body)}; new session ${bare.status} ${reasonOf(bare.body)}; session on v2's release ${onRelease.status} ${reasonOf(onRelease.body)}; running session's next turn ${stopped.status} ${stopped.terminal_reason}; unblock: admin ${unblockByAdmin.status}, owner ${unblocked.status} ${unblocked.body.profile.installation.state}; the stopped session's next turn and a new session completed`,
+        `block v2: admin ${byAdmin.status}, api key ${byKey.status}, owner ${blocked.status} ${blocked.body.profile.installation.state}; again: receipt ${again.body.receipt_id}; ${narrowedId} ${narrowedState}; new release on v2 ${newRelease.status} ${reasonOf(newRelease.body)}; new session ${bare.status} ${reasonOf(bare.body)}; session on v2's release ${onRelease.status} ${reasonOf(onRelease.body)}; running session's next message ${next.status} ${reasonOf(next.body)}, attention ${attention?.code} ${String(attention?.reason_code)}, queued ${queued_turn_count}; unblock: admin ${unblockByAdmin.status}, owner ${unblocked.status} ${unblocked.body.profile.installation.state}; the blocked session's next turn and a new session completed`,
       );
     },
     TIMEOUT,

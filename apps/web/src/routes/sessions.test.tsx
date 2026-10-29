@@ -2196,6 +2196,28 @@ describe("session profile", () => {
     ).toBe("");
   });
 
+  test("a message to a session whose profile the operator blocked says so", async () => {
+    const user = await setupUser();
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`POST /v1/sessions/${SESSION_ID}/messages`]: () =>
+        json(409, {
+          error: {
+            code: "PROFILE_BLOCKED",
+            message: "Profile claude-coding-v1 is blocked by the operator",
+            details: { reason_code: "blocked", profile_id: "claude-coding-v1" },
+          },
+        }),
+    });
+    await user.click(await screen.findByRole("textbox", { name: "다음 지시" }));
+    await user.keyboard("next step{Control>}{Enter}{/Control}");
+    expect(
+      await screen.findByText(
+        "운영자가 이 세션의 실행 프로필을 차단해 지시를 받지 않습니다. 차단이 풀리면 다시 보낼 수 있습니다.",
+      ),
+    ).toBeTruthy();
+  });
+
   /** Sends by mouse and holds the receipt; focus has left the send button. */
   async function sendHeldByMouse(routes: Parameters<typeof renderAt>[1] = {}) {
     const user = await setupUser();

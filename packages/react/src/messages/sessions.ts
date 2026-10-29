@@ -172,6 +172,8 @@ export const sessionsKo = {
   "session.refused.SESSION_CLOSED": "닫힌 세션입니다.",
   "session.refused.RECOVERY_REQUIRED":
     "복구 결정이 필요한 세션이라 지금은 할 수 없습니다.",
+  "session.refused.PROFILE_BLOCKED":
+    "운영자가 이 세션의 실행 프로필을 차단해 지시를 받지 않습니다. 차단이 풀리면 다시 보낼 수 있습니다.",
 
   "inbox.title": "답변 대기",
   "inbox.count": "답을 기다리는 세션 {count}개",
@@ -413,6 +415,8 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.refused.SESSION_CLOSED": "The session is closed.",
   "session.refused.RECOVERY_REQUIRED":
     "The session needs a recovery decision first.",
+  "session.refused.PROFILE_BLOCKED":
+    "The operator blocked this session's run profile, so it takes no messages. Send again once it is unblocked.",
 
   "inbox.title": "Waiting for an answer",
   "inbox.count": "{count} sessions waiting for an answer",
@@ -657,6 +661,8 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.refused.SESSION_CLOSED": "クローズ済みのセッションです。",
   "session.refused.RECOVERY_REQUIRED":
     "復旧方法の決定が必要なセッションのため、現在は実行できません。",
+  "session.refused.PROFILE_BLOCKED":
+    "運用担当者がこのセッションの実行プロファイルをブロックしたため、指示を受け付けません。解除されたら、もう一度送ってください。",
 
   "inbox.title": "回答待ち",
   "inbox.count": "回答待ちのセッション {count}件",

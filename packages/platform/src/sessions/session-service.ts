@@ -89,17 +89,36 @@ export class SessionServiceError extends Error {
   }
 }
 
+type OperatorBlock = {
+  reason: string;
+  reason_code: "blocked" | "base_blocked";
+  profile_id: string;
+};
+
+function operatorBlock(
+  profileId: string,
+  refusal: { state: string; message: string } | null,
+): OperatorBlock | null {
+  const state = refusal?.state;
+  return refusal && (state === "blocked" || state === "base_blocked")
+    ? { reason: refusal.message, reason_code: state, profile_id: profileId }
+    : null;
+}
+
 /** An operator block as its own error, or null for any other refusal. */
 export function profileBlockedError(
   profileId: string,
   refusal: { state: string; message: string } | null,
 ): SessionServiceError | null {
-  return refusal?.state === "blocked" || refusal?.state === "base_blocked"
-    ? new SessionServiceError("PROFILE_BLOCKED", refusal.message, undefined, {
-        reason_code: refusal.state,
-        profile_id: profileId,
-      })
-    : null;
+  const block = operatorBlock(profileId, refusal);
+  return block ? blockedError(block) : null;
+}
+
+function blockedError(block: OperatorBlock): SessionServiceError {
+  return new SessionServiceError("PROFILE_BLOCKED", block.reason, undefined, {
+    reason_code: block.reason_code,
+    profile_id: block.profile_id,
+  });
 }
 
 export function idempotencyConflict(): never {
@@ -391,6 +410,18 @@ export function createSessionService(deps: {
     return "Unknown profile_id or repository_id, or a pair the catalog does not allow";
   }
 
+  // A session already made keeps a retired profile, so only a block stops it.
+  function sessionBlock(workspaceId: string, profileId: string | null) {
+    return profileId === null
+      ? null
+      : operatorBlock(
+          profileId,
+          workspaceProfileRefusal(catalog, workspaceId, profileId, {
+            retiredAllowed: true,
+          }),
+        );
+  }
+
   function catalogAllows(record: SessionDetailRecord): boolean {
     const run = record.profile_id ? runOf(record, record.profile_id) : null;
     return (
@@ -515,10 +546,12 @@ export function createSessionService(deps: {
       ...detail
     } = record;
     const spend = { costUsd: cost_usd, providerTokens: provider_tokens };
+    const block = sessionBlock(actor.ownerId, profile_id);
     return {
       ...detail,
       attention:
         detail.attention ??
+        (block ? { code: "PROFILE_BLOCKED", ...block } : null) ??
         // The claim matches the same values (runnablePairOf), so this says
         // exactly when no worker of this host would take the session.
         (catalogAllows(record)
@@ -690,6 +723,12 @@ export function createSessionService(deps: {
         kind: "session",
         id: sessionId,
       });
+      // Otherwise the turn is queued and fails at the model proxy, which
+      // says nothing of the block.
+      const profileId =
+        (await reader.getSession(actor.ownerId, sessionId))?.profile_id ?? null;
+      await refreshWorkspaceProfilesFor(catalog, [profileId]);
+      const block = sessionBlock(actor.ownerId, profileId);
       const result = await inputs.appendInputAtomic({
         principal: actor,
         sessionId,
@@ -698,10 +737,14 @@ export function createSessionService(deps: {
         message: input.body.message,
         limits: inputLimits,
         channel: actor.subject.surface.kind,
+        ...(block ? { profileBlocked: true as const } : {}),
       });
       switch (result.outcome) {
         case "conflict":
           return idempotencyConflict();
+        case "profile_blocked":
+          if (!block) throw new Error("Only a blocked profile refuses input");
+          throw blockedError(block);
         case "not_found":
           throw new SessionServiceError("NOT_FOUND", "Resource not found");
         case "rejected": {

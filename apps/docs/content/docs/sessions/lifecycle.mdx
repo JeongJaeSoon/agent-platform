@@ -103,6 +103,7 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{status, 
 | `TRANSCRIPT_LIMIT` | 대화 기록이 상한에 다가갔거나 넘었다. 새 세션으로 옮길 때다 |
 | `STARTUP_FAILED`, `RESTORE_FAILED` | worker가 시작하거나 checkpoint를 복원하지 못한다 |
 | `CATALOG_MISMATCH` | 세션을 만든 뒤 운영자가 프로필이나 저장소 설정을 바꿨다 |
+| `PROFILE_BLOCKED` | owner가 세션의 프로필(`reason_code: blocked`)이나 그 바탕 프로필(`base_blocked`)을 차단했다. `profile_id`가 그 프로필이다. 풀릴 때까지 새 메시지는 409 `PROFILE_BLOCKED`로 거절된다 |
 | `CONTEXT_GAP` | 복구 결정으로 이전 대화의 일부가 빠졌다 |
 
 ## 사용량

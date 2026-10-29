@@ -89,11 +89,14 @@ export type AppendMessageInput = {
   limits: InputLimits;
   // Where the input came from; left out, the turn records none.
   channel?: SurfaceKind;
+  // The operator blocked the session's profile: only a replay of an earlier
+  // acceptance goes through.
+  profileBlocked?: true;
 };
 
 export type AppendMessageResult =
   | { outcome: "accepted" | "replayed"; response: PostSessionMessageResponse }
-  | { outcome: "conflict" | "not_found" }
+  | { outcome: "conflict" | "not_found" | "profile_blocked" }
   // The session exists but its admission state does not take new input.
   | { outcome: "rejected"; admissionState: Exclude<AdmissionState, "active"> }
   // The session cannot be checkpointed (blocking pending reason): a turn run
