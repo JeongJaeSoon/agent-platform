@@ -140,6 +140,68 @@ describe("preferences", () => {
     await waitFor(() => expect(saves()).toEqual([{ locale: "ja" }]));
   });
 
+  test("with none saved, a console that opens in a language other than ko saves it, since Slack would write ko", async () => {
+    localStorage.setItem(LOCALE_STORAGE_KEY, "en");
+    const { api } = renderAt(
+      "/settings/preferences",
+      {
+        ...signedIn,
+        "PATCH /v1/auth/me": () => new Response(null, { status: 204 }),
+      },
+      null,
+    );
+    expect(
+      await screen.findByRole("heading", {
+        level: 1,
+        name: "Language & theme",
+      }),
+    ).toBeDefined();
+    await waitFor(() =>
+      expect(
+        api.calls
+          .filter((call) => call.method === "PATCH")
+          .map((call) => call.body),
+      ).toEqual([{ locale: "en" }]),
+    );
+  });
+
+  test("two quick picks are saved in order, so the later one is kept", async () => {
+    let saved: "ja" | "en" | null = null;
+    let releaseFirst = () => {};
+    const { api } = renderAt("/settings/preferences", {
+      "GET /v1/auth/me": () =>
+        json(200, { ...me(), user: { ...me().user, locale: saved } }),
+      "PATCH /v1/auth/me": async (request) => {
+        const next = ((await request.json()) as { locale: "ja" | "en" }).locale;
+        if (next === "ja") {
+          await new Promise<void>((resolve) => {
+            releaseFirst = resolve;
+          });
+        }
+        saved = next;
+        return new Response(null, { status: 204 });
+      },
+    });
+    const user = await setupUser();
+    await screen.findByRole("heading", { level: 1, name: "언어·테마" });
+    const patches = () =>
+      api.calls.filter((call) => call.method === "PATCH").length;
+    await user.click(screen.getByRole("radio", { name: /日本語/ }));
+    await waitFor(() => expect(patches()).toBe(1));
+    await user.click(screen.getByRole("radio", { name: /English/ }));
+    // The second save waits for the first instead of overtaking it.
+    expect(patches()).toBe(1);
+    releaseFirst();
+    await waitFor(() => expect(patches()).toBe(2));
+    await waitFor(() => expect(saved).toBe("en"));
+    expect(
+      await screen.findByRole("heading", {
+        level: 1,
+        name: "Language & theme",
+      }),
+    ).toBeDefined();
+  });
+
   test("theme and language chosen here show in the account menu at once, and the other way round", async () => {
     renderAt("/settings/preferences", signedIn);
     const user = await setupUser();
