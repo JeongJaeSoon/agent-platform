@@ -13,6 +13,10 @@ import {
   type ForgeResolver,
   GITHUB_API_BASE,
   type GitCredential,
+  GitHubAppCheckError,
+  type GitHubAppDirectory,
+  type GitHubAppInstallationView,
+  type GitHubAppStore,
   type RepoRef,
   type SessionCatalog,
 } from "@werft-ai/platform";
@@ -34,7 +38,8 @@ type GitHubCredentials =
   | {
       kind: "app";
       appId: number;
-      installationId: number;
+      /** Absent: the installation GitHub reports for each repository. */
+      installationId?: number;
       privateKey: string;
     }
   | { kind: "token"; username: string; password: string };
@@ -411,18 +416,39 @@ function issuer(
   const auth = createAppAuth({
     appId: credentials.appId,
     privateKey: credentials.privateKey,
-    installationId: credentials.installationId,
     request: client.request,
   });
+  const fixed = credentials.installationId;
+  const found = new Map<string, number>();
+  async function installationOf(repo: RepoRef): Promise<number> {
+    if (fixed !== undefined) return fixed;
+    const key = `${repo.owner}/${repo.name}`;
+    const held = found.get(key);
+    if (held !== undefined) return held;
+    const id = await installationFor(client, auth, repo);
+    if (id === null) {
+      throw new ForgeCredentialError(
+        `GitHub App is not installed on ${repo.owner}/${repo.name}`,
+      );
+    }
+    found.set(key, id);
+    return id;
+  }
   return async (repo, permissions) => {
     try {
+      const installationId = await installationOf(repo);
       // The library's own cache knows nothing of the refresh margin, so
       // every issue is a fresh request and the forge keeps the cache.
       const { token, expiresAt } = await auth({
         type: "installation",
+        installationId,
         repositoryNames: [repo.name],
         permissions,
         refresh: true,
+      }).catch((error: unknown) => {
+        // Uninstalled and installed again: the next issue looks it up anew.
+        found.delete(`${repo.owner}/${repo.name}`);
+        throw error;
       });
       return {
         username: "x-access-token",
@@ -432,6 +458,184 @@ function issuer(
     } catch (error) {
       throw failure(logger, "installation token request", error);
     }
+  };
+}
+
+type AppAuth = ReturnType<typeof createAppAuth>;
+
+async function appHeaders(auth: AppAuth) {
+  const { token } = await auth({ type: "app" });
+  return { authorization: `bearer ${token}` };
+}
+
+const statusOf = (error: unknown): number | undefined =>
+  typeof (error as { status?: unknown })?.status === "number"
+    ? (error as { status: number }).status
+    : undefined;
+
+/** The installation that covers `repo`, or null when the App has none there. */
+async function installationFor(
+  client: Client,
+  auth: AppAuth,
+  repo: RepoRef,
+): Promise<number | null> {
+  try {
+    const { data } = await client.request(
+      "GET /repos/{owner}/{repo}/installation",
+      { owner: repo.owner, repo: repo.name, headers: await appHeaders(auth) },
+    );
+    return Number(data.id);
+  } catch (error) {
+    if (statusOf(error) === 404) return null;
+    throw error;
+  }
+}
+
+const MAX_INSTALLATION_PAGES = 10;
+const INSTALLATIONS_PER_PAGE = 100;
+
+/**
+ * GitHub's answers about an App, asked with its JWT. A 401, 403 or 404 means
+ * GitHub refused the App itself (a wrong id, a key it does not know, a
+ * deleted App); anything else is GitHub not answering.
+ */
+export function createGitHubAppDirectory(
+  options: { logger?: Logger; retryAfterBaseMs?: number } = {},
+): GitHubAppDirectory {
+  const { logger } = options;
+  const clients = new Map<string, Client>();
+  const clientFor = (apiBase: string) => {
+    const base = apiBase.replace(/\/+$/, "");
+    let client = clients.get(base);
+    if (client === undefined) {
+      client = clientOf(base, logger, options);
+      clients.set(base, client);
+    }
+    return client;
+  };
+  async function asking<T>(
+    what: string,
+    app: { appId: number; apiBase: string; privateKey: string },
+    ask: (client: Client, auth: AppAuth) => Promise<T>,
+  ): Promise<T> {
+    const client = clientFor(app.apiBase);
+    try {
+      return await ask(
+        client,
+        createAppAuth({
+          appId: app.appId,
+          privateKey: app.privateKey,
+          request: client.request,
+        }),
+      );
+    } catch (error) {
+      const status = statusOf(error);
+      failure(logger, what, error);
+      // A 403 is also a rate limit or an IP allow list, which says nothing
+      // about the key.
+      throw new GitHubAppCheckError(
+        status === 401 || status === 404
+          ? "github_rejected"
+          : "github_unreachable",
+      );
+    }
+  }
+  return {
+    describe: (app) =>
+      asking("App lookup", app, async (client, auth) => {
+        const { data } = await client.request("GET /app", {
+          headers: await appHeaders(auth),
+        });
+        if (data === null) throw new Error("GitHub answered no App");
+        return {
+          appId: Number(data.id),
+          slug: data.slug ?? String(data.id),
+          name: data.name,
+          htmlUrl: data.html_url,
+        };
+      }),
+    installations: (app) =>
+      asking("App installations", app, async (client, auth) => {
+        const all: GitHubAppInstallationView[] = [];
+        for (let page = 1; page <= MAX_INSTALLATION_PAGES; page += 1) {
+          const { data } = await client.request("GET /app/installations", {
+            per_page: INSTALLATIONS_PER_PAGE,
+            page,
+            headers: await appHeaders(auth),
+          });
+          for (const installation of data) {
+            // A user or an organization has a login, an enterprise a slug.
+            const account = installation.account as {
+              login?: string;
+              slug?: string;
+            } | null;
+            all.push({
+              id: Number(installation.id),
+              account:
+                account?.login ?? account?.slug ?? String(installation.id),
+              repositorySelection: installation.repository_selection,
+              htmlUrl: installation.html_url ?? null,
+            });
+          }
+          if (data.length < INSTALLATIONS_PER_PAGE) break;
+        }
+        return all;
+      }),
+    installationFor: (app, repo) =>
+      asking("App installation lookup", app, (client, auth) =>
+        installationFor(client, auth, repo),
+      ),
+  };
+}
+
+/**
+ * The forge of the App registered in the console, rebuilt when the App or
+ * its key changes. `refresh` reads the store; until the first read, and with
+ * no App registered, there is no forge.
+ */
+export function createRegisteredGitHubForge(
+  options: {
+    store: Pick<GitHubAppStore, "credentials"> | null;
+  } & Pick<
+    Parameters<typeof createGitHubForge>[0],
+    "logger" | "now" | "retryAfterBaseMs" | "paced"
+  >,
+) {
+  const { store, ...forgeOptions } = options;
+  let current: { version: string; forge: ForgeAdapter } | null = null;
+  // Reads run one after another, so a read that started before a change
+  // cannot land after the read that saw it.
+  let queue: Promise<void> = Promise.resolve();
+  const read = async (): Promise<void> => {
+    if (store === null) return;
+    // Bootstrap makes the one workspace, so there is at most one App.
+    const [app] = await store.credentials();
+    if (app === undefined) {
+      current = null;
+      return;
+    }
+    const version = `${app.id}|${app.updatedAt.toISOString()}`;
+    if (current?.version === version) return;
+    current = {
+      version,
+      forge: createGitHubForge({
+        ...forgeOptions,
+        apiBase: app.apiBase,
+        credentials: {
+          kind: "app",
+          appId: app.appId,
+          privateKey: app.privateKey,
+        },
+      }),
+    };
+  };
+  return {
+    forge: (): ForgeAdapter | null => current?.forge ?? null,
+    refresh(): Promise<void> {
+      const next = queue.then(read);
+      queue = next.catch(() => undefined);
+      return next;
+    },
   };
 }
 
@@ -505,16 +709,23 @@ export function forgesOf(
   options: Pick<
     Parameters<typeof createGitHubForge>[0],
     "logger" | "now" | "retryAfterBaseMs" | "paced"
-  > = {},
+  > & {
+    /** The console's App, for repositories written as `{ kind: github_app }`. */
+    registered?: () => ForgeAdapter | null;
+  } = {},
 ): ForgeResolver {
+  const { registered, ...forgeOptions } = options;
   const forges = new Map<string, ForgeAdapter>();
+  const usesRegistered = new Set<string>();
   for (const [id, repository] of Object.entries(catalog.repositories)) {
     const { auth } = repository;
-    if (auth?.kind === "github_app") {
+    if (auth?.kind === "github_app" && "registered" in auth) {
+      usesRegistered.add(id);
+    } else if (auth?.kind === "github_app") {
       forges.set(
         id,
         createGitHubForge({
-          ...options,
+          ...forgeOptions,
           apiBase: auth.api_base,
           credentials: {
             kind: "app",
@@ -531,7 +742,7 @@ export function forgesOf(
       forges.set(
         id,
         createGitHubForge({
-          ...options,
+          ...forgeOptions,
           apiBase: GITHUB_API_BASE,
           credentials: {
             kind: "token",
@@ -542,5 +753,7 @@ export function forgesOf(
       );
     }
   }
-  return (id) => forges.get(id) ?? null;
+  return (id) =>
+    forges.get(id) ??
+    (usesRegistered.has(id) ? (registered?.() ?? null) : null);
 }

@@ -119,6 +119,11 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/workspaces/{id}/audit-retention",
     "POST /v1/workspaces/{id}/slack-guest",
   ],
+  "routes/github-app.test.ts": [
+    "GET /v1/workspaces/{id}/github-app",
+    "PUT /v1/workspaces/{id}/github-app",
+    "DELETE /v1/workspaces/{id}/github-app",
+  ],
   "routes/slack-secrets.test.ts": [
     "GET /v1/workspaces/{id}/slack/config-token",
     "PUT /v1/workspaces/{id}/slack/config-token",

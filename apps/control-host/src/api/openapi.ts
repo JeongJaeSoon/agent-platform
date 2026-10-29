@@ -54,9 +54,11 @@ import {
   createWorkspaceProfileRequestSchema,
   credentialBindingParamsSchema,
   decidePushRequestRequestSchema,
+  deleteGitHubAppResponseSchema,
   deleteSlackAppResponseSchema,
   deleteSlackSecretResponseSchema,
   deleteTeamResponseSchema,
+  getGitHubAppResponseSchema,
   getReceiptResponseSchema,
   getSessionResponseSchema,
   getSlackAppManifestResponseSchema,
@@ -122,6 +124,8 @@ import {
   postSessionMessageResponseSchema,
   pushRequestParamsSchema,
   pushRequestSchema,
+  putGitHubAppRequestSchema,
+  putGitHubAppResponseSchema,
   putSlackBindingRequestSchema,
   putSlackBindingResponseSchema,
   putSlackConfigTokenResponseSchema,
@@ -262,6 +266,7 @@ const requestComponents = {
   AuditRetentionRequest: auditRetentionRequestSchema,
   SlackGuestRequest: slackGuestRequestSchema,
   PutSlackSecretRequest: putSlackSecretRequestSchema,
+  PutGitHubAppRequest: putGitHubAppRequestSchema,
   CreateSlackAppRequest: createSlackAppRequestSchema,
   CompleteSlackInstallRequest: completeSlackInstallRequestSchema,
   SlackEventEnvelope: slackEventEnvelopeSchema,
@@ -335,6 +340,9 @@ const responseComponents = {
   DeleteSlackSecretResponse: deleteSlackSecretResponseSchema,
   SlackConfigTokenSummary: slackConfigTokenSummarySchema,
   PutSlackConfigTokenResponse: putSlackConfigTokenResponseSchema,
+  GetGitHubAppResponse: getGitHubAppResponseSchema,
+  PutGitHubAppResponse: putGitHubAppResponseSchema,
+  DeleteGitHubAppResponse: deleteGitHubAppResponseSchema,
   GetSlackAppResponse: getSlackAppResponseSchema,
   GetSlackAppManifestResponse: getSlackAppManifestResponseSchema,
   SlackAppSettings: slackAppSettingsSchema,
@@ -1142,6 +1150,121 @@ export const API_ROUTE_DECLARATIONS = [
     success: {
       status: 200,
       schema: "DeleteSlackSecretResponse",
+      description: "Deleted; the receipt.",
+      example: { receipt_id: EXAMPLE_RECEIPT_ID },
+    },
+    errors: [401, 403, 404, 503],
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/workspaces/{id}/github-app",
+    operationId: "getGitHubApp",
+    tag: "Workspace settings",
+    summary:
+      "The workspace's GitHub App and where it is installed (owner or admin)",
+    description:
+      "The App registered in the console (its id, name and page, and when and by whom the private key was last set; never the key), then GitHub's answer for it now, asked with the App's own JWT: its installations, and for each catalog repository written as `auth: { kind: github_app }` the installation that covers it (null when the App is not installed there). `check` is null with no App registered, and `failed` when GitHub did not answer (`github_unreachable`) or refused the App (`github_rejected`: a revoked key or a deleted App). API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "GetGitHubAppResponse",
+      description: "The App and its installations; never the private key.",
+      example: {
+        github_app: {
+          app_id: 123456,
+          slug: "acme-agents",
+          name: "Acme agents",
+          html_url: "https://github.com/apps/acme-agents",
+          private_key: {
+            updated_at: "2026-10-30T09:00:00Z",
+            updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
+          },
+          created_at: "2026-10-30T09:00:00Z",
+          updated_at: "2026-10-30T09:00:00Z",
+        },
+        check: { state: "ok" },
+        installations: [
+          {
+            id: 7654321,
+            account: "acme",
+            repository_selection: "selected",
+            html_url:
+              "https://github.com/organizations/acme/settings/installations/7654321",
+          },
+        ],
+        repositories: [
+          {
+            id: "app",
+            url: "https://github.com/acme/app.git",
+            installation_id: 7654321,
+          },
+        ],
+      },
+    },
+    errors: [401, 403, 404, 503],
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
+  },
+  {
+    method: "put",
+    path: "/v1/workspaces/{id}/github-app",
+    operationId: "putGitHubApp",
+    tag: "Workspace settings",
+    summary: "Register or replace the workspace's GitHub App (owner or admin)",
+    description:
+      "Takes the App's id and the private key GitHub issued for it (the PEM file's text). The key must be an RSA private key (400 `invalid_private_key`), and GitHub must accept a JWT signed with it for that id (400 `github_app_rejected`); only then is it stored, encrypted under the master key, with the App's name and page as GitHub reports them. A workspace has one App: this replaces the one before, and repositories written as `auth: { kind: github_app }` use the new one from their next token. Writes a `set_github_app` receipt naming the App id. The key is in no response, receipt, log or error. API keys are refused.",
+    auth: "session",
+    body: "PutGitHubAppRequest",
+    requestExample: {
+      app_id: 123456,
+      private_key: "<the .pem file GitHub downloaded>",
+    },
+    success: {
+      status: 200,
+      schema: "PutGitHubAppResponse",
+      description: "Stored; the App as GET now answers it, and the receipt.",
+      example: {
+        github_app: {
+          app_id: 123456,
+          slug: "acme-agents",
+          name: "Acme agents",
+          html_url: "https://github.com/apps/acme-agents",
+          private_key: {
+            updated_at: "2026-10-30T09:00:00Z",
+            updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
+          },
+          created_at: "2026-10-30T09:00:00Z",
+          updated_at: "2026-10-30T09:00:00Z",
+        },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 413, 503],
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY), or GitHub could not be reached (`github_unreachable`); nothing stored changed.",
+    },
+    idempotent: false,
+  },
+  {
+    method: "delete",
+    path: "/v1/workspaces/{id}/github-app",
+    operationId: "deleteGitHubApp",
+    tag: "Workspace settings",
+    summary: "Remove the workspace's GitHub App (owner or admin)",
+    description:
+      "Deletes the App and its private key and writes a `delete_github_app` receipt. Repositories written as `auth: { kind: github_app }` can no longer be cloned, pushed to or get pull requests until an App is registered again. The App stays on GitHub. 404 when none is registered. API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "DeleteGitHubAppResponse",
       description: "Deleted; the receipt.",
       example: { receipt_id: EXAMPLE_RECEIPT_ID },
     },
@@ -3986,7 +4109,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Current outcome of an accepted command",
     description:
-      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `decide_push`, `push`: `{push_request_id, decision, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it.\n- `open_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`; `created` is false when the call answered an open pull request or edited the marked comment.\n- `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.\n\nAny credential of the same owner can read a receipt. It changes nothing.",
+      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `decide_push`, `push`: `{push_request_id, decision, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it.\n- `open_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`; `created` is false when the call answered an open pull request or edited the marked comment.\n- `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.\n- `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.\n\nAny credential of the same owner can read a receipt. It changes nothing.",
     scope: "read",
     success: {
       status: 200,

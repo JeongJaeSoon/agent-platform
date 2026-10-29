@@ -3,10 +3,17 @@ import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ForgeCredentialError, type SessionCatalog } from "@werft-ai/platform";
+import {
+  ForgeCredentialError,
+  GitHubAppCheckError,
+  type GitHubAppCredential,
+  type SessionCatalog,
+} from "@werft-ai/platform";
 import { type FakeGitHub, startFakeGitHub } from "@werft-ai/testkit";
 import {
+  createGitHubAppDirectory,
   createGitHubForge,
+  createRegisteredGitHubForge,
   forgesOf,
   REFRESH_BEFORE_EXPIRY_MS,
 } from "./forge-github.ts";
@@ -263,5 +270,151 @@ describe("forgesOf", () => {
     expect(forges("gitea")).toBeNull();
     expect(forges("public")).toBeNull();
     expect(forges("missing")).toBeNull();
+  });
+});
+
+describe("the App registered in the console", () => {
+  const credential = (fields: Partial<GitHubAppCredential> = {}) => ({
+    id: "8b0d2f4e-0000-4000-8000-000000000001",
+    workspaceId: "8b0d2f4e-0000-4000-8000-0000000000aa",
+    appId: 101,
+    apiBase: github.origin,
+    privateKey,
+    updatedAt: new Date("2026-10-30T00:00:00Z"),
+    ...fields,
+  });
+
+  test("finds the installation that covers the repository, then asks for a token on it", async () => {
+    const registered = createRegisteredGitHubForge({
+      store: { credentials: async () => [credential()] },
+      paced: false,
+    });
+    expect(registered.forge()).toBeNull();
+    await registered.refresh();
+    const before = github.tokenRequests.length;
+    const issued = await registered.forge()?.gitCredential(repo, "read");
+    expect(issued?.username).toBe("x-access-token");
+    const [asked] = github.tokenRequests.slice(before);
+    expect(asked).toMatchObject({
+      installationId: 1,
+      status: 201,
+      body: { repositories: ["app"], permissions: { contents: "read" } },
+    });
+  });
+
+  test("a repository the App is not installed on fails the ask by name", async () => {
+    const registered = createRegisteredGitHubForge({
+      store: { credentials: async () => [credential()] },
+      paced: false,
+    });
+    await registered.refresh();
+    const asking = registered
+      .forge()
+      ?.gitCredential({ owner: "acme", name: "absent" }, "read");
+    await expect(asking).rejects.toThrow(
+      new ForgeCredentialError("GitHub App is not installed on acme/absent"),
+    );
+  });
+
+  test("a replaced App or key gets a new forge; a removed one leaves none", async () => {
+    let held = [credential()];
+    const registered = createRegisteredGitHubForge({
+      store: { credentials: async () => held },
+    });
+    await registered.refresh();
+    const first = registered.forge();
+    await registered.refresh();
+    expect(registered.forge()).toBe(first);
+    held = [credential({ updatedAt: new Date("2026-10-30T01:00:00Z") })];
+    await registered.refresh();
+    expect(registered.forge()).not.toBe(first);
+    held = [];
+    await registered.refresh();
+    expect(registered.forge()).toBeNull();
+  });
+
+  test("a slow read from before a delete cannot bring the App back", async () => {
+    let release: () => void = () => {};
+    const reads = [
+      new Promise<ReturnType<typeof credential>[]>((resolve) => {
+        release = () => resolve([credential()]);
+      }),
+      Promise.resolve([]),
+    ];
+    const registered = createRegisteredGitHubForge({
+      store: { credentials: () => reads.shift() ?? Promise.resolve([]) },
+    });
+    const periodic = registered.refresh();
+    const afterDelete = registered.refresh();
+    release();
+    await Promise.all([periodic, afterDelete]);
+    expect(registered.forge()).toBeNull();
+  });
+
+  test("forgesOf hands it to repositories written as { kind: github_app }", async () => {
+    const registered = createRegisteredGitHubForge({
+      store: { credentials: async () => [credential()] },
+    });
+    const forges = forgesOf(
+      {
+        profiles: {},
+        repositories: {
+          app: {
+            branch: "main",
+            url: "https://github.com/acme/app.git",
+            auth: { kind: "github_app", registered: true },
+          },
+          open: { branch: "main", url: "https://github.com/acme/open.git" },
+        },
+      },
+      { registered: registered.forge },
+    );
+    expect(forges("app")).toBeNull();
+    await registered.refresh();
+    expect(forges("app")).toBe(registered.forge());
+    expect(forges("open")).toBeNull();
+  });
+});
+
+describe("createGitHubAppDirectory", () => {
+  const directory = createGitHubAppDirectory({ retryAfterBaseMs: 1 });
+  const app = () => ({ appId: 101, apiBase: github.origin, privateKey });
+
+  test("describes the App, lists its installation, and finds it per repository", async () => {
+    expect(await directory.describe(app())).toEqual({
+      appId: 101,
+      slug: "fake-app",
+      name: "Fake fake-app",
+      htmlUrl: `${github.origin}/apps/fake-app`,
+    });
+    expect(await directory.installations(app())).toEqual([
+      {
+        id: 1,
+        account: "acme",
+        repositorySelection: "selected",
+        htmlUrl: `${github.origin}/organizations/acme/settings/installations/1`,
+      },
+    ]);
+    expect(await directory.installationFor(app(), repo)).toBe(1);
+    expect(
+      await directory.installationFor(app(), { owner: "acme", name: "absent" }),
+    ).toBeNull();
+  });
+
+  test("a key GitHub does not know for the id is rejected; no answer is unreachable", async () => {
+    const other = generateKeyPairSync("rsa", { modulusLength: 2048 })
+      .privateKey.export({ type: "pkcs1", format: "pem" })
+      .toString();
+    const rejected = directory.describe({ ...app(), privateKey: other });
+    await expect(rejected).rejects.toMatchObject({ reason: "github_rejected" });
+    await expect(rejected).rejects.toBeInstanceOf(GitHubAppCheckError);
+    const wrongId = directory.describe({ ...app(), appId: 999 });
+    await expect(wrongId).rejects.toMatchObject({ reason: "github_rejected" });
+    const closed = Bun.serve({ port: 0, fetch: () => new Response("") });
+    const unreachable = `http://127.0.0.1:${closed.port}`;
+    closed.stop(true);
+    await expect(
+      directory.describe({ ...app(), apiBase: unreachable }),
+    ).rejects.toMatchObject({ reason: "github_unreachable" });
   });
 });

@@ -362,6 +362,7 @@ describe("OpenAPI document", () => {
         "/v1/sessions/{id}/usage",
         "/v1/workspaces/{id}/audit-retention",
         "/v1/workspaces/{id}/slack-guest",
+        "/v1/workspaces/{id}/github-app",
         "/v1/workspaces/{id}/slack/config-token",
         "/v1/workspaces/{id}/slack/apps/{app_id}",
         "/v1/workspaces/{id}/slack/apps/{app_id}/secrets/{purpose}",
