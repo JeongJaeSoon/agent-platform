@@ -338,10 +338,13 @@ describe("installed runtimes", () => {
 
   test("a shipped profile keeps the fingerprint main gave it, and an auto base is the same profile in every example", async () => {
     // Computed on main at 304c2713: sessions and releases pin these.
+    // claude-coding-real moved when it gained AskUserQuestion: the file only
+    // seeds an empty installation_profiles table, whose rows keep the digest
+    // their sessions pinned.
     const onMain: Record<string, Record<string, string>> = {
       ".": {
         "claude-coding-real":
-          "sha256:9b0f3cfac118121bb700fa88ba6d7b418064520a82f4baa9769e2c55aa954790",
+          "sha256:5ee8ffe62e6e449f4c4266d3fd2578196cd39ba761530fbaaac85df3c54fda72",
       },
       "fake-model": {
         "claude-coding-local":
@@ -565,12 +568,10 @@ describe("readCatalogConfig", () => {
 
   test("the shipped profiles keep the fingerprints main computed before `repository` existed", async () => {
     // Captured on main 015a1634; a profile they no longer name fails every
-    // session pinned to it with CATALOG_MISMATCH.
+    // session pinned to it with CATALOG_MISMATCH. claude-coding-real left
+    // the list when it gained AskUserQuestion; the rows it seeded before keep
+    // their own definition.
     const before = {
-      ".": {
-        "claude-coding-real":
-          "sha256:9aa74e1f9a8acefabe103d06d97a92ee00fc98eed014d634356caa66472f735c",
-      },
       "fake-model": {
         "claude-coding-local":
           "sha256:a4c77446d640fa3aebb3c5ccc66f2b3d2a1ab475a431435b320f50852c16ac57",
