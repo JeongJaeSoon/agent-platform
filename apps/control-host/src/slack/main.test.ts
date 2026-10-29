@@ -163,10 +163,11 @@ describe("slack role startup", () => {
       noSecrets,
     );
     const original = globalThis.setInterval;
-    let started = 0;
+    const started: ReturnType<typeof setInterval>[] = [];
     globalThis.setInterval = ((...args: Parameters<typeof setInterval>) => {
-      started += 1;
-      return original(...args);
+      const timer = original(...args);
+      started.push(timer);
+      return timer;
     }) as typeof setInterval;
     try {
       for (let pass = 0; pass < 3; pass += 1) {
@@ -194,8 +195,9 @@ describe("slack role startup", () => {
       }
     } finally {
       globalThis.setInterval = original;
+      for (const timer of started) clearInterval(timer);
     }
-    expect(started).toBe(0);
+    expect(started.length).toBe(0);
   });
 
   test("settings default to a 60s lease, batches of 10 and half the pass timeout", () => {
