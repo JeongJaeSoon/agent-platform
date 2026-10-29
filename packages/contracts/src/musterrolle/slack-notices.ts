@@ -1,4 +1,5 @@
 import type { SlackSurfaceAction } from "../kollegium/surfaces.ts";
+import type { UserLocale } from "./auth.ts";
 import type {
   AuthorizationDecision,
   AuthorizationReason,
@@ -6,7 +7,7 @@ import type {
 
 // What the person a Slack decision refused sees, only them and once per
 // thread (design 3.3). Product copy: plain words, no internal module names.
-export const SLACK_NOTICE_MESSAGES = {
+const SLACK_NOTICE_MESSAGES_KO = {
   connect: "웹에서 Slack 계정을 연결해 주세요",
   noRequestRight: "이 채널에서 이 에이전트에게 요청할 권한이 없어요",
   noApproveRight: "이 요청을 승인할 권한이 없어요",
@@ -25,13 +26,60 @@ export const SLACK_NOTICE_MESSAGES = {
     "이 에이전트는 아직 활성화된 릴리스가 없어요. 에이전트 관리자가 웹 콘솔에서 릴리스를 활성화해야 해요",
 } as const;
 
-type NoticeKey = keyof typeof SLACK_NOTICE_MESSAGES;
+export type SlackNoticeMessage = keyof typeof SLACK_NOTICE_MESSAGES_KO;
+
+export const SLACK_NOTICE_MESSAGES: Readonly<
+  Record<UserLocale, Readonly<Record<SlackNoticeMessage, string>>>
+> = {
+  ko: SLACK_NOTICE_MESSAGES_KO,
+  ja: {
+    connect: "WebでSlackアカウントを連携してください",
+    noRequestRight:
+      "このチャンネルでこのエージェントにリクエストする権限がありません",
+    noApproveRight: "このリクエストを承認する権限がありません",
+    guestDisabled:
+      "このワークスペースでは、ゲストによるエージェントの利用が許可されていません",
+    membersOnly:
+      "このエージェントはこのワークスペースのメンバーのみ利用できます",
+    outOfShare:
+      "このセッションは共有範囲外のため、リクエストできません。セッションを開始した人に共有を依頼してください",
+    credentialUnbound:
+      "接続設定が変更されたため、開始できませんでした。エージェントの管理者にお問い合わせください",
+    failed:
+      "現在リクエストを処理できませんでした。しばらくしてからもう一度お試しください",
+    repositoryRequired:
+      "このエージェントのリリースで使えるリポジトリがないため、開始できませんでした(リポジトリが選ばれていないか、カタログから外れています)。エージェントの管理者がWebコンソールでリポジトリを選び、新しいリリースを作成して有効化する必要があります",
+    profileUnavailable:
+      "このエージェントのリリースが使う実行プロファイルが、カタログにないか、変更されたか、運用担当者によってブロックされたため、開始できませんでした。エージェントの管理者がWebコンソールで使えるプロファイルの新しいリリースを作成して有効化する必要があります",
+    noActiveRelease:
+      "このエージェントにはまだ有効なリリースがありません。エージェントの管理者がWebコンソールでリリースを有効化する必要があります",
+  },
+  en: {
+    connect: "Link your Slack account on the web",
+    noRequestRight:
+      "You don't have permission to make requests to this agent in this channel",
+    noApproveRight: "You don't have permission to approve this request",
+    guestDisabled: "This workspace doesn't allow guests to use agents",
+    membersOnly: "Only members of this workspace can use this agent",
+    outOfShare:
+      "This session isn't shared with you, so you can't make requests in it. Ask the person who started the session to share it",
+    credentialUnbound:
+      "The connection settings changed, so the agent couldn't start. Contact the agent's admin",
+    failed: "We couldn't process the request right now. Try again shortly",
+    repositoryRequired:
+      "The agent couldn't start because its release has no repository it can use (none was chosen, or it was removed from the catalog). An agent admin needs to choose a repository in the web console, then create and activate a new release",
+    profileUnavailable:
+      "The agent couldn't start because its release's runtime profile is missing from the catalog, has changed, or was blocked by an operator. An agent admin needs to create and activate a new release with an available profile in the web console",
+    noActiveRelease:
+      "This agent has no active release yet. An agent admin needs to activate a release in the web console",
+  },
+};
 
 // Every refusal has a notice, so a new reason code cannot reach Slack as
 // silence. A missing right reads differently for whoever pressed approve.
 const NOTICE_FOR: Record<
   Exclude<AuthorizationReason, "ok">,
-  NoticeKey | "noRight"
+  SlackNoticeMessage | "noRight"
 > = {
   unlinked: "connect",
   // Linking again is what clears a link that went stale.
@@ -50,8 +98,9 @@ const NOTICE_FOR: Record<
   error: "failed",
 };
 
+/** A notice before its reader is known: the words come in their language. */
 export type SlackNotice = {
-  text: string;
+  message: SlackNoticeMessage;
   /** The web page where the person links their Slack account. */
   link_url?: string;
 };
@@ -70,18 +119,13 @@ export function slackNoticeFor(
   }
   const key = NOTICE_FOR[decision.reason_code];
   if (key === "connect") {
-    return {
-      text: SLACK_NOTICE_MESSAGES.connect,
-      link_url: links.connectUrl,
-    };
+    return { message: "connect", link_url: links.connectUrl };
   }
   if (key === "noRight") {
     return {
-      text:
-        action === "session.approve"
-          ? SLACK_NOTICE_MESSAGES.noApproveRight
-          : SLACK_NOTICE_MESSAGES.noRequestRight,
+      message:
+        action === "session.approve" ? "noApproveRight" : "noRequestRight",
     };
   }
-  return { text: SLACK_NOTICE_MESSAGES[key] };
+  return { message: key };
 }

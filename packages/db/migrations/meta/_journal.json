@@ -701,6 +701,13 @@
       "when": 1793187420337,
       "tag": "0190_installation_profile_blocks",
       "breakpoints": true
+    },
+    {
+      "idx": 191,
+      "version": "7",
+      "when": 1793263655633,
+      "tag": "0191_user_locale",
+      "breakpoints": true
     }
   ]
 }

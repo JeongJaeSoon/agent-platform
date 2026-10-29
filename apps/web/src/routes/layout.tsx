@@ -48,6 +48,7 @@ import {
   type Locale,
   useI18n,
 } from "../i18n/i18n.tsx";
+import { useSavedLocale } from "../i18n/saved-locale.ts";
 
 export function RootLayout() {
   const { t } = useI18n();
@@ -187,6 +188,7 @@ export function AuthedLayout() {
 function AuthedShell() {
   const { t } = useI18n();
   const me = useMe();
+  useSavedLocale();
   const groups = useNavGroups();
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();

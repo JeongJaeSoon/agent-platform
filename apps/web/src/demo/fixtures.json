@@ -14,7 +14,8 @@
         "user": {
           "id": "00000000-0000-4000-8000-000000000001",
           "email": "placeholder@example.test",
-          "display_name": "Placeholder"
+          "display_name": "Placeholder",
+          "locale": null
         },
         "workspace": {
           "id": "00000000-0000-4000-8000-000000000002",

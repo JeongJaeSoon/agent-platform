@@ -26,7 +26,10 @@ document.addEventListener(
 
 const services = createServices({
   fetch: createDemoFetch(fixtures as DemoFixtures, {
-    onWrite: () => notify("write"),
+    // The console saves the language by itself; nobody asked to write.
+    onWrite: (_method, path) => {
+      if (path !== "/v1/auth/me") notify("write");
+    },
   }),
   leave: () => notify("leave"),
 });

@@ -1,3 +1,4 @@
+import type { UserLocale } from "@werft-ai/contracts";
 import {
   BootstrapDoneError,
   type BootstrapInput,
@@ -817,6 +818,7 @@ export async function resolveWebSession(
       userId: users.id,
       email: users.email,
       displayName: users.displayName,
+      locale: users.locale,
       workspaceId: memberships.workspaceId,
       role: memberships.role,
       expiresAt: webSessions.expiresAt,
@@ -882,4 +884,12 @@ export async function revokeWebSession(
     .where(
       and(eq(webSessions.tokenHash, tokenHash), isNull(webSessions.revokedAt)),
     );
+}
+
+export async function setUserLocale(
+  db: Database,
+  userId: string,
+  locale: UserLocale,
+): Promise<void> {
+  await db.update(users).set({ locale }).where(eq(users.id, userId));
 }

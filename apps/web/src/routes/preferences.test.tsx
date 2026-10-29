@@ -5,7 +5,7 @@ import { LOCALE_STORAGE_KEY } from "../i18n/i18n.tsx";
 import { json, me } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, cleanup, within } = await appHarness();
+const { renderAt, screen, cleanup, within, waitFor } = await appHarness();
 
 const signedIn = { "GET /v1/auth/me": () => json(200, me()) };
 
@@ -83,6 +83,60 @@ describe("preferences", () => {
     cleanup();
     renderAt("/", signedIn, null);
     expect(await screen.findByRole("link", { name: "Settings" })).toBeDefined();
+  });
+
+  test("the saved language wins when the console opens, and a language chosen here is saved for Slack", async () => {
+    let saved: "ja" | "en" = "ja";
+    const { api } = renderAt("/settings/preferences", {
+      "GET /v1/auth/me": () =>
+        json(200, { ...me(), user: { ...me().user, locale: saved } }),
+      "PATCH /v1/auth/me": async (request) => {
+        saved = ((await request.json()) as { locale: "en" }).locale;
+        return new Response(null, { status: 204 });
+      },
+    });
+    const user = await setupUser();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "言語・テーマ" }),
+    ).toBeDefined();
+    const saves = () =>
+      api.calls.filter(
+        (call) => call.method === "PATCH" && call.path === "/v1/auth/me",
+      );
+    expect(saves()).toEqual([]);
+
+    await user.click(screen.getByRole("radio", { name: /English/ }));
+    expect(
+      await screen.findByRole("heading", {
+        level: 1,
+        name: "Language & theme",
+      }),
+    ).toBeDefined();
+    await waitFor(() => expect(saves()).toHaveLength(1));
+    expect(saves()[0]?.body).toEqual({ locale: "en" });
+    await waitFor(() =>
+      expect(
+        api.calls.filter((call) => call.path === "/v1/auth/me").at(-1)?.method,
+      ).toBe("GET"),
+    );
+    expect(saves()).toHaveLength(1);
+  });
+
+  test("a user with no saved language saves the one this console shows", async () => {
+    const { api } = renderAt("/settings/preferences", {
+      ...signedIn,
+      "PATCH /v1/auth/me": () => new Response(null, { status: 204 }),
+    });
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "언어·테마" }),
+    ).toBeDefined();
+    await waitFor(() =>
+      expect(
+        api.calls
+          .filter((call) => call.method === "PATCH")
+          .map((call) => call.body),
+      ).toEqual([{ locale: "ko" }]),
+    );
   });
 
   test("theme and language chosen here show in the account menu at once, and the other way round", async () => {

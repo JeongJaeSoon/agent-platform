@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { USER_LOCALE_VALUES } from "./auth.ts";
 import {
   AUTHORIZATION_REASON_VALUES,
   type AuthorizationReason,
@@ -15,57 +16,27 @@ const deny = (reason_code: AuthorizationReason) => ({
 
 describe("slackNoticeFor", () => {
   test.each([
-    ["unlinked", "session.submit", SLACK_NOTICE_MESSAGES.connect, true],
-    ["stale_link", "session.submit", SLACK_NOTICE_MESSAGES.connect, true],
-    ["role", "session.submit", SLACK_NOTICE_MESSAGES.noRequestRight, false],
-    [
-      "surface_ceiling",
-      "session.submit",
-      SLACK_NOTICE_MESSAGES.noRequestRight,
-      false,
-    ],
-    ["role", "session.approve", SLACK_NOTICE_MESSAGES.noApproveRight, false],
-    [
-      "surface_ceiling",
-      "session.approve",
-      SLACK_NOTICE_MESSAGES.noApproveRight,
-      false,
-    ],
-    ["unlinked", "session.approve", SLACK_NOTICE_MESSAGES.connect, true],
-    [
-      "guest_disabled",
-      "session.submit",
-      SLACK_NOTICE_MESSAGES.guestDisabled,
-      false,
-    ],
-    [
-      "external_user",
-      "session.submit",
-      SLACK_NOTICE_MESSAGES.membersOnly,
-      false,
-    ],
-    ["not_found", "session.approve", SLACK_NOTICE_MESSAGES.outOfShare, false],
-    [
-      "justification_required",
-      "session.read",
-      SLACK_NOTICE_MESSAGES.noRequestRight,
-      false,
-    ],
-    [
-      "credential_unbound",
-      "session.submit",
-      SLACK_NOTICE_MESSAGES.credentialUnbound,
-      false,
-    ],
-    ["error", "session.submit", SLACK_NOTICE_MESSAGES.failed, false],
-  ] as const)("%s on %s", (reason, action, text, linked) => {
+    ["unlinked", "session.submit", "connect", true],
+    ["stale_link", "session.submit", "connect", true],
+    ["role", "session.submit", "noRequestRight", false],
+    ["surface_ceiling", "session.submit", "noRequestRight", false],
+    ["role", "session.approve", "noApproveRight", false],
+    ["surface_ceiling", "session.approve", "noApproveRight", false],
+    ["unlinked", "session.approve", "connect", true],
+    ["guest_disabled", "session.submit", "guestDisabled", false],
+    ["external_user", "session.submit", "membersOnly", false],
+    ["not_found", "session.approve", "outOfShare", false],
+    ["justification_required", "session.read", "noRequestRight", false],
+    ["credential_unbound", "session.submit", "credentialUnbound", false],
+    ["error", "session.submit", "failed", false],
+  ] as const)("%s on %s", (reason, action, message, linked) => {
     expect(slackNoticeFor(deny(reason), action, links)).toEqual(
-      linked ? { text, link_url: links.connectUrl } : { text },
+      linked ? { message, link_url: links.connectUrl } : { message },
     );
   });
 
   test("the copy is the wording the design gives", () => {
-    expect(SLACK_NOTICE_MESSAGES).toMatchObject({
+    expect(SLACK_NOTICE_MESSAGES.ko).toMatchObject({
       connect: "웹에서 Slack 계정을 연결해 주세요",
       noRequestRight: "이 채널에서 이 에이전트에게 요청할 권한이 없어요",
       noApproveRight: "이 요청을 승인할 권한이 없어요",
@@ -73,17 +44,29 @@ describe("slackNoticeFor", () => {
         "이 워크스페이스는 게스트의 에이전트 사용을 허용하지 않아요",
       membersOnly: "이 에이전트는 이 워크스페이스 구성원만 쓸 수 있어요",
     });
-    for (const text of Object.values(SLACK_NOTICE_MESSAGES)) {
-      expect(text).not.toMatch(/Musterrolle|Werft|Kollegium|Kiel|Lotse/);
+  });
+
+  test("every language says every notice, in its own words", () => {
+    const keys = Object.keys(SLACK_NOTICE_MESSAGES.ko).sort();
+    for (const locale of USER_LOCALE_VALUES) {
+      const messages = SLACK_NOTICE_MESSAGES[locale];
+      expect(Object.keys(messages).sort()).toEqual(keys);
+      for (const text of Object.values(messages)) {
+        expect(text.trim()).not.toBe("");
+        expect(text).not.toMatch(/Musterrolle|Werft|Kollegium|Kiel|Lotse/);
+      }
     }
+    expect(SLACK_NOTICE_MESSAGES.en.connect).toMatch(/^[\x20-\x7e]+$/);
+    expect(SLACK_NOTICE_MESSAGES.ja.connect).toMatch(/[ぁ-ん]/);
   });
 
   test("every refusal reason has a notice; an allow or a redact has none", () => {
     for (const reason of AUTHORIZATION_REASON_VALUES) {
       if (reason === "ok") continue;
-      expect(
-        slackNoticeFor(deny(reason), "session.submit", links)?.text,
-      ).toEqual(expect.any(String));
+      const notice = slackNoticeFor(deny(reason), "session.submit", links);
+      expect(notice && SLACK_NOTICE_MESSAGES.ko[notice.message]).toEqual(
+        expect.any(String),
+      );
     }
     expect(
       slackNoticeFor(

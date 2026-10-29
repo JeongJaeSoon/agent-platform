@@ -22,6 +22,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/auth/logout",
     "POST /v1/workspaces/{id}/members/{userId}/password-reset",
     "GET /v1/auth/me",
+    "PATCH /v1/auth/me",
   ],
   "google-login.test.ts": [
     "GET /v1/auth/login-methods",

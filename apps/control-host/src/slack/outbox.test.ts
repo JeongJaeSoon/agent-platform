@@ -528,7 +528,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         channelId: CHANNEL,
         threadTs: THREAD,
         userId: null,
-        text: `Done: ping &lt;!here&gt;, &lt;@U0ELSE&gt; and <@${PERSON}>, but \`&lt;!here&gt;\` stays code.\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.link}>`,
+        text: `Done: ping &lt;!here&gt;, &lt;@U0ELSE&gt; and <@${PERSON}>, but \`&lt;!here&gt;\` stays code.\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.ko.link}>`,
         ts: expect.any(String),
         options: {
           link_names: "false",
@@ -676,7 +676,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     await endTurn(sessionId, 1, "completed", [[text("answer 1")]]);
     expect(await outboxPass()).toMatchObject({ sent: 1 });
     expect(posted().map((message) => message.text.split("\n")[0])).toEqual([
-      SLACK_NOTICE_MESSAGES.failed,
+      SLACK_NOTICE_MESSAGES.ko.failed,
       "answer 1",
     ]);
   });
@@ -956,7 +956,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     const [message] = posted();
     expect(message?.text.length).toBeLessThanOrEqual(SLACK_TEXT_MAX);
     expect(message?.text).toEndWith(
-      `…\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.link}>`,
+      `…\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.ko.link}>`,
     );
   });
 
@@ -968,9 +968,63 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     await outboxPass();
     await outboxPass();
     expect(posted().map((message) => message.text)).toEqual([
-      `${SLACK_NOTICE_MESSAGES.failed}\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.link}>`,
+      `${SLACK_NOTICE_MESSAGES.ko.failed}\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.ko.link}>`,
     ]);
     expect((await rows()).map((row) => row.kind)).toEqual(["failure_notice"]);
+  });
+
+  test("a thread reads in the language of whoever started the session", async () => {
+    const fixture = await agentInSlack();
+    // The fixture's one user, the person who mentions the agent.
+    await db.update(users).set({ locale: "en" });
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "failed");
+    await outboxPass();
+    await askFrom(sessionId, 2, "web", "Try again", true);
+    await outboxPass();
+    await db.update(users).set({ locale: "ja" });
+    await askFrom(sessionId, 3, "web", "Once more", true);
+    await outboxPass();
+    expect(posted().map((message) => message.text)).toEqual([
+      `We couldn't process the request right now. Try again shortly\n\n<${CONSOLE}/sessions/${sessionId}|Open on the web>`,
+      "owner (Web console)\nTry again",
+      "owner (Webコンソール)\nOnce more",
+    ]);
+    expect(posted()[1]?.options.username).toBe("owner (Web console)");
+
+    const [row] = await rows();
+    expect(row?.body).toMatchObject({ locale: "en" });
+  });
+
+  test("a refusal's reader is the user their Slack account is linked to", async () => {
+    const fixture = await agentInSlack();
+    const outbox = createPostgresSlackOutboxStore(db);
+    const reader = (slackUserId: string) =>
+      outbox.readerLocale({
+        workspaceId: fixture.workspaceId,
+        teamId: TEAM,
+        slackUserId,
+      });
+    expect(await reader(PERSON)).toBeNull();
+    await db.update(users).set({ locale: "ja" });
+    expect(await reader(PERSON)).toBe("ja");
+    expect(await reader(STRANGER)).toBeNull();
+    await db.update(linkedAccounts).set({ status: "stale" });
+    expect(await reader(PERSON)).toBe("ja");
+    await db.update(linkedAccounts).set({
+      status: "revoked",
+      revokedAt: new Date(),
+      revokedReason: "unlinked",
+    });
+    expect(await reader(PERSON)).toBeNull();
+    expect(
+      await outbox.readerLocale({
+        workspaceId: randomUUID(),
+        teamId: TEAM,
+        slackUserId: PERSON,
+      }),
+    ).toBeNull();
   });
 
   test("a failure notice whose send outlived its lease still clears the status", async () => {
@@ -1051,7 +1105,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     await outboxPass();
     await outboxPass();
     expect(posted().map((message) => message.text)).toEqual([
-      `${SLACK_OUTBOX_MESSAGES.needsInput}\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.link}>`,
+      `${SLACK_OUTBOX_MESSAGES.ko.needsInput}\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.ko.link}>`,
     ]);
     expect((await rows()).map((row) => row.kind)).toEqual(["input_notice"]);
     // The turn is still going: its status line stays.
@@ -1110,7 +1164,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         channelId: CHANNEL,
         threadTs: THREAD,
         userId: STRANGER,
-        text: `${SLACK_NOTICE_MESSAGES.connect}\n\n<${CONSOLE}/settings/linked-accounts|${SLACK_OUTBOX_MESSAGES.link}>`,
+        text: `${SLACK_NOTICE_MESSAGES.ko.connect}\n\n<${CONSOLE}/settings/linked-accounts|${SLACK_OUTBOX_MESSAGES.ko.link}>`,
         ts: expect.any(String),
         options: { link_names: "false" },
       },
@@ -1283,7 +1337,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
 
     expect(await outboxPass()).toMatchObject({ uncertain: 1, sent: 1 });
     expect(posted().map((message) => message.text)).toEqual([
-      `${SLACK_OUTBOX_MESSAGES.uncertain}\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.link}>`,
+      `${SLACK_OUTBOX_MESSAGES.ko.uncertain}\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.ko.link}>`,
     ]);
     expect((await rows()).map((row) => [row.kind, row.status])).toEqual([
       ["reply", "uncertain"],
@@ -1307,7 +1361,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     expect(await outboxPass()).toMatchObject({ sent: 1 });
     expect(await outboxPass()).toMatchObject({ claimed: 0 });
     expect(posted().map((message) => message.text)).toEqual([
-      expect.stringContaining(SLACK_OUTBOX_MESSAGES.uncertain),
+      expect.stringContaining(SLACK_OUTBOX_MESSAGES.ko.uncertain),
     ]);
     expect((await rows()).map((row) => [row.kind, row.status])).toEqual([
       ["reply", "uncertain"],
@@ -1448,7 +1502,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     });
     await outboxPass();
     expect(posted().map((message) => message.text)).toEqual([
-      `${SLACK_OUTBOX_MESSAGES.uncertain}\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.link}>`,
+      `${SLACK_OUTBOX_MESSAGES.ko.uncertain}\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.ko.link}>`,
     ]);
     expect(
       (await rows()).map((row) => [row.kind, row.status, row.errorCode]),

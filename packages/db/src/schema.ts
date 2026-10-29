@@ -26,6 +26,8 @@ import {
   SURFACE_MEMBERSHIP_STATE_VALUES,
   type SurfaceKind,
   type SurfaceMembershipState,
+  USER_LOCALE_VALUES,
+  type UserLocale,
 } from "@werft-ai/contracts";
 import type {
   SecretOwnerRef,
@@ -188,6 +190,8 @@ export const users = pgTable(
     // Account suspension. Losing one workspace is memberships.disabled_at, a
     // different thing.
     disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    // Null until the console saves one; Slack then tells them in Korean.
+    locale: text().$type<UserLocale>(),
   },
   (table) => [
     // The unique above is case-sensitive, so lower-casing has to be a fact of
@@ -195,6 +199,10 @@ export const users = pgTable(
     check(
       "users_email_lower_check",
       sql`${table.email} = lower(${table.email})`,
+    ),
+    check(
+      "users_locale_check",
+      sql`${table.locale} IN (${sql.raw(sqlList(USER_LOCALE_VALUES))})`,
     ),
   ],
 );

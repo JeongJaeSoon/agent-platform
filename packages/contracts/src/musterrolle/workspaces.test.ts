@@ -240,6 +240,7 @@ describe("auth requests", () => {
         id: USER_ID,
         email: "owner@example.com",
         display_name: "Owner",
+        locale: "en",
       },
       workspace: {
         id: WORKSPACE_ID,
@@ -290,7 +291,12 @@ describe("auth requests", () => {
         role: "owner",
         scopes: ["sessions:read"],
       },
-      user: { id: USER_ID, email: "owner@example.com", display_name: "Owner" },
+      user: {
+        id: USER_ID,
+        email: "owner@example.com",
+        display_name: "Owner",
+        locale: null,
+      },
       workspace: {
         id: WORKSPACE_ID,
         slug: "acme",
@@ -325,7 +331,12 @@ describe("auth requests", () => {
         role: "owner",
         scopes: ["sessions:read"],
       },
-      user: { id: USER_ID, email: "owner@example.com", display_name: "Owner" },
+      user: {
+        id: USER_ID,
+        email: "owner@example.com",
+        display_name: "Owner",
+        locale: null,
+      },
       workspace,
       scopes: ["sessions:read"],
       permissions: ["team.manage"],
