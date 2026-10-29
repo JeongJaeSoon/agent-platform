@@ -224,4 +224,17 @@ integration("the GitHub App on PostgreSQL", () => {
       .where(eq(githubApps.workspaceId, ws));
     expect(rows).toHaveLength(1);
   });
+
+  // The key read can land after a delete that committed past the row read.
+  test("a row whose key is already gone reads as no App", async () => {
+    const store = createPostgresGitHubAppStore(db, key);
+    const ws = await workspace();
+    const owner = await person(ws, "owner");
+    const stored = await store.put(ws, profile(41), pemOf(), owner());
+    if (stored.outcome !== "stored") throw new Error(stored.outcome);
+    await db
+      .delete(secretValues)
+      .where(eq(secretValues.ownerRef, `github_app:${stored.app.id}`));
+    expect(await store.find(ws)).toBeNull();
+  });
 });

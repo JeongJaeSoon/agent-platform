@@ -453,18 +453,19 @@ describe("catalog config schema", () => {
           ).success,
         ).toBe(false);
       }
-      // The console App's token is a github.com token.
-      expect(
-        sessionCatalogConfigSchema.safeParse(
-          config(configured, {
-            app: {
-              ...github,
-              url: "https://ghes.example.invalid/acme/app.git",
-              auth: { kind: "github_app" },
-            },
-          }),
-        ).success,
-      ).toBe(false);
+      // The console App's token is a github.com token, and only over TLS.
+      for (const url of [
+        "https://ghes.example.invalid/acme/app.git",
+        "http://github.com/acme/app.git",
+      ]) {
+        expect(
+          sessionCatalogConfigSchema.safeParse(
+            config(configured, {
+              app: { ...github, url, auth: { kind: "github_app" } },
+            }),
+          ).success,
+        ).toBe(false);
+      }
     });
 
     test("its route sends the credential the forge issued, never the key", () => {

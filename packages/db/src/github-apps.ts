@@ -54,9 +54,14 @@ async function lockWorkspace(tx: Database, workspaceId: string) {
   );
 }
 
-async function recordOf(db: Database, row: Row): Promise<GitHubAppRecord> {
+// A row is written with its key in one transaction, so a row without one is
+// a delete that committed between the two reads.
+async function recordOf(
+  db: Database,
+  row: Row,
+): Promise<GitHubAppRecord | null> {
   const key = await describeSecret(db, keySlot(row));
-  if (key === null) throw new Error("GitHub App row has no private key");
+  if (key === null) return null;
   return {
     id: row.id,
     workspaceId: row.workspaceId,
@@ -133,7 +138,9 @@ export function createPostgresGitHubAppStore(
         await tx
           .insert(receipts)
           .values(receiptRow(audit, workspaceId, "set_github_app", app.appId));
-        return { outcome: "stored", app: await recordOf(tx, row) };
+        const stored = await recordOf(tx, row);
+        if (stored === null) throw new Error("GitHub App key was not written");
+        return { outcome: "stored", app: stored };
       });
     },
 

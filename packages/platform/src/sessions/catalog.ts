@@ -344,10 +344,10 @@ export const catalogRepositorySchema = z
       repository.auth === undefined ||
       !isRegisteredGitHubApp(repository.auth) ||
       !isWebUrl(repository.url) ||
-      new URL(repository.url).hostname === "github.com",
+      new URL(repository.url).origin === "https://github.com",
     {
       message:
-        "{ kind: github_app } alone is for github.com; name app_id, installation_id and api_base for another host",
+        "{ kind: github_app } alone is for https://github.com; name app_id, installation_id and api_base for another host",
       path: ["url"],
     },
   );
