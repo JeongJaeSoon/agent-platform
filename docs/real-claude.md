@@ -166,7 +166,7 @@ scripts/local.sh down
     runtime_kind: claude_agent_sdk
     runtime_version: "0.3.270"
     model: claude-sonnet-5
-    tools: [Read, Edit, Write, Glob, Grep, Bash]
+    tools: [Read, Edit, Write, Glob, Grep, Bash, AskUserQuestion]
     permission_mode: bypassPermissions
     provider:
       kind: anthropic
