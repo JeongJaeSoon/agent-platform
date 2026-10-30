@@ -1,6 +1,6 @@
 // The control host's one executable
 //
-//   bun run src/main.ts api
+//   bun run src/main.ts <api|metrics>
 //   bun run src/main.ts <scheduler|reconciler|slack> [--once|--health|--serve]
 //
 // The role is named, never defaulted, so a container runs what its command
@@ -14,13 +14,13 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { PassLoopRoleName } from "./pass-loop/loop.ts";
 
-const ROLES = ["api", "scheduler", "reconciler", "slack"] as const;
+const ROLES = ["api", "metrics", "scheduler", "reconciler", "slack"] as const;
 const MODES = ["--once", "--health", "--serve"] as const;
 type Role = (typeof ROLES)[number];
 type Mode = (typeof MODES)[number] | undefined;
 
 const USAGE =
-  "usage: bun run src/main.ts api | <scheduler|reconciler|slack> [--once|--health|--serve]";
+  "usage: bun run src/main.ts <api|metrics> | <scheduler|reconciler|slack> [--once|--health|--serve]";
 
 function parse(args: readonly string[]): { role: Role; mode: Mode } | string {
   const [role, mode, ...rest] = args;
@@ -29,7 +29,11 @@ function parse(args: readonly string[]): { role: Role; mode: Mode } | string {
   }
   if (rest.length > 0) return `${USAGE} (got ${args.join(" ")})`;
   if (mode === undefined) return { role: role as Role, mode };
-  if (role === "api" || !(MODES as readonly string[]).includes(mode)) {
+  if (
+    role === "api" ||
+    role === "metrics" ||
+    !(MODES as readonly string[]).includes(mode)
+  ) {
     return `${USAGE} (got ${args.join(" ")})`;
   }
   return { role: role as Role, mode: mode as Mode };
@@ -45,6 +49,9 @@ const { role, mode } = parsed;
 if (role === "api") {
   // Serves until a signal stops it (api/shutdown.ts).
   await import("./api/server.ts");
+} else if (role === "metrics") {
+  const { serveMetrics } = await import("./metrics/server.ts");
+  serveMetrics();
 } else if (mode === "--health") {
   const { checkHealth } = await import("./pass-loop/health.ts");
   const { PASS_LOOP_ROLES } = await import("./pass-loop/loop.ts");
