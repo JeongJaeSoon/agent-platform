@@ -720,12 +720,16 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     );
   };
   // What verify-restore builds: those rows, credentials standing in.
-  const catalogOver = async (rows: InstallationProfileRecord[]) =>
+  const catalogOver = async (
+    rows: InstallationProfileRecord[],
+    env: Record<string, string> = {},
+  ) =>
     databaseCatalog({
       dir: CONFIG_DIR,
       installations: { listAll: async () => rows },
       workspaces: { listAll: async () => [] },
       credential: () => "verify-restore-reads-no-credential",
+      env,
     });
   const catalog = async () => catalogOver(await seededRows());
   const sessionOf = async (overrides: {
@@ -784,6 +788,33 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       resolved,
     );
     expect(claim).toBeDefined();
+  });
+
+  test("a session pinned before its profile's runtime moved gets a claim while the previous worker image is configured", async () => {
+    const pinned = await sessionOf({});
+    const config = await readCatalogConfig(CONFIG_DIR);
+    const seed = await readSeedProfiles(CONFIG_DIR, config);
+    const seeded = seed[PROFILE_ID];
+    if (seeded === undefined) throw new Error("no seeded profile");
+    const moved = catalogRows(
+      { ...seed, [PROFILE_ID]: { ...seeded, runtime_version: "9.9.9" } },
+      config.repositories,
+    );
+    const image = (sdkVersion: string) =>
+      JSON.stringify({ cliVersion: "2.0.0", engine: "claude", sdkVersion });
+    const before = (await catalog()).profiles[PROFILE_ID] as CatalogProfile;
+    expect(
+      sessionClaim(
+        pinned,
+        await catalogOver(moved, {
+          WORKER_IMAGE_RUNTIME: image("9.9.9"),
+          WORKER_IMAGE_PREVIOUS_RUNTIME: image(before.runtime_version),
+        }),
+      ),
+    ).toBeDefined();
+    await expect(
+      catalogOver(moved).then((resolved) => sessionClaim(pinned, resolved)),
+    ).rejects.toThrow("other settings in the catalog");
   });
 
   test("an image whose profile digest computation changed makes the plan incompatible; the sealing image stays ready", async () => {

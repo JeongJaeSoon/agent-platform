@@ -86,6 +86,7 @@ export * from "./ports/workspace-bundle-verifier.ts";
 export * from "./ports/workspace-profile-store.ts";
 export * from "./ports/workspace-settings.ts";
 export * from "./scheduler/session-scheduler.ts";
+export * from "./scheduler/worker-images.ts";
 export * from "./secrets/secret-cipher.ts";
 export * from "./sessions/catalog.ts";
 export * from "./sessions/event-codecs.ts";

@@ -497,6 +497,7 @@ export type SessionCatalog = {
   mcp_servers?: Record<string, CatalogMcpServer>;
   workspace_profiles?: WorkspaceProfiles;
   installation?: InstallationProfiles;
+  runtime_versions?: RuntimeVersions;
 };
 
 /**
@@ -588,6 +589,7 @@ export type SessionCatalogView = {
   repositories: Record<string, CatalogRepositoryView>;
   workspace_profiles?: WorkspaceProfiles;
   installation?: InstallationProfiles;
+  runtime_versions?: RuntimeVersions;
 };
 
 /** A remote MCP server the session's agent release names, as claimed. */
@@ -751,6 +753,7 @@ export type ProfileLookup<P extends CatalogProfileView> = {
   profiles: Readonly<Record<string, P>>;
   workspace_profiles?: WorkspaceProfiles | undefined;
   installation?: InstallationProfiles | undefined;
+  runtime_versions?: RuntimeVersions | undefined;
 };
 
 export type ProfileNarrowing = Pick<
@@ -789,7 +792,14 @@ export function workspaceProfileState(
     ? catalog.profiles[record.base_profile_id]
     : undefined;
   if (!base) return "base_missing";
-  if (!baseHolds(derivationPolicyOf(catalog), base, record)) {
+  if (
+    !baseHolds(
+      derivationPolicyOf(catalog),
+      base,
+      record,
+      acceptedRuntimeVersions(catalog),
+    )
+  ) {
     return "base_changed";
   }
   return catalog.installation?.get(record.base_profile_id)?.state === "retired"
@@ -801,10 +811,12 @@ function baseHolds(
   policy: ProfileDerivationPolicy,
   base: CatalogProfileView,
   record: WorkspaceProfileRecord,
+  versions: readonly string[],
 ): boolean {
   return (
-    profileFingerprint(base) === record.base_fingerprint &&
-    policy.refusal(base, record) === null
+    underVersions(base, versions).some(
+      (seen) => profileFingerprint(seen) === record.base_fingerprint,
+    ) && policy.refusal(base, record) === null
   );
 }
 
@@ -827,7 +839,8 @@ export function catalogProfile<P extends CatalogProfileView>(
     ? catalog.profiles[record.base_profile_id]
     : undefined;
   const policy = derivationPolicyOf(catalog);
-  return base && baseHolds(policy, base, record)
+  return base &&
+    baseHolds(policy, base, record, acceptedRuntimeVersions(catalog))
     ? policy.apply(base, record)
     : undefined;
 }
@@ -1110,18 +1123,69 @@ export type ProfilePin = {
   model: string | null;
 };
 
+/**
+ * The engine versions the configured worker images ship (each image's SDK
+ * and CLI version). A worker image upgrade moves a profile's
+ * `runtime_version` while a session pinned before it resumes on the
+ * previous image, so a pin taken under any `accepted` version still names
+ * the profile. `current` is the image new sessions start on.
+ */
+export type RuntimeVersions = {
+  readonly accepted: readonly string[];
+  readonly current: readonly string[];
+};
+
+/** Without configured images: a pin matches the profile as written only. */
+export function acceptedRuntimeVersions(catalog: {
+  runtime_versions?: RuntimeVersions | undefined;
+}): readonly string[] {
+  return catalog.runtime_versions?.accepted ?? [];
+}
+
+/**
+ * Whether a new session of `profile` starts on the engine its
+ * `runtime_version` names. Nothing is checked without configured images.
+ */
+export function runsOnCurrentImage(
+  catalog: { runtime_versions?: RuntimeVersions | undefined },
+  profile: Pick<CatalogProfileView, "runtime_version">,
+): boolean {
+  const current = catalog.runtime_versions?.current;
+  return current === undefined || current.includes(profile.runtime_version);
+}
+
+// The profile as written, then as a row pinned under each other accepted
+// version saw it. Only `runtime_version` differs.
+function underVersions<P extends CatalogProfileView>(
+  profile: P,
+  versions: readonly string[],
+): P[] {
+  const others = [...new Set(versions)].filter(
+    (version) => version !== profile.runtime_version,
+  );
+  return [
+    profile,
+    ...others.map((version) => ({ ...profile, runtime_version: version })),
+  ];
+}
+
 // The model `fingerprint` pins this profile to: the row's for version 2, the
 // one a version 1 fingerprint was taken with. Undefined when the profile no
-// longer hashes to it.
+// longer hashes to it under any accepted runtime version.
 function pinnedModel(
   profile: CatalogProfileView,
   pin: ProfilePin & { fingerprint: string },
+  versions: readonly string[],
 ): string | null | undefined {
-  if (pin.fingerprint === profileFingerprint(profile)) return pin.model;
-  return profileModels(profile).find((model) => {
-    const runs = profileWithModel(profile, model);
-    return runs !== null && profileFingerprintV1(runs) === pin.fingerprint;
-  });
+  for (const seen of underVersions(profile, versions)) {
+    if (pin.fingerprint === profileFingerprint(seen)) return pin.model;
+    const model = profileModels(seen).find((model) => {
+      const runs = profileWithModel(seen, model);
+      return runs !== null && profileFingerprintV1(runs) === pin.fingerprint;
+    });
+    if (model !== undefined) return model;
+  }
+  return undefined;
 }
 
 /**
@@ -1132,8 +1196,11 @@ function pinnedModel(
 export function profilePinned(
   profile: CatalogProfileView,
   fingerprint: string,
+  versions: readonly string[],
 ): boolean {
-  return pinnedModel(profile, { fingerprint, model: null }) !== undefined;
+  return (
+    pinnedModel(profile, { fingerprint, model: null }, versions) !== undefined
+  );
 }
 
 /**
@@ -1144,9 +1211,14 @@ export function profilePinned(
 export function sessionProfile<P extends CatalogProfileView>(
   profile: P,
   pin: ProfilePin,
+  versions: readonly string[],
 ): P | null {
   if (pin.fingerprint === null) return profileWithModel(profile);
-  const model = pinnedModel(profile, { ...pin, fingerprint: pin.fingerprint });
+  const model = pinnedModel(
+    profile,
+    { ...pin, fingerprint: pin.fingerprint },
+    versions,
+  );
   return model == null ? null : profileWithModel(profile, model);
 }
 
@@ -1162,28 +1234,38 @@ export function fingerprintModel(
 ): string | null {
   const profile = catalogProfile(catalog, profileId);
   if (!profile) return null;
-  return sessionProfile(profile, { fingerprint, model: null })?.model ?? null;
+  return (
+    sessionProfile(
+      profile,
+      { fingerprint, model: null },
+      acceptedRuntimeVersions(catalog),
+    )?.model ?? null
+  );
 }
 
 /**
  * Every pin a row of this profile may hold, its default model first: the
  * version 2 fingerprint once per offered model, then each model's version 1
- * fingerprint, which names its model itself (`model` null: any row model).
+ * fingerprint, which names its model itself (`model` null: any row model);
+ * then the same under each other accepted runtime version.
  */
 export function profilePins(
   profile: CatalogProfileView,
+  versions: readonly string[],
 ): Array<{ fingerprint: string; model: string | null }> {
-  const models = profileModels(profile);
-  const current = profileFingerprint(profile);
-  return [
-    ...models.map((model) => ({ fingerprint: current, model })),
-    ...models.flatMap((model) => {
-      const runs = profileWithModel(profile, model);
-      return runs
-        ? [{ fingerprint: profileFingerprintV1(runs), model: null }]
-        : [];
-    }),
-  ];
+  return underVersions(profile, versions).flatMap((seen) => {
+    const models = profileModels(seen);
+    const current = profileFingerprint(seen);
+    return [
+      ...models.map((model) => ({ fingerprint: current, model })),
+      ...models.flatMap((model) => {
+        const runs = profileWithModel(seen, model);
+        return runs
+          ? [{ fingerprint: profileFingerprintV1(runs), model: null }]
+          : [];
+      }),
+    ];
+  });
 }
 
 /**

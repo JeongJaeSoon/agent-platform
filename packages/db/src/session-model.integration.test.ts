@@ -88,7 +88,7 @@ const catalog: SessionCatalog = withSeededInstallation({
     },
   },
 });
-const pins = profilePins(profile);
+const pins = profilePins(profile, []);
 const V1_SONNET = pins[2]?.fingerprint ?? "";
 const V1_OPUS = pins[3]?.fingerprint ?? "";
 const V2 = profileFingerprint(profile);

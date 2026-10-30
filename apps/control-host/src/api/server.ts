@@ -130,6 +130,7 @@ import {
   installedRuntimes,
   loadProfileSources,
   loadSecretKey,
+  runtimeVersionsFromEnv,
   SECRET_KEY_SETTING,
   secretsManagerReader,
   unattendedProfiles,
@@ -300,8 +301,14 @@ const workspaceProfileVersions = createProfileRegistry({
   installations: installationProfileStore,
   sources: profileSources.sources,
 });
+const runtimeVersions = runtimeVersionsFromEnv(process.env);
 const catalog = profileCatalog(
-  profileSources.catalog,
+  {
+    ...profileSources.catalog,
+    ...(runtimeVersions === undefined
+      ? {}
+      : { runtime_versions: runtimeVersions }),
+  },
   workspaceProfileVersions,
 );
 const logCatalog = (message: string): void => {
