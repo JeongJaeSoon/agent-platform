@@ -475,13 +475,18 @@ function installedCheck(
   credentials: GitHubCredentials,
 ): GitHubConnection["installed"] {
   if (credentials.kind !== "app") return async () => null;
-  if (credentials.installationId !== undefined) return async () => true;
+  const fixed = credentials.installationId;
   const auth = createAppAuth({
     appId: credentials.appId,
     privateKey: credentials.privateKey,
     request: client.request,
   });
-  return async (repo) => (await installationFor(client, auth, repo)) !== null;
+  return async (repo) => {
+    const found = await installationFor(client, auth, repo);
+    // A catalog App names its installation; another one of the App's own
+    // does not let that installation's tokens reach the repository.
+    return found !== null && (fixed === undefined || found.id === fixed);
+  };
 }
 
 function pullRequestOf(data: {

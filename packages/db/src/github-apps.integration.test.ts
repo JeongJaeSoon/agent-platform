@@ -325,6 +325,26 @@ integration("the GitHub App on PostgreSQL", () => {
     await expect(unknownRole).rejects.toThrow(/github_apps_role_check/);
   });
 
+  test("one App put into both roles at once lands in one role only", async () => {
+    const store = createPostgresGitHubAppStore(db, key);
+    const ws = await workspace();
+    const owner = await person(ws, "owner");
+    await store.put(ws, "author", profile(61), pemOf(), owner());
+    const outcomes = await Promise.all([
+      store.put(ws, "author", profile(62), pemOf(), owner()),
+      store.put(ws, "reviewer", profile(62), pemOf(), owner()),
+    ]);
+    expect(outcomes.map((outcome) => outcome.outcome).sort()).toEqual([
+      "same_app",
+      "stored",
+    ]);
+    const rows = await db
+      .select({ role: githubApps.role, appId: githubApps.appId })
+      .from(githubApps)
+      .where(eq(githubApps.workspaceId, ws));
+    expect(rows.filter((row) => row.appId === 62)).toHaveLength(1);
+  });
+
   // The key read can land after a delete that committed past the row read.
   test("a row whose key is already gone reads as no App", async () => {
     const store = createPostgresGitHubAppStore(db, key);

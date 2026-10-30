@@ -513,6 +513,23 @@ describe("the App registered in the console", () => {
     ).toBe(false);
     expect(github.tokenRequests.length).toBe(before);
   });
+
+  test("a catalog App is installed only where its named installation covers the repository", async () => {
+    const catalogApp = (installationId: number) =>
+      createGitHubConnection({
+        apiBase: github.origin,
+        credentials: { kind: "app", appId: 101, installationId, privateKey },
+        paced: false,
+      });
+    const before = github.tokenRequests.length;
+    // The fake's one installation is 1.
+    expect(await catalogApp(1).installed(repo)).toBe(true);
+    expect(await catalogApp(202).installed(repo)).toBe(false);
+    expect(
+      await catalogApp(1).installed({ owner: "acme", name: "absent" }),
+    ).toBe(false);
+    expect(github.tokenRequests.length).toBe(before);
+  });
 });
 
 describe("createGitHubAppDirectory", () => {
