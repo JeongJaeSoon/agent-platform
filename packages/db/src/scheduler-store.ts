@@ -216,7 +216,7 @@ export function createPostgresSchedulerStore(
       };
     },
 
-    async inspectDemand({ limit }): Promise<SchedulerDemand> {
+    async inspectDemand({ limit, excluding = [] }): Promise<SchedulerDemand> {
       const [active] = await db
         .select({ count: sql<number>`count(*)::int` })
         .from(workerLaunches)
@@ -241,6 +241,9 @@ export function createPostgresSchedulerStore(
             // restore backoff.
             withinBudget(budget),
             restoreRetryDue(),
+            excluding.length === 0
+              ? undefined
+              : notInArray(unassignedSessions.sessionId, [...excluding]),
             notExists(
               db
                 .select({ one: sql`1` })

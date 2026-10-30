@@ -187,6 +187,8 @@ export async function holdIncompatibleBeforeLaunch(
     if (
       session === undefined ||
       !LAUNCHABLE_ADMISSION_STATES.includes(session.admissionState) ||
+      // start_fresh keeps the revision and retires the checkpoint instead.
+      !hasRestorePoint(session) ||
       session.checkpointRevision !== input.checkpointRevision
     ) {
       return "stale";

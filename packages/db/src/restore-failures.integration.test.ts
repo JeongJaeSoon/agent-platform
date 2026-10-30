@@ -598,6 +598,30 @@ integration("startup failures before ready on PostgreSQL", () => {
     expect(await launchable(session)).toBe(true);
   });
 
+  test("a checkpoint start_fresh retired holds no image and no session", async () => {
+    const session = await checkpointedSession("launch-hold-fresh");
+    const hold = () =>
+      scheduler().holdIncompatibleBeforeLaunch({
+        sessionId: session.sessionId,
+        checkpointRevision: 0,
+        detail: "no configured worker image runs it",
+        now: new Date(),
+      });
+    expect(await hold()).toBe("held");
+    expect(await decide(session, "start_fresh")).toMatchObject({
+      outcome: "accepted",
+    });
+    expect((await sessionRow(session.sessionId)).checkpointRevision).toBe(0);
+    expect(await scheduler().pointerRuntimeOf(session.sessionId)).toEqual({
+      pointer: { kind: "none" },
+      checkpointRevision: 0,
+    });
+    // A pass that read the pointer before the decision is refused too.
+    expect(await hold()).toBe("stale");
+    expect((await sessionRow(session.sessionId)).admissionState).toBe("active");
+    expect(await launchable(session)).toBe(true);
+  });
+
   test("leaves a session with a launch in flight to that launch", async () => {
     const session = await checkpointedSession("launch-hold-open");
     const intent = await scheduler().reserveLaunch({

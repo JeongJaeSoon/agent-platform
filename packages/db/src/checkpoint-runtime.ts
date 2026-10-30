@@ -5,6 +5,7 @@ import {
 } from "@werft-ai/platform";
 import { and, eq, type SQL, sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
+import { hasRestorePoint } from "./control-shared.ts";
 import type { Database } from "./queries.ts";
 import { checkpoints, sessions } from "./schema.ts";
 
@@ -85,6 +86,8 @@ export async function readPointerImageRuntime(
   const [row] = await db
     .select({
       checkpointRevision: sessions.checkpointRevision,
+      checkpointPendingReason: sessions.checkpointPendingReason,
+      contextResetCheckpointRevision: sessions.contextResetCheckpointRevision,
       runtimeEngine: checkpoints.runtimeEngine,
       runtimeSdkVersion: checkpoints.runtimeSdkVersion,
       runtimeCliVersion: checkpoints.runtimeCliVersion,
@@ -101,7 +104,9 @@ export async function readPointerImageRuntime(
     )
     .where(eq(sessions.id, sessionId))
     .limit(1);
-  if (row === undefined || row.checkpointRevision === null) {
+  // What the claim's restore skips (a start_fresh retired it, or a pending
+  // reason blocks it) restores nothing, so no image is held to it.
+  if (row === undefined || !hasRestorePoint(row)) {
     return { pointer: { kind: "none" }, checkpointRevision: 0 };
   }
   const runtime = runtimeOfColumns(row);

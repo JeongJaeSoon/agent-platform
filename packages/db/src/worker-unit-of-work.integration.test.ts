@@ -3760,7 +3760,8 @@ integration("worker gateway on PostgreSQL", () => {
     engine: VERIFIED_RUNTIME.engine,
     sdkVersion: "0.3.260",
     cliVersion: "2.1.260",
-    profileDigestScheme: 1,
+    // Not the first scheme, so a checkpoint that took the default would show.
+    profileDigestScheme: 2,
   };
 
   function claimAs(
@@ -3822,7 +3823,7 @@ integration("worker gateway on PostgreSQL", () => {
         assumedEngine: PREVIOUS_IMAGE_RUNTIME.engine,
         assumedSdkVersion: "0.3.260",
         assumedCliVersion: "2.1.260",
-        assumedProfileScheme: 1,
+        assumedProfileScheme: 2,
         claimed: { ...PREVIOUS_IMAGE_RUNTIME, sdkVersion: "0.3.270" },
       }),
     ]);
@@ -3889,7 +3890,7 @@ integration("worker gateway on PostgreSQL", () => {
       .select({ scheme: checkpoints.runtimeProfileScheme })
       .from(checkpoints)
       .where(eq(checkpoints.sessionId, session.session_id));
-    expect(checkpoint?.scheme).toBe(1);
+    expect(checkpoint?.scheme).toBe(2);
     expect(
       await createPostgresSchedulerStore(db, {
         connectForLock: () => pool.connect(),
@@ -3897,7 +3898,7 @@ integration("worker gateway on PostgreSQL", () => {
         sessionTokenLimit: null,
       }).pointerRuntimeOf(session.session_id),
     ).toEqual({
-      pointer: recordedPointer(VERIFIED_RUNTIME, 1),
+      pointer: recordedPointer(VERIFIED_RUNTIME, 2),
       checkpointRevision: 0,
     });
 

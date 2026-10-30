@@ -250,7 +250,11 @@ export interface SchedulerStore {
    * from different snapshots.
    */
   acquirePassLock(): Promise<PassLock | null>;
-  inspectDemand(input: { limit: number }): Promise<SchedulerDemand>;
+  /** `excluding` pages past sessions this pass already passed over. */
+  inspectDemand(input: {
+    limit: number;
+    excluding?: readonly string[];
+  }): Promise<SchedulerDemand>;
   /**
    * Commits the launch intent for a session that is still eligible and a slot
    * is free, or returns null when either no longer holds (raced by a claim,

@@ -187,12 +187,18 @@ class MemoryStore implements SchedulerStore {
     return [...this.executions.values()].filter((e) => !e.slotReleased);
   }
 
-  async inspectDemand({ limit }: { limit: number }) {
+  async inspectDemand({
+    limit,
+    excluding = [],
+  }: {
+    limit: number;
+    excluding?: readonly string[];
+  }) {
     const liveSessions = new Set(this.live().map((e) => e.sessionId));
     return {
       activeExecutionCount: this.live().length,
       eligibleSessionIds: [...this.unassigned]
-        .filter((id) => !liveSessions.has(id))
+        .filter((id) => !liveSessions.has(id) && !excluding.includes(id))
         .slice(0, limit),
     };
   }
@@ -1038,6 +1044,41 @@ describe("worker image per session", () => {
     expect(launchedImageOf(store, sealedOld as string)).toBe(
       "sha256:worker:previous",
     );
+  });
+
+  test("sessions waiting on a refused image do not keep the next in line from a free slot", async () => {
+    const { run, store } = harness(1, twoImages);
+    store.refusals.push({ image: "sha256:worker:previous", assumed: previous });
+    const [first, second, fresh] = store.addUnassigned(3);
+    for (const id of [first, second]) {
+      store.pointers.set(id as string, {
+        pointer: { kind: "recorded", runtime: previous },
+        checkpointRevision: 3,
+      });
+    }
+    const summary = await run();
+    expect(summary.launched).toHaveLength(1);
+    expect(launchedImageOf(store, fresh as string)).toBe("sha256:worker:test");
+    expect(store.unassigned.has(first as string)).toBe(true);
+    expect(store.unassigned.has(second as string)).toBe(true);
+  });
+
+  test("one digest configured under two runtimes is refused only under the one a worker contradicted", async () => {
+    const { run, store } = harness(10, {
+      imageRuntime: current,
+      previousImage: { image: "worker:test", runtime: previous },
+    });
+    store.refusals.push({ image: "sha256:worker:test", assumed: previous });
+    const [sealedOld, fresh] = store.addUnassigned(2);
+    store.pointers.set(sealedOld as string, {
+      pointer: { kind: "recorded", runtime: previous },
+      checkpointRevision: 3,
+    });
+    const summary = await run();
+    expect(summary.imagesRefused).toEqual(["sha256:worker:test"]);
+    expect(summary.launched).toHaveLength(1);
+    expect(store.reservedRuntimes.get(fresh as string)).toEqual(current);
+    expect(launchedImageOf(store, sealedOld as string)).toBeUndefined();
   });
 
   test("without an image runtime every session launches on the configured image, as before", async () => {

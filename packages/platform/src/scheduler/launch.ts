@@ -31,7 +31,7 @@ type PinnedImage = { image: string; runtime: ImageRuntime | undefined };
 type PinnedImages = {
   /** Current first. Every runtime is set, or there is one image without. */
   pinned: [PinnedImage, ...PinnedImage[]];
-  refused: ReadonlySet<string>;
+  refused: readonly PinnedImage[];
 };
 
 export async function reensure(
@@ -280,7 +280,7 @@ export async function fillSlots(ctx: PassContext): Promise<void> {
       options.imageRuntime === undefined
         ? []
         : await store.workerImageRefusals();
-    const refused = new Set<string>();
+    const refused: PinnedImage[] = [];
     for (const { image, runtime } of pinned) {
       if (
         runtime !== undefined &&
@@ -290,7 +290,7 @@ export async function fillSlots(ctx: PassContext): Promise<void> {
             sameCombination(refusal.assumed, runtime),
         )
       ) {
-        refused.add(image);
+        refused.push({ image, runtime });
         summary.imagesRefused.push(image);
         logger.error(
           "Worker image refused: a worker on it claimed under another runtime than configured; no session is launched on it until the configured runtime is corrected",
@@ -317,7 +317,14 @@ export async function fillSlots(ctx: PassContext): Promise<void> {
       })) as [WorkerImageCandidate<string>, ...WorkerImageCandidate<string>[]],
     );
     if (selection.kind === "selected") {
-      return available.refused.has(selection.image)
+      // By the pair: one digest configured twice under two runtimes is
+      // refused only under the one a worker contradicted.
+      return available.refused.some(
+        ({ image, runtime }) =>
+          image === selection.image &&
+          runtime !== undefined &&
+          sameCombination(runtime, selection.runtime),
+      )
         ? null
         : { image: selection.image, runtime: selection.runtime };
     }
@@ -345,7 +352,25 @@ export async function fillSlots(ctx: PassContext): Promise<void> {
       summary.orphansUnresolved.length -
       summary.orphansStopping.length,
   );
-  for (const sessionId of demand.eligibleSessionIds) {
+  // A session passed over (its image refused, held before launch, raced)
+  // leaves its slot to the next in line, so a full page reads on past it.
+  const eligible = async function* () {
+    const seen: string[] = [];
+    let page = demand.eligibleSessionIds;
+    let limit = options.slotLimit;
+    for (;;) {
+      for (const sessionId of page) {
+        seen.push(sessionId);
+        yield sessionId;
+      }
+      if (free <= 0 || page.length < limit) return;
+      limit = free;
+      lock.throwIfAborted();
+      page = (await store.inspectDemand({ limit, excluding: seen }))
+        .eligibleSessionIds;
+    }
+  };
+  for await (const sessionId of eligible()) {
     if (free <= 0) break;
     if (images === undefined) images = await pinnedImages();
     if (images === null) break;
