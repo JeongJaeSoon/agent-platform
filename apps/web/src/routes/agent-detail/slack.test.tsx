@@ -1229,8 +1229,7 @@ describe("Slack management", () => {
   test("does not block installing an app that already exists when the token is unset", async () => {
     renderAt(DETAIL, {
       ...routes(),
-      [`GET ${PATH}/slack/app`]: () =>
-        json(200, appResponse(APP, [], "unset")),
+      [`GET ${PATH}/slack/app`]: () => json(200, appResponse(APP, [], "unset")),
     });
     const install = await screen.findByRole("button", {
       name: "Slack 앱 설치",
