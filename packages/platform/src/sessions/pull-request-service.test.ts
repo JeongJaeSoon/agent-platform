@@ -188,9 +188,12 @@ function harness(
         state: "open",
         head: input.head,
         base: input.base,
+        mergedAt: null,
+        closedAt: null,
       };
-      return open;
+      return { ...open, created: true };
     },
+    getPullRequest: unused,
     updatePullRequestBody: async (number, edit) => {
       calls.push(`update ${number}`);
       fail();
@@ -254,8 +257,8 @@ function harness(
     works,
     created,
     comments,
-    setOpen: (pull: ForgePullRequest) => {
-      open = pull;
+    setOpen: (pull: Omit<ForgePullRequest, "mergedAt" | "closedAt">) => {
+      open = { ...pull, mergedAt: null, closedAt: null };
     },
     failForge: () => {
       failing = true;

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/core";
 import { retry } from "@octokit/plugin-retry";
@@ -20,6 +21,7 @@ import {
   type GitHubConnections,
   GitHubPermissionError,
   type GitHubPermissions,
+  type GitHubRateLimit,
   type GitHubWorkflowRun,
   type RepoRef,
   type SessionCatalog,
@@ -37,6 +39,10 @@ const RATE_LIMIT_MAX_WAIT_SECONDS = 60;
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_COMMENT_PAGES = 10;
 const COMMENTS_PER_PAGE = 100;
+const PAT_USER_RETRY_MS = 60 * 60_000;
+// By a hash of the API base and the PAT, never the PAT itself: process-wide,
+// so a connection rebuilt with the same PAT does not ask again.
+const patUsers = new Map<string, { id: number } | { failedAt: number }>();
 
 type GitHubCredentials =
   | {
@@ -150,7 +156,22 @@ export function createGitHubConnection(
   const now = options.now ?? (() => new Date());
   const { logger, credentials } = options;
   const client = clientOf(apiBase, logger, options);
-  const issue = issuer(client, credentials, logger);
+  // One request each, for the outcome refresher: its budget counts every
+  // send, and a rate limit stops the unit rather than waiting here.
+  const once = new Octokit({
+    baseUrl: apiBase,
+    userAgent: "Werft",
+    log: { debug() {}, info() {}, warn() {}, error() {} },
+    request: {
+      fetch: (url: string, init: RequestInit) =>
+        fetch(url, {
+          ...init,
+          redirect: "error",
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        }),
+    },
+  });
+  const { issue, installationOf } = issuer(client, credentials, logger);
   const cached = new Map<string, GitCredential>();
   const inFlight = new Map<string, Promise<GitCredential>>();
 
@@ -299,15 +320,52 @@ export function createGitHubConnection(
               headers,
             },
           );
-          return pullRequestOf(data);
+          return { ...pullRequestOf(data), created: true };
         } catch (error) {
           // 422: an open pull request for this head already exists, as when
           // two callers race; answer that one.
           if (statusOf(error) === 422) {
             const open = await findPullRequestForBranch(input.head);
-            if (open?.state === "open") return open;
+            if (open?.state === "open") return { ...open, created: false };
           }
           throw failure(logger, "pull request create", error);
+        }
+      },
+      async getPullRequest(number) {
+        try {
+          const { data, headers: answered } = await once.request(
+            "GET /repos/{owner}/{repo}/pulls/{pull_number}",
+            { ...target, pull_number: number, headers },
+          );
+          return {
+            pullRequest: {
+              ...pullRequestOf(data),
+              mergeCommitSha: data.merged_at ? data.merge_commit_sha : null,
+              additions: countOf(data.additions),
+              deletions: countOf(data.deletions),
+              changedFiles: countOf(data.changed_files),
+              commits: countOf(data.commits),
+            },
+            rateLimit: rateLimitOf(answered),
+          };
+        } catch (error) {
+          const status = statusOf(error) ?? null;
+          const requestId = requestIdOf(error);
+          logger?.warn("GitHub request failed", {
+            request: "pull request read",
+            ...(status === null ? {} : { status }),
+            error: error instanceof Error ? error.name : "response",
+            ...(requestId === null ? {} : { github_request_id: requestId }),
+          });
+          throw new GitHubCallError(
+            "pull request read",
+            status,
+            requestId,
+            rateLimitOf(
+              (error as { response?: { headers?: Record<string, unknown> } })
+                ?.response?.headers,
+            ),
+          );
         }
       },
       async updatePullRequestBody(number, edit) {
@@ -474,11 +532,47 @@ export function createGitHubConnection(
     };
   }
 
+  // A PAT's rate limit is its user's, whichever PAT of theirs: ask GitHub
+  // whose it is once, and after a failure not again for an hour (§10).
+  async function quotaKey(repo: RepoRef): Promise<string> {
+    if (credentials.kind === "app") {
+      return `app:${apiBase}:${await installationOf(repo)}`;
+    }
+    const held = createHash("sha256")
+      .update(`${apiBase}\n${credentials.password}`)
+      .digest("hex");
+    const known = patUsers.get(held);
+    if (known !== undefined && "id" in known) {
+      return `pat:${apiBase}:${known.id}`;
+    }
+    if (
+      known !== undefined &&
+      now().getTime() - known.failedAt < PAT_USER_RETRY_MS
+    ) {
+      throw new ForgeCredentialError("The PAT's user was not told lately");
+    }
+    try {
+      const { data } = await once.request("GET /user", {
+        headers: { authorization: `token ${credentials.password}` },
+      });
+      const id = Number(data.id);
+      if (!Number.isSafeInteger(id) || id <= 0) {
+        throw new Error("GET /user named no user id");
+      }
+      patUsers.set(held, { id });
+      return `pat:${apiBase}:${id}`;
+    } catch (error) {
+      patUsers.set(held, { failedAt: now().getTime() });
+      throw failure(logger, "PAT user lookup", error);
+    }
+  }
+
   return {
     kind: credentials.kind === "app" ? "app" : "pat",
     githubCom: apiBase === GITHUB_API_BASE,
     appId: credentials.kind === "app" ? credentials.appId : null,
     credential,
+    quotaKey,
     installed: installedCheck(client, credentials),
     api,
   };
@@ -509,6 +603,8 @@ function pullRequestOf(data: {
   state: string;
   head: { ref: string };
   base: { ref: string };
+  merged_at?: string | null;
+  closed_at?: string | null;
 }): ForgePullRequest {
   return {
     number: data.number,
@@ -516,6 +612,36 @@ function pullRequestOf(data: {
     state: data.state === "open" ? "open" : "closed",
     head: data.head.ref,
     base: data.base.ref,
+    mergedAt: data.merged_at ?? null,
+    closedAt: data.closed_at ?? null,
+  };
+}
+
+const countOf = (value: unknown): number | null =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0
+    ? value
+    : null;
+
+function headerNumber(
+  headers: Record<string, unknown> | undefined,
+  name: string,
+): number | null {
+  const value = Number(headers?.[name]);
+  return headers?.[name] === undefined || !Number.isFinite(value)
+    ? null
+    : value;
+}
+
+/** What a response's headers say of the rate limit it counted against. */
+function rateLimitOf(
+  headers: Record<string, unknown> | undefined,
+): GitHubRateLimit {
+  const reset = headerNumber(headers, "x-ratelimit-reset");
+  return {
+    limit: headerNumber(headers, "x-ratelimit-limit"),
+    remaining: headerNumber(headers, "x-ratelimit-remaining"),
+    reset: reset === null ? null : new Date(reset * 1000),
+    retryAfterSeconds: headerNumber(headers, "retry-after"),
   };
 }
 
@@ -523,10 +649,20 @@ function issuer(
   client: Client,
   credentials: GitHubCredentials,
   logger: Logger | undefined,
-): (repo: RepoRef, permissions: GitHubPermissions) => Promise<GitCredential> {
+): {
+  issue: (
+    repo: RepoRef,
+    permissions: GitHubPermissions,
+  ) => Promise<GitCredential>;
+  /** The App installation covering `repo`; null for a PAT. */
+  installationOf: (repo: RepoRef) => Promise<number | null>;
+} {
   if (credentials.kind === "token") {
     const { username, password } = credentials;
-    return async () => ({ username, password });
+    return {
+      issue: async () => ({ username, password }),
+      installationOf: async () => null,
+    };
   }
   const auth = createAppAuth({
     appId: credentials.appId,
@@ -549,7 +685,10 @@ function issuer(
     found.set(key, id);
     return id;
   }
-  return async (repo, permissions) => {
+  const issue = async (
+    repo: RepoRef,
+    permissions: GitHubPermissions,
+  ): Promise<GitCredential> => {
     try {
       const installationId = await installationOf(repo);
       // The library's own cache knows nothing of the refresh margin, so
@@ -582,6 +721,7 @@ function issuer(
       throw failure(logger, "installation token request", error);
     }
   };
+  return { issue, installationOf };
 }
 
 type AppAuth = ReturnType<typeof createAppAuth>;

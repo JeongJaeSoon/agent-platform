@@ -27,6 +27,7 @@ import {
   createPostgresSecretStore,
   createPostgresSessionAttributionStore,
   createPostgresSessionControl,
+  createPostgresSessionOutcomes,
   createPostgresSessionReader,
   createPostgresSessionShareStore,
   createPostgresSessionTitleStore,
@@ -71,12 +72,14 @@ import {
   createInviteService,
   createLinkedAccountService,
   createMemberService,
+  createOutcomeRefresher,
   createPendingRequestService,
   createProfileRegistry,
   createPullRequestService,
   createPushExecutor,
   createPushRequestService,
   createSessionAttributionService,
+  createSessionOutcomeService,
   createSessionOutputService,
   createSessionService,
   createSessionShareService,
@@ -176,6 +179,7 @@ import { registerGitHubSettingsRoutes } from "./routes/github-settings.ts";
 import {
   registerGitHubWorkRoutes,
   registerSessionAttributionRoutes,
+  registerSessionOutcomeRoutes,
 } from "./routes/github-work.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
 import {
@@ -809,6 +813,16 @@ const pushExecutor = createPushExecutor({
   pusher: createGitPusher({ maxGitMemoryBytes: checkpointGitMemoryBytes }),
   logger,
 }).start();
+// Each replica reads the state of the pull requests sessions opened; the
+// rate-limit budget is shared through the database (§10).
+const sessionOutcomes = createPostgresSessionOutcomes(db);
+const outcomeRefresher = createOutcomeRefresher({
+  store: sessionOutcomes,
+  gate: github,
+  catalog,
+  connections: githubConnections,
+  logger,
+}).start();
 const interrupts = createInterruptService({
   authorization,
   store: createPostgresTurnInterrupts(db, { logger }),
@@ -993,6 +1007,10 @@ const app = createApiApp({
         store: sessionAttribution,
       }),
     );
+    registerSessionOutcomeRoutes(
+      router,
+      createSessionOutcomeService({ authorization, store: sessionOutcomes }),
+    );
     registerInterruptRoutes(router, interrupts);
     registerLinkedAccountRoutes(router, {
       service: linkedAccounts,
@@ -1081,6 +1099,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
         : [server, authorizerListener],
       [
         { name: "push-executor", close: () => pushExecutor.stop() },
+        { name: "outcome-refresher", close: () => outcomeRefresher.stop() },
         { name: "event-listener", close: () => notifier.close() },
         { name: "pool", close: () => pool.end() },
         { name: "probe-pool", close: () => probePool.end() },

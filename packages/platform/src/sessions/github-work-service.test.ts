@@ -58,6 +58,9 @@ function harness(
     createPullRequest: async () => {
       throw new Error("not used");
     },
+    getPullRequest: async () => {
+      throw new Error("not used");
+    },
     updatePullRequestBody: async () => {
       throw new Error("not used");
     },

@@ -59,6 +59,9 @@ const app = createApiApp({
           usageToolDays: async () => {
             throw new Error("not read in these tests");
           },
+          usageOutcomes: async () => {
+            throw new Error("not read in these tests");
+          },
         },
       }),
     ),
