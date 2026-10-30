@@ -23,8 +23,8 @@ import {
   createPostgresPullRequests,
   createPostgresPushRequests,
   createPostgresSecretStore,
-  createPostgresSessionControl,
   createPostgresSessionAttributionStore,
+  createPostgresSessionControl,
   createPostgresSessionReader,
   createPostgresSessionShareStore,
   createPostgresSessionTitleStore,
@@ -62,7 +62,6 @@ import {
   createGitHubGate,
   createGitHubSettingsService,
   createGitHubWorkService,
-  createSessionAttributionService,
   createInstallationProfileService,
   createInterruptService,
   createInviteService,
@@ -73,6 +72,7 @@ import {
   createPullRequestService,
   createPushExecutor,
   createPushRequestService,
+  createSessionAttributionService,
   createSessionOutputService,
   createSessionService,
   createSessionShareService,
@@ -150,6 +150,7 @@ import {
   createRegisteredGitHubConnection,
 } from "./forge-github.ts";
 import { createGitPusher } from "./git-push.ts";
+import { githubCallbackUrl } from "./github-link.ts";
 import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
@@ -203,7 +204,6 @@ import {
   slackApiUrlFrom,
   slackEventsPublicUrlFrom,
 } from "./slack-config.ts";
-import { githubCallbackUrl } from "./github-link.ts";
 import { signInWithSlackOff, slackOidcSettingsFromEnv } from "./slack-link.ts";
 
 const authMode = process.env.AUTH_MODE;

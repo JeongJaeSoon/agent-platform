@@ -368,9 +368,7 @@ describe("워크스페이스 GitHub 연결 — 사용자 계정 연결", () => {
     expect(document.activeElement === input).toBe(true);
     expect(input.getAttribute("type")).toBe("password");
     await user.click(card.getByRole("button", { name: "저장" }));
-    expect(
-      await card.findByText("client secret을 넣어 주세요."),
-    ).toBeDefined();
+    expect(await card.findByText("client secret을 넣어 주세요.")).toBeDefined();
     expect(document.activeElement === input).toBe(true);
     expect(api.calls.some((c) => c.method === "PUT")).toBe(false);
     // Cancelling closes the form and hands focus back to its button.

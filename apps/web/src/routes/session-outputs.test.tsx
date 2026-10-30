@@ -214,7 +214,11 @@ describe("session GitHub attribution", () => {
   test("names the linked starter as the commits' co-author", async () => {
     renderAt(
       `/sessions/${SESSION_ID}`,
-      attributed({ trigger: "web", attribution: "co_author", login: "octocat" }),
+      attributed({
+        trigger: "web",
+        attribution: "co_author",
+        login: "octocat",
+      }),
     );
     await openOutputs();
     expect(
@@ -239,7 +243,11 @@ describe("session GitHub attribution", () => {
   test("a session no person started says the App alone signs", async () => {
     renderAt(
       `/sessions/${SESSION_ID}`,
-      attributed({ trigger: "agent_key", attribution: "app_only", login: null }),
+      attributed({
+        trigger: "agent_key",
+        attribution: "app_only",
+        login: null,
+      }),
     );
     await openOutputs();
     expect(

@@ -54,12 +54,12 @@ describe("the co-author a commit names", () => {
 });
 
 test("the claim names the session's console page, or none without an origin", () => {
-  expect(claimGitOf(record(null), "https://console.example.com", SESSION)).toEqual(
-    {
-      co_author: null,
-      session_url: `https://console.example.com/sessions/${SESSION}`,
-    },
-  );
+  expect(
+    claimGitOf(record(null), "https://console.example.com", SESSION),
+  ).toEqual({
+    co_author: null,
+    session_url: `https://console.example.com/sessions/${SESSION}`,
+  });
   expect(sessionUrlOf(null, SESSION)).toBeNull();
 });
 

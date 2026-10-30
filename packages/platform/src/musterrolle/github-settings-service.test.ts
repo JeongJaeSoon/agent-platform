@@ -51,9 +51,7 @@ function apiKey(): Caller {
 
 const CALLBACK = "https://console.example.com/settings/linked-accounts/github";
 
-function harness(
-  options: { authorApp?: boolean; secretsOn?: boolean } = {},
-) {
+function harness(options: { authorApp?: boolean; secretsOn?: boolean } = {}) {
   const secrets: Array<{ workspaceId: string; secret: string }> = [];
   const oauth: GitHubOAuthStore = {
     status: async () => ({
@@ -260,8 +258,11 @@ describe("refusing the OAuth client secret", () => {
       [user("owner"), OTHER, "NOT_FOUND"],
     ] as const) {
       expect(
-        (await refusal(service.putOAuthClientSecret(caller, workspaceId, unread)))
-          .code,
+        (
+          await refusal(
+            service.putOAuthClientSecret(caller, workspaceId, unread),
+          )
+        ).code,
       ).toBe(code);
     }
     expect(secrets).toEqual([]);

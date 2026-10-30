@@ -408,7 +408,10 @@ describe("opening a pull request", () => {
     const opened = await service.open(actor, SESSION, PUSH, {
       readBody: async () => ({}),
     });
-    expect(opened).toMatchObject({ created: false, pull_request: { number: 3 } });
+    expect(opened).toMatchObject({
+      created: false,
+      pull_request: { number: 3 },
+    });
     expect(warnings).toEqual(["Pull request tail not updated"]);
     expect(saved.map((entry) => entry.number)).toEqual([3]);
   });

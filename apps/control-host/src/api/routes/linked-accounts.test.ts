@@ -719,7 +719,8 @@ afterAll(() => {
   githubServer.stop(true);
 });
 
-const GITHUB_REDIRECT = "https://console.example/settings/linked-accounts/github";
+const GITHUB_REDIRECT =
+  "https://console.example/settings/linked-accounts/github";
 
 function githubDeps(): LinkedAccountRouteDeps["github"] {
   const base = `http://127.0.0.1:${githubServer.port}`;
@@ -885,7 +886,10 @@ describe("POST /v1/linked-accounts/github/callback", () => {
   test("a state is spent by its first callback: reusing it is 400", async () => {
     const api = githubApp();
     const { state, cookie } = await githubStarted(api);
-    const headers = { ...owner, Cookie: `${GITHUB_LINK_COOKIE_NAME}=${cookie}` };
+    const headers = {
+      ...owner,
+      Cookie: `${GITHUB_LINK_COOKIE_NAME}=${cookie}`,
+    };
     const first = await githubCallback(api, { code: "good", state }, headers);
     expect(first.status).toBe(201);
     // The browser drops the cookie on the answer; one that kept it is no
@@ -893,7 +897,10 @@ describe("POST /v1/linked-accounts/github/callback", () => {
     const replayed = await githubCallback(
       api,
       { code: "good", state },
-      { ...owner, Cookie: first.headers.get("Set-Cookie")?.split(";")[0] ?? "" },
+      {
+        ...owner,
+        Cookie: first.headers.get("Set-Cookie")?.split(";")[0] ?? "",
+      },
     );
     expect(replayed.status).toBe(400);
     expect((await errorOf(replayed)).message).toBe(LINK_MESSAGES.expired);

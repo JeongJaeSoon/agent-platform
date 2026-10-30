@@ -86,7 +86,10 @@ export function SessionAttribution({
   // Absent from a cached detail older than the field, as well as null.
   const hasRepository = Boolean(session.repository);
   const attribution = useQuery({
-    queryKey: [...queryKeysOf(client).session(session.id), "github-attribution"],
+    queryKey: [
+      ...queryKeysOf(client).session(session.id),
+      "github-attribution",
+    ],
     queryFn: () =>
       unwrap(
         client.GET("/v1/sessions/{id}/github/attribution", {

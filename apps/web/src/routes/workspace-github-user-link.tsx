@@ -272,40 +272,36 @@ function Value({
 }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState<boolean | null>(null);
-  const copyLabel = copy?.label;
-  const onOutcome = copy?.onOutcome ?? (() => {});
   return (
     <span className="inline-flex min-w-0 flex-wrap items-center gap-1">
       <code className="min-w-0 font-mono text-caption text-foreground [overflow-wrap:anywhere]">
         {text}
       </code>
-      {copyLabel ? (
-        <>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="-my-1 h-6 min-w-6 gap-1 px-1 text-xs"
-            aria-label={copyLabel}
-            onClick={() =>
-              void copyText(text, { current: null }).then((ok) => {
-                setCopied(ok);
-                onOutcome(
-                  ok
-                    ? { kind: "notice", text: t("githubUserLink.copied") }
-                    : { kind: "error", text: t("githubUserLink.copyFailed") },
-                );
-              })
-            }
-          >
-            {copied ? (
-              <Check aria-hidden="true" className="size-3.5 shrink-0" />
-            ) : (
-              <Copy aria-hidden="true" className="size-3.5 shrink-0" />
-            )}
-            {copied ? <span>{t("githubUserLink.copied")}</span> : null}
-          </Button>
-        </>
+      {copy ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="-my-1 h-6 min-w-6 gap-1 px-1 text-xs"
+          aria-label={copy.label}
+          onClick={() =>
+            void copyText(text, { current: null }).then((ok) => {
+              setCopied(ok);
+              copy.onOutcome(
+                ok
+                  ? { kind: "notice", text: t("githubUserLink.copied") }
+                  : { kind: "error", text: t("githubUserLink.copyFailed") },
+              );
+            })
+          }
+        >
+          {copied ? (
+            <Check aria-hidden="true" className="size-3.5 shrink-0" />
+          ) : (
+            <Copy aria-hidden="true" className="size-3.5 shrink-0" />
+          )}
+          {copied ? <span>{t("githubUserLink.copied")}</span> : null}
+        </Button>
       ) : null}
     </span>
   );

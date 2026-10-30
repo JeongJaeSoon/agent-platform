@@ -40,12 +40,12 @@ import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
+import { GitHubUserLinkSection } from "./workspace-github-user-link.tsx";
 import {
   type OnOutcome,
   SettingsCard,
   WorkspacePage,
 } from "./workspace-settings.tsx";
-import { GitHubUserLinkSection } from "./workspace-github-user-link.tsx";
 import { DangerZone, storeOff } from "./workspace-slack.tsx";
 
 // Row buttons share one width down the right edge.

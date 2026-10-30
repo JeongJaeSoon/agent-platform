@@ -25,6 +25,15 @@ import {
   parseJsonBody,
 } from "../app.ts";
 import {
+  consumeGitHubLinkState,
+  exchangeGitHubCode,
+  GITHUB_LINK_TTL_MS,
+  GitHubOAuthRejectedError,
+  GitHubOAuthUnavailableError,
+  githubAuthorizeUrl,
+  issueGitHubLinkState,
+} from "../github-link.ts";
+import {
   consumeSlackLinkState,
   exchangeSlackCode,
   issueSlackLinkState,
@@ -35,15 +44,6 @@ import {
   SlackOidcUnavailableError,
   slackAuthorizeUrl,
 } from "../slack-link.ts";
-import {
-  consumeGitHubLinkState,
-  exchangeGitHubCode,
-  GITHUB_LINK_TTL_MS,
-  GitHubOAuthRejectedError,
-  GitHubOAuthUnavailableError,
-  githubAuthorizeUrl,
-  issueGitHubLinkState,
-} from "../github-link.ts";
 import { mapped, requireParams } from "./errors.ts";
 
 export interface LinkedAccountRouteDeps {

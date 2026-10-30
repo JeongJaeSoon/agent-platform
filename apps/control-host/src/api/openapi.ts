@@ -157,6 +157,7 @@ import {
   searchSlackChannelsResponseSchema,
   sessionCredentialUnboundDetailsSchema,
   sessionDurabilitySchema,
+  sessionGitHubAttributionSchema,
   sessionIdParamsSchema,
   sessionOutputParamsSchema,
   sessionRepositorySchema,
@@ -179,7 +180,6 @@ import {
   slackLinkCallbackRequestSchema,
   slackLinkCallbackResponseSchema,
   slackSecretSummarySchema,
-  sessionGitHubAttributionSchema,
   sseEventSchema,
   startGitHubLinkResponseSchema,
   startGoogleLoginResponseSchema,
@@ -1419,7 +1419,8 @@ export const API_ROUTE_DECLARATIONS = [
     path: "/v1/workspaces/{id}/github-settings/oauth-client-secret",
     operationId: "putGitHubOAuthClientSecret",
     tag: "Workspace settings",
-    summary: "Set the author App's client secret for user linking (owner or admin)",
+    summary:
+      "Set the author App's client secret for user linking (owner or admin)",
     description:
       "Stores the client secret of the workspace's author GitHub App, made in GitHub under the App's settings, so people can link their GitHub account. It is kept encrypted like the App's private key and never returned, logged or echoed; the answer carries only whether one is set. Setting it again replaces it. Registering a different App, or deleting the author App, drops it. Refused with 409 `GITHUB_LINK_NOT_CONFIGURED` (`reason_code` `no_author_app`) while the workspace has no author App. Writes a `set_github_app` receipt with the secret's last four characters. Does not change the ceiling's `revision`. API keys are refused.",
     auth: "session",

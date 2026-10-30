@@ -144,11 +144,7 @@ integration("session attribution on PostgreSQL", () => {
         "slack",
         { userId: alice, github: { id: "583231", login: "octocat" } },
       ],
-      [
-        await session(ws, { channel: "api", apiKey: agent }),
-        "agent_key",
-        null,
-      ],
+      [await session(ws, { channel: "api", apiKey: agent }), "agent_key", null],
       [await session(ws, { channel: "api" }), "operator_key", null],
     ] as const;
     for (const [sessionId, trigger, starter] of cases) {

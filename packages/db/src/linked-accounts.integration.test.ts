@@ -759,9 +759,9 @@ integration("linked_accounts on PostgreSQL", () => {
       const first = await member(ws, "member");
       const second = await member(ws, "member");
       const id = githubId();
-      expect((await link(ws, first, github(id), named("octocat"))).outcome).toBe(
-        "linked",
-      );
+      expect(
+        (await link(ws, first, github(id), named("octocat"))).outcome,
+      ).toBe("linked");
       expect(
         (await link(ws, second, github(id), named("octocat"))).outcome,
       ).toBe("taken");

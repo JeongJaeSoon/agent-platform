@@ -373,7 +373,9 @@ function GitHubService({
             ) : null}
           </span>
           <span className={SECONDARY}>
-            {unset && !linked ? t("linked.github.unset") : t("linked.use.github")}
+            {unset && !linked
+              ? t("linked.github.unset")
+              : t("linked.use.github")}
           </span>
         </RowLines>
         {accounts !== undefined && !linked ? (
@@ -622,7 +624,11 @@ function LinkCallback({
 
   const failure =
     !code || !state
-      ? t(provider === "github" ? "linked.github.cancelled" : "linked.cancelled")
+      ? t(
+          provider === "github"
+            ? "linked.github.cancelled"
+            : "linked.cancelled",
+        )
       : finish.error
         ? linkRefusal(t, finish.error, role)
         : null;

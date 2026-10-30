@@ -105,9 +105,8 @@ export const slackLinkCallbackResponseSchema = z
 
 // GitHub's link start and callback take the same shapes as Slack's; copies,
 // so the API reference names each its own.
-export const startGitHubLinkResponseSchema = startSlackLinkResponseSchema.extend(
-  {},
-);
+export const startGitHubLinkResponseSchema =
+  startSlackLinkResponseSchema.extend({});
 export const githubLinkCallbackRequestSchema =
   slackLinkCallbackRequestSchema.extend({});
 export const githubLinkCallbackResponseSchema =

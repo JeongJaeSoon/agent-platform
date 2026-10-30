@@ -47,9 +47,7 @@ export type PutGitHubOAuthSecretResult =
  * with that App; `oauth_client_secret_set` says whether it is there.
  */
 export interface GitHubOAuthStore {
-  status(
-    workspaceId: string,
-  ): Promise<{
+  status(workspaceId: string): Promise<{
     authorApp: boolean;
     clientId: string | null;
     clientSecretSet: boolean;

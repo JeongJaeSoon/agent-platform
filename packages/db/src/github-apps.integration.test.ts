@@ -357,6 +357,8 @@ integration("the GitHub App on PostgreSQL", () => {
     });
     // No secret is set, so there is no client to link with yet.
     expect(await oauth.client(ws)).toBeNull();
-    expect(await createPostgresGitHubOAuthStore(db, null).client(ws)).toBeNull();
+    expect(
+      await createPostgresGitHubOAuthStore(db, null).client(ws),
+    ).toBeNull();
   });
 });

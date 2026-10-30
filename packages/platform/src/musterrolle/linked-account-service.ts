@@ -150,7 +150,10 @@ export function createLinkedAccountService(deps: {
           externalTenant: GITHUB_LINK_TENANT,
           externalUserId: verified.id,
         },
-        names: { externalTenantName: "GitHub", externalUserName: verified.login },
+        names: {
+          externalTenantName: "GitHub",
+          externalUserName: verified.login,
+        },
       });
       switch (result.outcome) {
         case "linked":

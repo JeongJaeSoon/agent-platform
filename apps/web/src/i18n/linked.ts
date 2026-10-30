@@ -77,7 +77,8 @@ export const linkedJa: Record<keyof typeof linkedKo, string> = {
   "linked.connected": "連携済み",
   "linked.notLinked": "未連携",
   "linked.soon": "準備中",
-  "linked.use.github": "自分が開始したセッションのコミットに共同作成者として表示",
+  "linked.use.github":
+    "自分が開始したセッションのコミットに共同作成者として表示",
   "linked.github.unset":
     "owner・admin が GitHub 連携設定でユーザー連携を有効にすると連携できます",
   "linked.github.connect": "GitHub アカウントを連携",

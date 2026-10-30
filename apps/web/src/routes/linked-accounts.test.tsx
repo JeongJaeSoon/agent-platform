@@ -23,7 +23,9 @@ const { renderAt, screen, waitFor, within } = await appHarness();
 const slackRow = () =>
   screen.getByRole("heading", { name: "Slack" }).closest("li") as HTMLElement;
 const slackNotLinked = () =>
-  waitFor(() => expect(within(slackRow()).getByText("연결 안 됨")).toBeTruthy());
+  waitFor(() =>
+    expect(within(slackRow()).getByText("연결 안 됨")).toBeTruthy(),
+  );
 
 const LINK_ID = "4e5f6a7b-8c9d-4e0f-9a1b-2c3d4e5f6a7b";
 const AUTHORIZE = "http://mock-slack.test/openid/connect/authorize?state=s1";

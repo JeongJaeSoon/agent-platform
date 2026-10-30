@@ -152,7 +152,11 @@ export function createGitHubSettingsService(deps: {
       workspaceId: string,
       readBody: () => Promise<PutGitHubOAuthClientSecretRequest>,
     ): Promise<PutGitHubOAuthClientSecretResponse> {
-      await requireConsoleManager(caller, workspaceId, "The OAuth client secret");
+      await requireConsoleManager(
+        caller,
+        workspaceId,
+        "The OAuth client secret",
+      );
       if (!deps.secretsOn) {
         throw new SessionServiceError(
           "BACKEND_UNAVAILABLE",

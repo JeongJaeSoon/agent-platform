@@ -520,7 +520,9 @@ export async function startFakeGitHub(
     }
     const single = /^\/pulls\/(\d+)$/.exec(rest);
     if (single?.[1] && (method === "GET" || method === "PATCH")) {
-      const pull = found.pulls.find((entry) => entry.number === Number(single[1]));
+      const pull = found.pulls.find(
+        (entry) => entry.number === Number(single[1]),
+      );
       if (pull === undefined) return notFound();
       if (!can("pull_requests", method === "GET" ? "read" : "write")) {
         return forbidden();
