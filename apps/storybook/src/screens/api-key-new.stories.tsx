@@ -101,7 +101,6 @@ function NewKeyScreen({
       <Page
         title={screen.title}
         description={screen.intro}
-        width="form"
         breadcrumb={
           <PageBreadcrumb label="위치">
             <PageBreadcrumbLink href={`#${kind}`}>

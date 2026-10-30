@@ -378,7 +378,6 @@ function KeysScreen({ kind }: { readonly kind: KeyKind }) {
     // The head comes first, as on every page; the two key screens' tabs open
     // its body.
     <Page
-      width="form"
       title={t("apiKeys.title")}
       description={t(screen.intro)}
       actions={
@@ -438,11 +437,7 @@ export function OrgKeysScreen() {
   if (!useHasPermission("api_key.manage"))
     return <StatusScreen kind="forbidden" />;
   return (
-    <Page
-      width="form"
-      title={t("apiKeys.orgTitle")}
-      description={t("apiKeys.orgIntro")}
-    >
+    <Page title={t("apiKeys.orgTitle")} description={t("apiKeys.orgIntro")}>
       <EmptyState
         title={t("apiKeys.orgPending")}
         description={t("apiKeys.orgPendingBody")}
@@ -868,7 +863,6 @@ function NewKeyScreen({ kind }: { readonly kind: KeyKind }) {
 
   return (
     <Page
-      width="form"
       title={t(screen.newTitle)}
       description={t(screen.intro)}
       breadcrumb={
@@ -939,7 +933,7 @@ function IssuedSecret({
       </Alert>
       <Field>
         <FieldLabel>{t("apiKeys.secret")}</FieldLabel>
-        <div className="flex items-center gap-2">
+        <div className="flex max-w-[var(--ap-layout-reading-width)] items-center gap-2">
           <Input
             ref={secretRef}
             className="min-w-0 flex-1 font-mono"

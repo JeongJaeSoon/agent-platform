@@ -206,11 +206,9 @@
 
     /*
      * Layout: every page's column grows to --ap-w-page and centres
-     * (V4-PAGE-FRAME); a page that is one form or settings column stops
-     * its head and sections at --ap-w-form inside it.
+     * (V4-PAGE-FRAME), settings pages included.
      */
     --ap-w-page: 101.25rem;
-    --ap-w-form: 68.75rem;
     --ap-w-wide: 75rem;
     --ap-w-narrow: 52.5rem;
     --ap-gutter: 2rem;
