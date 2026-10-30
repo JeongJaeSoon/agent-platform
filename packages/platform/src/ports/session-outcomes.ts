@@ -64,12 +64,12 @@ export interface SessionOutcomeStore {
     quotaKey: string,
     input: { limit: number | null; pausedUntil: Date | null },
   ): Promise<void>;
-  /** The session's outcomes, oldest first. */
-  list(ownerId: string, sessionId: string): Promise<SessionOutcome[]>;
-  /** The session's latest GitHub gate refusals, newest first. */
+  /** The session's outcomes, oldest first; null when the owner has no such session. */
+  list(ownerId: string, sessionId: string): Promise<SessionOutcome[] | null>;
+  /** The session's latest GitHub gate refusals, newest first; null as for list. */
   refusals(
     ownerId: string,
     sessionId: string,
     limit: number,
-  ): Promise<SessionGitHubRefusal[]>;
+  ): Promise<SessionGitHubRefusal[] | null>;
 }

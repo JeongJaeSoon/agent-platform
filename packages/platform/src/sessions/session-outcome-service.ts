@@ -5,7 +5,7 @@ import {
 } from "@werft-ai/contracts";
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import type { SessionOutcomeStore } from "../ports/session-outcomes.ts";
-import { requirePermitted } from "./session-service.ts";
+import { requirePermitted, SessionServiceError } from "./session-service.ts";
 
 /** What the session made, and why GitHub work of it was refused; reads only. */
 export function createSessionOutcomeService(deps: {
@@ -17,6 +17,12 @@ export function createSessionOutcomeService(deps: {
       kind: "session",
       id: sessionId,
     });
+  const found = <T>(items: T[] | null): { items: T[] } => {
+    if (items === null) {
+      throw new SessionServiceError("NOT_FOUND", "Resource not found");
+    }
+    return { items };
+  };
   return {
     async list(
       caller: Caller,
@@ -24,7 +30,7 @@ export function createSessionOutcomeService(deps: {
     ): Promise<ListSessionOutcomesResponse> {
       const sessionId = rawSessionId.toLowerCase();
       await read(caller, sessionId);
-      return { items: await deps.store.list(caller.ownerId, sessionId) };
+      return found(await deps.store.list(caller.ownerId, sessionId));
     },
 
     async refusals(
@@ -33,13 +39,13 @@ export function createSessionOutcomeService(deps: {
     ): Promise<ListSessionGitHubRefusalsResponse> {
       const sessionId = rawSessionId.toLowerCase();
       await read(caller, sessionId);
-      return {
-        items: await deps.store.refusals(
+      return found(
+        await deps.store.refusals(
           caller.ownerId,
           sessionId,
           SESSION_GITHUB_REFUSALS_LIMIT,
         ),
-      };
+      );
     },
   };
 }

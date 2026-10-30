@@ -91,6 +91,8 @@ function harness(
     gateRefusal?: GitHubRefusal;
     attribution?: SessionAttributionRecord | null;
     failUpdate?: boolean;
+    /** Someone opened #9 for the head between the find and the create. */
+    raced?: boolean;
   } = {},
 ) {
   const attribution =
@@ -180,6 +182,18 @@ function harness(
     createPullRequest: async (input) => {
       calls.push(`create ${input.head}`);
       fail();
+      if (options.raced) {
+        return {
+          number: 9,
+          url: "https://github.com/acme/app/pull/9",
+          state: "open",
+          head: input.head,
+          base: input.base,
+          mergedAt: null,
+          closedAt: null,
+          created: false,
+        };
+      }
       created.push(input);
       bodies.set(7, input.body);
       open = {
@@ -384,6 +398,45 @@ describe("opening a pull request", () => {
       pull_request: { number: 3 },
     });
     expect(calls).toEqual([`find ${HEAD}`, "update 3"]);
+  });
+
+  test("a pull request the forge did not create is saved as not created on both paths: found open, and GitHub's 422", async () => {
+    const savedAs = (receipts: PullRequestReceipt[]) =>
+      receipts
+        .filter((receipt) => receipt.operation === "open_pull_request")
+        .map((receipt) => (receipt as unknown as { created: boolean }).created);
+
+    const found = harness();
+    found.setOpen({
+      number: 3,
+      url: "https://github.com/acme/app/pull/3",
+      state: "open",
+      head: HEAD,
+      base: "develop",
+    });
+    await found.service.open(actor, SESSION, PUSH, {
+      readBody: async () => ({}),
+    });
+    expect(savedAs(found.receipts)).toEqual([false]);
+
+    const raced = harness({ raced: true });
+    const opened = await raced.service.open(actor, SESSION, PUSH, {
+      readBody: async () => ({}),
+    });
+    expect(opened).toMatchObject({
+      created: false,
+      pull_request: { number: 9 },
+    });
+    expect(savedAs(raced.receipts)).toEqual([false]);
+    // The one GitHub answered is someone's open pull request: its tail is
+    // replaced as for one found open.
+    expect(raced.calls).toEqual([`find ${HEAD}`, `create ${HEAD}`, "update 9"]);
+
+    const fresh = harness();
+    await fresh.service.open(actor, SESSION, PUSH, {
+      readBody: async () => ({}),
+    });
+    expect(savedAs(fresh.receipts)).toEqual([true]);
   });
 
   test("a reused pull request gets its tail replaced, the text above it kept", async () => {

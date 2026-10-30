@@ -14,7 +14,7 @@ import type { ClaimedOutcome, SessionOutcomeStore } from "@werft-ai/platform";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { insertPullRequestOutcome } from "./pull-requests.ts";
 import type { Database } from "./queries.ts";
-import { outcomeRefreshQuotas, sessionOutcomes } from "./schema.ts";
+import { outcomeRefreshQuotas, sessionOutcomes, sessions } from "./schema.ts";
 
 // A unit's hourly budget is this share of its rate limit (§10).
 const BUDGET_SHARE = 0.2;
@@ -90,6 +90,15 @@ const GATE_OPERATIONS = [
 export function createPostgresSessionOutcomes(
   db: Database,
 ): SessionOutcomeStore {
+  async function owned(ownerId: string, sessionId: string): Promise<boolean> {
+    const [row] = await db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(and(eq(sessions.id, sessionId), eq(sessions.ownerId, ownerId)))
+      .limit(1);
+    return row !== undefined;
+  }
+
   return {
     async fillMissing(limit) {
       // pull_requests rows a push request opened with no outcome yet.
@@ -290,21 +299,25 @@ export function createPostgresSessionOutcomes(
         });
     },
 
-    async list(ownerId, sessionId) {
+    async list(ownerId, rawSessionId) {
+      const sessionId = rawSessionId.toLowerCase();
+      if (!(await owned(ownerId, sessionId))) return null;
       const rows = await db
         .select()
         .from(sessionOutcomes)
         .where(
           and(
             eq(sessionOutcomes.ownerId, ownerId),
-            eq(sessionOutcomes.sessionId, sessionId.toLowerCase()),
+            eq(sessionOutcomes.sessionId, sessionId),
           ),
         )
         .orderBy(asc(sessionOutcomes.createdAt), asc(sessionOutcomes.id));
       return rows.map(publicOutcome);
     },
 
-    async refusals(ownerId, sessionId, limit) {
+    async refusals(ownerId, rawSessionId, limit) {
+      const sessionId = rawSessionId.toLowerCase();
+      if (!(await owned(ownerId, sessionId))) return null;
       const operations = sql.join(
         GATE_OPERATIONS.map((operation) => sql`${operation}`),
         sql`, `,
@@ -314,7 +327,7 @@ export function createPostgresSessionOutcomes(
                result ->> 'reason_code' AS reason_code, created_at
         FROM receipts
         WHERE owner_id = ${ownerId}
-          AND target_ref ->> 'session_id' = ${sessionId.toLowerCase()}
+          AND target_ref ->> 'session_id' = ${sessionId}
           AND operation IN (${operations})
           AND status = 'failed'
           AND result ->> 'reason_code' IS NOT NULL

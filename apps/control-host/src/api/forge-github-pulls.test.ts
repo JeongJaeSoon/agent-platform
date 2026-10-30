@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import { sanitizeFields } from "@werft-ai/observability";
-import { ForgeCredentialError } from "@werft-ai/platform";
+import { ForgeCredentialError, GitHubCallError } from "@werft-ai/platform";
+import { fakeGitHubClientSecret } from "@werft-ai/platform/testing/github";
 import { type FakeGitHub, startFakeGitHub } from "@werft-ai/testkit";
 import { createGitHubConnection, RATE_LIMIT_RETRIES } from "./forge-github.ts";
 
@@ -71,6 +72,9 @@ describe("GitHub pull requests", () => {
       base: "main",
     });
     expect(opened.url).toBe(`${github.origin}/acme/app/pull/1`);
+    const { created, ...pull } = opened;
+    expect(created).toBe(true);
+    expect(pull).toMatchObject({ mergedAt: null, closedAt: null });
     expect(github.tokenRequests.slice(tokensBefore)).toEqual([
       expect.objectContaining({
         status: 201,
@@ -89,8 +93,10 @@ describe("GitHub pull requests", () => {
       }),
     ]);
 
-    expect(await forge.findPullRequestForBranch(head)).toEqual(opened);
+    expect(await forge.findPullRequestForBranch(head)).toEqual(pull);
     expect(await forge.findPullRequestForBranch("agent/none")).toBeNull();
+    // GitHub answers 422 for the open head; the one it names is answered,
+    // as not created by this call.
     expect(
       await forge.createPullRequest({
         head,
@@ -98,7 +104,7 @@ describe("GitHub pull requests", () => {
         title: "again",
         body: "",
       }),
-    ).toEqual(opened);
+    ).toEqual({ ...pull, created: false });
     expect(github.pullRequests("acme", "app")).toHaveLength(1);
     expect(github.tokenRequests.length - tokensBefore).toBe(1);
 
@@ -152,6 +158,8 @@ describe("GitHub pull requests", () => {
       title: "closed later",
       body: "",
       state: "closed",
+      merged_at: null,
+      closed_at: "2026-10-01T00:00:00Z",
       author_app_id: 1,
       html_url: `${github.origin}/acme/app/pull/99`,
     });
@@ -373,5 +381,170 @@ describe("GitHub pull requests", () => {
     });
     github.rateLimitNext(0, "secondary");
     expect(JSON.stringify(warnings)).not.toMatch(/ghs_|token [a-z0-9]/i);
+  });
+});
+
+describe("reading a pull request for the outcome refresher", () => {
+  const callError = (promise: Promise<unknown>) =>
+    promise.then(
+      () => null,
+      (error: unknown) => error,
+    );
+
+  test("open → merged, open → closed → open, each with the rate limit the answer named", async () => {
+    const { forge } = await appForge();
+    const reset = Math.ceil(Date.now() / 1000) + 600;
+    github.setRateLimit({ limit: 5000, remaining: 4321, reset });
+    try {
+      const open = await forge.getPullRequest(1);
+      expect(open).toEqual({
+        pullRequest: expect.objectContaining({
+          number: 1,
+          state: "open",
+          mergedAt: null,
+          closedAt: null,
+          mergeCommitSha: null,
+          additions: 3,
+          deletions: 1,
+          changedFiles: 1,
+          commits: 1,
+        }),
+        rateLimit: {
+          limit: 5000,
+          remaining: 4321,
+          reset: new Date(reset * 1000),
+          retryAfterSeconds: null,
+        },
+      });
+
+      github.setPullRequestState("acme", "app", 1, "closed");
+      const closed = (await forge.getPullRequest(1)).pullRequest;
+      expect(closed).toMatchObject({ state: "closed", mergedAt: null });
+      expect(closed.closedAt).not.toBeNull();
+
+      github.setPullRequestState("acme", "app", 1, "open");
+      expect((await forge.getPullRequest(1)).pullRequest).toMatchObject({
+        state: "open",
+        closedAt: null,
+      });
+
+      github.setPullRequestState("acme", "app", 1, "merged");
+      const merged = (await forge.getPullRequest(1)).pullRequest;
+      expect(merged).toMatchObject({
+        state: "closed",
+        mergeCommitSha: "c".repeat(40),
+      });
+      expect(merged.mergedAt).not.toBeNull();
+    } finally {
+      github.setRateLimit(undefined);
+      github.setPullRequestState("acme", "app", 1, "open");
+    }
+  });
+
+  test("a 500 is sent once and not retried; a 404 names its status", async () => {
+    const { forge, warnings } = await appForge();
+    await forge.getPullRequest(1);
+    const before = github.apiRequests.length;
+    github.failNext(1, 500);
+    const failed = await callError(forge.getPullRequest(1));
+    expect(failed).toBeInstanceOf(GitHubCallError);
+    expect(failed).toMatchObject({ status: 500 });
+    expect(github.apiRequests.length - before).toBe(1);
+
+    expect(await callError(forge.getPullRequest(404))).toMatchObject({
+      status: 404,
+    });
+    expect(warnings.at(-1)).toEqual({
+      message: "GitHub request failed",
+      request: "pull request read",
+      status: 404,
+      error: "HttpError",
+    });
+  });
+
+  test("a rate limit is not waited out: the one answer fails carrying the reset", async () => {
+    const { forge } = await appForge();
+    await forge.getPullRequest(1);
+    const before = github.apiRequests.length;
+    github.rateLimitNext(1, "primary", 60);
+    const limited = await callError(forge.getPullRequest(1));
+    expect(github.apiRequests.length - before).toBe(1);
+    expect(limited).toBeInstanceOf(GitHubCallError);
+    expect(limited).toMatchObject({
+      status: 429,
+      rateLimit: { limit: 5000, remaining: 0 },
+    });
+    expect((limited as GitHubCallError).rateLimit?.reset).toBeInstanceOf(Date);
+
+    github.rateLimitNext(1, "secondary", 30);
+    expect(await callError(forge.getPullRequest(1))).toMatchObject({
+      status: 403,
+      rateLimit: { retryAfterSeconds: 30 },
+    });
+  });
+});
+
+describe("the rate-limit unit of a connection", () => {
+  const patConnection = (pat: string, now?: () => Date) =>
+    createGitHubConnection({
+      apiBase: github.origin,
+      credentials: { kind: "token", username: "x", password: pat },
+      ...(now === undefined ? {} : { now }),
+      retryAfterBaseMs: 1,
+      paced: false,
+    });
+  const userCalls = () =>
+    github.apiRequests.filter((request) => request.path === "/user").length;
+
+  test("an App's unit is its installation", async () => {
+    const { connection } = await appForge();
+    expect(await connection.quotaKey(repo)).toBe(`app:${github.origin}:202`);
+  });
+
+  test("two PATs of one user share a unit; another user's PAT has its own, and each user is asked once", async () => {
+    const [first, second, other] = [
+      fakeGitHubClientSecret(),
+      fakeGitHubClientSecret(),
+      fakeGitHubClientSecret(),
+    ];
+    github.addUser(first, 42);
+    github.addUser(second, 42);
+    github.addUser(other, 43);
+    const before = userCalls();
+    const key = await patConnection(first).quotaKey(repo);
+    expect(key).toBe(`pat:${github.origin}:42`);
+    expect(await patConnection(second).quotaKey(repo)).toBe(key);
+    // The repository's PAT switched to another user's: a new unit.
+    expect(await patConnection(other).quotaKey(repo)).toBe(
+      `pat:${github.origin}:43`,
+    );
+    // A second connection for a PAT already told asks nothing.
+    expect(await patConnection(first).quotaKey(repo)).toBe(key);
+    expect(userCalls() - before).toBe(3);
+  });
+
+  test("after GET /user fails, that PAT is not asked again for an hour", async () => {
+    const pat = fakeGitHubClientSecret();
+    github.addUser(pat, 44);
+    let offset = 0;
+    const connection = patConnection(pat, () => new Date(Date.now() + offset));
+    const before = userCalls();
+    github.failUser(true);
+    try {
+      await expect(connection.quotaKey(repo)).rejects.toBeInstanceOf(
+        ForgeCredentialError,
+      );
+      github.failUser(false);
+      offset = 59 * 60_000;
+      await expect(connection.quotaKey(repo)).rejects.toBeInstanceOf(
+        ForgeCredentialError,
+      );
+      expect(userCalls() - before).toBe(1);
+      offset = 61 * 60_000;
+      expect(await connection.quotaKey(repo)).toBe(`pat:${github.origin}:44`);
+      expect(userCalls() - before).toBe(2);
+    } finally {
+      github.failUser(false);
+    }
   });
 });

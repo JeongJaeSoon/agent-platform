@@ -50,6 +50,8 @@ export type FakeGitHubPullRequest = {
   title: string;
   body: string;
   state: "open" | "closed";
+  merged_at: string | null;
+  closed_at: string | null;
   /** The App whose installation token opened it. */
   author_app_id: number;
   html_url: string;
@@ -142,6 +144,26 @@ export type FakeGitHub = {
     retryAfterSeconds?: number,
   ): void;
   pullRequests(owner: string, name: string): FakeGitHubPullRequest[];
+  /** Merges, closes or reopens a pull request as a person on GitHub would. */
+  setPullRequestState(
+    owner: string,
+    name: string,
+    number: number,
+    state: "open" | "closed" | "merged",
+  ): void;
+  /**
+   * What every REST answer says in `x-ratelimit-*` from now on; unset
+   * sends none. `reset` is in epoch seconds.
+   */
+  setRateLimit(
+    headers: { limit: number; remaining: number; reset: number } | undefined,
+  ): void;
+  /** The next `count` REST calls (not token issues) answer `status`. */
+  failNext(count: number, status: number): void;
+  /** `GET /user` with this PAT (`token <pat>`) names this user id. */
+  addUser(pat: string, id: number): void;
+  /** While on, `GET /user` answers 500. */
+  failUser(on: boolean): void;
   comments(owner: string, name: string, number: number): FakeGitHubComment[];
   reviews(owner: string, name: string, pullNumber: number): FakeGitHubReview[];
   /** A comment by a person, not the App, on a pull request. */
@@ -401,6 +423,10 @@ export async function startFakeGitHub(
     limit: "primary" | "secondary";
     retryAfter: number;
   } = { count: 0, limit: "secondary", retryAfter: 1 };
+  let rateHeaders: Record<string, string> = {};
+  let failures = { count: 0, status: 500 };
+  const users = new Map<string, number>();
+  let failingUser = false;
   let nextCommentId = 5000;
   let nextReviewId = 8000;
   function commentOn(
@@ -475,6 +501,13 @@ export async function startFakeGitHub(
     }
     const limit = rateLimited();
     if (limit) return limit;
+    if (failures.count > 0) {
+      failures.count -= 1;
+      return Response.json(
+        { message: "Server Error" },
+        { status: failures.status },
+      );
+    }
     const can = (permission: string, level: "read" | "write") =>
       grant.permissions[permission] === "write" ||
       (level === "read" && grant.permissions[permission] === "read");
@@ -498,6 +531,13 @@ export async function startFakeGitHub(
       body: pull.body,
       head: { ref: pull.head, label: `${owner}:${pull.head}` },
       base: { ref: pull.base },
+      merged_at: pull.merged_at,
+      closed_at: pull.closed_at,
+      merge_commit_sha: pull.merged_at === null ? null : "c".repeat(40),
+      additions: 3,
+      deletions: 1,
+      changed_files: 1,
+      commits: 1,
     });
     if (rest === "/pulls" && method === "GET") {
       if (!can("pull_requests", "read")) return forbidden();
@@ -569,6 +609,8 @@ export async function startFakeGitHub(
         title: String(input.title ?? ""),
         body: String(input.body ?? ""),
         state: "open",
+        merged_at: null,
+        closed_at: null,
         author_app_id: grant.appId,
         html_url: `${htmlBase}/pull/${number}`,
       };
@@ -804,6 +846,25 @@ export async function startFakeGitHub(
       if (tokens?.[1] && request.method === "POST") {
         return await accessTokens(request, Number(tokens[1]));
       }
+      if (path === "/user" && request.method === "GET") {
+        const pat = /^token (.+)$/i.exec(
+          request.headers.get("authorization") ?? "",
+        )?.[1];
+        const id = pat === undefined ? undefined : users.get(pat);
+        const response = failingUser
+          ? Response.json({ message: "Server Error" }, { status: 500 })
+          : id === undefined
+            ? Response.json({ message: "Bad credentials" }, { status: 401 })
+            : Response.json({ id, login: `user-${id}` });
+        apiRequests.push({
+          at: now().toISOString(),
+          method: "GET",
+          path,
+          token: null,
+          status: response.status,
+        });
+        return response;
+      }
       if (/^\/repos\//.test(path)) {
         const carried = installationToken(
           request.headers.get("authorization"),
@@ -814,6 +875,11 @@ export async function startFakeGitHub(
             ? await request.json().catch(() => null)
             : undefined;
         const response = await rest(request.method, path, url, carried, body);
+        if (!response.headers.has("x-ratelimit-remaining")) {
+          for (const [header, value] of Object.entries(rateHeaders)) {
+            response.headers.set(header, value);
+          }
+        }
         apiRequests.push({
           at: now().toISOString(),
           method: request.method,
@@ -912,6 +978,35 @@ export async function startFakeGitHub(
     },
     pullRequests(owner, name) {
       return served.get(`${owner}/${name}`)?.pulls ?? [];
+    },
+    setPullRequestState(owner, name, number, state) {
+      const pull = served
+        .get(`${owner}/${name}`)
+        ?.pulls.find((entry) => entry.number === number);
+      if (pull === undefined) throw new Error(`no pull request ${number}`);
+      const at = now().toISOString();
+      pull.state = state === "open" ? "open" : "closed";
+      pull.merged_at = state === "merged" ? at : null;
+      pull.closed_at = state === "open" ? null : at;
+    },
+    setRateLimit(headers) {
+      rateHeaders =
+        headers === undefined
+          ? {}
+          : {
+              "x-ratelimit-limit": String(headers.limit),
+              "x-ratelimit-remaining": String(headers.remaining),
+              "x-ratelimit-reset": String(headers.reset),
+            };
+    },
+    failNext(count, status) {
+      failures = { count, status };
+    },
+    addUser(pat, id) {
+      users.set(pat, id);
+    },
+    failUser(on) {
+      failingUser = on;
     },
     comments(owner, name, number) {
       return served.get(`${owner}/${name}`)?.comments.get(number) ?? [];
