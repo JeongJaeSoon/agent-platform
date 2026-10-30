@@ -26,7 +26,7 @@
 - **세션 이벤트** — `events` 표(`schema.ts:1303`)
   - 담는 것: `system`·`assistant`·`tool_use`·`tool_result`·`question`·`result`·`status`·`error` 이벤트. `payload`(`schema.ts:1310`)에 assistant 텍스트, 도구 입력, 도구 결과 본문이 그대로 들어간다. 이 표가 기능의 정본이다([observability.md](observability.md)).
   - 만드는 시점: worker가 `/append-events`로 보낼 때(`worker-unit-of-work.ts:2364`). 제어 단계의 상태 이벤트는 `packages/db/src/session-events.ts`의 `recordEvent`.
-  - 보존 기간: 무기한. 이벤트 표 trim은 94S-728의 D8에서 "무기한(지금), 별도 결정"으로 남겼다. 그래서 SSE의 410 `CURSOR_EXPIRED`는 지금 생기지 않는다([api-guide.md](../api-guide.md)).
+  - 보존 기간: 무기한. 이벤트 표 trim은 세션 관측(OTel) 방향 결정의 D8에서 "무기한(지금), 별도 결정"으로 남겼다. 그래서 SSE의 410 `CURSOR_EXPIRED`는 지금 생기지 않는다([api-guide.md](../api-guide.md)).
   - 삭제 조건: 없음.
 - **도구 호출 기록** — `tool_calls`(`schema.ts:1342`), 일별 합계 `tool_call_days`, 도구 설명 `tool_descriptions`
   - 담는 것: 도구 이름, 시각, 결과(`ok`·`failed`·`unknown`), 걸린 시간, 이벤트 id. 입력·출력 본문은 없다. 본문은 이벤트에 있다.
@@ -101,7 +101,7 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
   - 바꾸기: 워크스페이스 owner가 `POST /v1/workspaces/{id}/audit-retention`으로 30~3650일 안에서 바꾼다([api-server.md](api-server.md#판정-감사와-보존-기간)). 지우는 속도는 Helm `reconciler.intervalSec`·`batchSize`(`values.yaml:202`, `206`).
 - **로그인 세션** — `web_sessions`(`schema.ts:323`)
   - 보존 기간: 14일(`WEB_SESSION_TTL_MS`, `apps/control-host/src/api/auth.ts:50`), 사용자마다 최대 10개(`auth.ts:55`).
-  - 삭제 조건: 그 사용자가 다시 로그인할 때 만료·폐기된 행을 지운다(`packages/db/src/identity.ts:571-581`). 다시 로그인하지 않는 사용자의 행은 남는다.
+  - 삭제 조건: 그 사용자가 다시 로그인할 때 만료·폐기된 행과, 최근 10개를 넘는 행을 지운다(`packages/db/src/identity.ts:571-581`, `603-614`). 다시 로그인하지 않는 사용자의 행은 남는다.
   - 바꾸기: 없음(코드 상수). 아래 Slack 설치 state도 같다.
 - **Slack 설치 state** — `slack_install_states`
   - 보존 기간: 600초(`packages/contracts/src/musterrolle/slack-install.ts:41`). 새 설치 링크를 만들 때 만료된 행을, 쓰면 그 행을 지운다(`packages/db/src/slack-install-states.ts:21-41`).
@@ -124,7 +124,8 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
   - 만드는 시점: `provider_usage` insert trigger가 더한다(`packages/db/migrations/0127_session_provider_tokens.sql`, `0169_usage_breakdown_rollup.sql`).
   - 보존 기간: 무기한.
 - **세션 성과물** — `session_outcomes`, `outcome_refresh_quotas`
-  - GA-4b 설계가 정한 새 표다. PR 열기와 같은 트랜잭션에서 성과물 행을 만들고, 그 세션의 토큰·비용과 이어 ROI를 센다. `origin/main` `fc1e7f26`에는 아직 없다(구현 PR GA-4b가 넣는다). 보존 기간은 설계에도 없다.
+  - GA-4b 설계가 정한 새 표다. PR 열기와 같은 트랜잭션에서 성과물 행을 만들고, 그 세션의 토큰·비용과 이어 ROI를 센다. `origin/main` `fc1e7f26`에는 아직 없다(구현 PR GA-4b가 넣는다).
+  - 보존 기간: **정해지지 않음.** 설계에도 없다.
   - 지금 PR 기록은 `pull_requests` 행뿐이다. 상태(열림·머지·닫힘)는 남지 않는다.
 
 ## 내용이 남는 곳과 마스킹
@@ -141,19 +142,20 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
   - 접근: worker는 자기 세션 prefix에만 쓰고 읽는다. object store 자격 증명은 API에만 있다([api-server.md](api-server.md)).
 - **로그** — 내용을 싣지 않는다
   - `sanitizeFields`가 `message`·`body`·`content`·`prompt`·`input`·`output`·`transcript` 같은 이름의 필드를 빼고, 민감한 키의 값과 비밀 모양의 문자열을 `[REDACTED]`로 바꾼다(`packages/observability/src/redaction.ts:12-31`, `54-66`).
+  - worker는 예외다. 본문 필드를 빼지 않고 비밀값만 가린다(`apps/worker/src/console-logger.ts:40`). worker는 본문을 로그에 싣지 않는다는 전제이고, 빼는 규칙이 `input_id` 같은 필드까지 지우기 때문이다.
 
 ## 트레이스와 플랫폼 정본의 경계
 
-94S-728의 결론을 따른다.
+세션 관측(OTel) 방향 결정(2026-10-21)의 결론을 따른다.
 
 - **D1 = C(혼합).** 기능이 기대는 이벤트는 DB `events` 표에 남기고, 이것이 세션 화면·SSE 재연결·turn 종료 판정·질문 알림·복구 판정의 정본이다. 트레이스는 운영자가 고른 OTLP 수집기로 내보내는 관측 신호이고 best effort다. 트레이스가 빠져도 플랫폼의 기록은 그대로다.
 - **D11 = OTLP 내보내기까지.** 플랫폼은 span을 만들어 표준 OTLP로 내보내는 데까지 맡는다. 수집기 선택, 수집기 안의 보존 기간, 대시보드는 운영자 몫이다. 그래서 트레이스의 보존 기간은 이 문서가 다루지 않는다.
 - **D8.** 이벤트 표 trim은 지금 무기한이고, 정책은 따로 정한다.
-- **지금 상태.** 앱에는 OTel 의존성도 trace exporter도 없다. 로그의 `trace_id`는 필드만 있고 채우지 않는다(`packages/observability/src/index.ts:21`). 엔진의 telemetry도 켜지 않는다. 내보내기는 94S-728의 1단계 티켓이 넣는다. 내보낼 곳(OTLP 엔드포인트·헤더)은 설치처가 설정에서 정한다. 들어가면 트레이스에도 내용(프롬프트·답변·도구 입출력)이 기본으로 실리므로(D2), 그때 이 절과 [마스킹 절](#내용이-남는-곳과-마스킹)에 트레이스 쪽 마스킹을 더한다.
+- **지금 상태.** 앱에는 OTel 의존성도 trace exporter도 없다. 로그의 `trace_id`는 필드만 있고 채우지 않는다(`packages/observability/src/index.ts:21`). 엔진의 telemetry도 켜지 않는다. 내보내기는 그 결정의 1단계 구현이 넣는다. 내보낼 곳(OTLP 엔드포인트·헤더)은 설치처가 설정에서 정한다. 들어가면 트레이스에도 내용(프롬프트·답변·도구 입출력)이 기본으로 실리므로(D2), 그때 이 절과 [마스킹 절](#내용이-남는-곳과-마스킹)에 트레이스 쪽 마스킹을 더한다.
 
 ## 세션 하나 따라가기
 
-세션 하나를 만들고 끝낼 때까지, 무엇이 어디에 남는지 순서대로 읽는다. API는 `sessions:read`·`sessions:write`·`sessions:control` scope를 가진 개인 key 또는 에이전트 key로 부른다. `$API`는 API 주소, `$KEY`는 key다. DB는 읽기만 한다. 로컬 compose 스택이면 `docker compose exec -T postgres psql -U postgres -d sessions`로 붙는다.
+세션 하나를 만들고 끝낼 때까지, 무엇이 어디에 남는지 순서대로 읽는다. API는 `sessions:read`·`sessions:write`·`sessions:control` scope를 가진 개인 key 또는 에이전트 key로 부른다. 아래 1의 본문은 개인 key의 것이고, 에이전트 key는 `profile_id`·`repository_id` 대신 `agent_release_id`를 보낸다([api-guide.md](../api-guide.md)). `$API`는 API 주소, `$KEY`는 key다. DB는 읽기만 한다. 로컬 compose 스택이면 `docker compose exec -T postgres psql -U postgres -d sessions`로 붙는다.
 
 1. **세션을 만든다.** `POST /v1/sessions`에 `Idempotency-Key`를 붙여 보낸다. 응답의 `session_id`, `turn_id`, `receipt_id`를 적어 둔다.
 
@@ -163,7 +165,7 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
      -d '{"profile_id":"<profile>","repository_id":"<repository>","message":"<prompt>"}'
    ```
 
-2. **turn이 끝날 때까지 읽는다.** `GET /v1/sessions/{id}/turns/{turn_id}`의 `status`가 `completed`(또는 `failed`·`interrupted`)가 될 때까지 몇 초 간격으로 읽는다. 끝난 turn의 `result`가 `turns.result_json`이다.
+2. **turn이 끝날 때까지 읽는다.** `GET /v1/sessions/{id}/turns/{turn_id}`의 `status`가 끝 상태(`completed`·`failed`·`interrupted`·`cancelled`·`outcome_unknown`, `packages/contracts/src/api/session.ts:52-58`)가 될 때까지 몇 초 간격으로 읽는다. 끝난 turn의 `result`가 `turns.result_json`이다.
 3. **세션 상태를 읽는다.** `GET /v1/sessions/{id}`의 `status`, `admission_state`, `revision`을 본다.
 4. **이벤트를 읽는다.** `GET /v1/sessions/{id}/events`는 SSE다. 처음부터 받아 `event: result`가 나오면 끊는다. `Last-Event-ID`로 이어 받는 법은 [api-guide.md § 5](../api-guide.md#5-sse로-진행-보기와-last-event-id-재연결).
 
@@ -171,19 +173,27 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
    curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY"
    ```
 
-5. **대기 요청을 읽는다.** `GET /v1/sessions/{id}/pending-requests`. 승인·질문이 있었다면 `answer`와 닫힌 방식이 남아 있다.
+5. **대기 요청을 읽는다.** `GET /v1/sessions/{id}/pending-requests`는 아직 답할 수 있는 열린 요청만 보인다. 승인·질문이 있었다면 답하는 동안 여기서 보고, 답한 뒤의 `answer`·`answered_by`·닫힌 방식은 10의 SQL로 읽는다.
 6. **사용량을 읽는다.** `GET /v1/sessions/{id}/usage`. 토큰과 추정 비용이 `provider_usage`에서 온다.
 7. **결과물을 읽는다.** `GET /v1/sessions/{id}/outputs`. 마지막 checkpoint의 manifest가 가리키는 `out/` 파일 목록이다.
-8. **세션을 닫는다.** 3에서 읽은 `revision`으로 `POST /v1/sessions/{id}/close`에 `{"expected_revision":<revision>,"reason":"<reason>"}`를 보낸다. `GET /v1/sessions/{id}`가 `admission_state: closed`가 될 때까지 읽는다. 닫힌 세션은 다시 열 수 없고, 새 메시지는 `409 SESSION_CLOSED`다.
+8. **세션을 닫는다.** 3에서 읽은 `revision`으로 `POST /v1/sessions/{id}/close`를 보낸다. `Idempotency-Key`가 필요하다.
+
+   ```sh
+   curl -sS -X POST "$API/v1/sessions/$SID/close" -H "Authorization: Bearer $KEY" \
+     -H "Idempotency-Key: $(uuidgen)" -H 'content-type: application/json' \
+     -d '{"expected_revision":<revision>,"reason":"<reason>"}'
+   ```
+
+   `GET /v1/sessions/{id}`가 `admission_state: closed`가 될 때까지 읽는다. 닫힌 세션은 다시 열 수 없고, 새 메시지는 `409 SESSION_CLOSED`다.
 9. **receipt를 읽는다.** 1의 `receipt_id`로 `GET /v1/receipts/{id}`.
 10. **DB에 남은 것을 센다.** 닫은 뒤에도 행이 그대로인지 본다. `<id>`는 세션 id다.
 
     ```sql
     SELECT status, admission_state, cost_usd, provider_tokens FROM sessions WHERE id = '<id>';
-    SELECT id, status, length(message) AS message_bytes FROM turns WHERE session_id = '<id>';
+    SELECT sequence AS turn_id, status, octet_length(message) AS message_bytes FROM turns WHERE session_id = '<id>';
     SELECT type, count(*) FROM events WHERE session_id = '<id>' GROUP BY type ORDER BY type;
     SELECT name, outcome FROM tool_calls WHERE session_id = '<id>';
-    SELECT count(*) FROM pending_requests WHERE session_id = '<id>';
+    SELECT kind, answer->>'decision' AS decision, answered_by->'principal'->>'kind' AS answered_by, settled_outcome, resolved_at IS NOT NULL AS resolved FROM pending_requests WHERE session_id = '<id>';
     SELECT model, input_tokens, output_tokens FROM provider_usage WHERE session_id = '<id>';
     SELECT revision, manifest_ref, collected_at FROM checkpoints WHERE session_id = '<id>';
     ```
@@ -194,7 +204,7 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
 
 다음은 지금 기본값이 없어 「정해지지 않음」 또는 「무기한」으로 남은 항목이다. 정책을 정하는 일은 이 문서의 범위 밖이다.
 
-- 이벤트 표(`events`)의 보존 기간과 trim 방식(94S-728 D8).
+- 이벤트 표(`events`)의 보존 기간과 trim 방식(세션 관측 방향 결정의 D8).
 - 세션과 그에 딸린 행(`sessions`, `turns`, `tool_calls`, `pending_requests`, `provider_usage`, `receipts` 등)의 보존 기간과, 세션 삭제 API를 둘지.
 - 입력 원문(`turns.message`)과 transcript object의 마스킹 여부. 지금은 둘 다 가리지 않는다.
 - 닫힌 세션의 마지막 checkpoint와 transcript object의 보존 기간. 지금 GC는 pointer와 부모 3개를 늘 남기므로 닫힌 세션의 object도 무기한 남는다.
