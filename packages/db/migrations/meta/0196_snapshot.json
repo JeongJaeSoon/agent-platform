@@ -1,5 +1,5 @@
 {
-  "id": "87ea271d-929f-4014-9ea2-5146b687991b",
+  "id": "c8a5e843-6e62-4597-bdb6-77e6287934af",
   "prevId": "103eb6b5-83ea-418f-9404-a837c50b3344",
   "version": "7",
   "dialect": "postgresql",
@@ -1299,6 +1299,30 @@
           "primaryKey": false,
           "notNull": false
         },
+        "runtime_engine": {
+          "name": "runtime_engine",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "runtime_sdk_version": {
+          "name": "runtime_sdk_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "runtime_cli_version": {
+          "name": "runtime_cli_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "runtime_profile_sha256": {
+          "name": "runtime_profile_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "attempt_id": {
           "name": "attempt_id",
           "type": "text",
@@ -1916,6 +1940,30 @@
         },
         "model": {
           "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "runtime_engine": {
+          "name": "runtime_engine",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "runtime_sdk_version": {
+          "name": "runtime_sdk_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "runtime_cli_version": {
+          "name": "runtime_cli_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "runtime_profile_sha256": {
+          "name": "runtime_profile_sha256",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -2586,12 +2634,6 @@
         "permissions_checked_at": {
           "name": "permissions_checked_at",
           "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "client_id": {
-          "name": "client_id",
-          "type": "text",
           "primaryKey": false,
           "notNull": false
         },

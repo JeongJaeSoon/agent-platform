@@ -77,6 +77,11 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import {
+  type RuntimeFingerprint,
+  runtimeColumns,
+  runtimeOfColumns,
+} from "./checkpoint-runtime.ts";
 import { finishClose } from "./close-control.ts";
 import { contextCoverage, contextGap, raiseContextGap } from "./context-gap.ts";
 import {
@@ -467,6 +472,7 @@ export async function advanceCheckpointPointer(
     now: Date;
     versionsHeld: boolean;
     transcriptBytes?: number;
+    runtime?: RuntimeFingerprint;
     // Absent when the verifier did not read the manifest's outputs; the row
     // then stays outputs_recorded = false and usage reports itself partial.
     outputs?: readonly { key: string; bytes: number }[];
@@ -499,6 +505,7 @@ export async function advanceCheckpointPointer(
     profileFingerprint: sql`(SELECT ${attempts.profileFingerprint} FROM ${attempts} WHERE ${attempts.id} = ${input.fence.attemptId})`,
     model: sql`(SELECT ${attempts.model} FROM ${attempts} WHERE ${attempts.id} = ${input.fence.attemptId})`,
     transcriptBytes: input.transcriptBytes ?? null,
+    ...runtimeColumns(input.runtime),
     outputsRecorded: input.outputs !== undefined,
   });
   // A manifest may name up to DEFAULT_MAX_MANIFEST_OBJECTS objects; one
@@ -678,6 +685,7 @@ async function parkOnApprovalCheckpoint(
     executionGeneration: attempt.executionGeneration,
     authRevision: attempt.authRevision,
   };
+  const promotedRuntime = runtimeOfColumns(checkpoint);
   const advanced = await advanceCheckpointPointer(tx, {
     fence,
     session,
@@ -695,6 +703,7 @@ async function parkOnApprovalCheckpoint(
     ...(checkpoint.transcriptBytes === null
       ? {}
       : { transcriptBytes: checkpoint.transcriptBytes }),
+    ...(promotedRuntime === null ? {} : { runtime: promotedRuntime }),
   });
   if (advanced.outcome !== "committed") return false;
   await tx
@@ -2478,6 +2487,9 @@ export function createPostgresWorkerUnitOfWork(
             ...(input.checkpointOutputs === undefined
               ? {}
               : { outputs: input.checkpointOutputs }),
+            ...(input.checkpointRuntime === undefined
+              ? {}
+              : { runtime: input.checkpointRuntime }),
           });
           if (advanced.outcome === "not_next") {
             // An interrupt has no second capture to wait for: its checkpoint
