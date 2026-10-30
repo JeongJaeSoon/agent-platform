@@ -376,6 +376,20 @@ export const agentGitHubSchema = z.object({
 6. **저장**: 2~5는 "새 릴리스로 저장"이다. 저장하지 않은 변경이 있으면 위쪽에 "릴리스에 넣지 않은 변경 N건" 상자(새 릴리스로 저장 / 되돌리기)를 보인다. 저장하면 같은 카드 버전·같은 실행 프로필에 새 GitHub 설정으로 릴리스를 만들고, 지금의 활성화 단계로 이어진다.
 7. **최근 기록**: `…/github/activity`의 receipt 몇 줄과 운영 기록 링크.
 
+### GA-3에서 정한 것
+
+구현하면서 위 설명과 달라지거나 위에서 정하지 않은 것을 여기 둔다. 위 문단과 이 목록이 다르면 이 목록이 맞다.
+
+- **누가 읽나.** 세 경로 모두 `agent.manage`가 있어야 한다. 에이전트 상세(`GET /v1/agents/{id}`)를 읽는 조건과 같다. 스위치는 cookie 세션의 사람만 바꾼다. API 키는 `403` `reason_code: web_session_required`다.
+- **`GET …/github` 응답.** 6절의 칸에 `active_release_id`, `release_repository_id`(활성 릴리스의 저장소), `unsavable`을 더했다. `unsavable`은 탭이 저장을 막는 이유이고 `no_active_release` → `repository_none` → `app_required` 순서로 하나만 준다. 이유는 저장소와 기능에 따로 둔다. 저장소는 `repository_not_allowed`(활성 릴리스의 실행 프로필이 허용하지 않음)와 `app_required`(PAT 저장소), 기능은 `github_host_unsupported` → `over_workspace_ceiling` → `no_reviewer_app` → `app_permission_missing` 순서다. App 권한은 마지막으로 읽어 둔 값으로 판정하고, 아직 읽지 않았으면(`null`) 판정하지 않는다. 실제 허용은 발급 때마다 게이트가 다시 정한다.
+- **저장소 줄.** 체크박스 대신 스위치다. 활성 릴리스의 저장소는 켜진 채 잠근다. 후보는 카탈로그에서 GitHub에 있는 저장소 전부(App 저장소와 github.com의 PAT 저장소)이고, 고를 수 없는 것은 이유와 함께 잠근다. 이미 켠 줄은 이유가 생겨도 끌 수 있다. "App 미설치" 배지는 저장소별 설치 상태가 필요해서 GA-5로 미룬다.
+- **기능 줄.** 순서는 시안을 따라 리뷰 승인, Actions 실행, 검사 결과 쓰기, 이슈 쓰기, 워크플로 파일 수정이다. GitHub Enterprise 이유에는 설정 링크를 달지 않는다. 워크스페이스에서 고칠 수 없어서다. workflows와 Actions를 같이 켜면 허용 목록의 파일을 에이전트가 자기 브랜치에서 고칠 수 있다는 경고를 보인다.
+- **허용 목록 입력.** 화면은 `agent/` 브랜치를 가리킬 수 있는 ref 패턴(첫 `/` 앞이 `agent`에 맞는 것: `agent/*`, `ag*/x`, `*/x`)과 중복, 33번째 항목을 받지 않는다. 서버는 릴리스 때 이것을 막지 않고 실행 때 게이트가 `agent_ref_refused`로 막는다. 시안의 `agent/*` 예시는 쓰지 않는다(`main`, `release/*`).
+- **저장.** 화면이 `POST …/releases`에 활성 릴리스의 `version_id`·`runtime_profile_id`·`repository_id`와 새 `github`를 보내고, 이어서 페이지가 읽은 `activation_revision`으로 `POST …/activate`를 부른다. 그 사이 다른 사람이 활성화했으면(`REVISION_CONFLICT`) 만든 릴리스를 활성화하지 않고 알린다. 변경은 그대로 남는다.
+- **기록에 들어가는 receipt.** `create_agent_release`와 `activate_agent`의 result에 `github`(그 릴리스의 `policy_pins.github` 또는 `null`)와 `github_changed`(바로 앞 활성 릴리스와 다른가)를 쓴다. 기록은 `github_changed: true`인 것만 보인다. 이 칸이 없는 예전 receipt는 보이지 않는다. 세션의 receipt(`mint_github_token`, `review_pull_request`, `dispatch_workflow`, `rerun_workflow`)는 `target_ref.session_id`의 세션이 이 에이전트의 릴리스로 돌았고 호출자가 볼 수 있는 것(`sessionVisibleTo`)만 준다. 이 거르기는 SQL에서 20개를 자르기 전에 한다. 그래서 에이전트 관리자도 공유받지 않은 비공개 세션의 거절은 보지 못한다.
+- **운영 기록 링크.** 넣지 않았다. 운영 화면에는 receipt를 에이전트로 거르는 곳이 없다.
+- **push 절.** 시안의 "push와 작성자"에서 공동 작성자 설명은 GA-4(연동 계정)로 미룬다. GA-3은 push 전 승인 스위치만 둔다.
+
 ### 설정 > 연동 계정
 
 `/settings/linked-accounts`의 서비스 목록에 GitHub 행을 더한다. 미연결이면 "GitHub 계정 연결" 버튼이 GitHub 동의 화면으로 간다. 연결되면 login과 "공동 작성자 이메일 `<id>+<login>@users.noreply.github.com`" 한 줄, "해제" 버튼을 보인다. 작성용 App이나 client secret이 없으면 버튼은 비활성이고 "owner·admin이 GitHub 연결 설정에서 사용자 연결을 켜야 합니다"를 보인다.
