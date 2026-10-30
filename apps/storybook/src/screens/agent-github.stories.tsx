@@ -136,7 +136,7 @@ function AgentGitHubTab({ enabled, on, locked, pending }: TabProps) {
           </div>
         )}
       </section>
-      <div className={`flex flex-col gap-8 ${enabled ? "" : "opacity-60"}`}>
+      <div className="flex flex-col gap-8">
         <section className={SECTION} aria-label="저장소">
           <div className="flex flex-wrap items-center gap-2">
             <Heading>저장소</Heading>

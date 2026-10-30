@@ -713,9 +713,7 @@ function GitHubSettings({
       </section>
 
       {settings ? (
-        <div
-          className={`flex flex-col gap-8 ${data.enabled ? "" : "opacity-60"}`}
-        >
+        <div className="flex flex-col gap-8">
           <section
             id={SECTION.repositories}
             tabIndex={-1}
