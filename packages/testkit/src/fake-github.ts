@@ -62,6 +62,22 @@ export type FakeGitHubComment = {
   performed_via_github_app: { id: number } | null;
 };
 
+/** A workflow run: dispatched through the API, or added as if by a push. */
+export type FakeGitHubWorkflowRun = {
+  id: number;
+  path: string;
+  head_branch: string;
+  event: string;
+  status: "queued" | "completed";
+  conclusion: "success" | "failure" | null;
+  html_url: string;
+  /** The dispatch's inputs, as received. */
+  inputs: Record<string, unknown> | null;
+  reruns: Array<{ failedOnly: boolean }>;
+};
+
+export type FakeGitHubPermissions = Record<string, "read" | "write">;
+
 export type FakeGitHub = {
   /** `http://<host>:<port>`: both the API base and the git origin. */
   readonly origin: string;
@@ -71,6 +87,20 @@ export type FakeGitHub = {
   readonly apiRequests: FakeGitHubApiRequest[];
   /** While on, the token endpoint answers 500. */
   failTokens(on: boolean): void;
+  /**
+   * What the installation grants (and `GET /app` reports). A token asking
+   * for more answers 422, as GitHub does. Unset grants whatever is asked.
+   */
+  setPermissions(permissions: FakeGitHubPermissions | undefined): void;
+  /** While on, a workflow dispatch answers 422 with its inputs echoed. */
+  failDispatches(on: boolean): void;
+  /** A run GitHub started without the API (a push); returns its id. */
+  addWorkflowRun(
+    owner: string,
+    name: string,
+    run: { path: string; head_branch: string; event?: string },
+  ): number;
+  workflowRuns(owner: string, name: string): FakeGitHubWorkflowRun[];
   /** A bare repository served at `/<owner>/<name>.git` with one commit. */
   createRepository(
     owner: string,
@@ -125,6 +155,15 @@ export type FakeGitHubOptions = {
   /** The one installation `GET /app/installations` and lookups report. */
   installationId?: number;
   slug?: string;
+  /** See `setPermissions`. */
+  permissions?: FakeGitHubPermissions;
+};
+
+const LEVEL = { read: 1, write: 2 } as const;
+const APP_PERMISSIONS_DEFAULT: FakeGitHubPermissions = {
+  contents: "write",
+  metadata: "read",
+  pull_requests: "write",
 };
 
 type Issued = {
@@ -142,6 +181,7 @@ type Served = {
   private: boolean;
   pulls: FakeGitHubPullRequest[];
   comments: Map<number, FakeGitHubComment[]>;
+  runs: FakeGitHubWorkflowRun[];
 };
 
 /**
@@ -169,6 +209,9 @@ export async function startFakeGitHub(
   const issued = new Map<string, Issued>();
   const served = new Map<string, Served>();
   let failing = false;
+  let failingDispatches = false;
+  let granted = options.permissions;
+  let nextRunId = 7_000_000_000;
 
   function verifiedJwt(authorization: string | null) {
     const jwt = /^Bearer (.+)$/i.exec(authorization ?? "")?.[1];
@@ -242,6 +285,26 @@ export async function startFakeGitHub(
       repositories?: string[];
       permissions?: Record<string, string>;
     } | null;
+    const ungranted = Object.entries(asked?.permissions ?? {}).some(
+      ([permission, level]) => {
+        if (granted === undefined) return false;
+        const held = granted[permission];
+        return (
+          held === undefined ||
+          (LEVEL[level as keyof typeof LEVEL] ?? 3) > LEVEL[held]
+        );
+      },
+    );
+    if (ungranted) {
+      record(422);
+      return Response.json(
+        {
+          message:
+            "The permissions requested are not granted to this installation.",
+        },
+        { status: 422 },
+      );
+    }
     const token = `ghs_${randomBytes(18).toString("base64url")}`;
     const expiresAt = new Date(now().getTime() + ttlMs);
     issued.set(token, {
@@ -496,6 +559,59 @@ export async function startFakeGitHub(
       comment.body = String(input.body ?? "");
       return Response.json(comment);
     }
+    const dispatch = /^\/actions\/workflows\/([^/]+)\/dispatches$/.exec(rest);
+    if (dispatch?.[1] && method === "POST") {
+      if (!can("actions", "write")) return forbidden();
+      const inputs = (input.inputs ?? null) as Record<string, unknown> | null;
+      if (failingDispatches) {
+        // GitHub names an unexpected input, value included, in its answer.
+        return Response.json(
+          {
+            message: `Unexpected inputs provided: ${JSON.stringify(inputs)}`,
+          },
+          { status: 422 },
+        );
+      }
+      const ref = String(input.ref ?? "").replace(/^refs\/heads\//, "");
+      nextRunId += 1;
+      const run: FakeGitHubWorkflowRun = {
+        id: nextRunId,
+        path: `.github/workflows/${decodeURIComponent(dispatch[1])}`,
+        head_branch: ref,
+        event: "workflow_dispatch",
+        status: "queued",
+        conclusion: null,
+        html_url: `${htmlBase}/actions/runs/${nextRunId}`,
+        inputs,
+        reruns: [],
+      };
+      found.runs.push(run);
+      return input.return_run_details === true
+        ? Response.json({
+            workflow_run_id: run.id,
+            run_url: `${origin()}/repos/${owner}/${name}/actions/runs/${run.id}`,
+            html_url: run.html_url,
+          })
+        : new Response(null, { status: 204 });
+    }
+    const runs = /^\/actions\/runs\/(\d+)(\/rerun|\/rerun-failed-jobs)?$/.exec(
+      rest,
+    );
+    if (runs?.[1]) {
+      const run = found.runs.find((entry) => entry.id === Number(runs[1]));
+      if (method === "GET" && runs[2] === undefined) {
+        if (!can("actions", "read")) return forbidden();
+        if (run === undefined) return notFound();
+        const { inputs: _inputs, reruns: _reruns, ...shown } = run;
+        return Response.json(shown);
+      }
+      if (method === "POST" && runs[2] !== undefined) {
+        if (!can("actions", "write")) return forbidden();
+        if (run === undefined) return notFound();
+        run.reruns.push({ failedOnly: runs[2] === "/rerun-failed-jobs" });
+        return Response.json({}, { status: 201 });
+      }
+    }
     return notFound();
   }
 
@@ -524,6 +640,7 @@ export async function startFakeGitHub(
         slug,
         name: `Fake ${slug}`,
         html_url: `${origin()}/apps/${slug}`,
+        permissions: granted ?? APP_PERMISSIONS_DEFAULT,
       });
     }
     if (repository) {
@@ -628,6 +745,32 @@ export async function startFakeGitHub(
     failTokens(on) {
       failing = on;
     },
+    setPermissions(permissions) {
+      granted = permissions;
+    },
+    failDispatches(on) {
+      failingDispatches = on;
+    },
+    addWorkflowRun(owner, name, run) {
+      const found = served.get(`${owner}/${name}`);
+      if (!found) throw new Error(`no repository ${owner}/${name}`);
+      nextRunId += 1;
+      found.runs.push({
+        id: nextRunId,
+        path: run.path,
+        head_branch: run.head_branch,
+        event: run.event ?? "push",
+        status: "completed",
+        conclusion: "failure",
+        html_url: `${origin()}/${owner}/${name}/actions/runs/${nextRunId}`,
+        inputs: null,
+        reruns: [],
+      });
+      return nextRunId;
+    },
+    workflowRuns(owner, name) {
+      return served.get(`${owner}/${name}`)?.runs ?? [];
+    },
     rateLimitNext(count, limit, retryAfterSeconds = 1) {
       limited = { count, limit, retryAfter: retryAfterSeconds };
     },
@@ -661,6 +804,7 @@ export async function startFakeGitHub(
         private: repoOptions.private ?? true,
         pulls: [],
         comments: new Map(),
+        runs: [],
       });
     },
     async refs(owner, name) {

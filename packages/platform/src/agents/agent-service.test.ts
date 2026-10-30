@@ -613,3 +613,197 @@ describe("agent service", () => {
     expect(welcomed).toEqual([[WORKSPACE, AGENT, made.id]]);
   });
 });
+
+describe("a release's GitHub settings", () => {
+  const app = { kind: "github_app" as const, registered: true as const };
+  const catalog = withSeededInstallation({
+    profiles: {
+      coding: PROFILE,
+      scratch: { ...PROFILE, repository: "none" as const },
+      either: { ...PROFILE, repository: "optional" as const },
+    },
+    repositories: {
+      "sample-app": {
+        url: "https://github.com/acme/sample-app",
+        branch: "main",
+        profiles: ["coding", "either"],
+        auth: app,
+      },
+      "docs-app": {
+        url: "https://github.com/acme/docs-app",
+        branch: "main",
+        profiles: ["coding", "either"],
+        auth: app,
+      },
+      "pat-app": {
+        url: "https://github.com/acme/pat-app",
+        branch: "main",
+        profiles: ["coding"],
+        auth: {
+          kind: "basic" as const,
+          username: "x-access-token",
+          value: "pat",
+          ref: { value_env: "PAT" },
+        },
+      },
+      "review-only": {
+        url: "https://github.com/acme/review-only",
+        branch: "main",
+        profiles: ["either"],
+        auth: app,
+      },
+    },
+  });
+  const OFF = {
+    workflows: false,
+    actions: false,
+    checks: false,
+    issues: false,
+    review: false,
+  };
+  const github: AgentGitHub = {
+    repositories: ["sample-app"],
+    push_approval: true,
+    features: OFF,
+    actions_allow: [],
+  };
+
+  function service(store: AgentStore = memoryStore().store, ceiling = OFF) {
+    return createAgentService({
+      authorization: createAuthorizationPolicy(),
+      store,
+      catalog,
+      credentials: { unboundRefs: async () => [] },
+      githubSettings: { get: async () => ({ ceiling, revision: 1 }) },
+    });
+  }
+
+  async function refusal(
+    body: Record<string, unknown>,
+    ceiling = OFF,
+  ): Promise<unknown> {
+    const error = await service(memoryStore().store, ceiling)
+      .createRelease(owner, AGENT, { ...release, ...body })
+      .then(
+        () => null,
+        (thrown: unknown) => thrown,
+      );
+    expect(error).toBeInstanceOf(SessionServiceError);
+    const { code, details } = error as SessionServiceError;
+    return { code, details };
+  }
+
+  test("is pinned on the release when it fits the catalog and the ceiling", async () => {
+    const withActions: AgentGitHub = {
+      ...github,
+      repositories: ["sample-app", "docs-app"],
+      features: { ...OFF, actions: true },
+      actions_allow: [{ workflow: "ci.yml" }],
+    };
+    const made = await service(memoryStore().store, {
+      ...OFF,
+      actions: true,
+    }).createRelease(owner, AGENT, { ...release, github: withActions });
+    expect(made.release.policy_pins.github).toEqual(withActions);
+  });
+
+  test("a release with no repository is repository_none", async () => {
+    expect(
+      await refusal({
+        runtime_profile_id: "either",
+        repository_id: undefined,
+        github,
+      }),
+    ).toEqual({
+      code: "BAD_REQUEST",
+      details: { field: "github", reason_code: "repository_none" },
+    });
+  });
+
+  test("a repository the profile does not allow is repository_not_allowed", async () => {
+    for (const id of ["missing", "review-only"]) {
+      expect(
+        await refusal({
+          github: { ...github, repositories: ["sample-app", id] },
+        }),
+      ).toEqual({
+        code: "BAD_REQUEST",
+        details: {
+          field: "github.repositories.1",
+          reason_code: "repository_not_allowed",
+        },
+      });
+    }
+  });
+
+  test("a repository without a GitHub App is app_required", async () => {
+    expect(
+      await refusal({ github: { ...github, repositories: ["pat-app"] } }),
+    ).toEqual({
+      code: "BAD_REQUEST",
+      details: {
+        field: "github.repositories.0",
+        reason_code: "app_required",
+      },
+    });
+  });
+
+  test("repositories that leave out the release's own are release_repository_outside", async () => {
+    expect(
+      await refusal({ github: { ...github, repositories: ["docs-app"] } }),
+    ).toEqual({
+      code: "BAD_REQUEST",
+      details: {
+        field: "github.repositories",
+        reason_code: "release_repository_outside",
+      },
+    });
+  });
+
+  test("an allow-list without Actions is actions_off", async () => {
+    expect(
+      await refusal(
+        { github: { ...github, actions_allow: [{ workflow: "ci.yml" }] } },
+        { ...OFF, actions: true },
+      ),
+    ).toEqual({
+      code: "BAD_REQUEST",
+      details: { field: "github.actions_allow", reason_code: "actions_off" },
+    });
+  });
+
+  test("a feature over the workspace's ceiling is over_workspace_ceiling", async () => {
+    expect(
+      await refusal({
+        github: { ...github, features: { ...OFF, review: true } },
+      }),
+    ).toEqual({
+      code: "BAD_REQUEST",
+      details: {
+        field: "github.features.review",
+        reason_code: "over_workspace_ceiling",
+      },
+    });
+  });
+
+  test("a release without github inherits the active release's; a move to a repository_mode none profile drops it", async () => {
+    const { store } = memoryStore();
+    const first = (
+      await service(store).createRelease(owner, AGENT, { ...release, github })
+    ).release;
+    const over = service({
+      ...store,
+      get: async () => ({ ...detail, active_release: first }),
+    });
+    const inherited = (await over.createRelease(owner, AGENT, release)).release;
+    expect(inherited.policy_pins.github).toEqual(github);
+    const moved = (
+      await over.createRelease(owner, AGENT, {
+        version_id: VERSION,
+        runtime_profile_id: "scratch",
+      })
+    ).release;
+    expect(moved.repository_id).toBeNull();
+    expect(moved.policy_pins.github).toBeUndefined();
+  });
+});

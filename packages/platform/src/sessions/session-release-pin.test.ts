@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
+  type AgentGitHub,
   type AuthorizationRequest,
+  GITHUB_CEILING_NONE,
   scopesForRole,
   sessionCredentialUnboundDetailsSchema,
 } from "@werft-ai/contracts";
@@ -74,6 +76,8 @@ function setup(
     session?: SessionDetailRecord;
     /** Idempotency keys of messages accepted earlier. */
     appendedKeys?: string[];
+    /** The release's GitHub settings. */
+    github?: AgentGitHub;
   } = {},
 ) {
   const accepted: AcceptSessionInput[] = [];
@@ -101,6 +105,8 @@ function setup(
           runtime_profile_id: options.releaseProfile ?? "coding-v1",
           repository_id: releaseId === "rel-app" ? "app" : null,
           runtime_config_snapshot: { model: "claude-opus-5-5" },
+          policy_pins:
+            options.github === undefined ? {} : { github: options.github },
         };
       },
     },
@@ -200,6 +206,35 @@ describe("a session pinned to an agent release", () => {
       release_id: "rel-1",
     });
     expect(accepted[0]?.agentReleaseId).toBe("rel-1");
+  });
+
+  test("a repository outside the release's GitHub repositories is refused as repository_not_allowed before acceptance", async () => {
+    const github: AgentGitHub = {
+      repositories: ["other"],
+      push_approval: true,
+      features: GITHUB_CEILING_NONE,
+      actions_allow: [],
+    };
+    const refused = setup({ github });
+    const error = await refused.service
+      .createSession(refused.caller, {
+        idempotencyKey: "k",
+        body: { ...body, agent_release_id: "rel-1" },
+      })
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(SessionServiceError);
+    expect(error).toMatchObject({
+      code: "GITHUB_REFUSED",
+      details: { reason_code: "repository_not_allowed", receipt_id: null },
+    });
+    expect(refused.accepted).toEqual([]);
+
+    const allowed = setup({ github: { ...github, repositories: ["app"] } });
+    await allowed.service.createSession(allowed.caller, {
+      idempotencyKey: "k",
+      body: { ...body, agent_release_id: "rel-1" },
+    });
+    expect(allowed.accepted[0]?.repository).toMatchObject({ id: "app" });
   });
 
   test("runs the card's model unless the request names another the profile offers", async () => {

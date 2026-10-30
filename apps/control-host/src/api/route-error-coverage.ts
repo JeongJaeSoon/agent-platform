@@ -65,6 +65,11 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request",
     "POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request/comments",
   ],
+  "routes/github-work.test.ts": [
+    "POST /v1/sessions/{id}/github/workflow-dispatches",
+    "GET /v1/sessions/{id}/github/workflow-runs/{run_id}",
+    "POST /v1/sessions/{id}/github/workflow-runs/{run_id}/rerun",
+  ],
   "routes/interrupt.test.ts": ["POST /v1/sessions/{id}/interrupt"],
   "routes/pause.test.ts": ["POST /v1/sessions/{id}/pause"],
   "routes/close.test.ts": ["POST /v1/sessions/{id}/close"],
@@ -123,6 +128,10 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/workspaces/{id}/github-app",
     "PUT /v1/workspaces/{id}/github-app",
     "DELETE /v1/workspaces/{id}/github-app",
+  ],
+  "routes/github-settings.test.ts": [
+    "GET /v1/workspaces/{id}/github-settings",
+    "PUT /v1/workspaces/{id}/github-settings",
   ],
   "routes/slack-secrets.test.ts": [
     "GET /v1/workspaces/{id}/slack/config-token",

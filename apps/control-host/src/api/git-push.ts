@@ -190,6 +190,15 @@ export function createGitPusher(
         true,
       );
       if (pushed.exitCode !== 0) {
+        if (workflowsPermissionRefused(pushed.stdout)) {
+          return {
+            status: "refused",
+            refusal: "push_failed",
+            detail:
+              "the remote refused a workflow change without workflows permission",
+            reasonCode: "workflows_permission_missing",
+          };
+        }
         return /^!\t.*\[rejected\]/m.test(pushed.stdout)
           ? refused("non_fast_forward", "the remote rejected the update")
           : refused("push_failed", `git push exited ${pushed.exitCode}`);
@@ -197,6 +206,18 @@ export function createGitPusher(
       return { status: "pushed", previousCommit };
     },
   };
+}
+
+/**
+ * GitHub's porcelain line for a push an App token may not make:
+ * `! <src>:<dst> [remote rejected] (refusing to allow a GitHub App to create
+ * or update workflow `.github/workflows/x.yml` without `workflows` permission)`.
+ * Only classified; the text itself is never kept.
+ */
+export function workflowsPermissionRefused(stdout: string): boolean {
+  return /^!\t.*\[remote rejected\].*without `?workflows`? permission/m.test(
+    stdout,
+  );
 }
 
 function refused(

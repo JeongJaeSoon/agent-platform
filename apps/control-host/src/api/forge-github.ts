@@ -4,19 +4,22 @@ import { retry } from "@octokit/plugin-retry";
 import { throttling } from "@octokit/plugin-throttling";
 import type { StructuredLogger } from "@werft-ai/observability";
 import {
-  type ForgeAccess,
-  type ForgeAdapter,
   type ForgeComment,
   ForgeCredentialError,
   type ForgePullRequest,
-  type ForgeRepository,
-  type ForgeResolver,
   GITHUB_API_BASE,
   type GitCredential,
+  type GitHubApi,
   GitHubAppCheckError,
   type GitHubAppDirectory,
   type GitHubAppInstallationView,
   type GitHubAppStore,
+  GitHubCallError,
+  type GitHubConnection,
+  type GitHubConnections,
+  GitHubPermissionError,
+  type GitHubPermissions,
+  type GitHubWorkflowRun,
   type RepoRef,
   type SessionCatalog,
 } from "@werft-ai/platform";
@@ -43,8 +46,6 @@ type GitHubCredentials =
       privateKey: string;
     }
   | { kind: "token"; username: string; password: string };
-
-type Permissions = Readonly<Record<string, "read" | "write">>;
 
 type Logger = Pick<StructuredLogger, "warn">;
 
@@ -123,15 +124,7 @@ function clientOf(
   });
 }
 
-/**
- * GitHub, or a GHES host when `apiBase` is its `/api/v3`. An App issues
- * an installation token per repository and permission set, scoped to that
- * one repository: `contents: <access>` for git, `pull_requests: write` with
- * `contents: read` for pull requests and their comments (github.com refuses
- * to open one with "not all refs are readable" when the token cannot read
- * the branches). A PAT is used as it is.
- */
-export function createGitHubForge(options: {
+type ConnectionOptions = {
   apiBase: string;
   credentials: GitHubCredentials;
   now?: () => Date;
@@ -140,19 +133,30 @@ export function createGitHubForge(options: {
   retryAfterBaseMs?: number;
   /** Tests only: false drops the pause between writes. */
   paced?: boolean;
-}): ForgeAdapter {
+};
+
+/**
+ * One GitHub connection: an App (or a PAT) on github.com or a GHES host
+ * (`apiBase` its `/api/v3`), with its own token cache. An App issues an
+ * installation token per repository and permission set, scoped to that one
+ * repository; a PAT is used as it is. Only the GitHub gate asks it for a
+ * credential; the REST calls take the one the gate issued.
+ */
+export function createGitHubConnection(
+  options: ConnectionOptions,
+): GitHubConnection {
   const apiBase = options.apiBase.replace(/\/+$/, "");
   const now = options.now ?? (() => new Date());
-  const { logger } = options;
+  const { logger, credentials } = options;
   const client = clientOf(apiBase, logger, options);
-  const issue = issuer(client, options.credentials, logger);
+  const issue = issuer(client, credentials, logger);
   const cached = new Map<string, GitCredential>();
   const inFlight = new Map<string, Promise<GitCredential>>();
 
   async function credential(
     repo: RepoRef,
-    permissions: Permissions,
-  ): Promise<GitCredential> {
+    permissions: GitHubPermissions,
+  ): Promise<{ credential: GitCredential; fresh: boolean }> {
     const key = `${repo.owner}/${repo.name}|${Object.entries(permissions)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([name, level]) => `${name}:${level}`)
@@ -163,31 +167,20 @@ export function createGitHubForge(options: {
       (held.expiresAt === undefined ||
         held.expiresAt.getTime() - now().getTime() > REFRESH_BEFORE_EXPIRY_MS)
     ) {
-      return held;
+      return { credential: held, fresh: false };
     }
     const pending = inFlight.get(key);
-    if (pending !== undefined) return await pending;
+    if (pending !== undefined) {
+      return { credential: await pending, fresh: false };
+    }
     const issuing = issue(repo, permissions).finally(() =>
       inFlight.delete(key),
     );
     inFlight.set(key, issuing);
     const issued = await issuing;
     cached.set(key, issued);
-    return issued;
-  }
-
-  async function call<T>(
-    what: string,
-    repo: RepoRef,
-    permissions: Permissions,
-    send: (headers: { authorization: string }) => Promise<T>,
-  ): Promise<T> {
-    const { password } = await credential(repo, permissions);
-    try {
-      return await send({ authorization: `token ${password}` });
-    } catch (error) {
-      throw failure(logger, what, error);
-    }
+    // A PAT is not issued: nothing new to account for.
+    return { credential: issued, fresh: credentials.kind === "app" };
   }
 
   const queues = new Map<string, Promise<unknown>>();
@@ -204,15 +197,8 @@ export function createGitHubForge(options: {
     return turn;
   }
 
-  const pullRequests: Permissions = {
-    contents: "read",
-    pull_requests: "write",
-  };
-  const target = (repo: RepoRef) => ({ owner: repo.owner, repo: repo.name });
-
   // Anyone can paste a marker into a comment, so only one this credential
   // wrote is the platform's: the App's own, or the PAT owner's.
-  const { credentials } = options;
   let tokenUser: Promise<number> | undefined;
   async function writtenByUs(
     comment: {
@@ -236,17 +222,39 @@ export function createGitHubForge(options: {
     return user != null && Number(user.id) === (await tokenUser);
   }
 
-  async function findPullRequestForBranch(
-    repo: RepoRef,
-    branch: string,
-  ): Promise<ForgePullRequest | null> {
-    const { data } = await call(
-      "pull request lookup",
-      repo,
-      pullRequests,
-      (headers) =>
+  function api(repo: RepoRef, issued: GitCredential): GitHubApi {
+    const headers = { authorization: `token ${issued.password}` };
+    const target = { owner: repo.owner, repo: repo.name };
+    async function call<T>(what: string, send: () => Promise<T>): Promise<T> {
+      try {
+        return await send();
+      } catch (error) {
+        throw failure(logger, what, error);
+      }
+    }
+    // The work added with the gate: its errors keep GitHub's status and
+    // request id only, never the body, which may echo what was sent.
+    async function quiet<T>(what: string, send: () => Promise<T>): Promise<T> {
+      try {
+        return await send();
+      } catch (error) {
+        const status = statusOf(error) ?? null;
+        const requestId = requestIdOf(error);
+        logger?.warn("GitHub request failed", {
+          request: what,
+          ...(status === null ? {} : { status }),
+          error: error instanceof Error ? error.name : "response",
+          ...(requestId === null ? {} : { github_request_id: requestId }),
+        });
+        throw new GitHubCallError(what, status, requestId);
+      }
+    }
+    async function findPullRequestForBranch(
+      branch: string,
+    ): Promise<ForgePullRequest | null> {
+      const { data } = await call("pull request lookup", () =>
         client.request("GET /repos/{owner}/{repo}/pulls", {
-          ...target(repo),
+          ...target,
           head: `${repo.owner}:${branch}`,
           state: "open",
           sort: "created",
@@ -254,137 +262,191 @@ export function createGitHubForge(options: {
           per_page: 1,
           headers,
         }),
-    );
-    const [found] = data;
-    return found === undefined ? null : pullRequestOf(found);
-  }
-
-  return {
-    kind: "github",
-    maxBodyLength: GITHUB_MAX_BODY_LENGTH,
-    gitCredential: (repo: RepoRef, access: ForgeAccess) =>
-      credential(repo, { contents: access }),
-    async getRepository(repo): Promise<ForgeRepository> {
-      const { data } = await call(
-        "repository lookup",
-        repo,
-        { contents: "read" },
-        (headers) =>
-          client.request("GET /repos/{owner}/{repo}", {
-            ...target(repo),
-            headers,
-          }),
       );
-      return {
-        id: Number(data.id),
-        defaultBranch: data.default_branch,
-        private: data.private,
-      };
-    },
-    findPullRequestForBranch,
-    async createPullRequest(repo, input) {
-      const { password } = await credential(repo, pullRequests);
-      try {
-        const { data } = await client.request(
-          "POST /repos/{owner}/{repo}/pulls",
-          {
-            ...target(repo),
-            head: input.head,
-            base: input.base,
-            title: input.title,
-            body: input.body,
-            headers: { authorization: `token ${password}` },
-          },
+      const [found] = data;
+      return found === undefined ? null : pullRequestOf(found);
+    }
+    // Routes octokit's types do not know yet (return_run_details).
+    const request = client.request as unknown as (
+      route: string,
+      parameters: Record<string, unknown>,
+    ) => Promise<{ status: number; data: unknown }>;
+
+    return {
+      maxBodyLength: GITHUB_MAX_BODY_LENGTH,
+      async getRepository() {
+        const { data } = await call("repository lookup", () =>
+          client.request("GET /repos/{owner}/{repo}", { ...target, headers }),
         );
-        return pullRequestOf(data);
-      } catch (error) {
-        // 422: an open pull request for this head already exists, as when
-        // two callers race; answer that one.
-        if ((error as { status?: unknown })?.status === 422) {
-          const open = await findPullRequestForBranch(repo, input.head);
-          if (open?.state === "open") return open;
+        return {
+          id: Number(data.id),
+          defaultBranch: data.default_branch,
+          private: data.private,
+        };
+      },
+      findPullRequestForBranch,
+      async createPullRequest(input) {
+        try {
+          const { data } = await client.request(
+            "POST /repos/{owner}/{repo}/pulls",
+            {
+              ...target,
+              head: input.head,
+              base: input.base,
+              title: input.title,
+              body: input.body,
+              headers,
+            },
+          );
+          return pullRequestOf(data);
+        } catch (error) {
+          // 422: an open pull request for this head already exists, as when
+          // two callers race; answer that one.
+          if (statusOf(error) === 422) {
+            const open = await findPullRequestForBranch(input.head);
+            if (open?.state === "open") return open;
+          }
+          throw failure(logger, "pull request create", error);
         }
-        throw failure(logger, "pull request create", error);
-      }
-    },
-    async upsertComment(repo, number, marker, body): Promise<ForgeComment> {
-      const text = `${body}\n\n${marker}`;
-      // Two first comments for one marker would both find none and both
-      // post; one at a time per marker in this process.
-      return await oneAtATime(
-        `${repo.owner}/${repo.name}#${number}|${marker}`,
-        () =>
-          call("pull request comment", repo, pullRequests, async (headers) => {
-            let searched = false;
-            for (let page = 1; page <= MAX_COMMENT_PAGES; page += 1) {
-              const { data } = await client.request(
-                "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
-                {
-                  ...target(repo),
-                  issue_number: number,
-                  per_page: COMMENTS_PER_PAGE,
-                  page,
-                  headers,
-                },
-              );
-              let marked: (typeof data)[number] | undefined;
-              for (const comment of data) {
-                if (
-                  comment.body?.includes(marker) &&
-                  (await writtenByUs(comment, headers))
-                ) {
-                  marked = comment;
-                  break;
-                }
-              }
-              if (marked !== undefined) {
-                const { data: edited } = await client.request(
-                  "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+      },
+      async upsertComment(number, marker, body): Promise<ForgeComment> {
+        const text = `${body}\n\n${marker}`;
+        // Two first comments for one marker would both find none and both
+        // post; one at a time per marker in this process.
+        return await oneAtATime(
+          `${repo.owner}/${repo.name}#${number}|${marker}`,
+          () =>
+            call("pull request comment", async () => {
+              let searched = false;
+              for (let page = 1; page <= MAX_COMMENT_PAGES; page += 1) {
+                const { data } = await client.request(
+                  "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
                   {
-                    ...target(repo),
-                    comment_id: Number(marked.id),
-                    body: text,
+                    ...target,
+                    issue_number: number,
+                    per_page: COMMENTS_PER_PAGE,
+                    page,
                     headers,
                   },
                 );
-                return {
-                  id: Number(edited.id),
-                  url: edited.html_url,
-                  created: false,
-                };
+                let marked: (typeof data)[number] | undefined;
+                for (const comment of data) {
+                  if (
+                    comment.body?.includes(marker) &&
+                    (await writtenByUs(comment, headers))
+                  ) {
+                    marked = comment;
+                    break;
+                  }
+                }
+                if (marked !== undefined) {
+                  const { data: edited } = await client.request(
+                    "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+                    {
+                      ...target,
+                      comment_id: Number(marked.id),
+                      body: text,
+                      headers,
+                    },
+                  );
+                  return {
+                    id: Number(edited.id),
+                    url: edited.html_url,
+                    created: false,
+                  };
+                }
+                if (data.length < COMMENTS_PER_PAGE) {
+                  searched = true;
+                  break;
+                }
               }
-              if (data.length < COMMENTS_PER_PAGE) {
-                searched = true;
-                break;
+              // Past the pages read the marked comment may still exist; a new
+              // one would duplicate it.
+              if (!searched) {
+                throw new ForgeCredentialError(
+                  `GitHub pull request comment failed (more than ${MAX_COMMENT_PAGES * COMMENTS_PER_PAGE} comments)`,
+                );
               }
-            }
-            // Past the pages read the marked comment may still exist; a new
-            // one would duplicate it.
-            if (!searched) {
-              throw new ForgeCredentialError(
-                `GitHub pull request comment failed (more than ${MAX_COMMENT_PAGES * COMMENTS_PER_PAGE} comments)`,
+              const { data: posted } = await client.request(
+                "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
+                {
+                  ...target,
+                  issue_number: number,
+                  body: text,
+                  headers,
+                  // GitHub may have stored a comment that answered 5xx; a
+                  // blind retry would post it twice.
+                  request: { retries: 0 },
+                },
               );
-            }
-            const { data: posted } = await client.request(
-              "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
-              {
-                ...target(repo),
-                issue_number: number,
-                body: text,
-                headers,
-                // GitHub may have stored a comment that answered 5xx; a
-                // blind retry would post it twice.
-                request: { retries: 0 },
-              },
-            );
-            return {
-              id: Number(posted.id),
-              url: posted.html_url,
-              created: true,
-            };
+              return {
+                id: Number(posted.id),
+                url: posted.html_url,
+                created: true,
+              };
+            }),
+        );
+      },
+      async dispatchWorkflow(input) {
+        const { status, data } = await quiet("workflow dispatch", () =>
+          request(
+            "POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
+            {
+              ...target,
+              workflow_id: input.workflow,
+              // A branch, never a tag of the same name.
+              ref: `refs/heads/${input.ref}`,
+              inputs: input.inputs,
+              return_run_details: true,
+              headers,
+              // A dispatch GitHub took and answered 5xx would run twice.
+              request: { retries: 0 },
+            },
+          ),
+        );
+        const run = data as { workflow_run_id?: unknown; html_url?: unknown };
+        return status === 200 &&
+          typeof run?.workflow_run_id === "number" &&
+          typeof run.html_url === "string"
+          ? { id: run.workflow_run_id, html_url: run.html_url }
+          : null;
+      },
+      async getWorkflowRun(runId): Promise<GitHubWorkflowRun> {
+        const { data } = await quiet("workflow run lookup", () =>
+          client.request("GET /repos/{owner}/{repo}/actions/runs/{run_id}", {
+            ...target,
+            run_id: runId,
+            headers,
           }),
-      );
-    },
+        );
+        return {
+          id: Number(data.id),
+          path: data.path,
+          head_branch: data.head_branch ?? null,
+          status: data.status ?? null,
+          conclusion: data.conclusion ?? null,
+          html_url: data.html_url,
+        };
+      },
+      async rerunWorkflow(runId, failedOnly) {
+        await quiet("workflow rerun", () =>
+          request(
+            failedOnly
+              ? "POST /repos/{owner}/{repo}/actions/runs/{run_id}/rerun-failed-jobs"
+              : "POST /repos/{owner}/{repo}/actions/runs/{run_id}/rerun",
+            { ...target, run_id: runId, headers, request: { retries: 0 } },
+          ),
+        );
+      },
+    };
+  }
+
+  return {
+    kind: credentials.kind === "app" ? "app" : "pat",
+    githubCom: apiBase === GITHUB_API_BASE,
+    appId: credentials.kind === "app" ? credentials.appId : null,
+    credential,
+    api,
   };
 }
 
@@ -408,7 +470,7 @@ function issuer(
   client: Client,
   credentials: GitHubCredentials,
   logger: Logger | undefined,
-): (repo: RepoRef, permissions: Permissions) => Promise<GitCredential> {
+): (repo: RepoRef, permissions: GitHubPermissions) => Promise<GitCredential> {
   if (credentials.kind === "token") {
     const { username, password } = credentials;
     return async () => ({ username, password });
@@ -438,7 +500,7 @@ function issuer(
     try {
       const installationId = await installationOf(repo);
       // The library's own cache knows nothing of the refresh margin, so
-      // every issue is a fresh request and the forge keeps the cache.
+      // every issue is a fresh request and the connection keeps the cache.
       const { token, expiresAt } = await auth({
         type: "installation",
         installationId,
@@ -456,6 +518,14 @@ function issuer(
         expiresAt: new Date(expiresAt),
       };
     } catch (error) {
+      // GitHub refuses a permission the installation was not granted with
+      // 422; that is the App's settings, not GitHub failing.
+      if (statusOf(error) === 422) {
+        failure(logger, "installation token request", error);
+        throw new GitHubPermissionError(
+          "The installation does not grant the permissions asked",
+        );
+      }
       throw failure(logger, "installation token request", error);
     }
   };
@@ -472,6 +542,12 @@ const statusOf = (error: unknown): number | undefined =>
   typeof (error as { status?: unknown })?.status === "number"
     ? (error as { status: number }).status
     : undefined;
+
+const requestIdOf = (error: unknown): string | null => {
+  const id = (error as { response?: { headers?: Record<string, unknown> } })
+    ?.response?.headers?.["x-github-request-id"];
+  return typeof id === "string" ? id.slice(0, 64) : null;
+};
 
 /** The installation that covers `repo`, or null when the App has none there. */
 async function installationFor(
@@ -552,6 +628,7 @@ export function createGitHubAppDirectory(
           slug: data.slug ?? String(data.id),
           name: data.name,
           htmlUrl: data.html_url,
+          permissions: permissionsOf(data.permissions),
         };
       }),
     installations: (app) =>
@@ -588,21 +665,31 @@ export function createGitHubAppDirectory(
   };
 }
 
+/** `GET /app`'s permissions, keeping only the levels GitHub names. */
+function permissionsOf(
+  raw: unknown,
+): Record<string, "read" | "write" | "admin"> {
+  if (typeof raw !== "object" || raw === null) return {};
+  return Object.fromEntries(
+    Object.entries(raw).filter(
+      (entry): entry is [string, "read" | "write" | "admin"] =>
+        entry[1] === "read" || entry[1] === "write" || entry[1] === "admin",
+    ),
+  );
+}
+
 /**
- * The forge of the App registered in the console, rebuilt when the App or
- * its key changes. `refresh` reads the store; until the first read, and with
- * no App registered, there is no forge.
+ * The connection of the App registered in the console, rebuilt (and its
+ * token cache dropped) when the App or its key changes. `refresh` reads the
+ * store; until the first read, and with no App registered, there is none.
  */
-export function createRegisteredGitHubForge(
+export function createRegisteredGitHubConnection(
   options: {
     store: Pick<GitHubAppStore, "credentials"> | null;
-  } & Pick<
-    Parameters<typeof createGitHubForge>[0],
-    "logger" | "now" | "retryAfterBaseMs" | "paced"
-  >,
+  } & Pick<ConnectionOptions, "logger" | "now" | "retryAfterBaseMs" | "paced">,
 ) {
-  const { store, ...forgeOptions } = options;
-  let current: { version: string; forge: ForgeAdapter } | null = null;
+  const { store, ...connectionOptions } = options;
+  let current: { version: string; connection: GitHubConnection } | null = null;
   // Reads run one after another, so a read that started before a change
   // cannot land after the read that saw it.
   let queue: Promise<void> = Promise.resolve();
@@ -619,8 +706,8 @@ export function createRegisteredGitHubForge(
     if (current?.version === version) return;
     current = {
       version,
-      forge: createGitHubForge({
-        ...forgeOptions,
+      connection: createGitHubConnection({
+        ...connectionOptions,
         apiBase: app.apiBase,
         credentials: {
           kind: "app",
@@ -631,7 +718,7 @@ export function createRegisteredGitHubForge(
     };
   };
   return {
-    forge: (): ForgeAdapter | null => current?.forge ?? null,
+    connection: (): GitHubConnection | null => current?.connection ?? null,
     refresh(): Promise<void> {
       const next = queue.then(read);
       queue = next.catch(() => undefined);
@@ -649,10 +736,7 @@ function failure(
   cause: unknown,
 ): ForgeCredentialError {
   if (cause instanceof ForgeCredentialError) return cause;
-  const status =
-    typeof (cause as { status?: unknown })?.status === "number"
-      ? (cause as { status: number }).status
-      : undefined;
+  const status = statusOf(cause);
   const error = cause instanceof Error ? cause.name : "response";
   logger?.warn("GitHub request failed", {
     request: what,
@@ -672,6 +756,7 @@ const REASON_MAX_LENGTH = 200;
  * Only the response body is read, and of it only `message` and `errors`, cut
  * short; GitHub does not echo the request's credential there. The field
  * names avoid "message": the log redaction drops keys that look like one.
+ * Not for work whose request carries caller values (dispatch inputs).
  */
 function githubReason(cause: unknown): {
   github_reason?: string;
@@ -701,32 +786,33 @@ function githubReason(cause: unknown): {
 }
 
 /**
- * The forge behind each catalog repository: a GitHub App repository's own
- * App, and a PAT on github.com. Others (Gitea, GHES with a PAT, bearer,
- * public) have none and keep their static credential.
+ * The connection behind each catalog repository: a GitHub App repository's
+ * own App (one connection each), the console's App for `{ kind: github_app }`,
+ * and a PAT on github.com. Others (Gitea, GHES with a PAT, bearer, public)
+ * have none and keep their static credential. No reviewer connection yet.
  */
-export function forgesOf(
+export function connectionsOf(
   catalog: SessionCatalog,
   options: Pick<
-    Parameters<typeof createGitHubForge>[0],
+    ConnectionOptions,
     "logger" | "now" | "retryAfterBaseMs" | "paced"
   > & {
     /** The console's App, for repositories written as `{ kind: github_app }`. */
-    registered?: () => ForgeAdapter | null;
+    registered?: () => GitHubConnection | null;
   } = {},
-): ForgeResolver {
-  const { registered, ...forgeOptions } = options;
-  const forges = new Map<string, ForgeAdapter>();
+): GitHubConnections {
+  const { registered, ...connectionOptions } = options;
+  const connections = new Map<string, GitHubConnection>();
   const usesRegistered = new Set<string>();
   for (const [id, repository] of Object.entries(catalog.repositories)) {
     const { auth } = repository;
     if (auth?.kind === "github_app" && "registered" in auth) {
       usesRegistered.add(id);
     } else if (auth?.kind === "github_app") {
-      forges.set(
+      connections.set(
         id,
-        createGitHubForge({
-          ...forgeOptions,
+        createGitHubConnection({
+          ...connectionOptions,
           apiBase: auth.api_base,
           credentials: {
             kind: "app",
@@ -740,10 +826,10 @@ export function forgesOf(
       auth?.kind === "basic" &&
       new URL(repository.url).hostname === "github.com"
     ) {
-      forges.set(
+      connections.set(
         id,
-        createGitHubForge({
-          ...forgeOptions,
+        createGitHubConnection({
+          ...connectionOptions,
           apiBase: GITHUB_API_BASE,
           credentials: {
             kind: "token",
@@ -754,7 +840,11 @@ export function forgesOf(
       );
     }
   }
-  return (id) =>
-    forges.get(id) ??
-    (usesRegistered.has(id) ? (registered?.() ?? null) : null);
+  return (id, role) => {
+    if (role !== "author") return null;
+    return (
+      connections.get(id) ??
+      (usesRegistered.has(id) ? (registered?.() ?? null) : null)
+    );
+  };
 }

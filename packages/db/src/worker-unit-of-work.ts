@@ -107,7 +107,6 @@ import {
   leaseHeld,
   type SessionRow,
 } from "./fence.ts";
-import { sessionPinsGitHub } from "./github-settings.ts";
 import { catalogMismatchCause, quarantineLaunch } from "./launch-quarantine.ts";
 import { sessionMcpOf } from "./mcp-egress.ts";
 import {
@@ -1865,9 +1864,6 @@ export function createPostgresWorkerUnitOfWork(
               ? fenced.session.model
               : fenced.attempt.model,
           repository: sessionRepositoryOf(fenced.session),
-          githubPinned:
-            input.purpose === "repository" &&
-            (await sessionPinsGitHub(tx, fence.sessionId)),
           costUsd: fenced.session.costUsd,
           providerTokens: fenced.session.providerTokens,
         };

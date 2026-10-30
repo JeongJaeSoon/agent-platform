@@ -30,6 +30,8 @@ export type GitPushResult =
       refusal: "default_branch" | "non_fast_forward" | "push_failed";
       /** Safe to log: no header, no remote output. */
       detail: string;
+      /** GitHub refused a change under `.github/workflows/` (no `workflows`). */
+      reasonCode?: "workflows_permission_missing";
     };
 
 export interface GitPusher {

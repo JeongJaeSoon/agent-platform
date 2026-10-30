@@ -11,6 +11,8 @@ import {
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresGitHubAppStore,
+  createPostgresGitHubGateStore,
+  createPostgresGitHubSettingsStore,
   createPostgresInstallationProfileStore,
   createPostgresInviteStore,
   createPostgresLinkedAccountStore,
@@ -21,7 +23,6 @@ import {
   createPostgresPushRequests,
   createPostgresSecretStore,
   createPostgresSessionControl,
-  createPostgresSessionGitHubSettings,
   createPostgresSessionReader,
   createPostgresSessionShareStore,
   createPostgresSessionTitleStore,
@@ -56,6 +57,9 @@ import {
   createAuthorizationPolicy,
   createCredentialBindingService,
   createGitHubAppService,
+  createGitHubGate,
+  createGitHubSettingsService,
+  createGitHubWorkService,
   createInstallationProfileService,
   createInterruptService,
   createInviteService,
@@ -138,9 +142,9 @@ import {
   sessionTitleEgressUrlFromEnv,
 } from "./egress-authorizer.ts";
 import {
+  connectionsOf,
   createGitHubAppDirectory,
-  createRegisteredGitHubForge,
-  forgesOf,
+  createRegisteredGitHubConnection,
 } from "./forge-github.ts";
 import { createGitPusher } from "./git-push.ts";
 import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
@@ -158,6 +162,8 @@ import { registerCloseRoutes } from "./routes/close.ts";
 import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerGitHubAppRoutes } from "./routes/github-app.ts";
+import { registerGitHubSettingsRoutes } from "./routes/github-settings.ts";
+import { registerGitHubWorkRoutes } from "./routes/github-work.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
 import {
   registerInviteRoutes,
@@ -425,11 +431,13 @@ const slackWelcome =
         join: slackJoin,
         logger,
       });
+const githubSettingsStore = createPostgresGitHubSettingsStore(db);
 const agents = createAgentService({
   authorization,
   store: agentStore,
   catalog,
   credentials: credentialBindings,
+  githubSettings: githubSettingsStore,
   ...(slackWelcome === null ? {} : { welcome: slackWelcome }),
   keys: createPostgresWorkspaceKeyStore(db),
 });
@@ -656,7 +664,7 @@ const inviteStore = createPostgresInviteStore(db);
 const invites = createInviteService({ authorization, store: inviteStore });
 const githubAppStore =
   secretKey === null ? null : createPostgresGitHubAppStore(db, secretKey);
-const registeredGitHub = createRegisteredGitHubForge({
+const registeredGitHub = createRegisteredGitHubConnection({
   store: githubAppStore,
   logger,
 });
@@ -684,11 +692,25 @@ const githubApps = createGitHubAppService({
       .map(([id, repository]) => ({ id, url: repository.url })),
   changed: () => registeredGitHub.refresh(),
 });
-// One adapter per repository, shared by clone (the gateway), push and pull
-// requests, so all draw on one token cache.
-const forges = forgesOf(catalog, {
-  logger,
-  registered: registeredGitHub.forge,
+// Every GitHub token (clone, push, pull requests, Actions) is issued here,
+// from one connection per repository and so one token cache.
+const githubGateStore = createPostgresGitHubGateStore(db);
+const github = createGitHubGate({
+  store: githubGateStore,
+  catalog,
+  connections: connectionsOf(catalog, {
+    logger,
+    registered: registeredGitHub.connection,
+  }),
+});
+const githubWork = createGitHubWorkService({
+  authorization,
+  gate: github,
+  store: githubGateStore,
+});
+const githubSettings = createGitHubSettingsService({
+  authorization,
+  store: githubSettingsStore,
 });
 const pushStore = createPostgresPushRequests(db);
 const pushRequests = createPushRequestService({
@@ -697,20 +719,17 @@ const pushRequests = createPushRequestService({
   source: checkpoints.pushSource,
   catalog,
 });
-const sessionGitHub = createPostgresSessionGitHubSettings(db);
 const pullRequests = createPullRequestService({
   authorization,
   store: createPostgresPullRequests(db),
   catalog,
-  forges,
-  github: sessionGitHub,
+  gate: github,
   redact: sanitizeText,
 });
 const pushExecutor = createPushExecutor({
   store: pushStore,
   catalog,
-  forges,
-  github: sessionGitHub,
+  gate: github,
   bundles: checkpoints.pushSource,
   pusher: createGitPusher({ maxGitMemoryBytes: checkpointGitMemoryBytes }),
   logger,
@@ -740,7 +759,7 @@ const workers = createWorkerGateway({
     ? {}
     : { checkpointProtocol: checkpoints.protocol }),
   pending: createPostgresWorkerPendingStore(db),
-  forges,
+  github,
   mcp: createPostgresMcpEgressStore(db),
   onMcpReceiptError: (error) =>
     logger.error("MCP refusal receipt not recorded", {
@@ -867,6 +886,7 @@ const app = createApiApp({
     });
     registerSlackSecretRoutes(router, slackSecrets);
     registerGitHubAppRoutes(router, githubApps);
+    registerGitHubSettingsRoutes(router, githubSettings);
     registerSessionRoutes(router, sessions);
     registerSessionOutputRoutes(router, sessionOutputs);
     registerSessionShareRoutes(router, shares, sessions);
@@ -878,6 +898,7 @@ const app = createApiApp({
     registerPendingRoutes(router, pendingRequests);
     registerPushRequestRoutes(router, pushRequests);
     registerPullRequestRoutes(router, pullRequests);
+    registerGitHubWorkRoutes(router, githubWork);
     registerInterruptRoutes(router, interrupts);
     registerLinkedAccountRoutes(router, {
       service: linkedAccounts,

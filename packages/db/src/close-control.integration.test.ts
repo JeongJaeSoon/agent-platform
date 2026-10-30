@@ -974,6 +974,7 @@ integration("close on PostgreSQL", () => {
         repositoryBinding: "sha256:binding",
         checkpointRevision: revision,
         gitCommit: "b".repeat(40),
+        approvedByRelease: null,
       });
     const approve = (session: Session, pushRequestId: string) =>
       pushes.decide({

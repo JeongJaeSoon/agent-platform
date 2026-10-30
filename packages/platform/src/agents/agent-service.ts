@@ -1,9 +1,4 @@
 import type {
-  ActivateAgentRequest,
-  ActivateAgentResponse,
-  ActivationCredentialUnboundDetails,
-  AgentDetail,
-  AgentRelease,
   CountAgentsResponse,
   CreateAgentReleaseRequest,
   CreateAgentReleaseResponse,
@@ -12,13 +7,26 @@ import type {
   ListAgentsResponse,
   UpdateAgentRequest,
 } from "@werft-ai/contracts";
+import {
+  type ActivateAgentRequest,
+  type ActivateAgentResponse,
+  type ActivationCredentialUnboundDetails,
+  type AgentDetail,
+  type AgentGitHub,
+  type AgentRelease,
+  GITHUB_CEILING_NONE,
+  type GitHubRefusal,
+  githubFeaturesOverCeiling,
+} from "@werft-ai/contracts";
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import { ACTOR_INACTIVE, NOT_FOUND } from "../musterrolle/service-errors.ts";
 import type { SlackWelcome } from "../musterrolle/slack-welcome.ts";
 import type { AgentStore } from "../ports/agent-store.ts";
 import type { WorkspaceKeyStore } from "../ports/api-key-store.ts";
 import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
+import type { GitHubSettingsStore } from "../ports/github-settings.ts";
 import {
+  allowedPair,
   allowedRun,
   type CatalogProfile,
   catalogProfile,
@@ -99,8 +107,55 @@ export function createAgentService(deps: {
   welcome?: Pick<SlackWelcome, "activated">;
   /** Where an agent key's agent is read; absent, every key is refused. */
   keys?: Pick<WorkspaceKeyStore, "find">;
+  /** The ceiling a release's `github` is checked against; absent: all off. */
+  githubSettings?: Pick<GitHubSettingsStore, "get">;
 }) {
   const { authorization, store, catalog, credentials } = deps;
+
+  const githubInvalid = (
+    field: string,
+    reason: GitHubRefusal | "release_repository_outside",
+  ) =>
+    new SessionServiceError("BAD_REQUEST", `${field}: ${reason}`, undefined, {
+      field,
+      reason_code: reason,
+    });
+
+  /**
+   * A release's GitHub settings as asked (design github-agent.md §4): App
+   * repositories its profile allows, the release's own among them, no
+   * allow-list without Actions, nothing over the workspace's ceiling. The
+   * gate cuts the release down again at every token issue.
+   */
+  async function checkGitHub(
+    ownerId: string,
+    profileId: string,
+    repositoryId: string | null,
+    github: AgentGitHub,
+  ): Promise<void> {
+    if (repositoryId === null) throw githubInvalid("github", "repository_none");
+    for (const [index, id] of github.repositories.entries()) {
+      const field = `github.repositories.${index}`;
+      const pair = allowedPair(catalog, profileId, id);
+      if (pair === null) throw githubInvalid(field, "repository_not_allowed");
+      // A PAT cannot be narrowed to a permission set.
+      if (pair.repository.auth?.kind !== "github_app") {
+        throw githubInvalid(field, "app_required");
+      }
+    }
+    if (!github.repositories.includes(repositoryId)) {
+      throw githubInvalid("github.repositories", "release_repository_outside");
+    }
+    if (github.actions_allow.length > 0 && !github.features.actions) {
+      throw githubInvalid("github.actions_allow", "actions_off");
+    }
+    const ceiling =
+      (await deps.githubSettings?.get(ownerId))?.ceiling ?? GITHUB_CEILING_NONE;
+    const [over] = githubFeaturesOverCeiling(github.features, ceiling);
+    if (over !== undefined) {
+      throw githubInvalid(`github.features.${over}`, "over_workspace_ceiling");
+    }
+  }
 
   // A release is refused here for what its sessions would be refused for,
   // so Slack, which names no repository, gets one that can start.
@@ -360,11 +415,20 @@ export function createAgentService(deps: {
       // A release made from a card edit keeps the GitHub settings of the
       // active one, so the edit cannot drop them. One with no repository has
       // nothing for them to act on.
+      if (request.github !== undefined) {
+        await checkGitHub(
+          caller.ownerId,
+          profileId,
+          repositoryId,
+          request.github,
+        );
+      }
       const github =
-        repositoryId === null
+        request.github ??
+        (repositoryId === null
           ? undefined
           : (await store.get(caller.ownerId, agentId))?.active_release
-              ?.policy_pins.github;
+              ?.policy_pins.github);
       const identity = {
         // As stored: PostgreSQL returns a uuid in lower case.
         agent_id: version.agent_id,

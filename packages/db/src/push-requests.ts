@@ -22,7 +22,13 @@ import {
   lockIdempotencyScope,
 } from "./control-shared.ts";
 import type { Database } from "./queries.ts";
-import { idempotencyKeys, pushRequests, receipts, sessions } from "./schema.ts";
+import {
+  agentReleases,
+  idempotencyKeys,
+  pushRequests,
+  receipts,
+  sessions,
+} from "./schema.ts";
 
 type Row = typeof pushRequests.$inferSelect;
 
@@ -119,8 +125,15 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
   return {
     async findSession(ownerId, sessionId) {
       const [row] = await db
-        .select({ repositoryId: sessions.repositoryId })
+        .select({
+          repositoryId: sessions.repositoryId,
+          releaseId: agentReleases.id,
+          // Only an explicit false: a release without GitHub settings, or
+          // with a shape this image does not know, keeps a person deciding.
+          approvalOff: sql<boolean>`coalesce(${agentReleases.policyPins} -> 'github' -> 'push_approval' = 'false'::jsonb, false)`,
+        })
         .from(sessions)
+        .leftJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
         .where(
           and(
             eq(sessions.id, sessionId.toLowerCase()),
@@ -128,7 +141,12 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
           ),
         )
         .limit(1);
-      return row ?? null;
+      if (row === undefined) return null;
+      return {
+        repositoryId: row.repositoryId,
+        approvalOffRelease:
+          row.approvalOff && row.releaseId !== null ? row.releaseId : null,
+      };
     },
 
     recordRefusal(input) {
@@ -222,6 +240,41 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
           payloadHash: input.payloadHash,
           receiptId,
         });
+        // A release that pushes without a person's approval decides here,
+        // in the request's own transaction (design github-agent.md
+        // decision 6); the executor sees an approved row as for any other.
+        const policy =
+          input.approvedByRelease === null
+            ? null
+            : {
+                decider: {
+                  kind: "policy",
+                  agent_release_id: input.approvedByRelease,
+                } satisfies PushDecider,
+                receiptId: randomUUID(),
+              };
+        if (policy !== null) {
+          await tx.insert(receipts).values({
+            id: policy.receiptId,
+            ownerId: input.ownerId,
+            operation: "decide_push",
+            targetRef: { session_id: sessionId, turn_id: null, request_id: id },
+            status: "succeeded",
+            result: {
+              push_request_id: id,
+              decision: "approve",
+              verdict: "allow",
+              refusal: null,
+              repository_id: input.repositoryId,
+              checkpoint_revision: input.checkpointRevision,
+              git_commit: input.gitCommit,
+              target_branch: targetBranch,
+              approved_by: policy.decider,
+            } satisfies PushReceiptResult,
+            // No one decided: the release's policy did.
+            actor: null,
+          });
+        }
         const [row] = await tx
           .insert(pushRequests)
           .values({
@@ -235,6 +288,14 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
             targetBranch,
             requestedBy: input.actor,
             requestReceiptId: receiptId,
+            ...(policy === null
+              ? {}
+              : {
+                  state: "approved",
+                  decidedBy: policy.decider,
+                  decidedAt: sql`now()`,
+                  decisionReceiptId: policy.receiptId,
+                }),
           })
           .returning();
         if (!row) throw new Error("push request insert returned no row");
@@ -470,6 +531,8 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
             remote_ref: outcome.remoteRef ?? null,
             previous_commit: pushed ? outcome.previousCommit : null,
             approved_by: (row.decidedBy as PushDecider | null) ?? null,
+            reason_code:
+              outcome.state === "failed" ? (outcome.reasonCode ?? null) : null,
           } satisfies PushReceiptResult,
           error,
         });

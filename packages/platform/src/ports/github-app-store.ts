@@ -1,4 +1,8 @@
-import type { GitHubAppCheckFailure, GitHubAppRole } from "@werft-ai/contracts";
+import type {
+  GitHubAppCheckFailure,
+  GitHubAppPermissions,
+  GitHubAppRole,
+} from "@werft-ai/contracts";
 import type { RepoRef } from "./forge.ts";
 import type { SecretAudit } from "./secret-store.ts";
 
@@ -8,10 +12,15 @@ export type GitHubAppProfile = {
   slug: string;
   name: string;
   htmlUrl: string;
+  /** What the App asks for (`GET /app`'s `permissions`). */
+  permissions: GitHubAppPermissions;
 };
 
 /** The workspace's GitHub App as stored, without its private key. */
-export type GitHubAppRecord = GitHubAppProfile & {
+export type GitHubAppRecord = Omit<GitHubAppProfile, "permissions"> & {
+  /** Null on a row an earlier image wrote, until the next read. */
+  permissions: GitHubAppPermissions | null;
+  permissionsCheckedAt: Date | null;
   /** The row's own id; the private key is sealed under it. */
   id: string;
   workspaceId: string;
@@ -66,6 +75,11 @@ export interface GitHubAppStore {
     role: GitHubAppRole,
     audit: SecretAudit,
   ): Promise<DeleteGitHubAppResult>;
+  /** Keeps a later read of the App's permissions on the row `id` names. */
+  recordPermissions(
+    id: string,
+    permissions: GitHubAppPermissions,
+  ): Promise<void>;
   /** Every registered App of `role` with its key, or one workspace's. */
   credentials(
     role: GitHubAppRole,

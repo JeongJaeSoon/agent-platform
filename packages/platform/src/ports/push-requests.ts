@@ -1,6 +1,7 @@
 import type {
   ApiErrorCode,
   PushDecision,
+  PushReasonCode,
   PushReceiptResult,
   PushRefusal,
   PushRequest,
@@ -83,6 +84,10 @@ export const PUSH_REFUSAL_ERRORS: Record<
     message: "The repository host did not take the push",
   },
   github_settings_unsupported: GITHUB_SETTINGS_UNSUPPORTED,
+  github_refused: {
+    code: "GITHUB_REFUSED",
+    message: "The GitHub gate refused the push",
+  },
 };
 
 export type PushOperation = "request_push" | "decide_push";
@@ -107,6 +112,11 @@ export type CreatePushRequestInput = {
   repositoryBinding: string;
   checkpointRevision: number;
   gitCommit: string;
+  /**
+   * The release pushes without a person's approval: the request is approved
+   * in the same transaction, decided by that release's policy.
+   */
+  approvedByRelease: string | null;
 };
 
 export type DecidePushRequestInput = {
@@ -153,6 +163,7 @@ export type PushOutcome =
   | {
       state: "failed";
       refusal: PushRefusal;
+      reasonCode?: PushReasonCode;
       /** Set once the remote is known, so the receipt can name it. */
       remoteUrl?: string;
       remoteRef?: string;
@@ -163,7 +174,11 @@ export interface PushRequestStore {
   findSession(
     ownerId: string,
     sessionId: string,
-  ): Promise<{ repositoryId: string | null } | null>;
+  ): Promise<{
+    repositoryId: string | null;
+    /** The release, when it pins `github.push_approval: false`. */
+    approvalOffRelease: string | null;
+  } | null>;
   /** Writes the refusal receipt and returns its id. */
   recordRefusal(input: PushRefusalRecord): Promise<string>;
   /**

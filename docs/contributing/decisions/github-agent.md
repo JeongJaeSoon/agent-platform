@@ -117,7 +117,7 @@ GitHub 토큰 하나가 가질 권한은 아래 다섯의 교집합이고, **발
 
 | operation | 언제 | actor | result |
 |---|---|---|---|
-| `mint_github_token` (새) | 게이트가 GitHub에 **새로** 토큰을 발급받았을 때. 캐시에서 꺼낸 것은 남기지 않는다 | 그 작업의 actor. clone은 세션 시작자, 없으면 `principal: { kind: "service", id: "gateway" }` | `session_id`, `agent_id`, `agent_release_id`, `repository_id`, `role`(`author`·`reviewer`), `app_id`, `permissions`, `purpose`(`clone`·`push`·`pull_request`·`actions_read`·`dispatch`·`rerun`·`review`·`outcome_refresh`), `expires_at` |
+| `mint_github_token` (새) | 게이트가 GitHub에 **새로** 토큰을 발급받았을 때. 캐시에서 꺼낸 것은 남기지 않는다 | 그 작업의 actor. clone은 세션 시작자, push 실행기는 없음(null). 시작자가 없으면 null([GA-2에서 정한 것](#ga-2에서-정한-것)) | `session_id`, `agent_id`, `agent_release_id`, `repository_id`, `role`(`author`·`reviewer`), `app_id`, `permissions`, `purpose`(`clone`·`push`·`pull_request`·`actions_read`·`dispatch`·`rerun`·`review`·`outcome_refresh`), `expires_at` |
 | 게이트의 거절 | 발급 전에 거절했을 때 | 같음 | 같은 칸 + `reason_code`. status `failed` |
 | `set_github_app` (있음) | 등록·교체 | 사람 | `app_id`에 `role`, `permissions`, `warnings`를 더한다 |
 | `delete_github_app` (있음) | 삭제 | 사람 | `app_id`, `role` |
@@ -127,7 +127,7 @@ GitHub 토큰 하나가 가질 권한은 아래 다섯의 교집합이고, **발
 | `review_pull_request` (새) | 리뷰 제출과 그 거절 | 세션 작업의 actor | `session_id`, `agent_id`, `repository_id`, `number`, `commit_id`, `event`(`APPROVE`·`REQUEST_CHANGES`·`COMMENT`), `review_id`, PR을 연 `opened_by_session_id`·`opened_by_agent_id`(플랫폼이 연 PR이면) |
 | `dispatch_workflow`·`rerun_workflow` (새) | dispatch·rerun과 그 거절 | 같음 | `workflow`, `ref` 또는 `run_id`, `allowed_by`(맞은 목록 항목) |
 | `link_account`·`unlink_account` (있음) | GitHub 연결·해제 | 본인 | `provider: "github"`, `external_user_id`, `login` |
-| `decide_push` (있음) | push 승인을 끈 릴리스의 자동 승인 | `principal: { kind: "service", id: "policy" }` | `agent_release_id` |
+| `decide_push` (있음) | push 승인을 끈 릴리스의 자동 승인 | null. `approved_by`의 policy decider가 누구인지 말한다 | `agent_release_id` |
 
 - receipt는 토큰 값을 싣지 않는다. 지금 forge가 오류에 요청 헤더를 남기지 않는 규칙(`forge-github.ts:642-660`)을 그대로 따른다. GitHub 오류 원문, dispatch `inputs`의 값, 리뷰 본문도 싣지 않는다. 상태, 플랫폼의 `reason_code`, 위 표의 칸만 싣는다.
 - **선행 수정.** 에이전트별 감사를 하려면 receipt의 `agent_id`가 채워져야 한다. 지금은 늘 null이다(`policy.ts:43-50`). GA-1에서 `receiptActorOf`가 caller의 에이전트 key의 `agent_id`를 싣게 고친다. **`actor.agent_id`는 호출자 key에서만 채운다**("누가 했나"). 사람이 부르면 null이고, 다른 에이전트의 key가 불렀으면 그 에이전트다. 위 표의 `result.agent_id`는 세션 릴리스에서 채운다("어느 에이전트의 세션인가"). 둘은 다를 수 있고, 게이트가 actor 쪽을 세션 릴리스로 덮어쓰지 않는다. 내장 MCP 호출의 actor는 GA-7이 정한다([9절](#9-구현-pr-분할)).
@@ -191,6 +191,19 @@ export interface GitHubGate {
 - **발급은 게이트 안에만 있다.** 지금 `ForgeAdapter`는 메서드마다 스스로 자격 증명을 얻는다(`call()`이 `credential()`을 부른다, `forge-github.ts:179-191`). PR 조회·생성, 저장소 조회, 코멘트가 모두 이 경로다. GA-2는 이 발급 함수(`issuer`, `forge-github.ts:407-460`)와 캐시(`forge-github.ts:152-177`)를 게이트 구현 안으로 옮긴다. REST 메서드는 `GitHubGrant.api`로 옮겨 받은 자격 증명만 쓰게 한다. 그래서 게이트를 거치지 않고 토큰을 얻는 코드 경로가 남지 않는다. 캐시는 지금처럼 **연결마다 따로** 둔다. 지금 캐시 키(`owner/name|permissions`, `forge-github.ts:156-159`)에는 GitHub 서버가 없고, 격리는 연결마다 forge를 따로 만드는 것(`forge-github.ts:722-736`)이 해 준다. 게이트도 연결(콘솔 행 id와 role, 또는 카탈로그 저장소의 `api_base`·`app_id`·`installation_id`)마다 발급기와 캐시 한 벌을 두고, 그 안의 키는 지금 그대로 쓴다. 콘솔 연결 행이 바뀌면 그 연결의 캐시를 통째로 버린다(지금 `createRegisteredGitHubForge`가 연결이 바뀌면 forge를 새로 만드는 것과 같다). GA-2 테스트: 서로 다른 `api_base`에서 같은 App id·같은 저장소 이름을 쓰는 두 연결이 서로의 토큰을 받지 않는다. 캐시에서 꺼낸 토큰을 줄 때도 1~5단계는 매번 다시 한다(`outcome_refresh`는 위 예외의 단계만).
 - **카탈로그 App 저장소**(`app_id`를 적은 저장소)도 같은 게이트를 지난다. 그 저장소의 `author` 연결은 카탈로그의 App이고 `reviewer` 연결은 없다. 그래서 리뷰는 `no_reviewer_app`이다. App 권한은 그 App의 `GET /app`을 처음 발급할 때 한 번 읽어 메모리에 둔다. 카탈로그의 `api_base`가 github.com API가 아닌 저장소(GHES)는 **기본 작업**(`clone`·`push`·`pull_request`)과 `outcome_refresh`만 받는다. 그 밖의 purpose(`actions_read`·`dispatch`·`rerun`·`review`)는 게이트 4단계에서 `409` `reason_code: github_host_unsupported`로 거절한다. 탭은 그 저장소만 고른 에이전트에서 선택 권한을 같은 이유로 비활성으로 보인다. GA-2 테스트: GHES 카탈로그 저장소 세션의 clone·push·PR은 지금처럼 되고 dispatch는 `github_host_unsupported`다.
 - **PAT 저장소**(`kind: basic`, github.com)는 권한을 좁힐 수 없다. `github` 설정이 없는 릴리스(와 릴리스 없는 세션)만 기본 작업(clone·push·PR)을 지금처럼 한다. 선택 권한 작업은 모두 `app_required`로 거절한다. `outcome_refresh`는 릴리스와 상관없이 PAT로 읽는다. 이때 자격 증명은 좁혀지지 않고, 플랫폼이 부르는 호출만 읽기(`GET …/pulls/{n}`)다. `github` 설정이 있는 릴리스는 PAT 저장소를 고를 수 없다([결정 3](#결정-3-workflows-권한)).
+
+### GA-2에서 정한 것
+
+구현하면서 위 설명과 달라지거나 위에서 정하지 않은 것을 여기 둔다. 위 문단과 이 목록이 다르면 이 목록이 맞다.
+
+- **놓인 곳.** 게이트의 판정(`createGitHubGate`)은 `packages/platform/src/sessions/github-gate.ts`에 있고, 포트는 `packages/platform/src/ports/github-gate.ts`다. control-host는 연결만 준다. `forge-github.ts`의 `createGitHubConnection`이 연결 하나(발급기, 토큰 캐시, 그 자격 증명에 묶인 REST 호출)이고, `connectionsOf`가 저장소마다 연결을 고른다. `ForgeAdapter`·`ForgeResolver`는 없앴다. 그래서 control-host에도 게이트를 거치지 않고 토큰을 얻는 경로가 없다.
+- **GitHub가 아닌 저장소.** 연결이 없고 `github_app` 인증도 아닌 저장소(Gitea, PAT의 GHES, bearer, 공개)는 1단계 다음에 바로 `null`을 돌려주고 호출자가 카탈로그의 자격 증명을 그대로 쓴다. 스위치·범위를 보지 않는다. GitHub 설정은 GitHub 저장소에만 뜻이 있고, 릴리스 검증이 GitHub App 저장소가 아닌 곳의 `github`를 `app_required`로 막기 때문이다.
+- **receipt actor.** receipt의 principal 종류는 `api_key`·`user`·`installation`뿐이다(`receiptActorSchema`). 표의 `{ kind: "service" }` 대신, 사람이 없는 작업(push 실행기의 발급, 정책의 자동 승인)은 actor를 null로 둔다. 자동 승인은 `decided_by: { kind: "policy", agent_release_id }`와 receipt result의 `approved_by`로 알 수 있다. clone은 세션 시작자, 시작자가 없으면 null이다.
+- **ref를 적지 않은 허용 목록 항목.** "기본 브랜치"는 GitHub에 묻지 않고 카탈로그 항목의 `branch`로 정한다. 게이트가 GitHub를 부르기 전에 판정해야 해서다.
+- **상한 밖의 `workflows`.** 릴리스가 `workflows`를 켰어도 상한이 막으면 push 토큰에서 `workflows: write`만 빠지고 push 자체는 거절하지 않는다. 그 push가 워크플로 파일을 바꾸면 GitHub가 거절하고 `workflows_permission_missing`이 된다.
+- **HTTP 상태.** `GITHUB_REFUSED`는 정책 거절(`github_disabled`, `repository_not_allowed`, `feature_off`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`)이면 `403`, 나머지는 `409`다(`githubRefusalStatus`). 세션 생성의 저장소 범위 거절도 `403` `repository_not_allowed`이고 receipt는 없다(`receipt_id: null`).
+- **clone 거절이 보이는 곳.** proxy와 worker의 동작은 바꾸지 않는다(clone 재허가가 `GITHUB_REFUSED`로 실패한다). 이유는 게이트의 거절 receipt(`mint_github_token`, `target_ref.session_id`)로 세션 상세의 receipt 목록에서 보인다.
+- **GA-2가 하지 않은 것.** `GET …/github-settings`의 OAuth 칸(GA-4), 저장소별 설치 권한을 응답에 싣는 것과 `…/github-apps/{role}` 경로(GA-5), 활성화·릴리스 생성 receipt의 `github` result(GA-3)다. App 권한은 지금 `…/github-app`(작성용)의 등록과 `GET` 때 읽어 행에 두고, 응답의 `github_app`에 `permissions`·`permissions_checked_at`·`warnings`를 싣는다.
 
 ### 작업별 권한
 

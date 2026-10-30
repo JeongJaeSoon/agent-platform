@@ -3,7 +3,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { sanitizeFields } from "@werft-ai/observability";
 import { ForgeCredentialError } from "@werft-ai/platform";
 import { type FakeGitHub, startFakeGitHub } from "@werft-ai/testkit";
-import { createGitHubForge, RATE_LIMIT_RETRIES } from "./forge-github.ts";
+import { createGitHubConnection, RATE_LIMIT_RETRIES } from "./forge-github.ts";
 
 const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const privateKey = keys.privateKey
@@ -14,6 +14,7 @@ const publicKey = keys.publicKey
   .toString();
 const repo = { owner: "acme", name: "app" };
 const head = "agent/0b9a2f3e-5c4d-4e6f-8a7b-9c0d1e2f3a4b";
+const PULLS = { contents: "read", pull_requests: "write" } as const;
 
 let github: FakeGitHub;
 beforeAll(async () => {
@@ -25,25 +26,39 @@ afterAll(async () => {
   await github.stop();
 });
 
-function appForge() {
+async function appForge() {
   const warnings: Array<Record<string, unknown>> = [];
-  const forge = createGitHubForge({
+  const connection = createGitHubConnection({
     apiBase: github.origin,
     credentials: { kind: "app", appId: 101, installationId: 202, privateKey },
     logger: {
-      warn: (message, fields) => warnings.push({ message, ...fields }),
+      warn: (message: string, fields?: Record<string, unknown>) =>
+        warnings.push({ message, ...fields }),
     },
     retryAfterBaseMs: 1,
     paced: false,
   });
-  return { forge, warnings };
+  const { credential } = await connection.credential(repo, PULLS);
+  return { forge: connection.api(repo, credential), connection, warnings };
 }
 
-describe("GitHub forge pull requests", () => {
+/** A PAT connection's API against a stub server on `port`. */
+async function patForge(port: number | undefined) {
+  const connection = createGitHubConnection({
+    apiBase: `http://127.0.0.1:${port}`,
+    credentials: { kind: "token", username: "x", password: "pat-test" },
+    retryAfterBaseMs: 1,
+    paced: false,
+  });
+  const { credential } = await connection.credential(repo, PULLS);
+  return connection.api(repo, credential);
+}
+
+describe("GitHub pull requests", () => {
   test("opens a pull request with a token for that one repository and pull_requests:write, and finds it again", async () => {
-    const { forge } = appForge();
     const tokensBefore = github.tokenRequests.length;
-    const opened = await forge.createPullRequest(repo, {
+    const { forge } = await appForge();
+    const opened = await forge.createPullRequest({
       head,
       base: "main",
       title: "Agent result",
@@ -74,10 +89,10 @@ describe("GitHub forge pull requests", () => {
       }),
     ]);
 
-    expect(await forge.findPullRequestForBranch(repo, head)).toEqual(opened);
-    expect(await forge.findPullRequestForBranch(repo, "agent/none")).toBeNull();
+    expect(await forge.findPullRequestForBranch(head)).toEqual(opened);
+    expect(await forge.findPullRequestForBranch("agent/none")).toBeNull();
     expect(
-      await forge.createPullRequest(repo, {
+      await forge.createPullRequest({
         head,
         base: "main",
         title: "again",
@@ -89,9 +104,9 @@ describe("GitHub forge pull requests", () => {
   });
 
   test("a refused create logs GitHub's reason, not only its status", async () => {
-    const { forge, warnings } = appForge();
+    const { forge, warnings } = await appForge();
     const error = await forge
-      .createPullRequest(repo, {
+      .createPullRequest({
         head: "agent/missing",
         base: "main",
         title: "nowhere",
@@ -115,7 +130,7 @@ describe("GitHub forge pull requests", () => {
   });
 
   test("an open pull request is found even when a newer one for the branch is closed", async () => {
-    const { forge } = appForge();
+    const { forge } = await appForge();
     const pulls = github.pullRequests("acme", "app");
     pulls.push({
       number: 99,
@@ -127,7 +142,7 @@ describe("GitHub forge pull requests", () => {
       html_url: `${github.origin}/acme/app/pull/99`,
     });
     try {
-      expect(await forge.findPullRequestForBranch(repo, head)).toMatchObject({
+      expect(await forge.findPullRequestForBranch(head)).toMatchObject({
         number: 1,
         state: "open",
       });
@@ -137,11 +152,17 @@ describe("GitHub forge pull requests", () => {
   });
 
   test("a pull request token is not the contents token, and neither is reused for the other", async () => {
-    const { forge } = appForge();
+    const fresh = createGitHubConnection({
+      apiBase: github.origin,
+      credentials: { kind: "app", appId: 101, installationId: 202, privateKey },
+      retryAfterBaseMs: 1,
+      paced: false,
+    });
     const before = github.tokenRequests.length;
-    await forge.gitCredential(repo, "write");
-    await forge.findPullRequestForBranch(repo, head);
-    await forge.gitCredential(repo, "write");
+    await fresh.credential(repo, { contents: "write" });
+    const { credential } = await fresh.credential(repo, PULLS);
+    await fresh.api(repo, credential).findPullRequestForBranch(head);
+    await fresh.credential(repo, { contents: "write" });
     expect(
       github.tokenRequests.slice(before).map((asked) => asked.body),
     ).toEqual([
@@ -154,17 +175,16 @@ describe("GitHub forge pull requests", () => {
   });
 
   test("upserts one comment per marker", async () => {
-    const { forge } = appForge();
+    const { forge } = await appForge();
     const marker = "<!-- agent-platform:s:status -->";
-    const first = await forge.upsertComment(repo, 1, marker, "Running.");
+    const first = await forge.upsertComment(1, marker, "Running.");
     expect(first.created).toBe(true);
     const other = await forge.upsertComment(
-      repo,
       1,
       "<!-- agent-platform:s:other -->",
       "Elsewhere.",
     );
-    const second = await forge.upsertComment(repo, 1, marker, "Done.");
+    const second = await forge.upsertComment(1, marker, "Done.");
     expect(second).toEqual({ id: first.id, url: first.url, created: false });
     expect(github.comments("acme", "app", 1)).toEqual([
       expect.objectContaining({ id: first.id, body: `Done.\n\n${marker}` }),
@@ -173,11 +193,11 @@ describe("GitHub forge pull requests", () => {
   });
 
   test("two first comments for one marker at once leave one comment", async () => {
-    const { forge } = appForge();
+    const { forge } = await appForge();
     const marker = "<!-- agent-platform:s:racing -->";
     const [a, b] = await Promise.all([
-      forge.upsertComment(repo, 1, marker, "One."),
-      forge.upsertComment(repo, 1, marker, "Two."),
+      forge.upsertComment(1, marker, "One."),
+      forge.upsertComment(1, marker, "Two."),
     ]);
     expect([a.created, b.created]).toEqual([true, false]);
     expect(
@@ -190,12 +210,12 @@ describe("GitHub forge pull requests", () => {
   });
 
   test("a marker someone else pasted is left alone", async () => {
-    const { forge } = appForge();
+    const { forge } = await appForge();
     const marker = "<!-- agent-platform:s:pasted -->";
     const pasted = github.addComment("acme", "app", 1, `Copied ${marker}`);
-    const ours = await forge.upsertComment(repo, 1, marker, "Running.");
+    const ours = await forge.upsertComment(1, marker, "Running.");
     expect(ours.created).toBe(true);
-    expect(await forge.upsertComment(repo, 1, marker, "Done.")).toEqual({
+    expect(await forge.upsertComment(1, marker, "Done.")).toEqual({
       ...ours,
       created: false,
     });
@@ -224,14 +244,9 @@ describe("GitHub forge pull requests", () => {
       },
     });
     try {
-      const forge = createGitHubForge({
-        apiBase: `http://127.0.0.1:${stub.port}`,
-        credentials: { kind: "token", username: "x", password: "pat-test" },
-        retryAfterBaseMs: 1,
-        paced: false,
-      });
+      const forge = await patForge(stub.port);
       await expect(
-        forge.upsertComment(repo, 1, "<!-- agent-platform:s:x -->", "Hi"),
+        forge.upsertComment(1, "<!-- agent-platform:s:x -->", "Hi"),
       ).rejects.toBeInstanceOf(ForgeCredentialError);
       expect(seen).toEqual(Array(10).fill("GET"));
     } finally {
@@ -251,14 +266,9 @@ describe("GitHub forge pull requests", () => {
       },
     });
     try {
-      const forge = createGitHubForge({
-        apiBase: `http://127.0.0.1:${stub.port}`,
-        credentials: { kind: "token", username: "x", password: "pat-test" },
-        retryAfterBaseMs: 1,
-        paced: false,
-      });
+      const forge = await patForge(stub.port);
       await expect(
-        forge.upsertComment(repo, 1, "<!-- agent-platform:s:y -->", "Hi"),
+        forge.upsertComment(1, "<!-- agent-platform:s:y -->", "Hi"),
       ).rejects.toBeInstanceOf(ForgeCredentialError);
       expect(seen).toEqual(["GET", "POST"]);
     } finally {
@@ -285,13 +295,8 @@ describe("GitHub forge pull requests", () => {
       },
     });
     try {
-      const forge = createGitHubForge({
-        apiBase: `http://127.0.0.1:${stub.port}`,
-        credentials: { kind: "token", username: "x", password: "pat-test" },
-        retryAfterBaseMs: 1,
-        paced: false,
-      });
-      expect(await forge.upsertComment(repo, 1, marker, "Done.")).toEqual({
+      const forge = await patForge(stub.port);
+      expect(await forge.upsertComment(1, marker, "Done.")).toEqual({
         id: 2,
         url: "h/2",
         created: false,
@@ -307,13 +312,13 @@ describe("GitHub forge pull requests", () => {
   });
 
   test("waits out a secondary rate limit by retry-after and a primary one by x-ratelimit-reset", async () => {
-    const { forge, warnings } = appForge();
-    await forge.findPullRequestForBranch(repo, head);
+    const { forge, warnings } = await appForge();
+    await forge.findPullRequestForBranch(head);
     const before = github.apiRequests.length;
     github.rateLimitNext(1, "secondary", 1);
-    expect(await forge.findPullRequestForBranch(repo, head)).not.toBeNull();
+    expect(await forge.findPullRequestForBranch(head)).not.toBeNull();
     github.rateLimitNext(1, "primary", 1);
-    expect(await forge.findPullRequestForBranch(repo, head)).not.toBeNull();
+    expect(await forge.findPullRequestForBranch(head)).not.toBeNull();
     expect(github.apiRequests.slice(before).map((r) => r.status)).toEqual([
       403, 200, 429, 200,
     ]);
@@ -330,12 +335,12 @@ describe("GitHub forge pull requests", () => {
   });
 
   test("gives up after a bounded number of rate-limited retries, and a long wait is not taken", async () => {
-    const { forge, warnings } = appForge();
-    await forge.findPullRequestForBranch(repo, head);
+    const { forge, warnings } = await appForge();
+    await forge.findPullRequestForBranch(head);
     const before = github.apiRequests.length;
     github.rateLimitNext(10, "secondary", 1);
     const error = await forge
-      .findPullRequestForBranch(repo, head)
+      .findPullRequestForBranch(head)
       .catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ForgeCredentialError);
     expect((error as Error).message).toBe(
@@ -345,7 +350,7 @@ describe("GitHub forge pull requests", () => {
 
     github.rateLimitNext(1, "secondary", 3600);
     const waited = await forge
-      .findPullRequestForBranch(repo, head)
+      .findPullRequestForBranch(head)
       .catch((e: unknown) => e);
     expect(waited).toBeInstanceOf(ForgeCredentialError);
     expect(warnings.at(-2)).toMatchObject({

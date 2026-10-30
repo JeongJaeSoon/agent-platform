@@ -58,12 +58,16 @@ import {
   deleteSlackAppResponseSchema,
   deleteSlackSecretResponseSchema,
   deleteTeamResponseSchema,
+  dispatchWorkflowRequestSchema,
+  dispatchWorkflowResponseSchema,
   getGitHubAppResponseSchema,
   getReceiptResponseSchema,
   getSessionResponseSchema,
   getSlackAppManifestResponseSchema,
   getSlackAppResponseSchema,
   getTurnResponseSchema,
+  githubSettingsResponseSchema,
+  githubWorkflowRunSchema,
   googleLoginCallbackRequestSchema,
   healthResponseSchema,
   installationLimitsResponseSchema,
@@ -126,6 +130,7 @@ import {
   pushRequestSchema,
   putGitHubAppRequestSchema,
   putGitHubAppResponseSchema,
+  putGitHubSettingsRequestSchema,
   putSlackBindingRequestSchema,
   putSlackBindingResponseSchema,
   putSlackConfigTokenResponseSchema,
@@ -136,6 +141,8 @@ import {
   receiptIdParamsSchema,
   recoveryDecisionRequestSchema,
   requestBodyInvalidDetailsSchema,
+  rerunWorkflowRequestSchema,
+  rerunWorkflowResponseSchema,
   resumeSessionRequestSchema,
   revokeAgentIdentityResponseSchema,
   revokeApiKeyResponseSchema,
@@ -198,6 +205,7 @@ import {
   usageToolsQuerySchema,
   usageToolsResponseSchema,
   WEB_SESSION_COOKIE_NAME,
+  workflowRunParamsSchema,
   workspaceParamsSchema,
   workspaceProfileChangeResponseSchema,
   workspaceProfileIdParamsSchema,
@@ -253,6 +261,9 @@ const requestComponents = {
   DecidePushRequestRequest: decidePushRequestRequestSchema,
   OpenPullRequestRequest: openPullRequestRequestSchema,
   CommentPullRequestRequest: commentPullRequestRequestSchema,
+  DispatchWorkflowRequest: dispatchWorkflowRequestSchema,
+  RerunWorkflowRequest: rerunWorkflowRequestSchema,
+  PutGitHubSettingsRequest: putGitHubSettingsRequestSchema,
   BootstrapRequest: bootstrapRequestSchema,
   LoginRequest: loginRequestSchema,
   PasswordResetRequest: passwordResetRequestSchema,
@@ -324,6 +335,10 @@ const responseComponents = {
   ListPushRequestsResponse: listPushRequestsResponseSchema,
   OpenPullRequestResponse: openPullRequestResponseSchema,
   CommentPullRequestResponse: commentPullRequestResponseSchema,
+  DispatchWorkflowResponse: dispatchWorkflowResponseSchema,
+  GitHubWorkflowRun: githubWorkflowRunSchema,
+  RerunWorkflowResponse: rerunWorkflowResponseSchema,
+  GitHubSettingsResponse: githubSettingsResponseSchema,
   ReceiptAcceptedResponse: receiptAcceptedResponseSchema,
   TerminateSessionResponse: terminateSessionResponseSchema,
   Receipt: getReceiptResponseSchema,
@@ -432,6 +447,11 @@ export const OPENAPI_TAGS = [
       "Ask for a session's result to be pushed to its `agent/<session-id>` branch, and approve or reject that push.",
   },
   {
+    name: "GitHub work",
+    description:
+      "Start, read and rerun GitHub Actions runs in a session's repository, as the agent's release and the workspace ceiling allow.",
+  },
+  {
     name: "Session control",
     description:
       "Stop, pause, resume, close or interrupt a session's execution.",
@@ -501,6 +521,7 @@ export const OPENAPI_TAG_GROUPS = [
       "Pending requests",
       "Session control",
       "Push requests",
+      "GitHub work",
     ],
   },
   {
@@ -1276,6 +1297,97 @@ export const API_ROUTE_DECLARATIONS = [
       BACKEND_UNAVAILABLE:
         "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
     },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/workspaces/{id}/github-settings",
+    operationId: "getGitHubSettings",
+    tag: "Workspace settings",
+    summary: "The workspace's GitHub ceiling (members)",
+    description:
+      "What the workspace lets its agents turn on beyond writing a pull request: `workflows`, `actions`, `checks`, `issues`, `review`, all false until an owner or admin saves the ceiling (`revision` 0 until then). An agent's release may turn a feature on only under the ceiling, and every GitHub token is cut to the ceiling again when it is issued. `agents_using` counts, per feature, agents with GitHub on whose active release turns it on; sessions still running an earlier release are not counted. `apps` has each registered App's permissions as last read from GitHub. Any member signed in to the console reads it; API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "GitHubSettingsResponse",
+      description: "The ceiling and who uses it.",
+      example: {
+        ceiling: {
+          workflows: false,
+          actions: true,
+          checks: false,
+          issues: false,
+          review: false,
+        },
+        revision: 3,
+        agents_using: {
+          workflows: 0,
+          actions: 2,
+          checks: 0,
+          issues: 0,
+          review: 0,
+        },
+        apps: {
+          author: {
+            permissions: {
+              contents: "write",
+              pull_requests: "write",
+              actions: "write",
+              metadata: "read",
+            },
+          },
+          reviewer: null,
+        },
+      },
+    },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "put",
+    path: "/v1/workspaces/{id}/github-settings",
+    operationId: "putGitHubSettings",
+    tag: "Workspace settings",
+    summary: "Change the workspace's GitHub ceiling (owner or admin)",
+    description:
+      "Replaces the ceiling. `revision` is the one last read; a stale one is 409 `REVISION_CONFLICT` and nothing changes. Lowering a feature refuses it from the next GitHub token on (409 `GITHUB_REFUSED` `over_workspace_ceiling`), for sessions of every release that turns it on; raising it lets the same releases use it again. Writes a `set_github_ceiling` receipt with the ceiling before and after. API keys are refused.",
+    auth: "session",
+    body: "PutGitHubSettingsRequest",
+    requestExample: {
+      ceiling: {
+        workflows: false,
+        actions: true,
+        checks: false,
+        issues: false,
+        review: false,
+      },
+      revision: 2,
+    },
+    success: {
+      status: 200,
+      schema: "GitHubSettingsResponse",
+      description: "Stored; the settings as GET now answers them.",
+      example: {
+        ceiling: {
+          workflows: false,
+          actions: true,
+          checks: false,
+          issues: false,
+          review: false,
+        },
+        revision: 3,
+        agents_using: {
+          workflows: 0,
+          actions: 2,
+          checks: 0,
+          issues: 0,
+          review: 0,
+        },
+        apps: { author: { permissions: null }, reviewer: null },
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
     idempotent: false,
   },
   {
@@ -2153,7 +2265,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Push requests",
     summary: "Open a pull request from a pushed request",
     description:
-      "Opens a pull request on the repository's forge (GitHub or GHES) from the request's branch `agent/<session-id>` into the catalog entry's `branch`. Only a `pushed` request opens one, and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`, or the entry's PAT.\n\n`title` (default `Agent session <session-id>`) and `body` are cleaned before GitHub sees them: `@` mentions, cross-repository references (`owner/repo#N`), closing keywords (`Closes #N` and the like) and HTML comments are broken with a zero-width space, a line that looks like a secret is replaced by `[REDACTED]`, and both are cut to GitHub's limits. The body ends with a line naming the session and the commit. The platform never approves, merges or asks for reviews.\n\nSafe to retry: a request opens at most one pull request. When one is already recorded, or GitHub already has an open one for the branch, it is answered with `created: false` (200). Every attempt, refused ones included, leaves an `open_pull_request` receipt; `receipt_id` names this one, and a refusal's `error.details.receipt_id` names it.\n\nOnly a verified credential that holds `sessions:approve` opens one: an API key or a signed-in user, as for a push decision. Worker credentials are not accepted on `/v1` (401).",
+      "Opens a pull request on the repository's forge (GitHub or GHES) from the request's branch `agent/<session-id>` into the catalog entry's `branch`. Only a `pushed` request opens one, and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`, or the entry's PAT.\n\n`title` (default `Agent session <session-id>`) and `body` are cleaned before GitHub sees them: `@` mentions, cross-repository references (`owner/repo#N`), closing keywords (`Closes #N` and the like) and HTML comments are broken with a zero-width space, a line that looks like a secret is replaced by `[REDACTED]`, and both are cut to GitHub's limits. The body ends with a line naming the session and the commit. The platform never approves, merges or asks for reviews.\n\nSafe to retry: a request opens at most one pull request. When one is already recorded, or GitHub already has an open one for the branch, it is answered with `created: false` (200). Every attempt, refused ones included, leaves an `open_pull_request` receipt; `receipt_id` names this one, and a refusal's `error.details.receipt_id` names it.\n\nA verified credential that holds `sessions:approve` opens one, as for a push decision. One that holds only `sessions:submit` (an agent's key) opens one too, since the request was already pushed. The token is issued through the agent's GitHub settings: with GitHub off for the agent, or the repository outside its release, the call is refused with `GITHUB_REFUSED`. Worker credentials are not accepted on `/v1` (401).",
     scope: "approve",
     scopeCheckedBy: "service",
     idempotent: false,
@@ -2172,12 +2284,12 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errors: [...CONFLICTS, 403, 413, 503],
     errorCodes: {
-      403: ["FORBIDDEN"],
-      409: ["PUSH_NOT_PUSHED", "CATALOG_MISMATCH"],
+      403: ["FORBIDDEN", "GITHUB_REFUSED"],
+      409: ["PUSH_NOT_PUSHED", "CATALOG_MISMATCH", "GITHUB_REFUSED"],
     },
     errorNotes: {
       FORBIDDEN:
-        "Also when the principal may not decide pushes, the deployment does not authenticate callers (`AUTH_MODE=none`), or the repository has no GitHub credential (an App or a github.com PAT).",
+        "Also when the principal holds neither `sessions:approve` nor `sessions:submit`, the deployment does not authenticate callers (`AUTH_MODE=none`), or the repository has no GitHub credential (an App or a github.com PAT).",
       CATALOG_MISMATCH:
         "Here: the catalog entry for the repository changed after the push request pinned it.",
       BACKEND_UNAVAILABLE:
@@ -2218,17 +2330,117 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errors: [...CONFLICTS, 403, 413, 503],
     errorCodes: {
-      403: ["FORBIDDEN"],
-      409: ["PULL_REQUEST_MISSING", "CATALOG_MISMATCH"],
+      403: ["FORBIDDEN", "GITHUB_REFUSED"],
+      409: ["PULL_REQUEST_MISSING", "CATALOG_MISMATCH", "GITHUB_REFUSED"],
     },
     errorNotes: {
       FORBIDDEN:
-        "Also when the principal may not decide pushes, the deployment does not authenticate callers, or the repository has no GitHub credential.",
+        "Also when the principal holds neither `sessions:approve` nor `sessions:submit`, the deployment does not authenticate callers, or the repository has no GitHub credential.",
       CATALOG_MISMATCH:
         "Here: the catalog entry for the repository changed after the push request pinned it.",
       BACKEND_UNAVAILABLE:
         "Here: GitHub refused or failed the call, after waiting out any rate limit it named (at most two retries).",
     },
+  },
+  {
+    method: "post",
+    path: "/v1/sessions/{id}/github/workflow-dispatches",
+    operationId: "dispatchWorkflow",
+    tag: "GitHub work",
+    summary: "Start a workflow the agent's release allows",
+    description:
+      "Starts a GitHub Actions run of `workflow` (a file under `.github/workflows/`) on `ref` in the session's repository. The agent's release must turn on `actions` under the workspace ceiling and list the pair in its allowlist: `ref` matches an entry's `ref` glob (`*` does not cross `/`), or is the catalog entry's `branch` when the entry has no `ref`. A ref under `agent/` is refused (`agent_ref_refused`) whatever the allowlist says. A refused call never reaches GitHub and leaves a `dispatch_workflow` receipt with the `reason_code`.\n\n`inputs` go to GitHub as given and are never stored: the receipt keeps the workflow, the ref and the input names only. A run GitHub reports back is recorded with the session, so a later rerun can prove the platform started it; `run` is null when GitHub did not name it.",
+    scope: "write",
+    body: "DispatchWorkflowRequest",
+    requestExample: {
+      workflow: "deploy-preview.yml",
+      ref: "main",
+      inputs: { environment: "preview" },
+    },
+    success: {
+      status: 201,
+      schema: "DispatchWorkflowResponse",
+      description: "Started; the receipt and the run GitHub named.",
+      example: {
+        receipt_id: EXAMPLE_RECEIPT_ID,
+        run: {
+          id: 9012345678,
+          html_url:
+            "https://github.com/acme/sample-app/actions/runs/9012345678",
+        },
+      },
+    },
+    errors: [...CONFLICTS, 403, 413, 422, 503],
+    errorCodes: {
+      403: ["FORBIDDEN", "GITHUB_REFUSED"],
+      409: ["GITHUB_REFUSED"],
+    },
+    errorNotes: {
+      UNSUPPORTED_CAPABILITY:
+        "Here: the session's repository is not a GitHub repository.",
+      BACKEND_UNAVAILABLE:
+        "Here: GitHub refused or failed the dispatch; the message never repeats the inputs.",
+    },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/sessions/{id}/github/workflow-runs/{run_id}",
+    operationId: "getWorkflowRun",
+    tag: "GitHub work",
+    summary: "Read a workflow run in the session's repository",
+    description:
+      "Reads one Actions run: its status, conclusion, workflow file and branch. Needs `actions` on in the agent's release under the workspace ceiling; any run in the repository can be read, not only ones the platform started.",
+    scope: "read",
+    success: {
+      status: 200,
+      schema: "GitHubWorkflowRun",
+      description: "The run.",
+      example: {
+        id: 9012345678,
+        status: "completed",
+        conclusion: "failure",
+        path: ".github/workflows/deploy-preview.yml",
+        head_branch: "main",
+        html_url: "https://github.com/acme/sample-app/actions/runs/9012345678",
+      },
+    },
+    errors: [401, 403, 404, 409, 422, 503],
+    errorCodes: {
+      403: ["FORBIDDEN", "GITHUB_REFUSED"],
+      409: ["GITHUB_REFUSED"],
+    },
+    errorNotes: {
+      NOT_FOUND: "Also when GitHub has no such run in the repository.",
+    },
+  },
+  {
+    method: "post",
+    path: "/v1/sessions/{id}/github/workflow-runs/{run_id}/rerun",
+    operationId: "rerunWorkflow",
+    tag: "GitHub work",
+    summary: "Rerun a workflow run the platform started",
+    description:
+      "Reruns a run this platform dispatched, all jobs or only the failed ones (`failed_only`). A run the platform has no dispatch record of is refused (`run_ref_unprovable`), and so is one whose workflow and ref the release's current allowlist no longer names (`workflow_not_allowed`). Leaves a `rerun_workflow` receipt either way.",
+    scope: "write",
+    body: "RerunWorkflowRequest",
+    requestExample: { failed_only: true },
+    success: {
+      status: 201,
+      schema: "RerunWorkflowResponse",
+      description: "Rerun requested; the receipt.",
+      example: { receipt_id: EXAMPLE_RECEIPT_ID },
+    },
+    errors: [...CONFLICTS, 403, 413, 422, 503],
+    errorCodes: {
+      403: ["FORBIDDEN", "GITHUB_REFUSED"],
+      409: ["GITHUB_REFUSED"],
+    },
+    errorNotes: {
+      UNSUPPORTED_CAPABILITY:
+        "Here: the session's repository is not a GitHub repository.",
+    },
+    idempotent: false,
   },
   {
     method: "post",
@@ -4328,6 +4540,7 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path.startsWith("/v1/workspaces/{id}")) return workspaceParamsSchema;
   if (path.includes("{turn_id}")) return turnIdParamsSchema;
   if (path.includes("{push_request_id}")) return pushRequestParamsSchema;
+  if (path.includes("{run_id}")) return workflowRunParamsSchema;
   if (path === "/v1/sessions/{id}/outputs/{path}") {
     return sessionOutputParamsSchema;
   }

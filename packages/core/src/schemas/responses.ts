@@ -24,12 +24,15 @@ import {
   deleteSlackAppResponseSchema,
   deleteSlackSecretResponseSchema,
   deleteTeamResponseSchema,
+  dispatchWorkflowResponseSchema,
   getGitHubAppResponseSchema,
   getReceiptResponseSchema,
   getSessionResponseSchema,
   getSlackAppManifestResponseSchema,
   getSlackAppResponseSchema,
   getTurnResponseSchema,
+  githubSettingsResponseSchema,
+  githubWorkflowRunSchema,
   healthResponseSchema,
   installationProfileChangeResponseSchema,
   installationProfileOptionsResponseSchema,
@@ -70,6 +73,7 @@ import {
   putSlackSecretResponseSchema,
   readyResponseSchema,
   receiptAcceptedResponseSchema,
+  rerunWorkflowResponseSchema,
   revokeAgentIdentityResponseSchema,
   revokeApiKeyResponseSchema,
   revokeCredentialBindingResponseSchema,
@@ -126,6 +130,8 @@ export const responseSchemas = {
   "GET /v1/workspaces/{id}/github-app": getGitHubAppResponseSchema,
   "PUT /v1/workspaces/{id}/github-app": putGitHubAppResponseSchema,
   "DELETE /v1/workspaces/{id}/github-app": deleteGitHubAppResponseSchema,
+  "GET /v1/workspaces/{id}/github-settings": githubSettingsResponseSchema,
+  "PUT /v1/workspaces/{id}/github-settings": githubSettingsResponseSchema,
   "DELETE /v1/workspaces/{id}/slack/apps/{app_id}":
     deleteSlackAppResponseSchema,
   "PUT /v1/workspaces/{id}/slack/apps/{app_id}/secrets/{purpose}":
@@ -176,6 +182,12 @@ export const responseSchemas = {
     openPullRequestResponseSchema,
   "POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request/comments":
     commentPullRequestResponseSchema,
+  "POST /v1/sessions/{id}/github/workflow-dispatches":
+    dispatchWorkflowResponseSchema,
+  "GET /v1/sessions/{id}/github/workflow-runs/{run_id}":
+    githubWorkflowRunSchema,
+  "POST /v1/sessions/{id}/github/workflow-runs/{run_id}/rerun":
+    rerunWorkflowResponseSchema,
   "GET /v1/invites": listInvitesResponseSchema,
   "POST /v1/invites": createInviteResponseSchema,
   "POST /v1/invites/accept": acceptInviteResponseSchema,

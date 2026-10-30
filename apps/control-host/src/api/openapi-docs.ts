@@ -237,7 +237,7 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
   PULL_REQUEST_MISSING:
     "No pull request was opened from this push request yet; open it first.",
   GITHUB_REFUSED:
-    "The platform refused the GitHub work before asking GitHub. `error.details.reason_code` says why; `github_settings_unsupported` means the session's release carries GitHub settings this server does not apply yet.",
+    "The platform refused the GitHub work before asking GitHub, or GitHub refused the token it asked for. `error.details.reason_code` says why and `error.details.receipt_id` names the receipt of the refusal. A refusal the workspace or the agent's release decided (`github_disabled`, `repository_not_allowed`, `feature_off`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`) is 403; one an owner fixes outside the release (`over_workspace_ceiling`, `app_required`, `app_permission_missing`, `github_host_unsupported`, `no_reviewer_app`, `github_settings_unsupported`) is 409.",
   PENDING_REQUESTS_OPEN:
     "A request the parked turn waits on is neither answered nor expired yet.",
   PERMISSION_WAIT_ABOVE_PROFILE:

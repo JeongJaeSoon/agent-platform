@@ -4,7 +4,12 @@ import {
   runtimeConfigSchema,
 } from "@werft-ai/contracts";
 import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
-import type { ForgeAdapter, ForgeResolver, RepoRef } from "../ports/forge.ts";
+import {
+  type GitHubGate,
+  GitHubGateError,
+  type GitHubGrant,
+  type GitHubWork,
+} from "../ports/github-gate.ts";
 import type {
   ClaimInput,
   EgressAuthorization,
@@ -1827,7 +1832,6 @@ describe("authorizeEgress", () => {
     model: profile.model,
     costUsd,
     providerTokens: 0,
-    githubPinned: false,
     repository: { id: "app", url: repository.url, branch: "main" },
   });
 
@@ -2072,8 +2076,7 @@ describe("authorizeEgress through a forge", () => {
 
   function gateway(
     repository: CatalogRepository,
-    forges?: ForgeResolver,
-    githubPinned = false,
+    github?: GitHubGate,
   ): ReturnType<typeof createWorkerGateway> {
     return createWorkerGateway({
       work: work({
@@ -2087,7 +2090,6 @@ describe("authorizeEgress through a forge", () => {
           costUsd: 0,
           providerTokens: 0,
           repository: { id: "app", url: repository.url, branch: "main" },
-          githubPinned,
         }),
       }),
       catalog: withSeededInstallation({
@@ -2095,7 +2097,7 @@ describe("authorizeEgress through a forge", () => {
         repositories: { app: repository },
       }),
       checkpoints: acceptAllCheckpoints,
-      ...(forges === undefined ? {} : { forges }),
+      ...(github === undefined ? {} : { github }),
       options: {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
@@ -2103,45 +2105,50 @@ describe("authorizeEgress through a forge", () => {
       },
     });
   }
-  function forge(
-    gitCredential: ForgeAdapter["gitCredential"],
-  ): ForgeAdapter & { asked: Array<[RepoRef, string]> } {
-    const asked: Array<[RepoRef, string]> = [];
+  function gate(
+    answer: (work: GitHubWork) => Promise<GitHubGrant["gitCredential"] | null>,
+  ): GitHubGate & { asked: GitHubWork[] } {
+    const asked: GitHubWork[] = [];
     return {
-      kind: "github",
       asked,
-      async gitCredential(repo, access) {
-        asked.push([repo, access]);
-        return await gitCredential(repo, access);
-      },
-      getRepository: async () => {
-        throw new Error("not used");
-      },
-      maxBodyLength: 0,
-      findPullRequestForBranch: async () => {
-        throw new Error("not used");
-      },
-      createPullRequest: async () => {
-        throw new Error("not used");
-      },
-      upsertComment: async () => {
-        throw new Error("not used");
+      async grant(work) {
+        asked.push(work);
+        const issued = await answer(work);
+        if (issued === null) return null;
+        return {
+          role: "author",
+          repo: { owner: "acme", name: "app" },
+          permissions: { contents: "read" },
+          gitCredential: issued,
+          api: {} as GitHubGrant["api"],
+          allowedBy: null,
+          context: {
+            ownerId: "owner",
+            sessionId: work.sessionId,
+            agentId: null,
+            agentReleaseId: null,
+            repositoryId: "app",
+          },
+        };
       },
     };
   }
   const basic = (login: string) =>
     `Basic ${Buffer.from(login).toString("base64")}`;
 
-  test("an App repository's route carries the installation token the forge issued for read", async () => {
-    const github = forge(async () => ({
+  test("an App repository's route carries the installation token the gate issued for clone", async () => {
+    const github = gate(async () => ({
       username: "x-access-token",
       password: "installation-token-1",
       expiresAt: new Date("2030-01-01T00:00:00Z"),
     }));
-    const grant = await gateway(app, (id) =>
-      id === "app" ? github : null,
-    ).authorizeEgress({ token: "tok", purpose: "repository" });
-    expect(github.asked).toEqual([[{ owner: "acme", name: "app" }, "read"]]);
+    const grant = await gateway(app, github).authorizeEgress({
+      token: "tok",
+      purpose: "repository",
+    });
+    expect(github.asked).toEqual([
+      { sessionId: scope.session_id, purpose: "clone" },
+    ]);
     expect(grant.upstream).toEqual({
       url: app.url,
       headers: [
@@ -2150,24 +2157,29 @@ describe("authorizeEgress through a forge", () => {
     });
   });
 
-  test("a session whose release pins GitHub settings gets no clone credential", async () => {
-    const github = forge(async () => {
-      throw new Error("not reached");
-    });
-    for (const repository of [app, pat]) {
-      await expect(
-        gateway(
-          repository,
-          (id) => (id === "app" ? github : null),
-          true,
-        ).authorizeEgress({ token: "tok", purpose: "repository" }),
-      ).rejects.toMatchObject({
-        status: 409,
-        code: "GITHUB_REFUSED",
-        reasonCode: "github_settings_unsupported",
+  test("a gate refusal gets no clone credential: policy refusals are 403, the rest 409", async () => {
+    for (const [reason, status] of [
+      ["github_disabled", 403],
+      ["repository_not_allowed", 403],
+      ["github_settings_unsupported", 409],
+      ["app_required", 409],
+    ] as const) {
+      const github = gate(async () => {
+        throw new GitHubGateError(reason, "receipt-1");
       });
+      for (const repository of [app, pat]) {
+        await expect(
+          gateway(repository, github).authorizeEgress({
+            token: "tok",
+            purpose: "repository",
+          }),
+        ).rejects.toMatchObject({
+          status,
+          code: "GITHUB_REFUSED",
+          reasonCode: reason,
+        });
+      }
     }
-    expect(github.asked).toEqual([]);
   });
 
   test("a PAT repository sends the same header with or without a forge in front", async () => {
@@ -2182,13 +2194,24 @@ describe("authorizeEgress through a forge", () => {
         })
       ).upstream.headers,
     ).toEqual(expected);
-    const static_ = forge(async () => ({
+    const static_ = gate(async () => ({
       username: "x-access-token",
       password: "github_pat_fixture_value",
     }));
     expect(
       (
-        await gateway(pat, () => static_).authorizeEgress({
+        await gateway(pat, static_).authorizeEgress({
+          token: "t",
+          purpose: "repository",
+        })
+      ).upstream.headers,
+    ).toEqual(expected);
+    expect(
+      (
+        await gateway(
+          pat,
+          gate(async () => null),
+        ).authorizeEgress({
           token: "t",
           purpose: "repository",
         })
@@ -2196,11 +2219,18 @@ describe("authorizeEgress through a forge", () => {
     ).toEqual(expected);
   });
 
-  test("an App repository with no forge, or a forge that fails, is refused with nothing of the failure", async () => {
-    const failing = forge(async () => {
+  test("an App repository with no gate, a gate that fails, or no GitHub connection is refused with nothing of the failure", async () => {
+    const failing = gate(async () => {
       throw new Error("token endpoint said ghs_leaky and eyJ.jwt");
     });
-    for (const instance of [gateway(app), gateway(app, () => failing)]) {
+    for (const instance of [
+      gateway(app),
+      gateway(app, failing),
+      gateway(
+        app,
+        gate(async () => null),
+      ),
+    ]) {
       const refusal = await instance
         .authorizeEgress({ token: "t", purpose: "repository" })
         .then(

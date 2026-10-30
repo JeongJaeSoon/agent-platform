@@ -3,9 +3,13 @@ import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { GITHUB_CEILING_NONE } from "@werft-ai/contracts";
 import {
+  createGitHubGate,
   createPushExecutor,
-  type ForgeResolver,
+  type GitHubConnections,
+  type GitHubGateReceipt,
+  type GitHubSessionContext,
   type PushJob,
   type PushOutcome,
   type PushRequestStore,
@@ -27,8 +31,12 @@ import {
   startFakeGitHub,
   startGitHttpServer,
 } from "@werft-ai/testkit";
-import { forgesOf } from "./forge-github.ts";
-import { createGitPusher, parseLsRemote } from "./git-push.ts";
+import { connectionsOf } from "./forge-github.ts";
+import {
+  createGitPusher,
+  parseLsRemote,
+  workflowsPermissionRefused,
+} from "./git-push.ts";
 
 const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const privateKey = keys.privateKey
@@ -113,6 +121,7 @@ type Run = {
   gitOptions: GitCommandOptions[];
   credentialFiles: string[];
   logged: string[];
+  receipts: GitHubGateReceipt[];
 };
 
 async function run(
@@ -120,12 +129,36 @@ async function run(
   job: PushJob,
   options: {
     bundles?: readonly GitBundleFixture[];
-    forges?: ForgeResolver;
+    connections?: GitHubConnections;
     leaseMs?: number;
-    githubPinned?: boolean;
+    /** Absent: a session with no agent or release, as before the gate. */
+    release?: GitHubSessionContext["release"];
+    /** The porcelain output of a `git push` that fails instead of running. */
+    pushRefusedWith?: string;
   } = {},
 ): Promise<Run> {
   const finished: PushOutcome[] = [];
+  const receipts: GitHubGateReceipt[] = [];
+  const gate = createGitHubGate({
+    catalog,
+    connections: options.connections ?? connectionsOf(catalog),
+    store: {
+      context: async (sessionId) => ({
+        ownerId: job.ownerId,
+        sessionId,
+        repositoryId: job.repositoryId,
+        startedBy: null,
+        agent: null,
+        release: options.release ?? null,
+        ceiling: GITHUB_CEILING_NONE,
+      }),
+      findDispatch: async () => null,
+      recordReceipt: async (receipt) => {
+        receipts.push(receipt);
+        return crypto.randomUUID();
+      },
+    },
+  });
   const store = {
     claimNextApproved: async () => job,
     finish: async (_job: PushJob, outcome: PushOutcome) => {
@@ -143,13 +176,15 @@ async function run(
     if (gitOptions.cwd !== undefined) {
       credentialFiles.push(...(await credentialsUnder(gitOptions.cwd)));
     }
+    if (options.pushRefusedWith !== undefined && args.includes("push")) {
+      return { exitCode: 1, stdout: options.pushRefusedWith, stderr: "" };
+    }
     return defaultGitRunner(args, gitOptions);
   };
   const executor = createPushExecutor({
     store,
     catalog,
-    forges: options.forges ?? forgesOf(catalog),
-    github: { pinned: async () => options.githubPinned ?? false },
+    gate,
     bundles: {
       async spoolPushBundles({ directory }) {
         const files: string[] = [];
@@ -180,6 +215,7 @@ async function run(
     gitOptions: recorded,
     credentialFiles,
     logged,
+    receipts,
   };
 }
 
@@ -243,6 +279,21 @@ describe("the platform's push", () => {
     );
     expectNoCredentialIn(result);
     expect(await readdir(tempRoot)).toEqual([]);
+    expect(result.receipts).toMatchObject([
+      {
+        operation: "mint_github_token",
+        status: "succeeded",
+        actor: null,
+        result: {
+          session_id: job.sessionId,
+          repository_id: "app",
+          purpose: "push",
+          role: "author",
+          app_id: 101,
+          permissions: { contents: "write" },
+        },
+      },
+    ]);
   });
 
   test("the same commit already on the remote ends as pushed, and a descendant fast-forwards", async () => {
@@ -376,22 +427,61 @@ describe("the platform's push", () => {
     expect(github.tokenRequests.length).toBe(tokensBefore);
   });
 
-  test("a session whose release pins GitHub settings is failed before a token is asked for", async () => {
+  test("a session whose release carries GitHub settings the gate cannot read is failed before a token is asked for", async () => {
     const catalog = catalogOf({ app: appRepository() });
     const job = jobFor(catalog, "app");
     const gitBefore = github.gitRequests.length;
     const tokensBefore = github.tokenRequests.length;
     const result = await run(catalog, job, {
-      forges: forgesOf(catalog),
-      githubPinned: true,
+      release: { id: crypto.randomUUID(), github: "invalid" },
     });
-    expect(result.outcome).toMatchObject({
+    expect(result.outcome).toEqual({
       state: "failed",
-      refusal: "github_settings_unsupported",
+      refusal: "github_refused",
+      reasonCode: "github_settings_unsupported",
+      remoteUrl: `${github.origin}/acme/app.git`,
+      remoteRef: `refs/heads/${job.targetBranch}`,
     });
+    expect(result.receipts).toMatchObject([
+      {
+        operation: "mint_github_token",
+        status: "failed",
+        actor: null,
+        result: { purpose: "push", reason_code: "github_settings_unsupported" },
+        error: { code: "GITHUB_REFUSED" },
+      },
+    ]);
     expect(result.argv).toEqual([]);
     expect(github.gitRequests.length).toBe(gitBefore);
     expect(github.tokenRequests.length).toBe(tokensBefore);
+  });
+
+  test("a workflow change GitHub refuses for want of the workflows permission says so in the outcome", async () => {
+    const catalog = catalogOf({ app: appRepository() });
+    const job = jobFor(catalog, "app");
+    const remoteRef = `refs/heads/${job.targetBranch}`;
+    const result = await run(catalog, job, {
+      pushRefusedWith: `To ${github.origin}/acme/app.git\n!\t${job.gitCommit}:${remoteRef}\t[remote rejected] (refusing to allow a GitHub App to create or update workflow \`.github/workflows/x.yml\` without \`workflows\` permission)\nDone\n`,
+    });
+    expect(result.outcome).toEqual({
+      state: "failed",
+      refusal: "push_failed",
+      reasonCode: "workflows_permission_missing",
+      remoteUrl: `${github.origin}/acme/app.git`,
+      remoteRef,
+    });
+    // GitHub's own text is not passed on.
+    expect(result.logged.join("\n")).not.toContain(".github/workflows/x.yml");
+
+    const ordinary = await run(catalog, jobFor(catalog, "app"), {
+      pushRefusedWith: `!\t${job.gitCommit}:${remoteRef}\t[remote rejected] (pre-receive hook declined)\n`,
+    });
+    expect(ordinary.outcome).toEqual({
+      state: "failed",
+      refusal: "push_failed",
+      remoteUrl: `${github.origin}/acme/app.git`,
+      remoteRef: expect.any(String),
+    });
   });
 
   test("a request taken up too many times is failed without pushing", async () => {
@@ -405,11 +495,11 @@ describe("the platform's push", () => {
 
   test("a token the forge would not issue fails the push and says nothing of why in the outcome", async () => {
     const catalog = catalogOf({ app: appRepository() });
-    const uncachedForges = forgesOf(catalog, { retryAfterBaseMs: 1 });
+    const uncached = connectionsOf(catalog, { retryAfterBaseMs: 1 });
     github.failTokens(true);
     try {
       const result = await run(catalog, jobFor(catalog, "app"), {
-        forges: uncachedForges,
+        connections: uncached,
       });
       expect(result.outcome).toEqual({
         state: "failed",
@@ -511,5 +601,28 @@ describe("parseLsRemote", () => {
         ["refs/heads/agent/x", sha],
       ]),
     });
+  });
+});
+
+describe("workflowsPermissionRefused", () => {
+  const ref = "refs/heads/agent/x";
+  test("reads GitHub's refusal of a workflow change without the workflows permission", () => {
+    expect(
+      workflowsPermissionRefused(
+        `To https://github.com/acme/app.git\n!\t${"c".repeat(40)}:${ref}\t[remote rejected] (refusing to allow a GitHub App to create or update workflow \`.github/workflows/x.yml\` without \`workflows\` permission)\nDone\n`,
+      ),
+    ).toBe(true);
+  });
+
+  test("an ordinary rejection is not one", () => {
+    for (const stdout of [
+      `!\t${"c".repeat(40)}:${ref}\t[rejected] (non-fast-forward)\n`,
+      `!\t${"c".repeat(40)}:${ref}\t[remote rejected] (pre-receive hook declined)\n`,
+      // The phrase alone, outside a refused ref's line, is not GitHub's.
+      `=\t${ref}\t[up to date]\nwithout \`workflows\` permission\n`,
+      "",
+    ]) {
+      expect(workflowsPermissionRefused(stdout)).toBe(false);
+    }
   });
 });

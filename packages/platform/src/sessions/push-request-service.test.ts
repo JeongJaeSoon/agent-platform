@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import type { Principal } from "@werft-ai/contracts";
+import type { Principal, PushRequest } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
 import {
   type AuthorizationPolicy,
   createAuthorizationPolicy,
 } from "../musterrolle/policy.ts";
 import type {
+  CreatePushRequestInput,
   PushRefusalRecord,
   PushRequestStore,
 } from "../ports/push-requests.ts";
@@ -109,7 +110,10 @@ describe("push request decisions", () => {
     const push = createPushRequestService({
       authorization: createAuthorizationPolicy(),
       store: {
-        findSession: async () => ({ repositoryId: "sample-app" }),
+        findSession: async () => ({
+          repositoryId: "sample-app",
+          approvalOffRelease: null,
+        }),
         replayCreate: async () => null,
         recordRefusal: async (input: PushRefusalRecord) => {
           refusals.push(input);
@@ -215,5 +219,89 @@ describe("push request decisions", () => {
       expect((error as SessionServiceError).code).toBe("NOT_FOUND");
     }
     expect(touched).toEqual([]);
+  });
+});
+
+describe("a release with push_approval off", () => {
+  const RELEASE = "019a0000-0000-7000-8000-0000000000d1";
+
+  function creating(approvalOffRelease: string | null) {
+    const created: CreatePushRequestInput[] = [];
+    const push = createPushRequestService({
+      authorization: createAuthorizationPolicy(),
+      store: {
+        replayCreate: async () => null,
+        findSession: async () => ({
+          repositoryId: "sample-app",
+          approvalOffRelease,
+        }),
+        create: async (input: CreatePushRequestInput) => {
+          created.push(input);
+          const approved = input.approvedByRelease !== null;
+          const request: PushRequest = {
+            id: PUSH,
+            session_id: input.sessionId,
+            repository_id: input.repositoryId,
+            checkpoint_revision: input.checkpointRevision,
+            git_commit: input.gitCommit,
+            target_branch: `agent/${input.sessionId}`,
+            state: approved ? "approved" : "requested",
+            requested_by: input.actor,
+            requested_at: "2026-10-30T00:00:00.000Z",
+            decided_by:
+              input.approvedByRelease === null
+                ? null
+                : { kind: "policy", agent_release_id: input.approvedByRelease },
+            decided_at: approved ? "2026-10-30T00:00:00.000Z" : null,
+            decision_reason: null,
+            request_receipt_id: "019a0000-0000-7000-8000-0000000000e1",
+            decision_receipt_id: approved
+              ? "019a0000-0000-7000-8000-0000000000e2"
+              : null,
+            finished_at: null,
+            push_receipt_id: null,
+          };
+          return { outcome: "written", request };
+        },
+      } as unknown as PushRequestStore,
+      catalog: CATALOG,
+      source: {
+        readPushSource: async () => ({
+          status: "ready",
+          revision: 3,
+          gitCommit: "a".repeat(40),
+        }),
+      },
+    });
+    const actor = {
+      caller: testCaller("owner-a"),
+      principal: {
+        kind: "api_key",
+        id: "owner-a",
+        owner_id: "owner-a",
+        workspace_id: null,
+        scopes: ["sessions:write"],
+      } as Principal,
+      ownerId: "owner-a",
+      verified: true,
+    };
+    return { push, actor, created };
+  }
+
+  test("creates a request already approved by the release's policy", async () => {
+    const { push, actor, created } = creating(RELEASE);
+    const request = await push.create(actor, SESSION, { idempotencyKey: "k" });
+    expect(created[0]?.approvedByRelease).toBe(RELEASE);
+    expect(request).toMatchObject({
+      state: "approved",
+      decided_by: { kind: "policy", agent_release_id: RELEASE },
+    });
+  });
+
+  test("a release that keeps push approval creates a requested one", async () => {
+    const { push, actor, created } = creating(null);
+    const request = await push.create(actor, SESSION, { idempotencyKey: "k" });
+    expect(created[0]?.approvedByRelease).toBeNull();
+    expect(request.state).toBe("requested");
   });
 });

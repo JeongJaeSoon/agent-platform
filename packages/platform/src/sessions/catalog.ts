@@ -955,7 +955,7 @@ export function providerUpstreamOf(profile: CatalogProfile): EgressUpstream {
 
 /**
  * Where a repository route goes and how it authenticates there. A forge
- * repository's credential is issued per request (`ForgeAdapter.gitCredential`)
+ * repository's credential is issued per request (`GitHubGate.grant`)
  * and passed in; the others are the catalog's own.
  */
 export function repositoryUpstreamOf(

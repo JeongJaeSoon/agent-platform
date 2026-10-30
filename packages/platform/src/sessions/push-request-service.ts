@@ -189,6 +189,7 @@ export function createPushRequestService(deps: {
           repositoryBinding: repositoryBinding(session.repositoryId, entry),
           checkpointRevision: pinned.revision,
           gitCommit: pinned.gitCommit,
+          approvedByRelease: session.approvalOffRelease,
         }),
       );
     },

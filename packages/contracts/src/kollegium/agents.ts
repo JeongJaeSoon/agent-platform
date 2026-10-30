@@ -557,6 +557,8 @@ export const createAgentReleaseRequestSchema = z
     note: z.string().trim().pipe(releaseNoteSchema).optional(),
     /** Required when the profile's `repository_mode` is `required`, refused when `none`. */
     repository_id: z.string().min(1).max(128).optional(),
+    /** Absent: the active release's, unless this one has no repository. */
+    github: agentGitHubSchema.optional(),
   })
   .strict();
 /** `created: false` when the same content was released before. */

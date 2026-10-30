@@ -1,16 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import type { Principal, PullRequest } from "@werft-ai/contracts";
+import type {
+  GitHubRefusal,
+  Principal,
+  PullRequest,
+} from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
 import {
   type AuthorizationPolicy,
   callerFor,
   createAuthorizationPolicy,
 } from "../musterrolle/policy.ts";
+import { ForgeCredentialError, type ForgePullRequest } from "../ports/forge.ts";
 import {
-  type ForgeAdapter,
-  ForgeCredentialError,
-  type ForgePullRequest,
-} from "../ports/forge.ts";
+  type GitHubApi,
+  type GitHubGate,
+  GitHubGateError,
+  type GitHubWork,
+} from "../ports/github-gate.ts";
 import type {
   PullRequestReceipt,
   PullRequestSource,
@@ -56,7 +62,7 @@ function harness(
     state?: PullRequestSource["state"];
     binding?: string;
     authorization?: AuthorizationPolicy;
-    githubPinned?: boolean;
+    gateRefusal?: GitHubRefusal;
   } = {},
 ) {
   const receipts: PullRequestReceipt[] = [];
@@ -119,26 +125,27 @@ function harness(
   }> = [];
   const comments: Array<{ marker: string; body: string }> = [];
   let failing = false;
-  let githubPinned = options.githubPinned ?? false;
+  let gateRefusal = options.gateRefusal ?? null;
+  const works: GitHubWork[] = [];
   const fail = () => {
     if (failing) throw new ForgeCredentialError("GitHub call failed (502)");
   };
-  const forge: ForgeAdapter = {
-    kind: "github",
+  const unused = async (): Promise<never> => {
+    throw new Error("not used");
+  };
+  const forge: GitHubApi = {
     maxBodyLength: 65_536,
-    gitCredential: async () => {
-      throw new Error("not used");
-    },
-    getRepository: async () => {
-      throw new Error("not used");
-    },
-    findPullRequestForBranch: async (_repo, branch) => {
+    getRepository: unused,
+    dispatchWorkflow: unused,
+    getWorkflowRun: unused,
+    rerunWorkflow: unused,
+    findPullRequestForBranch: async (branch) => {
       calls.push(`find ${branch}`);
       fail();
       return open;
     },
-    createPullRequest: async (repo, input) => {
-      calls.push(`create ${repo.owner}/${repo.name} ${input.head}`);
+    createPullRequest: async (input) => {
+      calls.push(`create ${input.head}`);
       fail();
       created.push(input);
       open = {
@@ -150,7 +157,7 @@ function harness(
       };
       return open;
     },
-    upsertComment: async (_repo, number, marker, body) => {
+    upsertComment: async (number, marker, body) => {
       calls.push(`comment ${number}`);
       fail();
       comments.push({ marker, body });
@@ -161,12 +168,34 @@ function harness(
       };
     },
   };
+  const gate: GitHubGate = {
+    grant: async (work) => {
+      works.push(work);
+      if (gateRefusal !== null) {
+        throw new GitHubGateError(gateRefusal, "gate-receipt");
+      }
+      return {
+        role: "author",
+        repo: { owner: "acme", name: "app" },
+        permissions: { contents: "read", pull_requests: "write" },
+        gitCredential: { username: "x-access-token", password: "issued" },
+        api: forge,
+        allowedBy: null,
+        context: {
+          ownerId: "owner-a",
+          sessionId: work.sessionId,
+          agentId: null,
+          agentReleaseId: null,
+          repositoryId: "app",
+        },
+      };
+    },
+  };
   const service = createPullRequestService({
     authorization: options.authorization ?? createAuthorizationPolicy(),
     store,
     catalog: CATALOG,
-    forges: (id) => (id === "app" ? forge : null),
-    github: { pinned: async () => githubPinned },
+    gate,
     redact: (line) => (line.includes("ghp_") ? "[REDACTED]" : line),
   });
   return {
@@ -175,6 +204,7 @@ function harness(
     sourceReads,
     saved,
     calls,
+    works,
     created,
     comments,
     setOpen: (pull: ForgePullRequest) => {
@@ -183,8 +213,8 @@ function harness(
     failForge: () => {
       failing = true;
     },
-    pinGitHub: () => {
-      githubPinned = true;
+    refuseGitHub: (reason: GitHubRefusal) => {
+      gateRefusal = reason;
     },
   };
 }
@@ -251,7 +281,7 @@ describe("opening a pull request", () => {
       created: false,
       pull_request: { number: 7 },
     });
-    expect(calls).toEqual([`find ${HEAD}`, `create acme/app ${HEAD}`]);
+    expect(calls).toEqual([`find ${HEAD}`, `create ${HEAD}`]);
     expect(receipts.at(-1)?.result).toMatchObject({
       verdict: "allow",
       created: false,
@@ -346,8 +376,26 @@ describe("opening a pull request", () => {
     expect(calls).toEqual([]);
   });
 
-  test("a session whose release pins GitHub settings is refused with a receipt before the forge is asked", async () => {
-    const { service, calls, receipts } = harness({ githubPinned: true });
+  test("asks the gate for a pull_request grant as the caller", async () => {
+    const { service, works } = harness();
+    await service.open(actor, SESSION, PUSH, { readBody: async () => ({}) });
+    expect(works).toEqual([
+      {
+        sessionId: SESSION,
+        purpose: "pull_request",
+        actor: {
+          principal: { kind: "api_key", id: "key-1" },
+          actor_user_id: null,
+          agent_id: null,
+        },
+      },
+    ]);
+  });
+
+  test("a gate refusal is GITHUB_REFUSED with its reason_code and a receipt before the forge is asked", async () => {
+    const { service, calls, receipts } = harness({
+      gateRefusal: "repository_not_allowed",
+    });
     expect(
       await refusal(
         service.open(actor, SESSION, PUSH, { readBody: async () => ({}) }),
@@ -355,33 +403,43 @@ describe("opening a pull request", () => {
     ).toEqual({
       code: "GITHUB_REFUSED",
       details: {
-        refusal: "github_settings_unsupported",
+        refusal: "github_refused",
         receipt_id: "receipt-1",
-        reason_code: "github_settings_unsupported",
+        reason_code: "repository_not_allowed",
       },
     });
     expect(calls).toEqual([]);
     expect(receipts[0]?.result).toMatchObject({
       verdict: "refuse",
-      refusal: "github_settings_unsupported",
+      refusal: "github_refused",
+      reason_code: "repository_not_allowed",
       repository_id: "app",
     });
   });
 
-  test("a credential without sessions:approve, or not a human's, is refused with a receipt before the body is read", async () => {
+  test("a credential without sessions:approve or sessions:write, or not a human's, is refused with a receipt before the body is read", async () => {
     for (const principal of [
-      { ...human, scopes: ["sessions:write"] },
+      { ...human, scopes: ["sessions:read"] },
       { ...human, kind: "installation" },
     ] as Principal[]) {
       const { service, receipts } = harness();
       let read = false;
       const { code } = await refusal(
-        service.open({ ...actor, principal }, SESSION, PUSH, {
-          readBody: async () => {
-            read = true;
-            return {};
+        service.open(
+          {
+            ...actor,
+            caller: testCaller("owner-a", ["sessions:read"]),
+            principal,
           },
-        }),
+          SESSION,
+          PUSH,
+          {
+            readBody: async () => {
+              read = true;
+              return {};
+            },
+          },
+        ),
       );
       expect(code).toBe("FORBIDDEN");
       expect(read).toBe(false);
@@ -433,10 +491,10 @@ describe("commenting on the pull request", () => {
     expect(calls).toEqual([]);
   });
 
-  test("a session whose release pins GitHub settings comments on nothing", async () => {
-    const { service, calls, comments, pinGitHub } = harness();
+  test("a gate refusal comments on nothing", async () => {
+    const { service, calls, comments, refuseGitHub } = harness();
     await service.open(actor, SESSION, PUSH, { readBody: async () => ({}) });
-    pinGitHub();
+    refuseGitHub("github_disabled");
     const asked = calls.length;
     expect(
       (
@@ -446,7 +504,10 @@ describe("commenting on the pull request", () => {
           }),
         )
       ).details,
-    ).toMatchObject({ refusal: "github_settings_unsupported" });
+    ).toMatchObject({
+      refusal: "github_refused",
+      reason_code: "github_disabled",
+    });
     expect(calls).toHaveLength(asked);
     expect(comments).toEqual([]);
   });
@@ -516,5 +577,130 @@ describe("commenting on the pull request", () => {
         )
       ).code,
     ).toBe("PULL_REQUEST_MISSING");
+  });
+});
+
+describe("a caller that may submit to the session", () => {
+  const AGENT = "019a0000-0000-7000-8000-0000000000c1";
+  const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
+  const agentKey: Principal = {
+    kind: "api_key",
+    id: "agent-key-1",
+    owner_id: WORKSPACE,
+    workspace_id: WORKSPACE,
+    scopes: ["sessions:read", "sessions:write"],
+  };
+  const submitter = {
+    caller: callerFor(agentKey, { kind: "api" }, "request-1", {
+      creatorId: null,
+      agentId: AGENT,
+    }),
+    principal: agentKey,
+    ownerId: WORKSPACE,
+    verified: true,
+  };
+  const policy = createAuthorizationPolicy({
+    identity: {
+      reread: async ({ principal }) => ({
+        status: "ok",
+        principal,
+        keyAgentId: AGENT,
+      }),
+    },
+    agents: {
+      agentOf: async (_workspace, resource) =>
+        resource.kind === "session" && resource.id === SESSION ? AGENT : null,
+      isAdmin: async () => false,
+    },
+  });
+  const pulled: PullRequest = {
+    push_request_id: PUSH,
+    session_id: SESSION,
+    repository_id: "app",
+    number: 7,
+    url: "https://github.com/acme/app/pull/7",
+    head: HEAD,
+    base: "develop",
+    created_at: "2026-10-13T00:00:00.000Z",
+    receipt_id: "receipt-0",
+  };
+
+  test("an agent key opens a pull request for a pushed request and comments on it", async () => {
+    const { service, calls, receipts } = harness({ authorization: policy });
+    expect(
+      await service.open(submitter, SESSION, PUSH, {
+        readBody: async () => ({}),
+      }),
+    ).toMatchObject({ created: true, pull_request: { number: 7 } });
+    await service.comment(submitter, SESSION, PUSH, {
+      readBody: async () => ({ body: "Ready" }),
+    });
+    expect(calls).toEqual([`find ${HEAD}`, `create ${HEAD}`, "comment 7"]);
+    expect(receipts[0]?.actor).toMatchObject({
+      principal: { kind: "api_key", id: "agent-key-1" },
+      agent_id: AGENT,
+    });
+  });
+
+  test("a submitter cannot open or comment for a request that is not pushed, where an approver may comment", async () => {
+    const opening = harness({ authorization: policy, state: "pushing" });
+    expect(
+      (
+        await refusal(
+          opening.service.open(submitter, SESSION, PUSH, {
+            readBody: async () => ({}),
+          }),
+        )
+      ).code,
+    ).toBe("PUSH_NOT_PUSHED");
+    expect(opening.calls).toEqual([]);
+
+    const commenting = harness({ authorization: policy, state: "pushing" });
+    commenting.saved.push(pulled);
+    expect(
+      await refusal(
+        commenting.service.comment(submitter, SESSION, PUSH, {
+          readBody: async () => ({ body: "Not yet" }),
+        }),
+      ),
+    ).toMatchObject({
+      code: "PUSH_NOT_PUSHED",
+      details: { refusal: "not_pushed" },
+    });
+    expect(commenting.calls).toEqual([]);
+
+    const approving = harness({ state: "pushing" });
+    approving.saved.push(pulled);
+    await approving.service.comment(actor, SESSION, PUSH, {
+      readBody: async () => ({ body: "Approver note" }),
+    });
+    expect(approving.calls).toEqual(["comment 7"]);
+  });
+
+  test("an agent key on another agent's session is FORBIDDEN before GitHub is asked", async () => {
+    const other = createAuthorizationPolicy({
+      identity: {
+        reread: async ({ principal }) => ({
+          status: "ok",
+          principal,
+          keyAgentId: "019a0000-0000-7000-8000-0000000000c2",
+        }),
+      },
+      agents: {
+        agentOf: async () => AGENT,
+        isAdmin: async () => false,
+      },
+    });
+    const { service, calls } = harness({ authorization: other });
+    expect(
+      (
+        await refusal(
+          service.open(submitter, SESSION, PUSH, {
+            readBody: async () => ({}),
+          }),
+        )
+      ).code,
+    ).toBe("FORBIDDEN");
+    expect(calls).toEqual([]);
   });
 });

@@ -1,11 +1,12 @@
 import { createPrivateKey } from "node:crypto";
-import type {
-  DeleteGitHubAppResponse,
-  GetGitHubAppResponse,
-  GitHubApp,
-  GitHubAppRepository,
-  PutGitHubAppRequest,
-  PutGitHubAppResponse,
+import {
+  type DeleteGitHubAppResponse,
+  type GetGitHubAppResponse,
+  type GitHubApp,
+  type GitHubAppRepository,
+  githubAppWarnings,
+  type PutGitHubAppRequest,
+  type PutGitHubAppResponse,
 } from "@werft-ai/contracts";
 import { repoRefOf } from "../ports/forge.ts";
 import {
@@ -58,6 +59,9 @@ export function githubAppOf(record: GitHubAppRecord): GitHubApp {
     },
     created_at: record.createdAt.toISOString(),
     updated_at: record.updatedAt.toISOString(),
+    permissions: record.permissions,
+    permissions_checked_at: record.permissionsCheckedAt?.toISOString() ?? null,
+    warnings: githubAppWarnings(ROLE, record.permissions),
   };
 }
 
@@ -200,7 +204,27 @@ export function createGitHubAppService(deps: {
             .map(({ id, url }) => ({ id, url, installation_id: null })),
         };
       }
-      return { github_app: githubAppOf(record), ...(await check(credential)) };
+      const [checked, permissions] = await Promise.all([
+        check(credential),
+        // An owner widens the App on GitHub; this read is how it shows here.
+        directory
+          .describe(credential)
+          .then(
+            (profile) => profile.permissions,
+            () => null,
+          ),
+      ]);
+      if (permissions !== null) {
+        await store.recordPermissions(record.id, permissions);
+      }
+      return {
+        github_app: githubAppOf(
+          permissions === null
+            ? record
+            : { ...record, permissions, permissionsCheckedAt: new Date() },
+        ),
+        ...checked,
+      };
     },
 
     /**

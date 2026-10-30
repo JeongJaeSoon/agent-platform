@@ -1,4 +1,8 @@
-import { type ApiErrorCode, idempotencyKeySchema } from "@werft-ai/contracts";
+import {
+  type ApiErrorCode,
+  githubRefusalStatus,
+  idempotencyKeySchema,
+} from "@werft-ai/contracts";
 import { InvalidCursorError, SessionServiceError } from "@werft-ai/platform";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -66,6 +70,7 @@ const STATUS_BY_CODE: Partial<Record<ApiErrorCode, ContentfulStatusCode>> = {
   PUSH_NOT_PUSHED: 409,
   CATALOG_MISMATCH: 409,
   PULL_REQUEST_MISSING: 409,
+  // 403 when details.reason_code is a policy refusal; mapped() decides.
   GITHUB_REFUSED: 409,
 };
 
@@ -76,7 +81,11 @@ export async function mapped<T>(work: () => Promise<T>): Promise<T> {
   } catch (error) {
     if (error instanceof SessionServiceError) {
       throw new ApiHttpError(
-        STATUS_BY_CODE[error.code] ?? 500,
+        error.code === "GITHUB_REFUSED"
+          ? githubRefusalStatus(
+              (error.details as { reason_code?: unknown } | null)?.reason_code,
+            )
+          : (STATUS_BY_CODE[error.code] ?? 500),
         error.code,
         error.message,
         error.retry !== undefined,

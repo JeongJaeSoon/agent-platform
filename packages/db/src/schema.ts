@@ -569,6 +569,38 @@ export const githubWorkspaceSettings = pgTable("github_workspace_settings", {
     .defaultNow(),
 });
 
+/**
+ * The runs the platform dispatched itself, on a branch: the only runs a
+ * session may rerun, since GitHub's run alone cannot prove its ref was a
+ * branch and not a tag of the same name.
+ */
+export const githubWorkflowDispatches = pgTable(
+  "github_workflow_dispatches",
+  {
+    runId: bigint("run_id", { mode: "number" }).notNull(),
+    repositoryId: text("repository_id").notNull(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references((): AnyPgColumn => sessions.id),
+    agentReleaseId: text("agent_release_id"),
+    workflow: text().notNull(),
+    /** A branch, without `refs/heads/`. */
+    ref: text().notNull(),
+    receiptId: uuid("receipt_id")
+      .notNull()
+      .references((): AnyPgColumn => receipts.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "github_workflow_dispatches_pkey",
+      columns: [table.repositoryId, table.runId],
+    }),
+  ],
+);
+
 export const slackApps = pgTable(
   "slack_apps",
   {
