@@ -387,6 +387,52 @@ export async function webBoundaryViolations(
   return offenders.sort();
 }
 
+/**
+ * Runtime web files that call React's `lazy`. A tab opened before a deploy
+ * asks for chunk names the new build no longer serves; React.lazy then
+ * crashes the whole screen, while TanStack's lazyRouteComponent reloads once.
+ */
+export async function webReactLazyCalls(directory: string): Promise<string[]> {
+  const offenders: string[] = [];
+  for (const file of await scriptFiles(directory)) {
+    if (isTestFile(file)) continue;
+    const source = await parse(file);
+    const lazyNames = new Set<string>();
+    const reactNames = new Set<string>();
+    for (const statement of source.statements) {
+      if (
+        !ts.isImportDeclaration(statement) ||
+        !ts.isStringLiteral(statement.moduleSpecifier) ||
+        statement.moduleSpecifier.text !== "react"
+      )
+        continue;
+      const clause = statement.importClause;
+      if (clause?.name) reactNames.add(clause.name.text);
+      const bindings = clause?.namedBindings;
+      if (bindings && ts.isNamespaceImport(bindings))
+        reactNames.add(bindings.name.text);
+      if (bindings && ts.isNamedImports(bindings))
+        for (const element of bindings.elements)
+          if ((element.propertyName ?? element.name).text === "lazy")
+            lazyNames.add(element.name.text);
+    }
+    walk(source, (node) => {
+      if (!ts.isCallExpression(node)) return;
+      const callee = node.expression;
+      const called =
+        (ts.isIdentifier(callee) && lazyNames.has(callee.text)) ||
+        (ts.isPropertyAccessExpression(callee) &&
+          callee.name.text === "lazy" &&
+          ts.isIdentifier(callee.expression) &&
+          reactNames.has(callee.expression.text));
+      if (!called) return;
+      const { line } = source.getLineAndCharacterOfPosition(node.getStart());
+      offenders.push(`${relative(directory, file)}:${line + 1}`);
+    });
+  }
+  return offenders.sort();
+}
+
 /** Parsed rather than matched, so comments, strings and JSX text never pass for code. */
 async function parse(file: string): Promise<ts.SourceFile> {
   return ts.createSourceFile(
@@ -1577,6 +1623,48 @@ describe("architecture", () => {
         "screen.tsx -> @werft-ai/db",
         "screen.tsx -> @werft-ai/platform",
         "screen.tsx -> contracts value import",
+      ]);
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
+  });
+
+  test("the web app loads code-split components with lazyRouteComponent, never React.lazy", async () => {
+    expect(await webReactLazyCalls(join(root, web, "src"))).toEqual([]);
+  });
+
+  test("the React.lazy check sees named, renamed, default and namespace imports", async () => {
+    const fixture = await mkdtemp(join(tmpdir(), "arch-web-lazy-"));
+    try {
+      await writeFile(
+        join(fixture, "screen.tsx"),
+        [
+          'import React, { lazy, lazy as load } from "react";',
+          'import * as R from "react";',
+          'const A = lazy(() => import("./a.tsx"));',
+          'const B = load(() => import("./b.tsx"));',
+          'const C = React.lazy(() => import("./c.tsx"));',
+          'const D = R.lazy(() => import("./d.tsx"));',
+          "// lazy(() => import('./e.tsx'))",
+          'const text = "React.lazy(x)";',
+        ].join("\n"),
+      );
+      await writeFile(
+        join(fixture, "other.tsx"),
+        [
+          'import { lazyRouteComponent as lazy } from "@tanstack/react-router";',
+          'const E = lazy(() => import("./e.tsx"));',
+        ].join("\n"),
+      );
+      await writeFile(
+        join(fixture, "screen.test.tsx"),
+        'import { lazy } from "react";\nlazy(() => import("./f.tsx"));',
+      );
+      expect(await webReactLazyCalls(fixture)).toEqual([
+        "screen.tsx:3",
+        "screen.tsx:4",
+        "screen.tsx:5",
+        "screen.tsx:6",
       ]);
     } finally {
       await rm(fixture, { recursive: true, force: true });
