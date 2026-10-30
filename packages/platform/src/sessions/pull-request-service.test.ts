@@ -171,6 +171,7 @@ function harness(
     dispatchWorkflow: unused,
     getWorkflowRun: unused,
     rerunWorkflow: unused,
+    submitReview: unused,
     findPullRequestForBranch: async (branch) => {
       calls.push(`find ${branch}`);
       fail();

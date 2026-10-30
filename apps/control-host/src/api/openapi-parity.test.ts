@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type {
   AgentAdminService,
+  AgentGitHubService,
   AgentIdentityService,
   AgentService,
   ApiKeyService,
@@ -37,6 +38,7 @@ import type { BootstrapGate } from "./auth.ts";
 import { buildOpenApiDocument, DOCUMENTED_ROUTE_SCOPES } from "./openapi.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { ROUTE_ERROR_TESTS } from "./route-error-coverage.ts";
+import { registerAgentGitHubRoutes } from "./routes/agent-github.ts";
 import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerApiKeyRoutes } from "./routes/api-keys.ts";
@@ -155,6 +157,7 @@ function apiApp() {
       registerSlackSecretRoutes(router, {} as SlackSecretService);
       registerGitHubAppRoutes(router, {} as GitHubAppService);
       registerGitHubSettingsRoutes(router, {} as GitHubSettingsService);
+      registerAgentGitHubRoutes(router, {} as AgentGitHubService);
       registerGitHubWorkRoutes(router, {} as GitHubWorkService);
       registerSessionAttributionRoutes(router, {} as SessionAttributionService);
       registerSlackAppRoutes(router, {

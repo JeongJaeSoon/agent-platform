@@ -5,6 +5,7 @@ import {
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
   createPostgresAgentAdminStore,
+  createPostgresAgentGitHubStore,
   createPostgresAgentIdentityStore,
   createPostgresAgentStore,
   createPostgresAuditRetention,
@@ -53,6 +54,7 @@ import {
   catalogRevision,
   composeSlackFinalize,
   createAgentAdminService,
+  createAgentGitHubService,
   createAgentIdentityService,
   createAgentService,
   createApiKeyService,
@@ -158,6 +160,7 @@ import { createApiPool, createProbePool } from "./pool.ts";
 import { SeedProfilesError, seedCatalogProfiles } from "./profile-import.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { createReadinessProbe } from "./readiness.ts";
+import { registerAgentGitHubRoutes } from "./routes/agent-github.ts";
 import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerApiKeyRoutes } from "./routes/api-keys.ts";
@@ -671,13 +674,27 @@ const inviteStore = createPostgresInviteStore(db);
 const invites = createInviteService({ authorization, store: inviteStore });
 const githubAppStore =
   secretKey === null ? null : createPostgresGitHubAppStore(db, secretKey);
-const registeredGitHub = createRegisteredGitHubConnection({
-  store: githubAppStore,
-  logger,
-});
+const registeredGitHub = {
+  author: createRegisteredGitHubConnection({
+    store: githubAppStore,
+    role: "author",
+    logger,
+  }),
+  reviewer: createRegisteredGitHubConnection({
+    store: githubAppStore,
+    role: "reviewer",
+    logger,
+  }),
+};
+const reloadRegisteredGitHub = async (): Promise<void> => {
+  await Promise.all([
+    registeredGitHub.author.refresh(),
+    registeredGitHub.reviewer.refresh(),
+  ]);
+};
 // Another replica's change arrives with the next read.
 const refreshRegisteredGitHub = (): Promise<void> =>
-  registeredGitHub.refresh().catch((error: unknown) => {
+  reloadRegisteredGitHub().catch((error: unknown) => {
     logger.warn("The GitHub App could not be read; retrying", {
       error_name: error instanceof Error ? error.name : typeof error,
     });
@@ -697,18 +714,19 @@ const githubApps = createGitHubAppService({
           "registered" in repository.auth,
       )
       .map(([id, repository]) => ({ id, url: repository.url })),
-  changed: () => registeredGitHub.refresh(),
+  changed: reloadRegisteredGitHub,
 });
 // Every GitHub token (clone, push, pull requests, Actions) is issued here,
 // from one connection per repository and so one token cache.
 const githubGateStore = createPostgresGitHubGateStore(db);
+const githubConnections = connectionsOf(catalog, {
+  logger,
+  registered: (role) => registeredGitHub[role].connection(),
+});
 const github = createGitHubGate({
   store: githubGateStore,
   catalog,
-  connections: connectionsOf(catalog, {
-    logger,
-    registered: registeredGitHub.connection,
-  }),
+  connections: githubConnections,
 });
 const githubWork = createGitHubWorkService({
   authorization,
@@ -725,6 +743,14 @@ const githubSettings = createGitHubSettingsService({
   secretsOn: secretKey !== null,
 });
 const sessionAttribution = createPostgresSessionAttributionStore(db);
+const agentGitHub = createAgentGitHubService({
+  authorization,
+  agents: agentStore,
+  store: createPostgresAgentGitHubStore(db),
+  catalog,
+  githubSettings: githubSettingsStore,
+  connections: githubConnections,
+});
 const pushStore = createPostgresPushRequests(db);
 const pushRequests = createPushRequestService({
   authorization,
@@ -904,6 +930,7 @@ const app = createApiApp({
     registerSlackSecretRoutes(router, slackSecrets);
     registerGitHubAppRoutes(router, githubApps);
     registerGitHubSettingsRoutes(router, githubSettings);
+    registerAgentGitHubRoutes(router, agentGitHub);
     registerSessionRoutes(router, sessions);
     registerSessionOutputRoutes(router, sessionOutputs);
     registerSessionShareRoutes(router, shares, sessions);

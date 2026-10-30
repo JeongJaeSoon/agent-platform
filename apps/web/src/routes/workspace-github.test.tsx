@@ -14,7 +14,21 @@ import { appHarness } from "../test-support/render-app.tsx";
 const { cleanup, renderAt, screen, waitFor, within } = await appHarness();
 
 const PATH = "/settings/workspace/github";
-const APP = `/v1/workspaces/${WORKSPACE_ID}/github-app`;
+const APP = `/v1/workspaces/${WORKSPACE_ID}/github-apps/author`;
+const REVIEWER = `/v1/workspaces/${WORKSPACE_ID}/github-apps/reviewer`;
+const SETTINGS = `/v1/workspaces/${WORKSPACE_ID}/github-settings`;
+const NO_CEILING = {
+  ceiling: {
+    workflows: false,
+    actions: false,
+    checks: false,
+    issues: false,
+    review: false,
+  },
+  revision: 0,
+  agents_using: { workflows: 0, actions: 0, checks: 0, issues: 0, review: 0 },
+  apps: { author: null, reviewer: null },
+};
 const KEY_TEXT = "fake-pem-text";
 const settingsRead = {
   [`GET ${GITHUB_SETTINGS}`]: () => json(200, githubSettings()),
@@ -63,6 +77,12 @@ const REGISTERED = {
     },
   ],
 };
+const NO_REVIEWER = { ...UNSET, repositories: [] };
+const cardOf = (name: string) => within(screen.getByRole("region", { name }));
+const authorCard = async () => {
+  await screen.findByRole("region", { name: "GitHub App" });
+  return cardOf("GitHub App");
+};
 const refusal = (status: number, code: string, reason_code: string) =>
   json(status, {
     error: {
@@ -76,9 +96,10 @@ const refusal = (status: number, code: string, reason_code: string) =>
 const keyFile = () =>
   new File([KEY_TEXT], "app.pem", { type: "application/x-pem-file" });
 
-async function register(appId = "4242") {
+async function register(appId = "4242", card = "GitHub App") {
   const user = await setupUser();
-  await user.click(await screen.findByRole("button", { name: "등록" }));
+  await screen.findByRole("region", { name: card });
+  await user.click(await cardOf(card).findByRole("button", { name: "등록" }));
   const input = screen.getByLabelText("App ID");
   expect(document.activeElement === input).toBe(true);
   await user.type(input, appId);
@@ -93,6 +114,7 @@ describe("워크스페이스 GitHub 연결", () => {
     const { api, services } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
       ...settingsRead,
+      [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
       [`GET ${APP}`]: () => json(200, saved ? REGISTERED : UNSET),
       [`PUT ${APP}`]: () => {
         saved = true;
@@ -102,7 +124,7 @@ describe("워크스페이스 GitHub 연결", () => {
         });
       },
     });
-    expect(await screen.findByText("등록 안 됨")).toBeDefined();
+    expect(await (await authorCard()).findByText("등록 안 됨")).toBeDefined();
     expect(screen.queryByRole("heading", { name: "위험 구역" })).toBeNull();
     await register();
     expect((await screen.findByRole("status")).textContent).toBe(
@@ -142,10 +164,13 @@ describe("워크스페이스 GitHub 연결", () => {
     const { api } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
       ...settingsRead,
+      [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
       [`GET ${APP}`]: () => json(200, UNSET),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "등록" }));
+    await user.click(
+      await (await authorCard()).findByRole("button", { name: "등록" }),
+    );
     await user.click(screen.getByRole("button", { name: "확인하고 저장" }));
     expect(screen.getByText("App ID를 숫자로 넣어 주세요.")).toBeDefined();
     expect(document.activeElement === screen.getByLabelText("App ID")).toBe(
@@ -183,6 +208,7 @@ describe("워크스페이스 GitHub 연결", () => {
       renderAt(PATH, {
         "GET /v1/auth/me": () => json(200, me()),
         ...settingsRead,
+        [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
         [`GET ${APP}`]: () => json(200, UNSET),
         [`PUT ${APP}`]: () => response.clone(),
       });
@@ -198,6 +224,7 @@ describe("워크스페이스 GitHub 연결", () => {
     renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
       ...settingsRead,
+      [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
       [`GET ${APP}`]: () =>
         json(200, {
           ...REGISTERED,
@@ -219,6 +246,7 @@ describe("워크스페이스 GitHub 연결", () => {
     const { api } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
       ...settingsRead,
+      [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
       [`GET ${APP}`]: () => json(200, deleted ? UNSET : REGISTERED),
       [`DELETE ${APP}`]: () => {
         deleted = true;
@@ -234,7 +262,7 @@ describe("워크스페이스 GitHub 연결", () => {
     expect((await screen.findByRole("status")).textContent).toBe(
       "GitHub App을 삭제했습니다.",
     );
-    expect(await screen.findByText("등록 안 됨")).toBeDefined();
+    expect(await (await authorCard()).findByText("등록 안 됨")).toBeDefined();
     expect(api.calls.filter((c) => c.method === "DELETE")).toHaveLength(1);
   });
 
@@ -242,6 +270,7 @@ describe("워크스페이스 GitHub 연결", () => {
     const { api } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
       ...settingsRead,
+      [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
       [`GET ${APP}`]: () => json(200, UNSET),
       [`PUT ${APP}`]: () =>
         json(200, {
@@ -250,7 +279,9 @@ describe("워크스페이스 GitHub 연결", () => {
         }),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "등록" }));
+    await user.click(
+      await (await authorCard()).findByRole("button", { name: "등록" }),
+    );
     await user.type(screen.getByLabelText("App ID"), "4242");
     await user.upload(screen.getByLabelText("Private key (.pem)"), keyFile());
     // Two submits in one tick, before the first has read the file.
@@ -267,6 +298,7 @@ describe("워크스페이스 GitHub 연결", () => {
     renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
       ...settingsRead,
+      [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
       [`GET ${APP}`]: () =>
         json(200, {
           ...REGISTERED,
@@ -283,6 +315,113 @@ describe("워크스페이스 GitHub 연결", () => {
     expect(screen.queryByText(/GitHub에 연결하지 못해/)).toBeNull();
   });
 
+  test("리뷰용 App은 비어 있으면 권장 권한과 위험을 말하고, 등록하면 저장소마다 설치·승인 대기를 보이고 따로 지운다", async () => {
+    let reviewer: "unset" | "set" | "deleted" = "unset";
+    const { api } = renderAt(PATH, {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${SETTINGS}`]: () => json(200, NO_CEILING),
+      [`GET ${APP}`]: () => json(200, REGISTERED),
+      [`GET ${REVIEWER}`]: () =>
+        json(
+          200,
+          reviewer === "set"
+            ? {
+                ...REGISTERED,
+                github_app: {
+                  ...REGISTERED.github_app,
+                  app_id: 4343,
+                  name: "werft reviewer",
+                  role: "reviewer",
+                  permissions: { contents: "read", pull_requests: "write" },
+                },
+                repositories: [
+                  {
+                    ...REGISTERED.repositories[0],
+                    installation_permissions: {
+                      contents: "read",
+                      pull_requests: "read",
+                    },
+                  },
+                  REGISTERED.repositories[1],
+                ],
+              }
+            : NO_REVIEWER,
+        ),
+      [`PUT ${REVIEWER}`]: () => {
+        reviewer = "set";
+        return json(200, {
+          github_app: { ...REGISTERED.github_app, app_id: 4343 },
+          receipt_id: "5f0c2c1e-8a4b-4c1d-9e2f-3a4b5c6d7e8f",
+        });
+      },
+      [`DELETE ${REVIEWER}`]: () => {
+        reviewer = "deleted";
+        return json(200, {
+          receipt_id: "5f0c2c1e-8a4b-4c1d-9e2f-3a4b5c6d7e8f",
+        });
+      },
+    });
+    const title = "리뷰용 App (선택)";
+    await screen.findByRole("region", { name: title });
+    const card = () => cardOf(title);
+    expect(await card().findByText("등록 안 됨")).toBeDefined();
+    expect(card().getByText(/Pull requests 읽기·쓰기/)).toBeDefined();
+    expect(card().getByText(/필수 리뷰어를 2명 이상으로/)).toBeDefined();
+
+    const user = await register("4343", title);
+    expect((await screen.findByRole("status")).textContent).toBe(
+      "리뷰용 App을 저장했습니다.",
+    );
+    expect(
+      api.calls
+        .filter((c) => c.method === "PUT")
+        .map((c) => [c.path, (c.body as { app_id: number }).app_id]),
+    ).toEqual([[REVIEWER, 4343]]);
+    expect(await card().findByText("werft reviewer")).toBeDefined();
+    expect(card().getByText("설치 승인 대기")).toBeDefined();
+    expect(card().getByText("설치 안 됨")).toBeDefined();
+    expect(card().queryByText(/Pull requests 읽기·쓰기/)).toBeNull();
+
+    await user.click(card().getByRole("button", { name: "삭제" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "리뷰용 App을 삭제할까요?",
+    });
+    await user.click(within(dialog).getByRole("button", { name: "삭제" }));
+    expect((await screen.findByRole("status")).textContent).toBe(
+      "리뷰용 App을 삭제했습니다.",
+    );
+    expect(await card().findByText("등록 안 됨")).toBeDefined();
+    expect(
+      api.calls.filter((c) => c.method === "DELETE").map((c) => c.path),
+    ).toEqual([REVIEWER]);
+    expect((await authorCard()).getByText("werft test")).toBeDefined();
+  });
+
+  test("리뷰용 App 등록이 역할 충돌로 거절되면 그 이유를 말한다", async () => {
+    const cases = [
+      [
+        "same_app",
+        "작성용 App과 같은 App은 리뷰용으로 등록할 수 없습니다. 리뷰용 App을 따로 만들어 등록하세요.",
+      ],
+      [
+        "no_author_app",
+        "작성용 App을 먼저 등록해야 리뷰용 App을 등록할 수 있습니다.",
+      ],
+    ] as const;
+    for (const [reason, text] of cases) {
+      renderAt(PATH, {
+        "GET /v1/auth/me": () => json(200, me()),
+        [`GET ${SETTINGS}`]: () => json(200, NO_CEILING),
+        [`GET ${APP}`]: () => json(200, UNSET),
+        [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
+        [`PUT ${REVIEWER}`]: () => refusal(409, "GITHUB_APP_CONFLICT", reason),
+      });
+      await register("4343", "리뷰용 App (선택)");
+      expect((await screen.findByRole("alert")).textContent).toBe(text);
+      cleanup();
+    }
+  });
+
   test("구성원은 이유만 읽고 서버에 묻지 않는다", async () => {
     const { api } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, memberMe()),
@@ -291,7 +430,9 @@ describe("워크스페이스 GitHub 연결", () => {
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "등록" })).toBeNull(),
     );
-    expect(api.calls.some((c) => c.path === APP)).toBe(false);
+    expect(api.calls.some((c) => c.path === APP || c.path === REVIEWER)).toBe(
+      false,
+    );
   });
 });
 

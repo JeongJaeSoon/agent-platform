@@ -17,10 +17,11 @@
 //   web-user.mjs <run> slack-config <who> <workspace>  mock config token, never printed
 //   web-user.mjs <run> slack-install <who> <agent id>  mock OAuth with the person's cookie
 //   web-user.mjs <run> slack-event <agent> <mode> [channel seq [parent]]  signed mock inbound request
+//   web-user.mjs <run> github-app <who> <workspace> <app id>  register the App; key read from its file
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 const [runArg, cmd, who, ...rest] = process.argv.slice(2);
@@ -393,6 +394,29 @@ switch (cmd) {
       r.note = `key saved as keys/${who}; load it with ap_as ${who}`;
     }
     report(r, ["secret"]);
+    break;
+  }
+  case "github-app": {
+    // The owner's App key goes from its file to the API here and nowhere
+    // else: never an argument, never printed. The response carries no key.
+    const [workspace, appId] = rest;
+    if (!workspace || !/^[0-9]+$/.test(appId ?? ""))
+      throw new Error("usage: github-app <who> <workspace id> <app id>");
+    const keyFile =
+      process.env.VERIFY_GITHUB_APP_KEY_FILE ??
+      join(homedir(), ".config", "werft", "github-app.pem");
+    if (!existsSync(keyFile))
+      throw new Error(
+        "no App key file: the owner puts it at ~/.config/werft/github-app.pem or names it in VERIFY_GITHUB_APP_KEY_FILE",
+      );
+    report(
+      await call(
+        "PUT",
+        `/v1/workspaces/${workspace}/github-app`,
+        { app_id: Number(appId), private_key: readFileSync(keyFile, "utf8") },
+        { cookie: cookieOf(who) },
+      ),
+    );
     break;
   }
   default:

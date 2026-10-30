@@ -1,3 +1,4 @@
+export * from "./agents/agent-github-service.ts";
 export * from "./agents/agent-service.ts";
 export * from "./agents/release-ids.ts";
 export * from "./checkpoints/checkpoint-collector.ts";
@@ -38,6 +39,7 @@ export * from "./musterrolle/slack-welcome.ts";
 export * from "./musterrolle/surface-binding-service.ts";
 export * from "./musterrolle/team-service.ts";
 export * from "./ports/agent-admin-store.ts";
+export * from "./ports/agent-github-store.ts";
 export * from "./ports/agent-identity-store.ts";
 export * from "./ports/agent-store.ts";
 export * from "./ports/api-key-store.ts";

@@ -109,6 +109,9 @@ function app(
     getWorkflowRun: async () => {
       throw new Error("not used");
     },
+    submitReview: async () => {
+      throw new Error("not used");
+    },
     rerunWorkflow: async () => {
       throw new Error("not used");
     },
@@ -117,6 +120,7 @@ function app(
     kind: "app",
     githubCom: true,
     appId: 101,
+    installed: async () => true,
     credential: async () => ({
       credential: { username: "x-access-token", password: "fixture" },
       fresh: false,

@@ -1,0 +1,17 @@
+# The GitHub sandbox run: up.sh .claude/skills/verify-agent-platform/github-sandbox/overlay.yml
+# Only the catalog's repository list is replaced, so the fake-model profiles
+# and connections stay the repo's. The source is relative to the project
+# directory (the repo root, where compose.yaml is). No key passes through
+# compose: the App is registered through the API once the stack is up.
+services:
+  api:
+    volumes:
+      - type: bind
+        source: ./.claude/skills/verify-agent-platform/github-sandbox/repositories.yaml
+        target: /app/config/fake-model/repositories.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+  egress-proxy:
+    environment:
+      EGRESS_CREDENTIAL_ALLOWLIST: api.anthropic.com:443,github.com:443

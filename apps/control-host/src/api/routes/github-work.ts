@@ -2,10 +2,13 @@ import {
   dispatchWorkflowRequestSchema,
   dispatchWorkflowResponseSchema,
   githubWorkflowRunSchema,
+  pullRequestReviewParamsSchema,
   rerunWorkflowRequestSchema,
   rerunWorkflowResponseSchema,
   sessionGitHubAttributionSchema,
   sessionIdParamsSchema,
+  submitPullRequestReviewRequestSchema,
+  submitPullRequestReviewResponseSchema,
   workflowRunParamsSchema,
 } from "@werft-ai/contracts";
 import type {
@@ -54,6 +57,23 @@ export function registerGitHubWorkRoutes(
       service.rerun(actorOf(context), params.id, params.run_id, body),
     );
     return jsonWithSchema(context, rerunWorkflowResponseSchema, rerun, 201);
+  });
+
+  apiRoute(router, "submitPullRequestReview", async (context) => {
+    const params = requireParams(context, pullRequestReviewParamsSchema);
+    const body = await parseJsonBody(
+      context,
+      submitPullRequestReviewRequestSchema,
+    );
+    const review = await mapped(() =>
+      service.review(actorOf(context), params.id, params.number, body),
+    );
+    return jsonWithSchema(
+      context,
+      submitPullRequestReviewResponseSchema,
+      review,
+      201,
+    );
   });
 }
 

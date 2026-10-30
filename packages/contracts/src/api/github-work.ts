@@ -106,6 +106,47 @@ export type SessionGitHubAttribution = z.infer<
   typeof sessionGitHubAttributionSchema
 >;
 
+export const GITHUB_REVIEW_EVENT_VALUES = [
+  "APPROVE",
+  "REQUEST_CHANGES",
+  "COMMENT",
+] as const;
+export const GITHUB_REVIEW_BODY_MAX_LENGTH = 65_536;
+
+export const pullRequestReviewParamsSchema = sessionIdParamsSchema.extend({
+  number: z.coerce.number().int().positive().max(2_147_483_647),
+});
+
+export const submitPullRequestReviewRequestSchema = z
+  .object({
+    event: z.enum(GITHUB_REVIEW_EVENT_VALUES),
+    // The head the caller read: GitHub files the review on this commit, so
+    // nothing pushed after the read is approved.
+    commit_id: z.string().regex(/^[0-9a-f]{40}$/),
+    // Sent to GitHub only; never kept in a receipt or a log.
+    body: z.string().min(1).max(GITHUB_REVIEW_BODY_MAX_LENGTH).optional(),
+  })
+  .strict()
+  .refine((review) => review.event === "APPROVE" || review.body !== undefined, {
+    message: "body is required unless event is APPROVE",
+    path: ["body"],
+  });
+
+export const submitPullRequestReviewResponseSchema = z.object({
+  receipt_id: receiptIdSchema,
+  review: z.object({
+    id: z.number().int().positive(),
+    html_url: z.url(),
+  }),
+});
+
+export type GitHubReviewEvent = (typeof GITHUB_REVIEW_EVENT_VALUES)[number];
+export type SubmitPullRequestReviewRequest = z.infer<
+  typeof submitPullRequestReviewRequestSchema
+>;
+export type SubmitPullRequestReviewResponse = z.infer<
+  typeof submitPullRequestReviewResponseSchema
+>;
 export type DispatchWorkflowRequest = z.infer<
   typeof dispatchWorkflowRequestSchema
 >;

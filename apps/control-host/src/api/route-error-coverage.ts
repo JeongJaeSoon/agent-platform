@@ -70,6 +70,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/sessions/{id}/github/workflow-runs/{run_id}",
     "POST /v1/sessions/{id}/github/workflow-runs/{run_id}/rerun",
     "GET /v1/sessions/{id}/github/attribution",
+    "POST /v1/sessions/{id}/github/pull-requests/{number}/reviews",
   ],
   "routes/interrupt.test.ts": ["POST /v1/sessions/{id}/interrupt"],
   "routes/pause.test.ts": ["POST /v1/sessions/{id}/pause"],
@@ -131,6 +132,14 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/workspaces/{id}/github-app",
     "PUT /v1/workspaces/{id}/github-app",
     "DELETE /v1/workspaces/{id}/github-app",
+    "GET /v1/workspaces/{id}/github-apps/{role}",
+    "PUT /v1/workspaces/{id}/github-apps/{role}",
+    "DELETE /v1/workspaces/{id}/github-apps/{role}",
+  ],
+  "routes/agent-github.test.ts": [
+    "GET /v1/agents/{id}/github",
+    "PUT /v1/agents/{id}/github/enabled",
+    "GET /v1/agents/{id}/github/activity",
   ],
   "routes/github-settings.test.ts": [
     "GET /v1/workspaces/{id}/github-settings",

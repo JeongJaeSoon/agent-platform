@@ -1,6 +1,6 @@
 # 화면·API 실행 절차
 
-기본 run은 위에서 아래로 실행한다. Slack과 데모는 아래 별도 run이다. 각 id에 요청·본문·마지막 상태 줄·화면 증거를 붙여 보고한다. 이 문서는 코드 대조 결과다. 라이브 실행 증거는 실행자가 채운다.
+기본 run은 위에서 아래로 실행한다. Slack, 실제 GitHub, 데모는 아래 별도 run이다. 각 id에 요청·본문·마지막 상태 줄·화면 증거를 붙여 보고한다. 이 문서는 코드 대조 결과다. 라이브 실행 증거는 실행자가 채운다.
 
 ## P-SETUP — 공통 전제
 
@@ -802,6 +802,10 @@ ap_compose exec -T postgres psql -U postgres -d sessions -c "select surface_ref 
 기대: binding PUT 200, 옛 값 `mention`은 400(`expected one of "off"|"on"`). 이벤트는 모두 200 `ok:true`이고 `slack_inbound_events`는 processed. session_links는 `<SUP>:1792800002.000001`(멘션)과 `<SUP>:1792800004.000001`(꺼진 뒤 멘션 없는 글) 둘뿐이다. 1(켜짐인데 멘션 없음), 3·5(사용 꺼진 채널)는 세션을 열지 않는다. `slack-event`의 `mention`·`plain`은 `[channel seq]`를 받아 seq마다 새 event id와 thread를 만든다. `plain`은 `channel_type: channel`이라 비공개 채널(G…)에 보내면 채널 종류 불일치로 거절된다. 2026-10-28 run `20261028-193529-12255`에서 이 순서로 확인했다.
 
 스레드 답글은 `reply <channel> <seq> <parent seq>`로 보낸다(멘션 없는 `message`, `thread_ts`는 parent seq의 글). 위 2(멘션)의 스레드에 `reply "$SUP" 3 2`를 보내면 `mention_only`가 켜져 있어도 그 세션의 turn 2가 된다(대화 중인 스레드는 멘션 없이 잇는다). 세션이 없는 1의 스레드에 `reply "$SUP" 4 1`은 켜짐·꺼짐 모두 무시된다. turn 수는 `select l.thread_id, (select count(*) from turns t where t.session_id=l.session_id) from session_links l`로 읽는다. 2026-10-30 run `20261030-125330-13372`에서 켜짐·꺼짐 각각 확인했다.
+
+## P-GITHUB-SANDBOX — 실제 GitHub 별도 run
+
+전제: 새 run. 기본 run·Slack run과 같이 띄우지 않는다. `up.sh .claude/skills/verify-agent-platform/github-sandbox/overlay.yml`과 버리는 master key로 띄우고, [github-sandbox.md](github-sandbox.md)의 1–7을 순서대로 실행한다(App 등록 → 상한 → 에이전트 릴리스 → 세션 clone·commit → push·PR → dispatch·rerun 거절과 receipt → 자기 PR 닫기·`down.sh --keep-volumes`). 실제 GitHub에 브랜치와 PR이 생기므로 7의 정리까지가 한 절차다.
 
 ## P-DEMO-SEED — 데모 별도 run
 

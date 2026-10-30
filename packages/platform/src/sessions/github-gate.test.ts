@@ -91,6 +91,7 @@ function fakeApi(): GitHubApi {
     dispatchWorkflow: unused,
     getWorkflowRun: unused,
     rerunWorkflow: unused,
+    submitReview: unused,
   };
 }
 
@@ -106,6 +107,7 @@ function fakeConnection(
     kind: options.kind ?? "app",
     githubCom: options.githubCom ?? true,
     appId: options.kind === "pat" ? null : (options.appId ?? 7),
+    installed: async () => (options.kind === "pat" ? null : true),
     credential: async (repo, permissions) => {
       issued.push({ repo, permissions });
       if (refuse) throw new GitHubPermissionError("422");
@@ -326,6 +328,34 @@ describe("permission table", () => {
     expect(author?.issued).toEqual([]);
     expect(reviewer?.issued).toHaveLength(1);
     expect(receipts[0]?.result).toMatchObject({ role: "reviewer", app_id: 8 });
+  });
+
+  test("a refused review is a review_pull_request receipt naming the pull request and commit", async () => {
+    const { grant, receipts, reviewer } = harness({
+      github: settings({ features: features({ review: true }) }),
+      ceiling: ALL_ON,
+      reviewer: null,
+    });
+    const review = {
+      number: 12,
+      commitId: "a".repeat(40),
+      event: "APPROVE" as const,
+    };
+    expect(await refused(grant({ purpose: "review", review }))).toEqual({
+      reason: "no_reviewer_app",
+      receiptId: "receipt-1",
+    });
+    expect(reviewer).toBeNull();
+    expect(receipts[0]).toMatchObject({
+      operation: "review_pull_request",
+      status: "failed",
+      result: {
+        reason_code: "no_reviewer_app",
+        number: 12,
+        commit_id: "a".repeat(40),
+        event: "APPROVE",
+      },
+    });
   });
 
   test("outcome_refresh asks pull_requests:read and skips switch, scope, feature and ceiling", async () => {

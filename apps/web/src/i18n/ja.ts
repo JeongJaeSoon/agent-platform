@@ -1,4 +1,5 @@
 import { flowJa, formsJa, sessionsJa } from "@werft-ai/react";
+import { agentGitHubJa } from "./agent-github.ts";
 import { agentsJa } from "./agents.ts";
 import { apiKeysJa } from "./api-keys.ts";
 import { authJa } from "./auth.ts";
@@ -186,6 +187,7 @@ export const ja: Record<MessageKey, string> = {
   ...workspaceJa,
   ...githubJa,
   ...githubUserLinkJa,
+  ...agentGitHubJa,
   ...usageJa,
   ...preferencesJa,
   ...errorsJa,

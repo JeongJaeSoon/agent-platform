@@ -1,0 +1,14 @@
+# config/fake-model/repositories.yaml plus the real GitHub sandbox. Its App is
+# the one registered in the console (web-user.mjs github-app), so no App id,
+# installation or key is written here.
+repositories:
+  sample-app:
+    url: http://gitea:3000/agent/sample-app.git
+    branch: main
+    profiles: [claude-coding-local, claude-coding-auto]
+  sandbox:
+    url: https://github.com/JeongJaeSoon/werft-sandbox.git
+    branch: main
+    profiles: [claude-coding-local]
+    auth:
+      kind: github_app

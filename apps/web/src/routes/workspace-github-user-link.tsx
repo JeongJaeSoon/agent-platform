@@ -19,19 +19,15 @@ import {
 } from "@werft-ai/ui";
 import { Check, Copy } from "lucide-react";
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
-import { scopedKey } from "../api/queries.ts";
 import { refusalText, useRole } from "../auth/guard.tsx";
 import { copyText } from "../components/copy.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
+import { githubSettingsKey } from "./workspace-github-access.tsx";
 import { type OnOutcome, SettingsCard } from "./workspace-settings.tsx";
 import { storeOff } from "./workspace-slack.tsx";
 
 const ACTION = "min-w-12";
-
-/** One cache for the workspace's GitHub settings, whichever screen reads it. */
-export const githubSettingsKey = (client: ApiClient, workspaceId: string) =>
-  scopedKey(client, "workspace", workspaceId, "github-settings");
 
 export function githubSettingsQuery(client: ApiClient, workspaceId: string) {
   return {

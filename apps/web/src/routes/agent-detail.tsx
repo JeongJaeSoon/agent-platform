@@ -66,6 +66,7 @@ import { agentRefusal } from "./agents.tsx";
 const PANEL = "@container flex flex-col gap-8 pt-2";
 
 const SlackTab = lazyRouteComponent(() => import("./agent-detail/slack.tsx"));
+const GitHubTab = lazyRouteComponent(() => import("./agent-detail/github.tsx"));
 
 export const AGENT_TABS = [
   "overview",
@@ -73,6 +74,7 @@ export const AGENT_TABS = [
   "release",
   "admins",
   "slack",
+  "github",
 ] as const;
 export type AgentTab = (typeof AGENT_TABS)[number];
 
@@ -185,8 +187,10 @@ function AgentView({
   // opening its tab must be visible in the same render that focuses it.
   const [tab, setTab] = useState(urlTab);
   const [slackOpened, setSlackOpened] = useState(urlTab === "slack");
+  const [githubOpened, setGitHubOpened] = useState(urlTab === "github");
   useEffect(() => {
     if (tab === "slack") setSlackOpened(true);
+    if (tab === "github") setGitHubOpened(true);
   }, [tab]);
   const [seenUrlTab, setSeenUrlTab] = useState(urlTab);
   if (urlTab !== seenUrlTab) {
@@ -508,6 +512,21 @@ function AgentView({
               slug={agent.slug}
               active={agent.active_release_id !== null}
             />
+          </Suspense>
+        ) : null}
+      </TabsContent>
+      <TabsContent {...tabPanel("github")}>
+        {/* Kept mounted once opened, so leaving the tab keeps a draft. */}
+        {tab === "github" || githubOpened ? (
+          <Suspense
+            fallback={
+              <div
+                className="min-h-96 animate-pulse rounded-lg bg-muted"
+                aria-busy="true"
+              />
+            }
+          >
+            <GitHubTab detail={detail} />
           </Suspense>
         ) : null}
       </TabsContent>

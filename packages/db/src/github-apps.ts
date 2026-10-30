@@ -151,6 +151,18 @@ export function createPostgresGitHubAppStore(
           .where(eq(workspaces.id, workspaceId));
         if (!workspace) return { outcome: "workspace_not_found" };
         await lockGitHubApps(tx, workspaceId);
+        const other = await tx
+          .select({ appId: githubApps.appId })
+          .from(githubApps)
+          .where(
+            ofRole(workspaceId, role === "author" ? "reviewer" : "author"),
+          );
+        if (role === "reviewer" && other.length === 0) {
+          return { outcome: "no_author_app" };
+        }
+        if (other.some((held) => held.appId === app.appId)) {
+          return { outcome: "same_app" };
+        }
         const fields = {
           appId: app.appId,
           slug: app.slug,

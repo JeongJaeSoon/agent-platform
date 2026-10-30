@@ -249,6 +249,27 @@ async function writeReceipt(
   return id;
 }
 
+/**
+ * The release's GitHub settings for its receipt, and whether they differ
+ * from `previousReleaseId`'s, so the agent's GitHub activity lists only the
+ * releases and activations that moved them.
+ */
+async function githubChange(
+  tx: Database,
+  releaseId: string,
+  previousReleaseId: string | null,
+) {
+  const [row] = await tx
+    .select({
+      github: sql<unknown>`${agentReleases.policyPins} -> 'github'`,
+      changed: sql<boolean>`(${agentReleases.policyPins} -> 'github') IS DISTINCT FROM (SELECT p.policy_pins -> 'github' FROM agent_releases p WHERE p.id = ${previousReleaseId})`,
+    })
+    .from(agentReleases)
+    .where(eq(agentReleases.id, releaseId))
+    .limit(1);
+  return { github: row?.github ?? null, github_changed: row?.changed ?? false };
+}
+
 async function lockAgent(tx: Database, workspaceId: string, agentId: string) {
   const [agent] = await tx
     .select({
@@ -499,7 +520,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         // A release's label counts the agent's earlier releases in the same
         // second, so releases are made one at a time per agent and stamped
         // after the lock: the label they answer with is the one they keep.
-        await lockAgent(tx, input.workspaceId, release.agent_id);
+        const locked = await lockAgent(tx, input.workspaceId, release.agent_id);
         const [inserted] = await tx
           .insert(agentReleases)
           .values({
@@ -529,7 +550,14 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           operation: "create_agent_release",
           workspaceId: input.workspaceId,
           agentId: release.agent_id,
-          result: { release_id: release.id },
+          result: {
+            release_id: release.id,
+            ...(await githubChange(
+              tx,
+              release.id,
+              locked?.activeReleaseId ?? null,
+            )),
+          },
         });
         await tx.insert(agentActivationEvents).values({
           id: randomUUID(),
@@ -605,6 +633,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
             release_id: input.releaseId,
             previous_release_id: agent.activeReleaseId,
             activation_revision: swapped.revision,
+            ...(await githubChange(tx, input.releaseId, agent.activeReleaseId)),
           },
         });
         await tx.insert(agentActivationEvents).values({

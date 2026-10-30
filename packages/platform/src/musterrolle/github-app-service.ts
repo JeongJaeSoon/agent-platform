@@ -4,6 +4,7 @@ import {
   type GetGitHubAppResponse,
   type GitHubApp,
   type GitHubAppRepository,
+  type GitHubAppRole,
   githubAppWarnings,
   type PutGitHubAppRequest,
   type PutGitHubAppResponse,
@@ -29,8 +30,6 @@ import {
 import { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
 
 const MANAGERS = MANAGEMENT_ROLES["workspace.manage"] ?? [];
-/** `/github-app` is the author App's; the reviewer's has routes of its own. */
-const ROLE = "author";
 
 const STORE_OFF = () =>
   new SessionServiceError(
@@ -43,9 +42,13 @@ const refused = (reasonCode: string, message: string) =>
     reason_code: reasonCode,
   });
 
-export function githubAppOf(record: GitHubAppRecord): GitHubApp {
+export function githubAppOf(
+  record: GitHubAppRecord,
+  role: GitHubAppRole,
+): GitHubApp {
   const { updatedBy } = record.privateKey;
   return {
+    role,
     app_id: record.appId,
     slug: record.slug,
     name: record.name,
@@ -61,7 +64,7 @@ export function githubAppOf(record: GitHubAppRecord): GitHubApp {
     updated_at: record.updatedAt.toISOString(),
     permissions: record.permissions,
     permissions_checked_at: record.permissionsCheckedAt?.toISOString() ?? null,
-    warnings: githubAppWarnings(ROLE, record.permissions),
+    warnings: githubAppWarnings(role, record.permissions),
   };
 }
 
@@ -81,9 +84,10 @@ function rsaPrivateKey(raw: string): string {
 }
 
 /**
- * The workspace's GitHub App, set in the console by an owner or admin
- * (`workspace.manage`) signed in to it. The key is checked against GitHub
- * before it is kept, and never leaves the server again.
+ * The workspace's GitHub Apps, one per role (design github-agent.md §2
+ * decision 1), set in the console by an owner or admin (`workspace.manage`)
+ * signed in to it. A key is checked against GitHub before it is kept, and
+ * never leaves the server again.
  */
 export function createGitHubAppService(deps: {
   authorization: AuthorizationPolicy;
@@ -93,7 +97,7 @@ export function createGitHubAppService(deps: {
   apiBase: string;
   /** Catalog repositories written as `{ kind: github_app }`. */
   repositories: () => ReadonlyArray<{ id: string; url: string }>;
-  /** Called after a change commits, so this replica's forge picks it up. */
+  /** Called after a change commits, so this replica's connections pick it up. */
   changed: () => Promise<void>;
   newId?: () => string;
 }) {
@@ -134,24 +138,28 @@ export function createGitHubAppService(deps: {
   // the periodic one catches up.
   const reload = () => deps.changed().catch(() => undefined);
 
+  const unchecked = (): GitHubAppRepository[] =>
+    deps
+      .repositories()
+      .map(({ id, url }) => ({ id, url, installation_id: null }));
+
   async function check(
     credential: GitHubAppCredential,
   ): Promise<Omit<GetGitHubAppResponse, "github_app">> {
-    const unchecked = deps
-      .repositories()
-      .map(({ id, url }) => ({ id, url, installation_id: null }));
     try {
       const [installations, repositories] = await Promise.all([
         directory.installations(credential),
         Promise.all(
-          unchecked.map(async (repository): Promise<GitHubAppRepository> => {
+          unchecked().map(async (repository): Promise<GitHubAppRepository> => {
             const ref = repoRefOf(repository.url);
+            const found =
+              ref === null
+                ? null
+                : await directory.installationFor(credential, ref);
             return {
               ...repository,
-              installation_id:
-                ref === null
-                  ? null
-                  : await directory.installationFor(credential, ref),
+              installation_id: found?.id ?? null,
+              installation_permissions: found?.permissions ?? null,
             };
           }),
         ),
@@ -176,7 +184,7 @@ export function createGitHubAppService(deps: {
               : "github_unreachable",
         },
         installations: [],
-        repositories: unchecked,
+        repositories: unchecked(),
       };
     }
   }
@@ -185,13 +193,14 @@ export function createGitHubAppService(deps: {
     async describe(
       caller: Caller,
       workspaceId: string,
+      role: GitHubAppRole,
     ): Promise<GetGitHubAppResponse> {
       const store = await managedStore(caller, workspaceId);
-      const record = await store.find(workspaceId, ROLE);
+      const record = await store.find(workspaceId, role);
       const credential =
         record === null
           ? undefined
-          : (await store.credentials(ROLE, workspaceId)).find(
+          : (await store.credentials(role, workspaceId)).find(
               (held) => held.id === record.id,
             );
       if (record === null || credential === undefined) {
@@ -199,9 +208,7 @@ export function createGitHubAppService(deps: {
           github_app: null,
           check: null,
           installations: [],
-          repositories: deps
-            .repositories()
-            .map(({ id, url }) => ({ id, url, installation_id: null })),
+          repositories: unchecked(),
         };
       }
       const [checked, profile] = await Promise.all([
@@ -232,6 +239,7 @@ export function createGitHubAppService(deps: {
                 permissionsCheckedAt: new Date(),
                 clientId: profile.clientId,
               },
+          role,
         ),
         ...checked,
       };
@@ -244,6 +252,7 @@ export function createGitHubAppService(deps: {
     async register(
       caller: Caller,
       workspaceId: string,
+      role: GitHubAppRole,
       readBody: () => Promise<PutGitHubAppRequest>,
     ): Promise<PutGitHubAppResponse> {
       const store = await managedStore(caller, workspaceId);
@@ -282,7 +291,7 @@ export function createGitHubAppService(deps: {
       const audit = auditOf(caller);
       const result = await store.put(
         workspaceId,
-        ROLE,
+        role,
         { ...profile, apiBase: deps.apiBase },
         privateKey,
         audit,
@@ -291,9 +300,23 @@ export function createGitHubAppService(deps: {
         case "stored":
           await reload();
           return {
-            github_app: githubAppOf(result.app),
+            github_app: githubAppOf(result.app, role),
             receipt_id: audit.receiptId,
           };
+        case "same_app":
+          throw new SessionServiceError(
+            "GITHUB_APP_CONFLICT",
+            "The workspace's other GitHub App is this App; GitHub refuses an approval from the App that opened the pull request",
+            undefined,
+            { reason_code: "same_app" },
+          );
+        case "no_author_app":
+          throw new SessionServiceError(
+            "GITHUB_APP_CONFLICT",
+            "Register the author GitHub App before the reviewer App",
+            undefined,
+            { reason_code: "no_author_app" },
+          );
         case "actor_inactive":
           throw ACTOR_INACTIVE();
         case "outranked":
@@ -306,10 +329,11 @@ export function createGitHubAppService(deps: {
     async remove(
       caller: Caller,
       workspaceId: string,
+      role: GitHubAppRole,
     ): Promise<DeleteGitHubAppResponse> {
       const store = await managedStore(caller, workspaceId);
       const audit = auditOf(caller);
-      const result = await store.delete(workspaceId, ROLE, audit);
+      const result = await store.delete(workspaceId, role, audit);
       switch (result.outcome) {
         case "deleted":
           await reload();

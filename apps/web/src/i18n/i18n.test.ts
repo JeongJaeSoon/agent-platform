@@ -12,6 +12,7 @@ import {
 } from "@werft-ai/react";
 import { AGENT_MAP_MESSAGES } from "../../../../packages/react/src/components/agent-map/messages.ts";
 import { OPERATIONS_MESSAGES } from "../../../../packages/react/src/components/operations/messages.ts";
+import { agentGitHubEn, agentGitHubJa, agentGitHubKo } from "./agent-github.ts";
 import { agentsEn, agentsJa, agentsKo } from "./agents.ts";
 import { apiKeysEn, apiKeysJa, apiKeysKo } from "./api-keys.ts";
 import { authEn, authJa, authKo } from "./auth.ts";
@@ -133,6 +134,7 @@ describe("i18n", () => {
         workspaceKo,
         githubKo,
         githubUserLinkKo,
+        agentGitHubKo,
         usageKo,
         preferencesKo,
         errorsKo,
@@ -158,6 +160,7 @@ describe("i18n", () => {
         workspaceJa,
         githubJa,
         githubUserLinkJa,
+        agentGitHubJa,
         usageJa,
         preferencesJa,
         errorsJa,
@@ -183,6 +186,7 @@ describe("i18n", () => {
         workspaceEn,
         githubEn,
         githubUserLinkEn,
+        agentGitHubEn,
         usageEn,
         preferencesEn,
         errorsEn,

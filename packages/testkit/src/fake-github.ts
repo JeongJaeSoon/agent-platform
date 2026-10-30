@@ -50,6 +50,8 @@ export type FakeGitHubPullRequest = {
   title: string;
   body: string;
   state: "open" | "closed";
+  /** The App whose installation token opened it. */
+  author_app_id: number;
   html_url: string;
 };
 
@@ -60,6 +62,16 @@ export type FakeGitHubComment = {
   user: { id: number; login: string };
   /** Set on a comment written with the App's installation token. */
   performed_via_github_app: { id: number } | null;
+};
+
+/** A pull request review, with the App whose token submitted it. */
+export type FakeGitHubReview = {
+  id: number;
+  pull_number: number;
+  commit_id: string;
+  event: string;
+  body: string | null;
+  app_id: number;
 };
 
 /** A workflow run: dispatched through the API, or added as if by a push. */
@@ -131,6 +143,7 @@ export type FakeGitHub = {
   ): void;
   pullRequests(owner: string, name: string): FakeGitHubPullRequest[];
   comments(owner: string, name: string, number: number): FakeGitHubComment[];
+  reviews(owner: string, name: string, pullNumber: number): FakeGitHubReview[];
   /** A comment by a person, not the App, on a pull request. */
   addComment(
     owner: string,
@@ -157,6 +170,20 @@ export type FakeGitHubOptions = {
   slug?: string;
   /** See `setPermissions`. */
   permissions?: FakeGitHubPermissions;
+  /**
+   * Another App on the same GitHub (a reviewer App): its own key and
+   * installation. GitHub refuses its approval of a pull request it opened.
+   */
+  secondApp?: {
+    appId: number;
+    publicKey: string;
+    installationId: number;
+    slug?: string;
+    /** What its installation grants; unset grants whatever is asked. */
+    permissions?: FakeGitHubPermissions;
+    /** `owner/name` it is installed on; unset: every served repository. */
+    installedOn?: string[];
+  };
 };
 
 const LEVEL = { read: 1, write: 2 } as const;
@@ -167,6 +194,7 @@ const APP_PERMISSIONS_DEFAULT: FakeGitHubPermissions = {
 };
 
 type Issued = {
+  appId: number;
   index: number;
   installationId: number;
   /** Null when the request named no repositories: every one is reachable. */
@@ -182,6 +210,7 @@ type Served = {
   pulls: FakeGitHubPullRequest[];
   comments: Map<number, FakeGitHubComment[]>;
   runs: FakeGitHubWorkflowRun[];
+  reviews: FakeGitHubReview[];
 };
 
 /**
@@ -202,6 +231,8 @@ export async function startFakeGitHub(
 ): Promise<FakeGitHub> {
   const root = await mkdtemp(join(tmpdir(), "testkit-fake-github-"));
   const publicKey = createPublicKey(options.publicKey);
+  const second = options.secondApp;
+  const secondKey = second ? createPublicKey(second.publicKey) : undefined;
   const now = options.now ?? (() => new Date());
   const ttlMs = (options.tokenTtlSeconds ?? 3600) * 1000;
   const tokenRequests: FakeGitHubTokenRequest[] = [];
@@ -217,17 +248,22 @@ export async function startFakeGitHub(
     const jwt = /^Bearer (.+)$/i.exec(authorization ?? "")?.[1];
     const [head, body, signature] = jwt?.split(".") ?? [];
     if (!head || !body || !signature) return undefined;
-    const signed = verify(
-      "RSA-SHA256",
-      Buffer.from(`${head}.${body}`),
-      publicKey,
-      Buffer.from(signature, "base64url"),
+    const signedBy = [publicKey, secondKey].findIndex(
+      (key) =>
+        key !== undefined &&
+        verify(
+          "RSA-SHA256",
+          Buffer.from(`${head}.${body}`),
+          key,
+          Buffer.from(signature, "base64url"),
+        ),
     );
-    if (!signed) return undefined;
+    if (signedBy === -1) return undefined;
+    const appId = signedBy === 0 ? options.appId : second?.appId;
     const claims = JSON.parse(Buffer.from(body, "base64url").toString());
     const seconds = Math.floor(now().getTime() / 1000);
     if (
-      String(claims.iss) !== String(options.appId) ||
+      String(claims.iss) !== String(appId) ||
       typeof claims.iat !== "number" ||
       typeof claims.exp !== "number" ||
       claims.iat > seconds + 60 ||
@@ -281,14 +317,24 @@ export async function startFakeGitHub(
         { status: 401 },
       );
     }
+    const appId = Number(jwt.iss);
+    const ownInstallation =
+      appId === second?.appId
+        ? installationId === second.installationId
+        : installationId !== second?.installationId;
+    if (!ownInstallation) {
+      record(404);
+      return Response.json({ message: "Not Found" }, { status: 404 });
+    }
+    const grants = appId === options.appId ? granted : second?.permissions;
     const asked = body as {
       repositories?: string[];
       permissions?: Record<string, string>;
     } | null;
     const ungranted = Object.entries(asked?.permissions ?? {}).some(
       ([permission, level]) => {
-        if (granted === undefined) return false;
-        const held = granted[permission];
+        if (grants === undefined) return false;
+        const held = grants[permission];
         return (
           held === undefined ||
           (LEVEL[level as keyof typeof LEVEL] ?? 3) > LEVEL[held]
@@ -308,6 +354,7 @@ export async function startFakeGitHub(
     const token = `ghs_${randomBytes(18).toString("base64url")}`;
     const expiresAt = new Date(now().getTime() + ttlMs);
     issued.set(token, {
+      appId,
       index: issued.size + 1,
       installationId,
       repositories: asked?.repositories ?? null,
@@ -332,9 +379,18 @@ export async function startFakeGitHub(
     );
   }
 
+  function installedOn(appId: number, repository: string): boolean {
+    return (
+      appId !== second?.appId ||
+      second.installedOn === undefined ||
+      second.installedOn.includes(repository)
+    );
+  }
+
   function reaches(grant: Issued, owner: string, name: string): boolean {
     return (
       served.has(`${owner}/${name}`) &&
+      installedOn(grant.appId, `${owner}/${name}`) &&
       (grant.repositories === null || grant.repositories.includes(name))
     );
   }
@@ -346,6 +402,7 @@ export async function startFakeGitHub(
     retryAfter: number;
   } = { count: 0, limit: "secondary", retryAfter: 1 };
   let nextCommentId = 5000;
+  let nextReviewId = 8000;
   function commentOn(
     thread: FakeGitHubComment[],
     htmlBase: string,
@@ -512,6 +569,7 @@ export async function startFakeGitHub(
         title: String(input.title ?? ""),
         body: String(input.body ?? ""),
         state: "open",
+        author_app_id: grant.appId,
         html_url: `${htmlBase}/pull/${number}`,
       };
       found.pulls.push(pull);
@@ -557,7 +615,7 @@ export async function startFakeGitHub(
           String(input.body ?? ""),
           {
             user: { id: APP_BOT_USER_ID, login: "agent-platform[bot]" },
-            performed_via_github_app: { id: options.appId },
+            performed_via_github_app: { id: grant.appId },
           },
         );
         return Response.json(comment, { status: 201 });
@@ -572,6 +630,44 @@ export async function startFakeGitHub(
       if (comment === undefined) return notFound();
       comment.body = String(input.body ?? "");
       return Response.json(comment);
+    }
+    const review = /^\/pulls\/(\d+)\/reviews$/.exec(rest);
+    if (review?.[1] && method === "POST") {
+      if (!can("pull_requests", "write")) return forbidden();
+      const pull = found.pulls.find(
+        (entry) => entry.number === Number(review[1]),
+      );
+      if (pull === undefined) return notFound();
+      const event = String(input.event ?? "COMMENT");
+      if (event === "APPROVE" && pull.author_app_id === grant.appId) {
+        return Response.json(
+          {
+            message: "Unprocessable Entity",
+            errors: ["Can not approve your own pull request"],
+          },
+          { status: 422 },
+        );
+      }
+      nextReviewId += 1;
+      const submitted: FakeGitHubReview = {
+        id: nextReviewId,
+        pull_number: pull.number,
+        commit_id: String(input.commit_id ?? ""),
+        event,
+        body: typeof input.body === "string" ? input.body : null,
+        app_id: grant.appId,
+      };
+      found.reviews.push(submitted);
+      const states: Record<string, string> = {
+        APPROVE: "APPROVED",
+        REQUEST_CHANGES: "CHANGES_REQUESTED",
+      };
+      return Response.json({
+        id: submitted.id,
+        commit_id: submitted.commit_id,
+        state: states[event] ?? "COMMENTED",
+        html_url: `${htmlBase}/pull/${pull.number}#pullrequestreview-${submitted.id}`,
+      });
     }
     const dispatch = /^\/actions\/workflows\/([^/]+)\/dispatches$/.exec(rest);
     if (dispatch?.[1] && method === "POST") {
@@ -642,35 +738,55 @@ export async function startFakeGitHub(
     ) {
       return undefined;
     }
-    if (verifiedJwt(request.headers.get("authorization")) === undefined) {
+    const jwt = verifiedJwt(request.headers.get("authorization"));
+    if (jwt === undefined) {
       return Response.json(
         { message: "A JSON web token could not be decoded" },
         { status: 401 },
       );
     }
+    const isSecond = second !== undefined && Number(jwt.iss) === second.appId;
+    const app = isSecond
+      ? {
+          id: second.appId,
+          slug: second.slug ?? "fake-reviewer-app",
+          installation: second.installationId,
+          permissions: second.permissions ?? APP_PERMISSIONS_DEFAULT,
+        }
+      : {
+          id: options.appId,
+          slug,
+          installation: installationId,
+          permissions: granted ?? APP_PERMISSIONS_DEFAULT,
+        };
     if (path === "/app") {
       return Response.json({
-        id: options.appId,
-        slug,
-        name: `Fake ${slug}`,
-        html_url: `${origin()}/apps/${slug}`,
-        client_id: `Iv23li${slug}`,
-        permissions: granted ?? APP_PERMISSIONS_DEFAULT,
+        id: app.id,
+        slug: app.slug,
+        name: `Fake ${app.slug}`,
+        html_url: `${origin()}/apps/${app.slug}`,
+        client_id: `Iv23li${app.slug}`,
+        permissions: app.permissions,
       });
     }
     if (repository) {
-      return served.has(`${repository[1]}/${repository[2]}`)
-        ? Response.json({ id: installationId, app_id: options.appId })
+      const key = `${repository[1]}/${repository[2]}`;
+      return served.has(key) && installedOn(app.id, key)
+        ? Response.json({
+            id: app.installation,
+            app_id: app.id,
+            permissions: app.permissions,
+          })
         : Response.json({ message: "Not Found" }, { status: 404 });
     }
     const [owner = "fake"] = [...served.keys()].map((key) => key.split("/")[0]);
     return Response.json([
       {
-        id: installationId,
-        app_id: options.appId,
+        id: app.installation,
+        app_id: app.id,
         account: { login: owner, type: "Organization" },
         repository_selection: "selected",
-        html_url: `${origin()}/organizations/${owner}/settings/installations/${installationId}`,
+        html_url: `${origin()}/organizations/${owner}/settings/installations/${app.installation}`,
       },
     ]);
   }
@@ -786,6 +902,11 @@ export async function startFakeGitHub(
     workflowRuns(owner, name) {
       return served.get(`${owner}/${name}`)?.runs ?? [];
     },
+    reviews(owner, name, pullNumber) {
+      return (served.get(`${owner}/${name}`)?.reviews ?? []).filter(
+        (entry) => entry.pull_number === pullNumber,
+      );
+    },
     rateLimitNext(count, limit, retryAfterSeconds = 1) {
       limited = { count, limit, retryAfter: retryAfterSeconds };
     },
@@ -820,6 +941,7 @@ export async function startFakeGitHub(
         pulls: [],
         comments: new Map(),
         runs: [],
+        reviews: [],
       });
     },
     async refs(owner, name) {

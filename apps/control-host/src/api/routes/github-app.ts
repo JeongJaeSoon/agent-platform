@@ -1,6 +1,8 @@
 import {
   deleteGitHubAppResponseSchema,
+  type GitHubAppRole,
   getGitHubAppResponseSchema,
+  githubAppRoleParamsSchema,
   putGitHubAppRequestSchema,
   putGitHubAppResponseSchema,
   workspaceParamsSchema,
@@ -16,36 +18,56 @@ import {
 } from "../app.ts";
 import { mapped, requireParams } from "./errors.ts";
 
-function lowercaseWorkspaceId(context: Context<ApiEnvironment>): string {
-  return requireParams(context, workspaceParamsSchema).id.toLowerCase();
+// `/github-app` is the author App's, kept as it was; `/github-apps/{role}`
+// names the role.
+function target(context: Context<ApiEnvironment>): {
+  workspaceId: string;
+  role: GitHubAppRole;
+} {
+  if (context.req.param("role") === undefined) {
+    const { id } = requireParams(context, workspaceParamsSchema);
+    return { workspaceId: id.toLowerCase(), role: "author" };
+  }
+  const { id, role } = requireParams(context, githubAppRoleParamsSchema);
+  return { workspaceId: id.toLowerCase(), role };
 }
 
 export function registerGitHubAppRoutes(
   router: ApiRouter,
   service: GitHubAppService,
 ) {
-  apiRoute(router, "getGitHubApp", async (context) => {
-    const app = await mapped(() =>
-      service.describe(context.get("caller"), lowercaseWorkspaceId(context)),
-    );
-    return jsonWithSchema(context, getGitHubAppResponseSchema, app);
-  });
+  for (const [get, put, remove] of [
+    ["getGitHubApp", "putGitHubApp", "deleteGitHubApp"],
+    [
+      "getWorkspaceGitHubApp",
+      "putWorkspaceGitHubApp",
+      "deleteWorkspaceGitHubApp",
+    ],
+  ] as const) {
+    apiRoute(router, get, async (context) => {
+      const { workspaceId, role } = target(context);
+      const app = await mapped(() =>
+        service.describe(context.get("caller"), workspaceId, role),
+      );
+      return jsonWithSchema(context, getGitHubAppResponseSchema, app);
+    });
 
-  apiRoute(router, "putGitHubApp", async (context) => {
-    const set = await mapped(() =>
-      service.register(
-        context.get("caller"),
-        lowercaseWorkspaceId(context),
-        () => parseJsonBody(context, putGitHubAppRequestSchema),
-      ),
-    );
-    return jsonWithSchema(context, putGitHubAppResponseSchema, set);
-  });
+    apiRoute(router, put, async (context) => {
+      const { workspaceId, role } = target(context);
+      const set = await mapped(() =>
+        service.register(context.get("caller"), workspaceId, role, () =>
+          parseJsonBody(context, putGitHubAppRequestSchema),
+        ),
+      );
+      return jsonWithSchema(context, putGitHubAppResponseSchema, set);
+    });
 
-  apiRoute(router, "deleteGitHubApp", async (context) => {
-    const deleted = await mapped(() =>
-      service.remove(context.get("caller"), lowercaseWorkspaceId(context)),
-    );
-    return jsonWithSchema(context, deleteGitHubAppResponseSchema, deleted);
-  });
+    apiRoute(router, remove, async (context) => {
+      const { workspaceId, role } = target(context);
+      const deleted = await mapped(() =>
+        service.remove(context.get("caller"), workspaceId, role),
+      );
+      return jsonWithSchema(context, deleteGitHubAppResponseSchema, deleted);
+    });
+  }
 }
