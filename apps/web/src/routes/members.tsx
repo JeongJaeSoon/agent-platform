@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
 import type {
@@ -49,7 +54,7 @@ import {
   firstMembersQuery,
   invitesQuery,
   queryKeysOf,
-  teamsQuery,
+  teamPagesQuery,
 } from "../api/queries.ts";
 import {
   offeredActions,
@@ -172,8 +177,9 @@ export function MembersLayout() {
   // The router also serves the list at "/members/teams/".
   const onTeamList = pathname.replace(/\/$/, "") === "/members/teams";
   const managesTeams = useHasPermission("team.manage");
-  const teams = useQuery({
-    ...teamsQuery(client),
+  // The teams screen's own first page: only whether it is refused matters.
+  const teams = useInfiniteQuery({
+    ...teamPagesQuery(client),
     enabled: managesTeams && onTeams,
   });
   const teamReason = usePermissionReason("team.manage", teams);

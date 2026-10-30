@@ -893,6 +893,42 @@ integration("invite store on PostgreSQL", () => {
     ]);
   });
 
+  test("user_ids keeps the members among them, in list order, and pages by the same cursor", async () => {
+    const ws = await workspace();
+    const elsewhere = await workspace();
+    const tag = randomUUID().slice(0, 8);
+    const at = (day: number) => `2026-02-0${day} 00:00:00+00`;
+    const first = await named(ws, "A", `a-${tag}@example.invalid`, at(1));
+    await named(ws, "B", `b-${tag}@example.invalid`, at(2));
+    const third = await named(ws, "C", `c-${tag}@example.invalid`, at(3));
+    const outsider = await named(
+      elsewhere,
+      "D",
+      `d-${tag}@example.invalid`,
+      at(4),
+    );
+    const read = async (userIds: string[], limit = 100) => {
+      const pages: string[][] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await store.listMembers(ws, {
+          limit,
+          user_ids: userIds,
+          cursor,
+        });
+        pages.push(page.items.map((m) => m.userId));
+        cursor = page.next_cursor ?? undefined;
+      } while (cursor !== undefined);
+      return pages;
+    };
+    // Asked out of order and in capitals; another workspace's member and an
+    // unknown id are left out.
+    expect(
+      await read([third.toUpperCase(), outsider, randomUUID(), first]),
+    ).toEqual([[first, third]]);
+    expect(await read([third, first], 1)).toEqual([[first], [third]]);
+  });
+
   test("a cursor the store did not mint is InvalidCursorError", async () => {
     const ws = await workspace();
     const forged = [

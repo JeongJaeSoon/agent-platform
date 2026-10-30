@@ -73,7 +73,13 @@ export const deleteTeamResponseSchema = z
   .object({ receipt_id: receiptIdSchema })
   .strict();
 
-export const listTeamsQuerySchema = paginationQuerySchema;
+export const TEAM_SEARCH_MAX_CHARS = 200;
+export const listTeamsQuerySchema = paginationQuerySchema.extend({
+  q: z.string().trim().min(1).max(TEAM_SEARCH_MAX_CHARS).optional().meta({
+    description:
+      "Keeps the teams whose name contains it, ignoring case. `%` and `_` match themselves.",
+  }),
+});
 /** The workspace's teams, by name then id. */
 export const listTeamsResponseSchema = pageSchema(teamViewSchema);
 

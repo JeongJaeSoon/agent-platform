@@ -429,6 +429,36 @@ describe("GET /v1/members", () => {
     expect(response.status).toBe(400);
   });
 
+  test("splits user_ids on commas and refuses a malformed or too long list", async () => {
+    const seen: ListMembersQuery[] = [];
+    const ids = [crypto.randomUUID(), crypto.randomUUID()];
+    const listing = app(store(), {
+      roles: roleStore({
+        listMembers: async (_workspaceId, query) => {
+          seen.push(query);
+          return { items: [], next_cursor: null };
+        },
+      }),
+    });
+    const ok = await listing.request(`/v1/members?user_ids=${ids.join(",")}`, {
+      headers: owner,
+    });
+    expect(ok.status).toBe(200);
+    expect(seen).toEqual([{ limit: 50, user_ids: ids }]);
+    const tooMany = Array.from({ length: 101 }, () => crypto.randomUUID());
+    for (const search of [
+      "user_ids=",
+      "user_ids=not-a-uuid",
+      `user_ids=${ids[0]},`,
+      `user_ids=${tooMany.join(",")}`,
+    ]) {
+      const response = await listing.request(`/v1/members?${search}`, {
+        headers: owner,
+      });
+      expect(response.status).toBe(400);
+    }
+  });
+
   test("accepts a q of 200 characters", async () => {
     const response = await app().request(`/v1/members?q=${"a".repeat(200)}`, {
       headers: owner,

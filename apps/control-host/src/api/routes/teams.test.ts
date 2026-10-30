@@ -172,6 +172,25 @@ describe("GET /v1/teams", () => {
   test("reads a page; a bad query or cursor is 400", () =>
     pages("listTeams", "/v1/teams"));
 
+  test("passes the trimmed q on and refuses an empty or too long one", async () => {
+    const queries: unknown[] = [];
+    const searched = app({
+      listTeams: async (_caller: unknown, query: unknown) => {
+        queries.push(query);
+        return { items: [], next_cursor: null };
+      },
+    });
+    expect(
+      (await call(searched, "GET", "/v1/teams?q=%20Ops%25_%20")).status,
+    ).toBe(200);
+    expect(queries).toEqual([{ limit: 50, q: "Ops%_" }]);
+    for (const bad of ["?q=", "?q=%20%20", `?q=${"a".repeat(201)}`]) {
+      expect((await call(searched, "GET", `/v1/teams${bad}`)).status, bad).toBe(
+        400,
+      );
+    }
+  });
+
   test("lists, refuses and fails closed", async () => {
     const listed = await call(
       app({

@@ -43,7 +43,11 @@ import {
   useRef,
   useState,
 } from "react";
-import { membersQuery, profilesQuery, queryKeysOf } from "../../api/queries.ts";
+import {
+  memberSummariesQuery,
+  profilesQuery,
+  queryKeysOf,
+} from "../../api/queries.ts";
 import { useHasPermission, useRole } from "../../auth/guard.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
 import { ProfileOptions, pickable } from "../../components/profile-options.tsx";
@@ -139,11 +143,19 @@ export function Releases({
   const [open, setOpen] = useState(false);
   const submitted = useRef(false);
   // Only roles that list members get names; anyone else reads "a member".
-  // Read when the tab opens, not with every visit to the agent.
+  // Read when the tab opens, not with every visit to the agent, and only
+  // for the people who made a release.
   const listsMembers = useHasPermission("member.manage");
+  const authors = [
+    ...new Set(
+      detail.releases.flatMap((item) =>
+        item.created_by ? [item.created_by] : [],
+      ),
+    ),
+  ];
   const members = useQuery({
-    ...membersQuery(client),
-    enabled: listsMembers && shown,
+    ...memberSummariesQuery(client, authors),
+    enabled: listsMembers && shown && authors.length > 0,
   });
   const names = new Map(
     (members.data?.items ?? []).map((m) => [m.user_id, m.display_name]),

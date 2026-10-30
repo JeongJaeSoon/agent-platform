@@ -11,6 +11,8 @@ export const teamsKo = {
   "teams.nameTaken": "같은 이름의 팀이 이미 있습니다 — 다른 이름을 쓰세요.",
   "teams.listTitle": "팀 목록",
   "teams.empty": "아직 팀이 없습니다.",
+  "teams.listSearch": "이름으로 팀 찾기",
+  "teams.listNoMatch": "검색어에 맞는 팀이 없습니다.",
   "teams.memberCount": "구성원 {count}명",
   "teams.mine.title": "내가 속한 팀",
   "teams.mine.intro":
@@ -70,6 +72,8 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
     "A team with that name already exists — choose another name.",
   "teams.listTitle": "All teams",
   "teams.empty": "No teams yet.",
+  "teams.listSearch": "Search teams by name",
+  "teams.listNoMatch": "No team matches the search.",
   "teams.memberCount": "Members: {count}",
   "teams.mine.title": "Your teams",
   "teams.mine.intro":
@@ -129,6 +133,8 @@ export const teamsJa: Record<keyof typeof teamsKo, string> = {
     "同じ名前のチームがすでにあります。別の名前を入力してください。",
   "teams.listTitle": "チーム一覧",
   "teams.empty": "チームはまだありません。",
+  "teams.listSearch": "名前でチームを検索",
+  "teams.listNoMatch": "検索語に一致するチームはありません。",
   "teams.memberCount": "メンバー {count}人",
   "teams.mine.title": "所属チーム",
   "teams.mine.intro":

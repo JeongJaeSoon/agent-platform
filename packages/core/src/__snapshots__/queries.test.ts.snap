@@ -133,6 +133,19 @@ exports[`query keys 1`] = `
       "q": "kim",
     },
   ],
+  "memberSummaries": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
+    "members",
+    {
+      "ids": [
+        "id-1",
+        "id-2",
+      ],
+    },
+  ],
   "members": [
     {
       "actor": "user:u-1",
@@ -204,6 +217,16 @@ exports[`query keys 1`] = `
     },
     "teams",
     "id-1",
+  ],
+  "teamPages": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
+    "teams",
+    {
+      "pages": "ops",
+    },
   ],
   "teams": [
     {
@@ -613,6 +636,39 @@ exports[`query options and the request each query makes 1`] = `
       "retry": false,
     },
   },
+  "memberSummariesQuery": {
+    "calls": [
+      [
+        "/v1/members",
+        {
+          "params": {
+            "query": {
+              "limit": 100,
+              "user_ids": "-,1,d,i",
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
+        "members",
+        {
+          "ids": [
+            "-",
+            "1",
+            "d",
+            "i",
+          ],
+        },
+      ],
+      "retry": false,
+    },
+  },
   "membersQuery": {
     "calls": [
       [
@@ -809,6 +865,36 @@ exports[`query options and the request each query makes 1`] = `
           "workspace": "w-1",
         },
         "sessions",
+      ],
+      "retry": false,
+    },
+  },
+  "teamPagesQuery": {
+    "calls": [
+      [
+        "/v1/teams",
+        {
+          "params": {
+            "query": {
+              "q": "id-1",
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "gcTime": 0,
+      "getNextPageParam": [Function],
+      "initialPageParam": null,
+      "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
+        "teams",
+        {
+          "pages": "id-1",
+        },
       ],
       "retry": false,
     },

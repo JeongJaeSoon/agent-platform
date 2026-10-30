@@ -78,6 +78,7 @@ export interface ComboboxProps {
   /** Read out in a polite status region when the open list's size changes. */
   readonly resultCountMessage?: ((count: number) => string) | undefined;
   readonly "aria-label"?: string | undefined;
+  readonly "aria-describedby"?: string | undefined;
   readonly placeholder?: string | undefined;
   readonly disabled?: boolean | undefined;
   readonly id?: string | undefined;
@@ -128,6 +129,7 @@ export function Combobox({
   emptyMessage,
   resultCountMessage,
   "aria-label": ariaLabel,
+  "aria-describedby": ariaDescribedBy,
   placeholder,
   disabled = false,
   id,
@@ -346,6 +348,7 @@ export function Combobox({
             role="combobox"
             autoComplete="off"
             aria-label={ariaLabel}
+            aria-describedby={ariaDescribedBy}
             aria-autocomplete="list"
             aria-expanded={isOpen}
             aria-controls={isOpen ? listboxId : undefined}

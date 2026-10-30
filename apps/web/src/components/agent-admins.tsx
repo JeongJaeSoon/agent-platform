@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
 import type {
@@ -11,11 +16,9 @@ import {
   avatarInitials,
   Button,
   buttonVariants,
+  Combobox,
   ConfirmDialog,
   EmptyState,
-  NativeSelect,
-  NativeSelectOptGroup,
-  NativeSelectOption,
   RowLines,
   RowList,
   RowListItem,
@@ -26,9 +29,9 @@ import {
   administeredAgentsQuery,
   agentAdminsQuery,
   agentListsFilter,
-  membersQuery,
+  memberPagesQuery,
   queryKeysOf,
-  teamsQuery,
+  teamPagesQuery,
 } from "../api/queries.ts";
 import {
   permissionReason,
@@ -44,6 +47,7 @@ import { LoadFailure } from "./load-failure.tsx";
 import { MUTED, SECTION, SECTION_TITLE } from "./my-teams.tsx";
 import type { Outcome } from "./outcome.tsx";
 import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
+import { SEARCH_SETTLE_MS } from "./search-term.ts";
 import { StatusScreen } from "./status-screen.tsx";
 
 // Lines that wrap on a narrow screen sit a line gap apart, not RowListItem's 8px.
@@ -142,16 +146,25 @@ function AdminList({
   // not leave a refused decision on every visit.
   const listsMembers = useHasPermission("member.manage");
   const listsTeams = useHasPermission("team.manage");
-  // Every member is read once someone reaches for the picker, not with the
-  // page.
+  // The picker asks the server once someone reaches for it, a page of people
+  // and a page of teams at a time, as typing pauses.
   const [picking, setPicking] = useState(false);
-  const members = useQuery({
-    ...membersQuery(client),
+  const [term, setTerm] = useState("");
+  const q = term.trim() || undefined;
+  const members = useInfiniteQuery({
+    ...memberPagesQuery(client, q),
     enabled: listsMembers && picking,
   });
-  const teams = useQuery({ ...teamsQuery(client), enabled: listsTeams });
-  // "<kind>:<id>", so one picker holds people and teams.
-  const [picked, setPicked] = useState("");
+  const teams = useInfiniteQuery({
+    ...teamPagesQuery(client, q),
+    enabled: listsTeams && picking,
+  });
+  // Kept as chosen, so a later search that leaves it out still adds it.
+  const [picked, setPicked] = useState<{
+    kind: AgentAdminKind;
+    id: string;
+    name: string;
+  } | null>(null);
   const [removing, setRemoving] = useState<{
     kind: AgentAdminKind;
     id: string;
@@ -188,7 +201,7 @@ function AdminList({
         queryKeysOf(client).agentAdmins(agentId),
         result.admins,
       );
-      if (add) setPicked("");
+      if (add) setPicked(null);
       onOutcome({
         kind: "notice",
         text: t(add ? "agentAdmins.added" : "agentAdmins.removed", { name }),
@@ -221,14 +234,28 @@ function AdminList({
   const userIds = new Set(admins.data.users.map((user) => user.user_id));
   const teamIds = new Set(admins.data.teams.map((row) => row.team_id));
   const people =
-    members.data?.items.filter(
-      (member) => member.disabled_at === null && !userIds.has(member.user_id),
-    ) ?? [];
-  const groups = teams.data?.items.filter((row) => !teamIds.has(row.id)) ?? [];
-  const pickedPerson = people.find(
-    (member) => `users:${member.user_id}` === picked,
-  );
-  const pickedTeam = groups.find((row) => `teams:${row.id}` === picked);
+    members.data?.pages
+      .flatMap((page) => page.items)
+      .filter(
+        (member) => member.disabled_at === null && !userIds.has(member.user_id),
+      ) ?? [];
+  const groups =
+    teams.data?.pages
+      .flatMap((page) => page.items)
+      .filter((row) => !teamIds.has(row.id)) ?? [];
+  // "<kind>:<id>", so one picker holds people and teams.
+  const options = [
+    ...people.map((member) => ({
+      value: `users:${member.user_id}`,
+      label: member.display_name,
+      description: member.email,
+    })),
+    ...groups.map((row) => ({
+      value: `teams:${row.id}`,
+      label: row.name,
+      description: t("agentAdmins.team"),
+    })),
+  ];
   // Picking needs the member and team lists, which only owners and admins
   // read; an agent's own admin sees why the picker stays closed.
   const personReason = !listsMembers
@@ -252,12 +279,16 @@ function AdminList({
       : undefined;
   // Said, not shown by disabling the picker: a picker disabled under the
   // pointer or focus greys out and drops focus to the page.
+  // Only unsearched, fully read lists prove nobody is left to add.
   const nothingLeft =
     picking &&
+    q === undefined &&
     members.isSuccess &&
     !members.isFetching &&
+    !members.hasNextPage &&
     teams.isSuccess &&
     !teams.isFetching &&
+    !teams.hasNextPage &&
     people.length === 0 &&
     groups.length === 0;
   const partial =
@@ -343,66 +374,47 @@ function AdminList({
         onFocus={() => setPicking(true)}
         onSubmit={(event) => {
           event.preventDefault();
-          if (pickedPerson)
-            change.mutate({
-              add: true,
-              kind: "users",
-              id: pickedPerson.user_id,
-              name: pickedPerson.display_name,
-            });
-          else if (pickedTeam)
-            change.mutate({
-              add: true,
-              kind: "teams",
-              id: pickedTeam.id,
-              name: pickedTeam.name,
-            });
+          if (picked) change.mutate({ add: true, ...picked });
         }}
       >
         <label className="sr-only" htmlFor={pickerId}>
           {t("agentAdmins.pick")}
         </label>
-        <div className="min-w-0 flex-1 sm:flex-none">
-          <NativeSelect
+        <div className="w-60 max-w-full min-w-0 flex-1 sm:flex-none">
+          <Combobox
             id={pickerId}
-            className="w-60 max-w-full"
-            value={picked}
-            disabled={addReason !== undefined}
-            aria-busy={members.isFetching}
             aria-describedby={partial ? hintId : undefined}
-            onChange={(event) => setPicked(event.target.value)}
-          >
-            <NativeSelectOption value="">
-              {t("agentAdmins.pickPlaceholder")}
-            </NativeSelectOption>
-            {people.length > 0 ? (
-              <NativeSelectOptGroup label={t("agentAdmins.person")}>
-                {people.map((member) => (
-                  <NativeSelectOption
-                    key={member.user_id}
-                    value={`users:${member.user_id}`}
-                  >
-                    {member.display_name} ({member.email})
-                  </NativeSelectOption>
-                ))}
-              </NativeSelectOptGroup>
-            ) : null}
-            {groups.length > 0 ? (
-              <NativeSelectOptGroup label={t("agentAdmins.team")}>
-                {groups.map((row) => (
-                  <NativeSelectOption key={row.id} value={`teams:${row.id}`}>
-                    {row.name}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelectOptGroup>
-            ) : null}
-          </NativeSelect>
+            options={options}
+            value={picked ? `${picked.kind}:${picked.id}` : null}
+            disabled={addReason !== undefined}
+            filter="none"
+            onQueryChange={setTerm}
+            debounceMs={SEARCH_SETTLE_MS}
+            hasMore={members.hasNextPage || teams.hasNextPage}
+            onLoadMore={() => {
+              if (members.hasNextPage) void members.fetchNextPage();
+              if (teams.hasNextPage) void teams.fetchNextPage();
+            }}
+            onValueChange={(value, option) => {
+              const [kind, id] = value.split(":") as [AgentAdminKind, string];
+              setPicked({ kind, id, name: option.label });
+            }}
+            placeholder={t("agentAdmins.pickPlaceholder")}
+            loading={members.isFetching || teams.isFetching}
+            loadingMessage={t("agentAdmins.pickLoading")}
+            emptyMessage={t(
+              nothingLeft ? "agentAdmins.nothingLeft" : "agentAdmins.pickEmpty",
+            )}
+            resultCountMessage={(count) =>
+              t("agentAdmins.pickCount", { count })
+            }
+          />
         </div>
         <ReasonButton
           type="submit"
           className={buttonVariants({ variant: "outline", size: "sm" })}
           reason={addReason}
-          disabled={(!pickedPerson && !pickedTeam) || change.isPending}
+          disabled={!picked || change.isPending}
         >
           {t("agentAdmins.add")}
         </ReasonButton>
