@@ -346,8 +346,9 @@ test("the agent lists filter takes every list, page, count and summary but no ag
       keys.agentPages("notes"),
       keys.agentCounts,
       keys.agentSummaries(["id-1"]),
+      keys.agentSlackActions,
     ].map(matched),
-  ).toEqual([true, true, true, true, true]);
+  ).toEqual([true, true, true, true, true, true]);
   expect([keys.agent("id-1"), keys.agentAdmins("id-1")].map(matched)).toEqual([
     false,
     false,

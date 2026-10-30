@@ -9,8 +9,9 @@ import type {
   WorkerEvent,
   WorkspaceRepository,
 } from "@werft-ai/contracts";
+import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
 import type { PricedBy, ProviderUsage } from "../limits/model-prices.ts";
-import type { SessionMcp } from "../sessions/catalog.ts";
+import type { SessionGitHubMcp, SessionMcp } from "../sessions/catalog.ts";
 import type { CheckpointPointer } from "./checkpoint-store.ts";
 import type { CheckpointOutputObject } from "./checkpoint-verifier.ts";
 
@@ -64,6 +65,7 @@ export type WorkerBinding = {
   costUsd: number;
   providerTokens: number;
   mcp?: SessionMcp | null;
+  githubMcp?: SessionGitHubMcp | null;
   // The allows a parked turn's answers left for the turn carrying it on,
   // not yet spent.
   grants?: readonly PermissionGrant[];
@@ -150,6 +152,7 @@ export type EgressIssue = {
     repositoryMode: "repository" | "none";
     repositoryId: string | null;
     mcp?: SessionMcp | null;
+    githubMcp?: SessionGitHubMcp | null;
   }): EgressBindings;
 };
 
@@ -332,6 +335,7 @@ export type FinalizeInput = {
   checkpointVersionsHeld?: boolean;
   checkpointTranscriptBytes?: number;
   checkpointOutputs?: readonly CheckpointOutputObject[];
+  checkpointRuntime?: RuntimeFingerprint;
 };
 export type FinalizeOutcome = {
   turnId: string;

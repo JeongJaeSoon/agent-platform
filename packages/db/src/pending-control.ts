@@ -17,6 +17,7 @@ import type {
   WorkerPendingStore,
 } from "@werft-ai/platform";
 import { and, asc, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { runtimeColumns } from "./checkpoint-runtime.ts";
 import { OPEN_TURN_STATUSES, parseTurnSequence } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
 import { DRAINING_STATES, drainOf, openDrainReceipt } from "./drain.ts";
@@ -238,6 +239,7 @@ export function createPostgresWorkerPendingStore(
             manifestVersion: checkpoint.manifestVersion ?? null,
             versionsHeld: checkpoint.versionsHeld,
             transcriptBytes: checkpoint.transcriptBytes ?? null,
+            ...runtimeColumns(checkpoint.runtime),
             attemptId: fence.attemptId,
             turnId: turn.id,
             answersThrough: checkpoint.answersThrough,

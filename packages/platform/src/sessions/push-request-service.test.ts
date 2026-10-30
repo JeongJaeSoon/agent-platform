@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Principal, PushRequest } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
+import type { PushSourceResult } from "../checkpoints/checkpoint-service.ts";
 import {
   type AuthorizationPolicy,
   createAuthorizationPolicy,
@@ -159,6 +160,57 @@ describe("push request decisions", () => {
       session,
     ]);
     expect(refusals[1]?.result.push_request_id).toBe(pushId);
+  });
+
+  test("an approval hands the store the session's last checkpoint, or null when it cannot be read", async () => {
+    const decided: Array<{ latest?: unknown }> = [];
+    const approve = (readPushSource: () => Promise<PushSourceResult>) =>
+      createPushRequestService({
+        authorization: createAuthorizationPolicy(),
+        store: {
+          decide: async (input: { latest?: unknown }) => {
+            decided.push(input);
+            return { outcome: "conflict" };
+          },
+        } as unknown as PushRequestStore,
+        catalog: CATALOG,
+        source: { readPushSource },
+      })
+        .decide(
+          {
+            caller: testCaller("owner-a"),
+            principal: {
+              kind: "api_key",
+              id: "key-1",
+              owner_id: "owner-a",
+              scopes: ["sessions:approve"],
+            } as unknown as Principal,
+            ownerId: "owner-a",
+            verified: true,
+          },
+          SESSION,
+          PUSH,
+          {
+            idempotencyKey: "k-1",
+            readBody: async () => ({
+              decision: "approve",
+              git_commit: "a".repeat(40),
+            }),
+          },
+        )
+        .catch(() => {});
+    await approve(async () => ({
+      status: "ready",
+      revision: 3,
+      gitCommit: "a".repeat(40),
+    }));
+    await approve(async () => {
+      throw new Error("store outage");
+    });
+    expect(decided.map((input) => input.latest)).toEqual([
+      { revision: 3, gitCommit: "a".repeat(40) },
+      null,
+    ]);
   });
 
   test("a session the caller cannot see is NOT_FOUND, and nothing reads or writes the store", async () => {

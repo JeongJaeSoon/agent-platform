@@ -93,6 +93,7 @@ GitHub 토큰 하나가 가질 권한은 아래 다섯의 교집합이고, **발
 - **false:** push 요청을 만드는 같은 트랜잭션에서 `approved`로 둔다. `decided_by`는 `{ kind: "policy", agent_release_id }`이고 `decide_push` receipt를 남긴다. 결정 0의 "기본값은 PR 작성·수정까지"를 사람 승인 없이 쓰는 경우다.
 - **PR 열기·코멘트(두 경우 공통).** push가 끝난(`pushed`) 요청에서는 `session.submit` 호출자(에이전트 key와 내장 MCP 포함)도 PR을 열고 코멘트를 달 수 있다. 사람이 승인했든 정책이 승인했든 같다. PR은 그 요청이 push한 브랜치와 commit으로만 열리므로, 사람 승인이 지키는 것(무엇이 push되나)은 PR을 누가 여느냐와 상관없이 그대로다. 지금은 `sessions:approve` scope와 `session.approve` 권한을 가진 호출자만 PR을 연다(`pull-request-service.ts:103-107`). GA-2가 이 규칙을 바꾼다. `sessions:approve` 호출자는 지금처럼 그대로 열 수 있다.
 - 대상 브랜치 고정과 force push 금지는 승인 여부와 상관없이 그대로다.
+- **승인이 지키는 것은 commit이다(GA-7).** 요청 뒤에 세션이 checkpoint를 다시 남겼어도, 그 마지막 checkpoint의 commit이 요청이 고정한 `git_commit`과 같고 결정 본문의 `git_commit`도 같으면 승인한다. 셋 중 하나라도 다르면 지금처럼 `409 CHECKPOINT_MOVED`(`checkpoint_moved`)다. push되는 것은 여전히 요청이 고정한 revision의 commit이다. [GA-7에서 정한 것](#ga-7에서-정한-것).
 
 ### 결정 7. 릴리스와의 관계
 
@@ -226,7 +227,48 @@ export interface GitHubGate {
 
 - `packages/platform/src/sessions/github-work-service.ts`(새)가 dispatch·rerun·review를 한다. 기존 push 요청·PR 서비스와 같은 층이고 같은 게이트를 쓴다. 세션 share로 `session.submit`을 검사한다(`push-request-service.ts`의 `requireSession`과 같다).
 - **입구 1: 세션 API**([6절](#6-api)). 에이전트 key, 개인 key, 웹이 부른다.
-- **입구 2: 내장 MCP 서버 `github`**(GA-7). 세션의 에이전트가 자기 세션에 대해서만 부른다. worker는 여전히 토큰을 받지 않는다. MCP 호출은 egress proxy를 지나 control-host의 작업 서비스에 닿는다. proxy는 지금 `/mcp/<server>` 경로마다 control-host에 허가를 묻는다(`credential.ts:144-148`, `689`). 그 허가가 attempt 토큰으로 세션을 정하므로 다른 세션의 이름으로 부를 수 없다. 도구는 `request_push`, `open_pull_request`, `comment_pull_request`, `dispatch_workflow`, `rerun_workflow`, `submit_review`, `get_workflow_run`이다. 각 도구는 입구 1과 같은 서비스 함수를 부른다. push 승인을 켠 릴리스에서 `request_push`는 요청만 만들고 사람을 기다린다. 이 서버는 `github_enabled`이고 릴리스에 `github` 설정이 있는 세션에만 붙는다. 도구 목록은 릴리스가 켠 기능만 노출한다. upstream 주소, 허가 응답 모양, 도구 정책 핀(`policy_pins.tools`)과의 관계는 GA-7의 첫 커밋 전에 이 문서에 절을 더해 정한다.
+- **입구 2: 내장 MCP 서버 `github`**(GA-7). 세션의 에이전트가 자기 세션에 대해서만 부른다. worker는 여전히 토큰을 받지 않는다. MCP 호출은 egress proxy를 지나 control-host의 작업 서비스에 닿는다. proxy는 지금 `/mcp/<server>` 경로마다 control-host에 허가를 묻는다(`credential.ts:144-148`, `689`). 그 허가가 attempt 토큰으로 세션을 정하므로 다른 세션의 이름으로 부를 수 없다. 도구는 `request_push`, `open_pull_request`, `comment_pull_request`, `dispatch_workflow`, `rerun_workflow`, `submit_review`, `get_workflow_run`이다. 각 도구는 입구 1과 같은 서비스 함수를 부른다. push 승인을 켠 릴리스에서 `request_push`는 요청만 만들고 사람을 기다린다. 이 서버는 `github_enabled`이고 릴리스에 `github` 설정이 있는 세션에만 붙는다. 도구 목록은 릴리스가 켠 기능만 노출한다. upstream 주소, 허가 응답 모양, 도구 정책 핀(`policy_pins.tools`)과의 관계는 GA-7의 첫 커밋 전에 이 문서에 절을 더해 정한다([아래](#내장-mcp-서버-github)).
+
+### 내장 MCP 서버 `github`
+
+GA-7이 정한다. 지금 있는 원격 MCP 경로(카탈로그 `mcp_servers`, `packages/platform/src/workers/mcp-egress.ts`)를 그대로 타고, 다른 점만 적는다.
+
+- **붙는 조건.** claim이 세션 릴리스의 `policy_pins.github`를 읽어, 있으면 runtime config의 `mcp_servers`에 `github` 항목을 더한다. 원격 MCP 서버와 함께 붙을 수 있으므로 `mcp_servers`는 최대 둘이다. 붙을지는 릴리스만 보고 정한다. `github_enabled`는 claim에서 보지 않는다. 이 항목의 `binding`은 checkpoint fingerprint에 들어가므로, 세션 도중 바뀌는 스위치로 붙였다 뗐다 하면 같은 세션의 앞 checkpoint를 복원할 수 없게 되기 때문이다. 대신 스위치가 꺼지면 아래 허가가 모든 교환을 거절한다. 엔진은 서버에 닿지 못하고 도구를 하나도 받지 못한다. 그래서 실제 동작은 "켜진 에이전트의 세션에만 붙는다"와 같다. `binding`은 `sha256({ release_id, server_id: "github", builtin: true })`다.
+- **이름.** `github`는 내장 서버의 이름이다. 카탈로그 `mcp_servers`의 id로 `github`를 쓰면 카탈로그를 읽을 때 거절한다. 카드가 `github`를 원격 서버로 적어도 카탈로그에 없으므로 원격 서버로는 붙지 않는다.
+- **토큰.** 새 egress 토큰을 만들지 않는다. attempt의 `mcp` 토큰 하나가 두 서버를 같이 쓴다. 그 토큰의 binding은 원격 서버가 있으면 원격 서버의 것이고, 없으면 `github`의 것이다. 원격 서버의 허가는 지금처럼 자기 binding과 맞춰 보고, `github`의 허가는 binding을 보지 않는다. `github` 쪽에는 카탈로그에서 옮겨질 URL이나 자격 증명 이름이 없기 때문이다.
+- **허가.** proxy가 `/mcp/github` 교환마다 묻는 질문(`purpose: mcp`, `server: github`, `rpc`)에 gateway가 답한다. 순서는 이렇다. (1) attempt 토큰으로 세션과 attempt를 정한다. 지금의 `authorizeEgressAtomic` fence다. 세션 id는 토큰에서만 나오고, 도구 인자로 받지 않는다. (2) 세션 릴리스에 `policy_pins.github`가 없으면 거절한다. (3) `agents.github_enabled`가 false면 거절한다. 세션을 만든 credential이 기록되지 않은 세션도 거절한다(아래 actor). (4) JSON-RPC method는 원격 서버와 같은 목록(`initialize`, `ping`, `tools/list`, `tools/call`, `notifications/*`)만 받는다. (5) `tools/call`이면 그 도구가 릴리스가 노출하는 도구여야 한다(아래 표). 거절은 `403` `FORBIDDEN`이고 receipt를 남기지 않는다. 도구 호출이 게이트까지 가서 거절되면 그 거절 receipt는 입구 1과 같이 남는다.
+- **허가 응답.** `{ session_id, attempt_id, upstream: { url: "/mcp/github", headers: [["authorization", "Bearer <서명된 grant>"]] } }`. `url`이 `/`로 시작하는 경로이면 proxy는 그것을 자기가 아는 authorizer 주소(`EGRESS_AUTHORIZER_URL`)에 붙여 보낸다. 그래서 upstream은 authorizer listener다. 그 listener는 worker allowlist에 없다(`docs/operator/api-server.md`). control-host가 자기 주소를 따로 설정받지 않아도 된다. 다른 경로(provider, 저장소, 원격 MCP)의 허가 응답은 지금처럼 절대 URL이다. allowlist를 건너뛰는 것은 경로로 받은 upstream뿐이다. 카탈로그 URL이 authorizer와 같은 origin이어도 allowlist 검사를 받는다.
+- **서명된 grant.** `v1.<payload>.<mac>`. payload는 `{ session_id, attempt_id, exp }`의 base64url이고, `exp`는 발급 뒤 60초다. mac은 `EGRESS_AUTHORIZER_TOKEN`에서 용도 문자열로 파생한 키의 HMAC-SHA256이다. authorizer listener의 `/mcp/github`는 이 서명과 만료만 보고 세션을 정한다. worker는 이 헤더를 보지 못한다. proxy가 worker의 `authorization` 헤더를 grant의 값으로 덮어쓰고, 응답이 그 값을 되비추면 걸러 낸다. 이 키를 아는 것은 control-host와 proxy뿐이다. proxy는 이미 모든 upstream 자격 증명을 받는 쪽이므로 새로 믿는 쪽이 생기지 않는다. 교환마다 proxy가 새로 허가를 묻고 grant를 새로 받으므로 60초면 충분하다.
+- **서버.** control-host가 authorizer listener에서 Streamable HTTP의 상태 없는 JSON 응답으로 답한다. 메시지 하나를 받아 하나를 답한다(알림은 `202`). `GET`과 `DELETE`는 `405`다. `tools/list`는 릴리스가 노출하는 도구만 준다. 세션은 서명된 grant로만 정하고 요청 본문의 어떤 값도 세션을 고르지 않는다.
+- **도구와 노출.** 노출은 릴리스의 `policy_pins.github.features`로만 정한다. 워크스페이스 상한과 App 권한은 목록에서 빼지 않는다. 그것은 호출 때 게이트가 정하고(`over_workspace_ceiling`, `app_permission_missing`), 그 거절도 receipt로 보인다.
+
+| 도구 | 노출 조건 | 부르는 함수(입구 1과 같다) | 인자 |
+|---|---|---|---|
+| `request_push` | 늘 | `PushRequestService.create` | 없음 |
+| `open_pull_request` | 늘 | `PullRequestService.open` | `push_request_id`, `title?`, `body?` |
+| `comment_pull_request` | 늘 | `PullRequestService.comment` | `push_request_id`, `body`, `marker?` |
+| `dispatch_workflow` | `features.actions` | `GitHubWorkService.dispatch` | `workflow`, `ref`, `inputs?` |
+| `get_workflow_run` | `features.actions` | `GitHubWorkService.getRun` | `run_id` |
+| `rerun_workflow` | `features.actions` | `GitHubWorkService.rerun` | `run_id`, `failed_only?` |
+| `submit_review` | `features.review` | `GitHubWorkService.review` | `number`, `event`, `commit_id`, `body?` |
+
+- **`policy_pins.tools`와의 관계.** 원격 MCP 서버의 도구는 `policy_pins.tools.per_tool`의 `mcp__<server>__<tool>: allow`로 핀한다. `github`의 도구는 그 표에 두지 않는다. `policy_pins.github`가 같은 릴리스 해시에 이미 들어 있고, 위 표가 그것에서 도구를 정하기 때문이다. 두 곳에 같은 정보를 두면 서로 어긋날 수 있다. claim은 노출하는 도구의 `mcp__github__<tool>` 이름을 runtime config의 `tools`에 더한다. worker의 relay는 원격 서버와 같이 그 이름만 엔진에 보인다. 서버의 `tools/list`, 허가의 `tools/call` 검사, relay의 목록, 세 곳이 같은 함수(contracts의 `githubMcpTools`)로 정한다.
+- **MCP 호출의 actor(2절 "선행 수정"의 GA-7 몫).** 부르는 쪽은 세션 안의 에이전트이고 key가 없다. receipt actor는 지금의 원격 MCP 거절 receipt(`call_mcp`)와 같이 정한다. principal은 세션을 만든 credential(`created_by_api_key_id`가 있으면 그 `api_key`, 없으면 `created_by_user_id`의 `user`)이고, `actor_user_id`는 세션을 만든 사람, `agent_id`는 세션 릴리스의 에이전트다. 둘 다 없는 세션에는 도구를 열지 않는다(허가의 (3) 다음에 거절한다). push 요청의 `requested_by`는 null일 수 없고, 누가 시작했는지 모르는 세션에 GitHub 쓰기를 열지 않으려는 것이다. 2절의 "`actor.agent_id`는 호출자 key에서만 채운다"와 어긋나지 않는다. 이 호출의 호출자는 바로 그 세션의 에이전트이기 때문이다. receipt를 다른 입구와 나눠 보려면 actor의 principal이 아니라 이 `agent_id`가 세션 릴리스와 같다는 점을 본다.
+- **권한 판정.** 서비스 함수는 입구 1과 같은 것을 부른다. 다만 권한 판정(`AuthorizationPolicy`)은 그 attempt의 세션 하나에 묶인 판정으로 바꿔 끼운다. 그 세션의 `session.read`·`session.submit`만 허용하고 나머지는 모두 거절한다. principal의 scope는 비워 둔다. 그래서 MCP 호출은 push를 결정할 수 없고(`decide_push` 도구가 없고, 있어도 `missing_scope`), PR 열기·코멘트는 `pushed` 요청에서만 된다(결정 6). 세션을 만든 사람의 지금 권한은 다시 보지 않는다. 이 호출의 권한은 세션 안에서 도는 attempt라는 사실에서 나오고, 그 사실은 (1)의 fence가 교환마다 다시 확인한다.
+- **`request_push`는 기다리지 않는다.** push 승인을 켠 릴리스에서 도구는 `requested` 요청을 만들고 바로 돌아온다. 사람이 승인하고 push 실행기가 push한 뒤, 에이전트가 `open_pull_request`를 부른다. 그 전에 부르면 지금의 PR 서비스 거절(`not_pushed`)이 돌아온다. 도구가 사람의 결정을 붙잡고 기다리면 턴 하나가 사람을 기다리며 비용 없이 멈춰 있게 되고, 그 사이 lease와 호출 시간 제한(30분)에 걸린다. push 승인을 끈 릴리스는 같은 트랜잭션에서 `approved`가 되고 push 실행기가 곧 push한다.
+- **push하는 것은 마지막 checkpoint다.** `request_push`는 입구 1과 같이 세션의 마지막으로 커밋된 checkpoint를 push한다. 턴 안에서 방금 만든 commit은 그 턴이 끝나 checkpoint가 생겨야 들어간다. 도구 설명에 이것을 적는다. 도구를 부른 턴이 끝나면 checkpoint가 늘 새로 생기므로, 승인은 checkpoint revision이 아니라 commit으로 판정한다([GA-7에서 정한 것](#ga-7에서-정한-것)).
+- **worker 환경.** worker는 여전히 GitHub 토큰을 받지 않는다. runtime config에는 egress 토큰과 proxy 경로만 있고, 서명된 grant는 proxy와 control-host 사이에만 있다. GA-7 테스트는 claim 응답과 worker가 엔진에 넘기는 환경·설정 파일에 GitHub 토큰 모양(`ghs_`, `ghp_`, `github_pat_`, `x-access-token`)이 없음을 본다.
+- **도구 결과.** 성공하면 입구 1의 응답 본문을 JSON 텍스트로 준다. 서비스 거절은 `isError: true`와 입구 1과 같은 `code`·`message`·`details`(`reason_code`, `refusal`, `receipt_id`)를 준다. 인자가 스키마에 맞지 않으면 서비스를 부르지 않고 `isError: true`로 답한다.
+- **섞인 배포.** `mcp_servers` 최대 둘을 모르는 앞 worker 이미지는 원격 서버와 `github`가 같이 붙은 claim을 거절한다. 앞 proxy 이미지는 경로 모양의 upstream을 거절한다(`parseGrant`). 둘 다 그 세션의 GitHub 도구가 동작하지 않는 쪽으로만 틀린다. proxy와 worker 이미지를 API보다 먼저 올린다. GitHub 설정이 있는 릴리스로 이 배포 전에 checkpoint를 남긴 세션은 `github` 서버 없이 만든 runtime config를 claim의 `restore_runtime_configs`로 함께 받으므로, 그 checkpoint에서 그대로 이어진다.
+
+### GA-7에서 정한 것
+
+- **checkpoint가 움직인 뒤의 승인.** werft-sandbox 실측에서, 에이전트가 턴 안에서 `request_push`를 부르면 그 턴이 끝날 때 checkpoint revision이 올라가 사람의 승인이 늘 `409 CHECKPOINT_MOVED`였다. push 승인을 켠 릴리스에서는 도구로 만든 요청을 하나도 승인할 수 없었다. 결정 6이 지키는 것은 "사람이 본 commit이 push된다"이므로, 판정을 commit으로 옮긴다.
+  - 서비스가 결정 전에 세션의 마지막 checkpoint(revision과 commit)를 읽는다.
+  - 결정 트랜잭션은 세션의 지금 revision이 요청이 고정한 revision과 같으면 지금처럼 승인한다. 다르면 지금 revision이 서비스가 읽은 revision과 같고, 그 commit이 요청의 `git_commit`과 같을 때만 승인한다. 결정 본문의 `git_commit`은 이미 요청의 것과 같아야 한다(`commit_mismatch`).
+  - 그 사이에 checkpoint가 또 움직였거나 commit이 다르면 `checkpoint_moved`다.
+  - push 실행기는 지금처럼 요청이 고정한 revision의 commit을 push한다.
+  - 입구 1(HTTP 결정)도 같은 규칙이다. commit 없는 턴이 지난 뒤의 승인이 이제 된다.
 
 ## 4. 데이터 모델
 

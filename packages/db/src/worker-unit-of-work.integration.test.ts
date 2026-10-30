@@ -25,6 +25,7 @@ import {
 import { and, count, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { readPointerRuntime } from "./checkpoint-runtime.ts";
 import { createPostgresCheckpointStore } from "./checkpoint-store.ts";
 import { fromDbNow } from "./db-clock.ts";
 import { createPostgresGitHubGateStore } from "./github-settings.ts";
@@ -79,6 +80,12 @@ function workerStream(sessionId: string) {
 
 const LEASE_TTL_MS = 2_000;
 const bootstrap: WorkerPrincipal = { kind: "bootstrap" };
+const VERIFIED_RUNTIME = {
+  cliVersion: "2.1.270",
+  engine: "claude-agent-sdk",
+  profileSha256: "b".repeat(64),
+  sdkVersion: "0.3.270",
+};
 
 integration("worker gateway on PostgreSQL", () => {
   let database: TempDatabase;
@@ -146,6 +153,9 @@ integration("worker gateway on PostgreSQL", () => {
                 { key: "outputs/inherited", bytes: 11 },
               ],
             };
+          }
+          if (checkpoint.manifest_ref.startsWith("runtime/")) {
+            return { status: "verified", runtime: VERIFIED_RUNTIME };
           }
           const sized = /\/bytes-(\d+)\//.exec(checkpoint.manifest_ref);
           return sized === null
@@ -3672,6 +3682,65 @@ integration("worker gateway on PostgreSQL", () => {
       { revision: 0, key: `${ref}/a`, bytes: 7 },
       { revision: 0, key: "outputs/inherited", bytes: 11 },
     ]);
+  });
+
+  test("finalize records the verified runtime on the pointer row, and a row without one reads as null", async () => {
+    const finalizeWith = async (manifestRef: string) => {
+      const { session, claimed, input } = await claimAndDeliver(
+        partitionFor(`checkpoint-runtime-${manifestRef.split("/")[0]}`),
+      );
+      expect(
+        await gateway.finalize(principalOf(claimed), {
+          ...scopeOf(claimed, input.turn_id),
+          turn_id: input.turn_id,
+          finalize_key: `fin-${input.turn_id}`,
+          final_source_sequence: 0,
+          terminal: {
+            status: "completed",
+            reason: null,
+            result: null,
+            usage: null,
+          },
+          checkpoint: {
+            revision: 0,
+            manifest_ref: `${manifestRef}/${session.session_id}/manifest.json`,
+            manifest_sha256: "a".repeat(64),
+          },
+        }),
+      ).toMatchObject({ status: "completed", checkpoint_revision: 0 });
+      return session.session_id;
+    };
+    const rowOf = async (sessionId: string) =>
+      (
+        await db
+          .select({
+            engine: checkpoints.runtimeEngine,
+            sdkVersion: checkpoints.runtimeSdkVersion,
+            cliVersion: checkpoints.runtimeCliVersion,
+            profileSha256: checkpoints.runtimeProfileSha256,
+          })
+          .from(checkpoints)
+          .where(eq(checkpoints.sessionId, sessionId))
+      )[0];
+
+    const recorded = await finalizeWith("runtime");
+    expect(await rowOf(recorded)).toEqual(VERIFIED_RUNTIME);
+    expect(await readPointerRuntime(db, recorded)).toEqual(VERIFIED_RUNTIME);
+
+    // What a row committed before the columns holds: all four null.
+    const unrecorded = await finalizeWith("plain");
+    expect(await rowOf(unrecorded)).toEqual({
+      engine: null,
+      sdkVersion: null,
+      cliVersion: null,
+      profileSha256: null,
+    });
+    expect(await readPointerRuntime(db, unrecorded)).toBeNull();
+
+    const { session: pointerless } = await claimAndDeliver(
+      partitionFor("checkpoint-runtime-none"),
+    );
+    expect(await readPointerRuntime(db, pointerless.session_id)).toBeNull();
   });
 
   test("a transcript past the limit keeps the turn that crossed it and the last checkpoint, and takes no new turn", async () => {

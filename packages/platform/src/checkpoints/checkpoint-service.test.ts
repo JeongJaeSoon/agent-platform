@@ -1680,6 +1680,51 @@ describe("finalize", () => {
     expect(checkpoints.pointer()).toMatchObject({ revision: 0, turnId: "1" });
   });
 
+  test("commits the runtime the stored manifest decodes to", async () => {
+    const { checkpoint } = await upload(manifest());
+
+    await finalizeWith(service, {
+      checkpoint,
+      fence: fence(),
+      now: new Date(),
+      sessionId,
+      turnId: "1",
+    });
+
+    const stored = await objects.get(checkpoint.manifest_ref);
+    if (stored === undefined) throw new Error("manifest not stored");
+    expect(checkpoints.committed.map((c) => c.runtime)).toEqual([
+      codec.decode(stored).runtime,
+    ]);
+    expect(checkpoints.committed[0]?.runtime).toEqual(runtime);
+  });
+
+  test.each([
+    ["names another engine", { engine: "another-engine" }],
+    ["has an empty CLI version", { cliVersion: "" }],
+    ["has no profile digest", { profileSha256: undefined }],
+  ])("never commits a manifest whose runtime %s", async (_, override) => {
+    const { checkpoint } = await upload(
+      manifest({
+        runtime: { ...runtime, ...override } as unknown as RuntimeFingerprint,
+      }),
+    );
+
+    expect(
+      await finalizeWith(service, {
+        checkpoint,
+        fence: fence(),
+        now: new Date(),
+        sessionId,
+        turnId: "1",
+      }),
+    ).toMatchObject({
+      outcome: "rejected",
+      reason: expect.stringContaining("manifest runtime"),
+    });
+    expect(checkpoints.committed).toEqual([]);
+  });
+
   test("never commits a checkpoint it could not validate", async () => {
     const result = await finalizeWith(service, {
       checkpoint: {

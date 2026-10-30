@@ -318,6 +318,50 @@ integration("postgres push requests", () => {
     ).toMatchObject({ outcome: "refused", refusal: "not_found" });
   });
 
+  test("an approval after a checkpoint of the same commit stands, and pushes the pinned revision", async () => {
+    const sessionId = await session();
+    const request = written(await create(sessionId));
+    await db
+      .update(sessions)
+      .set({ checkpointRevision: 3 })
+      .where(eq(sessions.id, sessionId));
+    expect(
+      await decide(sessionId, request.id, {
+        idempotencyKey: "k-other",
+        latest: { revision: 3, gitCommit: "c".repeat(40) },
+      }),
+    ).toMatchObject({ outcome: "refused", refusal: "checkpoint_moved" });
+    // Read at 3, but the session checkpointed again before the decision.
+    await db
+      .update(sessions)
+      .set({ checkpointRevision: 4 })
+      .where(eq(sessions.id, sessionId));
+    expect(
+      await decide(sessionId, request.id, {
+        idempotencyKey: "k-raced",
+        latest: { revision: 3, gitCommit: COMMIT },
+      }),
+    ).toMatchObject({ outcome: "refused", refusal: "checkpoint_moved" });
+    const approved = written(
+      await decide(sessionId, request.id, {
+        idempotencyKey: "k-same",
+        latest: { revision: 4, gitCommit: COMMIT },
+      }),
+    );
+    expect(approved).toMatchObject({
+      state: "approved",
+      checkpoint_revision: 2,
+      git_commit: COMMIT,
+    });
+    for (;;) {
+      const job = await store.claimNextApproved(LEASE_MS);
+      if (job === null) throw new Error("the approval was never claimed");
+      if (job.sessionId !== sessionId) continue;
+      expect(job).toMatchObject({ checkpointRevision: 2, gitCommit: COMMIT });
+      break;
+    }
+  });
+
   test("the pusher claims each approved request once and records the outcome", async () => {
     const pushed = await session();
     const failed = await session();

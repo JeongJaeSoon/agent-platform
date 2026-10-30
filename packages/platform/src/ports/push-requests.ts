@@ -129,6 +129,13 @@ export type DecidePushRequestInput = {
   reason: string | null;
   idempotencyKey: string;
   payloadHash: string;
+  /**
+   * The session's last checkpoint as read before the decision; absent or
+   * null when it was not read. An approval after the session checkpointed
+   * again stands when the checkpoint is still this one and holds the pinned
+   * commit.
+   */
+  latest?: { revision: number; gitCommit: string } | null;
 };
 
 export type PushWriteResult =
