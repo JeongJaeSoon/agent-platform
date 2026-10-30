@@ -260,6 +260,7 @@ function ConfigToken({ onOutcome }: { readonly onOutcome: OnOutcome }) {
               <Input
                 ref={inputRef}
                 id={inputId}
+                className="max-w-105"
                 name="token"
                 type="password"
                 autoComplete="off"

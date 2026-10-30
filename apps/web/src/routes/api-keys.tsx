@@ -933,7 +933,7 @@ function IssuedSecret({
       </Alert>
       <Field>
         <FieldLabel>{t("apiKeys.secret")}</FieldLabel>
-        <div className="flex items-center gap-2">
+        <div className="flex max-w-[var(--ap-layout-reading-width)] items-center gap-2">
           <Input
             ref={secretRef}
             className="min-w-0 flex-1 font-mono"

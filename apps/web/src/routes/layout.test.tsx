@@ -205,6 +205,7 @@ describe("app shell", () => {
     ["/settings/api-keys", "API 키"],
     ["/settings/workspace", "일반"],
     ["/settings/workspace/slack", "Slack 연결 설정"],
+    ["/settings/workspace/github", "GitHub 연결 설정"],
     ["/settings/workspace/api-keys", "조직 관리 키"],
     ["/settings/preferences", "언어·테마"],
     ["/settings/linked-accounts", "연동 계정"],
@@ -218,13 +219,15 @@ describe("app shell", () => {
         name: title,
       });
       const capped: string[] = [];
+      let el = heading.closest('[data-slot="page"]');
       for (
-        let el = heading.closest('[data-slot="page"]');
+        ;
         el && el.getAttribute("data-slot") !== "page-frame-body";
         el = el.parentElement
       ) {
         if (el.className.includes("max-w-")) capped.push(el.className);
       }
+      expect(el).not.toBeNull();
       expect(capped).toEqual([]);
     });
   }

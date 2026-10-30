@@ -17,8 +17,7 @@ import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 /*
  * The one page frame (V4-PAGE-FRAME): lists, settings, forms and details
  * all grow to 1620px beside the sidebar, then centre; narrower, only the
- * gutters remain. A form or settings page stops its head and sections
- * together at 1100px inside it. The settings pages put their SideNav
+ * gutters remain. The settings pages put their SideNav
  * beside the page only once both it and the sidebar leave the body room.
  */
 
