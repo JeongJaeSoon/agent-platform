@@ -270,7 +270,7 @@ API 프로세스가 3초마다 `approved` 요청을 하나씩 잡아 push한다.
 - **열기:** `POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request`, body `{title?, body?}`. head는 요청의 `agent/<session-id>`, base는 카탈로그 항목의 `branch`다. 요청이 `pushed`가 아니면 409 `PUSH_NOT_PUSHED`, 카탈로그 항목의 binding이 요청 때와 다르면 push와 같이 409 `CATALOG_MISMATCH`다. 요청 하나에 PR은 하나다. 이미 기록된 PR이 있거나 GitHub에 그 브랜치의 열린 PR이 있으면 새로 열지 않고 그 PR을 200(`created: false`)으로 돌려준다. 같은 세션의 다음 push 요청은 같은 브랜치를 갱신하므로 열린 PR도 같고, 그 요청으로도 코멘트를 달 수 있다. PR 행은 그 PR을 연 push 요청에 묶인다. 그 요청의 호출은 PR이 닫혀도 기록된 PR을 그대로 돌려주고, 다른 push 요청의 호출은 GitHub에서 그 브랜치의 열린 PR을 다시 찾아 없으면(사람이 닫았으면) 새 PR을 연다.
 - **코멘트:** `POST .../pull-request/comments`, body `{body, marker?}`(`marker` 기본값 `status`). 코멘트 끝에 `<!-- agent-platform:<session-id>:<marker> -->`를 붙이고, 플랫폼이 쓴(App 또는 PAT 주인이 작성자인) 같은 marker의 코멘트가 이미 있으면(오래된 순 처음 1000개 안에서) 새로 달지 않고 그 코멘트를 고친다. 다른 사람이 marker를 복사해 둔 코멘트는 건드리지 않는다. PR을 먼저 열지 않았으면 409 `PULL_REQUEST_MISSING`이다.
 - **누가:** push 결정과 같은 규칙이다. `sessions:approve`를 가진 API key나 로그인한 사용자만 부르고, scope는 서비스가 검사해 거절도 receipt로 남는다. worker 자격은 `/v1`에서 401이고 `AUTH_MODE=none`에서는 403(`unverified_principal`)이며 기록하지 않는다.
-- **본문 정리:** 제목·본문·코멘트는 GitHub에 보내기 전에 정리한다. 각 줄을 로그 마스킹과 같은 규칙(`sanitizeText`)에 넣어 비밀처럼 보이는 줄(`ghp_…`, `token:` 같은 줄)은 `[REDACTED]` 한 줄로 바꾼다. `@멘션`, 다른 저장소 참조(`owner/repo#N`), closing keyword(`Closes #N`, `fixes owner/repo#N`, `resolves <URL>` 등), HTML 주석(`<!--`)은 zero-width space를 끼워 알림·링크·자동 닫기·숨김이 일어나지 않게 한다. 제목은 한 줄 256자, 본문과 코멘트는 GitHub의 65536자 안으로 자르고 `…(truncated)`를 붙인다. PR 본문 끝에는 세션 id와 commit을 적은 줄이 붙는다.
+- **본문 정리:** 제목·본문·코멘트는 GitHub에 보내기 전에 정리한다. 각 줄을 로그 마스킹과 같은 규칙(`sanitizeText`)에 넣어 비밀처럼 보이는 줄(`ghp_…`, `token:` 같은 줄)은 `[REDACTED]` 한 줄로 바꾼다. `@멘션`, 다른 저장소 참조(`owner/repo#N`), closing keyword(`Closes #N`, `fixes owner/repo#N`, `resolves <URL>` 등), HTML 주석(`<!--`)은 zero-width space를 끼워 알림·링크·자동 닫기·숨김이 일어나지 않게 한다. 제목은 한 줄 256자, 본문과 코멘트는 GitHub의 65536자 안으로 자르고 `…(truncated)`를 붙인다. PR 본문 끝에는 `<!-- agent-platform:pr-tail -->`로 시작해 `<!-- /agent-platform:pr-tail -->`로 끝나는 꼬리가 붙는다. 세션 id·commit, 세션 URL(콘솔 origin이 있을 때), 에이전트·release, push 요청, 시작 경로(`web`·`slack`·`personal_key`·`agent_key`·`operator_key`), 시작자의 GitHub 연결 여부, 연결돼 있으면 `Co-authored-by:` 줄이다. 이미 있는 PR을 돌려줄 때(`created: false`)도 그 PR 본문의 꼬리를 지금 commit으로 바꾼다. 바꾸는 것은 마지막 꼬리(시작 표시 줄부터 다음 끝 표시 줄까지, 표시는 각자 한 줄에 들여쓰기 없이 홀로, 코드 블록과 `<details>` 같은 HTML 요소 밖에 있고, 사이가 플랫폼이 쓰는 줄을 그 순서로 한 번씩 담을 때만 센다. 사람이 그 안에 줄을 더하면 사람 글이다)뿐이고, 앞뒤에 사람이 쓴 글은 줄바꿈까지 쓴 그대로, 문장·코드 블록·HTML 블록에 인용하거나 사이를 고친 표시는 글로 둔다. 그런 짝이 없으면(옛 PR, 사람이 꼬리를 지운 PR) 아무것도 지우지 않고 끝에 붙인다. 본문이 코드 블록이나 HTML 요소를 연 채 끝나면 닫는 줄을 더한 뒤 붙인다. 꼬리 갱신이 실패해도 PR 응답은 그대로이고 API 로그에 경고만 남는다. 아래 "GitHub 계정 연결"도 본다.
 - **자격 증명:** `github_app`은 그 저장소 하나와 `contents: read`·`pull_requests: write`로 좁힌 설치 토큰을 따로 받는다(clone의 `contents: read`, push의 `contents: write` 토큰과 캐시 key가 다르다). PR 조회·생성과 코멘트 목록·작성·수정 모두 이 토큰으로 된다. `contents: read`가 없으면 github.com은 PR 생성을 422 `not all refs are readable`로 거절한다(2026-10-29 실측). github.com의 PAT는 그 값을 그대로 쓴다. Gitea와 GHES PAT처럼 GitHub forge가 없는 저장소는 403 `FORBIDDEN`(`no_forge`)이다.
 - **필요한 권한:** GitHub App은 Repository permissions **Pull requests: Read and write**(위 App 절, Contents와 함께). fine-grained PAT는 **Pull requests: Read and write**를 더한다. `Issues`·`Workflows` 권한은 필요 없으니 주지 않는다. API 컨테이너에서 `api_base` host로 나가는 outbound가 열려 있어야 한다.
 - **rate limit:** REST 호출은 `@octokit/core`에 retry·throttling plugin을 붙여 한다. 429와 secondary rate limit 403은 GitHub가 준 `retry-after`(또는 `x-ratelimit-reset`)만큼 기다렸다 다시 보내고, 재시도는 2번까지, 기다릴 시간이 60초를 넘으면 기다리지 않는다. 5xx도 2번까지 다시 보낸다. 쓰기 호출 사이에는 plugin이 1~3초 간격을 둔다. 끝내 실패하면 503 `BACKEND_UNAVAILABLE`(`forge_failed`)이고 API 로그에 `GitHub rate limit`(`limit`, `request`, `retry_after_seconds`, `retrying`)과 `GitHub request failed`(`request`, `status`)가 남는다. 토큰과 응답 본문은 로그에 쓰지 않는다.
@@ -649,6 +649,30 @@ curl -s -b jar http://127.0.0.1:3000/v1/admin/sessions
 ```
 
 Slack DM이 만든 세션은 `private`로 시작한다(아래 "Slack 스레드와 세션"). 아직 없는 것: 웹에서 만든 `private` 세션을 Slack 채널에 잇는 것의 거절(웹 세션을 채널에 잇는 경로가 아직 없다), 세션 삭제.
+
+### GitHub 계정 연결
+
+웹에 로그인한 사람은 자기 GitHub 계정을 작성용 GitHub App의 user authorization으로 연결한다. 연결해 두면 그 사람이 시작한 세션의 commit과 PR 꼬리에 `Co-authored-by: <login> <<id>+<login>@users.noreply.github.com>`이 들어간다. commit 작성자는 그대로 App이다. 연결은 Slack과 같은 `linked_accounts`에 `provider=github`, `external_tenant=github.com`으로 남는다. GitHub 계정 하나는 모든 워크스페이스를 통틀어 한 사람에게만, 한 사람은 GitHub 연결을 하나만 가진다. 연결·해제는 그 사람의 web session으로만 한다(API key는 `403`).
+
+| 변수 | 기본값 | 허용 범위 |
+|---|---|---|
+| `CONSOLE_ORIGIN` | 없음(`SLACK_OIDC_REDIRECT_URI`의 origin을 쓴다) | 절대 http(s) origin. GitHub 연결 콜백 `<콘솔 origin>/settings/linked-accounts/github`와 commit·PR의 세션 URL `<콘솔 origin>/sessions/<id>`에 쓴다. 둘 다 없으면 콜백 URL이 없어 연결을 시작할 수 없고(`409 GITHUB_LINK_NOT_CONFIGURED`), commit에 `Agent-Session` 트레일러가 들어가지 않으며 PR 꼬리는 세션 id만 싣는다 |
+
+**준비(owner·admin, 사람이 한다).** 작성용 App이 콘솔에 등록돼 있어야 한다(위 "GitHub 저장소").
+
+1. 콘솔 설정 → 워크스페이스 → GitHub의 "사용자 계정 연결" 카드에서 콜백 URL을 복사한다. Client ID는 App을 다시 읽을 때 GitHub가 준 값이 보인다.
+2. GitHub의 App 설정(Settings → Developer settings → GitHub Apps → 그 App → General)에서 **Callback URL**에 1의 주소를 그대로 넣고 저장한다. **Expire user authorization tokens**는 그대로 둔다(플랫폼은 token을 받자마자 버린다).
+3. 같은 페이지의 **Client secrets → Generate a new client secret**으로 만든 값을 카드의 "입력"에 붙여 넣고 저장한다(`PUT /v1/workspaces/{id}/github-settings/oauth-client-secret`). 값은 App 키처럼 master key로 암호화해 그 App 행의 `secret_values`에 두고, 응답·receipt·로그 어디에도 나오지 않으며 다시 보여 주지 않는다. 같은 App의 키를 바꾸면 남고, 다른 App으로 바꾸거나 App을 지우면 함께 지워진다. 작성용 App이 없으면 본문을 읽기 전에 `409 GITHUB_LINK_NOT_CONFIGURED`, master key 없이 띄운 API는 `503`이다.
+
+흐름은 다음과 같다.
+
+1. `POST /v1/linked-accounts/github/start`가 `authorize_url`을 돌려주고, state를 HttpOnly cookie `ap_github_link`(path `/v1/linked-accounts/github`, 10분, 시작한 사람에 묶임)에 둔다. App·client secret·콜백 URL 가운데 하나라도 없으면 `409 GITHUB_LINK_NOT_CONFIGURED`다.
+2. GitHub가 콜백 URL로 `code`·`state`를 붙여 돌려보낸다. 웹 화면이 둘을 `POST /v1/linked-accounts/github/callback`에 넘긴다. cookie는 이때 한 번 쓰고 지운다. 만료·재사용·다른 사람의 state·GitHub가 거절한 code는 모두 `400`이다.
+3. API가 `code`를 user access token으로 바꿔 `GET /user`로 id·login만 읽고, token은 그 자리에서 버린다(저장하지 않는다). 그 GitHub 계정이 다른 사람에게 연결돼 있으면 `409 LINK_TAKEN`, 내게 이미 GitHub 연결이 있으면 `409 LINK_EXISTS`, GitHub가 답하지 않으면 `503`이다. 성공하면 `201`과 `link_account` receipt가 남는다. 해제는 Slack과 같은 `DELETE /v1/linked-accounts/{id}`다.
+
+**commit 트레일러.** claim의 `git.co_author`(시작자가 연결했을 때만)와 `git.session_url`을 worker가 `$HOME/.werft/git-trailers`에 쓰고, worker 이미지의 system `core.hooksPath`(`/usr/local/share/werft/git-hooks`)에 있는 `commit-msg` hook이 `git interpret-trailers --if-exists addIfDifferent`로 `Co-authored-by:`·`Agent-Session:`을 붙인다. 같은 줄은 한 번만 붙고, 저장소의 원래 hook(`.git/hooks/<이름>`)은 먼저 돈다. 시작자는 첫 turn을 보낸 사람, 없으면 세션을 만든 사람이다. web·개인 key·Slack은 사람이고, 에이전트 key·운영자 key는 사람이 없어 `Agent-Session`만 붙는다. 세션 상세의 결과물 탭 위 한 줄이 이 판정(`GET /v1/sessions/{id}/github/attribution`)을 보여 준다.
+
+한계: 저장소가 자기 `core.hooksPath`(husky 등)를 두거나 `git commit --no-verify`로 커밋하면 트레일러가 붙지 않는다. 그런 저장소에서는 `pre-commit install`이 `core.hooksPath`가 있다며 거절한다. hook은 client hook만 잇고 `reference-transaction`은 잇지 않는다.
 
 ### 자격 연결
 

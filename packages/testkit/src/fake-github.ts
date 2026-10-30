@@ -576,6 +576,20 @@ export async function startFakeGitHub(
       found.comments.set(number, []);
       return Response.json(pullJson(pull), { status: 201 });
     }
+    const single = /^\/pulls\/(\d+)$/.exec(rest);
+    if (single?.[1] && (method === "GET" || method === "PATCH")) {
+      const pull = found.pulls.find(
+        (entry) => entry.number === Number(single[1]),
+      );
+      if (pull === undefined) return notFound();
+      if (!can("pull_requests", method === "GET" ? "read" : "write")) {
+        return forbidden();
+      }
+      if (method === "PATCH" && typeof input.body === "string") {
+        pull.body = input.body;
+      }
+      return Response.json(pullJson(pull));
+    }
     const comments = /^\/issues\/(\d+)\/comments$/.exec(rest);
     const commenting = can("pull_requests", "write") || can("issues", "write");
     if (comments?.[1]) {
@@ -751,6 +765,7 @@ export async function startFakeGitHub(
         slug: app.slug,
         name: `Fake ${app.slug}`,
         html_url: `${origin()}/apps/${app.slug}`,
+        client_id: `Iv23li${app.slug}`,
         permissions: app.permissions,
       });
     }

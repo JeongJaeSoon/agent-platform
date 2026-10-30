@@ -47,7 +47,11 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
-import { SessionOutputs, SessionOutputsCount } from "./session-outputs.tsx";
+import {
+  SessionAttribution,
+  SessionOutputs,
+  SessionOutputsCount,
+} from "./session-outputs.tsx";
 import { SessionsOverview } from "./session-overview.tsx";
 
 export function loadError(error: unknown, onRetry: () => void) {
@@ -427,7 +431,12 @@ export function SessionDetailScreen() {
             value: "outputs",
             label: t("session.outputs.title"),
             count: <SessionOutputsCount session={session} />,
-            content: <SessionOutputs session={session} />,
+            content: (
+              <div className="flex flex-col gap-[var(--ap-space-block)]">
+                <SessionAttribution session={session} />
+                <SessionOutputs session={session} />
+              </div>
+            ),
           },
         ]}
         unavailable={unavailable}

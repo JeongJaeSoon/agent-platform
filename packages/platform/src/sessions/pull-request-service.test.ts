@@ -22,7 +22,12 @@ import type {
   PullRequestSource,
   PullRequestStore,
 } from "../ports/pull-requests.ts";
+import type { SessionAttributionRecord } from "../ports/session-attribution.ts";
 import { repositoryBinding, type SessionCatalog } from "./catalog.ts";
+import {
+  PULL_REQUEST_TAIL_END_MARKER,
+  PULL_REQUEST_TAIL_MARKER,
+} from "./git-attribution.ts";
 import {
   commentMarker,
   createPullRequestService,
@@ -43,6 +48,27 @@ const CATALOG = {
     },
   },
 } satisfies SessionCatalog;
+const LINKED: SessionAttributionRecord = {
+  ownerId: "owner-a",
+  trigger: "web",
+  agentId: "agent-1",
+  agentReleaseId: "release-1",
+  starter: { userId: "user-1", github: { id: "583231", login: "octocat" } },
+};
+const TAIL = [
+  "---",
+  PULL_REQUEST_TAIL_MARKER,
+  `Opened by agent-platform from session \`${SESSION}\`, commit \`${"a".repeat(40)}\`.`,
+  "",
+  `- Session: https://console.example.com/sessions/${SESSION}`,
+  "- Agent: `agent-1`, release `release-1`",
+  `- Push request: \`${PUSH}\``,
+  "- Trigger: web",
+  "- Started by: GitHub account linked (@octocat)",
+  "",
+  "Co-authored-by: octocat <583231+octocat@users.noreply.github.com>",
+  PULL_REQUEST_TAIL_END_MARKER,
+].join("\n");
 const human: Principal = {
   kind: "api_key",
   id: "key-1",
@@ -63,8 +89,14 @@ function harness(
     binding?: string;
     authorization?: AuthorizationPolicy;
     gateRefusal?: GitHubRefusal;
+    attribution?: SessionAttributionRecord | null;
+    failUpdate?: boolean;
   } = {},
 ) {
+  const attribution =
+    options.attribution === undefined ? LINKED : options.attribution;
+  const bodies = new Map<number, string>();
+  const warnings: string[] = [];
   const receipts: PullRequestReceipt[] = [];
   const saved: PullRequest[] = [];
   const calls: string[] = [];
@@ -149,6 +181,7 @@ function harness(
       calls.push(`create ${input.head}`);
       fail();
       created.push(input);
+      bodies.set(7, input.body);
       open = {
         number: 7,
         url: "https://github.com/acme/app/pull/7",
@@ -157,6 +190,14 @@ function harness(
         base: input.base,
       };
       return open;
+    },
+    updatePullRequestBody: async (number, edit) => {
+      calls.push(`update ${number}`);
+      fail();
+      if (options.failUpdate) {
+        throw new ForgeCredentialError("GitHub call failed (502)");
+      }
+      bodies.set(number, edit(bodies.get(number) ?? ""));
     },
     upsertComment: async (number, marker, body) => {
       calls.push(`comment ${number}`);
@@ -198,9 +239,14 @@ function harness(
     catalog: CATALOG,
     gate,
     redact: (line) => (line.includes("ghp_") ? "[REDACTED]" : line),
+    attribution: { attribution: async () => attribution },
+    consoleOrigin: "https://console.example.com",
+    logger: { warn: (message) => warnings.push(message) },
   });
   return {
     service,
+    bodies,
+    warnings,
     receipts,
     sourceReads,
     saved,
@@ -271,7 +317,7 @@ describe("opening a pull request", () => {
         head: HEAD,
         base: "develop",
         title: `Fix for @${ZWSP}octocat`,
-        body: `C${ZWSP}loses #3\n[REDACTED]\nsee acme/other#${ZWSP}4\n\n---\nOpened by agent-platform from session \`${SESSION}\`, commit \`${"a".repeat(40)}\`.`,
+        body: `C${ZWSP}loses #3\n[REDACTED]\nsee acme/other#${ZWSP}4\n\n${TAIL}`,
       },
     ]);
 
@@ -334,7 +380,85 @@ describe("opening a pull request", () => {
       created: false,
       pull_request: { number: 3 },
     });
-    expect(calls).toEqual([`find ${HEAD}`]);
+    expect(calls).toEqual([`find ${HEAD}`, "update 3"]);
+  });
+
+  test("a reused pull request gets its tail replaced, the text above it kept", async () => {
+    const { service, setOpen, bodies } = harness();
+    setOpen({
+      number: 3,
+      url: "https://github.com/acme/app/pull/3",
+      state: "open",
+      head: HEAD,
+      base: "develop",
+    });
+    const old = TAIL.replace("a".repeat(40), "b".repeat(40)).replace(
+      PUSH,
+      "33333333-3333-4333-8333-333333333333",
+    );
+    bodies.set(3, `Edited by a person\r\n\r\n${old.replaceAll("\n", "\r\n")}`);
+    await service.open(actor, SESSION, PUSH, { readBody: async () => ({}) });
+    expect(bodies.get(3)).toBe(`Edited by a person\n\n${TAIL}`);
+  });
+
+  test("a tail GitHub refuses to update is logged; the pull request is still recorded", async () => {
+    const { service, setOpen, warnings, saved } = harness({ failUpdate: true });
+    setOpen({
+      number: 3,
+      url: "https://github.com/acme/app/pull/3",
+      state: "open",
+      head: HEAD,
+      base: "develop",
+    });
+    const opened = await service.open(actor, SESSION, PUSH, {
+      readBody: async () => ({}),
+    });
+    expect(opened).toMatchObject({
+      created: false,
+      pull_request: { number: 3 },
+    });
+    expect(warnings).toEqual(["Pull request tail not updated"]);
+    expect(saved.map((entry) => entry.number)).toEqual([3]);
+  });
+
+  test("a body without the marker keeps all it has and gets the tail added", async () => {
+    const { service, setOpen, bodies } = harness();
+    setOpen({
+      number: 3,
+      url: "https://github.com/acme/app/pull/3",
+      state: "open",
+      head: HEAD,
+      base: "develop",
+    });
+    bodies.set(3, "Opened by hand");
+    await service.open(actor, SESSION, PUSH, { readBody: async () => ({}) });
+    expect(bodies.get(3)).toBe(`Opened by hand\n\n${TAIL}`);
+  });
+
+  test("an agent-key session's tail names no one and carries no Co-authored-by", async () => {
+    const { service, created } = harness({
+      attribution: { ...LINKED, trigger: "agent_key", starter: null },
+    });
+    await service.open(actor, SESSION, PUSH, { readBody: async () => ({}) });
+    const body = created[0]?.body ?? "";
+    expect(body).toContain("- Trigger: agent_key");
+    expect(body).toContain("- Started by: none (App only)");
+    expect(body).not.toContain("Co-authored-by");
+  });
+
+  test("a starter without a GitHub link is named unlinked, with no Co-authored-by", async () => {
+    const { service, created } = harness({
+      attribution: {
+        ...LINKED,
+        starter: { userId: "user-1", github: null },
+      },
+    });
+    await service.open(actor, SESSION, PUSH, { readBody: async () => ({}) });
+    const body = created[0]?.body ?? "";
+    expect(body).toContain(
+      "- Started by: GitHub account not linked (App only)",
+    );
+    expect(body).not.toContain("Co-authored-by");
   });
 
   test("only a pushed request opens one", async () => {

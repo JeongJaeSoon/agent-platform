@@ -772,7 +772,7 @@ describe("홈 요약", () => {
           badge: "내 계정",
           value: "0 / 3",
           rows: [
-            ["GitHub", "준비 중"],
+            ["GitHub", "연결 안 됨"],
             ["Slack", "연결 안 됨"],
             ["Google Workspace", "준비 중"],
           ],
@@ -1247,7 +1247,7 @@ describe("홈 요약", () => {
       expect(cards(overview)[2]).toMatchObject({
         value: "0 / 3",
         rows: [
-          ["GitHub", "준비 중"],
+          ["GitHub", "연결 안 됨"],
           ["Slack", "다시 연결"],
           ["Google Workspace", "준비 중"],
         ],
@@ -1303,7 +1303,7 @@ describe("홈 요약", () => {
           badge: "내 계정",
           value: "0 / 3",
           rows: [
-            ["GitHub", "준비 중"],
+            ["GitHub", "연결 안 됨"],
             ["Slack", "연결 안 됨"],
             ["Google Workspace", "준비 중"],
           ],
