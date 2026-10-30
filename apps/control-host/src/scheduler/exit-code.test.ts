@@ -10,6 +10,8 @@ const clean: SchedulerRunSummary = {
   drainsOverdue: [],
   failedLaunches: [],
   imageUnresolved: false,
+  imagesRefused: [],
+  heldIncompatible: [],
   killFailed: [],
   killed: [],
   killsStopping: [],
@@ -57,6 +59,11 @@ describe("scheduler exit code", () => {
     expect(exitCodeFor({ ...clean, failedLaunches: [ref] })).toBe(1);
     // An image that could not be pinned admits nobody at all.
     expect(exitCodeFor({ ...clean, imageUnresolved: true })).toBe(1);
+    // An image refused for running another combination than configured is an
+    // install defect someone has to correct: the alert.
+    expect(
+      exitCodeFor({ ...clean, imagesRefused: ["sha256:worker:previous"] }),
+    ).toBe(1);
     expect(exitCodeFor({ ...clean, orphansUnresolved: [ref] })).toBe(1);
     expect(exitCodeFor({ ...clean, reclaimFailed: [ref] })).toBe(1);
     expect(exitCodeFor({ ...clean, reconcileFailed: [ref] })).toBe(1);

@@ -18,6 +18,7 @@ import type {
   SchedulerDemand,
   SchedulerStore,
   StoredLaunchIntent,
+  WorkerImageRefusal,
 } from "@werft-ai/platform";
 import {
   budgetExceeded,
@@ -42,6 +43,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { readPointerImageRuntime } from "./checkpoint-runtime.ts";
 import {
   LAUNCHABLE_ADMISSION_STATES,
   OPEN_TURN_STATUSES,
@@ -51,12 +53,16 @@ import { expireOverdueTerminations } from "./control-unit-of-work.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { launchFailedCause, quarantineLaunch } from "./launch-quarantine.ts";
 import type { Database } from "./queries.ts";
-import { restoreRetryDue } from "./restore-failures.ts";
+import {
+  holdIncompatibleBeforeLaunch,
+  restoreRetryDue,
+} from "./restore-failures.ts";
 import {
   executions,
   sessions,
   turns,
   unassignedSessions,
+  workerImageRefusals,
   workerLaunches,
 } from "./schema.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
@@ -350,6 +356,14 @@ export function createPostgresSchedulerStore(
           resources: intent.resources,
           sessionId: intent.sessionId,
           slotReservedAt: input.now,
+          ...(input.imageRuntime === undefined
+            ? {}
+            : {
+                runtimeEngine: input.imageRuntime.engine,
+                runtimeSdkVersion: input.imageRuntime.sdkVersion,
+                runtimeCliVersion: input.imageRuntime.cliVersion,
+                runtimeProfileScheme: input.imageRuntime.profileDigestScheme,
+              }),
         });
         await tx
           .update(sessions)
@@ -362,6 +376,24 @@ export function createPostgresSchedulerStore(
         return intent;
       });
     },
+
+    pointerRuntimeOf: (sessionId) => readPointerImageRuntime(db, sessionId),
+
+    async workerImageRefusals(): Promise<WorkerImageRefusal[]> {
+      const rows = await db.select().from(workerImageRefusals);
+      return rows.map((row) => ({
+        image: row.image,
+        assumed: {
+          engine: row.assumedEngine,
+          sdkVersion: row.assumedSdkVersion,
+          cliVersion: row.assumedCliVersion,
+          profileDigestScheme: row.assumedProfileScheme,
+        },
+      }));
+    },
+
+    holdIncompatibleBeforeLaunch: (input) =>
+      holdIncompatibleBeforeLaunch(db, input),
 
     async issueBootstrapNonce(
       ref: ExecutionRef,

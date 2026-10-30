@@ -286,7 +286,8 @@ export async function fillSlots(ctx: PassContext): Promise<void> {
         runtime !== undefined &&
         refusals.some(
           (refusal) =>
-            refusal.image === image && sameCombination(refusal.assumed, runtime),
+            refusal.image === image &&
+            sameCombination(refusal.assumed, runtime),
         )
       ) {
         refused.add(image);
@@ -355,9 +356,7 @@ export async function fillSlots(ctx: PassContext): Promise<void> {
     const stored = await store.reserveLaunch({
       backend: backend.kind,
       image: chosen.image,
-      ...(chosen.runtime === undefined
-        ? {}
-        : { imageRuntime: chosen.runtime }),
+      ...(chosen.runtime === undefined ? {} : { imageRuntime: chosen.runtime }),
       now: now(),
       resources: options.resources,
       sessionId,

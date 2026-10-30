@@ -1,4 +1,6 @@
 import type { ExecutionBackend as ExecutionBackendKind } from "@werft-ai/contracts";
+import type { ImageRuntime } from "@werft-ai/runtime-core";
+import type { PointerRuntime } from "../scheduler/worker-images.ts";
 import type {
   ExecutionObservation,
   ExecutionRef,
@@ -6,8 +8,6 @@ import type {
   LaunchCredentialState,
   LaunchIntent,
 } from "./execution-backend.ts";
-import type { ImageRuntime } from "@werft-ai/runtime-core";
-import type { PointerRuntime } from "../scheduler/worker-images.ts";
 import type { ExecutionIncarnation } from "./worker-unit-of-work.ts";
 
 /**

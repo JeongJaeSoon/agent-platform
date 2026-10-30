@@ -11,6 +11,7 @@ import {
   hashWorkerToken,
   type NeutralizeEvent,
   profileFingerprint,
+  recordedPointer,
   transcriptWarnBytes,
   type WorkerGateway,
   WorkerGatewayError,
@@ -35,18 +36,21 @@ import {
   createPostgresSessionUnitOfWork,
 } from "./postgres-unit-of-work.ts";
 import { reconcileOrphanedSessions } from "./queries.ts";
+import { createPostgresSchedulerStore } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
   attempts,
   checkpointOutputs,
   checkpoints,
   events,
+  executions,
   queueMessages,
   receipts,
   sessions,
   turns,
   unassignedSessions,
   workerCredentials,
+  workerImageRefusals,
   workerLaunches,
   workers,
 } from "./schema.ts";
@@ -3750,6 +3754,166 @@ integration("worker gateway on PostgreSQL", () => {
       partitionFor("checkpoint-runtime-none"),
     );
     expect(await readPointerRuntime(db, pointerless.session_id)).toBeNull();
+  });
+
+  const PREVIOUS_IMAGE_RUNTIME = {
+    engine: VERIFIED_RUNTIME.engine,
+    sdkVersion: "0.3.260",
+    cliVersion: "2.1.260",
+    profileDigestScheme: 1,
+  };
+
+  function claimAs(
+    l: Awaited<ReturnType<typeof launch>>,
+    runtime: typeof PREVIOUS_IMAGE_RUNTIME,
+  ) {
+    return gateway.bootstrapClaim(bootstrap, {
+      execution_id: l.executionId,
+      execution_generation: l.generation,
+      credential: { kind: "launch_nonce", nonce: l.nonce },
+      image_runtime: {
+        engine: runtime.engine,
+        sdk_version: runtime.sdkVersion,
+        cli_version: runtime.cliVersion,
+        profile_digest_scheme: runtime.profileDigestScheme,
+      },
+    });
+  }
+
+  test("a worker that is not the combination its launch assumed is refused before anything binds, and its image with it", async () => {
+    const session = await queuedSession(partitionFor("image-mismatch"));
+    const l = await launchSession(db, {
+      sessionId: session.session_id,
+      image: "sha256:worker-previous",
+      imageRuntime: PREVIOUS_IMAGE_RUNTIME,
+    });
+    const [reserved] = await db
+      .select({
+        engine: workerLaunches.runtimeEngine,
+        sdkVersion: workerLaunches.runtimeSdkVersion,
+        cliVersion: workerLaunches.runtimeCliVersion,
+        profileDigestScheme: workerLaunches.runtimeProfileScheme,
+      })
+      .from(workerLaunches)
+      .where(eq(workerLaunches.executionId, l.executionId));
+    expect(reserved).toEqual(PREVIOUS_IMAGE_RUNTIME);
+
+    let refused: unknown;
+    try {
+      await claimAs(l, { ...PREVIOUS_IMAGE_RUNTIME, sdkVersion: "0.3.270" });
+    } catch (error) {
+      refused = error;
+    }
+    expect(refused).toBeInstanceOf(WorkerGatewayError);
+    expect(refused).toMatchObject({
+      status: 409,
+      code: "LAUNCH_FAILED",
+      retryable: false,
+      reasonCode: "worker_image_mismatch",
+    });
+
+    const refusals = await db
+      .select()
+      .from(workerImageRefusals)
+      .where(eq(workerImageRefusals.executionId, l.executionId));
+    expect(refusals).toEqual([
+      expect.objectContaining({
+        image: "sha256:worker-previous",
+        assumedEngine: PREVIOUS_IMAGE_RUNTIME.engine,
+        assumedSdkVersion: "0.3.260",
+        assumedCliVersion: "2.1.260",
+        assumedProfileScheme: 1,
+        claimed: { ...PREVIOUS_IMAGE_RUNTIME, sdkVersion: "0.3.270" },
+      }),
+    ]);
+    const [launchRow] = await db
+      .select()
+      .from(workerLaunches)
+      .where(eq(workerLaunches.executionId, l.executionId));
+    expect(launchRow?.nonceHash).toBeNull();
+    expect(launchRow?.claimedAttemptId).toBeNull();
+    expect(launchRow?.lastLaunchError).toContain("sha256:worker-previous");
+    const [execution] = await db
+      .select({ desiredState: executions.desiredState })
+      .from(executions)
+      .where(eq(executions.id, l.executionId));
+    expect(execution?.desiredState).toBe("terminated");
+    // The session is not the image's fault: it still waits for a launch.
+    const [row] = await db
+      .select({
+        admissionState: sessions.admissionState,
+        podId: sessions.podId,
+        status: sessions.status,
+      })
+      .from(sessions)
+      .where(eq(sessions.id, session.session_id));
+    expect(row).toEqual({
+      admissionState: "active",
+      podId: null,
+      status: "queued",
+    });
+    const [waiting] = await db
+      .select({ value: count() })
+      .from(unassignedSessions)
+      .where(eq(unassignedSessions.sessionId, session.session_id));
+    expect(waiting?.value).toBe(1);
+    // The nonce is spent: the same worker cannot try again.
+    expect(await failure(claimAs(l, PREVIOUS_IMAGE_RUNTIME))).toMatchObject({
+      status: 401,
+    });
+  });
+
+  test("a launch on the previous image is told that image's SDK, and its checkpoint keeps the launch's digest scheme", async () => {
+    const session = await queuedSession(partitionFor("image-previous"));
+    const l = await launchSession(db, {
+      sessionId: session.session_id,
+      image: "sha256:worker-previous",
+      imageRuntime: PREVIOUS_IMAGE_RUNTIME,
+    });
+    expect((await claimAs(l, PREVIOUS_IMAGE_RUNTIME)).runtime).toEqual({
+      kind: "claude_agent_sdk",
+      version: "0.3.260",
+      profile_id: "claude-coding-v1",
+    });
+    // A worker too old to say what it is still gets the launch's SDK.
+    const claimed = await claim(l);
+    expect(claimed.runtime.version).toBe("0.3.260");
+
+    const next = await gateway.nextInput(
+      principalOf(claimed),
+      scopeOf(claimed),
+    );
+    if (!next.input) throw new Error("no input delivered");
+    await finalizeOn(claimed, next.input.turn_id, 0, "runtime");
+    const [checkpoint] = await db
+      .select({ scheme: checkpoints.runtimeProfileScheme })
+      .from(checkpoints)
+      .where(eq(checkpoints.sessionId, session.session_id));
+    expect(checkpoint?.scheme).toBe(1);
+    expect(
+      await createPostgresSchedulerStore(db, {
+        connectForLock: () => pool.connect(),
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+      }).pointerRuntimeOf(session.session_id),
+    ).toEqual({
+      pointer: recordedPointer(VERIFIED_RUNTIME, 1),
+      checkpointRevision: 0,
+    });
+
+    // A launch the scheduler reserved without a combination leaves the
+    // scheme unrecorded, which reads as the first one.
+    const {
+      session: legacy,
+      claimed: legacyClaim,
+      input,
+    } = await claimAndDeliver(partitionFor("image-legacy"));
+    await finalizeOn(legacyClaim, input.turn_id, 0, "runtime");
+    const [unrecorded] = await db
+      .select({ scheme: checkpoints.runtimeProfileScheme })
+      .from(checkpoints)
+      .where(eq(checkpoints.sessionId, legacy.session_id));
+    expect(unrecorded?.scheme).toBeNull();
   });
 
   async function sessionPin(sessionId: string) {

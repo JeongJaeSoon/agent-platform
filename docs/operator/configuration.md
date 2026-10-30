@@ -90,6 +90,12 @@ scheduler가 worker 컨테이너를 만들 때 읽는 값이다. 없으면 기�
 
 `WORKER_MEMORY_MB`는 transcript 상한(`MAX_TRANSCRIPT_BYTES`)과 함께 정한 값이다. 둘의 관계, 실측, 노드당 세션 수, 바꾸는 방법은 [capacity.md](capacity.md)에 있다.
 
+scheduler는 `WORKER_IMAGE`와 `WORKER_IMAGE_RUNTIME`으로 현재 이미지를, `WORKER_IMAGE_PREVIOUS`와 `WORKER_IMAGE_PREVIOUS_RUNTIME`으로 직전 릴리스 이미지를 받는다. 런타임 값은 API와 같은 값이다(위 API 설정). 직전 이미지는 두 값을 함께 설정하고, 하나만 있으면 기동하지 않는다. `WORKER_IMAGE_RUNTIME`이 없으면 지금처럼 모든 launch가 `WORKER_IMAGE`로 뜬다. 설정하면 launch마다 세션의 checkpoint 포인터가 기록한 조합(engine·SDK·CLI·profile digest scheme)과 같은 이미지를 고르고, 둘 다 맞으면 현재 이미지를 쓴다. 새 세션, checkpoint가 없는 세션, 조합을 기록하지 않은 옛 checkpoint는 현재 이미지로 뜬다. 어느 이미지와도 맞지 않는 세션은 worker를 띄우지 않고 `recovery_required`(`incompatible_checkpoint`)로 멈추며, 세션 이벤트 `checkpoint_restore_failed`에 `detected_at: "launch"`가 남는다. `retry_restore`로 다시 시도할 수 있다.
+
+worker는 claim 때 자기 이미지가 실제로 싣는 조합을 보낸다. 설정한 조합과 다르면 API가 claim을 거절하고(`LAUNCH_FAILED`, `reason_code` `worker_image_mismatch`), 그 이미지를 그 설정값에 대해 거부한 것으로 기록한다. 이후 그 이미지로 뜰 세션은 launch되지 않고 기다리며, scheduler pass는 `images_refused`를 error 로그로 남기고 exit 1로 끝난다. 이미지 설정을 바로잡으면(값이 달라지면) 다음 pass부터 다시 launch한다. 세션 자체는 실패로 바뀌지 않는다.
+
+배포 순서: 새 worker는 claim에 `image_runtime`을 싣는다. 이 필드를 모르는 옛 API는 요청을 거절하므로, API를 먼저 올린 뒤 scheduler의 `WORKER_IMAGE`를 새 이미지로 바꾼다.
+
 | 변수 | 기본값 | 의미 |
 |---|---|---|
 | `WORKER_CPUS` | 1 | worker 하나의 CPU 몫. 0.01 이상 |

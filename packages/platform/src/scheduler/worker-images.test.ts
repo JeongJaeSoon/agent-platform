@@ -72,10 +72,7 @@ describe("selectWorkerImage", () => {
   ] as const;
 
   test("a session with no checkpoint, or one whose pointer predates the record, runs on the current image", () => {
-    for (const pointer of [
-      { kind: "none" },
-      { kind: "unrecorded" },
-    ] as const) {
+    for (const pointer of [{ kind: "none" }, { kind: "unrecorded" }] as const) {
       expect(selectWorkerImage(pointer, images)).toEqual({
         kind: "selected",
         image: "worker@sha256:new",

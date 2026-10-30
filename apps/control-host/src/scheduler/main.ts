@@ -60,6 +60,12 @@ export async function main(
       backend,
       drainDeadlineMs: config.drainDeadlineMs,
       image: config.image,
+      ...(config.imageRuntime === undefined
+        ? {}
+        : { imageRuntime: config.imageRuntime }),
+      ...(config.previousImage === undefined
+        ? {}
+        : { previousImage: config.previousImage }),
       logger,
       resources: config.resources,
       slotLimit: config.slotLimit,

@@ -1,7 +1,9 @@
 import {
+  FIRST_PROFILE_DIGEST_SCHEME,
   type ImageRuntime,
   imageRuntimeVersions,
   parseImageRuntime,
+  type RuntimeFingerprint,
 } from "@werft-ai/runtime-core";
 import type { RuntimeVersions } from "../sessions/catalog.ts";
 
@@ -66,6 +68,22 @@ export type PointerRuntime =
   | { readonly kind: "none" }
   | { readonly kind: "unrecorded" }
   | { readonly kind: "recorded"; readonly runtime: ImageRuntime };
+
+/** A pointer row's combination; a null scheme is a row from before it, scheme 1. */
+export function recordedPointer(
+  runtime: Omit<RuntimeFingerprint, "profileSha256">,
+  profileDigestScheme: number | null,
+): PointerRuntime {
+  return {
+    kind: "recorded",
+    runtime: {
+      engine: runtime.engine,
+      sdkVersion: runtime.sdkVersion,
+      cliVersion: runtime.cliVersion,
+      profileDigestScheme: profileDigestScheme ?? FIRST_PROFILE_DIGEST_SCHEME,
+    },
+  };
+}
 
 export type WorkerImageCandidate<I> = {
   readonly image: I;

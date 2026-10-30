@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { WORKER_EXIT_LEASE_LOST } from "@werft-ai/contracts";
+import type { ImageRuntime } from "@werft-ai/runtime-core";
 import type {
   EnsureExecutionResult,
   ExecutionBackend,
@@ -19,7 +20,6 @@ import {
   LaunchSpecMismatchError,
   launchSpecFingerprint,
 } from "../ports/execution-backend.ts";
-import type { ImageRuntime } from "@werft-ai/runtime-core";
 import type {
   ActiveExecution,
   HoldIncompatibleInput,
