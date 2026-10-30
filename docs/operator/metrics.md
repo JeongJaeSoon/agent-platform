@@ -17,6 +17,15 @@ networkPolicy:
 
 켜면 chart가 `<release>-metrics` Deployment(replica 1, `Recreate`), 같은 이름의 ClusterIP Service(9464), 9464만 여는 NetworkPolicy를 만든다. 끄면(기본값) 아무것도 만들지 않으므로 기본 설치의 렌더 결과는 그대로다. 값의 전체 목록은 `deploy/helm/agent-platform/values.yaml`의 `metrics` 블록이다.
 
+`metrics` 역할이 읽는 설정:
+
+| 설정 | 기본값 | 뜻 |
+|---|---|---|
+| `METRICS_PORT` | `9464` | `/metrics`와 `/healthz`를 받는 포트. chart는 `metrics.port`로 넣는다 |
+| `DATABASE_URL` | 없음(필수) | 읽기 전용으로 여는 DB 주소. chart는 다른 역할과 같은 Secret key를 넣는다 |
+| `config.limits`의 상한 | [configuration.md](configuration.md) | launch 대기열을 scheduler와 같은 비용·토큰 상한으로 센다. chart는 scheduler와 같은 값을 넣는다 |
+| `LOG_LEVEL` | `info` | 읽기 실패를 남기는 로그 수준 |
+
 확인:
 
 ```sh
@@ -29,7 +38,7 @@ curl -s localhost:9464/metrics
 | 수집기 | 방법 |
 |---|---|
 | Prometheus | `metrics.podAnnotations`의 `prometheus.io/*` annotation, 또는 운영자의 ServiceMonitor가 Service `<release>-metrics`의 `metrics` 포트를 가리킨다 |
-| Datadog Agent(Helm) | Autodiscovery `openmetrics` 체크. `metrics.podAnnotations`에 `ad.datadoghq.com/metrics.checks`를 넣는다. Datadog에 어떤 이름(점 표기 등)으로 저장할지는 수집기 쪽 설정이고 [94S-528](https://linear.app/94soon/issue/94S-528)이 맡는다 |
+| Datadog Agent(Helm) | Autodiscovery `openmetrics` 체크. `metrics.podAnnotations`에 `ad.datadoghq.com/metrics.checks`를 넣는다. Datadog에 어떤 이름(점 표기 등)으로 저장할지는 수집기 쪽 설정이다 |
 | OpenTelemetry Collector | `prometheus` receiver로 같은 엔드포인트를 scrape해 OTLP로 보낸다 |
 
 플랫폼이 OTLP로 지표를 밀어내지는 않는다. pull 엔드포인트 하나를 두면 수집기 종류와 상관없이 같은 정의를 읽고, 앱에 수집기 주소나 SDK 설정이 필요 없다. 세션 트레이스 내보내기(OTLP·Langfuse)는 별도 설정이 맡는다.
