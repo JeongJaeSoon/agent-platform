@@ -67,6 +67,16 @@ exports[`query keys 1`] = `
       "list": "agent",
     },
   ],
+  "agentSlackActions": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
+    "agents",
+    {
+      "slackActions": true,
+    },
+  ],
   "agentSummaries": [
     {
       "actor": "user:u-1",
@@ -439,6 +449,34 @@ exports[`query options and the request each query makes 1`] = `
         {
           "agent_id": "id-1",
           "list": "agent",
+        },
+      ],
+      "retry": false,
+    },
+  },
+  "agentSlackActionsQuery": {
+    "calls": [
+      [
+        "/v1/agents",
+        {
+          "params": {
+            "query": {
+              "include": "summary",
+              "limit": 100,
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
+        "agents",
+        {
+          "slackActions": true,
         },
       ],
       "retry": false,
