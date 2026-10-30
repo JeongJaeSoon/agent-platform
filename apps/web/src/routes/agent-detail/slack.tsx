@@ -976,7 +976,7 @@ function SlackChannels({
       <div className="grid">
         <div
           inert={locked}
-          className="col-start-1 row-start-1 flex flex-col gap-[var(--ap-space-block)]"
+          className={`col-start-1 row-start-1 flex flex-col gap-[var(--ap-space-block)]${locked ? " invisible" : ""}`}
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 id={`${SECTION.channels}-title`} className={HEADING}>
@@ -1233,7 +1233,7 @@ function ChannelsLock() {
     <div
       role="group"
       aria-labelledby={titleId}
-      className="col-start-1 row-start-1 flex flex-col items-center justify-center gap-2 rounded-card border border-(color:--ap-tone-caution-border) bg-background/90 p-4 text-center backdrop-blur-sm"
+      className="col-start-1 row-start-1 flex flex-col items-center justify-center gap-2 rounded-card border border-(color:--ap-tone-caution-border) bg-background p-4 text-center"
     >
       <p id={titleId} className="m-0 font-semibold text-control">
         {t("slack.channelsLocked.title")}
