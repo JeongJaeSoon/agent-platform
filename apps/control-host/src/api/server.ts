@@ -790,6 +790,9 @@ const githubMcp = createGitHubMcpServer({
       catalog,
       gate: github,
       redact: sanitizeText,
+      attribution: sessionAttribution,
+      consoleOrigin,
+      logger,
     }),
     githubWork: createGitHubWorkService({
       authorization: bound,
