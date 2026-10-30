@@ -157,14 +157,22 @@ all three render this one definition and cannot disagree.
 {{- fail "images.workerPrevious needs images.worker.runtime beside it" -}}
 {{- end -}}
 {{- range $name, $runtime := dict "images.worker.runtime" $current "images.workerPrevious.runtime" $previous.runtime -}}
+{{- /* The same rules as parseImageRuntime, which every reader starts with. */ -}}
 {{- if $runtime -}}
+{{- with without (keys $runtime) "engine" "sdkVersion" "cliVersion" "profileDigestScheme" "profiles" -}}
+{{- fail (printf "%s has unknown field(s): %s" $name (join ", " (sortAlpha .))) -}}
+{{- end -}}
 {{- range $key := list "engine" "sdkVersion" "cliVersion" -}}
-{{- if not (kindIs "string" (index $runtime $key)) -}}
-{{- fail (printf "%s.%s must be a string: set the runtime images.yml recorded" $name $key) -}}
+{{- $value := index $runtime $key -}}
+{{- if not (and (kindIs "string" $value) $value) -}}
+{{- fail (printf "%s.%s must be a non-empty string: set the runtime images.yml recorded" $name $key) -}}
 {{- end -}}
 {{- end -}}
-{{- if not (regexMatch "^[1-9][0-9]*$" (toString (index $runtime "profileDigestScheme"))) -}}
+{{- if hasKey $runtime "profileDigestScheme" -}}
+{{- $scheme := index $runtime "profileDigestScheme" -}}
+{{- if not (and (or (kindIs "float64" $scheme) (kindIs "int64" $scheme) (kindIs "int" $scheme)) (eq (float64 $scheme) (floor $scheme)) (ge (float64 $scheme) 1.0)) -}}
 {{- fail (printf "%s.profileDigestScheme must be a positive integer" $name) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

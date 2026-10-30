@@ -13,6 +13,8 @@
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 
+import { parseImageRuntime } from "../../packages/runtime-core/src/image-runtime.ts";
+
 const dir = import.meta.dir;
 const chart = join(dir, "agent-platform");
 const ciDigests = join(dir, "ci-digests.yaml");
@@ -708,7 +710,7 @@ const MUST_FAIL: [string, string[], RegExp][] = [
       "--set-json",
       'images.worker.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.280","profileDigestScheme":1}',
     ],
-    /images\.worker\.runtime\.cliVersion must be a string/,
+    /images\.worker\.runtime\.cliVersion must be a non-empty string/,
   ],
   [
     "a previous worker runtime with a scheme of zero",
@@ -917,6 +919,40 @@ for (const [label, args, message] of MUST_FAIL) {
   const { ok, out } = helmTemplate(args);
   if (ok || !message.test(out)) {
     errors.push(`${label}: expected the render to fail with ${message}`);
+  }
+}
+
+// The chart takes a runtime value exactly when the readers do: one it lets
+// through and they refuse stops api, slack and the scheduler at startup.
+const RUNTIME_EDGES = [
+  '{"engine":"e","sdkVersion":"s","cliVersion":"c"}',
+  '{"engine":"e","sdkVersion":"s","cliVersion":"c","profileDigestScheme":3}',
+  '{"engine":"e","sdkVersion":"s","cliVersion":"c","profileDigestScheme":1e21}',
+  '{"engine":"e","sdkVersion":"s","cliVersion":"c","profiles":{}}',
+  '{"engine":"e","sdkVersion":"s","cliVersion":"c","profileDigestScheme":"1"}',
+  '{"engine":"e","sdkVersion":"s","cliVersion":"c","profileDigestScheme":0}',
+  '{"engine":"e","sdkVersion":"s","cliVersion":"c","profileDigestScheme":1.5}',
+  '{"engine":"","sdkVersion":"s","cliVersion":"c"}',
+  '{"engine":"e","sdkVersion":"s"}',
+  '{"engine":"e","sdkVersion":"s","cliVersion":"c","typo":1}',
+];
+for (const runtime of RUNTIME_EDGES) {
+  let readers = true;
+  try {
+    parseImageRuntime(runtime);
+  } catch {
+    readers = false;
+  }
+  const chart = helmTemplate([
+    "-f",
+    ciDigests,
+    "--set-json",
+    `images.worker.runtime=${runtime}`,
+  ]).ok;
+  if (chart !== readers) {
+    errors.push(
+      `images.worker.runtime=${runtime}: the chart ${chart ? "takes" : "refuses"} it, the readers ${readers ? "take" : "refuse"} it`,
+    );
   }
 }
 
