@@ -615,6 +615,13 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         running_count: 0,
       },
     ]);
+    // By the active release's profile: the draft has none, so only v1's agent.
+    const onProfile = async (runtime_profile_id: string) =>
+      (
+        await agentsService.listAgents(owner, { ...PAGE, runtime_profile_id })
+      ).items.map((agent) => agent.id);
+    expect(await onProfile("coding")).toEqual([released.agent.id]);
+    expect(await onProfile("analysis")).toEqual([]);
     // Without asking, the page is the agents as before.
     const plain = await agentsService.listAgents(owner, PAGE);
     expect(plain.items.map((agent) => Object.hasOwn(agent, "summary"))).toEqual(

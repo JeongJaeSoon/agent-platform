@@ -37,6 +37,7 @@ test("query keys", () => {
     memberSummaries: keys.memberSummaries(["id-2", "id-1"]),
     teamPages: keys.teamPages("ops"),
     agentPages: keys.agentPages("notes"),
+    agentsOnProfile: keys.agentsOnProfile("coding"),
     agentSummaries: keys.agentSummaries(["id-2", "id-1"]),
     agent: keys.agent("id-1"),
     agentAdmins: keys.agentAdmins("id-1"),
@@ -79,7 +80,7 @@ test("query options and the request each query makes", async () => {
     (entry): entry is [string, (client: ApiClient, id: string) => object] =>
       typeof entry[1] === "function" && entry[0].endsWith("Query"),
   );
-  expect(factories.length).toBe(32);
+  expect(factories.length).toBe(33);
   const out: Record<string, unknown> = {};
   for (const [name, factory] of factories.sort(([a], [b]) =>
     a.localeCompare(b),
@@ -246,6 +247,37 @@ test("an agent page asks for one page with summaries, the search going with it, 
   expect(named.queryKey).toEqual(
     queries.agentSummariesQuery(client, ["id-1", "id-2"]).queryKey,
   );
+});
+
+test("named agents past a page are read 100 at a time, and a profile's agents a page at a time", async () => {
+  const { client, calls } = recordingClient();
+  const ids = Array.from(
+    { length: 150 },
+    (_, i) => `id-${String(i).padStart(3, "0")}`,
+  );
+  const named = queries.agentSummariesQuery(client, ids);
+  await named.queryFn({} as Parameters<typeof named.queryFn>[0]);
+  const onProfile = queries.agentsOnProfileQuery(client, "coding");
+  await onProfile.queryFn({
+    pageParam: "cursor-2",
+  } as Parameters<typeof onProfile.queryFn>[0]);
+  expect(
+    calls.map(([, init]) => {
+      const query = (init as { params: { query: Record<string, unknown> } })
+        .params.query;
+      return typeof query.ids === "string"
+        ? query.ids.split(",").length
+        : query;
+    }),
+  ).toEqual([
+    100,
+    50,
+    { include: "summary", runtime_profile_id: "coding", cursor: "cursor-2" },
+  ]);
+  expect((onProfile.queryKey as readonly unknown[]).slice(0, 2)).toEqual([
+    SCOPE,
+    "agents",
+  ]);
 });
 
 test("named members are read 100 at a time and handed back as one list", async () => {

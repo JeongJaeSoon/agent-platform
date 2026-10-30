@@ -160,6 +160,8 @@ export function queryKeysOf(client: ApiClient) {
     // every agent change refreshes them too.
     agentPages: (q: string | undefined) =>
       [s, "agents", { pages: q ?? null }] as const,
+    agentsOnProfile: (profileId: string) =>
+      [s, "agents", { profile: profileId }] as const,
     agentCounts: [s, "agents", { counts: true }] as const,
     agentSummaries: (ids: readonly string[]) =>
       [s, "agents", { ids: [...ids].sort() }] as const,
@@ -259,6 +261,16 @@ export function profilesQuery(client: ApiClient) {
 // contracts values.
 const READ_ALL_PAGE_LIMIT = 100;
 
+/** Distinct ids, sorted, in requests of at most a page's worth each. */
+function idChunks(ids: readonly string[]): string[][] {
+  const sorted = [...new Set(ids)].sort();
+  const chunks: string[][] = [];
+  for (let at = 0; at < sorted.length; at += READ_ALL_PAGE_LIMIT) {
+    chunks.push(sorted.slice(at, at + READ_ALL_PAGE_LIMIT));
+  }
+  return chunks;
+}
+
 /** Every item of a paged list, and its last page for any page-level fields. */
 async function readEveryPage<
   Page extends { items: unknown[]; next_cursor: string | null },
@@ -356,13 +368,8 @@ export function memberSummariesQuery(
   return queryOptions({
     queryKey: queryKeysOf(client).memberSummaries(userIds),
     queryFn: async (): Promise<ListMembersResponse> => {
-      const sorted = [...new Set(userIds)].sort();
-      const chunks: string[][] = [];
-      for (let at = 0; at < sorted.length; at += READ_ALL_PAGE_LIMIT) {
-        chunks.push(sorted.slice(at, at + READ_ALL_PAGE_LIMIT));
-      }
       const pages = (await Promise.all(
-        chunks.map((chunk) =>
+        idChunks(userIds).map((chunk) =>
           unwrap(
             client.GET("/v1/members", {
               params: {
@@ -443,6 +450,29 @@ export function agentPagesQuery(client: ApiClient, q?: string) {
   });
 }
 
+/** The agents whose active release runs on a profile, a page at a time. */
+export function agentsOnProfileQuery(client: ApiClient, profileId: string) {
+  return infiniteQueryOptions({
+    queryKey: queryKeysOf(client).agentsOnProfile(profileId),
+    queryFn: ({ pageParam }) =>
+      unwrap(
+        client.GET("/v1/agents", {
+          params: {
+            query: {
+              include: "summary",
+              runtime_profile_id: profileId,
+              ...(pageParam ? { cursor: pageParam } : {}),
+            },
+          },
+        }),
+      ) as Promise<ListAgentsResponse>,
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.next_cursor,
+    gcTime: 0,
+    retry: false,
+  });
+}
+
 /** How many agents there are by state, without reading them. */
 export function agentCountsQuery(client: ApiClient) {
   return queryOptions({
@@ -460,18 +490,24 @@ export function agentCountsQuery(client: ApiClient) {
 export function agentSummariesQuery(client: ApiClient, ids: readonly string[]) {
   return queryOptions({
     queryKey: queryKeysOf(client).agentSummaries(ids),
-    queryFn: () =>
-      unwrap(
-        client.GET("/v1/agents", {
-          params: {
-            query: {
-              include: "summary",
-              ids: [...ids].sort().join(","),
-              limit: READ_ALL_PAGE_LIMIT,
-            },
-          },
-        }),
-      ) as Promise<ListAgentsResponse>,
+    queryFn: async (): Promise<ListAgentsResponse> => {
+      const pages = (await Promise.all(
+        idChunks(ids).map((chunk) =>
+          unwrap(
+            client.GET("/v1/agents", {
+              params: {
+                query: {
+                  include: "summary",
+                  ids: chunk.join(","),
+                  limit: READ_ALL_PAGE_LIMIT,
+                },
+              },
+            }),
+          ),
+        ),
+      )) as ListAgentsResponse[];
+      return { items: pages.flatMap((page) => page.items), next_cursor: null };
+    },
     retry: false,
   });
 }

@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import type {
@@ -32,7 +37,11 @@ import {
 } from "@werft-ai/ui";
 import { Lock } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { agentsQuery, profilesQuery, queryKeysOf } from "../api/queries.ts";
+import {
+  agentsOnProfileQuery,
+  profilesQuery,
+  queryKeysOf,
+} from "../api/queries.ts";
 import {
   refusalText,
   useHasPermission,
@@ -41,6 +50,7 @@ import {
 } from "../auth/guard.tsx";
 import { Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { pickable } from "../components/profile-options.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { profileName, STATE_BADGE, stateOf, versionOf } from "./profiles.tsx";
@@ -885,17 +895,17 @@ function AgentsOn({ profile }: { readonly profile: ProfileSummary }) {
   const { client } = useAgentPlatform();
   // The server refuses the list to anyone else; they ask for none.
   const lists = useHasPermission("agent.manage");
-  const agents = useQuery({ ...agentsQuery(client), enabled: lists });
-  const using = (agents.data?.items ?? []).filter(
-    (agent) =>
-      agent.active_release_id !== null &&
-      agent.summary?.runtime_profile_id === profile.id,
-  );
+  const agents = useInfiniteQuery({
+    ...agentsOnProfileQuery(client, profile.id),
+    enabled: lists,
+  });
+  const using = agents.data?.pages.flatMap((page) => page.items) ?? [];
   return (
     <Section
       title={t("profiles.detail.agents.title")}
       badge={
-        agents.data && using.length > 0 ? (
+        // A count only once every page is read; until then the footer says more.
+        agents.data && !agents.hasNextPage && using.length > 0 ? (
           <Badge variant="gray">
             {t("profiles.count", { count: using.length })}
           </Badge>
@@ -959,6 +969,7 @@ function AgentsOn({ profile }: { readonly profile: ProfileSummary }) {
               </GridTableRow>
             ))}
           </GridTable>
+          <PagedListFooter list={agents} />
         </div>
       )}
     </Section>

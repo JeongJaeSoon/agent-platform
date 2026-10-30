@@ -8,6 +8,7 @@ export {
   agentPagesQuery,
   agentQuery,
   agentSummariesQuery,
+  agentsOnProfileQuery,
   agentsQuery,
   apiKeysQuery,
   firstMembersQuery,
