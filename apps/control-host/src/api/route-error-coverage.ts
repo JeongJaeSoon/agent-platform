@@ -129,6 +129,11 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "PUT /v1/workspaces/{id}/github-app",
     "DELETE /v1/workspaces/{id}/github-app",
   ],
+  "routes/agent-github.test.ts": [
+    "GET /v1/agents/{id}/github",
+    "PUT /v1/agents/{id}/github/enabled",
+    "GET /v1/agents/{id}/github/activity",
+  ],
   "routes/github-settings.test.ts": [
     "GET /v1/workspaces/{id}/github-settings",
     "PUT /v1/workspaces/{id}/github-settings",

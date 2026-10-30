@@ -1,5 +1,6 @@
 export * from "./agent-admins.ts";
 export * from "./agent-authority.ts";
+export * from "./agent-github.ts";
 export * from "./agent-identities.ts";
 export * from "./agents.ts";
 export * from "./api-keys.ts";

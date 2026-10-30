@@ -497,6 +497,34 @@ export function createPostgresSessionUnitOfWork(
   };
 }
 
+export function receiptFromRow(row: typeof receipts.$inferSelect): Receipt {
+  // A resource or user target (the interface-track routes, account
+  // recovery) parses as stored, strict, rather than being forced into
+  // the session shape.
+  const stored = (row.targetRef ?? {}) as Partial<ReceiptSessionTarget>;
+  const target =
+    "resource" in stored || "user_id" in stored
+      ? stored
+      : {
+          session_id: stored.session_id,
+          turn_id: stored.turn_id ?? null,
+          request_id: stored.request_id ?? null,
+        };
+  // operation/error are stored untyped; a row this reader cannot
+  // represent is a bug in the writer, so let the parse throw.
+  return receiptSchema.parse({
+    id: row.id,
+    operation: row.operation,
+    target_ref: target,
+    ...(row.actor === null ? {} : { actor: row.actor }),
+    status: row.status,
+    result: row.result ?? null,
+    error: row.error ?? null,
+    created_at: row.createdAt.toISOString(),
+    updated_at: row.updatedAt.toISOString(),
+  });
+}
+
 const CREATED_AT_TEXT = sql<string>`${sessions.createdAt}::text`;
 const ID_PREFIX = /^[0-9a-f-]+$/;
 // The newest event in stream order (ids are commit order within a session),
@@ -1209,32 +1237,7 @@ export function createPostgresSessionReader(
         .from(receipts)
         .where(and(eq(receipts.id, receiptId), eq(receipts.ownerId, ownerId)))
         .limit(1);
-      if (!row) return null;
-      // A resource or user target (the interface-track routes, account
-      // recovery) parses as stored, strict, rather than being forced into
-      // the session shape.
-      const stored = (row.targetRef ?? {}) as Partial<ReceiptSessionTarget>;
-      const target =
-        "resource" in stored || "user_id" in stored
-          ? stored
-          : {
-              session_id: stored.session_id,
-              turn_id: stored.turn_id ?? null,
-              request_id: stored.request_id ?? null,
-            };
-      // operation/error are stored untyped; a row this reader cannot
-      // represent is a bug in the writer, so let the parse throw.
-      return receiptSchema.parse({
-        id: row.id,
-        operation: row.operation,
-        target_ref: target,
-        ...(row.actor === null ? {} : { actor: row.actor }),
-        status: row.status,
-        result: row.result ?? null,
-        error: row.error ?? null,
-        created_at: row.createdAt.toISOString(),
-        updated_at: row.updatedAt.toISOString(),
-      });
+      return row ? receiptFromRow(row) : null;
     },
 
     async readEvents(

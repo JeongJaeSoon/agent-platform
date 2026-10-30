@@ -5,6 +5,7 @@ import {
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
   createPostgresAgentAdminStore,
+  createPostgresAgentGitHubStore,
   createPostgresAgentIdentityStore,
   createPostgresAgentStore,
   createPostgresAuditRetention,
@@ -51,6 +52,7 @@ import {
   catalogRevision,
   composeSlackFinalize,
   createAgentAdminService,
+  createAgentGitHubService,
   createAgentIdentityService,
   createAgentService,
   createApiKeyService,
@@ -154,6 +156,7 @@ import { createApiPool, createProbePool } from "./pool.ts";
 import { SeedProfilesError, seedCatalogProfiles } from "./profile-import.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { createReadinessProbe } from "./readiness.ts";
+import { registerAgentGitHubRoutes } from "./routes/agent-github.ts";
 import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerApiKeyRoutes } from "./routes/api-keys.ts";
@@ -712,6 +715,13 @@ const githubSettings = createGitHubSettingsService({
   authorization,
   store: githubSettingsStore,
 });
+const agentGitHub = createAgentGitHubService({
+  authorization,
+  agents: agentStore,
+  store: createPostgresAgentGitHubStore(db),
+  catalog,
+  githubSettings: githubSettingsStore,
+});
 const pushStore = createPostgresPushRequests(db);
 const pushRequests = createPushRequestService({
   authorization,
@@ -887,6 +897,7 @@ const app = createApiApp({
     registerSlackSecretRoutes(router, slackSecrets);
     registerGitHubAppRoutes(router, githubApps);
     registerGitHubSettingsRoutes(router, githubSettings);
+    registerAgentGitHubRoutes(router, agentGitHub);
     registerSessionRoutes(router, sessions);
     registerSessionOutputRoutes(router, sessionOutputs);
     registerSessionShareRoutes(router, shares, sessions);
