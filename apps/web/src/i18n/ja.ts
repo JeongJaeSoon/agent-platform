@@ -48,8 +48,8 @@ export const slackJa = {
   "slack.state.reinstall": "再インストールが必要",
   "slack.eventsPending.title": "Slack が Request URL をまだ確認していません",
   "slack.eventsPending.body":
-    "Slack がこのアプリの Request URL を確認するまで、招待・メンション・DM のイベントは届きません。詳細の「再確認」で URL をもう一度送ってください。それでも残る場合は、アプリ設定の App Manifest で Verify を押してください。確認が届くとこの案内は消えます。",
-  "slack.eventsPending.open": "App Manifest を開く",
+    "Slack がこのアプリの Request URL を確認するまで、招待・メンション・DM のイベントは届きません。詳細の「再確認」で URL をもう一度送ってください。それでも残る場合は、アプリ設定の Event Subscriptions で Request URL の Verify(または Retry)を押してください。確認が届くとこの案内は消えます。",
+  "slack.eventsPending.open": "Event Subscriptions を開く",
   "slack.eventsUrl.title": "イベントの Request URL",
   "slack.eventsUrl.hint":
     "Slack が招待・メンション・DM を送る先です。再確認するとアプリ設定に URL をもう一度送り、Slack の確認要求に自動で応答します。",
@@ -121,7 +121,7 @@ export const slackJa = {
   "slack.danger": "危険な操作",
   "slack.botId": "ボット ID",
   "slack.mentionOnlyHint":
-    "オンにすると @メンションされたときだけ、オフにするとメンションがなくてもチャンネルのメッセージに応答します。",
+    "オンにすると @メンションされたときだけ、オフにするとメンションがなくてもチャンネルへの投稿に応答します。どちらでも、すでに会話中のスレッドの返信にはメンションなしで応答します。",
   "slack.dm": "ダイレクトメッセージ",
   "slack.dmSetting": "DM を受け取る",
   "slack.dmHint":

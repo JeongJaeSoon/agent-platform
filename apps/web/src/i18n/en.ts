@@ -48,8 +48,8 @@ export const slackEn = {
   "slack.state.reinstall": "Reinstall required",
   "slack.eventsPending.title": "Slack has not checked the Request URL yet",
   "slack.eventsPending.body":
-    "Slack sends no invites, mentions or DMs until it has checked this app's Request URL. Send the URL again with Recheck under Advanced. If this notice stays, press Verify on the app's App Manifest page. It goes away once Slack's check arrives.",
-  "slack.eventsPending.open": "Open App Manifest",
+    "Slack sends no invites, mentions or DMs until it has checked this app's Request URL. Send the URL again with Recheck under Advanced. If this notice stays, press Verify (or Retry) for the Request URL on the app's Event Subscriptions page. It goes away once Slack's check arrives.",
+  "slack.eventsPending.open": "Open Event Subscriptions",
   "slack.eventsUrl.title": "Events Request URL",
   "slack.eventsUrl.hint":
     "Where Slack sends invites, mentions and DMs. Recheck sends the URL to the app's settings again and answers Slack's check automatically.",
@@ -120,7 +120,7 @@ export const slackEn = {
   "slack.danger": "Danger zone",
   "slack.botId": "Bot ID",
   "slack.mentionOnlyHint":
-    "On: responds only when @mentioned. Off: responds to channel messages without a mention too.",
+    "On: responds only when @mentioned. Off: responds to posts in the channel without a mention too. Either way, replies in a thread it is already talking in get an answer without a mention.",
   "slack.dm": "Direct messages",
   "slack.dmSetting": "Receive DMs",
   "slack.dmHint":

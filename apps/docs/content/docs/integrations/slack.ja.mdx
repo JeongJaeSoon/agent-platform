@@ -105,13 +105,13 @@ unset SLACK_BOT_TOKEN
 
 owner・admin を含むエージェント管理者が Web セッションで呼び出す。`GET /v1/agents/{id}/slack/app` は `event_url` と `events` を返す。イベント URL はサーバーの `SLACK_EVENTS_PUBLIC_URL` に `/v1/slack/events/{agent_id}` を付けた絶対 URL で、未設定なら null になる。`events.state` は `pending`・`verified`・`failed` である。インストール finalize が manifest にこのアドレスを Request URL として入れると `pending` になり、`events.url` に送ったアドレスが残る(送る前は null)。すでに `verified` のアプリに同じアドレスをもう一度入れても `verified` のままで、アドレスが変わると再び `pending` になる。そのアプリの signing secret で署名されたリクエスト(`url_verification` またはイベント)が初めて届くと `verified` になる。`url_verification` には署名と時刻を確認したうえで challenge の値だけを返す。manifest 登録に失敗すると `failed` になり、秘密値を含まない `error` コードを返す。`checked_at` は状態が最後に変わった時刻(まだなければ null)である。
 
-finalize 後も `pending` なら、Slack はまだこのアドレスを確認できていない。公開 DNS がまだアドレスを解決できないこともあれば、Slack が manifest で入れた URL を確認していないこともある。`POST /v1/agents/{id}/slack/app/events/recheck`(コンソールの Slack タブ **詳細** の **再確認**)は manifest を Request URL とともにもう一度送る。それでも `pending` なら、Slack アプリ設定の App Manifest 画面で Verify を押す。コンソールの Slack タブは、アドレスを送った後 `pending` の間、同じ案内とその画面へのリンクを表示する。ローカルスタックで `scripts/slack-funnel.sh on` でアドレスを公開した場合は、最後の行の公開 DNS チェック(dns.google・cloudflare-dns.com)の警告が消えるまで待ってから Slack アプリを作成する。
+finalize 後も `pending` なら、Slack はまだこのアドレスを確認できていない。公開 DNS がまだアドレスを解決できないこともあれば、Slack が manifest で入れた URL を確認していないこともある。`POST /v1/agents/{id}/slack/app/events/recheck`(コンソールの Slack タブ **詳細** の **再確認**)は manifest を Request URL とともにもう一度送る。それでも `pending` なら、Slack アプリ設定の Event Subscriptions 画面で Request URL の Verify(または Retry)を押す。コンソールの Slack タブは、アドレスを送った後 `pending` の間、同じ案内とその画面へのリンクを表示する。ローカルスタックで `scripts/slack-funnel.sh on` でアドレスを公開した場合は、最後の行の公開 DNS チェック(dns.google・cloudflare-dns.com)の警告が消えるまで待ってから Slack アプリを作成する。
 
 `GET /v1/agents/{id}/slack/app/manifest` は現在のエージェントとサーバー設定から生成した `manifest_yaml` を返す。秘密値は含まない。
 
 `GET /v1/agents/{id}/slack-channels?ids=C1,C2` は最大 50 個の ID の名前を返す。各 item は `id`・`name`・`state` を持ち、Slack が存在しないかアクセスできないと答えた ID だけ名前と状態が `unknown` になる。通信失敗・上位サーバーのエラーはキャッシュせずリクエスト全体が 503 になり、失効したか無効な bot token は 409 `SLACK_NOT_INSTALLED` になる。cursor と全件走査はない。アプリ・チャンネルごとに 60 秒キャッシュし、Slack 429 は `Retry-After` 付きの 503 になる。
 
-`GET`・`PUT /v1/agents/{id}/slack/app/settings` は `{ "mention_only": true }` を読み書きする。`true` なら @メンションされたときだけ、`false` ならメンションがなくてもチャンネルのメッセージに応答する。接続済みのチャンネルを含め、使用中のすべてのチャンネルに適用され、DM には適用されない。初期値は `true` で、アプリ作成前にも保存できる。アプリ全体のオン・オフは提供しない。
+`GET`・`PUT /v1/agents/{id}/slack/app/settings` は `{ "mention_only": true }` を読み書きする。`true` なら @メンションされたときだけ、`false` ならメンションがなくてもチャンネルへの投稿に応答する。どちらの値でも、エージェントがすでに会話中のスレッド(セッションにつながったスレッド)の返信は、メンションなしでそのセッションに続く。接続済みのチャンネルを含め、使用中のすべてのチャンネルに適用され、DM には適用されない。初期値は `true` で、アプリ作成前にも保存できる。アプリ全体のオン・オフは提供しない。
 
 binding の `mode` は `off`(このチャンネルでは使わない)・`on`(使用中)である。`mention_only` が `false` なら、使用中のチャンネルで人がメンションなしでチャンネルに直接書いた投稿にもセッションを開く。エージェントが参加していないスレッドの返信には応答しない。
 

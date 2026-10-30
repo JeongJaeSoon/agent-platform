@@ -42078,7 +42078,7 @@
           "Agents"
         ],
         "summary": "Read whether the agent answers only when mentioned in Slack",
-        "description": "Returns `mention_only`: `true` (the initial value) answers only a mention, `false` also any person's top-level message without one. It covers every channel in use, connected before or after; DMs do not follow it. Agent managers with a web session only.\n\n**Auth:** cookie session only; no scope.",
+        "description": "Returns `mention_only`: `true` (the initial value) answers only a mention, `false` also any person's top-level message without one. Either way, a reply in a thread already linked to the agent's session continues it without a mention. It covers every channel in use, connected before or after; DMs do not follow it. Agent managers with a web session only.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []

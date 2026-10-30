@@ -620,7 +620,7 @@ describe("Slack management", () => {
     expect(toggle.getAttribute("aria-checked")).toBe("false");
     expect(
       within(basic).getByText(
-        "켜면 @멘션했을 때만, 끄면 멘션 없이도 채널 메시지에 반응합니다.",
+        "켜면 @멘션했을 때만, 끄면 멘션 없이 채널에 쓴 글에도 반응합니다. 어느 쪽이든 이미 대화 중인 스레드의 답글에는 멘션 없이도 답합니다.",
       ),
     ).toBeDefined();
     await user.click(toggle);
@@ -1186,7 +1186,7 @@ describe("Slack management", () => {
 
   const SENT = `https://events.test/v1/slack/events/${AGENT_ID}`;
 
-  test("points to the App Manifest page while Slack has not checked the sent URL", async () => {
+  test("points to the Event Subscriptions page while Slack has not checked the sent URL", async () => {
     renderAt(
       DETAIL,
       subscribed({ state: "pending", checked_at: AT, url: SENT }),
@@ -1195,11 +1195,15 @@ describe("Slack management", () => {
     await within(status).findByText(
       "Slack이 Request URL을 아직 확인하지 않았습니다",
     );
+    expect(status.textContent).toContain(
+      "앱 설정의 Event Subscriptions에서 Request URL의 Verify(또는 Retry)를 누르세요",
+    );
+    expect(status.textContent).not.toContain("App Manifest");
     const link = within(status).getByRole("link", {
-      name: /App Manifest 열기/,
+      name: /Event Subscriptions 열기/,
     });
     expect(link.getAttribute("href")).toBe(
-      "https://api.slack.com/apps/A123/app-manifest",
+      "https://api.slack.com/apps/A123/event-subscriptions",
     );
     expect(link.getAttribute("target")).toBe("_blank");
   });
@@ -1226,7 +1230,7 @@ describe("Slack management", () => {
       const status = await screen.findByRole("region", { name: "상태" });
       // The app card reads the same query, so the status has it too.
       await screen.findByText("앱 ID");
-      expect(status.textContent).not.toContain("App Manifest");
+      expect(status.textContent).not.toContain("Event Subscriptions");
     });
   }
 
@@ -1271,7 +1275,7 @@ describe("Slack management", () => {
     await within(advanced).findByText("Slack 확인됨");
     expect(posts).toEqual(["recheck"]);
     await waitFor(() =>
-      expect(screen.queryByText("App Manifest 열기")).toBeNull(),
+      expect(screen.queryByText("Event Subscriptions 열기")).toBeNull(),
     );
   });
 
