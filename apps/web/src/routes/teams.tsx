@@ -797,6 +797,7 @@ function AddMembers({
           }))}
           value={null}
           clearOnSelect={true}
+          maxLength={SEARCH_MAX}
           filter="none"
           onQueryChange={setTerm}
           debounceMs={SEARCH_SETTLE_MS}

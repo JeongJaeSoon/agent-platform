@@ -960,6 +960,43 @@ describe("에이전트 관리자", () => {
     expect(reasonShown()).not.toContain(reason);
   });
 
+  test("사람·팀 검색이 둘 다 실패해도 칸은 고칠 수 있고, 서버가 받는 길이까지만 받는다", async () => {
+    const { api } = renderAt(`/agents/${AGENT_ID}?tab=admins`, {
+      ...agentServer().routes,
+      ...teamServer().routes,
+      "GET /v1/members": () => apiError(500, "INTERNAL", "boom"),
+      "GET /v1/teams": () => apiError(500, "INTERNAL", "boom"),
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, admins()),
+    });
+    const picker = (await screen.findByRole("combobox", {
+      name: "관리자로 추가할 사람이나 팀",
+    })) as HTMLInputElement;
+    expect(picker.maxLength).toBe(200);
+    act(() => picker.focus());
+    await waitFor(() =>
+      expect(api.calls.some((c) => c.path === "/v1/teams")).toBe(true),
+    );
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "관리자로 추가" })
+          .getAttribute("aria-disabled"),
+      ).toBe("true"),
+    );
+    expect(picker.disabled).toBe(false);
+    const user = await setupUser();
+    await user.type(picker, "a");
+    await waitFor(
+      () =>
+        expect(
+          api.calls.some(
+            (c) => c.path === "/v1/members" && c.search === "?q=a",
+          ),
+        ).toBe(true),
+      { timeout: 3000 },
+    );
+  });
+
   test("owner는 사람·팀을 지정하고 해제한다", async () => {
     const agentsApi = agentServer();
     const teams = teamServer();
@@ -1003,12 +1040,13 @@ describe("에이전트 관리자", () => {
       ),
     );
     const reads = listReads();
+    const picker = screen.getByRole("combobox", {
+      name: "관리자로 추가할 사람이나 팀",
+    }) as HTMLInputElement;
+    const addButton = () =>
+      screen.getByRole("button", { name: "관리자로 추가" });
     // People and teams are searched on the server together.
-    await pick(
-      user,
-      screen.getByRole("combobox", { name: "관리자로 추가할 사람이나 팀" }),
-      "결제",
-    );
+    await pick(user, picker, "결제");
     expect(
       api.calls
         .filter((c) => c.path === "/v1/members" || c.path === "/v1/teams")
@@ -1016,10 +1054,19 @@ describe("에이전트 관리자", () => {
     ).toEqual(
       expect.arrayContaining(["/v1/members?q=결제", "/v1/teams?q=결제"]),
     );
-    await user.click(screen.getByRole("button", { name: "관리자로 추가" }));
+    expect(picker.value).toBe("결제팀");
+    expect(addButton().hasAttribute("disabled")).toBe(false);
+    // Editing the text drops the choice, so nothing the input no longer
+    // shows is added.
+    await user.type(picker, "x");
+    expect(addButton().hasAttribute("disabled")).toBe(true);
+    await user.clear(picker);
+    await pick(user, picker, "결제");
+    await user.click(addButton());
     await waitFor(() =>
       expect(said()).toContain("결제팀을(를) 관리자로 추가했습니다."),
     );
+    expect(picker.value).toBe("");
     expect(
       api.calls.find((c) => c.method === "POST" && c.path.endsWith("/admins"))
         ?.body,

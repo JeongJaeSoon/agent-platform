@@ -47,7 +47,7 @@ import { LoadFailure } from "./load-failure.tsx";
 import { MUTED, SECTION, SECTION_TITLE } from "./my-teams.tsx";
 import type { Outcome } from "./outcome.tsx";
 import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
-import { SEARCH_SETTLE_MS } from "./search-term.ts";
+import { SEARCH_MAX, SEARCH_SETTLE_MS } from "./search-term.ts";
 import { StatusScreen } from "./status-screen.tsx";
 
 // Lines that wrap on a narrow screen sit a line gap apart, not RowListItem's 8px.
@@ -159,7 +159,9 @@ function AdminList({
     ...teamPagesQuery(client, q),
     enabled: listsTeams && picking,
   });
-  // Kept as chosen, so a later search that leaves it out still adds it.
+  // The input's text is held here so editing it after a choice drops the
+  // choice: what is added is always what the input shows.
+  const [text, setText] = useState("");
   const [picked, setPicked] = useState<{
     kind: AgentAdminKind;
     id: string;
@@ -201,7 +203,10 @@ function AdminList({
         queryKeysOf(client).agentAdmins(agentId),
         result.admins,
       );
-      if (add) setPicked(null);
+      if (add) {
+        setPicked(null);
+        setText("");
+      }
       onOutcome({
         kind: "notice",
         text: t(add ? "agentAdmins.added" : "agentAdmins.removed", { name }),
@@ -386,7 +391,17 @@ function AdminList({
             aria-describedby={partial ? hintId : undefined}
             options={options}
             value={picked ? `${picked.kind}:${picked.id}` : null}
-            disabled={addReason !== undefined}
+            inputValue={text}
+            onInputValueChange={(next) => {
+              setText(next);
+              setPicked((current) =>
+                current && current.name !== next ? null : current,
+              );
+            }}
+            maxLength={SEARCH_MAX}
+            // Closed only without the right to list either; a failed search
+            // stays editable, and the next text asks again.
+            disabled={!listsMembers && !listsTeams}
             filter="none"
             onQueryChange={setTerm}
             debounceMs={SEARCH_SETTLE_MS}
