@@ -825,10 +825,11 @@ const MUST_FAIL: [string, string[], RegExp][] = [
     "scheduler.extraEnv.WORKER_IMAGE=reg/worker@sha256:x",
     "api.extraEnv.WORKER_IMAGE_RUNTIME=x",
     "config.limits.WORKER_IMAGE_PREVIOUS=reg/worker@sha256:x",
+    "secrets.catalogEnv={ANTHROPIC_API_KEY,WORKER_IMAGE_PREVIOUS_RUNTIME}",
   ].map((set): [string, string[], RegExp] => [
     `a worker image variable through ${set.split(/[.=]/).slice(0, 2).join(".")}`,
     ["-f", ciDigests, "--set", set],
-    /must not be set through extraEnv or config\.limits/,
+    /must not be set through extraEnv, config\.limits or secrets\.catalogEnv/,
   ]),
 ];
 

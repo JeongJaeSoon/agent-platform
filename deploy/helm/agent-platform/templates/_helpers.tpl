@@ -133,13 +133,13 @@ the upgrade check reads them from images.* and would otherwise judge other
 images than the scheduler launches.
 */}}
 {{- define "ap.workerEnvReserved" -}}
-{{- $names := keys .Values.config.limits -}}
+{{- $names := concat (keys .Values.config.limits) .Values.secrets.catalogEnv -}}
 {{- range $key := list "api" "scheduler" "reconciler" "slack" "egressProxy" -}}
 {{- $names = concat $names (keys (index $.Values $key).extraEnv) -}}
 {{- end -}}
 {{- range $name := list "WORKER_IMAGE" "WORKER_IMAGE_PREVIOUS" "WORKER_IMAGE_RUNTIME" "WORKER_IMAGE_PREVIOUS_RUNTIME" -}}
 {{- if has $name $names -}}
-{{- fail (printf "%s must not be set through extraEnv or config.limits; set images.worker and images.workerPrevious" $name) -}}
+{{- fail (printf "%s must not be set through extraEnv, config.limits or secrets.catalogEnv; set images.worker and images.workerPrevious" $name) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
