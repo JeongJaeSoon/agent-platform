@@ -246,6 +246,27 @@ test("an agent page asks for one page with summaries, the search going with it, 
   );
 });
 
+test("the agent lists filter takes every list, page, count and summary but no agent's detail", () => {
+  const client = scoped({});
+  const keys = queries.queryKeysOf(client);
+  const { queryKey, predicate } = queries.agentListsFilter(client);
+  expect(queryKey).toEqual(keys.agents);
+  const matched = (key: readonly unknown[]) => predicate({ queryKey: key });
+  expect(
+    [
+      keys.agents,
+      keys.agentPages(undefined),
+      keys.agentPages("notes"),
+      keys.agentCounts,
+      keys.agentSummaries(["id-1"]),
+    ].map(matched),
+  ).toEqual([true, true, true, true, true]);
+  expect([keys.agent("id-1"), keys.agentAdmins("id-1")].map(matched)).toEqual([
+    false,
+    false,
+  ]);
+});
+
 for (const [list, path, query] of [
   ["API key", "/v1/api-keys", queries.apiKeysQuery],
   ["team", "/v1/teams", queries.teamsQuery],

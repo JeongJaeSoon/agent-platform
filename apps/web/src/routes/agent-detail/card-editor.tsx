@@ -18,7 +18,11 @@ import {
   useRef,
   useState,
 } from "react";
-import { profilesQuery, queryKeysOf } from "../../api/queries.ts";
+import {
+  agentListsFilter,
+  profilesQuery,
+  queryKeysOf,
+} from "../../api/queries.ts";
 import { useRole } from "../../auth/guard.tsx";
 import {
   AGENT_FORM,
@@ -126,10 +130,7 @@ export function CardEditor({
         queryKeysOf(client).agent(detail.agent.id),
         updated,
       );
-      await queryClient.invalidateQueries({
-        queryKey: queryKeysOf(client).agents,
-        exact: true,
-      });
+      await queryClient.invalidateQueries(agentListsFilter(client));
     },
     onError: (error) =>
       onOutcome({ kind: "error", text: agentRefusal(t, error, role) }),

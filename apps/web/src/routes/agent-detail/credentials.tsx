@@ -32,7 +32,7 @@ import {
   RowListItem,
 } from "@werft-ai/ui";
 import { type ReactNode, type RefObject, useId, useState } from "react";
-import { queryKeysOf } from "../../api/queries.ts";
+import { agentListsFilter, queryKeysOf } from "../../api/queries.ts";
 import { permissionReason, useRole } from "../../auth/guard.tsx";
 import { LoadFailure } from "../../components/load-failure.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
@@ -97,10 +97,7 @@ export function Credentials({
   const invalidateBindings = () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: bindingsKey(client, agentId) }),
-      queryClient.invalidateQueries({
-        queryKey: queryKeysOf(client).agents,
-        exact: true,
-      }),
+      queryClient.invalidateQueries(agentListsFilter(client)),
     ]);
   const [revoking, setRevoking] = useState<CredentialBindingView | null>(null);
 

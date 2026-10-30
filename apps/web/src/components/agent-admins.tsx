@@ -25,6 +25,7 @@ import { useId, useState } from "react";
 import {
   administeredAgentsQuery,
   agentAdminsQuery,
+  agentListsFilter,
   membersQuery,
   queryKeysOf,
   teamsQuery,
@@ -198,10 +199,7 @@ function AdminList({
         queryClient.invalidateQueries({
           queryKey: queryKeysOf(client).administeredAgents,
         }),
-        queryClient.invalidateQueries({
-          queryKey: queryKeysOf(client).agents,
-          exact: true,
-        }),
+        queryClient.invalidateQueries(agentListsFilter(client)),
       ]);
     },
     onError: (error) =>

@@ -47,6 +47,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useWatch } from "react-hook-form";
 import type { z } from "zod";
 import {
+  agentListsFilter,
   agentQuery,
   profilesQuery,
   queryKeysOf,
@@ -395,10 +396,7 @@ export function NewAgentFlow({
       queryKeysOf(client).agent(detail.agent.id),
       detail,
     );
-    await queryClient.invalidateQueries({
-      queryKey: queryKeysOf(client).agents,
-      exact: true,
-    });
+    await queryClient.invalidateQueries(agentListsFilter(client));
     return {
       agentId: detail.agent.id,
       versionId: savedVersionId(detail, sent),

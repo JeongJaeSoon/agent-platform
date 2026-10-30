@@ -593,6 +593,20 @@ export function waitingSessionsByQuery(
   });
 }
 
+/**
+ * Matches the agent list reads (every list, page, count and summary under
+ * "agents") but no single agent's detail, so a mutation that just wrote
+ * that detail into the cache refreshes the lists without reading it again.
+ */
+export function agentListsFilter(client: ApiClient) {
+  return {
+    queryKey: queryKeysOf(client).agents,
+    predicate: (query: { queryKey: readonly unknown[] }) =>
+      query.queryKey.length === 2 ||
+      (query.queryKey.length === 3 && typeof query.queryKey[2] === "object"),
+  } as const;
+}
+
 /** Matches every agentSessionsQuery, whichever agent, to mark them stale. */
 export function agentSessionListsFilter(client: ApiClient) {
   return { queryKey: queryKeysOf(client).agentSessionLists } as const;

@@ -4,6 +4,7 @@ export {
   administeredAgentsQuery,
   agentAdminsQuery,
   agentCountsQuery,
+  agentListsFilter,
   agentPagesQuery,
   agentQuery,
   agentSummariesQuery,
