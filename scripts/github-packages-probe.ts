@@ -9,6 +9,10 @@
 //   bun scripts/github-packages-probe.ts \
 //     --app-id <id> --installation-id <id> --owner <owner> --repo <repo> \
 //     --npm @<scope>/<name> --gem <name> --gem-version <version> --out <log>
+// Control run, the owner's classic PAT read from the file WERFT_PAT_FILE names
+// against no token at all; it needs no App:
+//   bun scripts/github-packages-probe.ts --control --owner <owner> --repo <repo> \
+//     --npm @<scope>/<name> --gem <name> --gem-version <version> --out <log>
 //
 // Every result line is `<row> <target> <http status> <redirect host|-> <summary>`;
 // the same lines are appended to --out after a `#` header naming the run.
@@ -19,6 +23,7 @@ import { parseArgs } from "node:util";
 const { values: args } = parseArgs({
   options: {
     "no-packages": { type: "boolean", default: false },
+    control: { type: "boolean", default: false },
     "app-id": { type: "string" },
     "installation-id": { type: "string" },
     owner: { type: "string" },
@@ -42,18 +47,21 @@ function required(name: keyof typeof args, shape: RegExp): string {
 
 const ID = /^[0-9]+$/;
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-const appId = required("app-id", ID);
-const installationId = required("installation-id", ID);
+const control = args.control === true;
+const full = control || !args["no-packages"];
+const mode = control ? "control" : full ? "full" : "no-packages";
+const appId = control ? "-" : required("app-id", ID);
+const installationId = control ? "-" : required("installation-id", ID);
 const owner = required("owner", NAME);
 const repo = required("repo", NAME);
 const out = required("out", /./);
-const full = !args["no-packages"];
 const npmName = full ? required("npm", /^@[^/]+\/[^/]+$/) : "";
 const gemName = full ? required("gem", NAME) : "";
 const gemVersion = full ? required("gem-version", NAME) : "";
-const keyPath = process.env.WERFT_APP_KEY_PATH;
-if (!keyPath) {
-  console.error("WERFT_APP_KEY_PATH is not set");
+const secretEnv = control ? "WERFT_PAT_FILE" : "WERFT_APP_KEY_PATH";
+const secretPath = process.env[secretEnv];
+if (!secretPath) {
+  console.error(`${secretEnv} is not set`);
   process.exit(2);
 }
 
@@ -87,7 +95,7 @@ function appJwt(): string {
   );
   const signer = createSign("RSA-SHA256");
   signer.update(`${head}.${body}`);
-  return `${head}.${body}.${base64url(signer.sign(readFileSync(keyPath as string, "utf8")))}`;
+  return `${head}.${body}.${base64url(signer.sign(readFileSync(secretPath as string, "utf8")))}`;
 }
 
 function githubHeaders(auth: string) {
@@ -161,14 +169,17 @@ function errorName(error: unknown): string {
   return `error=${error instanceof Error ? error.name : "unknown"}`;
 }
 
-type Auth = "bearer" | "basic" | "anon";
+type Auth = "bearer" | "basic";
 
+// The label "anon" sends no Authorization at all.
 function authHeader(label: string, auth: Auth): Record<string, string> {
   const token = tokens.get(label);
-  if (auth === "anon" || token === undefined) return {};
+  if (token === undefined) return {};
   if (auth === "bearer") return { Authorization: `Bearer ${token}` };
+  // A PAT authenticates as its owner; an installation token as x-access-token.
+  const user = label === "pat" ? owner : "x-access-token";
   return {
-    Authorization: `Basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`,
+    Authorization: `Basic ${Buffer.from(`${user}:${token}`).toString("base64")}`,
   };
 }
 
@@ -260,7 +271,7 @@ async function run(
   auth: Auth,
   read: "json" | "gzip" | "none",
 ): Promise<Probe | undefined> {
-  if (auth !== "anon" && !tokens.has(label)) {
+  if (label !== "anon" && !tokens.has(label)) {
     emit(row, target, "-", "-", "skipped=no-token");
     return;
   }
@@ -283,7 +294,7 @@ function npmPath(name: string): string {
 
 appendFileSync(
   out,
-  `# ${full ? "full" : "no-packages"} ${new Date().toISOString()} app=${appId} installation=${installationId} repo=${owner}/${repo}\n`,
+  `# ${mode} ${new Date().toISOString()} app=${appId} installation=${installationId} repo=${owner}/${repo}\n`,
 );
 
 async function revokeAll() {
@@ -309,6 +320,19 @@ try {
 }
 
 async function probeAll() {
+  if (control) {
+    try {
+      tokens.set("pat", readFileSync(secretPath as string, "utf8").trim());
+    } catch (error) {
+      emit("M0", "pat-file", "ERR", "-", errorName(error));
+      throw error;
+    }
+    // The control: the PAT must download, no token must not.
+    return probePackages([
+      ["C-pat/", "pat"],
+      ["C-anon/", "anon"],
+    ]);
+  }
   let jwt: string;
   try {
     jwt = appJwt();
@@ -318,8 +342,13 @@ async function probeAll() {
   }
   for (const [index, set] of TOKEN_SETS.entries())
     await mint(`M${index + 1}`, set, jwt);
-  if (full) await probePackages();
-  else await probeRegistries();
+  if (!full) return probeRegistries();
+  // Row 1-4 use the contents:read token; row 5 repeats them with the others.
+  return probePackages([
+    ["", "contents"],
+    ["5-packages/", "packages"],
+    ["5-none/", "none"],
+  ]);
 }
 
 async function probeRegistries() {
@@ -327,26 +356,19 @@ async function probeRegistries() {
   // the token at all (404) or refuses it (401/403), against no token.
   const absent = npmPath(`@${owner.toLowerCase()}/werft-probe-absent`);
   for (const label of ["anon", ...TOKEN_SETS.map((set) => set.label)]) {
-    const auth: Auth = label === "anon" ? "anon" : "bearer";
-    await run(`0-${label}`, "npm-absent", label, absent, auth, "none");
+    await run(`0-${label}`, "npm-absent", label, absent, "bearer", "none");
     await run(
       `0-${label}`,
       "gem-index",
       label,
       `${GEMS}/specs.4.8.gz`,
-      label === "anon" ? "anon" : "basic",
+      "basic",
       "gzip",
     );
   }
 }
 
-async function probePackages() {
-  // Row 1-4 use the contents:read token; row 5 repeats them with the others.
-  const sets: [string, string][] = [
-    ["", "contents"],
-    ["5-packages/", "packages"],
-    ["5-none/", "none"],
-  ];
+async function probePackages(sets: [prefix: string, label: string][]) {
   const gem = `${GEMS}/gems/${gemName}-${gemVersion}.gem`;
   let tarball: string | undefined;
   for (const [prefix, label] of sets) {
