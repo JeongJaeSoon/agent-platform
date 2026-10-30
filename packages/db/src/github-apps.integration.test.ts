@@ -451,7 +451,8 @@ integration("the GitHub App on PostgreSQL", () => {
       clientId: "Iv23li92",
       clientSecretSet: false,
     });
-    expect(await oauth.client(ws)).toBeNull();
+    // A boolean: a client left behind would print its secret.
+    expect((await oauth.client(ws)) === null).toBe(true);
   });
 
   test("a client secret typed for an App a replacement took out is refused, nothing stored", async () => {

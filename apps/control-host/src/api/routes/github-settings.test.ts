@@ -380,9 +380,14 @@ describe("storing the GitHub OAuth client secret", () => {
       body: { client_id: "Iv23liClient", client_secret: typed },
     });
     expect(response.status).toBe(200);
-    expect(response.json).toMatchObject({
-      oauth: { client_id: "Iv23liClient", client_secret_set: true },
-    });
+    // Field by field: a matcher handed the whole body would print it.
+    const oauth = (
+      response.json as {
+        oauth?: { client_id?: unknown; client_secret_set?: unknown };
+      }
+    ).oauth;
+    expect(oauth?.client_id).toBe("Iv23liClient");
+    expect(oauth?.client_secret_set).toBe(true);
     expect(JSON.stringify(response.json).includes(typed)).toBe(false);
     expect(stored.length === 1 && stored[0] === typed).toBe(true);
   });

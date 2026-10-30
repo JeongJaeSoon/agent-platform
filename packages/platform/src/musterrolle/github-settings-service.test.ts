@@ -256,19 +256,22 @@ describe("storing the OAuth client secret", () => {
         WORKSPACE,
         async () => ({ client_id: "Iv23liClient", client_secret: typed }),
       );
-      expect(stored).toEqual({
-        receipt_id: "019a0000-0000-7000-8000-0000000000aa",
-        oauth: {
-          client_id: "Iv23liClient",
-          client_secret_set: true,
-          callback_url: CALLBACK,
-        },
-      });
+      // Field by field: a matcher handed the whole object would print it.
+      expect(Object.keys(stored).sort()).toEqual(["oauth", "receipt_id"]);
+      expect(Object.keys(stored.oauth).sort()).toEqual([
+        "callback_url",
+        "client_id",
+        "client_secret_set",
+      ]);
+      expect(stored.receipt_id).toBe("019a0000-0000-7000-8000-0000000000aa");
+      expect(stored.oauth.client_id).toBe("Iv23liClient");
+      expect(stored.oauth.client_secret_set).toBe(true);
+      expect(stored.oauth.callback_url).toBe(CALLBACK);
       expect(JSON.stringify(stored).includes(typed)).toBe(false);
       expect(secrets.at(-1)?.secret === typed).toBe(true);
       expect(secrets.at(-1)?.workspaceId).toBe(WORKSPACE);
     }
-    expect(secrets).toHaveLength(2);
+    expect(secrets.length).toBe(2);
   });
 });
 
