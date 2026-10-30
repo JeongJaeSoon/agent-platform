@@ -1,8 +1,16 @@
-# 결정(제안): Kubernetes에서 worker를 pull 방식으로 띄운다
+# 결정(제안): Kubernetes에서 worker Pod를 누가 만드나
 
 상태: 제안. 구현하지 않았고, 이 문서가 바꾸는 기본값은 없다. 지금 설치는 그대로 scheduler가 Pod를 만든다.
 
+control plane(api·scheduler·reconciler)은 어느 안에서도 남는다. 세션의 상태, 슬롯, lease, checkpoint는 계속 플랫폼이 쥔다. 이 문서가 고르는 것은 **worker Pod를 누가 만드느냐**뿐이다.
+
 ## 무엇을 골랐나
+
+**0안: 지금처럼 플랫폼(scheduler)이 Pod를 만들되, 권한을 worker 전용 namespace의 Pod·PVC로 줄인다.** nonce Secret을 projected ServiceAccount token으로 바꿔 `secrets` 권한을 없애고, scheduler가 만들 수 있는 Pod를 ValidatingAdmissionPolicy로 worker spec에 묶는다. 세션별 이미지·리소스·재개 제어, 종료 확인, 세션별 workspace가 지금 그대로 남는다. 아래 "0안" 절이 그 내용이다.
+
+**1안(KEDA pull)은 설계해 두고 고르지 않는다.** "플랫폼이 Kubernetes 권한을 하나도 갖지 않는다"가 요구 사항이 되고, 이미지·크기를 class 몇 개로 묶어도 되는 설치가 생기면 opt-in 모드로 꺼낸다. 아래 "1안 설계"가 그때 쓸 설계다. 처음 판은 1안을 추천했다. 0안을 같은 비교 축에 올려 다시 보니, 1안이 0안보다 더 주는 것은 "Pod·PVC 생성 권한 0"과 "어댑터 코드 삭제"이고, 그 값으로 세션별 이미지(진행 중인 runtime 고정 작업과 부딪친다), 종료 확인, checkpoint 없는 작업의 구출 경로를 내준다. 0안은 지금 권한에서 가장 위험한 두 가지(release namespace의 Secret 읽기, 모든 Pod 로그 읽기)를 같은 비용 없이 없앤다.
+
+## 1안 요약
 
 Kubernetes 설치에 실행 모드 `kubernetes_pull`을 opt-in으로 하나 더 둔다. 이 모드에서는 플랫폼(api·scheduler)이 Kubernetes API를 부르지 않는다.
 
@@ -11,7 +19,7 @@ Kubernetes 설치에 실행 모드 `kubernetes_pull`을 opt-in으로 하나 더 
 - 플랫폼에는 Role도 RoleBinding도 없다. Pod를 만들고 지우는 일은 KEDA와 Job controller, workspace 볼륨은 Pod를 따라 생기고 사라지는 generic ephemeral volume이 맡는다.
 - 대가로 **종료 계약이 바뀐다.** 지금은 "Pod가 사라진 것을 확인한 뒤 슬롯을 돌려준다". pull 모드의 플랫폼은 Pod를 볼 수 없으므로 "worker를 펜싱하고(그 뒤로 proxy는 그 worker의 자격 증명 사용을 거절한다) 유예가 지나면 돌려준다"가 된다. 아래 "종료 계약"이 이 차이와 그 근거를 적는다.
 
-기존 `kubernetes` 모드(push)는 기본값으로 그대로 두고 설정으로 고른다. compose 설치는 지금처럼 `local_docker`다. 이 안에 대한 Codex의 반대 의견과 대안은 "다른 의견"에 그대로 남긴다.
+기존 `kubernetes` 모드(push)는 기본값으로 그대로 두고 설정으로 고른다. compose 설치는 지금처럼 `local_docker`다. 1안에 대한 Codex의 반대 의견과 대안은 "다른 의견"에 그대로 남긴다.
 
 ```text
           ┌──────────── 플랫폼 (K8s 권한 없음) ────────────┐
@@ -33,6 +41,7 @@ Kubernetes 설치에 실행 모드 `kubernetes_pull`을 opt-in으로 하나 더 
 
 - scheduler pass가 대기 세션마다 launch를 예약하고(`worker_launches` 행, generation, 이미지·리소스 고정), `ensureExecution`으로 Pod 하나, Pod가 소유하는 nonce Secret 하나, 세션 workspace PVC(`ap-ws-<installation>-<session>`)를 만든다(`packages/platform/src/scheduler/launch.ts`, `kubernetes/src/backend.ts`).
 - scheduler Role은 worker namespace 하나에 걸리고 `pods`·`secrets`·`persistentvolumeclaims`의 get·list·create·delete와 `pods/log` get을 갖는다(`deploy/helm/agent-platform/templates/scheduler.yaml`). SA token을 마운트하는 Pod는 scheduler뿐이다.
+- chart에는 worker namespace를 따로 정하는 값이 없다. `EXECUTION_K8S_NAMESPACE`의 기본값은 scheduler 자신의 namespace이고, chart의 Role과 RoleBinding도 release namespace에 생긴다(`scheduler.yaml:174`). 그 namespace에는 앱 Secret(`DATABASE_URL`, `PLATFORM_SECRET_KEY`, provider 키 등, `templates/api.yaml`, `external-secret.yaml`)이 있다. 그래서 지금 scheduler SA는 그 Secret을 모두 읽을 수 있고, Pod를 만들 수 있으므로 그 Secret을 마운트한 Pod도 만들 수 있다.
 - worker는 env의 nonce를 내고 `POST /worker/bootstrap-claim`으로 binding(세션, attempt, lease epoch, 토큰)을 받는다. 그 뒤 heartbeat와 `/next-input` long poll을 돈다. lease를 잃으면 진행 중인 turn을 버리고 exit 75로 끝난다(`apps/worker/src/worker-host.ts`).
 - 종료와 슬롯: terminate·lease 만료는 lease epoch를 올리고 `executions.desired_state=terminated`를 적는다. 이때 `pod_id`·`execution_id`를 남겨 "제거가 확인될 때까지 새 claim이 시작되지 않게" 한다(`packages/db/src/lease-reconcile.ts:150-180`). 슬롯 반환, binding 제거, 기동 실패 집계는 scheduler가 Pod가 사라진 것을 확인하는 경로에서만 일어난다(`packages/db/src/worker-unit-of-work.ts:3030-3290`).
 - lease가 만료되면 그 attempt의 worker 자격 증명이 폐기된다(`packages/db/src/lease-reconcile.ts:130-138`). worker의 egress는 NetworkPolicy로 egress proxy에만 열려 있다(`deploy/helm/agent-platform/templates/networkpolicies.yaml`).
@@ -49,31 +58,146 @@ pull로 옮길 때 이미 준비된 자리도 있다.
 | 세션의 `partition`은 "이 세션을 돌릴 worker pool"이고 생성 뒤 바뀌지 않는다 | `packages/db/src/schema.ts:1118-1122` |
 | launch에 drain 요청 시각(`drain_requested_at`)이 있다 | `packages/db/src/schema.ts:2263` |
 
-## 왜 바꾸나
+## 왜 다시 보나
 
-- 플랫폼이 클러스터 권한을 갖지 않는다. 지금 scheduler SA는 worker namespace의 모든 Secret을 읽고 모든 Pod 로그를 읽을 수 있다. DB와 클러스터 쓰기 권한을 한 Pod가 함께 쥐는 일이 없어진다.
-- Pod 수명 관리를 표준 부품에 넘긴다. Pod·Secret·PVC 생성 순서, UID 조건부 삭제, adopt 판단, 로그 tail 읽기(어댑터 약 1,000줄과 같은 양의 테스트)가 플랫폼 코드에서 빠진다.
-- 노드 자동 확장, PriorityClass, ResourceQuota, 비용 귀속처럼 클러스터 운영자가 이미 쓰는 도구가 그대로 worker Job에 걸린다.
+- 지금 scheduler SA는 release namespace의 모든 Secret과 모든 Pod 로그를 읽는다. 앱 Secret에 닿는 이 넓은 권한은 0안과 1안 모두 없앤다.
+- scheduler는 DB 접속과 클러스터 쓰기 권한(Pod·PVC)을 함께 쥔다. 이 결합을 없애는 것은 1안(또는 5안)뿐이다. 0안에서는 그대로 남고, 대신 admission이 그 쓰기로 만들 수 있는 Pod를 묶는다.
+- 1안만 주는 것: Pod 수명 관리를 표준 부품에 넘긴다. Pod·Secret·PVC 생성 순서, UID 조건부 삭제, adopt 판단, 로그 tail 읽기(어댑터 약 1,000줄과 같은 양의 테스트)가 플랫폼 코드에서 빠진다.
+- 노드 자동 확장, ResourceQuota처럼 클러스터 운영자가 쓰는 도구는 두 안 모두에 걸린다. 1안은 PriorityClass 같은 Pod 필드를 chart 템플릿에서 바로 고치고, 0안은 그 값을 scheduler 설정으로 넘겨야 한다(지금 nodeSelector·tolerations가 그렇다).
 - 비슷한 제품을 보면 두 갈래가 있다. GitHub ARC는 listener가 GitHub를 long poll하고, runner가 뜬 뒤 job을 받는다([ARC](https://docs.github.com/en/actions/concepts/runners/actions-runner-controller)). Azure Pipelines agent는 KEDA scaler로 뜨고 `--once`로 job 하나를 받는다([KEDA azure-pipelines](https://keda.sh/docs/latest/scalers/azure-pipelines/)). GitLab Runner([Kubernetes executor](https://docs.gitlab.com/runner/executors/kubernetes/))와 Buildkite([agent-stack-k8s](https://buildkite.com/docs/agent/v3/agent-stack-k8s))는 클러스터 안의 controller가 job마다 Pod를 만든다. 어느 쪽이든 SaaS 본체는 클러스터 권한을 갖지 않는다. 우리 scheduler는 DB를 쥔 채 Pod를 만들므로 둘 중 어디에도 맞지 않는다.
 
 ## 후보
 
-| | 1 KEDA ScaledJob (고름) | 2 상시 worker 풀 | 3 K8s 밖 실행 서비스 | 4 operator/CRD | 5 클러스터 안 launcher |
-| --- | --- | --- | --- | --- | --- |
-| 플랫폼 K8s 권한 | 없음 | 없음 | 없음, 대신 클라우드 API 권한 | 우리 CR의 create·delete | 없음. launcher가 지금 Role을 가짐 |
-| 우리가 유지하는 K8s 코드 | 없음(chart만) | 없음 | 없음 | operator | 지금 어댑터 전부 + launcher |
-| 종료 확인 | 플랫폼은 못 본다. 펜싱으로 대신 | 같음 | 서비스마다 다름 | operator가 본다 | launcher가 보고 api로 알린다 |
-| 세션 격리 | Job 하나 = Pod 하나 = 세션 하나 | Deployment는 컨테이너만 재시작해 Pod·볼륨이 다음 세션에 남는다 | 서비스마다 다름 | 지금과 같음 | 지금과 같음 |
-| 세션별 이미지·크기 | class 단위(ScaledJob 하나가 class 하나) | 풀 단위 | 자유 | 자유 | 자유 |
-| 시작 지연 | polling 간격 + Pod 기동. PoC 2.3~8.6초 | 거의 0, 대신 늘 떠 있는 비용 | 서비스 콜드스타트 | 지금과 같음 | 지금과 같음 |
-| 새 의존성 | KEDA(클러스터당 하나) | 없음 | 외부 서비스 | 없음 | 없음 |
+먼저 두 주요 후보를 오너가 정한 비교 축으로 놓는다.
 
+| 축 | 0 플랫폼 직접 생성, 권한 축소 (고름) | 1 KEDA ScaledJob pull |
+| --- | --- | --- |
+| 세션별 이미지·리소스 | 자유. launch마다 정한다 | class(partition + 이미지 digest) 단위. 고정 템플릿 하나가 class 하나 |
+| 재개 제어 | 지금과 같음. 세션이 고정한 이미지로 재개(진행 중인 runtime 고정 작업)가 그대로 들어간다 | 그 이미지의 class가 남아 있어야 재개된다. 재개 가능한 세션이 고정한 digest마다 class를 유지 |
+| 종료 확인 | scheduler가 Pod가 사라진 것을 보고 슬롯을 돌려준다(지금 계약) | 플랫폼은 Pod를 못 본다. 펜싱 + 유예로 대신하고 NetworkPolicy 강제가 필수 |
+| workspace | 세션별 PVC. checkpoint 없는 작업도 TTL 안에 구출 가능 | Pod와 함께 사라진다. 마지막 checkpoint까지만 복구 |
+| 플랫폼 K8s 권한 | worker 전용 namespace의 `pods`·`persistentvolumeclaims` get·list·create·delete(실패 로그를 읽으면 `pods/log` get). 만들 수 있는 Pod는 admission이 worker spec으로 묶는다 | 없음 |
+| 클러스터 쪽 새 권한 | 없음(admission 정책 설치는 운영자 권한) | KEDA operator의 ClusterRole(모든 API group `get`, 기본으로 모든 namespace secrets 읽기) |
+| 운영 의존성 | 새 상주 컴포넌트 없음. admission 정책(Kubernetes 1.30+)과, 0-2를 하면 api의 JWKS 접근이 필요 | KEDA(클러스터당 하나, external metrics API 등록 하나). admission 정책과 api의 JWKS 접근도 필요 |
+| 시작 지연 | scheduler pass 간격(`SCHEDULER_INTERVAL_SEC` 5초) + Pod 기동. 지금과 같음 | KEDA polling 간격(5초로 둠) + Pod 기동. PoC 2.3~8.6초 |
+| 격리 | 플랫폼이 Pod spec을 만들고 isolation stamp로 확인·교체(지금과 같음) + admission | chart 템플릿 + admission이 전부. 플랫폼은 spec을 보지 못한다 |
+| 우리가 유지하는 K8s 코드 | 지금 어댑터(약 1,000줄과 테스트) | chart 템플릿뿐 |
+
+두 안 사이의 차이는 결국 한 줄이다. **1안은 플랫폼의 Pod·PVC 생성 권한과 어댑터 코드를 없애는 대신, 세션별 이미지를 미리 구성한 class로 제한하고, 종료 확인과 checkpoint 없는 작업의 구출 경로를 내준다.**
+
+나머지 후보는 다음과 같다.
+
+| | 2 상시 worker 풀 | 3 K8s 밖 실행 서비스 | 4 operator/CRD | 5 클러스터 안 launcher |
+| --- | --- | --- | --- | --- |
+| 플랫폼 K8s 권한 | 없음 | 없음, 대신 클라우드 API 권한 | 우리 CR의 create·delete | 없음. launcher가 0안의 Role을 가짐 |
+| 우리가 유지하는 K8s 코드 | 없음 | 없음 | operator | 지금 어댑터 전부 + launcher |
+| 종료 확인 | 플랫폼은 못 본다 | 서비스마다 다름 | operator가 본다 | launcher가 보고 api로 알린다 |
+| 세션 격리 | Deployment는 컨테이너만 재시작해 Pod·볼륨이 다음 세션에 남는다 | 서비스마다 다름 | 지금과 같음 | 지금과 같음 |
+| 세션별 이미지·크기 | 풀 단위 | 자유 | 자유 | 자유 |
+| 시작 지연 | 거의 0, 대신 늘 떠 있는 비용 | 서비스 콜드스타트 | 지금과 같음 | 지금과 같음 |
+| 새 의존성 | 없음 | 외부 서비스 | 없음 | 없음 |
+
+- **1을 지금 고르지 않은 이유**: 위 표의 마지막 한 줄. 세션별 이미지 선택이 진행 중이라 class 묶음과 바로 부딪치고, 0안이 권한 위험의 큰 부분을 같은 비용 없이 없앤다.
 - **2를 버린 이유**: Deployment의 Pod는 컨테이너가 끝나도 지워지지 않고 같은 Pod에서 다시 시작한다. emptyDir와 `/tmp`가 다음 세션에 남으므로 "세션 하나에 Pod 하나"가 깨진다.
 - **3을 버린 이유**: 권한이 K8s에서 클라우드 API로 옮겨갈 뿐이다. egress proxy와 NetworkPolicy로 만든 경계를 그 서비스에서 다시 만들어야 한다.
 - **4를 버린 이유**: 플랫폼이 CR 쓰기 권한을 갖고, 지금 scheduler가 하는 일을 operator로 옮겨 계속 유지해야 한다. 5가 같은 이점을 CR 없이 준다.
-- **5를 고르지 않은 이유**: 플랫폼에서 권한은 빠지지만 Kubernetes를 직접 제어하는 코드는 그대로 우리 것이다. scheduler pass가 지금 동기로 부르는 `ensureExecution`·`inspect`·`terminate`를 api 너머 비동기 요청과 보고로 바꾸는 큰 공사도 든다. 대신 종료 계약, 세션별 이미지, nonce, 세션별 PVC를 그대로 지킨다. 1의 새 종료 계약이 검증에서 통과하지 못하면 5로 간다. Codex는 5를 먼저 하자고 했다("다른 의견").
+- **5를 고르지 않은 이유**: 0안과 같은 Role을 launcher라는 다른 Pod로 옮길 뿐이다. 얻는 것은 "DB 접속과 클러스터 권한을 한 Pod가 쥐지 않는다"인데, scheduler pass가 지금 동기로 부르는 `ensureExecution`·`inspect`·`terminate`를 api 너머 비동기 요청과 보고로 바꾸는 큰 공사가 든다. 0안을 한 뒤에도 그 분리가 필요하면 그때 본다. Codex는 처음 판에서 5를 1보다 먼저 하자고 했다("다른 의견").
 
-## 설계
+## 0안: 플랫폼이 직접 만들고 권한을 줄인다
+
+control plane과 실행 경로는 지금 그대로다. 바꾸는 것은 네 가지다. 각각 따로 넣을 수 있다.
+
+### 0-1. worker 전용 namespace
+
+chart에 `execution.workerNamespace`를 둔다. 값이 있으면 다음을 그 namespace로 옮기고, `EXECUTION_K8S_NAMESPACE`를 그 값으로 넘긴다. 그 namespace에는 worker Pod, 그 Pod의 PVC(와 0-2 전까지는 nonce Secret)만 둔다. 앱 Secret은 release namespace에 남으므로, scheduler가 Secret을 읽거나 Secret을 마운트한 Pod를 만들어도 앱 Secret에는 닿지 않는다.
+
+- 옮기는 것: scheduler의 Role과 RoleBinding(subject는 release namespace의 scheduler SA), worker ServiceAccount(`templates/serviceaccounts.yaml`), worker NetworkPolicy(`templates/networkpolicies.yaml`의 worker 정책), 0-4의 admission 정책 binding.
+- release namespace에 남는 것: api·proxy·scheduler와 그 NetworkPolicy. proxy 정책의 ingress peer는 `namespaceSelector`(worker namespace)와 `podSelector`(worker 라벨)를 **같은 항목**에 넣는다. 따로 넣으면 OR가 되어 그 namespace의 아무 Pod나, 또는 release namespace의 worker 라벨 Pod가 들어온다. worker 정책의 egress peer도 같은 방식으로 release namespace의 proxy를 고른다.
+- private registry: chart는 지금 `images.pullSecrets`를 worker Pod의 `imagePullSecrets`로 넘긴다(`templates/scheduler.yaml:45-47`, `specs.ts:292-298`). Secret은 namespace를 넘어 참조할 수 없으므로, 운영자가 같은 이름의 pull Secret을 worker namespace에도 둔다(ExternalSecret을 쓰면 그 namespace에 하나 더). 0-4의 admission은 `imagePullSecrets`를 이 목록의 이름으로만 허용한다. 순서는 pull Secret을 먼저 두고 그다음 `workerNamespace`를 켠다.
+- namespace 자체는 chart가 만들지 않는다(`helm --create-namespace`처럼 release 하나가 다른 namespace의 수명을 쥐지 않게). 운영자가 미리 만들고 Pod Security Admission 라벨을 단다. 없으면 render는 되지만 install이 실패하므로 설치 안내에 적는다.
+- 기본값은 비워 둔다(지금과 같은 namespace). 값을 넣는 것은 새 설치나, 아래 "이전" 순서를 따른 설치다.
+- 검증: 나눈 설치에서 worker → proxy가 통하고, worker namespace의 다른 Pod → proxy와 worker → api·외부 직접 접속이 막힌다.
+
+### 0-2. nonce Secret 대신 projected ServiceAccount token
+
+1안의 "worker 신원"과 같은 token을 쓴다. 다른 점은 scheduler가 Pod를 만들었으므로 Pod UID를 안다는 것이다.
+
+- scheduler가 Pod spec에 audience `agent-platform-worker:<installation>`의 projected token 볼륨을 넣는다. nonce Secret은 만들지 않는다.
+- worker는 token을 `Authorization`에 넣고, 지금처럼 `execution_id`·`execution_generation`과 함께 claim한다. api는 token을 JWKS로 오프라인 검증한 뒤 아래의 "승인된 UID"와 대조한다.
+
+`executions.provider_ref`와 단순히 비교하면 안 된다. provider_ref는 관측값이고 교체 요청이 지우지 않는다. 지금 nonce는 교체할 때 같은 execution·generation에서 폐기되어 claim을 원자적으로 막는다(`packages/db/src/scheduler-store.ts:441-505`, `packages/platform/src/scheduler/reconcile.ts:125-186`). token 방식도 같은 성질이 필요하므로, nonce 열 자리에 다음 상태를 `worker_launches`에 둔다. 모두 claim과 같은 행 잠금 아래에서 바뀐다.
+
+| 열 | 뜻 |
+| --- | --- |
+| `bootstrap_kind` | `nonce` 또는 `workload_identity`. launch를 예약할 때 정하고 바꾸지 않는다 |
+| `authorized_uid` | claim을 받을 Pod UID. scheduler가 create 응답을 받은 뒤 적는다 |
+| `identity_revoked_at` | 교체 요청이 적는다. 그 뒤로 그 UID는 claim할 수 없다 |
+| `bootstrap_deadline` | 지금 nonce TTL과 같은 역할. 지나면 claim을 받지 않고 reconcile이 교체한다 |
+
+- claim은 token UID = `authorized_uid`, `identity_revoked_at`이 null, `bootstrap_deadline` 전, slot 미반환일 때만 받는다. 재전송 규칙은 지금 그대로다.
+- 생성 시도는 `launch_attempts`로 구별한다. 지금 nonce도 이 값에 묶여 시도마다 새로 발급되고(`scheduler-store.ts:362`), 실패 처리와 `beginLaunchAttempt`가 이 값을 올린다(`scheduler-store.ts:550-620`). `replacement_count`는 실패 재시도에서 바뀌지 않으므로 시도를 구별하지 못한다.
+- 새 시도를 여는 것은 `beginLaunchAttempt` 하나다. 이 UPDATE가 `launch_attempts`를 올리면서 같은 문장에서 `authorized_uid`와 `identity_revoked_at`을 비우고 `bootstrap_deadline`을 새로 적는다. 조건은 지금 그대로(기대한 `launch_attempts`, slot 보유, desired running)다. 폐기 상태에서 벗어나는 길은 이것뿐이다.
+- `authorized_uid`는 조건부 UPDATE로만 적는다. 조건: generation이 같고, `launch_attempts`가 그 Pod의 시도 번호와 같고, `identity_revoked_at`이 null이고, `authorized_uid`가 비어 있고, slot을 쥐고 있을 때. 하나라도 어긋나면 그 Pod는 낡은 시도의 것이므로 적지 않고, 다음 pass가 교체 대상으로 본다. 그래서 늦게 도착한 create 응답이나 이전 시도의 Pod가 승인되지 않는다.
+- `authorized_uid`가 아직 없으면 재시도할 수 있는 오류로 답한다. worker는 지금도 1초마다 `WORKER_CLAIM_TIMEOUT_SEC`(60초)까지 claim을 다시 시도한다.
+- 지금 adopt는 Pod가 가진 nonce를 DB의 nonce와 대조해 "이 Pod가 지금 생성 시도의 것인가"를 판단한다(`backend.ts:195-197`). nonce가 없으면 그 대조를 Pod annotation으로 대신한다. scheduler는 Pod를 만들 때 `beginLaunchAttempt`가 돌려준 시도 번호를 annotation으로 적는다.
+- create는 성공했는데 scheduler가 UID를 적기 전에 죽은 경우: 다음 pass의 inspect가 이름으로 Pod를 찾는다. Pod annotation의 시도 번호가 지금 `launch_attempts`와 같고, launch가 폐기되지 않았고, `authorized_uid`가 비어 있으면 그 Pod UID를 위와 같은 조건부 UPDATE로 적는다(지금 "create 결과를 모르는 launch는 다음 pass가 inspect해 채택한다"와 같은 규칙). annotation이 다르거나, 폐기된 launch이거나, 다른 UID가 이미 적혀 있으면 그 Pod는 채택하지 않고 교체한다. adopt와 inspect는 폐기된 UID나 이전 시도의 Pod를 승인하지 못한다.
+- `requestReplacement`의 credential fence(`scheduler-store.ts:450-455`)는 nonce 지문 대신 호출자가 읽은 `authorized_uid`(비어 있으면 null)를 받는다. 호출자가 스냅샷을 읽은 뒤 새로 승인된 UID는 그 교체 요청이 폐기하지 않는다.
+- 교체와 실패 처리: `requestReplacement`와 실패 기록이 `identity_revoked_at`을 적는다(지금 `nonceHash: null` 자리). teardown 뒤 다음 시도는 위의 `beginLaunchAttempt`로 열고, 새 Pod의 UID는 그 시도 번호로 위 조건부 UPDATE를 거쳐야 승인된다.
+- token 자체의 만료(10분, kubelet이 갱신)와 launch의 `bootstrap_deadline`은 다른 것이다. 앞은 서명 검증에서, 뒤는 launch 상태에서 본다.
+- `bootstrapCredentialState`와 adopt 판단(지금은 Secret을 읽고 nonce 지문을 대조한다, `kubernetes/src/backend.ts:228-274`)은 `bootstrap_kind`로 갈린다. `workload_identity` launch는 Secret을 보지 않고 위 열로 판단한다.
+- 결과: `workload_identity` launch만 남으면 Role에서 `secrets`가 빠진다. nonce가 Secret과 env에 남지 않는다.
+- 테스트로 고정할 것: create 성공 뒤 UID 기록 전 crash, 교체 요청과 claim의 경합, 폐기된 UID의 재claim, deadline 경과, 응답 유실 재전송.
+
+### 0-3. 실패 로그 tail을 끌 수 있게
+
+`pods/log` get은 그 namespace의 모든 Pod 로그를 읽는 권한이다. 지금은 어댑터가 라벨을 확인한 뒤에만 읽지만 권한 자체는 넓다. chart에 `worker.failureLogTail`(기본 `true`, 지금과 같음)을 두고, `false`면 Role에서 `pods/log`를 빼고 어댑터는 tail 없이 종료 사유만 남긴다. 0-1을 하면 그 namespace에는 worker Pod만 있으므로 켜 둬도 위험이 작다.
+
+### 0-4. scheduler가 만들 수 있는 Pod를 admission으로 묶는다
+
+`pods` create 권한이 남는 한, scheduler가 털리면 그 namespace에 아무 Pod나 만들 수 있다. chart가 worker namespace에 ValidatingAdmissionPolicy를 배포해, scheduler SA가 만드는 Pod를 worker spec 계약으로 제한한다. Kubernetes 1.30부터 GA인 기능이라 별도 컴포넌트가 필요 없다. 계약은 1안과 볼륨 쪽이 다르다. 지금 Pod spec(`packages/adapters/execution/kubernetes/src/specs.ts`)을 기준으로 다음만 허용한다.
+
+- 이미지: digest 형식이고 허용 목록에 있다.
+- ServiceAccount: worker SA, `automountServiceAccountToken: false`.
+- 볼륨: 세션 workspace PVC(`claimName`이 `ap-ws-<installation>-` 접두사), 메모리 emptyDir(`/tmp`, HOME), 0-2의 projected token(audience 고정). 전환 기간에만 nonce Secret 참조를 허용하되, 이름이 nonce Secret 접두사이고 `secretKeyRef` 하나뿐인 경우로 제한한다. 그 밖의 Secret·ConfigMap·hostPath는 거절한다.
+- 보안 설정: `readOnlyRootFilesystem`, `runAsNonRoot`, capabilities drop ALL, `allowPrivilegeEscalation: false`, hostNetwork·hostPID 없음.
+- 네트워크: `dnsPolicy: None`, proxy 주소의 `hostAliases`, `enableServiceLinks: false`, NetworkPolicy가 고르는 라벨.
+
+검증: 지금 어댑터가 만드는 Pod(nonce 판, token 판)는 통과하고, 임의 Secret을 마운트하거나 다른 이미지·쓰기 가능한 root fs인 Pod는 거절된다.
+
+### 0안의 결과
+
+| | 지금 | 0안(0-1~0-4) |
+| --- | --- | --- |
+| Role 위치 | release namespace(앱 Secret과 같은 곳) | worker 전용 namespace |
+| `pods` | get·list·create·delete | 같음. 만들 수 있는 Pod는 admission이 묶음 |
+| `persistentvolumeclaims` | get·list·create·delete | 같음 |
+| `secrets` | get·list·create·delete | 없음 |
+| `pods/log` | get | 켜면 get(worker Pod만 있는 namespace), 끄면 없음 |
+
+어댑터, chart Role, `deploy/helm/render-check.ts`의 Role 검사, [Kubernetes 실행 backend](../../operator/kubernetes-backend.md)의 RBAC 표가 함께 바뀐다.
+
+### 0안의 이전
+
+- 0-3, 0-4는 기존 설치에 바로 들어간다.
+- 0-2는 세 단계다. (1) api·backend·reconcile이 `bootstrap_kind`로 두 방식을 모두 처리하는 판을 낸다. 새 launch는 아직 `nonce`. (2) 새 launch를 `workload_identity`로 바꾼다. 떠 있는 nonce launch는 그대로 claim·adopt·교체된다. Role의 `secrets`는 남긴다. (3) `nonce` launch가 하나도 남지 않고 nonce Secret이 모두 지워진 것을 확인한 뒤 Role에서 `secrets`를 빼고 nonce 경로를 지운다. (1)과 (2) 사이, (2)와 (3) 사이에서 scheduler 재시작과 이전 판으로의 되돌림을 검증한다. (2)에서 되돌리면 이전 판이 `workload_identity` launch를 모르므로, (1)의 판이 그 launch를 교체할 수 있어야 한다.
+- 0-1은 PVC가 namespace를 옮길 수 없어서 순서가 필요하다. backend는 지금 namespace 하나만 조회·생성·삭제하므로(`kubernetes/src/backend.ts`), 기존 세션의 PVC를 그냥 두고 namespace를 바꾸면 그 세션의 workspace를 못 찾고 빈 PVC를 새로 만들거나 회수를 잘못 처리한다. 그래서 전환 기간에는 backend가 이전 namespace를 함께 본다.
+  - `EXECUTION_K8S_LEGACY_NAMESPACE`를 받는다. 이전 namespace에도 Pod가 계속 생기므로, 이전이 끝날 때까지 두 namespace 모두에 scheduler Role, worker SA, worker NetworkPolicy, admission 정책 binding, pull Secret을 두고, proxy의 ingress 규칙은 두 namespace의 worker를 모두 받는다.
+  - 세션의 workspace PVC가 이전 namespace에 있고 그 세션에 committed checkpoint가 없으면 그 세션의 launch는 이전 namespace에 만든다. 새 세션과 PVC가 없는 세션은 새 namespace로 간다. 판단은 launch를 예약할 때 하고, launch 행에 namespace를 적는다.
+  - `listManaged`·`inspect`·`terminate`·`listWorkspaces`·`removeWorkspace`는 두 namespace를 모두 본다. 끝나지 않은 workspace 회수 claim은 적힌 namespace에서 마저 처리한다(`packages/platform/src/scheduler/workspaces.ts:43`).
+  - 끝나는 시점에는 상한이 없다. 이전 namespace의 PVC를 쓰는 세션이 재개하면 계속 그 PVC를 쓰고, stopped TTL은 마지막 상태 변경부터 세며 slot을 쥔 launch가 있으면 회수하지 않는다(`packages/db/src/scheduler-store.ts:863-879`). 그래서 legacy 값과 이전 namespace의 리소스는 **실제로** 이전 namespace에 PVC·launch·끝나지 않은 회수 claim이 하나도 남지 않은 것을 확인한 뒤에 지운다.
+  - 이전을 앞당기려면, committed checkpoint가 있는 세션은 다음 launch를 새 namespace에 만들고 이전 PVC는 회수 대상으로 넘긴다. restore가 workspace를 통째로 교체하므로 잃는 것이 없다. checkpoint가 없는 세션만 이전 namespace에 남는다.
+  - 테스트로 고정할 것: 이전 namespace에 PVC가 있는 세션의 재개, 끝나지 않은 회수 claim, checkpoint 없는 세션의 전환.
+
+### 0안의 검증
+
+OrbStack 내장 K8s의 기존 `k8s-smoke` 흐름에 더한다.
+
+- `kubectl auth can-i --list --as=system:serviceaccount:<ns>:<scheduler>`가 worker namespace의 `pods`·`persistentvolumeclaims`(와 켰을 때 `pods/log`)만 보이고, release namespace의 `secrets`가 `no`다.
+- 세션 하나가 token claim으로 turn을 끝낸다. 다른 Pod의 token, UID가 launch와 다른 token은 401이다.
+- scheduler SA로 정책을 어기는 Pod(쓰기 가능한 root fs, 다른 이미지, Secret 마운트)를 만들면 admission이 거절한다.
+- worker namespace를 나눈 설치에서 worker → proxy, proxy → api 경로가 통하고, worker → api 직접 경로는 막힌다.
+
+## 1안 설계
 
 ### worker 신원: nonce Secret 대신 projected ServiceAccount token
 
@@ -218,13 +342,13 @@ egress proxy 주소: 지금 scheduler는 proxy Service의 ClusterIP를 매번 �
   - KEDA는 chart에 넣지 않는다. 클러스터당 하나만 둘 수 있고(external metrics API 등록이 하나뿐이다, [FAQ](https://keda.sh/docs/2.21/reference/faq/)) 다른 설치와 함께 쓰기 때문이다. `keda.sh/v1alpha1` CRD가 없으면 render가 실패한다. KEDA operator는 문서상 모든 API group의 `get`과 모든 namespace의 secrets 읽기를 갖는다([KEDA cluster](https://keda.sh/docs/latest/operate/cluster/)). 설치 안내에 `KEDA_RESTRICT_SECRET_ACCESS=true`를 권한다.
   - `deploy/helm/render-check.ts`에 pull 모드 검사(Role 없음, 템플릿의 SA token 자동 마운트 꺼짐, projected token audience, 정책 존재)를 더한다.
 
-## 기존 방식과 공존
+## 1안: 기존 방식과 공존
 
 - 기본값은 바뀌지 않는다. `execution.mode`가 없거나 `push`면 지금 chart와 같은 manifest가 나와야 한다. render-check에 "pull 값이 없으면 manifest가 이전과 같다"는 검사를 둔다.
 - 한 설치는 한 모드만 쓴다. 섞으면 슬롯과 실패 계산이 두 갈래가 된다.
 - compose 설치는 바뀌지 않는다. `local_docker`는 docker.sock을 쓰는 push다.
 
-## 이전 단계
+## 1안: 이전 단계
 
 1. **확장**: claim의 `workload_identity`, launch 멱등 키 열, pull 종료 계약 경로, 대기 수 endpoint, heartbeat `drain_requested`, worker의 token 경로, `EXECUTION_BACKEND=kubernetes_pull`, chart `execution.mode: pull`. 기본값은 `push`. 기존 설치의 동작과 manifest는 그대로다.
 2. **검증**: 아래 "구현 뒤 실측할 것"을 OrbStack K8s에서 통과한다. 그 뒤 dev 클러스터 하나를 pull로 옮긴다.
@@ -236,7 +360,7 @@ egress proxy 주소: 지금 scheduler는 proxy Service의 ClusterIP를 매번 �
    - 되돌리기(pull → push)는 같은 순서의 반대다. 새 pull claim을 막고(대기 수 endpoint가 0을 내고 claim이 `NOT_FOUND`), pull 슬롯이 모두 반환된 뒤 push를 켠다.
 4. **기본값 변경**과 **push 경로 삭제**(`packages/adapters/execution/kubernetes`, scheduler Role)는 각각 별도 결정이다.
 
-## 검증 계획
+## 1안: 검증 계획
 
 ### PoC로 잰 것 (2026-10-31, OrbStack K8s v1.36.5, KEDA 2.21.0)
 
@@ -275,7 +399,7 @@ OrbStack 내장 K8s에서 verify 스택의 chart를 `execution.mode: pull`로 �
 
 ## 다른 의견: Codex 검토 (2026-10-31)
 
-Codex(read-only)에 이 문서의 첫 초안과 코드를 주고 독립 검토를 받았다. 11건이 모두 Act-on이었고 이 판에 반영했다. 반영한 주요 지적은 다음과 같다.
+Codex(read-only)에 1안을 추천하던 첫 초안과 코드를 주고 독립 검토를 받았다. 11건이 모두 Act-on이었고 1안 설계에 반영했다. 반영한 주요 지적은 다음과 같다.
 
 - 슬롯은 Pod 부재 확인에서만 반환되므로 "행 정리만 한다"로는 슬롯이 돌아오지 않는다 → "종료 계약" 절.
 - heartbeat에는 종료 의도가 없고, lease를 잃은 worker는 drain 없이 turn을 버린다 → `drain_requested`와 강제 종료를 나눴다.
@@ -284,23 +408,20 @@ Codex(read-only)에 이 문서의 첫 초안과 코드를 주고 독립 검토�
 
 2차 검토는 11건 중 10건을 해결로 보고 새 Act-on 3건을 냈다. api가 공개라 claim route를 네트워크로 막을 수 없다는 것, terminate는 자격 증명을 폐기하지 않고 fence로 거절한다는 것, 종료 계약이 NetworkPolicy 강제를 전제로 한다는 것이다. 모두 반영했다.
 
-반영하지 않은 것은 결론이다. Codex의 판단은 다음과 같다.
+처음 판이 반영하지 않은 것은 결론이었다. Codex의 판단은 다음과 같다.
 
 > 현재 문서대로 구현을 권고하지 않는다. `accurate`와 claim-time launch 자체는 성립하지만, 기존 코드의 핵심인 "실행 종료를 확인한 뒤 자원을 반환한다"는 계약을 바꾸는 설계가 빠졌다. 우선 push를 유지하겠다. 플랫폼의 Kubernetes 권한 제거가 필수라면, 클러스터 안의 별도 launcher가 플랫폼에서 예약된 실행을 pull하고 기존 Pod 생성·종료 관측 로직을 수행하는 방식을 먼저 택하겠다. KEDA 방식은 제한된 이미지/class와 논리적 종료 보장을 받아들이는 opt-in 실험으로 한정하는 편이 낫다.
 
-이 문서도 KEDA 방식을 기본값이 아닌 opt-in으로 두므로 마지막 문장과는 같은 곳에 있다. 다른 점은 순서다. 이 문서는 KEDA 방식을 먼저 확장·검증하고, 새 종료 계약이 위 실측(특히 펜싱 뒤 살아 있는 worker)을 통과하지 못하면 launcher(후보 5)로 간다. 근거는 둘이다. 펜싱 뒤에는 proxy가 그 worker의 자격 증명 사용을 거절하고 worker egress가 proxy로만 나가므로(NetworkPolicy가 강제될 때), 플랫폼이 Pod 종료를 보지 못해도 막아야 할 부작용은 이미 막힌다. 그리고 launcher는 Kubernetes를 직접 제어하는 코드를 그대로 우리에게 남겨, 이번 질문("Kubernetes를 직접 제어하지 않고")에 답하지 않는다. 어느 쪽을 먼저 할지는 오너 결정이다.
+처음 판은 KEDA 방식을 먼저 확장·검증하자고 했다. 근거는 펜싱 뒤에는 proxy가 그 worker의 자격 증명 사용을 거절하므로 Pod 종료를 못 봐도 막을 부작용은 막힌다는 것, launcher는 Kubernetes 제어 코드를 우리에게 남긴다는 것이었다. 지금 판은 0안(직접 생성, 권한 축소)을 같은 축에 올려 0안을 고른다. Codex의 "우선 push를 유지하겠다"와 같은 결론이고, 그 push를 어떻게 줄일지가 0안이다. 1안은 Codex가 말한 대로 "제한된 이미지/class와 논리적 종료 보장을 받아들이는 opt-in"의 설계로 남긴다. 0안을 넣은 판에 대한 Codex 검토는 이 문서의 PR에 남긴다.
 
 ## 열린 결정
 
 | 결정 | 추천 | 기본값 |
 | --- | --- | --- |
-| pull 모드를 구현할지 | 1단계(확장)와 2단계(검증)만 먼저 | 하지 않음 |
-| KEDA 방식과 launcher(후보 5) 중 먼저 할 것 | KEDA. 종료 계약 실측에서 실패하면 launcher | - |
-| 새 종료 계약(펜싱 + 유예 뒤 슬롯 반환, NetworkPolicy 필수)을 받아들일지 | 받아들인다. 2단계 실측이 조건 | - |
-| KEDA 의존 | 받아들인다. chart에는 넣지 않고 전제 조건으로 문서화 | - |
-| 기본값을 `pull`로 바꾸는 시점 | dev 클러스터 한 곳에서 2주 문제없이 돈 뒤 별도 결정 | `push` |
-| checkpoint 없는 작업을 Pod와 함께 잃는 것 | 받아들인다. 문서화 | - |
-| 물리 상한과 논리 상한의 차이 | 논리 상한 + 2 | - |
-| `activeDeadlineSeconds` | 24시간 | 24시간 |
-| worker namespace를 api와 나눌지 | 처음에는 같은 namespace | 같은 namespace |
+| 0안과 1안 중 무엇을 할지 | 0안 | 지금 그대로 |
+| 0안 중 먼저 할 것 | 0-1(worker 전용 namespace)과 0-4(admission). 앱 Secret 노출을 바로 없앤다. 0-2(token)는 그다음 | - |
+| `worker.failureLogTail` 기본값 | `true`(지금과 같음). 0-1 뒤에는 worker Pod만 읽는다 | `true` |
+| 1안을 꺼낼 조건 | "플랫폼 K8s 권한 0"이 설치 요구 사항이 되고, 그 설치가 이미지·크기를 class 몇 개로 묶어도 될 때 | 꺼내지 않음 |
+| 1안을 꺼낼 때: KEDA 의존, 새 종료 계약, checkpoint 없는 작업 손실 | 이 문서의 1안 설계대로 받아들인다. 실측이 조건 | - |
+| 1안을 꺼낼 때: 물리 상한과 논리 상한의 차이, `activeDeadlineSeconds` | 논리 상한 + 2, 24시간 | - |
 | compose에 pull(상시 풀)을 둘지 | 두지 않는다 | 두지 않음 |
