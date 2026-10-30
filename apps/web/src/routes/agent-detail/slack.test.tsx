@@ -620,7 +620,7 @@ describe("Slack management", () => {
     expect(toggle.getAttribute("aria-checked")).toBe("false");
     expect(
       within(basic).getByText(
-        "켜면 @멘션했을 때만, 끄면 멘션 없이도 채널 메시지에 반응합니다.",
+        "켜면 @멘션했을 때만, 끄면 멘션 없이 채널에 쓴 글에도 반응합니다. 어느 쪽이든 이미 대화 중인 스레드의 답글에는 멘션 없이도 답합니다.",
       ),
     ).toBeDefined();
     await user.click(toggle);
