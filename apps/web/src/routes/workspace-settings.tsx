@@ -182,7 +182,7 @@ export function SettingsCard({
   );
 }
 
-function ReadOnlyMark() {
+export function ReadOnlyMark() {
   const { t } = useI18n();
   return (
     <div className="inline-flex shrink-0 items-center gap-1 text-caption text-subtle-foreground">
