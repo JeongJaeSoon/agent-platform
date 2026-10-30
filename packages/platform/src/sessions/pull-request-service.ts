@@ -289,7 +289,10 @@ export function createPullRequestService(deps: {
                   body.title ?? `Agent session ${source.sessionId}`,
                   redact,
                 ),
-                body: `${cleanBody(body.body ?? "", forge.maxBodyLength - 2_000, redact)}\n\n${tail}`,
+                body: withPullRequestTail(
+                  cleanBody(body.body ?? "", forge.maxBodyLength - 2_000, redact),
+                  tail,
+                ),
               });
       } catch (error) {
         if (error instanceof ForgeCredentialError) {

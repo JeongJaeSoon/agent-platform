@@ -82,7 +82,11 @@ export function GitHubUserLinkSection({
     wasEditing.current = editing;
   }, [editing]);
 
-  const settings = useQuery(githubSettingsQuery(client, workspaceId));
+  // The App card above already read these settings; mounting later must not read them again.
+  const settings = useQuery({
+    ...githubSettingsQuery(client, workspaceId),
+    refetchOnMount: false,
+  });
   const save = useMutation<
     PutGitHubOAuthClientSecretResponse,
     ApiError,

@@ -55,6 +55,7 @@ const settingsOf = (ceiling = CEILING, revision = 3) => ({
   ceiling,
   revision,
   agents_using: { workflows: 0, actions: 2, checks: 0, issues: 0, review: 0 },
+  oauth: { client_id: null, client_secret_set: false, callback_url: null },
   apps: { author: { permissions: PERMISSIONS }, reviewer: null },
 });
 

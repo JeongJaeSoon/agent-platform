@@ -27,6 +27,7 @@ const NO_CEILING = {
   },
   revision: 0,
   agents_using: { workflows: 0, actions: 0, checks: 0, issues: 0, review: 0 },
+  oauth: { client_id: null, client_secret_set: false, callback_url: null },
   apps: { author: null, reviewer: null },
 };
 const KEY_TEXT = "fake-pem-text";
@@ -440,6 +441,7 @@ describe("워크스페이스 GitHub 연결 — 사용자 계정 연결", () => {
   const registered = (settings = githubSettings()) => ({
     "GET /v1/auth/me": () => json(200, me()),
     [`GET ${APP}`]: () => json(200, REGISTERED),
+    [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
     [`GET ${GITHUB_SETTINGS}`]: () => json(200, settings),
   });
   const section = async () =>
