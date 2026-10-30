@@ -223,9 +223,9 @@ describe("GitHub 연결 › App 권한과 최대 권한", () => {
     ).toEqual([{ ceiling: { ...CEILING, issues: true }, revision: 3 }]);
   });
 
-  test("App을 지우면 그 App의 권한 표도 사라진다", async () => {
+  test("App을 지우면 설정이 아직 옛 App을 말해도 권한 표는 사라지고, 설정을 다시 읽는다", async () => {
     let deleted = false;
-    renderAt(PATH, {
+    const { api } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${APP}`]: () =>
         json(
@@ -239,14 +239,8 @@ describe("GitHub 연결 › App 권한과 최대 권한", () => {
               }
             : APP_BODY,
         ),
-      [`GET ${SETTINGS}`]: () =>
-        json(200, {
-          ...settingsOf(),
-          apps: {
-            author: deleted ? null : { permissions: PERMISSIONS },
-            reviewer: null,
-          },
-        }),
+      // A settings read that lags the delete: only the App read says it is gone.
+      [`GET ${SETTINGS}`]: () => json(200, settingsOf()),
       [`DELETE ${APP}`]: () => {
         deleted = true;
         return json(200, {
@@ -263,6 +257,9 @@ describe("GitHub 연결 › App 권한과 최대 권한", () => {
     await waitFor(() =>
       expect(screen.queryByRole("heading", { name: "App 권한" })).toBeNull(),
     );
+    const settingsReads = () =>
+      api.calls.filter((c) => c.method === "GET" && c.path === SETTINGS).length;
+    await waitFor(() => expect(settingsReads()).toBe(2));
   });
 
   test("구성원은 권한 표와 상한을 읽기만 하고, 스위치는 잠기고 저장 버튼이 없다", async () => {
