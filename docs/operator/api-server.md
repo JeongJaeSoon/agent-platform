@@ -764,6 +764,7 @@ owner·admin이 콘솔 세션(cookie)으로만 쓴다. 값은 돌려주지 않�
 |---|---|
 | `GET /v1/agents/{id}/slack/app` | `{slack_app}`: 에이전트의 앱(`creating`·`created`·`deleting`). 없으면 `null` |
 | `POST /v1/agents/{id}/slack/app` `{"replace_uncertain": false}` | 앱을 만들고 `{slack_app, created, warnings}`를 돌려준다. 이미 있으면 같은 앱을 `created: false`로 |
+| `GET /v1/workspaces/{id}/slack/apps` | `{items}`: 콘솔이 만든 에이전트 앱과 계정 연결 앱 중 `creating`·`created`·`deleting`인 것. 계정 연결 앱이 먼저, 그다음 에이전트 이름순이다. 에이전트 앱은 `agent`(`id`·`name`·`slug`·봇 설치 여부 `installed`)를 함께 준다. 손으로 만든 앱은 빠진다. 소유자·관리자만, 콘솔 세션으로만 |
 | `DELETE /v1/workspaces/{id}/slack/apps/{app_id}` | 그 workspace의 `slack_apps`에 있는 앱만 Slack에서 지우고(`apps.manifest.delete`) 비밀값을 지운다. 행은 `deleted`로 남는다 |
 | `PUT /v1/workspaces/{id}/slack/apps/{app_id}/secrets/{purpose}` `{"value":"…"}` | 손으로 만든 앱(kind `manual`)의 값만 넣는다. 플랫폼이 만든 앱은 `403 server_managed_secret`. `purpose`가 셋(`slack_signing_secret`·`slack_client_secret`·`slack_bot_token`) 밖이거나 `app_id`가 UUID가 아니면 `400` |
 

@@ -226,6 +226,33 @@ export const deleteSlackAppResponseSchema = z
   .strict();
 
 /**
+ * The apps this console made in the workspace and still keeps: agent apps
+ * and the account-link app, not ones failed, abandoned or deleted.
+ */
+export const listWorkspaceSlackAppsResponseSchema = z
+  .object({
+    items: z.array(
+      z
+        .object({
+          slack_app: slackAppSchema,
+          /** Null for the account-link app. */
+          agent: z
+            .object({
+              id: agentIdSchema,
+              name: z.string(),
+              slug: z.string(),
+              /** Whether the agent's bot is installed in Slack now. */
+              installed: z.boolean(),
+            })
+            .strict()
+            .nullable(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+
+/**
  * The config token as the console shows it. `needs_reentry`: Slack no
  * longer takes the stored pair, or a rotation's result was lost; an owner
  * or admin pastes a new token.
@@ -262,6 +289,9 @@ export type CreateSlackAppResponse = z.infer<
 export type GetSlackAppResponse = z.infer<typeof getSlackAppResponseSchema>;
 export type DeleteSlackAppResponse = z.infer<
   typeof deleteSlackAppResponseSchema
+>;
+export type ListWorkspaceSlackAppsResponse = z.infer<
+  typeof listWorkspaceSlackAppsResponseSchema
 >;
 export type SlackConfigTokenSummary = z.infer<
   typeof slackConfigTokenSummarySchema

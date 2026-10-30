@@ -200,6 +200,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/agents/{id}/slack/app/settings",
     "PUT /v1/agents/{id}/slack/app/settings",
     "POST /v1/agents/{id}/slack/app",
+    "GET /v1/workspaces/{id}/slack/apps",
     "DELETE /v1/workspaces/{id}/slack/apps/{app_id}",
     "PUT /v1/workspaces/{id}/slack/apps/{app_id}/secrets/{purpose}",
   ],

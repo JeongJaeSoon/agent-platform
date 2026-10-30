@@ -500,6 +500,37 @@ export function createMemorySlackAppStore(input: {
         ? { app: record(row), clientSecret }
         : null;
     },
+    async listMade(workspaceId) {
+      // No identities here: a stored bot token stands for an install.
+      const made = [...rows.values()]
+        .filter(
+          (row) =>
+            row.workspaceId === workspaceId &&
+            row.kind !== "manual" &&
+            LIVE.has(row.state),
+        )
+        .map((row) => {
+          const app = record(row);
+          const agent = row.agentId ? input.agents.get(row.agentId) : undefined;
+          return {
+            app,
+            agent: agent
+              ? {
+                  id: agent.id,
+                  name: agent.name,
+                  slug: agent.slug,
+                  installed: app.secrets.slack_bot_token !== null,
+                }
+              : null,
+          };
+        });
+      return made.sort(
+        (a, b) =>
+          Number(a.agent !== null) - Number(b.agent !== null) ||
+          (a.agent?.name ?? "").localeCompare(b.agent?.name ?? "") ||
+          a.app.createdAt.getTime() - b.app.createdAt.getTime(),
+      );
+    },
     async lastTokenUser(workspaceId) {
       const made = [...rows.values()]
         .filter((row) => row.workspaceId === workspaceId)

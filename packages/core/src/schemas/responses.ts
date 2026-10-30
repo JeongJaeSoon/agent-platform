@@ -60,6 +60,7 @@ import {
   listTakeoversResponseSchema,
   listTeamsResponseSchema,
   listTurnsResponseSchema,
+  listWorkspaceSlackAppsResponseSchema,
   loginMethodsResponseSchema,
   loginResponseSchema,
   lookupSlackChannelsResponseSchema,
@@ -140,6 +141,7 @@ export const responseSchemas = {
     deleteGitHubAppResponseSchema,
   "GET /v1/workspaces/{id}/github-settings": githubSettingsResponseSchema,
   "PUT /v1/workspaces/{id}/github-settings": githubSettingsResponseSchema,
+  "GET /v1/workspaces/{id}/slack/apps": listWorkspaceSlackAppsResponseSchema,
   "DELETE /v1/workspaces/{id}/slack/apps/{app_id}":
     deleteSlackAppResponseSchema,
   "PUT /v1/workspaces/{id}/slack/apps/{app_id}/secrets/{purpose}":

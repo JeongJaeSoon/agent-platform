@@ -367,6 +367,7 @@ describe("OpenAPI document", () => {
         "/v1/sessions/{id}/usage",
         "/v1/workspaces/{id}/audit-retention",
         "/v1/workspaces/{id}/slack-guest",
+        "/v1/workspaces/{id}/slack/apps",
         "/v1/workspaces/{id}/github-app",
         "/v1/workspaces/{id}/github-apps/{role}",
         "/v1/workspaces/{id}/github-settings",

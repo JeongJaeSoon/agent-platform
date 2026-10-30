@@ -571,6 +571,47 @@ describe("Slack app service", () => {
     );
   });
 
+  test("owners and admins list the apps the console made, from the console only", async () => {
+    const { service } = await setup();
+    expect(await service.listMadeApps(user("owner"), WORKSPACE)).toEqual({
+      items: [],
+    });
+    const made = await service.createAgentApp(user("owner"), AGENT, {
+      replace_uncertain: false,
+    });
+    const listed = await service.listMadeApps(user("admin"), WORKSPACE);
+    expect(listed.items).toEqual([
+      {
+        slack_app: made.slack_app,
+        agent: {
+          id: AGENT,
+          name: "Release notes",
+          slug: "release-notes",
+          installed: false,
+        },
+      },
+    ]);
+    expect(
+      (
+        await refusal(
+          service.listMadeApps(user("member", { id: AGENT_ADMIN }), WORKSPACE),
+        )
+      ).code,
+    ).toBe("FORBIDDEN");
+    expect(
+      await refusal(
+        service.listMadeApps(user("owner", { surface: "api" }), WORKSPACE),
+      ),
+    ).toEqual({
+      code: "FORBIDDEN",
+      details: { reason_code: "web_session_required" },
+    });
+    expect(
+      (await refusal(service.listMadeApps(user("owner"), crypto.randomUUID())))
+        .code,
+    ).toBe("NOT_FOUND");
+  });
+
   test("delete goes to Slack only for the workspace's own app", async () => {
     const { service, slack } = await setup();
     const made = await service.createAgentApp(user("owner"), AGENT, {
