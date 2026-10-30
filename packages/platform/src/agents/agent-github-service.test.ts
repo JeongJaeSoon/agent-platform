@@ -157,6 +157,9 @@ function serviceWith(input: {
         kind: "app",
         githubCom: true,
         appId: 1,
+        quotaKey: () => {
+          throw new Error("not used");
+        },
         credential: async () => {
           throw new Error("not used");
         },

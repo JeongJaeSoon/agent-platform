@@ -274,14 +274,19 @@ export function createPullRequestService(deps: {
       }
       const { forge, base } = await forgeFor(actor, source, refuse);
       const tail = await tailFor(source);
-      let opened: { number: number; url: string; base: string };
-      let created: boolean;
+      let opened: {
+        number: number;
+        url: string;
+        base: string;
+        created: boolean;
+      };
       try {
         const found = await forge.findPullRequestForBranch(head);
-        created = found?.state !== "open";
+        // An open one found, or GitHub answering a racing one with 422, is
+        // a pull request the platform did not make: the outcome is adopted.
         opened =
           found?.state === "open"
-            ? found
+            ? { ...found, created: false }
             : await forge.createPullRequest({
                 head,
                 base,
@@ -304,6 +309,7 @@ export function createPullRequestService(deps: {
         }
         throw error;
       }
+      const { created } = opened;
       // A later push request reuses the branch's open pull request; its tail
       // names this push's commit from now on. The pull request is open
       // whether or not this lands, so a failure is only logged.

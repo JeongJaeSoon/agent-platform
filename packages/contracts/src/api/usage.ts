@@ -229,6 +229,42 @@ export const usageSummaryQuerySchema = usagePeriodQuerySchema
     }
   });
 
+/**
+ * GET /v1/usage/outcomes: the summary's scopes, period and readers, with
+ * the pull requests those sessions opened. `group_by` takes `agent` only.
+ */
+export const usageOutcomesQuerySchema = usagePeriodQuerySchema
+  .extend({
+    scope: z.enum(USAGE_SUMMARY_TOTALS_SCOPE_VALUES),
+    agent_id: agentIdSchema.optional(),
+    group_by: z.enum(["agent"]).optional(),
+  })
+  .superRefine((query, ctx) => {
+    checkPeriod(query, ctx);
+    if (query.scope === "agent") {
+      if (query.agent_id === undefined) {
+        ctx.addIssue({
+          code: "custom",
+          message: "scope=agent needs agent_id",
+          path: ["agent_id"],
+        });
+      }
+      if (query.group_by !== undefined) {
+        ctx.addIssue({
+          code: "custom",
+          message: "scope=agent takes no group_by",
+          path: ["group_by"],
+        });
+      }
+    } else if (query.agent_id !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "agent_id goes only with scope=agent",
+        path: ["agent_id"],
+      });
+    }
+  });
+
 const DAY_MS = 86_400_000;
 /**
  * The longest period a series or breakdown answers, a leap year of day
@@ -446,6 +482,49 @@ export const usageSummaryResponseSchema = z
   .strict();
 
 /**
+ * The outcome figures of a set of sessions: each session's cost once, however
+ * many pull requests it opened. A state is as of each outcome's last check.
+ */
+const usageOutcomeFiguresSchema = z.object({
+  session_count: countSchema,
+  cost_usd: costUsdSchema,
+  cost_complete: z.boolean(),
+  token_count: countSchema,
+  sessions_with_pr: countSchema,
+  sessions_with_merged_pr: countSchema,
+  pr_count: countSchema,
+  merged_pr_count: countSchema,
+  closed_pr_count: countSchema,
+  // Only the sessions with a merged pull request.
+  cost_of_merged_sessions_usd: costUsdSchema,
+  // Every session's cost over merged_pr_count; null with none merged.
+  cost_per_merged_pr_usd: costUsdSchema.nullable(),
+});
+
+export const usageOutcomesResponseSchema = usageOutcomeFiguresSchema
+  .extend({
+    scope: z.enum(USAGE_SUMMARY_TOTALS_SCOPE_VALUES),
+    // Half-open: since <= created_at < until.
+    period: z
+      .object({ since: timestampSchema, until: timestampSchema })
+      .strict(),
+    refreshed_at: timestampSchema,
+    /**
+     * Only with `group_by=agent`: the same sessions, each under its agent,
+     * largest cost first; `id` and `name` are null for the sessions without
+     * one. The groups add up to the totals above.
+     */
+    groups: z
+      .array(
+        usageOutcomeFiguresSchema
+          .extend({ id: z.string().nullable(), name: z.string().nullable() })
+          .strict(),
+      )
+      .optional(),
+  })
+  .strict();
+
+/**
  * Every UTC day the period touches, oldest first, empty days included. Each
  * bucket adds up the sessions created that day exactly as the summary does,
  * so the buckets of one response sum to the summary of the same period.
@@ -524,6 +603,8 @@ export type UsageBreakdownResponse = z.infer<
 export type UsageSeriesQuery = z.infer<typeof usageSeriesQuerySchema>;
 export type UsageSeriesResponse = z.infer<typeof usageSeriesResponseSchema>;
 export type UsageSummaryQuery = z.infer<typeof usageSummaryQuerySchema>;
+export type UsageOutcomesQuery = z.infer<typeof usageOutcomesQuerySchema>;
+export type UsageOutcomesResponse = z.infer<typeof usageOutcomesResponseSchema>;
 export type UsageSummaryResponse = z.infer<typeof usageSummaryResponseSchema>;
 export type UsageToolsQuery = z.infer<typeof usageToolsQuerySchema>;
 export type UsageToolsResponse = z.infer<typeof usageToolsResponseSchema>;

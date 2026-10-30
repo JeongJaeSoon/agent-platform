@@ -86,6 +86,7 @@ function fakeApi(): GitHubApi {
     getRepository: unused,
     findPullRequestForBranch: unused,
     createPullRequest: unused,
+    getPullRequest: unused,
     updatePullRequestBody: unused,
     upsertComment: unused,
     dispatchWorkflow: unused,
@@ -107,6 +108,7 @@ function fakeConnection(
     kind: options.kind ?? "app",
     githubCom: options.githubCom ?? true,
     appId: options.kind === "pat" ? null : (options.appId ?? 7),
+    quotaKey: async () => `${label}:quota`,
     installed: async () => (options.kind === "pat" ? null : true),
     credential: async (repo, permissions) => {
       issued.push({ repo, permissions });

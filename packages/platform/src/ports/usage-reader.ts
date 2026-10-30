@@ -100,6 +100,33 @@ export type UsageSeriesRecord = {
   buckets: UsageSeriesBucketRecord[];
 };
 
+/** The summary's sessions with the pull requests they opened. */
+export type UsageOutcomeFiguresRecord = {
+  sessionCount: number;
+  costUsd: string;
+  providerTokens: number;
+  incompleteTurnCount: number;
+  sessionsWithPr: number;
+  sessionsWithMergedPr: number;
+  prCount: number;
+  mergedPrCount: number;
+  closedPrCount: number;
+  costOfMergedSessionsUsd: string;
+  /** Every session's cost over the merged count, to six places; null with none. */
+  costPerMergedPrUsd: string | null;
+};
+
+/** Totals and per-agent groups from one statement, so they add up. */
+export type UsageOutcomesRecord = UsageOutcomeFiguresRecord & {
+  readAt: Date;
+  until: Date;
+  /** Largest cost first; a null id is the sessions without an agent. */
+  groups: (UsageOutcomeFiguresRecord & {
+    id: string | null;
+    name: string | null;
+  })[];
+};
+
 export type UsageBreakdownFiguresRecord = {
   sessionCount: number;
   inputTokens: number;
@@ -180,6 +207,10 @@ export interface UsageReader {
     filter: UsageTotalsFilter,
     period: { since: Date; until?: Date },
   ): Promise<UsageSummaryRecord>;
+  usageOutcomes(
+    filter: UsageTotalsFilter,
+    period: { since: Date; until?: Date },
+  ): Promise<UsageOutcomesRecord>;
   /** Largest cost first. */
   usageSummaryGroups(
     filter: UsageSummaryFilter,

@@ -15,5 +15,6 @@ export * from "./pull-request.ts";
 export * from "./push-request.ts";
 export * from "./receipt.ts";
 export * from "./session.ts";
+export * from "./session-outcome.ts";
 export * from "./turn.ts";
 export * from "./usage.ts";

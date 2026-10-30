@@ -6,6 +6,8 @@ import {
   sessionUsageResponseSchema,
   usageBreakdownQuerySchema,
   usageBreakdownResponseSchema,
+  usageOutcomesQuerySchema,
+  usageOutcomesResponseSchema,
   usageSeriesQuerySchema,
   usageSeriesResponseSchema,
   usageSummaryQuerySchema,
@@ -38,6 +40,14 @@ export function registerUsageRoutes(router: ApiRouter, service: UsageService) {
       service.getUsageSummary(context.get("caller"), query),
     );
     return jsonWithSchema(context, usageSummaryResponseSchema, summary);
+  });
+
+  apiRoute(router, "getUsageOutcomes", async (context) => {
+    const query = requireQuery(context, usageOutcomesQuerySchema);
+    const outcomes = await mapped(() =>
+      service.getUsageOutcomes(context.get("caller"), query),
+    );
+    return jsonWithSchema(context, usageOutcomesResponseSchema, outcomes);
   });
 
   apiRoute(router, "getUsageSeries", async (context) => {

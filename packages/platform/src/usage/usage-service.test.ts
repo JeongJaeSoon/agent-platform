@@ -250,6 +250,9 @@ function service(
         };
       },
       usageToolDays: async () => [{ date: "2026-10-01", calls: 1 }],
+      usageOutcomes: async () => {
+        throw new Error("not read");
+      },
     },
   });
 }
@@ -594,6 +597,9 @@ describe("usage service", () => {
         usageToolDays: async () => {
           throw new Error("not read");
         },
+        usageOutcomes: async () => {
+          throw new Error("not read");
+        },
       },
     });
     const error = await bound
@@ -759,6 +765,9 @@ describe("usage service", () => {
           throw new Error("not read");
         },
         usageToolDays: async () => {
+          throw new Error("not read");
+        },
+        usageOutcomes: async () => {
           throw new Error("not read");
         },
       },
