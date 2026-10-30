@@ -113,7 +113,19 @@ function catalog(
   return {
     "GET /v1/auth/me": () => json(200, signedIn),
     "GET /v1/profiles": () => json(200, { items }),
-    "GET /v1/agents": () => json(200, { items: AGENTS, next_cursor: null }),
+    // As the server filters: agents whose active release runs on the profile.
+    "GET /v1/agents": (request: Request) => {
+      const profile = new URL(request.url).searchParams.get(
+        "runtime_profile_id",
+      );
+      const items = AGENTS.filter(
+        (agent) =>
+          profile === null ||
+          (agent.active_release_id !== null &&
+            agent.summary?.runtime_profile_id === profile),
+      );
+      return json(200, { items, next_cursor: null });
+    },
     "POST /v1/workspace-profiles/ws_acme_strict_v2/retire": () =>
       retire("ws_acme_strict_v2"),
     "POST /v1/installation-profiles/op_wide_v2/retire": () =>
@@ -155,12 +167,20 @@ const actions = () => {
 
 describe("실행 프로필 상세", () => {
   test("a workspace row opens its version with settings, record, history and the agents on it", async () => {
-    const { history } = renderAt("/profiles", catalog());
+    const { history, api } = renderAt("/profiles", catalog());
     const user = await setupUser();
     await user.click(
       await screen.findByRole("link", {
         name: "ws_acme_strict_v2 자세히 보기",
       }),
+    );
+    // The server picks the profile's agents; no agent list is read whole.
+    await waitFor(() =>
+      expect(
+        api.calls
+          .filter((c) => c.path === "/v1/agents")
+          .map((c) => new URLSearchParams(c.search).get("runtime_profile_id")),
+      ).toEqual(["ws_acme_strict_v2"]),
     );
     await screen.findByRole("heading", { level: 1, name: "strict" });
     expect(values("설정")).toEqual({

@@ -384,7 +384,7 @@ function ProfileRow({
               ) : null}
             </>
           }
-          second={profile.id}
+          second={profileName(profile) === profile.id ? null : profile.id}
           secondClassName="font-mono"
           narrow={t("profiles.narrowKind", {
             kind: t(`profiles.kind.${kind}`),
@@ -433,7 +433,8 @@ function Stack({
   narrow,
 }: {
   readonly first: ReactNode;
-  readonly second: string;
+  /** Null when the first line already is the id. */
+  readonly second: string | null;
   readonly secondClassName?: string;
   /** A third line only a phone shows, for the columns it hides. */
   readonly narrow: string;
@@ -441,9 +442,11 @@ function Stack({
   return (
     <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
       <span className="wrap-anywhere leading-5">{first}</span>
-      <span className={cn("wrap-anywhere leading-4", META, secondClassName)}>
-        {second}
-      </span>
+      {second === null ? null : (
+        <span className={cn("wrap-anywhere leading-4", META, secondClassName)}>
+          {second}
+        </span>
+      )}
       {/* GridTable's narrowAt={860} breakpoint, the width the columns drop at. */}
       <span
         className={cn(

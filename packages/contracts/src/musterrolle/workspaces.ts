@@ -4,6 +4,7 @@ import { PAYLOAD_TOO_LARGE_ISSUE } from "../api/session.ts";
 import {
   agentIdSchema,
   inviteIdSchema,
+  PAGE_LIMIT_MAX,
   pageSchema,
   paginationQuerySchema,
   receiptIdSchema,
@@ -295,11 +296,22 @@ export const setAccessResponseSchema = z
   .strict();
 
 export const MEMBER_SEARCH_MAX_CHARS = 200;
+export const MEMBER_USER_IDS_MAX = PAGE_LIMIT_MAX;
 export const listMembersQuerySchema = paginationQuerySchema.extend({
   q: z.string().trim().min(1).max(MEMBER_SEARCH_MAX_CHARS).optional().meta({
     description:
       "Matches a member whose display name or email contains it, ignoring case. `%` and `_` match themselves.",
   }),
+  user_ids: z
+    .string()
+    .min(1)
+    .max(MEMBER_USER_IDS_MAX * 37)
+    .transform((value) => value.split(","))
+    .pipe(z.array(userIdSchema).min(1).max(MEMBER_USER_IDS_MAX))
+    .optional()
+    .meta({
+      description: `Comma-separated user ids, at most ${MEMBER_USER_IDS_MAX}: keeps the members among them, in the list's order. An id of no member is left out.`,
+    }),
 });
 /** Oldest membership first, user id breaking ties. */
 export const listMembersResponseSchema = pageSchema(memberRowSchema)

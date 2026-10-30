@@ -612,7 +612,7 @@ describe("에이전트 카드", () => {
     const detailCalls = (api: { calls: readonly { path: string }[] }) =>
       api.calls
         .map((c) => c.path)
-        .filter((path) => /^\/v1\/agents\/[^/]+/.test(path));
+        .filter((path) => /^\/v1\/agents\/(?!counts$)[^/]+/.test(path));
 
     test("화면에 들어온 카드만 추가 정보를 부르고, 스크롤로 들어오면 그때 부른다", async () => {
       const agents = items(14);
@@ -764,11 +764,20 @@ describe("에이전트 목록 탭과 보기", () => {
       slug: "refund-desk",
       name: "다른 에이전트",
     };
-    renderAt("/agents", {
+    // The server matches q; the screen only sends it.
+    const { api } = renderAt("/agents", {
       ...meOk,
       ...server.routes,
-      "GET /v1/agents": () =>
-        json(200, { items: [server.detail().agent, other], next_cursor: null }),
+      "GET /v1/agents": (request) => {
+        const q = new URL(request.url).searchParams.get("q")?.toLowerCase();
+        const items = [server.detail().agent, other].filter(
+          (agent) =>
+            !q ||
+            agent.name.toLowerCase().includes(q) ||
+            agent.slug.includes(q),
+        );
+        return json(200, { items, next_cursor: null });
+      },
       "GET /v1/administered-agents": () => json(200, { items: [other] }),
     });
     const all = await screen.findByRole("button", { name: "전체 2" });
@@ -788,12 +797,20 @@ describe("에이전트 목록 탭과 보기", () => {
     // Empty until someone types, then the match count for a screen reader.
     expect(results().textContent).toBe("");
     await user.type(search, "  REFUND ");
-    await waitFor(() =>
-      expect(screen.queryByRole("link", { name: "결제 담당" })).toBeNull(),
+    // Typing pauses, then the server answers: longer than waitFor's default.
+    await waitFor(() => expect(results().textContent).toBe("1개 표시"), {
+      timeout: 3000,
+    });
+    expect(screen.queryByRole("link", { name: "결제 담당" }) === null).toBe(
+      true,
     );
-    expect(results().textContent).toBe("1개 표시");
     expect(screen.getByRole("link", { name: "다른 에이전트" })).toBeDefined();
     expect(screen.getByRole("button", { name: "전체 2" })).toBeDefined();
+    expect(
+      api.calls
+        .filter((c) => c.path === "/v1/agents")
+        .map((c) => new URLSearchParams(c.search).get("q")),
+    ).toEqual([null, "REFUND"]);
 
     const region = results();
     await showList(user, "관리하는 에이전트 1");
@@ -818,7 +835,7 @@ describe("에이전트 목록 탭과 보기", () => {
     expect(document.activeElement === search).toBe(true);
   });
 
-  test("관리하는 에이전트가 서버 상한만큼 오면 개수에 +를 붙이고 일부만 보인다고 알린다", async () => {
+  test("관리하는 에이전트가 서버 상한만큼 오면 일부만 보인다고 알리고, 개수는 서버가 센 값이다", async () => {
     const base = agentServer().detail().agent;
     const items = Array.from({ length: 200 }, (_, n) => ({
       ...base,
@@ -832,8 +849,12 @@ describe("에이전트 목록 탭과 보기", () => {
       ...meOk,
       "GET /v1/agents": () => json(200, { items: [base], next_cursor: null }),
       "GET /v1/administered-agents": () => json(200, { items }),
+      "GET /v1/agents/counts": () =>
+        json(200, {
+          counts: { all: 1, administered: 250, active: 0, draft: 1 },
+        }),
     });
-    await showList(await setupUser(), "관리하는 에이전트 200+");
+    await showList(await setupUser(), "관리하는 에이전트 250");
     expect(await screen.findByText("처음 200개만 보입니다.")).toBeDefined();
   });
 

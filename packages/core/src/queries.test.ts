@@ -34,6 +34,11 @@ test("query keys", () => {
     ...queries.queryKeys,
     ...keys,
     memberPages: keys.memberPages("kim"),
+    memberSummaries: keys.memberSummaries(["id-2", "id-1"]),
+    teamPages: keys.teamPages("ops"),
+    agentPages: keys.agentPages("notes"),
+    agentsOnProfile: keys.agentsOnProfile("coding"),
+    agentSummaries: keys.agentSummaries(["id-2", "id-1"]),
     agent: keys.agent("id-1"),
     agentAdmins: keys.agentAdmins("id-1"),
     team: keys.team("id-1"),
@@ -75,7 +80,7 @@ test("query options and the request each query makes", async () => {
     (entry): entry is [string, (client: ApiClient, id: string) => object] =>
       typeof entry[1] === "function" && entry[0].endsWith("Query"),
   );
-  expect(factories.length).toBe(27);
+  expect(factories.length).toBe(33);
   const out: Record<string, unknown> = {};
   for (const [name, factory] of factories.sort(([a], [b]) =>
     a.localeCompare(b),
@@ -203,6 +208,149 @@ test("the agent list reads every page, 100 at a time with summaries, and hands b
     { include: "summary", limit: 100 },
     { include: "summary", cursor: "c2", limit: 100 },
     { include: "summary", cursor: "c3", limit: 100 },
+  ]);
+});
+
+test("an agent page asks for one page with summaries, the search going with it, and named agents are one read", async () => {
+  const { client, calls } = recordingClient();
+  const all = queries.agentPagesQuery(client);
+  await all.queryFn({ pageParam: null } as Parameters<typeof all.queryFn>[0]);
+  const found = queries.agentPagesQuery(client, "notes");
+  await found.queryFn({
+    pageParam: "cursor-2",
+  } as Parameters<typeof found.queryFn>[0]);
+  const named = queries.agentSummariesQuery(client, ["id-2", "id-1"]);
+  await named.queryFn({} as Parameters<typeof named.queryFn>[0]);
+  expect(calls).toEqual([
+    ["/v1/agents", { params: { query: { include: "summary" } } }],
+    [
+      "/v1/agents",
+      {
+        params: {
+          query: { include: "summary", q: "notes", cursor: "cursor-2" },
+        },
+      },
+    ],
+    [
+      "/v1/agents",
+      {
+        params: {
+          query: { include: "summary", ids: "id-1,id-2", limit: 100 },
+        },
+      },
+    ],
+  ]);
+  // Every agent change refreshes these: they sit under the agents key.
+  for (const key of [all.queryKey, found.queryKey, named.queryKey]) {
+    expect((key as readonly unknown[]).slice(0, 2)).toEqual([SCOPE, "agents"]);
+  }
+  expect(named.queryKey).toEqual(
+    queries.agentSummariesQuery(client, ["id-1", "id-2"]).queryKey,
+  );
+});
+
+test("named agents past a page are read 100 at a time, and a profile's agents a page at a time", async () => {
+  const { client, calls } = recordingClient();
+  const ids = Array.from(
+    { length: 150 },
+    (_, i) => `id-${String(i).padStart(3, "0")}`,
+  );
+  const named = queries.agentSummariesQuery(client, ids);
+  await named.queryFn({} as Parameters<typeof named.queryFn>[0]);
+  const onProfile = queries.agentsOnProfileQuery(client, "coding");
+  await onProfile.queryFn({
+    pageParam: "cursor-2",
+  } as Parameters<typeof onProfile.queryFn>[0]);
+  expect(
+    calls.map(([, init]) => {
+      const query = (init as { params: { query: Record<string, unknown> } })
+        .params.query;
+      return typeof query.ids === "string"
+        ? query.ids.split(",").length
+        : query;
+    }),
+  ).toEqual([
+    100,
+    50,
+    { include: "summary", runtime_profile_id: "coding", cursor: "cursor-2" },
+  ]);
+  expect((onProfile.queryKey as readonly unknown[]).slice(0, 2)).toEqual([
+    SCOPE,
+    "agents",
+  ]);
+});
+
+test("named members are read 100 at a time and handed back as one list", async () => {
+  const ids = Array.from(
+    { length: 150 },
+    (_, n) => `00000000-0000-4000-8000-${n.toString().padStart(12, "0")}`,
+  );
+  const calls: string[] = [];
+  const client = scoped({
+    GET: (_path: string, init: { params: { query: { user_ids: string } } }) => {
+      const asked = init.params.query.user_ids.split(",");
+      calls.push(`${asked.length}`);
+      return Promise.resolve({
+        data: {
+          items: asked.map((user_id) => ({ user_id })),
+          next_cursor: null,
+          assignable_roles: ["member"],
+        },
+        response: new Response(null),
+      });
+    },
+  });
+  // Given twice and out of order: asked once each, in order.
+  const named = queries.memberSummariesQuery(client, [
+    ...[...ids].reverse(),
+    ids[0] as string,
+  ]);
+  const read = (await named.queryFn(
+    {} as Parameters<typeof named.queryFn>[0],
+  )) as { items: { user_id: string }[]; next_cursor: null };
+  expect(calls).toEqual(["100", "50"]);
+  expect(read.items.map((member) => member.user_id)).toEqual(ids);
+  expect(read.next_cursor).toBeNull();
+  // Under "members", so every member change refreshes it.
+  expect((named.queryKey as readonly unknown[]).slice(0, 2)).toEqual([
+    SCOPE,
+    "members",
+  ]);
+});
+
+test("a team page asks for one page, the search going with it", async () => {
+  const { client, calls } = recordingClient();
+  const found = queries.teamPagesQuery(client, "ops");
+  await found.queryFn({
+    pageParam: "cursor-2",
+  } as Parameters<typeof found.queryFn>[0]);
+  expect(calls).toEqual([
+    ["/v1/teams", { params: { query: { q: "ops", cursor: "cursor-2" } } }],
+  ]);
+  expect((found.queryKey as readonly unknown[]).slice(0, 2)).toEqual([
+    SCOPE,
+    "teams",
+  ]);
+});
+
+test("the agent lists filter takes every list, page, count and summary but no agent's detail", () => {
+  const client = scoped({});
+  const keys = queries.queryKeysOf(client);
+  const { queryKey, predicate } = queries.agentListsFilter(client);
+  expect(queryKey).toEqual(keys.agents);
+  const matched = (key: readonly unknown[]) => predicate({ queryKey: key });
+  expect(
+    [
+      keys.agents,
+      keys.agentPages(undefined),
+      keys.agentPages("notes"),
+      keys.agentCounts,
+      keys.agentSummaries(["id-1"]),
+    ].map(matched),
+  ).toEqual([true, true, true, true, true]);
+  expect([keys.agent("id-1"), keys.agentAdmins("id-1")].map(matched)).toEqual([
+    false,
+    false,
   ]);
 });
 

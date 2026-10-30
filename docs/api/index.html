@@ -286,6 +286,24 @@
           "include": {
             "type": "string",
             "const": "summary"
+          },
+          "q": {
+            "description": "Keeps the agents whose name or slug contains it, ignoring case. `%` and `_` match themselves.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "ids": {
+            "description": "Comma-separated agent ids, at most 100: keeps those of them in the workspace, in the list's order. An id of no agent there is left out.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 3700
+          },
+          "runtime_profile_id": {
+            "description": "Keeps the agents whose active release runs on this runtime profile. An agent with no active release is left out.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
           }
         }
       },
@@ -316,6 +334,12 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 100
+          },
+          "q": {
+            "description": "Keeps the teams whose name contains it, ignoring case. `%` and `_` match themselves.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
           }
         }
       },
@@ -352,6 +376,12 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 200
+          },
+          "user_ids": {
+            "description": "Comma-separated user ids, at most 100: keeps the members among them, in the list's order. An id of no member is left out.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 3700
           }
         }
       },
@@ -11904,11 +11934,25 @@
                 "minimum": 0,
                 "maximum": 9007199254740991,
                 "description": "How many of those the caller administers now, directly or through a team."
+              },
+              "active": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "description": "How many of `all` are `active` with an `active_release_id`: the agents people can talk to."
+              },
+              "draft": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "description": "How many of `all` are not `archived` and have no `active_release_id` yet."
               }
             },
             "required": [
               "all",
-              "administered"
+              "administered",
+              "active",
+              "draft"
             ],
             "additionalProperties": false
           }
@@ -34303,7 +34347,7 @@
           "Members"
         ],
         "summary": "Members of the workspace, oldest first",
-        "description": "Lists the workspace's members, disabled ones included, oldest membership first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `q` keeps the members whose display name or email contains it, ignoring case. Each row's `actions` says, for the caller as the list was read, whether each role change, disable and enable would be accepted, and if not, why: the reason is the lower-cased error code the write answers with, or `unchanged` when it would answer 200 and change nothing. The write checks again when it runs. A client that validates responses strictly needs this version's schema to read the field.\n\n**Auth:** cookie session only; no scope.",
+        "description": "Lists the workspace's members, disabled ones included, oldest membership first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `q` keeps the members whose display name or email contains it, ignoring case. `user_ids` (comma-separated, at most 100) keeps the members among those users, as one page of a screen that already holds the ids and needs their names or roles. Each row's `actions` says, for the caller as the list was read, whether each role change, disable and enable would be accepted, and if not, why: the reason is the lower-cased error code the write answers with, or `unchanged` when it would answer 200 and change nothing. The write checks again when it runs. A client that validates responses strictly needs this version's schema to read the field.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []
@@ -34339,6 +34383,17 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 200
+            }
+          },
+          {
+            "name": "user_ids",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated user ids, at most 100: keeps the members among them, in the list's order. An id of no member is left out.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 3700
             }
           }
         ],
@@ -37632,7 +37687,7 @@
           "Agents"
         ],
         "summary": "The workspace's agents",
-        "description": "Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its runtime profile, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once; without it the items are as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, and every other API key is refused.\n\n**Scope:** `sessions:write` (API key or cookie session).",
+        "description": "Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its runtime profile, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once; without it the items are as before. `q` keeps the agents whose name or slug contains it, ignoring case, and `ids` the agents named (at most 100; an id of no agent in the workspace is left out); both narrow the same order, so the cursor works as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, `q` and `ids` keep its agent only when it matches them, and every other API key is refused.\n\n**Scope:** `sessions:write` (API key or cookie session).",
         "x-scope": "sessions:write",
         "security": [
           {
@@ -37674,6 +37729,39 @@
             "schema": {
               "type": "string",
               "const": "summary"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "description": "Keeps the agents whose name or slug contains it, ignoring case. `%` and `_` match themselves.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "ids",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated agent ids, at most 100: keeps those of them in the workspace, in the list's order. An id of no agent there is left out.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 3700
+            }
+          },
+          {
+            "name": "runtime_profile_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "description": "Keeps the agents whose active release runs on this runtime profile. An agent with no active release is left out.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
             }
           }
         ],
@@ -38170,8 +38258,8 @@
         "tags": [
           "Agents"
         ],
-        "summary": "How many agents the workspace has, and how many the caller administers",
-        "description": "`all` is how many agents GET /v1/agents lists read to the last page; `administered` is how many of them the caller administers now, directly or through a team they are a live member of. Answered for the same callers as the list. API keys are refused. It changes nothing.\n\n**Auth:** cookie session only; no scope.",
+        "summary": "How many agents the workspace has, by state, and how many the caller administers",
+        "description": "`all` is how many agents GET /v1/agents lists read to the last page; `administered` is how many of them the caller administers now, directly or through a team they are a live member of; `active` is how many are `active` with an `active_release_id`, and `draft` how many are not `archived` and have none yet. Answered for the same callers as the list. API keys are refused. It changes nothing.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []
@@ -38180,7 +38268,7 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": "The two counts.",
+            "description": "The counts.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -38191,7 +38279,9 @@
                 "example": {
                   "counts": {
                     "all": 128,
-                    "administered": 3
+                    "administered": 3,
+                    "active": 97,
+                    "draft": 24
                   }
                 },
                 "schema": {
@@ -45955,7 +46045,7 @@
           "Teams"
         ],
         "summary": "The workspace's teams, by name",
-        "description": "Owners and admins. Archived teams are left out. By `name`, then `id`, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. A team renamed while the pages are read can show twice or not at all; every other team shows once.\n\n**Auth:** cookie session only; no scope.",
+        "description": "Owners and admins. Archived teams are left out. `q` keeps the teams whose name contains it, ignoring case. By `name`, then `id`, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. A team renamed while the pages are read can show twice or not at all; every other team shows once.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []
@@ -45980,6 +46070,17 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 100
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "description": "Keeps the teams whose name contains it, ignoring case. `%` and `_` match themselves.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
             }
           }
         ],

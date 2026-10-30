@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
 import type {
@@ -21,6 +26,7 @@ import {
   Card,
   CardFooter,
   Checkbox,
+  Combobox,
   ConfirmDialog,
   cn,
   EmptyState,
@@ -34,8 +40,6 @@ import {
   Input,
   LinkTab,
   LinkTabs,
-  NativeSelect,
-  NativeSelectOption,
   Page,
   PageBreadcrumb,
   PageBreadcrumbCurrent,
@@ -60,7 +64,8 @@ import {
 } from "react";
 import {
   administeredAgentsQuery,
-  agentsQuery,
+  agentPagesQuery,
+  agentSummariesQuery,
   apiKeysQuery,
   queryKeysOf,
 } from "../api/queries.ts";
@@ -78,6 +83,7 @@ import { FormError, Notice } from "../components/auth-page.tsx";
 import { copyText } from "../components/copy.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
+import { SEARCH_MAX, SEARCH_SETTLE_MS } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import {
   errorKey,
@@ -269,27 +275,16 @@ export function expiryState(
 }
 
 /**
- * The agents this person may bind a key to: every agent for an owner or
- * admin, the ones they administer for anyone else (design 4.1).
+ * The agents an agent's admin may bind a key to (design 4.1). Owners and
+ * admins bind to any agent and search for it instead, so they read none.
  */
-function useBindableAgents(): {
-  readonly agents: readonly Agent[];
-  readonly pending: boolean;
-  readonly error: ApiError | null;
-} {
+function useAdministeredAgents() {
   const { client } = useAgentPlatform();
   const everywhere = useHasPermission("api_key.manage");
-  const all = useQuery({ ...agentsQuery(client), enabled: everywhere });
-  const mine = useQuery({
+  return useQuery({
     ...administeredAgentsQuery(client),
     enabled: !everywhere,
   });
-  const source = everywhere ? all : mine;
-  return {
-    agents: source.data?.items ?? [],
-    pending: source.isPending,
-    error: (source.error as ApiError | null) ?? null,
-  };
 }
 
 /**
@@ -299,8 +294,28 @@ function useBindableAgents(): {
  */
 function useIssuesAgentKeys(): boolean {
   const everyAgent = useHasPermission("api_key.manage");
-  const { agents, error } = useBindableAgents();
-  return everyAgent || agents.length > 0 || error !== null;
+  const mine = useAdministeredAgents();
+  return (
+    everyAgent || (mine.data?.items.length ?? 0) > 0 || mine.error !== null
+  );
+}
+
+/** The names of the agents the listed keys work for, asked for by id. */
+function useAgentNames(
+  ids: readonly string[],
+): (id: string | null) => string | null {
+  const { client } = useAgentPlatform();
+  const everywhere = useHasPermission("api_key.manage");
+  const unique = [...new Set(ids)];
+  const named = useQuery({
+    ...agentSummariesQuery(client, unique),
+    enabled: everywhere && unique.length > 0,
+  });
+  const mine = useAdministeredAgents();
+  const agents: readonly Agent[] =
+    (everywhere ? named.data?.items : mine.data?.items) ?? [];
+  return (id) =>
+    id === null ? null : (agents.find((agent) => agent.id === id)?.name ?? id);
 }
 
 /** Why this person cannot make a key of this kind, if they cannot. */
@@ -435,7 +450,11 @@ export function AgentKeysScreen() {
 export function OrgKeysScreen() {
   const { t } = useI18n();
   if (!useHasPermission("api_key.manage"))
-    return <StatusScreen kind="forbidden" />;
+    return (
+      <Page title={t("apiKeys.orgTitle")}>
+        <StatusScreen kind="forbidden" />
+      </Page>
+    );
   return (
     <Page title={t("apiKeys.orgTitle")} description={t("apiKeys.orgIntro")}>
       <EmptyState
@@ -579,7 +598,9 @@ function KeyList({
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   const role = useRole();
-  const { agents } = useBindableAgents();
+  const agentName = useAgentNames(
+    items.flatMap((key) => (key.agent_id === null ? [] : [key.agent_id])),
+  );
   const [confirming, setConfirming] = useState<ApiKeyView | null>(null);
 
   const revoke = useMutation<RevokeApiKeyResponse, ApiError, ApiKeyView>({
@@ -610,9 +631,6 @@ function KeyList({
       });
     },
   });
-
-  const agentName = (id: string | null) =>
-    id === null ? null : (agents.find((agent) => agent.id === id)?.name ?? id);
 
   if (items.length === 0) {
     return <EmptyState title={empty} />;
@@ -1080,25 +1098,53 @@ function PersonalKeyForm({ busy, send }: FormProps) {
 
 function AgentKeyForm({ busy, send }: FormProps) {
   const { t } = useI18n();
+  const { client } = useAgentPlatform();
   const held = useMe()?.scopes ?? [];
-  const { agents, pending, error: agentsError } = useBindableAgents();
+  const everywhere = useHasPermission("api_key.manage");
+  // Owners and admins search every agent on the server, a page at a time;
+  // an agent's admin picks from the agents they administer.
+  const [term, setTerm] = useState("");
+  const q = term.trim() || undefined;
+  const searched = useInfiniteQuery({
+    ...agentPagesQuery(client, q),
+    enabled: everywhere,
+  });
+  const mine = useAdministeredAgents();
+  const agents: readonly Agent[] =
+    (everywhere
+      ? searched.data?.pages.flatMap((page) => page.items)
+      : mine.data?.items) ?? [];
+  const pending = everywhere ? searched.isPending : mine.isPending;
+  const agentsError = ((everywhere ? searched.error : mine.error) ??
+    null) as ApiError | null;
   const [name, setName] = useState("");
   const [scopes, setScopes] = useState<SessionScope[]>(["sessions:read"]);
-  const [agentId, setAgentId] = useState("");
+  // As the agent admins picker: the input's text is held so editing it after
+  // a choice drops the choice.
+  const [text, setText] = useState("");
+  const [chosenAgent, setChosenAgent] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
   const [expires, setExpires] = useState(() =>
     localDay(AGENT_KEY_DEFAULT_DAYS),
   );
-  const chosenAgent = agents.find((agent) => agent.id === agentId);
+  const pickerId = useId();
   const available = held.filter((scope) => !AGENT_KEY_WITHHELD.includes(scope));
 
   // What the key would actually carry; the button judges by these.
   const granted = scopes.filter((scope) => available.includes(scope));
+  // Only an unsearched, fully read list proves there is no agent at all.
+  const noAgents =
+    !pending &&
+    agents.length === 0 &&
+    (!everywhere || (q === undefined && !searched.hasNextPage));
 
   const reason = agentsError
     ? t(errorKey(agentsError.code))
-    : agents.length === 0 && !pending
+    : noAgents && chosenAgent === null
       ? t("apiKeys.noAgents")
-      : chosenAgent === undefined
+      : chosenAgent === null
         ? t("apiKeys.pickAgent")
         : granted.length === 0
           ? t("apiKeys.agentNeedsScope")
@@ -1127,24 +1173,42 @@ function AgentKeyForm({ busy, send }: FormProps) {
       <form onSubmit={submit}>
         <div className={FORM_BODY}>
           <Field>
-            <FieldLabel>{t("apiKeys.agent")}</FieldLabel>
-            {/* The field stretches its children; a block keeps the select its own width. */}
-            <div>
-              <NativeSelect
-                value={agentId}
-                required
-                disabled={agents.length === 0}
-                onChange={(event) => setAgentId(event.target.value)}
-              >
-                <NativeSelectOption value="" disabled>
-                  {t("apiKeys.pickAgent")}
-                </NativeSelectOption>
-                {agents.map((agent) => (
-                  <NativeSelectOption key={agent.id} value={agent.id}>
-                    {agent.name}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
+            <FieldLabel htmlFor={pickerId}>{t("apiKeys.agent")}</FieldLabel>
+            <div className="w-full max-w-sm">
+              <Combobox
+                id={pickerId}
+                options={agents.map((agent) => ({
+                  value: agent.id,
+                  label: agent.name,
+                  description: agent.slug,
+                }))}
+                value={chosenAgent?.id ?? null}
+                inputValue={text}
+                onInputValueChange={(next) => {
+                  setText(next);
+                  setChosenAgent((current) =>
+                    current && current.name !== next ? null : current,
+                  );
+                }}
+                onValueChange={(value, option) =>
+                  setChosenAgent({ id: value, name: option.label })
+                }
+                maxLength={SEARCH_MAX}
+                filter={everywhere ? "none" : "internal"}
+                onQueryChange={everywhere ? setTerm : undefined}
+                debounceMs={SEARCH_SETTLE_MS}
+                hasMore={everywhere && searched.hasNextPage}
+                onLoadMore={() => void searched.fetchNextPage()}
+                placeholder={t("apiKeys.agentSearch")}
+                loading={everywhere ? searched.isFetching : mine.isPending}
+                loadingMessage={t("apiKeys.agentLoading")}
+                emptyMessage={t(
+                  noAgents ? "apiKeys.noAgents" : "apiKeys.agentEmpty",
+                )}
+                resultCountMessage={(count) =>
+                  t("apiKeys.agentCount", { count })
+                }
+              />
             </div>
             <FieldDescription>{t("apiKeys.agentHint")}</FieldDescription>
           </Field>
@@ -1164,7 +1228,7 @@ function AgentKeyForm({ busy, send }: FormProps) {
         <FormFoot
           listTo={SCREEN.agent.list}
           reason={reason}
-          disabled={busy || granted.length === 0 || chosenAgent === undefined}
+          disabled={busy || granted.length === 0 || chosenAgent === null}
         />
       </form>
     </Card>

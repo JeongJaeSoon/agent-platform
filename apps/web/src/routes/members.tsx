@@ -1,6 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
-import { ApiError, isApiError, unwrap } from "@werft-ai/client";
+import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
 import type {
   Invite,
   MemberRefusal,
@@ -10,12 +15,8 @@ import type {
   WorkspaceRole,
 } from "@werft-ai/contracts";
 import { useAgentPlatform, useMemberPages } from "@werft-ai/react";
-import { ListToolbar, LoadMoreButton } from "@werft-ai/react/components";
+import { ListToolbar } from "@werft-ai/react/components";
 import {
-  Alert,
-  AlertActions,
-  AlertDescription,
-  AlertTitle,
   Badge,
   Button,
   ConfirmDialog,
@@ -53,7 +54,7 @@ import {
   firstMembersQuery,
   invitesQuery,
   queryKeysOf,
-  teamsQuery,
+  teamPagesQuery,
 } from "../api/queries.ts";
 import {
   offeredActions,
@@ -68,6 +69,7 @@ import {
 } from "../auth/guard.tsx";
 import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import {
@@ -175,8 +177,9 @@ export function MembersLayout() {
   // The router also serves the list at "/members/teams/".
   const onTeamList = pathname.replace(/\/$/, "") === "/members/teams";
   const managesTeams = useHasPermission("team.manage");
-  const teams = useQuery({
-    ...teamsQuery(client),
+  // The teams screen's own first page: only whether it is refused matters.
+  const teams = useInfiniteQuery({
+    ...teamPagesQuery(client),
     enabled: managesTeams && onTeams,
   });
   const teamReason = usePermissionReason("team.manage", teams);
@@ -304,63 +307,10 @@ export function MembersScreen() {
       ) : (
         <div className="flex flex-col gap-4">
           <MemberTable items={items} onOutcome={setOutcome} />
-          {members.error ? (
-            <MoreFailure
-              error={members.error}
-              onRetry={() =>
-                void (members.isFetchNextPageError
-                  ? members.fetchNextPage()
-                  : members.refetch())
-              }
-            />
-          ) : null}
-          {/* After a failed refresh the alert's retry is the way on: more
-              rows on top of it would keep the stale ones. A failed next
-              page keeps the button, and the keyboard on it. */}
-          <LoadMoreButton
-            hasMore={
-              members.hasNextPage &&
-              (!members.error || members.isFetchNextPageError)
-            }
-            loading={members.isFetchingNextPage}
-            // A refresh after a change rereads every page; asking for the
-            // next one now would cancel it and keep the stale rows.
-            busy={members.isFetching}
-            onLoadMore={() =>
-              void members.fetchNextPage({ cancelRefetch: false })
-            }
-            messages={{
-              more: t("sessions.more"),
-              loading: t("sessions.loadingMore"),
-            }}
-          />
+          <PagedListFooter list={members} />
         </div>
       )}
     </div>
-  );
-}
-
-/** A later page that failed: the rows already shown stay above it. */
-function MoreFailure({
-  error,
-  onRetry,
-}: {
-  readonly error: unknown;
-  readonly onRetry: () => void;
-}) {
-  const { t } = useI18n();
-  return (
-    <Alert variant="red" role="alert">
-      <AlertTitle>{t("status.loadFailed")}</AlertTitle>
-      <AlertDescription>
-        {t(error instanceof ApiError ? errorKey(error.code) : "error.UNKNOWN")}
-      </AlertDescription>
-      <AlertActions>
-        <Button type="button" variant="outline" size="sm" onClick={onRetry}>
-          {t("common.retry")}
-        </Button>
-      </AlertActions>
-    </Alert>
   );
 }
 

@@ -49,10 +49,10 @@ export function ToolsSummary({
       {parts.map((part, index) =>
         typeof part === "string" ? (
           part
-        ) : "strong" in part ? (
+        ) : "strong" in part || failed === 0 ? (
           // biome-ignore lint/suspicious/noArrayIndexKey: the sentence's parts are fixed per locale
           <b key={index} className="font-semibold tabular-nums">
-            {part.strong}
+            {"strong" in part ? part.strong : part.danger}
           </b>
         ) : (
           <span

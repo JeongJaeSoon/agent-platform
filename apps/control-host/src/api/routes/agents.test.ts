@@ -8,6 +8,7 @@ import {
   apiErrorResponseSchema,
   countAgentsResponseSchema,
   createAgentReleaseResponseSchema,
+  type ListAgentsQuery,
   listAgentsResponseSchema,
 } from "@werft-ai/contracts";
 import {
@@ -138,7 +139,7 @@ const outage = () =>
 function store(overrides: Partial<AgentStore> = {}): AgentStore {
   return {
     list: async () => ({ items: [detail.agent], next_cursor: null }),
-    count: async () => ({ all: 1, administered: 0 }),
+    count: async () => ({ all: 1, administered: 0, active: 1, draft: 0 }),
     summaries: async () => new Map(),
     get: async () => detail,
     findVersion: async () => detail.versions[0] ?? null,
@@ -292,6 +293,47 @@ describe("GET /v1/agents", () => {
     expect(asked).toEqual([{ limit: 50 }, { cursor: "next", limit: 100 }]);
   });
 
+  test("hands the store a trimmed q and the ids split, and refuses a blank q or a bad id", async () => {
+    const asked: unknown[] = [];
+    const api = app(
+      store({
+        list: async (_workspace, query) => {
+          asked.push(query);
+          return { items: [], next_cursor: null };
+        },
+      }),
+    );
+    const other = "1b4e28ba-2fa1-11d2-883f-0016d3cca427";
+    expect((await send(api, "GET", "/v1/agents?q=%20notes%20")).status).toBe(
+      200,
+    );
+    expect(
+      (await send(api, "GET", `/v1/agents?ids=${AGENT},${other}`)).status,
+    ).toBe(200);
+    expect(
+      (await send(api, "GET", "/v1/agents?runtime_profile_id=coding")).status,
+    ).toBe(200);
+    expect(asked).toEqual([
+      { limit: 50, q: "notes" },
+      { limit: 50, ids: [AGENT, other] },
+      { limit: 50, runtime_profile_id: "coding" },
+    ]);
+    const tooMany = Array.from({ length: 101 }, () => AGENT).join(",");
+    for (const query of [
+      "q=%20",
+      `q=${"x".repeat(201)}`,
+      "ids=",
+      "ids=not-an-id",
+      `ids=${AGENT},`,
+      `ids=${tooMany}`,
+      "runtime_profile_id=",
+      `runtime_profile_id=${"p".repeat(129)}`,
+    ]) {
+      const response = await send(api, "GET", `/v1/agents?${query}`);
+      expect(response.status, query.slice(0, 40)).toBe(400);
+    }
+  });
+
   test("answers 400 to a limit out of range and to a cursor the store did not issue", async () => {
     for (const query of ["limit=0", "limit=101", "limit=x", "cursor="]) {
       const response = await send(app(), "GET", `/v1/agents?${query}`);
@@ -369,6 +411,20 @@ describe("GET /v1/agents", () => {
       next_cursor: null,
     });
     expect(asked).toEqual([["session.submit", AGENT]]);
+    // A filter keeps the key's agent only when it matches it.
+    const filters: [ListAgentsQuery, number][] = [
+      [{ limit: 50, q: detail.agent.slug.toUpperCase() }, 1],
+      [{ limit: 50, q: "no such agent" }, 0],
+      [{ limit: 50, ids: [AGENT.toUpperCase()] }, 1],
+      [{ limit: 50, ids: ["1b4e28ba-2fa1-11d2-883f-0016d3cca427"] }, 0],
+      // No active release, so on no profile.
+      [{ limit: 50, runtime_profile_id: "coding" }, 0],
+    ];
+    for (const [query, kept] of filters) {
+      const page = await service("agent").listAgents(key, query);
+      expect(page.items, JSON.stringify(query)).toHaveLength(kept);
+    }
+    asked.length = 1;
     // Even a policy that allows everything never hears of a personal key.
     for (const [kind, query] of [
       ["personal", { limit: 50 }],
@@ -398,14 +454,14 @@ describe("GET /v1/agents/counts", () => {
       store({
         count: async (workspaceId, userId) => {
           asked.push(workspaceId, userId);
-          return { all: 501, administered: 3 };
+          return { all: 501, administered: 3, active: 410, draft: 80 };
         },
       }),
     );
     const response = await send(api, "GET", "/v1/agents/counts");
     expect(response.status).toBe(200);
     expect(countAgentsResponseSchema.parse(await response.json())).toEqual({
-      counts: { all: 501, administered: 3 },
+      counts: { all: 501, administered: 3, active: 410, draft: 80 },
     });
     expect(asked[0]).toBe("owner-a");
   });

@@ -1,7 +1,7 @@
 # 결정: 에이전트 GitHub 설정과 기능별 권한
 
-- 상태: 설계. 구현 PR GA-1~GA-7이 이 문서를 계약으로 쓴다([9절](#9-구현-pr-분할)).
-- 기준 커밋: `origin/main` `cee8359b`. 아래 `파일:줄`은 모두 이 커밋 기준이다.
+- 상태: 설계. 구현 PR GA-1~GA-7과 GA-4b가 이 문서를 계약으로 쓴다([9절](#9-구현-pr-분할)).
+- 기준 커밋: `origin/main` `cee8359b`. 아래 `파일:줄`은 [10절](#10-세션-성과물)을 빼고 모두 이 커밋 기준이다. 10절은 `3f4dd99d` 기준이다.
 - 오너 원문(2026-10-30): "github apps 에서는 기능별로 권한을 가진다고 봐야할거 같아 그리고 기본적으로는 pr 을 작성하고 변경하기위한 권한 까지만을 기본값으로 가지고 그 외에 승인이나, 액션 실행 이나 관리 등등 그리고 액션을 실행하고자 할경우에 어떤 액션까지 허용할것인지에 대한 권한 관리는 agent 설정에서 관리가능하도록 하는게 좋을거 같아", "agent 상세화면에 slack 탭이 잇는것처럼 github 도 별도 탭으로 나눠서 일단 애초에 github 를 사용할것인가 아닌가 를 제어할수 있도록 하고 github 의 상세 옵션을 제어할수 있도록 메뉴를 확장하는게 좋을거 같네", "추천대로 진행해줘"(결정 0~10 전부).
 - 리드 결정(2026-10-30, 이 설계 중 질문): GitHub 작업은 control-host의 서비스 한 곳에서 하고 입구는 둘이다. 세션 API와 세션 안의 내장 MCP 서버 `github`다. 내장 MCP는 구현 분할의 마지막 PR이다. 같은 에이전트가 연 PR의 리뷰 승인은 플랫폼이 막지 않는다([결정 1](#결정-1-리뷰-전용-app)).
 
@@ -97,7 +97,7 @@ GitHub 토큰 하나가 가질 권한은 아래 다섯의 교집합이고, **발
 ### 결정 7. 릴리스와의 관계
 
 - **릴리스에 넣는 값(보안 값):** 권한(`workflows`·`actions`·`checks`·`issues`·`review`), Actions 허용 목록, 저장소 범위, push 승인이다. 이 값은 카드가 아니라 **릴리스의 입력**이다. 지금 릴리스는 카드 버전·실행 프로필·저장소로 만든다(`packages/contracts/src/kollegium/agents.ts:477-486`). 여기에 `github`를 네 번째 입력으로 더하고 `policy_pins.github`에 넣는다. 그래서 GitHub 설정만 바꾸면 카드 버전은 그대로이고 새 릴리스만 생긴다(GA-MOCKUP 시안 A와 같다). `policy_pins`는 릴리스 id 해시에 들어가므로 값이 바뀌면 릴리스 id도 바뀐다. 릴리스 요청에 `github`가 없으면 지금 활성 릴리스의 `policy_pins.github`를 그대로 물려받는다. 카드를 고쳐 새 릴리스를 만들 때 GitHub 설정이 사라지지 않게 하려는 것이다. 활성 릴리스에 없으면 새 릴리스에도 없다. 이력은 릴리스 목록과 `create_agent_release`·`activate_agent` receipt로 남는다. `policy_pins.github`가 있는 릴리스만 id 버전을 4로 올린다. 없는 릴리스는 지금 버전 그대로 해시되어 기존 id가 검증된다(`release-ids.ts:32-39`의 방식).
-- **즉시 반영하는 값:** GitHub 사용 스위치 `agents.github_enabled` 하나다. 끄면 게이트가 그 에이전트의 릴리스로 도는 모든 세션에 새 토큰을 내주지 않는다(`403` `reason_code: github_disabled`). 진행 중인 세션도 다음 토큰 요청부터 거절된다. 대상은 clone(gateway 재허가), push 실행, PR, dispatch, 리뷰다. 이미 발급해 캐시한 토큰이 control-host 안에 남아도 게이트가 먼저 거절하므로 쓰이지 않는다. 스위치를 바꾸면 `set_agent_github` receipt를 남긴다.
+- **즉시 반영하는 값:** GitHub 사용 스위치 `agents.github_enabled` 하나다. 끄면 게이트가 그 에이전트의 릴리스로 도는 모든 세션에 새 토큰을 내주지 않는다(`403` `reason_code: github_disabled`). 진행 중인 세션도 다음 토큰 요청부터 거절된다. 대상은 clone(gateway 재허가), push 실행, PR, dispatch, 리뷰다. 플랫폼이 이미 기록한 PR의 상태를 읽는 `outcome_refresh`만 대상이 아니다([10절](#pr-상태-갱신-조회로-한다)). 이미 발급해 캐시한 토큰이 control-host 안에 남아도 게이트가 먼저 거절하므로 쓰이지 않는다. 스위치를 바꾸면 `set_agent_github` receipt를 남긴다.
 - 릴리스에 고정된 값도 발급할 때마다 그 시점의 워크스페이스 상한과 App 권한으로 다시 자른다. 상한을 낮추면 기존 릴리스의 그 기능은 다음 발급부터 거절된다(`409` `reason_code: over_workspace_ceiling`). 릴리스나 세션을 `CATALOG_MISMATCH`로 만들지는 않는다. 상한을 다시 올리면 같은 릴리스가 그대로 다시 돈다.
 
 ### 결정 8. 에이전트별 저장소 범위
@@ -117,7 +117,7 @@ GitHub 토큰 하나가 가질 권한은 아래 다섯의 교집합이고, **발
 
 | operation | 언제 | actor | result |
 |---|---|---|---|
-| `mint_github_token` (새) | 게이트가 GitHub에 **새로** 토큰을 발급받았을 때. 캐시에서 꺼낸 것은 남기지 않는다 | 그 작업의 actor. clone은 세션 시작자, 없으면 `principal: { kind: "service", id: "gateway" }` | `session_id`, `agent_id`, `agent_release_id`, `repository_id`, `role`(`author`·`reviewer`), `app_id`, `permissions`, `purpose`(`clone`·`push`·`pull_request`·`actions_read`·`dispatch`·`rerun`·`review`), `expires_at` |
+| `mint_github_token` (새) | 게이트가 GitHub에 **새로** 토큰을 발급받았을 때. 캐시에서 꺼낸 것은 남기지 않는다 | 그 작업의 actor. clone은 세션 시작자, 없으면 `principal: { kind: "service", id: "gateway" }` | `session_id`, `agent_id`, `agent_release_id`, `repository_id`, `role`(`author`·`reviewer`), `app_id`, `permissions`, `purpose`(`clone`·`push`·`pull_request`·`actions_read`·`dispatch`·`rerun`·`review`·`outcome_refresh`), `expires_at` |
 | 게이트의 거절 | 발급 전에 거절했을 때 | 같음 | 같은 칸 + `reason_code`. status `failed` |
 | `set_github_app` (있음) | 등록·교체 | 사람 | `app_id`에 `role`, `permissions`, `warnings`를 더한다 |
 | `delete_github_app` (있음) | 삭제 | 사람 | `app_id`, `role` |
@@ -144,7 +144,9 @@ GitHub 토큰 하나가 가질 권한은 아래 다섯의 교집합이고, **발
 // packages/platform/src/ports/github-gate.ts (sketch)
 export type GitHubPurpose =
   | "clone" | "push" | "pull_request"
-  | "actions_read" | "dispatch" | "rerun" | "review";
+  | "actions_read" | "dispatch" | "rerun" | "review"
+  // GA-4b: the platform reading a PR it recorded (section 10).
+  | "outcome_refresh";
 
 export type GitHubWork = {
   // The repository is never passed: the gate reads it off the session row
@@ -179,15 +181,16 @@ export interface GitHubGate {
 - `grant`가 하는 일, 이 순서로:
   1. 세션 → 릴리스 → 에이전트를 읽는다. 릴리스가 없는 세션은 "기본 설정"을 쓴다. 기본 설정은 GitHub 켜짐, push 승인 켜짐, 선택 권한 없음, 프로필이 허용하는 모든 저장소다. 지금 동작과 같다.
   2. `agents.github_enabled`이 false면 `github_disabled`다.
+  - `outcome_refresh`만 예외다. 1단계, 3단계의 저장소 binding 검사, 6~8단계만 하고 2단계, 3단계의 릴리스 범위 검사, 4·5단계는 건너뛴다([10절](#pr-상태-갱신-조회로-한다)). 에이전트의 작업이 아니라 플랫폼이 이미 기록한 PR을 읽는 것이기 때문이다.
   3. 세션 행의 저장소와 그 binding을 읽는다(gateway의 지금 검사 `worker-gateway.ts:1226-1240`와 같다). 그 저장소가 릴리스 `github.repositories` 밖이면 `repository_not_allowed`다. 호출자는 저장소를 고를 수 없다.
   4. purpose별 필요 권한을 정한다([표](#작업별-권한)). 선택 권한이 필요한데 릴리스가 끈 것이면 `feature_off`, 상한이 막으면 `over_workspace_ceiling`이다. App·설치 권한은 여기서 보지 않고 6단계의 발급 요청이 판정한다.
   5. dispatch·rerun이면 허용 목록을 맞춘다(`workflow_not_allowed`).
   6. role에 맞는 연결 행의 발급 함수를 고르고(`review`만 `reviewer`), 저장소 하나와 권한으로 installation token을 요청한다. GitHub가 권한 부족으로 거절하면 `app_permission_missing`이다([결정 2](#결정-2-app-최대-권한설치-상한)).
   7. 새로 발급했으면 `mint_github_token` receipt를 남긴다. 거절했으면 거절 receipt를 남긴다.
   8. 그 자격 증명에 묶인 `GitHubGrant`를 돌려준다.
-- **발급은 게이트 안에만 있다.** 지금 `ForgeAdapter`는 메서드마다 스스로 자격 증명을 얻는다(`call()`이 `credential()`을 부른다, `forge-github.ts:179-191`). PR 조회·생성, 저장소 조회, 코멘트가 모두 이 경로다. GA-2는 이 발급 함수(`issuer`, `forge-github.ts:407-460`)와 캐시(`forge-github.ts:152-177`)를 게이트 구현 안으로 옮긴다. REST 메서드는 `GitHubGrant.api`로 옮겨 받은 자격 증명만 쓰게 한다. 그래서 게이트를 거치지 않고 토큰을 얻는 코드 경로가 남지 않는다. 캐시는 지금처럼 **연결마다 따로** 둔다. 지금 캐시 키(`owner/name|permissions`, `forge-github.ts:156-159`)에는 GitHub 서버가 없고, 격리는 연결마다 forge를 따로 만드는 것(`forge-github.ts:722-736`)이 해 준다. 게이트도 연결(콘솔 행 id와 role, 또는 카탈로그 저장소의 `api_base`·`app_id`·`installation_id`)마다 발급기와 캐시 한 벌을 두고, 그 안의 키는 지금 그대로 쓴다. 콘솔 연결 행이 바뀌면 그 연결의 캐시를 통째로 버린다(지금 `createRegisteredGitHubForge`가 연결이 바뀌면 forge를 새로 만드는 것과 같다). GA-2 테스트: 서로 다른 `api_base`에서 같은 App id·같은 저장소 이름을 쓰는 두 연결이 서로의 토큰을 받지 않는다. 캐시에서 꺼낸 토큰을 줄 때도 1~5단계는 매번 다시 한다.
-- **카탈로그 App 저장소**(`app_id`를 적은 저장소)도 같은 게이트를 지난다. 그 저장소의 `author` 연결은 카탈로그의 App이고 `reviewer` 연결은 없다. 그래서 리뷰는 `no_reviewer_app`이다. App 권한은 그 App의 `GET /app`을 처음 발급할 때 한 번 읽어 메모리에 둔다. 카탈로그의 `api_base`가 github.com API가 아닌 저장소(GHES)는 **기본 작업**(`clone`·`push`·`pull_request`)만 받는다. 그 밖의 purpose(`actions_read`·`dispatch`·`rerun`·`review`)는 게이트 4단계에서 `409` `reason_code: github_host_unsupported`로 거절한다. 탭은 그 저장소만 고른 에이전트에서 선택 권한을 같은 이유로 비활성으로 보인다. GA-2 테스트: GHES 카탈로그 저장소 세션의 clone·push·PR은 지금처럼 되고 dispatch는 `github_host_unsupported`다.
-- **PAT 저장소**(`kind: basic`, github.com)는 권한을 좁힐 수 없다. `github` 설정이 없는 릴리스(와 릴리스 없는 세션)만 기본 작업(clone·push·PR)을 지금처럼 한다. 선택 권한 작업은 모두 `app_required`로 거절한다. `github` 설정이 있는 릴리스는 PAT 저장소를 고를 수 없다([결정 3](#결정-3-workflows-권한)).
+- **발급은 게이트 안에만 있다.** 지금 `ForgeAdapter`는 메서드마다 스스로 자격 증명을 얻는다(`call()`이 `credential()`을 부른다, `forge-github.ts:179-191`). PR 조회·생성, 저장소 조회, 코멘트가 모두 이 경로다. GA-2는 이 발급 함수(`issuer`, `forge-github.ts:407-460`)와 캐시(`forge-github.ts:152-177`)를 게이트 구현 안으로 옮긴다. REST 메서드는 `GitHubGrant.api`로 옮겨 받은 자격 증명만 쓰게 한다. 그래서 게이트를 거치지 않고 토큰을 얻는 코드 경로가 남지 않는다. 캐시는 지금처럼 **연결마다 따로** 둔다. 지금 캐시 키(`owner/name|permissions`, `forge-github.ts:156-159`)에는 GitHub 서버가 없고, 격리는 연결마다 forge를 따로 만드는 것(`forge-github.ts:722-736`)이 해 준다. 게이트도 연결(콘솔 행 id와 role, 또는 카탈로그 저장소의 `api_base`·`app_id`·`installation_id`)마다 발급기와 캐시 한 벌을 두고, 그 안의 키는 지금 그대로 쓴다. 콘솔 연결 행이 바뀌면 그 연결의 캐시를 통째로 버린다(지금 `createRegisteredGitHubForge`가 연결이 바뀌면 forge를 새로 만드는 것과 같다). GA-2 테스트: 서로 다른 `api_base`에서 같은 App id·같은 저장소 이름을 쓰는 두 연결이 서로의 토큰을 받지 않는다. 캐시에서 꺼낸 토큰을 줄 때도 1~5단계는 매번 다시 한다(`outcome_refresh`는 위 예외의 단계만).
+- **카탈로그 App 저장소**(`app_id`를 적은 저장소)도 같은 게이트를 지난다. 그 저장소의 `author` 연결은 카탈로그의 App이고 `reviewer` 연결은 없다. 그래서 리뷰는 `no_reviewer_app`이다. App 권한은 그 App의 `GET /app`을 처음 발급할 때 한 번 읽어 메모리에 둔다. 카탈로그의 `api_base`가 github.com API가 아닌 저장소(GHES)는 **기본 작업**(`clone`·`push`·`pull_request`)과 `outcome_refresh`만 받는다. 그 밖의 purpose(`actions_read`·`dispatch`·`rerun`·`review`)는 게이트 4단계에서 `409` `reason_code: github_host_unsupported`로 거절한다. 탭은 그 저장소만 고른 에이전트에서 선택 권한을 같은 이유로 비활성으로 보인다. GA-2 테스트: GHES 카탈로그 저장소 세션의 clone·push·PR은 지금처럼 되고 dispatch는 `github_host_unsupported`다.
+- **PAT 저장소**(`kind: basic`, github.com)는 권한을 좁힐 수 없다. `github` 설정이 없는 릴리스(와 릴리스 없는 세션)만 기본 작업(clone·push·PR)을 지금처럼 한다. 선택 권한 작업은 모두 `app_required`로 거절한다. `outcome_refresh`는 릴리스와 상관없이 PAT로 읽는다. 이때 자격 증명은 좁혀지지 않고, 플랫폼이 부르는 호출만 읽기(`GET …/pulls/{n}`)다. `github` 설정이 있는 릴리스는 PAT 저장소를 고를 수 없다([결정 3](#결정-3-workflows-권한)).
 
 ### 작업별 권한
 
@@ -199,6 +202,7 @@ export interface GitHubGate {
 | `actions_read` | `actions: read` | author | run 조회(rerun 판정은 GitHub가 아니라 `github_workflow_dispatches`로 한다) |
 | `dispatch`, `rerun` | `actions: write` | author | 새 GitHub 작업 서비스 |
 | `review` | `contents: read`, `pull_requests: write` | reviewer | 새 GitHub 작업 서비스 |
+| `outcome_refresh` | `pull_requests: read` | author | 성과물 상태 조회(GA-4b, [10절](#pr-상태-갱신-조회로-한다)). 에이전트 스위치·범위·기능·상한을 보지 않는다 |
 
 `checks: write`와 `issues: write`는 이번에 상한·릴리스 칸과 게이트의 판정만 만든다. 그 권한을 쓰는 작업(check run 쓰기, issue 쓰기)은 이 문서 범위에서 만들지 않는다. 칸이 먼저 있어야 오너가 App에 미리 권한을 주고 에이전트별로 켜 둘 수 있다. 작업은 필요할 때 이 표에 줄을 더해 만든다.
 
@@ -387,11 +391,12 @@ i18n ko·en·ja를 같이 고친다.
 | GA-2 토큰 발급 좁히기·허용 목록 | 릴리스 요청 `github`와 그 검증(저장소·PAT·상한·`actions_off`). `GitHubGate` 포트와 control-host 구현. gateway·push 실행기·PR 서비스를 게이트로 옮긴다. `credential(repo, permissions)`. App 권한 읽기(`describe`의 `permissions`)와 경고. 작업 서비스의 dispatch·run 조회·rerun과 세션 API, `github_workflow_dispatches` 마이그레이션(새 테이블이라 앞 이미지와 섞여도 안전하다). 새 작업의 오류 로그는 원문 없이 남긴다. `push_approval` false의 자동 승인과 `pushed` 요청의 `session.submit` PR 열기. `mint_github_token`·거절·`dispatch_workflow`·`rerun_workflow`·`decide_push`(policy) receipt. `github_enabled` 즉시 거절. 상한 정책 함수(contracts, 저장·실행 공용)와 `github-settings` GET·PUT API, `set_github_ceiling` receipt(GA-3의 Actions 실측이 상한을 켜야 하므로 화면보다 먼저 둔다) | 게이트 단위 테스트: [작업별 권한 표](#작업별-권한)의 각 줄과 각 `reason_code`. 꺼진 스위치가 진행 중 세션의 다음 clone 재허가·push·PR을 거절한다. 허용 목록의 ref glob(`*`가 `/`를 넘지 않음, `ref` 생략은 기본 브랜치만). `agent/` ref dispatch는 목록과 상관없이 `agent_ref_refused`. rerun은 `github_workflow_dispatches`에 기록된 run만 받고, 기록 없는 run(push로 시작된 run, 같은 이름의 브랜치·태그가 있는 저장소의 태그 run 포함)은 `run_ref_unprovable`. 기록된 run도 지금 릴리스 목록에서 빠졌으면 `workflow_not_allowed`. 입력값을 되비추는 fake GitHub 오류로 dispatch를 실패시켜 로그·receipt에 입력값이 없음을 확인한다. `pushed` 요청의 PR 열기가 `session.submit`(에이전트 key)으로 된다. 캐시된 토큰이 있어도 꺼진 뒤에는 쓰이지 않는다. fake GitHub(`packages/testkit/src/fake-github.ts`)로 route 테스트. 상한 서비스 테스트: owner·admin만(member·API key `403`), `revision` 충돌, 상한을 낮추면 기존 릴리스의 그 기능이 다음 발급부터 `over_workspace_ceiling`이고 올리면 다시 돈다 | 먼저 `PUT …/github-settings`로 상한의 workflows·actions를 켠다. 기본 권한으로 PR 생성. `workflows` 꺼진 릴리스로 `.github/workflows/` 변경 push → GitHub 거절과 `workflows_permission_missing`. 켠 릴리스(App에 권한 추가 뒤)로 같은 push 성공. 허용 목록 안 dispatch 성공, 목록 밖 dispatch는 플랫폼 `workflow_not_allowed`(GitHub 호출 없음, receipt). 목록 안 워크플로라도 `agent/<SID>` ref면 `agent_ref_refused`. 플랫폼이 dispatch한 run의 rerun 성공, `main` push로 시작된 run의 rerun은 `run_ref_unprovable`. 저장소 범위 밖 세션 생성 거절. `contents: read` 토큰 push 거절(검토 문서 6절 1번). 스위치를 끄면 진행 중 세션의 다음 push 요청이 `github_disabled`. 상한에서 Actions를 끄면 dispatch가 `over_workspace_ceiling`이고, 다시 켜면 성공 |
 | GA-3 에이전트 GitHub 탭 | `GET /v1/agents/{id}/github`, `PUT …/github/enabled`, `GET …/github/activity`, 탭 화면·i18n·stories | activity route 테스트: 사람이 만든 릴리스·활성화·스위치 변경이 목록에 나온다. 공유받지 않은 비공개 세션의 게이트 receipt는 에이전트 관리자에게도 나오지 않는다. 걸러 낸 뒤에 20개를 자르므로, 볼 수 있는 기록이 20개 넘게 있으면 비공개 기록이 최근에 몰려 있어도 20개가 다 찬다. web 테스트(비활성 이유 여섯 가지, 저장 → 같은 카드 버전의 새 릴리스, 저장 안 한 변경 상자), 1440·390 전후 캡처, ui-review | 탭에서 저장소 하나·Actions·허용 목록 하나를 켜고 릴리스 → 그 릴리스로 dispatch 성공·목록 밖 거절. 스위치 끄기 → 세션 상세에 거절 이유 |
 | GA-4 사용자 GitHub OAuth·Co-authored-by | `…/github-settings/oauth-client-secret`, `linked-accounts/github/start·callback`, 연동 계정 화면, claim의 `git.co_author`·`session_url`, worker `commit-msg` hook, PR 본문 꼬리 확장과 재사용 PR 꼬리 갱신, 세션 상세의 귀속 줄 | callback 테스트(state 만료·재사용, 같은 GitHub 계정 두 사람 `409`). hook 단위 테스트(트레일러 한 번만, 기존 트레일러 보존, `co_author` null이면 `Agent-Session`만). 시작자 규칙: 웹·개인 key·Slack 연결 사용자 → 사람, 에이전트 key → null | 오너 계정 연결 → 웹에서 시작한 세션의 commit에 `Co-authored-by: <login> <id+login@users.noreply.github.com>`, GitHub PR 화면에 공동 작성자로 보인다. 에이전트 key 세션은 트레일러 없음·"App 단독". PR 본문 꼬리에 세션 URL. 같은 세션 두 번째 push 뒤 꼬리의 commit이 최신 |
+| GA-4b 세션 성과물(GitHub PR) | [10절](#10-세션-성과물) 전부. 마이그레이션 `session_outcomes`·`outcome_refresh_quotas`(새 테이블). forge `createPullRequest` 결과의 `created`(422로 남의 PR을 돌려줬으면 false). contracts `SESSION_OUTCOME_TYPE_VALUES`·성과물 스키마. `savePullRequest` 트랜잭션의 성과물 기록. forge 포트 `getPullRequest`와 `ForgePullRequest`의 `merged_at`·`closed_at`. 게이트 purpose `outcome_refresh`. API replica마다 도는 `outcome-refresher`(상태 조회와 성과물 없는 `pull_requests` 행 채우기). `GET /v1/sessions/{id}/outcomes`, `GET /v1/usage/outcomes`. 세션 상세 "결과물" 탭의 GitHub PR 영역과 세션 토큰·비용 줄, i18n ko·en·ja | 실 postgres 통합 테스트: PR 열기가 성과물 행 하나(`open`, `receipt_id` = `open_pull_request` receipt)를 같은 트랜잭션에서 만든다. 같은 세션의 두 번째 PR 열기(같은 URL)는 행을 늘리지 않는다. GitHub에 이미 열린 PR을 답한 경우와, 찾을 때는 없었는데 생성이 422로 사람의 PR을 돌려준 경우(fake GitHub) 모두 `metadata.adopted: true`. 성과물 행을 쓰지 못하면 `pull_requests` 행과 receipt도 남지 않는다(한 트랜잭션). 성과물 없는 `pull_requests` 행(push 요청 있음)을 refresher가 채우고 그 행의 `receipt_id`를 쓴다. push 요청이 없는 옛 행은 건너뛴다. refresher 두 개가 같은 행을 집지 않고, GitHub 호출 동안 DB 잠금을 쥐지 않는다(느린 fake GitHub 응답 중에 다른 refresher가 다른 행을 처리한다). 집기만 하고 답을 못 받은 행의 `state_checked_at`은 그대로다. lease가 만료돼 다시 집힌 행에 늦게 온 앞 결과(`open`)는 새 결과(`merged`)를 덮지 않는다. 같은 `quota_key`를 refresher 두 개가 동시에 집어도 한 창의 `used`가 예산을 넘지 않는다(남은 몫 50에 두 refresher가 동시에 집으면 합이 50). 최근 PR 몇 개를 한 시간 동안 5분마다 다시 읽으면 요청마다 `used`가 늘어 예산에서 멈춘다. 같은 사용자의 서로 다른 PAT 두 개가 같은 `quota_key`를 쓰고, 저장소의 PAT를 다른 사용자의 것으로 바꾸면 다음 pass부터 새 키로 센다(fake `GET /user`). 조회가 500을 받아도 같은 pass에서 다시 보내지 않는다(fake GitHub 요청 수). `GET /user`가 실패한 PAT는 1시간 동안 다시 부르지 않고 그 저장소의 행도 집지 않는다. `x-ratelimit-remaining`이 limit의 20% 아래이거나 429면 그 단위가 reset까지 멈추고 다른 replica도 집지 않는다. 간격 표대로 읽을 행을 고른다(`merged`는 읽지 않음, 닫힌 지 30일 지난 `closed`는 읽지 않음). fake GitHub로 `open → merged`, `open → closed → open`, 404 → `check_error: not_found`이고 state는 그대로. 에이전트 스위치를 끄고 범위를 좁혀도 `outcome_refresh`는 발급된다. `GET /v1/usage/outcomes`: PR 둘인 세션의 비용이 한 번만 더해진다, 성과물 없는 세션의 비용이 `cost_usd`에 들어간다, scope별 읽기 권한이 summary와 같다(member의 `installation` 403, API key의 `agent` 403), 합계 행의 `session_count`·`cost_usd`가 같은 기간의 summary와 같다. web 테스트(PR 영역의 세 state 배지, `check_error` 줄, 탭 수 = PR + 파일, 둘 다 없을 때 빈 안내), 1440·390 전후 캡처, ui-review | 플랫폼으로 PR을 연다 → `GET …/outcomes`에 `open` 행. GitHub에서 그 PR(만든 지 1일 안, 예산·멈춤에 걸리지 않은 설치)을 머지 → 7분 안에(간격 5분 + 1분 tick + 조회 시간) `merged`와 `merged_at`, 세션 상세 배지가 "머지됨". 다른 세션의 PR을 GitHub에서 닫음 → `closed`. 다시 열기 → 1일 간격 안에서 `open`(실측은 `state_checked_at`을 앞당겨 다음 pass를 기다린다). `GET /v1/usage/outcomes?scope=agent`가 그 에이전트의 `pr_count` 2, `merged_pr_count` 1과 두 세션의 비용 합을 보인다. 에이전트 GitHub 스위치를 끈 뒤에도 남은 열린 PR의 머지가 반영된다 |
 | GA-5 리뷰용 App·리뷰 승인 | `github-apps/{role}` 경로와 화면의 리뷰용 App 영역, 리뷰용 forge, 작업 서비스의 리뷰와 세션 API, `review_pull_request` receipt, `no_reviewer_app` | route 테스트: `same_app`, `no_author_app`, 리뷰용 App 없을 때 `options.review.available: false`. 리뷰가 `commit_id`를 보낸다. 리뷰 토큰이 reviewer forge에서 나온다 | 리뷰용 App 등록(키는 경로만) → 작성용 App이 연 PR을 리뷰 승인 → GitHub에 `app/<리뷰용 App>` 승인. 리뷰 꺼진 릴리스는 `feature_off`. 리뷰용 App을 지운 뒤 `no_reviewer_app`. 필수 리뷰 1 브랜치 보호에서 승인이 조건을 채우는지 기록(결정 1의 위험 실측) |
 | GA-6 워크스페이스 상한 화면 | 연결 화면의 App 권한 표·상한·사용자 연결 영역(API는 GA-2·GA-4에 있다) | web 테스트(owner·admin만 바꾸고 member는 읽기 전용, `revision` 충돌 안내, 낮출 때 확인 대화 상자), 1440·390 캡처, ui-review | 화면에서 상한의 Actions를 끄면 GA-3에서 켠 에이전트의 dispatch가 거절되고, 다시 켜면 성공 |
 | GA-7 내장 MCP `github` | 세션에 붙는 내장 MCP 서버, 도구 일곱 개, egress 허가 경로, 릴리스 기능에 따른 도구 노출. 첫 커밋 전에 이 문서 [3절](#github-작업-서비스와-두-입구)에 upstream·허가·도구 정책 절을 더한다 | 도구가 다른 세션 id를 받지 않는다(attempt 토큰으로 정함). 꺼진 기능의 도구는 목록에 없다. 입구 1과 같은 receipt. worker 환경에 GitHub 토큰이 없다(env·파일 검사) | Slack에서 시작한 세션의 에이전트가 도구로 push 요청 → 사람 승인 → 에이전트가 도구로 PR 열기. push 승인 꺼진 릴리스는 승인 없이 PR. 허용 목록 안 dispatch |
 
-순서: GA-1 → GA-2 → (GA-3, GA-4, GA-6 병렬 가능) → GA-5(GA-3 뒤, 탭의 리뷰 항목) → GA-7. GA-3은 GA-2가 모든 replica에 올라간 뒤에 연다([5절](#5-기존-설치-이전)). 각 PR의 첫 커밋 전에 이 문서의 해당 절을 다시 읽고, 계약과 다르게 가야 하면 이 문서를 먼저 고친다.
+순서: GA-1 → GA-2 → (GA-3, GA-4, GA-6 병렬 가능) → GA-4b(GA-4 바로 뒤, 세션 상세의 PR 정보 영역을 같이 쓴다) → GA-5(GA-3 뒤, 탭의 리뷰 항목) → GA-7. GA-4b는 GA-2의 게이트에 purpose를 더하므로 GA-2 뒤여야 하고, GA-5·GA-7과는 겹치지 않는다. GA-3은 GA-2가 모든 replica에 올라간 뒤에 연다([5절](#5-기존-설치-이전)). 각 PR의 첫 커밋 전에 이 문서의 해당 절을 다시 읽고, 계약과 다르게 가야 하면 이 문서를 먼저 고친다.
 
 ### 오너만 할 수 있는 단계
 
@@ -399,6 +404,139 @@ i18n ko·en·ja를 같이 고친다.
 2. **리뷰용 App 만들기**: 같은 화면 > New GitHub App. 이름 예 `werft-sandbox-reviewer`, Webhook 끔, Repository permissions는 Contents Read-only, Pull requests Read and write, Metadata Read-only다. "Only on this account"로 만든다. Install App으로 `werft-sandbox` 하나에 설치하고 Generate a private key로 .pem을 받는다. 키 파일 경로만 카드에 알린다. GA-5 실측 전에 한다.
 3. **사용자 연결용 OAuth 설정**: `werft-sandbox-agent` App 설정 > General. Callback URL에 verify 스택의 `<콘솔 주소>/settings/linked-accounts/github`를 더하고, "Expire user authorization tokens"는 그대로 둔다. Client secrets > Generate a new client secret으로 값을 만들어 콘솔의 사용자 계정 연결 칸에 직접 넣는다. GA-4 실측 전에 한다.
 4. **werft-sandbox 준비**: `main`에 `.github/workflows/sandbox-dispatch.yml`과 `.github/workflows/sandbox-other.yml`을 둔다. 둘 다 `on: workflow_dispatch`이고 `echo` 한 줄짜리다. 하나는 허용 목록 안, 하나는 밖을 시험하는 데 쓴다. 브랜치 보호 `main`에 "Require a pull request before merging, Required approvals 1"을 켠다(GA-5의 위험 실측). GA-2 실측 전에 한다.
+
+## 10. 세션 성과물
+
+- 오너 원문(2026-10-30): "roi 측정관점에서 세션별 성과(결과물? 이라고 되어잇는거 같네)를 기록을 명확히 하도록 하고싶어 그 type 으로써 github 혹은 github_pullrequest? 같은거로 해서 링크가되엇든 이 세션에서는 이렇게 동작, 토큰을 사용해서 성과물로써 github 의 pr 이라는 카테고리를 놓아서 roi 를 파악할수 잇는 재로를 쓰도록 하는거지 다른 결과물 타입이 어떤게 잇을지는 아직 잘모르겟네".
+- 목적: 세션 하나가 만든 것(성과물)을 type과 함께 DB에 남기고, 그 세션의 토큰·비용과 이어 "이 세션은 토큰 N, 비용 $X를 써서 PR 하나를 만들었고 그 PR이 머지됐다"를 셀 수 있게 한다. 이번에 채우는 type은 GitHub PR(`github_pull_request`) 하나다.
+- 이 절의 `파일:줄`은 `origin/main` `3f4dd99d` 기준이다.
+
+### 지금 있는 것
+
+- **"결과물" 탭은 파일이다.** 세션 상세의 탭 하나가 "결과물"이다(`apps/web/src/routes/sessions.tsx:425-431`, 문구 `apps/web/src/i18n/outputs.ts:2`). 내용은 작업 공간 `out/` 폴더의 파일뿐이다(`outputs.ts:7`). API는 `GET /v1/sessions/{id}/outputs`(`apps/control-host/src/api/openapi.ts:1734-1739`)이고, 목록은 마지막으로 커밋된 checkpoint의 manifest에서 읽는다(`packages/platform/src/sessions/output-service.ts:42-44`, `packages/platform/src/checkpoints/checkpoint-service.ts:1278-1282`). `checkpoint_outputs`(`packages/db/src/schema.ts:1915-1934`)는 그 파일 객체의 크기 기록이다. type도 외부 링크도 없다. 일본어 문구는 이미 "成果物"다(`outputs.ts:11`).
+- **PR은 행으로 남지만 읽는 곳이 없다.** `pull_requests`는 세션·URL을 키로 저장소 id, 번호, head, base, `open_pull_request` receipt를 가진다(`schema.ts:1213-1233`). PR을 열 때(`packages/platform/src/sessions/pull-request-service.ts:141-226`) 같은 트랜잭션에서 receipt와 함께 쓴다(`packages/db/src/pull-requests.ts:160-221`). 열린 PR을 GitHub에서 찾아 답한 경우도 행을 남긴다(`pull-request-service.ts:192-196`, `212-221`). push 요청을 잇기 전의 옛 행은 번호·push 요청이 비어 있고 공개 모양으로 읽지 못한다(`pull-requests.ts:18-30`).
+- **PR의 상태는 모른다.** 행에 상태 칸이 없다. forge 포트의 PR은 `open`·`closed`만 알고 머지 여부가 없다(`packages/platform/src/ports/forge.ts:29-35`). 읽는 메서드는 열린 PR을 브랜치로 찾는 것 하나다(`forge.ts:50-54`, GitHub 구현 `apps/control-host/src/api/forge-github.ts:248-251`의 `state: "open"`). API에도 PR을 여는 `POST`와 코멘트뿐이고(`openapi.ts:2151`, `2189`) 세션의 PR 목록을 읽는 경로가 없다. 웹에도 PR을 보이는 화면이 없다.
+- **세션의 토큰·비용은 세션 행에 있다.** `sessions.cost_usd`(추정 비용, `schema.ts:1013-1019`)와 `sessions.provider_tokens`(모든 토큰, `schema.ts:1021-1027`)다. 둘 다 egress proxy가 잰 호출마다 `provider_usage`(`schema.ts:2013`)에 쌓으면서 더한다. 모델별 합은 `session_model_usage`(`schema.ts:2083-2121`)이고, 그 trigger가 세션의 에이전트를 릴리스에서 복사한다(`packages/db/migrations/0169_usage_breakdown_rollup.sql:35-38`). 세션의 에이전트는 `sessions.agent_release_id`(`schema.ts:1009-1011`) → `agent_releases.agent_id`(`schema.ts:2851`)다. 세션 하나는 `GET /v1/sessions/{id}/usage`(`openapi.ts:1697-1700`), 기간 합은 `GET /v1/usage/summary`·`…/breakdown`(`openapi.ts:3886-3891`, `3971-3976`)이 읽는다. 에이전트별 묶음 query는 `packages/db/src/usage-reader.ts:136-146`이다.
+- **GitHub 웹훅을 받는 곳이 없다.** control-host에 GitHub 이벤트를 받는 경로나 서명 검사가 없다. 오너가 만든 App도 Webhook을 끈 채다([오너 단계](#오너만-할-수-있는-단계) 2와 같은 설정).
+- **주기 작업의 선례.** push 실행기는 API replica마다 하나씩 돌고 `FOR UPDATE SKIP LOCKED`로 서로의 행을 피한다(`packages/platform/src/sessions/push-executor.ts:197-218`, `packages/db/src/push-requests.ts:404-416`, 연결 `apps/control-host/src/api/server.ts:706`, `963`).
+
+### 이름
+
+화면의 "결과물"은 지금처럼 `out/` 파일이다. 새 개념은 **성과물**(영어 `outcome`, 일본어 "成果")이라 부른다. 데이터는 따로 두고, 화면은 같은 "결과물" 탭 안에 영역을 하나 더한다([아래](#세션-상세의-성과물)). 오너가 말한 "결과물"과 같은 자리에서 보이게 하려는 것이다.
+
+### 데이터 모델: `session_outcomes` (새)
+
+| 열 | 타입 | 규칙 |
+|---|---|---|
+| `id` | uuid PK | |
+| `owner_id` | text NOT NULL | 세션의 owner |
+| `session_id` | uuid NOT NULL FK sessions | 성과물을 만든 세션 |
+| `agent_release_id` | text | 그 세션의 `agent_release_id`. 릴리스 없는 세션은 null |
+| `agent_id` | uuid | 그 릴리스의 `agent_id`. 쓸 때 복사한다(`session_model_usage`와 같은 이유: 세션의 릴리스는 바뀌지 않고, 집계가 릴리스 표를 매번 잇지 않게 한다) |
+| `type` | text NOT NULL | `CHECK (type IN ('github_pull_request'))`. 값은 contracts의 `SESSION_OUTCOME_TYPE_VALUES` 하나에 모은다 |
+| `url` | text NOT NULL | 외부 링크. PR이면 `html_url` |
+| `repository_id` | text | 카탈로그 저장소 id. 저장소와 상관없는 type은 null |
+| `external_id` | text | 그 type 안의 식별자. PR이면 번호(문자열) |
+| `state` | text NOT NULL | type별 값. PR은 `open`·`merged`·`closed`. `CHECK (type <> 'github_pull_request' OR state IN ('open', 'merged', 'closed'))` |
+| `state_changed_at` | timestamptz NOT NULL | 마지막으로 state가 바뀐 때. 처음에는 `created_at` |
+| `merged_at`, `closed_at` | timestamptz | GitHub가 준 값 그대로 |
+| `state_checked_at` | timestamptz | 마지막으로 GitHub에 물어 답(성공이든 `check_error`든)을 받은 때. 아직 안 받았으면 null. 집을 때는 고치지 않는다 |
+| `lease_token`, `lease_expires_at` | uuid, timestamptz | refresher가 이 행을 집었다는 표시. 결과를 쓸 때 지운다 |
+| `check_error` | text | 마지막 조회가 실패한 `reason_code`(`not_found`·`forge_failed`·`github_refused`). 성공하면 null |
+| `metadata` | jsonb NOT NULL DEFAULT `'{}'` | type별 모양. PR은 `{ head, base, adopted, merge_commit_sha, additions, deletions, changed_files, commits }`. 제목·본문·리뷰 내용은 넣지 않는다 |
+| `receipt_id` | uuid FK receipts | 만든 작업의 receipt. PR은 `open_pull_request` receipt |
+| `created_at` | timestamptz NOT NULL | |
+
+- 제약: `UNIQUE (session_id, type, url)`. 상태 조회용 부분 인덱스 `(state_checked_at) WHERE type = 'github_pull_request' AND state <> 'merged'`.
+- **type은 등록된 목록이다.** 열린 문자열로 두지 않는다. 집계가 type마다 state의 뜻(무엇이 "성공"인가)을 알아야 하기 때문이다. type을 더할 때는 마이그레이션 하나가 CHECK를 넓히고 contracts 값과 state 규칙을 더한다. `linked_accounts`의 provider CHECK(`schema.ts:766-769`)와 같은 방식이다.
+- **`pull_requests`는 그대로 둔다.** 그 표는 push 요청과 PR을 잇는 기록이고 키가 `(session_id, url)`이다. 성과물 행은 같은 `(session_id, url)`과 같은 `receipt_id`를 가진다. 외래 키는 걸지 않는다. 성과물 표는 type이 여럿이 될 표라서다.
+- **만드는 것은 서버뿐이다.** 성과물을 쓰는 API는 두지 않는다. 사람이나 에이전트가 성과물을 직접 적게 하면 ROI 재료가 자기 보고가 된다.
+- 새 표이므로 앞 이미지와 섞여도 안전하다. 앞 이미지는 이 표를 읽지도 쓰지도 않는다([5절](#5-기존-설치-이전)의 규칙).
+
+### PR을 열 때 자동으로 남긴다
+
+- **경로.** `pull_requests` 행을 쓰는 `savePullRequest`(`pull-requests.ts:160-221`)의 같은 트랜잭션에서 성과물 행을 `ON CONFLICT (session_id, type, url) DO NOTHING`으로 넣는다. 넣는 것은 그 트랜잭션이 `pull_requests` 행을 처음 쓸 때(새 행이나 옛 행 채우기, `pull-requests.ts:205-218`)뿐이다. state `open`, `metadata`의 head·base·`adopted`, `receipt_id`는 그 행에 쓰는 `open_pull_request` receipt다. 이미 기록된 PR을 다시 답하는 호출은 새 receipt를 만들지만(`pull-requests.ts:176-192`, 서비스에서는 `pull-request-service.ts:161-180`이 먼저 답한다) 성과물은 건드리지 않는다. GA-2 뒤에 PR 열기는 GitHub 게이트를 지나는 PR 서비스(`pull-request-service.ts`) 하나이고, 세션 API와 내장 MCP의 `open_pull_request`(GA-7)가 모두 그 함수를 부른다([3절](#github-작업-서비스와-두-입구)). 그래서 입구가 늘어도 기록 지점은 하나다.
+- **같은 PR을 다시 답할 때.** 세션의 push 요청은 브랜치 `agent/<session-id>` 하나를 같이 쓴다. 두 번째 push 요청의 PR 열기는 같은 URL을 돌려주므로 성과물은 하나로 남는다. 앞 PR이 닫힌 뒤 다시 열면 GitHub가 새 PR을 만들고(`pull-request-service.ts:192-205`) URL이 다르므로 성과물이 하나 더 생긴다.
+- **기존 행과 섞인 기간.** 이 기능 전에 연 PR, 그리고 배포가 섞인 동안 앞 이미지가 연 PR은 성과물 행이 없다. 아래 상태 조회가 돌 때마다 `pull_requests`에서 `push_request_id`가 있는데 성과물이 없는 행을 찾아 같은 모양으로 만든다(state `open`, `receipt_id`는 그 `pull_requests` 행의 receipt, `metadata.adopted`는 알 수 없으므로 null, `state_checked_at` null이라 바로 읽힌다). 마이그레이션에서 한 번 채우는 방식은 섞인 기간의 행을 놓치므로 쓰지 않는다. push 요청이 없는 옛 행(번호 없음)은 만들지 않는다.
+- **무엇이 성과물인가: 플랫폼의 PR 열기가 기록한 PR.** 성과물은 `pull_requests`에 남은 PR이다. 플랫폼이 만든 PR과, PR 열기가 GitHub에서 찾아 답한 열린 PR(`pull-request-service.ts:192-196`)이 둘 다 들어간다. 뒤의 것은 사람이 `agent/<session-id>` 브랜치로 먼저 연 PR일 수 있다. 그 브랜치의 commit은 이 세션이 만든 것이므로 성과물로 센다. 다만 구분할 수 있게 `metadata.adopted`에 둔다. 이 값은 `savePullRequest`의 `created`로 정하지 않는다. 서비스는 열린 PR을 찾지 못하면 `created: true`로 두는데(`pull-request-service.ts:192-196`), 그 사이 사람이 PR을 열었으면 forge의 생성 요청이 422를 받고 그 사람의 PR을 돌려주기 때문이다(`forge-github.ts:300-305`). 그래서 GA-4b는 `createPullRequest`가 실제로 만들었는지(`created`)를 forge 결과에 싣고, `adopted`는 "찾은 열린 PR을 답했거나 forge가 만들지 않았다"이다. 상태 조회가 채우는 행([위](#pr을-열-때-자동으로-남긴다))은 알 수 없으므로 null이다. PR 열기를 한 번도 부르지 않은 PR은 성과물이 아니다([LATER](#later)).
+
+### PR 상태 갱신: 조회로 한다
+
+**추천과 기본값: 주기 조회(polling).** 웹훅은 이번에 쓰지 않는다.
+
+- **웹훅을 쓰려면 필요한 것.** 오너가 App 설정에서 Webhook을 켜고 URL과 webhook secret을 넣어야 한다(밖에 보이는 설정 변경, 오너만 할 수 있다). control-host에 GitHub가 닿는 공개 경로, 서명(`X-Hub-Signature-256`) 검사, secret 보관, 놓친 이벤트를 다시 맞추는 조회가 새로 필요하다. verify 스택은 로컬이라 GitHub가 닿지 않으므로 werft-sandbox 실측에 터널도 필요하다. 웹훅을 켜도 놓친 이벤트 때문에 조회는 남는다. 그래서 조회만으로 시작하고, 웹훅은 조회의 비용이나 지연이 문제가 될 때 더한다([LATER](#later)).
+- **Webhook을 끈 지금의 뜻.** GitHub는 플랫폼에 아무것도 알려 주지 않는다. 머지·닫힘은 플랫폼이 다음에 물어볼 때까지 보이지 않는다. 그래서 성과물 state는 늘 "`state_checked_at` 시점의 값"이고, API와 화면은 그 시각을 같이 보인다.
+- **도는 곳.** API replica마다 하나씩 도는 `outcome-refresher`. push 실행기와 같은 모양(`push-executor.ts:197-218`)이고 1분마다 돈다. 집는 방식도 push 실행기의 claim(`push-requests.ts:404-416`)처럼 DB 잠금을 GitHub 호출 동안 쥐지 않는다. 한 문장의 `UPDATE … SET lease_token = <새 uuid>, lease_expires_at = now() + interval '2 minutes' WHERE id IN (SELECT … WHERE <읽을 때가 됨> AND (lease_expires_at IS NULL OR lease_expires_at < now()) ORDER BY state_checked_at NULLS FIRST LIMIT 50 FOR UPDATE SKIP LOCKED) RETURNING …`로 행을 집는다. `state_checked_at`은 집을 때 고치지 않으므로 화면의 "상태 확인" 시각은 실제로 답을 받은 때다. GitHub 호출은 트랜잭션 밖에서 하고, 결과는 `WHERE id = $1 AND lease_token = $2`로 행마다 따로 쓰며 같은 문장에서 lease를 지운다. lease가 만료돼 다른 refresher가 다시 집은 행에 늦게 온 앞 결과는 0행으로 끝나고 버린다. push 실행기가 `push_attempts`로 늦은 결과를 막는 것(`push-requests.ts:434-443`)과 같다. replica가 죽으면 그 행은 lease 만료(2분) 뒤 다시 집힌다.
+- **누구를 언제 읽나.** `state_checked_at`이 null이거나 아래 간격보다 오래된 행만 읽는다.
+
+| state | 다시 읽는 간격 | 그만 읽는 때 |
+|---|---|---|
+| `open` | 만든 지 1일 안이면 5분, 30일 안이면 1시간, 그 뒤는 1일 | 없음(열려 있는 동안) |
+| `closed` | 1일(다시 열릴 수 있다) | `closed_at` 뒤 30일 |
+| `merged` | 읽지 않는다 | 머지는 끝 상태다 |
+
+- **무엇을 부르나.** `GET /repos/{o}/{r}/pulls/{number}` 하나다. `merged_at`이 있으면 `merged`, `state: closed`이면 `closed`, 아니면 `open`이다. forge 포트에 `getPullRequest(repo, number)`를 더하고 `ForgePullRequest`에 `merged_at`·`closed_at`과 metadata 칸을 더한다. 값이 바뀌었을 때만 state와 `state_changed_at`을 고친다.
+- **토큰.** 게이트에 purpose `outcome_refresh`를 더한다. 권한은 `pull_requests: read` 하나, 연결은 author다([작업별 권한](#작업별-권한)). 이것은 에이전트의 작업이 아니라 플랫폼이 이미 연 PR의 상태를 읽는 것이다. 그래서 게이트 1단계(세션·릴리스 읽기)와 저장소 binding 검사, 6~8단계만 하고, 에이전트 스위치(2단계), 릴리스의 저장소 범위(3단계의 범위 검사), 기능·상한(4단계), 허용 목록(5단계)은 보지 않는다. 에이전트의 GitHub를 끄거나 범위를 좁혀도 그 에이전트가 앞서 연 PR의 머지는 ROI 기록에 남아야 하기 때문이다. App 토큰은 control-host 밖으로 나가지 않고 읽기 권한뿐이며 플랫폼이 고른 PR 하나만 읽으므로, [결정 7](#결정-7-릴리스와의-관계)의 "끄면 에이전트의 작업은 멈춘다"는 그대로다. GHES 카탈로그 App 저장소도 읽는다([3절](#github-게이트)). PAT 저장소는 PAT로 읽는다. PAT는 좁힐 수 없으므로 자격 증명은 그대로이고, 읽기로 제한되는 것은 플랫폼이 부르는 호출(`GET …/pulls/{n}`)뿐이다. receipt의 actor는 `principal: { kind: "service", id: "outcome-refresher" }`다. `mint_github_token`은 새로 발급했을 때만 남는다. 캐시(`forge-github.ts:152-177`)는 replica의 메모리에 연결·저장소·권한 조합별로 있고 토큰은 만료 10분 전에 다시 받으므로(`forge-github.ts:28`), receipt는 replica·저장소마다 대략 50분에 하나다.
+- **실패.** 404(PR·저장소가 사라졌거나 App 설치가 빠짐)는 `not_found`, 그 밖의 GitHub 오류는 `forge_failed`, 게이트 거절은 `github_refused`로 `check_error`에 두고 state는 그대로 둔다. `state_checked_at`은 고쳐서 같은 간격으로 다시 읽는다. 오류 원문은 [결정 0](#결정-0-github가-강제하는-것은-다시-책임지지-않는다)대로 남기지 않는다.
+- **요청량.** 위 간격이면 PR 하나가 시간당 쓰는 요청은 만든 지 1일 안이 12회, 1~30일이 1회, 30일 넘은 `open`과 `closed`가 1/24회다. 그래서 간격대로 다 읽으면 시간당 요청은 대략 12 × (최근 1일에 연 열린 PR) + (1~30일 된 열린 PR) + (나머지 읽을 행) / 24다. 하루 300개를 열고 대부분 하루 안에 머지하면 시간당 3600회 남짓이다. 하루 300개가 30일씩 열려 있으면 12 × 300 + 29 × 300 = 12300회로, 간격대로는 읽을 수 없다. 그래서 아래 예산이 간격보다 앞선다.
+- **예산과 멈춤.** GitHub REST 한도는 한도의 주인마다 따로다. App 설치 토큰은 설치마다(설치 규모에 따라 시간당 5000부터 늘어난다), PAT는 그 PAT의 사용자 전체가 같이 쓴다. GraphQL 한도와는 따로다. refresher는 한도 단위를 `quota_key`로 묶고, 그 단위에서 자기가 쓰는 양만 제한한다.
+  - `quota_key`는 성과물 행에 두지 않는다. 자격 증명은 바뀔 수 있기 때문이다(콘솔 App 교체, 카탈로그의 PAT 교체). refresher는 pass마다, 읽을 때가 된 행의 `repository_id`별로 **이번 요청에 실제로 쓸 자격 증명**에서 키를 정한다. App이면 `app:<api_base>:<installation_id>`, PAT면 `pat:<api_base>:<그 PAT로 부른 GET /user의 숫자 id>`다. `GET /user` 결과는 그 자격 증명 값의 해시를 키로 메모리에 두므로 PAT를 바꾸면 다시 부른다. 이 요청은 키를 알기 전에 보내므로 **예산 밖**이다. 대신 replica마다 자격 증명 하나에 1시간에 한 번까지만 보낸다(성공은 PAT가 바뀔 때까지 두고, 실패하면 1시간 동안 그 PAT 저장소의 행을 집지 않는다). 그래서 예산 밖 요청은 replica 수 × PAT 수 / 시간을 넘지 않는다. 같은 설치나 같은 사용자의 PAT를 쓰는 저장소·연결·replica는 같은 키를 쓴다.
+  - 예산과 멈춤은 replica가 같이 보는 표 `outcome_refresh_quotas`에 단위마다 한 행으로 둔다: `quota_key` PK, `rate_limit`(마지막으로 본 `x-ratelimit-limit`, 처음 보기 전에는 null), `window_start`, `used`, `paused_until`.
+  - 시간당 예산은 `rate_limit`의 20%(null이면 1000)다. 행 하나를 집는 것이 요청 하나다. 그래서 refresher의 조회는 지금 forge client의 자동 재시도·throttle 대기(`forge-github.ts:104-118`)를 끄고 한 번만 보낸다. 실패는 아래 "실패"대로 다음 간격에 다시 읽는다. 집기는 단위별로 한 트랜잭션에서 한다. 그 단위의 `outcome_refresh_quotas` 행을 `FOR UPDATE`로 잠그고(없으면 만든다), `window_start`가 1시간보다 오래됐으면 `window_start = now()`, `used = 0`으로 되돌린다. `paused_until`이 지나지 않았으면 집지 않는다. 남은 몫(예산 − `used`)과 50 가운데 작은 수만큼, 이 pass에서 그 키로 정해진 저장소들의 성과물 행을 집고, 집은 수를 `used`에 더한 뒤 커밋한다. 단위의 행 잠금이 확인과 차감을 직렬로 만들므로 replica가 여럿이어도 한 창에서 예산을 넘겨 집지 않는다. 같은 행을 5분마다 다시 읽어도 읽을 때마다 `used`가 는다. 예산을 넘는 행은 `state_checked_at` 오래된 순으로 밀려 늦게 읽힌다. 창은 고정 1시간이라 창 경계 앞뒤를 합치면 1시간 안에 예산의 두 배까지 쓸 수 있다.
+  - 응답의 `x-ratelimit-remaining`이 limit의 20% 아래이거나 rate limit 응답(403·429)을 받으면, 그 단위의 `paused_until`을 `x-ratelimit-reset`(또는 `retry-after`)으로 둔다. 이미 집어 나간 요청은 막지 못한다. 그 수는 replica마다 한 pass의 최대 50이므로 단위 전체로는 replica 수 × 50까지다(이것도 이미 `used`에 들어 있어 예산은 넘지 않는다).
+  - 보장 범위: PAT 사용자를 확인하는 `GET /user`(위의 상한)를 빼면, refresher가 한 단위에서 시간당 쓰는 요청은 예산을 넘지 않고, 그 단위가 바닥나 가면 멈춘다. 다른 작업(에이전트의 clone·push·PR, PAT 사용자의 다른 호출)의 몫을 따로 떼어 두지는 않는다. 그 작업들이 한도를 다 쓰면 refresher도 멈춘다.
+  - 밀리거나 멈춘 행은 state와 `check_error`를 바꾸지 않고 늦게 읽힐 뿐이다. 화면은 `state_checked_at`으로 그 늦음을 보인다.
+
+### ROI 재료: 집계 query
+
+화면(대시보드)은 이번에 만들지 않는다. 같은 기간·범위 규칙으로 읽는 API 하나와 그 query 모양만 정한다.
+
+- **세션 단위로 먼저 접는다.** 세션 하나에 성과물이 여럿일 수 있으므로, 성과물을 세션별로 센 뒤 세션에 잇는다. 그래야 세션 비용이 두 번 더해지지 않는다.
+
+```sql
+-- sketch: one row per agent plus the total, over the sessions
+-- GET /v1/usage/summary would count for the same scope and period
+WITH s AS (
+  SELECT s.id, ar.agent_id, s.cost_usd, s.provider_tokens
+  FROM sessions s
+  LEFT JOIN agent_releases ar ON ar.id = s.agent_release_id
+  WHERE <summary period on s.created_at> AND <summary scope predicate>
+), o AS (
+  SELECT session_id,
+         count(*) AS prs,
+         count(*) FILTER (WHERE state = 'merged') AS merged,
+         count(*) FILTER (WHERE state = 'closed') AS closed
+  FROM session_outcomes
+  WHERE type = 'github_pull_request' AND session_id IN (SELECT id FROM s)
+  GROUP BY session_id
+)
+SELECT s.agent_id,
+       grouping(s.agent_id) = 1 AS total,
+       count(*) AS session_count,
+       coalesce(sum(s.cost_usd), 0) AS cost_usd,
+       coalesce(sum(s.provider_tokens), 0) AS token_count,
+       count(*) FILTER (WHERE o.prs > 0) AS sessions_with_pr,
+       count(*) FILTER (WHERE o.merged > 0) AS sessions_with_merged_pr,
+       coalesce(sum(o.prs), 0) AS pr_count,
+       coalesce(sum(o.merged), 0) AS merged_pr_count,
+       coalesce(sum(o.closed), 0) AS closed_pr_count,
+       coalesce(sum(s.cost_usd) FILTER (WHERE o.merged > 0), 0)
+         AS cost_of_merged_sessions_usd
+FROM s LEFT JOIN o ON o.session_id = s.id
+GROUP BY GROUPING SETS ((s.agent_id), ());
+```
+
+- 세션이 하나도 없는 기간도 `()` 묶음이 합계 행 하나를 내고, 합은 모두 0이다(summary가 빈 기간에 0을 주는 것과 같다).
+
+- **API.** `GET /v1/usage/outcomes`. `scope`·`since`·`until`·`agent_id`와 누가 어느 범위를 읽는지는 `GET /v1/usage/summary`와 똑같다(`openapi.ts:3886-3891`). `group_by=agent`면 에이전트별 행을 더한다. 응답은 위 칸에 `cost_per_merged_pr_usd`(`cost_usd / merged_pr_count`, 0이면 null)와 `cost_complete`(summary와 같은 뜻), `refreshed_at`을 더한다. `cost_per_merged_pr_usd`의 분자는 **기간의 모든 세션** 비용이다. 성과물이 없는 세션의 비용도 그 PR들을 얻는 데 든 비용이기 때문이다. 머지된 세션만의 비용은 `cost_of_merged_sessions_usd`로 따로 준다. 아무것도 바꾸지 않는다.
+- **읽는 법.** 기간은 세션을 만든 때로 자른다(summary와 같다). 그래서 기간 뒤에 머지된 PR도 그 세션의 기간에 들어가고, 같은 기간을 나중에 다시 읽으면 `merged_pr_count`가 늘 수 있다. state는 각 행의 `state_checked_at` 시점 값이다. `unmetered` 세션은 비용이 0이므로 토큰 수를 같이 본다.
+
+### 세션 상세의 성과물
+
+- "결과물" 탭(`sessions.tsx:425-431`) 위쪽에 "GitHub PR" 영역을 더한다. [7절](#세션-상세)의 "PR 정보 영역"이 이 자리다. 행마다 `<저장소>#<번호>` 링크, state 배지(열림·머지됨·닫힘), 머지·닫힌 시각, "상태 확인 <상대 시각>"(`state_checked_at`), `check_error`가 있으면 그 이유 한 줄을 보인다. 영역 아래에 이 세션의 토큰 수와 추정 비용 한 줄을 `GET /v1/sessions/{id}/usage`의 값으로 보인다. 그 아래가 지금의 `out/` 파일 목록이다.
+- 탭의 수는 PR 수와 파일 수의 합이다. 둘 다 없으면 지금의 빈 안내를 쓴다. 빈 안내 문구(`outputs.ts:7`)는 "PR과 out/ 폴더의 파일"을 세는 것으로 고친다.
+- API는 `GET /v1/sessions/{id}/outcomes`(`session.read`)다. `{ items: [{ id, type, url, repository_id, external_id, state, state_changed_at, merged_at, closed_at, state_checked_at, check_error, metadata, created_at }] }`, 만든 순서. 아무것도 바꾸지 않는다.
+- i18n ko·en·ja를 같이 고친다. 일본어 "成果物"는 지금 파일 탭의 이름이므로 PR 영역 제목은 "GitHub PR"로 둔다.
 
 ## 대안
 
@@ -418,4 +556,8 @@ i18n ko·en·ja를 같이 고친다.
 - **login 변경 뒤 옛 noreply 이메일의 귀속.** 다시 볼 조건: 연결한 사람이 GitHub login을 바꾼 뒤 그 전 commit의 공동 작성자 표시가 사라졌다는 보고가 나올 때.
 - **rate limit 사용량 화면.** 브리프의 범위 밖이다. 다시 볼 조건: 에이전트 여럿이 App 하나를 함께 쓸 때.
 - **merge 권한.** 범위 밖이다. "플랫폼 머지 요청 기능"으로 따로 검토한다.
-- **GHES.** 범위 밖이다. 콘솔 App은 github.com만 쓴다(#922). 카탈로그 App의 GHES 저장소는 게이트의 기본 작업(`clone`·`push`·`pull_request`)만 받고 나머지는 `github_host_unsupported`다([3절](#3-토큰-발급-경로와-좁히기)).
+- **성과물의 다른 type**([10절](#10-세션-성과물)). 후보는 Slack 답변(세션이 스레드에 남긴 답과 그 반응), 파일·문서(`out/`의 파일이나 외부 문서 링크), GitHub issue(GA의 `issues` 작업이 생기면), 그리고 리뷰(`review_pull_request`), dispatch한 run이다. 다시 볼 조건: 오너가 PR 밖에서 세고 싶은 결과를 정할 때. 더할 때는 type마다 state와 "성공"의 뜻을 먼저 정한다.
+- **GitHub 웹훅으로 PR 상태 받기**([10절](#pr-상태-갱신-조회로-한다)). 오너가 App의 Webhook을 켜고 URL·secret을 넣어야 한다. 다시 볼 조건: 열린 PR이 많아 조회가 설치의 REST 한도를 눈에 띄게 쓰거나, 머지 반영이 5분보다 빨라야 한다는 요청이 나올 때.
+- **PR 열기를 부르지 않은 PR을 성과물로.** 사람이 `agent/<session-id>` 브랜치로 직접 열고 플랫폼의 PR 열기가 한 번도 답하지 않은 PR이다. 다시 볼 조건: 그런 PR이 실제로 생겨 ROI에서 빠진다는 보고가 나올 때.
+- **성과물 대시보드.** API(`GET /v1/usage/outcomes`)만 만든다. 다시 볼 조건: 오너가 사용량 화면에서 ROI를 보고 싶어 할 때.
+- **GHES.** 범위 밖이다. 콘솔 App은 github.com만 쓴다(#922). 카탈로그 App의 GHES 저장소는 게이트의 기본 작업(`clone`·`push`·`pull_request`)과 `outcome_refresh`만 받고 나머지는 `github_host_unsupported`다([3절](#3-토큰-발급-경로와-좁히기)).

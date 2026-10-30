@@ -50,6 +50,22 @@ const people = new Map([owner, mate].map((m) => [m.user_id, m]));
 /** Every polite status on screen: the page's notice and the picker's count. */
 const said = () => screen.getAllByRole("status").map((s) => s.textContent);
 
+const optionTexts = () =>
+  screen.queryAllByRole("option").map((o) => o.textContent);
+
+/** Types into a server-searched picker and takes the one match once the search settles. */
+async function pick(
+  user: Awaited<ReturnType<typeof setupUser>>,
+  picker: HTMLElement,
+  text: string,
+) {
+  await user.type(picker, text);
+  await waitFor(() => expect(optionTexts()).toHaveLength(1), {
+    timeout: 3000,
+  });
+  await user.keyboard("{ArrowDown}{Enter}");
+}
+
 /** The teams API as one stateful server, as the real routes answer. */
 function teamServer({ refuse }: { refuse?: string } = {}) {
   let team: TeamDetail | null = {
@@ -75,8 +91,17 @@ function teamServer({ refuse }: { refuse?: string } = {}) {
     },
     routes: {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () =>
-        json(200, memberPage({ items: [owner, mate], next_cursor: null })),
+      "GET /v1/members": (request: Request) => {
+        const params = new URL(request.url).searchParams;
+        const q = params.get("q")?.toLowerCase();
+        const ids = params.get("user_ids")?.split(",");
+        const items = [owner, mate].filter(
+          (m) =>
+            (!q || `${m.display_name} ${m.email}`.toLowerCase().includes(q)) &&
+            (!ids || ids.includes(m.user_id)),
+        );
+        return json(200, memberPage({ items, next_cursor: null }));
+      },
       "GET /v1/teams": () =>
         json(200, { items: team ? [view()] : [], next_cursor: null }),
       "POST /v1/teams": async (request: Request) => {
@@ -500,22 +525,46 @@ describe("팀 화면", () => {
     expect(api.calls.some((c) => c.path === "/v1/my-teams")).toBe(false);
   });
 
-  test("팀 목록과 내가 속한 팀은 다음 쪽까지 모두 읽는다", async () => {
+  test("팀 목록은 한 쪽씩 읽고 더 보기로 다음 쪽을 읽으며 검색은 서버에 맡긴다. 내가 속한 팀은 다음 쪽까지 모두 읽는다", async () => {
     const SECOND_ID = "1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e";
     const server = teamServer();
     const { items } = await server.routes["GET /v1/teams"]().json();
     const second = { ...items[0], id: SECOND_ID, name: "지원팀" };
     const { api } = renderAt("/members/teams", {
       ...server.routes,
-      "GET /v1/teams?limit=100": () => json(200, { items, next_cursor: "c2" }),
-      "GET /v1/teams?cursor=c2&limit=100": () =>
+      "GET /v1/teams": () => json(200, { items, next_cursor: "c2" }),
+      "GET /v1/teams?cursor=c2": () =>
+        json(200, { items: [second], next_cursor: null }),
+      "GET /v1/teams?q=%EC%A7%80%EC%9B%90": () =>
         json(200, { items: [second], next_cursor: null }),
     });
     await screen.findByRole("link", { name: "결제팀" });
+    const shown = (name: string) =>
+      screen.queryByRole("link", { name }) !== null;
+    expect(shown("지원팀")).toBe(false);
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "더 보기" }));
+    expect(await screen.findByRole("link", { name: "지원팀" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "더 보기" }) === null).toBe(
+      true,
+    );
+    await user.type(
+      screen.getByRole("searchbox", { name: "이름으로 팀 찾기" }),
+      "지원",
+    );
+    await waitFor(
+      () =>
+        expect(
+          api.calls.some((c) => c.search.startsWith("?q=") && !shown("결제팀")),
+        ).toBe(true),
+      { timeout: 3000 },
+    );
     expect(await screen.findByRole("link", { name: "지원팀" })).toBeDefined();
     expect(
-      api.calls.filter((c) => c.path === "/v1/teams").map((c) => c.search),
-    ).toEqual(["?limit=100", "?cursor=c2&limit=100"]);
+      api.calls
+        .filter((c) => c.path === "/v1/teams")
+        .map((c) => decodeURIComponent(c.search)),
+    ).toEqual(["", "?cursor=c2", "?q=지원"]);
     api.calls.length = 0;
 
     renderAt("/members/teams", {
@@ -567,27 +616,29 @@ describe("팀 화면", () => {
     const picker = await screen.findByRole("combobox", {
       name: "추가할 사람",
     });
-    // The page head's two, then everyone once: roles and the picker share it.
+    // The page head's two, then the picker's first page; an empty team has no
+    // roles to read.
     await waitFor(() =>
       expect(
         api.calls.filter((c) => c.path === "/v1/members").map((c) => c.search),
-      ).toEqual(["?limit=2", "?limit=100"]),
+      ).toEqual(["?limit=2", ""]),
     );
     expect(
       screen.getByRole("button", { name: "추가" }).hasAttribute("disabled"),
     ).toBe(true);
 
     await user.click(picker);
-    await user.type(picker, "mate@");
+    await pick(user, picker, "mate@");
+    // The server did the search.
     expect(
-      (await screen.findAllByRole("option")).map((o) => o.textContent),
-    ).toEqual(["Matemate@example.com"]);
-    await user.keyboard("{ArrowDown}{Enter}");
+      api.calls
+        .filter((c) => c.path === "/v1/members")
+        .map((c) => decodeURIComponent(c.search)),
+    ).toContain("?q=mate@");
     // The search box empties and keeps the keyboard for the next one.
     expect((picker as HTMLInputElement).value).toBe("");
     expect(document.activeElement === picker).toBe(true);
-    await user.type(picker, "own");
-    await user.keyboard("{ArrowDown}{Enter}");
+    await pick(user, picker, "own");
     const chosen = screen.getByRole("list", { name: "추가할 사람" });
     expect(
       within(chosen)
@@ -596,7 +647,10 @@ describe("팀 화면", () => {
     ).toEqual(["Mate", "Owner"]);
     // Nobody is offered twice.
     await user.click(picker);
-    expect(said()).toContain("추가할 수 있는 활성 구성원이 없습니다.");
+    await waitFor(
+      () => expect(said()).toContain("추가할 수 있는 활성 구성원이 없습니다."),
+      { timeout: 3000 },
+    );
     await user.keyboard("{Escape}");
 
     // Taking one off hands the keyboard back to the search box.
@@ -606,8 +660,7 @@ describe("팀 화면", () => {
       }),
     );
     expect(document.activeElement === picker).toBe(true);
-    await user.type(picker, "Own");
-    await user.keyboard("{ArrowDown}{Enter}");
+    await pick(user, picker, "Own");
 
     await user.click(screen.getByRole("button", { name: "2명 추가" }));
     await waitFor(() => expect(said()).toContain("2명을 팀에 추가했습니다."));
@@ -669,10 +722,7 @@ describe("팀 화면", () => {
     const picker = await screen.findByRole("combobox", {
       name: "추가할 사람",
     });
-    for (const name of ["Mate", "Owner"]) {
-      await user.type(picker, name);
-      await user.keyboard("{ArrowDown}{Enter}");
-    }
+    for (const name of ["Mate", "Owner"]) await pick(user, picker, name);
     await user.click(screen.getByRole("button", { name: "2명 추가" }));
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toStartWith(
@@ -707,11 +757,9 @@ describe("팀 화면", () => {
     const picker = await screen.findByRole("combobox", {
       name: "추가할 사람",
     });
-    await user.type(picker, "Mate");
-    await user.keyboard("{ArrowDown}{Enter}");
+    await pick(user, picker, "Mate");
     await user.click(screen.getByRole("button", { name: "추가" }));
-    await user.type(picker, "Owner");
-    await user.keyboard("{ArrowDown}{Enter}");
+    await pick(user, picker, "Owner");
     act(() => answer());
     await waitFor(() =>
       expect(said()).toContain("Mate님을 팀에 추가했습니다."),
@@ -733,8 +781,7 @@ describe("팀 화면", () => {
     const picker = await screen.findByRole("combobox", {
       name: "추가할 사람",
     });
-    await user.type(picker, "Mate");
-    await user.keyboard("{ArrowDown}{Enter}");
+    await pick(user, picker, "Mate");
     await user.click(screen.getByRole("button", { name: "추가" }));
     await waitFor(() =>
       expect(said()).toContain("Mate님을 팀에 추가했습니다."),
@@ -822,14 +869,19 @@ describe("에이전트 관리자", () => {
       ...teamServer().routes,
       [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, admins()),
     });
-    const picker = await screen.findByLabelText("관리자로 추가할 사람이나 팀");
+    const picker = await screen.findByRole("combobox", {
+      name: "관리자로 추가할 사람이나 팀",
+    });
     const memberReads = () =>
       api.calls.filter((c) => c.path === "/v1/members").length;
     expect(memberReads()).toBe(0);
     act(() => picker.focus());
     await waitFor(() => expect(memberReads()).toBe(1));
+    const user = await setupUser();
+    await user.keyboard("{ArrowDown}");
+    // Owner and the team; Mate already administers it.
     await waitFor(() =>
-      expect(within(picker).getAllByRole("option").length).toBeGreaterThan(1),
+      expect(optionTexts()).toEqual(["Ownerowner@example.com", "결제팀팀"]),
     );
   });
 
@@ -859,9 +911,9 @@ describe("에이전트 관리자", () => {
       },
       [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, everyone),
     });
-    const picker = (await screen.findByLabelText(
-      "관리자로 추가할 사람이나 팀",
-    )) as HTMLSelectElement;
+    const picker = (await screen.findByRole("combobox", {
+      name: "관리자로 추가할 사람이나 팀",
+    })) as HTMLInputElement;
     const reasonShown = () =>
       document.getElementById(picker.getAttribute("aria-describedby") ?? "")
         ?.textContent ?? "";
@@ -869,7 +921,6 @@ describe("에이전트 관리자", () => {
     await waitFor(() =>
       expect(api.calls.some((c) => c.path === "/v1/members")).toBe(true),
     );
-    await waitFor(() => expect(picker.getAttribute("aria-busy")).toBe("false"));
     // Teams are still on their way, so nothing is known to be left out yet.
     expect(picker.disabled).toBe(false);
     expect(picker.getAttribute("aria-describedby")).toBeNull();
@@ -903,8 +954,47 @@ describe("에이전트 관리자", () => {
     );
     expect(reasonShown()).not.toContain(reason);
     act(() => answer());
-    expect(await screen.findByRole("option", { name: "결제팀" })).toBeTruthy();
+    const user = await setupUser();
+    await user.keyboard("{ArrowDown}");
+    await waitFor(() => expect(optionTexts()).toEqual(["결제팀팀"]));
     expect(reasonShown()).not.toContain(reason);
+  });
+
+  test("사람·팀 검색이 둘 다 실패해도 칸은 고칠 수 있고, 서버가 받는 길이까지만 받는다", async () => {
+    const { api } = renderAt(`/agents/${AGENT_ID}?tab=admins`, {
+      ...agentServer().routes,
+      ...teamServer().routes,
+      "GET /v1/members": () => apiError(500, "INTERNAL", "boom"),
+      "GET /v1/teams": () => apiError(500, "INTERNAL", "boom"),
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, admins()),
+    });
+    const picker = (await screen.findByRole("combobox", {
+      name: "관리자로 추가할 사람이나 팀",
+    })) as HTMLInputElement;
+    expect(picker.maxLength).toBe(200);
+    act(() => picker.focus());
+    await waitFor(() =>
+      expect(api.calls.some((c) => c.path === "/v1/teams")).toBe(true),
+    );
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "관리자로 추가" })
+          .getAttribute("aria-disabled"),
+      ).toBe("true"),
+    );
+    expect(picker.disabled).toBe(false);
+    const user = await setupUser();
+    await user.type(picker, "a");
+    await waitFor(
+      () =>
+        expect(
+          api.calls.some(
+            (c) => c.path === "/v1/members" && c.search === "?q=a",
+          ),
+        ).toBe(true),
+      { timeout: 3000 },
+    );
   });
 
   test("owner는 사람·팀을 지정하고 해제한다", async () => {
@@ -938,34 +1028,53 @@ describe("에이전트 관리자", () => {
     expect(
       (await screen.findByText("Mate")).closest("li")?.textContent,
     ).toContain("mate@example.com · 10/11부터 관리자");
-    await screen.findByRole("option", { name: "결제팀" });
-    // The list's summaries name the admins, so a change marks it stale; the
-    // overview watches the list, so it may be read again at once.
+    // The list's summaries name the admins, so a change marks them stale; the
+    // overview watches this agent's summary, so it may be read again at once.
+    const summary = keys.agentSummaries([AGENT_ID]);
     const listReads = () =>
       api.calls.filter((c) => c.method === "GET" && c.path === "/v1/agents")
         .length;
     await waitFor(() =>
-      expect(services.queryClient.getQueryState(keys.agents)?.fetchStatus).toBe(
+      expect(services.queryClient.getQueryState(summary)?.fetchStatus).toBe(
         "idle",
       ),
     );
     const reads = listReads();
-    await user.selectOptions(
-      screen.getByLabelText("관리자로 추가할 사람이나 팀"),
-      `teams:${TEAM_ID}`,
+    const picker = screen.getByRole("combobox", {
+      name: "관리자로 추가할 사람이나 팀",
+    }) as HTMLInputElement;
+    const addButton = () =>
+      screen.getByRole("button", { name: "관리자로 추가" });
+    // People and teams are searched on the server together.
+    await pick(user, picker, "결제");
+    expect(
+      api.calls
+        .filter((c) => c.path === "/v1/members" || c.path === "/v1/teams")
+        .map((c) => `${c.path}${decodeURIComponent(c.search)}`),
+    ).toEqual(
+      expect.arrayContaining(["/v1/members?q=결제", "/v1/teams?q=결제"]),
     );
-    await user.click(screen.getByRole("button", { name: "관리자로 추가" }));
-    expect((await screen.findByRole("status")).textContent).toBe(
-      "결제팀을(를) 관리자로 추가했습니다.",
+    expect(picker.value).toBe("결제팀");
+    expect(addButton().hasAttribute("disabled")).toBe(false);
+    // Editing the text drops the choice, so nothing the input no longer
+    // shows is added.
+    await user.type(picker, "x");
+    expect(addButton().hasAttribute("disabled")).toBe(true);
+    await user.clear(picker);
+    await pick(user, picker, "결제");
+    await user.click(addButton());
+    await waitFor(() =>
+      expect(said()).toContain("결제팀을(를) 관리자로 추가했습니다."),
     );
+    expect(picker.value).toBe("");
     expect(
       api.calls.find((c) => c.method === "POST" && c.path.endsWith("/admins"))
         ?.body,
     ).toEqual({ team_id: TEAM_ID });
     await waitFor(() =>
       expect(
-        services.queryClient.getQueryState(keys.agents)?.isInvalidated ===
-          true || listReads() > reads,
+        services.queryClient.getQueryState(summary)?.isInvalidated === true ||
+          listReads() > reads,
       ).toBe(true),
     );
 
@@ -977,9 +1086,7 @@ describe("에이전트 관리자", () => {
     expect(dialog.textContent).not.toContain("나 자신을 빼면");
     await user.click(within(dialog).getByRole("button", { name: "빼기" }));
     await waitFor(() =>
-      expect(screen.getByRole("status").textContent).toBe(
-        "Mate을(를) 관리자에서 뺐습니다.",
-      ),
+      expect(said()).toContain("Mate을(를) 관리자에서 뺐습니다."),
     );
     expect(
       screen.queryByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),

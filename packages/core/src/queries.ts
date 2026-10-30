@@ -12,6 +12,7 @@ import type {
   AgentAdminsView,
   AgentDetail,
   AuthMeResponse,
+  CountAgentsResponse,
   ListAdministeredAgentsResponse,
   ListAgentsResponse,
   ListApiKeysResponse,
@@ -151,14 +152,27 @@ export function queryKeysOf(client: ApiClient) {
     memberPages: (q: string | undefined) =>
       [s, "members", "pages", { q: q ?? null }] as const,
     firstMembers: [s, "members", "first"] as const,
+    memberSummaries: (userIds: readonly string[]) =>
+      [s, "members", { ids: [...userIds].sort() }] as const,
     invites: [s, "invites"] as const,
     agents: [s, "agents"] as const,
+    // Object segments under "agents", so they never read as an agent id and
+    // every agent change refreshes them too.
+    agentPages: (q: string | undefined) =>
+      [s, "agents", { pages: q ?? null }] as const,
+    agentsOnProfile: (profileId: string) =>
+      [s, "agents", { profile: profileId }] as const,
+    agentCounts: [s, "agents", { counts: true }] as const,
+    agentSummaries: (ids: readonly string[]) =>
+      [s, "agents", { ids: [...ids].sort() }] as const,
     agent: (id: string) => [s, "agents", id] as const,
     agentAdmins: (id: string) => [s, "agents", id, "admins"] as const,
     administeredAgents: [s, "administered-agents"] as const,
     teams: [s, "teams"] as const,
     // Under "teams", so every team change refreshes it too.
     myTeams: [s, "teams", "mine"] as const,
+    teamPages: (q: string | undefined) =>
+      [s, "teams", { pages: q ?? null }] as const,
     linkedAccounts: [s, "linked-accounts"] as const,
     apiKeys: [s, "api-keys"] as const,
     profiles: [s, "profiles"] as const,
@@ -247,6 +261,16 @@ export function profilesQuery(client: ApiClient) {
 // contracts values.
 const READ_ALL_PAGE_LIMIT = 100;
 
+/** Distinct ids, sorted, in requests of at most a page's worth each. */
+function idChunks(ids: readonly string[]): string[][] {
+  const sorted = [...new Set(ids)].sort();
+  const chunks: string[][] = [];
+  for (let at = 0; at < sorted.length; at += READ_ALL_PAGE_LIMIT) {
+    chunks.push(sorted.slice(at, at + READ_ALL_PAGE_LIMIT));
+  }
+  return chunks;
+}
+
 /** Every item of a paged list, and its last page for any page-level fields. */
 async function readEveryPage<
   Page extends { items: unknown[]; next_cursor: string | null },
@@ -332,6 +356,42 @@ export function memberPagesQuery(client: ApiClient, q?: string) {
   });
 }
 
+/**
+ * The members among these users, read 100 at a time: for a screen that
+ * already holds the ids (a team's people, a release's authors) and needs
+ * their names or roles.
+ */
+export function memberSummariesQuery(
+  client: ApiClient,
+  userIds: readonly string[],
+) {
+  return queryOptions({
+    queryKey: queryKeysOf(client).memberSummaries(userIds),
+    queryFn: async (): Promise<ListMembersResponse> => {
+      const pages = (await Promise.all(
+        idChunks(userIds).map((chunk) =>
+          unwrap(
+            client.GET("/v1/members", {
+              params: {
+                query: {
+                  user_ids: chunk.join(","),
+                  limit: READ_ALL_PAGE_LIMIT,
+                },
+              },
+            }),
+          ),
+        ),
+      )) as ListMembersResponse[];
+      return {
+        items: pages.flatMap((page) => page.items),
+        next_cursor: null,
+        assignable_roles: pages.at(-1)?.assignable_roles ?? [],
+      };
+    },
+    retry: false,
+  });
+}
+
 export function invitesQuery(client: ApiClient) {
   return queryOptions({
     queryKey: queryKeysOf(client).invites,
@@ -363,6 +423,95 @@ export function agentsQuery(client: ApiClient) {
   });
 }
 
+/**
+ * The workspace's agents a page at a time, oldest first, with their card
+ * summaries: those whose name or slug contains `q` when one is given.
+ */
+export function agentPagesQuery(client: ApiClient, q?: string) {
+  return infiniteQueryOptions({
+    queryKey: queryKeysOf(client).agentPages(q),
+    queryFn: ({ pageParam }) =>
+      unwrap(
+        client.GET("/v1/agents", {
+          params: {
+            query: {
+              include: "summary",
+              ...(q ? { q } : {}),
+              ...(pageParam ? { cursor: pageParam } : {}),
+            },
+          },
+        }),
+      ) as Promise<ListAgentsResponse>,
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.next_cursor,
+    // As memberPagesQuery: coming back reads the first page, not every page.
+    gcTime: 0,
+    retry: false,
+  });
+}
+
+/** The agents whose active release runs on a profile, a page at a time. */
+export function agentsOnProfileQuery(client: ApiClient, profileId: string) {
+  return infiniteQueryOptions({
+    queryKey: queryKeysOf(client).agentsOnProfile(profileId),
+    queryFn: ({ pageParam }) =>
+      unwrap(
+        client.GET("/v1/agents", {
+          params: {
+            query: {
+              include: "summary",
+              runtime_profile_id: profileId,
+              ...(pageParam ? { cursor: pageParam } : {}),
+            },
+          },
+        }),
+      ) as Promise<ListAgentsResponse>,
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.next_cursor,
+    gcTime: 0,
+    retry: false,
+  });
+}
+
+/** How many agents there are by state, without reading them. */
+export function agentCountsQuery(client: ApiClient) {
+  return queryOptions({
+    queryKey: queryKeysOf(client).agentCounts,
+    queryFn: () =>
+      unwrap(client.GET("/v1/agents/counts")) as Promise<CountAgentsResponse>,
+    retry: false,
+  });
+}
+
+/**
+ * The named agents with their card summaries, one read for up to a page of
+ * ids; an id of no agent in the workspace is left out.
+ */
+export function agentSummariesQuery(client: ApiClient, ids: readonly string[]) {
+  return queryOptions({
+    queryKey: queryKeysOf(client).agentSummaries(ids),
+    queryFn: async (): Promise<ListAgentsResponse> => {
+      const pages = (await Promise.all(
+        idChunks(ids).map((chunk) =>
+          unwrap(
+            client.GET("/v1/agents", {
+              params: {
+                query: {
+                  include: "summary",
+                  ids: chunk.join(","),
+                  limit: READ_ALL_PAGE_LIMIT,
+                },
+              },
+            }),
+          ),
+        ),
+      )) as ListAgentsResponse[];
+      return { items: pages.flatMap((page) => page.items), next_cursor: null };
+    },
+    retry: false,
+  });
+}
+
 export function agentQuery(client: ApiClient, id: string) {
   return queryOptions({
     queryKey: queryKeysOf(client).agent(id),
@@ -375,6 +524,28 @@ export function agentQuery(client: ApiClient, id: string) {
 }
 
 /** Every team of the workspace, every page read, by name. */
+/** One page of the workspace's teams, the search going with it. */
+export function teamPagesQuery(client: ApiClient, q?: string) {
+  return infiniteQueryOptions({
+    queryKey: queryKeysOf(client).teamPages(q),
+    queryFn: ({ pageParam }) =>
+      unwrap(
+        client.GET("/v1/teams", {
+          params: {
+            query: {
+              ...(q ? { q } : {}),
+              ...(pageParam ? { cursor: pageParam } : {}),
+            },
+          },
+        }),
+      ) as Promise<ListTeamsResponse>,
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.next_cursor,
+    gcTime: 0,
+    retry: false,
+  });
+}
+
 export function teamsQuery(client: ApiClient) {
   return queryOptions({
     queryKey: queryKeysOf(client).teams,
@@ -523,6 +694,20 @@ export function waitingSessionsByQuery(
       ) as Promise<ListSessionsResponse>,
     retry: false,
   });
+}
+
+/**
+ * Matches the agent list reads (every list, page, count and summary under
+ * "agents") but no single agent's detail, so a mutation that just wrote
+ * that detail into the cache refreshes the lists without reading it again.
+ */
+export function agentListsFilter(client: ApiClient) {
+  return {
+    queryKey: queryKeysOf(client).agents,
+    predicate: (query: { queryKey: readonly unknown[] }) =>
+      query.queryKey.length === 2 ||
+      (query.queryKey.length === 3 && typeof query.queryKey[2] === "object"),
+  } as const;
 }
 
 /** Matches every agentSessionsQuery, whichever agent, to mark them stale. */

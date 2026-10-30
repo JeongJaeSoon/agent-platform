@@ -127,6 +127,21 @@ const ownerOk = {
 
 const rows = () =>
   screen.getAllByRole("listitem").filter((li) => li.dataset.revoked);
+
+const agentOptions = () =>
+  screen.queryAllByRole("option").map((option) => option.textContent);
+
+/** Opens the agent picker and takes the agent by name, as a person does. */
+async function chooseAgent(
+  user: Awaited<ReturnType<typeof setupUser>>,
+  name: string,
+) {
+  const picker = await screen.findByRole("combobox", { name: "에이전트" });
+  await user.click(picker);
+  await user.click(
+    await screen.findByRole("option", { name: new RegExp(`^${name}`) }),
+  );
+}
 const badgeOf = (row: HTMLElement) =>
   row.querySelector("[data-slot=badge]") as HTMLElement;
 
@@ -210,7 +225,7 @@ describe("API key", () => {
   });
 
   test("에이전트 key 화면은 에이전트와 이름으로 key를 보이고, 이름 없는 key는 그렇다고 하며 승인 배지를 달지 않는다", async () => {
-    renderAt(AGENTS, {
+    const { api } = renderAt(AGENTS, {
       ...ownerOk,
       ...keysServer([
         key(),
@@ -237,6 +252,12 @@ describe("API key", () => {
     expect(
       within(listed[2] as HTMLElement).getByText(`${GONE_ID} · 이름 없음`),
     ).toBeDefined();
+    // Names come from the keys' own agents, asked for once by id.
+    expect(
+      api.calls
+        .filter((c) => c.path === "/v1/agents")
+        .map((c) => new URLSearchParams(c.search).get("ids")?.split(",")),
+    ).toEqual([[AGENT_ID, GONE_ID].sort()]);
     for (const row of listed) {
       expect(within(row).getByText("세션 보기")).toBeDefined();
       expect(within(row).getByText("발급자가 떠나도 유효")).toBeDefined();
@@ -327,10 +348,13 @@ describe("API key", () => {
     expect(screen.queryByRole("link", { name: "조직 관리 키" })).toBeNull();
   });
 
-  test("권한이 없는 사람이 조직 관리 key 주소로 오면 볼 권한이 없다고 한다", async () => {
+  test("권한이 없는 사람이 조직 관리 key 주소로 오면 페이지 제목 아래에서 볼 권한이 없다고 한다", async () => {
     renderAt(ORG, { ...memberOk, ...keysServer() });
     expect(
       await screen.findByText("이 화면을 볼 권한이 없습니다"),
+    ).toBeDefined();
+    expect(
+      screen.getByRole("heading", { level: 1, name: "조직 관리 키" }),
     ).toBeDefined();
     expect(screen.queryByText("준비 중입니다")).toBeNull();
   });
@@ -447,14 +471,26 @@ describe("API key", () => {
   });
 
   test("에이전트 key는 에이전트를 골라야 하고, 워크스페이스 전체라는 선택지는 없다", async () => {
-    renderAt(NEW_AGENT, { ...ownerOk, ...keysServer() });
-    await screen.findByRole("option", { name: "Support" });
-    expect(
-      screen.getAllByRole("option").map((option) => option.textContent),
-    ).toEqual(["에이전트를 고르세요", "Billing", "Support"]);
-    const select = screen.getByLabelText("에이전트") as HTMLSelectElement;
-    expect(select.required).toBe(true);
-    expect(select.value).toBe("");
+    const { api } = renderAt(NEW_AGENT, { ...ownerOk, ...keysServer() });
+    const picker = (await screen.findByRole("combobox", {
+      name: "에이전트",
+    })) as HTMLInputElement;
+    expect(picker.value).toBe("");
+    expect(picker.maxLength).toBe(200);
+    const user = await setupUser();
+    await user.click(picker);
+    // One page of every agent, searched on the server: no list read whole.
+    await waitFor(() =>
+      expect(agentOptions()).toEqual(["Billingbilling", "Supportsupport"]),
+    );
+    await user.type(picker, "sup");
+    await waitFor(
+      () =>
+        expect(
+          api.calls.filter((c) => c.path === "/v1/agents").map((c) => c.search),
+        ).toEqual(["?include=summary", "?include=summary&q=sup"]),
+      { timeout: 3000 },
+    );
     const button = screen.getByRole("button", { name: "키 만들기" });
     expect(button.getAttribute("aria-disabled")).toBe("true");
     expect(
@@ -464,9 +500,11 @@ describe("API key", () => {
   });
 
   test("에이전트 관리자인 구성원은 자기가 관리하는 에이전트만 고른다", async () => {
-    renderAt(NEW_AGENT, { ...memberOk, ...keysServer() });
-    await screen.findByRole("option", { name: "Billing" });
-    expect(screen.queryByRole("option", { name: "Support" })).toBeNull();
+    const { api } = renderAt(NEW_AGENT, { ...memberOk, ...keysServer() });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("combobox", { name: "에이전트" }));
+    await waitFor(() => expect(agentOptions()).toEqual(["Billingbilling"]));
+    expect(api.calls.some((c) => c.path === "/v1/agents")).toBe(false);
     expect(document.body.textContent).not.toContain("api_key.manage");
   });
 
@@ -481,8 +519,7 @@ describe("API key", () => {
         .getAll()
         .some((m) => JSON.stringify(m.state.data ?? null).includes(SECRET));
     const user = await setupUser();
-    await screen.findByRole("option", { name: "Billing" });
-    await user.selectOptions(screen.getByLabelText("에이전트"), AGENT_ID);
+    await chooseAgent(user, "Billing");
     await user.type(screen.getByLabelText(/^이름/), "  ci-deploy ");
     await user.click(screen.getByRole("button", { name: "키 만들기" }));
 
@@ -573,12 +610,12 @@ describe("API key", () => {
   test("에이전트 key 폼에는 요청에 답하기가 없고, 권한을 다 빼면 버튼이 이유와 함께 닫힌다", async () => {
     renderAt(NEW_AGENT, { ...memberOk, ...keysServer() });
     const user = await setupUser();
-    await screen.findByRole("option", { name: "Billing" });
+    await screen.findByRole("combobox", { name: "에이전트" });
     expect(
       screen.queryByRole("checkbox", { name: /sessions:approve/ }),
     ).toBeNull();
     expect(screen.getByText(apiKeysKo["apiKeys.agentNoApprove"])).toBeDefined();
-    await user.selectOptions(screen.getByLabelText("에이전트"), AGENT_ID);
+    await chooseAgent(user, "Billing");
     await user.click(screen.getByRole("checkbox", { name: /sessions:read/ }));
     const button = screen.getByRole("button", { name: "키 만들기" });
     expect(button.getAttribute("aria-disabled")).toBe("true");
@@ -664,7 +701,7 @@ describe("API key", () => {
   test("새 에이전트 key는 90일 뒤 만료로 시작하고, 날짜를 비우면 만료 없이 만든다", async () => {
     const { api } = renderAt(NEW_AGENT, { ...ownerOk, ...keysServer() });
     const user = await setupUser();
-    await screen.findByRole("option", { name: "Billing" });
+    await screen.findByRole("combobox", { name: "에이전트" });
     const date = screen.getByLabelText(/^만료일/) as HTMLInputElement;
     const day = new Date();
     day.setDate(day.getDate() + 90);
@@ -675,7 +712,7 @@ describe("API key", () => {
     expect(
       screen.getByText(apiKeysKo["apiKeys.agentExpiresHint"]),
     ).toBeDefined();
-    await user.selectOptions(screen.getByLabelText("에이전트"), AGENT_ID);
+    await chooseAgent(user, "Billing");
     await user.clear(date);
     await user.click(screen.getByRole("button", { name: "키 만들기" }));
     await screen.findByRole("region", { name: "새 키" });
@@ -732,8 +769,7 @@ describe("API key", () => {
   test("에이전트 key도 지난 날짜를 만료일로 보내지 않는다", async () => {
     const { api } = renderAt(NEW_AGENT, { ...ownerOk, ...keysServer() });
     const user = await setupUser();
-    await screen.findByRole("option", { name: "Billing" });
-    await user.selectOptions(screen.getByLabelText("에이전트"), AGENT_ID);
+    await chooseAgent(user, "Billing");
     await user.clear(screen.getByLabelText(/^만료일/));
     await user.type(screen.getByLabelText(/^만료일/), "2020-01-01");
     await user.click(screen.getByRole("button", { name: "키 만들기" }));
@@ -873,8 +909,7 @@ describe("API key", () => {
         ),
     });
     const user = await setupUser();
-    await screen.findByRole("option", { name: "Billing" });
-    await user.selectOptions(screen.getByLabelText("에이전트"), AGENT_ID);
+    await chooseAgent(user, "Billing");
     await user.click(screen.getByRole("button", { name: "키 만들기" }));
     expect((await screen.findByRole("alert")).textContent).toBe(
       "에이전트 키 발급 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",

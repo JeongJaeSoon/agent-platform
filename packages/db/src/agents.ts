@@ -18,13 +18,18 @@ import {
   inArray,
   isNotNull,
   max,
+  or,
   type SQL,
   sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { administers, liveMember } from "./administers.ts";
 import { agentSummaries } from "./agent-summaries.ts";
-import { actorStillMember, receiptActorOf } from "./control-shared.ts";
+import {
+  actorStillMember,
+  containsPattern,
+  receiptActorOf,
+} from "./control-shared.ts";
 import {
   decodeCreatedAtCursor,
   encodeCreatedAtCursor,
@@ -271,6 +276,21 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         .where(
           and(
             eq(agents.workspaceId, workspaceId),
+            query.q === undefined
+              ? undefined
+              : or(
+                  sql`${agents.name} ILIKE ${containsPattern(query.q)}`,
+                  sql`${agents.slug} ILIKE ${containsPattern(query.q)}`,
+                ),
+            query.ids === undefined
+              ? undefined
+              : inArray(
+                  agents.id,
+                  query.ids.map((id) => id.toLowerCase()),
+                ),
+            query.runtime_profile_id === undefined
+              ? undefined
+              : sql`exists (select 1 from ${agentReleases} where ${agentReleases.id} = ${agents.activeReleaseId} and ${agentReleases.agentId} = ${agents.id} and ${agentReleases.runtimeProfileId} = ${query.runtime_profile_id})`,
             cursor
               ? sql`(${agents.createdAt}, ${agents.id}) > (${cursor.created_at}::timestamptz, ${cursor.id}::uuid)`
               : undefined,
@@ -302,10 +322,17 @@ export function createPostgresAgentStore(db: Database): AgentStore {
             administers(db, workspaceId, person, agents.id),
             liveMember(db, workspaceId, person),
           )}))::int`,
+          active: sql<number>`(count(*) filter (where ${agents.status} = 'active' and ${agents.activeReleaseId} is not null))::int`,
+          draft: sql<number>`(count(*) filter (where ${agents.status} <> 'archived' and ${agents.activeReleaseId} is null))::int`,
         })
         .from(agents)
         .where(eq(agents.workspaceId, workspaceId));
-      return { all: row?.all ?? 0, administered: row?.administered ?? 0 };
+      return {
+        all: row?.all ?? 0,
+        administered: row?.administered ?? 0,
+        active: row?.active ?? 0,
+        draft: row?.draft ?? 0,
+      };
     },
 
     summaries: (workspaceId, agentIds, viewer) =>

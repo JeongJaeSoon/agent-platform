@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   type AgentCard,
   agentCardSchema,
+  type ListAgentsQuery,
   SESSION_SCOPE_VALUES,
 } from "@werft-ai/contracts";
 import {
@@ -378,6 +379,53 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     }
   });
 
+  test("q keeps names or slugs containing it, ids keeps those named, and both page by the same cursor", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const agentsService = service();
+    const ids = await seedAgents(
+      workspaceId,
+      Array.from({ length: 5 }, (_, i) => `2026-01-0${i + 1} 00:00:00+00`),
+    );
+    const [first = "", second = "", third = "", fourth = "", fifth = ""] = ids;
+    await db
+      .update(agents)
+      .set({ name: "Release Notes" })
+      .where(eq(agents.id, first));
+    await db
+      .update(agents)
+      .set({ name: "100% notes_bot" })
+      .where(eq(agents.id, second));
+    const [other = ""] = await seedAgents(await workspace(), [
+      "2026-01-01 00:00:00+00",
+    ]);
+    const listed = async (query: ListAgentsQuery): Promise<string[]> =>
+      (await agentsService.listAgents(owner, query)).items.map(
+        (agent) => agent.id,
+      );
+
+    expect(await listed({ limit: 50, q: "NOTES" })).toEqual([first, second]);
+    // Slugs are seed-<id>, so part of an id finds that agent alone.
+    expect(await listed({ limit: 50, q: third.slice(0, 13) })).toEqual([third]);
+    // Wildcards match themselves.
+    expect(await listed({ limit: 50, q: "100%" })).toEqual([second]);
+    expect(await listed({ limit: 50, q: "_bot" })).toEqual([second]);
+    expect(await listed({ limit: 50, q: "%" })).toEqual([second]);
+
+    expect(
+      await listed({ limit: 50, ids: [fifth, first.toUpperCase(), other] }),
+    ).toEqual([first, fifth]);
+    const named = [first, fourth, fifth];
+    const page = await agentsService.listAgents(owner, {
+      limit: 1,
+      ids: named,
+    });
+    expect(page.items.map((agent) => agent.id)).toEqual([first]);
+    expect(
+      await listed({ limit: 50, ids: named, cursor: page.next_cursor ?? "" }),
+    ).toEqual([fourth, fifth]);
+  });
+
   test("counts are the list read to its end and the agents the caller administers now, as /v1/administered-agents lists them", async () => {
     const workspaceId = await workspace();
     const owner = await person(workspaceId, "owner");
@@ -421,8 +469,16 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     await team([archivedTeam], { archived: true });
     await team([removedFromTeam], { removed: true });
 
+    // Seeded agents have no release: drafts, until one is archived.
     expect(await agentsService.countAgents(owner)).toEqual({
-      counts: { all: 6, administered: 2 },
+      counts: { all: 6, administered: 2, active: 0, draft: 6 },
+    });
+    await db
+      .update(agents)
+      .set({ status: "archived" })
+      .where(eq(agents.id, removedFromTeam ?? ""));
+    expect(await agentsService.countAgents(owner)).toEqual({
+      counts: { all: 6, administered: 2, active: 0, draft: 5 },
     });
     const listed = await createPostgresAgentAdminStore(db).listAdministered(
       workspaceId,
@@ -440,7 +496,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       .where(eq(memberships.userId, userId));
     expect(
       await createPostgresAgentStore(db).count(workspaceId, userId),
-    ).toEqual({ all: 6, administered: 0 });
+    ).toEqual({ all: 6, administered: 0, active: 0, draft: 5 });
 
     const member = await person(workspaceId, "member");
     expect(await codeOf(agentsService.countAgents(member))).toBe("FORBIDDEN");
@@ -559,6 +615,13 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         running_count: 0,
       },
     ]);
+    // By the active release's profile: the draft has none, so only v1's agent.
+    const onProfile = async (runtime_profile_id: string) =>
+      (
+        await agentsService.listAgents(owner, { ...PAGE, runtime_profile_id })
+      ).items.map((agent) => agent.id);
+    expect(await onProfile("coding")).toEqual([released.agent.id]);
+    expect(await onProfile("analysis")).toEqual([]);
     // Without asking, the page is the agents as before.
     const plain = await agentsService.listAgents(owner, PAGE);
     expect(plain.items.map((agent) => Object.hasOwn(agent, "summary"))).toEqual(

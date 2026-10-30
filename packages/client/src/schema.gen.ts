@@ -1236,7 +1236,7 @@ export interface paths {
         };
         /**
          * Members of the workspace, oldest first
-         * @description Lists the workspace's members, disabled ones included, oldest membership first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `q` keeps the members whose display name or email contains it, ignoring case. Each row's `actions` says, for the caller as the list was read, whether each role change, disable and enable would be accepted, and if not, why: the reason is the lower-cased error code the write answers with, or `unchanged` when it would answer 200 and change nothing. The write checks again when it runs. A client that validates responses strictly needs this version's schema to read the field.
+         * @description Lists the workspace's members, disabled ones included, oldest membership first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `q` keeps the members whose display name or email contains it, ignoring case. `user_ids` (comma-separated, at most 100) keeps the members among those users, as one page of a screen that already holds the ids and needs their names or roles. Each row's `actions` says, for the caller as the list was read, whether each role change, disable and enable would be accepted, and if not, why: the reason is the lower-cased error code the write answers with, or `unchanged` when it would answer 200 and change nothing. The write checks again when it runs. A client that validates responses strictly needs this version's schema to read the field.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -1500,7 +1500,7 @@ export interface paths {
         };
         /**
          * The workspace's agents
-         * @description Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its runtime profile, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once; without it the items are as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, and every other API key is refused.
+         * @description Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its runtime profile, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once; without it the items are as before. `q` keeps the agents whose name or slug contains it, ignoring case, and `ids` the agents named (at most 100; an id of no agent in the workspace is left out); both narrow the same order, so the cursor works as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, `q` and `ids` keep its agent only when it matches them, and every other API key is refused.
          *
          *     **Scope:** `sessions:write` (API key or cookie session).
          */
@@ -1527,8 +1527,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * How many agents the workspace has, and how many the caller administers
-         * @description `all` is how many agents GET /v1/agents lists read to the last page; `administered` is how many of them the caller administers now, directly or through a team they are a live member of. Answered for the same callers as the list. API keys are refused. It changes nothing.
+         * How many agents the workspace has, by state, and how many the caller administers
+         * @description `all` is how many agents GET /v1/agents lists read to the last page; `administered` is how many of them the caller administers now, directly or through a team they are a live member of; `active` is how many are `active` with an `active_release_id`, and `draft` how many are not `archived` and have none yet. Answered for the same callers as the list. API keys are refused. It changes nothing.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -2008,7 +2008,7 @@ export interface paths {
         };
         /**
          * The workspace's teams, by name
-         * @description Owners and admins. Archived teams are left out. By `name`, then `id`, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. A team renamed while the pages are read can show twice or not at all; every other team shows once.
+         * @description Owners and admins. Archived teams are left out. `q` keeps the teams whose name contains it, ignoring case. By `name`, then `id`, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. A team renamed while the pages are read can show twice or not at all; every other team shows once.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -2618,6 +2618,12 @@ export interface components {
             limit: number;
             /** @constant */
             include?: "summary";
+            /** @description Keeps the agents whose name or slug contains it, ignoring case. `%` and `_` match themselves. */
+            q?: string;
+            /** @description Comma-separated agent ids, at most 100: keeps those of them in the workspace, in the list's order. An id of no agent there is left out. */
+            ids?: string;
+            /** @description Keeps the agents whose active release runs on this runtime profile. An agent with no active release is left out. */
+            runtime_profile_id?: string;
         };
         ListApiKeysQuery: {
             cursor?: string;
@@ -2628,6 +2634,8 @@ export interface components {
             cursor?: string;
             /** @default 50 */
             limit: number;
+            /** @description Keeps the teams whose name contains it, ignoring case. `%` and `_` match themselves. */
+            q?: string;
         };
         ListMyTeamsQuery: {
             cursor?: string;
@@ -2640,6 +2648,8 @@ export interface components {
             limit: number;
             /** @description Matches a member whose display name or email contains it, ignoring case. `%` and `_` match themselves. */
             q?: string;
+            /** @description Comma-separated user ids, at most 100: keeps the members among them, in the list's order. An id of no member is left out. */
+            user_ids?: string;
         };
         CountSessionsQuery: {
             /**
@@ -5047,6 +5057,10 @@ export interface components {
                 all: number;
                 /** @description How many of those the caller administers now, directly or through a team. */
                 administered: number;
+                /** @description How many of `all` are `active` with an `active_release_id`: the agents people can talk to. */
+                active: number;
+                /** @description How many of `all` are not `archived` and have no `active_release_id` yet. */
+                draft: number;
             };
         };
         ListProfilesResponse: {
@@ -14241,6 +14255,7 @@ export interface operations {
                 cursor?: string;
                 limit?: number;
                 q?: string;
+                user_ids?: string;
             };
             header?: never;
             path?: never;
@@ -15718,6 +15733,9 @@ export interface operations {
                 cursor?: string;
                 limit?: number;
                 include?: "summary";
+                q?: string;
+                ids?: string;
+                runtime_profile_id?: string;
             };
             header?: never;
             path?: never;
@@ -15962,7 +15980,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The two counts. */
+            /** @description The counts. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -15973,7 +15991,9 @@ export interface operations {
                      * @example {
                      *       "counts": {
                      *         "all": 128,
-                     *         "administered": 3
+                     *         "administered": 3,
+                     *         "active": 97,
+                     *         "draft": 24
                      *       }
                      *     }
                      */
@@ -19418,6 +19438,7 @@ export interface operations {
             query?: {
                 cursor?: string;
                 limit?: number;
+                q?: string;
             };
             header?: never;
             path?: never;

@@ -693,6 +693,12 @@ export function createPostgresInviteStore(db: Database): InviteStore {
                   sql`${users.displayName} ILIKE ${pattern}`,
                   sql`${users.email} ILIKE ${pattern}`,
                 ),
+            query.user_ids === undefined
+              ? undefined
+              : inArray(
+                  memberships.userId,
+                  query.user_ids.map((id) => id.toLowerCase()),
+                ),
             cursor
               ? sql`(${memberships.createdAt}, ${memberships.userId}) > (${cursor.created_at}::timestamptz, ${cursor.user_id}::uuid)`
               : undefined,
