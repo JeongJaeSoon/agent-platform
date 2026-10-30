@@ -700,6 +700,30 @@ const MUST_FAIL: [string, string[], RegExp][] = [
     ],
     /images\.workerPrevious needs images\.worker\.runtime/,
   ],
+  [
+    "a worker runtime missing its CLI version",
+    [
+      "-f",
+      ciDigests,
+      "--set-json",
+      'images.worker.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.280","profileDigestScheme":1}',
+    ],
+    /images\.worker\.runtime\.cliVersion must be a string/,
+  ],
+  [
+    "a previous worker runtime with a scheme of zero",
+    [
+      "-f",
+      ciDigests,
+      "--set-json",
+      'images.worker.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.280","cliVersion":"2.1.280","profileDigestScheme":1}',
+      "--set",
+      `images.workerPrevious.digest=sha256:${"4".repeat(64)}`,
+      "--set-json",
+      'images.workerPrevious.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.270","cliVersion":"2.1.270","profileDigestScheme":0}',
+    ],
+    /images\.workerPrevious\.runtime\.profileDigestScheme must be a positive integer/,
+  ],
   ...[
     "api.extraEnv.PREVIEW_NAMESPACE=prod",
     "scheduler.extraEnv.PREVIEW_NAMESPACE=prod",

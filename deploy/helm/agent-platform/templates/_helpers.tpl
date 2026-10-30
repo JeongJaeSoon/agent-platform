@@ -156,6 +156,18 @@ all three render this one definition and cannot disagree.
 {{- if and $previous.digest (not $current) -}}
 {{- fail "images.workerPrevious needs images.worker.runtime beside it" -}}
 {{- end -}}
+{{- range $name, $runtime := dict "images.worker.runtime" $current "images.workerPrevious.runtime" $previous.runtime -}}
+{{- if $runtime -}}
+{{- range $key := list "engine" "sdkVersion" "cliVersion" -}}
+{{- if not (kindIs "string" (index $runtime $key)) -}}
+{{- fail (printf "%s.%s must be a string: set the runtime images.yml recorded" $name $key) -}}
+{{- end -}}
+{{- end -}}
+{{- if not (regexMatch "^[1-9][0-9]*$" (toString (index $runtime "profileDigestScheme"))) -}}
+{{- fail (printf "%s.profileDigestScheme must be a positive integer" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- with $current }}
 - name: WORKER_IMAGE_RUNTIME
   value: {{ toJson . | quote }}
