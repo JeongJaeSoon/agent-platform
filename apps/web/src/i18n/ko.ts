@@ -86,6 +86,12 @@ export const slackKo = {
     "릴리스를 활성화하기 전에는 Slack 멘션과 DM이 거절되고 스레드에 안내만 남습니다. 릴리스 탭에서 릴리스를 만들고 활성화하세요.",
   "slack.state.error": "오류",
   "slack.createInstall": "Slack 앱 만들고 설치",
+  "slack.configToken.unset":
+    "워크스페이스에 Slack 앱 생성 설정(App Configuration Token)이 없어 앱을 만들 수 없습니다.",
+  "slack.configToken.needs_reentry":
+    "Slack이 워크스페이스의 App Configuration Token을 더 이상 받지 않아 앱을 만들 수 없습니다.",
+  "slack.configToken.settings": "워크스페이스 Slack 설정으로",
+  "slack.configToken.askAdmin": "소유자나 관리자에게 설정을 요청하세요.",
   "slack.install": "Slack 앱 설치",
   "slack.reinstall": "다시 설치",
   "slack.working": "준비 중…",

@@ -317,7 +317,7 @@ export function createSlackAppService(deps: {
       agentId: string,
     ): Promise<GetSlackAppResponse> {
       await permitAgent(caller, agentId);
-      const { apps } = ready();
+      const { apps, tokens } = ready();
       const record = await apps.findForAgent(caller.ownerId, agentId);
       if (
         record === null &&
@@ -336,6 +336,7 @@ export function createSlackAppService(deps: {
           url: null,
         },
         warnings: await agentWarnings(caller.ownerId, agentId),
+        config_token: (await tokens.describe(caller.ownerId)).state,
       };
     },
 

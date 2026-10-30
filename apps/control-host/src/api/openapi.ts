@@ -3776,7 +3776,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The agent's Slack app, if the platform made one",
     description:
-      "The agent's live Slack app (`creating`, `created` or `deleting`), or null when it has none. Secrets appear only as whether each is stored; `secrets.slack_bot_token.configured` says whether Slack handed over a bot token; an install refused after the code exchange keeps it, so the agent's `slack_bot` identity is what says the app is installed. The install link comes from `POST /v1/agents/{id}/slack/install/start`. `warnings` says why every Slack mention and DM would be refused with a notice in the thread: `no_active_release` before an activation, `profile_unavailable` (with the `profile_id`) while the catalog no longer has the active release's profile, defines it otherwise than it was released, or an owner blocked it, and `repository_required` (with the `profile_id`) while the release names no repository and its profile needs one. Connecting is not blocked. Owners, admins and the agent's admins; API keys are refused.",
+      "The agent's live Slack app (`creating`, `created` or `deleting`), or null when it has none. Secrets appear only as whether each is stored; `secrets.slack_bot_token.configured` says whether Slack handed over a bot token; an install refused after the code exchange keeps it, so the agent's `slack_bot` identity is what says the app is installed. The install link comes from `POST /v1/agents/{id}/slack/install/start`. `warnings` says why every Slack mention and DM would be refused with a notice in the thread: `no_active_release` before an activation, `profile_unavailable` (with the `profile_id`) while the catalog no longer has the active release's profile, defines it otherwise than it was released, or an owner blocked it, and `repository_required` (with the `profile_id`) while the release names no repository and its profile needs one. Connecting is not blocked. `config_token` is the workspace's App Configuration Token state (`unset`, `active`, `needs_reentry`), readable here by the agent's admins too: only `active` can create the app, and only an owner or admin can set it. Owners, admins and the agent's admins; API keys are refused.",
     auth: "session",
     success: {
       status: 200,
@@ -3792,6 +3792,7 @@ export const API_ROUTE_DECLARATIONS = [
           url: "https://agents.example.test/v1/slack/events/019a0000-0000-7000-8000-0000000000c1",
         },
         warnings: [],
+        config_token: "active",
       },
     },
     errors: [401, 403, 404, 503],
@@ -3825,6 +3826,7 @@ export const API_ROUTE_DECLARATIONS = [
           url: "https://agents.example.test/v1/slack/events/019a0000-0000-7000-8000-0000000000c1",
         },
         warnings: [],
+        config_token: "active",
       },
     },
     errors: [401, 403, 404, 409, 503],
