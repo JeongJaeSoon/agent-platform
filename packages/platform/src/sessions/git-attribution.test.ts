@@ -83,7 +83,13 @@ test("the session detail says co_author, unlinked or app_only", () => {
 describe("replacing the pull request tail", () => {
   const block = (text: string) =>
     `---\n${PULL_REQUEST_TAIL_MARKER}\n${text}\n${PULL_REQUEST_TAIL_END_MARKER}`;
-  const tail = block("new");
+  const tailOf = (sessionId: string) =>
+    block(
+      `Opened by agent-platform from session \`${sessionId}\`, commit \`abc\`.\n\n- Trigger: web\n- Started by: none (App only)`,
+    );
+  const tail = tailOf("new");
+  const OLD = tailOf("old");
+  const EXAMPLE = tailOf("example");
 
   test("an empty body becomes the tail", () => {
     expect(withPullRequestTail("", tail)).toBe(tail);
@@ -92,33 +98,33 @@ describe("replacing the pull request tail", () => {
   test("only the tail between the markers is replaced", () => {
     expect(
       withPullRequestTail(
-        `Intro\n\n---\nA rule of the author's\n\n${block("old")}\n\nAdded below`,
+        `Intro\n\n---\nA rule of the author's\n\n${OLD}\n\nAdded below`,
         tail,
       ),
     ).toBe(`Intro\n\n---\nA rule of the author's\n\n${tail}\n\nAdded below`);
   });
 
   test("a body that is only an old tail becomes the new one", () => {
-    expect(withPullRequestTail(block("old"), tail)).toBe(tail);
+    expect(withPullRequestTail(OLD, tail)).toBe(tail);
   });
 
   test("a marker a person quotes is text: only the real tail changes", () => {
     const quoted = `Use \`${PULL_REQUEST_TAIL_MARKER}\` to find it.\n\nMore notes`;
-    expect(withPullRequestTail(`${quoted}\n\n${block("old")}`, tail)).toBe(
+    expect(withPullRequestTail(`${quoted}\n\n${OLD}`, tail)).toBe(
       `${quoted}\n\n${tail}`,
     );
-    expect(withPullRequestTail(`${block("old")}\n\n${quoted}`, tail)).toBe(
+    expect(withPullRequestTail(`${OLD}\n\n${quoted}`, tail)).toBe(
       `${tail}\n\n${quoted}`,
     );
   });
 
   test("both markers quoted in a line or a code block are text too", () => {
     const inline = `Example: \`${PULL_REQUEST_TAIL_MARKER}\` HUMAN NOTES \`${PULL_REQUEST_TAIL_END_MARKER}\``;
-    expect(withPullRequestTail(`${block("old")}\n\n${inline}`, tail)).toBe(
+    expect(withPullRequestTail(`${OLD}\n\n${inline}`, tail)).toBe(
       `${tail}\n\n${inline}`,
     );
-    const fence = `\`\`\`\n${block("example")}\n\`\`\``;
-    expect(withPullRequestTail(`${block("old")}\n\n${fence}`, tail)).toBe(
+    const fence = `\`\`\`\n${EXAMPLE}\n\`\`\``;
+    expect(withPullRequestTail(`${OLD}\n\n${fence}`, tail)).toBe(
       `${tail}\n\n${fence}`,
     );
     expect(withPullRequestTail(fence, tail)).toBe(`${fence}\n\n${tail}`);
@@ -126,23 +132,22 @@ describe("replacing the pull request tail", () => {
 
   test("a fence closes only on its own character, at least as long", () => {
     for (const quoted of [
-      `\`\`\`\`\n\`\`\`\n${block("HUMAN NOTES")}\n\`\`\`\n\`\`\`\``,
-      `~~~\n\`\`\`\n${block("HUMAN NOTES")}\n\`\`\`\n~~~`,
-      `\`\`\`\n~~~\n${block("HUMAN NOTES")}\n~~~\n\`\`\``,
+      `\`\`\`\`\n\`\`\`\n${EXAMPLE}\n\`\`\`\n\`\`\`\``,
+      `~~~\n\`\`\`\n${EXAMPLE}\n\`\`\`\n~~~`,
+      `\`\`\`\n~~~\n${EXAMPLE}\n~~~\n\`\`\``,
     ]) {
-      expect(withPullRequestTail(`${block("old")}\n\n${quoted}`, tail)).toBe(
+      expect(withPullRequestTail(`${OLD}\n\n${quoted}`, tail)).toBe(
         `${tail}\n\n${quoted}`,
       );
     }
-    const indented = block("HUMAN NOTES")
-      .split("\n")
+    const indented = EXAMPLE.split("\n")
       .map((line) => `    ${line}`)
       .join("\n");
-    expect(
-      withPullRequestTail(`${block("old")}\n\nUsage:\n\n${indented}`, tail),
-    ).toBe(`${tail}\n\nUsage:\n\n${indented}`);
+    expect(withPullRequestTail(`${OLD}\n\nUsage:\n\n${indented}`, tail)).toBe(
+      `${tail}\n\nUsage:\n\n${indented}`,
+    );
     // A longer closing run still closes; the real tail after it is found.
-    const closed = `\`\`\`\ncode\n\`\`\`\`\n\n${block("old")}`;
+    const closed = `\`\`\`\ncode\n\`\`\`\`\n\n${OLD}`;
     expect(withPullRequestTail(closed, tail)).toBe(
       `\`\`\`\ncode\n\`\`\`\`\n\n${tail}`,
     );
@@ -151,5 +156,23 @@ describe("replacing the pull request tail", () => {
   test("a start marker with no end after it cuts nothing", () => {
     const cut = `Intro\n\n---\n${PULL_REQUEST_TAIL_MARKER}\nold, end removed`;
     expect(withPullRequestTail(cut, tail)).toBe(`${cut}\n\n${tail}`);
+  });
+
+  test("markers around a person's own text are not a tail", () => {
+    const details = `<details>\n<summary>PR body example</summary>\n\n${block("HUMAN NOTES")}\n</details>`;
+    expect(withPullRequestTail(`${OLD}\n\n${details}`, tail)).toBe(
+      `${tail}\n\n${details}`,
+    );
+    const edited = block(
+      "Opened by agent-platform from session `old`, commit `abc`.\n\nReviewed by hand",
+    );
+    expect(withPullRequestTail(edited, tail)).toBe(`${edited}\n\n${tail}`);
+  });
+
+  test("the text after the tail is kept as written", () => {
+    const code = "    const example = 1;\n      indented more";
+    expect(withPullRequestTail(`${OLD}\n\n${code}`, tail)).toBe(
+      `${tail}\n\n${code}`,
+    );
   });
 });

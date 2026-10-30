@@ -122,7 +122,7 @@ export function pullRequestTail(input: {
   const lines = [
     "---",
     PULL_REQUEST_TAIL_MARKER,
-    `Opened by agent-platform from session \`${input.sessionId}\`, commit \`${input.commit}\`.`,
+    `${TAIL_OPENING}\`${input.sessionId}\`, commit \`${input.commit}\`.`,
     "",
     ...(input.sessionUrl === null ? [] : [`- Session: ${input.sessionUrl}`]),
     `- Agent: ${record?.agentId ? `\`${record.agentId}\`` : "none"}, release ${record?.agentReleaseId ? `\`${record.agentReleaseId}\`` : "none"}`,
@@ -137,13 +137,36 @@ export function pullRequestTail(input: {
   return lines.join("\n");
 }
 
+const TAIL_OPENING = "Opened by agent-platform from session ";
+const TAIL_LINES = [
+  "- Session: ",
+  "- Agent: ",
+  "- Push request: ",
+  "- Trigger: ",
+  "- Started by: ",
+  "Co-authored-by: ",
+];
+
+/** Whether the lines between two markers are a tail the platform wrote. */
+function isTailContent(content: readonly string[]): boolean {
+  const filled = content.filter((line) => line.trim() !== "");
+  return (
+    filled[0]?.startsWith(TAIL_OPENING) === true &&
+    filled
+      .slice(1)
+      .every((line) => TAIL_LINES.some((prefix) => line.startsWith(prefix)))
+  );
+}
+
 /**
  * `body` with its tail replaced by `tail`. The tail is a start marker line
  * and the next end marker line, each alone and unindented on its line and
- * outside a fenced code block, and the last such pair is the one replaced: a
- * marker a person quotes in a sentence or a code block is text. A body without such a pair
- * (from before the end marker, or one a person cut it from) keeps all it has
- * and gets the tail added.
+ * outside a fenced code block, with only the platform's own lines between
+ * them; the last such pair is the one replaced. Markers a person quotes (in a
+ * sentence, a code block, an HTML block around their own text) are text. A
+ * body without such a pair (from before the end marker, or one a person cut
+ * or edited) keeps all it has and gets the tail added. Text around the tail
+ * is kept as written.
  */
 export function withPullRequestTail(body: string, tail: string): string {
   // GitHub's editor saves CRLF.
@@ -177,22 +200,21 @@ export function withPullRequestTail(body: string, tail: string): string {
     const text = line.trimEnd();
     if (text === PULL_REQUEST_TAIL_MARKER) start = at;
     else if (text === PULL_REQUEST_TAIL_END_MARKER && start !== -1) {
-      pair = [start, at];
+      if (isTailContent(lines.slice(start + 1, at))) pair = [start, at];
       start = -1;
     }
   }
   if (pair === null) return body === "" ? tail : `${body}\n\n${tail}`;
   const [from, to] = pair;
+  const blank = (line: string | undefined) => line?.trim() === "";
   // The marker follows the tail's own `---` line; keep the text above it.
   const above = lines.slice(0, from);
-  while (above.length > 0 && above[above.length - 1]?.trim() === "") {
-    above.pop();
-  }
+  while (above.length > 0 && blank(above[above.length - 1])) above.pop();
   if (above[above.length - 1]?.trim() === "---") above.pop();
-  const head = above.join("\n").trimEnd();
-  const rest = lines
-    .slice(to + 1)
-    .join("\n")
-    .trim();
-  return [head, tail, rest].filter((part) => part !== "").join("\n\n");
+  while (above.length > 0 && blank(above[above.length - 1])) above.pop();
+  const below = lines.slice(to + 1);
+  while (below.length > 0 && blank(below[0])) below.shift();
+  return [above.join("\n"), tail, below.join("\n")]
+    .filter((part) => part !== "")
+    .join("\n\n");
 }
