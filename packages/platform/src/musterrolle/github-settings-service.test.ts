@@ -11,6 +11,7 @@ import type {
   GitHubWorkspaceSettings,
 } from "../ports/github-settings.ts";
 import { SessionServiceError } from "../sessions/session-service.ts";
+import { fakeGitHubClientSecret } from "../testing/github-fakes.ts";
 import { createGitHubSettingsService } from "./github-settings-service.ts";
 import { type Caller, callerFor, createAuthorizationPolicy } from "./policy.ts";
 
@@ -245,6 +246,32 @@ describe("GitHub settings service", () => {
 });
 
 // Every refusal comes before the body, so these never hold a client secret.
+describe("storing the OAuth client secret", () => {
+  test("an owner or an admin stores it for the App shown; only that it is set comes back", async () => {
+    const { service, secrets } = harness();
+    for (const role of ["owner", "admin"] as const) {
+      const typed = fakeGitHubClientSecret();
+      const stored = await service.putOAuthClientSecret(
+        user(role),
+        WORKSPACE,
+        async () => ({ client_id: "Iv23liClient", client_secret: typed }),
+      );
+      expect(stored).toEqual({
+        receipt_id: "019a0000-0000-7000-8000-0000000000aa",
+        oauth: {
+          client_id: "Iv23liClient",
+          client_secret_set: true,
+          callback_url: CALLBACK,
+        },
+      });
+      expect(JSON.stringify(stored).includes(typed)).toBe(false);
+      expect(secrets.at(-1)?.secret === typed).toBe(true);
+      expect(secrets.at(-1)?.workspaceId).toBe(WORKSPACE);
+    }
+    expect(secrets).toHaveLength(2);
+  });
+});
+
 describe("refusing the OAuth client secret", () => {
   const unread = async (): Promise<never> => {
     throw new Error("the body was read");

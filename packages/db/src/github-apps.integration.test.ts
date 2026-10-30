@@ -7,6 +7,7 @@ import {
   type SecretAudit,
   SecretKey,
 } from "@werft-ai/platform";
+import { fakeGitHubClientSecret } from "@werft-ai/platform/testing/github";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -406,6 +407,51 @@ integration("the GitHub App on PostgreSQL", () => {
     await store.recordPermissions(first.app.id, 72, read, "Iv23linew");
     expect((await oauth.status(ws)).clientId).toBe("Iv23linew");
     expect((await store.find(ws, "author"))?.permissions).toEqual(read);
+  });
+
+  test("a client secret is sealed under the author App, kept across a new key, dropped with another App", async () => {
+    const store = createPostgresGitHubAppStore(db, key);
+    const oauth = createPostgresGitHubOAuthStore(db, key);
+    const ws = await workspace();
+    const owner = await person(ws, "owner");
+    await store.put(ws, "author", profile(91), pemOf(), owner());
+    const typed = fakeGitHubClientSecret();
+    const audit = owner();
+    expect(await oauth.putClientSecret(ws, typed, audit, "Iv23li91")).toEqual({
+      outcome: "stored",
+    });
+    expect((await oauth.status(ws)).clientSecretSet).toBe(true);
+    const client = await oauth.client(ws);
+    expect(client?.clientId).toBe("Iv23li91");
+    expect(client?.clientSecret === typed).toBe(true);
+
+    const sealed = await db
+      .select()
+      .from(secretValues)
+      .where(eq(secretValues.workspaceId, ws));
+    expect(sealed.length > 0).toBe(true);
+    expect(JSON.stringify(sealed).includes(typed)).toBe(false);
+    const [receipt] = await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.id, audit.receiptId));
+    const result = receipt?.result as { purpose?: string; last4?: string };
+    expect(result.purpose).toBe("oauth_client_secret");
+    expect(result.last4?.length === 4 && typed.endsWith(result.last4)).toBe(
+      true,
+    );
+    expect(JSON.stringify(receipt).includes(typed)).toBe(false);
+
+    await store.put(ws, "author", profile(91), pemOf(), owner());
+    expect((await oauth.client(ws))?.clientSecret === typed).toBe(true);
+
+    await store.put(ws, "author", profile(92), pemOf(), owner());
+    expect(await oauth.status(ws)).toEqual({
+      authorApp: true,
+      clientId: "Iv23li92",
+      clientSecretSet: false,
+    });
+    expect(await oauth.client(ws)).toBeNull();
   });
 
   test("a client secret typed for an App a replacement took out is refused, nothing stored", async () => {

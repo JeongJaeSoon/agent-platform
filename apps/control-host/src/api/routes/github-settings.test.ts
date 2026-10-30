@@ -17,6 +17,7 @@ import {
   type MembershipRole,
   type ResolvedWebSession,
 } from "@werft-ai/platform";
+import { fakeGitHubClientSecret } from "@werft-ai/platform/testing/github";
 import { generateWebSessionToken, hashWebSessionToken } from "../auth.ts";
 import { hashApiKey } from "../keys.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
@@ -102,7 +103,15 @@ function memoryStore() {
   return { store, writes, held: () => held };
 }
 
-function appWith(options: { authorApp?: boolean; secretsOn?: boolean } = {}) {
+function appWith(
+  options: {
+    authorApp?: boolean;
+    secretsOn?: boolean;
+    /** Given, the author App accepts a secret and keeps it here. */
+    stored?: string[];
+  } = {},
+) {
+  const stored = options.stored;
   const memory = memoryStore();
   const app = createApiApp({
     authMode: "api-key",
@@ -117,11 +126,18 @@ function appWith(options: { authorApp?: boolean; secretsOn?: boolean } = {}) {
           oauth: {
             status: async () => ({
               authorApp: options.authorApp ?? false,
-              clientId: null,
-              clientSecretSet: false,
+              clientId: stored ? "Iv23liClient" : null,
+              clientSecretSet: (stored?.length ?? 0) > 0,
             }),
             client: async () => null,
-            putClientSecret: async () => ({ outcome: "no_author_app" }),
+            putClientSecret: async (_workspaceId, secret, _audit, clientId) => {
+              if (!stored) return { outcome: "no_author_app" };
+              if (clientId !== "Iv23liClient") {
+                return { outcome: "client_changed" };
+              }
+              stored.push(secret);
+              return { outcome: "stored" };
+            },
           },
           callbackUrl: null,
           secretsOn: options.secretsOn ?? true,
@@ -350,5 +366,24 @@ describe("PUT the GitHub OAuth client secret", () => {
     });
     expect(response.status).toBe(503);
     expect(code(response.json).code).toBe("BACKEND_UNAVAILABLE");
+  });
+});
+
+describe("storing the GitHub OAuth client secret", () => {
+  test("an owner's secret is stored and the response says only that it is set", async () => {
+    const stored: string[] = [];
+    const { call } = appWith({ authorApp: true, stored });
+    const typed = fakeGitHubClientSecret();
+    const response = await call("PUT", {
+      cookie: cookieFor("owner"),
+      path: "/oauth-client-secret",
+      body: { client_id: "Iv23liClient", client_secret: typed },
+    });
+    expect(response.status).toBe(200);
+    expect(response.json).toMatchObject({
+      oauth: { client_id: "Iv23liClient", client_secret_set: true },
+    });
+    expect(JSON.stringify(response.json).includes(typed)).toBe(false);
+    expect(stored.length === 1 && stored[0] === typed).toBe(true);
   });
 });
