@@ -139,5 +139,40 @@ the only way to declare a preview install (demo-accounts.ts).
   mountPath: /tmp
 {{- end -}}
 
+{{/*
+The worker images' runtime combinations. The api and slack judge profile
+pins against them and the scheduler picks each session's image by them, so
+all three render this one definition and cannot disagree.
+*/}}
+{{- define "ap.workerRuntimeEnv" -}}
+{{- $current := .Values.images.worker.runtime -}}
+{{- $previous := .Values.images.workerPrevious -}}
+{{- if and $previous.digest (not $previous.runtime) -}}
+{{- fail "images.workerPrevious.runtime is required with images.workerPrevious.digest: set the runtime images.yml recorded for it" -}}
+{{- end -}}
+{{- if and $previous.runtime (not $previous.digest) -}}
+{{- fail "images.workerPrevious.digest is required with images.workerPrevious.runtime" -}}
+{{- end -}}
+{{- if and $previous.digest (not $current) -}}
+{{- fail "images.workerPrevious needs images.worker.runtime beside it" -}}
+{{- end -}}
+{{- with $current }}
+- name: WORKER_IMAGE_RUNTIME
+  value: {{ toJson . | quote }}
+{{- end }}
+{{- with $previous.runtime }}
+- name: WORKER_IMAGE_PREVIOUS_RUNTIME
+  value: {{ toJson . | quote }}
+{{- end }}
+{{- end -}}
+
+{{/* The previous worker image, for what launches on it: the scheduler. */}}
+{{- define "ap.workerPreviousImageEnv" -}}
+{{- if .Values.images.workerPrevious.digest }}
+- name: WORKER_IMAGE_PREVIOUS
+  value: {{ include "ap.image" (dict "root" . "name" "workerPrevious") | quote }}
+{{- end }}
+{{- end -}}
+
 {{- define "ap.apiHost" -}}{{ include "ap.fullname" . }}-api{{- end -}}
 {{- define "ap.proxyHost" -}}{{ include "ap.fullname" . }}-egress-proxy{{- end -}}

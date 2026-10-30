@@ -44,6 +44,7 @@ spec:
                   name: {{ .Values.secrets.name }}
                   key: PLATFORM_SECRET_KEY
                   optional: true
+            {{- with include "ap.workerRuntimeEnv" . | trim }}{{ . | nindent 12 }}{{ end }}
             - name: AUTH_MODE
               value: {{ .Values.config.authMode | quote }}
             {{- range $name, $value := .Values.config.limits }}

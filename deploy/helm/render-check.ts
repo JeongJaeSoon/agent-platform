@@ -415,6 +415,60 @@ function checkSlack(
   return errors;
 }
 
+const WORKER_IMAGE_ROLES = ["api", "slack", "scheduler"];
+
+/**
+ * The api and slack judge profile pins by the worker images' runtimes and the
+ * scheduler picks each session's image by them: all three get the same
+ * values, and only the scheduler, which launches on it, the previous image.
+ */
+function checkWorkerImages(
+  label: string,
+  manifests: Manifest[],
+  want: {
+    runtime?: string;
+    previousRuntime?: string;
+    previousImage?: string;
+  },
+): string[] {
+  const errors: string[] = [];
+  for (const role of WORKER_IMAGE_ROLES) {
+    const deployments = manifests.filter(
+      (m) =>
+        m.kind === "Deployment" &&
+        m.metadata.labels?.["app.kubernetes.io/component"] === role,
+    );
+    if (deployments.length !== 1) {
+      errors.push(`${label}: expected 1 ${role} Deployment`);
+      continue;
+    }
+    const [deployment] = deployments as [Manifest];
+    const env = new Map<string, string>(
+      podSpecOf(deployment)
+        // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
+        .containers.flatMap((c: any) => c.env ?? [])
+        // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
+        .map((v: any) => [v.name, v.value]),
+    );
+    const expected: [string, string | undefined][] = [
+      ["WORKER_IMAGE_RUNTIME", want.runtime],
+      ["WORKER_IMAGE_PREVIOUS_RUNTIME", want.previousRuntime],
+      [
+        "WORKER_IMAGE_PREVIOUS",
+        role === "scheduler" ? want.previousImage : undefined,
+      ],
+    ];
+    for (const [name, value] of expected) {
+      if (env.get(name) !== value) {
+        errors.push(
+          `${label}: ${role} ${name} is ${JSON.stringify(env.get(name))}, not ${JSON.stringify(value)}`,
+        );
+      }
+    }
+  }
+  return errors;
+}
+
 const PREVIEW_ENV = "PREVIEW_NAMESPACE";
 
 /**
@@ -610,6 +664,42 @@ const MUST_FAIL: [string, string[], RegExp][] = [
     ["-f", ciDigests, "--set", "installationId=not/a/label"],
     /installationId must be a Kubernetes label value/,
   ],
+  [
+    "a previous worker image without its runtime",
+    [
+      "-f",
+      ciDigests,
+      "--set-json",
+      'images.worker.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.280","cliVersion":"2.1.280","profileDigestScheme":1}',
+      "--set",
+      `images.workerPrevious.digest=sha256:${"4".repeat(64)}`,
+    ],
+    /images\.workerPrevious\.runtime is required/,
+  ],
+  [
+    "a previous worker runtime without its image",
+    [
+      "-f",
+      ciDigests,
+      "--set-json",
+      'images.worker.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.280","cliVersion":"2.1.280","profileDigestScheme":1}',
+      "--set-json",
+      'images.workerPrevious.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.270","cliVersion":"2.1.270","profileDigestScheme":1}',
+    ],
+    /images\.workerPrevious\.digest is required/,
+  ],
+  [
+    "a previous worker image without the current one's runtime",
+    [
+      "-f",
+      ciDigests,
+      "--set",
+      `images.workerPrevious.digest=sha256:${"4".repeat(64)}`,
+      "--set-json",
+      'images.workerPrevious.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.270","cliVersion":"2.1.270","profileDigestScheme":1}',
+    ],
+    /images\.workerPrevious needs images\.worker\.runtime/,
+  ],
   ...[
     "api.extraEnv.PREVIEW_NAMESPACE=prod",
     "scheduler.extraEnv.PREVIEW_NAMESPACE=prod",
@@ -754,6 +844,51 @@ errors.push(
   ),
   ...checkMetrics("aws example, metrics on", metricsOnAws, true, true),
 );
+const CURRENT_RUNTIME = {
+  engine: "claude-agent-sdk",
+  sdkVersion: "0.3.280",
+  cliVersion: "2.1.280",
+  profileDigestScheme: 1,
+};
+const PREVIOUS_RUNTIME = {
+  ...CURRENT_RUNTIME,
+  sdkVersion: "0.3.270",
+  cliVersion: "2.1.270",
+};
+const PREVIOUS_DIGEST = `sha256:${"4".repeat(64)}`;
+const workerImages = [
+  "--set-json",
+  `images.worker.runtime=${JSON.stringify(CURRENT_RUNTIME)}`,
+  "--set-json",
+  `images.workerPrevious.runtime=${JSON.stringify(PREVIOUS_RUNTIME)}`,
+  "--set",
+  `images.workerPrevious.digest=${PREVIOUS_DIGEST}`,
+];
+// helm's toJson sorts keys; the processes parse the value, so order is free.
+const asRendered = (runtime: Record<string, unknown>) =>
+  JSON.stringify(Object.fromEntries(Object.entries(runtime).sort()));
+errors.push(
+  ...checkWorkerImages("default", render(["-f", ciDigests]), {}),
+  ...checkWorkerImages(
+    "current runtime only",
+    render([
+      "-f",
+      ciDigests,
+      "--set-json",
+      `images.worker.runtime=${JSON.stringify(CURRENT_RUNTIME)}`,
+    ]),
+    { runtime: asRendered(CURRENT_RUNTIME) },
+  ),
+  ...checkWorkerImages(
+    "two images",
+    render(["-f", ciDigests, ...workerImages]),
+    {
+      runtime: asRendered(CURRENT_RUNTIME),
+      previousRuntime: asRendered(PREVIOUS_RUNTIME),
+      previousImage: `ghcr.io/jeongjaesoon/agent-platform-worker@${PREVIOUS_DIGEST}`,
+    },
+  ),
+);
 for (const [label, args, message] of MUST_FAIL) {
   const { ok, out } = helmTemplate(args);
   if (ok || !message.test(out)) {
@@ -766,5 +901,5 @@ if (errors.length > 0) {
   process.exit(1);
 }
 console.log(
-  `render-check: default and aws example renders pass, scheduler off and on, slack off, preview on, metrics on; ${MUST_FAIL.length} bad inputs, an internet-facing ALB and a preview aws example refused`,
+  `render-check: default and aws example renders pass, scheduler off and on, slack off, preview on, metrics on, worker images (one, current runtime, two) alike on api, slack and scheduler; ${MUST_FAIL.length} bad inputs, an internet-facing ALB and a preview aws example refused`,
 );

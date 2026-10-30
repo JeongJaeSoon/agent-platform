@@ -38,6 +38,7 @@ spec:
                   name: {{ .Values.secrets.name }}
                   key: PLATFORM_SECRET_KEY
                   optional: true
+            {{- with include "ap.workerRuntimeEnv" . | trim }}{{ . | nindent 12 }}{{ end }}
             - name: SLACK_ROLE_INTERVAL_SEC
               value: {{ .Values.slack.intervalSec | quote }}
             - name: SLACK_ROLE_PASS_TIMEOUT_SEC

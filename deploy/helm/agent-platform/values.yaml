@@ -32,6 +32,17 @@ images:
   worker:
     repository: ghcr.io/jeongjaesoon/agent-platform-worker
     digest: ""
+    # The `runtime` images.yml recorded with this digest, as given, e.g.
+    # {engine: claude-agent-sdk, sdkVersion: 0.3.280, cliVersion: 2.1.280,
+    # profileDigestScheme: 1}. Empty launches every session on this image.
+    runtime: {}
+  # The release before, so a session whose checkpoint the current image
+  # cannot restore resumes on it (WORKER_IMAGE_PREVIOUS). Its digest and
+  # runtime go together, and need images.worker.runtime set.
+  workerPrevious:
+    repository: ghcr.io/jeongjaesoon/agent-platform-worker
+    digest: ""
+    runtime: {}
 
 # The chart never holds a secret value. Each workload reads only the keys it
 # needs from this one Secret:
