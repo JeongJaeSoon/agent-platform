@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Link,
+  lazyRouteComponent,
   useNavigate,
   useParams,
   useSearch,
@@ -27,7 +28,7 @@ import {
   TabsTrigger,
 } from "@werft-ai/ui";
 import { ArrowLeft } from "lucide-react";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { agentQuery, queryKeysOf } from "../api/queries.ts";
 import { useRole } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
@@ -64,7 +65,7 @@ import { agentRefusal } from "./agents.tsx";
 // Console v4: 24px under the tabs, sections 32px apart.
 const PANEL = "@container flex flex-col gap-8 pt-2";
 
-const SlackTab = lazy(() => import("./agent-detail/slack.tsx"));
+const SlackTab = lazyRouteComponent(() => import("./agent-detail/slack.tsx"));
 
 export const AGENT_TABS = [
   "overview",
