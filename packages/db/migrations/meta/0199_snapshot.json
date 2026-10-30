@@ -1,5 +1,5 @@
 {
-  "id": "2b719efc-05e2-4e29-afb1-1ca23e20c7df",
+  "id": "cba47f01-eeb2-4932-8ea7-d02b35f23584",
   "prevId": "7301b22a-c41a-45c6-8eae-9c4070708952",
   "version": "7",
   "dialect": "postgresql",
@@ -1965,6 +1965,12 @@
         "runtime_profile_sha256": {
           "name": "runtime_profile_sha256",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "runtime_profile_scheme": {
+          "name": "runtime_profile_scheme",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false
         },
@@ -4165,51 +4171,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.outcome_refresh_quotas": {
-      "name": "outcome_refresh_quotas",
-      "schema": "",
-      "columns": {
-        "quota_key": {
-          "name": "quota_key",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "rate_limit": {
-          "name": "rate_limit",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "window_start": {
-          "name": "window_start",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "used": {
-          "name": "used",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "paused_until": {
-          "name": "paused_until",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.owner_workspace_map": {
       "name": "owner_workspace_map",
       "schema": "",
@@ -6058,200 +6019,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.session_outcomes": {
-      "name": "session_outcomes",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "owner_id": {
-          "name": "owner_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "session_id": {
-          "name": "session_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_release_id": {
-          "name": "agent_release_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "type": {
-          "name": "type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "url": {
-          "name": "url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "repository_id": {
-          "name": "repository_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "external_id": {
-          "name": "external_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "state_changed_at": {
-          "name": "state_changed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "merged_at": {
-          "name": "merged_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "closed_at": {
-          "name": "closed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "state_checked_at": {
-          "name": "state_checked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "lease_token": {
-          "name": "lease_token",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "lease_expires_at": {
-          "name": "lease_expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "check_error": {
-          "name": "check_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "metadata": {
-          "name": "metadata",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "receipt_id": {
-          "name": "receipt_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "session_outcomes_refresh_idx": {
-          "name": "session_outcomes_refresh_idx",
-          "columns": [
-            {
-              "expression": "state_checked_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"session_outcomes\".\"type\" = 'github_pull_request' AND \"session_outcomes\".\"state\" <> 'merged'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "session_outcomes_session_id_sessions_id_fk": {
-          "name": "session_outcomes_session_id_sessions_id_fk",
-          "tableFrom": "session_outcomes",
-          "tableTo": "sessions",
-          "columnsFrom": ["session_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "session_outcomes_receipt_id_receipts_id_fk": {
-          "name": "session_outcomes_receipt_id_receipts_id_fk",
-          "tableFrom": "session_outcomes",
-          "tableTo": "receipts",
-          "columnsFrom": ["receipt_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "session_outcomes_session_type_url_key": {
-          "name": "session_outcomes_session_type_url_key",
-          "nullsNotDistinct": false,
-          "columns": ["session_id", "type", "url"]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "session_outcomes_type_check": {
-          "name": "session_outcomes_type_check",
-          "value": "\"session_outcomes\".\"type\" IN ('github_pull_request')"
-        },
-        "session_outcomes_pull_request_state_check": {
-          "name": "session_outcomes_pull_request_state_check",
-          "value": "\"session_outcomes\".\"type\" <> 'github_pull_request' OR \"session_outcomes\".\"state\" IN ('open','merged','closed')"
-        },
-        "session_outcomes_check_error_check": {
-          "name": "session_outcomes_check_error_check",
-          "value": "\"session_outcomes\".\"check_error\" IS NULL OR \"session_outcomes\".\"check_error\" IN ('not_found','forge_failed','github_refused')"
-        },
-        "session_outcomes_lease_check": {
-          "name": "session_outcomes_lease_check",
-          "value": "(\"session_outcomes\".\"lease_token\" IS NULL) = (\"session_outcomes\".\"lease_expires_at\" IS NULL)"
-        }
-      },
       "isRLSEnabled": false
     },
     "public.session_pre_metering_cost": {
@@ -9507,6 +9274,79 @@
       },
       "isRLSEnabled": false
     },
+    "public.worker_image_refusals": {
+      "name": "worker_image_refusals",
+      "schema": "",
+      "columns": {
+        "image": {
+          "name": "image",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "assumed_engine": {
+          "name": "assumed_engine",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "assumed_sdk_version": {
+          "name": "assumed_sdk_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "assumed_cli_version": {
+          "name": "assumed_cli_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "assumed_profile_scheme": {
+          "name": "assumed_profile_scheme",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "claimed": {
+          "name": "claimed",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "execution_id": {
+          "name": "execution_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "refused_at": {
+          "name": "refused_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "worker_image_refusals_pkey": {
+          "name": "worker_image_refusals_pkey",
+          "columns": [
+            "image",
+            "assumed_engine",
+            "assumed_sdk_version",
+            "assumed_cli_version",
+            "assumed_profile_scheme"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.worker_launches": {
       "name": "worker_launches",
       "schema": "",
@@ -9582,6 +9422,30 @@
         "resources": {
           "name": "resources",
           "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "runtime_engine": {
+          "name": "runtime_engine",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "runtime_sdk_version": {
+          "name": "runtime_sdk_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "runtime_cli_version": {
+          "name": "runtime_cli_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "runtime_profile_scheme": {
+          "name": "runtime_profile_scheme",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false
         },

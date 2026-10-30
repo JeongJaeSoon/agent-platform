@@ -70,6 +70,18 @@ export const bootstrapClaimRequestSchema = z
         job_uid: z.string().min(1),
       }),
     ]),
+    // The worker image's own combination (`imageFingerprint()`). The claim is
+    // refused when it is not the one the launch was reserved under. Absent
+    // from workers that predate it.
+    image_runtime: z
+      .object({
+        engine: z.string().min(1),
+        sdk_version: z.string().min(1),
+        cli_version: z.string().min(1),
+        profile_digest_scheme: z.number().int().positive(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 // Retrying bootstrapClaim issues a new credential and revokes the previous

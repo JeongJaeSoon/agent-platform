@@ -1,6 +1,11 @@
-import type { FinalizeInput } from "@werft-ai/platform";
+import {
+  type FinalizeInput,
+  type PointerRuntime,
+  recordedPointer,
+} from "@werft-ai/platform";
 import { and, eq, type SQL, sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
+import { hasRestorePoint } from "./control-shared.ts";
 import type { Database } from "./queries.ts";
 import { checkpoints, sessions } from "./schema.ts";
 
@@ -66,6 +71,51 @@ export function runtimeOfColumns(
     sdkVersion: row.runtimeSdkVersion,
     cliVersion: row.runtimeCliVersion,
     profileSha256: row.runtimeProfileSha256,
+  };
+}
+
+/**
+ * The image combination the session's pointer was sealed under, for
+ * choosing the image its next launch runs on, and the revision it was read
+ * at (0 with no pointer).
+ */
+export async function readPointerImageRuntime(
+  db: Database,
+  sessionId: string,
+): Promise<{ pointer: PointerRuntime; checkpointRevision: number }> {
+  const [row] = await db
+    .select({
+      checkpointRevision: sessions.checkpointRevision,
+      checkpointPendingReason: sessions.checkpointPendingReason,
+      contextResetCheckpointRevision: sessions.contextResetCheckpointRevision,
+      runtimeEngine: checkpoints.runtimeEngine,
+      runtimeSdkVersion: checkpoints.runtimeSdkVersion,
+      runtimeCliVersion: checkpoints.runtimeCliVersion,
+      runtimeProfileSha256: checkpoints.runtimeProfileSha256,
+      runtimeProfileScheme: checkpoints.runtimeProfileScheme,
+    })
+    .from(sessions)
+    .leftJoin(
+      checkpoints,
+      and(
+        eq(checkpoints.sessionId, sessions.id),
+        eq(checkpoints.revision, sessions.checkpointRevision),
+      ),
+    )
+    .where(eq(sessions.id, sessionId))
+    .limit(1);
+  // What the claim's restore skips (a start_fresh retired it, or a pending
+  // reason blocks it) restores nothing, so no image is held to it.
+  if (row === undefined || !hasRestorePoint(row)) {
+    return { pointer: { kind: "none" }, checkpointRevision: 0 };
+  }
+  const runtime = runtimeOfColumns(row);
+  return {
+    pointer:
+      runtime === null
+        ? { kind: "unrecorded" }
+        : recordedPointer(runtime, row.runtimeProfileScheme),
+    checkpointRevision: row.checkpointRevision,
   };
 }
 

@@ -5,6 +5,7 @@ import {
   DEFAULT_NONCE_TTL_MS,
   generateLaunchNonce,
   hashWorkerToken,
+  type ReserveLaunchInput,
 } from "@werft-ai/platform";
 
 import { fromDbNow } from "../db-clock.ts";
@@ -36,6 +37,7 @@ export async function launchSession(
     sessionId: string;
     backend?: ExecutionBackend;
     image?: string;
+    imageRuntime?: ReserveLaunchInput["imageRuntime"];
     nonceTtlMs?: number;
     now?: Date;
   },
@@ -51,6 +53,9 @@ export async function launchSession(
     ...SPEC,
     backend: input.backend ?? "local_docker",
     image: input.image ?? SPEC.image,
+    ...(input.imageRuntime === undefined
+      ? {}
+      : { imageRuntime: input.imageRuntime }),
     now: input.now ?? new Date(),
     sessionId: input.sessionId,
     slotLimit: Number.MAX_SAFE_INTEGER,

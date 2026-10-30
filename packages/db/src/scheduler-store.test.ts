@@ -243,6 +243,15 @@ describe("PostgresSchedulerStore", () => {
       activeExecutionCount: 1,
       eligibleSessionIds: [ids[3], expect.any(String)],
     });
+    // The next page past sessions a pass already passed over.
+    expect(
+      (
+        await store.inspectDemand({
+          limit: 10,
+          excluding: demand.eligibleSessionIds.slice(0, 2),
+        })
+      ).eligibleSessionIds,
+    ).toEqual(demand.eligibleSessionIds.slice(2));
     expect(await store.inspectDemand({ limit: 0 })).toEqual({
       activeExecutionCount: 1,
       eligibleSessionIds: [],
