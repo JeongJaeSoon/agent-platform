@@ -476,7 +476,7 @@ describe("워크스페이스 GitHub 연결 — 사용자 계정 연결", () => {
   });
 
   test("콘솔 주소와 client secret이 없으면 무엇이 빠졌는지 말한다", async () => {
-    renderAt(
+    const { api } = renderAt(
       PATH,
       registered(
         githubSettings({
@@ -499,6 +499,11 @@ describe("워크스페이스 GitHub 연결 — 사용자 계정 연결", () => {
     expect(card.queryByRole("button", { name: "콜백 URL 복사" })).toBeNull();
     // A secret is one App's: none can be typed before its client id is known.
     expect(card.queryByRole("button", { name: "입력" })).toBeNull();
+    // Still none after the read the App read prompts: no more reads follow.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(
+      api.calls.filter((c) => c.method === "GET" && c.path === GITHUB_SETTINGS),
+    ).toHaveLength(2);
   });
 
   test("설정을 먼저 읽은 뒤 App 조회가 Client ID를 채우면, 사용자 연결은 다시 읽어 그 값을 보인다", async () => {
