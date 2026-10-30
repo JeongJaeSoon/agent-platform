@@ -66,7 +66,7 @@ printf 'AID=%s\nREL=%s\n' "$AID" "$REL" >> "$VERIFY_RUN/ids.sh"
 
 ```sh
 # 4. 세션: clone → commit(Bash 권한 허용)
-. "$VERIFY_RUN/ids.sh"
+. "$VERIFY_RUN/ids.sh"; U=.claude/skills/verify-agent-platform/scripts/web-user.mjs
 node $U <run id> key owner personal sessions:read,sessions:write,sessions:approve; ap_as owner
 SPEC='GATE-SPEC {"id":"gh1","steps":[{"tool":"Bash","input":{"command":"mkdir -p notes && date -u +%FT%TZ > notes/verify-skill.txt && git add notes/verify-skill.txt && git commit -qm \"docs: verify-agent-platform sandbox note\" && git log --oneline -1","description":"commit a note"}}],"final":"committed"}'
 SID=$(ap_post /v1/sessions "$(jq -nc --arg r "$REL" --arg m "$SPEC" '{agent_release_id:$r, message:$m}')" | head -1 | jq -r .session_id)
@@ -100,6 +100,7 @@ ap_post "/v1/sessions/$SID/github/workflow-dispatches" '{"workflow":"sandbox-dis
 ap_post "/v1/sessions/$SID/github/workflow-dispatches" '{"workflow":"sandbox-other.yml","ref":"main"}'        # 403 workflow_not_allowed
 ap_post "/v1/sessions/$SID/github/workflow-dispatches" "$(jq -nc --arg r "agent/$SID" '{workflow:"sandbox-dispatch.yml", ref:$r}')"   # 403 agent_ref_refused
 ap_post "/v1/sessions/$SID/github/workflow-runs/1/rerun" '{}'                                                  # 403 run_ref_unprovable
+ap_get "/v1/sessions/$SID/github/workflow-runs/1"                                                              # actions_read: App에 Actions가 없으면 409 app_permission_missing
 RC=$(ap_post "/v1/sessions/$SID/github/workflow-dispatches" '{"workflow":"sandbox-other.yml","ref":"main"}' | head -1 | jq -r .error.details.receipt_id)
 ap_get "/v1/receipts/$RC" | head -1 | jq -c '{operation, status, result}'                                     # 거절을 다른 경로로 다시 읽는다
 ap_web GET "/v1/agents/$AID/github/activity" | head -1 | jq -c '[.items[] | {operation, status, reason_code: .result.reason_code, purpose: .result.purpose}]'
