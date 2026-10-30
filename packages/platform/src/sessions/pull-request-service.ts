@@ -290,7 +290,11 @@ export function createPullRequestService(deps: {
                   redact,
                 ),
                 body: withPullRequestTail(
-                  cleanBody(body.body ?? "", forge.maxBodyLength - 2_000, redact),
+                  cleanBody(
+                    body.body ?? "",
+                    forge.maxBodyLength - 2_000,
+                    redact,
+                  ),
                   tail,
                 ),
               });

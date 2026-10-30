@@ -85,7 +85,7 @@ describe("replacing the pull request tail", () => {
     `---\n${PULL_REQUEST_TAIL_MARKER}\n${text}\n${PULL_REQUEST_TAIL_END_MARKER}`;
   const tailOf = (sessionId: string) =>
     block(
-      `Opened by agent-platform from session \`${sessionId}\`, commit \`abc\`.\n\n- Trigger: web\n- Started by: none (App only)`,
+      `Opened by agent-platform from session \`${sessionId}\`, commit \`abc\`.\n\n- Agent: none, release none\n- Push request: \`p\`\n- Trigger: web\n- Started by: none (App only)`,
     );
   const tail = tailOf("new");
   const OLD = tailOf("old");
@@ -203,6 +203,39 @@ describe("replacing the pull request tail", () => {
       expect(once).toBe(`${body}\n${closing}\n\n${tail}`);
       const again = withPullRequestTail(once, tailOf("newer"));
       expect(again).toBe(`${body}\n${closing}\n\n${tailOf("newer")}`);
+    }
+  });
+
+  test("a line a person adds inside the tail makes it theirs, kept whole", () => {
+    const opening =
+      "Opened by agent-platform from session `old`, commit `abc`.";
+    const agent = "- Agent: none, release none\n- Push request: `p`";
+    const own = `${agent}\n- Trigger: web\n- Started by: none (App only)`;
+    for (const added of [
+      block(`${opening}\n\n${own}\nCo-authored-by: pair <1+pair@example.com>`),
+      block(`${opening}\n\n${own}\n- Trigger: slack`),
+      block(
+        `${opening}\n\n${agent}\n- Trigger: web\n- Trigger: web\n- Started by: none (App only)`,
+      ),
+    ]) {
+      expect(withPullRequestTail(added, tail)).toBe(`${added}\n\n${tail}`);
+    }
+    const linked = block(
+      `${opening}\n\n- Session: http://console.test/sessions/old\n- Agent: \`a\`, release none\n- Push request: \`p\`\n- Trigger: web\n- Started by: GitHub account linked (@octo)\n\nCo-authored-by: octo <1+octo@users.noreply.github.com>`,
+    );
+    expect(withPullRequestTail(linked, tail)).toBe(tail);
+  });
+
+  test("the person's line endings are kept, and a refresh equals one write", () => {
+    const crlf = (text: string) => text.replaceAll("\n", "\r\n");
+    expect(
+      withPullRequestTail(crlf(`Intro\nline\n\n${OLD}\n\nAfter\nmore\n`), tail),
+    ).toBe(`${crlf("Intro\nline")}\n\n${tail}\n\n${crlf("After\nmore\n")}`);
+    for (const body of ["Summary\n", crlf("Summary\nline\n\n"), "Summary"]) {
+      const newer = tailOf("newer");
+      expect(withPullRequestTail(withPullRequestTail(body, tail), newer)).toBe(
+        withPullRequestTail(body, newer),
+      );
     }
   });
 });

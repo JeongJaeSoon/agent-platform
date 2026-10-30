@@ -138,26 +138,39 @@ export function pullRequestTail(input: {
 }
 
 const TAIL_OPENING = "Opened by agent-platform from session ";
-const TAIL_LINES = [
-  "- Session: ",
-  "- Agent: ",
-  "- Push request: ",
-  "- Trigger: ",
-  "- Started by: ",
-  "Co-authored-by: ",
+
+// What pullRequestTail writes between the markers, in order; `optional` lines
+// may be missing. Anything else there (a line a person added) is theirs.
+const TAIL_SHAPE: readonly { line: RegExp; optional?: true }[] = [
+  { line: /^Opened by agent-platform from session `[^`]+`, commit `[^`]+`\.$/ },
+  { line: /^$/ },
+  { line: /^- Session: \S+$/, optional: true },
+  { line: /^- Agent: (`[^`]+`|none), release (`[^`]+`|none)$/ },
+  { line: /^- Push request: `[^`]+`$/ },
+  { line: /^- Trigger: [a-z_]+$/ },
+  {
+    line: /^- Started by: (unknown|none \(App only\)|GitHub account not linked \(App only\)|GitHub account linked \(@[A-Za-z0-9-]+\))$/,
+  },
 ];
+const TAIL_CO_AUTHOR = /^Co-authored-by: [A-Za-z0-9-]+ <[^<>\s]+>$/;
 
 const QUOTING_ELEMENT =
   /<(\/?)(details|pre|div|table|blockquote|section|textarea|script|style)\b[^>]*>/gi;
 
-/** Whether the lines between two markers are a tail the platform wrote. */
+/** Whether the lines between two markers are exactly a tail the platform wrote. */
 function isTailContent(content: readonly string[]): boolean {
-  const filled = content.filter((line) => line.trim() !== "");
+  const lines = content.map((line) => line.trimEnd());
+  let at = 0;
+  for (const { line, optional } of TAIL_SHAPE) {
+    const next = lines[at];
+    if (next !== undefined && line.test(next)) at += 1;
+    else if (!optional) return false;
+  }
+  if (at === lines.length) return true;
   return (
-    filled[0]?.startsWith(TAIL_OPENING) === true &&
-    filled
-      .slice(1)
-      .every((line) => TAIL_LINES.some((prefix) => line.startsWith(prefix)))
+    at + 2 === lines.length &&
+    lines[at] === "" &&
+    TAIL_CO_AUTHOR.test(lines[at + 1] ?? "")
   );
 }
 
@@ -172,8 +185,21 @@ function isTailContent(content: readonly string[]): boolean {
  * around the tail is kept as written.
  */
 export function withPullRequestTail(body: string, tail: string): string {
-  // GitHub's editor saves CRLF.
+  // GitHub's editor saves CRLF. The result is cut from `body` at these
+  // offsets, so the person's text keeps its own line endings.
   const lines = body.split(/\r?\n/);
+  const starts = [0];
+  for (const newline of body.matchAll(/\r?\n/g)) {
+    starts.push(newline.index + newline[0].length);
+  }
+  const endOf = (at: number) => (starts[at] ?? 0) + (lines[at] ?? "").length;
+  const blank = (at: number) => lines[at]?.trim() === "";
+  // `body` up to the end of the last line before `at` that has text.
+  const headBefore = (at: number) => {
+    let last = at - 1;
+    while (last >= 0 && blank(last)) last -= 1;
+    return last < 0 ? "" : body.slice(0, endOf(last));
+  };
   // The opening fence's run (CommonMark): only the same character, at least
   // as long, with nothing after it closes the block.
   let fence: string | null = null;
@@ -225,25 +251,25 @@ export function withPullRequestTail(body: string, tail: string): string {
     }
   }
   if (pair === null) {
-    if (body === "") return tail;
     // Closed first, or the tail lands inside the person's unclosed block and
     // is never found again: each refresh would add one more.
     const closing = [
       ...(fence === null ? [] : [fence]),
       ...open.reverse().map((tag) => `</${tag}>`),
     ];
-    return `${[body, ...closing].join("\n")}\n\n${tail}`;
+    const head = [headBefore(lines.length), ...closing]
+      .filter((part) => part !== "")
+      .join("\n");
+    return head === "" ? tail : `${head}\n\n${tail}`;
   }
   const [from, to] = pair;
-  const blank = (line: string | undefined) => line?.trim() === "";
   // The marker follows the tail's own `---` line; keep the text above it.
-  const above = lines.slice(0, from);
-  while (above.length > 0 && blank(above[above.length - 1])) above.pop();
-  if (above[above.length - 1]?.trim() === "---") above.pop();
-  while (above.length > 0 && blank(above[above.length - 1])) above.pop();
-  const below = lines.slice(to + 1);
-  while (below.length > 0 && blank(below[0])) below.shift();
-  return [above.join("\n"), tail, below.join("\n")]
-    .filter((part) => part !== "")
-    .join("\n\n");
+  let top = from;
+  while (top > 0 && blank(top - 1)) top -= 1;
+  if (top > 0 && lines[top - 1]?.trim() === "---") top -= 1;
+  const head = headBefore(top);
+  let next = to + 1;
+  while (next < lines.length && blank(next)) next += 1;
+  const rest = next < lines.length ? body.slice(starts[next]) : "";
+  return [head, tail, rest].filter((part) => part !== "").join("\n\n");
 }
