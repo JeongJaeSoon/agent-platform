@@ -1,4 +1,5 @@
 import { flowEn, formsEn, sessionsEn } from "@werft-ai/react";
+import { agentGitHubEn } from "./agent-github.ts";
 import { agentsEn } from "./agents.ts";
 import { apiKeysEn } from "./api-keys.ts";
 import { authEn } from "./auth.ts";
@@ -184,6 +185,7 @@ export const en: Record<MessageKey, string> = {
   ...apiKeysEn,
   ...workspaceEn,
   ...githubEn,
+  ...agentGitHubEn,
   ...usageEn,
   ...preferencesEn,
   ...errorsEn,

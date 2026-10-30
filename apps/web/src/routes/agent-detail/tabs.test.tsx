@@ -67,7 +67,7 @@ describe("에이전트 상세 탭", () => {
       within(list)
         .getAllByRole("tab")
         .map((tab) => tab.textContent),
-    ).toEqual(["개요", "카드", "릴리스", "관리자", "Slack"]);
+    ).toEqual(["개요", "카드", "릴리스", "관리자", "Slack", "GitHub"]);
     expect(selected()).toBe("개요");
     expect(tabIn(history)).toBeNull();
     // Only the chosen panel is in the accessibility tree.
@@ -82,6 +82,9 @@ describe("에이전트 상세 탭", () => {
     await waitFor(() => expect(selected()).toBe("릴리스"));
     expect(tabIn(history)).toBe("release");
     await user.keyboard("{End}");
+    await waitFor(() => expect(selected()).toBe("GitHub"));
+    expect(tabIn(history)).toBe("github");
+    await user.keyboard("{ArrowLeft}");
     await user.keyboard("{ArrowLeft}");
     await waitFor(() => expect(selected()).toBe("관리자"));
     expect(tabIn(history)).toBe("admins");
@@ -856,7 +859,7 @@ describe("에이전트 상세 탭", () => {
       within(list)
         .getAllByRole("tab")
         .map((tab) => tab.textContent),
-    ).toEqual(["Overview", "Card", "Release", "Admins", "Slack"]);
+    ).toEqual(["Overview", "Card", "Release", "Admins", "Slack", "GitHub"]);
   });
 
   test("릴리스는 만든 시각으로 불리고, 이전 릴리스는 활성이었던 기간을 보인다", async () => {
