@@ -469,10 +469,10 @@ export const agentSummarySchema = z
     running_count: z.number().int().nonnegative(),
     /**
      * The first thing the agent's Slack tab asks a person to do, or null
-     * when it asks nothing (no app, or one that is set up). In order:
-     * Slack refused the events Request URL, Slack has not checked the one
-     * sent, the app was made but never installed, its bot was disconnected
-     * or uninstalled, the installed bot has no home channel.
+     * when it asks nothing (no app, or one that is set up). Not installed:
+     * the app was made but never installed, or its bot was disconnected or
+     * uninstalled. Installed, in order: Slack has not checked the events
+     * Request URL sent, the bot has no home channel, Slack refused the URL.
      */
     slack_action: z.enum(AGENT_SLACK_ACTION_VALUES).nullable(),
   })

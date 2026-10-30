@@ -220,17 +220,20 @@ export async function agentSummaries(
         )
     ).map((row): [string | null, AgentSlackAction | null] => [
       row.agentId,
-      row.eventsState === "failed"
-        ? "events_failed"
+      // An uninstalled app keeps its events columns, which the tab no
+      // longer shows; installed, the tab leads with an unverified URL's
+      // notice, then the home step, then Advanced's failed events row.
+      !row.installed
+        ? row.botToken
+          ? "reinstall"
+          : "install"
         : row.eventsState === "pending" && row.eventsSent
           ? "events_unverified"
-          : row.installed
-            ? row.home
-              ? null
-              : "home_unset"
-            : row.botToken
-              ? "reinstall"
-              : "install",
+          : !row.home
+            ? "home_unset"
+            : row.eventsState === "failed"
+              ? "events_failed"
+              : null,
     ]),
   );
 

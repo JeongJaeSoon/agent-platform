@@ -737,10 +737,19 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     // Created, never installed: no bot token and no identity.
     const uninstalled = await newId();
     await app(uninstalled, { botTokenRef: null, eventsUrl: null });
-    // A bot token whose identity was revoked (disconnected or uninstalled).
+    // A bot token whose identity was revoked (disconnected or uninstalled);
+    // the events state it had while installed no longer shows in the tab.
     const reinstall = await newId();
-    await app(reinstall);
+    await app(reinstall, { eventsState: "failed" });
     await identity(reinstall, "revoked");
+    // The tab asks for a home before the failed events row in Advanced.
+    const failedHomeless = await newId();
+    await app(failedHomeless, { eventsState: "failed" });
+    await identity(failedHomeless);
+    // An unverified URL locks the channels, home step included.
+    const unverifiedHomeless = await newId();
+    await app(unverifiedHomeless, { eventsState: "pending" });
+    await identity(unverifiedHomeless);
     // Installed, and its only home binding was revoked.
     const homeless = await newId();
     await app(homeless);
@@ -765,6 +774,8 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         notSent,
         uninstalled,
         reinstall,
+        failedHomeless,
+        unverifiedHomeless,
         homeless,
         deleted,
       ].map((id) => actions.get(id)),
@@ -776,6 +787,8 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       null,
       "install",
       "reinstall",
+      "home_unset",
+      "events_unverified",
       "home_unset",
       null,
     ]);
