@@ -479,7 +479,7 @@ describe("agent service", () => {
       expected_revision: -1,
     });
     expect(memory.activations()).toBe(1);
-    const v1 = profilePins(PROFILE)[1]?.fingerprint;
+    const v1 = profilePins(PROFILE, [])[1]?.fingerprint;
     if (!v1) throw new Error("no version 1 pin");
     const legacy: AgentRelease = {
       ...made,

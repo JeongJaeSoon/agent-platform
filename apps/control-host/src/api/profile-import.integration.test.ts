@@ -164,7 +164,7 @@ integration("profiles.yaml seeding an empty PostgreSQL", () => {
         for (const [id, profile] of Object.entries(stageZero.profiles)) {
           const stored = fromDatabase.profiles[id];
           if (!stored) throw new Error(`${dir}: no ${id}`);
-          expect(profilePins(stored)).toEqual(profilePins(profile));
+          expect(profilePins(stored, [])).toEqual(profilePins(profile, []));
           expect(profileModels(stored)).toEqual(profileModels(profile));
           expect(profileFingerprint(stored)).toBe(profileFingerprint(profile));
           expect(runtimeConfigOf(stored, "tok", true)).toEqual(
@@ -202,7 +202,7 @@ integration("profiles.yaml seeding an empty PostgreSQL", () => {
         for (const [id, digest] of Object.entries(ON_MAIN[dir] ?? {})) {
           const stored = fromDatabase.profiles[id];
           if (!stored) throw new Error(`${dir}: no ${id}`);
-          expect(profilePinned(stored, digest)).toBe(true);
+          expect(profilePinned(stored, digest, [])).toBe(true);
         }
         expect(
           catalogRevision({

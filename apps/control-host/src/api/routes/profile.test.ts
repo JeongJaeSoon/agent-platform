@@ -240,7 +240,7 @@ describe("POST /v1/sessions/{id}/profile", () => {
     const listed = catalog.profiles[
       "coding-sonnet"
     ] as SessionCatalog["profiles"][string];
-    const [, , v1Sonnet, v1Opus] = profilePins(listed);
+    const [, , v1Sonnet, v1Opus] = profilePins(listed, []);
     if (!v1Sonnet || !v1Opus) throw new Error("no version 1 pins");
     for (const [pinned, fingerprint] of [
       [v1Sonnet.fingerprint, v1Sonnet.fingerprint],

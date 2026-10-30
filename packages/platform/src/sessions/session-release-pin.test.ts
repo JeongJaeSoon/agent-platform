@@ -256,6 +256,43 @@ describe("a session pinned to an agent release", () => {
     expect(accepted[3]?.profileFingerprint).toBeUndefined();
   });
 
+  test("a profile naming a runtime the current worker image does not ship takes no new session", async () => {
+    const on = (current: string[]) =>
+      setup({
+        accept: "unsupported",
+        catalog: {
+          ...catalog,
+          runtime_versions: { current, accepted: [...current, "0.3.270"] },
+        },
+      });
+    const stale = on(["0.3.280", "2.1.280"]);
+    await expect(
+      stale.service.createSession(stale.caller, { idempotencyKey: "k", body }),
+    ).rejects.toMatchObject({
+      code: "UNSUPPORTED_CAPABILITY",
+      message: expect.stringContaining(
+        "claude_agent_sdk 0.3.270, which the current worker image does not ship",
+      ),
+    });
+    expect(stale.accepted[0]).toMatchObject({ repository: null });
+    expect(stale.accepted[0]?.profileFingerprint).toBeUndefined();
+
+    const current = setup({
+      catalog: {
+        ...catalog,
+        runtime_versions: {
+          current: ["0.3.270", "2.1.270"],
+          accepted: ["0.3.270", "2.1.270"],
+        },
+      },
+    });
+    await current.service.createSession(current.caller, {
+      idempotencyKey: "k",
+      body,
+    });
+    expect(current.accepted[0]?.repository).toMatchObject({ id: "app" });
+  });
+
   test("with only the release named, runs on its profile and its repository", async () => {
     const { service, caller, accepted } = setup();
     await service.createSession(caller, {

@@ -807,8 +807,8 @@ describe("profile fingerprint and catalog revision", () => {
     // still names both.
     const before =
       "sha256:99f5f59a41e3bc02be1f2ffd7af4b0a4fae68ca567dc05368cab9285f5ffd983";
-    expect(profilePinned(base(), before)).toBe(true);
-    expect(profilePinned(perToken, before)).toBe(true);
+    expect(profilePinned(base(), before, [])).toBe(true);
+    expect(profilePinned(perToken, before, [])).toBe(true);
     // Declaring none is a new profile.
     const local = (billing?: string) =>
       profileFingerprint(
@@ -1028,17 +1028,17 @@ describe("models a session may name", () => {
     expect(profileWithModel(bare(), "claude-opus-5-5")).toBeNull();
     const fingerprint = profileFingerprint(listed);
     expect(
-      sessionProfile(listed, { fingerprint, model: "claude-opus-5-5" }),
+      sessionProfile(listed, { fingerprint, model: "claude-opus-5-5" }, []),
     ).toEqual(opus);
     // Off the list, the session's model is no longer there to run.
     expect(
-      sessionProfile(bare(), { fingerprint, model: "claude-opus-5-5" }),
+      sessionProfile(bare(), { fingerprint, model: "claude-opus-5-5" }, []),
     ).toBeNull();
-    expect(sessionProfile(listed, { fingerprint, model: null })).toBeNull();
+    expect(sessionProfile(listed, { fingerprint, model: null }, [])).toBeNull();
     // A row from before the pin runs the default.
-    expect(sessionProfile(listed, { fingerprint: null, model: null })).toEqual(
-      bare(),
-    );
+    expect(
+      sessionProfile(listed, { fingerprint: null, model: null }, []),
+    ).toEqual(bare());
   });
 
   test("a version 1 pin still names the model it was taken with, whatever the row says", () => {
@@ -1048,16 +1048,20 @@ describe("models a session may name", () => {
       "sha256:c1810e0b388cb79421095745e83356f1a1e03aee8858fbe4ce65d63f3aa90d5f";
     const opus = profileWithModel(listed, "claude-opus-5-5");
     expect(
-      sessionProfile(listed, { fingerprint: v1Opus, model: null }),
+      sessionProfile(listed, { fingerprint: v1Opus, model: null }, []),
     ).toEqual(opus);
     expect(
-      sessionProfile(listed, { fingerprint: v1Opus, model: "claude-sonnet-5" }),
+      sessionProfile(
+        listed,
+        { fingerprint: v1Opus, model: "claude-sonnet-5" },
+        [],
+      ),
     ).toEqual(opus);
-    expect(profilePinned(listed, v1Opus)).toBe(true);
+    expect(profilePinned(listed, v1Opus, [])).toBe(true);
     expect(
-      sessionProfile(bare(), { fingerprint: v1Opus, model: null }),
+      sessionProfile(bare(), { fingerprint: v1Opus, model: null }, []),
     ).toBeNull();
-    expect(profilePinned(bare(), v1Opus)).toBe(false);
+    expect(profilePinned(bare(), v1Opus, [])).toBe(false);
     expect(
       fingerprintModel(
         load(config({ ...configured, models: ["claude-opus-5-5"] })),
@@ -1070,7 +1074,7 @@ describe("models a session may name", () => {
   test("the pins a claim offers: version 2 per model with the default first, then each model's version 1", () => {
     const listed = offering(["claude-opus-5-5"]);
     const current = profileFingerprint(listed);
-    expect(profilePins(listed)).toEqual([
+    expect(profilePins(listed, [])).toEqual([
       { fingerprint: current, model: "claude-sonnet-5" },
       { fingerprint: current, model: "claude-opus-5-5" },
       {
@@ -1104,6 +1108,89 @@ describe("models a session may name", () => {
     expect(
       fingerprintModel(catalog, "p", `sha256:${"0".repeat(64)}`),
     ).toBeNull();
+  });
+});
+
+describe("pins across a worker image upgrade", () => {
+  const at = (runtimeVersion: string, overrides: object = {}) =>
+    load(
+      config({
+        ...configured,
+        runtime_version: runtimeVersion,
+        models: ["claude-opus-5-5"],
+        ...overrides,
+      }),
+    ).profiles.p as CatalogProfile;
+  const before = at("1");
+  const v2 = profileFingerprint(before);
+  const v1Opus = profilePins(before, [])[3]?.fingerprint as string;
+
+  test("a pin taken under an accepted version still names the profile, which runs as written", () => {
+    const after = at("2");
+    expect(profileFingerprint(after)).not.toBe(v2);
+    const accepted = ["2", "1"];
+    expect(
+      sessionProfile(
+        after,
+        { fingerprint: v2, model: "claude-opus-5-5" },
+        accepted,
+      ),
+    ).toEqual(profileWithModel(after, "claude-opus-5-5"));
+    expect(
+      sessionProfile(after, { fingerprint: v1Opus, model: null }, accepted)
+        ?.model,
+    ).toBe("claude-opus-5-5");
+    expect(profilePinned(after, v2, accepted)).toBe(true);
+    const pins = profilePins(after, accepted);
+    expect(pins.slice(0, 4)).toEqual(profilePins(after, []));
+    expect(pins).toContainEqual({ fingerprint: v2, model: "claude-sonnet-5" });
+    expect(pins).toContainEqual({ fingerprint: v1Opus, model: null });
+    expect(
+      fingerprintModel(
+        {
+          ...load(
+            config({
+              ...configured,
+              runtime_version: "2",
+              models: ["claude-opus-5-5"],
+            }),
+          ),
+          runtime_versions: { accepted, current: ["2"] },
+        },
+        "p",
+        v1Opus,
+      ),
+    ).toBe("claude-opus-5-5");
+  });
+
+  test("without that version accepted, or with no images configured, the pin no longer matches", () => {
+    const after = at("2");
+    for (const accepted of [[], ["2"], ["3"]]) {
+      expect(
+        sessionProfile(after, { fingerprint: v2, model: null }, accepted),
+      ).toBeNull();
+      expect(profilePinned(after, v1Opus, accepted)).toBe(false);
+    }
+    expect(profilePins(after, ["2"])).toEqual(profilePins(after, []));
+  });
+
+  test("only runtime_version is substituted: any other change still unpins", () => {
+    for (const changed of [
+      { tools: ["Read", "Edit"] },
+      { permission_mode: "plan" },
+      {
+        provider: {
+          ...configured.provider,
+          endpoint: "https://elsewhere.anthropic.invalid",
+        },
+      },
+    ]) {
+      const after = at("2", changed);
+      expect(
+        sessionProfile(after, { fingerprint: v2, model: null }, ["2", "1"]),
+      ).toBeNull();
+      expect(profilePinned(after, v1Opus, ["2", "1"])).toBe(false);
+    }
   });
 });
 
