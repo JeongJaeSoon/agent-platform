@@ -133,7 +133,15 @@ export function ToolTable({
                     />
                     <span className="font-mono">{tool.name}</span>
                     {note ? (
-                      <span className="text-caption text-subtle-foreground">
+                      <span
+                        className={cn(
+                          "text-caption",
+                          // subtle-foreground falls under AA on bg-active.
+                          pressed
+                            ? "text-muted-foreground"
+                            : "text-subtle-foreground",
+                        )}
+                      >
                         {note}
                       </span>
                     ) : null}

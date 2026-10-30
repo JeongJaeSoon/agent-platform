@@ -435,7 +435,11 @@ export function AgentKeysScreen() {
 export function OrgKeysScreen() {
   const { t } = useI18n();
   if (!useHasPermission("api_key.manage"))
-    return <StatusScreen kind="forbidden" />;
+    return (
+      <Page title={t("apiKeys.orgTitle")}>
+        <StatusScreen kind="forbidden" />
+      </Page>
+    );
   return (
     <Page title={t("apiKeys.orgTitle")} description={t("apiKeys.orgIntro")}>
       <EmptyState

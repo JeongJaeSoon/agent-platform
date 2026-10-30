@@ -327,10 +327,13 @@ describe("API key", () => {
     expect(screen.queryByRole("link", { name: "조직 관리 키" })).toBeNull();
   });
 
-  test("권한이 없는 사람이 조직 관리 key 주소로 오면 볼 권한이 없다고 한다", async () => {
+  test("권한이 없는 사람이 조직 관리 key 주소로 오면 페이지 제목 아래에서 볼 권한이 없다고 한다", async () => {
     renderAt(ORG, { ...memberOk, ...keysServer() });
     expect(
       await screen.findByText("이 화면을 볼 권한이 없습니다"),
+    ).toBeDefined();
+    expect(
+      screen.getByRole("heading", { level: 1, name: "조직 관리 키" }),
     ).toBeDefined();
     expect(screen.queryByText("준비 중입니다")).toBeNull();
   });
