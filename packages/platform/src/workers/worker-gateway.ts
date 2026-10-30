@@ -138,6 +138,7 @@ export class WorkerGatewayError extends Error {
     message: string,
     readonly retryable = false,
     readonly receiptId?: string,
+    readonly reasonCode?: string,
   ) {
     super(message);
   }
@@ -1243,7 +1244,10 @@ export function createWorkerGateway(deps: {
         throw new WorkerGatewayError(
           409,
           GITHUB_SETTINGS_UNSUPPORTED.code,
-          `github_settings_unsupported: ${GITHUB_SETTINGS_UNSUPPORTED.message}`,
+          GITHUB_SETTINGS_UNSUPPORTED.message,
+          false,
+          undefined,
+          "github_settings_unsupported",
         );
       }
       const forge = deps.forges?.(id) ?? null;

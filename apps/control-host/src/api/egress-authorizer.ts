@@ -384,13 +384,21 @@ export function createEgressAuthorizer(deps: {
           ...(fields.purpose === "object_store"
             ? { reason: error.message }
             : {}),
+          ...(error.reasonCode === undefined
+            ? {}
+            : { reason_code: error.reasonCode }),
         });
-        if (error.receiptId !== undefined) {
+        if (error.receiptId !== undefined || error.reasonCode !== undefined) {
           return Response.json(
             {
               code: error.code,
               message: error.message,
-              receipt_id: error.receiptId,
+              ...(error.receiptId === undefined
+                ? {}
+                : { receipt_id: error.receiptId }),
+              ...(error.reasonCode === undefined
+                ? {}
+                : { details: { reason_code: error.reasonCode } }),
             },
             { status: error.status },
           );

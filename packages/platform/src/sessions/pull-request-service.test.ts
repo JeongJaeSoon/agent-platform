@@ -357,6 +357,7 @@ describe("opening a pull request", () => {
       details: {
         refusal: "github_settings_unsupported",
         receipt_id: "receipt-1",
+        reason_code: "github_settings_unsupported",
       },
     });
     expect(calls).toEqual([]);

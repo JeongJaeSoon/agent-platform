@@ -663,6 +663,38 @@ describe("egress authorizer: remote MCP", () => {
     });
   });
 
+  test("a GitHub refusal names its reason code to the proxy", async () => {
+    const refuse = async () => {
+      throw new Error("not this route");
+    };
+    authorize = createEgressAuthorizer({
+      gateway: {
+        authorizeEgress: async () => {
+          throw new WorkerGatewayError(
+            409,
+            "GITHUB_REFUSED",
+            "unsupported",
+            false,
+            undefined,
+            "github_settings_unsupported",
+          );
+        },
+        authorizeObjectAccess: refuse,
+        recordProviderUsage: refuse,
+        authorizeMcpEgress: refuse,
+      },
+      logger: createLogger({ sinks: [] }),
+      token: AUTHORIZER_TOKEN,
+    });
+    const refused = await ask({ token: "t", purpose: "repository" });
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({
+      code: "GITHUB_REFUSED",
+      message: "unsupported",
+      details: { reason_code: "github_settings_unsupported" },
+    });
+  });
+
   test("refuses a server name the route could not have sent", async () => {
     authorize = withMcp(async () => ({}));
     for (const bad of [

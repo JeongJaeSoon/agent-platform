@@ -100,6 +100,7 @@ export function createPullRequestService(deps: {
       throw new SessionServiceError(code, message, undefined, {
         refusal,
         receipt_id: receiptId,
+        ...(code === "GITHUB_REFUSED" ? { reason_code: refusal } : {}),
       });
     };
     const scopeRefusal = mayDecidePush(actor.principal);

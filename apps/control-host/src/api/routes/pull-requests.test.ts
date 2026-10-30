@@ -270,7 +270,10 @@ describe("pull request routes", () => {
     expect(await errorOf(post(pinned, "", {}))).toMatchObject({
       status: 409,
       code: "GITHUB_REFUSED",
-      details: { refusal: "github_settings_unsupported" },
+      details: {
+        refusal: "github_settings_unsupported",
+        reason_code: "github_settings_unsupported",
+      },
     });
     expect(pinned.receipts.map((r) => r.result.refusal)).toEqual([
       "github_settings_unsupported",

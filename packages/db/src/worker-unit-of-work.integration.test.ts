@@ -27,6 +27,7 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresCheckpointStore } from "./checkpoint-store.ts";
 import { fromDbNow } from "./db-clock.ts";
+import { createPostgresSessionGitHubSettings } from "./github-settings.ts";
 import { pauseBlocker } from "./pause-control.ts";
 import {
   createPostgresSessionReader,
@@ -679,17 +680,26 @@ integration("worker gateway on PostgreSQL", () => {
     const repository = () =>
       gateway.authorizeEgress({ token, purpose: "repository" });
 
+    // What push and PR ask, read the same way.
+    const settings = createPostgresSessionGitHubSettings(db);
+
     // Without GitHub settings the release clones as before.
+    expect(await settings.pinned(session.session_id)).toBe(false);
     await pinTo(await release({}));
+    expect(await settings.pinned(session.session_id)).toBe(false);
     expect((await repository()).attempt_id).toBe(claimed.attempt_id);
     // With them, even in a shape a later server writes, nothing is handed out.
     await pinTo(await release({ github: { from: "a later server" } }));
+    expect(await settings.pinned(session.session_id)).toBe(true);
     const refused = await repository().then(
       () => null,
       (error: unknown) => error as { status?: number; code?: string },
     );
-    expect(refused).toMatchObject({ status: 409, code: "GITHUB_REFUSED" });
-    expect(String(refused)).toContain("github_settings_unsupported");
+    expect(refused).toMatchObject({
+      status: 409,
+      code: "GITHUB_REFUSED",
+      reasonCode: "github_settings_unsupported",
+    });
     // The provider route is not GitHub's and stays open.
     expect(
       (

@@ -2164,7 +2164,7 @@ describe("authorizeEgress through a forge", () => {
       ).rejects.toMatchObject({
         status: 409,
         code: "GITHUB_REFUSED",
-        message: expect.stringContaining("github_settings_unsupported"),
+        reasonCode: "github_settings_unsupported",
       });
     }
     expect(github.asked).toEqual([]);
