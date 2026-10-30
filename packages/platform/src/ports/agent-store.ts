@@ -14,7 +14,13 @@ import type { SessionViewer } from "./session-share-store.ts";
 /** A release as the service builds it; the store stamps the times. */
 export type NewAgentRelease = Omit<
   AgentRelease,
-  "created_by" | "created_at" | "approved_by" | "approved_at"
+  | "created_by"
+  | "created_at"
+  | "approved_by"
+  | "approved_at"
+  | "label"
+  | "activated_at"
+  | "deactivated_at"
 > & { created_by: string };
 
 // Every write re-checks the acting person's membership under a share lock in

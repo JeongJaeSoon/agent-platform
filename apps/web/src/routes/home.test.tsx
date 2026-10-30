@@ -1268,6 +1268,7 @@ describe("홈 요약", () => {
         credential_refs: refs,
       },
       runtime_profile_id: null,
+      release_label: null,
       bound_credential_refs: bound,
       admins: ["Owner"],
       needs_input_count: 2,

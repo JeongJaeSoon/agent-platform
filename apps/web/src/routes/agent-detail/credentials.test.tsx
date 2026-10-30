@@ -214,7 +214,7 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
       await screen.findByRole("button", { name: "릴리스 만들기" }),
     );
     const activate = await screen.findByRole("button", {
-      name: `버전 1 · ${PROFILE} 활성화`,
+      name: `릴리스 2026-10-11_10:00:00 · ${PROFILE} 활성화`,
     });
     await user.click(activate);
 
@@ -250,11 +250,13 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
     await within(section).findByText("slack:bot을(를) 연결했습니다.");
 
     await user.click(
-      screen.getByRole("button", { name: `버전 1 · ${PROFILE} 활성화` }),
+      screen.getByRole("button", {
+        name: `릴리스 2026-10-11_10:00:00 · ${PROFILE} 활성화`,
+      }),
     );
     expect(
       await screen.findByText(
-        `활성화됐습니다 — 이제 새 세션은 버전 1 · ${PROFILE}(으)로 시작합니다.`,
+        `활성화됐습니다 — 이제 새 세션은 릴리스 2026-10-11_10:00:00 · ${PROFILE}(으)로 시작합니다.`,
       ),
     ).toBeDefined();
     expect(
@@ -292,7 +294,7 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
     );
     await user.click(
       await screen.findByRole("button", {
-        name: `버전 1 · ${PROFILE} 활성화`,
+        name: `릴리스 2026-10-11_10:00:00 · ${PROFILE} 활성화`,
       }),
     );
     const alert = await screen.findByRole("alert");
@@ -327,7 +329,7 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
     );
     await user.click(
       await screen.findByRole("button", {
-        name: `버전 1 · ${PROFILE} 활성화`,
+        name: `릴리스 2026-10-11_10:00:00 · ${PROFILE} 활성화`,
       }),
     );
     const alert = await screen.findByRole("alert");

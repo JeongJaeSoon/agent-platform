@@ -48,6 +48,7 @@ const listed = (
       credential_refs: [],
     },
     runtime_profile_id: null,
+    release_label: null,
     bound_credential_refs: [],
     admins: ["Owner"],
     ...counts,
@@ -270,7 +271,12 @@ describe("에이전트 상세 탭", () => {
     const session = (id: string, rest: object) => ({
       id,
       title: null,
-      agent: { id: AGENT_ID, name: "agent", release_version_no: 2 },
+      agent: {
+        id: AGENT_ID,
+        name: "agent",
+        release_version_no: 2,
+        release_label: "2026-10-30_14:30:28",
+      },
       created_by: null,
       channel: "web",
       revision: 1,
@@ -297,8 +303,10 @@ describe("에이전트 상세 탭", () => {
               status: "running",
               last_event_at: "2026-10-02T00:00:00.000Z",
             }),
+            // A server from before release labels names the card version.
             session("1a2b3c4d-3d1e-4c7a-9b2f-5e6d7c8a9b02", {
               admission_state: "paused",
+              agent: { id: AGENT_ID, name: "agent", release_version_no: 2 },
             }),
           ],
           next_cursor: "c2",
@@ -317,7 +325,7 @@ describe("에이전트 상세 탭", () => {
         "배포 점검0f8b6a52",
         "작업 상태: 작업 중",
         "세션 상태: 열림",
-        "릴리스: 버전 2",
+        "릴리스: 2026-10-30_14:30:28",
       ],
       [
         "1a2b3c4d",
@@ -623,7 +631,9 @@ describe("에이전트 상세 탭", () => {
     renderAt(DETAIL, { ...meOk, ...server.routes });
     const heading = await screen.findByRole("heading", { level: 1 });
     await waitFor(() =>
-      expect(heading.nextElementSibling?.textContent).toBe("v1 · 활성"),
+      expect(heading.nextElementSibling?.textContent).toBe(
+        "2026-10-11_10:00:00 · 활성",
+      ),
     );
   });
 
@@ -849,6 +859,94 @@ describe("에이전트 상세 탭", () => {
     ).toEqual(["Overview", "Card", "Release", "Admins", "Slack"]);
   });
 
+  test("릴리스는 만든 시각으로 불리고, 이전 릴리스는 활성이었던 기간을 보인다", async () => {
+    const server = agentServer();
+    await released(server);
+    server.versions.push({
+      ...(server.versions[0] as (typeof server.versions)[number]),
+      id: "7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f",
+      version_no: 2,
+      content_sha256: "f".repeat(64),
+    });
+    const routes = server.routes as Record<
+      string,
+      (request: Request) => Response | Promise<Response>
+    >;
+    const path = `/v1/agents/${AGENT_ID}`;
+    const post = (route: string, body: unknown) =>
+      routes[`POST ${path}/${route}`]?.(
+        new Request(`https://console.test${path}/${route}`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      );
+    await post("releases", {
+      version_id: server.versions[1]?.id,
+      runtime_profile_id: "claude-coding-local",
+    });
+    await post("activate", {
+      release_id: server.releases[1]?.id,
+      expected_revision: 0,
+    });
+    renderAt(`${DETAIL}?tab=release`, { ...meOk, ...server.routes });
+    const heading = await screen.findByRole("heading", { level: 1 });
+    await waitFor(() =>
+      expect(heading.nextElementSibling?.textContent).toBe(
+        "2026-10-11_10:01:00 · 활성",
+      ),
+    );
+    const table = await screen.findByRole("table");
+    expect(
+      within(table)
+        .getAllByRole("row")
+        .slice(1)
+        .map((row) =>
+          [...row.querySelectorAll("td")]
+            .slice(0, 4)
+            .map((cell) => cell.textContent),
+        ),
+    ).toEqual([
+      ["2026-10-11_10:01:00", "활성", "2026-10-11_11:01:00", "v2"],
+      [
+        "2026-10-11_10:00:00",
+        "이전",
+        "2026-10-11_11:00:00 ~ 2026-10-11_11:01:00",
+        "v1",
+      ],
+    ]);
+  });
+
+  test("이름·활성화 시각이 없는 예전 API 응답이면 카드 버전과 —로 보이고 깨지지 않는다", async () => {
+    const server = agentServer();
+    await released(server);
+    for (const release of server.releases as Record<string, unknown>[]) {
+      delete release.label;
+      delete release.activated_at;
+      delete release.deactivated_at;
+    }
+    renderAt(
+      `${DETAIL}?tab=release`,
+      { ...meOk, ...server.routes },
+      "ko",
+      "warn",
+    );
+    const heading = await screen.findByRole("heading", { level: 1 });
+    await waitFor(() =>
+      expect(heading.nextElementSibling?.textContent).toBe("활성"),
+    );
+    const table = await screen.findByRole("table");
+    expect(
+      within(table)
+        .getAllByRole("row")
+        .slice(1)
+        .map((row) =>
+          [...row.querySelectorAll("td")]
+            .slice(0, 4)
+            .map((cell) => cell.textContent),
+        ),
+    ).toEqual([["버전 1", "활성", "—", "v1"]]);
+  });
+
   test("배포 탭은 배포 기록 표 다음에 자격 연결을 두고, 만든 사람은 구성원 이름으로 쓴다", async () => {
     const server = agentServer();
     await released(server);
@@ -881,16 +979,21 @@ describe("에이전트 상세 탭", () => {
     ).toEqual([
       "버전",
       "상태",
+      "활성화 시각",
+      "카드 버전",
       "프로필",
       "저장소",
       "만든 사람",
-      "만든 시각",
       "메모",
       "동작",
     ]);
     const row = within(table).getAllByRole("row")[1] as HTMLElement;
     await within(row).findByText("이민호");
-    expect(row.textContent).toContain("v1");
+    expect(
+      [...row.querySelectorAll("td")]
+        .slice(0, 4)
+        .map((cell) => cell.textContent),
+    ).toEqual(["2026-10-11_10:00:00", "활성", "2026-10-11_11:00:00", "v1"]);
     expect(row.textContent).toContain("활성");
     expect(row.textContent).toContain("claude-coding-local");
     expect(

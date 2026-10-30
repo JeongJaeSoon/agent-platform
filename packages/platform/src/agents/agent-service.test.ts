@@ -120,6 +120,9 @@ function memoryStore(tools: string[] = ["Read"]) {
         created_at: AT,
         approved_by: null,
         approved_at: null,
+        label: "2026-10-11_09:00:00",
+        activated_at: null,
+        deactivated_at: null,
       };
       releases.set(release.id, stored);
       return { outcome: "created", release: stored };
@@ -235,6 +238,7 @@ describe("agent service", () => {
         credential_refs: [],
       },
       runtime_profile_id: null,
+      release_label: null,
       bound_credential_refs: [],
       admins: [],
       needs_input_count: 0,

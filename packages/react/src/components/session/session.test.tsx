@@ -525,6 +525,7 @@ describe("SessionOverviewRow", () => {
               id: "0192f0c4-7d3a-7b4e-9f00-0000000000a1",
               name: "Release helper",
               release_version_no: 3,
+              release_label: "2026-10-30_14:30:28",
             },
             created_by: {
               user_id: "0192f0c4-7d3a-7b4e-9f00-0000000000b1",

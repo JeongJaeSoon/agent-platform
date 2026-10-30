@@ -474,9 +474,10 @@ function AgentSessionRow({
       <GridTableCell hideNarrow={true} className="text-muted-foreground">
         <span className="sr-only">{t("agent.sessions.release")}: </span>
         {session.agent
-          ? t("agent.versionLabel", {
+          ? (session.agent.release_label ??
+            t("agent.versionLabel", {
               version: session.agent.release_version_no,
-            })
+            }))
           : t("agent.panel.none")}
       </GridTableCell>
       <GridTableCell

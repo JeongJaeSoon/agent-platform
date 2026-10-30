@@ -98,6 +98,8 @@ The release id is a hash of the card and profile contents. Creating a release ag
 
 A `note` in the request (1 to 200 characters after trimming) is kept on the release. The note is not part of the id, so creating the release again with the same contents keeps the first note. An empty note or one over 200 characters answers 400.
 
+People name a release by its `label`: the second it was created, in Seoul time, as `2026-10-30_14:30:28`. When the same agent gets more than one release in the same second, the second one onward ends in `-2`, `-3`, and so on. The console's release history, the agent's header tag and the session lists use this name. The release id is still the identifier. A card's `version_no` only goes up when the card changes, so releasing the same card with another profile keeps the same version.
+
 ### Activate
 
 `expected_revision` is the agent's current `activation_revision`. It starts at `-1`. If someone changed it elsewhere first, the response is 409 `REVISION_CONFLICT`.
@@ -114,6 +116,8 @@ curl -sS "$API/v1/agents/$AID/activate" "${WEB[@]}" \
   "previous_release_id": null
 }
 ```
+
+A release's `activated_at` is when it was last activated, and `deactivated_at` is when the next activation took its place. The active release has a `deactivated_at` of `null`, and a release that was never activated has both `null`. Both are read from the activation history, so releases activated before these fields existed have them too.
 
 ### List and count
 
