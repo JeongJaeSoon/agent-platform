@@ -19,6 +19,7 @@ import {
   type CheckpointLeaseGrant,
   type CheckpointPoint,
   type CheckpointPreparation,
+  type ImageRuntime,
   type NegotiatedCapabilities,
   type ParkReadiness,
   type RejectedCheckpoint,
@@ -45,7 +46,10 @@ import type {
   RuntimeHooks,
 } from "./driver.ts";
 import { approvalView, sdkAnswers } from "./mapper.ts";
-import { claudeProfileFingerprint } from "./profile-fingerprint.ts";
+import {
+  CLAUDE_PROFILE_DIGEST_SCHEME,
+  claudeProfileFingerprint,
+} from "./profile-fingerprint.ts";
 import { remoteMcpRelay } from "./remote-mcp.ts";
 import { ClaudeSdkRuntime } from "./runtime.ts";
 import { ClaudeSessionStore } from "./session-store.ts";
@@ -219,7 +223,11 @@ export const claudeRuntimeModule: RuntimeModule = {
     profileSha256: claudeProfileFingerprint(claudeProfileConfig(profile)),
   }),
   createRuntime: (deps) => new ClaudeAgentRuntime(deps),
-  imageFingerprint: () => JSON.stringify(CLAUDE_RUNTIME_FINGERPRINT),
+  imageFingerprint: () =>
+    JSON.stringify({
+      ...CLAUDE_RUNTIME_FINGERPRINT,
+      profileDigestScheme: CLAUDE_PROFILE_DIGEST_SCHEME,
+    } satisfies ImageRuntime),
   openTranscriptStore: (options) => new ClaudeSessionStore(options),
 };
 

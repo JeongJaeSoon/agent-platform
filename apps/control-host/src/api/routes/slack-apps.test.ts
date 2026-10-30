@@ -7,6 +7,7 @@ import {
   createSlackAppResponseSchema,
   deleteSlackAppResponseSchema,
   getSlackAppResponseSchema,
+  listWorkspaceSlackAppsResponseSchema,
   putSlackSecretResponseSchema,
   WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
@@ -548,6 +549,36 @@ describe("deleting a Slack app", () => {
     ).toEqual([]);
   });
 
+  test("owners and admins list the workspace's made apps from the console", async () => {
+    const listPath = (workspaceId = WORKSPACE) =>
+      `/v1/workspaces/${workspaceId}/slack/apps`;
+    const listed = await call("GET", listPath(), {
+      cookie: cookieFor("admin"),
+    });
+    expect(listed.status).toBe(200);
+    expect(
+      listWorkspaceSlackAppsResponseSchema
+        .parse(listed.json)
+        .items.map((item) => [item.slack_app.agent_id, item.agent?.slug]),
+    ).toContainEqual([AGENT, "release-notes"]);
+    expect(
+      (
+        await call("GET", listPath(), {
+          cookie: cookieFor("member", { userId: AGENT_ADMIN }),
+        })
+      ).status,
+    ).toBe(403);
+    expect((await call("GET", listPath(), { key: true })).status).toBe(403);
+    expect(
+      (
+        await call("GET", listPath(OTHER_WORKSPACE), {
+          cookie: cookieFor("owner"),
+        })
+      ).status,
+    ).toBe(404);
+    expect((await call("GET", listPath())).status).toBe(401);
+  });
+
   test("the agent's admin deletes it in Slack; its secrets go with it", async () => {
     const created = [...apps.rows.values()].find(
       (row) => row.agentId === AGENT && row.state === "created",
@@ -670,6 +701,9 @@ test("without a master key every route answers 503", async () => {
   for (const response of [
     await off("GET", appPath(AGENT), { cookie: owner }),
     await off("POST", appPath(AGENT), { cookie: owner, body: {} }),
+    await off("GET", `/v1/workspaces/${WORKSPACE}/slack/apps`, {
+      cookie: owner,
+    }),
     await off("DELETE", deletePath(crypto.randomUUID()), { cookie: owner }),
     await off("PUT", secretPath(crypto.randomUUID(), "slack_bot_token"), {
       cookie: owner,

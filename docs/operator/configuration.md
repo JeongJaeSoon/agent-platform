@@ -80,6 +80,8 @@ terminate가 이미 사라진 execution에서 즉시 끝나거나 scheduler/reco
 
 worker도 기동 때 교차 검사를 한다. `WORKER_PROVIDER_MAX_RETRIES`가 없으면 기동하지 않는다. 코드 기본값이 없는 설치 상한이고, scheduler가 항상 넘긴다. `WORKER_NEXT_INPUT_WAIT_SEC`가 `WORKER_REQUEST_TIMEOUT_SEC` 이상이어도 기동하지 않는다. 그 설정에서는 모든 long poll이 요청 timeout에 잘린다. scheduler와 reconciler는 빈 `DATABASE_URL`을 설정하지 않은 것으로 보고 `QUEUE_DATABASE_URL`을 쓴다.
 
+API와 slack role은 `WORKER_IMAGE_RUNTIME`과 `WORKER_IMAGE_PREVIOUS_RUNTIME`으로 현재·직전 worker 이미지의 런타임 조합을 읽는다. 값은 손으로 적지 않고, images.yml이 남긴 worker digest JSON의 `runtime` 필드를 그대로 넣는다(`{"engine":…,"sdkVersion":…,"cliVersion":…,"profileDigestScheme":…}`). 둘 다 없으면 지금처럼 동작한다. `WORKER_IMAGE_PREVIOUS_RUNTIME`만 있거나 값을 읽을 수 없으면 기동하지 않는다. 설정하면 profile의 `runtime_version`을 다음 이미지 버전으로 올려도, 직전 이미지 버전으로 만들어진 열린 세션의 profile pin이 유지된다. 현재 이미지가 싣지 않은 `runtime_version`의 profile은 새 세션을 받지 않는다. 그래서 SDK를 올리는 릴리스는 `profiles.yaml`의 `runtime_version`도 함께 올린다.
+
 `WERFT_API_KEY`·`WERFT_BASE_URL`은 서버 설정이 아니다. TypeScript SDK(`packages/sdk`)를 쓰는 호출자 쪽 스크립트가 읽는 값이고, SDK 예제는 `WERFT_PROFILE_ID`·`WERFT_REPOSITORY_ID`도 읽는다([TypeScript SDK](../sdk.md)).
 
 ## scheduler·worker 컨테이너·egress 설정

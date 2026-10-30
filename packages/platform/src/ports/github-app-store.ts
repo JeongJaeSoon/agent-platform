@@ -15,6 +15,8 @@ export type GitHubAppProfile = {
   htmlUrl: string;
   /** What the App asks for (`GET /app`'s `permissions`). */
   permissions: GitHubAppPermissions;
+  /** The client for the App's user authorization; null when GitHub sent none. */
+  clientId: string | null;
 };
 
 /** The workspace's GitHub App as stored, without its private key. */
@@ -78,10 +80,17 @@ export interface GitHubAppStore {
     role: GitHubAppRole,
     audit: SecretAudit,
   ): Promise<DeleteGitHubAppResult>;
-  /** Keeps a later read of the App's permissions on the row `id` names. */
+  /**
+   * Keeps a later read of the App's permissions on the row `id` names, while
+   * that row still holds App `appId`: a replacement keeps the row's id, and a
+   * read of the App it replaced must not land on the new one.
+   */
   recordPermissions(
     id: string,
+    appId: number,
     permissions: GitHubAppPermissions,
+    /** Left out: the row keeps the client id it has. */
+    clientId?: string | null,
   ): Promise<void>;
   /** Every registered App of `role` with its key, or one workspace's. */
   credentials(

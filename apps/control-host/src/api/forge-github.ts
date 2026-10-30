@@ -310,6 +310,20 @@ export function createGitHubConnection(
           throw failure(logger, "pull request create", error);
         }
       },
+      async updatePullRequestBody(number, edit) {
+        await call("pull request update", async () => {
+          const { data } = await client.request(
+            "GET /repos/{owner}/{repo}/pulls/{pull_number}",
+            { ...target, pull_number: number, headers },
+          );
+          const body = edit(data.body ?? "");
+          if (body === (data.body ?? "")) return;
+          await client.request(
+            "PATCH /repos/{owner}/{repo}/pulls/{pull_number}",
+            { ...target, pull_number: number, body, headers },
+          );
+        });
+      },
       async upsertComment(number, marker, body): Promise<ForgeComment> {
         const text = `${body}\n\n${marker}`;
         // Two first comments for one marker would both find none and both
@@ -674,6 +688,10 @@ export function createGitHubAppDirectory(
           name: data.name,
           htmlUrl: data.html_url,
           permissions: permissionsOf(data.permissions),
+          clientId:
+            typeof data.client_id === "string" && data.client_id !== ""
+              ? data.client_id
+              : null,
         };
       }),
     installations: (app) =>

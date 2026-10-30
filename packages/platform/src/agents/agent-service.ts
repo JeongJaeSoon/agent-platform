@@ -26,6 +26,7 @@ import type { WorkspaceKeyStore } from "../ports/api-key-store.ts";
 import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
 import type { GitHubSettingsStore } from "../ports/github-settings.ts";
 import {
+  acceptedRuntimeVersions,
   allowedPair,
   allowedRun,
   type CatalogProfile,
@@ -59,7 +60,10 @@ import {
 export async function resolveAgentRelease(
   deps: {
     store: Pick<AgentStore, "findRelease">;
-    catalog: Pick<SessionCatalogView, "profiles" | "workspace_profiles">;
+    catalog: Pick<
+      SessionCatalogView,
+      "profiles" | "workspace_profiles" | "runtime_versions"
+    >;
   },
   workspaceId: string,
   releaseId: string,
@@ -87,7 +91,11 @@ export async function resolveAgentRelease(
   }
   const model = releaseModel(release);
   if (
-    !profilePinned(profile, release.profile_digest) ||
+    !profilePinned(
+      profile,
+      release.profile_digest,
+      acceptedRuntimeVersions(deps.catalog),
+    ) ||
     (model !== undefined && !profileModels(profile).includes(model))
   ) {
     throw new SessionServiceError(

@@ -75,6 +75,9 @@ function auditRow(
         provider: account.provider,
         external_tenant: account.externalTenant,
         external_user_id: account.externalUserId,
+        ...(account.provider === "github"
+          ? { login: account.externalUserName }
+          : {}),
         revision: account.revision,
       },
     },
@@ -117,17 +120,19 @@ async function link(
     await tx.execute(
       sql`SELECT pg_advisory_xact_lock(hashtext(${`linked_accounts:${account.provider}:${account.externalTenant}`}))`,
     );
-    const teams = await installedSlackTeams(tx, workspaceId);
-    if (teams.length === 0) return { outcome: "not_installed" };
-    if (!teams.includes(account.externalTenant)) {
-      const [workspace] = await tx
-        .select({ name: workspaces.name })
-        .from(workspaces)
-        .where(eq(workspaces.id, workspaceId));
-      return {
-        outcome: "team_mismatch",
-        workspaceName: workspace?.name ?? "",
-      };
+    if (account.provider === "slack") {
+      const teams = await installedSlackTeams(tx, workspaceId);
+      if (teams.length === 0) return { outcome: "not_installed" };
+      if (!teams.includes(account.externalTenant)) {
+        const [workspace] = await tx
+          .select({ name: workspaces.name })
+          .from(workspaces)
+          .where(eq(workspaces.id, workspaceId));
+        return {
+          outcome: "team_mismatch",
+          workspaceName: workspace?.name ?? "",
+        };
+      }
     }
     // Locked: unlink and markStale take no team lock, so the holder is
     // judged as their commit left it (a revoked one is no holder at all).
@@ -182,7 +187,8 @@ async function link(
           externalUserId: account.externalUserId,
           ...names,
           status: "active",
-          verifiedVia: "slack_oidc",
+          verifiedVia:
+            account.provider === "github" ? "github_oauth" : "slack_oidc",
           verifiedAt: DB_NOW,
         })
         .returning(columns);

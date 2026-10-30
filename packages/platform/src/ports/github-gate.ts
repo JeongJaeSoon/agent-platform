@@ -71,6 +71,11 @@ export interface GitHubApi {
     title: string;
     body: string;
   }): Promise<ForgePullRequest>;
+  /** Reads the pull request's body and writes back what `edit` makes of it. */
+  updatePullRequestBody(
+    number: number,
+    edit: (body: string) => string,
+  ): Promise<void>;
   upsertComment(
     number: number,
     marker: string,

@@ -139,15 +139,21 @@ jobs:
           IMAGE_ID: ${{ steps.build.outputs.imageid }}
         run: |
           base="$(sed -n 's/^ARG BUN_IMAGE=//p' "apps/${APP}/Dockerfile")"
+          runtime=null
+          if [ "$APP" = worker ]; then
+            runtime="$(docker run --rm -i --network none --entrypoint bun \
+              "${NAME}:sha-${GITHUB_SHA::12}" run apps/worker/src/image-runtime.ts \
+              <<<'{}' | jq -c 'del(.profiles)')"
+          fi
           mkdir -p digests
           jq -n \
             --arg app "$APP" --arg name "$NAME" --arg base "$base" \
             --arg digest "$DIGEST" --arg imageId "$IMAGE_ID" \
             --arg sha "$GITHUB_SHA" --arg ref "$GITHUB_REF" \
-            --argjson pushed "$PUSHED" \
+            --argjson pushed "$PUSHED" --argjson runtime "$runtime" \
             '{app: $app, image: $name, base: $base, pushed: $pushed,
               digest: (if $digest == "" then null else $digest end),
-              imageId: $imageId, commit: $sha, ref: $ref}' \
+              imageId: $imageId, commit: $sha, ref: $ref, runtime: $runtime}' \
             | tee "digests/${APP}.json"
           {
             echo "### ${APP}"
@@ -302,13 +308,21 @@ jobs:
           IMAGE_ID: ${{ steps.push.outputs.imageid }}
         run: |
           base="$(sed -n 's/^ARG BUN_IMAGE=//p' "apps/${APP}/Dockerfile")"
+          runtime=null
+          if [ "$APP" = worker ]; then
+            runtime="$(docker run --rm -i --network none --entrypoint bun \
+              "${NAME}@${DIGEST}" run apps/worker/src/image-runtime.ts \
+              <<<'{}' | jq -c 'del(.profiles)')"
+          fi
           mkdir -p staged
           jq -n \
             --arg app "$APP" --arg name "$NAME" --arg base "$base" \
             --arg digest "$DIGEST" --arg imageId "$IMAGE_ID" \
             --arg sha "$GITHUB_SHA" --arg ref "$GITHUB_REF" \
+            --argjson runtime "$runtime" \
             '{app: $app, image: $name, base: $base, pushed: true, promoted: false,
-              digest: $digest, imageId: $imageId, commit: $sha, ref: $ref}' \
+              digest: $digest, imageId: $imageId, commit: $sha, ref: $ref,
+              runtime: $runtime}' \
             | tee "staged/${APP}.json"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

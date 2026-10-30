@@ -266,6 +266,9 @@ services:
       SLACK_OIDC_CLIENT_ID: ${SLACK_OIDC_CLIENT_ID:-}
       SLACK_OIDC_CLIENT_SECRET: ${SLACK_OIDC_CLIENT_SECRET:-}
       SLACK_OIDC_REDIRECT_URI: ${SLACK_OIDC_REDIRECT_URI:-}
+      # The console's origin, for the GitHub link callback and the session
+      # URL in commits and PRs; empty takes SLACK_OIDC_REDIRECT_URI's origin.
+      CONSOLE_ORIGIN: ${CONSOLE_ORIGIN:-}
       # The egress proxy's authorizer. Not published and not on
       # any worker allowlist: only the proxy, on this compose network, calls
       # it. Without both the API starts, and every worker's provider and

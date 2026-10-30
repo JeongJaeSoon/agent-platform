@@ -360,7 +360,11 @@ export function createPostgresSchedulerStore(
         });
         await tx
           .update(sessions)
-          .set({ executionId: intent.executionId, updatedAt: input.now })
+          .set({
+            executionId: intent.executionId,
+            firstWorkerImage: sql`COALESCE(${sessions.firstWorkerImage}, ${intent.image})`,
+            updatedAt: input.now,
+          })
           .where(eq(sessions.id, input.sessionId));
         return intent;
       });

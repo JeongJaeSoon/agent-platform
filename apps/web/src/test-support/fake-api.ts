@@ -1,6 +1,8 @@
 import type { ApiClient } from "@werft-ai/client";
 import type {
   AuthMeResponse,
+  GitHubOAuth,
+  GitHubSettingsResponse,
   MemberActions,
   MemberRefusal,
   MemberRow,
@@ -215,6 +217,38 @@ export function me(
 /** A signed-in member without management powers. */
 export function memberMe(): AuthMeResponse {
   return me(undefined, "member");
+}
+
+export const GITHUB_SETTINGS = `/v1/workspaces/${WORKSPACE_ID}/github-settings`;
+
+/** The workspace's GitHub settings; user linking is ready unless `oauth` says otherwise. */
+export function githubSettings(
+  oauth: Partial<GitHubOAuth> = {},
+): GitHubSettingsResponse {
+  return {
+    ceiling: {
+      workflows: false,
+      actions: false,
+      checks: false,
+      issues: false,
+      review: false,
+    },
+    revision: 0,
+    agents_using: {
+      workflows: 0,
+      actions: 0,
+      checks: 0,
+      issues: 0,
+      review: 0,
+    },
+    oauth: {
+      client_id: "Iv23lifake",
+      client_secret_set: true,
+      callback_url: "http://console.test/settings/linked-accounts/github",
+      ...oauth,
+    },
+    apps: { author: null, reviewer: null },
+  };
 }
 
 /** The scope the fixture user's screens cache under, whatever its role. */

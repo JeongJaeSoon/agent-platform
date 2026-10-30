@@ -1,4 +1,11 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  setSystemTime,
+  test,
+} from "bun:test";
 import { createHash } from "node:crypto";
 import type { CheckpointRef } from "@werft-ai/contracts";
 import type {
@@ -352,6 +359,17 @@ function versionOf(ref: ObjectRef): { key: string; version: string } {
   return { key: ref.key, version: ref.version as string };
 }
 
+/** The directory the next `publish` writes to. */
+function nextDirectory(revision: number): string {
+  const ref = manifestRefFor(
+    sessionId,
+    revision,
+    "attempt-a",
+    (publishes + 1).toString(16).padStart(32, "0"),
+  );
+  return ref.slice(0, ref.lastIndexOf("/") + 1);
+}
+
 describe("superseded revisions", () => {
   test("go once they fall out of the fallback window; the transcript parts the pointer shares stay", async () => {
     const first = await transcriptPart(0);
@@ -526,16 +544,6 @@ describe("a bundle chain", () => {
   test("a base bundle stays while a kept checkpoint builds on it, though its own revision goes", async () => {
     const chain = await createGitBundleChain();
     const part = await transcriptPart(0);
-    // The directory the next `publish` writes to.
-    const nextDirectory = (revision: number) => {
-      const ref = manifestRefFor(
-        sessionId,
-        revision,
-        "attempt-a",
-        (publishes + 1).toString(16).padStart(32, "0"),
-      );
-      return ref.slice(0, ref.lastIndexOf("/") + 1);
-    };
     const finalize = async (checkpoint: CheckpointRef) =>
       finalizeCheckpoint(service(), session.commit, {
         checkpoint,
@@ -587,6 +595,93 @@ describe("a bundle chain", () => {
     ).toBe(false);
     expect(await present(versionOf(base))).toBe(true);
     expect(await present(versionOf(tip))).toBe(true);
+    const plan = await service().getRestorePlan({ runtime, sessionId });
+    expect(plan.status).toBe("ready");
+  });
+});
+
+describe("a session paused long after its last commit", () => {
+  afterEach(() => {
+    setSystemTime();
+  });
+
+  test("a year on, collection keeps what it kept the day after: both windows and the base bundle every kept checkpoint builds on", async () => {
+    const chain = await createGitBundleChain();
+    const part = await transcriptPart(0);
+    const base = await upload(
+      `${nextDirectory(0)}chain.bundle`,
+      chain.base.bytes,
+    );
+    const published = [];
+    // Each revision's bundle is one more link on the chain before it, so the
+    // pointer's chain reaches back to revision 0's base.
+    const links: ObjectRef[] = [];
+    for (let revision = 0; revision < 10; revision += 1) {
+      const bundle =
+        revision === 0
+          ? base
+          : await upload(
+              `${nextDirectory(revision)}chain.bundle`,
+              chain.tip.bytes,
+            );
+      const baseBundles = [...links];
+      const next = await publish(revision, "attempt-a", [part], (manifest) => ({
+        ...manifest,
+        workspace: {
+          ...manifest.workspace,
+          ...(revision === 0 ? {} : { baseBundles }),
+          bundle,
+          gitCommit: revision === 0 ? chain.base.commit : chain.tip.commit,
+        },
+      }));
+      links.push(bundle);
+      expect(
+        await finalizeCheckpoint(service(), session.commit, {
+          checkpoint: next.checkpoint,
+          fence: fenceOf("attempt-a"),
+          now: new Date("2026-09-24T00:00:00.000Z"),
+          sessionId,
+          turnId: null,
+        }),
+      ).toEqual({ outcome: "committed", revision });
+      published.push({ bundle, ...next });
+    }
+    // Revision 9 was damaged; attempt-b restored revision 4 instead.
+    session.state.fallback = { attemptId: "attempt-b", revision: 4 };
+
+    setSystemTime(new Date("2026-09-25T00:00:00.000Z"));
+    const dayAfter = await collector().collectSession(sessionId, {
+      dryRun: true,
+    });
+    setSystemTime(new Date("2027-10-31T00:00:00.000Z"));
+    expect(
+      await collector().collectSession(sessionId, { dryRun: false }),
+    ).toEqual(dayAfter);
+
+    // The default window: 9 down to 6 below the pointer, 4 down to 1 below
+    // the fallback base. Revisions 0 and 5 are in neither, yet their bundles
+    // are links of the pointer's chain.
+    const kept = await Promise.all(
+      published.map(async (revision) =>
+        present(revision.versions[0] as { key: string; version: string }),
+      ),
+    );
+    expect(kept).toEqual([
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+    ]);
+    for (const { bundle } of published) {
+      expect(await present(versionOf(bundle))).toBe(true);
+    }
+    expect([...session.collected].sort()).toEqual([0, 5]);
     const plan = await service().getRestorePlan({ runtime, sessionId });
     expect(plan.status).toBe("ready");
   });

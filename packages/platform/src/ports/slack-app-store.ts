@@ -34,6 +34,11 @@ export type SlackAppAgent = {
   role: string;
 };
 
+export type MadeSlackApp = {
+  app: SlackAppRecord;
+  agent: { id: string; name: string; slug: string; installed: boolean } | null;
+};
+
 /**
  * A person acting through the console, whose right is read again under
  * lock; null for the operator's CLI, which holds the database itself.
@@ -175,6 +180,11 @@ export interface SlackAppStore {
   linkAppClient(
     workspaceId: string,
   ): Promise<{ app: SlackAppRecord; clientSecret: string } | null>;
+  /**
+   * The workspace's live agent and link apps, the link app first, then by
+   * agent name; `installed` is whether the agent's bot identity is active.
+   */
+  listMade(workspaceId: string): Promise<MadeSlackApp[]>;
   /** The Slack user whose token made the workspace's newest app. */
   lastTokenUser(workspaceId: string): Promise<string | null>;
   beginDelete(input: {

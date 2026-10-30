@@ -274,6 +274,7 @@ async function plans(
       installations: createPostgresInstallationProfileStore(db),
       workspaces: createPostgresWorkspaceProfileStore(db),
       credential: () => "verify-restore-reads-no-credential",
+      env: process.env,
     });
     const claims: Record<string, unknown> = {};
     for (const pointer of pointers) {
