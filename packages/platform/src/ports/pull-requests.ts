@@ -6,6 +6,7 @@ import type {
   PushRequestState,
   ReceiptActor,
 } from "@werft-ai/contracts";
+import { GITHUB_SETTINGS_UNSUPPORTED } from "./github-settings.ts";
 
 /** What every refused pull request operation answers, and its receipt records. */
 export const PULL_REQUEST_REFUSAL_ERRORS: Record<
@@ -44,6 +45,7 @@ export const PULL_REQUEST_REFUSAL_ERRORS: Record<
     code: "BACKEND_UNAVAILABLE",
     message: "The repository host did not take the call",
   },
+  github_settings_unsupported: GITHUB_SETTINGS_UNSUPPORTED,
 };
 
 export type PullRequestOperation = "open_pull_request" | "comment_pull_request";

@@ -61,6 +61,7 @@ import {
   type GitCredential,
   repoRefOf,
 } from "../ports/forge.ts";
+import { GITHUB_SETTINGS_UNSUPPORTED } from "../ports/github-settings.ts";
 import type { McpEgressStore } from "../ports/mcp-egress.ts";
 import type {
   ApprovalCheckpointCommit,
@@ -137,6 +138,7 @@ export class WorkerGatewayError extends Error {
     message: string,
     readonly retryable = false,
     readonly receiptId?: string,
+    readonly reasonCode?: string,
   ) {
     super(message);
   }
@@ -1237,6 +1239,16 @@ export function createWorkerGateway(deps: {
         repositoryBinding(id, pair.repository) !== result.binding
       ) {
         moved("session's repository");
+      }
+      if (result.githubPinned) {
+        throw new WorkerGatewayError(
+          409,
+          GITHUB_SETTINGS_UNSUPPORTED.code,
+          GITHUB_SETTINGS_UNSUPPORTED.message,
+          false,
+          undefined,
+          "github_settings_unsupported",
+        );
       }
       const forge = deps.forges?.(id) ?? null;
       if (forge === null) {

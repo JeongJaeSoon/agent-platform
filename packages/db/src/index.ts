@@ -14,6 +14,7 @@ export * from "./drain.ts";
 export * from "./enqueue.ts";
 export * from "./execution-revocation.ts";
 export * from "./github-apps.ts";
+export * from "./github-settings.ts";
 export * from "./identity.ts";
 export * from "./identity-reader.ts";
 export * from "./installation-profiles.ts";

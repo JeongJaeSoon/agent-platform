@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { receiptActorSchema } from "../musterrolle/authorization.ts";
 import {
+  agentReleaseIdSchema,
   receiptIdSchema,
   revisionSchema,
   sessionIdParamsSchema,
@@ -42,6 +43,20 @@ export const pushRequestParamsSchema = sessionIdParamsSchema.extend({
   push_request_id: pushRequestIdSchema,
 });
 
+/**
+ * Who decided a push: a person or key, or the policy of a release that
+ * pushes without a person's approval.
+ */
+export const pushDeciderSchema = z.union([
+  receiptActorSchema,
+  z
+    .object({
+      kind: z.literal("policy"),
+      agent_release_id: agentReleaseIdSchema,
+    })
+    .strict(),
+]);
+
 export const pushRequestSchema = z.object({
   id: pushRequestIdSchema,
   session_id: sessionIdSchema,
@@ -52,7 +67,7 @@ export const pushRequestSchema = z.object({
   state: pushRequestStateSchema,
   requested_by: receiptActorSchema,
   requested_at: timestampSchema,
-  decided_by: receiptActorSchema.nullable(),
+  decided_by: pushDeciderSchema.nullable(),
   decided_at: timestampSchema.nullable(),
   decision_reason: z.string().nullable(),
   request_receipt_id: receiptIdSchema,
@@ -99,6 +114,7 @@ export const PUSH_REFUSAL_VALUES = [
   "no_push_credential",
   "lease_expired",
   "push_failed",
+  "github_settings_unsupported",
 ] as const;
 export const pushRefusalSchema = z.enum(PUSH_REFUSAL_VALUES);
 
@@ -120,12 +136,13 @@ export const pushReceiptResultSchema = z.object({
   remote_url: z.string().nullable().optional(),
   remote_ref: z.string().nullable().optional(),
   previous_commit: gitCommitShaSchema.nullable().optional(),
-  approved_by: receiptActorSchema.nullable().optional(),
+  approved_by: pushDeciderSchema.nullable().optional(),
 });
 
 export type PushRequestState = (typeof PUSH_REQUEST_STATE_VALUES)[number];
 export type PushRequest = z.infer<typeof pushRequestSchema>;
 export type PushDecision = z.infer<typeof pushDecisionSchema>;
+export type PushDecider = z.infer<typeof pushDeciderSchema>;
 export type DecidePushRequestRequest = z.infer<
   typeof decidePushRequestRequestSchema
 >;

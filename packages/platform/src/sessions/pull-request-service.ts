@@ -15,6 +15,7 @@ import {
   type RepoRef,
   repoRefOf,
 } from "../ports/forge.ts";
+import type { SessionGitHubSettings } from "../ports/github-settings.ts";
 import {
   PULL_REQUEST_REFUSAL_ERRORS,
   type PullRequestOperation,
@@ -59,6 +60,7 @@ export function createPullRequestService(deps: {
   store: PullRequestStore;
   catalog: SessionCatalog;
   forges: ForgeResolver;
+  github: SessionGitHubSettings;
   /** Applied to each line of caller text before the forge sees it. */
   redact: (line: string) => string;
 }) {
@@ -98,6 +100,7 @@ export function createPullRequestService(deps: {
       throw new SessionServiceError(code, message, undefined, {
         refusal,
         receipt_id: receiptId,
+        ...(code === "GITHUB_REFUSED" ? { reason_code: refusal } : {}),
       });
     };
     const scopeRefusal = mayDecidePush(actor.principal);
@@ -128,6 +131,9 @@ export function createPullRequestService(deps: {
       repositoryBinding(source.repositoryId, entry) !== source.repositoryBinding
     ) {
       return await refuse("catalog_changed", fields);
+    }
+    if (await deps.github.pinned(source.sessionId)) {
+      return await refuse("github_settings_unsupported", fields);
     }
     const forge = forges(source.repositoryId);
     const repo: RepoRef | null = repoRefOf(entry.url);

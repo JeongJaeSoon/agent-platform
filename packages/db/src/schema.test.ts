@@ -79,6 +79,7 @@ describe("database schema", () => {
       "events",
       "executions",
       "github_apps",
+      "github_workspace_settings",
       "grants",
       "idempotency_keys",
       "installation_profiles",

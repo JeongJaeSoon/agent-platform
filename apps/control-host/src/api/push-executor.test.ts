@@ -122,6 +122,7 @@ async function run(
     bundles?: readonly GitBundleFixture[];
     forges?: ForgeResolver;
     leaseMs?: number;
+    githubPinned?: boolean;
   } = {},
 ): Promise<Run> {
   const finished: PushOutcome[] = [];
@@ -148,6 +149,7 @@ async function run(
     store,
     catalog,
     forges: options.forges ?? forgesOf(catalog),
+    github: { pinned: async () => options.githubPinned ?? false },
     bundles: {
       async spoolPushBundles({ directory }) {
         const files: string[] = [];
@@ -370,6 +372,24 @@ describe("the platform's push", () => {
     expect(
       (await run(pinned, { ...job, repositoryBinding: null })).outcome,
     ).toMatchObject({ refusal: "catalog_changed" });
+    expect(github.gitRequests.length).toBe(gitBefore);
+    expect(github.tokenRequests.length).toBe(tokensBefore);
+  });
+
+  test("a session whose release pins GitHub settings is failed before a token is asked for", async () => {
+    const catalog = catalogOf({ app: appRepository() });
+    const job = jobFor(catalog, "app");
+    const gitBefore = github.gitRequests.length;
+    const tokensBefore = github.tokenRequests.length;
+    const result = await run(catalog, job, {
+      forges: forgesOf(catalog),
+      githubPinned: true,
+    });
+    expect(result.outcome).toMatchObject({
+      state: "failed",
+      refusal: "github_settings_unsupported",
+    });
+    expect(result.argv).toEqual([]);
     expect(github.gitRequests.length).toBe(gitBefore);
     expect(github.tokenRequests.length).toBe(tokensBefore);
   });

@@ -27,6 +27,7 @@ import {
   MANAGEMENT_ROLES,
   mustRecord,
   RECORDED_ALLOW_ACTIONS,
+  receiptActorOf,
 } from "./policy.ts";
 
 // Any store call means the refusal came too late.
@@ -834,7 +835,27 @@ describe("callerFor records who acts", () => {
       userId: USER,
       workspaceId: WORKSPACE_A,
       apiKeyId: null,
+      agentId: null,
     });
+  });
+
+  test("an agent key's receipts name its agent; a cookie user's name none", () => {
+    const agent = callerFor(
+      workspaceKey(["sessions:write"]),
+      { kind: "api" },
+      "r",
+      { creatorId: null, agentId: "agent-1" },
+    );
+    expect(receiptActorOf(agent)).toEqual({
+      principal: { kind: "api_key", id: KEY },
+      actor_user_id: null,
+      agent_id: "agent-1",
+    });
+    const web = callerFor(member, { kind: "web" }, "r", {
+      creatorId: null,
+      agentId: "agent-1",
+    });
+    expect(receiptActorOf(web)?.agent_id).toBeNull();
   });
 
   test("a service key names no person, a personal key its creator", () => {
@@ -846,6 +867,7 @@ describe("callerFor records who acts", () => {
       userId: null,
       workspaceId: WORKSPACE_A,
       apiKeyId: KEY,
+      agentId: null,
     });
     const personal = callerFor(key, { kind: "api" }, "r", {
       creatorId: USER,

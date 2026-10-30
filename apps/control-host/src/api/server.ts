@@ -21,6 +21,7 @@ import {
   createPostgresPushRequests,
   createPostgresSecretStore,
   createPostgresSessionControl,
+  createPostgresSessionGitHubSettings,
   createPostgresSessionReader,
   createPostgresSessionShareStore,
   createPostgresSessionTitleStore,
@@ -696,17 +697,20 @@ const pushRequests = createPushRequestService({
   source: checkpoints.pushSource,
   catalog,
 });
+const sessionGitHub = createPostgresSessionGitHubSettings(db);
 const pullRequests = createPullRequestService({
   authorization,
   store: createPostgresPullRequests(db),
   catalog,
   forges,
+  github: sessionGitHub,
   redact: sanitizeText,
 });
 const pushExecutor = createPushExecutor({
   store: pushStore,
   catalog,
   forges,
+  github: sessionGitHub,
   bundles: checkpoints.pushSource,
   pusher: createGitPusher({ maxGitMemoryBytes: checkpointGitMemoryBytes }),
   logger,

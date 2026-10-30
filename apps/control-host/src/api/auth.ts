@@ -461,8 +461,11 @@ type Authenticated = {
   webSession?: ResolvedWebSession;
   /** Re-runs the credential check; SSE calls it so revocation ends a stream. */
   reauthenticate: () => Promise<boolean>;
-  /** Set when a key row authenticated; a personal key names its creator. */
-  storedKey?: { creatorId: string | null };
+  /**
+   * Set when a key row authenticated; a personal key names its creator, an
+   * agent key its agent.
+   */
+  storedKey?: { creatorId: string | null; agentId: string | null };
 };
 
 function bearerToken(value: string | undefined): string | null {
@@ -554,6 +557,7 @@ export function createAuthenticator(
           principal,
           storedKey: {
             creatorId: key.kind === "personal" ? key.createdByUserId : null,
+            agentId: key.kind === "agent" ? (key.agentId ?? null) : null,
           },
           verified: true,
           // Nothing edits a key's scopes today, but a stream that outlives

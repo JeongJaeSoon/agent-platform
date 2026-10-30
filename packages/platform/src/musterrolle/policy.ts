@@ -28,6 +28,8 @@ export type RecordedActor = {
   userId: string | null;
   workspaceId: string | null;
   apiKeyId: string | null;
+  /** The agent an agent key calls as; null for every other credential. */
+  agentId?: string | null;
   /** The Slack link a person spoke through; a write re-reads it. */
   linkedAccount?: { id: string; revision: number };
 };
@@ -39,14 +41,18 @@ export type Principal = {
   requestId?: string;
 };
 
-/** A receipt names the credential and the person the policy resolved behind it. */
+/**
+ * A receipt names the credential, the person the policy resolved behind it,
+ * and the agent whose key it is. `agent_id` says who called, not whose
+ * session it acted on.
+ */
 export function receiptActorOf(principal: Principal): ReceiptActor | null {
   const actor = principal.actor;
   if (!actor) return null;
   return {
     principal: actor.principal,
     actor_user_id: actor.userId,
-    agent_id: null,
+    agent_id: actor.agentId ?? null,
   };
 }
 
@@ -68,7 +74,7 @@ export function callerFor(
   principal: AuthenticatedPrincipal,
   surface: AuthorizationSurface,
   requestId: string,
-  storedKey?: { creatorId: string | null },
+  storedKey?: { creatorId: string | null; agentId?: string | null },
 ): Caller {
   const userId =
     principal.kind === "user"
@@ -83,6 +89,8 @@ export function callerFor(
       userId,
       workspaceId: principal.workspace_id,
       apiKeyId: principal.kind === "api_key" && storedKey ? principal.id : null,
+      agentId:
+        principal.kind === "api_key" ? (storedKey?.agentId ?? null) : null,
     },
     subject: {
       principal,

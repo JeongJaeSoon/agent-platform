@@ -79,6 +79,7 @@ export const PULL_REQUEST_REFUSAL_VALUES = [
   "no_forge",
   "no_pull_request",
   "forge_failed",
+  "github_settings_unsupported",
 ] as const;
 export const pullRequestRefusalSchema = z.enum(PULL_REQUEST_REFUSAL_VALUES);
 

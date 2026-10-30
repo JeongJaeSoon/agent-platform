@@ -28,6 +28,8 @@ import {
 import { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
 
 const MANAGERS = MANAGEMENT_ROLES["workspace.manage"] ?? [];
+/** `/github-app` is the author App's; the reviewer's has routes of its own. */
+const ROLE = "author";
 
 const STORE_OFF = () =>
   new SessionServiceError(
@@ -181,11 +183,11 @@ export function createGitHubAppService(deps: {
       workspaceId: string,
     ): Promise<GetGitHubAppResponse> {
       const store = await managedStore(caller, workspaceId);
-      const record = await store.find(workspaceId);
+      const record = await store.find(workspaceId, ROLE);
       const credential =
         record === null
           ? undefined
-          : (await store.credentials(workspaceId)).find(
+          : (await store.credentials(ROLE, workspaceId)).find(
               (held) => held.id === record.id,
             );
       if (record === null || credential === undefined) {
@@ -246,6 +248,7 @@ export function createGitHubAppService(deps: {
       const audit = auditOf(caller);
       const result = await store.put(
         workspaceId,
+        ROLE,
         { ...profile, apiBase: deps.apiBase },
         privateKey,
         audit,
@@ -272,7 +275,7 @@ export function createGitHubAppService(deps: {
     ): Promise<DeleteGitHubAppResponse> {
       const store = await managedStore(caller, workspaceId);
       const audit = auditOf(caller);
-      const result = await store.delete(workspaceId, audit);
+      const result = await store.delete(workspaceId, ROLE, audit);
       switch (result.outcome) {
         case "deleted":
           await reload();

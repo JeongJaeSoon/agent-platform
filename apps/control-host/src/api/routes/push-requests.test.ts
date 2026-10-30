@@ -38,7 +38,11 @@ const KEYS: Record<string, readonly SessionScope[]> = {
   csp_writer: ["sessions:read", "sessions:write"],
   csp_approver: ["sessions:read", "sessions:approve"],
   csp_service: ["sessions:read", "sessions:write", "sessions:approve"],
+  csp_agent: ["sessions:read", "sessions:write"],
 };
+// An agent key: it calls as its agent, and its receipts say so.
+const AGENT_KEY = "csp_agent";
+const AGENT = "019a0000-0000-7000-8000-0000000000e1";
 // A key a person issued in the workspace; it stands for that person.
 const PERSONAL = "csp_personal";
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
@@ -177,11 +181,17 @@ function app(
         );
         if (!token) return null;
         const personal = token === PERSONAL;
+        const agent = token === AGENT_KEY;
         return {
           id: `key-${token}`,
           ownerId: personal ? WORKSPACE : "owner-a",
           workspaceId: personal ? WORKSPACE : null,
-          kind: personal ? ("personal" as const) : ("operator" as const),
+          kind: personal
+            ? ("personal" as const)
+            : agent
+              ? ("agent" as const)
+              : ("operator" as const),
+          agentId: agent ? AGENT : null,
           createdByUserId: personal ? ISSUER : null,
           creatorRole: personal ? ("owner" as const) : null,
           scopes: [
@@ -254,6 +264,21 @@ describe("push request routes", () => {
         gitCommit: COMMIT,
       },
     ]);
+  });
+
+  test("an agent key's request and its receipt name the agent, and a refusal's too", async () => {
+    const target = app();
+    const response = await post(target, "", {}, AGENT_KEY);
+    expect(response.status).toBe(201);
+    const actor = {
+      principal: { kind: "api_key" as const, id: `key-${AGENT_KEY}` },
+      actor_user_id: null,
+      agent_id: AGENT,
+    };
+    expect(target.seen.created.map((input) => input.actor)).toEqual([actor]);
+    const refused = app({ source: { status: "none" } });
+    await post(refused, "", {}, AGENT_KEY);
+    expect(refused.seen.refusals.map((input) => input.actor)).toEqual([actor]);
   });
 
   test("POST takes no say over the commit, repository or branch", async () => {

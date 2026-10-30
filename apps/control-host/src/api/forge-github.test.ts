@@ -302,6 +302,36 @@ describe("the App registered in the console", () => {
     });
   });
 
+  test("reads the author App only, with a reviewer App registered beside it", async () => {
+    const asked: string[] = [];
+    const registered = createRegisteredGitHubForge({
+      store: {
+        credentials: async (role) => {
+          asked.push(role);
+          // GitHub knows no App 999, so a token from it would fail.
+          return role === "reviewer"
+            ? [
+                credential({
+                  id: "8b0d2f4e-0000-4000-8000-000000000002",
+                  appId: 999,
+                }),
+              ]
+            : [credential()];
+        },
+      },
+      paced: false,
+    });
+    await registered.refresh();
+    const before = github.tokenRequests.length;
+    expect(
+      (await registered.forge()?.gitCredential(repo, "write"))?.username,
+    ).toBe("x-access-token");
+    expect(asked).toEqual(["author"]);
+    expect(github.tokenRequests.slice(before)).toMatchObject([
+      { status: 201, body: { permissions: { contents: "write" } } },
+    ]);
+  });
+
   test("a repository the App is not installed on fails the ask by name", async () => {
     const registered = createRegisteredGitHubForge({
       store: { credentials: async () => [credential()] },

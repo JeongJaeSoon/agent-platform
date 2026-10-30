@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { githubFeaturesSchema } from "../musterrolle/github-settings.ts";
 import {
   agentIdSchema,
   agentReleaseIdSchema,
@@ -305,6 +306,32 @@ export const runtimeConfigSnapshotSchema = z
   });
 
 /**
+ * What an agent's GitHub work may reach, pinned on its release. A release
+ * without it runs as before: every repository its profile allows, a person
+ * approving each push, no optional permission.
+ */
+export const agentGitHubSchema = z
+  .object({
+    /** Catalog repository ids. */
+    repositories: z.array(z.string().min(1).max(128)).min(1).max(32),
+    push_approval: z.boolean(),
+    features: githubFeaturesSchema,
+    actions_allow: z
+      .array(
+        z
+          .object({
+            /** A file under `.github/workflows/`, never a path. */
+            workflow: z.string().regex(/^[A-Za-z0-9._-]+\.ya?ml$/),
+            /** A branch, or a glob with `*` that stops at `/`; absent: the default branch. */
+            ref: z.string().min(1).max(255).optional(),
+          })
+          .strict(),
+      )
+      .max(32),
+  })
+  .strict();
+
+/**
  * The tool policy a release runs under, resolved: `per_tool` names every
  * effective tool, plus any MCP tool the card named. `default.mcp` covers the
  * MCP tools a remote server only reveals at run time.
@@ -321,6 +348,8 @@ export const policyPinsSchema = z
       })
       .strict()
       .optional(),
+    /** Absent on every release made before it, and on one with no repository. */
+    github: agentGitHubSchema.optional(),
   })
   .strict();
 
@@ -582,6 +611,7 @@ export type ListAgentsQuery = z.infer<typeof listAgentsQuerySchema>;
 export type ListAgentsResponse = z.infer<typeof listAgentsResponseSchema>;
 export type CountAgentsResponse = z.infer<typeof countAgentsResponseSchema>;
 export type PolicyPins = z.infer<typeof policyPinsSchema>;
+export type AgentGitHub = z.infer<typeof agentGitHubSchema>;
 export type ToolPolicy = z.infer<typeof toolPolicySchema>;
 export type CardToolPolicy = z.infer<typeof cardToolPolicySchema>;
 export type CreateAgentReleaseRequest = z.infer<

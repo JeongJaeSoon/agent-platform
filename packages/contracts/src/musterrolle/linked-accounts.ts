@@ -9,9 +9,10 @@ import {
 } from "../shared/index.ts";
 
 // A person's account on another service, tied to their user (design A.2,
-// D2). v1 links Slack only, through Sign in with Slack; no token is kept.
+// D2). Slack links through Sign in with Slack, GitHub through the author
+// App's user authorization; no token is kept.
 
-export const LINKED_ACCOUNT_PROVIDER_VALUES = ["slack"] as const;
+export const LINKED_ACCOUNT_PROVIDER_VALUES = ["slack", "github"] as const;
 export const linkedAccountProviderSchema = z.enum(
   LINKED_ACCOUNT_PROVIDER_VALUES,
 );

@@ -6,6 +6,7 @@ import type {
   PushRequest,
   ReceiptActor,
 } from "@werft-ai/contracts";
+import { GITHUB_SETTINGS_UNSUPPORTED } from "./github-settings.ts";
 
 /** What every refused push operation answers, and its receipt records. */
 export const PUSH_REFUSAL_ERRORS: Record<
@@ -81,6 +82,7 @@ export const PUSH_REFUSAL_ERRORS: Record<
     code: "BACKEND_UNAVAILABLE",
     message: "The repository host did not take the push",
   },
+  github_settings_unsupported: GITHUB_SETTINGS_UNSUPPORTED,
 };
 
 export type PushOperation = "request_push" | "decide_push";
