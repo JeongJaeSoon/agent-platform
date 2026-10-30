@@ -23,6 +23,7 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { readPointerRuntime } from "./checkpoint-runtime.ts";
 import { createPostgresWorkerPendingStore } from "./pending-control.ts";
 import { createPostgresPendingRequests } from "./pending-requests.ts";
 import {
@@ -48,6 +49,12 @@ const integration = testDatabaseUrl() ? describe : describe.skip;
 const bootstrap: WorkerPrincipal = { kind: "bootstrap" };
 const HASH_A = "a".repeat(64);
 const HASH_B = "b".repeat(64);
+const RUNTIME = {
+  cliVersion: "2.1.270",
+  engine: "claude-agent-sdk",
+  profileSha256: "c".repeat(64),
+  sdkVersion: "0.3.270",
+};
 
 const catalog: SessionCatalog = withSeededInstallation({
   profiles: {
@@ -104,7 +111,7 @@ integration("crash park on an approval-wait checkpoint", () => {
         async verify() {
           return rejectCheckpoints
             ? { status: "rejected", reason: "manifest missing" }
-            : { status: "verified", transcriptBytes: 10 };
+            : { status: "verified", transcriptBytes: 10, runtime: RUNTIME };
         },
       },
       pending: createPostgresWorkerPendingStore(db),
@@ -341,6 +348,8 @@ integration("crash park on an approval-wait checkpoint", () => {
         transcriptBytes: 10,
       },
     ]);
+    // The runtime verified at registration travels with the promotion.
+    expect(await readPointerRuntime(db, sessionId)).toEqual(RUNTIME);
     const [stored] = await db
       .select()
       .from(approvalCheckpoints)

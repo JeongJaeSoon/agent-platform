@@ -36,6 +36,7 @@ import type {
   WorkerScope,
 } from "@werft-ai/contracts";
 import { githubRefusalStatus, MAX_RESTORE_PROFILES } from "@werft-ai/contracts";
+import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
 import {
   type CheckpointRequestDecision,
   type RestoreFallback,
@@ -514,6 +515,7 @@ export function createWorkerGateway(deps: {
       ...(verdict.transcriptBytes === undefined
         ? {}
         : { transcriptBytes: verdict.transcriptBytes }),
+      ...(verdict.runtime === undefined ? {} : { runtime: verdict.runtime }),
       answersThrough: answers_through,
     };
   }
@@ -1623,6 +1625,7 @@ export function createWorkerGateway(deps: {
       let checkpointVersionsHeld = false;
       let checkpointTranscriptBytes: number | undefined;
       let checkpointOutputs: readonly CheckpointOutputObject[] | undefined;
+      let checkpointRuntime: RuntimeFingerprint | undefined;
       if (request.checkpoint) {
         const checkpoint = request.checkpoint;
         const verdict = await checkpointInfrastructure(() =>
@@ -1654,6 +1657,7 @@ export function createWorkerGateway(deps: {
         checkpointVersionsHeld = verdict.versionsHeld === true;
         checkpointTranscriptBytes = verdict.transcriptBytes;
         checkpointOutputs = verdict.outputs;
+        checkpointRuntime = verdict.runtime;
       }
       // Verification is a network call that can outlast the lease, so the
       // fence is judged against the clock at commit time, not the one this
@@ -1665,6 +1669,7 @@ export function createWorkerGateway(deps: {
           ? {}
           : { checkpointTranscriptBytes }),
         ...(checkpointOutputs === undefined ? {} : { checkpointOutputs }),
+        ...(checkpointRuntime === undefined ? {} : { checkpointRuntime }),
         now: now(),
       });
       // Not awaited: naming the session must never hold up its turn.

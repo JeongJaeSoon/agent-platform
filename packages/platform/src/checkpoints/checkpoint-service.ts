@@ -514,6 +514,8 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         reason: `manifest is revision ${manifest.revision}, not ${checkpoint.revision}`,
       };
     }
+    const runtimeFault = runtimeProblem(manifest.runtime, codec.engine);
+    if (runtimeFault !== undefined) return rejected(runtimeFault);
     if (input.confined === true) {
       const unbuilt = unbuiltChain(manifest, input.builtOn);
       if (unbuilt !== undefined) return rejected(unbuilt);
@@ -1741,6 +1743,27 @@ function damaged(reason: string): Judgement {
 
 function rejected(reason: string): ManifestVerdict {
   return { reason, status: "rejected" };
+}
+
+/**
+ * The pointer row copies `runtime` so a launch can pick an image without the
+ * object store. A codec is the engine's own, so the platform does not trust
+ * it to have refused a fingerprint naming another engine or an empty field:
+ * the row would then send the session to an image for something else.
+ */
+function runtimeProblem(
+  runtime: RuntimeFingerprint,
+  engine: string,
+): string | undefined {
+  if (runtime.engine !== engine) {
+    return `manifest runtime engine ${runtime.engine} is not ${engine}`;
+  }
+  for (const field of ["cliVersion", "profileSha256", "sdkVersion"] as const) {
+    if (typeof runtime[field] !== "string" || runtime[field] === "") {
+      return `manifest runtime ${field} is empty`;
+    }
+  }
+  return undefined;
 }
 
 function checkpointRefOf(checkpoint: CheckpointPointer): CheckpointRef {

@@ -9,6 +9,7 @@ import type {
   WorkerEvent,
   WorkspaceRepository,
 } from "@werft-ai/contracts";
+import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
 import type { PricedBy, ProviderUsage } from "../limits/model-prices.ts";
 import type { SessionMcp } from "../sessions/catalog.ts";
 import type { CheckpointPointer } from "./checkpoint-store.ts";
@@ -332,6 +333,7 @@ export type FinalizeInput = {
   checkpointVersionsHeld?: boolean;
   checkpointTranscriptBytes?: number;
   checkpointOutputs?: readonly CheckpointOutputObject[];
+  checkpointRuntime?: RuntimeFingerprint;
 };
 export type FinalizeOutcome = {
   turnId: string;

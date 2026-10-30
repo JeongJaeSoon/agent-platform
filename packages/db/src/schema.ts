@@ -1739,6 +1739,11 @@ export const approvalCheckpoints = pgTable("approval_checkpoints", {
   manifestVersion: text("manifest_version"),
   versionsHeld: boolean("versions_held").notNull(),
   transcriptBytes: bigint("transcript_bytes", { mode: "number" }),
+  // Carried to checkpoints.runtime_* when promoted.
+  runtimeEngine: text("runtime_engine"),
+  runtimeSdkVersion: text("runtime_sdk_version"),
+  runtimeCliVersion: text("runtime_cli_version"),
+  runtimeProfileSha256: text("runtime_profile_sha256"),
   attemptId: text("attempt_id")
     .notNull()
     .references(() => attempts.id),
@@ -1968,6 +1973,14 @@ export const checkpoints = pgTable(
     profileFingerprint: text("profile_fingerprint"),
     // The attempt's model; null where the fingerprint names it (version 1).
     model: text(),
+    // The verified manifest's RuntimeFingerprint, so a launch can pick an
+    // image without reading the object store. Not profile_fingerprint above:
+    // that is the catalog profile's, this is the engine's own digest. All
+    // four null on rows from before the columns, read as the current image.
+    runtimeEngine: text("runtime_engine"),
+    runtimeSdkVersion: text("runtime_sdk_version"),
+    runtimeCliVersion: text("runtime_cli_version"),
+    runtimeProfileSha256: text("runtime_profile_sha256"),
     // Whether checkpoint_outputs holds what this revision's manifest names
     // under outputs. False on rows committed before it was recorded, whose
     // outputs no figure counts.
