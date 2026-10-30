@@ -5,6 +5,8 @@ import {
   USAGE_TOOLS_LIMIT,
   type UsageBreakdownQuery,
   type UsageBreakdownResponse,
+  type UsageOutcomesQuery,
+  type UsageOutcomesResponse,
   type UsageSeriesQuery,
   type UsageSeriesResponse,
   type UsageSummaryQuery,
@@ -23,6 +25,7 @@ import {
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import type {
   UsageBreakdownFiguresRecord,
+  UsageOutcomeFiguresRecord,
   UsageReader,
   UsageSummaryFilter,
   UsageSummaryRecord,
@@ -287,6 +290,51 @@ export function createUsageService(deps: {
                 run_seconds: group.runSeconds,
                 cost_usd: group.costUsd,
                 cost_complete: group.incompleteTurnCount === 0,
+              })),
+            }
+          : {}),
+      };
+    },
+
+    async getUsageOutcomes(
+      actor: Caller,
+      query: UsageOutcomesQuery,
+    ): Promise<UsageOutcomesResponse> {
+      const filter =
+        query.scope === "agent"
+          ? await agentFilter(actor, query.agent_id)
+          : await filterFor(actor, query.scope);
+      const outcomes = await reader.usageOutcomes(filter, {
+        since: query.since,
+        ...(query.until === undefined ? {} : { until: query.until }),
+      });
+      const figures = (record: UsageOutcomeFiguresRecord) => ({
+        session_count: record.sessionCount,
+        cost_usd: record.costUsd,
+        cost_complete: record.incompleteTurnCount === 0,
+        token_count: record.providerTokens,
+        sessions_with_pr: record.sessionsWithPr,
+        sessions_with_merged_pr: record.sessionsWithMergedPr,
+        pr_count: record.prCount,
+        merged_pr_count: record.mergedPrCount,
+        closed_pr_count: record.closedPrCount,
+        cost_of_merged_sessions_usd: record.costOfMergedSessionsUsd,
+        cost_per_merged_pr_usd: record.costPerMergedPrUsd,
+      });
+      return {
+        scope: query.scope,
+        period: {
+          since: query.since.toISOString(),
+          until: outcomes.until.toISOString(),
+        },
+        refreshed_at: outcomes.readAt.toISOString(),
+        ...figures(outcomes),
+        ...(query.group_by === "agent"
+          ? {
+              groups: outcomes.groups.map((group) => ({
+                id: group.id,
+                name: group.name,
+                ...figures(group),
               })),
             }
           : {}),

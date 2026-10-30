@@ -55,6 +55,8 @@ import {
   listPendingRequestsResponseSchema,
   listProfilesResponseSchema,
   listPushRequestsResponseSchema,
+  listSessionGitHubRefusalsResponseSchema,
+  listSessionOutcomesResponseSchema,
   listSessionOutputsResponseSchema,
   listSessionsResponseSchema,
   listSlackBindingsResponseSchema,
@@ -103,6 +105,7 @@ import {
   teamDetailSchema,
   terminateSessionResponseSchema,
   usageBreakdownResponseSchema,
+  usageOutcomesResponseSchema,
   usageSeriesResponseSchema,
   usageSummaryResponseSchema,
   usageToolCallsResponseSchema,
@@ -208,6 +211,9 @@ export const responseSchemas = {
   "POST /v1/sessions/{id}/github/workflow-runs/{run_id}/rerun":
     rerunWorkflowResponseSchema,
   "GET /v1/sessions/{id}/github/attribution": sessionGitHubAttributionSchema,
+  "GET /v1/sessions/{id}/github/refusals":
+    listSessionGitHubRefusalsResponseSchema,
+  "GET /v1/sessions/{id}/outcomes": listSessionOutcomesResponseSchema,
   "POST /v1/sessions/{id}/github/pull-requests/{number}/reviews":
     submitPullRequestReviewResponseSchema,
   "GET /v1/invites": listInvitesResponseSchema,
@@ -278,6 +284,7 @@ export const responseSchemas = {
     installationProfileChangeResponseSchema,
   "GET /v1/limits": limitsResponseSchema,
   "GET /v1/usage/summary": usageSummaryResponseSchema,
+  "GET /v1/usage/outcomes": usageOutcomesResponseSchema,
   "GET /v1/usage/series": usageSeriesResponseSchema,
   "GET /v1/usage/breakdown": usageBreakdownResponseSchema,
   "GET /v1/usage/tools": usageToolsResponseSchema,

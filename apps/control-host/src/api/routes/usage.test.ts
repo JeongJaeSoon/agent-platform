@@ -59,6 +59,9 @@ const app = createApiApp({
           usageToolDays: async () => {
             throw new Error("not read in these tests");
           },
+          usageOutcomes: async () => {
+            throw new Error("not read in these tests");
+          },
         },
       }),
     ),
@@ -81,6 +84,8 @@ test("refuses installation figures and a summary of one's own sessions under AUT
     "/v1/usage/tools?scope=me&since=2026-10-01",
     "/v1/usage/tools/Bash/calls?scope=installation&since=2026-10-01",
     "/v1/usage/tools/Bash/calls?scope=me&since=2026-10-01",
+    "/v1/usage/outcomes?scope=installation&since=2026-10-01",
+    "/v1/usage/outcomes?scope=me&since=2026-10-01",
   ]) {
     const response = await app.request(path, { headers });
     expect(response.status, path).toBe(403);
@@ -108,6 +113,30 @@ test("answers 400 for a summary query it cannot read", async () => {
       "BAD_REQUEST",
     );
   }
+});
+
+test("answers 400 for an outcomes query it cannot read, and 404 for an agent the owner does not have", async () => {
+  for (const query of [
+    "scope=me",
+    "scope=team&since=2026-10-01",
+    "scope=agent&since=2026-10-01",
+    `scope=agent&agent_id=${crypto.randomUUID()}&since=2026-10-01&group_by=agent`,
+    "scope=me&since=2026-10-01&group_by=user",
+    `scope=me&agent_id=${crypto.randomUUID()}&since=2026-10-01`,
+  ]) {
+    const response = await app.request(`/v1/usage/outcomes?${query}`, {
+      headers,
+    });
+    expect(response.status, query).toBe(400);
+    expect(apiErrorResponseSchema.parse(await response.json()).error.code).toBe(
+      "BAD_REQUEST",
+    );
+  }
+  const response = await app.request(
+    `/v1/usage/outcomes?scope=agent&agent_id=${crypto.randomUUID()}&since=2026-10-01`,
+    { headers },
+  );
+  expect(response.status).toBe(404);
 });
 
 test("answers 400 for a limits scope it does not know", async () => {

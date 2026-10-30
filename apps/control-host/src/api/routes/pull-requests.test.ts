@@ -90,7 +90,13 @@ function app(
       state: "open",
       head: input.head,
       base: input.base,
+      mergedAt: null,
+      closedAt: null,
+      created: true,
     }),
+    getPullRequest: () => {
+      throw new Error("not used");
+    },
     upsertComment: async () => {
       fail("comment");
       comments += 1;
@@ -120,6 +126,9 @@ function app(
     kind: "app",
     githubCom: true,
     appId: 101,
+    quotaKey: () => {
+      throw new Error("not used");
+    },
     installed: async () => true,
     credential: async () => ({
       credential: { username: "x-access-token", password: "fixture" },

@@ -1174,6 +1174,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sessions/{id}/github/refusals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read why GitHub work of the session was refused lately
+         * @description The session's latest refusals by the GitHub gate, newest first, at most 10: each refused clone, push, pull request, Actions call or review leaves a failed receipt (`mint_github_token`, `dispatch_workflow`, `rerun_workflow` or `review_pull_request`), and this lists its `receipt_id`, `operation`, `purpose` and `reason_code` (a `GITHUB_REFUSED` reason such as `github_disabled` or `repository_not_allowed`). GitHub's own refusals of a call it received are not listed: they are the work's own receipt. Reading changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
+         */
+        get: operations["listSessionGitHubRefusals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{id}/outcomes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the session made: the pull requests it opened
+         * @description The session's outcomes, oldest first. Each pull request the platform's pull request opening recorded is one `github_pull_request` outcome, written in the same transaction as its `open_pull_request` receipt (`receipt_id`); opening it again for a later push request of the session answers the same pull request and adds none. Only the server writes outcomes.
+         *
+         *     `state` is `open`, `merged` or `closed` as GitHub last answered, at `state_checked_at` (null until the first answer): GitHub tells the platform nothing, so the platform reads each pull request again on an interval (every 5 minutes in its first day, hourly to 30 days, then daily; a closed one daily for 30 days; a merged one never). A failed read keeps the state and sets `check_error` (`not_found`, `forge_failed`, `github_refused`). `metadata.adopted` is true when the platform answered a pull request it did not create, already open for the session's branch, and null when unknown. Reading changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
+         */
+        get: operations["listSessionOutcomes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{id}/github/pull-requests/{number}/reviews": {
         parameters: {
             query?: never;
@@ -2761,6 +2807,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/usage/outcomes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the sessions created in a period cost and the pull requests they made
+         * @description The sessions `GET /v1/usage/summary` would count for the same `scope`, `since`, `until` and `agent_id`, read by the same callers (403 and 404 alike), with the pull requests they opened (`GET /v1/sessions/{id}/outcomes`). Outcomes are counted per session before the sessions are summed, so a session's cost adds once however many pull requests it opened, and a session without one still adds its cost: `session_count` and `cost_usd` are the summary's.
+         *
+         *     `pr_count`, `merged_pr_count` and `closed_pr_count` count the pull requests by their state as last read; `sessions_with_pr` and `sessions_with_merged_pr` count sessions. `cost_per_merged_pr_usd` is every session's cost over `merged_pr_count` (null with none merged), since the sessions without one were spent to get them too; `cost_of_merged_sessions_usd` is only the sessions with a merged pull request. The period cuts on when each session was created, so a pull request merged after the period still counts in it, and reading the same period later can show more merged. An `unmetered` session costs 0; read `token_count` alongside.
+         *
+         *     `group_by=agent` adds `groups`, the same figures per agent, largest cost first; `id` and `name` are null for sessions without an agent. It is refused with `scope=agent`. It changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
+         */
+        get: operations["getUsageOutcomes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/usage/series": {
         parameters: {
             query?: never;
@@ -3006,6 +3078,16 @@ export interface components {
             agent_id?: string;
             /** @enum {string} */
             group_by?: "agent" | "user" | "profile";
+        };
+        UsageOutcomesQuery: {
+            /** @enum {string} */
+            scope: "installation" | "me" | "agent";
+            since: string;
+            until?: string;
+            /** Format: uuid */
+            agent_id?: string;
+            /** @enum {string} */
+            group_by?: "agent";
         };
         UsageSeriesQuery: {
             /** @enum {string} */
@@ -4798,6 +4880,52 @@ export interface components {
             attribution: "co_author" | "unlinked" | "app_only";
             login: string | null;
         };
+        ListSessionGitHubRefusalsResponse: {
+            items: {
+                /** Format: uuid */
+                receipt_id: string;
+                /** @enum {string} */
+                operation: "mint_github_token" | "dispatch_workflow" | "rerun_workflow" | "review_pull_request";
+                /** @enum {string} */
+                purpose: "clone" | "push" | "pull_request" | "actions_read" | "dispatch" | "rerun" | "review" | "outcome_refresh";
+                /** @enum {string} */
+                reason_code: "github_disabled" | "repository_not_allowed" | "feature_off" | "over_workspace_ceiling" | "app_permission_missing" | "no_reviewer_app" | "app_required" | "workflow_not_allowed" | "agent_ref_refused" | "run_ref_unprovable" | "actions_off" | "github_settings_unsupported" | "github_host_unsupported" | "repository_none";
+                /** Format: date-time */
+                created_at: string;
+            }[];
+        };
+        ListSessionOutcomesResponse: {
+            items: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                type: "github_pull_request";
+                /** Format: uri */
+                url: string;
+                repository_id: string | null;
+                external_id: string | null;
+                /** @enum {string} */
+                state: "open" | "merged" | "closed";
+                /** Format: date-time */
+                state_changed_at: string;
+                merged_at: string | null;
+                closed_at: string | null;
+                state_checked_at: string | null;
+                check_error: ("not_found" | "forge_failed" | "github_refused") | null;
+                metadata: {
+                    head: string;
+                    base: string;
+                    adopted: boolean | null;
+                    merge_commit_sha: string | null;
+                    additions: number | null;
+                    deletions: number | null;
+                    changed_files: number | null;
+                    commits: number | null;
+                };
+                /** Format: date-time */
+                created_at: string;
+            }[];
+        };
         AgentGitHubResponse: {
             enabled: boolean;
             active_release_id: string | null;
@@ -5536,6 +5664,44 @@ export interface components {
                 run_seconds: number;
                 cost_usd: string;
                 cost_complete: boolean;
+            }[];
+        };
+        UsageOutcomesResponse: {
+            session_count: number;
+            cost_usd: string;
+            cost_complete: boolean;
+            token_count: number;
+            sessions_with_pr: number;
+            sessions_with_merged_pr: number;
+            pr_count: number;
+            merged_pr_count: number;
+            closed_pr_count: number;
+            cost_of_merged_sessions_usd: string;
+            cost_per_merged_pr_usd: string | null;
+            /** @enum {string} */
+            scope: "installation" | "me" | "agent";
+            period: {
+                /** Format: date-time */
+                since: string;
+                /** Format: date-time */
+                until: string;
+            };
+            /** Format: date-time */
+            refreshed_at: string;
+            groups?: {
+                session_count: number;
+                cost_usd: string;
+                cost_complete: boolean;
+                token_count: number;
+                sessions_with_pr: number;
+                sessions_with_merged_pr: number;
+                pr_count: number;
+                merged_pr_count: number;
+                closed_pr_count: number;
+                cost_of_merged_sessions_usd: string;
+                cost_per_merged_pr_usd: string | null;
+                id: string | null;
+                name: string | null;
             }[];
         };
         UsageSeriesResponse: {
@@ -14677,6 +14843,219 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["SessionGitHubAttribution"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    listSessionGitHubRefusals: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The refusals, newest first. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *           "operation": "mint_github_token",
+                     *           "purpose": "push",
+                     *           "reason_code": "github_disabled",
+                     *           "created_at": "2026-10-30T09:12:44.000Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ListSessionGitHubRefusalsResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    listSessionOutcomes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The outcomes, oldest first. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "6c1f5b0e-2d7a-4e8b-9f3c-1a2b3c4d5e6f",
+                     *           "type": "github_pull_request",
+                     *           "url": "https://github.com/acme/sample-app/pull/12",
+                     *           "repository_id": "sample-app",
+                     *           "external_id": "12",
+                     *           "state": "merged",
+                     *           "state_changed_at": "2026-10-30T10:02:11.000Z",
+                     *           "merged_at": "2026-10-30T10:01:58.000Z",
+                     *           "closed_at": "2026-10-30T10:01:58.000Z",
+                     *           "state_checked_at": "2026-10-30T10:02:11.000Z",
+                     *           "check_error": null,
+                     *           "metadata": {
+                     *             "head": "agent/0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+                     *             "base": "main",
+                     *             "adopted": false,
+                     *             "merge_commit_sha": "9f2c1e0b7a6d5c4b3a2918f7e6d5c4b3a2918f7e",
+                     *             "additions": 42,
+                     *             "deletions": 7,
+                     *             "changed_files": 3,
+                     *             "commits": 2
+                     *           },
+                     *           "created_at": "2026-10-30T09:40:03.000Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ListSessionOutcomesResponse"];
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
@@ -25281,6 +25660,131 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["UsageSummaryResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getUsageOutcomes: {
+        parameters: {
+            query: {
+                scope: "installation" | "me" | "agent";
+                since: string;
+                until?: string;
+                agent_id?: string;
+                group_by?: "agent";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The figures as of `refreshed_at`. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "scope": "agent",
+                     *       "period": {
+                     *         "since": "2026-10-01T00:00:00.000Z",
+                     *         "until": "2026-10-31T00:00:00.000Z"
+                     *       },
+                     *       "refreshed_at": "2026-10-31T00:00:02.000Z",
+                     *       "session_count": 9,
+                     *       "cost_usd": "4.120000",
+                     *       "cost_complete": true,
+                     *       "token_count": 2104300,
+                     *       "sessions_with_pr": 3,
+                     *       "sessions_with_merged_pr": 2,
+                     *       "pr_count": 4,
+                     *       "merged_pr_count": 2,
+                     *       "closed_pr_count": 1,
+                     *       "cost_of_merged_sessions_usd": "1.380000",
+                     *       "cost_per_merged_pr_usd": "2.060000"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["UsageOutcomesResponse"];
                 };
             };
             /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */

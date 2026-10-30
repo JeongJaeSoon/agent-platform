@@ -49,6 +49,7 @@ export * from "./session-attribution.ts";
 export * from "./session-events.ts";
 export * from "./session-links.ts";
 export * from "./session-model-backfill.ts";
+export * from "./session-outcomes.ts";
 export * from "./session-shares.ts";
 export * from "./session-titles.ts";
 export * from "./slack-apps.ts";

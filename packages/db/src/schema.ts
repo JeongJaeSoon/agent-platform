@@ -4,14 +4,20 @@ import {
   AGENT_IDENTITY_STATUS_VALUES,
   AGENT_STATUS_VALUES,
   BINDING_MODE_VALUES,
+  GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES,
   type GitHubAppRole,
   type GitHubCeiling,
+  type GitHubPullRequestOutcomeState,
   MEMORY_WRITE_POLICY_VALUES,
   OPEN_PUSH_REQUEST_STATES,
   PERMISSION_MODE_VALUES,
   PUSH_REQUEST_STATE_VALUES,
   RECEIPT_STATUS_VALUES,
+  SESSION_OUTCOME_CHECK_ERROR_VALUES,
+  SESSION_OUTCOME_TYPE_VALUES,
   SESSION_STATUS_VALUES,
+  type SessionOutcomeCheckError,
+  type SessionOutcomeType,
   SLACK_APP_KIND_VALUES,
   SLACK_APP_STATE_VALUES,
   SLACK_INBOUND_DROP_REASON_VALUES,
@@ -1310,6 +1316,87 @@ export const pullRequests = pgTable(
     uniqueIndex("pull_requests_push_request_idx").on(table.pushRequestId),
   ],
 );
+
+// What a session made (design github-agent.md §10). Written by the server
+// only; a pull request's row shares (session_id, url) and receipt_id with its
+// pull_requests row, without a foreign key, as the table will hold more types.
+export const sessionOutcomes = pgTable(
+  "session_outcomes",
+  {
+    id: uuid().primaryKey(),
+    ownerId: text("owner_id").notNull(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references((): AnyPgColumn => sessions.id),
+    agentReleaseId: text("agent_release_id"),
+    // Copied from the release when written, so a sum never joins releases.
+    agentId: uuid("agent_id"),
+    type: text().$type<SessionOutcomeType>().notNull(),
+    url: text().notNull(),
+    repositoryId: text("repository_id"),
+    externalId: text("external_id"),
+    state: text().$type<GitHubPullRequestOutcomeState>().notNull(),
+    stateChangedAt: timestamp("state_changed_at", {
+      withTimezone: true,
+    }).notNull(),
+    mergedAt: timestamp("merged_at", { withTimezone: true }),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    // When GitHub last answered; a claim leaves it alone.
+    stateCheckedAt: timestamp("state_checked_at", { withTimezone: true }),
+    leaseToken: uuid("lease_token"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    checkError: text("check_error").$type<SessionOutcomeCheckError>(),
+    metadata: jsonb()
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    receiptId: uuid("receipt_id").references((): AnyPgColumn => receipts.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("session_outcomes_session_type_url_key").on(
+      table.sessionId,
+      table.type,
+      table.url,
+    ),
+    index("session_outcomes_refresh_idx")
+      .on(table.stateCheckedAt)
+      .where(
+        sql`${table.type} = 'github_pull_request' AND ${table.state} <> 'merged'`,
+      ),
+    check(
+      "session_outcomes_type_check",
+      sql`${table.type} IN (${sql.raw(sqlList(SESSION_OUTCOME_TYPE_VALUES))})`,
+    ),
+    check(
+      "session_outcomes_pull_request_state_check",
+      sql`${table.type} <> 'github_pull_request' OR ${table.state} IN (${sql.raw(sqlList(GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES))})`,
+    ),
+    check(
+      "session_outcomes_check_error_check",
+      sql`${table.checkError} IS NULL OR ${table.checkError} IN (${sql.raw(sqlList(SESSION_OUTCOME_CHECK_ERROR_VALUES))})`,
+    ),
+    check(
+      "session_outcomes_lease_check",
+      sql`(${table.leaseToken} IS NULL) = (${table.leaseExpiresAt} IS NULL)`,
+    ),
+  ],
+);
+
+// One GitHub rate-limit unit the outcome refresher spends from, shared by
+// every API replica: an App installation, or the user behind a PAT.
+export const outcomeRefreshQuotas = pgTable("outcome_refresh_quotas", {
+  quotaKey: text("quota_key").primaryKey(),
+  // The last x-ratelimit-limit seen; null before the first.
+  rateLimit: integer("rate_limit"),
+  windowStart: timestamp("window_start", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  used: integer().notNull().default(0),
+  pausedUntil: timestamp("paused_until", { withTimezone: true }),
+});
 
 export const events = pgTable(
   "events",

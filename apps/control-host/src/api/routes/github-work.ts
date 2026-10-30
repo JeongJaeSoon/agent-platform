@@ -2,6 +2,8 @@ import {
   dispatchWorkflowRequestSchema,
   dispatchWorkflowResponseSchema,
   githubWorkflowRunSchema,
+  listSessionGitHubRefusalsResponseSchema,
+  listSessionOutcomesResponseSchema,
   pullRequestReviewParamsSchema,
   rerunWorkflowRequestSchema,
   rerunWorkflowResponseSchema,
@@ -14,6 +16,7 @@ import {
 import type {
   GitHubWorkService,
   SessionAttributionService,
+  SessionOutcomeService,
 } from "@werft-ai/platform";
 import {
   type ApiRouter,
@@ -87,5 +90,30 @@ export function registerSessionAttributionRoutes(
       service.get(context.get("caller"), params.id),
     );
     return jsonWithSchema(context, sessionGitHubAttributionSchema, attribution);
+  });
+}
+
+export function registerSessionOutcomeRoutes(
+  router: ApiRouter,
+  service: SessionOutcomeService,
+) {
+  apiRoute(router, "listSessionOutcomes", async (context) => {
+    const params = requireParams(context, sessionIdParamsSchema);
+    const listed = await mapped(() =>
+      service.list(context.get("caller"), params.id),
+    );
+    return jsonWithSchema(context, listSessionOutcomesResponseSchema, listed);
+  });
+
+  apiRoute(router, "listSessionGitHubRefusals", async (context) => {
+    const params = requireParams(context, sessionIdParamsSchema);
+    const listed = await mapped(() =>
+      service.refusals(context.get("caller"), params.id),
+    );
+    return jsonWithSchema(
+      context,
+      listSessionGitHubRefusalsResponseSchema,
+      listed,
+    );
   });
 }

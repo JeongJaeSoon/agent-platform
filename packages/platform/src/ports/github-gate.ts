@@ -10,6 +10,7 @@ import type {
 import type {
   ForgeComment,
   ForgePullRequest,
+  ForgePullRequestDetail,
   ForgeRepository,
   GitCredential,
   RepoRef,
@@ -54,10 +55,20 @@ export class GitHubCallError extends Error {
     readonly what: string,
     readonly status: number | null,
     readonly requestId: string | null,
+    /** What the failed response said of the rate limit, when it said it. */
+    readonly rateLimit: GitHubRateLimit | null = null,
   ) {
     super(`GitHub ${what} failed${status === null ? "" : ` (${status})`}`);
   }
 }
+
+/** A response's `x-ratelimit-*` and `retry-after` headers; null when absent. */
+export type GitHubRateLimit = {
+  limit: number | null;
+  remaining: number | null;
+  reset: Date | null;
+  retryAfterSeconds: number | null;
+};
 
 /** REST calls with the one credential a grant holds. */
 export interface GitHubApi {
@@ -65,12 +76,24 @@ export interface GitHubApi {
   readonly maxBodyLength: number;
   getRepository(): Promise<ForgeRepository>;
   findPullRequestForBranch(branch: string): Promise<ForgePullRequest | null>;
+  /**
+   * `created` is false when GitHub refused to create one because the head
+   * already has an open pull request, and that one is answered instead.
+   */
   createPullRequest(input: {
     head: string;
     base: string;
     title: string;
     body: string;
-  }): Promise<ForgePullRequest>;
+  }): Promise<ForgePullRequest & { created: boolean }>;
+  /**
+   * One request, never retried or held back for a rate limit: a failure is
+   * GitHubCallError carrying the response's rate limit.
+   */
+  getPullRequest(number: number): Promise<{
+    pullRequest: ForgePullRequestDetail;
+    rateLimit: GitHubRateLimit;
+  }>;
   /** Reads the pull request's body and writes back what `edit` makes of it. */
   updatePullRequestBody(
     number: number,
@@ -109,6 +132,8 @@ export interface GitHubGrant {
   /** For git over HTTP (clone, push). */
   readonly gitCredential: GitCredential;
   readonly api: GitHubApi;
+  /** The rate-limit unit `api` spends from: the connection's `quotaKey`. */
+  unit(): Promise<string>;
   /** dispatch and rerun: the allow-list entry that matched. */
   readonly allowedBy: AgentGitHub["actions_allow"][number] | null;
   /** What the receipts of the work name. */
@@ -230,6 +255,12 @@ export interface GitHubConnection {
    * a PAT. Issues no installation token.
    */
   installed(repo: RepoRef): Promise<boolean | null>;
+  /**
+   * The GitHub rate-limit unit a request for `repo` spends from:
+   * `app:<api_base>:<installation id>`, or `pat:<api_base>:<user id>` for
+   * the user `GET /user` names. Throws when that cannot be told now.
+   */
+  quotaKey(repo: RepoRef): Promise<string>;
   api(repo: RepoRef, credential: GitCredential): GitHubApi;
 }
 
