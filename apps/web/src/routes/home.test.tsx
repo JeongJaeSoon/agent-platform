@@ -1273,6 +1273,7 @@ describe("홈 요약", () => {
       admins: ["Owner"],
       needs_input_count: 2,
       running_count: 1,
+      slack_action: null,
     });
     const agentCardOf = async (
       role: "admin" | "member",

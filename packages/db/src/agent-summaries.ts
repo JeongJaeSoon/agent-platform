@@ -1,5 +1,6 @@
 import {
   AGENT_SUMMARY_INSTRUCTIONS_MAX,
+  type AgentSlackAction,
   type AgentSummary,
   agentCapabilitiesSchema,
 } from "@werft-ai/contracts";
@@ -11,12 +12,15 @@ import { earlierInSecond, releaseLabel } from "./release-labels.ts";
 import {
   agentAdmins,
   agentAdminTeams,
+  agentIdentities,
   agentReleases,
   agents,
   agentVersions,
   credentialBindings,
   memberTeams,
   sessions,
+  slackApps,
+  surfaceBindings,
   users,
 } from "./schema.ts";
 import { sessionVisibleTo } from "./session-shares.ts";
@@ -38,9 +42,9 @@ function push<T>(map: Map<string, T[]>, key: string, value: T) {
 }
 
 /**
- * The summaries of a page of agents in seven statements whatever its size,
- * matching what the agent, admins, bindings and session list reads would
- * show one by one.
+ * The summaries of a page of agents in eight statements whatever its size,
+ * matching what the agent, admins, bindings, session list and Slack reads
+ * would show one by one.
  */
 export async function agentSummaries(
   db: Database,
@@ -171,6 +175,65 @@ export async function agentSummaries(
     ).map((row) => [row.agentId, row]),
   );
 
+  // The agent's created app as its Slack tab reads it: an active bot
+  // identity means installed, and a live home binding means a home.
+  const slack = new Map(
+    (
+      await db
+        .select({
+          agentId: slackApps.agentId,
+          eventsState: slackApps.eventsState,
+          eventsSent: sql<boolean>`${slackApps.eventsUrl} is not null`,
+          botToken: sql<boolean>`${slackApps.botTokenRef} is not null`,
+          installed: sql<boolean>`exists (${db
+            .select({ one: sql`1` })
+            .from(agentIdentities)
+            .where(
+              and(
+                eq(agentIdentities.workspaceId, slackApps.workspaceId),
+                eq(agentIdentities.agentId, slackApps.agentId),
+                eq(agentIdentities.provider, "slack_bot"),
+                eq(agentIdentities.status, "active"),
+              ),
+            )})`,
+          home: sql<boolean>`exists (${db
+            .select({ one: sql`1` })
+            .from(surfaceBindings)
+            .where(
+              and(
+                eq(surfaceBindings.workspaceId, slackApps.workspaceId),
+                eq(surfaceBindings.agentId, slackApps.agentId),
+                eq(surfaceBindings.surface, "slack"),
+                eq(surfaceBindings.home, true),
+                isNull(surfaceBindings.revokedAt),
+              ),
+            )})`,
+        })
+        .from(slackApps)
+        .where(
+          and(
+            eq(slackApps.workspaceId, workspaceId),
+            eq(slackApps.kind, "agent"),
+            eq(slackApps.state, "created"),
+            inArray(slackApps.agentId, found),
+          ),
+        )
+    ).map((row): [string | null, AgentSlackAction | null] => [
+      row.agentId,
+      row.eventsState === "failed"
+        ? "events_failed"
+        : row.eventsState === "pending" && row.eventsSent
+          ? "events_unverified"
+          : row.installed
+            ? row.home
+              ? null
+              : "home_unset"
+            : row.botToken
+              ? "reinstall"
+              : "install",
+    ]),
+  );
+
   const profiles = new Map(heads.map((head) => [head.id, head.profile]));
   const labels = new Map(
     heads.map((head) => [
@@ -195,6 +258,7 @@ export async function agentSummaries(
       admins: admins.get(version.agentId) ?? [],
       needs_input_count: live.get(version.agentId)?.needsInput ?? 0,
       running_count: live.get(version.agentId)?.running ?? 0,
+      slack_action: slack.get(version.agentId) ?? null,
     });
   }
   return summaries;

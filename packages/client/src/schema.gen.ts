@@ -5477,6 +5477,7 @@ export interface components {
                     admins: string[];
                     needs_input_count: number;
                     running_count: number;
+                    slack_action: ("events_failed" | "events_unverified" | "install" | "reinstall" | "home_unset") | null;
                 };
             }[];
             next_cursor: string | null;
