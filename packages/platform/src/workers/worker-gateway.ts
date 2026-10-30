@@ -797,14 +797,15 @@ export function createWorkerGateway(deps: {
     });
     // Checkpoints made before the built-in `github` server was attached
     // name only the catalog server; they resume into a run that has both.
+    // Newest first, as the profiles come, so the cap drops the oldest.
     const legacy = mcp.filter((server) => server.name !== GITHUB_MCP_SERVER);
+    const attached = legacy.length !== mcp.length;
     const configs = [
-      ...alternates.map((config) => withMcp(config, mcp, mcpToken)),
-      ...(legacy.length === mcp.length
-        ? []
-        : [current, ...alternates].map((config) =>
-            withMcp(config, legacy, mcpToken),
-          )),
+      ...(attached ? [withMcp(current, legacy, mcpToken)] : []),
+      ...alternates.flatMap((config) => [
+        withMcp(config, mcp, mcpToken),
+        ...(attached ? [withMcp(config, legacy, mcpToken)] : []),
+      ]),
     ];
     return configs.length === 0
       ? {}
