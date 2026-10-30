@@ -50,6 +50,10 @@ export const slackJa = {
   "slack.eventsPending.body":
     "Slack がこのアプリの Request URL を確認するまで、招待・メンション・DM のイベントは届きません。詳細の「再確認」で URL をもう一度送ってください。それでも残る場合は、アプリ設定の App Manifest で Verify を押してください。確認が届くとこの案内は消えます。",
   "slack.eventsPending.open": "App Manifest を開く",
+  "slack.channelsLocked.title": "Request URL の確認前はチャンネルを選べません",
+  "slack.channelsLocked.body":
+    "Slack がこのアプリの Request URL を確認するまで、チャンネルのイベントは届きません。詳細の「再確認」で URL をもう一度送ってください。確認されるとすぐに解除されます。",
+  "slack.channelsLocked.action": "再確認へ移動",
   "slack.eventsUrl.title": "イベントの Request URL",
   "slack.eventsUrl.hint":
     "Slack が招待・メンション・DM を送る先です。再確認するとアプリ設定に URL をもう一度送り、Slack の確認要求に自動で応答します。",
