@@ -176,7 +176,18 @@ export function createAgentService(deps: {
       agent_id: agentId,
     });
     const detail = await store.get(caller.ownerId, agentId);
-    return { items: detail ? [detail.agent] : [], next_cursor: null };
+    const own = detail?.agent;
+    // The same narrowing the workspace list does, so a filter never names
+    // an agent it does not match.
+    const needle = query.q?.toLowerCase();
+    const kept =
+      own &&
+      (needle === undefined ||
+        own.name.toLowerCase().includes(needle) ||
+        own.slug.includes(needle)) &&
+      (query.ids === undefined ||
+        query.ids.some((id) => id.toLowerCase() === own.id.toLowerCase()));
+    return { items: kept ? [own] : [], next_cursor: null };
   }
 
   const resolveRelease = (workspaceId: string, releaseId: string) =>

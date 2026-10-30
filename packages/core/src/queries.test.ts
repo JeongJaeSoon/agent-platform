@@ -34,6 +34,8 @@ test("query keys", () => {
     ...queries.queryKeys,
     ...keys,
     memberPages: keys.memberPages("kim"),
+    agentPages: keys.agentPages("notes"),
+    agentSummaries: keys.agentSummaries(["id-2", "id-1"]),
     agent: keys.agent("id-1"),
     agentAdmins: keys.agentAdmins("id-1"),
     team: keys.team("id-1"),
@@ -75,7 +77,7 @@ test("query options and the request each query makes", async () => {
     (entry): entry is [string, (client: ApiClient, id: string) => object] =>
       typeof entry[1] === "function" && entry[0].endsWith("Query"),
   );
-  expect(factories.length).toBe(27);
+  expect(factories.length).toBe(30);
   const out: Record<string, unknown> = {};
   for (const [name, factory] of factories.sort(([a], [b]) =>
     a.localeCompare(b),
@@ -203,6 +205,65 @@ test("the agent list reads every page, 100 at a time with summaries, and hands b
     { include: "summary", limit: 100 },
     { include: "summary", cursor: "c2", limit: 100 },
     { include: "summary", cursor: "c3", limit: 100 },
+  ]);
+});
+
+test("an agent page asks for one page with summaries, the search going with it, and named agents are one read", async () => {
+  const { client, calls } = recordingClient();
+  const all = queries.agentPagesQuery(client);
+  await all.queryFn({ pageParam: null } as Parameters<typeof all.queryFn>[0]);
+  const found = queries.agentPagesQuery(client, "notes");
+  await found.queryFn({
+    pageParam: "cursor-2",
+  } as Parameters<typeof found.queryFn>[0]);
+  const named = queries.agentSummariesQuery(client, ["id-2", "id-1"]);
+  await named.queryFn({} as Parameters<typeof named.queryFn>[0]);
+  expect(calls).toEqual([
+    ["/v1/agents", { params: { query: { include: "summary" } } }],
+    [
+      "/v1/agents",
+      {
+        params: {
+          query: { include: "summary", q: "notes", cursor: "cursor-2" },
+        },
+      },
+    ],
+    [
+      "/v1/agents",
+      {
+        params: {
+          query: { include: "summary", ids: "id-1,id-2", limit: 100 },
+        },
+      },
+    ],
+  ]);
+  // Every agent change refreshes these: they sit under the agents key.
+  for (const key of [all.queryKey, found.queryKey, named.queryKey]) {
+    expect((key as readonly unknown[]).slice(0, 2)).toEqual([SCOPE, "agents"]);
+  }
+  expect(named.queryKey).toEqual(
+    queries.agentSummariesQuery(client, ["id-1", "id-2"]).queryKey,
+  );
+});
+
+test("the agent lists filter takes every list, page, count and summary but no agent's detail", () => {
+  const client = scoped({});
+  const keys = queries.queryKeysOf(client);
+  const { queryKey, predicate } = queries.agentListsFilter(client);
+  expect(queryKey).toEqual(keys.agents);
+  const matched = (key: readonly unknown[]) => predicate({ queryKey: key });
+  expect(
+    [
+      keys.agents,
+      keys.agentPages(undefined),
+      keys.agentPages("notes"),
+      keys.agentCounts,
+      keys.agentSummaries(["id-1"]),
+    ].map(matched),
+  ).toEqual([true, true, true, true, true]);
+  expect([keys.agent("id-1"), keys.agentAdmins("id-1")].map(matched)).toEqual([
+    false,
+    false,
   ]);
 });
 

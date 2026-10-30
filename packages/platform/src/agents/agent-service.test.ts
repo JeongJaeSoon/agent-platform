@@ -96,7 +96,7 @@ function memoryStore(tools: string[] = ["Read"]) {
   let activations = 0;
   const store: AgentStore = {
     list: async () => ({ items: [detail.agent], next_cursor: null }),
-    count: async () => ({ all: 1, administered: 0 }),
+    count: async () => ({ all: 1, administered: 0, active: 1, draft: 0 }),
     summaries: async () => new Map(),
     get: async () => detail,
     findVersion: async () => ({
@@ -200,7 +200,7 @@ describe("agent service", () => {
       },
       count: async () => {
         reached = true;
-        return { all: 0, administered: 0 };
+        return { all: 0, administered: 0, active: 0, draft: 0 };
       },
     });
     const key = callerFor(

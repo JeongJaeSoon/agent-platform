@@ -1,7 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type ApiError, isApiError } from "@werft-ai/client";
-import type { Agent } from "@werft-ai/contracts";
+import type { Agent, CountAgentsResponse } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import { ListToolbar, ListViewSwitch } from "@werft-ai/react/components";
 import {
@@ -23,7 +23,11 @@ import {
 } from "@werft-ai/ui";
 import { LayoutGrid, List } from "lucide-react";
 import { useRef, useState } from "react";
-import { administeredAgentsQuery, agentsQuery } from "../api/queries.ts";
+import {
+  administeredAgentsQuery,
+  agentCountsQuery,
+  agentPagesQuery,
+} from "../api/queries.ts";
 import {
   permissionReason,
   useHasPermission,
@@ -44,7 +48,9 @@ import {
 } from "../components/agent-view.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { NewAgentFlow } from "../components/new-agent-flow.tsx";
+import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { OPENS_ROW, TABLE_ROW_LINK } from "../components/row-link.ts";
+import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 
@@ -98,13 +104,15 @@ export function AgentsScreen() {
   const { client } = useAgentPlatform();
   const navigate = useNavigate();
   const role = useRole();
-  const agents = useQuery(agentsQuery(client));
+  // The counts answer the same callers as the list, so they also say
+  // whether the caller may list agents at all.
+  const counts = useQuery(agentCountsQuery(client));
   // Making an agent needs less than listing them all: a member makes one and
   // becomes its admin.
   const reason = useHasPermission("agent.create")
     ? undefined
     : permissionReason(t, "agent.create", role);
-  const failed = agents.isError && !isApiError(agents.error, "FORBIDDEN");
+  const failed = counts.isError && !isApiError(counts.error, "FORBIDDEN");
 
   return (
     <Page
@@ -122,22 +130,22 @@ export function AgentsScreen() {
         )
       }
     >
-      {agents.isPending ? (
+      {counts.isPending ? (
         <StatusScreen kind="loading" />
-      ) : agents.error ? (
-        isApiError(agents.error, "FORBIDDEN") ? (
+      ) : counts.error ? (
+        isApiError(counts.error, "FORBIDDEN") ? (
           <>
             <p className="web-page__intro">{t("agents.listWithheld")}</p>
             <AdministeredAgents showEmpty />
           </>
         ) : (
           <LoadFailure
-            error={agents.error}
-            onRetry={() => void agents.refetch()}
+            error={counts.error}
+            onRetry={() => void counts.refetch()}
           />
         )
       ) : (
-        <AgentList agents={agents.data.items} />
+        <AgentList counts={counts.data.counts} />
       )}
     </Page>
   );
@@ -145,20 +153,33 @@ export function AgentsScreen() {
 
 const VIEW_ICON = { cards: LayoutGrid, table: List } as const;
 
-/** The design's two lists, each shown as cards or as the table. */
-function AgentList({ agents }: { readonly agents: readonly Agent[] }) {
+/**
+ * The design's two lists, each shown as cards or as the table: every agent
+ * a page at a time and searched on the server, or the ones the caller
+ * administers, which the server caps and the page searches itself.
+ */
+function AgentList({
+  counts,
+}: {
+  readonly counts: CountAgentsResponse["counts"];
+}) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const principal = useMe()?.principal;
   const [view, setView] = useAgentView(
     principal?.kind === "user" ? principal.id : undefined,
   );
+  const [scope, setScope] = useState<"all" | "administered">("all");
+  const [query, setQuery] = useState("");
+  const q = useSearchTerm(query);
+  const pages = useInfiniteQuery({
+    ...agentPagesQuery(client, q),
+    enabled: scope === "all",
+  });
   const administered = useQuery(administeredAgentsQuery(client));
   // The server stops at this many, so a full page may have left some out.
   const truncated =
     (administered.data?.items.length ?? 0) >= ADMINISTERED_LIST_LIMIT;
-  const [scope, setScope] = useState<"all" | "administered">("all");
-  const [query, setQuery] = useState("");
   const search = useRef<HTMLInputElement>(null);
   // The clear button goes away with the empty result, so focus returns to
   // the field it emptied.
@@ -166,8 +187,12 @@ function AgentList({ agents }: { readonly agents: readonly Agent[] }) {
     setQuery("");
     search.current?.focus();
   };
-  const list = scope === "all" ? agents : administered.data?.items;
-  const shown = list?.filter((agent) => matchesAgentQuery(agent, query));
+  const shown =
+    scope === "all"
+      ? pages.data?.pages.flatMap((page) => page.items)
+      : administered.data?.items.filter((agent) =>
+          matchesAgentQuery(agent, query),
+        );
   return (
     <div className="flex flex-col gap-4">
       <ListToolbar
@@ -178,31 +203,14 @@ function AgentList({ agents }: { readonly agents: readonly Agent[] }) {
             value={scope}
             onValueChange={(next) => setScope(next as typeof scope)}
           >
-            <SegmentedControlItem value="all" count={agents.length}>
+            <SegmentedControlItem value="all" count={counts.all}>
               {t("agents.tabs.all")}
             </SegmentedControlItem>
             <SegmentedControlItem
               value="administered"
-              count={
-                administered.data && !truncated
-                  ? administered.data.items.length
-                  : undefined
-              }
+              count={counts.administered}
             >
               {t("agents.tabs.administered")}
-              {truncated ? (
-                // The count slot takes a number; past the server's page the
-                // honest count is "at least this many".
-                <>
-                  {" "}
-                  <span
-                    data-slot="item-count"
-                    className="text-caption text-subtle-foreground tabular-nums"
-                  >
-                    {`${ADMINISTERED_LIST_LIMIT}+`}
-                  </span>
-                </>
-              ) : null}
             </SegmentedControlItem>
           </SegmentedControl>
         }
@@ -223,6 +231,7 @@ function AgentList({ agents }: { readonly agents: readonly Agent[] }) {
           type: "search",
           "aria-label": t("agents.search"),
           placeholder: t("agents.search"),
+          maxLength: SEARCH_MAX,
           value: query,
           onChange: (event) => setQuery(event.target.value),
         }}
@@ -235,10 +244,20 @@ function AgentList({ agents }: { readonly agents: readonly Agent[] }) {
           : t("agents.shown", { count: shown.length })}
       </output>
       {scope === "all" ? (
-        agents.length === 0 ? (
+        counts.all === 0 ? (
           <EmptyState title={t("agents.empty")} />
+        ) : pages.isPending ? (
+          <StatusScreen kind="loading" />
+        ) : pages.error && !shown?.length ? (
+          <LoadFailure
+            error={pages.error}
+            onRetry={() => void pages.refetch()}
+          />
         ) : (
-          <AgentsIn view={view} agents={shown ?? []} onClear={clear} />
+          <div className="flex flex-col gap-4">
+            <AgentsIn view={view} agents={shown ?? []} onClear={clear} />
+            <PagedListFooter list={pages} />
+          </div>
         )
       ) : administered.isPending ? (
         <StatusScreen kind="loading" />
@@ -265,7 +284,10 @@ function AgentList({ agents }: { readonly agents: readonly Agent[] }) {
   );
 }
 
-/** Name or slug, ignoring case; the list API takes no query. */
+/**
+ * Name or slug, ignoring case, as the list API's `q` matches; for the
+ * administered list, which takes no query.
+ */
 function matchesAgentQuery(agent: Agent, query: string) {
   const needle = query.trim().toLowerCase();
   return (

@@ -1,9 +1,13 @@
 export {
   administeredAgentsQuery,
   agentAdminsQuery,
+  agentCountsQuery,
+  agentListsFilter,
+  agentPagesQuery,
   agentQuery,
   agentSessionListsFilter,
   agentSessionsQuery,
+  agentSummariesQuery,
   agentsQuery,
   apiKeysQuery,
   firstMembersQuery,

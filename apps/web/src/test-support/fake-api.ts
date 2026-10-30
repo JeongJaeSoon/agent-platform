@@ -39,7 +39,16 @@ export function fakeApi(routes: Record<string, Handler>) {
       headers: input.headers,
       body: text ? JSON.parse(text) : null,
     });
-    const handler = routes[`${key}${url.search}`] ?? routes[key];
+    const handler =
+      routes[`${key}${url.search}`] ??
+      routes[key] ??
+      (key === "GET /v1/agents/counts" && routes["GET /v1/agents"]
+        ? agentCountsFrom(
+            routes["GET /v1/agents"],
+            routes["GET /v1/administered-agents"],
+            input,
+          )
+        : undefined);
     if (!handler) return apiError(404, "NOT_FOUND", `no fake for ${key}`);
     // The body was read for the record; a handler gets one it can read again.
     return handler(
@@ -53,6 +62,46 @@ export function fakeApi(routes: Record<string, Handler>) {
     );
   };
   return { fetch: fetch as unknown as typeof globalThis.fetch, calls };
+}
+
+/**
+ * Counts the agent list fake answers, the way the server counts its rows, so
+ * a test that fakes only the lists also answers the counts. A refused list
+ * refuses the counts too.
+ */
+function agentCountsFrom(
+  list: Handler,
+  administered: Handler | undefined,
+  request: Request,
+): Handler {
+  const read = async (handler: Handler, path: string) =>
+    handler(
+      new Request(new URL(path, request.url), { headers: request.headers }),
+    );
+  return async () => {
+    const response = await read(list, "/v1/agents");
+    if (!response.ok) return response;
+    const { items } = (await response.json()) as {
+      items: { status: string; active_release_id: string | null }[];
+    };
+    const mine = administered
+      ? await read(administered, "/v1/administered-agents")
+      : null;
+    return json(200, {
+      counts: {
+        all: items.length,
+        administered: mine?.ok
+          ? ((await mine.json()) as { items: unknown[] }).items.length
+          : 0,
+        active: items.filter(
+          (a) => a.status === "active" && a.active_release_id !== null,
+        ).length,
+        draft: items.filter(
+          (a) => a.status !== "archived" && a.active_release_id === null,
+        ).length,
+      },
+    });
+  };
 }
 
 export function json(status: number, body: unknown): Response {

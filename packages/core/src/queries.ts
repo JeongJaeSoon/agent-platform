@@ -12,6 +12,7 @@ import type {
   AgentAdminsView,
   AgentDetail,
   AuthMeResponse,
+  CountAgentsResponse,
   ListAdministeredAgentsResponse,
   ListAgentsResponse,
   ListApiKeysResponse,
@@ -153,6 +154,13 @@ export function queryKeysOf(client: ApiClient) {
     firstMembers: [s, "members", "first"] as const,
     invites: [s, "invites"] as const,
     agents: [s, "agents"] as const,
+    // Object segments under "agents", so they never read as an agent id and
+    // every agent change refreshes them too.
+    agentPages: (q: string | undefined) =>
+      [s, "agents", { pages: q ?? null }] as const,
+    agentCounts: [s, "agents", { counts: true }] as const,
+    agentSummaries: (ids: readonly string[]) =>
+      [s, "agents", { ids: [...ids].sort() }] as const,
     agent: (id: string) => [s, "agents", id] as const,
     agentAdmins: (id: string) => [s, "agents", id, "admins"] as const,
     administeredAgents: [s, "administered-agents"] as const,
@@ -363,6 +371,66 @@ export function agentsQuery(client: ApiClient) {
   });
 }
 
+/**
+ * The workspace's agents a page at a time, oldest first, with their card
+ * summaries: those whose name or slug contains `q` when one is given.
+ */
+export function agentPagesQuery(client: ApiClient, q?: string) {
+  return infiniteQueryOptions({
+    queryKey: queryKeysOf(client).agentPages(q),
+    queryFn: ({ pageParam }) =>
+      unwrap(
+        client.GET("/v1/agents", {
+          params: {
+            query: {
+              include: "summary",
+              ...(q ? { q } : {}),
+              ...(pageParam ? { cursor: pageParam } : {}),
+            },
+          },
+        }),
+      ) as Promise<ListAgentsResponse>,
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.next_cursor,
+    // As memberPagesQuery: coming back reads the first page, not every page.
+    gcTime: 0,
+    retry: false,
+  });
+}
+
+/** How many agents there are by state, without reading them. */
+export function agentCountsQuery(client: ApiClient) {
+  return queryOptions({
+    queryKey: queryKeysOf(client).agentCounts,
+    queryFn: () =>
+      unwrap(client.GET("/v1/agents/counts")) as Promise<CountAgentsResponse>,
+    retry: false,
+  });
+}
+
+/**
+ * The named agents with their card summaries, one read for up to a page of
+ * ids; an id of no agent in the workspace is left out.
+ */
+export function agentSummariesQuery(client: ApiClient, ids: readonly string[]) {
+  return queryOptions({
+    queryKey: queryKeysOf(client).agentSummaries(ids),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/agents", {
+          params: {
+            query: {
+              include: "summary",
+              ids: [...ids].sort().join(","),
+              limit: READ_ALL_PAGE_LIMIT,
+            },
+          },
+        }),
+      ) as Promise<ListAgentsResponse>,
+    retry: false,
+  });
+}
+
 export function agentQuery(client: ApiClient, id: string) {
   return queryOptions({
     queryKey: queryKeysOf(client).agent(id),
@@ -523,6 +591,20 @@ export function waitingSessionsByQuery(
       ) as Promise<ListSessionsResponse>,
     retry: false,
   });
+}
+
+/**
+ * Matches the agent list reads (every list, page, count and summary under
+ * "agents") but no single agent's detail, so a mutation that just wrote
+ * that detail into the cache refreshes the lists without reading it again.
+ */
+export function agentListsFilter(client: ApiClient) {
+  return {
+    queryKey: queryKeysOf(client).agents,
+    predicate: (query: { queryKey: readonly unknown[] }) =>
+      query.queryKey.length === 2 ||
+      (query.queryKey.length === 3 && typeof query.queryKey[2] === "object"),
+  } as const;
 }
 
 /** Matches every agentSessionsQuery, whichever agent, to mark them stale. */

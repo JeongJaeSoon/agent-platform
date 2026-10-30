@@ -38,21 +38,22 @@ describe("자격 연결 단계", () => {
   test("카드가 쓰는 이름을 연결하고 해제한다", async () => {
     const server = serverNaming("github/app");
     const { api, services } = renderAt(DETAIL, { ...meOk, ...server.routes });
-    // The list's summaries say what is bound, so a change marks it stale;
-    // the overview watches the list, so it may be read again at once.
+    // The list's summaries say what is bound, so a change marks them stale;
+    // the overview watches this agent's summary, so it may be read again at once.
+    const summary = keys.agentSummaries([AGENT_ID]);
     const listReads = () =>
       api.calls.filter((c) => c.method === "GET" && c.path === "/v1/agents")
         .length;
     const listed = async () => {
       await waitFor(() =>
-        expect(
-          services.queryClient.getQueryState(keys.agents)?.fetchStatus,
-        ).toBe("idle"),
+        expect(services.queryClient.getQueryState(summary)?.fetchStatus).toBe(
+          "idle",
+        ),
       );
       const reads = listReads();
       return () =>
-        services.queryClient.getQueryState(keys.agents)?.isInvalidated ===
-          true || listReads() > reads;
+        services.queryClient.getQueryState(summary)?.isInvalidated === true ||
+        listReads() > reads;
     };
     const user = await setupUser();
     const section = await step();
