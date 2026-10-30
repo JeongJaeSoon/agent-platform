@@ -501,6 +501,38 @@ describe("워크스페이스 GitHub 연결 — 사용자 계정 연결", () => {
     expect(card.queryByRole("button", { name: "입력" })).toBeNull();
   });
 
+  test("설정을 먼저 읽은 뒤 App 조회가 Client ID를 채우면, 사용자 연결은 다시 읽어 그 값을 보인다", async () => {
+    let reads = 0;
+    let firstRead = () => {};
+    const settingsAnswered = new Promise<void>((resolve) => {
+      firstRead = resolve;
+    });
+    renderAt(PATH, {
+      "GET /v1/auth/me": () => json(200, me()),
+      // An App registered before the client id column: reading it fills the column.
+      [`GET ${APP}`]: async () => {
+        await settingsAnswered;
+        return json(200, REGISTERED);
+      },
+      [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
+      [`GET ${GITHUB_SETTINGS}`]: () => {
+        reads += 1;
+        firstRead();
+        return json(
+          200,
+          githubSettings(
+            reads === 1
+              ? { client_id: null, client_secret_set: false }
+              : { client_id: "Iv23lifake", client_secret_set: false },
+          ),
+        );
+      },
+    });
+    const card = await section();
+    expect(await card.findByText("Iv23lifake")).toBeDefined();
+    expect(card.getByRole("button", { name: "입력" })).toBeDefined();
+  });
+
   test("App을 교체하면 사용자 연결도 다시 읽어 새 App의 Client ID를 보인다", async () => {
     let saved = false;
     renderAt(PATH, {

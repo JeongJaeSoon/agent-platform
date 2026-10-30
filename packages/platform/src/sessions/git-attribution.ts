@@ -152,7 +152,10 @@ const TAIL_SHAPE: readonly { line: RegExp; optional?: true }[] = [
     line: /^- Started by: (unknown|none \(App only\)|GitHub account not linked \(App only\)|GitHub account linked \(@[A-Za-z0-9-]+\))$/,
   },
 ];
-const TAIL_CO_AUTHOR = /^Co-authored-by: [A-Za-z0-9-]+ <[^<>\s]+>$/;
+const TAIL_LINKED =
+  /^- Started by: GitHub account linked \(@([A-Za-z0-9-]+)\)$/;
+const TAIL_CO_AUTHOR =
+  /^Co-authored-by: ([A-Za-z0-9-]+) <[1-9][0-9]*\+([A-Za-z0-9-]+)@users\.noreply\.github\.com>$/;
 
 const QUOTING_ELEMENT =
   /<(\/?)(details|pre|div|table|blockquote|section|textarea|script|style)\b[^>]*>/gi;
@@ -166,11 +169,16 @@ function isTailContent(content: readonly string[]): boolean {
     if (next !== undefined && line.test(next)) at += 1;
     else if (!optional) return false;
   }
-  if (at === lines.length) return true;
+  // The platform writes Co-authored-by exactly when the starter is linked, for
+  // that login; any other one is a person's.
+  const login = TAIL_LINKED.exec(lines[at - 1] ?? "")?.[1];
+  if (login === undefined) return at === lines.length;
+  const coAuthor = TAIL_CO_AUTHOR.exec(lines[at + 1] ?? "");
   return (
     at + 2 === lines.length &&
     lines[at] === "" &&
-    TAIL_CO_AUTHOR.test(lines[at + 1] ?? "")
+    coAuthor?.[1] === login &&
+    coAuthor[2] === login
   );
 }
 

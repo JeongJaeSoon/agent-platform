@@ -82,10 +82,11 @@ export function GitHubUserLinkSection({
     wasEditing.current = editing;
   }, [editing]);
 
-  // The App card above already read these settings; mounting later must not read them again.
+  // The App card above already read these settings. Read again only when they
+  // had no client id yet: reading the App fills it for one registered before.
   const settings = useQuery({
     ...githubSettingsQuery(client, workspaceId),
-    refetchOnMount: false,
+    refetchOnMount: ({ state }) => !state.data?.oauth.client_id,
   });
   const save = useMutation<
     PutGitHubOAuthClientSecretResponse,

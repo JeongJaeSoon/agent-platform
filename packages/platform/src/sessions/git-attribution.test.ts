@@ -213,6 +213,15 @@ describe("replacing the pull request tail", () => {
     const own = `${agent}\n- Trigger: web\n- Started by: none (App only)`;
     for (const added of [
       block(`${opening}\n\n${own}\nCo-authored-by: pair <1+pair@example.com>`),
+      block(
+        `${opening}\n\n${own}\n\nCo-authored-by: pair <2+pair@users.noreply.github.com>`,
+      ),
+      block(
+        `${opening}\n\n${agent}\n- Trigger: web\n- Started by: GitHub account linked (@octo)\n\nCo-authored-by: pair <2+pair@users.noreply.github.com>`,
+      ),
+      block(
+        `${opening}\n\n${agent}\n- Trigger: web\n- Started by: GitHub account linked (@octo)`,
+      ),
       block(`${opening}\n\n${own}\n- Trigger: slack`),
       block(
         `${opening}\n\n${agent}\n- Trigger: web\n- Trigger: web\n- Started by: none (App only)`,
