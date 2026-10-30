@@ -106,6 +106,20 @@ describe("ToolTable", () => {
       ["1,840", "3시간 42분", "3.1초", "21"],
     );
   });
+
+  test("고른 행의 설명 줄은 muted 글자색이라 bg-active 위에서도 AA 대비를 지킨다", () => {
+    const { getAllByText } = withPlatform(
+      <ToolTable
+        tools={TOOLS.slice(0, 2)}
+        label="도구"
+        selected="Bash"
+        describe={() => "셸 명령"}
+      />,
+    );
+    const [picked, other] = getAllByText("셸 명령");
+    expect(picked?.className).toContain("text-muted-foreground");
+    expect(other?.className).toContain("text-subtle-foreground");
+  });
 });
 
 describe("Findings", () => {
