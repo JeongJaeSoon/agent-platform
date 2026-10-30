@@ -2632,7 +2632,7 @@ export const API_ROUTE_DECLARATIONS = [
       UNSUPPORTED_CAPABILITY:
         "Here: the session's repository is not a GitHub repository.",
       BACKEND_UNAVAILABLE:
-        "Here: GitHub refused or failed the review (the reviewer App not installed on the repository, a commit not in the pull request, an approval of the App's own pull request); the receipt has GitHub's status.",
+        "Here: no token for the reviewer App (not installed on the repository; the receipt names the App), or GitHub refused or failed the review (a commit not in the pull request, an approval of the App's own pull request; the receipt has GitHub's status).",
     },
     idempotent: false,
   },

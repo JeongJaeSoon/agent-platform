@@ -14299,7 +14299,7 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Here: GitHub refused or failed the review (the reviewer App not installed on the repository, a commit not in the pull request, an approval of the App's own pull request); the receipt has GitHub's status. */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Here: no token for the reviewer App (not installed on the repository; the receipt names the App), or GitHub refused or failed the review (a commit not in the pull request, an approval of the App's own pull request; the receipt has GitHub's status). */
             503: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
