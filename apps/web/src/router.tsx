@@ -74,6 +74,7 @@ import { TeamDetailScreen, TeamsScreen } from "./routes/teams.tsx";
 import { WorkspaceGitHubScreen } from "./routes/workspace-github.tsx";
 import { WorkspaceSettingsScreen } from "./routes/workspace-settings.tsx";
 import { WorkspaceSlackScreen } from "./routes/workspace-slack.tsx";
+import { WorkspaceSlackAppsScreen } from "./routes/workspace-slack-apps.tsx";
 import type { Services } from "./services.tsx";
 
 /*
@@ -313,6 +314,12 @@ const workspaceSlack = createRoute({
   component: WorkspaceSlackScreen,
 });
 
+const workspaceSlackApps = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/workspace/slack-apps",
+  component: WorkspaceSlackAppsScreen,
+});
+
 const workspaceGitHub = createRoute({
   getParentRoute: () => authed,
   path: "/settings/workspace/github",
@@ -437,6 +444,7 @@ const routeTree = root.addChildren([
     preferences,
     workspaceSettings,
     workspaceSlack,
+    workspaceSlackApps,
     workspaceGitHub,
     orgKeys,
     oldUsage,
