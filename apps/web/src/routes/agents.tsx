@@ -1,7 +1,11 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type ApiError, isApiError } from "@werft-ai/client";
-import type { Agent, CountAgentsResponse } from "@werft-ai/contracts";
+import type {
+  Agent,
+  AgentListItem,
+  CountAgentsResponse,
+} from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import { ListToolbar, ListViewSwitch } from "@werft-ai/react/components";
 import {
@@ -51,6 +55,7 @@ import { NewAgentFlow } from "../components/new-agent-flow.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { OPENS_ROW, TABLE_ROW_LINK } from "../components/row-link.ts";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
+import { SlackActionLink } from "../components/slack-action-link.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 
@@ -304,7 +309,7 @@ function AgentsIn({
 }: {
   readonly view: AgentView;
   /** The list after the search. */
-  readonly agents: readonly Agent[];
+  readonly agents: readonly AgentListItem[];
   readonly onClear: () => void;
 }) {
   const { t } = useI18n();
@@ -328,7 +333,7 @@ function AgentsIn({
   );
 }
 
-function AgentTable({ agents }: { readonly agents: readonly Agent[] }) {
+function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
   const { t, locale } = useI18n();
   return (
     <div className="@container overflow-hidden rounded-card border bg-card">
@@ -372,6 +377,7 @@ function AgentTable({ agents }: { readonly agents: readonly Agent[] }) {
                       at: formatTimestamp(agent.updated_at, locale),
                     })}
                   </span>
+                  <SlackActionLink agent={agent} />
                 </RowLines>
               </TableCell>
               <TableCell className={cn(FIT, LAST_WHEN_NARROW)}>

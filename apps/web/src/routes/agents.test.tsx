@@ -666,6 +666,7 @@ describe("에이전트 카드", () => {
           admins: ["Owner", "재무팀"],
           needs_input_count: 0,
           running_count: 0,
+          slack_action: null,
         },
       }));
       viewport.show(() => false);
@@ -875,6 +876,82 @@ describe("에이전트 목록 탭과 보기", () => {
     expect(
       screen.getByRole("button", { name: "표" }).getAttribute("aria-pressed"),
     ).toBe("true");
+  });
+});
+
+describe("Slack 조치 링크", () => {
+  beforeEach(() => localStorage.clear());
+
+  const ACTIONS = [
+    ["events_failed", "이벤트 주소 등록 실패"],
+    ["events_unverified", "이벤트 주소 확인 대기"],
+    ["install", "앱 설치 대기"],
+    ["reinstall", "다시 설치 필요"],
+    ["home_unset", "홈 채널 지정 필요"],
+    [null, null],
+  ] as const;
+
+  function listed() {
+    const base = agentServer().detail().agent;
+    return ACTIONS.map(([action], n) => ({
+      ...base,
+      id: `5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8${n}`,
+      slug: `agent-${n}`,
+      name: `에이전트 ${n}`,
+      summary: {
+        version: {
+          version_no: 1,
+          role: CARD.role,
+          instructions: CARD.instructions,
+          mcp_servers: [],
+          credential_refs: [],
+        },
+        runtime_profile_id: null,
+        release_label: null,
+        bound_credential_refs: [],
+        admins: [],
+        needs_input_count: 0,
+        running_count: 0,
+        slack_action: action,
+      },
+    }));
+  }
+
+  // The link in the card or row the agent's name opens, if any.
+  const slackLinkOf = (name: string) =>
+    screen
+      .getByRole("link", { name })
+      .closest("tr, [data-slot=card]")
+      ?.querySelector<HTMLAnchorElement>("a[href*='tab=slack']") ?? null;
+
+  test("조치가 필요한 카드와 행에만 그 에이전트의 Slack 탭 링크를 이유와 함께 단다", async () => {
+    const user = await setupUser();
+    const agents = listed();
+    renderAt("/agents", {
+      ...meOk,
+      "GET /v1/agents": () => json(200, { items: agents, next_cursor: null }),
+    });
+    await screen.findByRole("link", { name: "에이전트 0" });
+    const check = () =>
+      ACTIONS.forEach(([, reason], n) => {
+        const link = slackLinkOf(`에이전트 ${n}`);
+        if (reason === null) {
+          expect(link).toBeNull();
+          return;
+        }
+        expect(link?.textContent).toBe(`Slack 조치 필요: ${reason}`);
+        expect(link?.getAttribute("href")).toBe(
+          `/agents/${agents[n]?.id}?tab=slack`,
+        );
+      });
+    check();
+    await showTable(user);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("link", { name: "에이전트 0" }).closest("tr"),
+      ).not.toBeNull(),
+    );
+    check();
   });
 });
 

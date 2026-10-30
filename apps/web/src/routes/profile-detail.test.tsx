@@ -52,6 +52,7 @@ function agent(
       admins: [],
       needs_input_count: 0,
       running_count: 0,
+      slack_action: null,
     },
   };
 }
