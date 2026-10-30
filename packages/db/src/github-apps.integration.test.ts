@@ -264,6 +264,18 @@ integration("the GitHub App on PostgreSQL", () => {
         .filter((app) => app.workspaceId === ws)
         .map((app) => app.appId),
     ).toEqual([52]);
+    // Replacing the author App updates its own row, not the reviewer's.
+    const replaced = await store.put(
+      ws,
+      "author",
+      profile(55),
+      pemOf(),
+      owner(),
+    );
+    expect(replaced).toMatchObject({
+      outcome: "stored",
+      app: { id: author.app.id, appId: 55 },
+    });
     await store.delete(ws, "author", owner());
 
     const [kept] = await store.credentials("reviewer", ws);
