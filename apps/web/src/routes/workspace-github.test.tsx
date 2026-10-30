@@ -13,6 +13,19 @@ const { cleanup, renderAt, screen, waitFor, within } = await appHarness();
 
 const PATH = "/settings/workspace/github";
 const APP = `/v1/workspaces/${WORKSPACE_ID}/github-app`;
+const SETTINGS = `/v1/workspaces/${WORKSPACE_ID}/github-settings`;
+const NO_CEILING = {
+  ceiling: {
+    workflows: false,
+    actions: false,
+    checks: false,
+    issues: false,
+    review: false,
+  },
+  revision: 0,
+  agents_using: { workflows: 0, actions: 0, checks: 0, issues: 0, review: 0 },
+  apps: { author: null, reviewer: null },
+};
 const KEY_TEXT = "fake-pem-text";
 const UNSET = {
   github_app: null,
@@ -87,6 +100,7 @@ describe("워크스페이스 GitHub 연결", () => {
     let saved = false;
     const { api, services } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${SETTINGS}`]: () => json(200, NO_CEILING),
       [`GET ${APP}`]: () => json(200, saved ? REGISTERED : UNSET),
       [`PUT ${APP}`]: () => {
         saved = true;
@@ -135,6 +149,7 @@ describe("워크스페이스 GitHub 연결", () => {
   test("App ID나 파일이 없으면 서버에 묻지 않고 그 칸으로 간다", async () => {
     const { api } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${SETTINGS}`]: () => json(200, NO_CEILING),
       [`GET ${APP}`]: () => json(200, UNSET),
     });
     const user = await setupUser();
@@ -175,6 +190,7 @@ describe("워크스페이스 GitHub 연결", () => {
     for (const [response, text] of cases) {
       renderAt(PATH, {
         "GET /v1/auth/me": () => json(200, me()),
+        [`GET ${SETTINGS}`]: () => json(200, NO_CEILING),
         [`GET ${APP}`]: () => json(200, UNSET),
         [`PUT ${APP}`]: () => response.clone(),
       });
@@ -189,6 +205,7 @@ describe("워크스페이스 GitHub 연결", () => {
   test("GitHub에 닿지 못한 읽기는 확인 실패와 설치 상태를 모른다고 보인다", async () => {
     renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${SETTINGS}`]: () => json(200, NO_CEILING),
       [`GET ${APP}`]: () =>
         json(200, {
           ...REGISTERED,
@@ -209,6 +226,7 @@ describe("워크스페이스 GitHub 연결", () => {
     let deleted = false;
     const { api } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${SETTINGS}`]: () => json(200, NO_CEILING),
       [`GET ${APP}`]: () => json(200, deleted ? UNSET : REGISTERED),
       [`DELETE ${APP}`]: () => {
         deleted = true;
@@ -231,6 +249,7 @@ describe("워크스페이스 GitHub 연결", () => {
   test("저장을 두 번 눌러도 한 번만 보낸다", async () => {
     const { api } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${SETTINGS}`]: () => json(200, NO_CEILING),
       [`GET ${APP}`]: () => json(200, UNSET),
       [`PUT ${APP}`]: () =>
         json(200, {
@@ -255,6 +274,7 @@ describe("워크스페이스 GitHub 연결", () => {
   test("키가 거절되면 확인 실패이고, 빈 설치 카드도 다시 등록하라고 말한다", async () => {
     renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${SETTINGS}`]: () => json(200, NO_CEILING),
       [`GET ${APP}`]: () =>
         json(200, {
           ...REGISTERED,
