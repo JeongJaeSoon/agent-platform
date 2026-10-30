@@ -289,11 +289,13 @@ export function SessionOutputsTab({
   const pulls = outcomes.data?.items ?? [];
   const filesRead =
     session.checkpoint_revision === null || outputs.data !== undefined;
-  // A failed read is the pull request area's to report, not an empty tab.
+  // A failed read is the pull request area's to report, even over a list an
+  // earlier read kept.
   const pullsRead =
     !hasRepository(session) ||
-    outcomes.data !== undefined ||
-    (outcomes.error !== null && isApiError(outcomes.error, "NOT_FOUND"));
+    (outcomes.error === null
+      ? outcomes.data !== undefined
+      : isApiError(outcomes.error, "NOT_FOUND"));
   return (
     <div className="flex flex-col gap-[var(--ap-space-block)]">
       <SessionAttribution session={session} />

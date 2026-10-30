@@ -392,7 +392,7 @@ describe("the session's GitHub pull requests", () => {
     ).toBeTruthy();
     // The files follow, and no empty state.
     expect(screen.getByRole("region", { name: "out/ 파일" })).toBeTruthy();
-    expect(screen.queryByText("아직 결과물이 없습니다.")).toBeNull();
+    expect(screen.queryAllByText("아직 결과물이 없습니다.")).toHaveLength(0);
   });
 
   // GitHub merges a pull request after the session stopped and no session
@@ -438,8 +438,10 @@ describe("the session's GitHub pull requests", () => {
     expect(
       await screen.findByRole("region", { name: "GitHub PR" }),
     ).toBeTruthy();
-    expect(screen.queryByRole("region", { name: "out/ 파일" })).toBeNull();
-    expect(screen.queryByText("아직 결과물이 없습니다.")).toBeNull();
+    expect(screen.queryAllByRole("region", { name: "out/ 파일" })).toHaveLength(
+      0,
+    );
+    expect(screen.queryAllByText("아직 결과물이 없습니다.")).toHaveLength(0);
   });
 
   test("with neither pull requests nor files the tab says it is empty", async () => {
@@ -451,7 +453,9 @@ describe("the session's GitHub pull requests", () => {
     );
     await openOutputs();
     expect(await screen.findByText("아직 결과물이 없습니다.")).toBeTruthy();
-    expect(screen.queryByRole("region", { name: "GitHub PR" })).toBeNull();
+    expect(screen.queryAllByRole("region", { name: "GitHub PR" })).toHaveLength(
+      0,
+    );
   });
 
   test("pull requests that cannot be read are not taken for none", async () => {
@@ -464,7 +468,28 @@ describe("the session's GitHub pull requests", () => {
     expect(
       await screen.findByRole("button", { name: "다시 시도" }),
     ).toBeTruthy();
-    expect(screen.queryByText("아직 결과물이 없습니다.")).toBeNull();
+    expect(screen.queryAllByText("아직 결과물이 없습니다.")).toHaveLength(0);
+  });
+
+  test("a read that fails after an empty one is not taken for none either", async () => {
+    let failing = false;
+    const { services } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...pulled([], noFiles),
+      [`GET /v1/sessions/${SESSION_ID}/outcomes`]: () =>
+        failing ? apiError(500, "INTERNAL", "boom") : json(200, { items: [] }),
+    });
+    await openOutputs();
+    expect(await screen.findByText("아직 결과물이 없습니다.")).toBeTruthy();
+    failing = true;
+    await act(() =>
+      services.queryClient.refetchQueries({
+        predicate: (query) => query.queryKey.at(-1) === "outcomes",
+      }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "다시 시도" }),
+    ).toBeTruthy();
+    expect(screen.queryAllByText("아직 결과물이 없습니다.")).toHaveLength(0);
   });
 
   test("recent GitHub refusals name the reason, the work and when", async () => {
