@@ -18,6 +18,7 @@ worker Pod 하나의 메모리(`worker.memoryMb`)는 transcript 상한에 맞춰
 | slack Deployment | 1 | Slack inbox를 비운다. `slack.enabled: false`면 없다. 바깥으로는 DNS(53), 443, DB 포트(`networkPolicy.slack.databasePort`, 기본 5432)로만 나간다 |
 | egress-proxy Deployment + Service(3128, 3129) | 2 | worker의 유일한 바깥 경로 |
 | migrate Job | install·upgrade마다 1 | `pre-install,pre-upgrade` hook |
+| upgrade-check Job | upgrade마다 1 | `pre-upgrade` hook, migrate 앞. `scheduler.enabled: false`면 없다([업그레이드 전 검사](#업그레이드-전-검사)) |
 | checkpoint GC CronJob | 주 1회 | `checkpointGc.schedule` |
 | 카탈로그 ConfigMap | 1 | `catalog.connections`(필수)·`catalog.profiles`(빈 DB 시드)·`catalog.repositories` |
 | NetworkPolicy | 5 | worker는 egress-proxy로만 나간다. 제어 영역 Pod 중 바깥 연결을 막는 것은 slack 하나다 |
@@ -46,6 +47,7 @@ chart가 만들지 않는 것: PostgreSQL 16, S3 호환 object store, Secret 값
 설치 순서는 Secret → 이미지 digest → migrate → 제어 영역이다. chart에서는 Secret과 schema만 앞서야 하고, 나머지는 Helm이 hook으로 맞춘다.
 
 1. ExternalSecret(사용할 때, hook weight -10)이 Secret을 쓴다.
+   upgrade에서는 그다음 upgrade-check Job(hook weight -5)이 재개할 수 없게 될 세션을 검사한다. 실패하면 Helm이 멈추고 migrate도 돌지 않는다([업그레이드 전 검사](#업그레이드-전-검사)).
 2. migrate Job(hook weight 0)이 schema를 올린다. 실패하면 Helm이 멈추고 Deployment는 바뀌지 않는다.
 3. api, egress-proxy, reconciler, scheduler, slack Deployment가 한꺼번에 적용된다. 서로 기다리지 않고, 각자 probe를 통과하면 ready가 된다. scheduler·reconciler·slack은 첫 pass가 끝나야 ready다.
 
@@ -197,10 +199,48 @@ worker Pod의 이미지는 scheduler가 launch할 때 정해진다. 이미지는
 
 | 바뀌는 것 | 실행 중인 worker Pod | 세션이 이어지는 방법 |
 |---|---|---|
-| worker 이미지(`images.worker`) | 끝날 때까지 옛 이미지로 돈다 | 다음 launch가 새 이미지로 checkpoint를 복원한다. checkpoint의 engine·SDK·CLI·profile digest가 새 이미지와 맞지 않으면(허용된 이전 profile digest까지 포함해서) 복원이 `INCOMPATIBLE_CHECKPOINT`로 실패하고 세션은 `recovery_required`로 멈춘다([execution.md](execution.md)). 직전 이미지로 대신 이어 가는 선택은 아직 없다 |
+| worker 이미지(`images.worker`) | 끝날 때까지 옛 이미지로 돈다 | 다음 launch가 checkpoint 포인터의 engine·SDK·CLI·profile digest 방식과 같은 이미지를 새 이미지(`images.worker`), 직전 이미지(`images.workerPrevious`) 순으로 골라 복원한다. 둘 다 맞지 않으면 launch 전에 `recovery_required`로 멈춘다. 그런 세션은 아래 사전 검사가 upgrade 전에 보여 준다 |
 | 격리 설정(stamp에 든 값: egress proxy 주소, 저장 용량, worker ServiceAccount, 한도 등) | stale이 된다. claim된 Pod는 turn 경계까지 drain한 뒤 내려간다 | 마지막으로 끝난 turn까지 checkpoint가 덮으면 새 Pod가 PostgreSQL 포인터와 S3 checkpoint에서 이어 간다. checkpoint 없이 끝난 turn이 있으면 세션은 `recovery_required`로 멈춘다(`CONTEXT_GAP`). drain 기한(`MAX_TURN_SECONDS` + 5분)을 넘긴 turn은 `outcome_unknown`이 되고, 그 세션은 `recovery_required`로 멈춰 운영자의 결정을 기다린다([execution.md § 계약이 오를 때 claim된 worker의 drain](execution.md#계약이-오를-때-claim된-worker의-drain)) |
 | 노드 교체, Kubernetes 업그레이드 | Pod가 사라진다. SIGTERM을 받으면 drain으로 release하고, 받지 못하면 heartbeat가 끊긴다 | release됐으면 바로, 아니면 scheduler가 Pod가 사라진 것을 확인하거나 lease가 끝난 뒤 회수된다. 돌던 turn이 없고 마지막으로 끝난 turn까지 checkpoint가 덮으면 다음 launch가 그 checkpoint에서 이어 간다. checkpoint가 뒤처졌으면 세션은 `recovery_required`로 멈춘다(세션 상세 attention `CONTEXT_GAP`). 확정되지 않은 turn이 있었으면 그 turn은 `outcome_unknown`이 되고 세션은 `recovery_required`로 멈춘다([execution.md](execution.md)) |
 | checkpoint bucket(`config.checkpoints.bucket`) | bucket이 stamp에 있어 stale로 교체된다 | 자동으로 이어지지 않는다. 옛 bucket의 객체는 새 bucket에 없다. 미수거 checkpoint 행이 있는데 새 bucket에 object version이 하나도 없으면 api가 기동하지 않는다([api-server.md](api-server.md)). Kubernetes 설치에는 checkpoint를 다른 bucket으로 옮기는 절차가 없다. 복원도 같은 bucket의 version을 가리킨다([backup-restore.md § Kubernetes 설치](backup-restore.md#kubernetes-설치)). 미수거 checkpoint가 있는 동안에는 bucket을 바꾸지 않는다 |
+
+### 업그레이드 전 검사
+
+`helm upgrade`는 migrate보다 먼저(hook weight -5) `upgrade-check` Job을 대상 릴리스의 api 이미지로 돌린다. Job은 수거되지 않은 checkpoint가 있는 세션마다 포인터의 조합을 읽고, 대상 릴리스의 `images.worker`와 `images.workerPrevious` 어느 쪽으로도 재개할 수 없는 세션을 고른다. 조합을 기록하기 전에 커밋된 포인터도 고른다. 결과는 Job 로그의 JSON 한 줄이다.
+
+```bash
+kubectl -n agent-platform logs job/agent-platform-upgrade-check
+```
+
+| `verdict` | exit | upgrade | 뜻 |
+|---|---|---|---|
+| `proceed` | 0 | 진행 | `upgrade.approvedSessions`가 `affected`의 `sessionId`와 정확히 같다. 고른 세션이 없거나 worker 이미지가 그대로이면 승인 목록이 비어 있어야 한다 |
+| `refused` | 2 | 멈춤 | 승인 목록이 하나라도 다르다(지난 upgrade의 승인이 values에 남은 경우 포함). 또는 대상의 `images.workerPrevious`가 지금 배포된 worker 이미지가 아니다. 이 경우는 승인으로 넘길 수 없다 |
+| `check_failed` | 1 | 멈춤 | DB를 읽지 못했거나, 이미지 조합(`images.worker.runtime` 등)이 없거나 읽히지 않거나, 배포된 worker 이미지를 알 수 없다. 넘기는 설정은 없다 |
+
+고른 세션이 재개하지 못해도 되면 그 목록을 그대로 values에 넣고 같은 upgrade를 다시 돌린다. 승인은 세션 상태를 바꾸지 않는다. `no_image`로 고른 세션은 재개할 때 `recovery_required`로 멈춘다. `unrecorded`로 고른 세션은 새 이미지로 뜨고, 복원이 판정해 이어지거나 `recovery_required`로 멈춘다.
+
+```bash
+helm upgrade --install ... --set-json 'upgrade.approvedSessions=["<sessionId>", ...]'
+```
+
+승인 목록은 release values에 남는다. 다음 upgrade마다 `--set-json 'upgrade.approvedSessions=[]'`로 비우고, 그 upgrade의 목록을 다시 읽고 승인한다. 남은 목록은 그 upgrade의 `affected`와 다르면 `refused`로 멈추지만, 같고 지원 창 조건도 맞으면 그대로 통과한다.
+
+Job은 승인 목록을 `UPGRADE_APPROVED_SESSIONS`(JSON 배열)로, 배포된 worker 이미지를 `UPGRADE_DEPLOYED_WORKER_IMAGE`로 받는다. 배포된 worker 이미지는 chart가 지금 scheduler Deployment의 `WORKER_IMAGE`를 `lookup`으로 읽어 넘긴다. `helm template`과 `--dry-run`에서는 `lookup`이 아무것도 읽지 않으므로 그 렌더로 돌린 Job은 `check_failed`가 된다. 첫 설치(`pre-install`)와 `scheduler.enabled: false`에서는 Job을 만들지 않는다. Job과 scheduler가 같은 이미지를 보도록 `WORKER_IMAGE`·`WORKER_IMAGE_PREVIOUS`·`WORKER_IMAGE_RUNTIME`·`WORKER_IMAGE_PREVIOUS_RUNTIME`은 `*.extraEnv`, `config.limits`, `secrets.catalogEnv`로 줄 수 없다. 주면 render가 실패한다. `images.worker`와 `images.workerPrevious`로 준다.
+
+**`helm rollback` 전.** rollback은 hook을 돌리지 않으므로 같은 명령을 api Pod에서 직접 돌린다. 값은 되돌릴 revision의 것(`helm get values --revision <revision>`)을 넣는다.
+
+```bash
+kubectl -n agent-platform exec deploy/agent-platform-api -- env \
+  UPGRADE_DEPLOYED_WORKER_IMAGE='<지금 scheduler의 WORKER_IMAGE>' \
+  WORKER_IMAGE='<되돌릴 revision의 worker 이미지>' WORKER_IMAGE_RUNTIME='<그 runtime JSON>' \
+  WORKER_IMAGE_PREVIOUS='<그 revision의 workerPrevious>' WORKER_IMAGE_PREVIOUS_RUNTIME='<그 runtime JSON>' \
+  bun run apps/control-host/src/api/upgrade-check.ts
+```
+
+worker 이미지를 되돌리는 보통의 rollback은 `refused`다. 되돌릴 revision의 `images.workerPrevious`가 지금 배포된 이미지가 아니기 때문이다(검사는 조합이 아니라 이미지 참조를 비교한다). 설정이나 DB를 읽지 못하면 `check_failed`다. 지금 이미지로 도는 worker는 rollback 뒤에도 끝날 때까지 그 이미지의 조합으로 checkpoint를 남기는데, 검사는 그 checkpoint를 보지 못한다. 출력의 `affected`는 검사 시점에 이미 고른 세션이다. 롤포워드가 우선이다. 그래도 되돌리면 재개할 때 scheduler가 조합으로 이미지를 고른다. 되돌린 두 이미지 어느 쪽과도 조합이 맞지 않는 세션(지금 이미지가 새 SDK·CLI를 실었다면 rollback 동안 지금 이미지로 checkpoint를 남긴 세션)은 `recovery_required`로 멈춘다. `images.worker`를 그대로 두는 rollback은 승인 목록 없이 돌리면 `proceed`다.
+
+**검사가 보지 않는 것.** compose의 `scripts/test-ops.sh upgrade`와 달리 이 검사는 대상 이미지를 실행하지 않는다. 포인터에 기록된 조합(engine·SDK·CLI·profile digest 방식)만 비교하고, 실제 profile digest는 복원 때 판정된다. 검사 뒤 writer를 멈추고 다시 검사하지도 않는다. 대상의 `images.workerPrevious`가 지금 배포된 이미지와 같아야 통과하므로, 검사 뒤에 지금 이미지의 worker가 남기는 checkpoint는 대상 지원 창 안에 있다. 그보다 옛 이미지로 도는 worker의 세션은 포인터가 이미 그 조합이라 목록에 오른다. 대상 이미지를 registry에서 받을 수 있는지도 보지 않는다. 받지 못하면 launch 실패로 나타난다.
 
 ## 단일 서버 배포 10단계와의 대응
 

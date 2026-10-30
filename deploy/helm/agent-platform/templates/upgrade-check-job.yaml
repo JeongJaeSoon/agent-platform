@@ -1,0 +1,71 @@
+{{- /* Outside the condition: api and slack read the same variables. */}}
+{{- include "ap.workerEnvReserved" . }}
+{{- if .Values.scheduler.enabled }}
+# Runs before the migrate Job of an upgrade, on the target release's api image,
+# and fails the upgrade while a session would be left with no worker image to
+# resume on and is not in upgrade.approvedSessions. Not a pre-install hook:
+# nothing is deployed yet. `helm rollback` runs no hook; run the same command
+# by hand first (docs/operator/kubernetes-deployment.md).
+{{- $scheduler := printf "%s-scheduler" (include "ap.fullname" .) }}
+{{- $deployed := "" }}
+{{- /* Empty under `helm template` and --dry-run, where lookup reads nothing: the check then fails rather than guess. */}}
+{{- with lookup "apps/v1" "Deployment" .Release.Namespace $scheduler }}
+{{- range .spec.template.spec.containers }}
+{{- if eq .name "scheduler" }}
+{{- range .env }}
+{{- if eq .name "WORKER_IMAGE" }}
+{{- $deployed = .value }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "ap.fullname" . }}-upgrade-check
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "upgrade-check") | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-upgrade
+    # After the ExternalSecret (-10) that writes DATABASE_URL, before migrate (0).
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  # The verdict is the same on a retry.
+  backoffLimit: 0
+  activeDeadlineSeconds: {{ .Values.upgrade.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "ap.labels" (dict "root" . "component" "upgrade-check") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "ap.podSecurityContext" . | nindent 8 }}
+      {{- include "ap.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: upgrade-check
+          image: {{ include "ap.image" (dict "root" . "name" "controlHost") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          args: ["bun", "run", "apps/control-host/src/api/upgrade-check.ts"]
+          env:
+            {{- include "ap.secretEnv" (dict "root" . "key" "DATABASE_URL") | nindent 12 }}
+            - name: UPGRADE_DEPLOYED_WORKER_IMAGE
+              value: {{ $deployed | quote }}
+            - name: WORKER_IMAGE
+              value: {{ include "ap.image" (dict "root" . "name" "worker") | quote }}
+            {{- with include "ap.workerPreviousImageEnv" . | trim }}{{ . | nindent 12 }}{{ end }}
+            {{- with include "ap.workerRuntimeEnv" . | trim }}{{ . | nindent 12 }}{{ end }}
+            - name: UPGRADE_APPROVED_SESSIONS
+              value: {{ toJson .Values.upgrade.approvedSessions | quote }}
+          resources:
+            {{- toYaml .Values.upgrade.resources | nindent 12 }}
+          securityContext:
+            {{- include "ap.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            {{- include "ap.tmpMount" . | nindent 12 }}
+      volumes:
+        {{- include "ap.tmpVolume" . | nindent 8 }}
+{{- end }}

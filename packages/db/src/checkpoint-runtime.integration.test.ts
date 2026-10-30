@@ -18,7 +18,10 @@ import {
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
-import { readPointerRuntime } from "./checkpoint-runtime.ts";
+import {
+  listUncollectedSessionPointers,
+  readPointerRuntime,
+} from "./checkpoint-runtime.ts";
 import * as schema from "./schema.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -140,6 +143,119 @@ integration("checkpoint runtime columns, expand", () => {
         runtime_cli_version: null,
         runtime_profile_sha256: null,
       },
+    ]);
+  }, 60_000);
+});
+
+integration("listUncollectedSessionPointers", () => {
+  let database: TempDatabase;
+  let pool: Pool;
+  let db: NodePgDatabase<typeof schema>;
+
+  beforeEach(async () => {
+    database = await createTempDatabase({ prefix: "uncollected_pointers_it" });
+    pool = new Pool({ connectionString: database.url, max: 2 });
+    db = drizzle(pool, { schema });
+  }, 60_000);
+
+  afterEach(async () => {
+    await pool.end();
+    await database.drop();
+  }, 60_000);
+
+  async function session(id: string) {
+    await pool.query(
+      `INSERT INTO sessions (id, owner_id, repo_url, branch, repository_id)
+       VALUES ($1, 'owner', 'https://example.invalid/a.git', 'main', 'repo-a')`,
+      [id],
+    );
+  }
+
+  async function checkpoint(
+    sessionId: string,
+    revision: number,
+    options: { runtime?: boolean; collected?: boolean; pointer?: boolean },
+  ) {
+    await pool.query(
+      `INSERT INTO checkpoints (session_id, revision, manifest_ref, manifest_sha256,
+         runtime_engine, runtime_sdk_version, runtime_cli_version, runtime_profile_sha256,
+         runtime_profile_scheme, collected_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [
+        sessionId,
+        revision,
+        `sessions/${sessionId}/checkpoints/${revision}/manifest.json`,
+        "a".repeat(64),
+        options.runtime ? "claude" : null,
+        options.runtime ? "0.3.270" : null,
+        options.runtime ? "2.1.270" : null,
+        options.runtime ? "b".repeat(64) : null,
+        options.runtime ? 2 : null,
+        options.collected ? new Date() : null,
+      ],
+    );
+    if (options.pointer) {
+      await pool.query(
+        "UPDATE sessions SET checkpoint_revision = $2 WHERE id = $1",
+        [sessionId, revision],
+      );
+    }
+  }
+
+  test("lists sessions with an uncollected checkpoint and reads each pointer as a launch would", async () => {
+    const [recorded, unrecorded, noPointer, retired, collected, empty] = [
+      "a",
+      "b",
+      "c",
+      "d",
+      "e",
+      "f",
+    ].map((prefix) => `${prefix}${randomUUID().slice(1)}`) as [
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+    ];
+    for (const id of [
+      recorded,
+      unrecorded,
+      noPointer,
+      retired,
+      collected,
+      empty,
+    ]) {
+      await session(id);
+    }
+    await checkpoint(recorded, 0, { collected: true, runtime: false });
+    await checkpoint(recorded, 1, { pointer: true, runtime: true });
+    await checkpoint(unrecorded, 0, { pointer: true, runtime: false });
+    await checkpoint(noPointer, 0, { runtime: true });
+    // A start_fresh decision retires the pointer: nothing is restored.
+    await checkpoint(retired, 0, { pointer: true, runtime: false });
+    await pool.query(
+      "UPDATE sessions SET context_reset_checkpoint_revision = 0 WHERE id = $1",
+      [retired],
+    );
+    await checkpoint(collected, 0, { collected: true, runtime: true });
+
+    expect(await listUncollectedSessionPointers(db)).toEqual([
+      {
+        sessionId: recorded,
+        pointer: {
+          kind: "recorded",
+          runtime: {
+            engine: "claude",
+            sdkVersion: "0.3.270",
+            cliVersion: "2.1.270",
+            profileDigestScheme: 2,
+          },
+        },
+      },
+      { sessionId: unrecorded, pointer: { kind: "unrecorded" } },
+      { sessionId: noPointer, pointer: { kind: "none" } },
+      { sessionId: retired, pointer: { kind: "none" } },
     ]);
   }, 60_000);
 });
