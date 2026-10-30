@@ -14,10 +14,12 @@ import {
   secretsManagerReader,
 } from "./apps/control-host/src/api/catalog-config.ts";
 
-const [agentId, mode, channel = "C0VERIFY", seq = "1"] = process.argv.slice(1);
+const [agentId, mode, channel = "C0VERIFY", seq = "1", parent] =
+  process.argv.slice(1);
 // `mention` and `plain` are top-level posts by U0MOCK in `channel`, with
 // or without a mention; each sequence number is its own event and thread.
-const posted = mode === "mention" || mode === "plain";
+// `reply` is an unmentioned post in the thread `parent` opened.
+const posted = mode === "mention" || mode === "plain" || mode === "reply";
 const ts = posted ? `${1792800000 + Number(seq)}.000001` : "1792800000.000001";
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 try {
@@ -47,7 +49,7 @@ try {
                 ? `EvVerify${mode}${channel}${seq}`
                 : "EvVerify1",
           event:
-            mode === "plain"
+            mode === "plain" || mode === "reply"
               ? {
                   type: "message",
                   channel_type: "channel",
@@ -55,6 +57,9 @@ try {
                   channel,
                   ts,
                   text: "verify plain post",
+                  ...(mode === "reply"
+                    ? { thread_ts: `${1792800000 + Number(parent)}.000001` }
+                    : {}),
                 }
               : {
                   type: "app_mention",
