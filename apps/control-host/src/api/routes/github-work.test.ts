@@ -131,6 +131,10 @@ function app(
               ownerId: "owner-a",
               sessionId,
               repositoryId: "app",
+              repository: {
+                url: catalog.repositories.app?.url ?? "",
+                branch: "main",
+              },
               startedBy: null,
               agent: { id: AGENT, workspaceId: "owner-a", githubEnabled: true },
               release: { id: RELEASE, github: SETTINGS },

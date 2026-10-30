@@ -61,6 +61,8 @@ export function createPostgresGitHubGateStore(
         .select({
           ownerId: sessions.ownerId,
           repositoryId: sessions.repositoryId,
+          repoUrl: sessions.repoUrl,
+          branch: sessions.branch,
           // Turn 1's actor, else the creator: the session-shares rule.
           startedBy: sql<
             string | null
@@ -89,6 +91,10 @@ export function createPostgresGitHubGateStore(
         ownerId: row.ownerId,
         sessionId,
         repositoryId: row.repositoryId,
+        repository:
+          row.repoUrl === null || row.branch === null
+            ? null
+            : { url: row.repoUrl, branch: row.branch },
         startedBy: row.startedBy,
         agent:
           row.agentId === null ||

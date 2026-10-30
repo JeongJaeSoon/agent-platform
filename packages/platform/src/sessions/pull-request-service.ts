@@ -109,14 +109,32 @@ export function createPullRequestService(deps: {
     const scopeRefusal = mayDecidePush(actor.principal);
     // As for a push decision, the session's share decides who may act on it;
     // a session the caller cannot see is NOT_FOUND.
+    const forbidden = (error: unknown) =>
+      error instanceof SessionServiceError && error.code === "FORBIDDEN";
     if (scopeRefusal === null) {
-      await requirePermitted(
-        authorization,
-        actor.caller,
-        "session.approve",
-        session,
-      );
-      return { sessionId, pushRequestId, receipt, refuse, submitter: false };
+      try {
+        await requirePermitted(
+          authorization,
+          actor.caller,
+          "session.approve",
+          session,
+        );
+        return { sessionId, pushRequestId, receipt, refuse, submitter: false };
+      } catch (error) {
+        if (!forbidden(error)) throw error;
+        // The share may let this caller submit without approving.
+        try {
+          await requirePermitted(
+            authorization,
+            actor.caller,
+            "session.submit",
+            session,
+          );
+        } catch (submitError) {
+          throw forbidden(submitError) ? error : submitError;
+        }
+        return { sessionId, pushRequestId, receipt, refuse, submitter: true };
+      }
     }
     // What was pushed is what a person or the release's policy approved; a
     // pull request opens from exactly that branch and commit, so whoever may
@@ -129,9 +147,7 @@ export function createPullRequestService(deps: {
         session,
       );
     } catch (error) {
-      if (error instanceof SessionServiceError && error.code === "FORBIDDEN") {
-        await refuse(scopeRefusal);
-      }
+      if (forbidden(error)) await refuse(scopeRefusal);
       throw error;
     }
     return { sessionId, pushRequestId, receipt, refuse, submitter: true };

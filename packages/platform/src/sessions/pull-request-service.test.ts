@@ -677,6 +677,56 @@ describe("a caller that may submit to the session", () => {
     expect(approving.calls).toEqual(["comment 7"]);
   });
 
+  test("a caller with sessions:approve whose share only lets it submit opens as a submitter", async () => {
+    const asked: string[] = [];
+    const allowing =
+      (allowed: readonly string[]): AuthorizationPolicy["authorize"] =>
+      async ({ action }) => {
+        asked.push(action);
+        return {
+          outcome: allowed.includes(action) ? "allow" : "deny",
+          reason_code: allowed.includes(action) ? "ok" : "role",
+          effective_scopes: [],
+          policy_version: "test",
+          decision_id: crypto.randomUUID(),
+        };
+      };
+    const submitOnly: AuthorizationPolicy = {
+      authorize: allowing(["session.submit"]),
+    };
+    const pushed = harness({ authorization: submitOnly });
+    expect(
+      await pushed.service.open(actor, SESSION, PUSH, {
+        readBody: async () => ({}),
+      }),
+    ).toMatchObject({ created: true });
+    expect(asked).toEqual(["session.approve", "session.submit"]);
+
+    const pushing = harness({ authorization: submitOnly, state: "pushing" });
+    expect(
+      (
+        await refusal(
+          pushing.service.open(actor, SESSION, PUSH, {
+            readBody: async () => ({}),
+          }),
+        )
+      ).code,
+    ).toBe("PUSH_NOT_PUSHED");
+    expect(pushing.calls).toEqual([]);
+
+    const neither = harness({ authorization: { authorize: allowing([]) } });
+    expect(
+      (
+        await refusal(
+          neither.service.open(actor, SESSION, PUSH, {
+            readBody: async () => ({}),
+          }),
+        )
+      ).code,
+    ).toBe("FORBIDDEN");
+    expect(neither.calls).toEqual([]);
+  });
+
   test("an agent key on another agent's session is FORBIDDEN before GitHub is asked", async () => {
     const other = createAuthorizationPolicy({
       identity: {

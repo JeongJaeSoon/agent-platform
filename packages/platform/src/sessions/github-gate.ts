@@ -101,7 +101,12 @@ export function createGitHubGate(deps: {
       const entry = Object.hasOwn(catalog.repositories, repositoryId)
         ? catalog.repositories[repositoryId]
         : undefined;
-      if (entry === undefined) {
+      if (
+        entry === undefined ||
+        context.repository === null ||
+        entry.url !== context.repository.url ||
+        entry.branch !== context.repository.branch
+      ) {
         throw new GitHubUnavailableError("The session's repository moved");
       }
       const author = connections(repositoryId, "author");

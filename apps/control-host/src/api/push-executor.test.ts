@@ -147,6 +147,14 @@ async function run(
         ownerId: job.ownerId,
         sessionId,
         repositoryId: job.repositoryId,
+        // The executor checks the job's binding itself; the gate sees the
+        // entry as pinned.
+        repository: Object.hasOwn(catalog.repositories, job.repositoryId)
+          ? {
+              url: catalog.repositories[job.repositoryId]?.url ?? "",
+              branch: catalog.repositories[job.repositoryId]?.branch ?? "",
+            }
+          : null,
         startedBy: null,
         agent: null,
         release: options.release ?? null,

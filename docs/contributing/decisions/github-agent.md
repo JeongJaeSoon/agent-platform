@@ -202,6 +202,9 @@ export interface GitHubGate {
 - **ref를 적지 않은 허용 목록 항목.** "기본 브랜치"는 GitHub에 묻지 않고 카탈로그 항목의 `branch`로 정한다. 게이트가 GitHub를 부르기 전에 판정해야 해서다.
 - **상한 밖의 `workflows`.** 릴리스가 `workflows`를 켰어도 상한이 막으면 push 토큰에서 `workflows: write`만 빠지고 push 자체는 거절하지 않는다. 그 push가 워크플로 파일을 바꾸면 GitHub가 거절하고 `workflows_permission_missing`이 된다.
 - **HTTP 상태.** `GITHUB_REFUSED`는 정책 거절(`github_disabled`, `repository_not_allowed`, `feature_off`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`)이면 `403`, 나머지는 `409`다(`githubRefusalStatus`). 세션 생성의 저장소 범위 거절도 `403` `repository_not_allowed`이고 receipt는 없다(`receipt_id: null`).
+- **저장소 binding.** 게이트는 모든 purpose에서 세션이 만들 때 고정한 저장소 URL·브랜치와 지금 카탈로그 항목을 비교한다. 다르면 거절 receipt 없이 `503`(저장소가 옮겨졌다)이다. gateway·push 실행기·PR 서비스의 binding 검사는 그대로 두고, Actions 작업도 같은 보호를 받게 한 것이다.
+- **물려받은 `github`.** `github` 없이 만든 릴리스가 활성 릴리스의 설정을 물려받을 때도 보낸 설정과 같은 검증(저장소 범위·PAT·`actions_off`·상한)을 한다. 카드 편집이 릴리스를 다른 저장소로 옮기면 `release_repository_outside`로 막힌다.
+- **승인 scope가 있는 호출자의 PR 열기.** `sessions:approve` scope가 있어도 share가 `session.approve`를 주지 않으면 `session.submit`으로 다시 보고, 되면 submit 호출자로 연다(`pushed` 요청만).
 - **clone 거절이 보이는 곳.** proxy와 worker의 동작은 바꾸지 않는다(clone 재허가가 `GITHUB_REFUSED`로 실패한다). 이유는 게이트의 거절 receipt(`mint_github_token`, `target_ref.session_id`)로 세션 상세의 receipt 목록에서 보인다.
 - **GA-2가 하지 않은 것.** `GET …/github-settings`의 OAuth 칸(GA-4), 저장소별 설치 권한을 응답에 싣는 것과 `…/github-apps/{role}` 경로(GA-5), 활성화·릴리스 생성 receipt의 `github` result(GA-3)다. App 권한은 지금 `…/github-app`(작성용)의 등록과 `GET` 때 읽어 행에 두고, 응답의 `github_app`에 `permissions`·`permissions_checked_at`·`warnings`를 싣는다.
 

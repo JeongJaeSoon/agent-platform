@@ -55,6 +55,7 @@ const catalogOf = (profile: CatalogProfile): SessionCatalog =>
         url: "https://github.com/acme/sample-app",
         branch: "main",
         profiles: ["coding", "either"],
+        auth: { kind: "github_app", registered: true },
       },
       "other-app": {
         url: "https://github.com/acme/other-app",
@@ -805,5 +806,26 @@ describe("a release's GitHub settings", () => {
     ).release;
     expect(moved.repository_id).toBeNull();
     expect(moved.policy_pins.github).toBeUndefined();
+  });
+
+  test("inherited settings are checked as sent ones: a move to a repository outside them is release_repository_outside", async () => {
+    const { store } = memoryStore();
+    const first = (
+      await service(store).createRelease(owner, AGENT, { ...release, github })
+    ).release;
+    const over = service({
+      ...store,
+      get: async () => ({ ...detail, active_release: first }),
+    });
+    const error = await over
+      .createRelease(owner, AGENT, { ...release, repository_id: "docs-app" })
+      .then(
+        () => null,
+        (thrown: unknown) => thrown,
+      );
+    expect(error).toBeInstanceOf(SessionServiceError);
+    expect((error as SessionServiceError).details).toMatchObject({
+      reason_code: "release_repository_outside",
+    });
   });
 });

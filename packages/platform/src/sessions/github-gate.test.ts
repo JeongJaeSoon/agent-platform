@@ -133,6 +133,8 @@ function fakeConnection(
 function harness(
   options: {
     repositoryId?: string | null;
+    /** Default: the catalog entry's URL and branch. */
+    repository?: { url: string; branch: string } | null;
     github?: AgentGitHub | "invalid" | null;
     githubEnabled?: boolean;
     ceiling?: GitHubCeiling;
@@ -155,6 +157,19 @@ function harness(
     githubEnabled: options.githubEnabled ?? true,
     ceiling: options.ceiling ?? GITHUB_CEILING_NONE,
   };
+  const pinned =
+    state.repositoryId !== null &&
+    Object.hasOwn(CATALOG.repositories, state.repositoryId)
+      ? CATALOG.repositories[
+          state.repositoryId as keyof typeof CATALOG.repositories
+        ]
+      : null;
+  const repository =
+    options.repository !== undefined
+      ? options.repository
+      : pinned === null
+        ? null
+        : { url: pinned.url, branch: pinned.branch };
   const receipts: GitHubGateReceipt[] = [];
   const asked: Array<{ repositoryId: string; role: GitHubAppRole }> = [];
   const store: GitHubGateStore = {
@@ -165,6 +180,7 @@ function harness(
             ownerId: "owner-a",
             sessionId,
             repositoryId: state.repositoryId,
+            repository,
             startedBy: STARTER,
             agent: {
               id: "agent-1",
@@ -610,6 +626,34 @@ describe("connections", () => {
     for (const repositoryId of ["gitea", "public"]) {
       const { grant, receipts } = harness({ repositoryId });
       expect(await grant({ purpose: "clone" })).toBeNull();
+      expect(receipts).toEqual([]);
+    }
+  });
+
+  test("a catalog entry re-pointed after the session pinned it grants nothing", async () => {
+    for (const repository of [
+      { url: "https://github.com/acme/other.git", branch: "main" },
+      { url: "https://github.com/acme/app.git", branch: "release" },
+      null,
+    ]) {
+      const { grant, author, receipts } = harness({
+        repository,
+        github: settings({
+          features: features({ actions: true }),
+          actions_allow: [{ workflow: "ci.yml" }],
+        }),
+        ceiling: ALL_ON,
+      });
+      for (const work of [
+        { purpose: "actions_read" },
+        { purpose: "dispatch", workflow: { file: "ci.yml", ref: "main" } },
+        { purpose: "clone" },
+      ] as const) {
+        await expect(grant(work)).rejects.toThrow(
+          "The session's repository moved",
+        );
+      }
+      expect(author?.issued).toEqual([]);
       expect(receipts).toEqual([]);
     }
   });

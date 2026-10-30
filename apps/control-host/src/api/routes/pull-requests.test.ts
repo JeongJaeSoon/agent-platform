@@ -128,6 +128,7 @@ function app(
         ownerId: "owner-a",
         sessionId,
         repositoryId: "app",
+        repository: { url: "https://github.com/acme/app.git", branch: "main" },
         startedBy: null,
         agent: null,
         release: options.release ?? null,

@@ -141,6 +141,8 @@ export type GitHubSessionContext = {
   ownerId: string;
   sessionId: string;
   repositoryId: string | null;
+  /** The URL and branch the session pinned at creation. */
+  repository: { url: string; branch: string } | null;
   /** The human who started the session, for the receipts of clone. */
   startedBy: string | null;
   agent: {

@@ -133,6 +133,7 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
       ownerId: workspaceId,
       sessionId,
       repositoryId: "sample-app",
+      repository: { url: "https://github.com/acme/app.git", branch: "main" },
       startedBy: userId,
       agent: { id: agentId, workspaceId, githubEnabled: true },
       release: { id: releaseId, github: GITHUB },
