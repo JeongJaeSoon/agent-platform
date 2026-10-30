@@ -454,6 +454,19 @@ describe("the session's GitHub pull requests", () => {
     expect(screen.queryByRole("region", { name: "GitHub PR" })).toBeNull();
   });
 
+  test("pull requests that cannot be read are not taken for none", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...pulled([], noFiles),
+      [`GET /v1/sessions/${SESSION_ID}/outcomes`]: () =>
+        apiError(500, "INTERNAL", "boom"),
+    });
+    await openOutputs();
+    expect(
+      await screen.findByRole("button", { name: "다시 시도" }),
+    ).toBeTruthy();
+    expect(screen.queryByText("아직 결과물이 없습니다.")).toBeNull();
+  });
+
   test("recent GitHub refusals name the reason, the work and when", async () => {
     renderAt(
       `/sessions/${SESSION_ID}`,
