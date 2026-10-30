@@ -1,5 +1,5 @@
 import { lstat, readdir, realpath } from "node:fs/promises";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 
 import type { ClaudeRuntimeConfig } from "./config.ts";
 
@@ -26,7 +26,8 @@ export async function readsOnlyMemory(
   input: Record<string, unknown>,
 ): Promise<boolean> {
   const target = targetOf(tool, input);
-  if (target === undefined) return false;
+  // A relative one resolves against the engine's cwd, which a shell `cd` moves.
+  if (target === undefined || !isAbsolute(target)) return false;
   try {
     const canonical = (await realpath(resolve(config.cwd))).normalize("NFC");
     const memory = await realpath(
@@ -37,7 +38,7 @@ export async function readsOnlyMemory(
         "memory",
       ),
     );
-    const resolved = await resolveExisting(resolve(config.cwd, target));
+    const resolved = await resolveExisting(resolve(target));
     if (resolved !== memory && !resolved.startsWith(memory + sep)) {
       return false;
     }

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import {
   type FakeAnthropicServer,
   startFakeAnthropicServer,
@@ -55,6 +55,7 @@ async function callOnce(
   await setup({ home, memory, workspace });
   const resolved = JSON.parse(
     JSON.stringify(input)
+      .replaceAll("$RELATIVE_MEMORY", relative(workspace, memory))
       .replaceAll("$MEMORY", memory)
       .replaceAll("$HOME", home),
   ) as Record<string, unknown>;
@@ -205,6 +206,14 @@ describe("the engine's memory directory in an approval mode", () => {
       path: "$MEMORY",
     });
     expect(asked).toEqual(["Glob"]);
+  }, 30_000);
+
+  test("Grep given the memory directory as a relative path still asks", async () => {
+    const { asked } = await callOnce("Grep", {
+      pattern: "remembered",
+      path: "$RELATIVE_MEMORY",
+    });
+    expect(asked).toEqual(["Grep"]);
   }, 30_000);
 
   test("Bash reading the memory index still asks", async () => {
