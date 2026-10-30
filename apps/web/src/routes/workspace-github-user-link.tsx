@@ -76,6 +76,8 @@ export function GitHubUserLinkSection({
   const secretHint = useId();
   const secretRef = useRef<HTMLInputElement>(null);
   const actionRef = useRef<HTMLButtonElement>(null);
+  // The App the secret is typed for: a replacement meanwhile is refused.
+  const editingFor = useRef<string | null>(null);
   const wasEditing = useRef(false);
   useEffect(() => {
     if (editing) secretRef.current?.focus();
@@ -88,15 +90,15 @@ export function GitHubUserLinkSection({
   const save = useMutation<
     PutGitHubOAuthClientSecretResponse,
     ApiError,
-    string
+    { clientId: string; secret: string }
   >({
     // The variables hold the secret; keep it nowhere once the attempt ends.
     gcTime: 0,
-    mutationFn: (secret) =>
+    mutationFn: ({ clientId, secret }) =>
       unwrap(
         client.PUT("/v1/workspaces/{id}/github-settings/oauth-client-secret", {
           params: { path: { id: workspaceId } },
-          body: { client_secret: secret },
+          body: { client_id: clientId, client_secret: secret },
         }),
       ),
     onMutate: () => onOutcome(null),
@@ -107,13 +109,21 @@ export function GitHubUserLinkSection({
         queryKey: githubSettingsKey(client, workspaceId),
       });
     },
-    onError: (error) =>
+    onError: (error) => {
       onOutcome({
         kind: "error",
         text: storeOff(error)
           ? t("workspace.tokenStoreUnavailable")
           : refusalText(t, error, "workspace.manage", role),
-      }),
+      });
+      // Another App by now: show its client id before a secret is typed again.
+      if (error.code === "REVISION_CONFLICT") {
+        setEditing(false);
+        void queryClient.invalidateQueries({
+          queryKey: githubSettingsKey(client, workspaceId),
+        });
+      }
+    },
   });
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -127,10 +137,11 @@ export function GitHubUserLinkSection({
       return;
     }
     setMissing(false);
-    if (save.isPending) return;
+    const clientId = editingFor.current;
+    if (save.isPending || clientId === null) return;
     // Out of the DOM before the request goes, so nothing keeps it after.
     form.reset();
-    save.mutate(value, { onSettled: () => save.reset() });
+    save.mutate({ clientId, secret: value }, { onSettled: () => save.reset() });
   };
 
   const oauth = settings.data?.oauth;
@@ -181,14 +192,17 @@ export function GitHubUserLinkSection({
         }
         description={t("githubUserLink.secretHint")}
         actions={
-          editing ? undefined : (
+          editing || !oauth?.client_id ? undefined : (
             <Button
               ref={actionRef}
               type="button"
               size="sm"
-              variant={oauth?.client_secret_set ? "outline" : "default"}
+              variant={oauth.client_secret_set ? "outline" : "default"}
               className={ACTION}
-              onClick={() => setEditing(true)}
+              onClick={() => {
+                editingFor.current = oauth.client_id;
+                setEditing(true);
+              }}
             >
               {t(
                 oauth?.client_secret_set

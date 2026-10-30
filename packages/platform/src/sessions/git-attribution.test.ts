@@ -4,6 +4,7 @@ import {
   attributionView,
   claimGitOf,
   coAuthorOf,
+  PULL_REQUEST_TAIL_END_MARKER,
   PULL_REQUEST_TAIL_MARKER,
   sessionUrlOf,
   withPullRequestTail,
@@ -80,24 +81,39 @@ test("the session detail says co_author, unlinked or app_only", () => {
 });
 
 describe("replacing the pull request tail", () => {
-  const tail = `---\n${PULL_REQUEST_TAIL_MARKER}\nnew`;
+  const block = (text: string) =>
+    `---\n${PULL_REQUEST_TAIL_MARKER}\n${text}\n${PULL_REQUEST_TAIL_END_MARKER}`;
+  const tail = block("new");
 
   test("an empty body becomes the tail", () => {
     expect(withPullRequestTail("", tail)).toBe(tail);
   });
 
-  test("only the text after the marker's rule is replaced", () => {
+  test("only the tail between the markers is replaced", () => {
     expect(
       withPullRequestTail(
-        `Intro\n\n---\nA rule of the author's\n\n---\n${PULL_REQUEST_TAIL_MARKER}\nold`,
+        `Intro\n\n---\nA rule of the author's\n\n${block("old")}\n\nAdded below`,
         tail,
       ),
-    ).toBe(`Intro\n\n---\nA rule of the author's\n\n${tail}`);
+    ).toBe(`Intro\n\n---\nA rule of the author's\n\n${tail}\n\nAdded below`);
   });
 
   test("a body that is only an old tail becomes the new one", () => {
-    expect(
-      withPullRequestTail(`---\n${PULL_REQUEST_TAIL_MARKER}\nold`, tail),
-    ).toBe(tail);
+    expect(withPullRequestTail(block("old"), tail)).toBe(tail);
+  });
+
+  test("a marker a person quotes is text: only the real tail changes", () => {
+    const quoted = `Use \`${PULL_REQUEST_TAIL_MARKER}\` to find it.\n\nMore notes`;
+    expect(withPullRequestTail(`${quoted}\n\n${block("old")}`, tail)).toBe(
+      `${quoted}\n\n${tail}`,
+    );
+    expect(withPullRequestTail(`${block("old")}\n\n${quoted}`, tail)).toBe(
+      `${tail}\n\n${quoted}`,
+    );
+  });
+
+  test("a start marker with no end after it cuts nothing", () => {
+    const cut = `Intro\n\n---\n${PULL_REQUEST_TAIL_MARKER}\nold, end removed`;
+    expect(withPullRequestTail(cut, tail)).toBe(`${cut}\n\n${tail}`);
   });
 });

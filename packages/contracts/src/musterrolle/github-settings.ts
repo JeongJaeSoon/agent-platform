@@ -268,6 +268,11 @@ export const putGitHubSettingsRequestSchema = z
 // (secretValueSchema), restated here to keep this file on zod alone.
 export const putGitHubOAuthClientSecretRequestSchema = z
   .object({
+    /**
+     * The author App's client id the secret belongs to, as `oauth.client_id`
+     * showed it: another App's now is 409 REVISION_CONFLICT.
+     */
+    client_id: z.string().min(1).max(255),
     client_secret: z
       .string()
       .min(8)

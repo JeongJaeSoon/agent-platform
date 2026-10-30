@@ -24,7 +24,10 @@ import type {
 } from "../ports/pull-requests.ts";
 import type { SessionAttributionRecord } from "../ports/session-attribution.ts";
 import { repositoryBinding, type SessionCatalog } from "./catalog.ts";
-import { PULL_REQUEST_TAIL_MARKER } from "./git-attribution.ts";
+import {
+  PULL_REQUEST_TAIL_END_MARKER,
+  PULL_REQUEST_TAIL_MARKER,
+} from "./git-attribution.ts";
 import {
   commentMarker,
   createPullRequestService,
@@ -64,6 +67,7 @@ const TAIL = [
   "- Started by: GitHub account linked (@octocat)",
   "",
   "Co-authored-by: octocat <583231+octocat@users.noreply.github.com>",
+  PULL_REQUEST_TAIL_END_MARKER,
 ].join("\n");
 const human: Principal = {
   kind: "api_key",

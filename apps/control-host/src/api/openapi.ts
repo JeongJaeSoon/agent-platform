@@ -1422,10 +1422,13 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "Set the author App's client secret for user linking (owner or admin)",
     description:
-      "Stores the client secret of the workspace's author GitHub App, made in GitHub under the App's settings, so people can link their GitHub account. It is kept encrypted like the App's private key and never returned, logged or echoed; the answer carries only whether one is set. Setting it again replaces it. Registering a different App, or deleting the author App, drops it. Refused with 409 `GITHUB_LINK_NOT_CONFIGURED` (`reason_code` `no_author_app`) while the workspace has no author App. Writes a `set_github_app` receipt with the secret's last four characters. Does not change the ceiling's `revision`. API keys are refused.",
+      "Stores the client secret of the workspace's author GitHub App, made in GitHub under the App's settings, so people can link their GitHub account. It is kept encrypted like the App's private key and never returned, logged or echoed; the answer carries only whether one is set. Setting it again replaces it. Registering a different App, or deleting the author App, drops it. Refused with 409 `GITHUB_LINK_NOT_CONFIGURED` (`reason_code` `no_author_app`) while the workspace has no author App. `client_id` names the App the secret was made for, as `oauth.client_id` showed it; when the author App's client id is another one by the time the secret is stored (the App was replaced meanwhile), nothing is stored and the answer is 409 `REVISION_CONFLICT` (`reason_code` `github_app_changed`). Writes a `set_github_app` receipt with the secret's last four characters. Does not change the ceiling's `revision`. API keys are refused.",
     auth: "session",
     body: "PutGitHubOAuthClientSecretRequest",
-    requestExample: { client_secret: "<client-secret-from-github>" },
+    requestExample: {
+      client_id: "Iv23liExampleClientId",
+      client_secret: "<client-secret-from-github>",
+    },
     success: {
       status: 200,
       schema: "PutGitHubOAuthClientSecretResponse",
@@ -1441,7 +1444,7 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [400, 401, 403, 404, 409, 413, 503],
-    errorCodes: { 409: ["GITHUB_LINK_NOT_CONFIGURED"] },
+    errorCodes: { 409: ["GITHUB_LINK_NOT_CONFIGURED", "REVISION_CONFLICT"] },
     errorNotes: {
       BACKEND_UNAVAILABLE: "Also when the API runs without a secret key.",
     },

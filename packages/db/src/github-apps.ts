@@ -239,7 +239,7 @@ export function createPostgresGitHubAppStore(
       });
     },
 
-    async recordPermissions(id, permissions, clientId) {
+    async recordPermissions(id, appId, permissions, clientId) {
       await db
         .update(githubApps)
         .set({
@@ -247,7 +247,7 @@ export function createPostgresGitHubAppStore(
           permissionsCheckedAt: DB_NOW,
           ...(clientId === undefined ? {} : { clientId }),
         })
-        .where(eq(githubApps.id, id));
+        .where(and(eq(githubApps.id, id), eq(githubApps.appId, appId)));
     },
 
     async credentials(role, workspaceId) {

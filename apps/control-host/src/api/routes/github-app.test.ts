@@ -139,10 +139,10 @@ function memoryStore() {
       });
       return { outcome: "deleted", appId: row.record.appId };
     },
-    async recordPermissions(id, permissions) {
+    async recordPermissions(id, appId, permissions) {
       permissionReads.push({ id, permissions });
       for (const row of held.values()) {
-        if (row.record.id === id) {
+        if (row.record.id === id && row.record.appId === appId) {
           row.record = {
             ...row.record,
             permissions,

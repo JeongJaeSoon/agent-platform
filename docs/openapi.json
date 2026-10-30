@@ -1355,6 +1355,11 @@
       "PutGitHubOAuthClientSecretRequest": {
         "type": "object",
         "properties": {
+          "client_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
           "client_secret": {
             "type": "string",
             "minLength": 8,
@@ -1363,6 +1368,7 @@
           }
         },
         "required": [
+          "client_id",
           "client_secret"
         ],
         "additionalProperties": false
@@ -22351,7 +22357,7 @@
           "Workspace settings"
         ],
         "summary": "Set the author App's client secret for user linking (owner or admin)",
-        "description": "Stores the client secret of the workspace's author GitHub App, made in GitHub under the App's settings, so people can link their GitHub account. It is kept encrypted like the App's private key and never returned, logged or echoed; the answer carries only whether one is set. Setting it again replaces it. Registering a different App, or deleting the author App, drops it. Refused with 409 `GITHUB_LINK_NOT_CONFIGURED` (`reason_code` `no_author_app`) while the workspace has no author App. Writes a `set_github_app` receipt with the secret's last four characters. Does not change the ceiling's `revision`. API keys are refused.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Stores the client secret of the workspace's author GitHub App, made in GitHub under the App's settings, so people can link their GitHub account. It is kept encrypted like the App's private key and never returned, logged or echoed; the answer carries only whether one is set. Setting it again replaces it. Registering a different App, or deleting the author App, drops it. Refused with 409 `GITHUB_LINK_NOT_CONFIGURED` (`reason_code` `no_author_app`) while the workspace has no author App. `client_id` names the App the secret was made for, as `oauth.client_id` showed it; when the author App's client id is another one by the time the secret is stored (the App was replaced meanwhile), nothing is stored and the answer is 409 `REVISION_CONFLICT` (`reason_code` `github_app_changed`). Writes a `set_github_app` receipt with the secret's last four characters. Does not change the ceiling's `revision`. API keys are refused.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -22386,6 +22392,7 @@
           "content": {
             "application/json": {
               "example": {
+                "client_id": "Iv23liExampleClientId",
                 "client_secret": "<client-secret-from-github>"
               },
               "schema": {
@@ -22594,7 +22601,7 @@
             }
           },
           "409": {
-            "description": "- `GITHUB_LINK_NOT_CONFIGURED`: GitHub account linking is not set up: `error.details.reason_code` is `no_author_app` (the workspace has no author GitHub App) or `github_oauth_unset` (the App's client id or client secret, or the console's origin, is missing). Ask an owner or admin to finish the GitHub connection's user linking.",
+            "description": "- `GITHUB_LINK_NOT_CONFIGURED`: GitHub account linking is not set up: `error.details.reason_code` is `no_author_app` (the workspace has no author GitHub App) or `github_oauth_unset` (the App's client id or client secret, or the console's origin, is missing). Ask an owner or admin to finish the GitHub connection's user linking.\n- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -22616,7 +22623,8 @@
                             "code": {
                               "type": "string",
                               "enum": [
-                                "GITHUB_LINK_NOT_CONFIGURED"
+                                "GITHUB_LINK_NOT_CONFIGURED",
+                                "REVISION_CONFLICT"
                               ]
                             }
                           }

@@ -217,6 +217,7 @@ export function createGitHubAppService(deps: {
       if (profile !== null) {
         await store.recordPermissions(
           record.id,
+          credential.appId,
           profile.permissions,
           profile.clientId,
         );

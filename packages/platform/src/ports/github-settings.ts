@@ -39,7 +39,9 @@ export type PutGitHubOAuthSecretResult =
         | "no_author_app"
         | "actor_inactive"
         | "outranked"
-        | "workspace_not_found";
+        | "workspace_not_found"
+        /** The author App's client id is not the one the secret was for. */
+        | "client_changed";
     };
 
 /**
@@ -54,11 +56,16 @@ export interface GitHubOAuthStore {
   }>;
   /** Null unless the author App, its client id and the secret are all there. */
   client(workspaceId: string): Promise<GitHubOAuthClient | null>;
-  /** Writes `set_github_app` (purpose `oauth_client_secret`) with it. */
+  /**
+   * Writes `set_github_app` (purpose `oauth_client_secret`) with it, under
+   * the App lock and only while the author App's client id is `clientId`:
+   * a secret is one App's, and a replacement may land while it is typed.
+   */
   putClientSecret(
     workspaceId: string,
     clientSecret: string,
     audit: SecretAudit,
+    clientId: string,
   ): Promise<PutGitHubOAuthSecretResult>;
 }
 

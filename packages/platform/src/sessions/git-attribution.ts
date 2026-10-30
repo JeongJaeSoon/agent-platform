@@ -94,8 +94,9 @@ export type SessionAttributionService = ReturnType<
   typeof createSessionAttributionService
 >;
 
-/** Where the platform's part of a pull request body starts. */
+/** Where the platform's part of a pull request body starts and ends. */
 export const PULL_REQUEST_TAIL_MARKER = "<!-- agent-platform:pr-tail -->";
+export const PULL_REQUEST_TAIL_END_MARKER = "<!-- /agent-platform:pr-tail -->";
 
 /**
  * The pull request body's tail (decision 5): how to find the session again.
@@ -131,19 +132,32 @@ export function pullRequestTail(input: {
     ...(coAuthor === null
       ? []
       : ["", `Co-authored-by: ${coAuthor.name} <${coAuthor.email}>`]),
+    PULL_REQUEST_TAIL_END_MARKER,
   ];
   return lines.join("\n");
 }
 
 /**
- * `body` with its tail replaced by `tail`. A body from before the marker
- * (or one a person cut it from) keeps all it has and gets the tail added.
+ * `body` with its tail replaced by `tail`: the last start marker that an end
+ * marker follows, so a marker a person quotes elsewhere is left alone. A body
+ * without such a pair (from before the end marker, or one a person cut it
+ * from) keeps all it has and gets the tail added.
  */
 export function withPullRequestTail(body: string, tail: string): string {
-  const at = body.indexOf(PULL_REQUEST_TAIL_MARKER);
+  let at = body.lastIndexOf(PULL_REQUEST_TAIL_MARKER);
+  while (at !== -1 && body.indexOf(PULL_REQUEST_TAIL_END_MARKER, at) === -1) {
+    at = at === 0 ? -1 : body.lastIndexOf(PULL_REQUEST_TAIL_MARKER, at - 1);
+  }
   if (at === -1) return body === "" ? tail : `${body}\n\n${tail}`;
+  const end =
+    body.indexOf(PULL_REQUEST_TAIL_END_MARKER, at) +
+    PULL_REQUEST_TAIL_END_MARKER.length;
   // The marker follows the tail's own `---` line; keep the text above it.
   // GitHub's editor saves CRLF.
-  const head = body.slice(0, at).replace(/(?:\r?\n)?---\r?\n$/, "");
-  return head.trimEnd() === "" ? tail : `${head.trimEnd()}\n\n${tail}`;
+  const head = body
+    .slice(0, at)
+    .replace(/(?:\r?\n)?---\r?\n$/, "")
+    .trimEnd();
+  const rest = body.slice(end).trim();
+  return [head, tail, rest].filter((part) => part !== "").join("\n\n");
 }

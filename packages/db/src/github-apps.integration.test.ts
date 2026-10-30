@@ -361,4 +361,45 @@ integration("the GitHub App on PostgreSQL", () => {
       await createPostgresGitHubOAuthStore(db, null).client(ws),
     ).toBeNull();
   });
+
+  test("a read of the App a replacement took out does not land on the new one", async () => {
+    const store = createPostgresGitHubAppStore(db, key);
+    const oauth = createPostgresGitHubOAuthStore(db, key);
+    const ws = await workspace();
+    const owner = await person(ws, "owner");
+    const first = await store.put(ws, "author", profile(71), pemOf(), owner());
+    if (first.outcome !== "stored") throw new Error(first.outcome);
+    const second = await store.put(ws, "author", profile(72), pemOf(), owner());
+    if (second.outcome !== "stored") throw new Error(second.outcome);
+    expect(second.app.id).toBe(first.app.id);
+
+    const read = { contents: "read" as const, metadata: "read" as const };
+    await store.recordPermissions(first.app.id, 71, read, "Iv23listale");
+    expect((await oauth.status(ws)).clientId).toBe("Iv23li72");
+    expect((await store.find(ws, "author"))?.permissions).toEqual(
+      profile(72).permissions,
+    );
+
+    await store.recordPermissions(first.app.id, 72, read, "Iv23linew");
+    expect((await oauth.status(ws)).clientId).toBe("Iv23linew");
+    expect((await store.find(ws, "author"))?.permissions).toEqual(read);
+  });
+
+  test("a client secret typed for an App a replacement took out is refused, nothing stored", async () => {
+    const store = createPostgresGitHubAppStore(db, key);
+    const oauth = createPostgresGitHubOAuthStore(db, key);
+    const ws = await workspace();
+    const owner = await person(ws, "owner");
+    await store.put(ws, "author", profile(81), pemOf(), owner());
+    await store.put(ws, "author", profile(82), pemOf(), owner());
+    const audit = owner();
+    // Refused under the lock before the value is sealed, so none is needed.
+    expect(await oauth.putClientSecret(ws, "", audit, "Iv23li81")).toEqual({
+      outcome: "client_changed",
+    });
+    expect((await oauth.status(ws)).clientSecretSet).toBe(false);
+    expect(
+      await db.select().from(receipts).where(eq(receipts.id, audit.receiptId)),
+    ).toEqual([]);
+  });
 });

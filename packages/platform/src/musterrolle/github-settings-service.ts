@@ -173,12 +173,20 @@ export function createGitHubSettingsService(deps: {
         workspaceId,
         body.client_secret,
         { principal: caller, receiptId, roles: MANAGERS },
+        body.client_id,
       );
       switch (result.outcome) {
         case "stored":
           return { receipt_id: receiptId, oauth: await oauthOf(workspaceId) };
         case "no_author_app":
           throw noAuthorApp();
+        case "client_changed":
+          throw new SessionServiceError(
+            "REVISION_CONFLICT",
+            "The author GitHub App changed since its client id was read",
+            undefined,
+            { reason_code: "github_app_changed" },
+          );
         case "actor_inactive":
           throw ACTOR_INACTIVE();
         case "outranked":

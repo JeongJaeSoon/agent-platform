@@ -82,7 +82,7 @@ export function createPostgresGitHubOAuthStore(
       };
     },
 
-    putClientSecret(named, clientSecret, audit) {
+    putClientSecret(named, clientSecret, audit, clientId) {
       const workspaceId = named.toLowerCase();
       return db.transaction(async (tx) => {
         if (key === null) return { outcome: "no_author_app" as const };
@@ -101,6 +101,9 @@ export function createPostgresGitHubOAuthStore(
           .where(author(workspaceId))
           .limit(1);
         if (row === undefined) return { outcome: "no_author_app" as const };
+        if (row.clientId !== clientId) {
+          return { outcome: "client_changed" as const };
+        }
         const updatedBy = audit.principal.actor?.userId ?? null;
         await writeSecretInTx(
           tx,

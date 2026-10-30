@@ -60,8 +60,9 @@ function harness(options: { authorApp?: boolean; secretsOn?: boolean } = {}) {
       clientSecretSet: secrets.length > 0,
     }),
     client: async () => null,
-    putClientSecret: async (workspaceId, secret) => {
+    putClientSecret: async (workspaceId, secret, _audit, clientId) => {
       if (options.authorApp === false) return { outcome: "no_author_app" };
+      if (clientId !== "Iv23liClient") return { outcome: "client_changed" };
       secrets.push({ workspaceId, secret });
       return { outcome: "stored" };
     },
@@ -278,6 +279,23 @@ describe("refusing the OAuth client secret", () => {
       code: "GITHUB_LINK_NOT_CONFIGURED",
       details: { reason_code: "no_author_app" },
     });
+  });
+
+  test("a secret typed for an App since replaced is REVISION_CONFLICT", async () => {
+    const { service, secrets } = harness();
+    expect(
+      await refusal(
+        service.putOAuthClientSecret(user("owner"), WORKSPACE, async () => ({
+          client_id: "Iv23liReplaced",
+          // Refused before it is stored, as in the callback fixtures.
+          client_secret: "",
+        })),
+      ),
+    ).toEqual({
+      code: "REVISION_CONFLICT",
+      details: { reason_code: "github_app_changed" },
+    });
+    expect(secrets).toEqual([]);
   });
 
   test("the secret store off is BACKEND_UNAVAILABLE", async () => {
