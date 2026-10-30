@@ -10,6 +10,7 @@ import {
   type GitHubGrant,
   type GitHubWork,
 } from "../ports/github-gate.ts";
+import type { SessionAttributionRecord } from "../ports/session-attribution.ts";
 import type {
   ClaimInput,
   EgressAuthorization,
@@ -846,6 +847,60 @@ describe("WorkerGateway", () => {
     expect(bootstrapClaimResponseSchema.safeParse(spentClaim).success).toBe(
       true,
     );
+    expect("git" in spentClaim).toBe(false);
+
+    // The commit trailers: the linked starter as co-author, then a session
+    // no person started, which names only itself.
+    const asked: string[] = [];
+    let starter: SessionAttributionRecord["starter"] = {
+      userId: "user-1",
+      github: { id: "583231", login: "octocat" },
+    };
+    const attributed = createWorkerGateway({
+      work: work({
+        claimAtomic: async () => ({ outcome: "claimed", binding }),
+      }),
+      catalog: { profiles: { "claude-coding-v1": profile }, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      attribution: {
+        store: {
+          attribution: async (sessionId) => {
+            asked.push(sessionId);
+            return {
+              ownerId: "owner-a",
+              trigger: starter === null ? "agent_key" : "web",
+              agentId: null,
+              agentReleaseId: null,
+              starter,
+            };
+          },
+        },
+        consoleOrigin: "https://console.example.com",
+      },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
+    });
+    const sessionUrl = `https://console.example.com/sessions/${scope.session_id}`;
+    const linked = bootstrapClaimResponseSchema.parse(
+      await attributed.bootstrapClaim({ kind: "bootstrap" }, request),
+    );
+    expect(linked.git).toEqual({
+      co_author: {
+        name: "octocat",
+        email: "583231+octocat@users.noreply.github.com",
+      },
+      session_url: sessionUrl,
+    });
+    starter = null;
+    const agentKey = await attributed.bootstrapClaim(
+      { kind: "bootstrap" },
+      request,
+    );
+    expect(agentKey.git).toEqual({ co_author: null, session_url: sessionUrl });
+    expect(asked).toEqual([scope.session_id, scope.session_id]);
   });
 
   test("a session pinned before its profile's runtime moved to the next image is still claimed while the previous image is configured", async () => {

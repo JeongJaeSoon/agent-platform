@@ -55,19 +55,26 @@ export function slackEventsPublicUrlFrom(
 }
 
 /**
- * The console's origin, taken from SLACK_OIDC_REDIRECT_URI (the account
- * linking callback, which the console serves); null when it is unset.
+ * The console's origin: CONSOLE_ORIGIN, else that of SLACK_OIDC_REDIRECT_URI
+ * (the account linking callback, which the console serves); null when
+ * neither is set.
  */
 export function consoleOriginFrom(
   env: Record<string, string | undefined>,
 ): string | null {
-  const value = env.SLACK_OIDC_REDIRECT_URI;
-  if (!value) return null;
-  try {
-    return new URL(value).origin;
-  } catch {
-    throw new SlackConfigError(
-      "SLACK_OIDC_REDIRECT_URI must be an absolute URL",
-    );
+  for (const name of ["CONSOLE_ORIGIN", "SLACK_OIDC_REDIRECT_URI"] as const) {
+    const value = env[name];
+    if (!value) continue;
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new SlackConfigError(`${name} must be an absolute URL`);
+    }
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      throw new SlackConfigError(`${name} must be an http(s) URL`);
+    }
+    return url.origin;
   }
+  return null;
 }

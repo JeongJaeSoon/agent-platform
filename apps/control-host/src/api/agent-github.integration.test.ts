@@ -22,6 +22,7 @@ import {
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresGitHubGateStore,
+  createPostgresGitHubOAuthStore,
   createPostgresGitHubSettingsStore,
   createPostgresWorkspaceKeyStore,
   memberships,
@@ -183,7 +184,13 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
         registerApiKeyRoutes(router, keys);
         registerGitHubSettingsRoutes(
           router,
-          createGitHubSettingsService({ authorization, store: githubSettings }),
+          createGitHubSettingsService({
+            authorization,
+            store: githubSettings,
+            oauth: createPostgresGitHubOAuthStore(db, null),
+            callbackUrl: null,
+            secretsOn: false,
+          }),
         );
         registerAgentGitHubRoutes(
           router,

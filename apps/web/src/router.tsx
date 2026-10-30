@@ -34,6 +34,7 @@ import { HomeScreen } from "./routes/home.tsx";
 import { InviteScreen } from "./routes/invite.tsx";
 import { AuthedError, AuthedLayout, RootLayout } from "./routes/layout.tsx";
 import {
+  GitHubLinkCallbackScreen,
   LinkedAccountsScreen,
   SlackLinkCallbackScreen,
   type SlackLinkSearch,
@@ -74,6 +75,7 @@ import { TeamDetailScreen, TeamsScreen } from "./routes/teams.tsx";
 import { WorkspaceGitHubScreen } from "./routes/workspace-github.tsx";
 import { WorkspaceSettingsScreen } from "./routes/workspace-settings.tsx";
 import { WorkspaceSlackScreen } from "./routes/workspace-slack.tsx";
+import { WorkspaceSlackAppsScreen } from "./routes/workspace-slack-apps.tsx";
 import type { Services } from "./services.tsx";
 
 /*
@@ -262,6 +264,15 @@ const slackLink = createRoute({
   component: SlackLinkCallbackScreen,
 });
 
+// GitHub sends the browser back here (the author App's Callback URL).
+const githubLink = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/linked-accounts/github",
+  validateSearch: (search: Record<string, unknown>): SlackLinkSearch =>
+    slackLinkSearch(search),
+  component: GitHubLinkCallbackScreen,
+});
+
 const apiKeys = createRoute({
   getParentRoute: () => authed,
   path: "/settings/api-keys",
@@ -311,6 +322,12 @@ const workspaceSlack = createRoute({
   getParentRoute: () => authed,
   path: "/settings/workspace/slack",
   component: WorkspaceSlackScreen,
+});
+
+const workspaceSlackApps = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/workspace/slack-apps",
+  component: WorkspaceSlackAppsScreen,
 });
 
 const workspaceGitHub = createRoute({
@@ -428,6 +445,7 @@ const routeTree = root.addChildren([
     session,
     linkedAccounts,
     slackLink,
+    githubLink,
     slackInstall,
     apiKeys,
     newApiKey,
@@ -437,6 +455,7 @@ const routeTree = root.addChildren([
     preferences,
     workspaceSettings,
     workspaceSlack,
+    workspaceSlackApps,
     workspaceGitHub,
     orgKeys,
     oldUsage,

@@ -249,6 +249,23 @@ export const permissionGrantSchema = z
   })
   .strict();
 
+// No CR, LF or NUL: each value becomes one trailer line.
+const trailerValueSchema = z
+  .string()
+  .min(1)
+  .max(2048)
+  .regex(/^[^\r\n\0]+$/);
+
+export const claimGitSchema = z
+  .object({
+    co_author: z
+      .object({ name: trailerValueSchema, email: trailerValueSchema })
+      .strict()
+      .nullable(),
+    session_url: trailerValueSchema.nullable(),
+  })
+  .strict();
+
 export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   session_credential: z.string().min(1),
   lease_expires_at: timestampSchema,
@@ -285,6 +302,11 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   // Absent when there are none; a worker older than the field drops it and
   // asks again.
   grants: z.array(permissionGrantSchema).min(1).optional(),
+  // What the platform's commit-msg hook adds to each commit the session
+  // makes, read fresh at every claim: the starter's GitHub co-author when
+  // they linked one, and the session's console URL. Absent from an older
+  // API; a worker then adds no trailer.
+  git: claimGitSchema.optional(),
 });
 
 // The claim as a log line may carry it: an allowlist of identifiers, never
@@ -863,6 +885,7 @@ export type BootstrapClaimRequest = z.infer<typeof bootstrapClaimRequestSchema>;
 export type BootstrapClaimResponse = z.infer<
   typeof bootstrapClaimResponseSchema
 >;
+export type ClaimGit = z.infer<typeof claimGitSchema>;
 export type WorkspaceRepository = z.infer<typeof workspaceRepositorySchema>;
 export type WorkspaceDescriptor = z.infer<typeof workspaceDescriptorSchema>;
 export type ClaimPrincipal = z.infer<typeof claimPrincipalSchema>;

@@ -30,7 +30,8 @@ API로 세션을 만들고 쓰는 사람.
 | [백업과 복원](operator/backup-restore.md) | compose 설치의 백업·복원 |
 | [용량 관리](operator/capacity.md) | transcript 상한, worker 메모리, 노드당 세션 수 |
 | [Datadog 감시 기준](operator/monitoring-datadog.md) | Datadog Agent와 monitor |
-| [세션 데이터가 흐르는 길](operator/observability.md) | `events` 표, 비밀값 마스킹, 보존 기간, 예제 OTLP 수집기 |
+| [세션 데이터가 흐르는 길](operator/observability.md) | `events` 표, 비밀값 마스킹, 예제 OTLP 수집기 |
+| [플랫폼이 보존하는 데이터](operator/data-retention.md) | 데이터별 저장 위치·보존 기간·삭제 조건, 내용과 마스킹, 세션 하나 따라가기 |
 | [test-ops 운영 runbook](operator/test-ops.md) | test-ops 설치의 운영 절차 |
 
 ## 기여자
@@ -46,5 +47,5 @@ API로 세션을 만들고 쓰는 사람.
 | [결정: transcript 저장](contributing/decisions/session-store.md) | SessionStore를 고른 이유, 실패 계약, 그 계약을 지키는 테스트 |
 | [결정: Agent SDK 버전](contributing/decisions/agent-sdk.md) | SDK·LiteLLM 버전 고정 방식, 운영 제약, 호환 harness가 지키는 계약과 실행 방법 |
 | [결정: 실행 프로필 DB 단일 관리](contributing/decisions/profile-db.md) | 설치 상한·워크스페이스 프로필을 DB에서 관리하는 계약, YAML 이전, 3단계 롤백, PD-2~PD-5 계획 |
-| [결정(제안): Kubernetes pull 실행](contributing/decisions/k8s-pull-execution.md) | 플랫폼이 K8s API를 부르지 않고 KEDA ScaledJob으로 worker를 띄우는 안, 새 종료 계약, PoC 실측, Codex 반대 의견 |
+| [결정(제안): worker Pod를 누가 만드나](contributing/decisions/k8s-pull-execution.md) | 플랫폼 직접 생성 + 권한 축소(추천)와 KEDA ScaledJob pull의 비교, 두 안의 설계, PoC 실측, Codex 의견 |
 | [실제 Claude로 확인하기](real-claude.md) | 실제 Claude로 스택 확인 |

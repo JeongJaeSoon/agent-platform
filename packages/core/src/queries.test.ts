@@ -80,7 +80,7 @@ test("query options and the request each query makes", async () => {
     (entry): entry is [string, (client: ApiClient, id: string) => object] =>
       typeof entry[1] === "function" && entry[0].endsWith("Query"),
   );
-  expect(factories.length).toBe(33);
+  expect(factories.length).toBe(34);
   const out: Record<string, unknown> = {};
   for (const [name, factory] of factories.sort(([a], [b]) =>
     a.localeCompare(b),
@@ -346,8 +346,9 @@ test("the agent lists filter takes every list, page, count and summary but no ag
       keys.agentPages("notes"),
       keys.agentCounts,
       keys.agentSummaries(["id-1"]),
+      keys.agentSlackActions,
     ].map(matched),
-  ).toEqual([true, true, true, true, true]);
+  ).toEqual([true, true, true, true, true, true]);
   expect([keys.agent("id-1"), keys.agentAdmins("id-1")].map(matched)).toEqual([
     false,
     false,

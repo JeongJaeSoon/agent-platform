@@ -14,6 +14,7 @@ import {
   createPostgresGitHubAppStore,
   createPostgresGitHubGateStore,
   createPostgresGitHubMcpStore,
+  createPostgresGitHubOAuthStore,
   createPostgresGitHubSettingsStore,
   createPostgresInstallationProfileStore,
   createPostgresInviteStore,
@@ -24,6 +25,7 @@ import {
   createPostgresPullRequests,
   createPostgresPushRequests,
   createPostgresSecretStore,
+  createPostgresSessionAttributionStore,
   createPostgresSessionControl,
   createPostgresSessionReader,
   createPostgresSessionShareStore,
@@ -74,6 +76,7 @@ import {
   createPullRequestService,
   createPushExecutor,
   createPushRequestService,
+  createSessionAttributionService,
   createSessionOutputService,
   createSessionService,
   createSessionShareService,
@@ -153,6 +156,7 @@ import {
   createRegisteredGitHubConnection,
 } from "./forge-github.ts";
 import { createGitPusher } from "./git-push.ts";
+import { githubCallbackUrl } from "./github-link.ts";
 import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
@@ -170,7 +174,10 @@ import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerGitHubAppRoutes } from "./routes/github-app.ts";
 import { registerGitHubSettingsRoutes } from "./routes/github-settings.ts";
-import { registerGitHubWorkRoutes } from "./routes/github-work.ts";
+import {
+  registerGitHubWorkRoutes,
+  registerSessionAttributionRoutes,
+} from "./routes/github-work.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
 import {
   registerInviteRoutes,
@@ -736,10 +743,16 @@ const githubWork = createGitHubWorkService({
   gate: github,
   store: githubGateStore,
 });
+const githubOAuth = createPostgresGitHubOAuthStore(db, secretKey);
+const githubCallback = githubCallbackUrl(consoleOrigin);
 const githubSettings = createGitHubSettingsService({
   authorization,
   store: githubSettingsStore,
+  oauth: githubOAuth,
+  callbackUrl: githubCallback,
+  secretsOn: secretKey !== null,
 });
+const sessionAttribution = createPostgresSessionAttributionStore(db);
 const agentGitHub = createAgentGitHubService({
   authorization,
   agents: agentStore,
@@ -762,6 +775,9 @@ const pullRequests = createPullRequestService({
   catalog,
   gate: github,
   redact: sanitizeText,
+  attribution: sessionAttribution,
+  consoleOrigin,
+  logger,
 });
 // The built-in `github` MCP server: the same services as the session API,
 // each made with the authorization of the one session a grant names.
@@ -781,6 +797,9 @@ const githubMcp = createGitHubMcpServer({
       catalog,
       gate: github,
       redact: sanitizeText,
+      attribution: sessionAttribution,
+      consoleOrigin,
+      logger,
     }),
     githubWork: createGitHubWorkService({
       authorization: bound,
@@ -830,6 +849,7 @@ const workers = createWorkerGateway({
     : { checkpointProtocol: checkpoints.protocol }),
   pending: createPostgresWorkerPendingStore(db),
   github,
+  attribution: { store: sessionAttribution, consoleOrigin },
   mcp: createPostgresMcpEgressStore(db),
   onMcpReceiptError: (error) =>
     logger.error("MCP refusal receipt not recorded", {
@@ -973,9 +993,17 @@ const app = createApiApp({
     registerPushRequestRoutes(router, pushRequests);
     registerPullRequestRoutes(router, pullRequests);
     registerGitHubWorkRoutes(router, githubWork);
+    registerSessionAttributionRoutes(
+      router,
+      createSessionAttributionService({
+        authorization,
+        store: sessionAttribution,
+      }),
+    );
     registerInterruptRoutes(router, interrupts);
     registerLinkedAccountRoutes(router, {
       service: linkedAccounts,
+      github: { oauth: githubOAuth, redirectUri: githubCallback },
       slack:
         slackOidc === null
           ? null

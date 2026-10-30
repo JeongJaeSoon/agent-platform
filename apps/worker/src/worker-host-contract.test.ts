@@ -206,6 +206,57 @@ describe("WorkerHost over a run that implements the contract itself", () => {
     ]);
   });
 
+  test("hands the claim's git trailers on before the run starts; a failed write is only logged", async () => {
+    const git = {
+      co_author: {
+        name: "octocat",
+        email: "583231+octocat@users.noreply.github.com",
+      },
+      session_url: "https://console.example.com/sessions/s-1",
+    };
+    for (const fails of [false, true]) {
+      const run = new ScriptedRun();
+      run.onSend = (sent) => finish(run, sent);
+      const gateway = new FakeWorkerGateway();
+      const claim = gateway.bootstrapClaim.bind(gateway);
+      gateway.bootstrapClaim = async (request) => ({
+        ...(await claim(request)),
+        git,
+      });
+      const handed: unknown[] = [];
+      const warnings: string[] = [];
+      const worker = new WorkerHost({
+        checkpoints: unwiredCheckpoints,
+        execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
+        gateway,
+        gitTrailers: async (given) => {
+          handed.push(given);
+          if (fails) throw new Error("read-only home");
+        },
+        logger: {
+          info: () => {},
+          warn: (event) => warnings.push(event),
+          error: () => {},
+        },
+        runtimes: {
+          launcherFor: () => ({
+            start: () => {
+              handed.push("started");
+              return run;
+            },
+          }),
+        },
+        timeouts,
+        workspace: noWorkspace,
+      });
+      gateway.enqueue("hello");
+      const summary = await worker.runLoop();
+      expect(handed).toEqual([git, "started"]);
+      expect(summary.turns.map((turn) => turn.status)).toEqual(["completed"]);
+      expect(warnings.includes("worker.git_trailers.not_written")).toBe(fails);
+    }
+  });
+
   test("finalizes without taking a checkpoint lease when the run takes no checkpoints", async () => {
     const run = new ScriptedRun();
     run.onSend = (sent) => finish(run, sent);

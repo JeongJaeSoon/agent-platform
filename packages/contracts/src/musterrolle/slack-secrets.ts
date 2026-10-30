@@ -13,6 +13,7 @@ export const SECRET_PURPOSE_VALUES = [
   "slack_client_secret",
   "slack_bot_token",
   "github_app_private_key",
+  "github_oauth_client_secret",
 ] as const;
 export const secretPurposeSchema = z.enum(SECRET_PURPOSE_VALUES);
 

@@ -5,12 +5,16 @@ import {
   pullRequestReviewParamsSchema,
   rerunWorkflowRequestSchema,
   rerunWorkflowResponseSchema,
+  sessionGitHubAttributionSchema,
   sessionIdParamsSchema,
   submitPullRequestReviewRequestSchema,
   submitPullRequestReviewResponseSchema,
   workflowRunParamsSchema,
 } from "@werft-ai/contracts";
-import type { GitHubWorkService } from "@werft-ai/platform";
+import type {
+  GitHubWorkService,
+  SessionAttributionService,
+} from "@werft-ai/platform";
 import {
   type ApiRouter,
   apiRoute,
@@ -70,5 +74,18 @@ export function registerGitHubWorkRoutes(
       review,
       201,
     );
+  });
+}
+
+export function registerSessionAttributionRoutes(
+  router: ApiRouter,
+  service: SessionAttributionService,
+) {
+  apiRoute(router, "getSessionGitHubAttribution", async (context) => {
+    const params = requireParams(context, sessionIdParamsSchema);
+    const attribution = await mapped(() =>
+      service.get(context.get("caller"), params.id),
+    );
+    return jsonWithSchema(context, sessionGitHubAttributionSchema, attribution);
   });
 }

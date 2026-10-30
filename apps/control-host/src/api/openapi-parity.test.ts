@@ -19,6 +19,7 @@ import type {
   PendingRequestService,
   PullRequestService,
   PushRequestService,
+  SessionAttributionService,
   SessionOutputService,
   SessionService,
   SessionShareService,
@@ -47,7 +48,10 @@ import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerGitHubAppRoutes } from "./routes/github-app.ts";
 import { registerGitHubSettingsRoutes } from "./routes/github-settings.ts";
-import { registerGitHubWorkRoutes } from "./routes/github-work.ts";
+import {
+  registerGitHubWorkRoutes,
+  registerSessionAttributionRoutes,
+} from "./routes/github-work.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
 import {
   registerInviteRoutes,
@@ -135,6 +139,7 @@ function apiApp() {
       registerLinkedAccountRoutes(router, {
         service: {} as LinkedAccountService,
         slack: null,
+        github: { oauth: { client: async () => null }, redirectUri: null },
       });
       registerApiKeyRoutes(router, {} as ApiKeyService);
       registerTeamRoutes(router, {} as TeamService, {} as AgentAdminService);
@@ -154,6 +159,7 @@ function apiApp() {
       registerGitHubSettingsRoutes(router, {} as GitHubSettingsService);
       registerAgentGitHubRoutes(router, {} as AgentGitHubService);
       registerGitHubWorkRoutes(router, {} as GitHubWorkService);
+      registerSessionAttributionRoutes(router, {} as SessionAttributionService);
       registerSlackAppRoutes(router, {
         apps: {} as SlackAppService,
         secrets: {} as SlackSecretService,

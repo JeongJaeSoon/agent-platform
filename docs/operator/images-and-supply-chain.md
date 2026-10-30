@@ -72,6 +72,20 @@ worker가 보내는 worker protocol 필드를 새로 더할 때도 API가 먼저
 |---|---|---|
 | pending-control 요청 `settled[].reason`·`settled[].answer_result` | API | `worker.pending.settlement_detail_refused` 경고를 한 번 남기고, 그 attempt가 끝날 때까지 `outcome`만 보낸다. receipt는 예전 규칙대로 정산되고 `pending_requests.settled_reason`·`settled_answer_result`는 비어 있다 |
 
+### DB 스키마를 바꾸는 순서
+
+migration은 rollout 전에 돈다. 그래서 새 스키마 위에서 옛 control-host가 잠시 돌고, 옛 worker 이미지는 지원 창 동안 계속 돈다. 옛 코드가 읽고 쓰는 열·테이블은 그 코드가 모두 사라질 때까지 남아 있어야 한다. 그래서 스키마 변경은 세 릴리스에 나눠 한다. 한 릴리스에서 더하기와 지우기를 같이 하지 않는다.
+
+| 단계 | 하는 일 | 옛 코드가 보는 것 |
+|---|---|---|
+| 1. 확장(expand) | 열·테이블을 더한다. 새 열은 null을 허용하거나 기본값을 둔다. 기본값을 두면 기존 행에서도 그 값이 읽히고, INSERT가 그 열을 빼면 기본값이 들어간다. 명시적 NULL에는 기본값이 적용되지 않아 null 허용 열이면 NULL로 저장되고 NOT NULL 열이면 INSERT가 실패한다. 그래서 기존 행에 맞는 값인지와 옛 코드의 INSERT가 그 열을 어떻게 쓰는지 보고 고른다 | 모르는 열이 생길 뿐이고, 옛 코드의 쓰기는 그 열을 빼고 들어간다 |
+| 2. 전환 | 새 코드가 새 열에도 쓰기 시작한다. 옛 코드가 옛 열에 쓰는 동안에는 옛 열이 기준이다. 새 코드는 두 열에 모두 쓰되 옛 열을 읽는다. 옛 코드의 쓰기를 새 열로 옮기는 장치(trigger 등)가 없으면, 옛 writer가 모두 사라진 뒤 기존 행을 마지막으로 backfill하고 나서 읽기를 새 열로 옮긴다 | 옛 열이 그대로 있어 읽기·쓰기가 계속된다 |
+| 3. 정리(contract) | 옛 열·테이블을 지우거나 NOT NULL·CHECK로 제약을 강화한다. 그 열을 쓰는 이미지가 지원 창 밖으로 나가고, 그 이미지의 worker와 control-host가 실제로 하나도 남지 않은 것을 확인한 다음 릴리스에서 한다. 제약을 강화하기 전에는 기존 행과 지금 도는 모든 writer가 새 제약을 만족하는지 본다 | 그 열을 쓰는 옛 코드가 더는 없다 |
+
+열 이름을 바꾸는 것도 옛 이름을 바로 없애므로 같은 순서를 따른다. 새 열을 더하고, 데이터를 옮기고 코드를 바꾼 뒤, 옛 열을 지운다. `WORKER_IDLE_TIMEOUT_SEC`는 마지막 turn 뒤의 유휴 시간이지 worker 수명의 상한이 아니다. 일하는 worker는 그보다 오래 남을 수 있으니 정리 시점은 시간이 아니라 실제로 남은 컨테이너로 판단한다.
+
+예: checkpoint 포인터의 런타임 조합 `checkpoints.runtime_*`(migration `0196_checkpoint_runtime`)는 1단계로, 기본값 없는 null 허용 열만 더했다. 그 전에 커밋된 행은 null로 남는다.
+
 ## 공급망 취약점 정책
 
 **수정판이 있는 high·critical 취약점만 막는다.** 수정판이 없는 발견은 보고만 하고 실패시키지 않는다.

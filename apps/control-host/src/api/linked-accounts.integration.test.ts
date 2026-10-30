@@ -90,6 +90,7 @@ integration("Sign in with Slack over HTTP on PostgreSQL", () => {
         registerAuthRoutes(router, auth);
         registerLinkedAccountRoutes(router, {
           service,
+          github: { oauth: { client: async () => null }, redirectUri: null },
           slack: {
             issuer: idp.url,
             // No secret store: every workspace links with the fallback app.
