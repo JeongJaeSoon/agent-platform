@@ -1,4 +1,4 @@
-import type { PaginationQuery } from "@werft-ai/contracts";
+import type { ListTeamsQuery, PaginationQuery } from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 
 export type TeamPage<T> = { items: T[]; nextCursor: string | null };
@@ -70,8 +70,11 @@ export interface TeamStore {
   removeMember(
     input: Write & { teamId: string; userId: string },
   ): Promise<TeamMembershipResult>;
-  /** One page by name, then id; a malformed cursor throws InvalidCursorError. */
-  list(workspaceId: string, query: PaginationQuery): Promise<TeamPage<Team>>;
+  /**
+   * One page by name, then id, of the teams whose name contains `q` when it
+   * is given; a malformed cursor throws InvalidCursorError.
+   */
+  list(workspaceId: string, query: ListTeamsQuery): Promise<TeamPage<Team>>;
   get(workspaceId: string, teamId: string): Promise<TeamDetail | null>;
   /** One page of the live teams a live member of the workspace is in now. */
   listJoined(

@@ -152,6 +152,8 @@ export function queryKeysOf(client: ApiClient) {
     memberPages: (q: string | undefined) =>
       [s, "members", "pages", { q: q ?? null }] as const,
     firstMembers: [s, "members", "first"] as const,
+    memberSummaries: (userIds: readonly string[]) =>
+      [s, "members", { ids: [...userIds].sort() }] as const,
     invites: [s, "invites"] as const,
     agents: [s, "agents"] as const,
     // Object segments under "agents", so they never read as an agent id and
@@ -167,6 +169,8 @@ export function queryKeysOf(client: ApiClient) {
     teams: [s, "teams"] as const,
     // Under "teams", so every team change refreshes it too.
     myTeams: [s, "teams", "mine"] as const,
+    teamPages: (q: string | undefined) =>
+      [s, "teams", { pages: q ?? null }] as const,
     linkedAccounts: [s, "linked-accounts"] as const,
     apiKeys: [s, "api-keys"] as const,
     profiles: [s, "profiles"] as const,
@@ -340,6 +344,47 @@ export function memberPagesQuery(client: ApiClient, q?: string) {
   });
 }
 
+/**
+ * The members among these users, read 100 at a time: for a screen that
+ * already holds the ids (a team's people, a release's authors) and needs
+ * their names or roles.
+ */
+export function memberSummariesQuery(
+  client: ApiClient,
+  userIds: readonly string[],
+) {
+  return queryOptions({
+    queryKey: queryKeysOf(client).memberSummaries(userIds),
+    queryFn: async (): Promise<ListMembersResponse> => {
+      const sorted = [...new Set(userIds)].sort();
+      const chunks: string[][] = [];
+      for (let at = 0; at < sorted.length; at += READ_ALL_PAGE_LIMIT) {
+        chunks.push(sorted.slice(at, at + READ_ALL_PAGE_LIMIT));
+      }
+      const pages = (await Promise.all(
+        chunks.map((chunk) =>
+          unwrap(
+            client.GET("/v1/members", {
+              params: {
+                query: {
+                  user_ids: chunk.join(","),
+                  limit: READ_ALL_PAGE_LIMIT,
+                },
+              },
+            }),
+          ),
+        ),
+      )) as ListMembersResponse[];
+      return {
+        items: pages.flatMap((page) => page.items),
+        next_cursor: null,
+        assignable_roles: pages.at(-1)?.assignable_roles ?? [],
+      };
+    },
+    retry: false,
+  });
+}
+
 export function invitesQuery(client: ApiClient) {
   return queryOptions({
     queryKey: queryKeysOf(client).invites,
@@ -443,6 +488,28 @@ export function agentQuery(client: ApiClient, id: string) {
 }
 
 /** Every team of the workspace, every page read, by name. */
+/** One page of the workspace's teams, the search going with it. */
+export function teamPagesQuery(client: ApiClient, q?: string) {
+  return infiniteQueryOptions({
+    queryKey: queryKeysOf(client).teamPages(q),
+    queryFn: ({ pageParam }) =>
+      unwrap(
+        client.GET("/v1/teams", {
+          params: {
+            query: {
+              ...(q ? { q } : {}),
+              ...(pageParam ? { cursor: pageParam } : {}),
+            },
+          },
+        }),
+      ) as Promise<ListTeamsResponse>,
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.next_cursor,
+    gcTime: 0,
+    retry: false,
+  });
+}
+
 export function teamsQuery(client: ApiClient) {
   return queryOptions({
     queryKey: queryKeysOf(client).teams,

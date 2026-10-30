@@ -389,6 +389,24 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
     expect(byFortyOne.flat()).toEqual(all);
   });
 
+  test("q keeps the live teams whose name contains it, ignoring case, and pages by the same cursor", async () => {
+    const workspaceId = await workspace();
+    await seedTeams(workspaceId, ["Ops-East", "ops-west", "sales", "50%_off"]);
+    await db.insert(memberTeams).values({
+      id: randomUUID(),
+      workspaceId,
+      name: "ops-archived",
+      archivedAt: new Date(),
+    });
+    const found = (q: string, limit = 50) =>
+      walk((cursor) => teams().list(workspaceId, { limit, q, cursor }));
+    expect(await found("OPS", 1)).toEqual([["Ops-East"], ["ops-west"]]);
+    // `%` and `_` are the characters themselves, not wildcards.
+    expect(await found("%_")).toEqual([["50%_off"]]);
+    expect(await found("_")).toEqual([["50%_off"]]);
+    expect(await found("nobody")).toEqual([[]]);
+  });
+
   test("one's own teams page by name too", async () => {
     const workspaceId = await workspace();
     const owner = await person(workspaceId, "owner");

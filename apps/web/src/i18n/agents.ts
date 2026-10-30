@@ -287,7 +287,10 @@ export const agentsKo = {
   "agentAdmins.removeSelfConsequence":
     "나 자신을 빼면 관리 권한을 잃습니다. 내가 속한 팀이 관리자가 아니면 이 에이전트를 더 바꿀 수 없고, 나를 다시 추가할 수도 없습니다.",
   "agentAdmins.pick": "관리자로 추가할 사람이나 팀",
-  "agentAdmins.pickPlaceholder": "사람이나 팀 고르기",
+  "agentAdmins.pickPlaceholder": "이름·이메일·팀 이름으로 찾기",
+  "agentAdmins.pickLoading": "사람과 팀을 불러오는 중…",
+  "agentAdmins.pickEmpty": "맞는 사람이나 팀이 없습니다.",
+  "agentAdmins.pickCount": "{count}개가 있습니다.",
   "agentAdmins.add": "관리자로 추가",
   "agentAdmins.nothingLeft":
     "추가할 수 있는 사람이나 팀이 없습니다. 활성 구성원과 팀이 모두 이미 관리자입니다.",
@@ -583,7 +586,10 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agentAdmins.removeSelfConsequence":
     "Removing yourself takes away your admin rights. Unless a team you are in is an admin, you can no longer change this agent or add yourself back.",
   "agentAdmins.pick": "Person or team to add as admin",
-  "agentAdmins.pickPlaceholder": "Choose a person or team",
+  "agentAdmins.pickPlaceholder": "Search by name, email or team",
+  "agentAdmins.pickLoading": "Loading people and teams…",
+  "agentAdmins.pickEmpty": "No person or team matches.",
+  "agentAdmins.pickCount": "{count} found.",
   "agentAdmins.add": "Add as admin",
   "agentAdmins.nothingLeft":
     "There is no one left to add. Every active member and team is already an admin.",
@@ -880,7 +886,10 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agentAdmins.removeSelfConsequence":
     "自分を外すと、管理者権限がなくなります。所属チームが管理者でない限り、このエージェントを変更することも、自分を再追加することもできなくなります。",
   "agentAdmins.pick": "管理者に追加する人またはチーム",
-  "agentAdmins.pickPlaceholder": "人またはチームを選択",
+  "agentAdmins.pickPlaceholder": "名前・メール・チーム名で検索",
+  "agentAdmins.pickLoading": "人とチームを読み込み中…",
+  "agentAdmins.pickEmpty": "一致する人やチームはいません。",
+  "agentAdmins.pickCount": "{count}件見つかりました。",
   "agentAdmins.add": "管理者に追加",
   "agentAdmins.nothingLeft":
     "追加できる人やチームがいません。有効なメンバーとチームはすべて管理者です。",

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 /** The API's own bound on `q`; the box takes no more. */
 export const SEARCH_MAX = 200;
-const SEARCH_SETTLE_MS = 300;
+export const SEARCH_SETTLE_MS = 300;
 
 /**
  * What the search box sends: trimmed, once typing pauses, and nothing for

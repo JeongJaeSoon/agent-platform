@@ -16,7 +16,12 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
-import { findPgError, lockPeople, receiptActorOf } from "./control-shared.ts";
+import {
+  containsPattern,
+  findPgError,
+  lockPeople,
+  receiptActorOf,
+} from "./control-shared.ts";
 import {
   decodeTeamCursor,
   encodeTeamCursor,
@@ -353,6 +358,9 @@ export function createPostgresTeamStore(db: Database): TeamStore {
           and(
             eq(memberTeams.workspaceId, workspaceId),
             isNull(memberTeams.archivedAt),
+            query.q === undefined
+              ? undefined
+              : sql`${memberTeams.name} ILIKE ${containsPattern(query.q)}`,
             after(cursor),
           ),
         )

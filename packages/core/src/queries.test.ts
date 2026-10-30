@@ -34,6 +34,8 @@ test("query keys", () => {
     ...queries.queryKeys,
     ...keys,
     memberPages: keys.memberPages("kim"),
+    memberSummaries: keys.memberSummaries(["id-2", "id-1"]),
+    teamPages: keys.teamPages("ops"),
     agentPages: keys.agentPages("notes"),
     agentSummaries: keys.agentSummaries(["id-2", "id-1"]),
     agent: keys.agent("id-1"),
@@ -77,7 +79,7 @@ test("query options and the request each query makes", async () => {
     (entry): entry is [string, (client: ApiClient, id: string) => object] =>
       typeof entry[1] === "function" && entry[0].endsWith("Query"),
   );
-  expect(factories.length).toBe(30);
+  expect(factories.length).toBe(32);
   const out: Record<string, unknown> = {};
   for (const [name, factory] of factories.sort(([a], [b]) =>
     a.localeCompare(b),
@@ -244,6 +246,59 @@ test("an agent page asks for one page with summaries, the search going with it, 
   expect(named.queryKey).toEqual(
     queries.agentSummariesQuery(client, ["id-1", "id-2"]).queryKey,
   );
+});
+
+test("named members are read 100 at a time and handed back as one list", async () => {
+  const ids = Array.from(
+    { length: 150 },
+    (_, n) => `00000000-0000-4000-8000-${n.toString().padStart(12, "0")}`,
+  );
+  const calls: string[] = [];
+  const client = scoped({
+    GET: (_path: string, init: { params: { query: { user_ids: string } } }) => {
+      const asked = init.params.query.user_ids.split(",");
+      calls.push(`${asked.length}`);
+      return Promise.resolve({
+        data: {
+          items: asked.map((user_id) => ({ user_id })),
+          next_cursor: null,
+          assignable_roles: ["member"],
+        },
+        response: new Response(null),
+      });
+    },
+  });
+  // Given twice and out of order: asked once each, in order.
+  const named = queries.memberSummariesQuery(client, [
+    ...[...ids].reverse(),
+    ids[0] as string,
+  ]);
+  const read = (await named.queryFn(
+    {} as Parameters<typeof named.queryFn>[0],
+  )) as { items: { user_id: string }[]; next_cursor: null };
+  expect(calls).toEqual(["100", "50"]);
+  expect(read.items.map((member) => member.user_id)).toEqual(ids);
+  expect(read.next_cursor).toBeNull();
+  // Under "members", so every member change refreshes it.
+  expect((named.queryKey as readonly unknown[]).slice(0, 2)).toEqual([
+    SCOPE,
+    "members",
+  ]);
+});
+
+test("a team page asks for one page, the search going with it", async () => {
+  const { client, calls } = recordingClient();
+  const found = queries.teamPagesQuery(client, "ops");
+  await found.queryFn({
+    pageParam: "cursor-2",
+  } as Parameters<typeof found.queryFn>[0]);
+  expect(calls).toEqual([
+    ["/v1/teams", { params: { query: { q: "ops", cursor: "cursor-2" } } }],
+  ]);
+  expect((found.queryKey as readonly unknown[]).slice(0, 2)).toEqual([
+    SCOPE,
+    "teams",
+  ]);
 });
 
 test("the agent lists filter takes every list, page, count and summary but no agent's detail", () => {

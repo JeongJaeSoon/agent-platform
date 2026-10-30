@@ -2601,7 +2601,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Members of the workspace, oldest first",
     description:
-      "Lists the workspace's members, disabled ones included, oldest membership first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `q` keeps the members whose display name or email contains it, ignoring case. Each row's `actions` says, for the caller as the list was read, whether each role change, disable and enable would be accepted, and if not, why: the reason is the lower-cased error code the write answers with, or `unchanged` when it would answer 200 and change nothing. The write checks again when it runs. A client that validates responses strictly needs this version's schema to read the field.",
+      "Lists the workspace's members, disabled ones included, oldest membership first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `q` keeps the members whose display name or email contains it, ignoring case. `user_ids` (comma-separated, at most 100) keeps the members among those users, as one page of a screen that already holds the ids and needs their names or roles. Each row's `actions` says, for the caller as the list was read, whether each role change, disable and enable would be accepted, and if not, why: the reason is the lower-cased error code the write answers with, or `unchanged` when it would answer 200 and change nothing. The write checks again when it runs. A client that validates responses strictly needs this version's schema to read the field.",
     auth: "session",
     query: "ListMembersQuery",
     success: { status: 200, schema: "ListMembersResponse" },
@@ -3441,7 +3441,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "listTeams",
     tag: "Teams",
     summary: "The workspace's teams, by name",
-    description: `Owners and admins. Archived teams are left out. ${TEAM_PAGES}`,
+    description: `Owners and admins. Archived teams are left out. \`q\` keeps the teams whose name contains it, ignoring case. ${TEAM_PAGES}`,
     auth: "session",
     query: "ListTeamsQuery",
     success: { status: 200, schema: "ListTeamsResponse" },

@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
 import type {
@@ -35,10 +40,11 @@ import {
 import { ArrowLeft, ChevronRight, X } from "lucide-react";
 import { type FormEvent, type ReactNode, useId, useRef, useState } from "react";
 import {
-  membersQuery,
+  memberPagesQuery,
+  memberSummariesQuery,
   queryKeysOf,
+  teamPagesQuery,
   teamQuery,
-  teamsQuery,
 } from "../api/queries.ts";
 import {
   refusalText,
@@ -55,8 +61,13 @@ import {
   SECTION_TITLE,
 } from "../components/my-teams.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
+import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { OPENS_ROW, ROW_LINK } from "../components/row-link.ts";
-import { SEARCH_MAX } from "../components/search-term.ts";
+import {
+  SEARCH_MAX,
+  SEARCH_SETTLE_MS,
+  useSearchTerm,
+} from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { SettingsCard } from "./workspace-settings.tsx";
@@ -116,7 +127,18 @@ export function TeamsScreen() {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const manages = useHasPermission("team.manage");
-  const teams = useQuery({ ...teamsQuery(client), enabled: manages });
+  const [query, setQuery] = useState("");
+  const q = useSearchTerm(query);
+  const teams = useInfiniteQuery({
+    ...teamPagesQuery(client, q),
+    enabled: manages,
+  });
+  const items = teams.data?.pages.flatMap((page) => page.items) ?? [];
+  const search = useRef<HTMLInputElement>(null);
+  const clear = () => {
+    setQuery("");
+    search.current?.focus();
+  };
   const titleId = useId();
 
   if (!manages) {
@@ -134,37 +156,62 @@ export function TeamsScreen() {
         <h2 id={titleId} className={SECTION_TITLE}>
           {t("teams.listTitle")}
         </h2>
+        {isApiError(teams.error, "FORBIDDEN") ? null : (
+          <div className="flex">
+            <SearchInput
+              ref={search}
+              type="search"
+              aria-label={t("teams.listSearch")}
+              placeholder={t("teams.listSearch")}
+              maxLength={SEARCH_MAX}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </div>
+        )}
         {teams.isPending ? (
           <StatusScreen kind="loading" />
-        ) : teams.error ? (
+        ) : teams.error && items.length === 0 ? (
           <ListError error={teams.error} onRetry={() => void teams.refetch()} />
-        ) : teams.data.items.length === 0 ? (
+        ) : items.length === 0 && q !== undefined ? (
+          <EmptyState
+            title={t("teams.listNoMatch")}
+            action={
+              <Button type="button" variant="outline" size="sm" onClick={clear}>
+                {t("members.clearSearch")}
+              </Button>
+            }
+          />
+        ) : items.length === 0 ? (
           <EmptyState title={t("teams.empty")} />
         ) : (
-          <RowList>
-            {teams.data.items.map((team) => (
-              <RowListItem key={team.id} className={OPENS_ROW}>
-                <TextLink
-                  asChild
-                  className={`${ROW_LINK} [overflow-wrap:anywhere]`}
-                >
-                  <Link
-                    to="/members/teams/$teamId"
-                    params={{ teamId: team.id }}
+          <>
+            <RowList>
+              {items.map((team) => (
+                <RowListItem key={team.id} className={OPENS_ROW}>
+                  <TextLink
+                    asChild
+                    className={`${ROW_LINK} [overflow-wrap:anywhere]`}
                   >
-                    {team.name}
-                  </Link>
-                </TextLink>
-                <span className={`${SECONDARY} ml-auto`}>
-                  {t("teams.memberCount", { count: team.member_count })}
-                </span>
-                <ChevronRight
-                  aria-hidden="true"
-                  className="size-4 shrink-0 text-subtle-foreground"
-                />
-              </RowListItem>
-            ))}
-          </RowList>
+                    <Link
+                      to="/members/teams/$teamId"
+                      params={{ teamId: team.id }}
+                    >
+                      {team.name}
+                    </Link>
+                  </TextLink>
+                  <span className={`${SECONDARY} ml-auto`}>
+                    {t("teams.memberCount", { count: team.member_count })}
+                  </span>
+                  <ChevronRight
+                    aria-hidden="true"
+                    className="size-4 shrink-0 text-subtle-foreground"
+                  />
+                </RowListItem>
+              ))}
+            </RowList>
+            <PagedListFooter list={teams} />
+          </>
         )}
       </section>
       {isApiError(teams.error, "FORBIDDEN") ? <MyTeams showEmpty /> : null}
@@ -391,9 +438,15 @@ function TeamMembers({
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   const role = useRole();
-  // Managers read every member with the page: the table's roles and the
-  // picker's people both come from it. A team's own members never ask.
-  const members = useQuery({ ...membersQuery(client), enabled: manages });
+  // Managers read the roles of this team's people only; the picker searches
+  // the workspace on its own. A team's own members never ask.
+  const members = useQuery({
+    ...memberSummariesQuery(
+      client,
+      team.members.map((member) => member.user_id),
+    ),
+    enabled: manages && team.members.length > 0,
+  });
   const [removing, setRemoving] = useState<TeamMember | null>(null);
   const [query, setQuery] = useState("");
   const search = useRef<HTMLInputElement>(null);
@@ -463,9 +516,7 @@ function TeamMembers({
       }
       {...(manages && { description: t("teams.addHint") })}
     >
-      {manages && (
-        <AddMembers team={team} members={members} onOutcome={onOutcome} />
-      )}
+      {manages && <AddMembers team={team} onOutcome={onOutcome} />}
       {team.members.length === 0 ? (
         <EmptyState title={t("teams.noMembers")} />
       ) : (
@@ -640,16 +691,9 @@ type AddResult = {
  */
 function AddMembers({
   team,
-  members,
   onOutcome,
 }: {
   readonly team: TeamDetail;
-  readonly members: {
-    readonly data?: { readonly items: readonly MemberView[] } | undefined;
-    readonly error: unknown;
-    readonly isPending: boolean;
-    readonly isSuccess: boolean;
-  };
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t } = useI18n();
@@ -658,6 +702,12 @@ function AddMembers({
   const role = useRole();
   const [picked, setPicked] = useState<readonly MemberView[]>([]);
   const pickerId = useId();
+  // The picker asks the server, a page at a time, as typing pauses.
+  const [term, setTerm] = useState("");
+  const members = useInfiniteQuery(
+    memberPagesQuery(client, term.trim() || undefined),
+  );
+  const found = members.data?.pages.flatMap((page) => page.items);
 
   const add = useMutation<AddResult, never, readonly MemberView[]>({
     mutationFn: async (people) => {
@@ -712,14 +762,19 @@ function AddMembers({
   ]);
   // Only active people can be added; a disabled membership is refused.
   const candidates =
-    members.data?.items.filter(
+    found?.filter(
       (member) => member.disabled_at === null && !taken.has(member.user_id),
     ) ?? [];
   const reason = members.error
     ? refusalText(t, members.error as ApiError, "member.manage", role)
     : undefined;
-  const nothingLeft =
-    members.isSuccess && candidates.length === 0 && picked.length === 0;
+  // Only an unsearched, fully read list proves nobody is left to add.
+  const noneLeft =
+    members.isSuccess &&
+    term.trim() === "" &&
+    !members.hasNextPage &&
+    candidates.length === 0;
+  const nothingLeft = noneLeft && picked.length === 0;
 
   return (
     <form
@@ -742,6 +797,12 @@ function AddMembers({
           }))}
           value={null}
           clearOnSelect={true}
+          maxLength={SEARCH_MAX}
+          filter="none"
+          onQueryChange={setTerm}
+          debounceMs={SEARCH_SETTLE_MS}
+          hasMore={members.hasNextPage}
+          onLoadMore={() => void members.fetchNextPage()}
           onValueChange={(value) => {
             const member = candidates.find((m) => m.user_id === value);
             if (member) setPicked((list) => [...list, member]);
@@ -749,11 +810,7 @@ function AddMembers({
           placeholder={t("teams.pickPlaceholder")}
           loading={members.isPending}
           loadingMessage={t("teams.pickLoading")}
-          emptyMessage={t(
-            members.isSuccess && candidates.length === 0
-              ? "teams.noCandidates"
-              : "teams.pickEmpty",
-          )}
+          emptyMessage={t(noneLeft ? "teams.noCandidates" : "teams.pickEmpty")}
           resultCountMessage={(count) => t("teams.pickCount", { count })}
         />
         <ReasonButton
