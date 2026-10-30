@@ -55,6 +55,75 @@ function readRuntime(name: string, value: string): ImageRuntime {
   }
 }
 
+/**
+ * What a session's checkpoint pointer says it must resume under. `none`: no
+ * checkpoint to restore. `unrecorded`: a pointer committed before the
+ * combination was stored, which a restore still judges on its own.
+ * `recorded`: the combination of the image that sealed it; its profile digest
+ * is judged at restore, not here.
+ */
+export type PointerRuntime =
+  | { readonly kind: "none" }
+  | { readonly kind: "unrecorded" }
+  | { readonly kind: "recorded"; readonly runtime: ImageRuntime };
+
+export type WorkerImageCandidate<I> = {
+  readonly image: I;
+  readonly runtime: ImageRuntime;
+};
+
+export type WorkerImageSelection<I> =
+  | {
+      readonly kind: "selected";
+      readonly image: I;
+      readonly runtime: ImageRuntime;
+    }
+  | {
+      readonly kind: "none";
+      readonly reason: "incompatible_checkpoint";
+      readonly detail: string;
+    };
+
+/**
+ * The image a session's next launch runs on. `images` is newest first, so of
+ * two that share a combination (a rebuild with only OS fixes) the newer one
+ * wins. A session with nothing recorded runs on the newest. The one judgment
+ * the scheduler and the upgrade pre-check share.
+ */
+export function selectWorkerImage<I>(
+  pointer: PointerRuntime,
+  images: readonly [WorkerImageCandidate<I>, ...WorkerImageCandidate<I>[]],
+): WorkerImageSelection<I> {
+  if (pointer.kind !== "recorded") {
+    const [newest] = images;
+    return { kind: "selected", image: newest.image, runtime: newest.runtime };
+  }
+  const match = images.find((candidate) =>
+    sameCombination(candidate.runtime, pointer.runtime),
+  );
+  if (match !== undefined) {
+    return { kind: "selected", image: match.image, runtime: match.runtime };
+  }
+  return {
+    kind: "none",
+    reason: "incompatible_checkpoint",
+    detail: `the checkpoint was sealed on ${describe(pointer.runtime)}; the configured worker images run ${images.map((candidate) => describe(candidate.runtime)).join(" and ")}`,
+  };
+}
+
+export function sameCombination(a: ImageRuntime, b: ImageRuntime): boolean {
+  return (
+    a.engine === b.engine &&
+    a.sdkVersion === b.sdkVersion &&
+    a.cliVersion === b.cliVersion &&
+    a.profileDigestScheme === b.profileDigestScheme
+  );
+}
+
+function describe(runtime: ImageRuntime): string {
+  return `${runtime.engine} sdk ${runtime.sdkVersion} cli ${runtime.cliVersion} digest scheme ${runtime.profileDigestScheme}`;
+}
+
 export function runtimeVersionsOf(
   images: WorkerImageRuntimes,
 ): RuntimeVersions {

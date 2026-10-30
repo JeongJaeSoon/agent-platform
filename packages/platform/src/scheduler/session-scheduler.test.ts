@@ -19,8 +19,10 @@ import {
   LaunchSpecMismatchError,
   launchSpecFingerprint,
 } from "../ports/execution-backend.ts";
+import type { ImageRuntime } from "@werft-ai/runtime-core";
 import type {
   ActiveExecution,
+  HoldIncompatibleInput,
   LaunchFailureInput,
   LaunchFailureOutcome,
   PendingWorkspaceReclaim,
@@ -28,6 +30,7 @@ import type {
   ReserveLaunchInput,
   SchedulerStore,
   StoredLaunchIntent,
+  WorkerImageRefusal,
   WorkspaceReclaimClaim,
 } from "../ports/scheduler-store.ts";
 import type { ExecutionIncarnation } from "../ports/worker-unit-of-work.ts";
@@ -45,6 +48,7 @@ import {
   type SchedulerLogger,
   type SchedulerRunSummary,
 } from "./session-scheduler.ts";
+import type { PointerRuntime } from "./worker-images.ts";
 
 const RESOURCES = { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 256 };
 const NONCE_TTL_MS = 10 * 60 * 1000;
@@ -80,6 +84,35 @@ class MemoryStore implements SchedulerStore {
     [];
   /** Sessions with a turn that has not ended, as a drain sees them. */
   readonly busySessions = new Set<string>();
+  readonly pointers = new Map<
+    string,
+    { pointer: PointerRuntime; checkpointRevision: number }
+  >();
+  readonly refusals: WorkerImageRefusal[] = [];
+  /** Sessions stopped before launch, with the detail they were held on. */
+  readonly held = new Map<string, string>();
+  /** The runtime each reservation assumed, by session. */
+  readonly reservedRuntimes = new Map<string, ImageRuntime | undefined>();
+
+  async pointerRuntimeOf(sessionId: string) {
+    return (
+      this.pointers.get(sessionId) ?? {
+        pointer: { kind: "none" } as const,
+        checkpointRevision: 0,
+      }
+    );
+  }
+
+  async workerImageRefusals() {
+    return [...this.refusals];
+  }
+
+  async holdIncompatibleBeforeLaunch(input: HoldIncompatibleInput) {
+    if (!this.unassigned.has(input.sessionId)) return "stale" as const;
+    this.unassigned.delete(input.sessionId);
+    this.held.set(input.sessionId, input.detail);
+    return "held" as const;
+  }
 
   private storageNow(): number {
     return Date.now() + this.clockOffsetMs;
@@ -170,6 +203,7 @@ class MemoryStore implements SchedulerStore {
     if (!this.unassigned.has(input.sessionId)) return null;
     if (this.live().some((e) => e.sessionId === input.sessionId)) return null;
     if (this.live().length >= input.slotLimit) return null;
+    this.reservedRuntimes.set(input.sessionId, input.imageRuntime);
     const generation =
       Math.max(
         0,
@@ -877,6 +911,8 @@ function harness(
   slotLimit = 10,
   options: {
     drainDeadlineMs?: number;
+    imageRuntime?: ImageRuntime;
+    previousImage?: { image: string; runtime: ImageRuntime };
     stop?: AbortSignal;
     stopDeadlineMs?: number;
     stoppedWorkspaceTtlMs?: number;
@@ -897,6 +933,12 @@ function harness(
         ? {}
         : { stoppedWorkspaceTtlMs: options.stoppedWorkspaceTtlMs }),
       ...(options.stop === undefined ? {} : { stop: options.stop }),
+      ...(options.imageRuntime === undefined
+        ? {}
+        : { imageRuntime: options.imageRuntime }),
+      ...(options.previousImage === undefined
+        ? {}
+        : { previousImage: options.previousImage }),
       ...(options.drainDeadlineMs === undefined
         ? {}
         : { drainDeadlineMs: options.drainDeadlineMs }),
@@ -908,6 +950,117 @@ function harness(
   const reclaim = () => reclaimWorkspaces({ backend, logger, store });
   return { backend, logger, reclaim, records, run, store };
 }
+
+describe("worker image per session", () => {
+  const current: ImageRuntime = {
+    engine: "claude",
+    sdkVersion: "0.3.280",
+    cliVersion: "2.1.280",
+    profileDigestScheme: 1,
+  };
+  const previous: ImageRuntime = {
+    ...current,
+    sdkVersion: "0.3.270",
+    cliVersion: "2.1.270",
+  };
+  const twoImages = {
+    imageRuntime: current,
+    previousImage: { image: "worker:previous", runtime: previous },
+  };
+  const launchedImageOf = (store: MemoryStore, sessionId: string) =>
+    [...store.executions.values()].find((e) => e.sessionId === sessionId)
+      ?.image;
+
+  test("old checkpoints resume on the previous image; new sessions, ones with no checkpoint and unrecorded pointers on the current one", async () => {
+    const { run, store } = harness(10, twoImages);
+    const [sealedOld, sealedNew, fresh, unrecorded] = store.addUnassigned(4);
+    store.pointers.set(sealedOld as string, {
+      pointer: { kind: "recorded", runtime: previous },
+      checkpointRevision: 3,
+    });
+    store.pointers.set(sealedNew as string, {
+      pointer: { kind: "recorded", runtime: current },
+      checkpointRevision: 1,
+    });
+    store.pointers.set(unrecorded as string, {
+      pointer: { kind: "unrecorded" },
+      checkpointRevision: 2,
+    });
+    const summary = await run();
+    expect(summary.launched).toHaveLength(4);
+    expect(launchedImageOf(store, sealedOld as string)).toBe(
+      "sha256:worker:previous",
+    );
+    expect(store.reservedRuntimes.get(sealedOld as string)).toEqual(previous);
+    for (const id of [sealedNew, fresh, unrecorded]) {
+      expect(launchedImageOf(store, id as string)).toBe("sha256:worker:test");
+      expect(store.reservedRuntimes.get(id as string)).toEqual(current);
+    }
+  });
+
+  test("without a previous image, a session sealed on it is stopped before launch", async () => {
+    const { backend, run, store } = harness(10, { imageRuntime: current });
+    const [sealedOld] = store.addUnassigned(1);
+    store.pointers.set(sealedOld as string, {
+      pointer: { kind: "recorded", runtime: previous },
+      checkpointRevision: 3,
+    });
+    const summary = await run();
+    expect(summary.launched).toHaveLength(0);
+    expect(summary.heldIncompatible).toEqual([sealedOld as string]);
+    expect(backend.containers.size).toBe(0);
+    expect(store.held.get(sealedOld as string)).toContain("sdk 0.3.270");
+  });
+
+  test("an image a worker refused under its configured runtime launches nothing; the other one still does", async () => {
+    const { run, store } = harness(10, twoImages);
+    store.refusals.push({ image: "sha256:worker:previous", assumed: previous });
+    const [sealedOld, fresh] = store.addUnassigned(2);
+    store.pointers.set(sealedOld as string, {
+      pointer: { kind: "recorded", runtime: previous },
+      checkpointRevision: 3,
+    });
+    const summary = await run();
+    expect(summary.imagesRefused).toEqual(["sha256:worker:previous"]);
+    expect(summary.launched).toHaveLength(1);
+    expect(launchedImageOf(store, fresh as string)).toBe("sha256:worker:test");
+    expect(launchedImageOf(store, sealedOld as string)).toBeUndefined();
+    // The session waits for the image to be fixed; it is not stopped.
+    expect(store.held.size).toBe(0);
+    expect(store.unassigned.has(sealedOld as string)).toBe(true);
+    // A refusal under another assumed runtime is not this one.
+    store.refusals.length = 0;
+    store.refusals.push({
+      image: "sha256:worker:previous",
+      assumed: { ...previous, cliVersion: "2.1.269" },
+    });
+    expect((await run()).imagesRefused).toEqual([]);
+    expect(launchedImageOf(store, sealedOld as string)).toBe(
+      "sha256:worker:previous",
+    );
+  });
+
+  test("without an image runtime every session launches on the configured image, as before", async () => {
+    const { run, store } = harness(10);
+    const [sealedOld] = store.addUnassigned(1);
+    store.pointers.set(sealedOld as string, {
+      pointer: { kind: "recorded", runtime: previous },
+      checkpointRevision: 3,
+    });
+    expect((await run()).launched).toHaveLength(1);
+    expect(store.reservedRuntimes.get(sealedOld as string)).toBeUndefined();
+  });
+
+  test("an image that cannot be pinned admits nothing", async () => {
+    const { backend, run, store } = harness(10, twoImages);
+    store.addUnassigned(1);
+    backend.failResolveImage = true;
+    const summary = await run();
+    expect(summary.imageUnresolved).toBe(true);
+    expect(summary.launched).toHaveLength(0);
+    expect(store.held.size).toBe(0);
+  });
+});
 
 describe("runScheduler", () => {
   test("never launches past the slot limit and fills freed slots later", async () => {

@@ -95,6 +95,7 @@ export function exitCodeFor(summary: SchedulerRunSummary): number {
   if (
     summary.failedLaunches.length > 0 ||
     summary.imageUnresolved ||
+    summary.imagesRefused.length > 0 ||
     summary.killFailed.length > 0 ||
     // A network that could be neither removed nor repaired is a leaked
     // address pool or a worker without egress; both need someone to look.
