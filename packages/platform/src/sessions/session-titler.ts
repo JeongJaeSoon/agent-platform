@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { SessionTitleStore } from "../ports/session-title-store.ts";
 import {
+  acceptedRuntimeVersions,
   type CatalogProfile,
   catalogProfile,
   type SessionCatalog,
@@ -133,10 +134,11 @@ export function titleProfile(
     ? catalogProfile(catalog, session.profileId)
     : undefined;
   if (!listed) return null;
-  return sessionProfile(listed, {
-    fingerprint: session.profileFingerprint,
-    model: session.model,
-  });
+  return sessionProfile(
+    listed,
+    { fingerprint: session.profileFingerprint, model: session.model },
+    acceptedRuntimeVersions(catalog),
+  );
 }
 
 function excerpt(text: string): string {

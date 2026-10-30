@@ -28,6 +28,7 @@ import {
   type CheckpointPreparation,
   DEFAULT_MAX_MANIFEST_BYTES,
   DEFAULT_MAX_MANIFEST_OBJECTS,
+  type ImageRuntime,
   MAX_TRANSCRIPT_PART_BYTES,
   ObjectIntegrityError,
   type ObjectRef,
@@ -61,9 +62,8 @@ import { captureWorkspace } from "./workspace-capture.ts";
 const claude = realRuntimeFor("claude_agent_sdk");
 const claudeCheckpointCodec = claude.checkpointCodec;
 /** The build this image runs, short of a profile. */
-const engineBuild: Omit<RuntimeFingerprint, "profileSha256"> = JSON.parse(
-  claude.imageFingerprint(),
-);
+const { profileDigestScheme: _scheme, ...engineBuild }: ImageRuntime =
+  JSON.parse(claude.imageFingerprint());
 /** What the transcript mirror a fresh plan opens does beyond `TranscriptMirror`. */
 type CapturingMirror = TranscriptMirror & {
   captureRevision(key: {

@@ -87,6 +87,7 @@ import type {
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
 import {
+  acceptedRuntimeVersions,
   allowedPair,
   type CatalogProfile,
   type CatalogRepository,
@@ -569,7 +570,7 @@ export function createWorkerGateway(deps: {
       // A row from before the pin binds to the first pair that
       // matches it: the current fingerprint and the default model.
       return profile
-        ? profilePins(profile).map((pin) => ({
+        ? profilePins(profile, acceptedRuntimeVersions(catalog)).map((pin) => ({
             profileId,
             profileFingerprint: pin.fingerprint,
             model: pin.model,
@@ -592,12 +593,14 @@ export function createWorkerGateway(deps: {
       ...Object.entries(catalog.profiles).flatMap(([profileId, profile]) =>
         repositoryModeOf(profile) === "required"
           ? []
-          : profilePins(profile).map((pin) => ({
-              profileId,
-              profileFingerprint: pin.fingerprint,
-              model: pin.model,
-              repositoryId: null,
-            })),
+          : profilePins(profile, acceptedRuntimeVersions(catalog)).map(
+              (pin) => ({
+                profileId,
+                profileFingerprint: pin.fingerprint,
+                model: pin.model,
+                repositoryId: null,
+              }),
+            ),
       ),
     ];
   }
@@ -656,24 +659,28 @@ export function createWorkerGateway(deps: {
         ...Object.entries(catalog.repositories).flatMap(
           ([repositoryId, repository]) =>
             profileAllowsRepository(catalog, id, repositoryId)
-              ? profilePins(profile).map((pin) => ({
-                  profileId: id,
-                  profileFingerprint: pin.fingerprint,
-                  model: pin.model,
-                  repositoryId,
-                  url: repository.url,
-                  branch: repository.branch,
-                }))
+              ? profilePins(profile, acceptedRuntimeVersions(catalog)).map(
+                  (pin) => ({
+                    profileId: id,
+                    profileFingerprint: pin.fingerprint,
+                    model: pin.model,
+                    repositoryId,
+                    url: repository.url,
+                    branch: repository.branch,
+                  }),
+                )
               : [],
         ),
         ...(repositoryModeOf(profile) === "required"
           ? []
-          : profilePins(profile).map((pin) => ({
-              profileId: id,
-              profileFingerprint: pin.fingerprint,
-              model: pin.model,
-              repositoryId: null,
-            }))),
+          : profilePins(profile, acceptedRuntimeVersions(catalog)).map(
+              (pin) => ({
+                profileId: id,
+                profileFingerprint: pin.fingerprint,
+                model: pin.model,
+                repositoryId: null,
+              }),
+            )),
       ]),
     ];
   }
@@ -744,7 +751,9 @@ export function createWorkerGateway(deps: {
     runtime_config: RuntimeConfig;
   } {
     const listed = profileId ? catalogProfile(catalog, profileId) : undefined;
-    const profile = listed ? sessionProfile(listed, pin) : null;
+    const profile = listed
+      ? sessionProfile(listed, pin, acceptedRuntimeVersions(catalog))
+      : null;
     if (!profile || !profileId) {
       throw new WorkerGatewayError(
         503,
@@ -793,10 +802,11 @@ export function createWorkerGateway(deps: {
       }
       const listed = catalogProfile(catalog, made.profileId);
       const profile = listed
-        ? sessionProfile(listed, {
-            fingerprint: made.profileFingerprint,
-            model: made.model,
-          })
+        ? sessionProfile(
+            listed,
+            { fingerprint: made.profileFingerprint, model: made.model },
+            acceptedRuntimeVersions(catalog),
+          )
         : null;
       return profile
         ? [runtimeConfigOf(profile, providerToken, binding.repository !== null)]
@@ -829,10 +839,11 @@ export function createWorkerGateway(deps: {
       ? catalogProfile(catalog, session.profileId)
       : undefined;
     const profile = listed
-      ? sessionProfile(listed, {
-          fingerprint: session.profileFingerprint,
-          model: session.model,
-        })
+      ? sessionProfile(
+          listed,
+          { fingerprint: session.profileFingerprint, model: session.model },
+          acceptedRuntimeVersions(catalog),
+        )
       : null;
     if (!profile) {
       throw new Error("A claimed session has no runnable profile");
@@ -1282,10 +1293,11 @@ export function createWorkerGateway(deps: {
         // at the proxy's next regrant.
         if (
           !listed ||
-          !sessionProfile(listed, {
-            fingerprint: result.binding,
-            model: result.model,
-          })
+          !sessionProfile(
+            listed,
+            { fingerprint: result.binding, model: result.model },
+            acceptedRuntimeVersions(catalog),
+          )
         ) {
           moved("session's profile");
         }

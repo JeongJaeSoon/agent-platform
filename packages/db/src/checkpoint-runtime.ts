@@ -1,5 +1,6 @@
 import type { FinalizeInput } from "@werft-ai/platform";
-import { and, eq } from "drizzle-orm";
+import { and, eq, type SQL, sql } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type { Database } from "./queries.ts";
 import { checkpoints, sessions } from "./schema.ts";
 
@@ -22,6 +23,28 @@ export function runtimeColumns(
     runtimeSdkVersion: runtime?.sdkVersion ?? null,
     runtimeCliVersion: runtime?.cliVersion ?? null,
     runtimeProfileSha256: runtime?.profileSha256 ?? null,
+  };
+}
+
+/**
+ * The session's runtime columns for a pointer update: the fingerprint goes
+ * in only while the session has none, all four together, so the first
+ * committed checkpoint that carries one decides it.
+ */
+export function sessionRuntimeOnce(
+  runtime: RuntimeFingerprint | undefined,
+): Partial<Record<keyof RuntimeColumns, SQL>> {
+  if (runtime === undefined) return {};
+  const once = (column: AnyPgColumn, value: string) =>
+    sql`CASE WHEN ${sessions.runtimeEngine} IS NULL THEN ${value} ELSE ${column} END`;
+  return {
+    runtimeEngine: once(sessions.runtimeEngine, runtime.engine),
+    runtimeSdkVersion: once(sessions.runtimeSdkVersion, runtime.sdkVersion),
+    runtimeCliVersion: once(sessions.runtimeCliVersion, runtime.cliVersion),
+    runtimeProfileSha256: once(
+      sessions.runtimeProfileSha256,
+      runtime.profileSha256,
+    ),
   };
 }
 

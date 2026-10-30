@@ -64,6 +64,7 @@ import {
   loadSecretKey,
   profileViewSources,
   readConnections,
+  runtimeVersionsFromEnv,
   SECRET_KEY_SETTING,
   type SecretReader,
   secretsManagerReader,
@@ -143,8 +144,14 @@ export function slackProfileCatalog(
   connections: Connections,
   environment: Environment,
 ) {
+  const runtimeVersions = runtimeVersionsFromEnv(environment);
   return profileCatalog(
-    sessionCatalogView(config),
+    {
+      ...sessionCatalogView(config),
+      ...(runtimeVersions === undefined
+        ? {}
+        : { runtime_versions: runtimeVersions }),
+    },
     createProfileRegistry({
       workspaces: createPostgresWorkspaceProfileStore(db),
       installations: createPostgresInstallationProfileStore(db),

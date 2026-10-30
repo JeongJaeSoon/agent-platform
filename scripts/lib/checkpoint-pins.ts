@@ -25,6 +25,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, normalize } from "node:path";
 import { MAX_RESTORE_PROFILES, type RuntimeConfig } from "@werft-ai/contracts";
 import {
+  acceptedRuntimeVersions,
   allowedRun,
   type CatalogProfile,
   runtimeConfigOf,
@@ -187,10 +188,11 @@ export function sessionClaim(
         : `profile ${session.profileId ?? "(none)"} and repository ${session.repositoryId ?? "(none)"} at the session's URL and branch are not an allowed pair in the catalog`,
     );
   }
-  const profile = sessionProfile(run.profile, {
-    fingerprint: session.profileFingerprint,
-    model: session.model,
-  });
+  const profile = sessionProfile(
+    run.profile,
+    { fingerprint: session.profileFingerprint, model: session.model },
+    acceptedRuntimeVersions(catalog),
+  );
   if (profile === null) {
     throw new Error(
       `profile ${session.profileId} has other settings in the catalog than the session was created with`,
@@ -261,7 +263,11 @@ export function earlierProfileClaims(
         ? catalog.profiles[profileId]
         : undefined;
       const profile = listed
-        ? sessionProfile(listed, { fingerprint: made, model })
+        ? sessionProfile(
+            listed,
+            { fingerprint: made, model },
+            acceptedRuntimeVersions(catalog),
+          )
         : null;
       if (!profile) return [];
       return [

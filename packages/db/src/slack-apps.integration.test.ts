@@ -26,6 +26,7 @@ import { Pool } from "pg";
 import * as schema from "./schema.ts";
 import {
   agentAdmins,
+  agentIdentities,
   agentReleases,
   agents,
   agentVersions,
@@ -33,6 +34,7 @@ import {
   secretValues,
   slackApps,
   slackConfigTokens,
+  slackInstallations,
   users,
   workspaces,
 } from "./schema.ts";
@@ -853,5 +855,101 @@ integration("Slack apps and the config token on PostgreSQL", () => {
       expect(await store().linkAppClient(await workspace())).toBeNull();
       expect(await slackAppKind(db, workspaceId, begun.app.id)).toBe("link");
     });
+  });
+
+  test("the made apps list keeps the live agent and link apps, the link app first, with each agent's install", async () => {
+    const workspaceId = await workspace();
+    const row = async (
+      kind: "agent" | "link" | "manual",
+      state: "creating" | "created" | "deleting" | "failed" | "deleted",
+      agentId: string | null = null,
+    ) => {
+      const id = randomUUID();
+      await db.insert(slackApps).values({
+        id,
+        workspaceId,
+        kind,
+        agentId,
+        state,
+        appId: state === "creating" ? null : `A${id.slice(0, 8).toUpperCase()}`,
+        clientId: state === "creating" ? null : `1.${id.slice(0, 8)}`,
+        redirectUrl: "https://example.invalid/slack/callback",
+      });
+      return id;
+    };
+    const named = async (name: string) => {
+      const id = await agent(workspaceId);
+      await db.update(agents).set({ name }).where(eq(agents.id, id));
+      return id;
+    };
+    const installed = async (agentId: string, status: "active" | "revoked") => {
+      const installationId = randomUUID();
+      await db.insert(slackInstallations).values({
+        id: installationId,
+        workspaceId,
+        appId: `A${installationId.slice(0, 8).toUpperCase()}`,
+        teamId: "T1",
+      });
+      await db.insert(agentIdentities).values({
+        id: randomUUID(),
+        workspaceId,
+        agentId,
+        provider: "slack_bot",
+        installationId,
+        externalPrincipalId: "U1",
+        credentialRef: `slack_app:${installationId}/slack_bot_token`,
+        status,
+        ...(status === "revoked" ? { revokedAt: new Date() } : {}),
+      });
+    };
+    const zed = await named("Zed");
+    const alpha = await named("Alpha");
+    const beta = await named("Beta");
+    const gone = await named("Gone");
+    const zedApp = await row("agent", "created", zed);
+    const alphaApp = await row("agent", "creating", alpha);
+    const betaApp = await row("agent", "deleting", beta);
+    await row("agent", "failed", gone);
+    await row("agent", "deleted", gone);
+    await row("manual", "created");
+    const link = await row("link", "created");
+    await installed(zed, "active");
+    await installed(beta, "revoked");
+    const other = await workspace();
+    await db.insert(slackApps).values({
+      id: randomUUID(),
+      workspaceId: other,
+      kind: "link",
+      state: "created",
+      appId: "AOTHERLINK",
+      clientId: "1.other",
+      redirectUrl: "https://example.invalid/slack/callback",
+    });
+
+    const made = await createPostgresSlackAppStore(db, key).listMade(
+      workspaceId,
+    );
+    expect(
+      made.map((entry) => [entry.app.id, entry.app.state, entry.agent]),
+    ).toEqual([
+      [link, "created", null],
+      [
+        alphaApp,
+        "creating",
+        expect.objectContaining({ id: alpha, name: "Alpha", installed: false }),
+      ],
+      [
+        betaApp,
+        "deleting",
+        expect.objectContaining({ id: beta, name: "Beta", installed: false }),
+      ],
+      [
+        zedApp,
+        "created",
+        expect.objectContaining({ id: zed, name: "Zed", installed: true }),
+      ],
+    ]);
+    expect(made[3]?.agent?.slug).toBe(`a-${zed.slice(0, 8)}`);
+    expect(made[0]?.app.secrets.slack_bot_token).toBeNull();
   });
 });

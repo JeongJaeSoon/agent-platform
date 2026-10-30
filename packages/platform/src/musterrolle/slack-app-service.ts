@@ -3,6 +3,7 @@ import type {
   CreateSlackAppResponse,
   DeleteSlackAppResponse,
   GetSlackAppResponse,
+  ListWorkspaceSlackAppsResponse,
   SlackAgentWarning,
   SlackApp,
   SlackAppSettings,
@@ -383,6 +384,26 @@ export function createSlackAppService(deps: {
       if (result === "actor_inactive") throw ACTOR_INACTIVE();
       if (result === "outranked") throw OUTRANKED();
       return settings;
+    },
+
+    async listMadeApps(
+      caller: Caller,
+      workspaceId: string,
+    ): Promise<ListWorkspaceSlackAppsResponse> {
+      if (workspaceId !== caller.ownerId) throw NOT_FOUND();
+      await requirePermitted(authorization, caller, WORKSPACE_ACTION, {
+        kind: "workspace",
+        id: workspaceId,
+      });
+      requireConsole(caller);
+      const { apps } = ready();
+      const made = await apps.listMade(workspaceId);
+      return {
+        items: made.map(({ app, agent }) => ({
+          slack_app: slackAppView(app),
+          agent,
+        })),
+      };
     },
 
     async deleteApp(

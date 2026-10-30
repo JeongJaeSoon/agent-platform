@@ -17,6 +17,7 @@ import { holdsRight, lockedRole } from "./api-keys.ts";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
+  agentIdentities,
   agentReleases,
   agents,
   agentVersions,
@@ -551,6 +552,61 @@ export function createPostgresSlackAppStore(
           ),
         );
       return row ? recordOf(db, row) : null;
+    },
+
+    async listMade(workspaceId) {
+      if (!UUID.test(workspaceId)) return [];
+      const rows = await db
+        .select({
+          app: slackApps,
+          name: agents.name,
+          slug: agents.slug,
+          installed: sql<boolean>`exists (${db
+            .select({ one: sql`1` })
+            .from(agentIdentities)
+            .where(
+              and(
+                eq(agentIdentities.workspaceId, slackApps.workspaceId),
+                eq(agentIdentities.agentId, slackApps.agentId),
+                eq(agentIdentities.provider, "slack_bot"),
+                eq(agentIdentities.status, "active"),
+              ),
+            )})`,
+        })
+        .from(slackApps)
+        .leftJoin(
+          agents,
+          and(
+            eq(agents.workspaceId, slackApps.workspaceId),
+            eq(agents.id, slackApps.agentId),
+          ),
+        )
+        .where(
+          and(
+            eq(slackApps.workspaceId, workspaceId.toLowerCase()),
+            inArray(slackApps.kind, ["agent", "link"]),
+            inArray(slackApps.state, [...LIVE_STATES]),
+          ),
+        )
+        .orderBy(
+          sql`${slackApps.kind} = 'agent'`,
+          agents.name,
+          slackApps.createdAt,
+        );
+      return Promise.all(
+        rows.map(async (row) => ({
+          app: await recordOf(db, row.app),
+          agent:
+            row.app.agentId === null || row.name === null || row.slug === null
+              ? null
+              : {
+                  id: row.app.agentId,
+                  name: row.name,
+                  slug: row.slug,
+                  installed: row.installed,
+                },
+        })),
+      );
     },
 
     linkAppClient(workspaceId) {

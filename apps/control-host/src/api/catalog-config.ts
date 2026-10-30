@@ -25,8 +25,10 @@ import {
   installationProfileSnapshot,
   ProfileFeatureGate,
   profileCatalog,
+  type RuntimeVersions,
   resolveCredential,
   resolveSessionCatalog,
+  runtimeVersionsOf,
   SecretKey,
   type SessionCatalog,
   type SessionCatalogConfig,
@@ -34,6 +36,7 @@ import {
   sessionCatalogConfigSchema,
   sessionCatalogView,
   type WorkspaceProfileStore,
+  workerImageRuntimesFromEnv,
 } from "@werft-ai/platform";
 import { installedDescriptors } from "@werft-ai/runtime-codecs";
 import { parse as parseYaml } from "yaml";
@@ -248,6 +251,14 @@ export function runtimeServes(profile: CatalogProfileConfig): boolean {
   }
 }
 
+/** The configured worker images' engine versions; undefined without them. */
+export function runtimeVersionsFromEnv(
+  env: Record<string, string | undefined>,
+): RuntimeVersions | undefined {
+  const images = workerImageRuntimesFromEnv(env);
+  return images === null ? undefined : runtimeVersionsOf(images);
+}
+
 /**
  * The catalog with every credential resolved, and what its profile snapshot
  * is built from: a provider credential is resolved from the connections
@@ -346,7 +357,9 @@ export async function databaseCatalog(options: {
   installations: Pick<InstallationProfileStore, "listAll">;
   workspaces: Pick<WorkspaceProfileStore, "listAll">;
   credential: () => string;
+  env: Record<string, string | undefined>;
 }): Promise<SessionCatalog> {
+  const runtimeVersions = runtimeVersionsFromEnv(options.env);
   const config = await readCatalogConfig(options.dir);
   const registry = createProfileRegistry({
     workspaces: options.workspaces,
@@ -368,7 +381,12 @@ export async function databaseCatalog(options: {
   });
   await registry.refresh();
   return profileCatalog(
-    resolveSessionCatalog(config, options.credential),
+    {
+      ...resolveSessionCatalog(config, options.credential),
+      ...(runtimeVersions === undefined
+        ? {}
+        : { runtime_versions: runtimeVersions }),
+    },
     registry,
   );
 }

@@ -350,6 +350,12 @@ integration("crash park on an approval-wait checkpoint", () => {
     ]);
     // The runtime verified at registration travels with the promotion.
     expect(await readPointerRuntime(db, sessionId)).toEqual(RUNTIME);
+    expect(await sessionRow(sessionId)).toMatchObject({
+      runtimeEngine: RUNTIME.engine,
+      runtimeSdkVersion: RUNTIME.sdkVersion,
+      runtimeCliVersion: RUNTIME.cliVersion,
+      runtimeProfileSha256: RUNTIME.profileSha256,
+    });
     const [stored] = await db
       .select()
       .from(approvalCheckpoints)

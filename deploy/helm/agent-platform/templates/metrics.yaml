@@ -1,0 +1,120 @@
+{{- if .Values.metrics.enabled }}
+# Reads the database only (a read-only connection) and serves GET /metrics.
+# Exactly one replica: each one reports the installation-wide totals, so a
+# second Pod would be a duplicate scrape target.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ap.fullname" . }}-metrics
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "metrics") | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "ap.selectorLabels" (dict "root" . "component" "metrics") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ap.labels" (dict "root" . "component" "metrics") | nindent 8 }}
+      {{- with .Values.metrics.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "ap.fullname" . }}-workload
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.metrics.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- include "ap.podSecurityContext" . | nindent 8 }}
+      {{- include "ap.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: metrics
+          image: {{ include "ap.image" (dict "root" . "name" "controlHost") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          args: ["bun", "run", "apps/control-host/src/main.ts", "metrics"]
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+          env:
+            {{- include "ap.secretEnv" (dict "root" . "key" "DATABASE_URL") | nindent 12 }}
+            - name: METRICS_PORT
+              value: {{ .Values.metrics.port | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+            {{- range $name, $value := .Values.config.limits }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- include "ap.extraEnv" .Values.metrics.extraEnv | nindent 12 }}
+          # /healthz answers while the process serves; /metrics reads the
+          # database, so no probe calls it.
+          readinessProbe:
+            httpGet: {path: /healthz, port: metrics}
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: {path: /healthz, port: metrics}
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.metrics.resources | nindent 12 }}
+          securityContext:
+            {{- include "ap.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            {{- include "ap.tmpMount" . | nindent 12 }}
+      volumes:
+        {{- include "ap.tmpVolume" . | nindent 8 }}
+      {{- with .Values.metrics.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.metrics.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.metrics.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ap.fullname" . }}-metrics
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "metrics") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "ap.selectorLabels" (dict "root" . "component" "metrics") | nindent 4 }}
+  ports:
+    - name: metrics
+      port: {{ .Values.metrics.port }}
+      targetPort: metrics
+{{- if .Values.networkPolicy.enabled }}
+---
+# The metrics port alone; the pod serves nothing else.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ap.fullname" . }}-metrics
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "metrics") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "ap.selectorLabels" (dict "root" . "component" "metrics") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - {protocol: TCP, port: {{ .Values.metrics.port }}}
+      {{- with .Values.networkPolicy.metrics.ingressFrom }}
+      from:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- end }}

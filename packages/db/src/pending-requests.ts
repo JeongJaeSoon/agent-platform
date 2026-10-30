@@ -121,7 +121,10 @@ export function actionablePendingWhere(sessionId: string) {
  * `askerIsLive` compares their attempt against. Read beside that row, in the
  * same statement, so its status and its count come from one snapshot.
  */
-export function actionableOfSession(db: Database) {
+export function actionableOfSession(
+  db: Database,
+  kind?: "permission" | "question",
+) {
   return db
     .select({ one: sql`1` })
     .from(pendingRequests)
@@ -131,6 +134,7 @@ export function actionableOfSession(db: Database) {
       and(
         eq(pendingRequests.sessionId, sessions.id),
         actionable(STATEMENT_NOW),
+        kind === undefined ? undefined : eq(pendingRequests.kind, kind),
       ),
     );
 }

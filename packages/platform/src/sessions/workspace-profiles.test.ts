@@ -156,6 +156,26 @@ describe("a workspace version in the catalog", () => {
     expect(catalogProfile(removed, "ws_acme_strict_v1")).toBeUndefined();
   });
 
+  test("a base whose runtime moved to the next image still holds while the version it was made on is accepted", () => {
+    const upgraded = (accepted: string[]) => ({
+      ...catalogWith([version()], {
+        coding: { ...base, runtime_version: "0.3.280" },
+      }),
+      runtime_versions: { accepted, current: ["0.3.280"] },
+    });
+    expect(
+      workspaceProfileState(upgraded(["0.3.280", "0.3.270"]), version()),
+    ).toBe("usable");
+    expect(
+      catalogProfile(upgraded(["0.3.280", "0.3.270"]), "ws_acme_strict_v1")
+        ?.runtime_version,
+    ).toBe("0.3.280");
+    expect(workspaceProfileState(upgraded(["0.3.280"]), version())).toBe(
+      "base_changed",
+    );
+    expect(workspaceProfileState(upgraded([]), version())).toBe("base_changed");
+  });
+
   test("a retired version still runs what uses it, and takes nothing new", () => {
     const retired = version({ retired_at: new Date("2026-10-28T00:00:00Z") });
     const catalog = catalogWith([retired]);

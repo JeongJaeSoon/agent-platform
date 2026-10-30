@@ -115,6 +115,7 @@ import {
   listTeamsResponseSchema,
   listTurnsQuerySchema,
   listTurnsResponseSchema,
+  listWorkspaceSlackAppsResponseSchema,
   loginMethodsResponseSchema,
   loginRequestSchema,
   loginResponseSchema,
@@ -396,6 +397,7 @@ const responseComponents = {
   SlackAppSettings: slackAppSettingsSchema,
   CreateSlackAppResponse: createSlackAppResponseSchema,
   DeleteSlackAppResponse: deleteSlackAppResponseSchema,
+  ListWorkspaceSlackAppsResponse: listWorkspaceSlackAppsResponseSchema,
   StartSlackInstallResponse: startSlackInstallResponseSchema,
   CompleteSlackInstallResponse: completeSlackInstallResponseSchema,
   SlackEventsResponse: slackEventsResponseSchema,
@@ -1575,6 +1577,39 @@ export const API_ROUTE_DECLARATIONS = [
     errors: [400, 401, 403, 404, 409, 413, 503],
     errorCodes: { 409: ["REVISION_CONFLICT"] },
     idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/workspaces/{id}/slack/apps",
+    operationId: "listWorkspaceSlackApps",
+    tag: "Workspace settings",
+    summary: "List the Slack apps this console made in the workspace",
+    description:
+      "Every agent app and the account-link app the platform made here and still keeps (`creating`, `created` or `deleting`): the link app first, then agent apps by agent name. Manual apps and ones failed, abandoned or deleted are left out. Each agent app names its agent and whether the agent's bot is installed now. Owners and admins only; API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "ListWorkspaceSlackAppsResponse",
+      description: "The made apps; secrets only as whether each is stored.",
+      example: {
+        items: [
+          {
+            slack_app: EXAMPLE_SLACK_APP,
+            agent: {
+              id: EXAMPLE_SLACK_APP.agent_id,
+              name: "Release notes",
+              slug: "release-notes",
+              installed: true,
+            },
+          },
+        ],
+      },
+    },
+    errors: [401, 403, 404, 503],
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "When the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
   },
   {
     method: "put",
