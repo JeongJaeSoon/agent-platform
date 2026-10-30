@@ -567,33 +567,45 @@ export function HomeScreen() {
   );
   // Only an active account answers for the person (contracts: a stale one
   // is ignored until relinked), so only active counts as linked.
-  const slack = accounts.data
-    ? accounts.data.items.some((account) => account.status === "active")
+  const linkOf = (provider: "github" | "slack") => {
+    const items = accounts.data?.items.filter(
+      (account) => account.provider === provider,
+    );
+    if (!items) return undefined;
+    return items.some((account) => account.status === "active")
       ? "active"
-      : accounts.data.items.some((account) => account.status === "stale")
+      : items.some((account) => account.status === "stale")
         ? "stale"
-        : "none"
-    : undefined;
-  const slackLinked = slack === undefined ? undefined : slack === "active";
+        : "none";
+  };
+  const github = linkOf("github");
+  const slack = linkOf("slack");
   const accountsCard = (
     <GlanceCard
       key="accounts"
       eyebrow={t("home.glance.accounts")}
       title={t("home.glance.accountsTitle")}
       badge={<Badge>{t("home.glance.myAccounts")}</Badge>}
-      // GitHub and Google cannot be linked yet, so only Slack can count.
+      // Google cannot be linked yet, so only GitHub and Slack can count.
       value={
-        slackLinked === undefined
+        github === undefined || slack === undefined
           ? t("home.overview.unknown")
-          : t("home.glance.ratio", { count: slackLinked ? 1 : 0, total: 3 })
+          : t("home.glance.ratio", {
+              count: [github, slack].filter((link) => link === "active").length,
+              total: 3,
+            })
       }
       note={t("home.glance.linkedNote")}
       rows={[
-        { label: "GitHub", dot: "idle", value: t("linked.soon") },
+        {
+          label: "GitHub",
+          dot: github && LINK_DOT[github],
+          value: github ? t(LINK_LABEL[github]) : t("home.overview.unknown"),
+        },
         {
           label: "Slack",
-          dot: slack && SLACK_DOT[slack],
-          value: slack ? t(SLACK_LABEL[slack]) : t("home.overview.unknown"),
+          dot: slack && LINK_DOT[slack],
+          value: slack ? t(LINK_LABEL[slack]) : t("home.overview.unknown"),
         },
         { label: "Google Workspace", dot: "idle", value: t("linked.soon") },
       ]}
@@ -1116,12 +1128,12 @@ interface GlanceRow {
   readonly dot?: StatusDotStatus | undefined;
 }
 
-const SLACK_DOT = { active: "done", stale: "wait", none: "idle" } as const;
-const SLACK_LABEL = {
+const LINK_DOT = { active: "done", stale: "wait", none: "idle" } as const;
+const LINK_LABEL = {
   active: "linked.connected",
   stale: "home.glance.relink",
   none: "linked.notLinked",
-} as const satisfies Record<keyof typeof SLACK_DOT, MessageKey>;
+} as const satisfies Record<keyof typeof LINK_DOT, MessageKey>;
 
 const SESSION_DOT = {
   queued: "idle",

@@ -71,6 +71,7 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     getRepository: unused,
     findPullRequestForBranch: unused,
     createPullRequest: unused,
+    updatePullRequestBody: unused,
     upsertComment: unused,
     dispatchWorkflow: async () => ({
       id: 42,

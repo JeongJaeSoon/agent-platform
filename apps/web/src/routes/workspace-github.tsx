@@ -50,6 +50,7 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { GitHubAccess, githubSettingsKey } from "./workspace-github-access.tsx";
+import { GitHubUserLinkSection } from "./workspace-github-user-link.tsx";
 import {
   type OnOutcome,
   SettingsCard,
@@ -139,7 +140,8 @@ function GitHubApp({
     enabled: workspaceId !== "" && canManage,
     retry: (failures, error) => !storeOff(error) && failures < 3,
   });
-  // The settings carry the App's permissions too.
+  // The settings carry the App's permissions and the user-linking client id
+  // (whose secret goes with the App), so they are read again with it.
   const refresh = () =>
     Promise.all([
       queryClient.invalidateQueries({
@@ -549,6 +551,11 @@ function GitHubApp({
                 <SettingRow title={t("github.repositoriesEmpty")} />
               )
             }
+          />
+          <GitHubUserLinkSection
+            workspaceId={workspaceId}
+            appReadAt={app.dataUpdatedAt}
+            onOutcome={onOutcome}
           />
           <DangerZone>
             <SettingRow

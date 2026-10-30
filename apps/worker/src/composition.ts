@@ -20,6 +20,7 @@ import type { WorkerConfig, WorkerTimeouts } from "./config.ts";
 import { consoleLogger } from "./console-logger.ts";
 import { EngineProcesses } from "./engine-processes.ts";
 import { HttpWorkerGatewayClient } from "./gateway-client.ts";
+import { writeGitTrailers } from "./git-trailers.ts";
 import { createWorkerObjectStore, ObjectStoreToken } from "./object-store.ts";
 import { scrubbingLogger } from "./secret-scrubber.ts";
 import { SessionCheckpoints } from "./session-checkpoints.ts";
@@ -103,6 +104,7 @@ export function createWorkerHost(
       id: config.executionId,
     },
     gateway,
+    gitTrailers: (git) => writeGitTrailers(config.runtime.home, git),
     logger,
     objectStoreAccess: objectToken,
     runtimes: overrides.runtimes ?? workerRuntimeRegistry(config, engines),

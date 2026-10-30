@@ -33,6 +33,7 @@ import {
   getSlackAppManifestResponseSchema,
   getSlackAppResponseSchema,
   getTurnResponseSchema,
+  githubLinkCallbackResponseSchema,
   githubSettingsResponseSchema,
   githubWorkflowRunSchema,
   healthResponseSchema,
@@ -72,6 +73,7 @@ import {
   pushRequestSchema,
   putAgentGitHubEnabledResponseSchema,
   putGitHubAppResponseSchema,
+  putGitHubOAuthClientSecretResponseSchema,
   putSlackBindingResponseSchema,
   putSlackConfigTokenResponseSchema,
   putSlackSecretResponseSchema,
@@ -82,6 +84,7 @@ import {
   revokeApiKeyResponseSchema,
   revokeCredentialBindingResponseSchema,
   searchSlackChannelsResponseSchema,
+  sessionGitHubAttributionSchema,
   sessionShareSchema,
   sessionUsageResponseSchema,
   setAccessResponseSchema,
@@ -91,6 +94,7 @@ import {
   slackEventsResponseSchema,
   slackGuestResponseSchema,
   slackLinkCallbackResponseSchema,
+  startGitHubLinkResponseSchema,
   startGoogleLoginResponseSchema,
   startSlackInstallResponseSchema,
   startSlackLinkResponseSchema,
@@ -142,6 +146,8 @@ export const responseSchemas = {
   "GET /v1/workspaces/{id}/github-settings": githubSettingsResponseSchema,
   "PUT /v1/workspaces/{id}/github-settings": githubSettingsResponseSchema,
   "GET /v1/workspaces/{id}/slack/apps": listWorkspaceSlackAppsResponseSchema,
+  "PUT /v1/workspaces/{id}/github-settings/oauth-client-secret":
+    putGitHubOAuthClientSecretResponseSchema,
   "DELETE /v1/workspaces/{id}/slack/apps/{app_id}":
     deleteSlackAppResponseSchema,
   "PUT /v1/workspaces/{id}/slack/apps/{app_id}/secrets/{purpose}":
@@ -201,6 +207,7 @@ export const responseSchemas = {
     githubWorkflowRunSchema,
   "POST /v1/sessions/{id}/github/workflow-runs/{run_id}/rerun":
     rerunWorkflowResponseSchema,
+  "GET /v1/sessions/{id}/github/attribution": sessionGitHubAttributionSchema,
   "POST /v1/sessions/{id}/github/pull-requests/{number}/reviews":
     submitPullRequestReviewResponseSchema,
   "GET /v1/invites": listInvitesResponseSchema,
@@ -216,6 +223,8 @@ export const responseSchemas = {
   "POST /v1/sessions/{id}/takeover": receiptAcceptedResponseSchema,
   "POST /v1/linked-accounts/slack/start": startSlackLinkResponseSchema,
   "POST /v1/linked-accounts/slack/callback": slackLinkCallbackResponseSchema,
+  "POST /v1/linked-accounts/github/start": startGitHubLinkResponseSchema,
+  "POST /v1/linked-accounts/github/callback": githubLinkCallbackResponseSchema,
   "GET /v1/linked-accounts": listLinkedAccountsResponseSchema,
   "DELETE /v1/linked-accounts/{id}": receiptAcceptedResponseSchema,
   "GET /v1/agents": listAgentsResponseSchema,

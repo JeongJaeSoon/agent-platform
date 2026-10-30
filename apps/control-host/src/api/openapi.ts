@@ -69,6 +69,8 @@ import {
   getSlackAppResponseSchema,
   getTurnResponseSchema,
   githubAppRoleParamsSchema,
+  githubLinkCallbackRequestSchema,
+  githubLinkCallbackResponseSchema,
   githubSettingsResponseSchema,
   githubWorkflowRunSchema,
   googleLoginCallbackRequestSchema,
@@ -137,6 +139,8 @@ import {
   putAgentGitHubEnabledResponseSchema,
   putGitHubAppRequestSchema,
   putGitHubAppResponseSchema,
+  putGitHubOAuthClientSecretRequestSchema,
+  putGitHubOAuthClientSecretResponseSchema,
   putGitHubSettingsRequestSchema,
   putSlackBindingRequestSchema,
   putSlackBindingResponseSchema,
@@ -160,6 +164,7 @@ import {
   searchSlackChannelsResponseSchema,
   sessionCredentialUnboundDetailsSchema,
   sessionDurabilitySchema,
+  sessionGitHubAttributionSchema,
   sessionIdParamsSchema,
   sessionOutputParamsSchema,
   sessionRepositorySchema,
@@ -183,6 +188,7 @@ import {
   slackLinkCallbackResponseSchema,
   slackSecretSummarySchema,
   sseEventSchema,
+  startGitHubLinkResponseSchema,
   startGoogleLoginResponseSchema,
   startSlackInstallResponseSchema,
   startSlackLinkResponseSchema,
@@ -274,6 +280,8 @@ const requestComponents = {
   RerunWorkflowRequest: rerunWorkflowRequestSchema,
   SubmitPullRequestReviewRequest: submitPullRequestReviewRequestSchema,
   PutGitHubSettingsRequest: putGitHubSettingsRequestSchema,
+  PutGitHubOAuthClientSecretRequest: putGitHubOAuthClientSecretRequestSchema,
+  GitHubLinkCallbackRequest: githubLinkCallbackRequestSchema,
   PutAgentGitHubEnabledRequest: putAgentGitHubEnabledRequestSchema,
   BootstrapRequest: bootstrapRequestSchema,
   LoginRequest: loginRequestSchema,
@@ -351,6 +359,10 @@ const responseComponents = {
   RerunWorkflowResponse: rerunWorkflowResponseSchema,
   SubmitPullRequestReviewResponse: submitPullRequestReviewResponseSchema,
   GitHubSettingsResponse: githubSettingsResponseSchema,
+  PutGitHubOAuthClientSecretResponse: putGitHubOAuthClientSecretResponseSchema,
+  StartGitHubLinkResponse: startGitHubLinkResponseSchema,
+  GitHubLinkCallbackResponse: githubLinkCallbackResponseSchema,
+  SessionGitHubAttribution: sessionGitHubAttributionSchema,
   AgentGitHubResponse: agentGitHubResponseSchema,
   PutAgentGitHubEnabledResponse: putAgentGitHubEnabledResponseSchema,
   AgentGitHubActivityResponse: agentGitHubActivityResponseSchema,
@@ -1484,6 +1496,12 @@ export const API_ROUTE_DECLARATIONS = [
           issues: 0,
           review: 0,
         },
+        oauth: {
+          client_id: "Iv23liExampleClientId",
+          client_secret_set: true,
+          callback_url:
+            "https://console.example.com/settings/linked-accounts/github",
+        },
         apps: {
           author: {
             permissions: {
@@ -1539,6 +1557,12 @@ export const API_ROUTE_DECLARATIONS = [
           issues: 0,
           review: 0,
         },
+        oauth: {
+          client_id: "Iv23liExampleClientId",
+          client_secret_set: true,
+          callback_url:
+            "https://console.example.com/settings/linked-accounts/github",
+        },
         apps: { author: { permissions: null }, reviewer: null },
       },
     },
@@ -1578,6 +1602,42 @@ export const API_ROUTE_DECLARATIONS = [
       BACKEND_UNAVAILABLE:
         "When the API runs without a master key (PLATFORM_SECRET_KEY).",
     },
+  },
+  {
+    method: "put",
+    path: "/v1/workspaces/{id}/github-settings/oauth-client-secret",
+    operationId: "putGitHubOAuthClientSecret",
+    tag: "Workspace settings",
+    summary:
+      "Set the author App's client secret for user linking (owner or admin)",
+    description:
+      "Stores the client secret of the workspace's author GitHub App, made in GitHub under the App's settings, so people can link their GitHub account. It is kept encrypted like the App's private key and never returned, logged or echoed; the answer carries only whether one is set. Setting it again replaces it. Registering a different App, or deleting the author App, drops it. Refused with 409 `GITHUB_LINK_NOT_CONFIGURED` (`reason_code` `no_author_app`) while the workspace has no author App. `client_id` names the App the secret was made for, as `oauth.client_id` showed it; when the author App's client id is another one by the time the secret is stored (the App was replaced meanwhile), nothing is stored and the answer is 409 `REVISION_CONFLICT` (`reason_code` `github_app_changed`). Writes a `set_github_app` receipt with the secret's last four characters. Does not change the ceiling's `revision`. API keys are refused.",
+    auth: "session",
+    body: "PutGitHubOAuthClientSecretRequest",
+    requestExample: {
+      client_id: "Iv23liExampleClientId",
+      client_secret: "<client-secret-from-github>",
+    },
+    success: {
+      status: 200,
+      schema: "PutGitHubOAuthClientSecretResponse",
+      description: "Stored; the receipt and the user-linking state.",
+      example: {
+        receipt_id: EXAMPLE_RECEIPT_ID,
+        oauth: {
+          client_id: "Iv23liExampleClientId",
+          client_secret_set: true,
+          callback_url:
+            "https://console.example.com/settings/linked-accounts/github",
+        },
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["GITHUB_LINK_NOT_CONFIGURED", "REVISION_CONFLICT"] },
+    errorNotes: {
+      BACKEND_UNAVAILABLE: "Also when the API runs without a secret key.",
+    },
+    idempotent: false,
   },
   {
     method: "delete",
@@ -2632,6 +2692,23 @@ export const API_ROUTE_DECLARATIONS = [
     idempotent: false,
   },
   {
+    method: "get",
+    path: "/v1/sessions/{id}/github/attribution",
+    operationId: "getSessionGitHubAttribution",
+    tag: "GitHub work",
+    summary: "Read whose name the session's commits carry",
+    description:
+      "How the session started (`trigger`: web, Slack, a personal key, an agent key or the operator) and what its commits carry. `co_author`: the person who started it linked a GitHub account, and commits end with `Co-authored-by` naming them. `unlinked`: a person started it but has no GitHub account linked. `app_only`: nobody started it (an agent key or the operator); commits carry only the App and the `Agent-Session` trailer. Read at the time asked: linking or unlinking later changes the answer, not commits already made.",
+    scope: "read",
+    success: {
+      status: 200,
+      schema: "SessionGitHubAttribution",
+      description: "The attribution.",
+      example: { trigger: "web", attribution: "co_author", login: "octocat" },
+    },
+    errors: [401, 403, 404, 503],
+  },
+  {
     method: "post",
     path: "/v1/sessions/{id}/github/pull-requests/{number}/reviews",
     operationId: "submitPullRequestReview",
@@ -3199,6 +3276,68 @@ export const API_ROUTE_DECLARATIONS = [
         "LINK_TAKEN",
         "LINK_EXISTS",
       ],
+    },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/linked-accounts/github/start",
+    operationId: "startGitHubLink",
+    tag: "Linked accounts",
+    summary: "Start linking the caller's GitHub account",
+    description:
+      "Returns GitHub's consent URL for the workspace's author GitHub App (its user authorization, not a separate OAuth App) and sets a one-time state cookie for the callback, valid ten minutes. Refused with 409 `GITHUB_LINK_NOT_CONFIGURED` (`reason_code` `github_oauth_unset`) until an owner or admin has registered the author App, GitHub has given its client id, its client secret is set and the console has an origin to be called back on. API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "StartGitHubLinkResponse",
+      description:
+        "Where to send the browser; the state cookie is set on this answer.",
+      example: {
+        authorize_url:
+          "https://github.com/login/oauth/authorize?client_id=Iv23liExampleClientId&redirect_uri=https%3A%2F%2Fconsole.example.com%2Fsettings%2Flinked-accounts%2Fgithub&state=3q2-7wE&allow_signup=false",
+        expires_at: "2026-10-30T09:10:00Z",
+      },
+    },
+    errors: [401, 403, 409, 503],
+    errorCodes: { 409: ["GITHUB_LINK_NOT_CONFIGURED"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/linked-accounts/github/callback",
+    operationId: "githubLinkCallback",
+    tag: "Linked accounts",
+    summary: "Finish linking with the code GitHub returned",
+    description:
+      "Spends the state cookie, exchanges the code for a user token, reads `GET /user` once for the account's numeric id and login, and drops the token: nothing of it is kept. Links that account to the caller (`external_tenant` `github.com`) and writes a `link_account` receipt. From then on the commits of sessions the caller starts name them as co-author, `Co-authored-by: <login> <id+login@users.noreply.github.com>`. A spent, expired or someone else's state, or a code GitHub refuses, is 400. Refused when the GitHub account is linked to someone else (never overwritten) or the caller already linked a GitHub account. API keys are refused.",
+    auth: "session",
+    body: "GitHubLinkCallbackRequest",
+    requestExample: { code: "<code-from-github>", state: "3q2-7wE" },
+    success: {
+      status: 201,
+      schema: "GitHubLinkCallbackResponse",
+      description: "Linked; the account and the receipt.",
+      example: {
+        linked_account: {
+          id: "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d",
+          user_id: EXAMPLE_USER_ID,
+          provider: "github",
+          external_tenant: "github.com",
+          external_user_id: "583231",
+          external_tenant_name: "GitHub",
+          external_user_name: "octocat",
+          status: "active",
+          verified_at: "2026-10-30T09:01:00Z",
+          revision: 1,
+          expires_at: null,
+        },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 409, 413, 503],
+    errorCodes: {
+      409: ["GITHUB_LINK_NOT_CONFIGURED", "LINK_TAKEN", "LINK_EXISTS"],
     },
     idempotent: false,
   },

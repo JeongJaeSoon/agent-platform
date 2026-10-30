@@ -189,6 +189,21 @@ describe("app Dockerfiles", () => {
     );
   });
 
+  // writeGitTrailers fills the file the commit-msg hook reads; without the
+  // system hooksPath no session commit gets its trailers.
+  test("the worker runs every client hook through the trailer dispatcher", () => {
+    const source = basePins.worker.source;
+    expect(source).toContain(
+      "COPY --chmod=0755 apps/worker/git-hooks/werft-hook /usr/local/share/werft/git-hooks/werft-hook\n",
+    );
+    expect(source).toContain(
+      "git config --system core.hooksPath /usr/local/share/werft/git-hooks\n",
+    );
+    expect(source).toMatch(
+      /for hook in [^;]*\bcommit-msg\b[^;]*; do ln -s werft-hook "\$hook"; done/,
+    );
+  });
+
   test("only the worker carries the Agent SDK", () => {
     expect(basePins.worker.source).toContain(
       "bun run --filter @werft-ai/runtime-registry image:verify",

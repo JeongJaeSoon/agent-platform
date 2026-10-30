@@ -2,8 +2,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
 import type {
+  GitHubLinkCallbackResponse,
   LinkedAccount,
   SlackLinkCallbackResponse,
+  StartGitHubLinkResponse,
   StartSlackLinkResponse,
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
@@ -26,13 +28,17 @@ import {
   useState,
 } from "react";
 import { linkedAccountsQuery, queryKeysOf } from "../api/queries.ts";
-import { refusalText, useRole } from "../auth/guard.tsx";
+import { refusalText, useMe, useRole } from "../auth/guard.tsx";
 import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 import { useAppServices } from "../services.tsx";
+import {
+  githubSettingsQuery,
+  userLinkReady,
+} from "./workspace-github-user-link.tsx";
 
 // One row per service (console v35): 64px tall, its button as wide as a row action.
 const SERVICES =
@@ -59,6 +65,7 @@ const LINK_COPY_CODES = new Set([
   "LINK_TEAM_MISMATCH",
   "LINK_TAKEN",
   "LINK_EXISTS",
+  "GITHUB_LINK_NOT_CONFIGURED",
 ]);
 
 function linkRefusal(
@@ -96,8 +103,14 @@ export function LinkedAccountsScreen() {
   const focusedStart = useRef(false);
 
   const live =
-    accounts.data?.items.filter((account) => account.status !== "revoked") ??
-    [];
+    accounts.data?.items.filter(
+      (account) => account.status !== "revoked" && account.provider === "slack",
+    ) ?? [];
+  const githubLive =
+    accounts.data?.items.filter(
+      (account) =>
+        account.status !== "revoked" && account.provider === "github",
+    ) ?? [];
 
   useEffect(() => {
     const track = (event: Event) => {
@@ -171,8 +184,15 @@ export function LinkedAccountsScreen() {
         }),
       ),
     onMutate: () => setOutcome(null),
-    onSuccess: async () => {
-      setOutcome({ kind: "notice", text: t("linked.unlinked") });
+    onSuccess: async (_, account) => {
+      setOutcome({
+        kind: "notice",
+        text: t(
+          account.provider === "github"
+            ? "linked.github.unlinked"
+            : "linked.unlinked",
+        ),
+      });
       await queryClient.invalidateQueries({
         queryKey: queryKeysOf(client).linkedAccounts,
       });
@@ -190,10 +210,11 @@ export function LinkedAccountsScreen() {
           changes. */}
       <Notice>{notice}</Notice>
       <ul ref={listRef} className={SERVICES}>
-        <SoonService
-          mark={<GitHubMark />}
-          name="GitHub"
-          use={t("linked.use.github")}
+        <GitHubService
+          accounts={accounts.isSuccess ? githubLive : undefined}
+          unlinking={unlink.isPending ? unlink.variables?.id : undefined}
+          onUnlink={(account) => unlink.mutate(account)}
+          onOutcome={setOutcome}
         />
         <li>
           <div className={SERVICE_ROW}>
@@ -295,6 +316,128 @@ function GitHubMark() {
     >
       <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
     </svg>
+  );
+}
+
+// GitHub's address for the account whatever its email settings; the same
+// rule the server applies (contracts githubNoreplyEmail).
+const noreplyOf = (account: LinkedAccount) =>
+  `${account.external_user_id}+${account.external_user_name ?? ""}@users.noreply.github.com`;
+
+/**
+ * GitHub, linked through the workspace's author App: the commits of sessions
+ * the person starts name them as co-author. Until an owner or admin finishes
+ * user linking in the GitHub connection, the row says so and offers nothing.
+ */
+function GitHubService({
+  accounts,
+  unlinking,
+  onUnlink,
+  onOutcome,
+}: {
+  /** Undefined until the list has loaded; its failure shows under Slack. */
+  readonly accounts: readonly LinkedAccount[] | undefined;
+  readonly unlinking: string | undefined;
+  readonly onUnlink: (account: LinkedAccount) => void;
+  readonly onOutcome: (outcome: Outcome | null) => void;
+}) {
+  const { t, locale } = useI18n();
+  const { client } = useAgentPlatform();
+  const { leave } = useAppServices();
+  const role = useRole();
+  const workspaceId = useMe()?.workspace?.id ?? "";
+  const settings = useQuery(githubSettingsQuery(client, workspaceId));
+  // A failed read leaves the button: the start answers why it cannot.
+  const unset = settings.isSuccess && !userLinkReady(settings.data);
+  const start = useMutation<StartGitHubLinkResponse, ApiError>({
+    mutationFn: () => unwrap(client.POST("/v1/linked-accounts/github/start")),
+    onMutate: () => onOutcome(null),
+    onSuccess: ({ authorize_url }) => leave(authorize_url),
+    onError: (error) =>
+      onOutcome({ kind: "error", text: linkRefusal(t, error, role) }),
+  });
+  const linked = accounts !== undefined && accounts.length > 0;
+  return (
+    <li>
+      <div className={SERVICE_ROW}>
+        <ServiceMark>
+          <GitHubMark />
+        </ServiceMark>
+        <RowLines>
+          <span className="flex flex-wrap items-center gap-2">
+            <h2 className={SERVICE_NAME}>GitHub</h2>
+            {accounts !== undefined ? (
+              <Badge variant={linked ? "green" : "gray"}>
+                {t(linked ? "linked.connected" : "linked.notLinked")}
+              </Badge>
+            ) : null}
+          </span>
+          <span className={SECONDARY}>
+            {unset && !linked
+              ? t("linked.github.unset")
+              : t("linked.use.github")}
+          </span>
+        </RowLines>
+        {accounts !== undefined && !linked ? (
+          <Button
+            type="button"
+            variant="outline"
+            className={SERVICE_BUTTON}
+            aria-label={
+              start.isPending || unset ? undefined : t("linked.github.connect")
+            }
+            disabled={start.isPending || unset}
+            onClick={() => start.mutate()}
+          >
+            {start.isPending ? t("linked.github.starting") : t("linked.link")}
+          </Button>
+        ) : null}
+      </div>
+      {linked ? (
+        <ul className="m-0 list-none border-t p-0 [&>li+li]:border-t">
+          {accounts.map((account) => (
+            <RowListItem
+              key={account.id}
+              data-account={account.id}
+              className={cn(
+                SERVICE_INDENT,
+                "flex-col items-start sm:flex-row sm:items-center",
+              )}
+            >
+              <RowLines>
+                <span className={PRIMARY}>
+                  {account.external_user_name ?? account.external_user_id}
+                </span>
+                {account.external_user_name ? (
+                  <span className={SECONDARY}>
+                    {t("linked.github.coAuthor", {
+                      line: `${account.external_user_name} <${noreplyOf(account)}>`,
+                    })}
+                  </span>
+                ) : null}
+                <span className={SECONDARY}>
+                  {t("linked.verified", {
+                    at: formatTimestamp(account.verified_at, locale),
+                  })}
+                </span>
+              </RowLines>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-disabled={unlinking === account.id || undefined}
+                className="aria-disabled:opacity-50"
+                onClick={() => {
+                  if (unlinking !== account.id) onUnlink(account);
+                }}
+              >
+                {t("linked.unlink")}
+              </Button>
+            </RowListItem>
+          ))}
+        </ul>
+      ) : null}
+    </li>
   );
 }
 
@@ -429,22 +572,40 @@ export function slackLinkSearch(
  * again with the same code.
  */
 export function SlackLinkCallbackScreen() {
+  const search = useSearch({ from: "/authed/settings/linked-accounts/slack" });
+  return <LinkCallback provider="slack" {...search} />;
+}
+
+/** Where GitHub sends the browser back: `<console>/settings/linked-accounts/github`. */
+export function GitHubLinkCallbackScreen() {
+  const search = useSearch({ from: "/authed/settings/linked-accounts/github" });
+  return <LinkCallback provider="github" {...search} />;
+}
+
+function LinkCallback({
+  provider,
+  code,
+  state,
+}: SlackLinkSearch & { readonly provider: "slack" | "github" }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const role = useRole();
-  const { code, state } = useSearch({
-    from: "/authed/settings/linked-accounts/slack",
-  });
   const sent = useRef(false);
 
-  const finish = useMutation<SlackLinkCallbackResponse, ApiError>({
+  const finish = useMutation<
+    SlackLinkCallbackResponse | GitHubLinkCallbackResponse,
+    ApiError
+  >({
     mutationFn: () =>
       unwrap(
-        client.POST("/v1/linked-accounts/slack/callback", {
-          body: { code: code ?? "", state: state ?? "" },
-        }),
+        client.POST(
+          provider === "github"
+            ? "/v1/linked-accounts/github/callback"
+            : "/v1/linked-accounts/slack/callback",
+          { body: { code: code ?? "", state: state ?? "" } },
+        ),
       ),
     onSuccess: async () => {
       await queryClient.invalidateQueries({
@@ -463,7 +624,11 @@ export function SlackLinkCallbackScreen() {
 
   const failure =
     !code || !state
-      ? t("linked.cancelled")
+      ? t(
+          provider === "github"
+            ? "linked.github.cancelled"
+            : "linked.cancelled",
+        )
       : finish.error
         ? linkRefusal(t, finish.error, role)
         : null;
