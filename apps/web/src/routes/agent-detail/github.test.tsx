@@ -371,6 +371,43 @@ describe("에이전트 GitHub 탭", () => {
     expect(server.detail().agent.activation_revision).toBe(1);
   });
 
+  test("손으로 되돌린 변경은 초안을 남기지 않아, 다른 사람이 활성화한 뒤의 새 변경이 저장된다", async () => {
+    const { server, release } = await activeAgent();
+    const routes = server.routes as unknown as Record<
+      string,
+      (request: Request) => Promise<Response>
+    >;
+    const { services } = renderAt(DETAIL, routesFor(server, TAB));
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "권한" });
+    await user.click(switchNamed("push 전 사람 승인"));
+    await user.click(switchNamed("push 전 사람 승인"));
+    expect(screen.queryByText(/릴리스에 넣지 않은 변경/)).toBeNull();
+
+    server.releases.push({
+      ...release,
+      id: "rel-other",
+      label: "2026-10-11_11:00:00",
+    });
+    await routes[`POST ${PATH}/activate`]?.(
+      new Request("http://test", {
+        method: "POST",
+        body: JSON.stringify({ release_id: "rel-other", expected_revision: 0 }),
+      }),
+    );
+    await services.queryClient.invalidateQueries();
+    await screen.findByText(/2026-10-11_11:00:00 · 활성/);
+
+    await user.click(switchNamed("push 전 사람 승인"));
+    await user.click(
+      await screen.findByRole("button", { name: "새 릴리스로 저장" }),
+    );
+    await waitFor(() =>
+      expect(server.detail().agent.activation_revision).toBe(2),
+    );
+    expect(screen.queryByText(/저장하지 않았습니다/)).toBeNull();
+  });
+
   test("Actions를 끄면 허용 목록도 비워서 저장한다", async () => {
     const { server } = await activeAgent();
     const sent: Settings[] = [];

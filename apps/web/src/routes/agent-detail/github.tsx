@@ -556,8 +556,14 @@ function GitHubSettings({
     save.isPending;
   const edit = (change: (current: Settings) => Settings) => {
     if (readOnly || !settings || !base || !release) return;
+    const next = change(settings);
+    // Undone by hand: drop the draft so the tab follows the agent again.
+    if (pendingCount(base, next) === 0) {
+      setDraft(null);
+      return;
+    }
     setDraft({
-      settings: change(settings),
+      settings: next,
       from: draft?.from ?? {
         base,
         release,
