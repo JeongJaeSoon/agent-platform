@@ -38,7 +38,7 @@ system 설정은 git 설정 중 우선순위가 가장 낮아서, 세션 안에�
 
 ### worker 이미지 업그레이드와 checkpoint 호환
 
-`scripts/test-ops.sh upgrade`에서 worker 이미지가 바뀌면 새 이미지의 engine·SDK·CLI·profile digest로 각 현재 checkpoint의 restore plan을 계산한다. 네 값이 모두 같아 호환되는 세션은 승인 없이 이어지고, `INCOMPATIBLE_CHECKPOINT`인 세션만 사용자에게 알리고 정확한 목록을 승인받는다. 검사를 끝까지 돌릴 수 없거나 다른 검증 실패가 섞이면 미수거 checkpoint가 있는 세션 전부를 영향 목록으로 삼는 fail-closed 동작을 하고 로그에 남긴다. writer를 멈춘 뒤에도 같은 검사를 다시 한다. 불호환 세션에 `start_fresh`를 선택하면 이전 checkpoint의 context를 버린다. 현재는 세션별 worker 이미지 고정이 없으며, 호환될 때만 새 이미지에서 이어진다.
+`scripts/test-ops.sh upgrade`에서 worker 이미지가 바뀌면 새 이미지의 engine·SDK·CLI·profile digest로 각 현재 checkpoint의 restore plan을 계산한다. 네 값이 모두 같아 호환되는 세션은 승인 없이 이어지고, `INCOMPATIBLE_CHECKPOINT`인 세션만 사용자에게 알리고 정확한 목록을 승인받는다. 검사를 끝까지 돌릴 수 없거나 다른 검증 실패가 섞이면 미수거 checkpoint가 있는 세션 전부를 영향 목록으로 삼는 fail-closed 동작을 하고 로그에 남긴다. writer를 멈춘 뒤에도 같은 검사를 다시 한다. 불호환 세션에 `start_fresh`를 선택하면 이전 checkpoint의 context를 버린다. 현재는 세션별 worker 이미지 고정이 없으며, 호환될 때만 새 이미지에서 이어진다. 이 검사는 compose 경로에만 있다. Kubernetes(helm) 설치의 배포 순서와 변경별 세션 동작은 [kubernetes-deployment.md § 업그레이드와 롤백](kubernetes-deployment.md#업그레이드와-롤백)에 있다.
 
 ### worker·control-host 롤백과 incremental checkpoint
 

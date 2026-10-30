@@ -184,6 +184,23 @@ helm -n agent-platform rollback agent-platform <revision> --wait --timeout 10m
 
 롤백은 migrate hook을 돌리지 않는다(`pre-rollback`이 아니다). DB는 새 schema에 남고, 옛 빌드는 자기보다 앞선 schema에서도 ready가 된다(`/readyz`의 schema 검사는 자기 migration 목록이 적용된 목록의 앞부분과 같은지만 본다). 그래서 롤백할 수 없는 migration은 배포하지 않는다. worker 이미지를 되돌릴 때 checkpoint 호환은 [images-and-supply-chain.md § worker·control-host 롤백과 incremental checkpoint](images-and-supply-chain.md#workercontrol-host-롤백과-incremental-checkpoint)를 먼저 본다.
 
+### 배포 순서
+
+worker Pod의 이미지는 scheduler가 launch할 때 정해진다. 이미지는 격리 stamp에 들어가지 않으므로, upgrade가 `images.worker`를 바꿔도 이미 떠 있는 worker Pod는 교체되지 않고 끝날 때까지 옛 이미지로 돈다. 입력이 없는 worker도 `WORKER_IDLE_TIMEOUT_SEC`(기본 1800초) 동안 남는다. 새 이미지는 그 뒤의 launch부터 쓰인다.
+
+- worker가 보내는 protocol 필드를 더하거나 checkpoint manifest에 필드를 더하는 릴리스는 `images.controlHost`만 바꾼 upgrade를 먼저 하고, `images.worker`는 다음 upgrade에서 바꾼다. 한 번의 upgrade로는 새 worker가 옛 api보다 먼저 뜨지 않는다는 보장이 없다. 필드별 순서는 [images-and-supply-chain.md § worker protocol 필드를 걷어내는 순서](images-and-supply-chain.md#worker-protocol-필드를-걷어내는-순서)에 있다.
+- DB 변경은 [images-and-supply-chain.md § DB 스키마를 바꾸는 순서](images-and-supply-chain.md#db-스키마를-바꾸는-순서)의 확장→전환→정리를 따른다. migrate hook이 rollout보다 먼저 돌기 때문에 옛 api와 옛 worker가 새 schema 위에서 돈다.
+- 새 control-host와 직전 릴리스 worker 이미지의 조합은 CI가 아직 검사하지 않는다. 릴리스 전에 kind나 시험 설치에서 직접 확인한다. `images.controlHost`만 새 digest로, `images.worker`는 직전 릴리스 digest로 둔 values로 upgrade하고, 세션 하나가 turn 1을 끝내는지 본다. 그 세션의 worker Pod를 `kubectl delete pod`로 지운 뒤 입력을 하나 더 보내 새 Pod가 checkpoint에서 이어 turn 2를 끝내는지 본다. api 로그에 worker 요청의 400 `BAD_REQUEST`가 없어야 한다. `deploy/kind/up.sh`는 `images.worker`를 `--set`으로 덮으므로 `EXTRA_VALUES`로는 worker 이미지를 바꾸지 못한다. 직접 `helm upgrade`한다.
+
+### 바뀌는 것별로 세션이 이어지는 방법
+
+| 바뀌는 것 | 실행 중인 worker Pod | 세션이 이어지는 방법 |
+|---|---|---|
+| worker 이미지(`images.worker`) | 끝날 때까지 옛 이미지로 돈다 | 다음 launch가 새 이미지로 checkpoint를 복원한다. checkpoint의 engine·SDK·CLI·profile digest가 새 이미지와 다르면 복원이 `INCOMPATIBLE_CHECKPOINT`로 실패하고 세션은 `recovery_required`로 멈춘다([execution.md](execution.md)). 직전 이미지로 대신 이어 가는 선택은 아직 없다 |
+| 격리 설정(stamp에 든 값: egress proxy 주소, 저장 용량, worker ServiceAccount, 한도 등) | stale이 된다. claim된 Pod는 turn 경계까지 drain한 뒤 내려간다 | 새 Pod가 PostgreSQL 포인터와 S3 checkpoint에서 이어 간다. drain 기한(`MAX_TURN_SECONDS` + 5분)을 넘긴 turn은 `outcome_unknown`이 된다([execution.md § 계약이 오를 때 claim된 worker의 drain](execution.md#계약이-오를-때-claim된-worker의-drain)) |
+| 노드 교체, Kubernetes 업그레이드 | Pod가 사라진다. SIGTERM을 받으면 drain으로 release하고, 받지 못하면 heartbeat가 끊긴다 | release됐으면 바로, 아니면 lease가 끝난 뒤 reconciler가 회수하고 다음 launch가 마지막 확정 checkpoint에서 이어 간다. 그때 돌던 turn은 `outcome_unknown`이 될 수 있다 |
+| checkpoint bucket(`config.checkpoints.bucket`) | bucket이 stamp에 있어 stale로 교체된다 | 자동으로 이어지지 않는다. 옛 bucket의 객체는 새 bucket에 없다. 미수거 checkpoint 행이 있는데 새 bucket에 object version이 하나도 없으면 api가 기동하지 않는다([api-server.md](api-server.md)). 객체를 옮기고 version을 다시 고정하는 절차는 [backup-restore.md](backup-restore.md)를 따른다 |
+
 ## 단일 서버 배포 10단계와의 대응
 
 [server-deployment.md](server-deployment.md)의 단계가 Kubernetes에서 어디로 가는지다.
