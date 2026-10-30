@@ -526,7 +526,7 @@ export function createMemorySlackAppStore(input: {
         });
       return made.sort(
         (a, b) =>
-          Number(a.agent !== null) - Number(b.agent !== null) ||
+          Number(a.app.kind === "agent") - Number(b.app.kind === "agent") ||
           (a.agent?.name ?? "").localeCompare(b.agent?.name ?? "") ||
           a.app.createdAt.getTime() - b.app.createdAt.getTime(),
       );

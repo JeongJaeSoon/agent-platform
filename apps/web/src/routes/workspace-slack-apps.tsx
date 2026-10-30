@@ -53,7 +53,7 @@ export function WorkspaceSlackAppsScreen() {
   return (
     <WorkspacePage page="slack-apps">
       <SettingsCard
-        title={t("workspace.slackApps")}
+        title={t("workspace.slackAppsList")}
         description={t("workspace.slackAppsHint")}
         rows={
           !canManage ? (
@@ -102,9 +102,12 @@ function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
         </TableHeader>
         <TableBody>
           {items.map((item) => {
-            const name = item.agent
-              ? t("workspace.slackAppsAgentApp", { name: item.agent.name })
-              : t("workspace.slackAppsLinkApp");
+            const name =
+              item.slack_app.kind === "link"
+                ? t("workspace.slackAppsLinkApp")
+                : t("workspace.slackAppsAgentApp", {
+                    name: item.agent?.name ?? t("workspace.slackAppsNoAgent"),
+                  });
             return (
               <TableRow key={item.slack_app.id}>
                 <TableCell>
@@ -174,9 +177,12 @@ function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
 
 function AppState({ item }: { readonly item: MadeApp }) {
   const { t } = useI18n();
-  const { state } = item.slack_app;
+  const { state, kind, secrets } = item.slack_app;
+  const link = kind === "link";
+  // Sign in with Slack needs the client secret; an agent app needs its bot installed.
   const connected =
-    state === "created" && (item.agent === null || item.agent.installed);
+    state === "created" &&
+    (link ? secrets.slack_client_secret.configured : !!item.agent?.installed);
   return (
     <RowLines>
       {state === "creating" ? (
@@ -185,12 +191,14 @@ function AppState({ item }: { readonly item: MadeApp }) {
         <Badge variant="red">{t("workspace.slackAppsDeleting")}</Badge>
       ) : connected ? (
         <Badge variant="green">{t("workspace.slackAppsConnected")}</Badge>
+      ) : link ? (
+        <Badge>{t("workspace.slackAppsNoSecret")}</Badge>
       ) : (
         <Badge>{t("workspace.slackAppsNotInstalled")}</Badge>
       )}
       {connected ? (
         <span className="text-caption text-muted-foreground">
-          {item.agent ? `@${item.agent.slug}` : "Sign in with Slack"}
+          {link ? "Sign in with Slack" : `@${item.agent?.slug}`}
         </span>
       ) : null}
     </RowLines>

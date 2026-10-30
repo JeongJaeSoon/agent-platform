@@ -18,8 +18,9 @@ function app(
   kind: "agent" | "link",
   state: "creating" | "created" | "deleting",
   appId: string | null,
+  clientSecret = false,
 ) {
-  return {
+  const made = {
     id: crypto.randomUUID(),
     kind,
     agent_id: kind === "agent" ? AGENT_ID : null,
@@ -34,6 +35,17 @@ function app(
       slack_signing_secret: NO_SECRET,
       slack_client_secret: NO_SECRET,
       slack_bot_token: NO_SECRET,
+    },
+  };
+  const { secrets } = made;
+  return {
+    ...made,
+    secrets: {
+      ...secrets,
+      slack_client_secret: {
+        ...secrets.slack_client_secret,
+        configured: clientSecret,
+      },
     },
   };
 }
@@ -51,7 +63,10 @@ describe("자동으로 만든 앱", () => {
       [`GET ${APPS}`]: () =>
         json(200, {
           items: [
-            { slack_app: app("link", "created", "A07LINK000"), agent: null },
+            {
+              slack_app: app("link", "created", "A07LINK000", true),
+              agent: null,
+            },
             {
               slack_app: app("agent", "created", "A07PLACEHLD"),
               agent: agent(true),
@@ -71,6 +86,13 @@ describe("자동으로 만든 앱", () => {
     const table = await screen.findByRole("table");
     const rows = within(table).getAllByRole("row").slice(1);
     expect(rows).toHaveLength(4);
+    expect(
+      screen.getByRole("heading", { name: "자동으로 만든 Slack 앱" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "앱 목록" })).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "자동으로 만든 Slack 앱" }),
+    ).toBeTruthy();
 
     const link = within(rows[0] as HTMLElement);
     expect(link.getByText("계정 연결 앱")).toBeTruthy();
@@ -100,6 +122,29 @@ describe("자동으로 만든 앱", () => {
     expect(creating.getByText("앱 ID 없음")).toBeTruthy();
   });
 
+  test("연결 앱은 client secret이 있어야, 에이전트 앱은 kind로 연결됨을 판단한다", async () => {
+    harness.renderAt("/settings/workspace/slack-apps", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${APPS}`]: () =>
+        json(200, {
+          items: [
+            { slack_app: app("link", "created", "A07LINK000"), agent: null },
+            { slack_app: app("agent", "created", "A07ORPHAN1"), agent: null },
+          ],
+        }),
+    });
+
+    const table = await screen.findByRole("table");
+    const [link, orphan] = within(table).getAllByRole("row").slice(1);
+    const linkRow = within(link as HTMLElement);
+    expect(linkRow.getByText("계정 연결 앱")).toBeTruthy();
+    expect(linkRow.getByText("비밀값 없음")).toBeTruthy();
+    expect(linkRow.queryByText("연결됨")).toBeNull();
+    const orphanRow = within(orphan as HTMLElement);
+    expect(orphanRow.queryByText("계정 연결 앱")).toBeNull();
+    expect(orphanRow.getByText("설치 전")).toBeTruthy();
+  });
+
   test("만든 앱이 없으면 빈 상태를 보인다", async () => {
     harness.renderAt("/settings/workspace/slack-apps", {
       "GET /v1/auth/me": () => json(200, me()),
@@ -121,7 +166,9 @@ describe("자동으로 만든 앱", () => {
       },
     });
     expect(await screen.findByText(/워크스페이스 설정 변경/)).toBeTruthy();
-    expect(screen.queryByRole("link", { name: "자동으로 만든 앱" })).toBeNull();
+    expect(
+      screen.queryByRole("link", { name: "자동으로 만든 Slack 앱" }),
+    ).toBeNull();
     expect(calls).toEqual([]);
   });
 });
