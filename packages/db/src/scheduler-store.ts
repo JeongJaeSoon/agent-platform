@@ -17,6 +17,7 @@ import type {
   ReserveLaunchInput,
   SchedulerDemand,
   SchedulerStore,
+  SessionBudget,
   StoredLaunchIntent,
 } from "@werft-ai/platform";
 import {
@@ -40,6 +41,7 @@ import {
   notExists,
   notInArray,
   or,
+  type SQL,
   sql,
 } from "drizzle-orm";
 import {
@@ -131,6 +133,30 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  */
 function holdsSlot() {
   return isNull(workerLaunches.slotReleasedAt);
+}
+
+/**
+ * The launch queue: the `unassigned_sessions` ⋈ `sessions` rows a scheduler
+ * pass may launch, before its LIMIT. The platform metrics count the same
+ * rows, so their queue is the one the scheduler drains.
+ */
+export function awaitingLaunch(db: Database, budget: SessionBudget): SQL {
+  return and(
+    inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
+    isNull(sessions.executionRevokedAt),
+    isNull(sessions.takeoverRequiredAt),
+    // Before the LIMIT, so a backlog of spent sessions cannot crowd
+    // out the ones that can still run, nor sessions waiting out a
+    // restore backoff.
+    withinBudget(budget),
+    restoreRetryDue(),
+    notExists(
+      db
+        .select({ one: sql`1` })
+        .from(workerLaunches)
+        .where(and(eq(workerLaunches.sessionId, sessions.id), holdsSlot())),
+    ),
+  ) as SQL;
 }
 
 export function createPostgresSchedulerStore(
@@ -225,26 +251,7 @@ export function createPostgresSchedulerStore(
         .select({ sessionId: unassignedSessions.sessionId })
         .from(unassignedSessions)
         .innerJoin(sessions, eq(sessions.id, unassignedSessions.sessionId))
-        .where(
-          and(
-            inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
-            isNull(sessions.executionRevokedAt),
-            isNull(sessions.takeoverRequiredAt),
-            // Before the LIMIT, so a backlog of spent sessions cannot crowd
-            // out the ones that can still run, nor sessions waiting out a
-            // restore backoff.
-            withinBudget(budget),
-            restoreRetryDue(),
-            notExists(
-              db
-                .select({ one: sql`1` })
-                .from(workerLaunches)
-                .where(
-                  and(eq(workerLaunches.sessionId, sessions.id), holdsSlot()),
-                ),
-            ),
-          ),
-        )
+        .where(awaitingLaunch(db, budget))
         .orderBy(
           asc(unassignedSessions.signaledAt),
           asc(unassignedSessions.sessionId),

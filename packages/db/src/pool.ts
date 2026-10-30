@@ -295,9 +295,22 @@ export function createEnforcedPool(
   logger: StructuredLogger,
   name: string,
   timeouts: PoolTimeouts,
+  // Every transaction starts read only, so the database refuses a write a
+  // reader should never make.
+  { readOnly = false }: { readOnly?: boolean } = {},
 ): Pool {
+  const config = enforcedConfig(connectionString, timeouts);
   return watchIdleErrors(
-    new DeadlinePool(enforcedConfig(connectionString, timeouts)),
+    new DeadlinePool(
+      readOnly
+        ? {
+            ...config,
+            options: [config.options, "-c default_transaction_read_only=on"]
+              .filter(Boolean)
+              .join(" "),
+          }
+        : config,
+    ),
     logger,
     name,
   );

@@ -35,15 +35,26 @@ describe("control host executable", () => {
         ["worker"],
         ["API"],
         ["api", "--once"],
+        ["metrics", "--health"],
         ["scheduler", "--loop"],
         ["reconciler", "--once", "--health"],
       ]) {
         const { exitCode, stderr } = await run(args);
         expect(exitCode, args.join(" ")).toBe(2);
         expect(stderr).toContain(
-          "usage: bun run src/main.ts api | <scheduler|reconciler|slack> [--once|--health|--serve]",
+          "usage: bun run src/main.ts <api|metrics> | <scheduler|reconciler|slack> [--once|--health|--serve]",
         );
       }
+    },
+    TIMEOUT_MS,
+  );
+
+  test(
+    "metrics reads its own settings and stops on a missing database",
+    async () => {
+      const { exitCode, stderr } = await run(["metrics"]);
+      expect(exitCode).not.toBe(0);
+      expect(stderr).toContain("DATABASE_URL is required");
     },
     TIMEOUT_MS,
   );

@@ -514,6 +514,79 @@ function checkIngress(
   return errors;
 }
 
+/**
+ * The metrics workload renders only when enabled: one replica replaced with
+ * Recreate (a second would be a duplicate scrape target), a ClusterIP
+ * Service, DATABASE_URL its one Secret key, and a NetworkPolicy admitting
+ * the metrics port alone.
+ */
+function checkMetrics(
+  label: string,
+  manifests: Manifest[],
+  enabled: boolean,
+  networkPolicy: boolean,
+): string[] {
+  const errors: string[] = [];
+  const ofMetrics = (kind: string) =>
+    manifests.filter(
+      (m) =>
+        m.kind === kind &&
+        m.metadata.labels?.["app.kubernetes.io/component"] === "metrics",
+    );
+  const want = (kind: string) =>
+    !enabled ? 0 : kind === "NetworkPolicy" && !networkPolicy ? 0 : 1;
+  for (const kind of ["Deployment", "Service", "NetworkPolicy"]) {
+    const got = ofMetrics(kind).length;
+    if (got !== want(kind)) {
+      errors.push(
+        `${label}: expected ${want(kind)} metrics ${kind}, got ${got}`,
+      );
+    }
+  }
+  for (const m of ofMetrics("Deployment")) {
+    const where = `${label}: ${m.kind}/${m.metadata.name}`;
+    if (m.spec.replicas !== 1 || m.spec.strategy?.type !== "Recreate") {
+      errors.push(`${where}: not one replica replaced with Recreate`);
+    }
+    for (const c of podSpecOf(m).containers) {
+      const secrets = (c.env ?? [])
+        // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
+        .filter((v: any) => v.valueFrom?.secretKeyRef !== undefined)
+        // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
+        .map((v: any) => v.valueFrom.secretKeyRef.key as string);
+      if (JSON.stringify(secrets) !== '["DATABASE_URL"]') {
+        errors.push(
+          `${where}: container ${c.name} holds Secret keys ${JSON.stringify(secrets)}`,
+        );
+      }
+    }
+  }
+  for (const service of ofMetrics("Service")) {
+    if (service.spec.type !== "ClusterIP") {
+      errors.push(
+        `${label}: Service/${service.metadata.name} is not ClusterIP`,
+      );
+    }
+  }
+  for (const policy of ofMetrics("NetworkPolicy")) {
+    const ports = (policy.spec.ingress ?? []).flatMap(
+      // biome-ignore lint/suspicious/noExplicitAny: rendered NetworkPolicy
+      (rule: any) =>
+        // biome-ignore lint/suspicious/noExplicitAny: rendered NetworkPolicy
+        (rule.ports ?? [{}]).map((p: any) => `${p.protocol}/${p.port}`),
+    );
+    if (
+      JSON.stringify(policy.spec.policyTypes) !== '["Ingress"]' ||
+      JSON.stringify(ports) !== '["TCP/9464"]'
+    ) {
+      errors.push(
+        `${label}: NetworkPolicy/${policy.metadata.name}: ingress ${JSON.stringify(ports)} is not the metrics port alone`,
+      );
+    }
+  }
+  return errors;
+}
+
 // Renders that must fail, each with the message that says why.
 const MUST_FAIL: [string, string[], RegExp][] = [
   ["default values (no digests)", [], /digest must be sha256/],
@@ -649,6 +722,38 @@ const awsPreview = checkPreview(
 if (!awsPreview.some((error) => error.includes("preview.enabled is off"))) {
   errors.push("the aws example with preview.enabled on was not refused");
 }
+const metricsOn = render(["-f", ciDigests, "--set", "metrics.enabled=true"]);
+const metricsOnNoPolicy = render([
+  "-f",
+  ciDigests,
+  "--set",
+  "metrics.enabled=true",
+  "--set",
+  "networkPolicy.enabled=false",
+]);
+const metricsOnAws = render([
+  "-f",
+  ciDigests,
+  "-f",
+  awsExample,
+  "--set",
+  "metrics.enabled=true",
+]);
+errors.push(
+  ...check("metrics on", metricsOn, true),
+  ...check("aws example, metrics on", metricsOnAws, true),
+  ...checkObjectStoreKeys("metrics on", metricsOn, true),
+  ...checkSecretKey("metrics on", metricsOn, true),
+  ...checkMetrics("default", render(["-f", ciDigests]), false, true),
+  ...checkMetrics("metrics on", metricsOn, true, true),
+  ...checkMetrics(
+    "metrics on, no network policy",
+    metricsOnNoPolicy,
+    true,
+    false,
+  ),
+  ...checkMetrics("aws example, metrics on", metricsOnAws, true, true),
+);
 for (const [label, args, message] of MUST_FAIL) {
   const { ok, out } = helmTemplate(args);
   if (ok || !message.test(out)) {
@@ -661,5 +766,5 @@ if (errors.length > 0) {
   process.exit(1);
 }
 console.log(
-  `render-check: default and aws example renders pass, scheduler off and on, slack off, preview on; ${MUST_FAIL.length} bad inputs, an internet-facing ALB and a preview aws example refused`,
+  `render-check: default and aws example renders pass, scheduler off and on, slack off, preview on, metrics on; ${MUST_FAIL.length} bad inputs, an internet-facing ALB and a preview aws example refused`,
 );

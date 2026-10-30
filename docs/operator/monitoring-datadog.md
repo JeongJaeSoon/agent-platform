@@ -1,6 +1,6 @@
 # Datadog 감시 기준
 
-이 문서는 서버 배포에서 확인할 최소 감시 기준이다. 앱에 Datadog SDK나 OTel을 넣지 않는다. Datadog Agent가 Docker의 JSON stdout 로그, `/readyz`, 읽기 전용 PostgreSQL query, 호스트 지표를 수집한다. 정의는 [`infra/datadog/definitions`](../../infra/datadog/definitions)에만 버전 관리하며 이 저장소의 도구나 CI는 Datadog API를 호출하지 않는다.
+이 문서는 서버 배포에서 확인할 최소 감시 기준이다. Kubernetes(Helm) 설치에서 플랫폼이 내는 지표는 [metrics.md](metrics.md)에 있다. 앱에 Datadog SDK나 OTel을 넣지 않는다. Datadog Agent가 Docker의 JSON stdout 로그, `/readyz`, 읽기 전용 PostgreSQL query, 호스트 지표를 수집한다. 정의는 [`infra/datadog/definitions`](../../infra/datadog/definitions)에만 버전 관리하며 이 저장소의 도구나 CI는 Datadog API를 호출하지 않는다.
 
 모든 임계는 **서버 배포 뒤 첫 7일 동안 조정할 초기값**이다. `threshold_stage:first-week-tuning` tag가 붙은 monitor를 첫 주 데이터 없이 장기 기준으로 간주하지 않는다. 이미 채운 공백은 `없음`으로, 그 범위 밖이어서 서버 배포 뒤 우선순위를 다시 정할 항목은 `배포 뒤 판단`으로 표시한다.
 
