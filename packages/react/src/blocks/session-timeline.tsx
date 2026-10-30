@@ -16,6 +16,7 @@ import {
   eventToolCallId,
   type SessionEventFrame,
 } from "../sessions.ts";
+import { SlackMessageLink } from "./slack-message-link.tsx";
 import { useBlockText } from "./text.ts";
 
 type Translate = ReturnType<typeof useBlockText>["t"];
@@ -253,6 +254,11 @@ export function SessionTimeline({
                 .filter((part) => part !== null)
                 .join(" · ")}
               text={turn.message}
+              source={
+                turn.slack_permalink ? (
+                  <SlackMessageLink href={turn.slack_permalink} />
+                ) : null
+              }
             />
           ) : null;
         }}

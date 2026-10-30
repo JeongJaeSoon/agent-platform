@@ -418,6 +418,18 @@ export function createFakeSlackWebApi(
       return { message_ts: ts };
     },
 
+    // Slack's archive link; the fake keeps no threads, so a reply's link
+    // lacks the `thread_ts` and `cid` Slack adds.
+    "chat.getPermalink"(context) {
+      installedBot(context);
+      const { channel, message_ts } = context.params;
+      if (!channel || !message_ts) throw new SlackError("invalid_arguments");
+      return {
+        channel,
+        permalink: `https://${teamId.toLowerCase()}.slack.com/archives/${channel}/p${message_ts.replace(".", "")}`,
+      };
+    },
+
     "agents.sessions.setStatus"(context) {
       installedBot(context);
       const { channel_id, thread_ts, status } = context.params;

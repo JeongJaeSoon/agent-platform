@@ -26,6 +26,7 @@ import {
   createPostgresCredentialBindingStore,
   createPostgresInstallationProfileStore,
   createPostgresSessionLinkStore,
+  createPostgresSessionReader,
   createPostgresSlackAppStore,
   createPostgresSlackInboundEventStore,
   createPostgresSurfaceBindingStore,
@@ -963,6 +964,80 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     await drain(handle);
     expect(await sessionsOf(fixture)).toHaveLength(2);
     expect(await inboxStatuses()).toEqual(["processed", "processed"]);
+  });
+
+  test("each turn keeps the Slack message it came from and its permalink, read back on the turn and the session", async () => {
+    const fixture = await agentInSlack();
+    const { handle } = handler();
+    await deliver(fixture, mention("100.000100"));
+    await deliver(fixture, message("100.000200", { thread_ts: "100.000100" }));
+    await drain(handle);
+    const [session] = await sessionsOf(fixture);
+    const stored = await db
+      .select({ slackMessage: turns.slackMessage })
+      .from(turns)
+      .where(eq(turns.sessionId, session?.id ?? ""))
+      .orderBy(asc(turns.sequence));
+    const archive = `https://${TEAM.toLowerCase()}.slack.com/archives/${CHANNEL}`;
+    expect(stored.map((row) => row.slackMessage)).toEqual([
+      {
+        team_id: TEAM,
+        channel_id: CHANNEL,
+        ts: "100.000100",
+        thread_ts: null,
+        permalink: `${archive}/p100000100`,
+      },
+      {
+        team_id: TEAM,
+        channel_id: CHANNEL,
+        ts: "100.000200",
+        thread_ts: "100.000100",
+        // The fake knows no threads: a reply links like a root post.
+        permalink: `${archive}/p100000200`,
+      },
+    ]);
+
+    const reader = createPostgresSessionReader(db);
+    const owner = session?.ownerId ?? "";
+    const listed = await reader.listTurns(owner, session?.id ?? "", {
+      limit: 10,
+    });
+    expect(listed?.items.map((turn) => turn.slack_permalink)).toEqual([
+      `${archive}/p100000100`,
+      `${archive}/p100000200`,
+    ]);
+    expect(
+      (await reader.getSession(owner, session?.id ?? ""))?.slack_permalink,
+    ).toBe(`${archive}/p100000100`);
+  });
+
+  test("a permalink Slack refuses leaves the turn without one and opens the session all the same", async () => {
+    const fixture = await agentInSlack();
+    const { handle } = handler();
+    slack.failures.set("chat.getPermalink", "channel_not_found");
+    await deliver(fixture, mention("100.000100"));
+    await drain(handle);
+    const [session] = await sessionsOf(fixture);
+    const [turn] = await db
+      .select({ slackMessage: turns.slackMessage })
+      .from(turns)
+      .where(eq(turns.sessionId, session?.id ?? ""));
+    expect(turn?.slackMessage).toEqual({
+      team_id: TEAM,
+      channel_id: CHANNEL,
+      ts: "100.000100",
+      thread_ts: null,
+      permalink: null,
+    });
+    expect(
+      (
+        await createPostgresSessionReader(db).getSession(
+          session?.ownerId ?? "",
+          session?.id ?? "",
+        )
+      )?.slack_permalink,
+    ).toBeNull();
+    expect(await inboxStatuses()).toEqual(["processed"]);
   });
 
   test("concurrent first posts of one thread make one session", async () => {

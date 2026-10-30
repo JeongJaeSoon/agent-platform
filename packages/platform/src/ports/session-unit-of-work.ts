@@ -10,6 +10,7 @@ import type {
   Receipt,
   SessionDetail,
   SessionSummary,
+  SlackMessageRef,
   SseEvent,
   SurfaceKind,
   TurnDetail,
@@ -40,6 +41,8 @@ export type AcceptSessionInput = {
   // The surface the creating request came from, kept as the session's
   // channel; left out, the session records none.
   channel?: SurfaceKind;
+  // The Slack message the first input came from, kept on turn 1.
+  slackMessage?: SlackMessageRef;
   // As given, or derived from the message; null when neither has text.
   title?: string | null;
   // `user` when the request gave one; left out, it is `derived`.
@@ -89,6 +92,7 @@ export type AppendMessageInput = {
   limits: InputLimits;
   // Where the input came from; left out, the turn records none.
   channel?: SurfaceKind;
+  slackMessage?: SlackMessageRef;
   // The operator blocked the session's profile: only a replay of an earlier
   // acceptance goes through.
   profileBlocked?: true;

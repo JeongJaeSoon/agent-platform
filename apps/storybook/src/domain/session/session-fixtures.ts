@@ -236,6 +236,7 @@ export const SESSION: SessionSummary = {
   agent: null,
   created_by: null,
   channel: null,
+  slack_permalink: null,
   revision: 4,
   admission_state: "active",
   status: "running",
