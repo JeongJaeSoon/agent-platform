@@ -310,9 +310,13 @@ describe("GET /v1/agents", () => {
     expect(
       (await send(api, "GET", `/v1/agents?ids=${AGENT},${other}`)).status,
     ).toBe(200);
+    expect(
+      (await send(api, "GET", "/v1/agents?runtime_profile_id=coding")).status,
+    ).toBe(200);
     expect(asked).toEqual([
       { limit: 50, q: "notes" },
       { limit: 50, ids: [AGENT, other] },
+      { limit: 50, runtime_profile_id: "coding" },
     ]);
     const tooMany = Array.from({ length: 101 }, () => AGENT).join(",");
     for (const query of [
@@ -322,6 +326,8 @@ describe("GET /v1/agents", () => {
       "ids=not-an-id",
       `ids=${AGENT},`,
       `ids=${tooMany}`,
+      "runtime_profile_id=",
+      `runtime_profile_id=${"p".repeat(129)}`,
     ]) {
       const response = await send(api, "GET", `/v1/agents?${query}`);
       expect(response.status, query.slice(0, 40)).toBe(400);
@@ -411,6 +417,8 @@ describe("GET /v1/agents", () => {
       [{ limit: 50, q: "no such agent" }, 0],
       [{ limit: 50, ids: [AGENT.toUpperCase()] }, 1],
       [{ limit: 50, ids: ["1b4e28ba-2fa1-11d2-883f-0016d3cca427"] }, 0],
+      // No active release, so on no profile.
+      [{ limit: 50, runtime_profile_id: "coding" }, 0],
     ];
     for (const [query, kept] of filters) {
       const page = await service("agent").listAgents(key, query);

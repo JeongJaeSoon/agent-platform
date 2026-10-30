@@ -288,6 +288,9 @@ export function createPostgresAgentStore(db: Database): AgentStore {
                   agents.id,
                   query.ids.map((id) => id.toLowerCase()),
                 ),
+            query.runtime_profile_id === undefined
+              ? undefined
+              : sql`exists (select 1 from ${agentReleases} where ${agentReleases.id} = ${agents.activeReleaseId} and ${agentReleases.agentId} = ${agents.id} and ${agentReleases.runtimeProfileId} = ${query.runtime_profile_id})`,
             cursor
               ? sql`(${agents.createdAt}, ${agents.id}) > (${cursor.created_at}::timestamptz, ${cursor.id}::uuid)`
               : undefined,

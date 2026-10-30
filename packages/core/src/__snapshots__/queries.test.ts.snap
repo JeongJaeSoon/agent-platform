@@ -87,6 +87,16 @@ exports[`query keys 1`] = `
     },
     "agents",
   ],
+  "agentsOnProfile": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
+    "agents",
+    {
+      "profile": "coding",
+    },
+  ],
   "apiKeys": [
     {
       "actor": "user:u-1",
@@ -463,6 +473,37 @@ exports[`query options and the request each query makes 1`] = `
             "d",
             "i",
           ],
+        },
+      ],
+      "retry": false,
+    },
+  },
+  "agentsOnProfileQuery": {
+    "calls": [
+      [
+        "/v1/agents",
+        {
+          "params": {
+            "query": {
+              "include": "summary",
+              "runtime_profile_id": "id-1",
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "gcTime": 0,
+      "getNextPageParam": [Function],
+      "initialPageParam": null,
+      "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
+        "agents",
+        {
+          "profile": "id-1",
         },
       ],
       "retry": false,

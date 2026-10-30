@@ -455,6 +455,10 @@ export const listAgentsQuerySchema = paginationQuerySchema.extend({
     .meta({
       description: `Comma-separated agent ids, at most ${AGENT_IDS_MAX}: keeps those of them in the workspace, in the list's order. An id of no agent there is left out.`,
     }),
+  runtime_profile_id: z.string().min(1).max(128).optional().meta({
+    description:
+      "Keeps the agents whose active release runs on this runtime profile. An agent with no active release is left out.",
+  }),
 });
 export const listAgentsResponseSchema = pageSchema(agentListItemSchema);
 const agentCountSchema = z.number().int().nonnegative();

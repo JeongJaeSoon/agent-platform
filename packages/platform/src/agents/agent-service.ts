@@ -186,7 +186,9 @@ export function createAgentService(deps: {
         own.name.toLowerCase().includes(needle) ||
         own.slug.includes(needle)) &&
       (query.ids === undefined ||
-        query.ids.some((id) => id.toLowerCase() === own.id.toLowerCase()));
+        query.ids.some((id) => id.toLowerCase() === own.id.toLowerCase())) &&
+      (query.runtime_profile_id === undefined ||
+        detail.active_release?.runtime_profile_id === query.runtime_profile_id);
     return { items: kept ? [own] : [], next_cursor: null };
   }
 

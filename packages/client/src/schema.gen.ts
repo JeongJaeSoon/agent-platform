@@ -2622,6 +2622,8 @@ export interface components {
             q?: string;
             /** @description Comma-separated agent ids, at most 100: keeps those of them in the workspace, in the list's order. An id of no agent there is left out. */
             ids?: string;
+            /** @description Keeps the agents whose active release runs on this runtime profile. An agent with no active release is left out. */
+            runtime_profile_id?: string;
         };
         ListApiKeysQuery: {
             cursor?: string;
@@ -15684,6 +15686,7 @@ export interface operations {
                 include?: "summary";
                 q?: string;
                 ids?: string;
+                runtime_profile_id?: string;
             };
             header?: never;
             path?: never;
