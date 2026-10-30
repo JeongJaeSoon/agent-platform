@@ -4,7 +4,12 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Link, useBlocker, useRouter } from "@tanstack/react-router";
+import {
+  Link,
+  lazyRouteComponent,
+  useBlocker,
+  useRouter,
+} from "@tanstack/react-router";
 import { type ApiClient, type ApiError, unwrap } from "@werft-ai/client";
 import type {
   ActivateAgentResponse,
@@ -38,7 +43,7 @@ import {
   NativeSelectOption,
   Stepper,
 } from "@werft-ai/ui";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useWatch } from "react-hook-form";
 import type { z } from "zod";
 import {
@@ -63,10 +68,9 @@ import { Notice } from "./auth-page.tsx";
 import { ProfileOptions, pickable } from "./profile-options.tsx";
 import { StepHeading, useStepMoved } from "./step-heading.tsx";
 
-const SlackConnect = lazy(() =>
-  import("../routes/agent-detail/slack.tsx").then((module) => ({
-    default: module.SlackConnect,
-  })),
+const SlackConnect = lazyRouteComponent(
+  () => import("../routes/agent-detail/slack.tsx"),
+  "SlackConnect",
 );
 
 /**
