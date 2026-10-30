@@ -2977,6 +2977,19 @@
               }
             ]
           },
+          "slack_permalink": {
+            "default": null,
+            "description": "The Slack message that started the session, as the link Slack gave for it (`chat.getPermalink`); it opens only for someone who can read that message in Slack. Null for a session not started from Slack, one from before links were kept, or when Slack did not give a link.",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "revision": {
             "type": "integer",
             "minimum": 0,
@@ -3373,6 +3386,7 @@
           "agent",
           "created_by",
           "channel",
+          "slack_permalink",
           "revision",
           "admission_state",
           "status",
@@ -3521,6 +3535,19 @@
                   "slack",
                   "api"
                 ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "slack_permalink": {
+            "default": null,
+            "description": "The Slack message that started the session, as the link Slack gave for it (`chat.getPermalink`); it opens only for someone who can read that message in Slack. Null for a session not started from Slack, one from before links were kept, or when Slack did not give a link.",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uri"
               },
               {
                 "type": "null"
@@ -4326,6 +4353,7 @@
           "agent",
           "created_by",
           "channel",
+          "slack_permalink",
           "revision",
           "admission_state",
           "status",
@@ -4583,6 +4611,19 @@
               }
             ]
           },
+          "slack_permalink": {
+            "default": null,
+            "description": "The Slack message the instruction came from, as the link Slack gave for it (`chat.getPermalink`); it opens only for someone who can read that message in Slack. Null for an instruction not from Slack, one from before links were kept, or when Slack did not give a link.",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "terminal_reason": {
             "anyOf": [
               {
@@ -4644,6 +4685,7 @@
           "message",
           "channel",
           "created_by",
+          "slack_permalink",
           "terminal_reason",
           "checkpoint_revision",
           "created_at",
@@ -4719,6 +4761,19 @@
                   "display_name"
                 ],
                 "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "slack_permalink": {
+            "default": null,
+            "description": "The Slack message the instruction came from, as the link Slack gave for it (`chat.getPermalink`); it opens only for someone who can read that message in Slack. Null for an instruction not from Slack, one from before links were kept, or when Slack did not give a link.",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uri"
               },
               {
                 "type": "null"
@@ -4881,6 +4936,7 @@
           "message",
           "channel",
           "created_by",
+          "slack_permalink",
           "terminal_reason",
           "checkpoint_revision",
           "created_at",
@@ -22279,6 +22335,7 @@
                         "display_name": "Mina Park"
                       },
                       "channel": "web",
+                      "slack_permalink": null,
                       "revision": 7,
                       "admission_state": "active",
                       "status": "running",
@@ -22741,6 +22798,7 @@
                     "display_name": "Mina Park"
                   },
                   "channel": "web",
+                  "slack_permalink": null,
                   "revision": 7,
                   "admission_state": "active",
                   "status": "running",
@@ -23016,6 +23074,7 @@
                     "display_name": "Mina Park"
                   },
                   "channel": "web",
+                  "slack_permalink": null,
                   "revision": 7,
                   "admission_state": "active",
                   "status": "running",
@@ -26364,6 +26423,7 @@
                         "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
                         "display_name": "Mina Park"
                       },
+                      "slack_permalink": null,
                       "terminal_reason": null,
                       "checkpoint_revision": 2,
                       "created_at": "2026-10-11T08:00:00Z",
@@ -26380,6 +26440,7 @@
                         "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
                         "display_name": "Mina Park"
                       },
+                      "slack_permalink": null,
                       "terminal_reason": null,
                       "checkpoint_revision": null,
                       "created_at": "2026-10-11T08:14:00Z",
@@ -26641,6 +26702,7 @@
                     "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
                     "display_name": "Mina Park"
                   },
+                  "slack_permalink": null,
                   "terminal_reason": null,
                   "checkpoint_revision": 2,
                   "created_at": "2026-10-11T08:00:00Z",

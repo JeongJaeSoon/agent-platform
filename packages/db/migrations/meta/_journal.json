@@ -715,6 +715,13 @@
       "when": 1793297150285,
       "tag": "0192_github_apps",
       "breakpoints": true
+    },
+    {
+      "idx": 193,
+      "version": "7",
+      "when": 1793333244316,
+      "tag": "0193_turn_slack_message",
+      "breakpoints": true
     }
   ]
 }

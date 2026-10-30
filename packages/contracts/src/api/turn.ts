@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { surfaceKindSchema } from "../kollegium/surfaces.ts";
+import {
+  slackPermalinkSchema,
+  surfaceKindSchema,
+} from "../kollegium/surfaces.ts";
 import {
   attemptIdSchema,
   epochSchema,
@@ -63,6 +66,10 @@ export const turnSummarySchema = z.object({
       description:
         "Who sent the instruction: the signed-in person, the Slack user's linked account, or for an API key the person who created the key. Null when no person is recorded: an API key no person created, or a turn the platform queued itself.",
     }),
+  slack_permalink: slackPermalinkSchema.nullable().default(null).meta({
+    description:
+      "The Slack message the instruction came from, as the link Slack gave for it (`chat.getPermalink`); it opens only for someone who can read that message in Slack. Null for an instruction not from Slack, one from before links were kept, or when Slack did not give a link.",
+  }),
   terminal_reason: z.string().min(1).nullable(),
   checkpoint_revision: revisionSchema.nullable().meta({
     description:

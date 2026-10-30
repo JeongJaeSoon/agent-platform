@@ -74,6 +74,7 @@ const record: SessionDetailRecord = {
   agent: null,
   created_by: null,
   channel: null,
+  slack_permalink: null,
   revision: 7,
   admission_state: "active",
   status: "idle",

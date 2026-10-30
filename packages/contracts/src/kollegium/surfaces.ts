@@ -20,6 +20,27 @@ import {
 export const SURFACE_KIND_VALUES = ["web", "slack", "api"] as const;
 export const surfaceKindSchema = z.enum(SURFACE_KIND_VALUES);
 
+/** The link Slack gave for a message; a browser opens it, so https only. */
+export const slackPermalinkSchema = z.url({
+  protocol: /^https$/,
+  hostname: z.regexes.domain,
+});
+
+/**
+ * The Slack message an input came from. Only where it is, never its text:
+ * the permalink opens it for whoever may read it in Slack.
+ */
+export const slackMessageRefSchema = z.object({
+  team_id: z.string().min(1),
+  channel_id: z.string().min(1),
+  ts: z.string().min(1),
+  /** The thread's root when the message is a reply. */
+  thread_ts: z.string().min(1).nullable(),
+  /** Null when Slack did not answer `chat.getPermalink`. */
+  permalink: slackPermalinkSchema.nullable(),
+});
+export type SlackMessageRef = z.infer<typeof slackMessageRefSchema>;
+
 /** The kind of place inside a chat surface; drives memory visibility. */
 export const SURFACE_CHANNEL_KIND_VALUES = [
   "public_channel",

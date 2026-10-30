@@ -1148,6 +1148,7 @@ describe("session titles (94S-804)", () => {
     agent: null,
     created_by: null,
     channel: null,
+    slack_permalink: null,
     revision: 2,
     admission_state: "active",
     status: "idle",

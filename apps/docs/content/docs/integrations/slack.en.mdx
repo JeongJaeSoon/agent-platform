@@ -66,6 +66,12 @@ The words the platform writes in Slack (refusal notices, failure and waiting-for
 
 Model answers and what users type are not translated. The deployment welcome has no single reader, so it is sent in Korean.
 
+## Original Slack message link
+
+An instruction started or sent from Slack (a mention, a DM or a thread reply) keeps where that Slack message is (team, channel, `ts`, and `thread_ts` for a reply) together with the link Slack gave for it. The link comes from `chat.getPermalink`, which needs no extra scope. The web session screen shows a **View in Slack** link next to who started the session and from where in the header, and on each Slack instruction in the conversation; it opens in a new tab. Through the API, read the session's `slack_permalink` (the message that started the session) and each turn's `slack_permalink` (the message that sent that instruction).
+
+Private channels and DMs keep only the link too; no more of the message is stored (the text received as an instruction stays in the turn's `message` as before). The link opens only for people who can read that message in Slack. Sessions and instructions from before links were kept, and an instruction Slack gave no link for, read `null` and show no link.
+
 ## Register a Slack installation
 
 This is the operator's terminal path. Given a Slack app installed in a Slack workspace, register the installation with that app's bot token. A console flow that creates and installs the Slack app for you comes in a later version. The CLI asks Slack (`auth.test`, `bots.info`) for the team, the bot user, and the app, and records a confirmed (`verified`) installation. The app needs the bot scope `users:read`. Pass the token only in the `SLACK_BOT_TOKEN` environment variable. The CLI never takes the token as an argument and never prints it.

@@ -70,7 +70,7 @@ curl -sS "$API/v1/sessions?limit=5" -H "Authorization: Bearer $KEY" | jq -c '.it
 
 `relation` は見られるセッションの中をさらに絞るだけで、広げることはない。`started` は自分が始めたセッション(キーならそのキーかキーを作った人が始めたもの)、`shared` は他の人が始めて自分を名指しするか自分の属するチームを指定して共有したセッション、`administered` は自分が(直接またはチームで)管理するエージェントのセッションだ。ワークスペース全体に見える他人のセッションは `all`(既定値)にだけ出る。`q` はタイトルにその文字列を含む(大文字小文字を区別しない)か、id がその文字列で始まるセッションを探す。`agent_id` はそのエージェントのリリース(どのリリースでも)で作られたセッションだけを残す。
 
-各項目の `agent`(`id`、`name`、`release_version_no`)はセッションが結び付いたエージェントで、エージェントの release なしに作ったセッションでは `null` だ。`created_by`(`user_id`、`display_name`)はセッションを始めた人で、キーで作ったセッションではキーを作った人になる。引き継ぎの後も変わらない。引き継いだ人はそのセッションを読めるが、`started` には始めた人にだけ出る。`channel` はセッションを作ったリクエストの入口(`web`、`api`、`slack`)だ。始めた人や入口が記録からわからない古いセッションは `null` になる。
+各項目の `agent`(`id`、`name`、`release_version_no`)はセッションが結び付いたエージェントで、エージェントの release なしに作ったセッションでは `null` だ。`created_by`(`user_id`、`display_name`)はセッションを始めた人で、キーで作ったセッションではキーを作った人になる。引き継ぎの後も変わらない。引き継いだ人はそのセッションを読めるが、`started` には始めた人にだけ出る。`channel` はセッションを作ったリクエストの入口(`web`、`api`、`slack`)だ。始めた人や入口が記録からわからない古いセッションは `null` になる。`slack_permalink` は Slack で始めたセッションの最初のメッセージへのリンクだ([元の Slack メッセージへのリンク](/integrations/slack#元の-slack-メッセージへのリンク))。ほかの経路で作ったセッションとリンクを残す前のセッションは `null` になる。
 
 ```bash
 curl -sS "$API/v1/sessions/counts?relation=started" -H "Authorization: Bearer $KEY" | jq -c

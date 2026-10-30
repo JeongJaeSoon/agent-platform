@@ -25,6 +25,8 @@ const SESSION_ID = "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01";
 const OTHER_ID = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
 const THIRD_ID = "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e";
 const AT = "2026-10-11T08:14:02.000Z";
+const SLACK_PERMALINK =
+  "https://acme.slack.com/archives/C0OPS/p1793000000000100";
 // Far enough ahead that a request still takes answers.
 const LATER = "2099-01-01T00:00:00.000Z";
 /** A session list row's opener, named as the screen names it. */
@@ -1391,6 +1393,7 @@ describe("session detail", () => {
       message,
       channel,
       created_by: creator && { user_id: THIRD_ID, display_name: creator },
+      slack_permalink: channel === "slack" ? SLACK_PERMALINK : null,
       terminal_reason: null,
       checkpoint_revision: null,
       created_at: AT,
@@ -1423,6 +1426,11 @@ describe("session detail", () => {
     expect(first?.getAttribute("data-from")).toBe("user");
     expect(first?.textContent).toContain("김민아 · Slack");
     expect(first?.textContent).toContain("첫 지시");
+    const fromSlack = within(first as HTMLElement).getByRole("link", {
+      name: "Slack에서 보기 (새 탭에서 열림)",
+    });
+    expect(fromSlack.getAttribute("href")).toBe(SLACK_PERMALINK);
+    expect(fromSlack.getAttribute("target")).toBe("_blank");
     // The message stands above the turn's lines, not as one of them.
     const list = screen.getByRole("list", { name: "이벤트" });
     expect(list.querySelectorAll("li")).toHaveLength(1);
@@ -1450,6 +1458,7 @@ describe("session detail", () => {
     );
     // An API key no person created has no name to show.
     expect((await asked("2"))?.textContent).toContain("지시 · API");
+    expect((await asked("2"))?.querySelector("a")).toBeNull();
   });
 
   test("thinking ticks fold into one line and an empty message draws no card", async () => {
@@ -2563,6 +2572,7 @@ describe("세션 상세 레이아웃", () => {
           agent: { id: OTHER_ID, name: "코드 리뷰", release_version_no: 1 },
           created_by: { user_id: THIRD_ID, display_name: "Demo Owner" },
           channel: "slack",
+          slack_permalink: SLACK_PERMALINK,
         }),
     });
     const header = (
@@ -2572,6 +2582,12 @@ describe("세션 상세 레이아웃", () => {
     expect(header.textContent).toContain(
       "시작한 사람·경로: Demo Owner · Slack",
     );
+    const opened = within(header).getByRole("link", {
+      name: "Slack에서 보기 (새 탭에서 열림)",
+    });
+    expect(opened.getAttribute("href")).toBe(SLACK_PERMALINK);
+    expect(opened.getAttribute("target")).toBe("_blank");
+    expect(opened.getAttribute("rel")).toBe("noopener noreferrer");
     const info = within(
       screen.getByRole("complementary", { name: "세션 요약" }),
     ).getByRole("region", { name: "세션 정보" });
@@ -2621,6 +2637,8 @@ describe("세션 상세 레이아웃", () => {
       expect(header.textContent).toContain(`에이전트: ${agent}`);
       expect(header.textContent).toContain(`시작한 사람·경로: ${startedBy}`);
       expect(header.textContent).not.toContain("정보 없음");
+      // A session from before links were kept has none to offer.
+      expect(within(header).queryByRole("link", { name: /Slack/ })).toBeNull();
     },
   );
 

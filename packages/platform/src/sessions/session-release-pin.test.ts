@@ -664,6 +664,7 @@ function sessionOn(profileId: string): SessionDetailRecord {
     agent: null,
     created_by: null,
     channel: null,
+    slack_permalink: null,
     revision: 1,
     admission_state: "active",
     status: "idle",

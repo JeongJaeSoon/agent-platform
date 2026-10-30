@@ -27,6 +27,7 @@ import type {
   SessionCredentialUnboundDetails,
   SessionDetail,
   SessionRuntimeView,
+  SlackMessageRef,
   TerminateSessionRequest,
   TerminateSessionResponse,
   TurnDetail,
@@ -584,6 +585,7 @@ export function createSessionService(deps: {
         idempotencyKey: string;
         body: CreateSessionRequest;
         shareScope?: "private";
+        slackMessage?: SlackMessageRef;
       },
     ): Promise<CreateSessionResponse> {
       const release = await pinnedRelease(actor, input.body);
@@ -672,6 +674,9 @@ export function createSessionService(deps: {
         ...(input.shareScope === undefined
           ? {}
           : { shareScope: input.shareScope }),
+        ...(input.slackMessage === undefined
+          ? {}
+          : { slackMessage: input.slackMessage }),
         ...(input.body.permission_wait === undefined
           ? {}
           : { permissionWait: input.body.permission_wait }),
@@ -717,7 +722,11 @@ export function createSessionService(deps: {
     async appendMessage(
       actor: Caller,
       sessionId: string,
-      input: { idempotencyKey: string; body: PostSessionMessageRequest },
+      input: {
+        idempotencyKey: string;
+        body: PostSessionMessageRequest;
+        slackMessage?: SlackMessageRef;
+      },
     ): Promise<PostSessionMessageResponse> {
       await requirePermitted(authorization, actor, "session.submit", {
         kind: "session",
@@ -737,6 +746,9 @@ export function createSessionService(deps: {
         message: input.body.message,
         limits: inputLimits,
         channel: actor.subject.surface.kind,
+        ...(input.slackMessage === undefined
+          ? {}
+          : { slackMessage: input.slackMessage }),
         ...(block ? { profileBlocked: true as const } : {}),
       });
       switch (result.outcome) {

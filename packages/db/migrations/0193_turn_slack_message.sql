@@ -1,0 +1,1 @@
+ALTER TABLE "turns" ADD COLUMN "slack_message" jsonb;

@@ -1,7 +1,8 @@
-import type {
-  SlackChannel,
-  SlackUser,
-  SurfaceChannelKind,
+import {
+  type SlackChannel,
+  type SlackUser,
+  type SurfaceChannelKind,
+  slackPermalinkSchema,
 } from "@werft-ai/contracts";
 import { z } from "zod";
 
@@ -440,6 +441,11 @@ export interface SlackBotApi {
     botToken: string,
     input: { channelId: string; threadTs: string; status: string },
   ): Promise<void>;
+  /** `chat.getPermalink`, which needs no scope. */
+  permalink(
+    botToken: string,
+    input: { channelId: string; ts: string },
+  ): Promise<string>;
 }
 
 /** What the outbox sends with a bot token. */
@@ -513,6 +519,8 @@ const conversationInfoAnswer = z.object({
 const namedConversationAnswer = z.object({
   channel: z.object({ id: slackId, name: z.string().min(1).max(255) }),
 });
+
+const permalinkAnswer = z.object({ permalink: slackPermalinkSchema });
 
 const listChannelsAnswer = z.object({
   channels: z.array(
@@ -642,6 +650,21 @@ export function createSlackBotApi(
         },
         z.object({}),
       );
+    },
+
+    async permalink(botToken, input) {
+      const answer = await call(
+        "chat.getPermalink",
+        {
+          token: botToken,
+          body: new URLSearchParams({
+            channel: input.channelId,
+            message_ts: input.ts,
+          }),
+        },
+        permalinkAnswer,
+      );
+      return answer.permalink;
     },
 
     postMessage(botToken, input) {

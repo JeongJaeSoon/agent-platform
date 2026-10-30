@@ -309,6 +309,20 @@ describe("fake Slack bot calls, through the slack role's client", () => {
     expect((await invite("C0NOWHERE")).status).toBe(400);
   });
 
+  test("permalink links the message in the team's archive; a failure or another token is refused", async () => {
+    expect(
+      await api.permalink(bot, { channelId: "C0OPEN", ts: "1.000100" }),
+    ).toBe("https://t0x.slack.com/archives/C0OPEN/p1000100");
+    await expect(
+      api.permalink("not-issued", { channelId: "C0OPEN", ts: "1.000100" }),
+    ).rejects.toMatchObject({ code: "invalid_auth" });
+    slack.failures.set("chat.getPermalink", "message_not_found");
+    await expect(
+      api.permalink(bot, { channelId: "C0OPEN", ts: "1.000100" }),
+    ).rejects.toMatchObject({ code: "message_not_found" });
+    slack.failures.delete("chat.getPermalink");
+  });
+
   test("setStatus records the thread; a status without a thread, a set failure or another token is refused", async () => {
     await api.setStatus(bot, {
       channelId: "C0OPEN",
