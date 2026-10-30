@@ -1,6 +1,6 @@
 ---
 name: verify-agent-platform
-description: Drive the agent-platform stack the way a user does — launch it locally with scripts/local.sh under a project of its own (fake model, ephemeral ports, optional mock Slack IdP), then exercise the web login API, the web console in a browser, members, teams, agents, scoped API keys, the key CLI, and the sessions API with curl, and tear down only what it started. Use to prove a user-facing change in this repo (API route, auth, web screen, key CLI, session flow) in the running app, not only in tests.
+description: Drive the agent-platform stack the way a user does — launch it locally with scripts/local.sh under a project of its own (fake model, ephemeral ports, optional mock Slack IdP), then exercise the web login API, the web console in a browser, members, teams, agents, scoped API keys, the key CLI, and the sessions API with curl, plus a real GitHub sandbox run (App registration, agent GitHub settings, push, pull request, workflow dispatch, gate receipts), and tear down only what it started. Use to prove a user-facing change in this repo (API route, auth, web screen, key CLI, session flow) in the running app, not only in tests.
 ---
 
 # verify-agent-platform
@@ -13,8 +13,9 @@ description: Drive the agent-platform stack the way a user does — launch it lo
 | 웹 콘솔 | `apps/web`을 API가 같은 origin에서 서빙: `/login`·`/bootstrap`·`/`·`/members`·`/invite/{token}`·`/sessions`·`/members/teams`·`/agents`·`/usage`·`/settings/*` | 이 run의 headless Chrome(`browser.mjs`: 폭·다크·오류·로딩 스크린샷), 서빙 헤더는 curl |
 | API | `/v1/sessions/**`, `/v1/receipts/{id}`, `/v1/usage/summary`, `/v1/sessions/counts`, `/docs`, `/readyz` (`/v1/limits`는 owner cookie로 `ap_web`) | `ap_get`·`ap_post` (Bearer key) |
 | CLI | key CLI(`apps/control-host/src/api/keys.ts`)의 `create`·`revoke` | `ap_key`·`ap_revoke` |
+| 실제 GitHub | `JeongJaeSoon/werft-sandbox`와 App `werft-sandbox-agent`: App 등록, 상한, 에이전트 GitHub 설정, clone·push·PR, workflow dispatch·run·rerun, 게이트 receipt | `github-sandbox/overlay.yml`로 띄운 run에서 `web-user.mjs github-app`·`ap_web`·`ap_post`, GitHub 쪽은 `gh`. [github-sandbox.md](features/github-sandbox.md) |
 
-기능 map은 [features/README.md](features/README.md), 한 스택에서 순서대로 실행할 절차는 [features/procedures.md](features/procedures.md)에 있다. 이 스킬을 수정할 때는 구현과 대조하고 실행 결과와 구분한다. 증명할 때는 map에 적힌 진입점을 모두 몬다.
+기능 map은 [features/README.md](features/README.md), 한 스택에서 순서대로 실행할 절차는 [features/procedures.md](features/procedures.md)에 있다. 이 스킬을 수정할 때는 구현과 대조하고 실행 결과와 구분한다. 증명할 때는 map에 적힌 진입점을 모두 몬다. 실제 GitHub 표면만 fake가 아니다. 그 run은 따로 띄운다(아래 Launch).
 
 ## 원칙
 
@@ -49,6 +50,7 @@ Claude Code의 Bash 호출은 매번 새 셸이다. 그래서 `up.sh`가 run 디
 
 - 선택형 overlay는 인자로 더한다: `up.sh infra/compose.mock-slack.yml`. mock Slack 하나가 Sign in with Slack IdP와 Slack Web API의 가짜(config token 발급 `/fake/config-tokens`, 앱 생성, 설치 동의 `/fake/oauth/authorize`)를 맡고, api의 `SLACK_OIDC_REDIRECT_URI`·`SLACK_API_URL`을 그쪽으로 돌린다. fallback OIDC client는 비워 두므로 계정 연결은 워크스페이스의 link 앱으로 한다. `COMPOSE_FILE`에 이어 붙으므로 이후 `lib.sh`·`down.sh`도 같은 스택을 본다.
 - Slack 비밀값(config token, 앱의 secret·bot token)은 master key가 있어야 저장된다. Slack 시나리오([musterrolle.md](features/musterrolle.md) c·g, [web-settings.md](features/web-settings.md) 4)는 run마다 `openssl rand -hex 32`로 만든 버리는 값을 `PLATFORM_SECRET_KEY`로 export하고 같은 Bash 호출에서 `up.sh`를 부른다(그 문서의 한 줄). 사람의 Keychain 항목은 읽지 않는다. 그 밖의 시나리오는 key 없이 띄우고, api 로그에 `Secret store is off` 경고 한 줄이 남은 채 ready다.
+- 실제 GitHub run은 `up.sh .claude/skills/verify-agent-platform/github-sandbox/overlay.yml`이다. overlay는 api의 `config/fake-model/repositories.yaml` 한 파일만 sandbox 저장소(`auth: { kind: github_app }`)를 더한 목록으로 바꾸고 egress proxy가 `github.com:443`에 자격을 붙이게 한다. App 키는 compose를 지나지 않는다. 스택이 뜬 뒤 `web-user.mjs github-app`이 키 파일을 읽어 API로 등록한다. App 등록은 master key가 있어야 저장되므로 Slack처럼 버리는 `PLATFORM_SECRET_KEY`를 같은 Bash 호출에서 넘긴다. 순서와 기대값은 [github-sandbox.md](features/github-sandbox.md). overlay 인자는 repo 기준 상대 경로라 repo 밖 overlay는 `../../…`로 넘긴다.
 - Orca 프로그램 안에서 돌면 무거운 작업 잠금으로 감싼다: `orch heavy <program> -- .claude/skills/verify-agent-platform/scripts/up.sh`. 내릴 때도 같다.
 - 하는 일: run 디렉터리와 `ports.yml`(postgres·localstack·gitea·api 포트를 `127.0.0.1::<port>` ephemeral로, secrets는 비공개, api에 이 run의 `BOOTSTRAP_TOKEN`)을 만들고 `COMPOSE_PROJECT_NAME=verify-ap-… EXECUTION_INSTALLATION_ID=… COMPOSE_FILE=compose.yaml:ports.yml LOCAL_DEMO_ACCOUNTS=0 scripts/local.sh up --fake-model`을 돌린다(데모 계정 없이: 기능 절차가 bootstrap부터 한다). 끝나면 `docker compose port api 3000`으로 API 주소를 `state.env`에 적고 run 디렉터리를 stdout에, `run id: …`를 stderr에 출력한다. run id는 시작할 때도 stderr에 한 번 나온다. **이 run id를 기록한다.** 이후 모든 단계와 내릴 때 이것을 넘긴다. 빌드가 중간에 실패해도 시작할 때 나온 run id로 `down.sh`를 돌린다.
 - worker 슬롯은 기본 3개, `VERIFY_DEMO_ACCOUNTS=1`이면 7개다. `up.sh`가 `state.env`에 `EXECUTION_SLOT_LIMIT`을 적어 scheduler가 그 수만큼만 worker를 띄운다. 데모 데이터는 worker를 쥔 채 끝나는 세션 6개(idle 2, 승인 뒤 idle 1, 권한 요청 1, 질문 1, 실행 중 1)에 terminate할 세션 하나를 더 몬다. 그보다 슬롯이 적으면 시드가 queued 세션을 기다리다 `timed out waiting for <session> to go idle`로 실패한다. 다른 값이 필요하면 `VERIFY_SLOT_LIMIT=5 up.sh`처럼 준다. 이 값이 언제나 우선한다(10000 미만의 양의 정수만). worker마다 `ap-net-*` 네트워크가 하나씩 생기므로 스택 하나가 쓰는 네트워크는 compose 기본 네트워크를 더해 최대 슬롯 + 1개다. 슬롯은 worker 컨테이너가 사라졌다고 scheduler가 확인할 때까지 풀리지 않는다(`slot_released_at`). 입력이 없는 worker도 `WORKER_IDLE_TIMEOUT_SEC`(1800초) 동안 슬롯을 쥔다. 그래서 세션이 슬롯보다 많으면 나머지는 queued로 기다리고, 앞 세션을 pause하거나 terminate하면 다음 pass에서 뜬다.
@@ -86,6 +88,7 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 | 스크립트 | 용도 |
 |---|---|
 | `node scripts/web-user.mjs <run id> <command> <who> …` | `bootstrap`·`bootstrap-bad-token`·`login`·`login-wrong`·`login-no-csrf`·`invite <inviter> <who> <role>`·`accept`·`key <who> <personal\|agent> <scopes> [agent id]`. 비밀번호·token·secret은 run 디렉터리에만 두고, 응답 본문(그 칸은 `(saved, N chars)`)과 상태 코드를 출력한다. [web-login.md](features/web-login.md) |
+| `node scripts/web-user.mjs <run id> github-app <who> <workspace id> <app id>` | `<who>`의 cookie로 `PUT /v1/workspaces/{id}/github-app`. 키는 `VERIFY_GITHUB_APP_KEY_FILE`(기본 `~/.config/werft/github-app.pem`, 오너의 파일)에서 스크립트가 읽어 본문에만 넣는다. 경로도 명령에 쓰지 않는다(agent-guard가 키 파일 모양의 경로를 막는다). [github-sandbox.md](features/github-sandbox.md) |
 | `node scripts/browser.mjs <run id> <command> …` | 이 run 전용 headless Chrome(CDP): `start`·`stop`, `open`, `login <who>`·`accept <who>`·`bootstrap <who>`, `shot`(`W`·`THEME` env), `blockshot`(오류 상태), `slowshot`(로딩 상태), `click`·`press`(포커스 후 키)·`type`·`select`·`key`·`eval`, `measure`(간격·폭·정렬 실측, `layout-report.mjs`가 v35 규칙 표로). [web-console.md](features/web-console.md) |
 
 기능별 명령과 기대 결과는 `features/*.md`에 있다. 가장 짧은 한 바퀴는 [web-login.md](features/web-login.md)다.

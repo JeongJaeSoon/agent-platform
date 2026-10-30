@@ -1,0 +1,129 @@
+# GitHub sandbox (실제 GitHub)
+
+owner가 워크스페이스에 GitHub App을 등록하고 에이전트 상한을 정하면, 에이전트 릴리스의 GitHub 설정(저장소 범위·기능·Actions 허용 목록·push 승인) 안에서 세션이 실제 GitHub 저장소를 clone하고, 사람이 승인한 commit을 `agent/<session-id>`로 push하고, PR을 열고, 허용 목록의 workflow를 dispatch한다. 모든 토큰은 GitHub 게이트 한 곳이 발급하고, 발급과 거절은 receipt로 남는다. 계약은 `docs/contributing/decisions/github-agent.md`(8·9절이 werft-sandbox 실측 항목)다.
+
+## Sub-features
+
+- `app-register` `PUT /v1/workspaces/{id}/github-app`(owner·admin, cookie만, master key 필요) → `github_app`(`app_id`, `slug`, `permissions`, `warnings`)과 `set_github_app` receipt. `GET`은 `check.state: "ok"`와 sandbox 저장소의 `installation_id`.
+- `ceiling` `GET`·`PUT /v1/workspaces/{id}/github-settings`: `ceiling`(workflows·actions·checks·issues·review), `revision`(처음 0, 쓸 때마다 +1, 다르면 `409 REVISION_CONFLICT`), `apps.author.permissions`. `set_github_ceiling` receipt.
+- `agent-github` 릴리스 본문의 `github`(`repositories`, `push_approval`, `features`, `actions_allow`) → `GET /v1/agents/{id}/github`의 `github`·`options`·`unsavable`.
+- `clone` 세션 생성(`agent_release_id`) → worker가 egress proxy로 clone. 게이트가 `mint_github_token`(`purpose: clone`)을 남긴다.
+- `push` `POST …/push-requests` `{}` → `requested` → `POST …/decision` `{decision, git_commit}` → `approved` → `pushing` → `pushed`. `git_commit`은 요청이 고정한 값이어야 한다.
+- `pull-request` `POST …/push-requests/{id}/pull-request` → 201 `created: true`, 다시 부르면 200 `created: false`. GitHub 작성자는 `app/werft-sandbox-agent`.
+- `dispatch` `POST /v1/sessions/{id}/github/workflow-dispatches` `{workflow, ref, inputs?}`. 게이트 순서대로 거절한다: 목록 밖 `403 workflow_not_allowed`, `agent/…` ref `403 agent_ref_refused`, App에 권한이 없으면 `409 app_permission_missing`(GitHub가 발급을 거절). 성공은 201 `{receipt_id, run}`.
+- `runs` `GET …/github/workflow-runs/{run_id}`(`actions_read`), `POST …/workflow-runs/{run_id}/rerun` `{failed_only?}`(플랫폼이 dispatch한 run만, 아니면 `403 run_ref_unprovable`).
+- `receipts` `GET /v1/receipts/{id}`(거절은 `error.details.receipt_id`), `GET /v1/agents/{id}/github/activity`(그 에이전트의 게이트 receipt 최근 20개).
+
+## How to get to it (user POV)
+
+- 웹: 설정 › 워크스페이스 › GitHub 연결(App 등록·상한), 에이전트 상세 GitHub 탭. 이 파일은 같은 API를 cookie와 key로 몬다. 화면은 [web-settings.md](./web-settings.md)·[web-members-agents.md](./web-members-agents.md)의 `browser.mjs`로 본다.
+- push·PR·dispatch는 콘솔에 화면이 없다. 세션 API로만 한다.
+- GitHub 쪽 확인과 정리는 `gh`(이 머신의 오너 로그인)로 한다.
+
+## Driving it with lib.sh
+
+Preconditions:
+
+- 대상은 `JeongJaeSoon/werft-sandbox`(private)와 작성용 App `werft-sandbox-agent`(App ID `5513262`, installation `176243287`)다. App 키는 오너가 둔 파일이고, 이 절차는 그 경로만 쓴다. 내용을 읽거나 출력하지 않는다. `ls ~/.config/werft`로 파일 이름만 확인한다.
+- master key는 이 run만 쓰는 버리는 값이다(값은 출력하지 않고 길이만). 사람의 Keychain 항목은 읽지 않는다.
+- Orca 프로그램이면 `orch hold verify-stack --note "<card>"`를 먼저 잡고 끝나면 놓는다. 스택은 프로그램 전체에서 하나다.
+- 열린 sandbox PR은 다른 카드의 증거일 수 있다. 자기가 연 PR만 닫는다.
+
+```sh
+# 1. 띄우기 (같은 Bash 호출)
+export PLATFORM_SECRET_KEY="$(openssl rand -hex 32)"; echo "master key chars: ${#PLATFORM_SECRET_KEY}"   # 64
+orch heavy <program> -- .claude/skills/verify-agent-platform/scripts/up.sh .claude/skills/verify-agent-platform/github-sandbox/overlay.yml
+```
+
+`run id`를 기록하고 `doctor.sh <run id>`가 exit 0인지 본다. 아래 블록은 모두 `. .claude/skills/verify-agent-platform/scripts/lib.sh <run id>`로 시작하고, 블록 사이의 id는 `$VERIFY_RUN/ids.sh`(이 run 디렉터리)에 적어 다음 블록에서 `. "$VERIFY_RUN/ids.sh"`로 읽는다.
+
+```sh
+# 2. owner와 App 등록
+U=.claude/skills/verify-agent-platform/scripts/web-user.mjs
+node $U <run id> bootstrap owner; node $U <run id> login owner; ap_as owner
+WS=$(ap_web GET /v1/auth/me | head -1 | jq -r .workspace.id); printf 'WS=%s\n' "$WS" >> "$VERIFY_RUN/ids.sh"
+node $U <run id> github-app owner "$WS" 5513262 | tee "$EVIDENCE/gh-app-put.txt"
+ap_web GET "/v1/workspaces/$WS/github-app" | tee "$EVIDENCE/gh-app-get.txt"
+```
+
+기대: PUT `200`, `github_app.app_id: 5513262`, `slug: "werft-sandbox-agent"`, `permissions`(지금 App이 가진 권한), `receipt_id`. GET `200`, `check.state: "ok"`, `repositories`의 `sandbox`에 `installation_id: 176243287`. 키는 어느 응답에도 없다.
+
+```sh
+# 3. 상한(Actions)과 에이전트 릴리스
+ap_web GET "/v1/workspaces/$WS/github-settings"            # revision 0, 모두 false
+ap_web PUT "/v1/workspaces/$WS/github-settings" '{"ceiling":{"workflows":false,"actions":true,"checks":false,"issues":false,"review":false},"revision":0}'
+CARD='{"role":"sandbox","instructions":"Follow the script.","language":"ko","model":"claude-sonnet-5","capabilities":{"tools":["Read","Bash"],"mcp":null,"forbidden":[]},"rules":[]}'
+A=$(ap_web POST /v1/agents "{\"slug\":\"sandbox\",\"name\":\"sandbox\",\"card\":$CARD}" | head -1)
+AID=$(echo "$A" | jq -r .agent.id); VID=$(echo "$A" | jq -r '.versions[0].id')
+GH='{"repositories":["sandbox"],"push_approval":true,"features":{"workflows":false,"actions":true,"checks":false,"issues":false,"review":false},"actions_allow":[{"workflow":"sandbox-dispatch.yml"}]}'
+REL=$(ap_web POST "/v1/agents/$AID/releases" "$(jq -nc --arg v "$VID" --argjson g "$GH" '{version_id:$v, runtime_profile_id:"claude-coding-local", repository_id:"sandbox", github:$g}')" | head -1 | jq -r .release.id)
+ap_web POST "/v1/agents/$AID/activate" "$(jq -nc --arg r "$REL" '{release_id:$r, expected_revision:-1}')"
+ap_web GET "/v1/agents/$AID/github" | tee "$EVIDENCE/gh-agent.txt"
+printf 'AID=%s\nREL=%s\n' "$AID" "$REL" >> "$VERIFY_RUN/ids.sh"
+```
+
+기대: 상한 PUT `200` `revision: 1`. 릴리스 `200` `release.id`(`sha256:…`), 활성화 `200`. `GET …/github`는 `enabled: true`, `github`가 보낸 값, `active_release_id`가 `REL`.
+
+```sh
+# 4. 세션: clone → commit(Bash 권한 허용)
+. "$VERIFY_RUN/ids.sh"; U=.claude/skills/verify-agent-platform/scripts/web-user.mjs
+node $U <run id> key owner personal sessions:read,sessions:write,sessions:approve; ap_as owner
+SPEC='GATE-SPEC {"id":"gh1","steps":[{"tool":"Bash","input":{"command":"mkdir -p notes && date -u +%FT%TZ > notes/verify-skill.txt && git add notes/verify-skill.txt && git commit -qm \"docs: verify-agent-platform sandbox note\" && git log --oneline -1","description":"commit a note"}}],"final":"committed"}'
+SID=$(ap_post /v1/sessions "$(jq -nc --arg r "$REL" --arg m "$SPEC" '{agent_release_id:$r, message:$m}')" | head -1 | jq -r .session_id)
+printf 'SID=%s\n' "$SID" >> "$VERIFY_RUN/ids.sh"
+for i in $(seq 1 90); do [ "$(ap_get "/v1/sessions/$SID" | head -1 | jq -r .status)" = needs_input ] && break; sleep 2; done
+REQ=$(ap_get "/v1/sessions/$SID/pending-requests" | head -1 | jq -r '.items[0].request_id')
+ap_post "/v1/sessions/$SID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r, kind:"permission", decision:"allow"}')"
+for i in $(seq 1 60); do [ "$(ap_get "/v1/sessions/$SID/turns/1" | head -1 | jq -r .status)" = completed ] && break; sleep 2; done
+ap_get "/v1/sessions/$SID/turns/1" | tee "$EVIDENCE/gh-turn.txt"
+```
+
+기대: 세션 `201`(저장소 `sandbox`), `needs_input`에 Bash 권한 요청 하나, answers `202`, turn 1 `completed`. clone이 실패하면 세션이 `failed`이고 이유는 6의 `mint_github_token` 거절 receipt에 있다.
+
+```sh
+# 5. push 요청 → 승인 → push → PR
+. "$VERIFY_RUN/ids.sh"; ap_as owner
+P=$(ap_post "/v1/sessions/$SID/push-requests" '{}' | head -1); PRID=$(echo "$P" | jq -r .id); COMMIT=$(echo "$P" | jq -r .git_commit)
+ap_post "/v1/sessions/$SID/push-requests/$PRID/decision" "$(jq -nc --arg c "$COMMIT" '{decision:"approve", git_commit:$c}')"
+for i in $(seq 1 30); do s=$(ap_get "/v1/sessions/$SID/push-requests/$PRID" | head -1 | jq -r .state); case $s in pushed|failed) break ;; esac; sleep 2; done; echo "$s"
+ap_post "/v1/sessions/$SID/push-requests/$PRID/pull-request" '{"title":"verify-agent-platform: GitHub sandbox flow"}' | tee "$EVIDENCE/gh-pr.txt"
+ap_post "/v1/sessions/$SID/push-requests/$PRID/pull-request" '{}'      # 같은 PR, created: false
+printf 'PRID=%s\n' "$PRID" >> "$VERIFY_RUN/ids.sh"
+```
+
+기대: push 요청 `201` `state: "requested"`, `target_branch: "agent/<SID>"`, 요청 id는 `.id`다(`push_request_id`가 아니다). 결정 `200`(다른 `git_commit`이면 `409 CHECKPOINT_MOVED`, `details.refusal: "commit_mismatch"`, 요청은 `requested`로 남는다). 상태 `pushed`. PR `201` `created: true`와 `pull_request.url`, 두 번째 `200` `created: false`. `gh pr view <n> -R JeongJaeSoon/werft-sandbox --json author,headRefName,state`는 `app/werft-sandbox-agent`, `agent/<SID>`, `OPEN`.
+
+```sh
+# 6. dispatch·run·rerun과 게이트 receipt
+. "$VERIFY_RUN/ids.sh"; ap_as owner
+ap_post "/v1/sessions/$SID/github/workflow-dispatches" '{"workflow":"sandbox-dispatch.yml","ref":"main"}' | tee "$EVIDENCE/gh-dispatch.txt"
+ap_post "/v1/sessions/$SID/github/workflow-dispatches" '{"workflow":"sandbox-other.yml","ref":"main"}'        # 403 workflow_not_allowed
+ap_post "/v1/sessions/$SID/github/workflow-dispatches" "$(jq -nc --arg r "agent/$SID" '{workflow:"sandbox-dispatch.yml", ref:$r}')"   # 403 agent_ref_refused
+ap_post "/v1/sessions/$SID/github/workflow-runs/1/rerun" '{}'                                                  # 403 run_ref_unprovable
+ap_get "/v1/sessions/$SID/github/workflow-runs/1"                                                              # actions_read: App에 Actions가 없으면 409 app_permission_missing
+RC=$(ap_post "/v1/sessions/$SID/github/workflow-dispatches" '{"workflow":"sandbox-other.yml","ref":"main"}' | head -1 | jq -r .error.details.receipt_id)
+ap_get "/v1/receipts/$RC" | head -1 | jq -c '{operation, status, result}'                                     # 거절을 다른 경로로 다시 읽는다
+ap_web GET "/v1/agents/$AID/github/activity" | head -1 | jq -c '[.items[] | {operation, status, reason_code: .result.reason_code, purpose: .result.purpose}]'
+ap_compose exec -T postgres psql -U postgres -d sessions -c "select operation, status, result->>'purpose' purpose, result->>'reason_code' reason from receipts where target_ref->>'session_id' = '$SID' order by created_at"
+```
+
+기대: 오류는 모두 `error.code: "GITHUB_REFUSED"`와 `details.reason_code`·`details.receipt_id`다. 목록 밖 `403 workflow_not_allowed`, `agent/` ref `403 agent_ref_refused`, 기록 없는 run의 rerun `403 run_ref_unprovable`은 GitHub를 부르지 않고 `dispatch_workflow`·`rerun_workflow` failed receipt를 남긴다. receipt `result`에는 `workflow`·`ref`·`purpose`·`agent_id`·`agent_release_id`·`repository_id`·`reason_code`가 있고 `inputs` 값은 없다. 목록 안 dispatch와 run 조회는 App 권한과 sandbox 워크플로에 달렸다(Gotchas). activity(최근 순)와 DB에 `mint_github_token`(`clone`·`push`·`pull_request`)이 succeeded, `create_agent_release`·`activate_agent`가 있다.
+
+2026-10-30 run `20261030-233922-55128`(main `c1a0a1de` + 이 스킬)에서 1–7을 이 명령대로 확인했다. App 등록 200(`permissions` contents·metadata·pull_requests, `warnings: []`), 상한 `revision` 0 → 1, 세션 `fbc96c51-…` clone → Bash 허용 → commit `948f19c`, 틀린 `git_commit` 결정 `409 CHECKPOINT_MOVED`(`commit_mismatch`) 뒤 바른 결정 200 → `pushed`, PR [werft-sandbox#9](https://github.com/JeongJaeSoon/werft-sandbox/pull/9) 201 → 200 `created: false`(작성자 `app/werft-sandbox-agent`, 닫고 브랜치 삭제). dispatch 목록 안 `409 app_permission_missing`, 목록 밖·`agent/`·rerun은 위의 403, run 조회 `409 app_permission_missing`(`mint_github_token` `actions_read` failed). `down.sh --keep-volumes` 뒤 컨테이너·네트워크 0, volume 3.
+
+```sh
+# 7. 정리: 자기 PR 닫기, 스택 내리기(volume 유지), 잠금 놓기
+gh pr close <n> -R JeongJaeSoon/werft-sandbox --delete-branch
+orch heavy <program> -- .claude/skills/verify-agent-platform/scripts/down.sh <run id> --keep-volumes
+orch release verify-stack
+```
+
+## Gotchas
+
+- **오너 단계가 남은 항목.** 2026-10-30 기준 App에는 Actions 권한이 없고 werft-sandbox `main`에는 `.github/workflows/`가 없다(설계 문서 9절 "오너만 할 수 있는 단계" 1·4). 그래서 목록 안 dispatch는 `409 app_permission_missing`(GitHub가 `actions: write` 발급을 거절)에서 멈추고, run 조회(`actions_read`)도 같은 이유로 거절된다. 성공·run 조회·rerun 성공은 오너 단계 뒤에 같은 명령으로 확인한다. 워크플로만 없으면 GitHub가 dispatch를 404로 답한다.
+- **릴리스 없는 세션은 GitHub 설정이 없다.** 개인 key로 `repository_id: "sandbox"`만 주고 만든 세션은 기본 설정(Actions 꺼짐)이라 dispatch가 `403 feature_off`다(코드 기준: `packages/platform/src/sessions/github-gate.ts`의 `settings === null`, 이 run에서는 몰지 않았다). dispatch를 보려면 위처럼 `agent_release_id`로 만든다.
+- **키 경로를 명령에 쓰지 않는다.** agent-guard가 키 파일 모양의 경로가 든 명령을 막는다. 다른 파일이면 `VERIFY_GITHUB_APP_KEY_FILE`을 따로 export하는 줄도 같은 이유로 막힐 수 있으니, 오너에게 기본 경로에 두게 한다.
+- **master key 없이 띄우면** App 등록이 `503 BACKEND_UNAVAILABLE`이다. `down.sh … --keep-volumes` 뒤 1부터 다시 한다.
+- **sandbox 저장소는 공유 상태다.** 다른 카드가 연 PR·브랜치가 있다. `gh pr list -R JeongJaeSoon/werft-sandbox`로 자기 `agent/<SID>`만 골라 닫는다. 머지는 하지 않는다(auto mode가 [Merge Without Review]로 막는다. 필요하면 오너 줄로 넘긴다).
+- **다른 run의 파일을 읽지 않는다.** 남겨 둔 run의 `state.env`는 agent-guard가 막는다. 자기 run을 새로 띄운다.
+- **repo 밖 overlay**(예: 오너 확인 디렉터리의 카탈로그 App overlay)는 `up.sh`가 repo 기준으로 붙이므로 `../../…` 상대 경로로 넘긴다.
