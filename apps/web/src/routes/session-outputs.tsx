@@ -137,7 +137,7 @@ function PullRequestRow({ outcome }: { readonly outcome: SessionOutcome }) {
             href={outcome.url}
             target="_blank"
             rel="noreferrer"
-            underline="always"
+            variant="table"
             className="font-mono [overflow-wrap:anywhere]"
           >
             {pullRequestName(outcome)}
