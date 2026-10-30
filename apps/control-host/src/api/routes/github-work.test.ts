@@ -113,6 +113,7 @@ function app(
     ceiling?: GitHubCeiling;
     repository?: "github" | "elsewhere";
     reviewer?: boolean;
+    reviewerInstallationId?: number;
     settings?: AgentGitHub;
   } = {},
 ) {
@@ -160,7 +161,7 @@ function app(
       credentials: {
         kind: "app",
         appId: 303,
-        installationId: 404,
+        installationId: options.reviewerInstallationId ?? 404,
         privateKey: reviewerPrivateKey,
       },
       retryAfterBaseMs: 1,
@@ -745,6 +746,34 @@ describe("reviewing a pull request", () => {
       },
     });
     expect(github.reviews("acme", "app", OPENED_BY_REVIEWER)).toEqual([]);
+  });
+
+  test("a reviewer App not installed on the repository is a 503 that still leaves the review's failed receipt", async () => {
+    const before = github.reviews("acme", "app", OPENED).length;
+    const target = app({ reviewerInstallationId: 999 });
+    const response = await review(target, {
+      event: "APPROVE",
+      commit_id: COMMIT,
+    });
+    expect(response.status).toBe(503);
+    expect(errorOf(response.json)).toMatchObject({
+      code: "BACKEND_UNAVAILABLE",
+      details: { receipt_id: expect.any(String) },
+    });
+    expect(target.receipts).toMatchObject([
+      {
+        operation: "review_pull_request",
+        status: "failed",
+        result: {
+          role: "reviewer",
+          app_id: 303,
+          number: OPENED,
+          commit_id: COMMIT,
+          event: "APPROVE",
+        },
+      },
+    ]);
+    expect(github.reviews("acme", "app", OPENED)).toHaveLength(before);
   });
 
   test("no reviewer App, review off for the agent, or over the ceiling: refused before GitHub hears of it", async () => {

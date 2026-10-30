@@ -135,6 +135,12 @@ export class GitHubGateError extends Error {
  */
 export class GitHubUnavailableError extends Error {
   override readonly name = "GitHubUnavailableError";
+  constructor(
+    message: string,
+    readonly receiptId: string | null = null,
+  ) {
+    super(message);
+  }
 }
 
 export interface GitHubGate {
