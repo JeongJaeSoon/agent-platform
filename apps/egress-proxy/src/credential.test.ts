@@ -237,6 +237,20 @@ describe("parseGrant", () => {
       expect(parseGrant(bad)).toBeNull();
     }
   });
+
+  test("an MCP path is the authorizer's own server; no other path is", () => {
+    const authorizer = new URL("http://api:3100/authorize");
+    const builtin = { ...good, upstream: { url: "/mcp/github", headers: [] } };
+    expect(parseGrant(builtin, authorizer)?.upstream).toEqual(
+      new URL("http://api:3100/mcp/github"),
+    );
+    expect(parseGrant(builtin)).toBeNull();
+    for (const url of ["/authorize", "//evil.test/mcp/github", "/mcp/a/b"]) {
+      expect(
+        parseGrant({ ...good, upstream: { url, headers: [] } }, authorizer),
+      ).toBeNull();
+    }
+  });
 });
 
 describe("upstreamRequestHeaders", () => {
@@ -1976,6 +1990,59 @@ describe("startCredentialProxy", () => {
       expect(smuggled.status).toBe(400);
       expect(auth.asked).toHaveLength(2);
       expect(up.seen).toHaveLength(2);
+    });
+
+    test("the built-in server is reached on the authorizer's listener, outside the allowlist", async () => {
+      const GRANT = "signed-grant-for-one-exchange";
+      const seen: Array<{ path: string; authorization: string | null }> = [];
+      const api = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        async fetch(request) {
+          const path = new URL(request.url).pathname;
+          if (path === "/authorize") {
+            return Response.json({
+              session_id: "sess-1",
+              attempt_id: "att-1",
+              upstream: {
+                url: "/mcp/github",
+                headers: [["authorization", `Bearer ${GRANT}`]],
+              },
+            });
+          }
+          seen.push({
+            path,
+            authorization: request.headers.get("authorization"),
+          });
+          return Response.json({
+            jsonrpc: "2.0",
+            id: 1,
+            result: { tools: [] },
+          });
+        },
+      });
+      servers.push(api);
+      const server = proxy(`http://127.0.0.1:${api.port}`, 1, {
+        resolve: async (host) => (host === "127.0.0.1" ? ["127.0.0.1"] : []),
+      });
+      const response = await fetch(
+        `http://127.0.0.1:${server.port}/mcp/github`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${WORKER_TOKEN}`,
+            "content-type": "application/json",
+          },
+          body: '{"jsonrpc":"2.0","id":1,"method":"tools/list"}',
+        },
+      );
+      expect(response.status).toBe(200);
+      expect(seen).toEqual([
+        { path: "/mcp/github", authorization: `Bearer ${GRANT}` },
+      ]);
+      // Another route to the same host is still held to the allowlist.
+      const provider = await messages(server.port);
+      expect(provider.status).toBe(403);
     });
 
     test("a refusal with a receipt names it; a batch never reaches the authorizer", async () => {

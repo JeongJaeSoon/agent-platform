@@ -1144,6 +1144,8 @@ describe("remote MCP servers", () => {
       { fake: { ...server, credential_ref: "Not A Ref" } },
       { fake: { ...server, auth: { kind: "basic", value_env: "X" } } },
       { fake: { ...server, extra: true } },
+      // The built-in server's name.
+      { github: server },
     ]) {
       expect(sessionCatalogConfigSchema.safeParse(withMcp(bad)).success).toBe(
         false,

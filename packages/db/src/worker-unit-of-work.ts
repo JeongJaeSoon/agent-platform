@@ -113,7 +113,7 @@ import {
   type SessionRow,
 } from "./fence.ts";
 import { catalogMismatchCause, quarantineLaunch } from "./launch-quarantine.ts";
-import { sessionMcpOf } from "./mcp-egress.ts";
+import { sessionGitHubMcpOf, sessionMcpOf } from "./mcp-egress.ts";
 import {
   abandonUndeliveredParked,
   closeParkedGroup,
@@ -1261,6 +1261,7 @@ async function bindingOf(
     costUsd: session.costUsd,
     providerTokens: session.providerTokens,
     mcp: await sessionMcpOf(tx, session),
+    githubMcp: await sessionGitHubMcpOf(tx, session),
     grants: await unspentGrants(tx, session.id, attempt.id),
   };
 }
@@ -1407,6 +1408,7 @@ async function issueCredentials(
   const bindings = input.egress.bindingsOf({
     ...session,
     mcp: await sessionMcpOf(tx, session),
+    githubMcp: await sessionGitHubMcpOf(tx, session),
   });
   await tx.insert(workerCredentials).values([
     {

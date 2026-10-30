@@ -4,6 +4,7 @@ import {
   type InstallationProfileState as ContractInstallationProfileState,
   canonicalJson,
   credentialRefSchema,
+  GITHUB_MCP_SERVER,
   MCP_TOOL_PREFIX,
   mcpServerIdSchema,
   narrowOnlyPolicy,
@@ -394,6 +395,13 @@ export const sessionCatalogConfigSchema = z
         });
       }
     }
+    if (Object.hasOwn(config.mcp_servers ?? {}, GITHUB_MCP_SERVER)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["mcp_servers", GITHUB_MCP_SERVER],
+        message: `${GITHUB_MCP_SERVER} is the built-in MCP server's name`,
+      });
+    }
     if (
       Object.keys(config.repositories).length === 0 &&
       Object.keys(config.profiles).length > 0 &&
@@ -635,28 +643,56 @@ export function pinnedMcpTools(
     .sort();
 }
 
+/** The built-in `github` server a session's release attaches (design github-agent.md §3). */
+export type SessionGitHubMcp = {
+  releaseId: string;
+  /** The `mcp__github__<tool>` names the release's features expose. */
+  tools: string[];
+};
+
 /**
- * The runtime config a claim hands over, with the session's MCP server when
- * its release names one: the current config and every restore config go
- * through here, so a checkpoint made with the server is restorable on the
- * same terms.
+ * The built-in server's binding: the release alone, which never changes
+ * under a session, so a checkpoint made with the server stays restorable.
+ */
+export function githubMcpBinding(releaseId: string): string {
+  return sha256({
+    release_id: releaseId,
+    server_id: GITHUB_MCP_SERVER,
+    builtin: true,
+  });
+}
+
+// The worker calls every server through the proxy's `/mcp/<name>` route;
+// the built-in one has no address of its own to name here.
+export const GITHUB_MCP_ENDPOINT = "https://builtin.invalid/mcp/github";
+
+export type ClaimedMcpServer = {
+  name: string;
+  endpoint: string;
+  binding: string;
+  tools: string[];
+};
+
+/**
+ * The runtime config a claim hands over, with the session's MCP servers:
+ * the current config and every restore config go through here, so a
+ * checkpoint made with a server is restorable on the same terms.
  */
 export function runtimeConfigWithMcp(
   config: RuntimeConfig,
-  mcp: { name: string; endpoint: string; binding: string; tools: string[] },
+  servers: readonly ClaimedMcpServer[],
   token: string,
 ): RuntimeConfig {
+  if (servers.length === 0) return config;
   return {
     ...config,
-    tools: [...config.tools, ...mcp.tools],
-    mcp_servers: [
-      {
-        name: mcp.name,
-        endpoint: mcp.endpoint,
-        binding: mcp.binding,
-        access: { kind: "egress_token", token },
-      },
-    ],
+    tools: [...config.tools, ...servers.flatMap((server) => server.tools)],
+    mcp_servers: servers.map((server) => ({
+      name: server.name,
+      endpoint: server.endpoint,
+      binding: server.binding,
+      access: { kind: "egress_token", token },
+    })),
   };
 }
 

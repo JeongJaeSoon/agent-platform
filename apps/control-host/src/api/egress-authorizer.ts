@@ -1,8 +1,20 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
 import { mcpServerIdSchema } from "@werft-ai/contracts";
 import { RequestDeadline, runWithDeadline } from "@werft-ai/db/pool";
 import type { StructuredLogger } from "@werft-ai/observability";
-import { type WorkerGateway, WorkerGatewayError } from "@werft-ai/platform";
+import {
+  GITHUB_MCP_UPSTREAM_PATH,
+  type GitHubMcpGrant,
+  type JsonRpcResponse,
+  verifyGitHubMcpGrant,
+  type WorkerGateway,
+  WorkerGatewayError,
+} from "@werft-ai/platform";
 import type { ObjectRouteSigner } from "@werft-ai/storage";
 import { z } from "zod";
 import { isStorageUnavailable } from "./app.ts";
@@ -70,6 +82,21 @@ export function egressAuthorizerConfigFromEnv(
     token,
   };
 }
+
+/**
+ * The key the built-in `github` MCP server's grants are signed with: derived
+ * from the bearer only the API and the proxy hold, under a name of its own
+ * so a grant is never also an authorizer bearer.
+ */
+export function githubMcpGrantKeyOf(config: EgressAuthorizerConfig): Buffer {
+  return createHmac("sha256", config.token)
+    .update("werft github mcp grant v1", "utf8")
+    .digest();
+}
+
+// What the built-in server takes in one message: a dispatch's inputs are
+// the largest argument (25 inputs of up to 64 KiB).
+const GITHUB_MCP_MAX_BODY_BYTES = 2 * 1024 * 1024;
 
 const tokenSchema = z.string().min(1).max(512);
 
@@ -198,6 +225,19 @@ export function createEgressAuthorizer(deps: {
   logger: StructuredLogger;
   /** Absent when the API runs without an object store: the route refuses. */
   objectStore?: ObjectRouteSigner;
+  /**
+   * The built-in `github` MCP server, reached by the proxy at
+   * GITHUB_MCP_UPSTREAM_PATH with a grant this listener's gateway signed.
+   */
+  githubMcp?: {
+    handle: (
+      grant: GitHubMcpGrant,
+      message: unknown,
+      requestId: string,
+    ) => Promise<JsonRpcResponse | null>;
+    grantKey: Uint8Array;
+    now?: () => number;
+  };
   token: string;
   deadlineMs?: number;
 }): (request: Request) => Promise<Response> {
@@ -236,6 +276,9 @@ export function createEgressAuthorizer(deps: {
   const deadlineMs = deps.deadlineMs ?? AUTHORIZE_DEADLINE_MS;
   return async (request) => {
     const url = new URL(request.url);
+    if (url.pathname === GITHUB_MCP_UPSTREAM_PATH) {
+      return serveGitHubMcp(request);
+    }
     if (
       request.method !== "POST" ||
       (url.pathname !== EGRESS_AUTHORIZER_PATH &&
@@ -316,6 +359,59 @@ export function createEgressAuthorizer(deps: {
       },
     );
   };
+
+  // Streamable HTTP without sessions or streams: one message in, one JSON
+  // answer out. The grant alone names the session.
+  async function serveGitHubMcp(request: Request): Promise<Response> {
+    const mcp = deps.githubMcp;
+    if (mcp === undefined) return problem(404, "NOT_FOUND", "Not found");
+    const bearer = /^Bearer (.+)$/.exec(
+      request.headers.get("authorization") ?? "",
+    )?.[1];
+    const grant =
+      bearer === undefined
+        ? null
+        : verifyGitHubMcpGrant(mcp.grantKey, bearer, (mcp.now ?? Date.now)());
+    if (grant === null) {
+      return problem(401, "UNAUTHORIZED", "A GitHub MCP grant is required");
+    }
+    if (request.method !== "POST") {
+      return new Response(null, { status: 405, headers: { allow: "POST" } });
+    }
+    const declared = Number(request.headers.get("content-length") ?? "0");
+    if (!Number.isFinite(declared) || declared > GITHUB_MCP_MAX_BODY_BYTES) {
+      return problem(413, "PAYLOAD_TOO_LARGE", "Request body is too large");
+    }
+    const bytes = await readAtMost(request, GITHUB_MCP_MAX_BODY_BYTES);
+    if (bytes === null) {
+      return problem(413, "PAYLOAD_TOO_LARGE", "Request body is too large");
+    }
+    let message: unknown;
+    try {
+      message = JSON.parse(new TextDecoder().decode(bytes));
+    } catch {
+      return Response.json(
+        {
+          jsonrpc: "2.0",
+          id: null,
+          error: { code: -32700, message: "Parse error" },
+        },
+        { status: 400 },
+      );
+    }
+    try {
+      const answer = await mcp.handle(grant, message, randomUUID());
+      return answer === null
+        ? new Response(null, { status: 202 })
+        : Response.json(answer);
+    } catch (error) {
+      deps.logger.error("GitHub MCP call failed", {
+        session_id: grant.sessionId,
+        error: error instanceof Error ? error.name : "error",
+      });
+      return problem(503, "BACKEND_UNAVAILABLE", "GitHub MCP unavailable");
+    }
+  }
 
   async function recordUsage(report: z.infer<typeof usageReportSchema>) {
     const { usage } = report;

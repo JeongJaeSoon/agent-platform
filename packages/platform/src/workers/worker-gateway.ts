@@ -35,7 +35,11 @@ import type {
   WorkerReadyResponse,
   WorkerScope,
 } from "@werft-ai/contracts";
-import { githubRefusalStatus, MAX_RESTORE_PROFILES } from "@werft-ai/contracts";
+import {
+  GITHUB_MCP_SERVER,
+  githubRefusalStatus,
+  MAX_RESTORE_PROFILES,
+} from "@werft-ai/contracts";
 import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
 import {
   type CheckpointRequestDecision,
@@ -62,6 +66,7 @@ import {
   GitHubGateError,
   type GitHubGrant,
 } from "../ports/github-gate.ts";
+import type { GitHubMcpStore } from "../ports/github-mcp.ts";
 import type { McpEgressStore } from "../ports/mcp-egress.ts";
 import type {
   ApprovalCheckpointCommit,
@@ -84,9 +89,12 @@ import {
   allowedPair,
   type CatalogProfile,
   type CatalogRepository,
+  type ClaimedMcpServer,
   catalogProfile,
   catalogRevision,
   type EgressUpstream,
+  GITHUB_MCP_ENDPOINT,
+  githubMcpBinding,
   mcpBinding,
   type ProfilePin,
   profileAllowsRepository,
@@ -100,6 +108,7 @@ import {
   runtimeConfigOf,
   runtimeConfigWithMcp,
   type SessionCatalog,
+  type SessionGitHubMcp,
   type SessionMcp,
   sessionProfile,
   type WorkspaceProfiles,
@@ -115,6 +124,7 @@ import {
   TITLE_TOKEN_PREFIX,
   titleProfile,
 } from "../sessions/session-titler.ts";
+import { createGitHubMcpEgress } from "./github-mcp-egress.ts";
 import { createMcpEgress, type McpEgressRequest } from "./mcp-egress.ts";
 
 const WORKSPACE_PROFILE_MAX_AGE_MS = 1000;
@@ -454,6 +464,8 @@ export function createWorkerGateway(deps: {
   // agent's credential is still bound.
   mcp?: McpEgressStore;
   onMcpReceiptError?: (error: unknown) => void;
+  // Absent, the built-in `github` MCP route is refused.
+  githubMcp?: { store: GitHubMcpStore; grantKey: Uint8Array };
   // Absent, a session keeps the title cut from its first message.
   titles?: { store: SessionTitleStore; titler: SessionTitler };
   // Absent, events are stored without the engine-neutral fields beside them.
@@ -471,6 +483,8 @@ export function createWorkerGateway(deps: {
             ? {}
             : { onReceiptError: deps.onMcpReceiptError }),
         });
+  const decideGitHubMcp =
+    deps.githubMcp === undefined ? null : createGitHubMcpEgress(deps.githubMcp);
   const protocol = deps.checkpointProtocol;
   function requireProtocol(): CheckpointProtocol {
     if (protocol === undefined) {
@@ -663,23 +677,44 @@ export function createWorkerGateway(deps: {
       .catch(() => undefined);
   }
 
-  function claimedMcp(mcp: SessionMcp | null | undefined) {
+  // The catalog server the release names, then the built-in `github` when
+  // the release carries GitHub settings.
+  function claimedMcp(session: {
+    mcp?: SessionMcp | null;
+    githubMcp?: SessionGitHubMcp | null;
+  }): ClaimedMcpServer[] {
+    const { mcp, githubMcp } = session;
     const server = mcp ? own(catalog.mcp_servers ?? {}, mcp.server) : undefined;
-    if (!mcp || !server) return null;
-    return {
-      name: mcp.server,
-      endpoint: server.url,
-      binding: mcpBinding(mcp.releaseId, mcp.server, server),
-      tools: mcp.tools,
-    };
+    return [
+      ...(mcp && server
+        ? [
+            {
+              name: mcp.server,
+              endpoint: server.url,
+              binding: mcpBinding(mcp.releaseId, mcp.server, server),
+              tools: mcp.tools,
+            },
+          ]
+        : []),
+      ...(githubMcp
+        ? [
+            {
+              name: GITHUB_MCP_SERVER,
+              endpoint: GITHUB_MCP_ENDPOINT,
+              binding: githubMcpBinding(githubMcp.releaseId),
+              tools: githubMcp.tools,
+            },
+          ]
+        : []),
+    ];
   }
 
   function withMcp(
     config: RuntimeConfig,
-    mcp: ReturnType<typeof claimedMcp>,
+    mcp: readonly ClaimedMcpServer[],
     mcpToken: string,
   ): RuntimeConfig {
-    return mcp === null ? config : runtimeConfigWithMcp(config, mcp, mcpToken);
+    return runtimeConfigWithMcp(config, mcp, mcpToken);
   }
 
   // Resolved at claim time, on purpose: the catalog is where an operator
@@ -737,7 +772,7 @@ export function createWorkerGateway(deps: {
       | "repository"
     >,
     providerToken: string,
-    mcp: ReturnType<typeof claimedMcp>,
+    mcp: readonly ClaimedMcpServer[],
     mcpToken: string,
   ): { restore_runtime_configs?: RuntimeConfig[] } {
     const configs = binding.restoreProfiles.flatMap((made) => {
@@ -797,8 +832,10 @@ export function createWorkerGateway(deps: {
     // that.
     const provider = session.profileFingerprint ?? profileFingerprint(profile);
     const object_store = sessionObjectPrefix(session.id);
-    const mcp = claimedMcp(session.mcp);
-    const mcpBinding = mcp === null ? {} : { mcp: mcp.binding };
+    // One token serves both servers; it is held to the catalog server's
+    // binding when there is one, as the remote route checks.
+    const [first] = claimedMcp(session);
+    const mcpBinding = first === undefined ? {} : { mcp: first.binding };
     if (session.repositoryMode === "none") {
       return { provider, repository: null, object_store, ...mcpBinding };
     }
@@ -1063,7 +1100,7 @@ export function createWorkerGateway(deps: {
           );
         default: {
           const binding = result.binding;
-          const mcp = claimedMcp(binding.mcp);
+          const mcp = claimedMcp(binding);
           const profile = resolveProfile(
             binding.profileId,
             { fingerprint: binding.profileFingerprint, model: binding.model },
@@ -1151,7 +1188,9 @@ export function createWorkerGateway(deps: {
         token: request.token,
         purpose: "mcp",
       });
-      if (decideMcp === null) {
+      const decide =
+        request.server === GITHUB_MCP_SERVER ? decideGitHubMcp : decideMcp;
+      if (decide === null) {
         throw new WorkerGatewayError(
           503,
           "BACKEND_UNAVAILABLE",
@@ -1159,7 +1198,7 @@ export function createWorkerGateway(deps: {
           true,
         );
       }
-      const decision = await decideMcp(result, request);
+      const decision = await decide(result, request);
       if (decision.kind === "refused") {
         throw new WorkerGatewayError(
           decision.status,
