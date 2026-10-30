@@ -126,6 +126,7 @@ describe("database schema", () => {
       "users",
       "web_sessions",
       "worker_credentials",
+      "worker_image_refusals",
       "worker_launches",
       "workers",
       "workspace_profiles",

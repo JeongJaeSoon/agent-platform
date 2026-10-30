@@ -60,6 +60,12 @@ export async function main(
       backend,
       drainDeadlineMs: config.drainDeadlineMs,
       image: config.image,
+      ...(config.imageRuntime === undefined
+        ? {}
+        : { imageRuntime: config.imageRuntime }),
+      ...(config.previousImage === undefined
+        ? {}
+        : { previousImage: config.previousImage }),
       logger,
       resources: config.resources,
       slotLimit: config.slotLimit,
@@ -95,6 +101,7 @@ export function exitCodeFor(summary: SchedulerRunSummary): number {
   if (
     summary.failedLaunches.length > 0 ||
     summary.imageUnresolved ||
+    summary.imagesRefused.length > 0 ||
     summary.killFailed.length > 0 ||
     // A network that could be neither removed nor repaired is a leaked
     // address pool or a worker without egress; both need someone to look.

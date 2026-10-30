@@ -1,3 +1,4 @@
+import type { ImageRuntime } from "@werft-ai/runtime-core";
 import type {
   EnsureExecutionResult,
   ExecutionRef,
@@ -20,6 +21,18 @@ import {
   seenIncarnation,
   storedIntentOf,
 } from "./pass-context.ts";
+import {
+  sameCombination,
+  selectWorkerImage,
+  type WorkerImageCandidate,
+} from "./worker-images.ts";
+
+type PinnedImage = { image: string; runtime: ImageRuntime | undefined };
+type PinnedImages = {
+  /** Current first. Every runtime is set, or there is one image without. */
+  pinned: [PinnedImage, ...PinnedImage[]];
+  refused: readonly PinnedImage[];
+};
 
 export async function reensure(
   ctx: PassContext,
@@ -239,18 +252,97 @@ export async function fillSlots(ctx: PassContext): Promise<void> {
   // Pinned once per pass, and only when there is a session to admit. What a
   // tag names can move between passes; that is the point — each new launch
   // gets whatever it names when the launch is reserved, and keeps it.
-  let image: string | null | undefined;
-  const pinnedImage = async (): Promise<string | null> => {
-    try {
-      return await backend.resolveImage(options.image);
-    } catch (error) {
-      summary.imageUnresolved = true;
-      logger.error("Worker image could not be pinned; nothing admitted", {
-        error: messageOf(error),
-        image: options.image,
-      });
-      return null;
+  let images: PinnedImages | null | undefined;
+  const pinnedImages = async (): Promise<PinnedImages | null> => {
+    const configured: PinnedImage[] = [
+      { image: options.image, runtime: options.imageRuntime },
+    ];
+    if (
+      options.imageRuntime !== undefined &&
+      options.previousImage !== undefined
+    ) {
+      configured.push(options.previousImage);
     }
+    const pinned: PinnedImage[] = [];
+    for (const { image, runtime } of configured) {
+      try {
+        pinned.push({ image: await backend.resolveImage(image), runtime });
+      } catch (error) {
+        summary.imageUnresolved = true;
+        logger.error("Worker image could not be pinned; nothing admitted", {
+          error: messageOf(error),
+          image,
+        });
+        return null;
+      }
+    }
+    const refusals =
+      options.imageRuntime === undefined
+        ? []
+        : await store.workerImageRefusals();
+    const refused: PinnedImage[] = [];
+    for (const { image, runtime } of pinned) {
+      if (
+        runtime !== undefined &&
+        refusals.some(
+          (refusal) =>
+            refusal.image === image &&
+            sameCombination(refusal.assumed, runtime),
+        )
+      ) {
+        refused.push({ image, runtime });
+        summary.imagesRefused.push(image);
+        logger.error(
+          "Worker image refused: a worker on it claimed under another runtime than configured; no session is launched on it until the configured runtime is corrected",
+          { image, assumed: runtime },
+        );
+      }
+    }
+    return { pinned: pinned as [PinnedImage, ...PinnedImage[]], refused };
+  };
+  // The image this session launches on; null when it waits this pass.
+  const imageFor = async (
+    sessionId: string,
+    available: PinnedImages,
+  ): Promise<PinnedImage | null> => {
+    const [current] = available.pinned;
+    if (current.runtime === undefined) return current;
+    const { pointer, checkpointRevision } =
+      await store.pointerRuntimeOf(sessionId);
+    const selection = selectWorkerImage(
+      pointer,
+      available.pinned.map(({ image, runtime }) => ({
+        image,
+        runtime: runtime as ImageRuntime,
+      })) as [WorkerImageCandidate<string>, ...WorkerImageCandidate<string>[]],
+    );
+    if (selection.kind === "selected") {
+      // By the pair: one digest configured twice under two runtimes is
+      // refused only under the one a worker contradicted.
+      return available.refused.some(
+        ({ image, runtime }) =>
+          image === selection.image &&
+          runtime !== undefined &&
+          sameCombination(runtime, selection.runtime),
+      )
+        ? null
+        : { image: selection.image, runtime: selection.runtime };
+    }
+    lock.throwIfAborted();
+    const held = await store.holdIncompatibleBeforeLaunch({
+      sessionId,
+      checkpointRevision,
+      detail: selection.detail,
+      now: now(),
+    });
+    if (held === "held") {
+      summary.heldIncompatible.push(sessionId);
+      logger.warn(
+        "No configured worker image matches the session's checkpoint; stopped before launch as incompatible_checkpoint",
+        { detail: selection.detail, session_id: sessionId },
+      );
+    }
+    return null;
   };
   // Rows are the ledger, but a still-running orphan occupies the host too.
   let free = Math.max(
@@ -260,14 +352,36 @@ export async function fillSlots(ctx: PassContext): Promise<void> {
       summary.orphansUnresolved.length -
       summary.orphansStopping.length,
   );
-  for (const sessionId of demand.eligibleSessionIds) {
+  // A session passed over (its image refused, held before launch, raced)
+  // leaves its slot to the next in line, so a full page reads on past it.
+  const eligible = async function* () {
+    const seen: string[] = [];
+    let page = demand.eligibleSessionIds;
+    let limit = options.slotLimit;
+    for (;;) {
+      for (const sessionId of page) {
+        seen.push(sessionId);
+        yield sessionId;
+      }
+      if (free <= 0 || page.length < limit) return;
+      limit = free;
+      lock.throwIfAborted();
+      page = (await store.inspectDemand({ limit, excluding: seen }))
+        .eligibleSessionIds;
+    }
+  };
+  for await (const sessionId of eligible()) {
     if (free <= 0) break;
-    if (image === undefined) image = await pinnedImage();
-    if (image === null) break;
+    if (images === undefined) images = await pinnedImages();
+    if (images === null) break;
+    lock.throwIfAborted();
+    const chosen = await imageFor(sessionId, images);
+    if (chosen === null) continue;
     lock.throwIfAborted();
     const stored = await store.reserveLaunch({
       backend: backend.kind,
-      image,
+      image: chosen.image,
+      ...(chosen.runtime === undefined ? {} : { imageRuntime: chosen.runtime }),
       now: now(),
       resources: options.resources,
       sessionId,

@@ -18,7 +18,11 @@ import {
   type InstallationLimits,
   type InstallationLimitsEnvironment,
   installationLimitsFromEnv,
+  type SchedulerOptions,
+  workerImageRuntimesFromEnv,
 } from "@werft-ai/platform";
+
+type ImageRuntime = NonNullable<SchedulerOptions["imageRuntime"]>;
 
 export type SchedulerEnvironment = LocalDockerBackendEnvironment &
   InstallationLimitsEnvironment & {
@@ -29,6 +33,9 @@ export type SchedulerEnvironment = LocalDockerBackendEnvironment &
     QUEUE_DATABASE_URL?: string | undefined;
     WORKER_CPUS?: string | undefined;
     WORKER_IMAGE?: string | undefined;
+    WORKER_IMAGE_PREVIOUS?: string | undefined;
+    WORKER_IMAGE_PREVIOUS_RUNTIME?: string | undefined;
+    WORKER_IMAGE_RUNTIME?: string | undefined;
     WORKER_MEMORY_MB?: string | undefined;
     WORKER_PIDS_LIMIT?: string | undefined;
   };
@@ -45,6 +52,9 @@ export type SchedulerConfig = {
   drainDeadlineMs: number;
   execution: SchedulerExecution;
   image: string;
+  /** Without them every launch takes `image` and nothing is held to a combination. */
+  imageRuntime?: ImageRuntime;
+  previousImage?: { image: string; runtime: ImageRuntime };
   limits: InstallationLimits;
   logLevel: LogLevel;
   resources: ExecutionResources;
@@ -62,6 +72,13 @@ export function schedulerConfigFromEnv(
   }
   const image = environment.WORKER_IMAGE;
   if (!image) throw new Error("WORKER_IMAGE is required");
+  const runtimes = workerImageRuntimesFromEnv(environment);
+  const previousImage = environment.WORKER_IMAGE_PREVIOUS;
+  if (!previousImage !== (runtimes?.previous == null)) {
+    throw new Error(
+      "WORKER_IMAGE_PREVIOUS and WORKER_IMAGE_PREVIOUS_RUNTIME are set together",
+    );
+  }
   // The adapter defaults this for tests; a real scheduler must say which
   // installation it is, or two installations on one daemon reap each other.
   if (!environment.EXECUTION_INSTALLATION_ID) {
@@ -85,6 +102,12 @@ export function schedulerConfigFromEnv(
       logLevel,
     }),
     image,
+    ...(runtimes === null ? {} : { imageRuntime: runtimes.current }),
+    ...(runtimes?.previous == null || !previousImage
+      ? {}
+      : {
+          previousImage: { image: previousImage, runtime: runtimes.previous },
+        }),
     limits,
     logLevel,
     resources: {

@@ -757,6 +757,13 @@
       "when": 1793388036828,
       "tag": "0198_session_runtime_pin",
       "breakpoints": true
+    },
+    {
+      "idx": 199,
+      "version": "7",
+      "when": 1793390947247,
+      "tag": "0199_worker_image_runtime",
+      "breakpoints": true
     }
   ]
 }

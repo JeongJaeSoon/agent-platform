@@ -13,6 +13,7 @@ import {
 import {
   type AgentRun,
   type CheckpointPreparation,
+  type ImageRuntime,
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
 import type {
@@ -87,6 +88,7 @@ function harness(
     checkpoints?: WorkerCheckpointPort;
     engines?: EngineExitWatch;
     gateway?: FakeWorkerGateway;
+    imageRuntime?: ImageRuntime;
     logger?: WorkerLogger;
     /** Input uuids the engine session a resumed run opens already holds. */
     resumedTranscript?: string[];
@@ -131,6 +133,9 @@ function harness(
     timeouts: { ...timeouts, ...overrides.timeouts },
     workspace: overrides.workspace ?? noWorkspace,
     ...(overrides.engines === undefined ? {} : { engines: overrides.engines }),
+    ...(overrides.imageRuntime === undefined
+      ? {}
+      : { imageRuntime: overrides.imageRuntime }),
     ...(overrides.sleep === undefined ? {} : { sleep: overrides.sleep }),
   });
   return {
@@ -415,6 +420,43 @@ describe("WorkerHost turn loop", () => {
     expect(summary.outcome).toBe("failed");
     expect(summary.reason).toContain("no restorer bound");
     expect(gateway.finalized).toEqual([]);
+  });
+
+  test("says which combination its image runs when it claims, and leaves at once when the image is refused", async () => {
+    const gateway = new FakeWorkerGateway();
+    const requests: Array<Parameters<FakeWorkerGateway["bootstrapClaim"]>[0]> =
+      [];
+    gateway.bootstrapClaim = async (request) => {
+      requests.push(request);
+      throw new WorkerGatewayRequestError(
+        409,
+        "LAUNCH_FAILED",
+        "This worker's image does not run what its launch was configured for",
+        false,
+      );
+    };
+    const { host } = harness([], {
+      gateway,
+      imageRuntime: {
+        engine: "claude-agent-sdk",
+        sdkVersion: "0.3.270",
+        cliVersion: "2.1.270",
+        profileDigestScheme: 1,
+      },
+    });
+
+    await expect(host.runLoop()).rejects.toMatchObject({
+      code: "LAUNCH_FAILED",
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.image_runtime).toEqual({
+      engine: "claude-agent-sdk",
+      sdk_version: "0.3.270",
+      cli_version: "2.1.270",
+      profile_digest_scheme: 1,
+    });
+    expect(gateway.releases).toEqual([]);
   });
 
   test("leaves cleanly when no session was waiting for it", async () => {

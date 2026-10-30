@@ -29,6 +29,7 @@ import {
   type ApprovalRequested,
   type CheckpointLease,
   type CheckpointPreparation,
+  type ImageRuntime,
   isOwnershipLost,
   isRetryable,
   type ParkedApproval,
@@ -150,6 +151,8 @@ export type WorkerHostOptions = {
   approvalCheckpointMs?: number;
   /** Hands the claim's commit trailers to the image's git hook. */
   gitTrailers?: (git: ClaimGit | undefined) => Promise<void>;
+  /** What this image runs, sent with the claim so a misconfigured image is refused. */
+  imageRuntime?: ImageRuntime;
 };
 
 /**
@@ -767,6 +770,17 @@ export class WorkerHost {
               kind: "launch_nonce",
               nonce: this.options.execution.bootstrapNonce,
             },
+            ...(this.options.imageRuntime === undefined
+              ? {}
+              : {
+                  image_runtime: {
+                    engine: this.options.imageRuntime.engine,
+                    sdk_version: this.options.imageRuntime.sdkVersion,
+                    cli_version: this.options.imageRuntime.cliVersion,
+                    profile_digest_scheme:
+                      this.options.imageRuntime.profileDigestScheme,
+                  },
+                }),
           }),
         );
         if (claimed === undefined) {

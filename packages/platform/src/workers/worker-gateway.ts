@@ -1069,6 +1069,17 @@ export function createWorkerGateway(deps: {
         nonceHash: hashWorkerToken(request.credential.nonce),
         executionId: request.execution_id,
         executionGeneration: request.execution_generation,
+        ...(request.image_runtime === undefined
+          ? {}
+          : {
+              imageRuntime: {
+                engine: request.image_runtime.engine,
+                sdkVersion: request.image_runtime.sdk_version,
+                cliVersion: request.image_runtime.cli_version,
+                profileDigestScheme:
+                  request.image_runtime.profile_digest_scheme,
+              },
+            }),
         attemptId: `att_${randomUUID()}`,
         credentialHash: hashWorkerToken(sessionToken),
         credentialTtlMs: sessionTokenTtlMs,
@@ -1119,15 +1130,39 @@ export function createWorkerGateway(deps: {
             "CATALOG_MISMATCH",
             "The session this launch was reserved for runs as a profile and repository pair this host's catalog no longer allows; the session was failed",
           );
+        // Not retryable: this worker will never be the image it was launched
+        // as. The session waits for a launch on a correctly configured one.
+        case "image_mismatch":
+          throw new WorkerGatewayError(
+            409,
+            "LAUNCH_FAILED",
+            `This worker's image does not run the ${result.assumed.engine} sdk ${result.assumed.sdkVersion} cli ${result.assumed.cliVersion} digest scheme ${result.assumed.profileDigestScheme} its launch was configured for; the image is refused until its configured runtime is corrected`,
+            false,
+            undefined,
+            "worker_image_mismatch",
+          );
         default: {
           const binding = result.binding;
           const mcp = claimedMcp(binding);
-          const profile = resolveProfile(
+          const resolvedProfile = resolveProfile(
             binding.profileId,
             { fingerprint: binding.profileFingerprint, model: binding.model },
             providerToken,
             binding.repository !== null,
           );
+          // A launch on the previous image runs that image's engine, which
+          // the worker checks the claim against; the catalog names the
+          // current one.
+          const profile =
+            binding.launchRuntime === undefined
+              ? resolvedProfile
+              : {
+                  ...resolvedProfile,
+                  runtime: {
+                    ...resolvedProfile.runtime,
+                    version: binding.launchRuntime.sdkVersion,
+                  },
+                };
           const resolved = {
             ...profile,
             runtime_config: withMcp(profile.runtime_config, mcp, mcpToken),

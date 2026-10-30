@@ -1993,6 +1993,9 @@ export const checkpoints = pgTable(
     runtimeSdkVersion: text("runtime_sdk_version"),
     runtimeCliVersion: text("runtime_cli_version"),
     runtimeProfileSha256: text("runtime_profile_sha256"),
+    // The profile digest scheme of the image the committing attempt was
+    // launched on; null when its launch assumed none, read as scheme 1.
+    runtimeProfileScheme: integer("runtime_profile_scheme"),
     // Whether checkpoint_outputs holds what this revision's manifest names
     // under outputs. False on rows committed before it was recorded, whose
     // outputs no figure counts.
@@ -2268,6 +2271,12 @@ export const workerLaunches = pgTable(
     // reserved before they were stored, which runs on current settings.
     image: text(),
     resources: jsonb(),
+    // The combination the scheduler was told `image` runs, which the claim
+    // is held to. All null on a launch reserved without one.
+    runtimeEngine: text("runtime_engine"),
+    runtimeSdkVersion: text("runtime_sdk_version"),
+    runtimeCliVersion: text("runtime_cli_version"),
+    runtimeProfileScheme: integer("runtime_profile_scheme"),
     // Launch attempts that failed before any worker bound: a create or start
     // the provider refused, or a resource that exited unclaimed. Never reset,
     // so a launch that keeps failing reaches the scheduler's limit and gives
@@ -2324,6 +2333,39 @@ export const workerLaunches = pgTable(
       "worker_launches_launch_attempts_check",
       sql`${table.launchAttempts} >= 0`,
     ),
+  ],
+);
+
+// A pinned worker image whose worker claimed under another combination than
+// its launch assumed: the configured runtime is wrong for it. The scheduler
+// launches nothing on the image under that assumption again; correcting
+// the configured runtime is the way out, so the key holds the assumption.
+export const workerImageRefusals = pgTable(
+  "worker_image_refusals",
+  {
+    image: text().notNull(),
+    assumedEngine: text("assumed_engine").notNull(),
+    assumedSdkVersion: text("assumed_sdk_version").notNull(),
+    assumedCliVersion: text("assumed_cli_version").notNull(),
+    assumedProfileScheme: integer("assumed_profile_scheme").notNull(),
+    // What the worker said it runs, as it said it; for the operator only.
+    claimed: jsonb().notNull(),
+    executionId: text("execution_id").notNull(),
+    refusedAt: timestamp("refused_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "worker_image_refusals_pkey",
+      columns: [
+        table.image,
+        table.assumedEngine,
+        table.assumedSdkVersion,
+        table.assumedCliVersion,
+        table.assumedProfileScheme,
+      ],
+    }),
   ],
 );
 
