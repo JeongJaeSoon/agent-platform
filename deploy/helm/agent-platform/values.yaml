@@ -36,7 +36,7 @@ images:
 # The chart never holds a secret value. Each workload reads only the keys it
 # needs from this one Secret:
 #   DATABASE_URL            api, scheduler, reconciler, slack, migrate,
-#                           checkpoint GC
+#                           checkpoint GC, metrics (read only)
 #   EGRESS_AUTHORIZER_TOKEN api, egress-proxy (the same value on both sides)
 #   AWS_ACCESS_KEY_ID,
 #   AWS_SECRET_ACCESS_KEY   api, checkpoint GC (the checkpoint object store),
@@ -254,6 +254,30 @@ migrate:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 1Gi}
 
+# The platform metrics (docs/operator/metrics.md): GET /metrics on port 9464
+# in the Prometheus text format, computed from the database at each scrape.
+# Off by default. One replica, replaced with Recreate: every replica would
+# report the same installation-wide totals, so a second one is a duplicate
+# scrape target. It gets the scheduler's config.limits, so its launch queue
+# is the one the scheduler drains.
+metrics:
+  enabled: false
+  port: 9464
+  # How the collector finds the Pod: Prometheus annotations, or a Datadog
+  # Agent openmetrics check under ad.datadoghq.com/metrics.checks
+  # (docs/operator/metrics.md). For example:
+  #   prometheus.io/scrape: "true"
+  #   prometheus.io/port: "9464"
+  podAnnotations: {}
+  terminationGracePeriodSeconds: 20
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  extraEnv: {}
+
 # Must not run while a backup is being taken (docs/operator/backup-restore.md).
 checkpointGc:
   enabled: true
@@ -317,3 +341,9 @@ networkPolicy:
   slack:
     # The PostgreSQL port slack's egress may reach, on any address.
     databasePort: 5432
+  metrics:
+    # Peers allowed to scrape the metrics port (NetworkPolicy `from`
+    # entries), e.g. the collector's namespace. Empty allows any source, as
+    # api.ingressFrom does: collectors often run outside the namespace. The
+    # metrics carry counts and tool and model names, no ids or secrets.
+    ingressFrom: []

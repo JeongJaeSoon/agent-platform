@@ -17,6 +17,7 @@ import type {
   ReserveLaunchInput,
   SchedulerDemand,
   SchedulerStore,
+  SessionBudget,
   StoredLaunchIntent,
   WorkerImageRefusal,
 } from "@werft-ai/platform";
@@ -41,6 +42,7 @@ import {
   notExists,
   notInArray,
   or,
+  type SQL,
   sql,
 } from "drizzle-orm";
 import { readPointerImageRuntime } from "./checkpoint-runtime.ts";
@@ -139,6 +141,30 @@ function holdsSlot() {
   return isNull(workerLaunches.slotReleasedAt);
 }
 
+/**
+ * The launch queue: the `unassigned_sessions` ⋈ `sessions` rows a scheduler
+ * pass may launch, before its LIMIT. The platform metrics count the same
+ * rows, so their queue is the one the scheduler drains.
+ */
+export function awaitingLaunch(db: Database, budget: SessionBudget): SQL {
+  return and(
+    inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
+    isNull(sessions.executionRevokedAt),
+    isNull(sessions.takeoverRequiredAt),
+    // Before the LIMIT, so a backlog of spent sessions cannot crowd
+    // out the ones that can still run, nor sessions waiting out a
+    // restore backoff.
+    withinBudget(budget),
+    restoreRetryDue(),
+    notExists(
+      db
+        .select({ one: sql`1` })
+        .from(workerLaunches)
+        .where(and(eq(workerLaunches.sessionId, sessions.id), holdsSlot())),
+    ),
+  ) as SQL;
+}
+
 export function createPostgresSchedulerStore(
   db: Database,
   options: PostgresSchedulerStoreOptions,
@@ -233,25 +259,10 @@ export function createPostgresSchedulerStore(
         .innerJoin(sessions, eq(sessions.id, unassignedSessions.sessionId))
         .where(
           and(
-            inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
-            isNull(sessions.executionRevokedAt),
-            isNull(sessions.takeoverRequiredAt),
-            // Before the LIMIT, so a backlog of spent sessions cannot crowd
-            // out the ones that can still run, nor sessions waiting out a
-            // restore backoff.
-            withinBudget(budget),
-            restoreRetryDue(),
+            awaitingLaunch(db, budget),
             excluding.length === 0
               ? undefined
               : notInArray(unassignedSessions.sessionId, [...excluding]),
-            notExists(
-              db
-                .select({ one: sql`1` })
-                .from(workerLaunches)
-                .where(
-                  and(eq(workerLaunches.sessionId, sessions.id), holdsSlot()),
-                ),
-            ),
           ),
         )
         .orderBy(

@@ -279,4 +279,25 @@ integration("enforced pool on PostgreSQL", () => {
       await admin.end();
     }
   }, 30_000);
+
+  test("a read-only pool's connections refuse writes", async () => {
+    const open = (readOnly: boolean) =>
+      createEnforcedPool(databaseUrl ?? "", createLogger(), "job", lenient, {
+        readOnly,
+      });
+    const reader = open(true);
+    const writer = open(false);
+    try {
+      const write = "CREATE TEMP TABLE read_only_probe (x int)";
+      // 25006: read_only_sql_transaction.
+      expect(await settle(reader.query(write))).toMatchObject({
+        code: "25006",
+      });
+      expect((await reader.query("SELECT 1 AS one")).rows[0]?.one).toBe(1);
+      expect(await settle(writer.query(write))).toBeNull();
+    } finally {
+      await reader.end();
+      await writer.end();
+    }
+  });
 });
