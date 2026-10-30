@@ -47,7 +47,7 @@ curl -s localhost:9464/metrics
 
 - **scrape할 때 DB에서 계산한다.** `metrics` 역할(`bun run apps/control-host/src/main.ts metrics`)은 상태를 갖지 않는다. 요청마다 `packages/db/src/metrics-reader.ts`의 질의로 DB를 읽어 `apps/control-host/src/metrics/families.ts`가 지표로 바꾼다. 그래서 Pod가 재시작해도 counter가 0으로 돌아가지 않는다.
 - **target은 하나다.** 값은 설치 전체의 합이라 replica가 둘이면 같은 값을 두 번 낸다. chart가 replica를 1로 고정하고 `Recreate`로 바꾼다.
-- **읽기 전용 연결이다.** DB 연결은 `default_transaction_read_only=on`으로 열려 있어 실수로 보낸 쓰기는 DB가 거절한다. 세션 설정일 뿐 DB 권한은 아니다. `DATABASE_URL`의 계정은 다른 역할과 같아 쓰기 권한이 있고, 연결 안에서 설정을 되돌리면 쓸 수 있다.
+- **읽기 전용 연결이다.** DB 연결은 `default_transaction_read_only=on`으로 열려 있어 실수로 보낸 쓰기는 DB가 거절한다. 세션 설정일 뿐 DB 권한은 아니다. `DATABASE_URL`의 계정은 다른 역할과 같아 쓰기 권한이 있고, 연결 안에서 설정을 되돌리면 쓸 수 있다. 이 설정은 연결 시작 파라미터 `options`로 보내므로, `options`를 거절하는 연결 풀러(`ignore_startup_parameters`에 `options`가 없는 PgBouncer 등)를 거치면 metrics 역할만 연결하지 못한다.
 - **동시 scrape는 한 번 읽는다.** 읽는 동안 들어온 요청은 같은 결과를 받는다. 읽기가 실패하면 503을 돌려주고 이전 값을 내지 않는다(수집기에서는 scrape 실패, Prometheus의 `up` = 0).
 - **`/healthz`** 는 프로세스가 응답하는지만 본다. probe는 DB를 읽지 않는다.
 
