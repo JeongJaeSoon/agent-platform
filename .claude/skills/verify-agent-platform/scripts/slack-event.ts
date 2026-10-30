@@ -17,8 +17,14 @@ import {
 const [agentId, mode, channel = "C0VERIFY", seq = "1"] = process.argv.slice(1);
 // `mention` and `plain` are top-level posts by U0MOCK in `channel`, with
 // or without a mention; each sequence number is its own event and thread.
-const posted = mode === "mention" || mode === "plain";
-const ts = posted ? `${1792800000 + Number(seq)}.000001` : "1792800000.000001";
+// `reply` answers, unmentioned, in the thread that number opened.
+const posted = mode === "mention" || mode === "plain" || mode === "reply";
+const root = `${1792800000 + Number(seq)}.000001`;
+const ts = !posted
+  ? "1792800000.000001"
+  : mode === "reply"
+    ? `${1792800000 + Number(seq)}.000002`
+    : root;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 try {
   const db = drizzle(pool, { schema });
@@ -47,23 +53,33 @@ try {
                 ? `EvVerify${mode}${channel}${seq}`
                 : "EvVerify1",
           event:
-            mode === "plain"
+            mode === "reply"
               ? {
                   type: "message",
                   channel_type: "channel",
                   user: "U0MOCK",
                   channel,
                   ts,
-                  text: "verify plain post",
+                  thread_ts: root,
+                  text: "verify thread reply",
                 }
-              : {
-                  type: "app_mention",
-                  user: "U0MOCK",
-                  channel: posted ? channel : "C0VERIFY",
-                  ts,
-                  text: "verify inbox",
-                  ...(mode === "bot" ? { bot_id: "B0VERIFY" } : {}),
-                },
+              : mode === "plain"
+                ? {
+                    type: "message",
+                    channel_type: "channel",
+                    user: "U0MOCK",
+                    channel,
+                    ts,
+                    text: "verify plain post",
+                  }
+                : {
+                    type: "app_mention",
+                    user: "U0MOCK",
+                    channel: posted ? channel : "C0VERIFY",
+                    ts,
+                    text: "verify inbox",
+                    ...(mode === "bot" ? { bot_id: "B0VERIFY" } : {}),
+                  },
         };
   const body = mode === "malformed" ? "{" : JSON.stringify(payload);
   const timestamp = String(

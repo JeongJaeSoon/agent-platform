@@ -272,10 +272,11 @@ switch (cmd) {
         "bot",
         "mention",
         "plain",
+        "reply",
       ].includes(mode)
     )
       throw new Error("agent UUID and event mode required");
-    // mention|plain take a channel id and a sequence number for new ids.
+    // mention|plain|reply take a channel id and a sequence number for new ids.
     const [channel = "C0VERIFY", seq = "1"] = rest.slice(1);
     if (!/^[A-Z0-9]{1,20}$/.test(channel) || !/^[0-9]{1,6}$/.test(seq))
       throw new Error("channel id and sequence number required");
