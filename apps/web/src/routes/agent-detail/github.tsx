@@ -63,6 +63,7 @@ type SectionKey = keyof typeof SECTION;
 const SECTION_BOX =
   "flex scroll-mt-4 flex-col gap-[var(--ap-space-block)] outline-none";
 const HEADING = "m-0 font-semibold text-body leading-5";
+const REASON = "text-caption text-muted-foreground";
 // The order the mockup lists them in: what most agents turn on first.
 const FEATURES: readonly Feature[] = [
   "review",
@@ -696,13 +697,15 @@ function GitHubSettings({
                         </span>
                       }
                       meta={
-                        locked
-                          ? t("agentGitHub.repositoryRelease")
-                          : repository.reason
-                            ? t(
-                                `agentGitHub.repositoryReason.${repository.reason}`,
-                              )
-                            : undefined
+                        locked || repository.reason ? (
+                          <span className={REASON}>
+                            {locked
+                              ? t("agentGitHub.repositoryRelease")
+                              : t(
+                                  `agentGitHub.repositoryReason.${repository.reason}`,
+                                )}
+                          </span>
+                        ) : undefined
                       }
                       status={
                         <span className="text-control text-muted-foreground">
@@ -774,7 +777,7 @@ function GitHubSettings({
                     description={t(`agentGitHub.feature.${feature}Hint`)}
                     meta={
                       option.reason ? (
-                        <span>
+                        <span className={REASON}>
                           {t(`agentGitHub.featureReason.${option.reason}`)}{" "}
                           {option.reason ===
                           "github_host_unsupported" ? null : (
