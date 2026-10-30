@@ -36,7 +36,7 @@ async function callOnce(
   input: Record<string, unknown>,
   setup: (paths: Paths) => Promise<void> = async () => {},
   tools = ["Bash", "Glob", "Grep", "Read", "Write"],
-): Promise<{ asked: string[]; results: string }> {
+): Promise<{ asked: string[]; memory: string; results: string }> {
   isolated = await createIsolatedWorkspace({ prefix: "memory-read-" });
   const { home, workspace } = isolated;
   const transcripts = join(workspace, ".git", "agent-platform-transcripts-x");
@@ -111,16 +111,18 @@ async function callOnce(
       (block) => JSON.stringify(block.content ?? ""),
     );
   });
-  return { asked, results: results.join("\n") };
+  return { asked, memory, results: results.join("\n") };
 }
 
 describe("the engine's memory directory in an approval mode", () => {
   test("Read of the memory index runs without asking a person", async () => {
-    const { asked, results } = await callOnce("Read", {
+    const { asked, memory, results } = await callOnce("Read", {
       file_path: "$MEMORY/MEMORY.md",
     });
     expect(asked).toEqual([]);
     expect(results).toContain("remembered fact");
+    // The directory these tests lay out is the one the engine tells the model about.
+    expect(JSON.stringify(server?.requests[0]?.body.system)).toContain(memory);
   }, 30_000);
 
   test("Read of a memory index not written yet runs without asking", async () => {
@@ -185,6 +187,40 @@ describe("the engine's memory directory in an approval mode", () => {
       { file_path: "$MEMORY/link.md" },
       async ({ home, memory }) =>
         symlink(join(home, "secret.txt"), join(memory, "link.md")),
+    );
+    expect(asked).toEqual(["Read"]);
+    expect(results).not.toContain("outside");
+  }, 30_000);
+
+  test("a memory directory that is itself a link widens nothing", async () => {
+    const { asked, results } = await callOnce(
+      "Read",
+      { file_path: "$HOME/elsewhere/secret.txt" },
+      async ({ home, memory }) => {
+        await mkdir(join(home, "elsewhere"));
+        await writeFile(join(home, "elsewhere", "secret.txt"), "outside\n");
+        await rm(memory, { recursive: true });
+        await symlink(join(home, "elsewhere"), memory);
+      },
+    );
+    expect(asked).toEqual(["Read"]);
+    expect(results).not.toContain("outside");
+  }, 30_000);
+
+  test("a project directory that is a link widens nothing", async () => {
+    const { asked, results } = await callOnce(
+      "Read",
+      { file_path: "$HOME/elsewhere/memory/secret.txt" },
+      async ({ home, memory }) => {
+        await mkdir(join(home, "elsewhere", "memory"), { recursive: true });
+        await writeFile(
+          join(home, "elsewhere", "memory", "secret.txt"),
+          "outside\n",
+        );
+        const project = join(memory, "..");
+        await rm(project, { recursive: true });
+        await symlink(join(home, "elsewhere"), project);
+      },
     );
     expect(asked).toEqual(["Read"]);
     expect(results).not.toContain("outside");

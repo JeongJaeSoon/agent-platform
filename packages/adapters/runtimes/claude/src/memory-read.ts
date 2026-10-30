@@ -30,14 +30,17 @@ export async function readsOnlyMemory(
   if (target === undefined || !isAbsolute(target)) return false;
   try {
     const canonical = (await realpath(resolve(config.cwd))).normalize("NFC");
-    const memory = await realpath(
-      join(
-        config.claudeConfigDir,
-        "projects",
-        canonical.replaceAll(/[^a-zA-Z0-9]/g, "-"),
-        "memory",
-      ),
+    const project = join(
+      config.claudeConfigDir,
+      "projects",
+      canonical.replaceAll(/[^a-zA-Z0-9]/g, "-"),
     );
+    // `projects` is the worker's own link; a link below it would carry the
+    // allowed range wherever it points.
+    for (const directory of [project, join(project, "memory")]) {
+      if (!(await lstat(directory)).isDirectory()) return false;
+    }
+    const memory = await realpath(join(project, "memory"));
     const resolved = await resolveExisting(resolve(target));
     if (resolved !== memory && !resolved.startsWith(memory + sep)) {
       return false;
