@@ -561,7 +561,7 @@ integration("postgres session outcomes and the outcome refresher", () => {
     const slow = slowGitHub("closed");
     const late = replica({
       repositories: [repo],
-      unitOf: async () => `app:test:${randomUUID()}`,
+      unitOf: async () => `app:test:${repo}`,
       read: slow.read,
       leaseMs: 200,
     });
@@ -597,7 +597,7 @@ integration("postgres session outcomes and the outcome refresher", () => {
     const row = await outcome(repo);
     const { refresher, calls } = replica({
       repositories: [repo],
-      unitOf: async () => `app:test:${randomUUID()}`,
+      unitOf: async () => `app:test:${repo}`,
       read: states(new Map()),
       leaseMs: 200,
       grant: async () => {
@@ -628,7 +628,7 @@ integration("postgres session outcomes and the outcome refresher", () => {
     ] as const) {
       const { refresher, calls } = replica({
         repositories: [repo],
-        unitOf: async () => `app:test:${randomUUID()}`,
+        unitOf: async () => `app:test:${repo}`,
         read: states(new Map()),
         grant: refused,
         installed: async () => installed,
@@ -641,6 +641,36 @@ integration("postgres session outcomes and the outcome refresher", () => {
       ["open", "not_found"],
       ["open", "forge_failed"],
     ]);
+    // The token was asked of GitHub after the claim: its share stays spent.
+    expect((await quotaOf(`app:test:${gone}`))?.used).toBe(1);
+  });
+
+  test("a row whose connection moved to another unit after the claim goes back unread", async () => {
+    const repo = repository();
+    const row = await outcome(repo);
+    const before = `app:test:${randomUUID()}`;
+    const after = `app:test:${randomUUID()}`;
+    let unit = before;
+    const { refresher, calls } = replica({
+      repositories: [repo],
+      unitOf: async () => unit,
+      read: states(new Map()),
+      // The App is replaced while the grant is issued.
+      grant: async () => {
+        unit = after;
+        return {
+          api: { getPullRequest: async () => ({}) },
+        } as unknown as GitHubGrant;
+      },
+    });
+    await refresher.runOnce();
+    expect(calls).toEqual([]);
+    expect(await rowOf(row.id)).toMatchObject({
+      leaseToken: null,
+      stateCheckedAt: null,
+    });
+    expect((await quotaOf(before))?.used).toBe(1);
+    expect(await quotaOf(after)).toBeUndefined();
   });
 
   test("rows whose lease ran out while earlier ones were read go back unread", async () => {

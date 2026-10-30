@@ -121,9 +121,19 @@ export function createOutcomeRefresher(deps: {
     return { byKey, unreachable };
   }
 
+  /** The repository and the connection serving it now, as the gate picks. */
+  function reachOf(repositoryId: string) {
+    const entry = Object.hasOwn(catalog.repositories, repositoryId)
+      ? catalog.repositories[repositoryId]
+      : undefined;
+    const repo = entry ? repoRefOf(entry.url) : null;
+    return { repo, connection: connections(repositoryId, "author") };
+  }
+
   async function read(
     outcome: ClaimedOutcome,
     leased: () => boolean,
+    quotaKey: string,
   ): Promise<{
     check: OutcomeCheck;
     rateLimit: GitHubRateLimit | null;
@@ -149,11 +159,7 @@ export function createOutcomeRefresher(deps: {
     } catch (error) {
       if (error instanceof GitHubGateError) return failed("github_refused");
       if (error instanceof ForgeCredentialError) {
-        const entry = Object.hasOwn(catalog.repositories, outcome.repositoryId)
-          ? catalog.repositories[outcome.repositoryId]
-          : undefined;
-        const repo = entry ? repoRefOf(entry.url) : null;
-        const connection = connections(outcome.repositoryId, "author");
+        const { repo, connection } = reachOf(outcome.repositoryId);
         return failed(
           repo !== null && connection?.kind === "app"
             ? await appFailure(connection, repo)
@@ -167,6 +173,14 @@ export function createOutcomeRefresher(deps: {
     }
     // A slow grant can outlast the lease; another replica may read it now.
     if (grant === null || !leased()) return release;
+    // The App was replaced, or its installation moved, after the claim: this
+    // read would spend from a unit other than the one that paid for it.
+    const { repo, connection } = reachOf(outcome.repositoryId);
+    const unit =
+      repo === null || connection === null
+        ? null
+        : await connection.quotaKey(repo).catch(() => null);
+    if (unit !== quotaKey) return release;
     try {
       const { pullRequest, rateLimit } = await grant.api.getPullRequest(
         outcome.number,
@@ -260,7 +274,11 @@ export function createOutcomeRefresher(deps: {
           await store.finish(outcome, { kind: "release" });
           continue;
         }
-        const { check, rateLimit, limited } = await read(outcome, leased);
+        const { check, rateLimit, limited } = await read(
+          outcome,
+          leased,
+          quotaKey,
+        );
         reads += 1;
         const kept = await store.finish(outcome, check);
         if (!kept) {
