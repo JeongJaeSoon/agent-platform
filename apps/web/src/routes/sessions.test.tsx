@@ -633,6 +633,7 @@ describe("sessions list", () => {
                 id: OTHER_ID,
                 name: "Release helper",
                 release_version_no: 2,
+                release_label: "2026-10-30_14:30:28",
               },
               created_by: { user_id: OTHER_ID, display_name: "김하나" },
             }),

@@ -713,6 +713,7 @@ const EXAMPLE_SESSION_SUMMARY = {
     id: "8f6c1d2e-4b3a-4c5d-9e8f-7a6b5c4d3e2f",
     name: "Checkout fixer",
     release_version_no: 3,
+    release_label: "2026-10-11_17:00:00",
   },
   created_by: {
     user_id: "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",

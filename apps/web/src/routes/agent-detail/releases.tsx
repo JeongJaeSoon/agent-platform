@@ -156,9 +156,7 @@ export function Releases({
       onOutcome({
         kind: "notice",
         text: result.created
-          ? t("agent.releaseCreated", {
-              version: versionNo(result.release.version_id) ?? "?",
-            })
+          ? t("agent.releaseCreated", { release: result.release.label })
           : t("agent.releaseExisted"),
       });
       await queryClient.invalidateQueries({
@@ -304,6 +302,12 @@ export function Releases({
                   {t("agent.releases.colStatus")}
                 </TableHead>
                 <TableHead variant="nowrap" className={SPREAD}>
+                  {t("agent.releases.colActivated")}
+                </TableHead>
+                <TableHead variant="nowrap" className={SPREAD}>
+                  {t("agent.releases.colCard")}
+                </TableHead>
+                <TableHead variant="nowrap" className={SPREAD}>
                   {t("agent.releases.profile")}
                 </TableHead>
                 <TableHead variant="nowrap" className={SPREAD}>
@@ -311,9 +315,6 @@ export function Releases({
                 </TableHead>
                 <TableHead variant="nowrap" className={SPREAD}>
                   {t("agent.releases.colBy")}
-                </TableHead>
-                <TableHead variant="nowrap" className={SPREAD}>
-                  {t("agent.releases.colAt")}
                 </TableHead>
                 <TableHead className={SPREAD}>
                   {t("agent.releases.colNote")}
@@ -329,27 +330,50 @@ export function Releases({
               {ordered.map((item) => {
                 const active = item.id === detail.agent.active_release_id;
                 const label = t("agent.releaseLabel", {
-                  version: versionNo(item.version_id) ?? "?",
+                  release: item.label,
                   profile: item.runtime_profile_id,
                 });
                 return (
                   <TableRow key={item.id} data-active={active}>
                     <TableCell
                       variant="nowrap"
-                      className={`${SPREAD} font-medium`}
+                      className={`${SPREAD} font-medium tabular-nums`}
                     >
-                      {t("agent.versionShort", {
-                        version: versionNo(item.version_id) ?? "?",
-                      })}
+                      {item.label}
                     </TableCell>
                     <TableCell variant="nowrap" className={SPREAD}>
                       <Badge variant={active ? "green" : "gray"}>
                         {active
                           ? t("agent.releases.active")
-                          : item.approved_at
+                          : item.activated_at
                             ? t("agent.releases.previous")
                             : t("agent.releases.never")}
                       </Badge>
+                    </TableCell>
+                    <TableCell
+                      variant="nowrap"
+                      className={`${SPREAD} tabular-nums`}
+                    >
+                      {item.activated_at === null ? (
+                        <span className="text-muted-foreground">
+                          {t("agent.releases.noteNone")}
+                        </span>
+                      ) : item.deactivated_at === null ? (
+                        formatTimestamp(item.activated_at, locale)
+                      ) : (
+                        t("agent.releases.activePeriod", {
+                          from: formatTimestamp(item.activated_at, locale),
+                          to: formatTimestamp(item.deactivated_at, locale),
+                        })
+                      )}
+                    </TableCell>
+                    <TableCell
+                      variant="nowrap"
+                      className={`${SPREAD} text-muted-foreground`}
+                    >
+                      {t("agent.versionShort", {
+                        version: versionNo(item.version_id) ?? "?",
+                      })}
                     </TableCell>
                     <TableCell variant="nowrap" className={SPREAD}>
                       <span className="font-mono text-caption">
@@ -374,12 +398,6 @@ export function Releases({
                       {(item.created_by
                         ? names.get(item.created_by)
                         : undefined) ?? t("agent.releases.byMember")}
-                    </TableCell>
-                    <TableCell
-                      variant="nowrap"
-                      className={`${SPREAD} tabular-nums`}
-                    >
-                      {formatTimestamp(item.created_at, locale)}
                     </TableCell>
                     <TableCell className={SPREAD}>
                       {item.note ? (

@@ -57,6 +57,7 @@ interface Facts {
   /** The version people talk to, or the newest draft before any release. */
   readonly version: AgentSummary["version"] | undefined;
   readonly runtime_profile_id: string | null;
+  readonly release_label: string | null;
 }
 
 function ready<T>(data: T): Part<T> {
@@ -73,6 +74,7 @@ function AgentCardItem({ agent }: { readonly agent: AgentListItem }) {
         facts={ready({
           version: summary.version,
           runtime_profile_id: summary.runtime_profile_id,
+          release_label: summary.release_label,
         })}
         bound={ready(summary.bound_credential_refs)}
         admins={ready(summary.admins)}
@@ -134,6 +136,7 @@ function factsOf(data: AgentDetail): Facts {
       credential_refs: version.card.capabilities.credential_refs ?? [],
     },
     runtime_profile_id: data.active_release?.runtime_profile_id ?? null,
+    release_label: data.active_release?.label ?? null,
   };
 }
 
@@ -163,7 +166,8 @@ function AgentCard({
 }) {
   const { t } = useI18n();
   const version = facts.data?.version;
-  const released = agentState(agent) === "active" && version !== undefined;
+  const released =
+    agentState(agent) === "active" ? facts.data?.release_label : null;
 
   return (
     <Card className={cn("w-full", OPENS_ROW)} data-agent={agent.slug}>
@@ -197,7 +201,7 @@ function AgentCard({
         <CardAction>
           {released ? (
             <Badge variant="green" data-state="active">
-              {t("agents.cards.released", { version: version.version_no })}
+              {t("agents.cards.released", { release: released })}
             </Badge>
           ) : (
             <AgentStateBadge agent={agent} />

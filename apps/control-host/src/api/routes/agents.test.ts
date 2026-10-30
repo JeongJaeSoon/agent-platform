@@ -113,6 +113,9 @@ function storedRelease(profile: CatalogProfile = PROFILE): AgentRelease {
     approved_by: null,
     approved_at: null,
     note: null,
+    label: "2026-10-11_09:00:00",
+    activated_at: null,
+    deactivated_at: null,
     ...identity,
   };
 }
@@ -150,6 +153,9 @@ function store(overrides: Partial<AgentStore> = {}): AgentStore {
         created_at: AT,
         approved_by: null,
         approved_at: null,
+        label: "2026-10-11_09:00:00",
+        activated_at: null,
+        deactivated_at: null,
       },
     }),
     activate: async () => ({

@@ -227,7 +227,7 @@ function AgentView({
     const release = detail.releases.find((r) => r.id === releaseId);
     return release
       ? t("agent.releaseLabel", {
-          version: versionNo(release.version_id) ?? "?",
+          release: release.label,
           profile: release.runtime_profile_id,
         })
       : t("agent.noActive");
@@ -515,11 +515,7 @@ function AgentView({
   );
 
   const cardRole = latestVersion(detail)?.card.role;
-  const activeVersion = agent.active_release_id
-    ? detail.versions.find(
-        (version) => version.id === detail.active_release?.version_id,
-      )
-    : undefined;
+  const activeRelease = agent.active_release_id ? detail.active_release : null;
   return (
     <Page
       // Below 1024 the two buttons leave the name too little room to keep
@@ -540,9 +536,9 @@ function AgentView({
               : "gray"
           }
         >
-          {activeVersion
+          {activeRelease
             ? t("agent.headStatus", {
-                version: activeVersion.version_no,
+                release: activeRelease.label,
                 status: t(`agents.status.${agent.status}`),
               })
             : agent.active_release_id

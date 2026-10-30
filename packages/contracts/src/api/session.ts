@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { releaseLabelSchema } from "../kollegium/agents.ts";
 import { surfaceKindSchema } from "../kollegium/surfaces.ts";
 import {
   agentIdSchema,
@@ -468,12 +469,14 @@ export const sessionSummarySchema = z.object({
       id: agentIdSchema,
       name: z.string().min(1),
       release_version_no: z.number().int().positive(),
+      // Null from a server before release labels, for the rollout reason above.
+      release_label: releaseLabelSchema.nullable().default(null),
     })
     .nullable()
     .default(null)
     .meta({
       description:
-        "The agent the session was created for and the version number of the release it is pinned to. `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.",
+        "The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.",
     }),
   created_by: z
     .object({ user_id: userIdSchema, display_name: z.string() })

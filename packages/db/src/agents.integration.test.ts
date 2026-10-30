@@ -25,7 +25,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresAgentAdminStore } from "./agent-admins.ts";
@@ -537,6 +537,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
           credential_refs: ["github", "slack"],
         },
         runtime_profile_id: null,
+        release_label: null,
         bound_credential_refs: ["github"],
         admins: ["owner", "재무팀"],
         needs_input_count: 0,
@@ -551,6 +552,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
           credential_refs: [],
         },
         runtime_profile_id: "coding",
+        release_label: release.release.label,
         bound_credential_refs: [],
         admins: ["owner"],
         needs_input_count: 0,
@@ -1017,6 +1019,120 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         workspace_id: workspaceId,
       });
     }
+  });
+
+  test("a release is labelled by the Seoul second it was made, a tie numbered, and says when it went live and was replaced", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const agentsService = service();
+    const created = await newAgent(agentsService, owner, cardWith("l1"));
+    const v1 = created.versions[0];
+    if (!v1) throw new Error("no version");
+    const v2 = (
+      await agentsService.updateAgent(owner, created.agent.id, {
+        card: cardWith("l2"),
+      })
+    ).versions[1];
+    if (!v2) throw new Error("no version 2");
+    const first = await agentsService.createRelease(owner, created.agent.id, {
+      version_id: v1.id,
+      runtime_profile_id: "coding",
+    });
+    expect(first.release.label).toMatch(
+      /^\d{4}-\d{2}-\d{2}_\d{2}:\d{2}:\d{2}$/,
+    );
+    expect(first.release).toMatchObject({
+      activated_at: null,
+      deactivated_at: null,
+    });
+    const { release: second } = await agentsService.createRelease(
+      owner,
+      created.agent.id,
+      { version_id: v2.id, runtime_profile_id: "coding" },
+    );
+
+    // Live, then replaced, then live again: the last activation counts.
+    for (const [release, expected] of [
+      [first.release, -1],
+      [second, 0],
+      [first.release, 1],
+    ] as const) {
+      await agentsService.activateAgent(owner, created.agent.id, {
+        release_id: release.id,
+        expected_revision: expected,
+      });
+    }
+    const events = await db
+      .select({
+        at: agentActivationEvents.createdAt,
+        revision: agentActivationEvents.activationRevision,
+      })
+      .from(agentActivationEvents)
+      .where(
+        and(
+          eq(agentActivationEvents.agentId, created.agent.id),
+          eq(agentActivationEvents.kind, "activated"),
+        ),
+      )
+      .orderBy(asc(agentActivationEvents.activationRevision));
+    const at = events.map((event) => event.at.toISOString());
+    expect(at).toHaveLength(3);
+
+    // Rows copied in at fixed instants, two in the same Seoul second.
+    const copyAt = async (createdAt: string) => {
+      const id = `rel-${randomUUID()}`;
+      await db.execute(sql`
+        INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,
+          runtime_profile_id, profile_digest, runtime_config_snapshot,
+          effective_tools, policy_pins, created_at)
+        SELECT ${id}, agent_id, version_id, card_sha256,
+          runtime_profile_id, profile_digest, runtime_config_snapshot,
+          effective_tools, policy_pins, ${createdAt}::timestamptz
+        FROM agent_releases WHERE id = ${second.id}`);
+      return id;
+    };
+    const tieA = await copyAt("2026-10-30T05:30:28.900Z");
+    const tieB = await copyAt("2026-10-30T05:30:28.100Z");
+    const nextDay = await copyAt("2026-10-30T15:00:00.000Z");
+
+    const detail = await agentsService.getAgent(owner, created.agent.id);
+    const byId = new Map(
+      detail.releases.map((release) => [release.id, release]),
+    );
+    expect(byId.get(tieB)?.label).toBe("2026-10-30_14:30:28");
+    expect(byId.get(tieA)?.label).toBe("2026-10-30_14:30:28-2");
+    expect(byId.get(nextDay)?.label).toBe("2026-10-31_00:00:00");
+    expect(byId.get(first.release.id)).toMatchObject({
+      label: first.release.label,
+      activated_at: at[2],
+      deactivated_at: null,
+    });
+    expect(byId.get(second.id)).toMatchObject({
+      activated_at: at[1],
+      deactivated_at: at[2],
+    });
+    expect(byId.get(tieA)).toMatchObject({
+      activated_at: null,
+      deactivated_at: null,
+    });
+    expect(detail.active_release).toEqual(byId.get(first.release.id) ?? null);
+    // A re-release answers with the release as it reads now.
+    const again = await agentsService.createRelease(owner, created.agent.id, {
+      version_id: v1.id,
+      runtime_profile_id: "coding",
+    });
+    const read = byId.get(first.release.id);
+    if (!read) throw new Error("first release not read");
+    expect(again).toEqual({ release: read, created: false });
+
+    const summary = (
+      await createPostgresAgentStore(db).summaries(
+        workspaceId,
+        [created.agent.id],
+        { userId: owner.actor?.userId ?? "", apiKeyId: null },
+      )
+    ).get(created.agent.id);
+    expect(summary?.release_label).toBe(first.release.label);
   });
 
   test("of ten concurrent activations one wins and nine see REVISION_CONFLICT", async () => {
