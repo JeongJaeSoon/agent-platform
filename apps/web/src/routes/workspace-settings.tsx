@@ -63,7 +63,6 @@ export function WorkspacePage({
   const editable = workspaceManage || retentionManage;
   return (
     <Page
-      width="form"
       title={t(
         page === "general"
           ? "workspace.general"
@@ -161,7 +160,12 @@ export function SettingsCard({
           {badge}
         </div>
         {description ? (
-          <p id={descriptionId} className={SUB}>
+          // The rule above runs to the page's edge; the text keeps to a
+          // reading line.
+          <p
+            id={descriptionId}
+            className={`${SUB} max-w-[var(--ap-layout-reading-width)]`}
+          >
             {description}
           </p>
         ) : null}

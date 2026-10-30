@@ -198,28 +198,34 @@ describe("app shell", () => {
     });
   }
 
-  // Every settings tab and form stops at one width inside the frame, head
-  // and sections alike; other lists use it all.
-  for (const [path, title, width] of [
-    ["/sessions", "세션", "full"],
-    ["/settings/api-keys", "API 키", "form"],
-    ["/settings/workspace", "일반", "form"],
-    ["/settings/workspace/slack", "Slack 연결 설정", "form"],
-    ["/settings/workspace/api-keys", "조직 관리 키", "form"],
-    ["/settings/preferences", "언어·테마", "form"],
-    ["/settings/linked-accounts", "연동 계정", "form"],
-    ["/settings/api-keys/new", "새 개인 키", "form"],
-    ["/agents/new", "새 에이전트", "full"],
+  // Settings tabs and forms run to the frame's edge like the lists: nothing
+  // between the frame and the page caps its width.
+  for (const [path, title] of [
+    ["/sessions", "세션"],
+    ["/settings/api-keys", "API 키"],
+    ["/settings/workspace", "일반"],
+    ["/settings/workspace/slack", "Slack 연결 설정"],
+    ["/settings/workspace/api-keys", "조직 관리 키"],
+    ["/settings/preferences", "언어·테마"],
+    ["/settings/linked-accounts", "연동 계정"],
+    ["/settings/api-keys/new", "새 개인 키"],
+    ["/agents/new", "새 에이전트"],
   ] as const) {
-    test(`${path} takes the ${width} column`, async () => {
+    test(`${path} takes the whole frame`, async () => {
       renderAt(path, signedIn);
       const heading = await screen.findByRole("heading", {
         level: 1,
         name: title,
       });
-      expect(
-        heading.closest('[data-slot="page"]')?.getAttribute("data-width"),
-      ).toBe(width);
+      const capped: string[] = [];
+      for (
+        let el = heading.closest('[data-slot="page"]');
+        el && el.getAttribute("data-slot") !== "page-frame-body";
+        el = el.parentElement
+      ) {
+        if (el.className.includes("max-w-")) capped.push(el.className);
+      }
+      expect(capped).toEqual([]);
     });
   }
 

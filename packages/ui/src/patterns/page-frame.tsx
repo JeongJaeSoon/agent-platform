@@ -40,32 +40,17 @@ export function PageFrame({
 
 export type PageProps = Omit<PageHeaderProps, "className"> & {
   readonly children?: ReactNode;
-  /**
-   * `form` stops the page at `--ap-w-form` for a page that is one form or
-   * settings column; its head stops there too, so both end on one edge.
-   */
-  readonly width?: "full" | "form" | undefined;
 };
 
 /**
  * A page's content inside the frame: its header, then its sections 32px
  * apart (console v35). `actions` takes several elements, such as a view
- * switch before the primary button.
+ * switch before the primary button. Every page, settings included, runs to
+ * the frame's edge; a long field or paragraph caps its own width.
  */
-export function Page({
-  children,
-  width = "full",
-  ...header
-}: PageProps): JSX.Element {
+export function Page({ children, ...header }: PageProps): JSX.Element {
   return (
-    <div
-      data-slot="page"
-      data-width={width}
-      className={cn(
-        "flex flex-col",
-        width === "form" && "w-full max-w-[var(--ap-w-form)]",
-      )}
-    >
+    <div data-slot="page" className="flex flex-col">
       <PageHeader {...header} />
       <div className="flex flex-col gap-[var(--ap-space-section)]">
         {children}

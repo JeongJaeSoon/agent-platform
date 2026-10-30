@@ -553,7 +553,6 @@ function WorkspaceSettingsScreen({
             ? "워크스페이스 전체에 적용되는 설정입니다."
             : "지금 설정입니다. 바꾸려면 워크스페이스 소유자나 관리자에게 요청하세요."
         }
-        width="form"
       >
         {/* One block, so the sub-nav mockup keeps its own margins. */}
         <div>

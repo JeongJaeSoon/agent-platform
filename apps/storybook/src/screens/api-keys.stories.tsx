@@ -288,7 +288,6 @@ function ApiKeysScreen({
       role={viewer}
     >
       <Page
-        width="form"
         title="API key"
         description={SCREEN[shown].intro}
         actions={

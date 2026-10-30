@@ -63,7 +63,6 @@ function NewAgentScreen({
   return (
     <ScreenShell current="agents" crumb={["에이전트"]}>
       <Page
-        width="form"
         title="새 에이전트"
         description="빈 카드에서 네 단계로 만들고, 다섯째 Slack 연결은 선택입니다. '하는 일'까지 마치면 초안으로 저장되어, 그 뒤에 나가도 목록에 초안으로 남습니다."
       >

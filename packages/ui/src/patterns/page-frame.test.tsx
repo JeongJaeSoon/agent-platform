@@ -55,29 +55,17 @@ describe("Page", () => {
     expect(sections?.textContent).toBe("목록");
   });
 
-  test("폼 화면은 머리와 섹션이 함께 폼 폭에서 멈춘다", () => {
+  test("설정 화면도 목록처럼 머리와 섹션이 페이지 폭을 다 쓴다", () => {
     const { container } = render(
-      <Page title="워크스페이스 설정" width="form">
+      <Page title="워크스페이스 설정">
         <section>설정</section>
       </Page>,
     );
     const page = container.querySelector('[data-slot="page"]');
-    expect(page?.getAttribute("data-width")).toBe("form");
-    expect(page?.className).toContain("max-w-[var(--ap-w-form)]");
+    expect(page?.className).not.toContain("max-w-");
     const header = page?.querySelector('[data-slot="page-header"]');
     expect(header?.parentElement === page).toBe(true);
     expect(header?.className).not.toContain("max-w-");
     expect(header?.nextElementSibling?.className).not.toContain("max-w-");
-  });
-
-  test("목록 화면은 페이지 폭을 다 쓴다", () => {
-    const { container } = render(
-      <Page title="세션">
-        <section>목록</section>
-      </Page>,
-    );
-    const page = container.querySelector('[data-slot="page"]');
-    expect(page?.getAttribute("data-width")).toBe("full");
-    expect(page?.className).not.toContain("max-w-");
   });
 });
