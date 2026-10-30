@@ -385,6 +385,7 @@ describe("the agent Slack app API", () => {
     expect(read.json).toMatchObject({
       event_url: `https://events.example.test/v1/slack/events/${AGENT}`,
       events: { state: "pending", checked_at: null },
+      config_token: "active",
     });
     const manifest = await call("GET", `${appPath(AGENT)}/manifest`, {
       cookie: admin,
@@ -402,6 +403,7 @@ describe("the agent Slack app API", () => {
       event_url: `https://events.example.test/v1/slack/events/${IDLE_AGENT}`,
       events: { state: "pending", checked_at: null, url: null },
       warnings: [],
+      config_token: "active",
     });
 
     const recheck = await call("POST", `${appPath(AGENT)}/events/recheck`, {

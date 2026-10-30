@@ -960,6 +960,7 @@ describe("새 에이전트", () => {
           event_url: null,
           events: { state: "pending", checked_at: null, url: null },
           warnings: [],
+          config_token: "active",
         }),
       [`GET /v1/agents/${AGENT_ID}/identities`]: () => json(200, { items: [] }),
     });
