@@ -20,6 +20,7 @@ import {
   catalogRevision,
   checkRender,
   decideUpgrade,
+  notResumableOnPrevious,
   type ObjectStoreMode,
   parseReleaseManifest,
   probeRoundTrip,
@@ -775,4 +776,44 @@ describe("worker image upgrade impact", () => {
       });
     },
   );
+
+  test("leaves out sessions the replaced image, kept as the previous one, restores", () => {
+    // s1 and s2 cannot move to the target; s1 resumes on the image it ran on.
+    const target = upgradeImpact({
+      exitCode: 5,
+      output: [
+        "FAIL s1@1 plan: incompatible with the target image (checkpoint → image): sdkVersion 0.3.270 → 0.3.280",
+        "FAIL s2@2 plan: incompatible with the target image (checkpoint → image): sdkVersion 0.3.260 → 0.3.280",
+        "checkpoints=2 passed=0 failed=2",
+      ].join("\n"),
+      uncollected,
+    });
+    const previous = upgradeImpact({
+      exitCode: 5,
+      output: [
+        "PASS s1@1 plan: ready under locked",
+        "FAIL s2@2 plan: incompatible with the target image (checkpoint → image): sdkVersion 0.3.260 → 0.3.270",
+        "checkpoints=2 passed=1 failed=1",
+      ].join("\n"),
+      uncollected,
+    });
+    expect(
+      notResumableOnPrevious({
+        target: target.affected,
+        previous: previous.affected,
+      }),
+    ).toEqual(["s2"]);
+  });
+
+  test("a check of the previous image that could not finish leaves the target's list whole", () => {
+    const previous = upgradeImpact({
+      exitCode: 1,
+      output: "verify stopped before plans",
+      uncollected,
+    });
+    expect(previous.failClosed).toBe(true);
+    expect(
+      notResumableOnPrevious({ target: ["s2"], previous: previous.affected }),
+    ).toEqual(["s2"]);
+  });
 });

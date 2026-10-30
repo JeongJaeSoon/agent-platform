@@ -48,6 +48,11 @@ PENDING="${STATE_DIR}/pending.json"
 # every later command must name the same.
 IDENTITY="${STATE_DIR}/installation"
 LOCK="${STATE_DIR}/lock"
+# The worker image the last worker change replaced: the scheduler resumes on
+# it the sessions whose checkpoints the release's image cannot restore.
+PREVIOUS_WORKER="${STATE_DIR}/previous-worker"
+# Each worker image's runtime combination, by digest.
+RUNTIMES_DIR="${STATE_DIR}/worker-runtimes"
 HELPER="${REPO_ROOT}/scripts/lib/test-ops.ts"
 API_URL=http://127.0.0.1:3000
 MIN_ENGINE_MAJOR=28
@@ -201,6 +206,39 @@ check_identity() {
     || die "$(identity | tr '\n' ' ') is not what was deployed ($(tr '\n' ' ' < "$IDENTITY")); TEST_OPS_PROJECT, EXECUTION_INSTALLATION_ID and the object store cannot change"
 }
 
+# The runtime combination a worker image prints, the value images.yml records
+# beside its digest. Empty for an image too old to print one: the scheduler
+# then launches every session on the release's image, as before.
+worker_runtime() {
+  local image="$1" cache
+  cache="${RUNTIMES_DIR}/${image##*@}.json"
+  if [ ! -s "$cache" ]; then
+    mkdir -p "$RUNTIMES_DIR"
+    if docker run --rm -i --network none --entrypoint bun "$image" run apps/worker/src/image-runtime.ts <<<'{}' 2>/dev/null \
+      | jq -ce 'del(.profiles)' > "${cache}.new"; then
+      mv "${cache}.new" "$cache"
+    else
+      rm -f "${cache}.new"
+      return 0
+    fi
+  fi
+  cat "$cache"
+}
+
+# Sets WORKER_IMAGE_RUNTIME and, when the image the last worker change
+# replaced prints its own, WORKER_IMAGE_PREVIOUS and its runtime.
+worker_images() {
+  local previous=""
+  WORKER_IMAGE_RUNTIME="$(worker_runtime "$WORKER_IMAGE")"
+  WORKER_IMAGE_PREVIOUS=""
+  WORKER_IMAGE_PREVIOUS_RUNTIME=""
+  [ -n "$WORKER_IMAGE_RUNTIME" ] || return 0
+  [ ! -r "$PREVIOUS_WORKER" ] || previous="$(cat "$PREVIOUS_WORKER")"
+  [ -n "$previous" ] && [ "$previous" != "$WORKER_IMAGE" ] || return 0
+  WORKER_IMAGE_PREVIOUS_RUNTIME="$(worker_runtime "$previous")"
+  [ -z "$WORKER_IMAGE_PREVIOUS_RUNTIME" ] || WORKER_IMAGE_PREVIOUS="$previous"
+}
+
 # compose on the installation's settings: the env file through --env-file,
 # the release's images, and nothing else from the caller's environment,
 # which compose would otherwise prefer to the env file.
@@ -209,7 +247,10 @@ ops_compose() {
   for name in DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG DOCKER_CERT_PATH DOCKER_TLS_VERIFY; do
     [ -z "${!name:-}" ] || pass+=("${name}=${!name}")
   done
+  worker_images
   env -i "${pass[@]}" API_IMAGE="$API_IMAGE" WORKER_IMAGE="$WORKER_IMAGE" EGRESS_PROXY_IMAGE="$EGRESS_PROXY_IMAGE" \
+    WORKER_IMAGE_RUNTIME="$WORKER_IMAGE_RUNTIME" WORKER_IMAGE_PREVIOUS="$WORKER_IMAGE_PREVIOUS" \
+    WORKER_IMAGE_PREVIOUS_RUNTIME="$WORKER_IMAGE_PREVIOUS_RUNTIME" \
     docker compose --project-name "$PROJECT" --env-file "$ENV_FILE" --profile apps \
     -f "${REPO_ROOT}/infra/compose.core.yml" -f "${REPO_ROOT}/infra/compose.test-ops.yml" \
     -f "${REPO_ROOT}/infra/compose.test-ops.${STORE}.yml" "$@"
@@ -399,7 +440,40 @@ upgrade_affected_sessions() {
     cp "$all" "$affected"
     log "upgrade: could not classify restore plans; fail-closed to every uncollected session"
   fi
+  # The upgrade keeps the replaced image as the previous one, which the
+  # scheduler uses only when both images print their runtime.
+  if [ "$status" = 0 ] || [ "$status" = 5 ]; then
+    if [ -n "$(worker_runtime "$WORKER_IMAGE")" ] && [ -n "$(worker_runtime "$previous_worker")" ]; then
+      upgrade_previous_filter "$previous_worker" "$affected" "$all" "$catalog_dir" "$bucket"
+    fi
+  fi
   rm -f "$all" "$output"
+}
+
+# Narrows $affected to the sessions the previous image cannot restore either.
+# A check that cannot finish leaves the list as it was (fail-closed).
+upgrade_previous_filter() {
+  local previous_worker="$1" affected="$2" all="$3" catalog_dir="$4" bucket="$5" output on_previous status=0
+  output="$(mktemp)"
+  on_previous="$(mktemp)"
+  if [ "$STORE" = s3 ]; then
+    (with_api_store "${REPO_ROOT}/scripts/verify-restore.sh" --project "$PROJECT" \
+      --object-store env --bucket "$bucket" --image "$previous_worker" --config-dir "$catalog_dir") \
+      > "$output" || status=$?
+  else
+    "${REPO_ROOT}/scripts/verify-restore.sh" --project "$PROJECT" \
+      --object-store localstack --bucket "$bucket" --image "$previous_worker" --config-dir "$catalog_dir" \
+      > "$output" || status=$?
+  fi
+  if bun_script "$HELPER" upgrade-impact "$status" "$output" "$all" > "$on_previous" \
+    && bun_script "$HELPER" upgrade-previous "$affected" "$on_previous" > "${affected}.new"; then
+    log "upgrade: $(grep -c . "$affected" || true) session(s) incompatible with the target, $(grep -c . "${affected}.new" || true) of them with the previous image $previous_worker too"
+    mv "${affected}.new" "$affected"
+  else
+    rm -f "${affected}.new"
+    log "upgrade: could not check the previous image; every session incompatible with the target stays affected"
+  fi
+  rm -f "$output" "$on_previous"
 }
 
 deploy() {
@@ -462,6 +536,10 @@ upgrade() {
         sessions: ($sessions | split("\n"))}' \
       > "${STATE_DIR}/approvals/$(date -u +%Y%m%dT%H%M%SZ)-upgrade.json"
     log "upgrade: $(printf '%s\n' "$approved_list" | grep -c .) session(s) approved to become INCOMPATIBLE_CHECKPOINT; recorded in ${STATE_DIR}/approvals"
+  fi
+  # What the gate counted on: the replaced image stays as the previous one.
+  if [ "$WORKER_IMAGE" != "$from_worker" ]; then
+    printf '%s\n' "$from_worker" > "${PREVIOUS_WORKER}.new" && mv "${PREVIOUS_WORKER}.new" "$PREVIOUS_WORKER"
   fi
   start_apps
   # The API reads the catalog once at startup; a bind mount's new contents

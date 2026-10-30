@@ -6,6 +6,7 @@
  *   bun run scripts/lib/test-ops.ts check-render --store <localstack|s3> [--catalog-revision <rev>] < rendered.json
  *   bun run scripts/lib/test-ops.ts probe-store < rendered.json
  *   bun run scripts/lib/test-ops.ts upgrade-impact <verify-exit> <verify-output> <uncollected>
+ *   bun run scripts/lib/test-ops.ts upgrade-previous <target-affected> <previous-affected>
  *   bun run scripts/lib/test-ops.ts upgrade-gate <from-worker> <to-worker> <affected> [<approved>]
  *
  * rendered.json is `docker compose config --format json` of the test-ops
@@ -456,6 +457,21 @@ export function upgradeImpact(input: {
 }
 
 /**
+ * After an upgrade the scheduler keeps the image it replaces as the previous
+ * one and resumes on it every session whose checkpoint it restores, so only
+ * a session neither image can restore is affected. A check of the previous
+ * image that could not finish falls back to every uncollected session, which
+ * leaves the target's list as it was.
+ */
+export function notResumableOnPrevious(input: {
+  readonly target: readonly string[];
+  readonly previous: readonly string[];
+}): string[] {
+  const previous = new Set(input.previous);
+  return [...new Set(input.target)].filter((id) => previous.has(id)).sort();
+}
+
+/**
  * The upgrade goes ahead only when no session is incompatible with the target
  * worker image, or when the operator approved exactly the sessions that are:
  * one more or one fewer means the list they read is not the one that would
@@ -569,6 +585,17 @@ async function main(argv: readonly string[]): Promise<number> {
       console.log(impact.affected.join("\n"));
       return 0;
     }
+    case "upgrade-previous": {
+      const [target, previous] = args;
+      if (!target || !previous || args.length !== 2) return usage();
+      console.log(
+        notResumableOnPrevious({
+          target: await lines(target),
+          previous: await lines(previous),
+        }).join("\n"),
+      );
+      return 0;
+    }
     case "upgrade-gate": {
       const [fromWorker, toWorker, affected, approved] = args;
       if (!fromWorker || !toWorker || !affected || args.length > 4)
@@ -593,7 +620,7 @@ async function main(argv: readonly string[]): Promise<number> {
 
 function usage(): number {
   console.error(
-    "usage: test-ops.ts manifest <file> | catalog-revision <dir> | check-render --store <localstack|s3> [--catalog-revision <rev>] | probe-store | upgrade-impact <verify-exit> <verify-output> <uncollected> | upgrade-gate <from-worker> <to-worker> <affected> [<approved>]",
+    "usage: test-ops.ts manifest <file> | catalog-revision <dir> | check-render --store <localstack|s3> [--catalog-revision <rev>] | probe-store | upgrade-impact <verify-exit> <verify-output> <uncollected> | upgrade-previous <target-affected> <previous-affected> | upgrade-gate <from-worker> <to-worker> <affected> [<approved>]",
   );
   return 2;
 }
