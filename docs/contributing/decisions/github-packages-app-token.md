@@ -13,6 +13,7 @@
 - 스크립트: [`scripts/github-packages-probe.ts`](../../../scripts/github-packages-probe.ts). 제품의 발급 경로(#941 GitHub 게이트, `packages/platform/src/sessions/github-gate.ts`)를 거치지 않는 일회성 측정이다. `apps/control-host/src/api/forge-github.ts:546`의 `@octokit/auth-app` 호출과 같은 REST 요청(`POST /app/installations/{id}/access_tokens`, `repositories: [<repo>]`, `permissions`)을 직접 보낸다. 그래서 422(권한 거절)를 HTTP status 그대로 본다.
 - token과 App 키는 출력·기록하지 않는다. 출력은 행마다 `<행> <대상> <status> <redirect host|-> <요약>`뿐이다. 발급한 token은 끝날 때(예외·SIGINT 포함) `DELETE /installation/token`으로 폐기한다(R행).
 - redirect는 token을 붙인 채 따라가지 않는다. 다음 요청은 Authorization 없이 보낸다(proxy가 보낼 모양).
+- 순서: 먼저 오너의 classic PAT로 받아지는지(양성 대조, `--control`의 `C-pat/` 행)와 token 없이는 실패하는지(`C-anon/` 행)를 본다. 그다음 PAT·캐시 없는 환경(`env -i`, 빈 HOME, `.npmrc`·gem 설정·프록시 없음)에서 설치 token만으로 받는다. 패키지별 접근 설정(visibility, 저장소 권한 상속, 연결 저장소)은 오너가 로그에 `# owner:` 줄로 남긴다.
 - 대상: `JeongJaeSoon/werft-sandbox`(private, 사용자 계정 소유), App `werft-sandbox-agent`(App ID 5513262, installation 176243287).
 - token 세 가지: `M1` `{contents: read}`, `M2` `{packages: read}`, `M3` 권한 생략. M3은 설치가 가진 권한 전체를 받는 token이 잠깐 생기는 비교군이다.
 
@@ -25,6 +26,7 @@
 | 3 | gem index | `GET https://rubygems.pkg.github.com/<owner>/specs.4.8.gz`, Basic `x-access-token:<token>`과 Bearer |
 | 4 | `.gem` | `GET https://rubygems.pkg.github.com/<owner>/gems/<name>-<ver>.gem`, Basic과 Bearer |
 | 5 | 1~4 반복 | `M2`·`M3` token으로 |
+| C-pat/1~4, C-anon/1~4 | 대조 | 1~4와 같은 요청을 오너 PAT와 무인증으로 |
 
 ## 결과
 
@@ -36,7 +38,9 @@
 
 ## 사용자 계정과 org
 
-<!-- TODO(94S-1098): 사용자 계정 sandbox 결과로 충분한지, org에서 다시 재야 하는지. -->
+이 실측은 사용자 계정 소유 저장소와 패키지에서만 했다. 조직 소유 패키지는 권한 모델(조직 패키지 설정, 조직 수준 App 설치)이 다를 수 있으므로 이 결과를 조직에 일반화하지 않는다. 조직 재검증이 필요하다(todo 등록됨).
+
+<!-- TODO(94S-1098): 실측 결과에 따른 판단을 덧붙인다. -->
 
 ## 안 될 때의 대안 (보류)
 
