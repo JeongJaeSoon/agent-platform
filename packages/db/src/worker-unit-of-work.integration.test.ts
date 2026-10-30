@@ -88,7 +88,7 @@ const VERIFIED_RUNTIME = {
 };
 const NEXT_RUNTIME = {
   cliVersion: "2.1.280",
-  engine: "claude-agent-sdk",
+  engine: "claude-agent-sdk-next",
   profileSha256: "c".repeat(64),
   sdkVersion: "0.3.280",
 };
