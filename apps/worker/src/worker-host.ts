@@ -3,6 +3,7 @@ import type {
   AttemptState,
   BootstrapClaimResponse,
   CheckpointRef,
+  ClaimGit,
   ClaimPrincipal,
   ControlIntent,
   NextInputResponse,
@@ -147,6 +148,8 @@ export type WorkerHostOptions = {
   secrets?: readonly string[];
   /** Overrides APPROVAL_CHECKPOINT_MS; for tests. */
   approvalCheckpointMs?: number;
+  /** Hands the claim's commit trailers to the image's git hook. */
+  gitTrailers?: (git: ClaimGit | undefined) => Promise<void>;
 };
 
 /**
@@ -398,6 +401,12 @@ export class WorkerHost {
       attempt_id: claim.attempt_id,
       restore_revision: claim.restore?.revision ?? null,
     });
+    // Attribution, not a boundary: commits without it still go through.
+    await this.options.gitTrailers?.(claim.git).catch((error: unknown) =>
+      this.logger.warn("worker.git_trailers.not_written", {
+        reason: describe(error),
+      }),
+    );
 
     // Everything this process holds that the engine's tools could print.
     this.scrubber = new SecretScrubber([

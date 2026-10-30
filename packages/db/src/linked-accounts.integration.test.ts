@@ -713,4 +713,83 @@ integration("linked_accounts on PostgreSQL", () => {
       expect(live).toHaveLength(1);
     });
   });
+
+  describe("GitHub links", () => {
+    const github = (id: string): ExternalAccountRef => ({
+      provider: "github",
+      externalTenant: "github.com",
+      externalUserId: id,
+    });
+    const named = (login: string) => ({
+      externalTenantName: "GitHub",
+      externalUserName: login,
+    });
+    const githubId = () => String(100_000 + Math.floor(Math.random() * 1e9));
+
+    test("link without a Slack install, verified by github_oauth, with the login in the receipt", async () => {
+      const ws = await workspace();
+      const user = await member(ws, "member");
+      const id = githubId();
+      const result = await link(ws, user, github(id), named("octocat"));
+      if (result.outcome !== "linked") throw new Error(result.outcome);
+      expect(result.account).toMatchObject({
+        provider: "github",
+        externalTenant: "github.com",
+        externalUserId: id,
+        externalUserName: "octocat",
+      });
+      const [row] = await db
+        .select({ via: linkedAccounts.verifiedVia })
+        .from(linkedAccounts)
+        .where(eq(linkedAccounts.id, result.account.id));
+      expect(row?.via).toBe("github_oauth");
+      const [receipt] = await db
+        .select({ result: receipts.result })
+        .from(receipts)
+        .where(eq(receipts.id, result.receiptId));
+      expect(receipt?.result).toMatchObject({
+        provider: "github",
+        external_user_id: id,
+        login: "octocat",
+      });
+    });
+
+    test("the same GitHub account linked by a second person is taken, in this workspace or another", async () => {
+      const ws = await workspace();
+      const first = await member(ws, "member");
+      const second = await member(ws, "member");
+      const id = githubId();
+      expect((await link(ws, first, github(id), named("octocat"))).outcome).toBe(
+        "linked",
+      );
+      expect(
+        (await link(ws, second, github(id), named("octocat"))).outcome,
+      ).toBe("taken");
+      const elsewhere = await workspace();
+      const stranger = await member(elsewhere, "member");
+      expect(
+        (await link(elsewhere, stranger, github(id), named("octocat"))).outcome,
+      ).toBe("taken");
+      const live = await db
+        .select({ userId: linkedAccounts.userId })
+        .from(linkedAccounts)
+        .where(
+          and(
+            eq(linkedAccounts.provider, "github"),
+            eq(linkedAccounts.externalUserId, id),
+            eq(linkedAccounts.status, "active"),
+          ),
+        );
+      expect(live).toEqual([{ userId: first }]);
+    });
+
+    test("a person with a GitHub link cannot link a second account", async () => {
+      const ws = await workspace();
+      const user = await member(ws, "member");
+      await link(ws, user, github(githubId()), named("octocat"));
+      expect(
+        (await link(ws, user, github(githubId()), named("hubot"))).outcome,
+      ).toBe("exists");
+    });
+  });
 });

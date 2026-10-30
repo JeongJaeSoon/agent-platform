@@ -16,6 +16,7 @@ import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresGitHubAppStore } from "./github-apps.ts";
+import { createPostgresGitHubOAuthStore } from "./github-oauth.ts";
 import * as schema from "./schema.ts";
 import {
   githubApps,
@@ -334,5 +335,28 @@ integration("the GitHub App on PostgreSQL", () => {
       .delete(secretValues)
       .where(eq(secretValues.ownerRef, `github_app:${stored.app.id}`));
     expect(await store.find(ws, "author")).toBeNull();
+  });
+
+  test("user linking reads the author App's client id; a reviewer App or none gives no client", async () => {
+    const store = createPostgresGitHubAppStore(db, key);
+    const oauth = createPostgresGitHubOAuthStore(db, key);
+    const ws = await workspace();
+    const owner = await person(ws, "owner");
+    expect(await oauth.status(ws)).toEqual({
+      authorApp: false,
+      clientId: null,
+      clientSecretSet: false,
+    });
+    await store.put(ws, "reviewer", profile(61), pemOf(), owner());
+    expect((await oauth.status(ws)).authorApp).toBe(false);
+    await store.put(ws, "author", profile(62), pemOf(), owner());
+    expect(await oauth.status(ws.toUpperCase())).toEqual({
+      authorApp: true,
+      clientId: "Iv23li62",
+      clientSecretSet: false,
+    });
+    // No secret is set, so there is no client to link with yet.
+    expect(await oauth.client(ws)).toBeNull();
+    expect(await createPostgresGitHubOAuthStore(db, null).client(ws)).toBeNull();
   });
 });
