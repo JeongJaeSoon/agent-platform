@@ -147,7 +147,7 @@ KEDA [PostgreSQL scaler](https://keda.sh/docs/latest/scalers/postgresql/)를 쓰
 - ScaledJob은 `scalingStrategy: accurate`, `targetValue: 1`이다. `default`는 `min(max, 대기 수) - 실행 중 Job 수`라서 세션을 받아 오래 도는 Job까지 뺀다. PoC 3a에서 실제로 새 세션이 45초 동안 굶었다(아래 "검증").
 - `pendingPodConditions: [Ready]`를 두고, worker의 readiness probe는 claim이 끝난 뒤에만 Ready가 된다. 그래야 Running이지만 아직 claim하지 않은 Job이 pending으로 세어져 같은 대기 세션에 Job이 두 번 뜨지 않는다([ScaledJob spec](https://keda.sh/docs/2.21/reference/scaledjob-spec/)).
 - Job spec: `parallelism: 1`, `completions: 1`, `backoffLimit: 0`, `restartPolicy: Never`. 재시도로 생긴 새 Pod는 새 UID라 다른 세션을 claim할 수 있으므로 Job 수준 재시도를 쓰지 않는다. 다시 띄우는 일은 다음 poll이 한다.
-- 같은 숫자를 지표로도 낸다. 지금은 대기 세션 수 지표가 없다(`agent_platform.queue.oldest_age_seconds`뿐). session-ops의 K8s 지표 작업(94S-1101)과 하나로 합친다.
+- 같은 숫자를 지표로도 낸다. 지금은 대기 세션 수 지표가 없다(`agent_platform.queue.oldest_age_seconds`뿐). 진행 중인 Kubernetes 실행 지표 작업과 하나로 합친다.
 
 ### 두 상한
 
@@ -168,10 +168,10 @@ ScaledJob은 템플릿이 고정이라 이미지와 리소스도 고정이다. �
 - partition은 세션 생성 때 정해지고 바뀌지 않는다. "에이전트 설정으로 세션 크기를 고른다"는 생성 때 partition을 고르는 것이 된다.
 - 고정 이미지가 없는 세션은 그 partition의 "현재" class가 받는다.
 
-runtime-pin 작업(Epic 94S-1084, 재개 시 이미지 선택 94S-467, 이미지 허용 목록 94S-1089)과의 관계:
+진행 중인 runtime 고정 작업(재개 시 이미지 선택, helm 업그레이드 검사, 이미지 허용 목록)과의 관계:
 
 - 세션이 이미지를 고정하면, claim 조건에 "worker의 digest와 같다"가 들어간다. 대기 수 endpoint는 class(=partition과 digest)별로 센다.
-- 이전 이미지의 class는 **재개할 수 있는 세션 중 그 이미지를 고정한 세션이 하나라도 있는 동안** 남긴다. 대기 수가 0이라는 것은 지금 기다리는 세션이 없다는 뜻일 뿐이다. paused·stopped 세션이 나중에 재개할 수 있다. 그래서 chart 값의 class 목록을 운영자가 손으로 관리하지 않도록, api가 "재개 가능한 세션이 고정한 digest 목록"을 내고 운영자가 그것과 chart를 대조하는 검사(`helm` 업그레이드 검사 94S-1087과 같은 자리)를 둔다.
+- 이전 이미지의 class는 **재개할 수 있는 세션 중 그 이미지를 고정한 세션이 하나라도 있는 동안** 남긴다. 대기 수가 0이라는 것은 지금 기다리는 세션이 없다는 뜻일 뿐이다. paused·stopped 세션이 나중에 재개할 수 있다. 그래서 chart 값의 class 목록을 운영자가 손으로 관리하지 않도록, api가 "재개 가능한 세션이 고정한 digest 목록"을 내고 운영자가 그것과 chart를 대조하는 검사(runtime 고정 작업의 `helm` 업그레이드 검사와 같은 자리)를 둔다.
 - 이미지를 폐기하면 그 이미지를 고정한 세션은 재개할 때 지금 규칙대로 `INCOMPATIBLE_CHECKPOINT`가 되고, 운영자가 `start_fresh`나 `close`를 고른다.
 - 이 방식은 동시에 지원하는 digest 수가 적을 때만 맞다. 세션마다 임의의 이미지를 고르는 것이 목표라면 고정 템플릿과 맞지 않고, 후보 5(launcher)가 맞다.
 
