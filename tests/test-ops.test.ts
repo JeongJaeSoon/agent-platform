@@ -20,6 +20,7 @@ import {
   catalogRevision,
   checkRender,
   decideUpgrade,
+  notResumableOnPrevious,
   type ObjectStoreMode,
   parseReleaseManifest,
   probeRoundTrip,
@@ -775,4 +776,66 @@ describe("worker image upgrade impact", () => {
       });
     },
   );
+
+  test("leaves out sessions the replaced image, kept as the previous one, restores", () => {
+    // s1 and s2 cannot move to the target; s1 resumes on the image it ran on.
+    const target = upgradeImpact({
+      exitCode: 5,
+      output: [
+        "FAIL s1@1 plan: incompatible with the target image (checkpoint → image): sdkVersion 0.3.270 → 0.3.280",
+        "FAIL s2@2 plan: incompatible with the target image (checkpoint → image): sdkVersion 0.3.260 → 0.3.280",
+        "checkpoints=2 passed=0 failed=2",
+      ].join("\n"),
+      uncollected,
+    });
+    const previous = upgradeImpact({
+      exitCode: 5,
+      output: [
+        "PASS s1@1 plan: ready under locked",
+        "FAIL s2@2 plan: incompatible with the target image (checkpoint → image): sdkVersion 0.3.260 → 0.3.270",
+        "checkpoints=2 passed=1 failed=1",
+      ].join("\n"),
+      uncollected,
+    });
+    expect(notResumableOnPrevious({ target, previous })).toEqual(["s2"]);
+  });
+
+  test("a check of the previous image that could not finish leaves the target's list whole", () => {
+    const previous = upgradeImpact({
+      exitCode: 1,
+      output: "verify stopped before plans",
+      uncollected,
+    });
+    expect(previous.failClosed).toBe(true);
+    expect(
+      notResumableOnPrevious({
+        target: { affected: ["s2"], failClosed: false },
+        previous,
+      }),
+    ).toEqual(["s2"]);
+  });
+
+  test("a target check that failed closed stays whole even where the previous image restores", () => {
+    // A same-combination rebuild launches on the target, so a session the
+    // target could not be shown to restore must stay on the list.
+    const target = upgradeImpact({
+      exitCode: 5,
+      output: [
+        "FAIL s1@1 plan: profile digest could not be computed",
+        "checkpoints=1 passed=0 failed=1",
+      ].join("\n"),
+      uncollected: ["s1"],
+    });
+    expect(target.failClosed).toBe(true);
+    const previous = upgradeImpact({
+      exitCode: 0,
+      output: [
+        "PASS s1@1 plan: ready under locked",
+        "checkpoints=1 passed=1 failed=0",
+      ].join("\n"),
+      uncollected: ["s1"],
+    });
+    expect(previous.failClosed).toBe(false);
+    expect(notResumableOnPrevious({ target, previous })).toEqual(["s1"]);
+  });
 });

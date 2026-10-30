@@ -37,6 +37,13 @@ x-egress-ports:
   worker-proxy-url: &worker-proxy-url ${EXECUTION_EGRESS_PROXY_URL:-http://egress-proxy:3128}
   proxy-authorizer-url: &proxy-authorizer-url ${EGRESS_AUTHORIZER_URL:-http://api:3100}
 
+# The worker images' runtime combinations (docs/operator/configuration.md).
+# api and slack judge profile pins by them and the scheduler picks each
+# session's image by them, so all three take these anchors. Empty is unset.
+x-worker-runtimes:
+  current: &worker-image-runtime ${WORKER_IMAGE_RUNTIME:-}
+  previous: &worker-image-previous-runtime ${WORKER_IMAGE_PREVIOUS_RUNTIME:-}
+
 # Every image is pinned by its multi-arch index digest or is one of the apps
 # built from this repository, so amd64 and arm64 daemons run the same bytes
 # (tests/images.test.ts).
@@ -246,6 +253,8 @@ services:
       GOOGLE_OIDC_ISSUER: ${GOOGLE_OIDC_ISSUER:-}
       GOOGLE_OIDC_ALLOWED_DOMAINS: ${GOOGLE_OIDC_ALLOWED_DOMAINS:-}
       GOOGLE_OIDC_JIT: ${GOOGLE_OIDC_JIT:-}
+      WORKER_IMAGE_RUNTIME: *worker-image-runtime
+      WORKER_IMAGE_PREVIOUS_RUNTIME: *worker-image-previous-runtime
       <<: *installation-limits
       # Read by the API alone: every lease it grants carries its deadline
       # into the database, and the reconciler refuses to start with its own.
@@ -390,6 +399,9 @@ services:
       # default network the proxy also sits on (EGRESS_PRIVATE_ALLOWLIST).
       WORKER_GATEWAY_URL: ${WORKER_GATEWAY_URL:-http://api:3000}
       WORKER_IMAGE: ${WORKER_IMAGE:-agent-platform-worker:dev}
+      WORKER_IMAGE_RUNTIME: *worker-image-runtime
+      WORKER_IMAGE_PREVIOUS: ${WORKER_IMAGE_PREVIOUS:-}
+      WORKER_IMAGE_PREVIOUS_RUNTIME: *worker-image-previous-runtime
       EXECUTION_INSTALLATION_ID: ${EXECUTION_INSTALLATION_ID:-local}
       EXECUTION_EGRESS_PROXY_URL: *worker-proxy-url
       EXECUTION_EGRESS_CREDENTIAL_PORT: *egress-credential-port
@@ -505,6 +517,8 @@ services:
       SLACK_ROLE_HEALTH_STALE_SEC: ${SLACK_ROLE_HEALTH_STALE_SEC:-90}
       SLACK_ROLE_BATCH_SIZE: ${SLACK_ROLE_BATCH_SIZE:-10}
       SLACK_ROLE_LEASE_SEC: ${SLACK_ROLE_LEASE_SEC:-60}
+      WORKER_IMAGE_RUNTIME: *worker-image-runtime
+      WORKER_IMAGE_PREVIOUS_RUNTIME: *worker-image-previous-runtime
       <<: *installation-limits
       SLACK_OIDC_REDIRECT_URI: ${SLACK_OIDC_REDIRECT_URI:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}

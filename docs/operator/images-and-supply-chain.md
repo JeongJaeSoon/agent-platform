@@ -38,7 +38,11 @@ system 설정은 git 설정 중 우선순위가 가장 낮아서, 세션 안에�
 
 ### worker 이미지 업그레이드와 checkpoint 호환
 
-`scripts/test-ops.sh upgrade`에서 worker 이미지가 바뀌면 새 이미지의 engine·SDK·CLI·profile digest로 각 현재 checkpoint의 restore plan을 계산한다. 네 값이 모두 같아 호환되는 세션은 승인 없이 이어지고, `INCOMPATIBLE_CHECKPOINT`인 세션만 사용자에게 알리고 정확한 목록을 승인받는다. 검사를 끝까지 돌릴 수 없거나 다른 검증 실패가 섞이면 미수거 checkpoint가 있는 세션 전부를 영향 목록으로 삼는 fail-closed 동작을 하고 로그에 남긴다. writer를 멈춘 뒤에도 같은 검사를 다시 한다. 불호환 세션에 `start_fresh`를 선택하면 이전 checkpoint의 context를 버린다. 현재는 세션별 worker 이미지 고정이 없으며, 호환될 때만 새 이미지에서 이어진다. 이 검사는 compose 경로에만 있다. Kubernetes(helm) 설치의 배포 순서와 변경별 세션 동작은 [kubernetes-deployment.md § 업그레이드와 롤백](kubernetes-deployment.md#업그레이드와-롤백)에 있다.
+`scripts/test-ops.sh upgrade`에서 worker 이미지가 바뀌면 새 이미지의 engine·SDK·CLI·profile digest로 각 현재 checkpoint의 restore plan을 계산한다. 네 값이 모두 같아 호환되는 세션은 승인 없이 이어지고, `INCOMPATIBLE_CHECKPOINT`인 세션만 사용자에게 알리고 정확한 목록을 승인받는다. 검사를 끝까지 돌릴 수 없거나 다른 검증 실패가 섞이면 미수거 checkpoint가 있는 세션 전부를 영향 목록으로 삼는 fail-closed 동작을 하고 로그에 남긴다. writer를 멈춘 뒤에도 같은 검사를 다시 한다. 불호환 세션에 `start_fresh`를 선택하면 이전 checkpoint의 context를 버린다. 이 검사는 compose 경로에만 있다.
+
+worker 이미지가 바뀌면 upgrade는 바뀌기 전 이미지를 직전 이미지로 남긴다(`$TEST_OPS_STATE_DIR/previous-worker`). scheduler는 세션마다 checkpoint 포인터의 조합(engine·SDK·CLI·profile digest scheme)과 같은 이미지를 현재·직전 중에서 고르고, 둘 다 맞으면 현재 이미지를 쓴다([configuration.md § scheduler·worker 컨테이너·egress 설정](configuration.md#schedulerworker-컨테이너egress-설정)). 그래서 게이트는 새 이미지로 복원할 수 없는 세션 가운데 직전 이미지로도 복원할 수 없는 세션만 영향 목록에 올린다. 새 이미지와 직전 이미지 가운데 어느 한쪽의 검사라도 fail-closed로 끝나면 새 이미지 기준 목록을 그대로 쓴다. 같은 조합으로 다시 빌드한 이미지라면 scheduler는 새 이미지로 띄우므로, 새 이미지로 복원된다고 확인하지 못한 세션은 직전 이미지가 복원하더라도 목록에서 빼지 않는다. 어느 한쪽이 자기 조합을 출력하지 못하는 옛 이미지면(`apps/worker/src/image-runtime.ts`가 없는 빌드) 직전 이미지를 쓰지 않고, 게이트도 새 이미지 기준 목록을 그대로 쓴다. 지원 창은 한 릴리스다. 한 번 더 업그레이드하면 그 전 이미지에 남은 세션이 다시 영향 목록에 오른다.
+
+SDK를 올리는 릴리스는 `profiles.yaml`의 `runtime_version`도 함께 올린다. 현재 이미지가 싣지 않은 `runtime_version`의 profile은 새 세션을 받지 않는다. Kubernetes(helm) 설치의 배포 순서와 변경별 세션 동작은 [kubernetes-deployment.md § 업그레이드와 롤백](kubernetes-deployment.md#업그레이드와-롤백)에 있다.
 
 ### worker·control-host 롤백과 incremental checkpoint
 
@@ -84,7 +88,7 @@ migration은 rollout 전에 돈다. 그래서 새 스키마 위에서 옛 contro
 
 열 이름을 바꾸는 것도 옛 이름을 바로 없애므로 같은 순서를 따른다. 새 열을 더하고, 데이터를 옮기고 코드를 바꾼 뒤, 옛 열을 지운다. `WORKER_IDLE_TIMEOUT_SEC`는 마지막 turn 뒤의 유휴 시간이지 worker 수명의 상한이 아니다. 일하는 worker는 그보다 오래 남을 수 있으니 정리 시점은 시간이 아니라 실제로 남은 컨테이너로 판단한다.
 
-예: checkpoint 포인터의 런타임 조합 `checkpoints.runtime_*`(migration `0196_checkpoint_runtime`)는 1단계로, 기본값 없는 null 허용 열만 더했다. 그 전에 커밋된 행은 null로 남는다.
+예: checkpoint 포인터의 런타임 조합 `checkpoints.runtime_*`(migration `0196_checkpoint_runtime`)는 1단계로, 기본값 없는 null 허용 열만 더했다. 그 전에 커밋된 행은 null로 남는다. `0199_worker_image_runtime`(launch의 조합, checkpoint의 digest scheme, `worker_image_refusals` 표)도 1단계다. scheme이 null인 checkpoint는 첫 scheme(1)으로 읽는다.
 
 ## 공급망 취약점 정책
 
