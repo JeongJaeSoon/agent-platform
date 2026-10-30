@@ -106,6 +106,20 @@ describe("ToolTable", () => {
       ["1,840", "3시간 42분", "3.1초", "21"],
     );
   });
+
+  test("고른 행의 설명 줄은 muted 글자색이라 bg-active 위에서도 AA 대비를 지킨다", () => {
+    const { getAllByText } = withPlatform(
+      <ToolTable
+        tools={TOOLS.slice(0, 2)}
+        label="도구"
+        selected="Bash"
+        describe={() => "셸 명령"}
+      />,
+    );
+    const [picked, other] = getAllByText("셸 명령");
+    expect(picked?.className).toContain("text-muted-foreground");
+    expect(other?.className).toContain("text-subtle-foreground");
+  });
 });
 
 describe("Findings", () => {
@@ -333,6 +347,23 @@ describe("ToolTable loading", () => {
         "이 기간에 불린 도구가 없습니다.",
       ),
     ).toBeTruthy();
+  });
+});
+
+describe("ToolsSummary", () => {
+  test("실패 수는 실패가 있을 때만 위험 색이고, 0번이면 다른 숫자처럼 굵게만 보인다", () => {
+    const summary = (tools: typeof TOOLS) =>
+      withPlatform(
+        <ToolsSummary tools={tools} period="최근 30일" />,
+      ).container.querySelector("[data-slot=tools-summary]");
+    expect(
+      summary(TOOLS)?.querySelector("[class*=tone-danger]")?.textContent,
+    ).toBe("34번 실패");
+    const clean = summary(TOOLS.map((tool) => ({ ...tool, failed: 0 })));
+    expect(clean?.querySelector("[class*=tone-danger]")).toBeNull();
+    expect(
+      [...(clean?.querySelectorAll("b") ?? [])].map((b) => b.textContent),
+    ).toContain("0번 실패");
   });
 });
 
