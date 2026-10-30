@@ -30,24 +30,27 @@ const { values: args } = parseArgs({
   },
 });
 
-function required(name: keyof typeof args): string {
+// Values are spliced into registry URLs, so each must stay one path segment.
+function required(name: keyof typeof args, shape: RegExp): string {
   const value = args[name];
-  if (typeof value !== "string" || value === "") {
-    console.error(`missing --${name}`);
+  if (typeof value !== "string" || !shape.test(value)) {
+    console.error(`missing or malformed --${name}`);
     process.exit(2);
   }
   return value;
 }
 
-const appId = required("app-id");
-const installationId = required("installation-id");
-const owner = required("owner");
-const repo = required("repo");
-const out = required("out");
+const ID = /^[0-9]+$/;
+const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const appId = required("app-id", ID);
+const installationId = required("installation-id", ID);
+const owner = required("owner", NAME);
+const repo = required("repo", NAME);
+const out = required("out", /./);
 const full = !args["no-packages"];
-const npmName = full ? required("npm") : "";
-const gemName = full ? required("gem") : "";
-const gemVersion = full ? required("gem-version") : "";
+const npmName = full ? required("npm", /^@[^/]+\/[^/]+$/) : "";
+const gemName = full ? required("gem", NAME) : "";
+const gemVersion = full ? required("gem-version", NAME) : "";
 const keyPath = process.env.WERFT_APP_KEY_PATH;
 if (!keyPath) {
   console.error("WERFT_APP_KEY_PATH is not set");
@@ -140,6 +143,7 @@ async function mint(row: string, set: TokenSet, jwt: string) {
 async function revoke(row: string, label: string) {
   const token = tokens.get(label);
   if (token === undefined) return;
+  tokens.delete(label);
   try {
     const res = await fetch(`${API}/installation/token`, {
       method: "DELETE",
@@ -215,7 +219,7 @@ async function probe(
       status: res.status,
       host: "-",
       summary: `versions=${yes(versions !== undefined)}`,
-      tarball,
+      tarball: registryUrl(tarball),
     };
   }
   if (read === "gzip" && res.ok) {
@@ -232,6 +236,16 @@ async function probe(
     host: "-",
     summary: `content-length=${yes(res.headers.get("content-length") !== null)}`,
   };
+}
+
+// The tarball URL comes from the response; the token goes only to the registry.
+function registryUrl(url: string | undefined): string | undefined {
+  if (url === undefined || !URL.canParse(url)) return undefined;
+  const parsed = new URL(url);
+  const registry = new URL(NPM);
+  return parsed.protocol === registry.protocol && parsed.host === registry.host
+    ? url
+    : undefined;
 }
 
 function yes(value: boolean): string {
@@ -272,18 +286,37 @@ appendFileSync(
   `# ${full ? "full" : "no-packages"} ${new Date().toISOString()} app=${appId} installation=${installationId} repo=${owner}/${repo}\n`,
 );
 
-let jwt: string;
-try {
-  jwt = appJwt();
-} catch (error) {
-  // An uncaught error would print a stack next to the key handling.
-  emit("M0", "app-jwt", "ERR", "-", errorName(error));
-  process.exit(1);
+async function revokeAll() {
+  for (const [index, set] of TOKEN_SETS.entries()) {
+    // revoke() drops the token before its log line, so a failed append
+    // cannot stop the next DELETE.
+    await revoke(`R${index + 1}`, set.label).catch(() => {});
+  }
 }
-for (const [index, set] of TOKEN_SETS.entries())
-  await mint(`M${index + 1}`, set, jwt);
 
-if (!full) {
+process.on("SIGINT", () => {
+  void revokeAll().finally(() => process.exit(130));
+});
+
+try {
+  await probeAll();
+} catch (error) {
+  // An uncaught error would print a stack trace; keep it to the class name.
+  console.error(errorName(error));
+  process.exitCode = 1;
+} finally {
+  await revokeAll();
+}
+
+async function probeAll() {
+  const jwt = appJwt();
+  for (const [index, set] of TOKEN_SETS.entries())
+    await mint(`M${index + 1}`, set, jwt);
+  if (full) await probePackages();
+  else await probeRegistries();
+}
+
+async function probeRegistries() {
   // No package exists yet: a missing name tells whether the registry accepts
   // the token at all (404) or refuses it (401/403), against no token.
   const absent = npmPath(`@${owner.toLowerCase()}/werft-probe-absent`);
@@ -299,7 +332,9 @@ if (!full) {
       "gzip",
     );
   }
-} else {
+}
+
+async function probePackages() {
   // Row 1-4 use the contents:read token; row 5 repeats them with the others.
   const sets: [string, string][] = [
     ["", "contents"],
@@ -341,6 +376,3 @@ if (!full) {
     await run(`${prefix}4-bearer`, "gem-file", label, gem, "bearer", "none");
   }
 }
-
-for (const [index, set] of TOKEN_SETS.entries())
-  await revoke(`R${index + 1}`, set.label);
