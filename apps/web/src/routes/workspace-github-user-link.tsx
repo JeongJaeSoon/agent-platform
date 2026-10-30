@@ -168,9 +168,7 @@ export function GitHubUserLinkSection({
       <SettingRow
         title={t("githubUserLink.callback")}
         description={
-          oauth?.callback_url
-            ? t("githubUserLink.callbackHint")
-            : t("githubUserLink.callbackUnset")
+          oauth?.callback_url ? undefined : t("githubUserLink.callbackUnset")
         }
         meta={
           oauth?.callback_url ? (

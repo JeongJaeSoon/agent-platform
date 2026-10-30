@@ -748,9 +748,7 @@ describe("연동 계정 — GitHub", () => {
       "GET /v1/linked-accounts": () => json(200, { items: [] }),
     });
     expect(
-      await screen.findByText(
-        "owner·admin이 GitHub 연결 설정에서 사용자 연결을 켜야 연결할 수 있어요",
-      ),
+      await screen.findByText("관리자가 사용자 연결을 켜야 해요"),
     ).toBeDefined();
     const button = within(githubRow()).getByRole("button", { name: "연결" });
     expect(button.hasAttribute("disabled")).toBe(true);

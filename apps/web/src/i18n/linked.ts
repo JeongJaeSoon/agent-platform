@@ -6,9 +6,8 @@ export const linkedKo = {
   "linked.connected": "연결됨",
   "linked.notLinked": "연결 안 됨",
   "linked.soon": "준비 중",
-  "linked.use.github": "내가 시작한 세션의 commit에 공동 작성자로 표시",
-  "linked.github.unset":
-    "owner·admin이 GitHub 연결 설정에서 사용자 연결을 켜야 연결할 수 있어요",
+  "linked.use.github": "세션 commit에 공동 작성자로 표시",
+  "linked.github.unset": "관리자가 사용자 연결을 켜야 해요",
   "linked.github.connect": "GitHub 계정 연결",
   "linked.github.starting": "GitHub로 이동하는 중…",
   "linked.github.coAuthor": "commit에 들어가는 줄: Co-authored-by: {line}",
@@ -42,9 +41,8 @@ export const linkedEn: Record<keyof typeof linkedKo, string> = {
   "linked.connected": "Linked",
   "linked.notLinked": "Not linked",
   "linked.soon": "Coming soon",
-  "linked.use.github": "Named as co-author on commits of sessions you start",
-  "linked.github.unset":
-    "An owner or admin needs to turn on user linking in the GitHub connection first",
+  "linked.use.github": "Co-author on your session commits",
+  "linked.github.unset": "An admin must turn on user linking first",
   "linked.github.connect": "Link GitHub account",
   "linked.github.starting": "Going to GitHub…",
   "linked.github.coAuthor": "Line in commits: Co-authored-by: {line}",
@@ -77,10 +75,8 @@ export const linkedJa: Record<keyof typeof linkedKo, string> = {
   "linked.connected": "連携済み",
   "linked.notLinked": "未連携",
   "linked.soon": "準備中",
-  "linked.use.github":
-    "自分が開始したセッションのコミットに共同作成者として表示",
-  "linked.github.unset":
-    "owner・admin が GitHub 連携設定でユーザー連携を有効にすると連携できます",
+  "linked.use.github": "セッションのコミットに共同作成者として表示",
+  "linked.github.unset": "管理者が有効にすると連携できます",
   "linked.github.connect": "GitHub アカウントを連携",
   "linked.github.starting": "GitHub に移動しています…",
   "linked.github.coAuthor": "コミットに入る行: Co-authored-by: {line}",

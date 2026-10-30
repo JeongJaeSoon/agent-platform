@@ -6,8 +6,6 @@ export const githubUserLinkKo = {
   "githubUserLink.clientIdUnset":
     "GitHub App을 등록하면 GitHub가 알려 주는 값이 여기에 보입니다.",
   "githubUserLink.callback": "콜백 URL",
-  "githubUserLink.callbackHint":
-    "GitHub App 설정의 Callback URL에 그대로 넣으세요.",
   "githubUserLink.callbackUnset":
     "콘솔 주소가 설정되지 않아 쓸 수 없습니다 — 운영자에게 CONSOLE_ORIGIN 설정을 요청하세요.",
   "githubUserLink.copyCallback": "콜백 URL 복사",
@@ -35,8 +33,6 @@ export const githubUserLinkEn: Record<keyof typeof githubUserLinkKo, string> = {
   "githubUserLink.clientIdUnset":
     "Shown here once a GitHub App is registered and GitHub reports it.",
   "githubUserLink.callback": "Callback URL",
-  "githubUserLink.callbackHint":
-    "Paste it as the Callback URL in the GitHub App's settings.",
   "githubUserLink.callbackUnset":
     "Not available: the console has no address — ask your operator to set CONSOLE_ORIGIN.",
   "githubUserLink.copyCallback": "Copy callback URL",
@@ -64,8 +60,6 @@ export const githubUserLinkJa: Record<keyof typeof githubUserLinkKo, string> = {
   "githubUserLink.clientIdUnset":
     "GitHub App を登録すると、GitHub が返す値がここに表示されます。",
   "githubUserLink.callback": "コールバック URL",
-  "githubUserLink.callbackHint":
-    "GitHub App 設定の Callback URL にそのまま入れてください。",
   "githubUserLink.callbackUnset":
     "コンソールのアドレスが設定されていないため使えません。運用担当者に CONSOLE_ORIGIN の設定を依頼してください。",
   "githubUserLink.copyCallback": "コールバック URL をコピー",
