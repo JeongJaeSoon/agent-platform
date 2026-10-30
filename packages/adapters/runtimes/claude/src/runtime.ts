@@ -13,6 +13,7 @@ import type { RuntimeProcessObserver } from "@werft-ai/runtime-core";
 
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import type { DriverRun, RuntimeHooks } from "./driver.ts";
+import { MEMORY_READ_GUIDANCE, readsOnlyMemory } from "./memory-read.ts";
 import { MirrorProgress } from "./mirror-progress.ts";
 import {
   ENGINE_API_KEY_DESCRIPTOR,
@@ -114,7 +115,12 @@ export function buildSdkOptions(
     if ("tool_use_id" in input) ledger.toolSettled(input.tool_use_id);
     return {};
   };
-  const append = systemPromptAppend(config);
+  const append = [
+    systemPromptAppend(config),
+    unattended ? undefined : MEMORY_READ_GUIDANCE,
+  ]
+    .filter((part) => part !== undefined)
+    .join("\n\n");
   return {
     abortController,
     canUseTool: async (tool, toolInput, options) => {
@@ -130,6 +136,11 @@ export function buildSdkOptions(
       };
       if (!permittedTools.has(tool)) {
         return deny("Tool is outside the server allowlist");
+      }
+      // PreToolUse already admitted it past any checkpoint lease, and no
+      // person is asked, so there is no prompt for the ledger to track.
+      if (await readsOnlyMemory(config, tool, toolInput)) {
+        return { behavior: "allow", toolUseID: options.toolUseID };
       }
       const admission = ledger.permissionStarting(options.toolUseID);
       if (!admission.allowed) return deny(admission.message);
@@ -235,7 +246,7 @@ export function buildSdkOptions(
     systemPrompt: {
       type: "preset",
       preset: "claude_code",
-      ...(append === undefined ? {} : { append }),
+      ...(append === "" ? {} : { append }),
       snapshot: true,
     },
     // The built-in set only; an MCP server's tools come with the server and
