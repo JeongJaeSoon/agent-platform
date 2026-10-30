@@ -916,6 +916,37 @@ describe("에이전트 상세 탭", () => {
     ]);
   });
 
+  test("이름·활성화 시각이 없는 예전 API 응답이면 카드 버전과 —로 보이고 깨지지 않는다", async () => {
+    const server = agentServer();
+    await released(server);
+    for (const release of server.releases as Record<string, unknown>[]) {
+      delete release.label;
+      delete release.activated_at;
+      delete release.deactivated_at;
+    }
+    renderAt(
+      `${DETAIL}?tab=release`,
+      { ...meOk, ...server.routes },
+      "ko",
+      "warn",
+    );
+    const heading = await screen.findByRole("heading", { level: 1 });
+    await waitFor(() =>
+      expect(heading.nextElementSibling?.textContent).toBe("활성"),
+    );
+    const table = await screen.findByRole("table");
+    expect(
+      within(table)
+        .getAllByRole("row")
+        .slice(1)
+        .map((row) =>
+          [...row.querySelectorAll("td")]
+            .slice(0, 4)
+            .map((cell) => cell.textContent),
+        ),
+    ).toEqual([["버전 1", "활성", "—", "v1"]]);
+  });
+
   test("배포 탭은 배포 기록 표 다음에 자격 연결을 두고, 만든 사람은 구성원 이름으로 쓴다", async () => {
     const server = agentServer();
     await released(server);

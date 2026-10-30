@@ -1135,6 +1135,38 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     expect(summary?.release_label).toBe(first.release.label);
   });
 
+  test("releases made at the same time answer with the distinct labels they keep", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const agentsService = service();
+    const created = await newAgent(agentsService, owner, cardWith("t0"));
+    const versionIds: string[] = [];
+    for (let index = 0; index < 6; index += 1) {
+      const detail = await agentsService.updateAgent(owner, created.agent.id, {
+        card: cardWith(`t${index + 1}`),
+      });
+      const version = detail.versions.at(-1);
+      if (!version) throw new Error("no version");
+      versionIds.push(version.id);
+    }
+    const made = await Promise.all(
+      versionIds.map((versionId) =>
+        agentsService.createRelease(owner, created.agent.id, {
+          version_id: versionId,
+          runtime_profile_id: "coding",
+        }),
+      ),
+    );
+    const detail = await agentsService.getAgent(owner, created.agent.id);
+    const labels = new Map(
+      detail.releases.map((release) => [release.id, release.label]),
+    );
+    for (const { release } of made) {
+      expect(release.label).toBe(labels.get(release.id) ?? "");
+    }
+    expect(new Set(made.map(({ release }) => release.label)).size).toBe(6);
+  });
+
   test("of ten concurrent activations one wins and nine see REVISION_CONFLICT", async () => {
     const workspaceId = await workspace();
     const owner = await person(workspaceId, "owner");

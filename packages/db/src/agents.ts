@@ -469,6 +469,10 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           )
           .limit(1);
         if (!owned) return { outcome: "not_found" };
+        // A release's label counts the agent's earlier releases in the same
+        // second, so releases are made one at a time per agent and stamped
+        // after the lock: the label they answer with is the one they keep.
+        await lockAgent(tx, input.workspaceId, release.agent_id);
         const [inserted] = await tx
           .insert(agentReleases)
           .values({
@@ -484,6 +488,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
             policyPins: release.policy_pins,
             createdBy: release.created_by,
             note: release.note,
+            createdAt: sql`clock_timestamp()`,
           })
           .onConflictDoNothing({ target: agentReleases.id })
           .returning({ id: agentReleases.id });

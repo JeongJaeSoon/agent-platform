@@ -349,8 +349,13 @@ export function Releases({
             <TableBody>
               {ordered.map((item) => {
                 const active = item.id === detail.agent.active_release_id;
+                const name =
+                  item.label ??
+                  t("agent.versionLabel", {
+                    version: versionNo(item.version_id) ?? "?",
+                  });
                 const label = t("agent.releaseLabel", {
-                  release: item.label,
+                  release: name,
                   profile: item.runtime_profile_id,
                 });
                 return (
@@ -359,7 +364,7 @@ export function Releases({
                       variant="nowrap"
                       className={`${SPREAD} font-medium tabular-nums`}
                     >
-                      {item.label}
+                      {name}
                     </TableCell>
                     <TableCell variant="nowrap" className={SPREAD}>
                       <Badge variant={active ? "green" : "gray"}>
@@ -374,11 +379,12 @@ export function Releases({
                       variant="nowrap"
                       className={`${SPREAD} tabular-nums`}
                     >
-                      {item.activated_at === null ? (
+                      {/* `== null`: an API from before these fields omits them mid-rollout. */}
+                      {item.activated_at == null ? (
                         <span className="text-muted-foreground">
                           {t("agent.releases.noteNone")}
                         </span>
-                      ) : item.deactivated_at === null ? (
+                      ) : item.deactivated_at == null ? (
                         toSecond(item.activated_at)
                       ) : (
                         t("agent.releases.activePeriod", {

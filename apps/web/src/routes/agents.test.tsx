@@ -1564,7 +1564,9 @@ describe("에이전트 상세", () => {
     });
     const heading = screen.getByRole("heading", { level: 1 });
     await waitFor(() =>
-      expect(heading.nextElementSibling?.textContent).toBe("v1 · 활성"),
+      expect(heading.nextElementSibling?.textContent).toBe(
+        "2026-10-11_10:00:00 · 활성",
+      ),
     );
     expect(agentDetailSchema.safeParse(server.detail()).success).toBe(true);
   });

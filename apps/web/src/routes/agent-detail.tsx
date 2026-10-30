@@ -536,7 +536,7 @@ function AgentView({
               : "gray"
           }
         >
-          {activeRelease
+          {activeRelease?.label
             ? t("agent.headStatus", {
                 release: activeRelease.label,
                 status: t(`agents.status.${agent.status}`),
