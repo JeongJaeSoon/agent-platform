@@ -2,6 +2,7 @@ export * from "./agent-github.ts";
 export * from "./answer.ts";
 export * from "./control.ts";
 export * from "./event.ts";
+export * from "./github-mcp.ts";
 export * from "./github-work.ts";
 export * from "./health.ts";
 export * from "./neutral-event.ts";

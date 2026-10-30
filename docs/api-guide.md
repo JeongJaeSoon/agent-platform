@@ -293,7 +293,7 @@ OpenAPI: [`closeSession`](api/index.html), [`terminateSession`](api/index.html),
 
 close는 pause와 같은 방식으로 drain한다. worker가 붙은 `active` 세션은 `closing`이 되고, 진행 중 turn이 끝나 checkpoint가 확정되고 실행이 사라진 것을 본 뒤 `closed`가 된다. receipt도 그때 `succeeded`가 된다. worker가 없는 세션, `paused`, resume할 수 있는 `stopped`는 요청 안에서 바로 닫힌다. drain이 60초를 넘기면 세션 `attention`에 `CLOSE_BLOCKED`와 이유(`long_turn`, `pending_request`, `mirror_error`, `checkpoint_unavailable`, `execution_pending`)가 보인다. 열린 승인·질문은 close를 막는다. 답하거나 interrupt하면 풀린다. 끝내 닫지 못하면 receipt가 실패하고 세션은 `active`로 돌아간다. 이때 대기 입력은 그대로 남는다. 그 상태에서 빠져나오려면 terminate를 쓴다. 진행 중인 close는 `CONTROL_SUPERSEDED`로 실패한다.
 
-자기 turn 안에서 자기 세션을 close하는 에이전트는 receipt를 기다리지 않는다. drain은 그 turn이 끝나기를 기다리므로, `accepted` 응답이 그 turn이 보는 마지막 답이다. 결과를 push하려면 close가 `succeeded`가 된 뒤 최종 checkpoint로 push를 요청한다. 마지막 turn 안에서 요청한 push는 close가 그 turn의 checkpoint를 확정하므로 승인할 때 `CHECKPOINT_MOVED`로 거절된다. close는 push 요청을 건드리지 않는다.
+자기 turn 안에서 자기 세션을 close하는 에이전트는 receipt를 기다리지 않는다. drain은 그 turn이 끝나기를 기다리므로, `accepted` 응답이 그 turn이 보는 마지막 답이다. 결과를 push하려면 close가 `succeeded`가 된 뒤 최종 checkpoint로 push를 요청한다. 마지막 turn 안에서 요청한 push는 요청 뒤 그 turn에서 commit을 더 만들었다면, close가 확정한 checkpoint의 commit이 달라 승인할 때 `CHECKPOINT_MOVED`로 거절된다. close는 push 요청을 건드리지 않는다.
 
 아래 예시는 별도 세션을 하나 만들어 turn을 마치고 닫는다.
 
@@ -464,7 +464,7 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" "${AUTH[@
 
 **기대 응답.** 요청은 201로 `state: "requested"`와 고정한 값들을 돌려준다. 결정은 200으로 `approved` 또는 `rejected`와 `decided_by`를 돌려준다. 요청·결정·거절된 시도마다 receipt(`request_push`·`decide_push`)가 남고, 거절이면 오류의 `error.details.receipt_id`가 그 receipt를 가리킨다. receipt의 `result`에는 판정(`verdict`), 거절 사유(`refusal`), 요청 id, checkpoint revision, commit, 대상 브랜치가 있고 `actor`에는 누가 했는지가 있다. 승인된 요청은 `pushing`을 거쳐 `pushed`나 `failed`가 되고, `push_receipt_id`가 가리키는 `push` receipt에 원격 URL·ref(`refs/heads/agent/<session-id>`)·이전 commit·승인자, 실패면 `refusal`이 있다. 사유별 뜻은 [API 서버 문서](operator/api-server.md#승인된-요청의-push)에 있다.
 
-**흔한 오류.** 409 `PUSH_SOURCE_MISSING`이면 세션에 저장소나 checkpoint가 아직 없다. 409 `PUSH_REQUEST_OPEN`이면 열린 요청이 있다. 409 `PUSH_REQUEST_DECIDED`면 이미 결정한 요청이다. 409 `CHECKPOINT_MOVED`면 승인 body의 `git_commit`이 고정된 commit과 다르거나, 요청 뒤에 세션이 다시 checkpoint를 남겼다. 이 요청은 거부하고 새로 요청한다. `sessions:approve`가 없는 key로 결정하면 403 `FORBIDDEN`이고 receipt가 남는다. worker의 자격(launch nonce·session token)은 `/v1`에서 인증되지 않아 401이다.
+**흔한 오류.** 409 `PUSH_SOURCE_MISSING`이면 세션에 저장소나 checkpoint가 아직 없다. 409 `PUSH_REQUEST_OPEN`이면 열린 요청이 있다. 409 `PUSH_REQUEST_DECIDED`면 이미 결정한 요청이다. 409 `CHECKPOINT_MOVED`면 승인 body의 `git_commit`이 고정된 commit과 다르거나, 요청 뒤에 세션이 다른 commit으로 checkpoint를 남겼다. 요청 뒤 checkpoint가 다시 생겼어도 commit이 같으면 승인된다. 이 요청은 거부하고 새로 요청한다. `sessions:approve`가 없는 key로 결정하면 403 `FORBIDDEN`이고 receipt가 남는다. worker의 자격(launch nonce·session token)은 `/v1`에서 인증되지 않아 401이다.
 
 ## 11. 세션 결과물 목록과 내려받기
 
