@@ -112,6 +112,18 @@ describe("replacing the pull request tail", () => {
     );
   });
 
+  test("both markers quoted in a line or a code block are text too", () => {
+    const inline = `Example: \`${PULL_REQUEST_TAIL_MARKER}\` HUMAN NOTES \`${PULL_REQUEST_TAIL_END_MARKER}\``;
+    expect(withPullRequestTail(`${block("old")}\n\n${inline}`, tail)).toBe(
+      `${tail}\n\n${inline}`,
+    );
+    const fence = `\`\`\`\n${block("example")}\n\`\`\``;
+    expect(withPullRequestTail(`${block("old")}\n\n${fence}`, tail)).toBe(
+      `${tail}\n\n${fence}`,
+    );
+    expect(withPullRequestTail(fence, tail)).toBe(`${fence}\n\n${tail}`);
+  });
+
   test("a start marker with no end after it cuts nothing", () => {
     const cut = `Intro\n\n---\n${PULL_REQUEST_TAIL_MARKER}\nold, end removed`;
     expect(withPullRequestTail(cut, tail)).toBe(`${cut}\n\n${tail}`);

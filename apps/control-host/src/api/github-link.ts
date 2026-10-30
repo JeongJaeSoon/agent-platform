@@ -16,7 +16,8 @@ export function githubCallbackUrl(consoleOrigin: string | null): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// One-time state, held by the browser
+// State held by the browser: the callback spends its cookie, the server keeps
+// no record (as for Slack), and GitHub's code is single-use on its side
 // ---------------------------------------------------------------------------
 
 export const GITHUB_LINK_COOKIE_NAME = "ap_github_link";

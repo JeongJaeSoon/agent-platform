@@ -138,26 +138,41 @@ export function pullRequestTail(input: {
 }
 
 /**
- * `body` with its tail replaced by `tail`: the last start marker that an end
- * marker follows, so a marker a person quotes elsewhere is left alone. A body
- * without such a pair (from before the end marker, or one a person cut it
- * from) keeps all it has and gets the tail added.
+ * `body` with its tail replaced by `tail`. The tail is a start marker line
+ * and the next end marker line, each alone on its line and outside a fenced
+ * code block, and the last such pair is the one replaced: a marker a person
+ * quotes in a sentence or a code block is text. A body without such a pair
+ * (from before the end marker, or one a person cut it from) keeps all it has
+ * and gets the tail added.
  */
 export function withPullRequestTail(body: string, tail: string): string {
-  let at = body.lastIndexOf(PULL_REQUEST_TAIL_MARKER);
-  while (at !== -1 && body.indexOf(PULL_REQUEST_TAIL_END_MARKER, at) === -1) {
-    at = at === 0 ? -1 : body.lastIndexOf(PULL_REQUEST_TAIL_MARKER, at - 1);
-  }
-  if (at === -1) return body === "" ? tail : `${body}\n\n${tail}`;
-  const end =
-    body.indexOf(PULL_REQUEST_TAIL_END_MARKER, at) +
-    PULL_REQUEST_TAIL_END_MARKER.length;
-  // The marker follows the tail's own `---` line; keep the text above it.
   // GitHub's editor saves CRLF.
-  const head = body
-    .slice(0, at)
-    .replace(/(?:\r?\n)?---\r?\n$/, "")
-    .trimEnd();
-  const rest = body.slice(end).trim();
+  const lines = body.split(/\r?\n/);
+  let fenced = false;
+  let start = -1;
+  let pair: [number, number] | null = null;
+  for (const [at, line] of lines.entries()) {
+    const text = line.trim();
+    if (/^(```|~~~)/.test(text)) fenced = !fenced;
+    else if (fenced) continue;
+    else if (text === PULL_REQUEST_TAIL_MARKER) start = at;
+    else if (text === PULL_REQUEST_TAIL_END_MARKER && start !== -1) {
+      pair = [start, at];
+      start = -1;
+    }
+  }
+  if (pair === null) return body === "" ? tail : `${body}\n\n${tail}`;
+  const [from, to] = pair;
+  // The marker follows the tail's own `---` line; keep the text above it.
+  const above = lines.slice(0, from);
+  while (above.length > 0 && above[above.length - 1]?.trim() === "") {
+    above.pop();
+  }
+  if (above[above.length - 1]?.trim() === "---") above.pop();
+  const head = above.join("\n").trimEnd();
+  const rest = lines
+    .slice(to + 1)
+    .join("\n")
+    .trim();
   return [head, tail, rest].filter((part) => part !== "").join("\n\n");
 }

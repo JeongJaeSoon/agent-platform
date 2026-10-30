@@ -40,7 +40,10 @@ import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import { GitHubUserLinkSection } from "./workspace-github-user-link.tsx";
+import {
+  GitHubUserLinkSection,
+  githubSettingsKey,
+} from "./workspace-github-user-link.tsx";
 import {
   type OnOutcome,
   SettingsCard,
@@ -114,8 +117,15 @@ function GitHubApp({ onOutcome }: { readonly onOutcome: OnOutcome }) {
     enabled: workspaceId !== "" && canManage,
     retry: (failures, error) => !storeOff(error) && failures < 3,
   });
+  // The user-linking settings name the App's client id and drop its secret
+  // with it, so they are read again with the App.
   const refresh = () =>
-    queryClient.invalidateQueries({ queryKey: appKey(client, workspaceId) });
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: appKey(client, workspaceId) }),
+      queryClient.invalidateQueries({
+        queryKey: githubSettingsKey(client, workspaceId),
+      }),
+    ]);
   const refused = (error: ApiError) => {
     const reason = reasonOf(error);
     onOutcome({

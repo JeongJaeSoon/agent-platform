@@ -354,6 +354,78 @@ describe("워크스페이스 GitHub 연결 — 사용자 계정 연결", () => {
     ).toBeDefined();
     expect(card.getByText("입력 안 됨")).toBeDefined();
     expect(card.queryByRole("button", { name: "콜백 URL 복사" })).toBeNull();
+    // A secret is one App's: none can be typed before its client id is known.
+    expect(card.queryByRole("button", { name: "입력" })).toBeNull();
+  });
+
+  test("App을 교체하면 사용자 연결도 다시 읽어 새 App의 Client ID를 보인다", async () => {
+    let saved = false;
+    renderAt(PATH, {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${APP}`]: () => json(200, REGISTERED),
+      [`GET ${GITHUB_SETTINGS}`]: () =>
+        json(
+          200,
+          githubSettings(
+            saved
+              ? { client_id: "Iv23linew", client_secret_set: false }
+              : { client_id: "Iv23liold", client_secret_set: true },
+          ),
+        ),
+      [`PUT ${APP}`]: () => {
+        saved = true;
+        return json(200, {
+          github_app: REGISTERED.github_app,
+          receipt_id: "5f0c2c1e-8a4b-4c1d-9e2f-3a4b5c6d7e8f",
+        });
+      },
+    });
+    const card = await section();
+    expect(await card.findByText("Iv23liold")).toBeDefined();
+    const user = await setupUser();
+    // The App card's button comes first; the secret row has its own.
+    const [replace] = screen.getAllByRole("button", { name: "교체" });
+    if (!replace) throw new Error("no replace button");
+    await user.click(replace);
+    await user.type(screen.getByLabelText("App ID"), "4243");
+    await user.upload(screen.getByLabelText("Private key (.pem)"), keyFile());
+    await user.click(screen.getByRole("button", { name: "확인하고 저장" }));
+    expect(await card.findByText("Iv23linew")).toBeDefined();
+    expect(card.queryByText("Iv23liold")).toBeNull();
+    expect(card.getByText("입력 안 됨")).toBeDefined();
+  });
+
+  test("그 사이 App이 바뀌었다는 거절은 알리고 사용자 연결을 다시 읽는다", async () => {
+    let reads = 0;
+    const { api } = renderAt(PATH, {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${APP}`]: () => json(200, REGISTERED),
+      [`GET ${GITHUB_SETTINGS}`]: () => {
+        reads += 1;
+        return json(
+          200,
+          githubSettings({
+            client_id: reads === 1 ? "Iv23liold" : "Iv23linew",
+            client_secret_set: false,
+          }),
+        );
+      },
+      [`PUT ${GITHUB_SETTINGS}/oauth-client-secret`]: () =>
+        refusal(409, "REVISION_CONFLICT", "github_app_changed"),
+    });
+    const card = await section();
+    const user = await setupUser();
+    await user.click(await card.findByRole("button", { name: "입력" }));
+    await user.type(card.getByLabelText("Client secret"), "typed-value");
+    await user.click(card.getByRole("button", { name: "저장" }));
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "다른 곳에서 먼저 바꿨습니다 — 다시 불러온 뒤 시도하세요.",
+    );
+    expect(await card.findByText("Iv23linew")).toBeDefined();
+    const sent = api.calls.filter((c) => c.method === "PUT");
+    expect(
+      sent.map((c) => (c.body as { client_id: string }).client_id),
+    ).toEqual(["Iv23liold"]);
   });
 
   test("빈 client secret은 서버에 보내지 않고 그 칸으로 돌아간다", async () => {
