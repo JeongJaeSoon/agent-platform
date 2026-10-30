@@ -40,7 +40,7 @@ import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import { GitHubAccess } from "./workspace-github-access.tsx";
+import { GitHubAccess, githubSettingsKey } from "./workspace-github-access.tsx";
 import {
   type OnOutcome,
   SettingsCard,
@@ -114,8 +114,14 @@ function GitHubApp({ onOutcome }: { readonly onOutcome: OnOutcome }) {
     enabled: workspaceId !== "" && canManage,
     retry: (failures, error) => !storeOff(error) && failures < 3,
   });
+  // The settings carry the App's permissions too.
   const refresh = () =>
-    queryClient.invalidateQueries({ queryKey: appKey(client, workspaceId) });
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: appKey(client, workspaceId) }),
+      queryClient.invalidateQueries({
+        queryKey: githubSettingsKey(client, workspaceId),
+      }),
+    ]);
   const refused = (error: ApiError) => {
     const reason = reasonOf(error);
     onOutcome({
@@ -363,7 +369,11 @@ function GitHubApp({ onOutcome }: { readonly onOutcome: OnOutcome }) {
         rows={appRows}
       />
       <GitHubAccess
-        fresh={canManage && app.isSuccess ? registered?.permissions : undefined}
+        fresh={
+          canManage && app.isSuccess
+            ? registered && { permissions: registered.permissions ?? null }
+            : undefined
+        }
         onOutcome={onOutcome}
       />
       {canManage && registered ? (

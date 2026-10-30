@@ -191,6 +191,80 @@ describe("GitHub 연결 › App 권한과 최대 권한", () => {
     expect(screen.queryByText("server words")).toBeNull();
   });
 
+  test("고치는 사이 다시 읽혀도 고치기 시작한 revision으로 보내 남의 변경을 덮지 않는다", async () => {
+    let reads = 0;
+    const { api, services } = renderAt(PATH, {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${APP}`]: () => json(200, APP_BODY),
+      [`GET ${SETTINGS}`]: () => {
+        reads += 1;
+        return json(
+          200,
+          reads === 1
+            ? settingsOf()
+            : settingsOf({ ...CEILING, actions: false }, 4),
+        );
+      },
+      [`PUT ${SETTINGS}`]: () =>
+        apiError(409, "REVISION_CONFLICT", "server words"),
+    });
+    const user = await setupUser();
+    await waitFor(() =>
+      expect(ceilingSwitch("이슈 쓰기").hasAttribute("disabled")).toBe(false),
+    );
+    await user.click(ceilingSwitch("이슈 쓰기"));
+    // Someone else turned Actions off; the screen reads it again mid-edit.
+    await services.queryClient.refetchQueries();
+    await waitFor(() => expect(reads).toBe(2));
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByRole("alert");
+    expect(
+      api.calls.filter((c) => c.method === "PUT").map((c) => c.body),
+    ).toEqual([{ ceiling: { ...CEILING, issues: true }, revision: 3 }]);
+  });
+
+  test("App을 지우면 그 App의 권한 표도 사라진다", async () => {
+    let deleted = false;
+    renderAt(PATH, {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${APP}`]: () =>
+        json(
+          200,
+          deleted
+            ? {
+                github_app: null,
+                check: null,
+                installations: [],
+                repositories: [],
+              }
+            : APP_BODY,
+        ),
+      [`GET ${SETTINGS}`]: () =>
+        json(200, {
+          ...settingsOf(),
+          apps: {
+            author: deleted ? null : { permissions: PERMISSIONS },
+            reviewer: null,
+          },
+        }),
+      [`DELETE ${APP}`]: () => {
+        deleted = true;
+        return json(200, {
+          receipt_id: "5f0c2c1e-8a4b-4c1d-9e2f-3a4b5c6d7e8f",
+        });
+      },
+    });
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "App 권한" });
+    await user.click(screen.getByRole("button", { name: "삭제" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "삭제" }));
+    await screen.findByText("등록 안 됨");
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: "App 권한" })).toBeNull(),
+    );
+  });
+
   test("구성원은 권한 표와 상한을 읽기만 하고, 스위치는 잠기고 저장 버튼이 없다", async () => {
     const { api } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, memberMe()),

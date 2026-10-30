@@ -75,16 +75,18 @@ const META = "text-caption text-subtle-foreground";
 export const githubSettingsKey = (client: ApiClient, workspaceId: string) =>
   scopedKey(client, "workspace", workspaceId, "github-settings");
 
+type AuthorApp = GitHubSettingsResponse["apps"]["author"];
+
 /**
  * The App permission table and the agents' ceiling. `fresh` is the author
- * App's permissions as GET …/github-app just read them (owners and admins);
- * without it the settings' last read stands.
+ * App as GET …/github-app just read it, null when none is registered (owners
+ * and admins); left undefined, the settings' last read stands.
  */
 export function GitHubAccess({
   fresh,
   onOutcome,
 }: {
-  readonly fresh: GitHubAppPermissions | null | undefined;
+  readonly fresh: AuthorApp | undefined;
   readonly onOutcome: OnOutcome;
 }) {
   const { client } = useAgentPlatform();
@@ -99,17 +101,13 @@ export function GitHubAccess({
       ),
     enabled: workspaceId !== "",
   });
-  const author = settings.data?.apps.author;
-  const permissions =
-    fresh !== undefined ? fresh : author ? author.permissions : undefined;
+  const author = fresh !== undefined ? fresh : settings.data?.apps.author;
   return (
     <>
-      {permissions === undefined ? null : (
-        <AppPermissions permissions={permissions} />
-      )}
+      {author ? <AppPermissions permissions={author.permissions} /> : null}
       <Ceiling
         settings={settings}
-        permissions={permissions ?? null}
+        permissions={author?.permissions ?? null}
         onOutcome={onOutcome}
       />
     </>
@@ -241,16 +239,21 @@ function Ceiling({
   const role = useRole();
   const workspaceId = useMe()?.workspace?.id ?? "";
   const canManage = useHasPermission("workspace.manage");
-  const [draft, setDraft] = useState<GitHubCeiling | null>(null);
+  // The draft keeps the revision it was made on: a refetch while editing
+  // must not let the save overwrite a change this screen never showed.
+  const [draft, setDraft] = useState<{
+    readonly ceiling: GitHubCeiling;
+    readonly base: GitHubSettingsResponse;
+  } | null>(null);
   const [confirming, setConfirming] = useState(false);
   const hintId = useId();
   const data = settings.data;
-  const shown = draft ?? data?.ceiling;
+  const shown = draft?.ceiling ?? data?.ceiling;
   const changed = FEATURES.filter(
     (feature) =>
-      draft !== null && data && draft[feature] !== data.ceiling[feature],
+      draft !== null && draft.ceiling[feature] !== draft.base.ceiling[feature],
   );
-  const lowered = changed.filter((feature) => data?.ceiling[feature]);
+  const lowered = changed.filter((feature) => draft?.base.ceiling[feature]);
 
   const save = useMutation<
     GitHubSettingsResponse,
@@ -288,8 +291,8 @@ function Ceiling({
   });
 
   const send = () => {
-    if (save.isPending || draft === null || !data) return;
-    save.mutate({ ceiling: draft, revision: data.revision });
+    if (save.isPending || draft === null) return;
+    save.mutate({ ceiling: draft.ceiling, revision: draft.base.revision });
   };
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -352,10 +355,18 @@ function Ceiling({
               <Switch
                 checked={on}
                 aria-describedby={canManage ? undefined : hintId}
-                disabled={!canManage || save.isPending}
-                onCheckedChange={(next) =>
-                  setDraft({ ...(shown as GitHubCeiling), [feature]: next })
-                }
+                disabled={!canManage || save.isPending || data === undefined}
+                onCheckedChange={(next) => {
+                  const base = draft?.base ?? data;
+                  if (base === undefined) return;
+                  setDraft({
+                    base,
+                    ceiling: {
+                      ...(draft?.ceiling ?? base.ceiling),
+                      [feature]: next,
+                    },
+                  });
+                }}
               />
             }
           />
