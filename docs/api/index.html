@@ -2650,6 +2650,7 @@
                   "CHECKPOINT_MOVED",
                   "PUSH_NOT_PUSHED",
                   "PULL_REQUEST_MISSING",
+                  "GITHUB_REFUSED",
                   "PENDING_REQUESTS_OPEN",
                   "PERMISSION_WAIT_ABOVE_PROFILE"
                 ]
@@ -6435,7 +6436,8 @@
               "provider": {
                 "type": "string",
                 "enum": [
-                  "slack"
+                  "slack",
+                  "github"
                 ]
               },
               "external_tenant": {
@@ -6553,7 +6555,8 @@
                 "provider": {
                   "type": "string",
                   "enum": [
-                    "slack"
+                    "slack",
+                    "github"
                   ]
                 },
                 "external_tenant": {
@@ -7447,61 +7450,84 @@
           "decided_by": {
             "anyOf": [
               {
-                "type": "object",
-                "properties": {
-                  "principal": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "principal": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "api_key",
+                              "user",
+                              "installation"
+                            ]
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "id"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "actor_user_id": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "agent_id": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "principal",
+                      "actor_user_id",
+                      "agent_id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
                     "type": "object",
                     "properties": {
                       "kind": {
                         "type": "string",
-                        "enum": [
-                          "api_key",
-                          "user",
-                          "installation"
-                        ]
+                        "const": "policy"
                       },
-                      "id": {
+                      "agent_release_id": {
                         "type": "string",
-                        "minLength": 1
+                        "minLength": 1,
+                        "maxLength": 128
                       }
                     },
                     "required": [
                       "kind",
-                      "id"
+                      "agent_release_id"
                     ],
                     "additionalProperties": false
-                  },
-                  "actor_user_id": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "agent_id": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
                   }
-                },
-                "required": [
-                  "principal",
-                  "actor_user_id",
-                  "agent_id"
-                ],
-                "additionalProperties": false
+                ]
               },
               {
                 "type": "null"
@@ -7899,6 +7925,12 @@
               "delete_slack_secret",
               "set_github_app",
               "delete_github_app",
+              "mint_github_token",
+              "set_github_ceiling",
+              "set_agent_github",
+              "review_pull_request",
+              "dispatch_workflow",
+              "rerun_workflow",
               "create_workspace_profile",
               "retire_workspace_profile",
               "create_installation_profile",
@@ -8176,6 +8208,7 @@
                       "CHECKPOINT_MOVED",
                       "PUSH_NOT_PUSHED",
                       "PULL_REQUEST_MISSING",
+                      "GITHUB_REFUSED",
                       "PENDING_REQUESTS_OPEN",
                       "PERMISSION_WAIT_ABOVE_PROFILE"
                     ]
@@ -13240,6 +13273,81 @@
                         "per_tool"
                       ],
                       "additionalProperties": false
+                    },
+                    "github": {
+                      "type": "object",
+                      "properties": {
+                        "repositories": {
+                          "minItems": 1,
+                          "maxItems": 32,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          }
+                        },
+                        "push_approval": {
+                          "type": "boolean"
+                        },
+                        "features": {
+                          "type": "object",
+                          "properties": {
+                            "workflows": {
+                              "type": "boolean"
+                            },
+                            "actions": {
+                              "type": "boolean"
+                            },
+                            "checks": {
+                              "type": "boolean"
+                            },
+                            "issues": {
+                              "type": "boolean"
+                            },
+                            "review": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "workflows",
+                            "actions",
+                            "checks",
+                            "issues",
+                            "review"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "actions_allow": {
+                          "maxItems": 32,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "workflow": {
+                                "type": "string",
+                                "pattern": "^[A-Za-z0-9._-]+\\.ya?ml$"
+                              },
+                              "ref": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 255
+                              }
+                            },
+                            "required": [
+                              "workflow"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "repositories",
+                        "push_approval",
+                        "features",
+                        "actions_allow"
+                      ],
+                      "additionalProperties": false
                     }
                   },
                   "additionalProperties": false
@@ -13474,6 +13582,81 @@
                         "required": [
                           "default",
                           "per_tool"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "github": {
+                        "type": "object",
+                        "properties": {
+                          "repositories": {
+                            "minItems": 1,
+                            "maxItems": 32,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            }
+                          },
+                          "push_approval": {
+                            "type": "boolean"
+                          },
+                          "features": {
+                            "type": "object",
+                            "properties": {
+                              "workflows": {
+                                "type": "boolean"
+                              },
+                              "actions": {
+                                "type": "boolean"
+                              },
+                              "checks": {
+                                "type": "boolean"
+                              },
+                              "issues": {
+                                "type": "boolean"
+                              },
+                              "review": {
+                                "type": "boolean"
+                              }
+                            },
+                            "required": [
+                              "workflows",
+                              "actions",
+                              "checks",
+                              "issues",
+                              "review"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "actions_allow": {
+                            "maxItems": 32,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "workflow": {
+                                  "type": "string",
+                                  "pattern": "^[A-Za-z0-9._-]+\\.ya?ml$"
+                                },
+                                "ref": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 255
+                                }
+                              },
+                              "required": [
+                                "workflow"
+                              ],
+                              "additionalProperties": false
+                            }
+                          }
+                        },
+                        "required": [
+                          "repositories",
+                          "push_approval",
+                          "features",
+                          "actions_allow"
                         ],
                         "additionalProperties": false
                       }
@@ -13724,6 +13907,81 @@
                     "required": [
                       "default",
                       "per_tool"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "github": {
+                    "type": "object",
+                    "properties": {
+                      "repositories": {
+                        "minItems": 1,
+                        "maxItems": 32,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        }
+                      },
+                      "push_approval": {
+                        "type": "boolean"
+                      },
+                      "features": {
+                        "type": "object",
+                        "properties": {
+                          "workflows": {
+                            "type": "boolean"
+                          },
+                          "actions": {
+                            "type": "boolean"
+                          },
+                          "checks": {
+                            "type": "boolean"
+                          },
+                          "issues": {
+                            "type": "boolean"
+                          },
+                          "review": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "workflows",
+                          "actions",
+                          "checks",
+                          "issues",
+                          "review"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "actions_allow": {
+                        "maxItems": 32,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "workflow": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9._-]+\\.ya?ml$"
+                            },
+                            "ref": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 255
+                            }
+                          },
+                          "required": [
+                            "workflow"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "repositories",
+                      "push_approval",
+                      "features",
+                      "actions_allow"
                     ],
                     "additionalProperties": false
                   }

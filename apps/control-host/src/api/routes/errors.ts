@@ -66,6 +66,7 @@ const STATUS_BY_CODE: Partial<Record<ApiErrorCode, ContentfulStatusCode>> = {
   PUSH_NOT_PUSHED: 409,
   CATALOG_MISMATCH: 409,
   PULL_REQUEST_MISSING: 409,
+  GITHUB_REFUSED: 409,
 };
 
 // Storage outages need nothing here: the app's error hook answers them.

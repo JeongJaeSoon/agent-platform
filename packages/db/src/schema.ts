@@ -4,6 +4,8 @@ import {
   AGENT_IDENTITY_STATUS_VALUES,
   AGENT_STATUS_VALUES,
   BINDING_MODE_VALUES,
+  type GitHubAppRole,
+  type GitHubCeiling,
   MEMORY_WRITE_POLICY_VALUES,
   OPEN_PUSH_REQUEST_STATES,
   PERMISSION_MODE_VALUES,
@@ -506,9 +508,8 @@ export const slackConfigTokens = pgTable(
   ],
 );
 
-// The workspace's GitHub App, registered in the console. Its private key is
-// a secret_values row owned by `github_app:<id>`. One per workspace for now;
-// a second App would drop the unique on workspace_id.
+// The workspace's GitHub Apps, registered in the console: one per role. Its
+// private key is a secret_values row owned by `github_app:<id>`.
 export const githubApps = pgTable(
   "github_apps",
   {
@@ -521,6 +522,12 @@ export const githubApps = pgTable(
     name: text().notNull(),
     htmlUrl: text("html_url").notNull(),
     apiBase: text("api_base").notNull(),
+    role: text().$type<GitHubAppRole>().notNull().default("author"),
+    /** `GET /app`'s permissions as last read; null until the first read. */
+    permissions: jsonb().$type<Record<string, string>>(),
+    permissionsCheckedAt: timestamp("permissions_checked_at", {
+      withTimezone: true,
+    }),
     /** No foreign key: the row outlives the account. */
     createdBy: uuid("created_by"),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -531,10 +538,36 @@ export const githubApps = pgTable(
       .defaultNow(),
   },
   (table) => [
-    unique("github_apps_workspace_uniq").on(table.workspaceId),
+    unique("github_apps_workspace_role_uniq").on(table.workspaceId, table.role),
     check("github_apps_app_id_check", sql`${table.appId} > 0`),
+    check(
+      "github_apps_role_check",
+      sql`${table.role} IN ('author', 'reviewer')`,
+    ),
+    check(
+      "github_apps_permissions_check",
+      sql`(${table.permissions} IS NULL) = (${table.permissionsCheckedAt} IS NULL)`,
+    ),
   ],
 );
+
+// What the workspace lets its agents' GitHub settings reach. No row reads as
+// every ceiling off and no OAuth client secret.
+export const githubWorkspaceSettings = pgTable("github_workspace_settings", {
+  workspaceId: uuid("workspace_id")
+    .primaryKey()
+    .references(() => workspaces.id),
+  ceiling: jsonb().$type<GitHubCeiling>().notNull(),
+  oauthClientSecretSet: boolean("oauth_client_secret_set")
+    .notNull()
+    .default(false),
+  revision: integer().notNull().default(1),
+  /** No foreign key: the row outlives the account. */
+  updatedBy: uuid("updated_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
 
 export const slackApps = pgTable(
   "slack_apps",
@@ -727,7 +760,7 @@ export const linkedAccounts = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id),
-    provider: text().$type<"slack">().notNull(),
+    provider: text().$type<"slack" | "github">().notNull(),
     /** The Slack team id. */
     externalTenant: text("external_tenant").notNull(),
     externalUserId: text("external_user_id").notNull(),
@@ -739,7 +772,9 @@ export const linkedAccounts = pgTable(
       .notNull()
       .default("active"),
     revokedReason: text("revoked_reason").$type<"unlinked" | "offboarded">(),
-    verifiedVia: text("verified_via").$type<"slack_oidc">().notNull(),
+    verifiedVia: text("verified_via")
+      .$type<"slack_oidc" | "github_oauth">()
+      .notNull(),
     verifiedAt: timestamp("verified_at", { withTimezone: true }).notNull(),
     revision: integer().notNull().default(1),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -765,7 +800,7 @@ export const linkedAccounts = pgTable(
     ),
     check(
       "linked_accounts_provider_check",
-      sql`${table.provider} IN ('slack')`,
+      sql`${table.provider} IN ('slack', 'github')`,
     ),
     check(
       "linked_accounts_status_check",
@@ -2406,6 +2441,8 @@ export const agents = pgTable(
     activeReleaseId: text("active_release_id"),
     activationRevision: integer("activation_revision").notNull().default(-1),
     slackMentionOnly: boolean("slack_mention_only").notNull().default(true),
+    /** Read at every GitHub token request, so turning it off is immediate. */
+    githubEnabled: boolean("github_enabled").notNull().default(true),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

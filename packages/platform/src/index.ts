@@ -49,6 +49,7 @@ export * from "./ports/execution-backend.ts";
 export * from "./ports/forge.ts";
 export * from "./ports/git-push.ts";
 export * from "./ports/github-app-store.ts";
+export * from "./ports/github-settings.ts";
 export * from "./ports/identity-store.ts";
 export * from "./ports/installation-profile-store.ts";
 export * from "./ports/linked-account-store.ts";

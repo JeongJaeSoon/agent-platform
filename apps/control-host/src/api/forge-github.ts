@@ -608,8 +608,9 @@ export function createRegisteredGitHubForge(
   let queue: Promise<void> = Promise.resolve();
   const read = async (): Promise<void> => {
     if (store === null) return;
-    // Bootstrap makes the one workspace, so there is at most one App.
-    const [app] = await store.credentials();
+    // Bootstrap makes the one workspace, so there is at most one author App;
+    // a reviewer App never clones, pushes or opens a pull request.
+    const [app] = await store.credentials("author");
     if (app === undefined) {
       current = null;
       return;

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   OPEN_PUSH_REQUEST_STATES,
+  type PushDecider,
   type PushReceiptResult,
   type PushRequest,
   type PushRequestState,
@@ -36,7 +37,7 @@ function publicPushRequest(row: Row): PushRequest {
     state: row.state as PushRequestState,
     requested_by: row.requestedBy as ReceiptActor,
     requested_at: row.createdAt.toISOString(),
-    decided_by: (row.decidedBy as ReceiptActor | null) ?? null,
+    decided_by: (row.decidedBy as PushDecider | null) ?? null,
     decided_at: row.decidedAt?.toISOString() ?? null,
     decision_reason: row.decisionReason,
     request_receipt_id: row.requestReceiptId,
@@ -468,7 +469,7 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
             remote_url: outcome.remoteUrl ?? null,
             remote_ref: outcome.remoteRef ?? null,
             previous_commit: pushed ? outcome.previousCommit : null,
-            approved_by: (row.decidedBy as ReceiptActor | null) ?? null,
+            approved_by: (row.decidedBy as PushDecider | null) ?? null,
           } satisfies PushReceiptResult,
           error,
         });

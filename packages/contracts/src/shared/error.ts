@@ -117,6 +117,9 @@ export const API_ERROR_CODE_VALUES = [
   // request was opened from it yet.
   "PUSH_NOT_PUSHED",
   "PULL_REQUEST_MISSING",
+  // The platform refused a GitHub token before asking GitHub;
+  // `details.reason_code` is one of GITHUB_REFUSAL_VALUES.
+  "GITHUB_REFUSED",
   // A resume of a session parked on its requests while one of them is
   // neither answered nor expired.
   "PENDING_REQUESTS_OPEN",

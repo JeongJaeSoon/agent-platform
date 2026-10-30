@@ -236,6 +236,8 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
     "The push request has not been pushed (`state` is not `pushed`); a pull request opens only from a pushed branch.",
   PULL_REQUEST_MISSING:
     "No pull request was opened from this push request yet; open it first.",
+  GITHUB_REFUSED:
+    "The platform refused the GitHub work before asking GitHub. `error.details.reason_code` says why; `github_settings_unsupported` means the session's release carries GitHub settings this server does not apply yet.",
   PENDING_REQUESTS_OPEN:
     "A request the parked turn waits on is neither answered nor expired yet.",
   PERMISSION_WAIT_ABOVE_PROFILE:

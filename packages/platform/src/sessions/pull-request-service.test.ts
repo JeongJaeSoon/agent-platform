@@ -56,6 +56,7 @@ function harness(
     state?: PullRequestSource["state"];
     binding?: string;
     authorization?: AuthorizationPolicy;
+    githubPinned?: boolean;
   } = {},
 ) {
   const receipts: PullRequestReceipt[] = [];
@@ -118,6 +119,7 @@ function harness(
   }> = [];
   const comments: Array<{ marker: string; body: string }> = [];
   let failing = false;
+  let githubPinned = options.githubPinned ?? false;
   const fail = () => {
     if (failing) throw new ForgeCredentialError("GitHub call failed (502)");
   };
@@ -164,6 +166,7 @@ function harness(
     store,
     catalog: CATALOG,
     forges: (id) => (id === "app" ? forge : null),
+    github: { pinned: async () => githubPinned },
     redact: (line) => (line.includes("ghp_") ? "[REDACTED]" : line),
   });
   return {
@@ -179,6 +182,9 @@ function harness(
     },
     failForge: () => {
       failing = true;
+    },
+    pinGitHub: () => {
+      githubPinned = true;
     },
   };
 }
@@ -340,6 +346,27 @@ describe("opening a pull request", () => {
     expect(calls).toEqual([]);
   });
 
+  test("a session whose release pins GitHub settings is refused with a receipt before the forge is asked", async () => {
+    const { service, calls, receipts } = harness({ githubPinned: true });
+    expect(
+      await refusal(
+        service.open(actor, SESSION, PUSH, { readBody: async () => ({}) }),
+      ),
+    ).toEqual({
+      code: "GITHUB_REFUSED",
+      details: {
+        refusal: "github_settings_unsupported",
+        receipt_id: "receipt-1",
+      },
+    });
+    expect(calls).toEqual([]);
+    expect(receipts[0]?.result).toMatchObject({
+      verdict: "refuse",
+      refusal: "github_settings_unsupported",
+      repository_id: "app",
+    });
+  });
+
   test("a credential without sessions:approve, or not a human's, is refused with a receipt before the body is read", async () => {
     for (const principal of [
       { ...human, scopes: ["sessions:write"] },
@@ -403,6 +430,24 @@ describe("commenting on the pull request", () => {
       ).code,
     ).toBe("PULL_REQUEST_MISSING");
     expect(calls).toEqual([]);
+  });
+
+  test("a session whose release pins GitHub settings comments on nothing", async () => {
+    const { service, calls, comments, pinGitHub } = harness();
+    await service.open(actor, SESSION, PUSH, { readBody: async () => ({}) });
+    pinGitHub();
+    const asked = calls.length;
+    expect(
+      (
+        await refusal(
+          service.comment(actor, SESSION, PUSH, {
+            readBody: async () => ({ body: "hi" }),
+          }),
+        )
+      ).details,
+    ).toMatchObject({ refusal: "github_settings_unsupported" });
+    expect(calls).toHaveLength(asked);
+    expect(comments).toEqual([]);
   });
 
   test("upserts by marker with cleaned text and records each comment", async () => {

@@ -32,8 +32,10 @@ export function releaseModel(
 // one by accident. 2: `policy_pins` went from a placeholder `{}` to the
 // resolved tool policy. A stored `{}` release keeps hashing as 1, so its id
 // still verifies. 3: the release names a repository; one without keeps
-// hashing as 2, so releases from before the column keep their ids.
+// hashing as 2, so releases from before the column keep their ids. 4: the
+// release pins GitHub settings; one without keeps hashing as before.
 function releaseIdVersion(identity: ReleaseIdentity): number {
+  if (identity.policy_pins.github !== undefined) return 4;
   if (identity.policy_pins.tools === undefined) return 1;
   return identity.repository_id === null ? 2 : 3;
 }

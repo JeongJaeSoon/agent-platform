@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   type AgentCard,
+  type AgentGitHub,
   type AgentRelease,
   agentCardSchema,
   agentReleaseSchema,
@@ -129,6 +130,80 @@ describe("deriveReleaseId", () => {
     ).toBe(
       "sha256:eddfa8338a8973b96ed536dcc05d4cbecad64de2967e0d4d16023e5d3d57e89b",
     );
+  });
+
+  const PINNED_V3 = {
+    agent_id: AGENT_ID,
+    card_sha256: "a".repeat(64),
+    runtime_profile_id: "coding",
+    repository_id: "sample-app",
+    profile_digest: `sha256:${"c".repeat(64)}`,
+    runtime_config_snapshot: { model: "claude-sonnet-5", tools: ["Read"] },
+    effective_tools: { tools: ["Read"], mcp: [] },
+    policy_pins: {
+      tools: {
+        default: { builtin: "allow" as const, mcp: "ask" as const },
+        per_tool: { Read: "allow" as const },
+      },
+    },
+  };
+  const GITHUB: AgentGitHub = {
+    repositories: ["sample-app"],
+    push_approval: true,
+    features: {
+      workflows: false,
+      actions: true,
+      checks: false,
+      issues: false,
+      review: false,
+    },
+    actions_allow: [{ workflow: "deploy.yml" }],
+  };
+
+  test("a release naming a repository, without GitHub settings, keeps its v3 id", () => {
+    // What the code before GitHub settings derived for it.
+    const id =
+      "sha256:25d0e9ee6fd278a7fd4d07e47603997a1222497453bcd492df8c3e07bc8295bf";
+    expect(deriveReleaseId(PINNED_V3)).toBe(id);
+    // An absent key and an undefined one hash alike (canonicalJsonOfJson).
+    expect(
+      deriveReleaseId({
+        ...PINNED_V3,
+        policy_pins: { ...PINNED_V3.policy_pins, github: undefined },
+      }),
+    ).toBe(id);
+  });
+
+  test("GitHub settings hash as version 4, and only they move the id", () => {
+    const pinned = {
+      ...PINNED_V3,
+      policy_pins: { ...PINNED_V3.policy_pins, github: GITHUB },
+    };
+    const id = deriveReleaseId(pinned);
+    expect(id).toBe(
+      "sha256:c4f2188c16f6f04509a3f3cf4ef480b05536aba763c552eed7a5537e0fba4ae8",
+    );
+    expect(id).not.toBe(deriveReleaseId(PINNED_V3));
+    expect(
+      deriveReleaseId({
+        ...pinned,
+        policy_pins: {
+          ...pinned.policy_pins,
+          github: { ...GITHUB, push_approval: false },
+        },
+      }),
+    ).not.toBe(id);
+    // Settings back as they were give the same release back.
+    expect(
+      deriveReleaseId({
+        ...pinned,
+        policy_pins: { ...pinned.policy_pins, github: { ...GITHUB } },
+      }),
+    ).toBe(id);
+    expect(
+      agentReleaseSchema.shape.policy_pins.safeParse(pinned.policy_pins)
+        .success,
+    ).toBe(true);
   });
 
   test("treats array order as data", () => {

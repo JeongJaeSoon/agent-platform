@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   type AgentDetail,
+  type AgentGitHub,
   type AgentRelease,
   agentCardSchema,
 } from "@werft-ai/contracts";
@@ -325,6 +326,46 @@ describe("agent service", () => {
     });
     expect(elsewhere.release.id).not.toBe(none.release.id);
     expect(elsewhere.release.repository_id).toBe("other-app");
+  });
+
+  test("a new release keeps the active release's GitHub settings; only they and the id differ", async () => {
+    const { store } = memoryStore();
+    const plain = (
+      await serviceOver(store).createRelease(owner, AGENT, release)
+    ).release;
+    expect(plain.policy_pins.github).toBeUndefined();
+    const github: AgentGitHub = {
+      repositories: ["sample-app"],
+      push_approval: false,
+      features: {
+        workflows: false,
+        actions: false,
+        checks: false,
+        issues: false,
+        review: false,
+      },
+      actions_allow: [],
+    };
+    const active = { ...plain, policy_pins: { ...plain.policy_pins, github } };
+    const service = serviceOver({
+      ...store,
+      get: async () => ({ ...detail, active_release: active }),
+    });
+
+    const kept = (await service.createRelease(owner, AGENT, release)).release;
+    expect(kept.policy_pins.github).toEqual(github);
+    expect(kept.id).not.toBe(plain.id);
+    const { id: _a, policy_pins: pinsKept, ...restKept } = kept;
+    const { id: _b, policy_pins: pinsPlain, ...restPlain } = plain;
+    expect(restKept).toEqual(restPlain);
+    expect(pinsKept.tools).toEqual(pinsPlain.tools);
+
+    // A release with no repository has nothing for them to act on.
+    const none = await service.createRelease(owner, AGENT, {
+      version_id: VERSION,
+      runtime_profile_id: "either",
+    });
+    expect(none.release.policy_pins.github).toBeUndefined();
   });
 
   test("an unknown profile or a tool the profile lacks is UNSUPPORTED_CAPABILITY", async () => {

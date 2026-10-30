@@ -1,4 +1,4 @@
-import type { GitHubAppCheckFailure } from "@werft-ai/contracts";
+import type { GitHubAppCheckFailure, GitHubAppRole } from "@werft-ai/contracts";
 import type { RepoRef } from "./forge.ts";
 import type { SecretAudit } from "./secret-store.ts";
 
@@ -44,25 +44,33 @@ export type DeleteGitHubAppResult =
   | { outcome: "not_found" | "actor_inactive" | "outranked" };
 
 /**
- * One GitHub App per workspace for now. The row has its own id and the key
- * is sealed under it, so a second App per workspace (and a repository naming
- * which one it uses) is a new index and a catalog field, not a new shape.
+ * One GitHub App per workspace and role. Every call names its role, so a
+ * caller that only knows the author App never reads, replaces or deletes
+ * the reviewer's row or key.
  */
 export interface GitHubAppStore {
-  find(workspaceId: string): Promise<GitHubAppRecord | null>;
+  find(
+    workspaceId: string,
+    role: GitHubAppRole,
+  ): Promise<GitHubAppRecord | null>;
   /** Registers or replaces the App; the receipt is written with it. */
   put(
     workspaceId: string,
+    role: GitHubAppRole,
     app: GitHubAppProfile & { apiBase: string },
     privateKey: string,
     audit: SecretAudit,
   ): Promise<PutGitHubAppResult>;
   delete(
     workspaceId: string,
+    role: GitHubAppRole,
     audit: SecretAudit,
   ): Promise<DeleteGitHubAppResult>;
-  /** Every registered App with its key, or one workspace's. */
-  credentials(workspaceId?: string): Promise<GitHubAppCredential[]>;
+  /** Every registered App of `role` with its key, or one workspace's. */
+  credentials(
+    role: GitHubAppRole,
+    workspaceId?: string,
+  ): Promise<GitHubAppCredential[]>;
 }
 
 export type GitHubAppInstallationView = {

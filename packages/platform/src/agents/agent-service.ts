@@ -344,12 +344,24 @@ export function createAgentService(deps: {
           `${resolved.error.field}: ${resolved.error.message}`,
         );
       }
+      // A release made from a card edit keeps the GitHub settings of the
+      // active one, so the edit cannot drop them. One with no repository has
+      // nothing for them to act on.
+      const github =
+        repositoryId === null
+          ? undefined
+          : (await store.get(caller.ownerId, agentId))?.active_release
+              ?.policy_pins.github;
       const identity = {
         // As stored: PostgreSQL returns a uuid in lower case.
         agent_id: version.agent_id,
         card_sha256: version.content_sha256,
         repository_id: repositoryId,
         ...resolved.content,
+        policy_pins: {
+          ...resolved.content.policy_pins,
+          ...(github === undefined ? {} : { github }),
+        },
       };
       const result = await store.insertRelease({
         principal: caller,

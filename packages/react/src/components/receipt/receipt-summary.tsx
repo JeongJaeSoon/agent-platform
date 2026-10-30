@@ -69,6 +69,12 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   unblock_installation_profile: "설치 상한 차단 해제",
   set_github_app: "GitHub App 등록",
   delete_github_app: "GitHub App 삭제",
+  mint_github_token: "GitHub 토큰 발급",
+  set_github_ceiling: "에이전트 GitHub 권한 상한 변경",
+  set_agent_github: "에이전트 GitHub 사용 변경",
+  review_pull_request: "PR 리뷰",
+  dispatch_workflow: "워크플로 실행",
+  rerun_workflow: "워크플로 재실행",
   set_slack_secret: "Slack 비밀값 설정",
   delete_slack_secret: "Slack 비밀값 삭제",
 };

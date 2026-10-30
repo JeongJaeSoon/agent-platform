@@ -633,6 +633,74 @@ integration("worker gateway on PostgreSQL", () => {
     });
   });
 
+  test("a session whose release pins GitHub settings gets no repository token from this server", async () => {
+    const session = await queuedSession(partitionFor("github-pins"));
+    const claimed = await claim(await launch(session.session_id));
+    const token = claimed.workspace.repository?.access?.token ?? "";
+    const workspaceId = crypto.randomUUID();
+    const agentId = crypto.randomUUID();
+    const versionId = crypto.randomUUID();
+    await pool.query(
+      "INSERT INTO workspaces (id, slug, name) VALUES ($1, $2, 'ws')",
+      [workspaceId, `ws-${workspaceId.slice(0, 8)}`],
+    );
+    await pool.query(
+      "INSERT INTO agents (id, workspace_id, slug, name) VALUES ($1, $2, 'a', 'a')",
+      [agentId, workspaceId],
+    );
+    await pool.query(
+      `INSERT INTO agent_versions (id, agent_id, version_no, card, content_sha256)
+       VALUES ($1, $2, 1, '{}', $3)`,
+      [versionId, agentId, "a".repeat(64)],
+    );
+    const release = (pins: object) =>
+      pool
+        .query(
+          `INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,
+             runtime_profile_id, repository_id, profile_digest,
+             runtime_config_snapshot, effective_tools, policy_pins)
+           VALUES ($1, $2, $3, $4, 'claude-coding-v1', 'sample-app', $5, '{}', '{}', $6)
+           RETURNING id`,
+          [
+            `sha256:${crypto.randomUUID()}`,
+            agentId,
+            versionId,
+            "a".repeat(64),
+            `sha256:${"c".repeat(64)}`,
+            JSON.stringify(pins),
+          ],
+        )
+        .then(({ rows }) => rows[0].id as string);
+    const pinTo = (releaseId: string) =>
+      db
+        .update(sessions)
+        .set({ agentReleaseId: releaseId })
+        .where(eq(sessions.id, session.session_id));
+    const repository = () =>
+      gateway.authorizeEgress({ token, purpose: "repository" });
+
+    // Without GitHub settings the release clones as before.
+    await pinTo(await release({}));
+    expect((await repository()).attempt_id).toBe(claimed.attempt_id);
+    // With them, even in a shape a later server writes, nothing is handed out.
+    await pinTo(await release({ github: { from: "a later server" } }));
+    const refused = await repository().then(
+      () => null,
+      (error: unknown) => error as { status?: number; code?: string },
+    );
+    expect(refused).toMatchObject({ status: 409, code: "GITHUB_REFUSED" });
+    expect(String(refused)).toContain("github_settings_unsupported");
+    // The provider route is not GitHub's and stays open.
+    expect(
+      (
+        await gateway.authorizeEgress({
+          token: claimed.runtime_config.provider.auth.token,
+          purpose: "provider",
+        })
+      ).attempt_id,
+    ).toBe(claimed.attempt_id);
+  });
+
   test("a nonce is rejected for another execution identity, when expired, and when unknown", async () => {
     const partition = partitionFor("nonce");
     const queued = await queuedSession(partition);

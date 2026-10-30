@@ -7,10 +7,9 @@ import {
 } from "../shared/index.ts";
 import { displayNameSchema } from "./workspaces.ts";
 
-// The workspace's GitHub App, registered in the console (one per workspace
-// for now). Catalog repositories whose `auth` is `{ kind: github_app }` clone,
-// push and open pull requests with it. The private key goes in once and is
-// never read back.
+// The workspace's author GitHub App, registered in the console. Catalog
+// repositories whose `auth` is `{ kind: github_app }` clone, push and open
+// pull requests with it. The private key goes in once and is never read back.
 
 export const GITHUB_APP_PRIVATE_KEY_MAX_LENGTH = 16_384;
 

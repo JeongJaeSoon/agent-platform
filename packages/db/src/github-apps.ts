@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { GitHubAppRole } from "@werft-ai/contracts";
 import {
   type GitHubAppCredential,
   type GitHubAppRecord,
@@ -8,7 +9,7 @@ import {
   type SecretKey,
   type SecretSlot,
 } from "@werft-ai/platform";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import { githubApps, receipts, workspaces } from "./schema.ts";
@@ -33,6 +34,7 @@ function receiptRow(
   workspaceId: string,
   operation: "set_github_app" | "delete_github_app",
   appId: number,
+  role: GitHubAppRole,
 ) {
   return {
     id: audit.receiptId,
@@ -44,9 +46,12 @@ function receiptRow(
       workspace_id: workspaceId,
     },
     status: "succeeded" as const,
-    result: { app_id: appId },
+    result: { app_id: appId, role },
   };
 }
+
+const ofRole = (workspaceId: string, role: GitHubAppRole) =>
+  and(eq(githubApps.workspaceId, workspaceId), eq(githubApps.role, role));
 
 async function lockWorkspace(tx: Database, workspaceId: string) {
   await tx.execute(
@@ -82,15 +87,15 @@ export function createPostgresGitHubAppStore(
 ): GitHubAppStore {
   const secrets = createPostgresSecretStore(db, key);
   return {
-    async find(workspaceId) {
+    async find(workspaceId, role) {
       const [row] = await db
         .select()
         .from(githubApps)
-        .where(eq(githubApps.workspaceId, workspaceId.toLowerCase()));
+        .where(ofRole(workspaceId.toLowerCase(), role));
       return row ? recordOf(db, row) : null;
     },
 
-    put(named, app, privateKey, audit) {
+    put(named, role, app, privateKey, audit) {
       const workspaceId = named.toLowerCase();
       return db.transaction(async (tx) => {
         const refused = await secretAuditRefusal(tx, workspaceId, audit);
@@ -111,7 +116,7 @@ export function createPostgresGitHubAppStore(
         const [current] = await tx
           .select()
           .from(githubApps)
-          .where(eq(githubApps.workspaceId, workspaceId));
+          .where(ofRole(workspaceId, role));
         const [row] = current
           ? await tx
               .update(githubApps)
@@ -123,6 +128,7 @@ export function createPostgresGitHubAppStore(
               .values({
                 id: randomUUID(),
                 workspaceId,
+                role,
                 createdBy: audit.principal.actor?.userId ?? null,
                 ...fields,
               })
@@ -137,14 +143,16 @@ export function createPostgresGitHubAppStore(
         );
         await tx
           .insert(receipts)
-          .values(receiptRow(audit, workspaceId, "set_github_app", app.appId));
+          .values(
+            receiptRow(audit, workspaceId, "set_github_app", app.appId, role),
+          );
         const stored = await recordOf(tx, row);
         if (stored === null) throw new Error("GitHub App key was not written");
         return { outcome: "stored", app: stored };
       });
     },
 
-    delete(named, audit) {
+    delete(named, role, audit) {
       const workspaceId = named.toLowerCase();
       return db.transaction(async (tx) => {
         const refused = await secretAuditRefusal(tx, workspaceId, audit);
@@ -152,27 +160,33 @@ export function createPostgresGitHubAppStore(
         await lockWorkspace(tx, workspaceId);
         const [row] = await tx
           .delete(githubApps)
-          .where(eq(githubApps.workspaceId, workspaceId))
+          .where(ofRole(workspaceId, role))
           .returning();
         if (!row) return { outcome: "not_found" };
         await deleteSecretInTx(tx, keySlot(row));
         await tx
           .insert(receipts)
           .values(
-            receiptRow(audit, workspaceId, "delete_github_app", row.appId),
+            receiptRow(
+              audit,
+              workspaceId,
+              "delete_github_app",
+              row.appId,
+              role,
+            ),
           );
         return { outcome: "deleted", appId: row.appId };
       });
     },
 
-    async credentials(workspaceId) {
+    async credentials(role, workspaceId) {
       const rows = await db
         .select()
         .from(githubApps)
         .where(
           workspaceId === undefined
-            ? undefined
-            : eq(githubApps.workspaceId, workspaceId),
+            ? eq(githubApps.role, role)
+            : ofRole(workspaceId, role),
         );
       const held: GitHubAppCredential[] = [];
       for (const row of rows) {

@@ -5,6 +5,7 @@ import {
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
   deleteGitHubAppResponseSchema,
+  type GitHubAppRole,
   getGitHubAppResponseSchema,
   putGitHubAppResponseSchema,
   REQUEST_BODY_MAX_BYTES,
@@ -90,22 +91,31 @@ const keyStore = {
 // The Postgres store's behaviour (audit, receipts, sealing) is its own
 // integration test; this one only remembers.
 function memoryStore() {
-  let held: { record: GitHubAppRecord; key: string } | null = null;
+  type Held = { record: GitHubAppRecord; key: string };
+  const held = new Map<GitHubAppRole, Held>();
   const receipts: Array<{ operation: string; app_id: number }> = [];
+  const mine = (workspaceId: string | undefined, role: GitHubAppRole) => {
+    const row = held.get(role);
+    return row !== undefined &&
+      (workspaceId === undefined || row.record.workspaceId === workspaceId)
+      ? row
+      : null;
+  };
   const store: GitHubAppStore = {
-    async find(workspaceId) {
-      return held?.record.workspaceId === workspaceId ? held.record : null;
+    async find(workspaceId, role) {
+      return mine(workspaceId, role)?.record ?? null;
     },
-    async put(workspaceId, app, key, audit) {
+    async put(workspaceId, role, app, key, audit) {
       const at = new Date();
       const by = audit.principal.actor?.userId ?? "";
-      held = {
+      const before = held.get(role);
+      const row: Held = {
         key,
         record: {
           ...app,
-          id: held?.record.id ?? crypto.randomUUID(),
+          id: before?.record.id ?? crypto.randomUUID(),
           workspaceId,
-          createdAt: held?.record.createdAt ?? at,
+          createdAt: before?.record.createdAt ?? at,
           updatedAt: at,
           privateKey: {
             updatedAt: at,
@@ -113,35 +123,45 @@ function memoryStore() {
           },
         },
       };
+      held.set(role, row);
       receipts.push({ operation: "set_github_app", app_id: app.appId });
-      return { outcome: "stored", app: held.record };
+      return { outcome: "stored", app: row.record };
     },
-    async delete(workspaceId) {
-      if (held?.record.workspaceId !== workspaceId) {
-        return { outcome: "not_found" };
-      }
-      const { appId } = held.record;
-      held = null;
-      receipts.push({ operation: "delete_github_app", app_id: appId });
-      return { outcome: "deleted", appId };
+    async delete(workspaceId, role) {
+      const row = mine(workspaceId, role);
+      if (row === null) return { outcome: "not_found" };
+      held.delete(role);
+      receipts.push({
+        operation: "delete_github_app",
+        app_id: row.record.appId,
+      });
+      return { outcome: "deleted", appId: row.record.appId };
     },
-    async credentials(workspaceId?: string): Promise<GitHubAppCredential[]> {
-      return held === null ||
-        (workspaceId !== undefined && held.record.workspaceId !== workspaceId)
+    async credentials(
+      role: GitHubAppRole,
+      workspaceId?: string,
+    ): Promise<GitHubAppCredential[]> {
+      const row = mine(workspaceId, role);
+      return row === null
         ? []
         : [
             {
-              id: held.record.id,
-              workspaceId: held.record.workspaceId,
-              appId: held.record.appId,
-              apiBase: held.record.apiBase,
-              privateKey: held.key,
-              updatedAt: held.record.updatedAt,
+              id: row.record.id,
+              workspaceId: row.record.workspaceId,
+              appId: row.record.appId,
+              apiBase: row.record.apiBase,
+              privateKey: row.key,
+              updatedAt: row.record.updatedAt,
             },
           ];
     },
   };
-  return { store, receipts, held: () => held };
+  return {
+    store,
+    receipts,
+    held: () => held.get("author") ?? null,
+    reviewer: () => held.get("reviewer") ?? null,
+  };
 }
 
 let github: FakeGitHub;
@@ -296,6 +316,39 @@ describe("the GitHub App API", () => {
     ]);
     expect((await call("GET", { cookie: owner })).json.github_app).toBeNull();
     expect((await call("DELETE", { cookie: owner })).status).toBe(404);
+  });
+
+  test("the routes are the author App's: a reviewer row is never read, replaced or deleted", async () => {
+    const owner = cookieFor("owner");
+    await memory.store.put(
+      WORKSPACE,
+      "reviewer",
+      {
+        appId: APP_ID + 1,
+        slug: "reviewer",
+        name: "Reviewer",
+        htmlUrl: "https://github.com/apps/reviewer",
+        apiBase: github.origin,
+      },
+      strangerKey,
+      { principal: { ownerId: WORKSPACE }, receiptId: "r", roles: [] },
+    );
+    const reviewer = memory.reviewer();
+    expect((await call("GET", { cookie: owner })).json.github_app).toBeNull();
+    expect((await call("DELETE", { cookie: owner })).status).toBe(404);
+    const set = await call("PUT", {
+      cookie: owner,
+      body: body({ app_id: APP_ID, private_key: keys.privateKey }),
+    });
+    expect(set.json.github_app.app_id).toBe(APP_ID);
+    expect((await call("DELETE", { cookie: owner })).status).toBe(200);
+    expect(memory.reviewer()).toBe(reviewer);
+    expect(memory.reviewer()?.key).toBe(strangerKey);
+    await memory.store.delete(WORKSPACE, "reviewer", {
+      principal: { ownerId: WORKSPACE },
+      receiptId: "r",
+      roles: [],
+    });
   });
 
   test("a key that is not RSA, or that GitHub does not take for the id, is refused and nothing is stored", async () => {

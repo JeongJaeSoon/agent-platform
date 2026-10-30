@@ -104,6 +104,14 @@ export const RECEIPT_OPERATION_VALUES = [
   // names the App id, never the key.
   "set_github_app",
   "delete_github_app",
+  // A GitHub token issued afresh for a session's work, or refused before it.
+  "mint_github_token",
+  "set_github_ceiling",
+  // An agent's GitHub switch turned on or off.
+  "set_agent_github",
+  "review_pull_request",
+  "dispatch_workflow",
+  "rerun_workflow",
   "create_workspace_profile",
   "retire_workspace_profile",
   "create_installation_profile",

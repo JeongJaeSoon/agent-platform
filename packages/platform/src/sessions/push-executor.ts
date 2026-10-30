@@ -10,6 +10,7 @@ import type { PushBundlesResult } from "../checkpoints/checkpoint-service.ts";
 import type { ForgeResolver } from "../ports/forge.ts";
 import { repoRefOf } from "../ports/forge.ts";
 import type { GitPusher } from "../ports/git-push.ts";
+import type { SessionGitHubSettings } from "../ports/github-settings.ts";
 import type {
   PushJob,
   PushOutcome,
@@ -58,6 +59,7 @@ export function createPushExecutor(deps: {
   store: PushRequestStore;
   catalog: SessionCatalog;
   forges: ForgeResolver;
+  github: SessionGitHubSettings;
   bundles: PushBundleSource;
   pusher: GitPusher;
   logger: PushExecutorLogger;
@@ -97,6 +99,9 @@ export function createPushExecutor(deps: {
       return refuse("target_refused", remote);
     }
     if (branch === repository.branch) return refuse("default_branch", remote);
+    if (await deps.github.pinned(job.sessionId)) {
+      return refuse("github_settings_unsupported", remote);
+    }
     const forge = deps.forges(job.repositoryId);
     const repo = repoRefOf(repository.url);
     let headers: ReadonlyArray<readonly [string, string]>;

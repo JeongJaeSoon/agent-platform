@@ -1827,6 +1827,7 @@ describe("authorizeEgress", () => {
     model: profile.model,
     costUsd,
     providerTokens: 0,
+    githubPinned: false,
     repository: { id: "app", url: repository.url, branch: "main" },
   });
 
@@ -2072,6 +2073,7 @@ describe("authorizeEgress through a forge", () => {
   function gateway(
     repository: CatalogRepository,
     forges?: ForgeResolver,
+    githubPinned = false,
   ): ReturnType<typeof createWorkerGateway> {
     return createWorkerGateway({
       work: work({
@@ -2085,6 +2087,7 @@ describe("authorizeEgress through a forge", () => {
           costUsd: 0,
           providerTokens: 0,
           repository: { id: "app", url: repository.url, branch: "main" },
+          githubPinned,
         }),
       }),
       catalog: withSeededInstallation({
@@ -2145,6 +2148,26 @@ describe("authorizeEgress through a forge", () => {
         ["authorization", basic("x-access-token:installation-token-1")],
       ],
     });
+  });
+
+  test("a session whose release pins GitHub settings gets no clone credential", async () => {
+    const github = forge(async () => {
+      throw new Error("not reached");
+    });
+    for (const repository of [app, pat]) {
+      await expect(
+        gateway(
+          repository,
+          (id) => (id === "app" ? github : null),
+          true,
+        ).authorizeEgress({ token: "tok", purpose: "repository" }),
+      ).rejects.toMatchObject({
+        status: 409,
+        code: "GITHUB_REFUSED",
+        message: expect.stringContaining("github_settings_unsupported"),
+      });
+    }
+    expect(github.asked).toEqual([]);
   });
 
   test("a PAT repository sends the same header with or without a forge in front", async () => {

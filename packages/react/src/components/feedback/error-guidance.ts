@@ -99,6 +99,8 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   PUSH_NOT_PUSHED:
     "아직 push되지 않은 요청입니다 — push가 끝난 뒤 PR을 여세요.",
   PULL_REQUEST_MISSING: "이 요청으로 연 PR이 없습니다 — PR을 먼저 여세요.",
+  GITHUB_REFUSED:
+    "플랫폼이 이 GitHub 작업을 막았습니다 — 에이전트의 GitHub 설정을 확인하세요.",
   PENDING_REQUESTS_OPEN:
     "아직 답하지 않은 승인·질문이 있습니다 — 모두 답하거나 만료된 뒤 재개하세요.",
   PERMISSION_WAIT_ABOVE_PROFILE:

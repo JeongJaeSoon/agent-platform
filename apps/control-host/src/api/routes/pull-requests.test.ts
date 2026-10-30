@@ -45,6 +45,7 @@ function app(
     binding?: string;
     failing?: "lookup" | "comment";
     authMode?: "none";
+    githubPinned?: boolean;
   } = {},
 ) {
   const receipts: PullRequestReceipt[] = [];
@@ -99,6 +100,7 @@ function app(
     authorization: createAuthorizationPolicy(),
     catalog: CATALOG,
     forges: () => forge,
+    github: { pinned: async () => options.githubPinned ?? false },
     redact: (line) => line,
     store: {
       findSource: async (ownerId, sessionId, pushRequestId) =>
@@ -264,6 +266,15 @@ describe("pull request routes", () => {
       code: "BACKEND_UNAVAILABLE",
       details: { refusal: "forge_failed" },
     });
+    const pinned = app({ githubPinned: true });
+    expect(await errorOf(post(pinned, "", {}))).toMatchObject({
+      status: 409,
+      code: "GITHUB_REFUSED",
+      details: { refusal: "github_settings_unsupported" },
+    });
+    expect(pinned.receipts.map((r) => r.result.refusal)).toEqual([
+      "github_settings_unsupported",
+    ]);
   });
 
   test("a forge failure on a comment is a 503", async () => {
