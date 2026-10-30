@@ -320,6 +320,90 @@ describe("에이전트 GitHub 탭", () => {
     expect(screen.getByText("릴리스에 넣지 않은 변경 1건")).toBeTruthy();
   });
 
+  test("다른 사람이 활성화한 뒤 다시 읽어도, 그 전에 만든 초안은 저장하지 않는다", async () => {
+    const { server, release } = await activeAgent();
+    const routes = server.routes as unknown as Record<
+      string,
+      (request: Request) => Promise<Response>
+    >;
+    let made = 0;
+    let detailReads = 0;
+    renderAt(
+      DETAIL,
+      routesFor(server, TAB, {
+        [`GET ${PATH}`]: (request) => {
+          detailReads += 1;
+          return routes[`GET ${PATH}`]?.(request) ?? json(404, {});
+        },
+        [`POST ${PATH}/releases`]: (request) => {
+          made += 1;
+          return routes[`POST ${PATH}/releases`]?.(request) ?? json(404, {});
+        },
+      }),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "권한" });
+    await user.click(switchNamed("push 전 사람 승인"));
+    // Someone else activates another release while the draft is open.
+    server.releases.push({
+      ...release,
+      id: "rel-other",
+      label: "2026-10-11_11:00:00",
+    });
+    await routes[`POST ${PATH}/activate`]?.(
+      new Request("http://test", {
+        method: "POST",
+        body: JSON.stringify({ release_id: "rel-other", expected_revision: 0 }),
+      }),
+    );
+    expect(server.detail().agent.activation_revision).toBe(1);
+
+    const before = detailReads;
+    await user.click(
+      await screen.findByRole("button", { name: "새 릴리스로 저장" }),
+    );
+    await screen.findByText(/릴리스 탭에서 확인한 뒤 활성화하세요/);
+    await waitFor(() => expect(detailReads).toBeGreaterThan(before));
+
+    await user.click(screen.getByRole("button", { name: "새 릴리스로 저장" }));
+    await screen.findByText(/저장하지 않았습니다/);
+    expect(made).toBe(1);
+    expect(server.detail().agent.activation_revision).toBe(1);
+  });
+
+  test("Actions를 끄면 허용 목록도 비워서 저장한다", async () => {
+    const { server } = await activeAgent();
+    const sent: Settings[] = [];
+    const routes = server.routes as unknown as Record<
+      string,
+      (request: Request) => Promise<Response>
+    >;
+    renderAt(
+      DETAIL,
+      routesFor(server, TAB, {
+        [`POST ${PATH}/releases`]: async (request) => {
+          sent.push(
+            ((await request.clone().json()) as { github: Settings }).github,
+          );
+          return routes[`POST ${PATH}/releases`]?.(request) ?? json(404, {});
+        },
+      }),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "Actions 허용 목록" });
+    await user.click(switchNamed("Actions 실행"));
+    expect(
+      screen.queryByRole("heading", { name: "Actions 허용 목록" }),
+    ).toBeNull();
+    expect(screen.getByText("릴리스에 넣지 않은 변경 2건")).toBeTruthy();
+    await user.click(
+      await screen.findByRole("button", { name: "새 릴리스로 저장" }),
+    );
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]?.features.actions).toBe(false);
+    expect(sent[0]?.actions_allow).toEqual([]);
+  });
+
   test("GitHub 사용을 끄려면 확인을 거치고, 꺼지면 설정은 읽기만 한다", async () => {
     const { server } = await activeAgent();
     let enabled = true;

@@ -47,6 +47,8 @@ export const agentGitHubKo = {
     "릴리스 {release}를 만들었지만 활성화하지 못했습니다: {reason}",
   "agentGitHub.conflict":
     "다른 사람이 그 사이 에이전트를 활성화했습니다. 릴리스 탭에서 확인한 뒤 활성화하세요.",
+  "agentGitHub.stale":
+    "다른 사람이 그 사이 에이전트를 활성화했습니다. 저장하지 않았습니다. 되돌린 뒤 지금 설정에서 다시 바꾸세요.",
   "agentGitHub.legacy":
     "이 릴리스에는 아직 GitHub 설정이 없어 실행 프로필이 허용하는 모든 저장소를 씁니다. 아래 값은 처음 저장할 때의 기본값입니다.",
   "agentGitHub.unsavable.title": "GitHub 설정을 저장할 수 없습니다",
@@ -221,6 +223,8 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
     "Made release {release} but could not activate it: {reason}",
   "agentGitHub.conflict":
     "Someone activated the agent meanwhile. Check the Release tab, then activate.",
+  "agentGitHub.stale":
+    "Someone activated the agent meanwhile. Nothing was saved. Revert, then make your changes again on the current settings.",
   "agentGitHub.legacy":
     "This release has no GitHub settings yet, so it uses every repository its runtime profile allows. The values below are what a first save starts from.",
   "agentGitHub.unsavable.title": "GitHub settings cannot be saved",
@@ -398,6 +402,8 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
     "リリース {release} を作りましたが、有効にできませんでした: {reason}",
   "agentGitHub.conflict":
     "その間に別の人がエージェントを有効にしました。リリースタブで確認してから有効にしてください。",
+  "agentGitHub.stale":
+    "その間に別の人がエージェントを有効にしました。保存していません。元に戻してから、今の設定で変更し直してください。",
   "agentGitHub.legacy":
     "このリリースにはまだ GitHub の設定がないため、実行プロファイルが許可するすべてのリポジトリを使います。以下は初めて保存するときの既定値です。",
   "agentGitHub.unsavable.title": "GitHub の設定を保存できません",

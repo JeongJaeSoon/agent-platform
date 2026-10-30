@@ -50,6 +50,14 @@ type Settings = NonNullable<GitHubTabData["github"]>;
 type Feature = keyof Settings["features"];
 type AllowEntry = Settings["actions_allow"][number];
 type Receipt = components["schemas"]["Receipt"];
+type Draft = {
+  readonly settings: Settings;
+  readonly from: {
+    readonly base: Settings;
+    readonly release: NonNullable<AgentDetail["active_release"]>;
+    readonly revision: number;
+  };
+};
 
 const SECTION = {
   use: "github-use",
@@ -461,18 +469,25 @@ function GitHubSettings({
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const cache = useQueryClient();
-  const base = data.github ?? data.legacy_defaults;
-  const [draft, setDraft] = useState<Settings | null>(null);
-  const settings = draft ?? base;
-  const release = detail.active_release;
+  const [draft, setDraft] = useState<Draft | null>(null);
+  // A draft keeps what it was made from, so a refetch after someone else
+  // activates cannot turn it into an overwrite of their release.
+  const base = draft?.from.base ?? data.github ?? data.legacy_defaults;
+  const settings = draft?.settings ?? base;
+  const release = draft?.from.release ?? detail.active_release;
   const saveError = useRef<HTMLDivElement>(null);
 
   const save = useMutation<
     { label: string; created: boolean },
-    ApiError | { readonly notActivated: string; readonly error: ApiError }
+    | ApiError
+    | { readonly notActivated: string; readonly error: ApiError }
+    | { readonly stale: true }
   >({
     mutationFn: async () => {
-      if (!release || !settings) throw new Error("unsavable");
+      if (!draft || !release) throw new Error("unsavable");
+      if (detail.agent.activation_revision !== draft.from.revision) {
+        throw { stale: true };
+      }
       const made = await unwrap(
         client.POST("/v1/agents/{id}/releases", {
           params: { path: { id: agentId } },
@@ -482,7 +497,7 @@ function GitHubSettings({
             ...(release.repository_id === null
               ? {}
               : { repository_id: release.repository_id }),
-            github: settings,
+            github: draft.settings,
           },
         }),
       );
@@ -492,7 +507,7 @@ function GitHubSettings({
             params: { path: { id: agentId } },
             body: {
               release_id: made.release.id,
-              expected_revision: detail.agent.activation_revision,
+              expected_revision: draft.from.revision,
             },
           }),
         );
@@ -518,6 +533,7 @@ function GitHubSettings({
   const saveFailure = (() => {
     const error = save.error;
     if (!error) return null;
+    if ("stale" in error) return t("agentGitHub.stale");
     if ("notActivated" in error) {
       return error.error.code === "REVISION_CONFLICT"
         ? t("agentGitHub.conflict")
@@ -529,13 +545,27 @@ function GitHubSettings({
     return t("agentGitHub.saveRefused", { reason: failure(error, t) });
   })();
 
+  // The two queries disagree while one of them refetches.
+  const settling =
+    draft === null && data.active_release_id !== (release?.id ?? null);
   const readOnly =
-    !data.enabled || data.unsavable !== null || base === null || save.isPending;
+    !data.enabled ||
+    data.unsavable !== null ||
+    base === null ||
+    settling ||
+    save.isPending;
   const edit = (change: (current: Settings) => Settings) => {
-    if (readOnly || !settings) return;
-    setDraft(change(settings));
+    if (readOnly || !settings || !base || !release) return;
+    setDraft({
+      settings: change(settings),
+      from: draft?.from ?? {
+        base,
+        release,
+        revision: detail.agent.activation_revision,
+      },
+    });
   };
-  const pending = base && draft ? pendingCount(base, draft) : 0;
+  const pending = base && draft ? pendingCount(base, draft.settings) : 0;
   const actionsOn = settings?.features.actions ?? false;
   const keys: SectionKey[] = [
     "use",
@@ -708,15 +738,11 @@ function GitHubSettings({
                       description={
                         <span className="[overflow-wrap:anywhere]">
                           {repository.url}
-                          {locked || repository.reason
-                            ? ` · ${
-                                locked
-                                  ? t("agentGitHub.repositoryRelease")
-                                  : t(
-                                      `agentGitHub.repositoryReason.${repository.reason}`,
-                                    )
-                              }`
-                            : null}
+                          {locked
+                            ? ` · ${t("agentGitHub.repositoryRelease")}`
+                            : repository.reason
+                              ? ` · ${t(`agentGitHub.repositoryReason.${repository.reason}`)}`
+                              : null}
                         </span>
                       }
                       status={
@@ -822,6 +848,10 @@ function GitHubSettings({
                               ...current.features,
                               [feature]: checked,
                             },
+                            // The release refuses a list with Actions off.
+                            ...(feature === "actions" && !checked
+                              ? { actions_allow: [] }
+                              : {}),
                           }))
                         }
                       />
