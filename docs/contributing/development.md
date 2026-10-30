@@ -145,3 +145,5 @@ git worktree remove ~/.cache/agent-platform/preview-reap/checkout
 ## migration 만들기
 
 스키마(`packages/db/src/schema.ts`)를 고친 뒤 `bun run --cwd packages/db db:generate`로 다음 번호의 migration을 만든다. drizzle-kit generate에 인자를 그대로 넘기고, 생성된 `migrations/meta`를 Biome 형식으로 맞춘다. 다른 migration이 main에 먼저 들어가 번호가 겹치면, 커밋을 하나로 합치고 `origin/main`에 rebase한 뒤 `bun run --cwd packages/db db:restack`으로 번호·snapshot·journal을 다시 만든다. 직접 쓴 SQL(backfill, trigger 등)은 새 base에 맞는지 읽은 뒤에만 `--keep-handwritten`으로 남긴다. 사용법과 충돌 처리는 `packages/db/scripts/restack-migration.ts` 머리 주석에 있다.
+
+옛 이미지가 도는 동안 열·테이블을 지우거나 제약을 강화하는 순서는 [DB 스키마를 바꾸는 순서](../operator/images-and-supply-chain.md#db-스키마를-바꾸는-순서)를 따른다.

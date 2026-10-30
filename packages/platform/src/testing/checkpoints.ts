@@ -1,5 +1,9 @@
 import type { CheckpointRef } from "@werft-ai/contracts";
-import { transcriptBytes, transcriptParts } from "@werft-ai/runtime-core";
+import {
+  type RuntimeFingerprint,
+  transcriptBytes,
+  transcriptParts,
+} from "@werft-ai/runtime-core";
 
 import type { CheckpointService } from "../checkpoints/checkpoint-service.ts";
 import type { CheckpointFence } from "../ports/checkpoint-store.ts";
@@ -20,6 +24,8 @@ export type CommitCheckpointInput = {
   transcriptBytes?: number;
   /** The verified manifest's stored output objects, recorded beside it. */
   outputs?: readonly CheckpointOutputObject[];
+  /** The verified manifest's runtime fingerprint, recorded on its row. */
+  runtime?: RuntimeFingerprint;
 };
 
 export type CommitCheckpointResult =
@@ -85,5 +91,6 @@ export async function finalizeCheckpoint(
       transcriptParts(verdict.manifest.transcripts),
     ),
     outputs: checkpointOutputObjects(verdict.manifest.outputs),
+    runtime: verdict.manifest.runtime,
   });
 }

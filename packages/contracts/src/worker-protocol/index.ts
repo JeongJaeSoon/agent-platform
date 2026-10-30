@@ -193,7 +193,17 @@ export const runtimeConfigSchema = z
     permission_mode: permissionModeSchema,
     provider: runtimeProviderSchema,
     project_settings: projectSettingsSchema.optional(),
-    mcp_servers: z.array(runtimeMcpServerSchema).min(1).max(1).optional(),
+    // At most a catalog server and the built-in `github`.
+    mcp_servers: z
+      .array(runtimeMcpServerSchema)
+      .min(1)
+      .max(2)
+      .refine(
+        (servers) =>
+          new Set(servers.map((s) => s.name)).size === servers.length,
+        { message: "must not repeat a server" },
+      )
+      .optional(),
   })
   .strict();
 

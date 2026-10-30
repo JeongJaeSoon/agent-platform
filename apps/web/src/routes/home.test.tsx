@@ -508,6 +508,134 @@ describe("홈 요약", () => {
     };
   };
 
+  describe("지금 할 일", () => {
+    const listed = (
+      actions: readonly (
+        | "events_failed"
+        | "events_unverified"
+        | "install"
+        | "reinstall"
+        | "home_unset"
+        | null
+      )[],
+      next_cursor: string | null = null,
+    ) => {
+      const base = agentServer().detail().agent;
+      return () =>
+        json(200, {
+          items: actions.map((slack_action, n) => ({
+            ...base,
+            id: `5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8${n}`,
+            slug: `agent-${n}`,
+            name: `에이전트 ${n}`,
+            summary: {
+              version: {
+                version_no: 1,
+                role: "reviewer",
+                instructions: "Review.",
+                mcp_servers: [],
+                credential_refs: [],
+              },
+              runtime_profile_id: null,
+              release_label: null,
+              bound_credential_refs: [],
+              admins: ["Owner"],
+              needs_input_count: 0,
+              running_count: 0,
+              slack_action,
+            },
+          })),
+          next_cursor,
+        });
+    };
+    const todoRows = (todo: HTMLElement) =>
+      within(todo)
+        .getAllByRole("listitem")
+        .map((row) => ({
+          title: row.querySelector("h3")?.textContent,
+          note: row.querySelector("p")?.textContent,
+          fix: row.querySelector("a")?.getAttribute("href"),
+        }));
+
+    test("Slack 조치가 필요한 에이전트를 세 개까지 시작하기 위에 보이고, 고치기는 그 Slack 탭으로 간다", async () => {
+      renderAt("/", {
+        ...homeRoutes(),
+        "GET /v1/agents": listed([
+          null,
+          "events_failed",
+          "home_unset",
+          "events_unverified",
+          "install",
+          "reinstall",
+        ]),
+      });
+      const todo = await screen.findByRole("region", { name: "지금 할 일" });
+      expect(todoRows(todo)).toEqual([
+        {
+          title: "Slack 이벤트 주소 등록 실패",
+          note: "에이전트 1 · 멘션을 받지 못하고 있습니다",
+          fix: "/agents/5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c81?tab=slack",
+        },
+        {
+          title: "Slack 홈 채널 지정 필요",
+          note: "에이전트 2 · 홈 채널을 고르면 채널을 연결할 수 있습니다",
+          fix: "/agents/5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c82?tab=slack",
+        },
+        {
+          title: "Slack 이벤트 주소 확인 대기",
+          note: "에이전트 3 · Slack이 주소를 확인할 때까지 멘션을 받지 못합니다",
+          fix: "/agents/5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c83?tab=slack",
+        },
+      ]);
+      const all = within(todo).getByRole("link", { name: "전체 보기 5건" });
+      expect(all.getAttribute("href")).toBe("/agents");
+      expect(
+        within(todo).getAllByRole("link", { name: /^고치기/ })[0]?.textContent,
+      ).toBe("고치기: 에이전트 1 Slack 이벤트 주소 등록 실패");
+      const order = [...document.querySelectorAll("main section > div h2")].map(
+        (heading) => heading.textContent,
+      );
+      expect(order.indexOf("지금 할 일")).toBeLessThan(
+        order.indexOf("한눈에 보기"),
+      );
+    });
+
+    test("목록 뒤에 더 있으면 건수는 읽은 만큼 이상이라고 한다", async () => {
+      renderAt("/", {
+        ...homeRoutes(),
+        "GET /v1/agents": listed(["install"], "next"),
+      });
+      const todo = await screen.findByRole("region", { name: "지금 할 일" });
+      expect(
+        within(todo).getByRole("link", { name: "전체 보기 1건 이상" }),
+      ).toBeTruthy();
+    });
+
+    test("조치가 필요한 에이전트가 없으면 지금 할 일을 보이지 않는다", async () => {
+      renderAt("/", {
+        ...homeRoutes(),
+        "GET /v1/agents": listed([null, null]),
+      });
+      await screen.findByRole("region", { name: "한눈에 보기" });
+      expect(screen.queryByRole("region", { name: "지금 할 일" })).toBeNull();
+    });
+
+    test("에이전트 목록을 볼 수 없는 구성원은 그 목록을 부르지 않는다", async () => {
+      const { api } = renderAt("/", {
+        ...homeRoutes(),
+        "GET /v1/auth/me": () => json(200, memberMe()),
+        "GET /v1/administered-agents": () => json(200, { items: [] }),
+      });
+      await screen.findByRole("region", { name: "한눈에 보기" });
+      expect(screen.queryByRole("region", { name: "지금 할 일" })).toBeNull();
+      expect(
+        api.calls.some(
+          (call) => call.path === "/v1/agents" && !call.search.includes("ids="),
+        ),
+      ).toBe(false);
+    });
+  });
+
   // Each read that changes which sections show or how tall they are: the
   // inbox row grows once its requests arrive, a card gains its footer once
   // its usage does.
@@ -1273,6 +1401,7 @@ describe("홈 요약", () => {
       admins: ["Owner"],
       needs_input_count: 2,
       running_count: 1,
+      slack_action: null,
     });
     const agentCardOf = async (
       role: "admin" | "member",
