@@ -47,7 +47,7 @@ export const workspaceKo = {
   "workspace.slackAppsDescription": "소유자와 관리자만 볼 수 있습니다.",
   "workspace.slackAppsList": "앱 목록",
   "workspace.slackAppsHint":
-    "여기서는 앱의 상태만 봅니다. 설치, 연결 해제, 삭제는 에이전트의 Slack 탭에서 합니다.",
+    "여기서는 앱의 상태만 봅니다. 에이전트 앱의 설치, 연결 해제, 삭제는 그 에이전트의 Slack 탭에서 합니다.",
   "workspace.slackAppsNoSecret": "비밀값 없음",
   "workspace.slackAppsEmpty": "이 콘솔이 만든 Slack 앱이 아직 없습니다.",
   "workspace.slackAppsApp": "앱",
@@ -147,7 +147,7 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.slackAppsDescription": "Only owners and admins can see these.",
   "workspace.slackAppsList": "Apps",
   "workspace.slackAppsHint":
-    "This page only shows each app's state. Install, disconnect and delete in the agent's Slack tab.",
+    "This page only shows each app's state. Install, disconnect and delete an agent app in that agent's Slack tab.",
   "workspace.slackAppsNoSecret": "No secret",
   "workspace.slackAppsEmpty": "This console has not made a Slack app yet.",
   "workspace.slackAppsApp": "App",
@@ -248,7 +248,7 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "workspace.slackAppsDescription": "オーナーと管理者だけが閲覧できます。",
   "workspace.slackAppsList": "アプリ一覧",
   "workspace.slackAppsHint":
-    "ここではアプリの状態だけを確認します。インストール・連携解除・削除はエージェントの Slack タブで行います。",
+    "ここではアプリの状態だけを確認します。エージェントのアプリのインストール・連携解除・削除は、そのエージェントの Slack タブで行います。",
   "workspace.slackAppsNoSecret": "シークレットなし",
   "workspace.slackAppsEmpty":
     "このコンソールが作った Slack アプリはまだありません。",

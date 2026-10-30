@@ -571,6 +571,47 @@ describe("Slack app service", () => {
     );
   });
 
+  test("the memory store lists the link app first by kind, even beside an agent app whose agent is gone", async () => {
+    const agents = new Map([
+      [
+        AGENT,
+        {
+          id: AGENT,
+          workspaceId: WORKSPACE,
+          name: "Release notes",
+          slug: "release-notes",
+          role: "Writes the release notes",
+          active: true,
+        },
+      ],
+    ]);
+    const apps = createMemorySlackAppStore({
+      secrets: createMemorySecretStore(),
+      agents,
+      workspaces: new Map([[WORKSPACE, "Acme"]]),
+    });
+    const begin = {
+      workspaceId: WORKSPACE,
+      actor: null,
+      redirectUrl: `${ORIGIN}/callback`,
+      staleBefore: new Date(0),
+      replaceUncertain: false,
+    };
+    await apps.store.beginAgentApp({
+      ...begin,
+      agentId: AGENT,
+      newId: crypto.randomUUID(),
+    });
+    await apps.store.beginLinkApp({ ...begin, newId: crypto.randomUUID() });
+    agents.delete(AGENT);
+
+    const made = await apps.store.listMade(WORKSPACE);
+    expect(made.map((item) => [item.app.kind, item.agent])).toEqual([
+      ["link", null],
+      ["agent", null],
+    ]);
+  });
+
   test("owners and admins list the apps the console made, from the console only", async () => {
     const { service } = await setup();
     expect(await service.listMadeApps(user("owner"), WORKSPACE)).toEqual({
