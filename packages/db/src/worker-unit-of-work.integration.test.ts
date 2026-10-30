@@ -86,6 +86,12 @@ const VERIFIED_RUNTIME = {
   profileSha256: "b".repeat(64),
   sdkVersion: "0.3.270",
 };
+const NEXT_RUNTIME = {
+  cliVersion: "2.1.280",
+  engine: "claude-agent-sdk",
+  profileSha256: "c".repeat(64),
+  sdkVersion: "0.3.280",
+};
 
 integration("worker gateway on PostgreSQL", () => {
   let database: TempDatabase;
@@ -156,6 +162,9 @@ integration("worker gateway on PostgreSQL", () => {
           }
           if (checkpoint.manifest_ref.startsWith("runtime/")) {
             return { status: "verified", runtime: VERIFIED_RUNTIME };
+          }
+          if (checkpoint.manifest_ref.startsWith("runtime-next/")) {
+            return { status: "verified", runtime: NEXT_RUNTIME };
           }
           const sized = /\/bytes-(\d+)\//.exec(checkpoint.manifest_ref);
           return sized === null
@@ -3741,6 +3750,137 @@ integration("worker gateway on PostgreSQL", () => {
       partitionFor("checkpoint-runtime-none"),
     );
     expect(await readPointerRuntime(db, pointerless.session_id)).toBeNull();
+  });
+
+  async function sessionPin(sessionId: string) {
+    const [row] = await db
+      .select({
+        image: sessions.firstWorkerImage,
+        engine: sessions.runtimeEngine,
+        sdkVersion: sessions.runtimeSdkVersion,
+        cliVersion: sessions.runtimeCliVersion,
+        profileSha256: sessions.runtimeProfileSha256,
+      })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    if (!row) throw new Error("no session");
+    const { image, ...runtime } = row;
+    return { image, runtime };
+  }
+
+  function finalizeOn(
+    claimed: Awaited<ReturnType<typeof claim>>,
+    turnId: string,
+    revision: number,
+    manifestPrefix: string,
+  ) {
+    return gateway.finalize(principalOf(claimed), {
+      ...scopeOf(claimed, turnId),
+      turn_id: turnId,
+      finalize_key: `fin-${turnId}`,
+      final_source_sequence: 0,
+      terminal: {
+        status: "completed",
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: {
+        revision,
+        manifest_ref: `${manifestPrefix}/${claimed.session_id}/${revision}/manifest.json`,
+        manifest_sha256: "a".repeat(64),
+      },
+    });
+  }
+
+  test("the first committed checkpoint carrying a runtime writes it to the session, and no later one overwrites it", async () => {
+    const { session, claimed, input } = await claimAndDeliver(
+      partitionFor("session-runtime-once"),
+    );
+    const sessionId = session.session_id;
+    const [owner] = await db
+      .select({ ownerId: sessions.ownerId })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    const nextTurn = async (message: string) => {
+      await createPostgresSessionUnitOfWork(db).appendInputAtomic({
+        limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
+        principal: { ownerId: owner?.ownerId ?? "" },
+        sessionId,
+        idempotencyKey: crypto.randomUUID(),
+        payloadHash: crypto.randomUUID(),
+        message,
+      });
+      const next = await gateway.nextInput(
+        principalOf(claimed),
+        scopeOf(claimed),
+      );
+      if (!next.input) throw new Error("no input delivered");
+      return next.input.turn_id;
+    };
+    const unset = {
+      engine: null,
+      sdkVersion: null,
+      cliVersion: null,
+      profileSha256: null,
+    };
+
+    // A checkpoint whose manifest carried no runtime records none.
+    expect(await finalizeOn(claimed, input.turn_id, 0, "plain")).toMatchObject({
+      checkpoint_revision: 0,
+    });
+    expect((await sessionPin(sessionId)).runtime).toEqual(unset);
+
+    expect(
+      await finalizeOn(claimed, await nextTurn("second"), 1, "runtime"),
+    ).toMatchObject({ checkpoint_revision: 1 });
+    expect(await sessionPin(sessionId)).toEqual({
+      image: "sha256:worker",
+      runtime: VERIFIED_RUNTIME,
+    });
+
+    expect(
+      await finalizeOn(claimed, await nextTurn("third"), 2, "runtime-next"),
+    ).toMatchObject({ checkpoint_revision: 2 });
+    expect(await readPointerRuntime(db, sessionId)).toEqual(NEXT_RUNTIME);
+    expect((await sessionPin(sessionId)).runtime).toEqual(VERIFIED_RUNTIME);
+  });
+
+  test("a launch that ends before any checkpoint leaves the session's runtime to the launch that first commits one", async () => {
+    const session = await queuedSession(partitionFor("session-runtime-f4"));
+    const sessionId = session.session_id;
+    const first = await launchSession(db, {
+      sessionId,
+      image: "sha256:worker-a",
+    });
+    // Gone before it bound a worker, so its signal still stands.
+    await confirmExecutionGone(db, first.executionId);
+    expect(await sessionPin(sessionId)).toMatchObject({
+      image: "sha256:worker-a",
+      runtime: { engine: null },
+    });
+
+    const second = await launchSession(db, {
+      sessionId,
+      image: "sha256:worker-b",
+    });
+    const secondClaim = await claim(second);
+    const next = await gateway.nextInput(
+      principalOf(secondClaim),
+      scopeOf(secondClaim),
+    );
+    if (!next.input) throw new Error("no input delivered");
+    expect(
+      await finalizeOn(secondClaim, next.input.turn_id, 0, "runtime-next"),
+    ).toMatchObject({ checkpoint_revision: 0 });
+
+    // The image stays the first reservation's; the runtime is the one the
+    // committing launch's manifest names.
+    expect(await sessionPin(sessionId)).toEqual({
+      image: "sha256:worker-a",
+      runtime: NEXT_RUNTIME,
+    });
+    expect(await readPointerRuntime(db, sessionId)).toEqual(NEXT_RUNTIME);
   });
 
   test("a transcript past the limit keeps the turn that crossed it and the last checkpoint, and takes no new turn", async () => {
