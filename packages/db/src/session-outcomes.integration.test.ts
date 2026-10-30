@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { ReceiptActor } from "@werft-ai/contracts";
 import {
   createOutcomeRefresher,
+  ForgeCredentialError,
   type ForgePullRequestDetail,
   GitHubCallError,
   type GitHubConnection,
@@ -552,6 +553,94 @@ integration("postgres session outcomes and the outcome refresher", () => {
     expect((await rowOf(rows[0]?.id ?? "")).stateCheckedAt).toEqual(
       checked[0]?.stateCheckedAt ?? null,
     );
+  });
+
+  test("a row marked unreachable after its lease ran out keeps that check over the late answer", async () => {
+    const repo = repository();
+    const row = await outcome(repo);
+    const slow = slowGitHub("closed");
+    const late = replica({
+      repositories: [repo],
+      unitOf: async () => `app:test:${randomUUID()}`,
+      read: slow.read,
+      leaseMs: 200,
+    });
+    const running = late.refresher.runOnce();
+    await slow.askedOnce;
+    await Bun.sleep(300);
+    // The App is gone from the workspace by now.
+    const next = replica({
+      repositories: [],
+      unitOf: async () => "",
+      read: states(new Map()),
+      unconnected: [repo],
+    });
+    await next.refresher.runOnce();
+    const failed = await rowOf(row.id);
+    expect(failed).toMatchObject({
+      state: "open",
+      checkError: "github_refused",
+      leaseToken: null,
+    });
+
+    slow.release();
+    await running;
+    expect(await rowOf(row.id)).toMatchObject({
+      state: "open",
+      checkError: "github_refused",
+      stateCheckedAt: failed.stateCheckedAt,
+    });
+  });
+
+  test("a grant slower than the lease sends no read", async () => {
+    const repo = repository();
+    const row = await outcome(repo);
+    const { refresher, calls } = replica({
+      repositories: [repo],
+      unitOf: async () => `app:test:${randomUUID()}`,
+      read: states(new Map()),
+      leaseMs: 200,
+      grant: async () => {
+        await Bun.sleep(300);
+        return {
+          api: { getPullRequest: async () => ({}) },
+        } as unknown as GitHubGrant;
+      },
+    });
+    await refresher.runOnce();
+    expect(calls).toEqual([]);
+    expect(await rowOf(row.id)).toMatchObject({
+      leaseToken: null,
+      stateCheckedAt: null,
+      checkError: null,
+    });
+  });
+
+  test("an App whose pinned installation is gone gets not_found when its token is refused; installed, forge_failed", async () => {
+    const [gone, kept] = [repository(), repository()];
+    const rows = [await outcome(gone), await outcome(kept)];
+    const refused = async (): Promise<GitHubGrant | null> => {
+      throw new ForgeCredentialError("GitHub installation token failed (404)");
+    };
+    for (const [repo, installed] of [
+      [gone, false],
+      [kept, true],
+    ] as const) {
+      const { refresher, calls } = replica({
+        repositories: [repo],
+        unitOf: async () => `app:test:${randomUUID()}`,
+        read: states(new Map()),
+        grant: refused,
+        installed: async () => installed,
+      });
+      await refresher.runOnce();
+      expect(calls).toEqual([]);
+    }
+    const checked = await Promise.all(rows.map((row) => rowOf(row.id)));
+    expect(checked.map((row) => [row.state, row.checkError])).toEqual([
+      ["open", "not_found"],
+      ["open", "forge_failed"],
+    ]);
   });
 
   test("rows whose lease ran out while earlier ones were read go back unread", async () => {

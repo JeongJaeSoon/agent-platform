@@ -1,7 +1,12 @@
 import type { SessionOutcomeCheckError } from "@werft-ai/contracts";
-import { ForgeCredentialError, repoRefOf } from "../ports/forge.ts";
+import {
+  ForgeCredentialError,
+  type RepoRef,
+  repoRefOf,
+} from "../ports/forge.ts";
 import {
   GitHubCallError,
+  type GitHubConnection,
   type GitHubConnections,
   type GitHubGate,
   GitHubGateError,
@@ -63,6 +68,19 @@ export function createOutcomeRefresher(deps: {
   const limits = new Map<string, number>();
 
   /**
+   * Why an App could not reach the repository: its own JWT says whether it is
+   * still installed there. A pinned or cached installation id hides that
+   * until a token is asked for.
+   */
+  async function appFailure(
+    connection: GitHubConnection,
+    repo: RepoRef,
+  ): Promise<SessionOutcomeCheckError> {
+    const installed = await connection.installed(repo).catch(() => null);
+    return installed === false ? "not_found" : "forge_failed";
+  }
+
+  /**
    * The due repositories under the unit each one's next request spends from,
    * and those no read can reach with the check error their rows get instead.
    */
@@ -94,8 +112,7 @@ export function createOutcomeRefresher(deps: {
         // A PAT whose user is unknown waits out its hour unread (§10); an
         // App's installation lookup failing is the read's own failure.
         if (connection.kind === "app") {
-          const installed = await connection.installed(repo).catch(() => null);
-          fail(id, installed === false ? "not_found" : "forge_failed");
+          fail(id, await appFailure(connection, repo));
         }
         continue;
       }
@@ -104,18 +121,24 @@ export function createOutcomeRefresher(deps: {
     return { byKey, unreachable };
   }
 
-  async function read(outcome: ClaimedOutcome): Promise<{
+  async function read(
+    outcome: ClaimedOutcome,
+    leased: () => boolean,
+  ): Promise<{
     check: OutcomeCheck;
     rateLimit: GitHubRateLimit | null;
     limited: boolean;
   }> {
-    const failed = (
-      checkError: "not_found" | "forge_failed" | "github_refused",
-    ) => ({
+    const failed = (checkError: SessionOutcomeCheckError) => ({
       check: { kind: "error" as const, checkError },
       rateLimit: null,
       limited: false,
     });
+    const release = {
+      check: { kind: "release" as const },
+      rateLimit: null,
+      limited: false,
+    };
     let grant: Awaited<ReturnType<GitHubGate["grant"]>>;
     try {
       grant = await gate.grant({
@@ -125,17 +148,25 @@ export function createOutcomeRefresher(deps: {
       });
     } catch (error) {
       if (error instanceof GitHubGateError) return failed("github_refused");
-      if (
-        error instanceof GitHubUnavailableError ||
-        error instanceof ForgeCredentialError
-      ) {
+      if (error instanceof ForgeCredentialError) {
+        const entry = Object.hasOwn(catalog.repositories, outcome.repositoryId)
+          ? catalog.repositories[outcome.repositoryId]
+          : undefined;
+        const repo = entry ? repoRefOf(entry.url) : null;
+        const connection = connections(outcome.repositoryId, "author");
+        return failed(
+          repo !== null && connection?.kind === "app"
+            ? await appFailure(connection, repo)
+            : "forge_failed",
+        );
+      }
+      if (error instanceof GitHubUnavailableError) {
         return failed("forge_failed");
       }
       throw error;
     }
-    if (grant === null) {
-      return { check: { kind: "release" }, rateLimit: null, limited: false };
-    }
+    // A slow grant can outlast the lease; another replica may read it now.
+    if (grant === null || !leased()) return release;
     try {
       const { pullRequest, rateLimit } = await grant.api.getPullRequest(
         outcome.number,
@@ -211,22 +242,25 @@ export function createOutcomeRefresher(deps: {
     }
     let reads = 0;
     for (const [quotaKey, repositoryIds] of byKey) {
+      // The lease runs from the claim's transaction start, which is no
+      // earlier than this, so the rows are surely still ours before it.
+      const leasedUntil = now().getTime() + leaseMs;
+      const leased = () => now().getTime() < leasedUntil;
       const claimed = await store.claim({
         quotaKey,
         repositoryIds,
         max: claimMax,
         leaseMs,
       });
-      const leasedUntil = now().getTime() + leaseMs;
       let paused = false;
       for (const outcome of claimed) {
         // Once the unit pauses, the rest go back unread; so do rows whose
         // lease ran out meanwhile, which another replica may hold by now.
-        if (paused || now().getTime() >= leasedUntil) {
+        if (paused || !leased()) {
           await store.finish(outcome, { kind: "release" });
           continue;
         }
-        const { check, rateLimit, limited } = await read(outcome);
+        const { check, rateLimit, limited } = await read(outcome, leased);
         reads += 1;
         const kept = await store.finish(outcome, check);
         if (!kept) {

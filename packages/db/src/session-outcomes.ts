@@ -287,7 +287,13 @@ export function createPostgresSessionOutcomes(
       );
       const rows = await db
         .update(sessionOutcomes)
-        .set({ checkError, stateCheckedAt: sql`now()` })
+        // An expired lease goes too, so its late answer cannot land on this.
+        .set({
+          checkError,
+          stateCheckedAt: sql`now()`,
+          leaseToken: null,
+          leaseExpiresAt: null,
+        })
         .where(
           sql`${sessionOutcomes.id} IN (SELECT ${sessionOutcomes.id} FROM ${sessionOutcomes} WHERE ${due} AND ${sessionOutcomes.repositoryId} IN (${repositories}) ORDER BY ${sessionOutcomes.stateCheckedAt} NULLS FIRST, ${sessionOutcomes.createdAt} LIMIT ${limit} FOR UPDATE SKIP LOCKED)`,
         )
