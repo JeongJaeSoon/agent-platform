@@ -684,6 +684,11 @@ integration("worker gateway on PostgreSQL", () => {
     const gate = createPostgresGitHubGateStore(db);
 
     expect((await gate.context(session.session_id))?.release).toBeNull();
+    // As accepted and as the gateway compares it to the catalog entry.
+    expect((await gate.context(session.session_id))?.repository).toEqual({
+      url: "https://example.invalid/app.git",
+      branch: "main",
+    });
     await pinTo(await release({}));
     expect((await gate.context(session.session_id))?.release?.github).toBe(
       null,

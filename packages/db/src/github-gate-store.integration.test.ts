@@ -61,6 +61,10 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
       "INSERT INTO users (id, email, password_hash, display_name) VALUES ($1, $2, 'x', 'owner')",
       [userId, `${userId}@example.invalid`],
     );
+    await pool.query(
+      "INSERT INTO memberships (workspace_id, user_id, role) VALUES ($1, $2, 'owner')",
+      [workspaceId, userId],
+    );
     return { workspaceId, userId };
   }
 
@@ -261,6 +265,41 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
       author: null,
       reviewer: null,
     });
+  });
+
+  test("a ceiling put by someone demoted or disabled after the policy's check stores nothing", async () => {
+    const { workspaceId, userId } = await workspace();
+    const store = createPostgresGitHubSettingsStore(db);
+    const put = () =>
+      store.putCeiling({
+        workspaceId,
+        ceiling: { ...GITHUB_CEILING_NONE, actions: true },
+        revision: 0,
+        updatedBy: userId,
+        actor: ownerActor(userId),
+      });
+    await pool.query(
+      "UPDATE memberships SET role = 'member' WHERE workspace_id = $1 AND user_id = $2",
+      [workspaceId, userId],
+    );
+    expect(await put()).toEqual({ outcome: "actor_inactive" });
+    await pool.query(
+      "UPDATE memberships SET role = 'admin' WHERE workspace_id = $1 AND user_id = $2",
+      [workspaceId, userId],
+    );
+    await pool.query("UPDATE users SET disabled_at = now() WHERE id = $1", [
+      userId,
+    ]);
+    expect(await put()).toEqual({ outcome: "actor_inactive" });
+    expect(await store.get(workspaceId)).toEqual({
+      ceiling: GITHUB_CEILING_NONE,
+      revision: 0,
+    });
+    const { rows } = await pool.query(
+      "SELECT 1 FROM receipts WHERE operation = 'set_github_ceiling' AND owner_id = $1",
+      [workspaceId],
+    );
+    expect(rows).toEqual([]);
   });
 
   test("a release with push_approval false creates the push request approved, by policy", async () => {
