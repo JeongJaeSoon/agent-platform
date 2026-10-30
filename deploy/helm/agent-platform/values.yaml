@@ -289,6 +289,16 @@ metrics:
   affinity: {}
   extraEnv: {}
 
+# The pre-upgrade check (templates/upgrade-check-job.yaml): an upgrade that
+# changes the worker image stops unless every session it would leave with no
+# image to resume on is listed here, exactly the list the check prints.
+upgrade:
+  approvedSessions: []
+  activeDeadlineSeconds: 300
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 512Mi}
+
 # Must not run while a backup is being taken (docs/operator/backup-restore.md).
 checkpointGc:
   enabled: true

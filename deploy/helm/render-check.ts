@@ -22,7 +22,11 @@ const awsExample = join(chart, "values-aws.example.yaml");
 
 type Manifest = {
   kind: string;
-  metadata: { name: string; labels?: Record<string, string> };
+  metadata: {
+    name: string;
+    labels?: Record<string, string>;
+    annotations?: Record<string, string>;
+  };
   // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
   spec?: any;
   // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
@@ -644,6 +648,87 @@ function checkMetrics(
 }
 
 // Renders that must fail, each with the message that says why.
+const componentOf = (m: Manifest) =>
+  m.metadata.labels?.["app.kubernetes.io/component"];
+
+// The upgrade check gates the migration, so it must run first, on upgrades
+// only, once, and see nothing but the database and the release's own values.
+function checkUpgradeHook(
+  label: string,
+  manifests: Manifest[],
+  scheduler: boolean,
+  approved: string[],
+): string[] {
+  const errors: string[] = [];
+  const checks = manifests.filter((m) => componentOf(m) === "upgrade-check");
+  if (!scheduler) {
+    if (checks.length > 0) {
+      errors.push(`${label}: the upgrade check renders with no scheduler`);
+    }
+    return errors;
+  }
+  const [job] = checks;
+  const migrate = manifests.find((m) => componentOf(m) === "migrate");
+  if (checks.length !== 1 || job?.kind !== "Job" || migrate === undefined) {
+    return [`${label}: expected one upgrade-check Job beside the migrate Job`];
+  }
+  const fail = (message: string) =>
+    errors.push(`${label}: Job/${job.metadata.name}: ${message}`);
+  const hook = job.metadata.annotations ?? {};
+  if (hook["helm.sh/hook"] !== "pre-upgrade") {
+    fail(`hook is ${hook["helm.sh/hook"]}, not pre-upgrade alone`);
+  }
+  const weight = Number(hook["helm.sh/hook-weight"]);
+  const migrateWeight = Number(
+    migrate.metadata.annotations?.["helm.sh/hook-weight"],
+  );
+  if (!(weight < migrateWeight)) {
+    fail(
+      `hook weight ${weight} does not run before migrate (${migrateWeight})`,
+    );
+  }
+  if (job.spec?.backoffLimit !== 0) fail("backoffLimit is not 0");
+  const env: { name: string; value?: string; valueFrom?: unknown }[] =
+    job.spec.template.spec.containers[0].env;
+  const secrets = env.filter((e) => e.valueFrom !== undefined);
+  if (secrets.map((e) => e.name).join() !== "DATABASE_URL") {
+    fail(`secret env ${secrets.map((e) => e.name).join()}, not DATABASE_URL`);
+  }
+  const value = (name: string) => env.find((e) => e.name === name)?.value;
+  // lookup reads nothing under `helm template`, which the CLI refuses.
+  if (value("UPGRADE_DEPLOYED_WORKER_IMAGE") !== "") {
+    fail("UPGRADE_DEPLOYED_WORKER_IMAGE is not empty without a cluster");
+  }
+  if (!DIGEST_REF.test(value("WORKER_IMAGE") ?? "")) {
+    fail("WORKER_IMAGE is not the target worker digest");
+  }
+  // It must judge the images the target scheduler will launch on.
+  const schedulerDeployment = manifests.find(
+    (m) => m.kind === "Deployment" && componentOf(m) === "scheduler",
+  );
+  const schedulerEnv: { name: string; value?: string }[] =
+    schedulerDeployment === undefined
+      ? []
+      : podSpecOf(schedulerDeployment).containers[0].env;
+  for (const name of [
+    "WORKER_IMAGE",
+    "WORKER_IMAGE_PREVIOUS",
+    "WORKER_IMAGE_RUNTIME",
+    "WORKER_IMAGE_PREVIOUS_RUNTIME",
+  ]) {
+    const want = schedulerEnv.find((e) => e.name === name)?.value;
+    if (value(name) !== want) {
+      fail(`${name} is ${value(name)}, the scheduler's is ${want}`);
+    }
+  }
+  if (value("UPGRADE_APPROVED_SESSIONS") !== JSON.stringify(approved)) {
+    fail(
+      `UPGRADE_APPROVED_SESSIONS is ${value("UPGRADE_APPROVED_SESSIONS")}, not ${JSON.stringify(approved)}`,
+    );
+  }
+  return errors;
+}
+
 const MUST_FAIL: [string, string[], RegExp][] = [
   ["default values (no digests)", [], /digest must be sha256/],
   [
@@ -762,6 +847,24 @@ const errors = [
   ),
 ];
 errors.push(
+  ...checkUpgradeHook("default", render(["-f", ciDigests]), true, []),
+  ...checkUpgradeHook(
+    "approved sessions",
+    render([
+      "-f",
+      ciDigests,
+      "--set-json",
+      'upgrade.approvedSessions=["s-1","s-2"]',
+    ]),
+    true,
+    ["s-1", "s-2"],
+  ),
+  ...checkUpgradeHook(
+    "scheduler off",
+    render(["-f", ciDigests, "--set", "scheduler.enabled=false"]),
+    false,
+    [],
+  ),
   ...checkObjectStoreKeys("default", render(["-f", ciDigests]), true),
   ...checkObjectStoreKeys(
     "aws example",
@@ -914,6 +1017,12 @@ errors.push(
       previousImage: `ghcr.io/jeongjaesoon/agent-platform-worker@${PREVIOUS_DIGEST}`,
     },
   ),
+  ...checkUpgradeHook(
+    "two images",
+    render(["-f", ciDigests, ...workerImages]),
+    true,
+    [],
+  ),
 );
 for (const [label, args, message] of MUST_FAIL) {
   const { ok, out } = helmTemplate(args);
@@ -961,5 +1070,5 @@ if (errors.length > 0) {
   process.exit(1);
 }
 console.log(
-  `render-check: default and aws example renders pass, scheduler off and on, slack off, preview on, metrics on, worker images (one, current runtime, two) alike on api, slack and scheduler; ${MUST_FAIL.length} bad inputs, an internet-facing ALB and a preview aws example refused`,
+  `render-check: default and aws example renders pass, scheduler off and on, slack off, preview on, metrics on, worker images (one, current runtime, two) alike on api, slack and scheduler, the upgrade check ahead of migrate; ${MUST_FAIL.length} bad inputs, an internet-facing ALB and a preview aws example refused`,
 );
