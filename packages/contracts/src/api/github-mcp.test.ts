@@ -31,9 +31,9 @@ describe("githubMcpTools", () => {
     expect(
       githubMcpTools(settings({ workflows: true, checks: true, issues: true })),
     ).toEqual(["request_push", "open_pull_request", "comment_pull_request"]);
-    expect(githubMcpTools(settings({ actions: true, review: true }))).toEqual(
-      Object.keys(GITHUB_MCP_TOOL_ARGUMENTS),
-    );
+    expect<string[]>(
+      githubMcpTools(settings({ actions: true, review: true })),
+    ).toEqual(Object.keys(GITHUB_MCP_TOOL_ARGUMENTS));
     expect(githubMcpToolNames(settings({ review: true }))).toContain(
       "mcp__github__submit_review",
     );

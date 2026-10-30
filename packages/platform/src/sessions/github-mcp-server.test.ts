@@ -420,6 +420,14 @@ describe("the protocol", () => {
         "r",
       ),
     ).toMatchObject({ error: { code: -32601 } });
+    expect(
+      await handle(grant, { jsonrpc: "2.0", id: 4, result: {} }, "r"),
+    ).toBeNull();
+    expect(await handle(grant, { jsonrpc: "2.0", id: 5 }, "r")).toEqual({
+      jsonrpc: "2.0",
+      id: null,
+      error: { code: -32600, message: "Invalid request" },
+    });
   });
 });
 

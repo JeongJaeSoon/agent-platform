@@ -269,7 +269,20 @@ export function createGitHubMcpServer(deps: {
     }
     const id = message.id;
     // A notification, or a response to a request this server never sends.
-    if (typeof message.method !== "string" || id === undefined) return null;
+    if (
+      typeof message.method === "string"
+        ? id === undefined
+        : "result" in message || "error" in message
+    ) {
+      return null;
+    }
+    if (typeof message.method !== "string") {
+      return {
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: -32600, message: "Invalid request" },
+      };
+    }
     if (typeof id !== "string" && typeof id !== "number") {
       return {
         jsonrpc: "2.0",

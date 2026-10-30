@@ -356,6 +356,24 @@ describe("the built-in github MCP server on stored rows", () => {
     expect(builtin.status).toBe(200);
   });
 
+  test("a checkpoint made before the server was attached still restores", async () => {
+    const { claim } = await seeded({ github: settings({ actions: true }) });
+    const { mcp_servers: _servers, ...unattached } = claim.runtime_config;
+    expect(claim.restore_runtime_configs).toEqual([
+      { ...unattached, tools: ["Read"] },
+    ]);
+  });
+
+  test("beside a catalog server, the earlier checkpoint names that server alone", async () => {
+    const { claim } = await seeded({ remote: true });
+    expect(
+      claim.restore_runtime_configs?.map((config) => [
+        config.mcp_servers?.map((server) => server.name),
+        config.tools.filter((tool) => tool.startsWith("mcp__github__")),
+      ]),
+    ).toEqual([[["fake"], []]]);
+  });
+
   test("a release without GitHub settings attaches no server", async () => {
     const { claim } = await seeded({ github: null });
     expect(claim.runtime_config.mcp_servers).toBeUndefined();

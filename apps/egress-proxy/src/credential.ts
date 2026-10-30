@@ -266,6 +266,8 @@ export type EgressGrant = {
    * for the other routes, whose path comes from the route itself.
    */
   target: string | null;
+  /** The upstream was a `/mcp/<name>` path on the authorizer's listener. */
+  builtin: boolean;
 };
 
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
@@ -299,12 +301,10 @@ export function parseGrant(
   ) {
     return null;
   }
+  const builtin = authorizer !== undefined && MCP_PATH.test(url);
   let parsed: URL;
   try {
-    parsed =
-      authorizer !== undefined && MCP_PATH.test(url)
-        ? new URL(url, authorizer)
-        : new URL(url);
+    parsed = builtin ? new URL(url, authorizer) : new URL(url);
   } catch {
     return null;
   }
@@ -337,6 +337,7 @@ export function parseGrant(
     upstream: parsed,
     headers: pairs,
     target: target ?? null,
+    builtin,
   };
 }
 
@@ -839,11 +840,11 @@ export function startCredentialProxy(
     };
     // The upstream is the catalog's, not the worker's, and it is still held
     // to the same allowlist and address rules as anything a worker asks for.
-    // The one exception is the API's own built-in MCP server on the
-    // authorizer's listener: this process's control line, which no
-    // allowlist names on purpose.
+    // The one exception is the API's own built-in MCP server, named by a
+    // path on the authorizer's listener: this process's control line, which
+    // no allowlist names on purpose. A catalog URL to that origin is not it.
     const decision = await untilEnded(
-      route.purpose === "mcp" && upstream.origin === authorizeUrl.origin
+      route.purpose === "mcp" && grant.builtin
         ? authorizerDestination(host)
         : decideEgress(options.policy, { host, port }, resolve),
       signal,

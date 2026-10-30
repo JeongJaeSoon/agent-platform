@@ -202,6 +202,7 @@ describe("parseGrant", () => {
       upstream: new URL("https://api.test"),
       headers: [["x-api-key", "k"]],
       target: null,
+      builtin: false,
     });
     // The object store route's signed request line comes back verbatim.
     expect(
@@ -241,10 +242,16 @@ describe("parseGrant", () => {
   test("an MCP path is the authorizer's own server; no other path is", () => {
     const authorizer = new URL("http://api:3100/authorize");
     const builtin = { ...good, upstream: { url: "/mcp/github", headers: [] } };
-    expect(parseGrant(builtin, authorizer)?.upstream).toEqual(
-      new URL("http://api:3100/mcp/github"),
-    );
+    expect(parseGrant(builtin, authorizer)).toMatchObject({
+      upstream: new URL("http://api:3100/mcp/github"),
+      builtin: true,
+    });
     expect(parseGrant(builtin)).toBeNull();
+    const absolute = {
+      ...good,
+      upstream: { url: "http://api:3100/mcp/github", headers: [] },
+    };
+    expect(parseGrant(absolute, authorizer)?.builtin).toBe(false);
     for (const url of ["/authorize", "//evil.test/mcp/github", "/mcp/a/b"]) {
       expect(
         parseGrant({ ...good, upstream: { url, headers: [] } }, authorizer),
@@ -2043,6 +2050,45 @@ describe("startCredentialProxy", () => {
       // Another route to the same host is still held to the allowlist.
       const provider = await messages(server.port);
       expect(provider.status).toBe(403);
+    });
+
+    test("a catalog URL on the authorizer's origin is still held to the allowlist", async () => {
+      const seen: string[] = [];
+      let origin = "";
+      const api = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        async fetch(request) {
+          const path = new URL(request.url).pathname;
+          if (path === "/authorize") {
+            return Response.json({
+              session_id: "sess-1",
+              attempt_id: "att-1",
+              upstream: {
+                url: `${origin}/mcp/github`,
+                headers: [],
+              },
+            });
+          }
+          seen.push(path);
+          return Response.json({ jsonrpc: "2.0", id: 1, result: {} });
+        },
+      });
+      servers.push(api);
+      origin = `http://127.0.0.1:${api.port}`;
+      const server = proxy(`http://127.0.0.1:${api.port}`, 1, {
+        resolve: async (host) => (host === "127.0.0.1" ? ["127.0.0.1"] : []),
+      });
+      const response = await fetch(`http://127.0.0.1:${server.port}/mcp/fake`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${WORKER_TOKEN}`,
+          "content-type": "application/json",
+        },
+        body: '{"jsonrpc":"2.0","id":1,"method":"tools/list"}',
+      });
+      expect(response.status).toBe(403);
+      expect(seen).toEqual([]);
     });
 
     test("a refusal with a receipt names it; a batch never reaches the authorizer", async () => {

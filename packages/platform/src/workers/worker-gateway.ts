@@ -771,11 +771,12 @@ export function createWorkerGateway(deps: {
       | "restoreProfiles"
       | "repository"
     >,
+    current: RuntimeConfig,
     providerToken: string,
     mcp: readonly ClaimedMcpServer[],
     mcpToken: string,
   ): { restore_runtime_configs?: RuntimeConfig[] } {
-    const configs = binding.restoreProfiles.flatMap((made) => {
+    const alternates = binding.restoreProfiles.flatMap((made) => {
       if (
         made.profileId === binding.profileId &&
         made.profileFingerprint === binding.profileFingerprint &&
@@ -791,19 +792,20 @@ export function createWorkerGateway(deps: {
           })
         : null;
       return profile
-        ? [
-            withMcp(
-              runtimeConfigOf(
-                profile,
-                providerToken,
-                binding.repository !== null,
-              ),
-              mcp,
-              mcpToken,
-            ),
-          ]
+        ? [runtimeConfigOf(profile, providerToken, binding.repository !== null)]
         : [];
     });
+    // Checkpoints made before the built-in `github` server was attached
+    // name only the catalog server; they resume into a run that has both.
+    const legacy = mcp.filter((server) => server.name !== GITHUB_MCP_SERVER);
+    const configs = [
+      ...alternates.map((config) => withMcp(config, mcp, mcpToken)),
+      ...(legacy.length === mcp.length
+        ? []
+        : [current, ...alternates].map((config) =>
+            withMcp(config, legacy, mcpToken),
+          )),
+    ];
     return configs.length === 0
       ? {}
       : { restore_runtime_configs: configs.slice(0, MAX_RESTORE_PROFILES) };
@@ -1122,7 +1124,13 @@ export function createWorkerGateway(deps: {
             lease_expires_at: binding.leaseExpiresAt.toISOString(),
             lease_remaining_ms: binding.leaseRemainingMs,
             ...resolved,
-            ...restoreRuntimesOf(binding, providerToken, mcp, mcpToken),
+            ...restoreRuntimesOf(
+              binding,
+              profile.runtime_config,
+              providerToken,
+              mcp,
+              mcpToken,
+            ),
             workspace: {
               repository: binding.repository && {
                 ...binding.repository,
