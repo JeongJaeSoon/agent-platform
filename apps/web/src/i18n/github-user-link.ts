@@ -17,7 +17,7 @@ export const githubUserLinkKo = {
   "githubUserLink.secretSet": "입력됨",
   "githubUserLink.secretUnset": "입력 안 됨",
   "githubUserLink.secretHint":
-    "암호화해 저장하고 다시 보여 주지 않습니다. App을 바꾸거나 삭제하면 지워집니다.",
+    "암호화해 저장하고 다시 보여 주지 않습니다. 다른 App으로 바꾸거나 App을 삭제하면 지워집니다.",
   "githubUserLink.secretInputHint":
     "GitHub App 설정의 Client secrets에서 Generate a new client secret으로 만든 값입니다.",
   "githubUserLink.secretMissing": "client secret을 넣어 주세요.",
@@ -46,7 +46,7 @@ export const githubUserLinkEn: Record<keyof typeof githubUserLinkKo, string> = {
   "githubUserLink.secretSet": "Entered",
   "githubUserLink.secretUnset": "Not entered",
   "githubUserLink.secretHint":
-    "Stored encrypted and never shown again. Replacing or deleting the App removes it.",
+    "Stored encrypted and never shown again. Switching to another App or deleting the App removes it.",
   "githubUserLink.secretInputHint":
     "Made with Generate a new client secret under Client secrets in the GitHub App's settings.",
   "githubUserLink.secretMissing": "Enter the client secret.",
@@ -76,7 +76,7 @@ export const githubUserLinkJa: Record<keyof typeof githubUserLinkKo, string> = {
   "githubUserLink.secretSet": "入力済み",
   "githubUserLink.secretUnset": "未入力",
   "githubUserLink.secretHint":
-    "暗号化して保存し、再表示しません。App を差し替えるか削除すると消えます。",
+    "暗号化して保存し、再表示しません。別の App に切り替えるか App を削除すると消えます。",
   "githubUserLink.secretInputHint":
     "GitHub App 設定の Client secrets で Generate a new client secret から作成した値です。",
   "githubUserLink.secretMissing": "client secret を入力してください。",

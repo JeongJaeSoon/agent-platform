@@ -94,7 +94,7 @@ GitHub 토큰 하나가 가질 권한은 아래 다섯의 교집합이고, **발
 - **콘솔 주소.** 콜백 URL은 `<콘솔 origin>/settings/linked-accounts/github`, 세션 URL은 `<콘솔 origin>/sessions/<id>`다. 콘솔 origin은 새 환경 변수 `CONSOLE_ORIGIN`이고, 없으면 지금처럼 `SLACK_OIDC_REDIRECT_URI`의 origin이다. 둘 다 없으면 `oauth.callback_url`·`git.session_url`이 null이고, 연결 시작은 `github_oauth_unset`, commit에는 `Agent-Session` 트레일러가 들어가지 않으며 PR 꼬리는 세션 id만 싣는다.
 - **오류 코드.** 작성용 App·Client ID·client secret·콘솔 origin 가운데 하나라도 없으면 연결 시작과 callback이 `409` `GITHUB_LINK_NOT_CONFIGURED`(`reason_code: github_oauth_unset`)다. Slack의 `SLACK_LINK_NOT_CONFIGURED`와 같은 자리다. 같은 GitHub 계정이 다른 사람에게 연결돼 있으면 `409 LINK_TAKEN`, 이미 GitHub를 연결했으면 `409 LINK_EXISTS`, state 만료·불일치·GitHub의 code 거절은 `400`이다(Slack과 같다).
 - **state.** HttpOnly cookie `ap_github_link`(path `/v1/linked-accounts/github`, 10분)에 state, 시작한 사람, 만료 시각을 둔다. callback은 cookie를 늘 지우고, 만료 시각을 서버에서도 본다. 같은 code·state를 다시 보내면 cookie가 없어 `400`이다. GitHub의 code도 한 번만 쓰인다.
-- **client secret 저장.** `PUT …/github-settings/oauth-client-secret`는 작성용 App이 없으면 `409` `GITHUB_LINK_NOT_CONFIGURED`(`reason_code: no_author_app`)다. secret과 `oauth_client_secret_set`은 한 트랜잭션에서 쓰고 `set_github_app` receipt(`purpose: oauth_client_secret`, `last4`)를 남긴다. 응답은 `{ receipt_id, oauth }`이고 값은 어디에도 돌려주지 않는다. 지우는 경로는 따로 두지 않는다(작성용 App을 지우면 같이 지워진다).
+- **client secret 저장.** `PUT …/github-settings/oauth-client-secret`는 작성용 App이 없으면 `409` `GITHUB_LINK_NOT_CONFIGURED`(`reason_code: no_author_app`)다. 이 확인은 본문을 읽기 전에 한다(값을 받지 않고 거절한다). 저장소가 같은 확인을 잠금 안에서 한 번 더 한다. secret과 `oauth_client_secret_set`은 한 트랜잭션에서 쓰고 `set_github_app` receipt(`purpose: oauth_client_secret`, `last4`)를 남긴다. 응답은 `{ receipt_id, oauth }`이고 값은 어디에도 돌려주지 않는다. 지우는 경로는 따로 두지 않는다(작성용 App을 지우면 같이 지워진다).
 - **user token.** callback은 code를 `POST <github.com>/login/oauth/access_token`으로 바꾸고 `GET /user` 한 번으로 `id`·`login`만 읽은 뒤 token을 버린다. 로그에도 receipt에도 token·code·client secret을 싣지 않는다. `login`은 `^[A-Za-z0-9-]{1,39}$`, `id`는 양의 정수가 아니면 연결하지 않는다(`400`).
 - **hook 디렉터리.** `core.hooksPath`를 system에 두면 저장소의 `.git/hooks`가 돌지 않는다. 그래서 플랫폼 hook 디렉터리(`/usr/local/share/werft/git-hooks`)의 모든 client hook은 같은 스크립트 하나이고, 자기 일(`commit-msg`의 트레일러)을 한 뒤 저장소의 `.git/hooks/<이름>`이 실행 가능하면 그것을 그대로 부른다. `pre-commit install`처럼 `core.hooksPath`가 있으면 설치를 거절하는 도구는 그대로 거절한다(알려진 한계).
 - **트레일러 값의 전달.** worker는 claim을 받으면 `$HOME/.werft/git-trailers`에 트레일러를 한 줄에 하나씩 쓴다(`Co-authored-by: …`, `Agent-Session: …`). 값이 없으면 그 줄이 없고, 둘 다 없으면 파일을 지운다. hook은 그 파일의 줄을 `--trailer` argv로만 넘기고, 이 두 키가 아니거나 CR이 든 줄은 건너뛴다. engine의 환경 변수는 바꾸지 않는다.
@@ -266,7 +266,7 @@ export interface GitHubGate {
 | `workspace_id` | uuid PK FK workspaces | |
 | `ceiling` | jsonb NOT NULL | `{ workflows, actions, checks, issues, review }` boolean. 스키마는 contracts의 `githubCeilingSchema` 하나 |
 | `oauth_client_secret_set` | boolean NOT NULL DEFAULT false | 사용자 연결용 client secret이 `secret_values`(owner `{ kind: "github_app", id: <author 행 id> }`, purpose `github_oauth_client_secret`)에 있는지. 값은 다시 읽어 보여 주지 않는다. client secret은 App에 묶인 값이므로, 작성용 App을 지우거나 `app_id`가 다른 App으로 바꾸면 같은 트랜잭션에서 secret을 지우고 이 칸을 false로 둔다. 같은 App의 개인 키만 바꿀 때는 그대로 둔다(지금 교체는 같은 행을 고친다, `packages/db/src/github-apps.ts:111-120`. 삭제는 키 슬롯만 지운다, `153-158`). GA-4 테스트가 세 경우를 나눠 본다 |
-| `revision` | integer NOT NULL DEFAULT 1 | 쓸 때마다 +1. PUT은 `revision`을 받아 다르면 `409 REVISION_CONFLICT` |
+| `revision` | integer NOT NULL DEFAULT 1 | 쓸 때마다 +1. PUT은 `revision`을 받아 다르면 `409 REVISION_CONFLICT`. revision은 상한의 CAS다. client secret 쓰기는 바꾸지 않는다 |
 | `updated_by`, `updated_at` | uuid, timestamptz | |
 
 행이 없으면 상한은 모두 false이고 client secret은 없다.
