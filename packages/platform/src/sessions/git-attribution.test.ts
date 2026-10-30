@@ -134,6 +134,13 @@ describe("replacing the pull request tail", () => {
         `${tail}\n\n${quoted}`,
       );
     }
+    const indented = block("HUMAN NOTES")
+      .split("\n")
+      .map((line) => `    ${line}`)
+      .join("\n");
+    expect(
+      withPullRequestTail(`${block("old")}\n\nUsage:\n\n${indented}`, tail),
+    ).toBe(`${tail}\n\nUsage:\n\n${indented}`);
     // A longer closing run still closes; the real tail after it is found.
     const closed = `\`\`\`\ncode\n\`\`\`\`\n\n${block("old")}`;
     expect(withPullRequestTail(closed, tail)).toBe(

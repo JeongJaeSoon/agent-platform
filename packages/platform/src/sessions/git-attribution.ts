@@ -139,9 +139,9 @@ export function pullRequestTail(input: {
 
 /**
  * `body` with its tail replaced by `tail`. The tail is a start marker line
- * and the next end marker line, each alone on its line and outside a fenced
- * code block, and the last such pair is the one replaced: a marker a person
- * quotes in a sentence or a code block is text. A body without such a pair
+ * and the next end marker line, each alone and unindented on its line and
+ * outside a fenced code block, and the last such pair is the one replaced: a
+ * marker a person quotes in a sentence or a code block is text. A body without such a pair
  * (from before the end marker, or one a person cut it from) keeps all it has
  * and gets the tail added.
  */
@@ -172,7 +172,9 @@ export function withPullRequestTail(body: string, tail: string): string {
       fence = marks;
       continue;
     }
-    const text = line.trim();
+    // The platform writes its markers flush left; an indented one is quoted
+    // (an indented code block, a list item).
+    const text = line.trimEnd();
     if (text === PULL_REQUEST_TAIL_MARKER) start = at;
     else if (text === PULL_REQUEST_TAIL_END_MARKER && start !== -1) {
       pair = [start, at];
