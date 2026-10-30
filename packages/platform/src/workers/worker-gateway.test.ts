@@ -1076,6 +1076,32 @@ describe("WorkerGateway", () => {
     await expect(
       claimWith({ ...binding, model: "claude-fable-5-1" }),
     ).rejects.toMatchObject({ status: 503, code: "BACKEND_UNAVAILABLE" });
+
+    // A checkpoint from before the built-in server, under the profile the
+    // session runs now, survives the cap however many others there are.
+    const withGitHub = {
+      ...binding,
+      githubMcp: { releaseId: "rel-1", tools: ["mcp__github__request_push"] },
+      restoreProfiles: Array.from({ length: 16 }, () => ({
+        profileId: "optional",
+        profileFingerprint: profileFingerprint(optional),
+        model: "claude-sonnet-5" as string | null,
+      })),
+    };
+    const restored = (await claimWith(withGitHub)).restore_runtime_configs;
+    expect(restored).toHaveLength(16);
+    expect(
+      restored
+        ?.slice(0, 3)
+        .map((config) => [
+          config.mcp_servers?.map((server) => server.name),
+          config.tools,
+        ]),
+    ).toEqual([
+      [undefined, ["Write"]],
+      [["github"], ["Read", "mcp__github__request_push"]],
+      [undefined, ["Read"]],
+    ]);
   });
 
   test("bootstrapClaim answers a launch whose session was failed for a catalog mismatch with a final 409", async () => {

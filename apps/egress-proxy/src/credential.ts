@@ -4,6 +4,7 @@ import { createProxyLogger, type ProxyLogger } from "./logger.ts";
 import {
   classifyAddress,
   decideEgress,
+  type EgressDecision,
   type EgressPolicy,
   type EgressResolver,
   normalizeHost,
@@ -265,6 +266,8 @@ export type EgressGrant = {
    * for the other routes, whose path comes from the route itself.
    */
   target: string | null;
+  /** The upstream was a `/mcp/<name>` path on the authorizer's listener. */
+  builtin: boolean;
 };
 
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
@@ -276,7 +279,14 @@ const REQUEST_TARGET = /^\/[!-~]*$/;
  * library, and it is about to put these bytes on the wire with a credential
  * in them.
  */
-export function parseGrant(body: unknown): EgressGrant | null {
+export function parseGrant(
+  body: unknown,
+  /**
+   * The authorizer asked. An MCP upstream given as a `/mcp/<name>` path is a
+   * server the API serves itself on that listener, which no worker reaches.
+   */
+  authorizer?: URL,
+): EgressGrant | null {
   if (typeof body !== "object" || body === null) return null;
   const { session_id, attempt_id, upstream } = body as Record<string, unknown>;
   if (typeof session_id !== "string" || typeof attempt_id !== "string") {
@@ -291,9 +301,10 @@ export function parseGrant(body: unknown): EgressGrant | null {
   ) {
     return null;
   }
+  const builtin = authorizer !== undefined && MCP_PATH.test(url);
   let parsed: URL;
   try {
-    parsed = new URL(url);
+    parsed = builtin ? new URL(url, authorizer) : new URL(url);
   } catch {
     return null;
   }
@@ -326,6 +337,7 @@ export function parseGrant(body: unknown): EgressGrant | null {
     upstream: parsed,
     headers: pairs,
     target: target ?? null,
+    builtin,
   };
 }
 
@@ -719,7 +731,10 @@ export function startCredentialProxy(
         ? { kind: "refused", status }
         : { kind: "refused", status, receiptId };
     }
-    const grant = parseGrant(await response.json().catch(() => null));
+    const grant = parseGrant(
+      await response.json().catch(() => null),
+      authorizeUrl,
+    );
     if (grant === null) {
       logger.error("Egress authorizer answered something unusable", {});
       return { kind: "refused", status: 503 };
@@ -778,6 +793,25 @@ export function startCredentialProxy(
     }
   }
 
+  async function authorizerDestination(host: string): Promise<EgressDecision> {
+    try {
+      const addresses = await resolve(host);
+      return addresses.length === 0
+        ? {
+            allowed: false,
+            failure: "unresolved",
+            reason: "host does not resolve",
+          }
+        : { allowed: true, scope: "private", addresses };
+    } catch {
+      return {
+        allowed: false,
+        failure: "unresolved",
+        reason: "host does not resolve",
+      };
+    }
+  }
+
   async function exchange(
     request: Request,
     route: CredentialRoute,
@@ -806,8 +840,13 @@ export function startCredentialProxy(
     };
     // The upstream is the catalog's, not the worker's, and it is still held
     // to the same allowlist and address rules as anything a worker asks for.
+    // The one exception is the API's own built-in MCP server, named by a
+    // path on the authorizer's listener: this process's control line, which
+    // no allowlist names on purpose. A catalog URL to that origin is not it.
     const decision = await untilEnded(
-      decideEgress(options.policy, { host, port }, resolve),
+      route.purpose === "mcp" && grant.builtin
+        ? authorizerDestination(host)
+        : decideEgress(options.policy, { host, port }, resolve),
       signal,
     );
     if (!decision.allowed) {

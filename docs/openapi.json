@@ -13337,6 +13337,23 @@
                       "type": "integer",
                       "minimum": 0,
                       "maximum": 9007199254740991
+                    },
+                    "slack_action": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "events_failed",
+                            "events_unverified",
+                            "install",
+                            "reinstall",
+                            "home_unset"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -13346,7 +13363,8 @@
                     "bound_credential_refs",
                     "admins",
                     "needs_input_count",
-                    "running_count"
+                    "running_count",
+                    "slack_action"
                   ],
                   "additionalProperties": false
                 }

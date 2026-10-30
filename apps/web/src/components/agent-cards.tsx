@@ -34,6 +34,7 @@ import { credentialBindingsQuery } from "../routes/agent-detail/credentials.tsx"
 import { AgentStateBadge, agentState } from "./agent-state.tsx";
 import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
 import { useSeen } from "./seen.ts";
+import { SlackActionLink } from "./slack-action-link.tsx";
 
 /** The design's cards: what each agent is and what it still needs. */
 export function AgentCards({
@@ -159,7 +160,7 @@ function AgentCard({
   bound,
   admins,
 }: {
-  readonly agent: Agent;
+  readonly agent: AgentListItem;
   readonly facts: Part<Facts>;
   readonly bound: Part<readonly string[]>;
   readonly admins: Part<readonly string[]>;
@@ -262,6 +263,7 @@ function AgentCard({
             </Detail>
           </Fact>
         </dl>
+        <SlackActionLink agent={agent} />
       </CardContent>
       <CardFooter className="justify-between gap-3 border-t pt-4 text-control">
         <span className="min-w-0 truncate text-muted-foreground">

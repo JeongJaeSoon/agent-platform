@@ -13,6 +13,7 @@ import {
   createPostgresDecisionLog,
   createPostgresGitHubAppStore,
   createPostgresGitHubGateStore,
+  createPostgresGitHubMcpStore,
   createPostgresGitHubOAuthStore,
   createPostgresGitHubSettingsStore,
   createPostgresInstallationProfileStore,
@@ -62,6 +63,7 @@ import {
   createCredentialBindingService,
   createGitHubAppService,
   createGitHubGate,
+  createGitHubMcpServer,
   createGitHubSettingsService,
   createGitHubWorkService,
   createInstallationProfileService,
@@ -144,6 +146,7 @@ import {
 import {
   createEgressAuthorizer,
   egressAuthorizerConfigFromEnv,
+  githubMcpGrantKeyOf,
   sessionTitleEgressUrlFromEnv,
 } from "./egress-authorizer.ts";
 import {
@@ -758,15 +761,42 @@ const pushRequests = createPushRequestService({
   source: checkpoints.pushSource,
   catalog,
 });
+const pullRequestStore = createPostgresPullRequests(db);
 const pullRequests = createPullRequestService({
   authorization,
-  store: createPostgresPullRequests(db),
+  store: pullRequestStore,
   catalog,
   gate: github,
   redact: sanitizeText,
   attribution: sessionAttribution,
   consoleOrigin,
   logger,
+});
+// The built-in `github` MCP server: the same services as the session API,
+// each made with the authorization of the one session a grant names.
+const githubMcpStore = createPostgresGitHubMcpStore(db);
+const githubMcp = createGitHubMcpServer({
+  store: githubMcpStore,
+  services: (bound) => ({
+    pushRequests: createPushRequestService({
+      authorization: bound,
+      store: pushStore,
+      source: checkpoints.pushSource,
+      catalog,
+    }),
+    pullRequests: createPullRequestService({
+      authorization: bound,
+      store: pullRequestStore,
+      catalog,
+      gate: github,
+      redact: sanitizeText,
+    }),
+    githubWork: createGitHubWorkService({
+      authorization: bound,
+      gate: github,
+      store: githubGateStore,
+    }),
+  }),
 });
 const pushExecutor = createPushExecutor({
   store: pushStore,
@@ -789,6 +819,13 @@ if (titleEgressUrl === null) {
     {},
   );
 }
+// The egress proxy's authorizer, on a port of its own that no
+// worker allowlist names. Read before anything listens, so a half-set pair
+// stops the process instead of starting an API whose workers cannot reach
+// their provider.
+const egressAuthorizer = egressAuthorizerConfigFromEnv(process.env);
+const githubMcpGrantKey =
+  egressAuthorizer === null ? null : githubMcpGrantKeyOf(egressAuthorizer);
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db, { logger }),
   catalog,
@@ -808,6 +845,9 @@ const workers = createWorkerGateway({
     logger.error("MCP refusal receipt not recorded", {
       error: error instanceof Error ? error.name : "error",
     }),
+  ...(githubMcpGrantKey === null
+    ? {}
+    : { githubMcp: { store: githubMcpStore, grantKey: githubMcpGrantKey } }),
   ...(titleEgressUrl === null
     ? {}
     : {
@@ -838,11 +878,6 @@ const workers = createWorkerGateway({
     stopWaiting: shutdown.stopWaiting,
   },
 });
-// The egress proxy's authorizer, on a port of its own that no
-// worker allowlist names. Read before anything listens, so a half-set pair
-// stops the process instead of starting an API whose workers cannot reach
-// their provider.
-const egressAuthorizer = egressAuthorizerConfigFromEnv(process.env);
 const authorizerListener =
   egressAuthorizer === null
     ? undefined
@@ -852,6 +887,11 @@ const authorizerListener =
         fetch: createEgressAuthorizer({
           gateway: workers,
           logger,
+          ...(githubMcpGrantKey === null
+            ? {}
+            : {
+                githubMcp: { handle: githubMcp, grantKey: githubMcpGrantKey },
+              }),
           ...(checkpointStorage === "disabled"
             ? {}
             : { objectStore: checkpointObjectRouteSigner(checkpointStorage) }),
