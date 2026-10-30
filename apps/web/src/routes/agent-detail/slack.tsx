@@ -574,9 +574,11 @@ export function SlackConnect({
   const events = app.data?.events;
   const pending = record?.state === "creating" || record?.state === "deleting";
   const status = slackState(error, identity, record);
+  // An older API sends no state; leave the create error to say why.
+  const configToken = app.data?.config_token;
   const tokenBlock =
-    !record && app.data && app.data.config_token !== "active"
-      ? app.data.config_token
+    !record && (configToken === "unset" || configToken === "needs_reentry")
+      ? configToken
       : null;
   return (
     <>

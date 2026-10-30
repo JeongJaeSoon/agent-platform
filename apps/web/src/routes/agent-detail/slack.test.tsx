@@ -1226,6 +1226,19 @@ describe("Slack management", () => {
     ).toBeNull();
   });
 
+  test("does not block installing an app that already exists when the token is unset", async () => {
+    renderAt(DETAIL, {
+      ...routes(),
+      [`GET ${PATH}/slack/app`]: () =>
+        json(200, appResponse(APP, [], "unset")),
+    });
+    const install = await screen.findByRole("button", {
+      name: "Slack 앱 설치",
+    });
+    expect((install as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByText(/App Configuration Token/)).toBeNull();
+  });
+
   const subscribed = (
     events: components["schemas"]["GetSlackAppResponse"]["events"],
     eventUrl: string | null = `https://events.test/v1/slack/events/${AGENT_ID}`,
