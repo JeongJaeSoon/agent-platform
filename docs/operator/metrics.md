@@ -47,7 +47,7 @@ curl -s localhost:9464/metrics
 
 - **scrape할 때 DB에서 계산한다.** `metrics` 역할(`bun run apps/control-host/src/main.ts metrics`)은 상태를 갖지 않는다. 요청마다 `packages/db/src/metrics-reader.ts`의 질의로 DB를 읽어 `apps/control-host/src/metrics/families.ts`가 지표로 바꾼다. 그래서 Pod가 재시작해도 counter가 0으로 돌아가지 않는다.
 - **target은 하나다.** 값은 설치 전체의 합이라 replica가 둘이면 같은 값을 두 번 낸다. chart가 replica를 1로 고정하고 `Recreate`로 바꾼다.
-- **읽기 전용 연결이다.** DB 연결은 `default_transaction_read_only=on`으로 열려 있어 쓰기는 DB가 거절한다.
+- **읽기 전용 연결이다.** DB 연결은 `default_transaction_read_only=on`으로 열려 있어 실수로 보낸 쓰기는 DB가 거절한다. 세션 설정일 뿐 DB 권한은 아니다. `DATABASE_URL`의 계정은 다른 역할과 같아 쓰기 권한이 있고, 연결 안에서 설정을 되돌리면 쓸 수 있다.
 - **동시 scrape는 한 번 읽는다.** 읽는 동안 들어온 요청은 같은 결과를 받는다. 읽기가 실패하면 503을 돌려주고 이전 값을 내지 않는다(수집기에서는 scrape 실패, Prometheus의 `up` = 0).
 - **`/healthz`** 는 프로세스가 응답하는지만 본다. probe는 DB를 읽지 않는다.
 
@@ -93,7 +93,7 @@ curl -s localhost:9464/metrics
 ### 도구 결과와 거절
 
 - `ok`·`failed`·`unknown`은 `tool_calls.outcome`(도구 결과 블록의 `is_error`)이다.
-- `denied`는 사람이 permission 요청에 `deny`로 답한 호출이다. `pending_requests`(`kind = 'permission'`, `answer.decision = 'deny'`)와 `tool_calls`를 `(session_id, tool_use_id)`로 잇는다. tool_use id는 provider가 주는 고유값이라, 멈춰 둔 요청에 다음 attempt가 답한 경우도 같은 호출로 잇는다.
+- `denied`는 사람이 permission 요청에 `deny`로 답한 호출이다. `pending_requests`(`kind = 'permission'`, `answer.decision = 'deny'`)와 `tool_calls`를 `(session_id, tool_use_id)`로 잇는다. tool_use id는 provider가 주는 고유값이라, 멈춰 둔 요청에 다음 attempt가 답한 경우도 같은 호출로 잇는다. 같은 tool_use에 `deny` 답이 하나라도 있으면 그 뒤에 다시 허용되어 실행됐더라도 `denied`로 센다.
 - 에이전트 도구 정책의 `deny`, 만료되거나 취소된 요청, `tool_use_id`를 보내지 않는 옛 worker의 거절은 `denied`가 아니라 결과 블록대로(`failed` 등) 센다.
 
 ### 비용과 토큰
@@ -116,7 +116,7 @@ curl -s localhost:9464/metrics
 
 - 세션 id, turn id, 사용자 id, API key id, 에이전트 id, attempt id는 라벨로 쓰지 않는다. 에이전트별 비용은 `GET /v1/usage/*`로 본다.
 - `state`·`status`·`admission`·`outcome`·`priced_by`·`kind`·`le`는 정해진 값만 나온다.
-- `tool`과 `model`은 데이터에서 온다. MCP 도구 `mcp__<server>__<tool>`은 `mcp__<server>`로 접는다. 그다음 처음 나타난 순서로 `tool`은 100개, `model`은 50개까지만 이름을 두고 나머지는 `other`로 합친다. 행을 지우지 않으므로 한 번 이름을 얻은 값은 `other`로 옮겨 가지 않는다.
+- `tool`과 `model`은 데이터에서 온다. MCP 도구 `mcp__<server>__<tool>`은 `mcp__<server>`로 접는다. 그다음 처음 나타난 순서로 `tool`은 100개, `model`은 50개까지만 이름을 두고 나머지는 `other`로 합친다. 행을 지우지 않으므로 이름을 얻은 값은 보통 그대로 남는다. 다만 상한이 찬 뒤 projection이 늦게 넣은 행이 더 이른 시각을 가지면 이름 하나가 `other`와 자리를 바꿀 수 있고, 그때 그 이름과 `other`의 counter가 한 번 튀거나 reset으로 읽힌다.
 - 테스트: `apps/control-host/src/metrics/families.test.ts`의 cardinality 절이 라벨 이름 목록, id 모양 값이 없음, 상한을 확인한다.
 
 ## compose 지표와의 대응
