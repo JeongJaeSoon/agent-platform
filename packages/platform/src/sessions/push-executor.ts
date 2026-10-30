@@ -3,14 +3,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   PUSH_BRANCH_PREFIX,
+  type PushReasonCode,
   type PushRefusal,
   pushBranchFor,
 } from "@werft-ai/contracts";
 import type { PushBundlesResult } from "../checkpoints/checkpoint-service.ts";
-import type { ForgeResolver } from "../ports/forge.ts";
-import { repoRefOf } from "../ports/forge.ts";
 import type { GitPusher } from "../ports/git-push.ts";
-import type { SessionGitHubSettings } from "../ports/github-settings.ts";
+import {
+  type GitHubGate,
+  GitHubGateError,
+  type GitHubGrant,
+  GitHubUnavailableError,
+} from "../ports/github-gate.ts";
 import type {
   PushJob,
   PushOutcome,
@@ -58,8 +62,7 @@ export interface PushBundleSource {
 export function createPushExecutor(deps: {
   store: PushRequestStore;
   catalog: SessionCatalog;
-  forges: ForgeResolver;
-  github: SessionGitHubSettings;
+  gate: GitHubGate;
   bundles: PushBundleSource;
   pusher: GitPusher;
   logger: PushExecutorLogger;
@@ -75,7 +78,13 @@ export function createPushExecutor(deps: {
     const refuse = (
       refusal: PushRefusal,
       remote?: { remoteUrl: string; remoteRef: string },
-    ): PushOutcome => ({ state: "failed", refusal, ...remote });
+      reasonCode?: PushReasonCode,
+    ): PushOutcome => ({
+      state: "failed",
+      refusal,
+      ...remote,
+      ...(reasonCode === undefined ? {} : { reasonCode }),
+    });
     if (job.attempt > maxAttempts) return refuse("lease_expired");
     const repository = Object.hasOwn(catalog.repositories, job.repositoryId)
       ? catalog.repositories[job.repositoryId]
@@ -99,19 +108,27 @@ export function createPushExecutor(deps: {
       return refuse("target_refused", remote);
     }
     if (branch === repository.branch) return refuse("default_branch", remote);
-    if (await deps.github.pinned(job.sessionId)) {
-      return refuse("github_settings_unsupported", remote);
+    let grant: GitHubGrant | null;
+    try {
+      grant = await deps.gate.grant({
+        sessionId: job.sessionId,
+        purpose: "push",
+        actor: null,
+      });
+    } catch (error) {
+      if (error instanceof GitHubGateError) {
+        return refuse("github_refused", remote, error.reasonCode);
+      }
+      if (error instanceof GitHubUnavailableError) {
+        return refuse("no_push_credential", remote);
+      }
+      throw error;
     }
-    const forge = deps.forges(job.repositoryId);
-    const repo = repoRefOf(repository.url);
     let headers: ReadonlyArray<readonly [string, string]>;
-    if (forge !== null && repo !== null) {
-      const { defaultBranch } = await forge.getRepository(repo);
+    if (grant !== null) {
+      const { defaultBranch } = await grant.api.getRepository();
       if (branch === defaultBranch) return refuse("default_branch", remote);
-      headers = repositoryUpstreamOf(
-        repository,
-        await forge.gitCredential(repo, "write"),
-      ).headers;
+      headers = repositoryUpstreamOf(repository, grant.gitCredential).headers;
     } else if (repository.auth?.kind === "github_app") {
       return refuse("no_push_credential", remote);
     } else {
@@ -155,7 +172,7 @@ export function createPushExecutor(deps: {
           refusal: pushed.refusal,
           detail: pushed.detail,
         });
-        return refuse(pushed.refusal, remote);
+        return refuse(pushed.refusal, remote, pushed.reasonCode);
       }
       return {
         state: "pushed",

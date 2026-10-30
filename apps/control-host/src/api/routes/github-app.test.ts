@@ -94,6 +94,7 @@ function memoryStore() {
   type Held = { record: GitHubAppRecord; key: string };
   const held = new Map<GitHubAppRole, Held>();
   const receipts: Array<{ operation: string; app_id: number }> = [];
+  const permissionReads: Array<{ id: string; permissions: unknown }> = [];
   const mine = (workspaceId: string | undefined, role: GitHubAppRole) => {
     const row = held.get(role);
     return row !== undefined &&
@@ -117,6 +118,7 @@ function memoryStore() {
           workspaceId,
           createdAt: before?.record.createdAt ?? at,
           updatedAt: at,
+          permissionsCheckedAt: at,
           privateKey: {
             updatedAt: at,
             updatedBy: { userId: by, displayName: "owner" },
@@ -136,6 +138,18 @@ function memoryStore() {
         app_id: row.record.appId,
       });
       return { outcome: "deleted", appId: row.record.appId };
+    },
+    async recordPermissions(id, permissions) {
+      permissionReads.push({ id, permissions });
+      for (const row of held.values()) {
+        if (row.record.id === id) {
+          row.record = {
+            ...row.record,
+            permissions,
+            permissionsCheckedAt: new Date(),
+          };
+        }
+      }
     },
     async credentials(
       role: GitHubAppRole,
@@ -159,6 +173,7 @@ function memoryStore() {
   return {
     store,
     receipts,
+    permissionReads,
     held: () => held.get("author") ?? null,
     reviewer: () => held.get("reviewer") ?? null,
   };
@@ -282,6 +297,13 @@ describe("the GitHub App API", () => {
         slug: "werft-test",
         name: "Fake werft-test",
         html_url: `${github.origin}/apps/werft-test`,
+        permissions: {
+          contents: "write",
+          metadata: "read",
+          pull_requests: "write",
+        },
+        permissions_checked_at: expect.any(String),
+        warnings: [],
       },
     );
     expect(memory.held()?.key).toBe(privateKey.trim());
@@ -328,6 +350,7 @@ describe("the GitHub App API", () => {
         slug: "reviewer",
         name: "Reviewer",
         htmlUrl: "https://github.com/apps/reviewer",
+        permissions: {},
         apiBase: github.origin,
       },
       strangerKey,
@@ -349,6 +372,48 @@ describe("the GitHub App API", () => {
       receiptId: "r",
       roles: [],
     });
+  });
+
+  test("a read keeps the App's permissions as GitHub reports them now, and warns of any wider than the guidance", async () => {
+    const owner = cookieFor("owner");
+    await call("PUT", {
+      cookie: owner,
+      body: body({ app_id: APP_ID, private_key: privateKey }),
+    });
+    const id = memory.held()?.record.id;
+    github.setPermissions({
+      contents: "write",
+      metadata: "read",
+      pull_requests: "write",
+      administration: "write",
+    });
+    try {
+      const read = await call("GET", { cookie: owner });
+      expect(
+        getGitHubAppResponseSchema.parse(read.json).github_app,
+      ).toMatchObject({
+        permissions: { administration: "write", contents: "write" },
+        permissions_checked_at: expect.any(String),
+        warnings: [
+          { permission: "administration", level: "write", guided: null },
+        ],
+      });
+      expect(memory.permissionReads.at(-1)).toEqual({
+        id: id as string,
+        permissions: {
+          contents: "write",
+          metadata: "read",
+          pull_requests: "write",
+          administration: "write",
+        },
+      });
+      expect(memory.held()?.record.permissions).toMatchObject({
+        administration: "write",
+      });
+    } finally {
+      github.setPermissions(undefined);
+      await call("DELETE", { cookie: owner });
+    }
   });
 
   test("a key that is not RSA, or that GitHub does not take for the id, is refused and nothing is stored", async () => {

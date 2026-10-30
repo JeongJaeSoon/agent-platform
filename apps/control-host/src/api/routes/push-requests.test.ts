@@ -137,7 +137,7 @@ function app(
   const store: PushRequestStore = {
     findSession: async (ownerId, sessionId) =>
       ownerId === "owner-a" && sessionId === SESSION
-        ? { repositoryId: "sample-app" }
+        ? { repositoryId: "sample-app", approvalOffRelease: null }
         : null,
     recordRefusal: async (input) => {
       seen.refusals.push(input);
@@ -262,8 +262,23 @@ describe("push request routes", () => {
         repositoryBinding: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
         checkpointRevision: 2,
         gitCommit: COMMIT,
+        approvedByRelease: null,
       },
     ]);
+  });
+
+  test("POST from a session whose release pushes without approval passes that release on", async () => {
+    const release = "019a0000-0000-7000-8000-0000000000f1";
+    const target = app({
+      store: {
+        findSession: async () => ({
+          repositoryId: "sample-app",
+          approvalOffRelease: release,
+        }),
+      },
+    });
+    expect((await post(target, "", {})).status).toBe(201);
+    expect(target.seen.created).toMatchObject([{ approvedByRelease: release }]);
   });
 
   test("an agent key's request and its receipt name the agent, and a refusal's too", async () => {
@@ -298,7 +313,14 @@ describe("push request routes", () => {
   test("POST refuses a session with nothing to push and records why", async () => {
     const cases: Array<[Parameters<typeof app>[0], string, string]> = [
       [
-        { store: { findSession: async () => ({ repositoryId: null }) } },
+        {
+          store: {
+            findSession: async () => ({
+              repositoryId: null,
+              approvalOffRelease: null,
+            }),
+          },
+        },
         "PUSH_SOURCE_MISSING",
         "no_repository",
       ],
@@ -584,7 +606,9 @@ describe("push receipts name the person behind the credential", () => {
       const target = app({
         store: {
           findSession: async (ownerId) =>
-            owners.has(ownerId) ? { repositoryId: "sample-app" } : null,
+            owners.has(ownerId)
+              ? { repositoryId: "sample-app", approvalOffRelease: null }
+              : null,
           get: async (ownerId) => (owners.has(ownerId) ? PINNED : null),
         },
       });

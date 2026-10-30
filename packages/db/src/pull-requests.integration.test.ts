@@ -78,6 +78,7 @@ integration("postgres pull requests", () => {
         repositoryBinding: "sha256:binding",
         checkpointRevision: 1,
         gitCommit: COMMIT,
+        approvedByRelease: null,
       }),
     );
     written(

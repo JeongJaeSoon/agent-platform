@@ -336,6 +336,7 @@ export function createSessionService(deps: {
         | "runtime_profile_id"
         | "repository_id"
         | "runtime_config_snapshot"
+        | "policy_pins"
       >
     >;
   };
@@ -622,6 +623,21 @@ export function createSessionService(deps: {
       // repository did not grant this profile its trust.
       const repositoryId =
         input.body.repository_id ?? release?.repository_id ?? null;
+      // The gate would refuse its every token; refused here instead of at
+      // the first clone.
+      const githubScope = release?.policy_pins.github?.repositories;
+      if (
+        githubScope !== undefined &&
+        repositoryId !== null &&
+        !githubScope.includes(repositoryId)
+      ) {
+        throw new SessionServiceError(
+          "GITHUB_REFUSED",
+          "The agent's GitHub settings do not include this repository",
+          undefined,
+          { reason_code: "repository_not_allowed", receipt_id: null },
+        );
+      }
       const workspaceRefusal = await profileRefusalOf(
         actor,
         profileId,

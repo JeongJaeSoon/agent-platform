@@ -9,13 +9,13 @@ import {
   pushBranchFor,
 } from "@werft-ai/contracts";
 import type { AuthorizationPolicy } from "../musterrolle/policy.ts";
+import { ForgeCredentialError } from "../ports/forge.ts";
 import {
-  ForgeCredentialError,
-  type ForgeResolver,
-  type RepoRef,
-  repoRefOf,
-} from "../ports/forge.ts";
-import type { SessionGitHubSettings } from "../ports/github-settings.ts";
+  type GitHubGate,
+  GitHubGateError,
+  type GitHubGrant,
+  GitHubUnavailableError,
+} from "../ports/github-gate.ts";
 import {
   PULL_REQUEST_REFUSAL_ERRORS,
   type PullRequestOperation,
@@ -50,21 +50,21 @@ export function commentMarker(sessionId: string, marker: string): string {
 }
 
 /**
- * Pull requests (94S-630): a human holding sessions:approve opens a pull
- * request from a pushed request's `agent/<session-id>` into the catalog
- * branch, and posts or edits a comment on it. The same rules as a push
- * decision decide who may; every attempt leaves a receipt.
+ * Pull requests (94S-630): a pull request from a pushed request's
+ * `agent/<session-id>` into the catalog branch, and a comment on it. Whoever
+ * may decide a push may; so may whoever may submit to the session, once the
+ * request is pushed. The token comes from the GitHub gate. Every attempt
+ * leaves a receipt, and every entry that opens one comes through `open`.
  */
 export function createPullRequestService(deps: {
   authorization: AuthorizationPolicy;
   store: PullRequestStore;
   catalog: SessionCatalog;
-  forges: ForgeResolver;
-  github: SessionGitHubSettings;
+  gate: GitHubGate;
   /** Applied to each line of caller text before the forge sees it. */
   redact: (line: string) => string;
 }) {
-  const { authorization, store, catalog, forges, redact } = deps;
+  const { authorization, store, catalog, gate, redact } = deps;
 
   async function begin(
     actor: PushActor,
@@ -100,21 +100,61 @@ export function createPullRequestService(deps: {
       throw new SessionServiceError(code, message, undefined, {
         refusal,
         receipt_id: receiptId,
-        ...(code === "GITHUB_REFUSED" ? { reason_code: refusal } : {}),
+        ...(code === "GITHUB_REFUSED"
+          ? { reason_code: fields.reason_code ?? refusal }
+          : {}),
       });
     };
+    const session = { kind: "session", id: sessionId } as const;
     const scopeRefusal = mayDecidePush(actor.principal);
-    if (scopeRefusal !== null) await refuse(scopeRefusal);
     // As for a push decision, the session's share decides who may act on it;
     // a session the caller cannot see is NOT_FOUND.
-    await requirePermitted(authorization, actor.caller, "session.approve", {
-      kind: "session",
-      id: sessionId,
-    });
-    return { sessionId, pushRequestId, receipt, refuse };
+    const forbidden = (error: unknown) =>
+      error instanceof SessionServiceError && error.code === "FORBIDDEN";
+    if (scopeRefusal === null) {
+      try {
+        await requirePermitted(
+          authorization,
+          actor.caller,
+          "session.approve",
+          session,
+        );
+        return { sessionId, pushRequestId, receipt, refuse, submitter: false };
+      } catch (error) {
+        if (!forbidden(error)) throw error;
+        // The share may let this caller submit without approving.
+        try {
+          await requirePermitted(
+            authorization,
+            actor.caller,
+            "session.submit",
+            session,
+          );
+        } catch (submitError) {
+          throw forbidden(submitError) ? error : submitError;
+        }
+        return { sessionId, pushRequestId, receipt, refuse, submitter: true };
+      }
+    }
+    // What was pushed is what a person or the release's policy approved; a
+    // pull request opens from exactly that branch and commit, so whoever may
+    // submit to the session (an agent key included) may open it.
+    try {
+      await requirePermitted(
+        authorization,
+        actor.caller,
+        "session.submit",
+        session,
+      );
+    } catch (error) {
+      if (forbidden(error)) await refuse(scopeRefusal);
+      throw error;
+    }
+    return { sessionId, pushRequestId, receipt, refuse, submitter: true };
   }
 
   async function forgeFor(
+    actor: PushActor,
     source: PullRequestSource,
     refuse: (
       refusal: PullRequestRefusal,
@@ -132,15 +172,30 @@ export function createPullRequestService(deps: {
     ) {
       return await refuse("catalog_changed", fields);
     }
-    if (await deps.github.pinned(source.sessionId)) {
-      return await refuse("github_settings_unsupported", fields);
+    let grant: GitHubGrant | null;
+    try {
+      grant = await gate.grant({
+        sessionId: source.sessionId,
+        purpose: "pull_request",
+        actor: pushReceiptActor(actor),
+      });
+    } catch (error) {
+      if (error instanceof GitHubGateError) {
+        return await refuse("github_refused", {
+          ...fields,
+          reason_code: error.reasonCode,
+        });
+      }
+      if (error instanceof GitHubUnavailableError) {
+        return await refuse("no_forge", fields);
+      }
+      if (error instanceof ForgeCredentialError) {
+        return await refuse("forge_failed", fields);
+      }
+      throw error;
     }
-    const forge = forges(source.repositoryId);
-    const repo: RepoRef | null = repoRefOf(entry.url);
-    if (forge === null || repo === null) {
-      return await refuse("no_forge", fields);
-    }
-    return { forge, repo, base: entry.branch };
+    if (grant === null) return await refuse("no_forge", fields);
+    return { forge: grant.api, base: entry.branch };
   }
 
   return {
@@ -191,16 +246,16 @@ export function createPullRequestService(deps: {
       if (head !== pushBranchFor(source.sessionId)) {
         return await refuse("not_pushed", fields);
       }
-      const { forge, repo, base } = await forgeFor(source, refuse);
+      const { forge, base } = await forgeFor(actor, source, refuse);
       let opened: { number: number; url: string; base: string };
       let created: boolean;
       try {
-        const found = await forge.findPullRequestForBranch(repo, head);
+        const found = await forge.findPullRequestForBranch(head);
         created = found?.state !== "open";
         opened =
           found?.state === "open"
             ? found
-            : await forge.createPullRequest(repo, {
+            : await forge.createPullRequest({
                 head,
                 base,
                 title: cleanTitle(
@@ -238,12 +293,13 @@ export function createPullRequestService(deps: {
       rawPushRequestId: string,
       input: { readBody: () => Promise<CommentPullRequestRequest> },
     ): Promise<CommentPullRequestResponse> {
-      const { sessionId, pushRequestId, receipt, refuse } = await begin(
-        actor,
-        rawSessionId,
-        rawPushRequestId,
-        "comment_pull_request",
-      );
+      const { sessionId, pushRequestId, receipt, refuse, submitter } =
+        await begin(
+          actor,
+          rawSessionId,
+          rawPushRequestId,
+          "comment_pull_request",
+        );
       const body = await input.readBody();
       const marker = body.marker ?? DEFAULT_PULL_REQUEST_COMMENT_MARKER;
       const source = await store.findSource(
@@ -276,14 +332,16 @@ export function createPullRequestService(deps: {
             }),
       };
       if (pullRequest === null) return await refuse("no_pull_request", fields);
-      const { forge, repo } = await forgeFor(source, (refusal, extra) =>
+      if (submitter && source.state !== "pushed") {
+        return await refuse("not_pushed", fields);
+      }
+      const { forge } = await forgeFor(actor, source, (refusal, extra) =>
         refuse(refusal, { ...fields, ...extra }),
       );
       const hidden = commentMarker(source.sessionId, marker);
       let comment: { id: number; url: string; created: boolean };
       try {
         comment = await forge.upsertComment(
-          repo,
           pullRequest.number,
           hidden,
           cleanBody(body.body, forge.maxBodyLength - hidden.length - 2, redact),

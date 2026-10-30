@@ -7,14 +7,15 @@ import {
   ForgeCredentialError,
   GitHubAppCheckError,
   type GitHubAppCredential,
+  GitHubPermissionError,
   type SessionCatalog,
 } from "@werft-ai/platform";
 import { type FakeGitHub, startFakeGitHub } from "@werft-ai/testkit";
 import {
+  connectionsOf,
   createGitHubAppDirectory,
-  createGitHubForge,
-  createRegisteredGitHubForge,
-  forgesOf,
+  createGitHubConnection,
+  createRegisteredGitHubConnection,
   REFRESH_BEFORE_EXPIRY_MS,
 } from "./forge-github.ts";
 
@@ -26,6 +27,8 @@ const publicKey = keys.publicKey
   .export({ type: "spki", format: "pem" })
   .toString();
 const repo = { owner: "acme", name: "app" };
+const READ = { contents: "read" } as const;
+const WRITE = { contents: "write" } as const;
 
 let github: FakeGitHub;
 beforeAll(async () => {
@@ -37,19 +40,20 @@ afterAll(async () => {
   await github.stop();
 });
 
-function appForge(options: { now?: () => Date; apiBase?: string } = {}) {
+function appConnection(options: { now?: () => Date; apiBase?: string } = {}) {
   const warnings: Array<Record<string, unknown>> = [];
-  const forge = createGitHubForge({
+  const connection = createGitHubConnection({
     apiBase: options.apiBase ?? github.origin,
     credentials: { kind: "app", appId: 101, installationId: 202, privateKey },
     ...(options.now === undefined ? {} : { now: options.now }),
     retryAfterBaseMs: 1,
     paced: false,
     logger: {
-      warn: (message, fields) => warnings.push({ message, ...fields }),
+      warn: (message: string, fields?: Record<string, unknown>) =>
+        warnings.push({ message, ...fields }),
     },
   });
-  return { forge, warnings };
+  return { connection, warnings };
 }
 
 async function clone(url: string, authorization: string) {
@@ -86,12 +90,18 @@ async function clone(url: string, authorization: string) {
 const basic = (username: string, password: string) =>
   `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
 
-describe("GitHub App forge", () => {
-  test("asks for a token scoped to the one repository and contents:read, with a JWT the App signed", async () => {
+describe("a GitHub App connection", () => {
+  test("asks for a token scoped to the one repository and the permissions named, with a JWT the App signed", async () => {
     const before = github.tokenRequests.length;
     const started = Math.floor(Date.now() / 1000);
-    const { forge } = appForge();
-    const credential = await forge.gitCredential(repo, "read");
+    const { connection } = appConnection();
+    expect(connection).toMatchObject({
+      kind: "app",
+      appId: 101,
+      githubCom: false,
+    });
+    const { credential, fresh } = await connection.credential(repo, READ);
+    expect(fresh).toBe(true);
     const [asked] = github.tokenRequests.slice(before);
     expect(github.tokenRequests.length - before).toBe(1);
     expect(asked).toMatchObject({
@@ -118,51 +128,67 @@ describe("GitHub App forge", () => {
     );
   });
 
-  test("keeps a token per repository and access, and re-issues it ten minutes before it expires", async () => {
+  test("keeps a token per repository and permission set, and re-issues it ten minutes before it expires", async () => {
     let offset = 0;
-    const { forge } = appForge({ now: () => new Date(Date.now() + offset) });
+    const { connection } = appConnection({
+      now: () => new Date(Date.now() + offset),
+    });
     const before = github.tokenRequests.length;
-    const first = await forge.gitCredential(repo, "read");
-    expect((await forge.gitCredential(repo, "read")).password).toBe(
-      first.password,
-    );
+    const first = await connection.credential(repo, READ);
+    const cached = await connection.credential(repo, READ);
+    expect(cached.credential.password).toBe(first.credential.password);
+    expect(cached.fresh).toBe(false);
     expect(github.tokenRequests.length - before).toBe(1);
 
-    const expiresAt = first.expiresAt?.getTime() ?? 0;
+    const expiresAt = first.credential.expiresAt?.getTime() ?? 0;
     offset = expiresAt - REFRESH_BEFORE_EXPIRY_MS - Date.now() - 5_000;
-    expect((await forge.gitCredential(repo, "read")).password).toBe(
-      first.password,
+    expect((await connection.credential(repo, READ)).credential.password).toBe(
+      first.credential.password,
     );
     offset = expiresAt - REFRESH_BEFORE_EXPIRY_MS - Date.now() + 1_000;
-    const second = await forge.gitCredential(repo, "read");
-    expect(second.password).not.toBe(first.password);
+    const second = await connection.credential(repo, READ);
+    expect(second.credential.password).not.toBe(first.credential.password);
+    expect(second.fresh).toBe(true);
     expect(github.tokenRequests.length - before).toBe(2);
 
     // Write access is its own token, asked with contents:write.
-    await forge.gitCredential(repo, "write");
+    await connection.credential(repo, WRITE);
     expect(github.tokenRequests.at(-1)?.body).toEqual({
       repositories: ["app"],
       permissions: { contents: "write" },
     });
     expect(github.tokenRequests.length - before).toBe(3);
+
+    // The same permissions in another order are the same token.
+    offset = 0;
+    await connection.credential(repo, {
+      pull_requests: "write",
+      contents: "read",
+    });
+    await connection.credential(repo, {
+      contents: "read",
+      pull_requests: "write",
+    });
+    expect(github.tokenRequests.length - before).toBe(4);
   });
 
   test("concurrent asks for the same token issue it once", async () => {
-    const { forge } = appForge();
+    const { connection } = appConnection();
     const before = github.tokenRequests.length;
     const all = await Promise.all(
-      Array.from({ length: 8 }, () => forge.gitCredential(repo, "read")),
+      Array.from({ length: 8 }, () => connection.credential(repo, READ)),
     );
-    expect(new Set(all.map((c) => c.password)).size).toBe(1);
+    expect(new Set(all.map((c) => c.credential.password)).size).toBe(1);
+    expect(all.filter((c) => c.fresh)).toHaveLength(1);
     expect(github.tokenRequests.length - before).toBe(1);
   });
 
   test("a failing token endpoint fails the ask, naming the status and GitHub's message", async () => {
-    const { forge, warnings } = appForge();
+    const { connection, warnings } = appConnection();
     const before = github.tokenRequests.length;
     github.failTokens(true);
     try {
-      const error = await forge.gitCredential(repo, "read").then(
+      const error = await connection.credential(repo, READ).then(
         () => null,
         (e: unknown) => e,
       );
@@ -184,17 +210,40 @@ describe("GitHub App forge", () => {
       github.failTokens(false);
     }
     // Nothing failed is cached: the next ask issues.
-    expect((await forge.gitCredential(repo, "read")).username).toBe(
+    expect((await connection.credential(repo, READ)).credential.username).toBe(
       "x-access-token",
     );
   });
 
+  test("permissions the installation does not grant are a GitHubPermissionError", async () => {
+    const { connection, warnings } = appConnection();
+    github.setPermissions({ contents: "read", metadata: "read" });
+    try {
+      const refused = await connection.credential(repo, WRITE).then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(refused).toBeInstanceOf(GitHubPermissionError);
+      expect(github.tokenRequests.at(-1)?.status).toBe(422);
+      expect(warnings).toMatchObject([
+        { request: "installation token request", status: 422 },
+      ]);
+      // What it does grant is still issued.
+      expect((await connection.credential(repo, READ)).fresh).toBe(true);
+    } finally {
+      github.setPermissions(undefined);
+    }
+  });
+
   test("a GHES API base under /api/v3 works the same", async () => {
     const before = github.tokenRequests.length;
-    const { forge } = appForge({ apiBase: `${github.origin}/api/v3/` });
-    await forge.gitCredential(repo, "read");
+    const { connection } = appConnection({
+      apiBase: `${github.origin}/api/v3/`,
+    });
+    expect(connection.githubCom).toBe(false);
+    const { credential } = await connection.credential(repo, READ);
     expect(github.tokenRequests.length - before).toBe(1);
-    expect(await forge.getRepository(repo)).toEqual({
+    expect(await connection.api(repo, credential).getRepository()).toEqual({
       id: expect.any(Number),
       defaultBranch: "main",
       private: true,
@@ -204,8 +253,9 @@ describe("GitHub App forge", () => {
   test("names itself Werft in the User-Agent", async () => {
     const calls = spyOn(globalThis, "fetch");
     try {
-      const { forge } = appForge();
-      await forge.getRepository(repo);
+      const { connection } = appConnection();
+      const { credential } = await connection.credential(repo, READ);
+      await connection.api(repo, credential).getRepository();
       // Another file's unrestored fetch spy can be the one returned here, so
       // only requests to this fake GitHub count.
       const agents = calls.mock.calls
@@ -219,7 +269,7 @@ describe("GitHub App forge", () => {
   });
 });
 
-describe("forgesOf", () => {
+describe("connectionsOf", () => {
   const base = { branch: "main", profiles: ["p"] };
   const catalog: SessionCatalog = {
     profiles: {},
@@ -260,16 +310,27 @@ describe("forgesOf", () => {
     },
   };
 
-  test("an App or a github.com PAT has a GitHub forge; Gitea and public repositories have none", async () => {
-    const forges = forgesOf(catalog);
-    expect(forges("app")?.kind).toBe("github");
-    expect(await forges("pat")?.gitCredential(repo, "read")).toEqual({
-      username: "x-access-token",
-      password: "github_pat_fixture_value",
+  test("an App or a github.com PAT has an author connection; Gitea, public repositories and the reviewer role have none", async () => {
+    const connections = connectionsOf(catalog);
+    expect(connections("app", "author")).toMatchObject({
+      kind: "app",
+      appId: 101,
+      githubCom: true,
     });
-    expect(forges("gitea")).toBeNull();
-    expect(forges("public")).toBeNull();
-    expect(forges("missing")).toBeNull();
+    const pat = connections("pat", "author");
+    expect(pat).toMatchObject({ kind: "pat", appId: null, githubCom: true });
+    expect(await pat?.credential(repo, READ)).toEqual({
+      credential: {
+        username: "x-access-token",
+        password: "github_pat_fixture_value",
+      },
+      fresh: false,
+    });
+    expect(connections("app", "author")).toBe(connections("app", "author"));
+    expect(connections("app", "reviewer")).toBeNull();
+    expect(connections("gitea", "author")).toBeNull();
+    expect(connections("public", "author")).toBeNull();
+    expect(connections("missing", "author")).toBeNull();
   });
 });
 
@@ -285,15 +346,15 @@ describe("the App registered in the console", () => {
   });
 
   test("finds the installation that covers the repository, then asks for a token on it", async () => {
-    const registered = createRegisteredGitHubForge({
+    const registered = createRegisteredGitHubConnection({
       store: { credentials: async () => [credential()] },
       paced: false,
     });
-    expect(registered.forge()).toBeNull();
+    expect(registered.connection()).toBeNull();
     await registered.refresh();
     const before = github.tokenRequests.length;
-    const issued = await registered.forge()?.gitCredential(repo, "read");
-    expect(issued?.username).toBe("x-access-token");
+    const issued = await registered.connection()?.credential(repo, READ);
+    expect(issued?.credential.username).toBe("x-access-token");
     const [asked] = github.tokenRequests.slice(before);
     expect(asked).toMatchObject({
       installationId: 1,
@@ -304,9 +365,9 @@ describe("the App registered in the console", () => {
 
   test("reads the author App only, with a reviewer App registered beside it", async () => {
     const asked: string[] = [];
-    const registered = createRegisteredGitHubForge({
+    const registered = createRegisteredGitHubConnection({
       store: {
-        credentials: async (role) => {
+        credentials: async (role: "author" | "reviewer") => {
           asked.push(role);
           // GitHub knows no App 999, so a token from it would fail.
           return role === "reviewer"
@@ -324,7 +385,8 @@ describe("the App registered in the console", () => {
     await registered.refresh();
     const before = github.tokenRequests.length;
     expect(
-      (await registered.forge()?.gitCredential(repo, "write"))?.username,
+      (await registered.connection()?.credential(repo, WRITE))?.credential
+        .username,
     ).toBe("x-access-token");
     expect(asked).toEqual(["author"]);
     expect(github.tokenRequests.slice(before)).toMatchObject([
@@ -333,34 +395,34 @@ describe("the App registered in the console", () => {
   });
 
   test("a repository the App is not installed on fails the ask by name", async () => {
-    const registered = createRegisteredGitHubForge({
+    const registered = createRegisteredGitHubConnection({
       store: { credentials: async () => [credential()] },
       paced: false,
     });
     await registered.refresh();
     const asking = registered
-      .forge()
-      ?.gitCredential({ owner: "acme", name: "absent" }, "read");
+      .connection()
+      ?.credential({ owner: "acme", name: "absent" }, READ);
     await expect(asking).rejects.toThrow(
       new ForgeCredentialError("GitHub App is not installed on acme/absent"),
     );
   });
 
-  test("a replaced App or key gets a new forge; a removed one leaves none", async () => {
+  test("a replaced App or key gets a new connection; a removed one leaves none", async () => {
     let held = [credential()];
-    const registered = createRegisteredGitHubForge({
+    const registered = createRegisteredGitHubConnection({
       store: { credentials: async () => held },
     });
     await registered.refresh();
-    const first = registered.forge();
+    const first = registered.connection();
     await registered.refresh();
-    expect(registered.forge()).toBe(first);
+    expect(registered.connection()).toBe(first);
     held = [credential({ updatedAt: new Date("2026-10-30T01:00:00Z") })];
     await registered.refresh();
-    expect(registered.forge()).not.toBe(first);
+    expect(registered.connection()).not.toBe(first);
     held = [];
     await registered.refresh();
-    expect(registered.forge()).toBeNull();
+    expect(registered.connection()).toBeNull();
   });
 
   test("a slow read from before a delete cannot bring the App back", async () => {
@@ -371,21 +433,21 @@ describe("the App registered in the console", () => {
       }),
       Promise.resolve([]),
     ];
-    const registered = createRegisteredGitHubForge({
+    const registered = createRegisteredGitHubConnection({
       store: { credentials: () => reads.shift() ?? Promise.resolve([]) },
     });
     const periodic = registered.refresh();
     const afterDelete = registered.refresh();
     release();
     await Promise.all([periodic, afterDelete]);
-    expect(registered.forge()).toBeNull();
+    expect(registered.connection()).toBeNull();
   });
 
-  test("forgesOf hands it to repositories written as { kind: github_app }", async () => {
-    const registered = createRegisteredGitHubForge({
+  test("connectionsOf hands it to repositories written as { kind: github_app }", async () => {
+    const registered = createRegisteredGitHubConnection({
       store: { credentials: async () => [credential()] },
     });
-    const forges = forgesOf(
+    const connections = connectionsOf(
       {
         profiles: {},
         repositories: {
@@ -397,12 +459,13 @@ describe("the App registered in the console", () => {
           open: { branch: "main", url: "https://github.com/acme/open.git" },
         },
       },
-      { registered: registered.forge },
+      { registered: registered.connection },
     );
-    expect(forges("app")).toBeNull();
+    expect(connections("app", "author")).toBeNull();
     await registered.refresh();
-    expect(forges("app")).toBe(registered.forge());
-    expect(forges("open")).toBeNull();
+    expect(connections("app", "author")).toBe(registered.connection());
+    expect(connections("app", "reviewer")).toBeNull();
+    expect(connections("open", "author")).toBeNull();
   });
 });
 
@@ -410,13 +473,27 @@ describe("createGitHubAppDirectory", () => {
   const directory = createGitHubAppDirectory({ retryAfterBaseMs: 1 });
   const app = () => ({ appId: 101, apiBase: github.origin, privateKey });
 
-  test("describes the App, lists its installation, and finds it per repository", async () => {
+  test("describes the App with its permissions, lists its installation, and finds it per repository", async () => {
     expect(await directory.describe(app())).toEqual({
       appId: 101,
       slug: "fake-app",
       name: "Fake fake-app",
       htmlUrl: `${github.origin}/apps/fake-app`,
+      permissions: {
+        contents: "write",
+        metadata: "read",
+        pull_requests: "write",
+      },
     });
+    github.setPermissions({ actions: "write", contents: "read" });
+    try {
+      expect((await directory.describe(app())).permissions).toEqual({
+        actions: "write",
+        contents: "read",
+      });
+    } finally {
+      github.setPermissions(undefined);
+    }
     expect(await directory.installations(app())).toEqual([
       {
         id: 1,

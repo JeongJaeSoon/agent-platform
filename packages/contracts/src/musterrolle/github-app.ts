@@ -28,6 +28,75 @@ const updatedBySchema = z
   .strict()
   .nullable();
 
+export const githubAppPermissionLevelSchema = z.enum([
+  "read",
+  "write",
+  "admin",
+]);
+export type GitHubAppPermissionLevel = z.infer<
+  typeof githubAppPermissionLevelSchema
+>;
+export const githubAppPermissionsSchema = z.record(
+  z.string().min(1),
+  githubAppPermissionLevelSchema,
+);
+export type GitHubAppPermissions = z.infer<typeof githubAppPermissionsSchema>;
+
+const RANK: Record<GitHubAppPermissionLevel, number> = {
+  read: 1,
+  write: 2,
+  admin: 3,
+};
+
+/**
+ * The most each role's App is told to hold (design github-agent.md §1):
+ * the author's defaults plus its optional features, the reviewer's three.
+ */
+export const GITHUB_APP_PERMISSION_GUIDANCE: Record<
+  "author" | "reviewer",
+  GitHubAppPermissions
+> = {
+  author: {
+    contents: "write",
+    pull_requests: "write",
+    metadata: "read",
+    actions: "write",
+    checks: "write",
+    issues: "write",
+    workflows: "write",
+  },
+  reviewer: { contents: "read", pull_requests: "write", metadata: "read" },
+};
+
+export const githubAppWarningSchema = z
+  .object({
+    permission: z.string().min(1),
+    level: githubAppPermissionLevelSchema,
+    /** The most the guidance names; null when it names none. */
+    guided: githubAppPermissionLevelSchema.nullable(),
+  })
+  .strict();
+export type GitHubAppWarning = z.infer<typeof githubAppWarningSchema>;
+
+/** Permissions wider than the role's guidance. Saving is not refused. */
+export function githubAppWarnings(
+  role: "author" | "reviewer",
+  permissions: GitHubAppPermissions | null,
+): GitHubAppWarning[] {
+  const guidance = GITHUB_APP_PERMISSION_GUIDANCE[role];
+  return Object.entries(permissions ?? {})
+    .filter(([name, level]) => {
+      const guided = guidance[name];
+      return guided === undefined || RANK[level] > RANK[guided];
+    })
+    .map(([permission, level]) => ({
+      permission,
+      level,
+      guided: guidance[permission] ?? null,
+    }))
+    .sort((a, b) => a.permission.localeCompare(b.permission));
+}
+
 export const githubAppSchema = z
   .object({
     app_id: githubAppIdSchema,
@@ -44,6 +113,14 @@ export const githubAppSchema = z
       .strict(),
     created_at: timestampSchema,
     updated_at: timestampSchema,
+    /**
+     * What the App asks for (`GET /app`), as last read; null before the
+     * first read. An installation grants a raise only once it is approved.
+     */
+    permissions: githubAppPermissionsSchema.nullable().optional(),
+    permissions_checked_at: timestampSchema.nullable().optional(),
+    /** Permissions wider than the role's guidance. */
+    warnings: z.array(githubAppWarningSchema).optional(),
   })
   .strict();
 

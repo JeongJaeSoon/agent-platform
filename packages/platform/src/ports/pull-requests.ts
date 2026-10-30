@@ -46,6 +46,10 @@ export const PULL_REQUEST_REFUSAL_ERRORS: Record<
     message: "The repository host did not take the call",
   },
   github_settings_unsupported: GITHUB_SETTINGS_UNSUPPORTED,
+  github_refused: {
+    code: "GITHUB_REFUSED",
+    message: "The GitHub gate refused the pull request",
+  },
 };
 
 export type PullRequestOperation = "open_pull_request" | "comment_pull_request";

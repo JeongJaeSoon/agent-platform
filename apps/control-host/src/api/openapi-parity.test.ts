@@ -6,6 +6,8 @@ import type {
   ApiKeyService,
   CredentialBindingService,
   GitHubAppService,
+  GitHubSettingsService,
+  GitHubWorkService,
   IdentityStore,
   InstallationProfileService,
   InterruptService,
@@ -42,6 +44,8 @@ import { registerCloseRoutes } from "./routes/close.ts";
 import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerGitHubAppRoutes } from "./routes/github-app.ts";
+import { registerGitHubSettingsRoutes } from "./routes/github-settings.ts";
+import { registerGitHubWorkRoutes } from "./routes/github-work.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
 import {
   registerInviteRoutes,
@@ -145,6 +149,8 @@ function apiApp() {
       registerWorkspaceRoutes(router, {} as WorkspaceRouteDeps);
       registerSlackSecretRoutes(router, {} as SlackSecretService);
       registerGitHubAppRoutes(router, {} as GitHubAppService);
+      registerGitHubSettingsRoutes(router, {} as GitHubSettingsService);
+      registerGitHubWorkRoutes(router, {} as GitHubWorkService);
       registerSlackAppRoutes(router, {
         apps: {} as SlackAppService,
         secrets: {} as SlackSecretService,

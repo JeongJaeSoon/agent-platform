@@ -27,7 +27,7 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresCheckpointStore } from "./checkpoint-store.ts";
 import { fromDbNow } from "./db-clock.ts";
-import { createPostgresSessionGitHubSettings } from "./github-settings.ts";
+import { createPostgresGitHubGateStore } from "./github-settings.ts";
 import { pauseBlocker } from "./pause-control.ts";
 import {
   createPostgresSessionReader,
@@ -634,7 +634,7 @@ integration("worker gateway on PostgreSQL", () => {
     });
   });
 
-  test("a session whose release pins GitHub settings gets no repository token from this server", async () => {
+  test("release GitHub settings are read for the gate and do not close a repository off GitHub", async () => {
     const session = await queuedSession(partitionFor("github-pins"));
     const claimed = await claim(await launch(session.session_id));
     const token = claimed.workspace.repository?.access?.token ?? "";
@@ -680,26 +680,28 @@ integration("worker gateway on PostgreSQL", () => {
     const repository = () =>
       gateway.authorizeEgress({ token, purpose: "repository" });
 
-    // What push and PR ask, read the same way.
-    const settings = createPostgresSessionGitHubSettings(db);
+    // What the GitHub gate reads for every token it issues.
+    const gate = createPostgresGitHubGateStore(db);
 
-    // Without GitHub settings the release clones as before.
-    expect(await settings.pinned(session.session_id)).toBe(false);
-    await pinTo(await release({}));
-    expect(await settings.pinned(session.session_id)).toBe(false);
-    expect((await repository()).attempt_id).toBe(claimed.attempt_id);
-    // With them, even in a shape a later server writes, nothing is handed out.
-    await pinTo(await release({ github: { from: "a later server" } }));
-    expect(await settings.pinned(session.session_id)).toBe(true);
-    const refused = await repository().then(
-      () => null,
-      (error: unknown) => error as { status?: number; code?: string },
-    );
-    expect(refused).toMatchObject({
-      status: 409,
-      code: "GITHUB_REFUSED",
-      reasonCode: "github_settings_unsupported",
+    expect((await gate.context(session.session_id))?.release).toBeNull();
+    // As accepted and as the gateway compares it to the catalog entry.
+    expect((await gate.context(session.session_id))?.repository).toEqual({
+      url: "https://example.invalid/app.git",
+      branch: "main",
     });
+    await pinTo(await release({}));
+    expect((await gate.context(session.session_id))?.release?.github).toBe(
+      null,
+    );
+    expect((await repository()).attempt_id).toBe(claimed.attempt_id);
+    // A shape a later server writes reads as one this server cannot apply;
+    // the gate refuses it for a GitHub repository. This one is not on
+    // GitHub, so it keeps the catalog's credential.
+    await pinTo(await release({ github: { from: "a later server" } }));
+    expect((await gate.context(session.session_id))?.release?.github).toBe(
+      "invalid",
+    );
+    expect((await repository()).attempt_id).toBe(claimed.attempt_id);
     // The provider route is not GitHub's and stays open.
     expect(
       (

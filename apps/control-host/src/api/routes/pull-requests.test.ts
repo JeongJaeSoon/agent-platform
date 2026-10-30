@@ -2,15 +2,20 @@ import { describe, expect, test } from "bun:test";
 import {
   apiErrorResponseSchema,
   commentPullRequestResponseSchema,
+  GITHUB_CEILING_NONE,
   openPullRequestResponseSchema,
   type PullRequest,
   type SessionScope,
 } from "@werft-ai/contracts";
 import {
   createAuthorizationPolicy,
+  createGitHubGate,
   createPullRequestService,
-  type ForgeAdapter,
   ForgeCredentialError,
+  type GitHubApi,
+  type GitHubConnection,
+  type GitHubGateReceipt,
+  type GitHubSessionContext,
   type PullRequestReceipt,
   type PullRequestSource,
   repositoryBinding,
@@ -24,9 +29,12 @@ const createApiApp = recordRouteErrors("routes/pull-requests.test.ts");
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const PUSH = "22222222-2222-4222-8222-222222222222";
+const AGENT = "019a0000-0000-7000-8000-0000000000e1";
 const KEYS: Record<string, readonly SessionScope[]> = {
+  csp_reader: ["sessions:read"],
   csp_writer: ["sessions:read", "sessions:write"],
   csp_approver: ["sessions:read", "sessions:approve"],
+  csp_agent: ["sessions:read", "sessions:write"],
 };
 const CATALOG = {
   profiles: {},
@@ -45,10 +53,11 @@ function app(
     binding?: string;
     failing?: "lookup" | "comment";
     authMode?: "none";
-    githubPinned?: boolean;
+    release?: GitHubSessionContext["release"];
   } = {},
 ) {
   const receipts: PullRequestReceipt[] = [];
+  const gateReceipts: GitHubGateReceipt[] = [];
   let recorded: PullRequest | null = null;
   const source: PullRequestSource = {
     id: PUSH,
@@ -66,12 +75,8 @@ function app(
     }
   };
   let comments = 0;
-  const forge: ForgeAdapter = {
-    kind: "github",
+  const forge: GitHubApi = {
     maxBodyLength: 65_536,
-    gitCredential: async () => {
-      throw new Error("not used");
-    },
     getRepository: async () => {
       throw new Error("not used");
     },
@@ -79,7 +84,7 @@ function app(
       fail("lookup");
       return null;
     },
-    createPullRequest: async (_repo, input) => ({
+    createPullRequest: async (input) => ({
       number: 5,
       url: "https://github.com/acme/app/pull/5",
       state: "open",
@@ -95,12 +100,51 @@ function app(
         created: comments === 1,
       };
     },
+    dispatchWorkflow: async () => {
+      throw new Error("not used");
+    },
+    getWorkflowRun: async () => {
+      throw new Error("not used");
+    },
+    rerunWorkflow: async () => {
+      throw new Error("not used");
+    },
   };
+  const connection: GitHubConnection = {
+    kind: "app",
+    githubCom: true,
+    appId: 101,
+    credential: async () => ({
+      credential: { username: "x-access-token", password: "fixture" },
+      fresh: false,
+    }),
+    api: () => forge,
+  };
+  const gate = createGitHubGate({
+    catalog: CATALOG,
+    connections: (_id, role) => (role === "author" ? connection : null),
+    store: {
+      context: async (sessionId) => ({
+        ownerId: "owner-a",
+        sessionId,
+        repositoryId: "app",
+        repository: { url: "https://github.com/acme/app.git", branch: "main" },
+        startedBy: null,
+        agent: null,
+        release: options.release ?? null,
+        ceiling: GITHUB_CEILING_NONE,
+      }),
+      findDispatch: async () => null,
+      recordReceipt: async (receipt) => {
+        gateReceipts.push(receipt);
+        return "66666666-6666-4666-8666-666666666666";
+      },
+    },
+  });
   const service = createPullRequestService({
     authorization: createAuthorizationPolicy(),
     catalog: CATALOG,
-    forges: () => forge,
-    github: { pinned: async () => options.githubPinned ?? false },
+    gate,
     redact: (line) => line,
     store: {
       findSource: async (ownerId, sessionId, pushRequestId) =>
@@ -137,25 +181,26 @@ function app(
     authMode: options.authMode ?? "api-key",
     keyStore: {
       async find(hash) {
-        const token = Object.keys(KEYS).find((candidate) =>
+        const key = Object.keys(KEYS).find((candidate) =>
           Buffer.from(hash).equals(Buffer.from(hashApiKey(candidate))),
         );
-        return token
-          ? {
-              id: `key-${token}`,
-              ownerId: "owner-a",
-              workspaceId: null,
-              kind: "operator" as const,
-              createdByUserId: null,
-              creatorRole: null,
-              scopes: [...(KEYS[token] ?? [])],
-            }
-          : null;
+        if (!key) return null;
+        const agent = key === "csp_agent";
+        return {
+          id: `key-${key}`,
+          ownerId: "owner-a",
+          workspaceId: null,
+          kind: agent ? ("agent" as const) : ("operator" as const),
+          agentId: agent ? AGENT : null,
+          createdByUserId: null,
+          creatorRole: null,
+          scopes: [...(KEYS[key] ?? [])],
+        };
       },
     },
     registerRoutes: (router) => registerPullRequestRoutes(router, service),
   });
-  return { api, receipts };
+  return { api, receipts, gateReceipts };
 }
 
 function post(
@@ -215,6 +260,30 @@ describe("pull request routes", () => {
     );
   });
 
+  test("an agent key that may only submit to the session opens and comments on a pushed request", async () => {
+    const target = app();
+    const opened = await post(target, "", { title: "Result" }, "csp_agent");
+    expect(opened.status).toBe(201);
+    expect(
+      openPullRequestResponseSchema.parse(await opened.json()).pull_request,
+    ).toMatchObject({ number: 5, head: `agent/${SESSION}` });
+    expect(
+      (await post(target, "/comments", { body: "Done" }, "csp_agent")).status,
+    ).toBe(201);
+    expect(target.receipts.at(0)?.actor).toMatchObject({
+      principal: { kind: "api_key", id: "key-csp_agent" },
+      agent_id: AGENT,
+    });
+    // Before the push lands, only someone who may decide it may open one.
+    expect(
+      await errorOf(post(app({ state: "approved" }), "", {}, "csp_agent")),
+    ).toMatchObject({
+      status: 409,
+      code: "PUSH_NOT_PUSHED",
+      details: { refusal: "not_pushed" },
+    });
+  });
+
   test("refusals map to their statuses, each with a receipt", async () => {
     expect(
       await errorOf(post(app({ state: "approved" }), "", {})),
@@ -266,17 +335,29 @@ describe("pull request routes", () => {
       code: "BACKEND_UNAVAILABLE",
       details: { refusal: "forge_failed" },
     });
-    const pinned = app({ githubPinned: true });
-    expect(await errorOf(post(pinned, "", {}))).toMatchObject({
+    const invalid = app({
+      release: { id: crypto.randomUUID(), github: "invalid" },
+    });
+    expect(await errorOf(post(invalid, "", {}))).toMatchObject({
       status: 409,
       code: "GITHUB_REFUSED",
       details: {
-        refusal: "github_settings_unsupported",
+        refusal: "github_refused",
         reason_code: "github_settings_unsupported",
       },
     });
-    expect(pinned.receipts.map((r) => r.result.refusal)).toEqual([
-      "github_settings_unsupported",
+    expect(invalid.receipts.map((r) => r.result.refusal)).toEqual([
+      "github_refused",
+    ]);
+    expect(invalid.gateReceipts).toMatchObject([
+      {
+        operation: "mint_github_token",
+        status: "failed",
+        result: {
+          purpose: "pull_request",
+          reason_code: "github_settings_unsupported",
+        },
+      },
     ]);
   });
 
@@ -292,17 +373,17 @@ describe("pull request routes", () => {
     });
   });
 
-  test("a writer key, an unverified caller and a bad body are refused", async () => {
+  test("a read-only key, an unverified caller and a bad body are refused", async () => {
     for (const path of ["", "/comments"]) {
-      const writer = app();
+      const reader = app();
       expect(
-        await errorOf(post(writer, path, { body: "x" }, "csp_writer")),
+        await errorOf(post(reader, path, { body: "x" }, "csp_reader")),
       ).toMatchObject({
         status: 403,
         code: "FORBIDDEN",
         details: { refusal: "missing_scope" },
       });
-      expect(writer.receipts).toHaveLength(1);
+      expect(reader.receipts).toHaveLength(1);
       const open = app({ authMode: "none" });
       expect(
         (

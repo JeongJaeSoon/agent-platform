@@ -40,6 +40,7 @@ const profile = (appId: number) => ({
   slug: `app-${appId}`,
   name: `App ${appId}`,
   htmlUrl: `https://github.com/apps/app-${appId}`,
+  permissions: { contents: "write" as const, metadata: "read" as const },
   apiBase: "https://api.github.com",
 });
 
@@ -178,12 +179,22 @@ integration("the GitHub App on PostgreSQL", () => {
     expect(written).toEqual([
       {
         operation: "set_github_app",
-        result: { app_id: 11, role: "author" },
+        result: {
+          app_id: 11,
+          role: "author",
+          permissions: { contents: "write", metadata: "read" },
+          warnings: [],
+        },
         status: "succeeded",
       },
       {
         operation: "set_github_app",
-        result: { app_id: 12, role: "author" },
+        result: {
+          app_id: 12,
+          role: "author",
+          permissions: { contents: "write", metadata: "read" },
+          warnings: [],
+        },
         status: "succeeded",
       },
       {
@@ -294,6 +305,7 @@ integration("the GitHub App on PostgreSQL", () => {
         workspaceId: ws,
         role: "reviewer",
         ...profile(53),
+        permissionsCheckedAt: new Date(),
       })
       .then(
         () => null,

@@ -35,7 +35,7 @@ import type {
   WorkerReadyResponse,
   WorkerScope,
 } from "@werft-ai/contracts";
-import { MAX_RESTORE_PROFILES } from "@werft-ai/contracts";
+import { githubRefusalStatus, MAX_RESTORE_PROFILES } from "@werft-ai/contracts";
 import {
   type CheckpointRequestDecision,
   type RestoreFallback,
@@ -57,11 +57,10 @@ import type {
   CheckpointVerifier,
 } from "../ports/checkpoint-verifier.ts";
 import {
-  type ForgeResolver,
-  type GitCredential,
-  repoRefOf,
-} from "../ports/forge.ts";
-import { GITHUB_SETTINGS_UNSUPPORTED } from "../ports/github-settings.ts";
+  type GitHubGate,
+  GitHubGateError,
+  type GitHubGrant,
+} from "../ports/github-gate.ts";
 import type { McpEgressStore } from "../ports/mcp-egress.ts";
 import type {
   ApprovalCheckpointCommit,
@@ -447,9 +446,9 @@ export function createWorkerGateway(deps: {
   // Absent, the pending routes answer 404 and the worker denies what it
   // cannot put to anyone; heartbeat then never reports an answer waiting.
   pending?: WorkerPendingStore;
-  // The forge behind each catalog repository that has one. Absent, a
-  // repository whose credential a forge issues (`github_app`) is refused.
-  forges?: ForgeResolver;
+  // Issues the credential of a GitHub repository. Absent, a repository
+  // whose credential GitHub issues (`github_app`) is refused.
+  github?: GitHubGate;
   // Absent, the remote MCP route is refused: nothing can say whether the
   // agent's credential is still bound.
   mcp?: McpEgressStore;
@@ -1240,31 +1239,37 @@ export function createWorkerGateway(deps: {
       ) {
         moved("session's repository");
       }
-      if (result.githubPinned) {
-        throw new WorkerGatewayError(
-          409,
-          GITHUB_SETTINGS_UNSUPPORTED.code,
-          GITHUB_SETTINGS_UNSUPPORTED.message,
-          false,
-          undefined,
-          "github_settings_unsupported",
-        );
-      }
-      const forge = deps.forges?.(id) ?? null;
-      if (forge === null) {
+      if (deps.github === undefined) {
         if (pair.repository.auth?.kind === "github_app") forgeUnavailable();
         return grant(repositoryUpstreamOf(pair.repository));
       }
-      const repo = repoRefOf(url);
-      if (repo === null) forgeUnavailable();
-      let issued: GitCredential;
+      let issued: GitHubGrant | null;
       try {
-        issued = await forge.gitCredential(repo, "read");
-      } catch {
+        issued = await deps.github.grant({
+          sessionId: result.sessionId,
+          purpose: "clone",
+        });
+      } catch (error) {
+        // The proxy hands git only a refusal; the session's receipt (the
+        // gate's) carries the reason for the person reading the session.
+        if (error instanceof GitHubGateError) {
+          throw new WorkerGatewayError(
+            githubRefusalStatus(error.reasonCode),
+            "GITHUB_REFUSED",
+            `GitHub work refused: ${error.reasonCode}`,
+            false,
+            undefined,
+            error.reasonCode,
+          );
+        }
         // The adapter logs why; nothing of its error reaches the proxy.
         forgeUnavailable();
       }
-      return grant(repositoryUpstreamOf(pair.repository, issued));
+      if (issued === null) {
+        if (pair.repository.auth?.kind === "github_app") forgeUnavailable();
+        return grant(repositoryUpstreamOf(pair.repository));
+      }
+      return grant(repositoryUpstreamOf(pair.repository, issued.gitCredential));
     },
 
     // What one Messages call through the provider route used, as the proxy

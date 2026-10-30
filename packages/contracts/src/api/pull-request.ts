@@ -5,7 +5,7 @@ import {
   sessionIdSchema,
   timestampSchema,
 } from "../shared/index.ts";
-import { pushRequestIdSchema } from "./push-request.ts";
+import { pushReasonCodeSchema, pushRequestIdSchema } from "./push-request.ts";
 
 /** The pull request the platform opened from a pushed push request. */
 export const pullRequestSchema = z.object({
@@ -80,6 +80,8 @@ export const PULL_REQUEST_REFUSAL_VALUES = [
   "no_pull_request",
   "forge_failed",
   "github_settings_unsupported",
+  // The GitHub gate refused the token; `reason_code` says why.
+  "github_refused",
 ] as const;
 export const pullRequestRefusalSchema = z.enum(PULL_REQUEST_REFUSAL_VALUES);
 
@@ -101,6 +103,7 @@ export const pullRequestReceiptResultSchema = z.object({
   comment_id: z.number().int().nullable().optional(),
   comment_url: z.string().nullable().optional(),
   marker: z.string().nullable().optional(),
+  reason_code: pushReasonCodeSchema.nullable().optional(),
 });
 
 export type PullRequest = z.infer<typeof pullRequestSchema>;

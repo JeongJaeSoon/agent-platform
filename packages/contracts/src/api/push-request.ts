@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { receiptActorSchema } from "../musterrolle/authorization.ts";
+import { githubRefusalSchema } from "../musterrolle/github-settings.ts";
 import {
   agentReleaseIdSchema,
   receiptIdSchema,
@@ -115,8 +116,19 @@ export const PUSH_REFUSAL_VALUES = [
   "lease_expired",
   "push_failed",
   "github_settings_unsupported",
+  // The GitHub gate refused the push's token; `reason_code` says why.
+  "github_refused",
 ] as const;
 export const pushRefusalSchema = z.enum(PUSH_REFUSAL_VALUES);
+
+/**
+ * Why, more narrowly: the gate's refusal, or GitHub refusing a push that
+ * changes `.github/workflows/` with a token lacking `workflows`.
+ */
+export const pushReasonCodeSchema = z.union([
+  githubRefusalSchema,
+  z.literal("workflows_permission_missing"),
+]);
 
 /**
  * `result` of a `request_push`, `decide_push` or `push` receipt. Fields the
@@ -137,6 +149,7 @@ export const pushReceiptResultSchema = z.object({
   remote_ref: z.string().nullable().optional(),
   previous_commit: gitCommitShaSchema.nullable().optional(),
   approved_by: pushDeciderSchema.nullable().optional(),
+  reason_code: pushReasonCodeSchema.nullable().optional(),
 });
 
 export type PushRequestState = (typeof PUSH_REQUEST_STATE_VALUES)[number];
@@ -150,4 +163,5 @@ export type ListPushRequestsResponse = z.infer<
   typeof listPushRequestsResponseSchema
 >;
 export type PushRefusal = z.infer<typeof pushRefusalSchema>;
+export type PushReasonCode = z.infer<typeof pushReasonCodeSchema>;
 export type PushReceiptResult = z.infer<typeof pushReceiptResultSchema>;

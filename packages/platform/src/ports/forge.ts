@@ -41,40 +41,6 @@ export type ForgeComment = {
   created: boolean;
 };
 
-export interface ForgeAdapter {
-  readonly kind: ForgeKind;
-  /** Longest pull request or comment body the forge takes. */
-  readonly maxBodyLength: number;
-  gitCredential(repo: RepoRef, access: ForgeAccess): Promise<GitCredential>;
-  getRepository(repo: RepoRef): Promise<ForgeRepository>;
-  /** The open pull request whose head is `branch` of `repo` itself, or null. */
-  findPullRequestForBranch(
-    repo: RepoRef,
-    branch: string,
-  ): Promise<ForgePullRequest | null>;
-  /**
-   * Opens a pull request, or answers the open one the forge already has for
-   * `head` (two callers racing get the same one).
-   */
-  createPullRequest(
-    repo: RepoRef,
-    input: { head: string; base: string; title: string; body: string },
-  ): Promise<ForgePullRequest>;
-  /**
-   * Edits the comment on pull request `number` whose body contains `marker`,
-   * or posts one. The marker is appended to `body`.
-   */
-  upsertComment(
-    repo: RepoRef,
-    number: number,
-    marker: string,
-    body: string,
-  ): Promise<ForgeComment>;
-}
-
-/** The adapter a catalog repository id resolves to, or null when it has none. */
-export type ForgeResolver = (repositoryId: string) => ForgeAdapter | null;
-
 /**
  * A forge call that failed. The message names what failed and the status,
  * never a token, JWT, key or the forge's response body.

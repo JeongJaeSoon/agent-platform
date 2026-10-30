@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import type { GitHubAppRole } from "@werft-ai/contracts";
+import {
+  type GitHubAppPermissions,
+  type GitHubAppRole,
+  githubAppPermissionsSchema,
+  githubAppWarnings,
+} from "@werft-ai/contracts";
 import {
   type GitHubAppCredential,
   type GitHubAppRecord,
@@ -35,6 +40,7 @@ function receiptRow(
   operation: "set_github_app" | "delete_github_app",
   appId: number,
   role: GitHubAppRole,
+  permissions?: GitHubAppPermissions,
 ) {
   return {
     id: audit.receiptId,
@@ -46,7 +52,13 @@ function receiptRow(
       workspace_id: workspaceId,
     },
     status: "succeeded" as const,
-    result: { app_id: appId, role },
+    result: {
+      app_id: appId,
+      role,
+      ...(permissions === undefined
+        ? {}
+        : { permissions, warnings: githubAppWarnings(role, permissions) }),
+    },
   };
 }
 
@@ -57,6 +69,11 @@ async function lockWorkspace(tx: Database, workspaceId: string) {
   await tx.execute(
     sql`SELECT pg_advisory_xact_lock(hashtext(${`github_apps:${workspaceId}`}))`,
   );
+}
+
+function permissionsOf(stored: unknown): GitHubAppPermissions | null {
+  const parsed = githubAppPermissionsSchema.safeParse(stored);
+  return parsed.success ? parsed.data : null;
 }
 
 // A row is written with its key in one transaction, so a row without one is
@@ -74,6 +91,8 @@ async function recordOf(
     slug: row.slug,
     name: row.name,
     htmlUrl: row.htmlUrl,
+    permissions: permissionsOf(row.permissions),
+    permissionsCheckedAt: row.permissionsCheckedAt,
     apiBase: row.apiBase,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -112,6 +131,8 @@ export function createPostgresGitHubAppStore(
           name: app.name,
           htmlUrl: app.htmlUrl,
           apiBase: app.apiBase,
+          permissions: app.permissions,
+          permissionsCheckedAt: DB_NOW,
         };
         const [current] = await tx
           .select()
@@ -144,7 +165,14 @@ export function createPostgresGitHubAppStore(
         await tx
           .insert(receipts)
           .values(
-            receiptRow(audit, workspaceId, "set_github_app", app.appId, role),
+            receiptRow(
+              audit,
+              workspaceId,
+              "set_github_app",
+              app.appId,
+              role,
+              app.permissions,
+            ),
           );
         const stored = await recordOf(tx, row);
         if (stored === null) throw new Error("GitHub App key was not written");
@@ -177,6 +205,13 @@ export function createPostgresGitHubAppStore(
           );
         return { outcome: "deleted", appId: row.appId };
       });
+    },
+
+    async recordPermissions(id, permissions) {
+      await db
+        .update(githubApps)
+        .set({ permissions, permissionsCheckedAt: DB_NOW })
+        .where(eq(githubApps.id, id));
     },
 
     async credentials(role, workspaceId) {
