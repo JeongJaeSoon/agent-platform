@@ -360,7 +360,7 @@ function SlackStatus({ agentId }: { readonly agentId: string }) {
           <AlertDescription>
             {t("slack.eventsPending.body")}{" "}
             <Link
-              href={`https://api.slack.com/apps/${encodeURIComponent(unverifiedApp)}/app-manifest`}
+              href={`https://api.slack.com/apps/${encodeURIComponent(unverifiedApp)}/event-subscriptions`}
               target="_blank"
               newTabLabel={t("slack.newTab")}
               underline="always"
