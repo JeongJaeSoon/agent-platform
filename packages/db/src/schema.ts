@@ -1007,6 +1007,16 @@ export const sessions = pgTable(
     checkpointCommittedAt: timestamp("checkpoint_committed_at", {
       withTimezone: true,
     }),
+    // Written once and never overwritten: the pinned image of the session's
+    // first reserved launch, and the RuntimeFingerprint of the first
+    // checkpoint committed with one. The fingerprint is not taken at
+    // reservation: a launch that dies before any checkpoint never ran the
+    // combination its image names. Null on rows from before them.
+    firstWorkerImage: text("first_worker_image"),
+    runtimeEngine: text("runtime_engine"),
+    runtimeSdkVersion: text("runtime_sdk_version"),
+    runtimeCliVersion: text("runtime_cli_version"),
+    runtimeProfileSha256: text("runtime_profile_sha256"),
     // A CheckpointBlockReason that outlives the turn that produced it
     // (durability.ts CHECKPOINT_REASONS); null once a checkpoint commits.
     checkpointPendingReason: text("checkpoint_pending_reason"),

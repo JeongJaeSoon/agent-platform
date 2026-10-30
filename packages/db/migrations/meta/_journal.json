@@ -750,6 +750,13 @@
       "when": 1793384602649,
       "tag": "0197_github_app_client_id",
       "breakpoints": true
+    },
+    {
+      "idx": 198,
+      "version": "7",
+      "when": 1793388036828,
+      "tag": "0198_session_runtime_pin",
+      "breakpoints": true
     }
   ]
 }

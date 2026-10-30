@@ -106,4 +106,40 @@ integration("checkpoint runtime columns, expand", () => {
     ]);
     expect(await readPointerRuntime(db, sessionId)).toBeNull();
   }, 60_000);
+
+  test("a session from before its pin columns keeps them null", async () => {
+    const through = await migrationsThrough("0197_github_app_client_id");
+    try {
+      await migrate(db, { migrationsFolder: through });
+    } finally {
+      await rm(through, { recursive: true, force: true });
+    }
+    const sessionId = randomUUID();
+    await pool.query(
+      `INSERT INTO sessions (id, owner_id, repo_url, branch, repository_id)
+       VALUES ($1, 'owner', 'https://example.invalid/a.git', 'main', 'repo-a')`,
+      [sessionId],
+    );
+
+    await migrate(db, { migrationsFolder: MIGRATIONS });
+
+    expect(
+      (
+        await pool.query(
+          `SELECT first_worker_image, runtime_engine, runtime_sdk_version,
+                  runtime_cli_version, runtime_profile_sha256
+           FROM sessions WHERE id = $1`,
+          [sessionId],
+        )
+      ).rows,
+    ).toEqual([
+      {
+        first_worker_image: null,
+        runtime_engine: null,
+        runtime_sdk_version: null,
+        runtime_cli_version: null,
+        runtime_profile_sha256: null,
+      },
+    ]);
+  }, 60_000);
 });
