@@ -155,7 +155,7 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
 
 ## 세션 하나 따라가기
 
-세션 하나를 만들고 끝낼 때까지, 무엇이 어디에 남는지 순서대로 읽는다. API는 `sessions:read`·`sessions:write`·`sessions:control` scope를 가진 개인 key 또는 에이전트 key로 부른다. 아래 1의 본문은 개인 key의 것이고, 에이전트 key는 `profile_id`·`repository_id` 대신 `agent_release_id`를 보낸다([api-guide.md](../api-guide.md)). `$API`는 API 주소, `$KEY`는 key다. DB는 읽기만 한다. 로컬 compose 스택이면 `docker compose exec -T postgres psql -U postgres -d sessions`로 붙는다.
+세션 하나를 만들고 끝낼 때까지, 무엇이 어디에 남는지 순서대로 읽는다. API는 `sessions:read`·`sessions:write`·`sessions:control` scope를 가진 개인 key 또는 에이전트 key로 부른다. 아래 1의 본문은 개인 key의 것이고, 에이전트 key는 그 에이전트의 `agent_release_id`를 넣고, `profile_id`·`repository_id`는 빼면 release의 값을 쓴다([api-server.md](api-server.md)). `$API`는 API 주소, `$KEY`는 key다. DB는 읽기만 한다. 로컬 compose 스택이면 `docker compose exec -T postgres psql -U postgres -d sessions`로 붙는다.
 
 1. **세션을 만든다.** `POST /v1/sessions`에 `Idempotency-Key`를 붙여 보낸다. 응답의 `session_id`, `turn_id`, `receipt_id`를 적어 둔다.
 
@@ -198,7 +198,7 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
     SELECT revision, manifest_ref, collected_at FROM checkpoints WHERE session_id = '<id>';
     ```
 
-    `tool_calls`는 reconciler가 다음 pass에서 채우므로 몇 초 늦을 수 있다. checkpoint의 `manifest_ref`가 bucket 안의 manifest key다. 그 아래 object는 [오브젝트 스토리지](#오브젝트-스토리지-checkpoint-bucket) 절의 경로에 있다.
+    `decision`은 권한 요청에만 있고 질문 행에서는 비어 있다. `tool_calls`는 reconciler가 다음 pass에서 채우므로 몇 초 늦을 수 있다. checkpoint의 `manifest_ref`가 bucket 안의 manifest key다. 그 아래 object는 [오브젝트 스토리지](#오브젝트-스토리지-checkpoint-bucket) 절의 경로에 있다.
 
 ## 결정할 항목
 
