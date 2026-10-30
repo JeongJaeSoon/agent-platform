@@ -939,13 +939,14 @@ describe("에이전트 관리자", () => {
       (await screen.findByText("Mate")).closest("li")?.textContent,
     ).toContain("mate@example.com · 10/11부터 관리자");
     await screen.findByRole("option", { name: "결제팀" });
-    // The list's summaries name the admins, so a change marks it stale; the
-    // overview watches the list, so it may be read again at once.
+    // The list's summaries name the admins, so a change marks them stale; the
+    // overview watches this agent's summary, so it may be read again at once.
+    const summary = keys.agentSummaries([AGENT_ID]);
     const listReads = () =>
       api.calls.filter((c) => c.method === "GET" && c.path === "/v1/agents")
         .length;
     await waitFor(() =>
-      expect(services.queryClient.getQueryState(keys.agents)?.fetchStatus).toBe(
+      expect(services.queryClient.getQueryState(summary)?.fetchStatus).toBe(
         "idle",
       ),
     );
@@ -964,8 +965,8 @@ describe("에이전트 관리자", () => {
     ).toEqual({ team_id: TEAM_ID });
     await waitFor(() =>
       expect(
-        services.queryClient.getQueryState(keys.agents)?.isInvalidated ===
-          true || listReads() > reads,
+        services.queryClient.getQueryState(summary)?.isInvalidated === true ||
+          listReads() > reads,
       ).toBe(true),
     );
 
