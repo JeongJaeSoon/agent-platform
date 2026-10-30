@@ -81,6 +81,7 @@ import {
   type RuntimeFingerprint,
   runtimeColumns,
   runtimeOfColumns,
+  sessionRuntimeOnce,
 } from "./checkpoint-runtime.ts";
 import { finishClose } from "./close-control.ts";
 import { contextCoverage, contextGap, raiseContextGap } from "./context-gap.ts";
@@ -542,6 +543,7 @@ export async function advanceCheckpointPointer(
         checkpointFallbackRevision: null,
         checkpointRestoreAttemptId: null,
         updatedAt: input.now,
+        ...sessionRuntimeOnce(input.runtime),
         ...(resolvesPending
           ? { checkpointPendingReason: null, checkpointPendingAttemptId: null }
           : {}),

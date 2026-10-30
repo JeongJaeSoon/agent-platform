@@ -35,6 +35,7 @@ export async function launchSession(
   input: {
     sessionId: string;
     backend?: ExecutionBackend;
+    image?: string;
     nonceTtlMs?: number;
     now?: Date;
   },
@@ -49,6 +50,7 @@ export async function launchSession(
   const intent = await store.reserveLaunch({
     ...SPEC,
     backend: input.backend ?? "local_docker",
+    image: input.image ?? SPEC.image,
     now: input.now ?? new Date(),
     sessionId: input.sessionId,
     slotLimit: Number.MAX_SAFE_INTEGER,
