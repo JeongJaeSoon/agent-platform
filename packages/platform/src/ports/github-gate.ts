@@ -4,6 +4,7 @@ import type {
   GitHubCeiling,
   GitHubPurpose,
   GitHubRefusal,
+  GitHubReviewEvent,
   ReceiptActor,
 } from "@werft-ai/contracts";
 import type {
@@ -25,6 +26,8 @@ export type GitHubWork = {
   workflow?: { file: string; ref: string };
   /** rerun only: the gate finds its workflow and ref in github_workflow_dispatches. */
   runId?: number;
+  /** review only: what a refusal's receipt names. */
+  review?: { number: number; commitId: string; event: GitHubReviewEvent };
   /**
    * Who the receipts name. Absent: the human who started the session (a
    * clone has no caller). Null: no one (the push executor).
@@ -81,6 +84,13 @@ export interface GitHubApi {
   }): Promise<{ id: number; html_url: string } | null>;
   getWorkflowRun(runId: number): Promise<GitHubWorkflowRun>;
   rerunWorkflow(runId: number, failedOnly: boolean): Promise<void>;
+  /** Always on `commitId`: GitHub files the review on that commit. */
+  submitReview(input: {
+    number: number;
+    commitId: string;
+    event: GitHubReviewEvent;
+    body?: string;
+  }): Promise<{ id: number; html_url: string }>;
 }
 
 /**
@@ -170,7 +180,11 @@ export type GitHubGateReceipt = {
   ownerId: string;
   sessionId: string;
   actor: ReceiptActor | null;
-  operation: "mint_github_token" | "dispatch_workflow" | "rerun_workflow";
+  operation:
+    | "mint_github_token"
+    | "dispatch_workflow"
+    | "rerun_workflow"
+    | "review_pull_request";
   status: "succeeded" | "failed";
   result: Record<string, unknown>;
   error: { code: "GITHUB_REFUSED"; message: string } | null;
@@ -200,6 +214,11 @@ export interface GitHubConnection {
     repo: RepoRef,
     permissions: GitHubPermissions,
   ): Promise<{ credential: GitCredential; fresh: boolean }>;
+  /**
+   * Whether the App is installed on `repo`, asked with its own JWT; null for
+   * a PAT. Issues no installation token.
+   */
+  installed(repo: RepoRef): Promise<boolean | null>;
   api(repo: RepoRef, credential: GitCredential): GitHubApi;
 }
 

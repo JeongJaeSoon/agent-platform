@@ -360,6 +360,17 @@ export const agentGitHubSchema = z.object({
 - 게이트 거절의 공통 형식: HTTP `403`(정책) 또는 `409`(설정이 없음·상한), `error.code` `GITHUB_REFUSED`, `details.reason_code`, `details.receipt_id`. `reason_code` 값은 contracts의 `GITHUB_REFUSAL_VALUES` 하나에 모은다: `github_disabled`, `repository_not_allowed`, `feature_off`, `over_workspace_ceiling`, `app_permission_missing`, `no_reviewer_app`, `app_required`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`, `actions_off`, `github_settings_unsupported`, `github_host_unsupported`, `repository_none`.
 - 새 경로는 `apps/control-host/src/api/openapi.ts`, `route-error-coverage.ts`, `packages/core`의 응답 표, `packages/client` 생성물, `docs/openapi.json`에 같이 들어간다.
 
+### GA-5에서 정한 것
+
+구현하면서 위 설명과 달라지거나 위에서 정하지 않은 것을 여기 둔다. 위 문단과 이 목록이 다르면 이 목록이 맞다.
+
+- **역할 충돌의 오류 코드.** `same_app`·`no_author_app`은 `GITHUB_REFUSED`가 아니라 새 코드 `GITHUB_APP_CONFLICT`(`409`)의 `details.reason_code`로 준다. 게이트 거절이 아니고 receipt도 남기지 않아서다. store가 워크스페이스 advisory lock 안에서 다른 role의 행을 읽고 판정한다. 작성용 App을 지금 리뷰용 App과 같은 App으로 바꾸는 것도(`…/github-app` 별칭 포함) `same_app`이다. 작성용 App을 지워도 리뷰용 App은 남는다.
+- **별칭.** `…/github-app`은 `…/github-apps/author`와 같은 처리다. 웹은 `…/github-apps/{role}`만 부른다.
+- **저장소별 설치 권한.** `GET …/github-apps/{role}`의 `repositories[]`에 `installation_permissions`를 더했다. 그 저장소를 덮는 설치가 승인한 권한이고, 설치가 없거나 읽지 못하면 `null`이다. App 권한보다 좁으면 연결 화면이 "설치 승인 대기"를 보인다.
+- **"App 미설치" 배지.** `GET /v1/agents/{id}/github`의 `options.repositories[]`에 `installed: { author, reviewer }`를 더했다. role마다 그 연결이 App JWT로 `GET /repos/{owner}/{repo}/installation`을 물어 정하고, 토큰은 발급하지 않는다. 연결이 없거나(PAT·GHES·카탈로그 App 저장소의 리뷰용) GitHub가 답하지 않으면 `null`이다. 탭은 `false`일 때만 배지를 단다. 리뷰 승인 줄은 켤 수 있을 때, 고른 저장소 중 리뷰용 App이 없는 곳이 있으면 배지와 그 저장소 이름을 보인다. 잠그지는 않는다. 저장소마다 GitHub가 정한다.
+- **리뷰 receipt.** `review_pull_request`의 result는 `session_id`·`agent_id`·`agent_release_id`·`repository_id`, `number`·`commit_id`·`event`, `opened_by_session_id`·`opened_by_agent_id`, 성공이면 `review_id`다. 연 세션은 같은 owner에서 그 저장소·번호의 PR을 기록한 가장 최근 세션이고, 없으면(사람이 연 PR) `null`이다. 게이트 거절도 같은 operation으로 남고 `number`·`commit_id`·`event`를 싣는다. 리뷰 본문은 receipt에도 로그에도 남기지 않는다. GitHub가 리뷰를 거절하면(예: PR을 연 App의 승인, `422`) 실패 receipt에 HTTP 상태와 `github_request_id`만 두고 `503` `BACKEND_UNAVAILABLE`이다.
+- **연결 화면.** 리뷰용 App 카드는 작성용 App 카드 바로 아래에 둔다. 비어 있으면 권장 권한 줄을, 등록되면 저장소별 설치 상태를 보인다. 같은 에이전트 승인 위험 단락은 늘 보이고, 삭제 줄은 위험 구역이 아니라 이 카드 안에 둔다. 위험 구역은 작성용 App의 것이다.
+
 ## 7. 화면
 
 시안은 GA-MOCKUP이 만든 오너 확인용 사본이다(repo 밖 `~/share/owner-checks/github-agent-20261030/mockups/`, 목차 `index.html`, 결정별 대응표 `decisions.md`). 화면 이름은 그 파일 이름이다. A는 에이전트 GitHub 탭(`a-default`, `a-nogh`, `a-noreview`, `a-ceiling`), B는 연동 계정(`b-unlinked`, `b-linked`), C는 GitHub 연결 설정(`c-default`, `c-noreview`, `c-member`)이다. 화면 PR(GA-3·GA-4·GA-6)은 이 절과 시안을 같이 기준으로 삼는다. 둘이 다르면 이 문서를 먼저 고친다. 시안과 이 문서가 다른 곳은 하나다. 시안 A는 저장소 후보를 "작성용 App을 쓰는 설치된 저장소"로 그렸다. 이 문서는 거기에 릴리스 프로필이 허용하는 것(`allowedPair`)이라는 조건을 더하고 PAT 저장소를 뺀다([결정 8](#결정-8-에이전트별-저장소-범위)). 탭은 프로필이 허용하지 않는 저장소를 이유와 함께 비활성으로 보인다.

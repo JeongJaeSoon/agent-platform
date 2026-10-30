@@ -101,6 +101,8 @@ function serviceWith(input: {
   author?: Record<string, "read" | "write" | "admin"> | null;
   reviewer?: Record<string, "read" | "write" | "admin"> | null | "none";
   noRelease?: boolean;
+  /** `<repository>:<role>` → GitHub's answer; absent: no connection. */
+  installed?: Record<string, boolean | null | Error>;
 }) {
   const release = input.noRelease
     ? null
@@ -148,6 +150,25 @@ function serviceWith(input: {
         };
       },
     },
+    connections: (id, role) => {
+      const answer = input.installed?.[`${id}:${role}`];
+      if (answer === undefined) return null;
+      return {
+        kind: "app",
+        githubCom: true,
+        appId: 1,
+        credential: async () => {
+          throw new Error("not used");
+        },
+        api: () => {
+          throw new Error("not used");
+        },
+        installed: async () => {
+          if (answer instanceof Error) throw answer;
+          return answer;
+        },
+      };
+    },
   });
 }
 
@@ -173,32 +194,58 @@ const WITH_SETTINGS: AgentGitHub = {
 describe("the agent GitHub tab's options", () => {
   test("repositories: GitHub ones only, each with why it cannot be picked", async () => {
     const read = await serviceWith({}).get(caller, AGENT);
+    const unknown = { author: null, reviewer: null };
     expect(read.options.repositories).toEqual([
       {
         id: "elsewhere-app",
         url: "https://github.com/acme/elsewhere",
         available: false,
         reason: "repository_not_allowed",
+        installed: unknown,
       },
       {
         id: "ghe-app",
         url: "https://ghe.example.com/acme/app",
         available: true,
         reason: null,
+        installed: unknown,
       },
       {
         id: "pat-app",
         url: "https://github.com/acme/pat-app",
         available: false,
         reason: "app_required",
+        installed: unknown,
       },
       {
         id: "sample-app",
         url: "https://github.com/acme/sample-app",
         available: true,
         reason: null,
+        installed: unknown,
       },
     ]);
+  });
+
+  test("installed: each role's App as GitHub answers; no connection or no answer is null", async () => {
+    const read = await serviceWith({
+      installed: {
+        "sample-app:author": true,
+        "sample-app:reviewer": false,
+        "elsewhere-app:author": false,
+        "elsewhere-app:reviewer": new Error("GitHub failed (502)"),
+        "pat-app:author": null,
+      },
+    }).get(caller, AGENT);
+    const installed = Object.fromEntries(
+      read.options.repositories.map((entry) => [entry.id, entry.installed]),
+    );
+    expect(installed).toEqual({
+      "elsewhere-app": { author: false, reviewer: null },
+      "ghe-app": { author: null, reviewer: null },
+      "pat-app": { author: null, reviewer: null },
+      "sample-app": { author: true, reviewer: false },
+    });
   });
 
   test("features: the ceiling, the reviewer App and the App's permissions, in that order", async () => {

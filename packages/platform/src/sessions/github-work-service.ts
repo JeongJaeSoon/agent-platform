@@ -5,6 +5,8 @@ import type {
   ReceiptActor,
   RerunWorkflowRequest,
   RerunWorkflowResponse,
+  SubmitPullRequestReviewRequest,
+  SubmitPullRequestReviewResponse,
 } from "@werft-ai/contracts";
 import type { AuthorizationPolicy } from "../musterrolle/policy.ts";
 import { ForgeCredentialError } from "../ports/forge.ts";
@@ -37,14 +39,24 @@ export interface GitHubWorkStore
     result: Record<string, unknown>;
     run: { id: number; workflow: string; ref: string } | null;
   }): Promise<string>;
+  /**
+   * The owner's session and agent that opened pull request `number` of the
+   * catalog repository through the platform; null for one it did not.
+   */
+  pullRequestOpener(
+    ownerId: string,
+    repositoryId: string,
+    number: number,
+  ): Promise<{ sessionId: string; agentId: string | null } | null>;
 }
 
 /**
  * GitHub work a session asks for beyond push and pull requests (design
  * github-agent.md §3): dispatching an allow-listed workflow, reading a run,
- * rerunning one the platform dispatched. Each goes through the gate, which
- * decides and issues; this service calls GitHub and writes the receipt.
- * Neither a receipt nor a log keeps dispatch inputs or GitHub's error text.
+ * rerunning one the platform dispatched, reviewing a pull request. Each goes
+ * through the gate, which decides and issues; this service calls GitHub and
+ * writes the receipt. Neither a receipt nor a log keeps dispatch inputs, a
+ * review's body or GitHub's error text.
  */
 export function createGitHubWorkService(deps: {
   authorization: AuthorizationPolicy;
@@ -110,7 +122,7 @@ export function createGitHubWorkService(deps: {
   async function failed(
     grant: GitHubGrant,
     actor: PushActor,
-    operation: "dispatch_workflow" | "rerun_workflow",
+    operation: "dispatch_workflow" | "rerun_workflow" | "review_pull_request",
     result: Record<string, unknown>,
     error: GitHubCallError,
   ): Promise<never> {
@@ -232,6 +244,68 @@ export function createGitHubWorkService(deps: {
         error: null,
       });
       return { receipt_id: receiptId };
+    },
+
+    /**
+     * A review with the reviewer App (design github-agent.md §2 decision 1).
+     * The platform does not refuse a review of a pull request the same
+     * agent opened; the receipt names both sides so it can be found later.
+     */
+    async review(
+      actor: PushActor,
+      sessionId: string,
+      number: number,
+      body: SubmitPullRequestReviewRequest,
+    ): Promise<SubmitPullRequestReviewResponse> {
+      const grant = await granted(actor, sessionId, "session.submit", {
+        purpose: "review",
+        review: { number, commitId: body.commit_id, event: body.event },
+      });
+      const opener = await store.pullRequestOpener(
+        grant.context.ownerId,
+        grant.context.repositoryId,
+        number,
+      );
+      const { allowed_by: _none, ...fields } = fieldsOf(grant);
+      // Never the review's body: it is whatever the caller wrote.
+      const result = {
+        ...fields,
+        number,
+        commit_id: body.commit_id,
+        event: body.event,
+        opened_by_session_id: opener?.sessionId ?? null,
+        opened_by_agent_id: opener?.agentId ?? null,
+      };
+      let review: { id: number; html_url: string };
+      try {
+        review = await grant.api.submitReview({
+          number,
+          commitId: body.commit_id,
+          event: body.event,
+          ...(body.body === undefined ? {} : { body: body.body }),
+        });
+      } catch (error) {
+        if (error instanceof GitHubCallError) {
+          return await failed(
+            grant,
+            actor,
+            "review_pull_request",
+            result,
+            error,
+          );
+        }
+        throw error;
+      }
+      const receiptId = await store.recordReceipt({
+        ownerId: grant.context.ownerId,
+        sessionId: grant.context.sessionId,
+        actor: pushReceiptActor(actor),
+        operation: "review_pull_request",
+        status: "succeeded",
+        result: { ...result, review_id: review.id },
+        error: null,
+      });
+      return { receipt_id: receiptId, review };
     },
   };
 }

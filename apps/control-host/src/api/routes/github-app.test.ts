@@ -34,6 +34,7 @@ const createApiApp = recordRouteErrors("routes/github-app.test.ts");
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const OTHER_WORKSPACE = "019a0000-0000-7000-8000-0000000000b1";
 const APP_ID = 4242;
+const REVIEWER_APP_ID = 4343;
 
 const rsaPair = () =>
   generateKeyPairSync("rsa", {
@@ -43,6 +44,18 @@ const rsaPair = () =>
   });
 const keys = rsaPair();
 const privateKey = keys.privateKey;
+const reviewerKeys = rsaPair();
+const REVIEWER_FAKE = {
+  appId: REVIEWER_APP_ID,
+  publicKey: reviewerKeys.publicKey,
+  installationId: 88,
+  slug: "werft-reviewer",
+  permissions: {
+    contents: "read",
+    metadata: "read",
+    pull_requests: "write",
+  } as const,
+};
 const strangerKey = rsaPair().privateKey;
 
 const sessions = new Map<string, ResolvedWebSession>();
@@ -95,6 +108,7 @@ function memoryStore() {
   const held = new Map<GitHubAppRole, Held>();
   const receipts: Array<{ operation: string; app_id: number }> = [];
   const permissionReads: Array<{ id: string; permissions: unknown }> = [];
+  let seeding = false;
   const mine = (workspaceId: string | undefined, role: GitHubAppRole) => {
     const row = held.get(role);
     return row !== undefined &&
@@ -110,6 +124,12 @@ function memoryStore() {
       const at = new Date();
       const by = audit.principal.actor?.userId ?? "";
       const before = held.get(role);
+      // As the Postgres store decides it, under the workspace's lock.
+      const other = held.get(role === "author" ? "reviewer" : "author");
+      if (!seeding && role === "reviewer" && other === undefined) {
+        return { outcome: "no_author_app" };
+      }
+      if (other?.record.appId === app.appId) return { outcome: "same_app" };
       const row: Held = {
         key,
         record: {
@@ -172,6 +192,15 @@ function memoryStore() {
   };
   return {
     store,
+    /** `store.put` without the role checks: a row the routes never made. */
+    async seed(...args: Parameters<GitHubAppStore["put"]>) {
+      seeding = true;
+      try {
+        return await store.put(...args);
+      } finally {
+        seeding = false;
+      }
+    },
     receipts,
     permissionReads,
     held: () => held.get("author") ?? null,
@@ -217,10 +246,11 @@ function appWith(options: { enabled?: boolean; apiBase?: string } = {}) {
       csrf?: boolean;
       body?: string;
       workspaceId?: string;
+      path?: string;
     } = {},
   ) => {
     const response = await app.request(
-      `/v1/workspaces/${request.workspaceId ?? WORKSPACE}/github-app`,
+      `/v1/workspaces/${request.workspaceId ?? WORKSPACE}/${request.path ?? "github-app"}`,
       {
         method,
         headers: {
@@ -249,6 +279,7 @@ beforeAll(async () => {
     publicKey: keys.publicKey,
     installationId: 77,
     slug: "werft-test",
+    secondApp: REVIEWER_FAKE,
   });
   await github.createRepository("acme", "app", { "README.md": "hi\n" });
   call = appWith();
@@ -342,7 +373,7 @@ describe("the GitHub App API", () => {
 
   test("the routes are the author App's: a reviewer row is never read, replaced or deleted", async () => {
     const owner = cookieFor("owner");
-    await memory.store.put(
+    await memory.seed(
       WORKSPACE,
       "reviewer",
       {
@@ -470,6 +501,7 @@ describe("the GitHub App API", () => {
       appId: APP_ID,
       publicKey: keys.publicKey,
       port: Number(new URL(github.origin).port),
+      secondApp: REVIEWER_FAKE,
     });
     await call("DELETE", { cookie: owner });
   });
@@ -563,6 +595,169 @@ describe("the GitHub App API", () => {
     for (const method of ["GET", "PUT", "DELETE"] as const) {
       expect((await call(method)).status).toBe(401);
     }
+  });
+});
+
+describe("the GitHub App API by role", () => {
+  const author = body({ app_id: APP_ID, private_key: keys.privateKey });
+  const reviewer = body({
+    app_id: REVIEWER_APP_ID,
+    private_key: reviewerKeys.privateKey,
+  });
+  const conflict = (json: unknown) => code(json);
+  // An earlier test restarts the fake, which forgets its repositories.
+  beforeAll(async () => {
+    await github.createRepository("acme", "app", { "README.md": "hi\n" });
+  });
+
+  test("a reviewer App needs an author App first and may not be it; then each role is read, replaced and removed alone", async () => {
+    const owner = cookieFor("owner");
+    const early = await call("PUT", {
+      cookie: owner,
+      path: "github-apps/reviewer",
+      body: reviewer,
+    });
+    expect(early.status).toBe(409);
+    expect(conflict(early.json)).toMatchObject({
+      code: "GITHUB_APP_CONFLICT",
+      details: { reason_code: "no_author_app" },
+    });
+    expect(memory.reviewer()).toBeNull();
+
+    const set = await call("PUT", {
+      cookie: owner,
+      path: "github-apps/author",
+      body: author,
+    });
+    expect(set.status).toBe(200);
+    expect(set.json.github_app).toMatchObject({
+      app_id: APP_ID,
+      role: "author",
+    });
+    const same = await call("PUT", {
+      cookie: owner,
+      path: "github-apps/reviewer",
+      body: author,
+    });
+    expect(same.status).toBe(409);
+    expect(conflict(same.json)).toMatchObject({
+      code: "GITHUB_APP_CONFLICT",
+      details: { reason_code: "same_app" },
+    });
+
+    const second = await call("PUT", {
+      cookie: owner,
+      path: "github-apps/reviewer",
+      body: reviewer,
+    });
+    expect(second.status).toBe(200);
+    expect(
+      putGitHubAppResponseSchema.parse(second.json).github_app,
+    ).toMatchObject({
+      app_id: REVIEWER_APP_ID,
+      role: "reviewer",
+      slug: "werft-reviewer",
+      permissions: REVIEWER_FAKE.permissions,
+    });
+    // The alias is the author App's; the author may not become the reviewer.
+    const swapped = await call("PUT", { cookie: owner, body: reviewer });
+    expect(swapped.status).toBe(409);
+    expect(conflict(swapped.json).details).toEqual({ reason_code: "same_app" });
+
+    const read = await call("GET", {
+      cookie: owner,
+      path: "github-apps/reviewer",
+    });
+    expect(getGitHubAppResponseSchema.parse(read.json)).toMatchObject({
+      github_app: { app_id: REVIEWER_APP_ID, role: "reviewer" },
+      check: { state: "ok" },
+      installations: [{ id: 88, account: "acme" }],
+      repositories: [
+        {
+          id: "app",
+          installation_id: 88,
+          installation_permissions: REVIEWER_FAKE.permissions,
+        },
+        { id: "absent", installation_id: null },
+      ],
+    });
+    expect(
+      (await call("GET", { cookie: owner })).json.github_app,
+    ).toMatchObject({ app_id: APP_ID, role: "author" });
+
+    const removed = await call("DELETE", {
+      cookie: owner,
+      path: "github-apps/reviewer",
+    });
+    expect(removed.status).toBe(200);
+    expect(memory.reviewer()).toBeNull();
+    expect(memory.held()?.record.appId).toBe(APP_ID);
+    expect(
+      (await call("DELETE", { cookie: owner, path: "github-apps/reviewer" }))
+        .status,
+    ).toBe(404);
+    expect(
+      (await call("DELETE", { cookie: owner, path: "github-apps/author" }))
+        .status,
+    ).toBe(200);
+    expect(memory.held()).toBeNull();
+  });
+
+  test("the role routes refuse as the alias does; an unknown role is not found", async () => {
+    const path = "github-apps/reviewer";
+    const off = appWith({ enabled: false });
+    for (const method of ["GET", "PUT", "DELETE"] as const) {
+      const withBody = method === "PUT" ? { body: reviewer } : {};
+      expect((await call(method, { path, ...withBody })).status).toBe(401);
+      const member = await call(method, {
+        cookie: cookieFor("member"),
+        path,
+        ...withBody,
+      });
+      expect(member.status).toBe(403);
+      expect(
+        (
+          await call(method, {
+            cookie: cookieFor("owner", OTHER_WORKSPACE),
+            path,
+            ...withBody,
+          })
+        ).status,
+      ).toBe(404);
+      expect(
+        (
+          await call(method, {
+            cookie: cookieFor("owner"),
+            path: "github-apps/owner",
+            ...withBody,
+          })
+        ).status,
+      ).toBe(404);
+      expect(
+        (await off(method, { cookie: cookieFor("owner"), path, ...withBody }))
+          .status,
+      ).toBe(503);
+    }
+    const owner = cookieFor("owner");
+    expect(
+      (
+        await call("PUT", {
+          cookie: owner,
+          path,
+          body: body({ app_id: "4343" }),
+        })
+      ).status,
+    ).toBe(400);
+    const huge = await call("PUT", {
+      cookie: owner,
+      path,
+      body: body({
+        app_id: REVIEWER_APP_ID,
+        private_key: "a".repeat(REQUEST_BODY_MAX_BYTES),
+      }),
+    });
+    expect(huge.status).toBe(413);
+    expect(memory.reviewer()).toBeNull();
   });
 });
 

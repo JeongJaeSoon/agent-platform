@@ -44,7 +44,9 @@ export function createGitHubGate(deps: {
           ? "dispatch_workflow"
           : work.purpose === "rerun"
             ? "rerun_workflow"
-            : "mint_github_token";
+            : work.purpose === "review"
+              ? "review_pull_request"
+              : "mint_github_token";
       const fields: Record<string, unknown> = {
         session_id: context.sessionId,
         agent_id: context.agent?.id ?? null,
@@ -55,6 +57,13 @@ export function createGitHubGate(deps: {
           ? {}
           : { workflow: work.workflow.file, ref: work.workflow.ref }),
         ...(work.runId === undefined ? {} : { run_id: work.runId }),
+        ...(work.review === undefined
+          ? {}
+          : {
+              number: work.review.number,
+              commit_id: work.review.commitId,
+              event: work.review.event,
+            }),
       };
       const receipt = (
         status: GitHubGateReceipt["status"],

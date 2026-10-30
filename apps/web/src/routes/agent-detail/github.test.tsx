@@ -29,6 +29,7 @@ const SETTINGS: Settings = {
   actions_allow: [{ workflow: "ci.yml", ref: "release/*" }],
 };
 const open = { available: true, reason: null } as const;
+const UNKNOWN = { author: null, reviewer: null };
 const TAB: Tab = {
   enabled: true,
   active_release_id: null,
@@ -43,12 +44,14 @@ const TAB: Tab = {
         url: "https://github.com/acme/werft-sandbox",
         available: true,
         reason: null,
+        installed: UNKNOWN,
       },
       {
         id: "docs-site",
         url: "https://github.com/acme/docs-site",
         available: true,
         reason: null,
+        installed: UNKNOWN,
       },
     ],
     features: {
@@ -135,11 +138,13 @@ describe("에이전트 GitHub 탭", () => {
               id: "billing-api",
               url: "https://github.com/acme/billing-api",
               ...reason("repository_not_allowed" as const),
+              installed: UNKNOWN,
             },
             {
               id: "legacy-pat",
               url: "https://github.com/acme/legacy-pat",
               ...reason("app_required" as const),
+              installed: UNKNOWN,
             },
           ],
           features: {
@@ -180,6 +185,44 @@ describe("에이전트 GitHub 탭", () => {
         name: "GitHub 연결 설정",
       }),
     ).toBeNull();
+  });
+
+  test("작성용 App이 없는 저장소와, 고른 저장소에 리뷰용 App이 없는 리뷰 승인에 App 미설치를 단다", async () => {
+    const { server } = await activeAgent();
+    const [sandbox, docs] = TAB.options.repositories;
+    if (!sandbox || !docs) throw new Error("fixture");
+    renderAt(
+      DETAIL,
+      routesFor(server, {
+        ...TAB,
+        options: {
+          ...TAB.options,
+          repositories: [
+            { ...sandbox, installed: { author: true, reviewer: false } },
+            { ...docs, installed: { author: false, reviewer: true } },
+          ],
+        },
+      }),
+    );
+    await screen.findByRole("heading", { name: "저장소" });
+    const rowOf = (name: string) =>
+      switchNamed(name).closest("li") as HTMLElement;
+    expect(within(rowOf("docs-site")).getByText("App 미설치")).toBeTruthy();
+    expect(within(rowOf("werft-sandbox")).queryByText("App 미설치")).toBeNull();
+    const review = rowOf("리뷰 승인");
+    expect(within(review).getByText("App 미설치")).toBeTruthy();
+    expect(
+      within(review).getByText(
+        /리뷰용 App이 설치되지 않은 저장소: werft-sandbox\./,
+      ),
+    ).toBeTruthy();
+    expect(
+      within(review)
+        .getByRole("link", { name: "GitHub 연결 설정" })
+        .getAttribute("href"),
+    ).toBe("/settings/workspace/github");
+    // A warning, not a lock: GitHub decides per repository.
+    expect(switchNamed("리뷰 승인").disabled).toBe(false);
   });
 
   test("바꾼 것은 저장 전 상자에 세고, 되돌리면 상자가 사라진다", async () => {

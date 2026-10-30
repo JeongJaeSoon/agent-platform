@@ -251,6 +251,16 @@ integration("the GitHub App on PostgreSQL", () => {
     const ws = await workspace();
     const owner = await person(ws, "owner");
     const reviewerKey = pemOf();
+    expect(
+      await store.put(ws, "reviewer", profile(51), reviewerKey, owner()),
+    ).toEqual({ outcome: "no_author_app" });
+    expect(await store.find(ws, "reviewer")).toBeNull();
+
+    const author = await store.put(ws, "author", profile(52), pemOf(), owner());
+    if (author.outcome !== "stored") throw new Error(author.outcome);
+    expect(
+      await store.put(ws, "reviewer", profile(52), pemOf(), owner()),
+    ).toEqual({ outcome: "same_app" });
     const reviewer = await store.put(
       ws,
       "reviewer",
@@ -259,16 +269,9 @@ integration("the GitHub App on PostgreSQL", () => {
       owner(),
     );
     if (reviewer.outcome !== "stored") throw new Error(reviewer.outcome);
-    expect(await store.find(ws, "author")).toBeNull();
     expect(
-      (await store.credentials("author")).some((app) => app.workspaceId === ws),
-    ).toBe(false);
-    expect(await store.delete(ws, "author", owner())).toEqual({
-      outcome: "not_found",
-    });
-
-    const author = await store.put(ws, "author", profile(52), pemOf(), owner());
-    if (author.outcome !== "stored") throw new Error(author.outcome);
+      await store.put(ws, "author", profile(51), pemOf(), owner()),
+    ).toEqual({ outcome: "same_app" });
     expect(author.app.id).not.toBe(reviewer.app.id);
     expect(
       (await store.credentials("author"))

@@ -84,6 +84,16 @@ function harness(
       calls.push(`rerun ${runId} ${failedOnly}`);
       fail();
     },
+    submitReview: async (input) => {
+      calls.push(
+        `review ${input.number} ${input.event} ${input.commitId} ${input.body ?? "-"}`,
+      );
+      fail();
+      return {
+        id: 77,
+        html_url: `https://github.com/acme/app/pull/${input.number}#pullrequestreview-77`,
+      };
+    },
   };
   const gate: GitHubGate = {
     grant: async (work) => {
@@ -115,6 +125,15 @@ function harness(
     recordDispatch: async (input) => {
       dispatches.push(input);
       return "receipt-dispatch";
+    },
+    pullRequestOpener: async (ownerId, repositoryId, number) => {
+      calls.push(`opener ${ownerId} ${repositoryId} ${number}`);
+      return number === 12
+        ? {
+            sessionId: "33333333-3333-4333-8333-333333333333",
+            agentId: "agent-1",
+          }
+        : null;
     },
   };
   const service = createGitHubWorkService({
@@ -338,5 +357,139 @@ describe("rerunning a run", () => {
       },
     });
     expect(calls).toEqual([]);
+  });
+});
+
+describe("reviewing a pull request", () => {
+  const COMMIT = "0123456789abcdef0123456789abcdef01234567";
+  const REVIEW_BODY = "looks-good-private-note";
+
+  test("submits on the commit read and records who opened the pull request, never the body", async () => {
+    const { service, works, calls, receipts } = harness();
+    expect(
+      await service.review(actor, SESSION, 12, {
+        event: "REQUEST_CHANGES",
+        commit_id: COMMIT,
+        body: REVIEW_BODY,
+      }),
+    ).toEqual({
+      receipt_id: "receipt-1",
+      review: {
+        id: 77,
+        html_url: "https://github.com/acme/app/pull/12#pullrequestreview-77",
+      },
+    });
+    expect(works).toMatchObject([
+      {
+        purpose: "review",
+        review: { number: 12, commitId: COMMIT, event: "REQUEST_CHANGES" },
+      },
+    ]);
+    expect(calls).toEqual([
+      "opener owner-a app 12",
+      `review 12 REQUEST_CHANGES ${COMMIT} ${REVIEW_BODY}`,
+    ]);
+    expect(receipts).toEqual([
+      {
+        ownerId: "owner-a",
+        sessionId: SESSION,
+        actor: {
+          principal: { kind: "api_key", id: "owner-a" },
+          actor_user_id: null,
+          agent_id: null,
+        },
+        operation: "review_pull_request",
+        status: "succeeded",
+        result: {
+          session_id: SESSION,
+          agent_id: "agent-1",
+          agent_release_id: "release-1",
+          repository_id: "app",
+          number: 12,
+          commit_id: COMMIT,
+          event: "REQUEST_CHANGES",
+          opened_by_session_id: "33333333-3333-4333-8333-333333333333",
+          opened_by_agent_id: "agent-1",
+          review_id: 77,
+        },
+        error: null,
+      },
+    ]);
+    expect(JSON.stringify(receipts)).not.toContain(REVIEW_BODY);
+  });
+
+  test("a pull request the platform did not open names no opener", async () => {
+    const { service, receipts } = harness();
+    await service.review(actor, SESSION, 5, {
+      event: "APPROVE",
+      commit_id: COMMIT,
+    });
+    expect(receipts[0]?.result).toMatchObject({
+      number: 5,
+      event: "APPROVE",
+      opened_by_session_id: null,
+      opened_by_agent_id: null,
+    });
+  });
+
+  test("GitHub refusing the review is BACKEND_UNAVAILABLE with a failed receipt and no body", async () => {
+    const { service, receipts } = harness({
+      fail: new GitHubCallError("pull request review", 422, "req-9"),
+    });
+    expect(
+      await refusal(
+        service.review(actor, SESSION, 12, {
+          event: "COMMENT",
+          commit_id: COMMIT,
+          body: REVIEW_BODY,
+        }),
+      ),
+    ).toEqual({
+      code: "BACKEND_UNAVAILABLE",
+      details: { receipt_id: "receipt-1" },
+    });
+    expect(receipts[0]).toMatchObject({
+      operation: "review_pull_request",
+      status: "failed",
+      result: { number: 12, status: 422, github_request_id: "req-9" },
+    });
+    expect(JSON.stringify(receipts)).not.toContain(REVIEW_BODY);
+  });
+
+  test("a gate refusal (no reviewer App) is GITHUB_REFUSED and GitHub is not called", async () => {
+    const { service, calls } = harness({
+      refuse: new GitHubGateError("no_reviewer_app", "receipt-gate"),
+    });
+    expect(
+      await refusal(
+        service.review(actor, SESSION, 12, {
+          event: "APPROVE",
+          commit_id: COMMIT,
+        }),
+      ),
+    ).toEqual({
+      code: "GITHUB_REFUSED",
+      details: { reason_code: "no_reviewer_app", receipt_id: "receipt-gate" },
+    });
+    expect(calls).toEqual([]);
+  });
+
+  test("a caller without session.submit is refused before the gate", async () => {
+    const { service, works } = harness();
+    const reader = {
+      ...actor,
+      caller: testCaller("owner-a", ["sessions:read"]),
+    };
+    expect(
+      (
+        await refusal(
+          service.review(reader, SESSION, 12, {
+            event: "APPROVE",
+            commit_id: COMMIT,
+          }),
+        )
+      ).code,
+    ).toBe("FORBIDDEN");
+    expect(works).toEqual([]);
   });
 });

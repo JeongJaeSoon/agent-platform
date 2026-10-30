@@ -7,6 +7,7 @@ import {
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
   GITHUB_CEILING_NONE,
+  type GitHubCeiling,
   putAgentGitHubEnabledResponseSchema,
   REQUEST_BODY_MAX_BYTES,
   WEB_SESSION_COOKIE_NAME,
@@ -87,7 +88,12 @@ const catalog = {
 
 // The Postgres store (receipts, the visibility filter) is its own
 // integration test (agent-github.integration.test.ts).
-function appWith() {
+function appWith(
+  options: {
+    ceiling?: GitHubCeiling;
+    reviewer?: { permissions: Record<string, "read" | "write"> } | null;
+  } = {},
+) {
   let enabled = true;
   const writes: boolean[] = [];
   const store: AgentGitHubStore = {
@@ -128,10 +134,16 @@ function appWith() {
           catalog,
           githubSettings: {
             async get() {
-              return { ceiling: GITHUB_CEILING_NONE, revision: 0 };
+              return {
+                ceiling: options.ceiling ?? GITHUB_CEILING_NONE,
+                revision: 0,
+              };
             },
             async appPermissions() {
-              return { author: null, reviewer: null };
+              return {
+                author: { permissions: { contents: "write" } },
+                reviewer: options.reviewer ?? null,
+              };
             },
           },
         }),
@@ -184,6 +196,25 @@ describe("the agent GitHub API", () => {
     expect(agentGitHubActivityResponseSchema.parse(activity.json)).toEqual({
       items: [],
     });
+  });
+
+  test("without a reviewer App, review is unavailable for no_reviewer_app; with one it is available", async () => {
+    const ceiling = { ...GITHUB_CEILING_NONE, review: true };
+    const admin = cookieFor("admin");
+    const none = await appWith({ ceiling }).call("GET", github(), {
+      cookie: admin,
+    });
+    expect(none.status).toBe(200);
+    expect(
+      agentGitHubResponseSchema.parse(none.json).options.features.review,
+    ).toEqual({ available: false, reason: "no_reviewer_app" });
+    const registered = await appWith({
+      ceiling,
+      reviewer: { permissions: { contents: "read", pull_requests: "write" } },
+    }).call("GET", github(), { cookie: admin });
+    expect(
+      agentGitHubResponseSchema.parse(registered.json).options.features.review,
+    ).toEqual({ available: true, reason: null });
   });
 
   test("the switch turns off once and reports no receipt the second time", async () => {

@@ -12,7 +12,14 @@ import { appHarness } from "../test-support/render-app.tsx";
 const { cleanup, renderAt, screen, waitFor, within } = await appHarness();
 
 const PATH = "/settings/workspace/github";
-const APP = `/v1/workspaces/${WORKSPACE_ID}/github-app`;
+const APP = `/v1/workspaces/${WORKSPACE_ID}/github-apps/author`;
+const REVIEWER = `/v1/workspaces/${WORKSPACE_ID}/github-apps/reviewer`;
+const NO_REVIEWER = {
+  github_app: null,
+  check: null,
+  installations: [],
+  repositories: [],
+};
 const SETTINGS = `/v1/workspaces/${WORKSPACE_ID}/github-settings`;
 const PERMISSIONS = {
   contents: "write",
@@ -58,6 +65,7 @@ describe("GitHub 연결 › App 권한과 최대 권한", () => {
   test("App 권한 표는 안내와 App 값을 줄마다 보이고, 안내보다 넓은 권한은 경고한다", async () => {
     renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
       [`GET ${APP}`]: () => json(200, APP_BODY),
       [`GET ${SETTINGS}`]: () => json(200, settingsOf()),
     });
@@ -79,6 +87,7 @@ describe("GitHub 연결 › App 권한과 최대 권한", () => {
   test("소유자가 Actions를 끄면 확인 대화 상자가 앞 릴리스 세션까지 거절된다고 말하고, 확인해야 보낸다", async () => {
     const { api } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
       [`GET ${APP}`]: () => json(200, APP_BODY),
       [`GET ${SETTINGS}`]: () => json(200, settingsOf()),
       [`PUT ${SETTINGS}`]: () =>
@@ -119,6 +128,7 @@ describe("GitHub 연결 › App 권한과 최대 권한", () => {
   test("관리자가 올리는 변경은 묻지 않고 보내며, App에 없는 권한과 리뷰용 App 없음을 함께 알린다", async () => {
     const { api } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
+      [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
       [`GET ${APP}`]: () => json(200, APP_BODY),
       [`GET ${SETTINGS}`]: () => json(200, settingsOf()),
       [`PUT ${SETTINGS}`]: () =>
@@ -154,6 +164,7 @@ describe("GitHub 연결 › App 권한과 최대 권한", () => {
     let revision = 3;
     const { api } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
       [`GET ${APP}`]: () => json(200, APP_BODY),
       [`GET ${SETTINGS}`]: () =>
         json(
@@ -195,6 +206,7 @@ describe("GitHub 연결 › App 권한과 최대 권한", () => {
     let reads = 0;
     const { api, services } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
       [`GET ${APP}`]: () => json(200, APP_BODY),
       [`GET ${SETTINGS}`]: () => {
         reads += 1;
@@ -227,6 +239,7 @@ describe("GitHub 연결 › App 권한과 최대 권한", () => {
     let deleted = false;
     const { api } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
       [`GET ${APP}`]: () =>
         json(
           200,
@@ -253,7 +266,9 @@ describe("GitHub 연결 › App 권한과 최대 권한", () => {
     await user.click(screen.getByRole("button", { name: "삭제" }));
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "삭제" }));
-    await screen.findByText("등록 안 됨");
+    await within(screen.getByRole("region", { name: "GitHub App" })).findByText(
+      "등록 안 됨",
+    );
     await waitFor(() =>
       expect(screen.queryByRole("heading", { name: "App 권한" })).toBeNull(),
     );
@@ -288,6 +303,7 @@ describe("GitHub 연결 › App 권한과 최대 권한", () => {
   test("바꾼 것이 없으면 저장해도 보내지 않고, 되돌리기는 저장된 값으로 돌린다", async () => {
     const { api } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
       [`GET ${APP}`]: () => json(200, APP_BODY),
       [`GET ${SETTINGS}`]: () => json(200, settingsOf()),
     });

@@ -60,6 +60,15 @@ export const agentGitHubResponseSchema = z.object({
         url: z.string(),
         available: z.boolean(),
         reason: z.enum(AGENT_GITHUB_REPOSITORY_UNAVAILABLE_VALUES).nullable(),
+        /**
+         * Whether each role's App is installed on the repository, as GitHub
+         * answered now; null when there is no such App, it is a PAT, or
+         * GitHub did not answer.
+         */
+        installed: z.object({
+          author: z.boolean().nullable(),
+          reviewer: z.boolean().nullable(),
+        }),
       }),
     ),
     features: z.object({

@@ -11,7 +11,7 @@ import type {
   GitHubSettingsStore,
   GitHubWorkStore,
 } from "@werft-ai/platform";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { lockedRole } from "./api-keys.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -20,6 +20,7 @@ import {
   githubApps,
   githubWorkflowDispatches,
   githubWorkspaceSettings,
+  pullRequests,
   receipts,
   sessions,
   turns,
@@ -183,6 +184,29 @@ export function createPostgresGitHubGateStore(
         }
         return id;
       });
+    },
+
+    async pullRequestOpener(ownerId, repositoryId, number) {
+      const [row] = await db
+        .select({
+          sessionId: pullRequests.sessionId,
+          agentId: agentReleases.agentId,
+        })
+        .from(pullRequests)
+        .innerJoin(sessions, eq(sessions.id, pullRequests.sessionId))
+        .leftJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
+        .where(
+          and(
+            eq(sessions.ownerId, ownerId),
+            eq(pullRequests.repositoryId, repositoryId),
+            eq(pullRequests.number, number),
+          ),
+        )
+        .orderBy(desc(pullRequests.createdAt))
+        .limit(1);
+      return row?.sessionId == null
+        ? null
+        : { sessionId: row.sessionId, agentId: row.agentId ?? null };
     },
   };
 }

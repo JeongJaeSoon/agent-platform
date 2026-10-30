@@ -139,6 +139,7 @@ describe("GitHub pull requests", () => {
       title: "closed later",
       body: "",
       state: "closed",
+      author_app_id: 1,
       html_url: `${github.origin}/acme/app/pull/99`,
     });
     try {

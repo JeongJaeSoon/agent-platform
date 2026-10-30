@@ -6,6 +6,7 @@ import {
   type AgentGitHubRepositoryUnavailable,
   type AgentGitHubResponse,
   GITHUB_CEILING_NONE,
+  type GitHubAppRole,
   type GitHubFeatures,
   type PutAgentGitHubEnabledResponse,
 } from "@werft-ai/contracts";
@@ -13,6 +14,8 @@ import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import { ACTOR_INACTIVE, NOT_FOUND } from "../musterrolle/service-errors.ts";
 import type { AgentGitHubStore } from "../ports/agent-github-store.ts";
 import type { AgentStore } from "../ports/agent-store.ts";
+import { repoRefOf } from "../ports/forge.ts";
+import type { GitHubConnections } from "../ports/github-gate.ts";
 import type { GitHubSettingsStore } from "../ports/github-settings.ts";
 import {
   allowedPair,
@@ -71,8 +74,22 @@ export function createAgentGitHubService(deps: {
   store: AgentGitHubStore;
   catalog: SessionCatalog;
   githubSettings: Pick<GitHubSettingsStore, "get" | "appPermissions">;
+  /** Each repository's connections, asked whether their App is installed. */
+  connections?: GitHubConnections;
 }) {
   const { authorization, catalog, store } = deps;
+
+  // GitHub not answering leaves the badge off rather than failing the tab.
+  async function installed(
+    id: string,
+    url: string,
+    role: GitHubAppRole,
+  ): Promise<boolean | null> {
+    const connection = deps.connections?.(id, role) ?? null;
+    const repo = repoRefOf(url);
+    if (connection === null || repo === null) return null;
+    return connection.installed(repo).catch(() => null);
+  }
 
   const manage = (caller: Caller, agentId: string) =>
     requirePermitted(authorization, caller, "agent.manage", {
@@ -99,24 +116,32 @@ export function createAgentGitHubService(deps: {
           ? catalog.repositories[id]
           : undefined;
 
-      const repositories = Object.entries(catalog.repositories)
-        .filter(([, repository]) => onGitHub(repository))
-        .map(([id, repository]) => {
-          const reason: AgentGitHubRepositoryUnavailable | null =
-            release === null ||
-            allowedPair(catalog, release.runtime_profile_id, id) === null
-              ? "repository_not_allowed"
-              : repository.auth?.kind !== "github_app"
-                ? "app_required"
-                : null;
-          return {
-            id,
-            url: repository.url,
-            available: reason === null,
-            reason,
-          };
-        })
-        .sort((a, b) => a.id.localeCompare(b.id));
+      const repositories = (
+        await Promise.all(
+          Object.entries(catalog.repositories)
+            .filter(([, repository]) => onGitHub(repository))
+            .map(async ([id, repository]) => {
+              const reason: AgentGitHubRepositoryUnavailable | null =
+                release === null ||
+                allowedPair(catalog, release.runtime_profile_id, id) === null
+                  ? "repository_not_allowed"
+                  : repository.auth?.kind !== "github_app"
+                    ? "app_required"
+                    : null;
+              const [author, reviewer] = await Promise.all([
+                installed(id, repository.url, "author"),
+                installed(id, repository.url, "reviewer"),
+              ]);
+              return {
+                id,
+                url: repository.url,
+                available: reason === null,
+                reason,
+                installed: { author, reviewer },
+              };
+            }),
+        )
+      ).sort((a, b) => a.id.localeCompare(b.id));
 
       const unsavable =
         release === null

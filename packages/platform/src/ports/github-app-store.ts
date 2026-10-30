@@ -1,5 +1,6 @@
 import type {
   GitHubAppCheckFailure,
+  GitHubAppConflict,
   GitHubAppPermissions,
   GitHubAppRole,
 } from "@werft-ai/contracts";
@@ -46,7 +47,9 @@ export type GitHubAppCredential = {
 
 export type PutGitHubAppResult =
   | { outcome: "stored"; app: GitHubAppRecord }
-  | { outcome: "actor_inactive" | "outranked" | "workspace_not_found" };
+  | { outcome: "actor_inactive" | "outranked" | "workspace_not_found" }
+  /** Decided under the workspace's lock, so two writes cannot both pass. */
+  | { outcome: GitHubAppConflict };
 
 export type DeleteGitHubAppResult =
   | { outcome: "deleted"; appId: number }
@@ -102,11 +105,14 @@ export interface GitHubAppDirectory {
   installations(
     app: Pick<GitHubAppCredential, "appId" | "apiBase" | "privateKey">,
   ): Promise<GitHubAppInstallationView[]>;
-  /** The installation that covers `repo`, or null when there is none. */
+  /**
+   * The installation that covers `repo` and what it grants, or null when
+   * there is none.
+   */
   installationFor(
     app: Pick<GitHubAppCredential, "appId" | "apiBase" | "privateKey">,
     repo: RepoRef,
-  ): Promise<number | null>;
+  ): Promise<{ id: number; permissions: GitHubAppPermissions } | null>;
 }
 
 /** A GitHub answer that says nothing about the request's own values. */
