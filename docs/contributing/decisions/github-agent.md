@@ -35,7 +35,7 @@ GitHub 토큰 하나가 가질 권한은 아래 다섯의 교집합이고, **발
 
 ### 결정 0. GitHub가 강제하는 것은 다시 책임지지 않는다
 
-- 플랫폼은 브랜치 보호, 필수 리뷰, CODEOWNERS, ruleset, 필수 검사를 읽지도 흉내 내지도 않는다. GitHub가 거절하면 그 원문 사유는 지금처럼 로그에만 남긴다(`forge-github.ts:642-660`, `675-697`, #912). receipt에는 HTTP 상태와 플랫폼이 분류한 `reason_code`만 둔다. GitHub의 오류 문구는 요청에 넣은 값(예: dispatch `inputs`)을 되비출 수 있기 때문이다. 그것으로 끝이다.
+- 플랫폼은 브랜치 보호, 필수 리뷰, CODEOWNERS, ruleset, 필수 검사를 읽지도 흉내 내지도 않는다. GitHub가 거절하면 push·PR의 원문 사유는 지금처럼 로그에만 남긴다(`forge-github.ts:642-660`, `675-697`, #912). receipt에는 HTTP 상태와 플랫폼이 분류한 `reason_code`만 둔다. GitHub의 오류 문구는 요청에 넣은 값(예: dispatch `inputs`, 리뷰 본문)을 되비출 수 있기 때문이다. 같은 이유로 새 작업(dispatch·rerun·리뷰)의 오류는 **로그에도** 원문(`message`·`errors`)을 남기지 않는다. HTTP 상태, 플랫폼이 분류한 `reason_code`, GitHub의 `x-github-request-id`만 남긴다. 지금 오류 로거(`forge-github.ts:642-660`)를 이 작업에 그대로 쓰지 않는다. 그것으로 끝이다.
 - 플랫폼이 여전히 막는 것은 **플랫폼이 만든 경계**뿐이다. push 대상 브랜치 고정과 기본 브랜치 거절(`push-executor.ts:93-99`), force push 금지, 토큰을 worker에 주지 않는 것, 그리고 이 문서가 더하는 기능별 권한·허용 목록·저장소 범위다.
 - 에이전트 기본값은 PR 작성·수정까지다. 다시 말해 clone(`contents: read`), push(`contents: write`), PR 열기·코멘트(`pull_requests: write`)다. 그 밖의 권한은 모두 꺼진 채로 시작한다([4절 기본값 표](#에이전트-github-설정의-기본값)).
 
@@ -67,17 +67,12 @@ GitHub 토큰 하나가 가질 권한은 아래 다섯의 교집합이고, **발
 
 ### 결정 4. Actions 허용 목록
 
-- **설정.** 릴리스의 `github.actions.allow`: `[{ workflow: "<파일 이름>", ref?: "<패턴>" }]`, 최대 32개다. `workflow`는 `.github/workflows/` 아래의 파일 이름(`deploy.yml`)이다. 경로 구분자는 받지 않는다. `ref`는 생략하면 그 저장소의 기본 브랜치만 뜻한다. 적으면 `*` 하나만 쓰는 glob이다(`release/*`). `*`는 `/`를 넘지 않는다. 목록이 비면 dispatch·rerun은 모두 거절한다. `actions`가 꺼져 있으면 목록을 저장할 수 없다(`400` `reason_code: actions_off`).
+- **설정.** 릴리스의 `github.actions_allow`: `[{ workflow: "<파일 이름>", ref?: "<패턴>" }]`, 최대 32개다. 켜는 스위치는 `github.features.actions`다. `workflow`는 `.github/workflows/` 아래의 파일 이름(`deploy.yml`)이다. 경로 구분자는 받지 않는다. `ref`는 생략하면 그 저장소의 기본 브랜치만 뜻한다. 적으면 `*` 하나만 쓰는 glob이다(`release/*`). `*`는 `/`를 넘지 않는다. 목록이 비면 dispatch·rerun은 모두 거절한다. `actions`가 꺼져 있으면 목록을 저장할 수 없다(`400` `reason_code: actions_off`).
 - **강제 지점.** 게이트가 토큰을 발급하기 **전에** 판정한다. 토큰은 control-host 밖으로 나가지 않으므로, 목록 밖 호출을 할 수 있는 토큰이 존재하지 않는다.
-- **에이전트가 쓴 ref는 돌리지 않는다.** dispatch는 그 ref에 있는 워크플로 파일과 그 파일이 부르는 스크립트를 그대로 실행한다. 그래서 허용 목록 항목은 그 ref의 코드만큼만 안전하다. 에이전트는 `agent/<session-id>` 브랜치의 내용을 정할 수 있다. push 승인을 끈 릴리스면 사람 없이 정한다. 그러니 이 브랜치를 허용하면 목록 안의 `deploy.yml`이 에이전트가 고친 `scripts/deploy.sh`를 그 저장소의 비밀값으로 돌리게 된다. 그래서 게이트는 목록과 상관없이 플랫폼이 push하는 ref(`agent/` 접두사)에 대한 dispatch를 거절한다(`403` `reason_code: agent_ref_refused`). rerun도 run의 `head_branch`가 그 접두사면 거절하고, `head_repository`가 기본 저장소가 아닌 run(fork PR)도 거절한다. 사람이 이 브랜치를 기본 브랜치나 허용한 ref로 머지한 뒤에만 그 코드가 dispatch 대상이 된다. 그 머지는 GitHub의 리뷰 규칙을 거친다(결정 0).
-  - `workflow_dispatch`: 요청의 `workflow`·`ref`를 목록과 맞춘다. 맞지 않으면 `403` `reason_code: workflow_not_allowed`이고, GitHub에는 아무것도 보내지 않는다. 맞으면 `actions: write` 토큰으로 `POST /repos/{o}/{r}/actions/workflows/{workflow}/dispatches`를 부른다.
-  - rerun(`…/actions/runs/{run_id}/rerun`, `rerun-failed-jobs`): 호출자는 `run_id`만 넘긴다. 게이트가 직접 `actions: read` 토큰으로 `GET …/actions/runs/{run_id}`를 읽는다. 호출자가 보낸 path나 branch는 믿지 않는다. rerun은 원래 run의 ref·SHA를 그대로 다시 쓰므로, 그 ref를 증명할 수 있는 run만 받는다.
-    - `event`가 `push`나 `workflow_dispatch`인 run만 받는다. `pull_request`·`pull_request_target`·`schedule` 등 다른 이벤트의 run은 `403` `reason_code: run_ref_unprovable`이다. PR run의 `head_branch`는 원본 브랜치 이름이라 실행 ref를 증명하지 못한다.
-    - `head_repository.full_name`이 세션 저장소와 같아야 한다(fork 거절).
-    - 워크플로 파일은 `path`에서 `.github/workflows/` 접두사와 뒤의 `@<ref>`를 떼어 얻는다. 이 모양이 아니면 `workflow_id`로 `GET …/actions/workflows/{workflow_id}`를 읽어 그 `path`를 쓴다.
-    - `head_branch`가 목록의 `ref` 규칙(생략 = 기본 브랜치)과 맞고 `agent/`로 시작하지 않을 때만 `actions: write` 토큰을 발급한다.
-    - run이 다른 저장소 것이면 GitHub가 404를 준다(토큰이 저장소 하나다).
-  - `ref`는 브랜치만 뜻한다. dispatch는 GitHub에 `refs/heads/<branch>`로 보내서, 같은 이름의 태그와 헷갈리지 않게 한다.
+- **에이전트가 쓴 ref는 돌리지 않는다.** dispatch는 그 ref에 있는 워크플로 파일과 그 파일이 부르는 스크립트를 그대로 실행한다. 그래서 허용 목록 항목은 그 ref의 코드만큼만 안전하다. 에이전트는 `agent/<session-id>` 브랜치의 내용을 정할 수 있다. push 승인을 끈 릴리스면 사람 없이 정한다. 그러니 이 브랜치를 허용하면 목록 안의 `deploy.yml`이 에이전트가 고친 `scripts/deploy.sh`를 그 저장소의 비밀값으로 돌리게 된다. 그래서 게이트는 목록과 상관없이 플랫폼이 push하는 ref(`agent/` 접두사)에 대한 dispatch를 거절한다(`403` `reason_code: agent_ref_refused`). rerun은 아래처럼 플랫폼이 직접 허용한 ref로 dispatch한 run만 받으므로 이 브랜치의 run은 처음부터 대상이 아니다. 사람이 이 브랜치를 기본 브랜치나 허용한 ref로 머지한 뒤에만 그 코드가 dispatch 대상이 된다. 그 머지는 GitHub의 리뷰 규칙을 거친다(결정 0).
+  - `workflow_dispatch`: 요청의 `workflow`·`ref`를 목록과 맞춘다. 맞지 않으면 `403` `reason_code: workflow_not_allowed`이고, GitHub에는 아무것도 보내지 않는다. 맞으면 `actions: write` 토큰으로 `POST /repos/{o}/{r}/actions/workflows/{workflow}/dispatches`를 부른다. `ref`는 브랜치만 뜻하고, GitHub에는 `refs/heads/<branch>`로 보내 같은 이름의 태그와 헷갈리지 않게 한다. `return_run_details: true`로 받은 run id를 [`github_workflow_dispatches`](#github_workflow_dispatches-새)에 기록한다.
+  - rerun(`…/actions/runs/{run_id}/rerun`, `rerun-failed-jobs`): 호출자는 `run_id`만 넘긴다. rerun은 원래 run의 ref·SHA를 그대로 다시 쓴다. 그런데 GitHub의 run 응답(`event`, `head_branch`)만으로는 그 ref가 브랜치였는지 같은 이름의 태그였는지 증명할 수 없다. 그래서 **플랫폼이 이 저장소에서 브랜치로 dispatch해 run id를 기록한 run만** rerun한다. 기록이 없으면 `403` `reason_code: run_ref_unprovable`이다. 기록이 있으면 기록된 `workflow`·`ref`를 **지금 세션 릴리스의** 허용 목록과 다시 맞춘다. 목록이 그 사이 바뀌었으면 거절한다. push·PR로 시작된 run은 rerun하지 않는다. 그런 run의 재실행은 저장소 쪽의 일이다(결정 0).
+- **입력값.** 허용 목록은 워크플로 파일과 ref만 좁힌다. `inputs`는 그대로 넘긴다. 허용 목록에 넣는 워크플로가 입력값으로 checkout ref나 실행할 스크립트를 고르게 되어 있으면, 에이전트가 `inputs`로 `agent/<session-id>`를 골라 위의 우회를 다시 열 수 있다. 그래서 운영 문서와 탭의 허용 목록 안내에 조건을 적는다: 허용 목록에 넣는 워크플로는 입력값으로 실행 코드나 checkout ref를 임의로 고르지 않아야 한다. 입력값별 제한은 이번에 만들지 않는다([LATER](#later)).
 - **막지 않는 것.** `on: push`·`on: pull_request`로 도는 워크플로는 플랫폼이 건드리지 않는다. push와 PR이 그것을 부르는 것은 저장소 설정의 일이다.
 - **세션 밖의 호출.** dispatch·rerun은 세션에 묶인 작업이다. 세션이 그 저장소를 쓰고 있어야 한다. 그 세션의 릴리스가 목록을 정한다.
 
@@ -95,7 +90,8 @@ GitHub 토큰 하나가 가질 권한은 아래 다섯의 교집합이고, **발
 
 - 릴리스의 `github.push_approval`(boolean)이다. 새 에이전트의 기본값은 true다. `policy_pins.github`가 없는 릴리스(이 기능 전의 모든 릴리스)는 true로 읽는다. 그래서 기존 에이전트는 데이터를 고치지 않고도 지금 동작 그대로다([5절](#5-기존-설치-이전)).
 - **true:** 지금과 같다. 요청은 `requested`로 남고, `sessions:approve`를 가진 사람이 결정한다.
-- **false:** push 요청을 만드는 같은 트랜잭션에서 `approved`로 둔다. `decided_by`는 `{ kind: "policy", agent_release_id }`이고 `decide_push` receipt를 남긴다. 그 요청에서 PR을 열고 코멘트를 다는 일은 `session.submit` 호출자(에이전트 key 포함)도 할 수 있다. 결정 0의 "기본값은 PR 작성·수정까지"를 사람 승인 없이 쓰는 경우다. 승인을 켠 릴리스에서는 지금처럼 `sessions:approve`만 PR을 연다.
+- **false:** push 요청을 만드는 같은 트랜잭션에서 `approved`로 둔다. `decided_by`는 `{ kind: "policy", agent_release_id }`이고 `decide_push` receipt를 남긴다. 결정 0의 "기본값은 PR 작성·수정까지"를 사람 승인 없이 쓰는 경우다.
+- **PR 열기·코멘트(두 경우 공통).** push가 끝난(`pushed`) 요청에서는 `session.submit` 호출자(에이전트 key와 내장 MCP 포함)도 PR을 열고 코멘트를 달 수 있다. 사람이 승인했든 정책이 승인했든 같다. PR은 그 요청이 push한 브랜치와 commit으로만 열리므로, 사람 승인이 지키는 것(무엇이 push되나)은 PR을 누가 여느냐와 상관없이 그대로다. 지금은 `sessions:approve` scope와 `session.approve` 권한을 가진 호출자만 PR을 연다(`pull-request-service.ts:103-107`). GA-2가 이 규칙을 바꾼다. `sessions:approve` 호출자는 지금처럼 그대로 열 수 있다.
 - 대상 브랜치 고정과 force push 금지는 승인 여부와 상관없이 그대로다.
 
 ### 결정 7. 릴리스와의 관계
@@ -156,7 +152,7 @@ export type GitHubWork = {
   purpose: GitHubPurpose;
   /** dispatch only. */
   workflow?: { file: string; ref: string };
-  /** rerun only. The gate reads the run itself; callers never pass its path or branch. */
+  /** rerun only. The gate finds its workflow and ref in github_workflow_dispatches. */
   runId?: number;
   actor: ReceiptActor;
 };
@@ -199,7 +195,7 @@ export interface GitHubGate {
 | `clone` | `contents: read` | author | gateway 재허가(`worker-gateway.ts:1241-1255`) |
 | `push` | `contents: write`, `workflows`가 켜졌으면 + `workflows: write` | author | push 실행기(`push-executor.ts:108`) |
 | `pull_request` | `contents: read`, `pull_requests: write` | author | PR 열기·코멘트(`pull-request-service.ts`) |
-| `actions_read` | `actions: read` | author | rerun 판정, run 조회 |
+| `actions_read` | `actions: read` | author | run 조회(rerun 판정은 GitHub가 아니라 `github_workflow_dispatches`로 한다) |
 | `dispatch`, `rerun` | `actions: write` | author | 새 GitHub 작업 서비스 |
 | `review` | `contents: read`, `pull_requests: write` | reviewer | 새 GitHub 작업 서비스 |
 
@@ -236,6 +232,21 @@ export interface GitHubGate {
 | `updated_by`, `updated_at` | uuid, timestamptz | |
 
 행이 없으면 상한은 모두 false이고 client secret은 없다.
+
+### `github_workflow_dispatches` (새)
+
+| 열 | 타입 | 규칙 |
+|---|---|---|
+| `run_id` | bigint | GitHub run id. `UNIQUE (repository_id, run_id)` |
+| `repository_id` | text NOT NULL | 카탈로그 저장소 id |
+| `session_id` | uuid NOT NULL FK sessions | dispatch한 세션 |
+| `agent_release_id` | text | 그때의 릴리스 |
+| `workflow` | text NOT NULL | 파일 이름 |
+| `ref` | text NOT NULL | 브랜치 이름(`refs/heads/` 없이) |
+| `receipt_id` | uuid NOT NULL FK receipts | `dispatch_workflow` receipt |
+| `created_at` | timestamptz NOT NULL | |
+
+GitHub가 run id를 돌려주지 않은 dispatch는 행을 남기지 않는다. 그 run은 rerun할 수 없다. rerun은 이 행을 찾고, 세션 저장소와 `repository_id`가 같아야 한다.
 
 ### `agents.github_enabled` (새 열)
 
@@ -294,7 +305,7 @@ export const agentGitHubSchema = z.object({
 | 단계 | PR | DB | 앞 이미지가 멈추지 않는 이유 |
 |---|---|---|---|
 | 확장 | GA-1 | `github_apps.role`·`permissions`, `UNIQUE (workspace_id, role)`, `github_workspace_settings`, `agents.github_enabled DEFAULT true`, `linked_accounts` CHECK, receipt operation 값, `decided_by` 모양. store의 `find`·`put`·`delete`·`credentials`가 모두 role을 받고(지금은 모두 `workspace_id`만 본다, `github-apps.ts:85-89`, `111-114`, `153-158`, `168-195`), 기존 API와 콘솔 forge는 `author`에 묶는다. 그래서 이 이미지의 작성용 API는 뒤 단계가 만든 리뷰용 행을 읽거나 바꾸거나 지우지 않는다. **이 이미지는 `policy_pins.github`가 있는 릴리스의 세션에 GitHub 토큰을 주지 않는다**(clone·push·PR 모두 `409` `reason_code: github_settings_unsupported`). 좁히기를 모르는 이미지가 그 릴리스를 기본 설정으로 돌리는 일이 없게 하려는 것이다(fail closed). 릴리스 `policy_pins.github`를 **읽고**, 릴리스 요청에 `github`가 없을 때 활성 릴리스의 값을 물려받는 일까지 한다. 지금 `policyPinsSchema`는 `.strict()`라 이 칸이 든 릴리스를 거절한다(아래 실측). 그래서 쓰는 쪽(GA-2의 릴리스 요청 `github`)보다 읽고 물려받는 쪽이 먼저 모든 replica에 있어야 한다. 그래야 어느 replica가 카드 수정으로 릴리스를 만들어도 GitHub 설정이 사라지지 않고 같은 id가 나온다 | 0단계 이미지는 새 열과 테이블을 읽지 않는다. 이 단계에는 `reviewer` 행을 만드는 API가 없으므로, 0단계 이미지의 `credentials()` 첫 행은 여전히 작성용 App이다 |
-| 전환 | GA-2~GA-7 | 게이트, 릴리스 요청 `github`, 리뷰용 App 등록, OAuth, 상한 API | GA-1 이미지는 `role`로 거르므로 리뷰용 행을 무시한다. `policy_pins.github`가 있는 릴리스는 GA-1 이미지에서 GitHub 토큰을 받지 못한다(fail closed). 섞인 기간에 그 세션이 GA-1 replica에 claim되면 clone이 거절될 수 있다. 그래서 GA-2를 모든 replica에 올린 뒤에 GitHub 탭(GA-3)을 연다. 탭 없이 릴리스 API로 `github`를 쓸 수는 있지만, 그 결과도 막히는 쪽으로만 틀린다 |
+| 전환 | GA-2~GA-7 | `github_workflow_dispatches`(GA-2, 새 테이블). 그 밖은 게이트, 릴리스 요청 `github`, 리뷰용 App 등록, OAuth, 상한 API | GA-1 이미지는 새 테이블을 읽지 않는다. GA-1 이미지는 `role`로 거르므로 리뷰용 행을 무시한다. `policy_pins.github`가 있는 릴리스는 GA-1 이미지에서 GitHub 토큰을 받지 못한다(fail closed). 섞인 기간에 그 세션이 GA-1 replica에 claim되면 clone이 거절될 수 있다. 그래서 GA-2를 모든 replica에 올린 뒤에 GitHub 탭(GA-3)을 연다. 탭 없이 릴리스 API로 `github`를 쓸 수는 있지만, 그 결과도 막히는 쪽으로만 틀린다 |
 | 정리 | — | 없음 | 옛 경로 `/v1/workspaces/{id}/github-app`은 작성용 별칭으로 남긴다. 지울 이유가 생기면 그때 정한다 |
 
 - **기존 연결 → 작성용 행.** `role` 열의 기본값이 `author`이므로 기존 행은 그대로 작성용이다. 데이터를 옮기지 않는다. `permissions`는 다음 조회나 첫 발급 때 채운다.
@@ -318,11 +329,11 @@ export const agentGitHubSchema = z.object({
 | `POST /v1/agents/{id}/releases` (있음, 본문 확장) | 그대로 | 본문에 optional `github`(위 스키마)를 더한다. 없으면 활성 릴리스의 값을 물려받는다. 검증 실패는 `400`의 `details.field`(`github.…`)와 `details.reason_code`(`repository_not_allowed`·`app_required`·`actions_off`·`over_workspace_ceiling`·`release_repository_outside`). 활성화는 지금의 흐름 그대로 |
 | `GET /v1/agents/{id}/github/activity` (새) | 에이전트를 볼 수 있는 사람 | 그 에이전트의 GitHub receipt 최근 20개(`mint_github_token`, 게이트 거절, `set_agent_github`, `review_pull_request`, `dispatch_workflow`, `rerun_workflow`, GitHub 설정이 바뀐 `create_agent_release`·`activate_agent`). GA-1의 receipt `agent_id` 채우기가 전제다(시안 A "최근 기록") |
 | `POST /v1/linked-accounts/github/start`, `POST …/github/callback` (새) | 본인(`account.link`) | Slack의 `…/slack/start`·`…/slack/callback`(`openapi.ts:2722`, `2743`)과 같은 모양과 state 규칙. 작성용 App이나 client secret이 없으면 `409` `reason_code: github_oauth_unset` |
-| `POST /v1/sessions/{id}/github/workflow-dispatches` (새) | `session.submit` | 본문 `{ workflow, ref, inputs? }`. GitHub에 `return_run_details: true`로 보내고, 응답은 `{ receipt_id, run: { id, html_url } \| null }`이다. GitHub가 run 정보를 주지 않으면 `run`은 null이다. `inputs`는 receipt에도 로그에도 남기지 않는다(키 이름만 남긴다) |
+| `POST /v1/sessions/{id}/github/workflow-dispatches` (새) | `session.submit` | 본문 `{ workflow, ref, inputs? }`. GitHub에 `return_run_details: true`로 보내고, 응답은 `{ receipt_id, run: { id, html_url } \| null }`이다. GitHub가 run 정보를 주지 않으면 `run`은 null이다. `inputs`는 receipt에도 로그에도 남기지 않는다(키 이름만 남긴다). GitHub 오류 응답의 원문도 남기지 않는다([결정 0](#결정-0-github가-강제하는-것은-다시-책임지지-않는다)) |
 | `GET /v1/sessions/{id}/github/workflow-runs/{run_id}` (새) | `session.read` | `actions_read`. `{ id, path, head_branch, status, conclusion, html_url }` |
 | `POST /v1/sessions/{id}/github/workflow-runs/{run_id}/rerun` (새) | `session.submit` | 본문 `{ failed_only?: boolean }` |
 | `POST /v1/sessions/{id}/github/pull-requests/{number}/reviews` (새) | `session.submit` | 본문 `{ event, commit_id, body? }`. `commit_id`는 40자 hex 필수 |
-| `POST …/push-requests/{id}/pull-request`, `…/comments` (있음) | 바뀜 | push 승인을 끈 릴리스에서 자동 승인된 요청이면 `session.submit`도 된다([결정 6](#결정-6-push-전-사람-승인)) |
+| `POST …/push-requests/{id}/pull-request`, `…/comments` (있음) | 바뀜 | `pushed` 요청이면 사람이 승인했든 정책이 승인했든 `session.submit`도 된다([결정 6](#결정-6-push-전-사람-승인)). `sessions:approve`는 그대로 된다 |
 
 - 게이트 거절의 공통 형식: HTTP `403`(정책) 또는 `409`(설정이 없음·상한), `error.code` `GITHUB_REFUSED`, `details.reason_code`, `details.receipt_id`. `reason_code` 값은 contracts의 `GITHUB_REFUSAL_VALUES` 하나에 모은다: `github_disabled`, `repository_not_allowed`, `feature_off`, `over_workspace_ceiling`, `app_permission_missing`, `no_reviewer_app`, `app_required`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`, `actions_off`, `github_settings_unsupported`.
 - 새 경로는 `apps/control-host/src/api/openapi.ts`, `route-error-coverage.ts`, `packages/core`의 응답 표, `packages/client` 생성물, `docs/openapi.json`에 같이 들어간다.
@@ -370,13 +381,13 @@ i18n ko·en·ja를 같이 고친다.
 
 | PR | 범위 | 수락 기준 | werft-sandbox 실측 |
 |---|---|---|---|
-| GA-1 데이터 모델·이전(확장) | 마이그레이션: `github_apps.role`·`permissions`·`permissions_checked_at`과 `UNIQUE (workspace_id, role)`, `github_workspace_settings`, `agents.github_enabled DEFAULT true`, `linked_accounts` provider·`verified_via` CHECK. contracts: `agentGitHubSchema`(`policy_pins.github`의 optional 칸), 릴리스를 만들 때 활성 릴리스의 `github` 물려받기, `githubCeilingSchema`, `GITHUB_REFUSAL_VALUES`, receipt operation 값, `decided_by` policy 모양. store의 role 인자(`find`·`put`·`delete`·`credentials`)와 기존 API·forge의 `author` 고정. `policy_pins.github` 릴리스 세션의 GitHub 토큰 fail closed(`github_settings_unsupported`). `receiptActorOf`의 `agent_id` 채우기. 릴리스 id 버전 4(`github`이 있을 때만) | 실 postgres 통합 테스트: 기존 `github_apps` 행이 `author`로 읽힌다. `(workspace, role)` 유일. `reviewer` 행을 직접 넣어도 콘솔 forge가 작성용 App을 쓰고, 기존 `GET`·`PUT`·`DELETE …/github-app`이 그 행과 키를 건드리지 않는다. `policy_pins.github`가 있는 릴리스의 세션은 clone·push·PR이 `github_settings_unsupported`. 기존 릴리스 id가 그대로 검증된다(fixture). `github`이 있는 카드의 해시와 릴리스 id가 바뀐다. 에이전트 key의 `request_push` receipt에 `agent_id`가 있다. `bun run typecheck`, `bun test`, migration snapshot 테스트(`packages/db/src/schema.test.ts`) | 기존 등록 App으로 clone·push·PR이 #922 결과와 같다(PR 하나, 작성자 `app/werft-sandbox-agent`). receipt `request_push`에 `agent_id` |
-| GA-2 토큰 발급 좁히기·허용 목록 | 릴리스 요청 `github`와 그 검증(저장소·PAT·상한·`actions_off`). `GitHubGate` 포트와 control-host 구현. gateway·push 실행기·PR 서비스를 게이트로 옮긴다. `credential(repo, permissions)`. App 권한 읽기(`describe`의 `permissions`)와 경고. 작업 서비스의 dispatch·run 조회·rerun과 세션 API. `push_approval` false의 자동 승인과 `session.submit` PR 열기. `mint_github_token`·거절·`dispatch_workflow`·`rerun_workflow`·`decide_push`(policy) receipt. `github_enabled` 즉시 거절 | 게이트 단위 테스트: [작업별 권한 표](#작업별-권한)의 각 줄과 각 `reason_code`. 꺼진 스위치가 진행 중 세션의 다음 clone 재허가·push·PR을 거절한다. 허용 목록의 ref glob(`*`가 `/`를 넘지 않음, `ref` 생략은 기본 브랜치만). `agent/` ref dispatch와 `head_branch`가 `agent/`인 run·fork run의 rerun은 목록과 상관없이 `agent_ref_refused`. rerun은 게이트가 읽은 run의 `path`로 판정한다. 캐시된 토큰이 있어도 꺼진 뒤에는 쓰이지 않는다. fake GitHub(`packages/testkit/src/fake-github.ts`)로 route 테스트 | 기본 권한으로 PR 생성. `workflows` 꺼진 릴리스로 `.github/workflows/` 변경 push → GitHub 거절과 `workflows_permission_missing`. 켠 릴리스(App에 권한 추가 뒤)로 같은 push 성공. 허용 목록 안 dispatch 성공, 목록 밖 dispatch는 플랫폼 `workflow_not_allowed`(GitHub 호출 없음, receipt). 목록 안 워크플로라도 `agent/<SID>` ref면 `agent_ref_refused`. rerun 허용·거절. 저장소 범위 밖 세션 생성 거절. `contents: read` 토큰 push 거절(검토 문서 6절 1번). 스위치를 끄면 진행 중 세션의 다음 push 요청이 `github_disabled` |
+| GA-1 데이터 모델·이전(확장) | 마이그레이션: `github_apps.role`·`permissions`·`permissions_checked_at`과 `UNIQUE (workspace_id, role)`, `github_workspace_settings`, `agents.github_enabled DEFAULT true`, `linked_accounts` provider CHECK 확장·`verified_via` TypeScript 타입 확장. contracts: `agentGitHubSchema`(`policy_pins.github`의 optional 칸), 릴리스를 만들 때 활성 릴리스의 `github` 물려받기, `githubCeilingSchema`, `GITHUB_REFUSAL_VALUES`, receipt operation 값, `decided_by` policy 모양. store의 role 인자(`find`·`put`·`delete`·`credentials`)와 기존 API·forge의 `author` 고정. `policy_pins.github` 릴리스 세션의 GitHub 토큰 fail closed(`github_settings_unsupported`). `receiptActorOf`의 `agent_id` 채우기. 릴리스 id 버전 4(`github`이 있을 때만) | 실 postgres 통합 테스트: 기존 `github_apps` 행이 `author`로 읽힌다. `(workspace, role)` 유일. `reviewer` 행을 직접 넣어도 콘솔 forge가 작성용 App을 쓰고, 기존 `GET`·`PUT`·`DELETE …/github-app`이 그 행과 키를 건드리지 않는다. `policy_pins.github`가 있는 릴리스의 세션은 clone·push·PR이 `github_settings_unsupported`. 기존 릴리스 id가 그대로 검증된다(fixture). `github`이 있는 카드의 해시와 릴리스 id가 바뀐다. 에이전트 key의 `request_push` receipt에 `agent_id`가 있다. `bun run typecheck`, `bun test`, migration snapshot 테스트(`packages/db/src/schema.test.ts`) | 기존 등록 App으로 clone·push·PR이 #922 결과와 같다(PR 하나, 작성자 `app/werft-sandbox-agent`). receipt `request_push`에 `agent_id` |
+| GA-2 토큰 발급 좁히기·허용 목록 | 릴리스 요청 `github`와 그 검증(저장소·PAT·상한·`actions_off`). `GitHubGate` 포트와 control-host 구현. gateway·push 실행기·PR 서비스를 게이트로 옮긴다. `credential(repo, permissions)`. App 권한 읽기(`describe`의 `permissions`)와 경고. 작업 서비스의 dispatch·run 조회·rerun과 세션 API, `github_workflow_dispatches` 마이그레이션(새 테이블이라 앞 이미지와 섞여도 안전하다). 새 작업의 오류 로그는 원문 없이 남긴다. `push_approval` false의 자동 승인과 `pushed` 요청의 `session.submit` PR 열기. `mint_github_token`·거절·`dispatch_workflow`·`rerun_workflow`·`decide_push`(policy) receipt. `github_enabled` 즉시 거절 | 게이트 단위 테스트: [작업별 권한 표](#작업별-권한)의 각 줄과 각 `reason_code`. 꺼진 스위치가 진행 중 세션의 다음 clone 재허가·push·PR을 거절한다. 허용 목록의 ref glob(`*`가 `/`를 넘지 않음, `ref` 생략은 기본 브랜치만). `agent/` ref dispatch는 목록과 상관없이 `agent_ref_refused`. rerun은 `github_workflow_dispatches`에 기록된 run만 받고, 기록 없는 run(push로 시작된 run, 같은 이름의 브랜치·태그가 있는 저장소의 태그 run 포함)은 `run_ref_unprovable`. 기록된 run도 지금 릴리스 목록에서 빠졌으면 `workflow_not_allowed`. 입력값을 되비추는 fake GitHub 오류로 dispatch를 실패시켜 로그·receipt에 입력값이 없음을 확인한다. `pushed` 요청의 PR 열기가 `session.submit`(에이전트 key)으로 된다. 캐시된 토큰이 있어도 꺼진 뒤에는 쓰이지 않는다. fake GitHub(`packages/testkit/src/fake-github.ts`)로 route 테스트 | 기본 권한으로 PR 생성. `workflows` 꺼진 릴리스로 `.github/workflows/` 변경 push → GitHub 거절과 `workflows_permission_missing`. 켠 릴리스(App에 권한 추가 뒤)로 같은 push 성공. 허용 목록 안 dispatch 성공, 목록 밖 dispatch는 플랫폼 `workflow_not_allowed`(GitHub 호출 없음, receipt). 목록 안 워크플로라도 `agent/<SID>` ref면 `agent_ref_refused`. 플랫폼이 dispatch한 run의 rerun 성공, `main` push로 시작된 run의 rerun은 `run_ref_unprovable`. 저장소 범위 밖 세션 생성 거절. `contents: read` 토큰 push 거절(검토 문서 6절 1번). 스위치를 끄면 진행 중 세션의 다음 push 요청이 `github_disabled` |
 | GA-3 에이전트 GitHub 탭 | `GET /v1/agents/{id}/github`, `PUT …/github/enabled`, `GET …/github/activity`, 탭 화면·i18n·stories | web 테스트(비활성 이유 다섯 가지, 저장 → 같은 카드 버전의 새 릴리스, 저장 안 한 변경 상자), 1440·390 전후 캡처, ui-review | 탭에서 저장소 하나·Actions·허용 목록 하나를 켜고 릴리스 → 그 릴리스로 dispatch 성공·목록 밖 거절. 스위치 끄기 → 세션 상세에 거절 이유 |
 | GA-4 사용자 GitHub OAuth·Co-authored-by | `…/github-settings/oauth-client-secret`, `linked-accounts/github/start·callback`, 연동 계정 화면, claim의 `git.co_author`·`session_url`, worker `commit-msg` hook, PR 본문 꼬리 확장과 재사용 PR 꼬리 갱신, 세션 상세의 귀속 줄 | callback 테스트(state 만료·재사용, 같은 GitHub 계정 두 사람 `409`). hook 단위 테스트(트레일러 한 번만, 기존 트레일러 보존, `co_author` null이면 `Agent-Session`만). 시작자 규칙: 웹·개인 key·Slack 연결 사용자 → 사람, 에이전트 key → null | 오너 계정 연결 → 웹에서 시작한 세션의 commit에 `Co-authored-by: <login> <id+login@users.noreply.github.com>`, GitHub PR 화면에 공동 작성자로 보인다. 에이전트 key 세션은 트레일러 없음·"App 단독". PR 본문 꼬리에 세션 URL. 같은 세션 두 번째 push 뒤 꼬리의 commit이 최신 |
 | GA-5 리뷰용 App·리뷰 승인 | `github-apps/{role}` 경로와 화면의 리뷰용 App 영역, 리뷰용 forge, 작업 서비스의 리뷰와 세션 API, `review_pull_request` receipt, `no_reviewer_app` | route 테스트: `same_app`, `no_author_app`, 리뷰용 App 없을 때 `options.review.available: false`. 리뷰가 `commit_id`를 보낸다. 리뷰 토큰이 reviewer forge에서 나온다 | 리뷰용 App 등록(키는 경로만) → 작성용 App이 연 PR을 리뷰 승인 → GitHub에 `app/<리뷰용 App>` 승인. 리뷰 꺼진 릴리스는 `feature_off`. 리뷰용 App을 지운 뒤 `no_reviewer_app`. 필수 리뷰 1 브랜치 보호에서 승인이 조건을 채우는지 기록(결정 1의 위험 실측) |
 | GA-6 워크스페이스 상한 화면 | `github-settings` GET·PUT, 상한 정책 함수(contracts, 저장·실행 공용), 연결 화면의 App 권한 표·상한·사용자 연결 영역, `set_github_ceiling` receipt | 서비스 테스트: owner·admin만(member·API key `403`), `revision` 충돌. 상한을 낮추면 기존 릴리스의 그 기능이 다음 발급부터 `over_workspace_ceiling`이고 올리면 다시 돈다. web 테스트, 1440·390 캡처, ui-review | 상한에서 Actions를 끄면 GA-3에서 켠 에이전트의 dispatch가 거절되고, 다시 켜면 성공 |
-| GA-7 내장 MCP `github` | 세션에 붙는 내장 MCP 서버, 도구 일곱 개, egress 허가 경로, 릴리스 기능에 따른 도구 노출. 첫 커밋 전에 이 문서 [3절](#github-작업-서비스와-두-입구)에 upstream·허가·도구 정책 절을 더한다 | 도구가 다른 세션 id를 받지 않는다(attempt 토큰으로 정함). 꺼진 기능의 도구는 목록에 없다. 입구 1과 같은 receipt. worker 환경에 GitHub 토큰이 없다(env·파일 검사) | Slack에서 시작한 세션의 에이전트가 도구로 push 요청 → 사람 승인 → PR 열기. push 승인 꺼진 릴리스는 승인 없이 PR. 허용 목록 안 dispatch |
+| GA-7 내장 MCP `github` | 세션에 붙는 내장 MCP 서버, 도구 일곱 개, egress 허가 경로, 릴리스 기능에 따른 도구 노출. 첫 커밋 전에 이 문서 [3절](#github-작업-서비스와-두-입구)에 upstream·허가·도구 정책 절을 더한다 | 도구가 다른 세션 id를 받지 않는다(attempt 토큰으로 정함). 꺼진 기능의 도구는 목록에 없다. 입구 1과 같은 receipt. worker 환경에 GitHub 토큰이 없다(env·파일 검사) | Slack에서 시작한 세션의 에이전트가 도구로 push 요청 → 사람 승인 → 에이전트가 도구로 PR 열기. push 승인 꺼진 릴리스는 승인 없이 PR. 허용 목록 안 dispatch |
 
 순서: GA-1 → GA-2 → (GA-3, GA-4, GA-6 병렬 가능) → GA-5(GA-3 뒤, 탭의 리뷰 항목) → GA-7. GA-3은 GA-2가 모든 replica에 올라간 뒤에 연다([5절](#5-기존-설치-이전)). 각 PR의 첫 커밋 전에 이 문서의 해당 절을 다시 읽고, 계약과 다르게 가야 하면 이 문서를 먼저 고친다.
 
@@ -399,6 +410,8 @@ i18n ko·en·ja를 같이 고친다.
 ## LATER
 
 - **자기 PR 승인 거절 옵션**(리드 결정으로 이번에 넣지 않음). 다시 볼 조건: 결정 1의 위험이 실제 저장소에서 필수 리뷰를 우회한 사례가 나오거나, 오너가 GitHub 쪽 설정만으로 부족하다고 판단할 때. 모양은 리뷰 요청의 PR이 같은 에이전트의 세션에서 열렸으면 `409` `reason_code: own_pull_request`다.
+- **dispatch 입력값별 제한**([결정 4](#결정-4-actions-허용-목록)). 허용 목록 항목에 입력 이름별 허용 값이나 패턴을 더하는 것이다. 다시 볼 조건: 입력값으로 ref나 스크립트를 고르는 워크플로를 허용 목록에 넣어야 할 때.
+- **push·PR로 시작된 run의 rerun.** 지금은 플랫폼이 dispatch한 run만 rerun한다. 다시 볼 조건: GitHub run 응답이 원래 ref의 전체 이름(`refs/heads/…`)을 주게 되거나, 에이전트가 PR 검사의 재실행을 해야 하는 요청이 나올 때.
 - **checks·issues 작업.** 칸과 판정만 만든다([작업별 권한](#작업별-권한)). 다시 볼 조건: 에이전트가 check run이나 issue를 써야 하는 요청이 나올 때.
 - **login 변경 뒤 옛 noreply 이메일의 귀속.** 다시 볼 조건: 연결한 사람이 GitHub login을 바꾼 뒤 그 전 commit의 공동 작성자 표시가 사라졌다는 보고가 나올 때.
 - **rate limit 사용량 화면.** 브리프의 범위 밖이다. 다시 볼 조건: 에이전트 여럿이 App 하나를 함께 쓸 때.
