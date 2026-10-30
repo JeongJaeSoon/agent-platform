@@ -417,7 +417,7 @@ describe("installed runtimes", () => {
     ).toBe("usable");
   });
 
-  test("with worker images configured, a ceiling runs only on a runtime version one of them ships", async () => {
+  test("configured worker images take no ceiling out of the catalog: open sessions keep their profile", async () => {
     const dir = join(DEFAULT_CONFIG_DIR, "fake-model");
     const config = await readCatalog(dir);
     const connections = await readConnections(dir);
@@ -444,7 +444,7 @@ describe("installed runtimes", () => {
     ).toEqual(new Set(["usable"]));
     expect(
       states({ WORKER_IMAGE_RUNTIME: image("0.3.280", "2.1.280") }),
-    ).toEqual(new Set(["runtime_unsupported"]));
+    ).toEqual(new Set(["usable"]));
     expect(runtimeVersionsFromEnv({})).toBeUndefined();
     expect(() =>
       runtimeVersionsFromEnv({ WORKER_IMAGE_RUNTIME: "0.3.280" }),

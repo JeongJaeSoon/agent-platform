@@ -230,7 +230,7 @@ export function profileViewSources(
     connections,
     repositoryIdsOf: catalogRepositoryIds(repositories),
     allowUnattended: unattendedAllowed(env),
-    runtimeSupported: runtimeSupportedIn(env),
+    runtimeSupported: runtimeServes,
     materialize: (id, definition) => {
       const view = sessionCatalogView({
         profiles: { [id]: definition },
@@ -257,21 +257,6 @@ export function runtimeVersionsFromEnv(
 ): RuntimeVersions | undefined {
   const images = workerImageRuntimesFromEnv(env);
   return images === null ? undefined : runtimeVersionsOf(images);
-}
-
-/**
- * `runtimeServes`, and a `runtime_version` one of the configured worker
- * images ships: a ceiling naming any other runs nothing
- * (`runtime_unsupported`), rather than start on an engine it was not made
- * for.
- */
-function runtimeSupportedIn(
-  env: Record<string, string | undefined>,
-): (profile: CatalogProfileConfig) => boolean {
-  const accepted = runtimeVersionsFromEnv(env)?.accepted;
-  return (profile) =>
-    runtimeServes(profile) &&
-    (accepted === undefined || accepted.includes(profile.runtime_version));
 }
 
 /**
@@ -327,7 +312,7 @@ export async function loadProfileSources(options: {
     connections,
     repositoryIdsOf: catalogRepositoryIds(config.repositories),
     allowUnattended: unattendedAllowed(options.env),
-    runtimeSupported: runtimeSupportedIn(options.env),
+    runtimeSupported: runtimeServes,
     materialize: (id, definition) => {
       const profile = resolveSessionCatalog(
         { profiles: { [id]: definition }, repositories: {} },
@@ -372,7 +357,9 @@ export async function databaseCatalog(options: {
   installations: Pick<InstallationProfileStore, "listAll">;
   workspaces: Pick<WorkspaceProfileStore, "listAll">;
   credential: () => string;
+  env: Record<string, string | undefined>;
 }): Promise<SessionCatalog> {
+  const runtimeVersions = runtimeVersionsFromEnv(options.env);
   const config = await readCatalogConfig(options.dir);
   const registry = createProfileRegistry({
     workspaces: options.workspaces,
@@ -394,7 +381,12 @@ export async function databaseCatalog(options: {
   });
   await registry.refresh();
   return profileCatalog(
-    resolveSessionCatalog(config, options.credential),
+    {
+      ...resolveSessionCatalog(config, options.credential),
+      ...(runtimeVersions === undefined
+        ? {}
+        : { runtime_versions: runtimeVersions }),
+    },
     registry,
   );
 }

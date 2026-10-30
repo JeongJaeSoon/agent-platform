@@ -1167,8 +1167,13 @@ describe("pins across a worker image upgrade", () => {
     const after = at("2");
     for (const accepted of [[], ["2"], ["3"]]) {
       expect(
-        sessionProfile(after, { fingerprint: v2, model: null }, accepted),
+        sessionProfile(
+          after,
+          { fingerprint: v2, model: "claude-opus-5-5" },
+          accepted,
+        ),
       ).toBeNull();
+      expect(profilePinned(after, v2, accepted)).toBe(false);
       expect(profilePinned(after, v1Opus, accepted)).toBe(false);
     }
     expect(profilePins(after, ["2"])).toEqual(profilePins(after, []));
@@ -1187,9 +1192,16 @@ describe("pins across a worker image upgrade", () => {
     ]) {
       const after = at("2", changed);
       expect(
-        sessionProfile(after, { fingerprint: v2, model: null }, ["2", "1"]),
+        sessionProfile(after, { fingerprint: v2, model: "claude-opus-5-5" }, [
+          "2",
+          "1",
+        ]),
       ).toBeNull();
+      expect(profilePinned(after, v2, ["2", "1"])).toBe(false);
       expect(profilePinned(after, v1Opus, ["2", "1"])).toBe(false);
+      expect(
+        profilePins(after, ["2", "1"]).map((pin) => pin.fingerprint),
+      ).not.toContain(v2);
     }
   });
 });
