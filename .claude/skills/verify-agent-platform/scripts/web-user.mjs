@@ -16,7 +16,7 @@
 //   web-user.mjs <run> demo-login <owner|member>  source-defined demo credentials
 //   web-user.mjs <run> slack-config <who> <workspace>  mock config token, never printed
 //   web-user.mjs <run> slack-install <who> <agent id>  mock OAuth with the person's cookie
-//   web-user.mjs <run> slack-event <agent> <mode> [channel seq]  signed mock inbound request
+//   web-user.mjs <run> slack-event <agent> <mode> [channel seq [parent]]  signed mock inbound request
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -272,17 +272,21 @@ switch (cmd) {
         "bot",
         "mention",
         "plain",
+        "reply",
       ].includes(mode)
     )
       throw new Error("agent UUID and event mode required");
-    // mention|plain take a channel id and a sequence number for new ids.
-    const [channel = "C0VERIFY", seq = "1"] = rest.slice(1);
+    // mention|plain take a channel id and a sequence number for new ids;
+    // reply also takes the sequence number of the post it answers.
+    const [channel = "C0VERIFY", seq = "1", parent] = rest.slice(1);
     if (!/^[A-Z0-9]{1,20}$/.test(channel) || !/^[0-9]{1,6}$/.test(seq))
       throw new Error("channel id and sequence number required");
+    if (mode === "reply" && !/^[0-9]{1,6}$/.test(parent ?? ""))
+      throw new Error("reply needs the parent post's sequence number");
     console.log(
       composeBun(
         readFileSync(new URL("./slack-event.ts", import.meta.url), "utf8"),
-        [who, mode, channel, seq],
+        [who, mode, channel, seq, ...(parent ? [parent] : [])],
       ),
     );
     break;

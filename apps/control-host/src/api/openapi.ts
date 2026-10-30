@@ -3102,7 +3102,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Read whether the agent answers only when mentioned in Slack",
     description:
-      "Returns `mention_only`: `true` (the initial value) answers only a mention, `false` also any person's top-level message without one. It covers every channel in use, connected before or after; DMs do not follow it. Agent managers with a web session only.",
+      "Returns `mention_only`: `true` (the initial value) answers only a mention, `false` also any person's top-level message without one. Either way, a reply in a thread already linked to the agent's session continues it without a mention. It covers every channel in use, connected before or after; DMs do not follow it. Agent managers with a web session only.",
     auth: "session",
     success: {
       status: 200,
