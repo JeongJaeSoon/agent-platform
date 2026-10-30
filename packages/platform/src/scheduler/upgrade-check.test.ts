@@ -131,4 +131,23 @@ describe("assessUpgrade", () => {
       }),
     ).toEqual({ verdict: "proceed", affected: [], approved: [] });
   });
+
+  test("a stale approval left in the values is refused even when nothing is affected", () => {
+    const changed = assessUpgrade({
+      ...upgrade,
+      sessions: [on("s-current", current)],
+      approved: ["s-gone"],
+    });
+    expect(changed.verdict).toBe("refused");
+    expect(changed.reason).toContain("no longer affected: s-gone");
+
+    const unchanged = assessUpgrade({
+      ...upgrade,
+      targetWorker: upgrade.deployedWorker,
+      sessions: [],
+      approved: ["s-gone"],
+    });
+    expect(unchanged.verdict).toBe("refused");
+    expect(unchanged.reason).toContain("must be empty");
+  });
 });

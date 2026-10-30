@@ -4,6 +4,7 @@
 # resume on and is not in upgrade.approvedSessions. Not a pre-install hook:
 # nothing is deployed yet. `helm rollback` runs no hook; run the same command
 # by hand first (docs/operator/kubernetes-deployment.md).
+{{- include "ap.workerEnvReserved" . }}
 {{- $scheduler := printf "%s-scheduler" (include "ap.fullname" .) }}
 {{- $deployed := "" }}
 {{- /* Empty under `helm template` and --dry-run, where lookup reads nothing: the check then fails rather than guess. */}}

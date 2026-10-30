@@ -44,8 +44,18 @@ export function assessUpgrade(input: {
   readonly approved: readonly string[];
 }): UpgradeAssessment {
   const approved = [...new Set(input.approved)].sort();
+  // Approvals stay in the release values, so a stale list must be cleared
+  // before any upgrade: carried to a later one it could approve sessions
+  // the operator never read.
   if (input.targetWorker === input.deployedWorker) {
-    return { verdict: "proceed", affected: [], approved: [] };
+    return approved.length === 0
+      ? { verdict: "proceed", affected: [], approved: [] }
+      : {
+          verdict: "refused",
+          affected: [],
+          approved,
+          reason: `the worker image does not change, so upgrade.approvedSessions must be empty — no longer affected: ${approved.join(" ")}`,
+        };
   }
   const affected = input.sessions
     .flatMap((session): AffectedSession[] => {
@@ -63,9 +73,6 @@ export function assessUpgrade(input: {
       reason: `the target's previous worker image (${input.targetPreviousWorker ?? "none"}) is not the deployed one (${input.deployedWorker}): workers running it would keep sealing checkpoints neither target image restores`,
     };
   }
-  if (affected.length === 0) {
-    return { verdict: "proceed", affected, approved: [] };
-  }
   const ids = affected.map((session) => session.sessionId);
   const missing = ids.filter((id) => !approved.includes(id));
   const extra = approved.filter((id) => !ids.includes(id));
@@ -74,7 +81,7 @@ export function assessUpgrade(input: {
       verdict: "refused",
       affected,
       approved,
-      reason: `${ids.length} session(s) could resume on neither target image; approve exactly this list in upgrade.approvedSessions — not approved: ${missing.join(" ") || "none"}; no longer affected: ${extra.join(" ") || "none"}`,
+      reason: `${ids.length} session(s) could resume on neither target image; approve exactly this list in upgrade.approvedSessions${ids.length === 0 ? " (empty)" : ""} — not approved: ${missing.join(" ") || "none"}; no longer affected: ${extra.join(" ") || "none"}`,
     };
   }
   return { verdict: "proceed", affected, approved };

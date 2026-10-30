@@ -214,17 +214,19 @@ kubectl -n agent-platform logs job/agent-platform-upgrade-check
 
 | `verdict` | exit | upgrade | 뜻 |
 |---|---|---|---|
-| `proceed` | 0 | 진행 | worker 이미지가 그대로이거나, 고른 세션이 없거나, `upgrade.approvedSessions`가 `affected`의 `sessionId`와 정확히 같다 |
-| `refused` | 2 | 멈춤 | 승인 목록이 하나라도 다르다. 또는 대상의 `images.workerPrevious`가 지금 배포된 worker 이미지가 아니다. 이 경우는 승인으로 넘길 수 없다 |
+| `proceed` | 0 | 진행 | `upgrade.approvedSessions`가 `affected`의 `sessionId`와 정확히 같다. 고른 세션이 없거나 worker 이미지가 그대로이면 승인 목록이 비어 있어야 한다 |
+| `refused` | 2 | 멈춤 | 승인 목록이 하나라도 다르다(지난 upgrade의 승인이 values에 남은 경우 포함). 또는 대상의 `images.workerPrevious`가 지금 배포된 worker 이미지가 아니다. 이 경우는 승인으로 넘길 수 없다 |
 | `check_failed` | 1 | 멈춤 | DB를 읽지 못했거나, 이미지 조합(`images.worker.runtime` 등)이 없거나 읽히지 않거나, 배포된 worker 이미지를 알 수 없다. 넘기는 설정은 없다 |
 
-고른 세션을 버려도 되면 그 목록을 그대로 values에 넣고 같은 upgrade를 다시 돌린다. 승인된 세션은 재개할 때 `recovery_required`로 멈춘다.
+고른 세션이 재개하지 못해도 되면 그 목록을 그대로 values에 넣고 같은 upgrade를 다시 돌린다. 승인은 세션 상태를 바꾸지 않는다. `no_image`로 고른 세션은 재개할 때 `recovery_required`로 멈춘다. `unrecorded`로 고른 세션은 새 이미지로 뜨고, 복원이 판정해 이어지거나 `recovery_required`로 멈춘다.
 
 ```bash
 helm upgrade --install ... --set-json 'upgrade.approvedSessions=["<sessionId>", ...]'
 ```
 
-Job은 승인 목록을 `UPGRADE_APPROVED_SESSIONS`(JSON 배열)로, 배포된 worker 이미지를 `UPGRADE_DEPLOYED_WORKER_IMAGE`로 받는다. 배포된 worker 이미지는 chart가 지금 scheduler Deployment의 `WORKER_IMAGE`를 `lookup`으로 읽어 넘긴다. `helm template`과 `--dry-run`에서는 `lookup`이 아무것도 읽지 않으므로 그 렌더로 돌린 Job은 `check_failed`가 된다. 첫 설치(`pre-install`)와 `scheduler.enabled: false`에서는 Job을 만들지 않는다.
+승인 목록은 release values에 남는다. 다음 upgrade에서는 `--set-json 'upgrade.approvedSessions=[]'`로 비운다. 남겨 두면 그 upgrade가 `refused`로 멈춘다.
+
+Job은 승인 목록을 `UPGRADE_APPROVED_SESSIONS`(JSON 배열)로, 배포된 worker 이미지를 `UPGRADE_DEPLOYED_WORKER_IMAGE`로 받는다. 배포된 worker 이미지는 chart가 지금 scheduler Deployment의 `WORKER_IMAGE`를 `lookup`으로 읽어 넘긴다. `helm template`과 `--dry-run`에서는 `lookup`이 아무것도 읽지 않으므로 그 렌더로 돌린 Job은 `check_failed`가 된다. 첫 설치(`pre-install`)와 `scheduler.enabled: false`에서는 Job을 만들지 않는다. Job과 scheduler가 같은 이미지를 보도록 `WORKER_IMAGE`·`WORKER_IMAGE_PREVIOUS`·`WORKER_IMAGE_RUNTIME`·`WORKER_IMAGE_PREVIOUS_RUNTIME`은 `*.extraEnv`나 `config.limits`로 줄 수 없다. 주면 render가 실패한다. `images.worker`와 `images.workerPrevious`로 준다.
 
 **`helm rollback` 전.** rollback은 hook을 돌리지 않으므로 같은 명령을 api Pod에서 직접 돌린다. 값은 되돌릴 revision의 것(`helm get values --revision <revision>`)을 넣는다.
 
@@ -236,7 +238,7 @@ kubectl -n agent-platform exec deploy/agent-platform-api -- env \
   bun run apps/control-host/src/api/upgrade-check.ts
 ```
 
-worker 이미지를 되돌리는 rollback은 언제나 `refused`다. 되돌릴 revision의 직전 이미지가 지금 배포된 이미지가 아니기 때문이다. 지금 이미지로 도는 worker는 rollback 뒤에도 끝날 때까지 그 이미지로 checkpoint를 남기고, 되돌린 이미지들은 그것을 복원하지 못한다. 출력의 `affected`는 지금 이미 재개할 수 없게 될 세션이다. 롤포워드가 우선이고, 그래도 되돌리면 그 세션들과 rollback 동안 지금 이미지로 checkpoint를 남긴 세션이 `recovery_required`로 멈춘다. `images.worker`를 그대로 두는 rollback은 `proceed`다.
+worker 이미지를 되돌리는 보통의 rollback은 `refused`다. 되돌릴 revision의 `images.workerPrevious`가 지금 배포된 이미지가 아니기 때문이다(검사는 조합이 아니라 이미지 참조를 비교한다). 설정이나 DB를 읽지 못하면 `check_failed`다. 지금 이미지로 도는 worker는 rollback 뒤에도 끝날 때까지 그 이미지로 checkpoint를 남기고, 되돌린 이미지들은 그것을 복원하지 못한다. 출력의 `affected`는 지금 이미 재개할 수 없게 될 세션이다. 롤포워드가 우선이고, 그래도 되돌리면 그 세션들과 rollback 동안 지금 이미지로 checkpoint를 남긴 세션이 `recovery_required`로 멈춘다. `images.worker`를 그대로 두는 rollback은 승인 목록 없이 돌리면 `proceed`다.
 
 **검사가 보지 않는 것.** compose의 `scripts/test-ops.sh upgrade`와 달리 이 검사는 대상 이미지를 실행하지 않는다. 포인터에 기록된 조합(engine·SDK·CLI·profile digest 방식)만 비교하고, 실제 profile digest는 복원 때 판정된다. 검사 뒤 writer를 멈추고 다시 검사하지도 않는다. 대상의 `images.workerPrevious`가 지금 배포된 이미지와 같아야 통과하므로, 검사 뒤에 지금 이미지의 worker가 남기는 checkpoint는 대상 지원 창 안에 있다. 그보다 옛 이미지로 도는 worker의 세션은 포인터가 이미 그 조합이라 목록에 오른다. 대상 이미지를 registry에서 받을 수 있는지도 보지 않는다. 받지 못하면 launch 실패로 나타난다.
 

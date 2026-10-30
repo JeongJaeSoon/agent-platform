@@ -127,6 +127,23 @@ the only way to declare a preview install (demo-accounts.ts).
 {{- end -}}
 {{- end -}}
 
+{{/*
+Fails when a values-named variable is one of the worker image variables:
+the upgrade check reads them from images.* and would otherwise judge other
+images than the scheduler launches.
+*/}}
+{{- define "ap.workerEnvReserved" -}}
+{{- $names := keys .Values.config.limits -}}
+{{- range $key := list "api" "scheduler" "reconciler" "slack" "egressProxy" -}}
+{{- $names = concat $names (keys (index $.Values $key).extraEnv) -}}
+{{- end -}}
+{{- range $name := list "WORKER_IMAGE" "WORKER_IMAGE_PREVIOUS" "WORKER_IMAGE_RUNTIME" "WORKER_IMAGE_PREVIOUS_RUNTIME" -}}
+{{- if has $name $names -}}
+{{- fail (printf "%s must not be set through extraEnv or config.limits; set images.worker and images.workerPrevious" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
 {{/* /tmp is the only writable path: the root filesystem is read-only. */}}
 {{- define "ap.tmpVolume" -}}
 - name: tmp
