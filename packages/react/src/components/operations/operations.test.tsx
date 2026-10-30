@@ -336,6 +336,23 @@ describe("ToolTable loading", () => {
   });
 });
 
+describe("ToolsSummary", () => {
+  test("실패 수는 실패가 있을 때만 위험 색이고, 0번이면 다른 숫자처럼 굵게만 보인다", () => {
+    const summary = (tools: typeof TOOLS) =>
+      withPlatform(
+        <ToolsSummary tools={tools} period="최근 30일" />,
+      ).container.querySelector("[data-slot=tools-summary]");
+    expect(
+      summary(TOOLS)?.querySelector("[class*=tone-danger]")?.textContent,
+    ).toBe("34번 실패");
+    const clean = summary(TOOLS.map((tool) => ({ ...tool, failed: 0 })));
+    expect(clean?.querySelector("[class*=tone-danger]")).toBeNull();
+    expect(
+      [...(clean?.querySelectorAll("b") ?? [])].map((b) => b.textContent),
+    ).toContain("0번 실패");
+  });
+});
+
 describe("tools tab loading", () => {
   test("Findings와 ToolsSummary는 읽는 중에 숨긴 자리표시만 둔다", () => {
     const { container, queryAllByRole } = withPlatform(
