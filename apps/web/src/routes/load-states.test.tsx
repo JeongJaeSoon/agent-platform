@@ -61,9 +61,16 @@ const RETRY_CASES: ReadonlyArray<{
   {
     name: "에이전트 목록",
     path: "/agents",
-    routes: meOk,
-    failingKey: "GET /v1/agents",
-    answer: () => json(200, { items: [], next_cursor: null }),
+    routes: {
+      ...meOk,
+      "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
+    },
+    // The screen's first read: the list waits on its counts.
+    failingKey: "GET /v1/agents/counts",
+    answer: () =>
+      json(200, {
+        counts: { all: 0, administered: 0, active: 0, draft: 0 },
+      }),
     after: /아직 에이전트가 없습니다/,
   },
   {

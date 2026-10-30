@@ -26,6 +26,26 @@ exports[`query keys 1`] = `
     "id-1",
     "admins",
   ],
+  "agentCounts": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
+    "agents",
+    {
+      "counts": true,
+    },
+  ],
+  "agentPages": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
+    "agents",
+    {
+      "pages": "notes",
+    },
+  ],
   "agentSessionLists": [
     {
       "actor": "user:u-1",
@@ -45,6 +65,19 @@ exports[`query keys 1`] = `
     {
       "agent_id": "id-1",
       "list": "agent",
+    },
+  ],
+  "agentSummaries": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
+    "agents",
+    {
+      "ids": [
+        "id-1",
+        "id-2",
+      ],
     },
   ],
   "agents": [
@@ -273,6 +306,57 @@ exports[`query options and the request each query makes 1`] = `
       "retry": false,
     },
   },
+  "agentCountsQuery": {
+    "calls": [
+      [
+        "/v1/agents/counts",
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
+        "agents",
+        {
+          "counts": true,
+        },
+      ],
+      "retry": false,
+    },
+  },
+  "agentPagesQuery": {
+    "calls": [
+      [
+        "/v1/agents",
+        {
+          "params": {
+            "query": {
+              "include": "summary",
+              "q": "id-1",
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "gcTime": 0,
+      "getNextPageParam": [Function],
+      "initialPageParam": null,
+      "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
+        "agents",
+        {
+          "pages": "id-1",
+        },
+      ],
+      "retry": false,
+    },
+  },
   "agentQuery": {
     "calls": [
       [
@@ -322,6 +406,40 @@ exports[`query options and the request each query makes 1`] = `
         {
           "agent_id": "id-1",
           "list": "agent",
+        },
+      ],
+      "retry": false,
+    },
+  },
+  "agentSummariesQuery": {
+    "calls": [
+      [
+        "/v1/agents",
+        {
+          "params": {
+            "query": {
+              "ids": "-,1,d,i",
+              "include": "summary",
+              "limit": 100,
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
+        "agents",
+        {
+          "ids": [
+            "-",
+            "1",
+            "d",
+            "i",
+          ],
         },
       ],
       "retry": false,

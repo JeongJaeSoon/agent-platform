@@ -47,7 +47,8 @@ import { ArrowRight, Folder, GitBranch, Inbox } from "lucide-react";
 import { type ReactNode, useEffect, useId, useState } from "react";
 import {
   administeredAgentsQuery,
-  agentsQuery,
+  agentCountsQuery,
+  agentSummariesQuery,
   firstMembersQuery,
   invitesQuery,
   linkedAccountsQuery,
@@ -66,8 +67,12 @@ import {
   type MessageKey,
   useI18n,
 } from "../i18n/i18n.tsx";
-import { agentState } from "./agents.tsx";
 import { expiryState } from "./api-keys.tsx";
+
+// GET /v1/agents' cap on `ids` (contracts AGENT_IDS_MAX); this app imports
+// no contracts values.
+const NAMED_AGENTS_MAX = 100;
+
 import { loadError, useUnavailable } from "./sessions.tsx";
 import { duration, usageSummaryQuery } from "./usage.tsx";
 
@@ -173,7 +178,10 @@ export function HomeScreen() {
     select: (page) => page.items.length > 0,
     enabled: managesMembers,
   });
-  const agents = useQuery({ ...agentsQuery(client), enabled: managesAgents });
+  const agentCounts = useQuery({
+    ...agentCountsQuery(client),
+    enabled: managesAgents,
+  });
   const sessions = useSessions();
   const waiting = useQuery(waitingSessionsQuery(client));
   // The install's figures are the owner's alone; anyone else would get 403.
@@ -192,6 +200,21 @@ export function HomeScreen() {
     enabled: operator,
   });
   const keys = useQuery(apiKeysQuery(client));
+  const expiring = (keys.data?.items ?? []).filter(
+    (key) => key.revoked_at === null && expiryState(key.expires_at) === "soon",
+  );
+  // The agents this page names, the cards' and the expiring keys', read
+  // with their summaries in one request instead of the whole list.
+  const named = [
+    ...new Set([
+      ...managed.slice(0, 2).map((agent) => agent.id),
+      ...expiring.flatMap((key) => (key.agent_id ? [key.agent_id] : [])),
+    ]),
+  ].slice(0, NAMED_AGENTS_MAX);
+  const agents = useQuery({
+    ...agentSummariesQuery(client, named),
+    enabled: managesAgents && named.length > 0,
+  });
   // Every reader's cards count these; a session without a role has no cards.
   const carded = reader !== undefined;
   const running = useQuery(statusPageQuery(client, "running", carded));
@@ -223,11 +246,12 @@ export function HomeScreen() {
     {
       key: "home.checklist.agent",
       state: stateOf({
-        isSuccess: agents.isSuccess,
-        isError: agents.isError,
-        data: agents.data?.items.some(
-          (agent) => agent.active_release_id !== null,
-        ),
+        isSuccess: agentCounts.isSuccess,
+        isError: agentCounts.isError,
+        data:
+          agentCounts.data === undefined
+            ? undefined
+            : agentCounts.data.counts.active > 0,
       }),
       to: "/agents",
       hint: "home.checklist.agentHint",
@@ -250,7 +274,9 @@ export function HomeScreen() {
   const checklistShown =
     managesMembers &&
     managesAgents &&
-    [members, invites, agents, sessions].every((query) => !query.isPending) &&
+    [members, invites, agentCounts, sessions].every(
+      (query) => !query.isPending,
+    ) &&
     steps.some((step) => step.state !== "done");
 
   // The oldest request and each session's wait are read from the same
@@ -310,6 +336,7 @@ export function HomeScreen() {
     [
       members,
       invites,
+      agentCounts,
       agents,
       sessions,
       waiting,
@@ -325,15 +352,6 @@ export function HomeScreen() {
   )
     setSettled(true);
   const agentItems = agents.data?.items ?? [];
-  const activeAgents = agentItems.filter(
-    (agent) => agentState(agent) === "active",
-  ).length;
-  const draftAgents = agentItems.filter(
-    (agent) => agentState(agent) === "draft",
-  ).length;
-  const expiring = (keys.data?.items ?? []).filter(
-    (key) => key.revoked_at === null && expiryState(key.expires_at) === "soon",
-  );
   const attention =
     requests && keys.isSuccess ? requests.stale + expiring.length : null;
   const unmeasured = <Unmeasured />;
@@ -447,12 +465,12 @@ export function HomeScreen() {
         })),
         {
           label: t("home.overview.agents"),
-          value: isApiError(agents.error, "FORBIDDEN")
+          value: isApiError(agentCounts.error, "FORBIDDEN")
             ? t("home.overview.agentsWithheld")
-            : agents.data
+            : agentCounts.data
               ? t("home.overview.agentsNote", {
-                  active: activeAgents,
-                  draft: draftAgents,
+                  active: agentCounts.data.counts.active,
+                  draft: agentCounts.data.counts.draft,
                 })
               : t("home.overview.unknown"),
         },

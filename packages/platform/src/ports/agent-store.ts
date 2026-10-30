@@ -5,8 +5,8 @@ import type {
   AgentSummary,
   AgentVersion,
   CountAgentsResponse,
+  ListAgentsQuery,
   ListAgentsResponse,
-  PaginationQuery,
 } from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 import type { SessionViewer } from "./session-share-store.ts";
@@ -49,10 +49,13 @@ export type ActivateResult =
   | Inactive;
 
 export interface AgentStore {
-  /** One page, oldest first; a malformed cursor throws InvalidCursorError. */
+  /**
+   * One page, oldest first, narrowed by `q` and `ids`; a malformed cursor
+   * throws InvalidCursorError. `include` is the service's.
+   */
   list(
     workspaceId: string,
-    query: PaginationQuery,
+    query: ListAgentsQuery,
   ): Promise<ListAgentsResponse>;
   /**
    * The list summary of each agent named, keyed by id, read for the whole

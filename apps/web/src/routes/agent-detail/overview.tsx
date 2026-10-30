@@ -3,7 +3,7 @@ import { Link as RouterLink } from "@tanstack/react-router";
 import type { AgentDetail, SessionSummary } from "@werft-ai/contracts";
 import {
   agentSessionsQuery,
-  agentsQuery,
+  agentSummariesQuery,
   usageBreakdownQuery,
 } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
@@ -64,14 +64,17 @@ type Reading = string | { readonly missing: string } | undefined;
 
 /**
  * The overview's figures: who waits on an answer, what runs, what it cost.
- * The counts are the agent list's summary (GET /v1/agents, owners and admins
- * only).
+ * The counts are the agent list's summary of this one agent (GET /v1/agents
+ * with `ids`, owners and admins only).
  */
 export function AgentGlance({ detail }: { readonly detail: AgentDetail }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const lists = useHasPermission("agent.manage");
-  const agents = useQuery({ ...agentsQuery(client), enabled: lists });
+  const agents = useQuery({
+    ...agentSummariesQuery(client, [detail.agent.id]),
+    enabled: lists,
+  });
   const failed = { missing: t("agents.cards.unavailable") };
   const summary = agents.data?.items.find(
     (item) => item.id === detail.agent.id,

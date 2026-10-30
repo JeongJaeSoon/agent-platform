@@ -6,6 +6,7 @@ import {
   agentVersionIdSchema,
   canonicalJson,
   INT4_MAX,
+  PAGE_LIMIT_MAX,
   pageSchema,
   paginationQuerySchema,
   receiptIdSchema,
@@ -419,8 +420,24 @@ export const agentListItemSchema = agentSchema
   .extend({ summary: agentSummarySchema.optional() })
   .strict();
 
+export const AGENT_SEARCH_MAX_CHARS = 200;
+export const AGENT_IDS_MAX = PAGE_LIMIT_MAX;
 export const listAgentsQuerySchema = paginationQuerySchema.extend({
   include: z.literal("summary").optional(),
+  q: z.string().trim().min(1).max(AGENT_SEARCH_MAX_CHARS).optional().meta({
+    description:
+      "Keeps the agents whose name or slug contains it, ignoring case. `%` and `_` match themselves.",
+  }),
+  ids: z
+    .string()
+    .min(1)
+    .max(AGENT_IDS_MAX * 37)
+    .transform((value) => value.split(","))
+    .pipe(z.array(agentIdSchema).min(1).max(AGENT_IDS_MAX))
+    .optional()
+    .meta({
+      description: `Comma-separated agent ids, at most ${AGENT_IDS_MAX}: keeps those of them in the workspace, in the list's order. An id of no agent there is left out.`,
+    }),
 });
 export const listAgentsResponseSchema = pageSchema(agentListItemSchema);
 const agentCountSchema = z.number().int().nonnegative();
@@ -434,6 +451,14 @@ export const countAgentsResponseSchema = z.object({
       administered: agentCountSchema.meta({
         description:
           "How many of those the caller administers now, directly or through a team.",
+      }),
+      active: agentCountSchema.meta({
+        description:
+          "How many of `all` are `active` with an `active_release_id`: the agents people can talk to.",
+      }),
+      draft: agentCountSchema.meta({
+        description:
+          "How many of `all` are not `archived` and have no `active_release_id` yet.",
       }),
     })
     .strict(),

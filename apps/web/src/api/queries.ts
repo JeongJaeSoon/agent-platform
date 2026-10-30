@@ -3,7 +3,10 @@
 export {
   administeredAgentsQuery,
   agentAdminsQuery,
+  agentCountsQuery,
+  agentPagesQuery,
   agentQuery,
+  agentSummariesQuery,
   agentsQuery,
   apiKeysQuery,
   firstMembersQuery,
