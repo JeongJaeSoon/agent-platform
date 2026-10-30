@@ -67,9 +67,7 @@ function answer(number: number, state: PullState) {
   return pullRequest;
 }
 
-type Read = (
-  number: number,
-) => Promise<{
+type Read = (number: number) => Promise<{
   pullRequest: ForgePullRequestDetail;
   rateLimit: GitHubRateLimit;
 }>;
@@ -276,12 +274,10 @@ integration("postgres session outcomes and the outcome refresher", () => {
       .set({ createdAt: sql`now() - interval '3 days'` })
       .where(eq(pullRequests.url, url));
     const older = await session(repo);
-    await db
-      .insert(pullRequests)
-      .values({
-        sessionId: older,
-        url: `https://github.com/acme/${repo}/pull/4`,
-      });
+    await db.insert(pullRequests).values({
+      sessionId: older,
+      url: `https://github.com/acme/${repo}/pull/4`,
+    });
 
     const unit = `app:test:${randomUUID()}`;
     const { refresher, calls } = replica({

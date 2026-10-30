@@ -90,9 +90,7 @@ export interface GitHubApi {
    * One request, never retried or held back for a rate limit: a failure is
    * GitHubCallError carrying the response's rate limit.
    */
-  getPullRequest(
-    number: number,
-  ): Promise<{
+  getPullRequest(number: number): Promise<{
     pullRequest: ForgePullRequestDetail;
     rateLimit: GitHubRateLimit;
   }>;

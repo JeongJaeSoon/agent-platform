@@ -86,9 +86,7 @@ export function createOutcomeRefresher(deps: {
     return byKey;
   }
 
-  async function read(
-    outcome: ClaimedOutcome,
-  ): Promise<{
+  async function read(outcome: ClaimedOutcome): Promise<{
     check: OutcomeCheck;
     rateLimit: GitHubRateLimit | null;
     limited: boolean;

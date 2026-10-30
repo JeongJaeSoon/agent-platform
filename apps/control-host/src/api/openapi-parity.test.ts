@@ -20,6 +20,7 @@ import type {
   PullRequestService,
   PushRequestService,
   SessionAttributionService,
+  SessionOutcomeService,
   SessionOutputService,
   SessionService,
   SessionShareService,
@@ -51,6 +52,7 @@ import { registerGitHubSettingsRoutes } from "./routes/github-settings.ts";
 import {
   registerGitHubWorkRoutes,
   registerSessionAttributionRoutes,
+  registerSessionOutcomeRoutes,
 } from "./routes/github-work.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
 import {
@@ -160,6 +162,7 @@ function apiApp() {
       registerAgentGitHubRoutes(router, {} as AgentGitHubService);
       registerGitHubWorkRoutes(router, {} as GitHubWorkService);
       registerSessionAttributionRoutes(router, {} as SessionAttributionService);
+      registerSessionOutcomeRoutes(router, {} as SessionOutcomeService);
       registerSlackAppRoutes(router, {
         apps: {} as SlackAppService,
         secrets: {} as SlackSecretService,
