@@ -175,4 +175,34 @@ describe("replacing the pull request tail", () => {
       `${tail}\n\n${code}`,
     );
   });
+
+  test("a whole tail pasted inside an HTML element is quoted", () => {
+    for (const quoted of [
+      `<details>\n<summary>Earlier output</summary>\n\n${EXAMPLE}\n\n</details>`,
+      `<pre>\n${EXAMPLE}\n</pre>`,
+      `<div><details>\n\n${EXAMPLE}\n\n</details></div>`,
+    ]) {
+      expect(withPullRequestTail(`${OLD}\n\n${quoted}`, tail)).toBe(
+        `${tail}\n\n${quoted}`,
+      );
+    }
+    // Named in inline code, an element opens nothing.
+    const named = "Wrap it in `<details>` to fold it.";
+    expect(withPullRequestTail(`${named}\n\n${OLD}`, tail)).toBe(
+      `${named}\n\n${tail}`,
+    );
+  });
+
+  test("a block left open is closed before the tail, so refreshes do not pile up", () => {
+    for (const [body, closing] of [
+      ["Build log:\n\n```\nerror: failed", "```"],
+      ["~~~~\nlog", "~~~~"],
+      ["<details>\n<summary>Log</summary>\n\nlines", "</details>"],
+    ]) {
+      const once = withPullRequestTail(body ?? "", tail);
+      expect(once).toBe(`${body}\n${closing}\n\n${tail}`);
+      const again = withPullRequestTail(once, tailOf("newer"));
+      expect(again).toBe(`${body}\n${closing}\n\n${tailOf("newer")}`);
+    }
+  });
 });

@@ -147,6 +147,9 @@ const TAIL_LINES = [
   "Co-authored-by: ",
 ];
 
+const QUOTING_ELEMENT =
+  /<(\/?)(details|pre|div|table|blockquote|section|textarea|script|style)\b[^>]*>/gi;
+
 /** Whether the lines between two markers are a tail the platform wrote. */
 function isTailContent(content: readonly string[]): boolean {
   const filled = content.filter((line) => line.trim() !== "");
@@ -160,13 +163,13 @@ function isTailContent(content: readonly string[]): boolean {
 
 /**
  * `body` with its tail replaced by `tail`. The tail is a start marker line
- * and the next end marker line, each alone and unindented on its line and
- * outside a fenced code block, with only the platform's own lines between
- * them; the last such pair is the one replaced. Markers a person quotes (in a
- * sentence, a code block, an HTML block around their own text) are text. A
- * body without such a pair (from before the end marker, or one a person cut
- * or edited) keeps all it has and gets the tail added. Text around the tail
- * is kept as written.
+ * and the next end marker line, each alone and unindented on its line,
+ * outside a fenced code block and an HTML element such as `<details>`, with
+ * only the platform's own lines between them; the last such pair is the one
+ * replaced. Markers a person quotes are text. A body without such a pair
+ * (from before the end marker, or one a person cut or edited) keeps all it
+ * has and gets the tail added, after closing any block it leaves open. Text
+ * around the tail is kept as written.
  */
 export function withPullRequestTail(body: string, tail: string): string {
   // GitHub's editor saves CRLF.
@@ -174,6 +177,9 @@ export function withPullRequestTail(body: string, tail: string): string {
   // The opening fence's run (CommonMark): only the same character, at least
   // as long, with nothing after it closes the block.
   let fence: string | null = null;
+  // HTML elements a person opened around Markdown (`<details>` around a
+  // pasted example): markers inside them are quoted.
+  const open: string[] = [];
   let start = -1;
   let pair: [number, number] | null = null;
   for (const [at, line] of lines.entries()) {
@@ -195,6 +201,20 @@ export function withPullRequestTail(body: string, tail: string): string {
       fence = marks;
       continue;
     }
+    const outside = open.length === 0;
+    for (const [, close, name] of line
+      .replace(/`[^`]*`/g, "")
+      .matchAll(QUOTING_ELEMENT)) {
+      const tag = (name ?? "").toLowerCase();
+      if (close === "") open.push(tag);
+      else if (open.lastIndexOf(tag) !== -1) {
+        open.splice(open.lastIndexOf(tag), 1);
+      }
+    }
+    if (!outside || open.length > 0) {
+      start = -1;
+      continue;
+    }
     // The platform writes its markers flush left; an indented one is quoted
     // (an indented code block, a list item).
     const text = line.trimEnd();
@@ -204,7 +224,16 @@ export function withPullRequestTail(body: string, tail: string): string {
       start = -1;
     }
   }
-  if (pair === null) return body === "" ? tail : `${body}\n\n${tail}`;
+  if (pair === null) {
+    if (body === "") return tail;
+    // Closed first, or the tail lands inside the person's unclosed block and
+    // is never found again: each refresh would add one more.
+    const closing = [
+      ...(fence === null ? [] : [fence]),
+      ...open.reverse().map((tag) => `</${tag}>`),
+    ];
+    return `${[body, ...closing].join("\n")}\n\n${tail}`;
+  }
   const [from, to] = pair;
   const blank = (line: string | undefined) => line?.trim() === "";
   // The marker follows the tail's own `---` line; keep the text above it.
