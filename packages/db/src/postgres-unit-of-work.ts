@@ -874,14 +874,20 @@ export function createPostgresSessionReader(
         .from(sessions)
         .where(sessionFilter(ownerId, query, viewer))
         .as("listed");
-      const rows = await db
-        .select({
-          status: listed.status,
-          awaitingInput: listed.awaitingInput,
-          count: sql<number>`count(*)::int`,
-        })
-        .from(listed)
-        .groupBy(listed.status, listed.awaitingInput);
+      // The per-row visibility and input subqueries push the plan's cost past
+      // jit_above_cost: over 50,000 sessions compiling took 296 of 331 ms and
+      // the count itself 35 (P-LIST-SCALE), so JIT is off for this read.
+      const rows = await db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL jit = off`);
+        return tx
+          .select({
+            status: listed.status,
+            awaitingInput: listed.awaitingInput,
+            count: sql<number>`count(*)::int`,
+          })
+          .from(listed)
+          .groupBy(listed.status, listed.awaitingInput);
+      });
       const counts = Object.fromEntries(
         SESSION_STATUS_VALUES.map((status) => [status, 0]),
       ) as CountSessionsResponse["counts"];
@@ -904,6 +910,9 @@ export function createPostgresSessionReader(
       // and its summary read showed needs_input beside input_wait null.
       return db.transaction(
         async (tx) => {
+          // As countSessions: a search that matches little reads every
+          // session of the owner, and JIT took 27 of its 47 ms.
+          await tx.execute(sql`SET LOCAL jit = off`);
           const rows = await tx
             .select({
               session: sessions,
