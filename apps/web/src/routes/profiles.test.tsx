@@ -64,11 +64,11 @@ describe("실행 프로필", () => {
     ).toBe("page");
     const table = await screen.findByRole("table", { name: "실행 프로필" });
     // Ceilings first; each name cell ends in the line a phone shows instead
-    // of the columns it drops.
+    // of the columns it drops. A profile without a name shows its id once.
     expect(rows(table)).toEqual([
       HEADER,
       [
-        "coding-claudecoding-claude설치 상한 · v1",
+        "coding-claude설치 상한 · v1",
         "v1",
         "설치 상한",
         "—",
@@ -77,7 +77,7 @@ describe("실행 프로필", () => {
         "사용 가능",
       ],
       [
-        "general-readgeneral-read설치 상한 · v1",
+        "general-read설치 상한 · v1",
         "v1",
         "설치 상한",
         "—",
@@ -162,8 +162,8 @@ describe("실행 프로필", () => {
         .slice(1)
         .map((row) => row[0]),
     ).toEqual([
-      "coding-claudecoding-claude설치 상한 · v1",
-      "general-readgeneral-read설치 상한 · v1",
+      "coding-claude설치 상한 · v1",
+      "general-read설치 상한 · v1",
     ]);
   });
 
@@ -232,7 +232,7 @@ describe("실행 프로필", () => {
     ).toEqual([
       "coding 이전 버전 1개op_coding_v1설치 상한 · v1",
       "wideop_wide_v1설치 상한 · v1",
-      "widewide설치 상한 · v1",
+      "wide설치 상한 · v1",
     ]);
   });
 
