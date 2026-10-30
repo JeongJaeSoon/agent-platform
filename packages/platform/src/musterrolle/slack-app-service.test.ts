@@ -106,6 +106,26 @@ test("a reinstall keeps a verified URL verified and a changed URL pending again"
   });
 });
 
+test("the read tells an agent admin whether the config token can create an app", async () => {
+  const { service, tokenStore } = await setup();
+  const agentAdmin = user("member", { id: AGENT_ADMIN });
+  expect((await service.getAgentApp(agentAdmin, AGENT)).config_token).toBe(
+    "active",
+  );
+  await tokenStore.store.invalidate(WORKSPACE, null);
+  expect((await service.getAgentApp(agentAdmin, AGENT)).config_token).toBe(
+    "needs_reentry",
+  );
+  await tokenStore.store.delete(WORKSPACE, {
+    principal: user("owner"),
+    receiptId: crypto.randomUUID(),
+    roles: ["owner", "admin"],
+  });
+  expect((await service.getAgentApp(agentAdmin, AGENT)).config_token).toBe(
+    "unset",
+  );
+});
+
 test("a recheck sends the Request URL to Slack again and needs the public events address", async () => {
   const unset = await setup();
   await unset.service.createAgentApp(user("owner"), AGENT, {

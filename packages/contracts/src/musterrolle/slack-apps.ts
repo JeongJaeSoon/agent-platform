@@ -170,6 +170,12 @@ export const createSlackAppResponseSchema = z
   })
   .strict();
 
+export const CONFIG_TOKEN_STATE_VALUES = [
+  "unset",
+  "active",
+  "needs_reentry",
+] as const;
+
 export const getSlackAppResponseSchema = z
   .object({
     slack_app: slackAppSchema.nullable(),
@@ -184,6 +190,11 @@ export const getSlackAppResponseSchema = z
       })
       .strict(),
     warnings: z.array(slackAgentWarningSchema),
+    /**
+     * The workspace's App Configuration Token, so a console can say why an
+     * app cannot be made before asking; only `active` can make one.
+     */
+    config_token: z.enum(CONFIG_TOKEN_STATE_VALUES),
   })
   .strict();
 
@@ -213,12 +224,6 @@ export const slackAppSecretParamsSchema = slackAppParamsSchema
 export const deleteSlackAppResponseSchema = z
   .object({ slack_app: slackAppSchema })
   .strict();
-
-export const CONFIG_TOKEN_STATE_VALUES = [
-  "unset",
-  "active",
-  "needs_reentry",
-] as const;
 
 /**
  * The config token as the console shows it. `needs_reentry`: Slack no
