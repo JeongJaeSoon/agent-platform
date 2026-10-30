@@ -40,6 +40,7 @@ import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
+import { GitHubAccess } from "./workspace-github-access.tsx";
 import {
   type OnOutcome,
   SettingsCard,
@@ -261,7 +262,6 @@ function GitHubApp({ onOutcome }: { readonly onOutcome: OnOutcome }) {
                   href={installUrl}
                   target="_blank"
                   newTabLabel={t("github.newTab")}
-                  underline="always"
                 >
                   {t("github.install")}
                 </Link>
@@ -362,6 +362,10 @@ function GitHubApp({ onOutcome }: { readonly onOutcome: OnOutcome }) {
         description={t("github.appHint")}
         rows={appRows}
       />
+      <GitHubAccess
+        fresh={canManage && app.isSuccess ? registered?.permissions : undefined}
+        onOutcome={onOutcome}
+      />
       {canManage && registered ? (
         <>
           <SettingsCard
@@ -384,7 +388,6 @@ function GitHubApp({ onOutcome }: { readonly onOutcome: OnOutcome }) {
                           href={installation.html_url}
                           target="_blank"
                           newTabLabel={t("github.newTab")}
-                          underline="always"
                         >
                           {t("github.openOnGitHub")}
                         </Link>
