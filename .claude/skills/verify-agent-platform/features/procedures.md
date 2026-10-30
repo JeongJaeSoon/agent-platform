@@ -857,3 +857,25 @@ node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 제목 없는 행은 `demo-data.ts`의 `DEMO_SESSIONS` 마지막 항목으로 의도적으로 seed된다. Demo Member가 공백 메시지로 만든 web 세션이며 에이전트·저장소 없이 `general` 프로필을 사용한다. `demo-accounts.ts`의 계정 생성용 인증 세션과 구분한다. 두 코드 리뷰 세션은 Demo Owner의 private 세션이므로 member 목록에서 빠진다. 실행·대기 상태는 이후 진행이나 사용자 조작으로 바뀔 수 있어 상태별 숫자는 고정하지 않는다.
 
 결과물 조회는 위의 `ap_as demo-owner` 상태에서 수행한다. 목록 200 객체의 `session_id`는 RS, `checkpoint_revision:0`, `items`는 `path:"out/release-notes.md"`·`bytes:146`·`sha256`(해시 문자열, 값은 고정하지 않음)·`omitted:null`인 항목 한 개다(`packages/contracts/src/api/output.ts`). 다운로드 200이며 본문에 `# 결제 모듈 릴리스 노트`, “카드 결제 실패 시 재시도 안내를 보여 준다.”, “영수증 메일에 주문 번호를 넣는다.”가 나온다. 브라우저 로그인은 `/`로 이동한다. `/`의 innerText에는 “답이 필요한 요청”과 대기 요청이, `/sessions`에는 상태 필터와 owner에게 보이는 위 세션 제목들이 나온다. source: `scripts/local.sh`, `apps/control-host/src/api/demo-accounts.ts`, `demo-data.ts`. seed 재실행은 기존 행을 덮어쓰지 않는다. `LOCAL_DEMO_DATA=0`은 이 데이터 검증의 전제를 충족하지 않는다.
+
+## P-LIST-SCALE — 큰 목록 시드와 응답 시간
+
+전제: 별도 run. owner bootstrap, member 초대·수락, `P-API-AGENTS`의 에이전트 생성·release·활성화, 팀 하나(`POST /v1/teams`), owner 웹 key(`web-user.mjs … key owner personal sessions:read,sessions:write`)와 그 key로 만든 세션 하나까지 API로 만든다. 시드는 그 행들을 복제하므로 API가 지키는 제약이 그대로 맞는다. DB 쓰기로 상태를 만드는 유일한 절차이며, 화면·API 동작이 아니라 규모만 만든다.
+
+```sh
+# Actor: owner. 그 run의 postgres에서만 돈다. 두 번째 실행은 아무것도 더하지 않는다.
+ap_compose exec -T postgres psql -U postgres -d sessions -v ON_ERROR_STOP=1 \
+  -v sessions=50000 -v agents=2000 -v members=2000 -v teams=300 \
+  -v team_members=500 -v keys=1000 < .claude/skills/verify-agent-platform/scripts/seed-scale.sql
+. .claude/skills/verify-agent-platform/scripts/bench-lists.sh
+ap_as owner
+ap_bench 15 '/v1/sessions?limit=50'
+ap_bench 15 '/v1/sessions?limit=50&q=zzznomatch'
+ap_bench 15 /v1/sessions/counts
+ap_bench 15 '/v1/agents?limit=50&include=summary'
+ap_bench_pages '/v1/agents?include=summary'
+```
+
+기대: 시드 끝에 행 수 표(세션 50,001 등). `ap_bench`는 경로마다 200이 아닌 응답 수(`failed=`)·마지막 응답의 항목 수·200 응답만의 p50·p95를, `ap_bench_pages`는 limit=100으로 끝까지 읽은 페이지 수·항목 수·합계 시간을 한 줄씩 낸다. 200이 아닌 응답이 하나라도 있으면 둘 다 1로 끝난다(member로 `/v1/agents`는 403이라 `failed=3 of 3`). 시드는 sessions·agents·memberships·member_teams·api_keys만 키우고 events·pending_requests·session_shares는 늘리지 않으므로, 그 표에 기대는 서브쿼리 비용은 운영보다 작게 나온다.
+
+계획을 보려면 이 run의 postgres에서만 `LOAD 'auto_explain'` 뒤 `ALTER SYSTEM SET auto_explain.log_min_duration = 40`·`auto_explain.log_analyze = on`, `pg_reload_conf()`, `ap_compose restart api` 하고 `ap_compose logs postgres`를 읽는다. api를 재시작하면 ephemeral 포트가 바뀐다. 이후 호출 전에 `API=http://$(ap_compose port api 3000)`로 다시 잡는다(run 상태 파일의 `VERIFY_API`는 바뀌지 않는다). source: `scripts/seed-scale.sql`, `scripts/bench-lists.sh`.
