@@ -78,6 +78,12 @@ export const slackEn = {
     "Until a release is activated, Slack mentions and DMs are refused and only a notice is left in the thread. Create and activate a release on the Release tab.",
   "slack.state.error": "Error",
   "slack.createInstall": "Create and install Slack app",
+  "slack.configToken.unset":
+    "The workspace has no Slack app setup (App Configuration Token), so the app cannot be created.",
+  "slack.configToken.needs_reentry":
+    "Slack no longer accepts the workspace's App Configuration Token, so the app cannot be created.",
+  "slack.configToken.settings": "Go to workspace Slack settings",
+  "slack.configToken.askAdmin": "Ask an owner or admin to set it up.",
   "slack.install": "Install Slack app",
   "slack.reinstall": "Reinstall",
   "slack.working": "Preparing…",

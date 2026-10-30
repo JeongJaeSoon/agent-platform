@@ -5,7 +5,11 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useLocation, useNavigate } from "@tanstack/react-router";
+import {
+  Link as RouterLink,
+  useLocation,
+  useNavigate,
+} from "@tanstack/react-router";
 import { type ApiClient, type components, unwrap } from "@werft-ai/client";
 import { queryKeysOf } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
@@ -46,7 +50,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useMe } from "../../auth/guard.tsx";
+import { useHasPermission, useMe } from "../../auth/guard.tsx";
 import { copyText } from "../../components/copy.ts";
 import {
   errorKey,
@@ -463,6 +467,9 @@ export function SlackConnect({
   const { client } = useAgentPlatform();
   const cache = useQueryClient();
   const me = useMe();
+  // The workspace Slack screen is the workspace managers' (app-sidebar).
+  const manageWorkspace = useHasPermission("workspace.manage");
+  const tokenBlockId = useId();
   const { leave } = useAppServices();
   const { app, identities, key } = useSlackState(agentId);
   const [notice, setNotice] = useState("");
@@ -567,6 +574,10 @@ export function SlackConnect({
   const events = app.data?.events;
   const pending = record?.state === "creating" || record?.state === "deleting";
   const status = slackState(error, identity, record);
+  const tokenBlock =
+    !record && app.data && app.data.config_token !== "active"
+      ? app.data.config_token
+      : null;
   return (
     <>
       <section
@@ -759,7 +770,8 @@ export function SlackConnect({
             {!app.error && !identities.error ? (
               <Button
                 type="button"
-                disabled={!active || busy}
+                disabled={!active || busy || tokenBlock !== null}
+                aria-describedby={tokenBlock ? tokenBlockId : undefined}
                 onClick={() => connect.mutate()}
               >
                 {connect.isPending
@@ -776,6 +788,20 @@ export function SlackConnect({
               {t("slack.refresh")}
             </Button>
           </div>
+        ) : null}
+        {tokenBlock ? (
+          <p id={tokenBlockId} className="m-0 text-muted-foreground">
+            <span>{t(`slack.configToken.${tokenBlock}`)}</span>{" "}
+            {manageWorkspace ? (
+              <Link asChild underline="always">
+                <RouterLink to="/settings/workspace/slack">
+                  {t("slack.configToken.settings")}
+                </RouterLink>
+              </Link>
+            ) : (
+              t("slack.configToken.askAdmin")
+            )}
+          </p>
         ) : null}
         <ConfirmDialog
           open={deleting}
