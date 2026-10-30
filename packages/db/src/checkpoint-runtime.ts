@@ -3,7 +3,7 @@ import {
   type PointerRuntime,
   recordedPointer,
 } from "@werft-ai/platform";
-import { and, eq, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { hasRestorePoint } from "./control-shared.ts";
 import type { Database } from "./queries.ts";
@@ -147,4 +147,57 @@ export async function readPointerRuntime(
     .where(eq(sessions.id, sessionId))
     .limit(1);
   return row === undefined ? null : runtimeOfColumns(row);
+}
+
+/**
+ * Every session that holds a checkpoint no collection has ended, the set an
+ * upgrade can strand (the compose gate checks the same one), with its
+ * pointer read by readPointerImageRuntime's rules.
+ */
+export async function listUncollectedSessionPointers(
+  db: Database,
+): Promise<{ sessionId: string; pointer: PointerRuntime }[]> {
+  const rows = await db
+    .select({
+      sessionId: sessions.id,
+      checkpointRevision: sessions.checkpointRevision,
+      checkpointPendingReason: sessions.checkpointPendingReason,
+      contextResetCheckpointRevision: sessions.contextResetCheckpointRevision,
+      runtimeEngine: checkpoints.runtimeEngine,
+      runtimeSdkVersion: checkpoints.runtimeSdkVersion,
+      runtimeCliVersion: checkpoints.runtimeCliVersion,
+      runtimeProfileSha256: checkpoints.runtimeProfileSha256,
+      runtimeProfileScheme: checkpoints.runtimeProfileScheme,
+    })
+    .from(sessions)
+    .leftJoin(
+      checkpoints,
+      and(
+        eq(checkpoints.sessionId, sessions.id),
+        eq(checkpoints.revision, sessions.checkpointRevision),
+      ),
+    )
+    .where(
+      inArray(
+        sessions.id,
+        db
+          .selectDistinct({ sessionId: checkpoints.sessionId })
+          .from(checkpoints)
+          .where(isNull(checkpoints.collectedAt)),
+      ),
+    )
+    .orderBy(asc(sessions.id));
+  return rows.map((row) => {
+    if (!hasRestorePoint(row)) {
+      return { sessionId: row.sessionId, pointer: { kind: "none" } };
+    }
+    const runtime = runtimeOfColumns(row);
+    return {
+      sessionId: row.sessionId,
+      pointer:
+        runtime === null
+          ? { kind: "unrecorded" }
+          : recordedPointer(runtime, row.runtimeProfileScheme),
+    };
+  });
 }

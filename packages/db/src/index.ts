@@ -7,6 +7,7 @@ export * from "./api-keys.ts";
 export * from "./authz-decisions.ts";
 export * from "./catalog-authority.ts";
 export {
+  listUncollectedSessionPointers,
   type RuntimeFingerprint,
   readPointerRuntime,
 } from "./checkpoint-runtime.ts";
