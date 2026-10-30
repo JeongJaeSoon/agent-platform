@@ -55,7 +55,9 @@ export function SegmentedControl({
         data-slot="segmented-control"
         data-size={size}
         className={cn(
-          "inline-flex max-w-full flex-wrap items-center gap-0.5 rounded-card border border-border bg-card p-0.5",
+          // w-fit: as a flex item in a column, stretch would carry the
+          // border past the last item to the column's edge.
+          "inline-flex w-fit max-w-full flex-wrap items-center gap-0.5 rounded-card border border-border bg-card p-0.5",
           // 28px items + 1px padding + 1px border on each side = 32px.
           size === "toolbar" &&
             "rounded-control p-px hover:border-subtle-foreground",

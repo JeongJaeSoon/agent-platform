@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { closeSync, fstatSync, openSync } from "node:fs";
 import type { ClaudeRuntimeConfig } from "./config.ts";
+import { MEMORY_READ_GUIDANCE } from "./memory-read.ts";
 import { MirrorProgress } from "./mirror-progress.ts";
 import { ResumedHistory } from "./resumed-history.ts";
 import { APPROVAL_BARRIER_MS, ClaudeSdkRun, InputStream } from "./run.ts";
@@ -302,7 +303,7 @@ describe("Claude SDK adapter options", () => {
     expect(options.systemPrompt).toEqual({
       type: "preset",
       preset: "claude_code",
-      append: "platform rules",
+      append: `platform rules\n\n${MEMORY_READ_GUIDANCE}`,
       snapshot: true,
     });
     expect(options.plugins).toEqual([
@@ -311,6 +312,21 @@ describe("Claude SDK adapter options", () => {
     expect(options.pathToClaudeCodeExecutable).toBe(
       resolvePinnedClaudeExecutable(),
     );
+  });
+
+  test("tells only a run that asks a person how to read its memory", () => {
+    const allow = {
+      onPermission: async () => ({ behavior: "allow" as const }),
+    };
+    for (const permissionMode of ["auto", "bypassPermissions"] as const) {
+      expect(
+        buildSdkOptions({ ...config, permissionMode }, allow).systemPrompt,
+      ).toMatchObject({ append: "platform rules" });
+    }
+    const { appendSystemPrompt: _, ...bare } = config;
+    expect(
+      buildSdkOptions({ ...bare, permissionMode: "auto" }, allow).systemPrompt,
+    ).not.toHaveProperty("append");
   });
 
   test("passes a spending budget only when the caller sets one", () => {

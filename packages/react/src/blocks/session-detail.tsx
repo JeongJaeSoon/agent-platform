@@ -54,6 +54,7 @@ import {
   SessionControls,
 } from "./session-actions.tsx";
 import { listedRequests, SessionTimeline } from "./session-timeline.tsx";
+import { SlackMessageLink } from "./slack-message-link.tsx";
 import { type BlockText, useBlockText } from "./text.ts";
 
 /** A tab a host adds between the timeline and the info tab. */
@@ -413,13 +414,24 @@ function agentName(session: SessionDetailData, t: BlockText) {
   return session.agent?.name ?? t("session.agent.none");
 }
 
-/** The person, then the surface the session was started from. */
-function startedBy(session: SessionDetailData, t: BlockText) {
+/**
+ * The person, then the surface the session was started from, and the Slack
+ * message it started with when there is one.
+ */
+function startedBy(session: SessionDetailData, t: BlockText): ReactNode {
   const person =
     session.created_by?.display_name || t("session.startedBy.unknown");
-  return session.channel
+  const text = session.channel
     ? `${person} · ${t(`session.channel.${session.channel}`)}`
     : person;
+  return session.slack_permalink ? (
+    <span key="startedBy" className="inline-flex flex-wrap gap-x-2">
+      {text}
+      <SlackMessageLink href={session.slack_permalink} />
+    </span>
+  ) : (
+    text
+  );
 }
 
 /**

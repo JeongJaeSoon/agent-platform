@@ -66,6 +66,12 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/linked-accounts/slack
 
 모델이 쓴 답변과 사용자가 입력한 내용은 번역하지 않는다. 배포 환영 메시지는 받는 사람이 정해지지 않아 한국어로 보낸다.
 
+## 원래 Slack 메시지 링크
+
+Slack 멘션·DM·스레드 답글로 시작하거나 보낸 지시는 그 Slack 메시지의 위치(팀·채널·`ts`, 답글이면 `thread_ts`)와 Slack이 준 링크를 함께 남긴다. 링크는 `chat.getPermalink`로 받고, 이 호출에는 scope가 더 필요 없다. 웹 세션 화면은 머리의 시작한 사람·경로 옆과 대화의 Slack 지시 말풍선에 **Slack에서 보기** 링크를 보이고, 누르면 새 탭에서 열린다. API에서는 세션의 `slack_permalink`(세션을 시작한 메시지)와 turn의 `slack_permalink`(그 지시를 보낸 메시지)로 읽는다.
+
+비공개 채널과 DM도 링크만 남기고 메시지 본문을 더 저장하지 않는다(지시로 받은 글은 원래대로 turn의 `message`에 있다). 링크는 Slack에서 그 메시지를 읽을 수 있는 사람에게만 열린다. 링크를 남기기 전에 만든 세션·지시, Slack이 링크를 주지 않은 지시는 `null`이고 화면에 링크가 없다.
+
 ## Slack 설치 등록
 
 운영자가 터미널에서 쓰는 경로다. Slack 워크스페이스에 설치된 Slack 앱이 있으면, 그 앱의 bot token으로 설치를 등록한다. 콘솔에서 Slack 앱을 자동으로 만들고 설치하는 흐름은 다음 버전에 들어온다. CLI가 Slack의 `auth.test`·`bots.info`로 팀, bot 사용자, 앱을 확인하고 확인된(`verified`) 설치를 남긴다. 앱에는 bot scope `users:read`가 있어야 한다. token은 환경 변수 `SLACK_BOT_TOKEN`으로만 넘긴다. CLI는 token을 인자로 받지 않고 출력하지도 않는다.

@@ -17,8 +17,7 @@ import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 /*
  * The one page frame (V4-PAGE-FRAME): lists, settings, forms and details
  * all grow to 1620px beside the sidebar, then centre; narrower, only the
- * gutters remain. A form or settings page stops its head and sections
- * together at 1100px inside it. The settings pages put their SideNav
+ * gutters remain. The settings pages put their SideNav
  * beside the page only once both it and the sidebar leave the body room.
  */
 
@@ -42,7 +41,6 @@ function SettingsFrame() {
       >
         <Page
           title="일반"
-          width="form"
           description="워크스페이스 전체에 적용되는 설정입니다."
         >
           <Card>
@@ -73,11 +71,10 @@ function Frame({ kind }: { readonly kind: "list" | "settings" }) {
     >
       <Page
         title={kind === "list" ? "목록 화면" : "설정 화면"}
-        width={kind === "list" ? "full" : "form"}
         description={
           kind === "list"
             ? "모든 화면이 같은 틀에서 최대 1620px까지 넓어진 뒤 가운데에 놓입니다."
-            : "설정 화면은 머리와 섹션이 함께 1100px에서 멈춥니다."
+            : "설정 화면도 머리와 섹션이 같은 1620px 틀을 다 씁니다."
         }
         actions={
           kind === "list" ? (
@@ -90,7 +87,9 @@ function Frame({ kind }: { readonly kind: "list" | "settings" }) {
       >
         <Card>
           <CardContent className="py-6 text-muted-foreground">
-            {kind === "list" ? "콘텐츠 영역" : "폼 열은 안쪽에서 1100px까지"}
+            {kind === "list"
+              ? "콘텐츠 영역"
+              : "카드는 틀 끝까지, 입력칸은 제 폭까지"}
           </CardContent>
         </Card>
       </Page>

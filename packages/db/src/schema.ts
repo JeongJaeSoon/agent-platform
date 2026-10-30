@@ -19,6 +19,7 @@ import {
   type SlackAppState,
   type SlackInboundDropReason,
   type SlackInboundEventStatus,
+  type SlackMessageRef,
   SURFACE_BINDING_STATUS_VALUES,
   SURFACE_CHANNEL_KIND_VALUES,
   SURFACE_DISCLOSURE_VALUES,
@@ -1194,6 +1195,8 @@ export const turns = pgTable(
     actorId: uuid("actor_id").references(() => users.id),
     /** The surface the input came from; null on rows from before 0185. */
     channel: text().$type<SurfaceKind>(),
+    /** The Slack message the input came from; null off Slack and before 0193. */
+    slackMessage: jsonb("slack_message").$type<SlackMessageRef>(),
   },
   (table) => [
     uniqueIndex("turns_session_sequence_uniq").on(

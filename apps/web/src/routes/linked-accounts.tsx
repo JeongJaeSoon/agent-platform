@@ -184,11 +184,7 @@ export function LinkedAccountsScreen() {
   const notice = outcome?.kind === "notice" ? outcome.text : null;
 
   return (
-    <Page
-      title={t("linked.title")}
-      description={t("linked.intro")}
-      width="form"
-    >
+    <Page title={t("linked.title")} description={t("linked.intro")}>
       {outcome?.kind === "error" ? <FormError>{outcome.text}</FormError> : null}
       {/* Always mounted, so a screen reader hears the notice when it
           changes. */}
@@ -472,7 +468,7 @@ export function SlackLinkCallbackScreen() {
         ? linkRefusal(t, finish.error, role)
         : null;
   return (
-    <Page title={t("linked.title")} width="form">
+    <Page title={t("linked.title")}>
       {failure ? (
         <div className="flex flex-col gap-[var(--ap-space-block)]">
           <FormError>{failure}</FormError>

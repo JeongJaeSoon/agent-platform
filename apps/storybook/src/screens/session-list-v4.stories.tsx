@@ -67,6 +67,7 @@ function summary(
         }
       : null,
     channel: null,
+    slack_permalink: null,
     revision: 1,
     admission_state: "active",
     status,

@@ -52,6 +52,13 @@ describe("SegmentedControl", () => {
     expect(buttons.map(pressed)).toEqual(["true", "false", "false", "false"]);
   });
 
+  test("세로 flex 열 안에서도 테두리가 마지막 항목에서 끝난다", () => {
+    const { getByRole } = render(<StatusFilter />);
+    const group = getByRole("group", { name: "세션 상태" });
+    // happy-dom does no layout; w-fit is what stops align-items: stretch.
+    expect(group.className.split(" ")).toContain("w-fit");
+  });
+
   test("누르면 선택이 옮겨 가고 이미 눌린 항목을 다시 눌러도 풀리지 않는다", async () => {
     const { getByRole, getAllByRole } = render(<StatusFilter />);
     const user = await setupUser();

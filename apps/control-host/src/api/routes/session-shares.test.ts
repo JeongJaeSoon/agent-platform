@@ -44,6 +44,7 @@ const DETAIL: SessionDetail = {
   agent: null,
   created_by: null,
   channel: null,
+  slack_permalink: null,
   revision: 3,
   admission_state: "active",
   status: "running",

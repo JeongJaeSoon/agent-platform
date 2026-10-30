@@ -19,6 +19,7 @@ import {
   receiptSchema,
   SESSION_STATUS_VALUES,
   type SessionStatus,
+  type SlackMessageRef,
   SSE_SCHEMA_VERSION,
   type SseEvent,
   type SurfaceKind,
@@ -166,6 +167,7 @@ async function insertQueuedTurn(
     message: string;
     actorId: string | null;
     channel: SurfaceKind | null;
+    slackMessage: SlackMessageRef | null;
   },
 ) {
   // now() is the transaction start, which can precede a competing append
@@ -181,6 +183,7 @@ async function insertQueuedTurn(
       createdAt: sql`clock_timestamp()`,
       actorId: input.actorId,
       channel: input.channel,
+      slackMessage: input.slackMessage,
     })
     .returning({ id: turns.id });
   if (!turn) throw new Error("Failed to insert turn");
@@ -310,6 +313,7 @@ export function createPostgresSessionUnitOfWork(
           message: input.message,
           actorId: actor?.userId ?? null,
           channel: input.channel ?? null,
+          slackMessage: input.slackMessage ?? null,
         });
 
         const receiptId = randomUUID();
@@ -448,6 +452,7 @@ export function createPostgresSessionUnitOfWork(
           message: input.message,
           actorId: input.principal.actor?.userId ?? null,
           channel: input.channel ?? null,
+          slackMessage: input.slackMessage ?? null,
         });
         await tx
           .update(sessions)
@@ -538,6 +543,7 @@ function summarizeTurn(
     status: turnStatusSchema.parse(publicStatus(row.status, awaitingInput)),
     message: row.message,
     channel: row.channel,
+    slack_permalink: row.slackMessage?.permalink ?? null,
     created_by:
       row.actorId === null || creatorName === null
         ? null
@@ -727,12 +733,17 @@ export function createPostgresSessionReader(
     // Turn 1's actor started the session; a takeover rewrites
     // created_by_user_id but leaves it. Rows from before #427 fall back.
     const firstTurns = await executor
-      .select({ sessionId: turns.sessionId, actorId: turns.actorId })
+      .select({
+        sessionId: turns.sessionId,
+        actorId: turns.actorId,
+        slackMessage: turns.slackMessage,
+      })
       .from(turns)
       .where(and(inArray(turns.sessionId, ids), eq(turns.sequence, 1)));
+    const firstTurnOf = (session: SessionRow) =>
+      firstTurns.find((turn) => turn.sessionId === session.id);
     const starterOf = (session: SessionRow) =>
-      firstTurns.find((turn) => turn.sessionId === session.id)?.actorId ??
-      session.createdByUserId;
+      firstTurnOf(session)?.actorId ?? session.createdByUserId;
     const creatorIds = [
       ...new Set(rows.flatMap(({ session }) => starterOf(session) ?? [])),
     ];
@@ -805,6 +816,7 @@ export function createPostgresSessionReader(
           creators.find((creator) => creator.user_id === starterOf(row)) ??
           null,
         channel: row.channel,
+        slack_permalink: firstTurnOf(row)?.slackMessage?.permalink ?? null,
         revision: row.revision,
         admission_state: row.admissionState,
         status: publicStatus(row.status, awaitingInput),

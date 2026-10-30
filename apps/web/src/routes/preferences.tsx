@@ -30,11 +30,7 @@ export function PreferencesScreen() {
   const { t, locale, setLocale } = useI18n();
   const theme = useTheme();
   return (
-    <Page
-      title={t("nav.preferences")}
-      description={t("preferences.lead")}
-      width="form"
-    >
+    <Page title={t("nav.preferences")} description={t("preferences.lead")}>
       <div className="flex flex-col gap-[var(--ap-space-block)]">
         <ChoiceCard
           title={t("common.language")}

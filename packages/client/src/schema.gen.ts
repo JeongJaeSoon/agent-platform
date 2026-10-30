@@ -3222,6 +3222,11 @@ export interface components {
              * @default null
              */
             channel: ("web" | "slack" | "api") | null;
+            /**
+             * @description The Slack message that started the session, as the link Slack gave for it (`chat.getPermalink`); it opens only for someone who can read that message in Slack. Null for a session not started from Slack, one from before links were kept, or when Slack did not give a link.
+             * @default null
+             */
+            slack_permalink: string | null;
             revision: number;
             /** @enum {string} */
             admission_state: "active" | "pausing" | "paused" | "resuming" | "stopping" | "stopped" | "recovery_required" | "closing" | "closed";
@@ -3362,6 +3367,11 @@ export interface components {
              * @default null
              */
             channel: ("web" | "slack" | "api") | null;
+            /**
+             * @description The Slack message that started the session, as the link Slack gave for it (`chat.getPermalink`); it opens only for someone who can read that message in Slack. Null for a session not started from Slack, one from before links were kept, or when Slack did not give a link.
+             * @default null
+             */
+            slack_permalink: string | null;
             revision: number;
             /** @enum {string} */
             admission_state: "active" | "pausing" | "paused" | "resuming" | "stopping" | "stopped" | "recovery_required" | "closing" | "closed";
@@ -3582,6 +3592,11 @@ export interface components {
                 user_id: string;
                 display_name: string;
             } | null;
+            /**
+             * @description The Slack message the instruction came from, as the link Slack gave for it (`chat.getPermalink`); it opens only for someone who can read that message in Slack. Null for an instruction not from Slack, one from before links were kept, or when Slack did not give a link.
+             * @default null
+             */
+            slack_permalink: string | null;
             terminal_reason: string | null;
             /** @description The newest checkpoint this turn committed that a restore can still reach. A revision garbage collection removed, or one a start_fresh recovery decision retired, is not reported; null when none is left. */
             checkpoint_revision: number | null;
@@ -3614,6 +3629,11 @@ export interface components {
                 user_id: string;
                 display_name: string;
             } | null;
+            /**
+             * @description The Slack message the instruction came from, as the link Slack gave for it (`chat.getPermalink`); it opens only for someone who can read that message in Slack. Null for an instruction not from Slack, one from before links were kept, or when Slack did not give a link.
+             * @default null
+             */
+            slack_permalink: string | null;
             terminal_reason: string | null;
             /** @description The newest checkpoint this turn committed that a restore can still reach. A revision garbage collection removed, or one a start_fresh recovery decision retired, is not reported; null when none is left. */
             checkpoint_revision: number | null;
@@ -8598,6 +8618,7 @@ export interface operations {
                      *             "display_name": "Mina Park"
                      *           },
                      *           "channel": "web",
+                     *           "slack_permalink": null,
                      *           "revision": 7,
                      *           "admission_state": "active",
                      *           "status": "running",
@@ -9035,6 +9056,7 @@ export interface operations {
                      *         "display_name": "Mina Park"
                      *       },
                      *       "channel": "web",
+                     *       "slack_permalink": null,
                      *       "revision": 7,
                      *       "admission_state": "active",
                      *       "status": "running",
@@ -9189,6 +9211,7 @@ export interface operations {
                      *         "display_name": "Mina Park"
                      *       },
                      *       "channel": "web",
+                     *       "slack_permalink": null,
                      *       "revision": 7,
                      *       "admission_state": "active",
                      *       "status": "running",
@@ -10704,6 +10727,7 @@ export interface operations {
                      *             "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
                      *             "display_name": "Mina Park"
                      *           },
+                     *           "slack_permalink": null,
                      *           "terminal_reason": null,
                      *           "checkpoint_revision": 2,
                      *           "created_at": "2026-10-11T08:00:00Z",
@@ -10720,6 +10744,7 @@ export interface operations {
                      *             "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
                      *             "display_name": "Mina Park"
                      *           },
+                     *           "slack_permalink": null,
                      *           "terminal_reason": null,
                      *           "checkpoint_revision": null,
                      *           "created_at": "2026-10-11T08:14:00Z",
@@ -10842,6 +10867,7 @@ export interface operations {
                      *         "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
                      *         "display_name": "Mina Park"
                      *       },
+                     *       "slack_permalink": null,
                      *       "terminal_reason": null,
                      *       "checkpoint_revision": 2,
                      *       "created_at": "2026-10-11T08:00:00Z",

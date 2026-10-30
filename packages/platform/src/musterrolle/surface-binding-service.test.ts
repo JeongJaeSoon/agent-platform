@@ -125,6 +125,9 @@ describe("channel kinds through the agent's own app", () => {
       throw new Error("not asked");
     },
     setStatus: async () => {},
+    permalink: async () => {
+      throw new Error("not asked");
+    },
     listChannels: async () => {
       throw new Error("not asked");
     },

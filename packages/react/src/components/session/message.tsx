@@ -1,6 +1,6 @@
 import type { ReceiptStatus } from "@werft-ai/contracts";
 import { cn, formatTimestamp, type TimestampLocale } from "@werft-ai/ui";
-import type { JSX } from "react";
+import type { JSX, ReactNode } from "react";
 
 export interface MessageProps {
   readonly from: "user" | "assistant";
@@ -8,6 +8,8 @@ export interface MessageProps {
   readonly author: string;
   readonly text: string;
   readonly occurredAt?: string | undefined;
+  /** At the end of the author line: where the message can be seen first. */
+  readonly source?: ReactNode;
   /**
    * A sent message's receipt. `accepted` is not `succeeded`, so the
    * screen's label must say which one it is.
@@ -26,6 +28,7 @@ export function Message({
   author,
   text,
   occurredAt,
+  source,
   receipt,
   error,
   locale = "ko",
@@ -52,6 +55,7 @@ export function Message({
             {formatTimestamp(occurredAt, locale)}
           </time>
         ) : null}
+        {source}
       </header>
       <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</p>
       {receipt || error ? (

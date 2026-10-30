@@ -297,6 +297,7 @@ function GitHubApp({ onOutcome }: { readonly onOutcome: OnOutcome }) {
               <Input
                 ref={appIdRef}
                 id={appIdId}
+                className="max-w-80"
                 name="app_id"
                 inputMode="numeric"
                 autoComplete="off"
@@ -316,6 +317,7 @@ function GitHubApp({ onOutcome }: { readonly onOutcome: OnOutcome }) {
               <FieldLabel htmlFor={keyId}>{t("github.key")}</FieldLabel>
               <Input
                 id={keyId}
+                className="max-w-105"
                 name="private_key"
                 type="file"
                 accept=".pem,application/x-pem-file"

@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 import { releaseLabelSchema } from "../kollegium/agents.ts";
-import { surfaceKindSchema } from "../kollegium/surfaces.ts";
+import {
+  slackPermalinkSchema,
+  surfaceKindSchema,
+} from "../kollegium/surfaces.ts";
 import {
   agentIdSchema,
   agentReleaseIdSchema,
@@ -489,6 +492,10 @@ export const sessionSummarySchema = z.object({
   channel: surfaceKindSchema.nullable().default(null).meta({
     description:
       "Where the request that created the session came from: `web` for the console, `api` for an API key, `slack` for a chat surface. Null for an older session whose creating request cannot be told from what was recorded.",
+  }),
+  slack_permalink: slackPermalinkSchema.nullable().default(null).meta({
+    description:
+      "The Slack message that started the session, as the link Slack gave for it (`chat.getPermalink`); it opens only for someone who can read that message in Slack. Null for a session not started from Slack, one from before links were kept, or when Slack did not give a link.",
   }),
   revision: revisionSchema,
   admission_state: admissionStateSchema,

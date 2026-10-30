@@ -1,6 +1,7 @@
 import {
   formatSurfaceRef,
   messageTextSchema,
+  type SlackMessageRef,
   type SlackNotice,
   type SurfaceChannelKind,
   slackNoticeFor,
@@ -298,6 +299,13 @@ export function createSlackSessionHandler(
       return;
     }
     const caller = slackCallerOf(decision, requestId);
+    const slackMessage: SlackMessageRef = {
+      team_id: claim.teamId,
+      channel_id: event.channel,
+      ts: event.ts,
+      thread_ts: event.thread_ts ?? null,
+      permalink: await permalinkOf(botToken, event.channel, event.ts, ids),
+    };
 
     const held = await deps.inbox.renew(claim, deps.leaseMs);
     if (held === null) throw new SlackLeaseLost();
@@ -333,11 +341,12 @@ export function createSlackSessionHandler(
         link = await adoptOrReopen(link, event.ts);
       }
       if (link.sessionId === null || link.openedByTs === event.ts) {
-        await openSession(caller, link, message, dm);
+        await openSession(caller, link, message, dm, slackMessage);
       } else {
         await deps.sessions.appendMessage(caller, link.sessionId, {
           idempotencyKey: `${claim.teamId}:${event.channel}:${event.ts}`,
           body: { message, mode: "enqueue" },
+          slackMessage,
         });
       }
       // After the effects, so nothing slow sits between the lease's renewal
@@ -394,6 +403,7 @@ export function createSlackSessionHandler(
     link: SessionLinkRecord,
     message: string,
     dm: boolean,
+    slackMessage: SlackMessageRef,
   ): Promise<void> {
     const created = await deps.sessions.createSession(caller, {
       idempotencyKey: link.id,
@@ -403,6 +413,7 @@ export function createSlackSessionHandler(
         message,
       },
       ...(dm ? { shareScope: "private" as const } : {}),
+      slackMessage,
     });
     const attached = await deps.sessionLinks.attachSession(
       link.id,
@@ -410,6 +421,22 @@ export function createSlackSessionHandler(
     );
     if (attached.sessionId !== created.session_id) {
       throw new Error(`Slack thread ${link.id} already holds another session`);
+    }
+  }
+
+  /** The message's link for the web; a turn goes on without one. */
+  async function permalinkOf(
+    botToken: string,
+    channelId: string,
+    ts: string,
+    ids: Record<string, unknown>,
+  ): Promise<string | null> {
+    try {
+      return await deps.slack.permalink(botToken, { channelId, ts });
+    } catch (error) {
+      const code = error instanceof SlackApiError ? error.code : "error";
+      deps.logger.warn("Slack permalink not given; going on", { ...ids, code });
+      return null;
     }
   }
 
