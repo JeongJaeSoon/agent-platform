@@ -38,7 +38,14 @@ import {
   Switch,
 } from "@werft-ai/ui";
 import { Copy, Plus } from "lucide-react";
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import {
+  type RefObject,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useMe } from "../../auth/guard.tsx";
 import { copyText } from "../../components/copy.ts";
 import {
@@ -883,6 +890,11 @@ function SlackChannels({
   const [picking, setPicking] = useState(false);
   const [pickHome, setPickHome] = useState(false);
   const pickerOpener = useRef<HTMLButtonElement | null>(null);
+  const lockAction = useRef<HTMLButtonElement>(null);
+  // A lock that arrives with the picker open closes it; it sits outside inert.
+  useEffect(() => {
+    if (locked) setPicking(false);
+  }, [locked]);
   const [notice, setNotice] = useState("");
   const [names, setNames] = useState<
     Record<string, { readonly name: string; readonly member: boolean }>
@@ -942,6 +954,7 @@ function SlackChannels({
   }, [channels.data]);
   const error = bindings.error ?? channels.error ?? update.error;
   const connectChannel = (channelId: string) => {
+    if (locked) return;
     const row = rows.find((item) => item.external_surface_id === channelId);
     update.mutate({
       kind: pickHome ? "home" : "connect",
@@ -955,7 +968,7 @@ function SlackChannels({
     });
   };
   const change = (row: Binding, mode: Binding["mode"]) => {
-    if (!update.isPending)
+    if (!update.isPending && !locked)
       update.mutate({
         kind: "reaction",
         body: {
@@ -1097,13 +1110,13 @@ function SlackChannels({
             </RowList>
           )}
         </div>
-        {locked ? <ChannelsLock /> : null}
+        {locked ? <ChannelsLock action={lockAction} /> : null}
       </div>
       <Dialog open={picking} onOpenChange={setPicking}>
         <DialogContent
           onCloseAutoFocus={(event) => {
             event.preventDefault();
-            pickerOpener.current?.focus();
+            (locked ? lockAction : pickerOpener).current?.focus();
           }}
         >
           <DialogHeader>
@@ -1225,7 +1238,11 @@ function SlackChannels({
 }
 
 /** Covers the channels, pointing to the advanced section's Recheck. */
-function ChannelsLock() {
+function ChannelsLock({
+  action,
+}: {
+  readonly action: RefObject<HTMLButtonElement | null>;
+}) {
   const { t } = useI18n();
   const titleId = useId();
   return (
@@ -1242,6 +1259,7 @@ function ChannelsLock() {
         {t("slack.channelsLocked.body")}
       </p>
       <Button
+        ref={action}
         type="button"
         variant="outline"
         size="sm"

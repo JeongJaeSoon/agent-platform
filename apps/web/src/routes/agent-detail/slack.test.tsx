@@ -1320,6 +1320,32 @@ describe("Slack management", () => {
     expect(pick.closest("[inert]")).toBeNull();
   });
 
+  test("locks the connected channels too while Slack has not checked", async () => {
+    renderAt(
+      DETAIL,
+      subscribed({ state: "pending", checked_at: AT, url: SENT }),
+    );
+    const channels = await screen.findByRole("region", {
+      name: "연결된 채널",
+    });
+    const toggle = await within(channels).findByRole("switch", {
+      name: /사용/,
+    });
+    await waitFor(() => expect(toggle.closest("[inert]")).not.toBeNull());
+    expect(
+      within(channels)
+        .getByRole("button", { name: "채널 추가" })
+        .closest("[inert]"),
+    ).not.toBeNull();
+    // The way out is never locked.
+    const advanced = screen.getByRole("region", { name: "고급" });
+    expect(
+      within(advanced)
+        .getByRole("button", { name: "다시 확인" })
+        .closest("[inert]"),
+    ).toBeNull();
+  });
+
   test("leaves the channels open once Slack checked the Request URL", async () => {
     renderAt(
       DETAIL,
