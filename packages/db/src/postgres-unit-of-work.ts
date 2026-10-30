@@ -100,6 +100,7 @@ import {
   readInputWaits,
 } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
+import { earlierInSecond, releaseLabel } from "./release-labels.ts";
 import {
   keyReaches,
   lockRequester,
@@ -755,6 +756,8 @@ export function createPostgresSessionReader(
               id: agents.id,
               name: agents.name,
               release_version_no: agentVersions.versionNo,
+              createdAt: agentReleases.createdAt,
+              earlier: earlierInSecond(agentReleases),
             })
             .from(agentReleases)
             .innerJoin(agents, eq(agents.id, agentReleases.agentId))
@@ -806,6 +809,7 @@ export function createPostgresSessionReader(
               id: release.id,
               name: release.name,
               release_version_no: release.release_version_no,
+              release_label: releaseLabel(release.createdAt, release.earlier),
             }
           : null,
         created_by:

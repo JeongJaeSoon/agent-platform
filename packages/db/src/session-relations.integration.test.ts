@@ -135,9 +135,11 @@ integration("session list relations, search and counts on PostgreSQL", () => {
     const former = await team(["alice"], true);
     const admins = await team(["dave"]);
 
-    for (const [agentId, releaseId, name, versionNo] of [
-      [agentX, releaseX, "Checkout fixer", 3],
-      [agentY, releaseY, "Docs writer", 1],
+    // releaseX2 is made later in releaseX's second; releaseY just past
+    // midnight in Seoul.
+    for (const [agentId, releaseId, name, versionNo, createdAt] of [
+      [agentX, releaseX, "Checkout fixer", 3, "2026-10-30T05:30:28.100Z"],
+      [agentY, releaseY, "Docs writer", 1, "2026-10-29T15:00:00.000Z"],
     ] as const) {
       await db.insert(agents).values({
         id: agentId,
@@ -162,6 +164,7 @@ integration("session list relations, search and counts on PostgreSQL", () => {
         profileDigest: "digest",
         runtimeConfigSnapshot: {},
         effectiveTools: [],
+        createdAt: new Date(createdAt),
       });
       if (agentId === agentX) {
         await db.insert(agentReleases).values({
@@ -173,6 +176,7 @@ integration("session list relations, search and counts on PostgreSQL", () => {
           profileDigest: "digest",
           runtimeConfigSnapshot: {},
           effectiveTools: [],
+          createdAt: new Date("2026-10-30T05:30:28.700Z"),
         });
       }
     }
@@ -442,6 +446,7 @@ integration("session list relations, search and counts on PostgreSQL", () => {
       id: agentX,
       name: "Checkout fixer",
       release_version_no: 3,
+      release_label: "2026-10-30_14:30:28-2",
     });
     expect(page.items[0]?.created_by).toEqual({
       user_id: people.bob.id,
@@ -463,13 +468,23 @@ integration("session list relations, search and counts on PostgreSQL", () => {
     ).items;
     expect(mine).toMatchObject({
       id: ids.mine,
-      agent: { id: agentX, name: "Checkout fixer", release_version_no: 3 },
+      agent: {
+        id: agentX,
+        name: "Checkout fixer",
+        release_version_no: 3,
+        release_label: "2026-10-30_14:30:28",
+      },
       created_by: { user_id: people.alice.id, display_name: "Alice Kim" },
       channel: "web",
     });
     const detail = await reader().getSession(workspaceId, ids.toAlice ?? "");
     expect(detail).toMatchObject({
-      agent: { id: agentY, name: "Docs writer", release_version_no: 1 },
+      agent: {
+        id: agentY,
+        name: "Docs writer",
+        release_version_no: 1,
+        release_label: "2026-10-30_00:00:00",
+      },
       created_by: { user_id: people.bob.id, display_name: "Bob Lee" },
       channel: "api",
     });

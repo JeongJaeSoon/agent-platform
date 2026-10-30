@@ -172,6 +172,9 @@ export function agentServer() {
         approved_by: null,
         approved_at: null,
         note: body.note ?? null,
+        label: `2026-10-11_10:0${releases.length}:00`,
+        activated_at: null,
+        deactivated_at: null,
       };
       releases.push(release);
       return json(200, { release, created: true });
@@ -216,6 +219,14 @@ export function agentServer() {
         });
       active = body.release_id;
       revision += 1;
+      const at = `2026-10-11T02:0${revision}:00.000Z`;
+      for (const release of releases) {
+        if (release.id === previous) release.deactivated_at = at;
+        if (release.id === active) {
+          release.activated_at = at;
+          release.deactivated_at = null;
+        }
+      }
       return json(200, {
         active_release_id: active,
         previous_release_id: previous,

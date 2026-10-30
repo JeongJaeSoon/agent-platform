@@ -10,7 +10,17 @@ import {
   storedAgentCardSchema,
 } from "@werft-ai/contracts";
 import type { ActivateResult, AgentStore, Principal } from "@werft-ai/platform";
-import { and, asc, eq, gt, isNotNull, max, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  max,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { administers, liveMember } from "./administers.ts";
 import { agentSummaries } from "./agent-summaries.ts";
@@ -22,6 +32,7 @@ import {
 } from "./cursors.ts";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
+import { earlierInSecond, releaseLabel } from "./release-labels.ts";
 import {
   agentActivationEvents,
   agentAdmins,
@@ -96,7 +107,69 @@ function versionOf(row: VersionRow): AgentVersion {
   };
 }
 
-function releaseOf(row: ReleaseRow): AgentRelease {
+type ActivationSpan = Pick<AgentRelease, "activated_at" | "deactivated_at">;
+
+// Each activation ends the one before it; a release's latest one counts.
+async function activationSpans(
+  db: Database,
+  agentIds: readonly string[],
+): Promise<Map<string, ActivationSpan>> {
+  const spans = new Map<string, ActivationSpan>();
+  if (agentIds.length === 0) return spans;
+  const events = await db
+    .select({
+      agentId: agentActivationEvents.agentId,
+      releaseId: agentActivationEvents.releaseId,
+      at: agentActivationEvents.createdAt,
+    })
+    .from(agentActivationEvents)
+    .where(
+      and(
+        inArray(agentActivationEvents.agentId, [...agentIds]),
+        eq(agentActivationEvents.kind, "activated"),
+      ),
+    )
+    .orderBy(
+      asc(agentActivationEvents.agentId),
+      asc(agentActivationEvents.activationRevision),
+    );
+  events.forEach((event, index) => {
+    const next = events[index + 1];
+    spans.set(event.releaseId, {
+      activated_at: event.at.toISOString(),
+      deactivated_at:
+        next?.agentId === event.agentId ? next.at.toISOString() : null,
+    });
+  });
+  return spans;
+}
+
+async function readReleases(
+  db: Database,
+  where: SQL | undefined,
+): Promise<AgentRelease[]> {
+  const rows = await db
+    .select({
+      release: agentReleases,
+      earlier: earlierInSecond(agentReleases),
+    })
+    .from(agentReleases)
+    .innerJoin(agents, eq(agents.id, agentReleases.agentId))
+    .where(where)
+    .orderBy(asc(agentReleases.createdAt), asc(agentReleases.id));
+  const spans = await activationSpans(db, [
+    ...new Set(rows.map(({ release }) => release.agentId)),
+  ]);
+  return rows.map(({ release, earlier }) =>
+    releaseOf(release, earlier, spans.get(release.id)),
+  );
+}
+
+function releaseOf(
+  row: ReleaseRow,
+  earlier: number,
+  span: ActivationSpan | undefined,
+): AgentRelease {
   return agentReleaseSchema.parse({
     id: row.id,
     agent_id: row.agentId,
@@ -113,6 +186,9 @@ function releaseOf(row: ReleaseRow): AgentRelease {
     approved_by: row.approvedBy,
     approved_at: row.approvedAt?.toISOString() ?? null,
     note: row.note,
+    label: releaseLabel(row.createdAt, earlier),
+    activated_at: span?.activated_at ?? null,
+    deactivated_at: span?.deactivated_at ?? null,
   });
 }
 
@@ -132,13 +208,7 @@ async function detailOf(
     .from(agentVersions)
     .where(eq(agentVersions.agentId, agent.id))
     .orderBy(asc(agentVersions.versionNo));
-  const releases = (
-    await db
-      .select()
-      .from(agentReleases)
-      .where(eq(agentReleases.agentId, agent.id))
-      .orderBy(asc(agentReleases.createdAt), asc(agentReleases.id))
-  ).map(releaseOf);
+  const releases = await readReleases(db, eq(agentReleases.agentId, agent.id));
   return {
     agent: agentOf(agent),
     versions: versions.map(versionOf),
@@ -260,18 +330,14 @@ export function createPostgresAgentStore(db: Database): AgentStore {
     },
 
     async findRelease(workspaceId, releaseId) {
-      const [row] = await db
-        .select({ release: agentReleases })
-        .from(agentReleases)
-        .innerJoin(agents, eq(agents.id, agentReleases.agentId))
-        .where(
-          and(
-            eq(agentReleases.id, releaseId),
-            eq(agents.workspaceId, workspaceId),
-          ),
-        )
-        .limit(1);
-      return row ? releaseOf(row.release) : null;
+      const [release] = await readReleases(
+        db,
+        and(
+          eq(agentReleases.id, releaseId),
+          eq(agents.workspaceId, workspaceId),
+        ),
+      );
+      return release ?? null;
     },
 
     releaseSuperseded: (workspaceId, agentId, releaseId) =>
@@ -403,6 +469,10 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           )
           .limit(1);
         if (!owned) return { outcome: "not_found" };
+        // A release's label counts the agent's earlier releases in the same
+        // second, so releases are made one at a time per agent and stamped
+        // after the lock: the label they answer with is the one they keep.
+        await lockAgent(tx, input.workspaceId, release.agent_id);
         const [inserted] = await tx
           .insert(agentReleases)
           .values({
@@ -418,18 +488,16 @@ export function createPostgresAgentStore(db: Database): AgentStore {
             policyPins: release.policy_pins,
             createdBy: release.created_by,
             note: release.note,
+            createdAt: sql`clock_timestamp()`,
           })
           .onConflictDoNothing({ target: agentReleases.id })
-          .returning();
-        if (!inserted) {
-          const [existing] = await tx
-            .select()
-            .from(agentReleases)
-            .where(eq(agentReleases.id, release.id))
-            .limit(1);
-          if (!existing) throw new Error(`release ${release.id} vanished`);
-          return { outcome: "exists", release: releaseOf(existing) };
-        }
+          .returning({ id: agentReleases.id });
+        const [stored] = await readReleases(
+          tx,
+          eq(agentReleases.id, release.id),
+        );
+        if (!stored) throw new Error(`release ${release.id} vanished`);
+        if (!inserted) return { outcome: "exists", release: stored };
         const receiptId = await writeReceipt(tx, input.principal, {
           operation: "create_agent_release",
           workspaceId: input.workspaceId,
@@ -446,7 +514,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           actor: receiptActorOf(input.principal),
           receiptId,
         });
-        return { outcome: "created", release: releaseOf(inserted) };
+        return { outcome: "created", release: stored };
       });
     },
 

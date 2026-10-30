@@ -402,8 +402,22 @@ describe("agent, version and release", () => {
       approved_by: null,
       approved_at: null,
       note: null,
+      label: "2026-10-30_14:30:28",
+      activated_at: null,
+      deactivated_at: null,
     });
     expect(release.effective_tools.tools).toEqual(["Read"]);
+    for (const [label, ok] of [
+      ["2026-10-30_14:30:28-2", true],
+      ["2026-10-30_14:30:28-12", true],
+      ["2026-10-30_14:30:28-1", false],
+      ["2026-10-30 14:30:28", false],
+      ["v1", false],
+    ] as const) {
+      expect(agentReleaseSchema.safeParse({ ...release, label }).success).toBe(
+        ok,
+      );
+    }
     expect(
       agentReleaseSchema.safeParse({
         ...release,
@@ -457,6 +471,9 @@ describe("agent, version and release", () => {
       approved_by: null,
       approved_at: null,
       note: null,
+      label: "2026-10-30_14:30:28",
+      activated_at: null,
+      deactivated_at: null,
     };
     // This is the repository's own ClaudeRuntimeConfig shape: handing a
     // resolved profile straight to the release used to persist the key.
@@ -549,6 +566,9 @@ describe("agent, version and release", () => {
       approved_by: null,
       approved_at: null,
       note: null,
+      label: "2026-10-30_14:30:28",
+      activated_at: null,
+      deactivated_at: null,
     };
     // A snapshot canonicalJson refuses is a release that parses and then has
     // no identity, so the two rules have to be the same rule.
@@ -633,6 +653,7 @@ describe("agent list summary", () => {
       credential_refs: ["github"],
     },
     runtime_profile_id: null,
+    release_label: null,
     bound_credential_refs: [],
     admins: ["Kim"],
     needs_input_count: 1,

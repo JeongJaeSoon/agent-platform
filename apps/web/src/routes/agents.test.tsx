@@ -411,6 +411,9 @@ describe("에이전트 카드", () => {
       approved_by: null,
       approved_at: null,
       note: null,
+      label: "2026-10-11_10:00:00",
+      activated_at: "2026-10-11T02:00:00.000Z",
+      deactivated_at: null,
     };
     const agent = { ...base.agent, active_release_id: release.id };
     const detail = agentDetailSchema.parse({
@@ -466,7 +469,9 @@ describe("에이전트 카드", () => {
   test("배포 판·역할·지시문·실행 프로필·MCP·자격 증명·담당을 카드에 모은다", async () => {
     renderAt("/agents", { ...meOk, ...releasedServer() });
     const card = await cardFor("결제 담당");
-    await waitFor(() => expect(card.textContent).toContain("v1 릴리스됨"));
+    await waitFor(() =>
+      expect(card.textContent).toContain("2026-10-11_10:00:00 릴리스"),
+    );
     expect(card.textContent).toContain(CARD.role);
     expect(card.textContent).toContain(`지시문${CARD.instructions}`);
     expect(fact(card, "실행 프로필")).toBe(PROFILE);
@@ -482,7 +487,9 @@ describe("에이전트 카드", () => {
   test("API에 없는 답변 대기·스킬 줄은 두지 않고, 카드는 이름 하나로 열린다", async () => {
     renderAt("/agents", { ...meOk, ...releasedServer() });
     const card = await cardFor("결제 담당");
-    await waitFor(() => expect(card.textContent).toContain("v1 릴리스됨"));
+    await waitFor(() =>
+      expect(card.textContent).toContain("2026-10-11_10:00:00 릴리스"),
+    );
     expect(
       [...card.querySelectorAll("dt")].map((dt) => dt.textContent),
     ).toEqual(["실행 프로필", "MCP", "자격 증명"]);
@@ -498,7 +505,9 @@ describe("에이전트 카드", () => {
     const long = `mcp-${"x".repeat(28)}`;
     renderAt("/agents", { ...meOk, ...releasedServer([long]) });
     const card = await cardFor("결제 담당");
-    await waitFor(() => expect(card.textContent).toContain("v1 릴리스됨"));
+    await waitFor(() =>
+      expect(card.textContent).toContain("2026-10-11_10:00:00 릴리스"),
+    );
     const chip = [...card.querySelectorAll("dt")]
       .find((dt) => dt.textContent === "MCP")
       ?.nextElementSibling?.querySelector("[data-slot=badge]");
@@ -652,6 +661,7 @@ describe("에이전트 카드", () => {
             credential_refs: ["github", "slack"],
           },
           runtime_profile_id: PROFILE,
+          release_label: "2026-10-11_10:00:00",
           bound_credential_refs: ["github"],
           admins: ["Owner", "재무팀"],
           needs_input_count: 0,
@@ -1526,7 +1536,7 @@ describe("에이전트 상세", () => {
     await user.click(dialog.getByRole("button", { name: "릴리스 만들기" }));
     expect(
       await screen.findByText(
-        "릴리스를 만들었습니다(버전 1). 아직 활성화되지 않았습니다.",
+        "릴리스를 만들었습니다(2026-10-11_10:00:00). 아직 활성화되지 않았습니다.",
       ),
     ).toBeDefined();
     expect(
@@ -1539,12 +1549,12 @@ describe("에이전트 상세", () => {
     expect(row.textContent).toContain("sample-app");
     await user.click(
       await screen.findByRole("button", {
-        name: `버전 1 · ${PROFILE} 활성화`,
+        name: `릴리스 2026-10-11_10:00:00 · ${PROFILE} 활성화`,
       }),
     );
     expect(
       await screen.findByText(
-        `활성화됐습니다 — 이제 새 세션은 버전 1 · ${PROFILE}(으)로 시작합니다.`,
+        `활성화됐습니다 — 이제 새 세션은 릴리스 2026-10-11_10:00:00 · ${PROFILE}(으)로 시작합니다.`,
       ),
     ).toBeDefined();
     const activate = api.calls.find((c) => c.path.endsWith("/activate"));
@@ -1554,7 +1564,9 @@ describe("에이전트 상세", () => {
     });
     const heading = screen.getByRole("heading", { level: 1 });
     await waitFor(() =>
-      expect(heading.nextElementSibling?.textContent).toBe("v1 · 활성"),
+      expect(heading.nextElementSibling?.textContent).toBe(
+        "2026-10-11_10:00:00 · 활성",
+      ),
     );
     expect(agentDetailSchema.safeParse(server.detail()).success).toBe(true);
   });
@@ -1728,7 +1740,7 @@ describe("에이전트 상세", () => {
     expect(trigger.hasAttribute("disabled")).toBe(true);
     answer?.();
     const made = await screen.findByText(
-      "릴리스를 만들었습니다(버전 1). 아직 활성화되지 않았습니다.",
+      "릴리스를 만들었습니다(2026-10-11_10:00:00). 아직 활성화되지 않았습니다.",
     );
     await waitFor(() =>
       expect(document.activeElement?.contains(made)).toBe(true),
@@ -1768,7 +1780,7 @@ describe("에이전트 상세", () => {
     await user.click(screen.getByRole("button", { name: "릴리스 만들기" }));
     await user.click(
       await screen.findByRole("button", {
-        name: `버전 1 · ${PROFILE} 활성화`,
+        name: `릴리스 2026-10-11_10:00:00 · ${PROFILE} 활성화`,
       }),
     );
     const activated = await screen.findByText(/활성화됐습니다/);
@@ -1818,7 +1830,9 @@ describe("두 탭 동시 활성화", () => {
     });
     await seedRelease(server);
     const [first, second] = server.releases;
-    const label = (no: number) => `버전 ${no} · ${PROFILE}`;
+    // The fake server makes its releases a minute apart from 10:00 in Seoul.
+    const label = (no: number) =>
+      `릴리스 2026-10-11_10:0${no - 1}:00 · ${PROFILE}`;
 
     const tabA = renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
     const tabB = renderAt(RELEASE_TAB, { ...meOk, ...server.routes });

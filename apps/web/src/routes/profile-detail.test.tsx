@@ -47,6 +47,7 @@ function agent(
         credential_refs: [],
       },
       runtime_profile_id: profile,
+      release_label: profile === null ? null : `2026-10-20_09:00:0${n}`,
       bound_credential_refs: [],
       admins: [],
       needs_input_count: 0,
@@ -189,7 +190,7 @@ describe("실행 프로필 상세", () => {
     const agents = await screen.findByRole("table", {
       name: "이 프로필을 쓰는 에이전트",
     });
-    expect(cells(agents)).toEqual([["결제 담당", "에이전트 v1"]]);
+    expect(cells(agents)).toEqual([["결제 담당", "2026-10-20_09:00:01"]]);
     expect(actions()).toEqual(["새 버전", "사용 중지"]);
     expect(
       within(agents)
@@ -206,7 +207,7 @@ describe("실행 프로필 상세", () => {
     await waitFor(() =>
       expect(
         cells(screen.getByRole("table", { name: "이 프로필을 쓰는 에이전트" })),
-      ).toEqual([["리뷰 담당", "에이전트 v2"]]),
+      ).toEqual([["리뷰 담당", "2026-10-20_09:00:02"]]),
     );
   });
 

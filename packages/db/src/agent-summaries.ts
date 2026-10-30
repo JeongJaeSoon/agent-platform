@@ -7,6 +7,7 @@ import type { SessionViewer } from "@werft-ai/platform";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { actionableOfSession, IN_FLIGHT_STATUSES } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
+import { earlierInSecond, releaseLabel } from "./release-labels.ts";
 import {
   agentAdmins,
   agentAdminTeams,
@@ -54,6 +55,8 @@ export async function agentSummaries(
       id: agents.id,
       profile: agentReleases.runtimeProfileId,
       versionId: agentReleases.versionId,
+      releasedAt: agentReleases.createdAt,
+      earlier: earlierInSecond(agentReleases),
     })
     .from(agents)
     .leftJoin(
@@ -169,6 +172,12 @@ export async function agentSummaries(
   );
 
   const profiles = new Map(heads.map((head) => [head.id, head.profile]));
+  const labels = new Map(
+    heads.map((head) => [
+      head.id,
+      head.releasedAt ? releaseLabel(head.releasedAt, head.earlier) : null,
+    ]),
+  );
   const summaries = new Map<string, AgentSummary>();
   for (const version of versions) {
     const capabilities = agentCapabilitiesSchema.parse(version.capabilities);
@@ -181,6 +190,7 @@ export async function agentSummaries(
         credential_refs: capabilities.credential_refs ?? [],
       },
       runtime_profile_id: profiles.get(version.agentId) ?? null,
+      release_label: labels.get(version.agentId) ?? null,
       bound_credential_refs: bound.get(version.agentId) ?? [],
       admins: admins.get(version.agentId) ?? [],
       needs_input_count: live.get(version.agentId)?.needsInput ?? 0,

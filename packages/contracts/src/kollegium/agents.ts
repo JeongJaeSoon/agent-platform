@@ -336,12 +336,22 @@ const releaseNoteSchema = z
   .refine((note) => !note.includes("\u0000"), "note must not contain NUL");
 
 /**
+ * How people name a release: the second it was made in Asia/Seoul, as
+ * `2026-10-30_14:30:28`. A release made later in the same second of the
+ * same agent gets `-2`, `-3`, … in (created_at, id) order. The release id
+ * stays the identifier.
+ */
+export const releaseLabelSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}_\d{2}:\d{2}:\d{2}(-([2-9]|[1-9]\d+))?$/);
+
+/**
  * A version pinned to the runtime settings it was released against.
  *
  * The resolved config travels with the release so a profile edit cannot
  * change an in-flight session; a digest mismatch at start is refused and
  * asks for a re-release instead. Everything but `created_by`, `approved_by`,
- * `note` and the timestamps goes into the release id.
+ * `note`, `label` and the timestamps goes into the release id.
  */
 export const agentReleaseSchema = z
   .object({
@@ -366,6 +376,11 @@ export const agentReleaseSchema = z
     approved_at: timestampSchema.nullable(),
     /** What the person releasing it wrote; a re-release keeps the first. */
     note: releaseNoteSchema.nullable(),
+    label: releaseLabelSchema,
+    /** Its latest activation, read from the activation history. */
+    activated_at: timestampSchema.nullable(),
+    /** When the next activation replaced it; null while it is active. */
+    deactivated_at: timestampSchema.nullable(),
   })
   .strict();
 
@@ -402,6 +417,8 @@ export const agentSummarySchema = z
       .strict(),
     /** The active release's, or null before any activation. */
     runtime_profile_id: z.string().min(1).max(128).nullable(),
+    /** The active release's, or null before any activation. */
+    release_label: releaseLabelSchema.nullable(),
     /** Names with a live binding on the agent. */
     bound_credential_refs: z.array(credentialRefSchema),
     /** Admins by display name (email when unset), then admin teams by name. */

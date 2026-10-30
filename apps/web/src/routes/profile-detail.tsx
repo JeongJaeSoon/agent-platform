@@ -951,11 +951,9 @@ function AgentsOn({ profile }: { readonly profile: ProfileSummary }) {
                   </span>
                 </GridTableCell>
                 <GridTableCell>
-                  {/* As the release tab names it: by the agent version. */}
-                  <span className={META}>
-                    {t("profiles.detail.agents.releaseVersion", {
-                      version: agent.summary?.version.version_no ?? "?",
-                    })}
+                  {/* As the release tab names it. */}
+                  <span className={`${META} tabular-nums`}>
+                    {agent.summary?.release_label ?? "?"}
                   </span>
                 </GridTableCell>
               </GridTableRow>

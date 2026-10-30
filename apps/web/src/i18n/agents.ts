@@ -24,7 +24,7 @@ export const agentsKo = {
   "agents.tabs.label": "보여 줄 에이전트",
   "agents.tabs.all": "전체",
   "agents.tabs.administered": "관리하는 에이전트",
-  "agents.cards.released": "v{version} 릴리스됨",
+  "agents.cards.released": "{release} 릴리스",
   "agents.cards.profile": "실행 프로필",
   "agents.cards.notReleased": "릴리스 전",
   "agents.cards.mcp": "MCP",
@@ -95,10 +95,10 @@ export const agentsKo = {
   "agent.created":
     "에이전트를 만들었습니다(버전 1). 세션에서 쓰려면 릴리스 탭에서 버전과 프로필을 골라 릴리스를 만들고 활성화하세요.",
   "agent.noActive": "없음",
-  "agent.releaseLabel": "버전 {version} · {profile}",
+  "agent.releaseLabel": "릴리스 {release} · {profile}",
   "agent.versionLabel": "버전 {version}",
   "agent.versionShort": "v{version}",
-  "agent.headStatus": "v{version} · {status}",
+  "agent.headStatus": "{release} · {status}",
   "agent.saved":
     "저장했습니다 — 버전 {version}. 아직 활성화되지 않았습니다. 릴리스 탭에서 릴리스를 만들고 활성화해야 반영됩니다.",
   "agent.savedExisting":
@@ -131,7 +131,9 @@ export const agentsKo = {
   "agent.releases.colVersion": "버전",
   "agent.releases.colStatus": "상태",
   "agent.releases.colBy": "만든 사람",
-  "agent.releases.colAt": "만든 시각",
+  "agent.releases.colActivated": "활성화 시각",
+  "agent.releases.colCard": "카드 버전",
+  "agent.releases.activePeriod": "{from} ~ {to}",
   "agent.releases.colNote": "메모",
   "agent.releases.noteNone": "—",
   "agent.releases.noteToggle": "메모 전체 보기",
@@ -170,7 +172,7 @@ export const agentsKo = {
   "agent.releases.activating": "활성화하는 중…",
   "agent.releases.activateFor": "{release} 활성화",
   "agent.releaseCreated":
-    "릴리스를 만들었습니다(버전 {version}). 아직 활성화되지 않았습니다.",
+    "릴리스를 만들었습니다({release}). 아직 활성화되지 않았습니다.",
   "agent.releaseExisted":
     "같은 내용의 릴리스가 이미 있어 그것을 씁니다. 아직 활성화되지 않았다면 활성화하세요.",
   "agent.credentials.title": "자격 증명 연결",
@@ -325,7 +327,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.tabs.label": "Agents to show",
   "agents.tabs.all": "All",
   "agents.tabs.administered": "Agents I manage",
-  "agents.cards.released": "v{version} released",
+  "agents.cards.released": "Release {release}",
   "agents.cards.profile": "Runtime profile",
   "agents.cards.notReleased": "Not released",
   "agents.cards.mcp": "MCP",
@@ -396,10 +398,10 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.created":
     "Agent created as version 1. To use it in sessions, choose a version and a profile on the Release tab, then create and activate a release.",
   "agent.noActive": "None",
-  "agent.releaseLabel": "Version {version} · {profile}",
+  "agent.releaseLabel": "Release {release} · {profile}",
   "agent.versionLabel": "Version {version}",
   "agent.versionShort": "v{version}",
-  "agent.headStatus": "v{version} · {status}",
+  "agent.headStatus": "{release} · {status}",
   "agent.saved":
     "Saved as version {version}. It is not in use yet — create a release on the Release tab and activate it.",
   "agent.savedExisting":
@@ -431,7 +433,9 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.colVersion": "Version",
   "agent.releases.colStatus": "Status",
   "agent.releases.colBy": "Created by",
-  "agent.releases.colAt": "Created",
+  "agent.releases.colActivated": "Activated",
+  "agent.releases.colCard": "Card version",
+  "agent.releases.activePeriod": "{from} – {to}",
   "agent.releases.colNote": "Note",
   "agent.releases.noteNone": "—",
   "agent.releases.noteToggle": "Show full note",
@@ -468,8 +472,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.activate": "Activate",
   "agent.releases.activating": "Activating…",
   "agent.releases.activateFor": "Activate {release}",
-  "agent.releaseCreated":
-    "Release created for version {version}. It is not active yet.",
+  "agent.releaseCreated": "Release {release} created. It is not active yet.",
   "agent.releaseExisted":
     "A release with the same content already exists, so that one is used. Activate it if it is not active yet.",
   "agent.credentials.title": "Credentials",
@@ -615,7 +618,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.tabs.label": "表示するエージェント",
   "agents.tabs.all": "すべて",
   "agents.tabs.administered": "管理しているエージェント",
-  "agents.cards.released": "v{version} リリース済み",
+  "agents.cards.released": "リリース {release}",
   "agents.cards.profile": "実行プロファイル",
   "agents.cards.notReleased": "未リリース",
   "agents.cards.mcp": "MCP",
@@ -687,10 +690,10 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.created":
     "エージェントを作成しました（バージョン 1）。セッションで使うには、「リリース」タブでバージョンとプロファイルを選んでリリースを作成し、有効化してください。",
   "agent.noActive": "なし",
-  "agent.releaseLabel": "バージョン {version} · {profile}",
+  "agent.releaseLabel": "リリース {release} · {profile}",
   "agent.versionLabel": "バージョン {version}",
   "agent.versionShort": "v{version}",
-  "agent.headStatus": "v{version} · {status}",
+  "agent.headStatus": "{release} · {status}",
   "agent.saved":
     "バージョン {version} として保存しました。まだ使われていません。「リリース」タブでリリースを作成して有効化してください。",
   "agent.savedExisting":
@@ -723,7 +726,9 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.releases.colVersion": "バージョン",
   "agent.releases.colStatus": "状態",
   "agent.releases.colBy": "作成者",
-  "agent.releases.colAt": "作成日時",
+  "agent.releases.colActivated": "有効化日時",
+  "agent.releases.colCard": "カードのバージョン",
+  "agent.releases.activePeriod": "{from}〜{to}",
   "agent.releases.colNote": "メモ",
   "agent.releases.noteNone": "—",
   "agent.releases.noteToggle": "メモ全文を表示",
@@ -762,7 +767,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.releases.activating": "有効化中…",
   "agent.releases.activateFor": "{release}を有効化",
   "agent.releaseCreated":
-    "バージョン {version} のリリースを作成しました。まだ有効ではありません。",
+    "リリース {release} を作成しました。まだ有効ではありません。",
   "agent.releaseExisted":
     "同じ内容のリリースがすでにあるため、そのリリースを使います。まだ有効でない場合は有効化してください。",
   "agent.credentials.title": "認証情報",
