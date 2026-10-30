@@ -580,8 +580,7 @@ export function HomeScreen() {
         github === undefined || slack === undefined
           ? t("home.overview.unknown")
           : t("home.glance.ratio", {
-              count: [github, slack].filter((link) => link === "active")
-                .length,
+              count: [github, slack].filter((link) => link === "active").length,
               total: 3,
             })
       }
