@@ -554,6 +554,7 @@ function GitHubApp({
           />
           <GitHubUserLinkSection
             workspaceId={workspaceId}
+            appReadAt={app.dataUpdatedAt}
             onOutcome={onOutcome}
           />
           <DangerZone>

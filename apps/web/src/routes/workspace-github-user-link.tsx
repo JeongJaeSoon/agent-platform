@@ -57,9 +57,12 @@ export function userLinkReady(settings: GitHubSettingsResponse | undefined) {
  */
 export function GitHubUserLinkSection({
   workspaceId,
+  appReadAt,
   onOutcome,
 }: {
   readonly workspaceId: string;
+  /** When the author App was last read (`dataUpdatedAt`). */
+  readonly appReadAt: number;
   readonly onOutcome: OnOutcome;
 }) {
   const { t } = useI18n();
@@ -82,12 +85,30 @@ export function GitHubUserLinkSection({
     wasEditing.current = editing;
   }, [editing]);
 
-  // The App card above already read these settings. Read again only when they
-  // had no client id yet: reading the App fills it for one registered before.
+  // The App card above already read these settings.
   const settings = useQuery({
     ...githubSettingsQuery(client, workspaceId),
-    refetchOnMount: ({ state }) => !state.data?.oauth.client_id,
+    refetchOnMount: false,
   });
+  // Reading the App fills the client id of one registered before that column;
+  // a settings read that started earlier still says none. Once that read is
+  // in, read again, once per App read.
+  const checkedFor = useRef(0);
+  useEffect(() => {
+    if (settings.data?.oauth.client_id !== null || settings.isFetching) return;
+    if (checkedFor.current === appReadAt) return;
+    checkedFor.current = appReadAt;
+    void queryClient.invalidateQueries({
+      queryKey: githubSettingsKey(client, workspaceId),
+    });
+  }, [
+    settings.data,
+    settings.isFetching,
+    appReadAt,
+    client,
+    queryClient,
+    workspaceId,
+  ]);
   const save = useMutation<
     PutGitHubOAuthClientSecretResponse,
     ApiError,
