@@ -1279,6 +1279,93 @@ describe("Slack management", () => {
     );
   });
 
+  test("locks picking the home until Slack checks the Request URL", async () => {
+    let read: components["schemas"]["GetSlackAppResponse"]["events"] = {
+      state: "pending",
+      checked_at: AT,
+      url: SENT,
+    };
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/app`]: () =>
+        json(200, { ...appResponse(APP), event_url: SENT, events: read }),
+      [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [] }),
+      [`POST ${PATH}/slack/app/events/recheck`]: () => {
+        read = { state: "verified", checked_at: AT, url: SENT };
+        return json(200, {
+          ...appResponse(APP),
+          event_url: SENT,
+          events: read,
+        });
+      },
+    });
+    const user = await setupUser();
+    const channels = await screen.findByRole("region", {
+      name: "홈 채널 지정",
+    });
+    const pick = await within(channels).findByText("홈 채널 고르기");
+    await waitFor(() => expect(pick.closest("[inert]")).not.toBeNull());
+    const lock = within(channels).getByRole("group", {
+      name: "Request URL 확인 전에는 채널을 고를 수 없습니다",
+    });
+    expect(lock.closest("[inert]")).toBeNull();
+    // The way out stays reachable: the lock leads to it.
+    await user.click(
+      within(lock).getByRole("button", { name: "다시 확인으로 이동" }),
+    );
+    const recheck = within(
+      screen.getByRole("region", { name: "고급" }),
+    ).getByRole("button", { name: "다시 확인" });
+    expect(document.activeElement === recheck).toBe(true);
+    await user.click(recheck);
+    await waitFor(() =>
+      expect(within(channels).queryByRole("group")).toBeNull(),
+    );
+    expect(pick.closest("[inert]")).toBeNull();
+  });
+
+  test("locks the connected channels too while Slack has not checked", async () => {
+    renderAt(
+      DETAIL,
+      subscribed({ state: "pending", checked_at: AT, url: SENT }),
+    );
+    const channels = await screen.findByRole("region", {
+      name: "연결된 채널",
+    });
+    const toggle = await within(channels).findByRole("switch", {
+      name: /사용/,
+    });
+    await waitFor(() => expect(toggle.closest("[inert]")).not.toBeNull());
+    expect(
+      within(channels)
+        .getByRole("button", { name: "채널 추가" })
+        .closest("[inert]"),
+    ).not.toBeNull();
+    // The way out is never locked.
+    const advanced = screen.getByRole("region", { name: "고급" });
+    expect(
+      within(advanced)
+        .getByRole("button", { name: "다시 확인" })
+        .closest("[inert]"),
+    ).toBeNull();
+  });
+
+  test("leaves the channels open once Slack checked the Request URL", async () => {
+    renderAt(
+      DETAIL,
+      subscribed({ state: "verified", checked_at: AT, url: SENT }),
+    );
+    const channels = await screen.findByRole("region", {
+      name: "연결된 채널",
+    });
+    await screen.findByText("앱 ID");
+    const add = await within(channels).findByRole("button", {
+      name: "채널 추가",
+    });
+    expect(add.closest("[inert]")).toBeNull();
+    expect(within(channels).queryByRole("group")).toBeNull();
+  });
+
   test("says when the active release's profile left the catalog", async () => {
     renderAt(DETAIL, {
       ...routes(),

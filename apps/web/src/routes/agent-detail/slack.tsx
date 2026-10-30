@@ -38,7 +38,14 @@ import {
   Switch,
 } from "@werft-ai/ui";
 import { Copy, Plus } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  type RefObject,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useMe } from "../../auth/guard.tsx";
 import { copyText } from "../../components/copy.ts";
 import {
@@ -96,6 +103,8 @@ const SLACK_WARNING_KEY = {
 const SECTION_BOX =
   "flex scroll-mt-4 flex-col gap-[var(--ap-space-block)] outline-none";
 const HEADING = "m-0 font-semibold text-body leading-5";
+const RECHECK_ID = "slack-events-recheck";
+const UNVERIFIED_POLL_MS = 10_000;
 const EVENTS_BADGE = {
   verified: "green",
   pending: "amber",
@@ -128,6 +137,20 @@ export function SlackSkeleton() {
   );
 }
 
+/**
+ * The app ID of an app whose sent Request URL Slack has not checked; until a
+ * Request URL has gone to Slack there is nothing to verify.
+ */
+function unverifiedApp(
+  read: components["schemas"]["GetSlackAppResponse"] | undefined,
+): string | null {
+  return read?.events.state === "pending" &&
+    read.events.url !== null &&
+    read.slack_app?.state === "created"
+    ? read.slack_app.app_id
+    : null;
+}
+
 /** Under the agent's key, so whatever refreshes the agent refreshes these. */
 export const slackKey = (client: ApiClient, agentId: string) =>
   [...queryKeysOf(client).agent(agentId), "slack"] as const;
@@ -144,6 +167,9 @@ function useSlackState(agentId: string) {
         }),
       ),
     staleTime: 30_000,
+    // Slack may check the URL from its own App Manifest page.
+    refetchInterval: (query) =>
+      unverifiedApp(query.state.data) ? UNVERIFIED_POLL_MS : false,
     retry: false,
   });
   const identities = useQuery({
@@ -340,27 +366,20 @@ function SlackStatus({ agentId }: { readonly agentId: string }) {
   const state = slackState(error, identity, app.data?.slack_app);
   const placeholder = <Skeleton className="h-5 w-24" />;
   const bindingsLost = bindings.isError && !bindings.data;
-  const record = app.data?.slack_app;
-  // Until a Request URL has gone to Slack there is nothing to verify.
-  const unverifiedApp =
-    app.data?.events.state === "pending" &&
-    app.data.events.url !== null &&
-    record?.state === "created"
-      ? record.app_id
-      : null;
+  const unverified = unverifiedApp(app.data);
   return (
     <section
       className="flex flex-col gap-[var(--ap-space-block)]"
       aria-label={t("slack.status")}
     >
       {error ? <FieldError>{slackFailure(error, t)}</FieldError> : null}
-      {unverifiedApp ? (
+      {unverified ? (
         <Alert variant="amber">
           <AlertTitle>{t("slack.eventsPending.title")}</AlertTitle>
           <AlertDescription>
             {t("slack.eventsPending.body")}{" "}
             <Link
-              href={`https://api.slack.com/apps/${encodeURIComponent(unverifiedApp)}/event-subscriptions`}
+              href={`https://api.slack.com/apps/${encodeURIComponent(unverified)}/event-subscriptions`}
               target="_blank"
               newTabLabel={t("slack.newTab")}
               underline="always"
@@ -701,6 +720,7 @@ export function SlackConnect({
                 }
                 actions={
                   <Button
+                    id={RECHECK_ID}
                     type="button"
                     variant="outline"
                     size="sm"
@@ -850,6 +870,7 @@ function SlackChannels({
   invite,
   notify,
   homeStep = false,
+  locked = false,
 }: {
   readonly agentId: string;
   /** The line to paste in a channel to add the bot. */
@@ -857,6 +878,8 @@ function SlackChannels({
   readonly notify: Notify;
   /** Installed with no home yet: only picking the home is offered. */
   readonly homeStep?: boolean;
+  /** Slack has not checked the Request URL, so no channel would hear the bot. */
+  readonly locked?: boolean;
 }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
@@ -867,6 +890,11 @@ function SlackChannels({
   const [picking, setPicking] = useState(false);
   const [pickHome, setPickHome] = useState(false);
   const pickerOpener = useRef<HTMLButtonElement | null>(null);
+  const lockAction = useRef<HTMLButtonElement>(null);
+  // A lock that arrives with the picker open closes it; it sits outside inert.
+  useEffect(() => {
+    if (locked) setPicking(false);
+  }, [locked]);
   const [notice, setNotice] = useState("");
   const [names, setNames] = useState<
     Record<string, { readonly name: string; readonly member: boolean }>
@@ -926,6 +954,7 @@ function SlackChannels({
   }, [channels.data]);
   const error = bindings.error ?? channels.error ?? update.error;
   const connectChannel = (channelId: string) => {
+    if (locked) return;
     const row = rows.find((item) => item.external_surface_id === channelId);
     update.mutate({
       kind: pickHome ? "home" : "connect",
@@ -939,7 +968,7 @@ function SlackChannels({
     });
   };
   const change = (row: Binding, mode: Binding["mode"]) => {
-    if (!update.isPending)
+    if (!update.isPending && !locked)
       update.mutate({
         kind: "reaction",
         body: {
@@ -957,125 +986,137 @@ function SlackChannels({
       className={SECTION_BOX}
       aria-labelledby={`${SECTION.channels}-title`}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id={`${SECTION.channels}-title`} className={HEADING}>
-          {t(homeStep ? "slack.homeStep" : "slack.connectedChannels")}
-        </h2>
-        {/* Until the bindings load, it is not known which step this is. */}
-        {bindings.isPending ? null : (
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button
-              type="button"
-              variant={homeStep ? "default" : "outline"}
-              size="sm"
-              onClick={(event) => {
-                pickerOpener.current = event.currentTarget;
-                setPickHome(true);
-                setPicking(true);
-              }}
-            >
-              {t(homeStep ? "slack.pickHome" : "slack.setHome")}
-            </Button>
-            {homeStep ? null : (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={(event) => {
-                  pickerOpener.current = event.currentTarget;
-                  setPickHome(false);
-                  setPicking(true);
-                }}
-              >
-                <Plus aria-hidden="true" strokeWidth={1.5} />
-                {t("slack.addChannel")}
-              </Button>
+      <div className="grid">
+        <div
+          inert={locked}
+          className={`col-start-1 row-start-1 flex flex-col gap-[var(--ap-space-block)]${locked ? " invisible" : ""}`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 id={`${SECTION.channels}-title`} className={HEADING}>
+              {t(homeStep ? "slack.homeStep" : "slack.connectedChannels")}
+            </h2>
+            {/* Until the bindings load, it is not known which step this is. */}
+            {bindings.isPending ? null : (
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  type="button"
+                  variant={homeStep ? "default" : "outline"}
+                  size="sm"
+                  onClick={(event) => {
+                    pickerOpener.current = event.currentTarget;
+                    setPickHome(true);
+                    setPicking(true);
+                  }}
+                >
+                  {t(homeStep ? "slack.pickHome" : "slack.setHome")}
+                </Button>
+                {homeStep ? null : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={(event) => {
+                      pickerOpener.current = event.currentTarget;
+                      setPickHome(false);
+                      setPicking(true);
+                    }}
+                  >
+                    <Plus aria-hidden="true" strokeWidth={1.5} />
+                    {t("slack.addChannel")}
+                  </Button>
+                )}
+              </div>
             )}
           </div>
-        )}
-      </div>
-      {homeStep ? (
-        <p className="m-0 text-control text-muted-foreground">
-          {t("slack.homeStepHint")}
-        </p>
-      ) : null}
-      <output
-        aria-live="polite"
-        className={notice ? "text-control" : "sr-only"}
-      >
-        {notice}
-      </output>
-      {error ? (
-        <div>
-          <FieldError>{slackFailure(error, t)}</FieldError>
+          {homeStep ? (
+            <p className="m-0 text-control text-muted-foreground">
+              {t("slack.homeStepHint")}
+            </p>
+          ) : null}
+          <output
+            aria-live="polite"
+            className={notice ? "text-control" : "sr-only"}
+          >
+            {notice}
+          </output>
+          {error ? (
+            <div>
+              <FieldError>{slackFailure(error, t)}</FieldError>
+            </div>
+          ) : null}
+          {homeStep ? null : bindings.isPending ? (
+            <ChannelSkeleton />
+          ) : bindings.isError && !bindings.data ? null : rows.length === 0 ? (
+            <EmptyState
+              title={t("slack.noConnectedChannels")}
+              description={t("slack.addChannelHint")}
+            />
+          ) : (
+            <RowList variant="joined" aria-label={t("slack.connectedChannels")}>
+              {rows.map((row) => {
+                const known = row.external_surface_id
+                  ? names[row.external_surface_id]
+                  : undefined;
+                const name =
+                  row.surface_kind === "dm"
+                    ? t("slack.dm")
+                    : known
+                      ? `#${known.name}`
+                      : t("slack.channelId", {
+                          id: row.external_surface_id ?? "",
+                        });
+                return (
+                  <SettingRow
+                    key={row.id}
+                    title={name}
+                    badge={
+                      row.home ? (
+                        <Badge variant="gray">{t("slack.home")}</Badge>
+                      ) : undefined
+                    }
+                    description={t(
+                      row.surface_kind === "private_channel"
+                        ? "slack.private"
+                        : "slack.public",
+                    )}
+                    meta={
+                      awaitsInvite(row, known) ? (
+                        <span className="flex flex-wrap items-center gap-1">
+                          <Badge variant="gray">
+                            {t("slack.privateInvite")}
+                          </Badge>
+                          <InviteCopy command={invite} notify={notify} />
+                        </span>
+                      ) : undefined
+                    }
+                    actions={
+                      <span className="flex items-center gap-2">
+                        <span aria-hidden="true" className="text-control">
+                          {t("slack.inUse")}
+                        </span>
+                        <Switch
+                          aria-label={t("slack.inUseOf", { channel: name })}
+                          checked={row.mode !== "off"}
+                          aria-disabled={update.isPending}
+                          onCheckedChange={(checked) =>
+                            change(row, checked ? "on" : "off")
+                          }
+                        />
+                      </span>
+                    }
+                  />
+                );
+              })}
+            </RowList>
+          )}
         </div>
-      ) : null}
-      {homeStep ? null : bindings.isPending ? (
-        <ChannelSkeleton />
-      ) : bindings.isError && !bindings.data ? null : rows.length === 0 ? (
-        <EmptyState
-          title={t("slack.noConnectedChannels")}
-          description={t("slack.addChannelHint")}
-        />
-      ) : (
-        <RowList variant="joined" aria-label={t("slack.connectedChannels")}>
-          {rows.map((row) => {
-            const known = row.external_surface_id
-              ? names[row.external_surface_id]
-              : undefined;
-            const name =
-              row.surface_kind === "dm"
-                ? t("slack.dm")
-                : known
-                  ? `#${known.name}`
-                  : t("slack.channelId", { id: row.external_surface_id ?? "" });
-            return (
-              <SettingRow
-                key={row.id}
-                title={name}
-                badge={
-                  row.home ? (
-                    <Badge variant="gray">{t("slack.home")}</Badge>
-                  ) : undefined
-                }
-                description={t(
-                  row.surface_kind === "private_channel"
-                    ? "slack.private"
-                    : "slack.public",
-                )}
-                meta={
-                  awaitsInvite(row, known) ? (
-                    <span className="flex flex-wrap items-center gap-1">
-                      <Badge variant="gray">{t("slack.privateInvite")}</Badge>
-                      <InviteCopy command={invite} notify={notify} />
-                    </span>
-                  ) : undefined
-                }
-                actions={
-                  <span className="flex items-center gap-2">
-                    <span aria-hidden="true" className="text-control">
-                      {t("slack.inUse")}
-                    </span>
-                    <Switch
-                      aria-label={t("slack.inUseOf", { channel: name })}
-                      checked={row.mode !== "off"}
-                      aria-disabled={update.isPending}
-                      onCheckedChange={(checked) =>
-                        change(row, checked ? "on" : "off")
-                      }
-                    />
-                  </span>
-                }
-              />
-            );
-          })}
-        </RowList>
-      )}
+        {locked ? <ChannelsLock action={lockAction} /> : null}
+      </div>
       <Dialog open={picking} onOpenChange={setPicking}>
         <DialogContent
           onCloseAutoFocus={(event) => {
             event.preventDefault();
-            pickerOpener.current?.focus();
+            (locked ? lockAction : pickerOpener).current?.focus();
           }}
         >
           <DialogHeader>
@@ -1193,6 +1234,51 @@ function SlackChannels({
         </DialogContent>
       </Dialog>
     </section>
+  );
+}
+
+/** Covers the channels, pointing to the advanced section's Recheck. */
+function ChannelsLock({
+  action,
+}: {
+  readonly action: RefObject<HTMLButtonElement | null>;
+}) {
+  const { t } = useI18n();
+  const titleId = useId();
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: a fieldset groups form controls, this is a notice with one button
+    <div
+      role="group"
+      aria-labelledby={titleId}
+      className="col-start-1 row-start-1 flex flex-col items-center justify-center gap-2 rounded-card border border-(color:--ap-tone-caution-border) bg-background p-4 text-center"
+    >
+      <p id={titleId} className="m-0 font-semibold text-control">
+        {t("slack.channelsLocked.title")}
+      </p>
+      <p className="m-0 max-w-prose text-control text-muted-foreground">
+        {t("slack.channelsLocked.body")}
+      </p>
+      <Button
+        ref={action}
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => {
+          const target =
+            document.getElementById(RECHECK_ID) ??
+            document.getElementById(SECTION.advanced);
+          target?.scrollIntoView({
+            block: "center",
+            behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
+              ? "auto"
+              : "smooth",
+          });
+          target?.focus({ preventScroll: true });
+        }}
+      >
+        {t("slack.channelsLocked.action")}
+      </Button>
+    </div>
   );
 }
 
@@ -1372,6 +1458,7 @@ export default function SlackTab({
   }, [justInstalled, notify, navigate, t]);
   const { app, identities } = useSlackState(agentId);
   const bindings = useSlackBindings(agentId);
+  const unverified = unverifiedApp(app.data) !== null;
   const installed =
     identities.data?.items.some((item) => item.status === "active") ?? false;
   // An installed agent picks its home before anything else in the tab. A
@@ -1475,6 +1562,7 @@ export default function SlackTab({
             invite={`/invite @${slug}`}
             notify={notify}
             homeStep={homeStep}
+            locked={unverified}
           />
           {homeStep ? null : (
             <section

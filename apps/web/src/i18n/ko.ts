@@ -57,6 +57,11 @@ export const slackKo = {
   "slack.eventsPending.body":
     "Slack이 이 앱의 Request URL을 확인하기 전에는 초대·멘션·DM 이벤트가 오지 않습니다. 고급의 '다시 확인'으로 URL을 다시 보내세요. 그래도 남으면 앱 설정의 Event Subscriptions에서 Request URL의 Verify(또는 Retry)를 누르세요. 확인 요청이 도착하면 이 안내는 사라집니다.",
   "slack.eventsPending.open": "Event Subscriptions 열기",
+  "slack.channelsLocked.title":
+    "Request URL 확인 전에는 채널을 고를 수 없습니다",
+  "slack.channelsLocked.body":
+    "Slack이 이 앱의 Request URL을 확인해야 채널에서 이벤트가 옵니다. 고급의 '다시 확인'으로 URL을 다시 보내세요. 확인되면 바로 풀립니다.",
+  "slack.channelsLocked.action": "다시 확인으로 이동",
   "slack.eventsUrl.title": "이벤트 Request URL",
   "slack.eventsUrl.hint":
     "Slack이 초대·멘션·DM을 보낼 주소입니다. 다시 확인하면 앱 설정에 URL을 다시 보내고 Slack의 확인 요청에 자동으로 답합니다.",
