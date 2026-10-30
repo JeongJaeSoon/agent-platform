@@ -389,7 +389,7 @@ describe("에이전트 GitHub 탭", () => {
     expect(within(rows).getByText("워크플로 실행 거절")).toBeTruthy();
     expect(
       within(rows).getByText(
-        "deploy.yml @ main · werft-sandbox · 허용 목록 밖",
+        /^deploy\.yml @ main · werft-sandbox · 허용 목록 밖 ·$/,
       ),
     ).toBeTruthy();
     expect(

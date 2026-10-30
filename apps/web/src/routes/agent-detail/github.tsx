@@ -63,7 +63,6 @@ type SectionKey = keyof typeof SECTION;
 const SECTION_BOX =
   "flex scroll-mt-4 flex-col gap-[var(--ap-space-block)] outline-none";
 const HEADING = "m-0 font-semibold text-body leading-5";
-const REASON = "text-caption text-muted-foreground";
 // The order the mockup lists them in: what most agents turn on first.
 const FEATURES: readonly Feature[] = [
   "review",
@@ -165,7 +164,12 @@ function ReceiptRow({
     release
       ? t("agentGitHub.activity.release", { release: release.label })
       : null,
+    receipt.operation === "set_agent_github"
+      ? t("agentGitHub.activity.byAdmin")
+      : null,
   ].filter((part): part is string => part !== null);
+  // Every row keeps one detail line, so the session link joins it instead
+  // of adding a second one.
   return (
     <SettingRow
       title={receiptTitle(receipt, t)}
@@ -174,16 +178,26 @@ function ReceiptRow({
           <Badge variant="red">{t("agentGitHub.refused")}</Badge>
         ) : undefined
       }
-      description={parts.join(" · ") || undefined}
-      meta={
-        result.session_id ? (
-          <Link asChild>
-            <RouterLink to="/sessions/$id" params={{ id: result.session_id }}>
-              {t("agentGitHub.activity.session")}{" "}
-              <span className="font-mono">{result.session_id.slice(0, 8)}</span>
-            </RouterLink>
-          </Link>
-        ) : undefined
+      description={
+        <>
+          {parts.join(" · ")}
+          {result.session_id ? (
+            <>
+              {parts.length > 0 ? " · " : null}
+              <Link asChild>
+                <RouterLink
+                  to="/sessions/$id"
+                  params={{ id: result.session_id }}
+                >
+                  {t("agentGitHub.activity.session")}{" "}
+                  <span className="font-mono">
+                    {result.session_id.slice(0, 8)}
+                  </span>
+                </RouterLink>
+              </Link>
+            </>
+          ) : null}
+        </>
       }
       status={
         <RelativeTime
@@ -694,18 +708,16 @@ function GitHubSettings({
                       description={
                         <span className="[overflow-wrap:anywhere]">
                           {repository.url}
+                          {locked || repository.reason
+                            ? ` · ${
+                                locked
+                                  ? t("agentGitHub.repositoryRelease")
+                                  : t(
+                                      `agentGitHub.repositoryReason.${repository.reason}`,
+                                    )
+                              }`
+                            : null}
                         </span>
-                      }
-                      meta={
-                        locked || repository.reason ? (
-                          <span className={REASON}>
-                            {locked
-                              ? t("agentGitHub.repositoryRelease")
-                              : t(
-                                  `agentGitHub.repositoryReason.${repository.reason}`,
-                                )}
-                          </span>
-                        ) : undefined
                       }
                       status={
                         <span className="text-control text-muted-foreground">
@@ -774,10 +786,11 @@ function GitHubSettings({
                   <SettingRow
                     key={feature}
                     title={t(`agentGitHub.feature.${feature}`)}
-                    description={t(`agentGitHub.feature.${feature}Hint`)}
-                    meta={
+                    // A locked feature shows why in place of its hint, so
+                    // every row keeps one detail line.
+                    description={
                       option.reason ? (
-                        <span className={REASON}>
+                        <>
                           {t(`agentGitHub.featureReason.${option.reason}`)}{" "}
                           {option.reason ===
                           "github_host_unsupported" ? null : (
@@ -787,8 +800,10 @@ function GitHubSettings({
                               </RouterLink>
                             </Link>
                           )}
-                        </span>
-                      ) : undefined
+                        </>
+                      ) : (
+                        t(`agentGitHub.feature.${feature}Hint`)
+                      )
                     }
                     status={
                       <span className="text-control text-muted-foreground">
