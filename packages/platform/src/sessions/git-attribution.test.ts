@@ -124,6 +124,23 @@ describe("replacing the pull request tail", () => {
     expect(withPullRequestTail(fence, tail)).toBe(`${fence}\n\n${tail}`);
   });
 
+  test("a fence closes only on its own character, at least as long", () => {
+    for (const quoted of [
+      `\`\`\`\`\n\`\`\`\n${block("HUMAN NOTES")}\n\`\`\`\n\`\`\`\``,
+      `~~~\n\`\`\`\n${block("HUMAN NOTES")}\n\`\`\`\n~~~`,
+      `\`\`\`\n~~~\n${block("HUMAN NOTES")}\n~~~\n\`\`\``,
+    ]) {
+      expect(withPullRequestTail(`${block("old")}\n\n${quoted}`, tail)).toBe(
+        `${tail}\n\n${quoted}`,
+      );
+    }
+    // A longer closing run still closes; the real tail after it is found.
+    const closed = `\`\`\`\ncode\n\`\`\`\`\n\n${block("old")}`;
+    expect(withPullRequestTail(closed, tail)).toBe(
+      `\`\`\`\ncode\n\`\`\`\`\n\n${tail}`,
+    );
+  });
+
   test("a start marker with no end after it cuts nothing", () => {
     const cut = `Intro\n\n---\n${PULL_REQUEST_TAIL_MARKER}\nold, end removed`;
     expect(withPullRequestTail(cut, tail)).toBe(`${cut}\n\n${tail}`);

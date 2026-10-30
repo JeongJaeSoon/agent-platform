@@ -148,14 +148,32 @@ export function pullRequestTail(input: {
 export function withPullRequestTail(body: string, tail: string): string {
   // GitHub's editor saves CRLF.
   const lines = body.split(/\r?\n/);
-  let fenced = false;
+  // The opening fence's run (CommonMark): only the same character, at least
+  // as long, with nothing after it closes the block.
+  let fence: string | null = null;
   let start = -1;
   let pair: [number, number] | null = null;
   for (const [at, line] of lines.entries()) {
+    const run = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    const marks = run?.[1] ?? "";
+    const after = run?.[2] ?? "";
+    if (fence !== null) {
+      if (
+        marks[0] === fence[0] &&
+        marks.length >= fence.length &&
+        after.trim() === ""
+      ) {
+        fence = null;
+      }
+      continue;
+    }
+    // A backtick fence's info string has no backtick; that line is inline code.
+    if (run && !(marks[0] === "`" && after.includes("`"))) {
+      fence = marks;
+      continue;
+    }
     const text = line.trim();
-    if (/^(```|~~~)/.test(text)) fenced = !fenced;
-    else if (fenced) continue;
-    else if (text === PULL_REQUEST_TAIL_MARKER) start = at;
+    if (text === PULL_REQUEST_TAIL_MARKER) start = at;
     else if (text === PULL_REQUEST_TAIL_END_MARKER && start !== -1) {
       pair = [start, at];
       start = -1;
