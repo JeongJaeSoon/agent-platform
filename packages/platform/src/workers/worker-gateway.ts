@@ -66,6 +66,7 @@ import type {
   ApprovalCheckpointCommit,
   WorkerPendingStore,
 } from "../ports/pending-requests.ts";
+import type { SessionAttributionStore } from "../ports/session-attribution.ts";
 import type { SessionTitleStore } from "../ports/session-title-store.ts";
 import type {
   EgressBindings,
@@ -108,6 +109,7 @@ import {
   type NeutralizeEvent,
   neutralFieldsOf,
 } from "../sessions/event-codecs.ts";
+import { claimGitOf } from "../sessions/git-attribution.ts";
 import {
   hashTitleToken,
   type SessionTitler,
@@ -457,6 +459,11 @@ export function createWorkerGateway(deps: {
   titles?: { store: SessionTitleStore; titler: SessionTitler };
   // Absent, events are stored without the engine-neutral fields beside them.
   neutralize?: NeutralizeEvent;
+  // Absent, a claim carries no `git` and the worker adds no commit trailer.
+  attribution?: {
+    store: SessionAttributionStore;
+    consoleOrigin: string | null;
+  };
   options: WorkerGatewayOptions;
 }) {
   const { work, catalog, checkpoints, pending, neutralize } = deps;
@@ -1072,6 +1079,15 @@ export function createWorkerGateway(deps: {
             ...profile,
             runtime_config: withMcp(profile.runtime_config, mcp, mcpToken),
           };
+          const attribution = deps.attribution;
+          const git =
+            attribution === undefined
+              ? undefined
+              : claimGitOf(
+                  await attribution.store.attribution(binding.sessionId),
+                  attribution.consoleOrigin,
+                  binding.sessionId,
+                );
           return {
             session_id: binding.sessionId,
             turn_id: null,
@@ -1106,6 +1122,7 @@ export function createWorkerGateway(deps: {
             ...(binding.grants === undefined || binding.grants.length === 0
               ? {}
               : { grants: [...binding.grants] }),
+            ...(git === undefined ? {} : { git }),
           };
         }
       }

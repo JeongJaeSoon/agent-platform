@@ -528,6 +528,8 @@ export const githubApps = pgTable(
     permissionsCheckedAt: timestamp("permissions_checked_at", {
       withTimezone: true,
     }),
+    /** `GET /app`'s `client_id`, for linking users; null until it is read. */
+    clientId: text("client_id"),
     /** No foreign key: the row outlives the account. */
     createdBy: uuid("created_by"),
     createdAt: timestamp("created_at", { withTimezone: true })

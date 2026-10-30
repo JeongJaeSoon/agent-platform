@@ -10,7 +10,8 @@ import {
 
 // A person's account on another service, tied to their user (design A.2,
 // D2). Slack links through Sign in with Slack, GitHub through the author
-// App's user authorization; no token is kept.
+// App's user authorization; no token is kept. A GitHub row's tenant is
+// `github.com`, its user id GitHub's numeric id and its user name the login.
 
 export const LINKED_ACCOUNT_PROVIDER_VALUES = ["slack", "github"] as const;
 export const linkedAccountProviderSchema = z.enum(
@@ -44,9 +45,9 @@ export const linkedAccountSchema = z
     id: linkedAccountIdSchema,
     user_id: userIdSchema,
     provider: linkedAccountProviderSchema,
-    /** The Slack team id the account belongs to. */
+    /** The Slack team id the account belongs to; `github.com` for GitHub. */
     external_tenant: z.string().min(1).max(255),
-    /** The Slack user id. */
+    /** The Slack user id, or GitHub's numeric user id. */
     external_user_id: z.string().min(1).max(255),
     /**
      * The workspace name Slack gave when the account was last verified;
@@ -102,6 +103,25 @@ export const slackLinkCallbackResponseSchema = z
   })
   .strict();
 
+// GitHub's link start and callback take the same shapes as Slack's; copies,
+// so the API reference names each its own.
+export const startGitHubLinkResponseSchema = startSlackLinkResponseSchema.extend(
+  {},
+);
+export const githubLinkCallbackRequestSchema =
+  slackLinkCallbackRequestSchema.extend({});
+export const githubLinkCallbackResponseSchema =
+  slackLinkCallbackResponseSchema.extend({});
+
+/** A GitHub login as GitHub allows it; checked again before any commit carries it. */
+export const GITHUB_LOGIN_PATTERN = /^[A-Za-z0-9-]{1,39}$/;
+export const GITHUB_LINK_TENANT = "github.com";
+
+/** The address GitHub ties to the account whatever its own email settings. */
+export function githubNoreplyEmail(id: string, login: string): string {
+  return `${id}+${login}@users.noreply.github.com`;
+}
+
 export const unlinkAccountResponseSchema = receiptAcceptedResponseSchema;
 
 // What the person sees when a link is refused. They are product copy, shown
@@ -117,6 +137,11 @@ export const LINK_MESSAGES = {
     "이 Slack 계정은 다른 사용자에게 연결돼 있어요. owner·admin에게 문의하세요",
   exists: "이미 연결된 Slack 계정이 있어요. 해제한 뒤 다시 연결하세요",
   expired: "연결 요청이 만료됐어요. 처음부터 다시 시도하세요",
+  githubTaken:
+    "이 GitHub 계정은 다른 사용자에게 연결돼 있어요. owner·admin에게 문의하세요",
+  githubExists: "이미 연결된 GitHub 계정이 있어요. 해제한 뒤 다시 연결하세요",
+  githubUnset:
+    "owner·admin이 GitHub 연결 설정에서 사용자 연결을 켜야 GitHub 계정을 연결할 수 있어요",
 } as const;
 
 export type LinkedAccountProvider = z.infer<typeof linkedAccountProviderSchema>;

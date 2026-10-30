@@ -5,6 +5,7 @@ import type {
   GitHubFeatures,
   ReceiptActor,
 } from "@werft-ai/contracts";
+import type { SecretAudit } from "./secret-store.ts";
 
 /** What a GA-1 image answered for a release with GitHub settings. */
 export const GITHUB_SETTINGS_UNSUPPORTED: {
@@ -21,6 +22,47 @@ export type GitHubWorkspaceSettings = {
   /** 0 when no row was ever written. */
   revision: number;
 };
+
+/** The author App's user authorization, as linking a person needs it. */
+export type GitHubOAuthClient = {
+  clientId: string;
+  clientSecret: string;
+  /** Where GitHub shows the consent screen: the App page's origin. */
+  webBase: string;
+  apiBase: string;
+};
+
+export type PutGitHubOAuthSecretResult =
+  | { outcome: "stored" }
+  | {
+      outcome:
+        | "no_author_app"
+        | "actor_inactive"
+        | "outranked"
+        | "workspace_not_found";
+    };
+
+/**
+ * The OAuth client secret is sealed under the author App's row, so it goes
+ * with that App; `oauth_client_secret_set` says whether it is there.
+ */
+export interface GitHubOAuthStore {
+  status(
+    workspaceId: string,
+  ): Promise<{
+    authorApp: boolean;
+    clientId: string | null;
+    clientSecretSet: boolean;
+  }>;
+  /** Null unless the author App, its client id and the secret are all there. */
+  client(workspaceId: string): Promise<GitHubOAuthClient | null>;
+  /** Writes `set_github_app` (purpose `oauth_client_secret`) with it. */
+  putClientSecret(
+    workspaceId: string,
+    clientSecret: string,
+    audit: SecretAudit,
+  ): Promise<PutGitHubOAuthSecretResult>;
+}
 
 export type PutGitHubCeilingResult =
   | { outcome: "stored"; settings: GitHubWorkspaceSettings }

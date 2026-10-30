@@ -86,6 +86,7 @@ function fakeApi(): GitHubApi {
     getRepository: unused,
     findPullRequestForBranch: unused,
     createPullRequest: unused,
+    updatePullRequestBody: unused,
     upsertComment: unused,
     dispatchWorkflow: unused,
     getWorkflowRun: unused,

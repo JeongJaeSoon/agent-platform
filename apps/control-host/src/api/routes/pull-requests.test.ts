@@ -100,6 +100,9 @@ function app(
         created: comments === 1,
       };
     },
+    updatePullRequestBody: async () => {
+      throw new Error("not used");
+    },
     dispatchWorkflow: async () => {
       throw new Error("not used");
     },
@@ -146,6 +149,9 @@ function app(
     catalog: CATALOG,
     gate,
     redact: (line) => line,
+    attribution: { attribution: async () => null },
+    consoleOrigin: null,
+    logger: { warn: () => {} },
     store: {
       findSource: async (ownerId, sessionId, pushRequestId) =>
         ownerId === "owner-a" && sessionId === SESSION && pushRequestId === PUSH

@@ -14,6 +14,8 @@ export type GitHubAppProfile = {
   htmlUrl: string;
   /** What the App asks for (`GET /app`'s `permissions`). */
   permissions: GitHubAppPermissions;
+  /** The client for the App's user authorization; null when GitHub sent none. */
+  clientId: string | null;
 };
 
 /** The workspace's GitHub App as stored, without its private key. */
@@ -79,6 +81,8 @@ export interface GitHubAppStore {
   recordPermissions(
     id: string,
     permissions: GitHubAppPermissions,
+    /** Left out: the row keeps the client id it has. */
+    clientId?: string | null,
   ): Promise<void>;
   /** Every registered App of `role` with its key, or one workspace's. */
   credentials(

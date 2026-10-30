@@ -4,10 +4,14 @@ import {
   githubWorkflowRunSchema,
   rerunWorkflowRequestSchema,
   rerunWorkflowResponseSchema,
+  sessionGitHubAttributionSchema,
   sessionIdParamsSchema,
   workflowRunParamsSchema,
 } from "@werft-ai/contracts";
-import type { GitHubWorkService } from "@werft-ai/platform";
+import type {
+  GitHubWorkService,
+  SessionAttributionService,
+} from "@werft-ai/platform";
 import {
   type ApiRouter,
   apiRoute,
@@ -50,5 +54,18 @@ export function registerGitHubWorkRoutes(
       service.rerun(actorOf(context), params.id, params.run_id, body),
     );
     return jsonWithSchema(context, rerunWorkflowResponseSchema, rerun, 201);
+  });
+}
+
+export function registerSessionAttributionRoutes(
+  router: ApiRouter,
+  service: SessionAttributionService,
+) {
+  apiRoute(router, "getSessionGitHubAttribution", async (context) => {
+    const params = requireParams(context, sessionIdParamsSchema);
+    const attribution = await mapped(() =>
+      service.get(context.get("caller"), params.id),
+    );
+    return jsonWithSchema(context, sessionGitHubAttributionSchema, attribution);
   });
 }

@@ -1,4 +1,5 @@
 import {
+  GITHUB_LINK_TENANT,
   LINK_MESSAGES,
   LINKED_ACCOUNT_LIST_LIMIT,
   type LinkedAccount,
@@ -28,7 +29,7 @@ function linkedAccountView(record: LinkedAccountRecord): LinkedAccount {
     status: record.status,
     verified_at: record.verifiedAt.toISOString(),
     revision: record.revision,
-    // Slack, the only provider, keeps no token.
+    // Neither Slack nor GitHub keeps a token.
     expires_at: null,
   };
 }
@@ -126,6 +127,47 @@ export function createLinkedAccountService(deps: {
           throw new SessionServiceError("LINK_TAKEN", LINK_MESSAGES.taken);
         case "exists":
           throw new SessionServiceError("LINK_EXISTS", LINK_MESSAGES.exists);
+        default:
+          throw new SessionServiceError(
+            "FORBIDDEN",
+            "This principal is no longer a member of the workspace",
+          );
+      }
+    },
+
+    /** Every field comes from GitHub's answer to the caller's own code. */
+    async linkGitHubAccount(
+      caller: Caller,
+      verified: { id: string; login: string },
+    ): Promise<SlackLinkCallbackResponse> {
+      const userId = await permittedPerson(caller);
+      const result = await store.link({
+        principal: caller,
+        workspaceId: caller.ownerId,
+        userId,
+        account: {
+          provider: "github",
+          externalTenant: GITHUB_LINK_TENANT,
+          externalUserId: verified.id,
+        },
+        names: { externalTenantName: "GitHub", externalUserName: verified.login },
+      });
+      switch (result.outcome) {
+        case "linked":
+          return {
+            linked_account: linkedAccountView(result.account),
+            receipt_id: result.receiptId,
+          };
+        case "taken":
+          throw new SessionServiceError(
+            "LINK_TAKEN",
+            LINK_MESSAGES.githubTaken,
+          );
+        case "exists":
+          throw new SessionServiceError(
+            "LINK_EXISTS",
+            LINK_MESSAGES.githubExists,
+          );
         default:
           throw new SessionServiceError(
             "FORBIDDEN",

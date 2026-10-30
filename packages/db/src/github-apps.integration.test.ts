@@ -40,6 +40,7 @@ const profile = (appId: number) => ({
   slug: `app-${appId}`,
   name: `App ${appId}`,
   htmlUrl: `https://github.com/apps/app-${appId}`,
+  clientId: `Iv23li${appId}`,
   permissions: { contents: "write" as const, metadata: "read" as const },
   apiBase: "https://api.github.com",
 });

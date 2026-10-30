@@ -101,6 +101,19 @@ describe("GitHub pull requests", () => {
     ).toEqual(opened);
     expect(github.pullRequests("acme", "app")).toHaveLength(1);
     expect(github.tokenRequests.length - tokensBefore).toBe(1);
+
+    const seen: string[] = [];
+    await forge.updatePullRequestBody(opened.number, (current) => {
+      seen.push(current);
+      return `${current}\n\ntail`;
+    });
+    expect(seen).toEqual(["What the session did."]);
+    expect(github.pullRequests("acme", "app")[0]?.body).toBe(
+      "What the session did.\n\ntail",
+    );
+    await expect(
+      forge.updatePullRequestBody(999, (current) => current),
+    ).rejects.toThrow();
   });
 
   test("a refused create logs GitHub's reason, not only its status", async () => {

@@ -1,14 +1,18 @@
 import {
+  githubLinkCallbackRequestSchema,
+  githubLinkCallbackResponseSchema,
   LINK_MESSAGES,
   linkedAccountParamsSchema,
   listLinkedAccountsResponseSchema,
   slackLinkCallbackRequestSchema,
   slackLinkCallbackResponseSchema,
+  startGitHubLinkResponseSchema,
   startSlackLinkResponseSchema,
   unlinkAccountResponseSchema,
 } from "@werft-ai/contracts";
 import type { StructuredLogger } from "@werft-ai/observability";
 import type {
+  GitHubOAuthStore,
   LinkedAccountService,
   SlackLinkAppService,
   SlackLinkClient,
@@ -31,9 +35,23 @@ import {
   SlackOidcUnavailableError,
   slackAuthorizeUrl,
 } from "../slack-link.ts";
+import {
+  consumeGitHubLinkState,
+  exchangeGitHubCode,
+  GITHUB_LINK_TTL_MS,
+  GitHubOAuthRejectedError,
+  GitHubOAuthUnavailableError,
+  githubAuthorizeUrl,
+  issueGitHubLinkState,
+} from "../github-link.ts";
 import { mapped, requireParams } from "./errors.ts";
 
 export interface LinkedAccountRouteDeps {
+  /** The author App's user authorization; `redirectUri` null without a console origin. */
+  github: {
+    oauth: Pick<GitHubOAuthStore, "client">;
+    redirectUri: string | null;
+  };
   service: LinkedAccountService;
   /** Null: Sign in with Slack is not configured on this installation. */
   slack: {
@@ -139,6 +157,82 @@ export function registerLinkedAccountRoutes(
     return jsonWithSchema(
       context,
       slackLinkCallbackResponseSchema,
+      linked,
+      201,
+    );
+  });
+
+  // Null when anything the author App's user authorization needs is missing.
+  async function githubClientFor(workspaceId: string) {
+    const redirectUri = deps.github.redirectUri;
+    const client =
+      redirectUri === null ? null : await deps.github.oauth.client(workspaceId);
+    if (redirectUri === null || client === null) {
+      throw new ApiHttpError(
+        409,
+        "GITHUB_LINK_NOT_CONFIGURED",
+        LINK_MESSAGES.githubUnset,
+        false,
+        undefined,
+        { reason_code: "github_oauth_unset" },
+      );
+    }
+    return { client, redirectUri };
+  }
+
+  apiRoute(router, "startGitHubLink", async (context) => {
+    const caller = context.get("caller");
+    const userId = await mapped(() => deps.service.personFor(caller));
+    const { client, redirectUri } = await githubClientFor(caller.ownerId);
+    const expiresAt = new Date(Date.now() + GITHUB_LINK_TTL_MS);
+    const state = issueGitHubLinkState(context, userId, expiresAt);
+    return jsonWithSchema(context, startGitHubLinkResponseSchema, {
+      authorize_url: githubAuthorizeUrl(client, redirectUri, state),
+      expires_at: expiresAt.toISOString(),
+    });
+  });
+
+  apiRoute(router, "githubLinkCallback", async (context) => {
+    const caller = context.get("caller");
+    const body = await parseJsonBody(context, githubLinkCallbackRequestSchema);
+    const userId = await mapped(() => deps.service.personFor(caller));
+    if (!consumeGitHubLinkState(context, body.state, userId)) {
+      throw new ApiHttpError(400, "BAD_REQUEST", LINK_MESSAGES.expired);
+    }
+    const { client, redirectUri } = await githubClientFor(caller.ownerId);
+    let verified: Awaited<ReturnType<typeof exchangeGitHubCode>>;
+    try {
+      verified = await exchangeGitHubCode(client, body.code, redirectUri);
+    } catch (error) {
+      if (error instanceof GitHubOAuthRejectedError) {
+        deps.logger?.warn("GitHub link refused by GitHub", {
+          reason: error.message,
+        });
+        throw new ApiHttpError(400, "BAD_REQUEST", LINK_MESSAGES.expired);
+      }
+      if (error instanceof GitHubOAuthUnavailableError) {
+        deps.logger?.warn("GitHub link could not reach GitHub", {
+          reason: error.message,
+        });
+        throw new ApiHttpError(
+          503,
+          "BACKEND_UNAVAILABLE",
+          "GitHub could not be reached, try again later",
+          true,
+        );
+      }
+      throw error;
+    }
+    const linked = await mapped(() =>
+      deps.service.linkGitHubAccount(caller, verified),
+    );
+    deps.logger?.info("GitHub account linked", {
+      user_id: linked.linked_account.user_id,
+      linked_account_id: linked.linked_account.id,
+    });
+    return jsonWithSchema(
+      context,
+      githubLinkCallbackResponseSchema,
       linked,
       201,
     );

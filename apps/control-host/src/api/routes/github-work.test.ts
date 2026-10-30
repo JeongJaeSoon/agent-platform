@@ -9,22 +9,28 @@ import {
   githubWorkflowRunSchema,
   rerunWorkflowResponseSchema,
   type SessionScope,
+  sessionGitHubAttributionSchema,
 } from "@werft-ai/contracts";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
   createGitHubGate,
   createGitHubWorkService,
+  createSessionAttributionService,
   type GitHubConnection,
   type GitHubDispatchRecord,
   type GitHubGateReceipt,
+  type SessionAttributionRecord,
   type SessionCatalog,
 } from "@werft-ai/platform";
 import { type FakeGitHub, startFakeGitHub } from "@werft-ai/testkit";
 import { createGitHubConnection } from "../forge-github.ts";
 import { hashApiKey } from "../keys.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
-import { registerGitHubWorkRoutes } from "./github-work.ts";
+import {
+  registerGitHubWorkRoutes,
+  registerSessionAttributionRoutes,
+} from "./github-work.ts";
 
 const createApiApp = recordRouteErrors("routes/github-work.test.ts");
 
@@ -588,5 +594,93 @@ describe("GitHub work routes", () => {
       ).status,
     ).toBe(413);
     expect(target.receipts).toEqual([]);
+  });
+});
+
+describe("GET /v1/sessions/{id}/github/attribution", () => {
+  const OTHER_OWNERS = "22222222-2222-4222-8222-222222222222";
+  const DOWN = "33333333-3333-4333-8333-333333333333";
+  const records: Record<string, SessionAttributionRecord> = {
+    [SESSION]: {
+      ownerId: "owner-a",
+      trigger: "personal_key",
+      agentId: AGENT,
+      agentReleaseId: RELEASE,
+      starter: { userId: "user-1", github: { id: "583231", login: "octocat" } },
+    },
+    [OTHER_OWNERS]: {
+      ownerId: "owner-b",
+      trigger: "web",
+      agentId: null,
+      agentReleaseId: null,
+      starter: null,
+    },
+  };
+  const api = createApiApp({
+    authMode: "api-key",
+    keyStore: {
+      async find(hash) {
+        const key = ["attr_reader", "attr_none"].find((candidate) =>
+          Buffer.from(hash).equals(Buffer.from(hashApiKey(candidate))),
+        );
+        return key
+          ? {
+              id: `key-${key}`,
+              ownerId: "owner-a",
+              workspaceId: null,
+              kind: "operator" as const,
+              createdByUserId: null,
+              creatorRole: null,
+              scopes: key === "attr_reader" ? ["sessions:read"] : [],
+            }
+          : null;
+      },
+    },
+    registerRoutes: (router) =>
+      registerSessionAttributionRoutes(
+        router,
+        createSessionAttributionService({
+          authorization: createAuthorizationPolicy(),
+          store: {
+            attribution: async (sessionId) => {
+              if (sessionId === DOWN) {
+                throw Object.assign(new Error("connection refused"), {
+                  code: "ECONNREFUSED",
+                });
+              }
+              return records[sessionId] ?? null;
+            },
+          },
+        }),
+      ),
+  });
+  const read = async (session: string, key?: string) => {
+    const response = await api.request(
+      `/v1/sessions/${session}/github/attribution`,
+      key === undefined ? {} : { headers: { Authorization: `Bearer ${key}` } },
+    );
+    const text = await response.text();
+    return { status: response.status, json: text ? JSON.parse(text) : null };
+  };
+
+  test("names the trigger and the linked starter's login", async () => {
+    const answer = await read(SESSION.toUpperCase(), "attr_reader");
+    expect(answer.status).toBe(200);
+    expect(sessionGitHubAttributionSchema.parse(answer.json)).toEqual({
+      trigger: "personal_key",
+      attribution: "co_author",
+      login: "octocat",
+    });
+  });
+
+  test("another owner's session or none is 404; no scope 403; no key 401; a store outage 503", async () => {
+    expect((await read(OTHER_OWNERS, "attr_reader")).status).toBe(404);
+    expect(
+      (await read("44444444-4444-4444-8444-444444444444", "attr_reader"))
+        .status,
+    ).toBe(404);
+    expect((await read(SESSION, "attr_none")).status).toBe(403);
+    expect((await read(SESSION)).status).toBe(401);
+    expect((await read(DOWN, "attr_reader")).status).toBe(503);
   });
 });

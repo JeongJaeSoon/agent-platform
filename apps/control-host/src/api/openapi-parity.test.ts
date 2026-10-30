@@ -8,6 +8,7 @@ import type {
   GitHubAppService,
   GitHubSettingsService,
   GitHubWorkService,
+  SessionAttributionService,
   IdentityStore,
   InstallationProfileService,
   InterruptService,
@@ -45,7 +46,10 @@ import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerGitHubAppRoutes } from "./routes/github-app.ts";
 import { registerGitHubSettingsRoutes } from "./routes/github-settings.ts";
-import { registerGitHubWorkRoutes } from "./routes/github-work.ts";
+import {
+  registerGitHubWorkRoutes,
+  registerSessionAttributionRoutes,
+} from "./routes/github-work.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
 import {
   registerInviteRoutes,
@@ -133,6 +137,7 @@ function apiApp() {
       registerLinkedAccountRoutes(router, {
         service: {} as LinkedAccountService,
         slack: null,
+        github: { oauth: { client: async () => null }, redirectUri: null },
       });
       registerApiKeyRoutes(router, {} as ApiKeyService);
       registerTeamRoutes(router, {} as TeamService, {} as AgentAdminService);
@@ -151,6 +156,7 @@ function apiApp() {
       registerGitHubAppRoutes(router, {} as GitHubAppService);
       registerGitHubSettingsRoutes(router, {} as GitHubSettingsService);
       registerGitHubWorkRoutes(router, {} as GitHubWorkService);
+      registerSessionAttributionRoutes(router, {} as SessionAttributionService);
       registerSlackAppRoutes(router, {
         apps: {} as SlackAppService,
         secrets: {} as SlackSecretService,

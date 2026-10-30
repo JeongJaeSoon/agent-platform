@@ -6,6 +6,7 @@ import {
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import type {
+  GitHubOAuthStore,
   GitHubSettingsStore,
   GitHubWorkspaceSettings,
 } from "../ports/github-settings.ts";
@@ -48,7 +49,25 @@ function apiKey(): Caller {
   );
 }
 
-function harness() {
+const CALLBACK = "https://console.example.com/settings/linked-accounts/github";
+
+function harness(
+  options: { authorApp?: boolean; secretsOn?: boolean } = {},
+) {
+  const secrets: Array<{ workspaceId: string; secret: string }> = [];
+  const oauth: GitHubOAuthStore = {
+    status: async () => ({
+      authorApp: options.authorApp !== false,
+      clientId: options.authorApp === false ? null : "Iv23liClient",
+      clientSecretSet: secrets.length > 0,
+    }),
+    client: async () => null,
+    putClientSecret: async (workspaceId, secret) => {
+      if (options.authorApp === false) return { outcome: "no_author_app" };
+      secrets.push({ workspaceId, secret });
+      return { outcome: "stored" };
+    },
+  };
   let settings: GitHubWorkspaceSettings = {
     ceiling: GITHUB_CEILING_NONE,
     revision: 0,
@@ -79,8 +98,12 @@ function harness() {
   const service = createGitHubSettingsService({
     authorization: createAuthorizationPolicy(),
     store,
+    oauth,
+    callbackUrl: CALLBACK,
+    secretsOn: options.secretsOn ?? true,
+    newId: () => "019a0000-0000-7000-8000-0000000000aa",
   });
-  return { service, puts };
+  return { service, puts, secrets };
 }
 
 async function refusal(promise: Promise<unknown>) {
@@ -114,6 +137,11 @@ describe("GitHub settings service", () => {
         checks: 0,
         issues: 0,
         review: 1,
+      },
+      oauth: {
+        client_id: "Iv23liClient",
+        client_secret_set: false,
+        callback_url: CALLBACK,
       },
       apps: {
         author: { permissions: { contents: "write", actions: "write" } },
@@ -214,5 +242,51 @@ describe("GitHub settings service", () => {
         )
       ).code,
     ).toBe("REVISION_CONFLICT");
+  });
+});
+
+// Every refusal comes before the body, so these never hold a client secret.
+describe("refusing the OAuth client secret", () => {
+  const unread = async (): Promise<never> => {
+    throw new Error("the body was read");
+  };
+
+  test("a member, an API key, an owner off the web or another workspace", async () => {
+    const { service, secrets } = harness();
+    for (const [caller, workspaceId, code] of [
+      [user("member"), WORKSPACE, "FORBIDDEN"],
+      [apiKey(), WORKSPACE, "FORBIDDEN"],
+      [user("owner", { surface: "api" }), WORKSPACE, "FORBIDDEN"],
+      [user("owner"), OTHER, "NOT_FOUND"],
+    ] as const) {
+      expect(
+        (await refusal(service.putOAuthClientSecret(caller, workspaceId, unread)))
+          .code,
+      ).toBe(code);
+    }
+    expect(secrets).toEqual([]);
+  });
+
+  test("no author App is GITHUB_LINK_NOT_CONFIGURED", async () => {
+    const { service } = harness({ authorApp: false });
+    expect(
+      await refusal(
+        service.putOAuthClientSecret(user("admin"), WORKSPACE, unread),
+      ),
+    ).toEqual({
+      code: "GITHUB_LINK_NOT_CONFIGURED",
+      details: { reason_code: "no_author_app" },
+    });
+  });
+
+  test("the secret store off is BACKEND_UNAVAILABLE", async () => {
+    const { service } = harness({ secretsOn: false });
+    expect(
+      (
+        await refusal(
+          service.putOAuthClientSecret(user("owner"), WORKSPACE, unread),
+        )
+      ).code,
+    ).toBe("BACKEND_UNAVAILABLE");
   });
 });

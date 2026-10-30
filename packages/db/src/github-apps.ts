@@ -17,7 +17,12 @@ import {
 import { and, eq, sql } from "drizzle-orm";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
-import { githubApps, receipts, workspaces } from "./schema.ts";
+import {
+  githubApps,
+  githubWorkspaceSettings,
+  receipts,
+  workspaces,
+} from "./schema.ts";
 import {
   createPostgresSecretStore,
   deleteSecretInTx,
@@ -33,6 +38,26 @@ const keySlot = (row: Pick<Row, "id" | "workspaceId">): SecretSlot => ({
   owner: { kind: "github_app", id: row.id },
   purpose: "github_app_private_key",
 });
+
+/** The author App's OAuth client secret, for linking people's accounts. */
+export const oauthSecretSlot = (
+  row: Pick<Row, "id" | "workspaceId">,
+): SecretSlot => ({
+  workspaceId: row.workspaceId,
+  owner: { kind: "github_app", id: row.id },
+  purpose: "github_oauth_client_secret",
+});
+
+// The secret belongs to the App it was made for: gone with the App, or once
+// another App replaces it.
+async function dropOAuthSecret(tx: Database, row: Row) {
+  if (row.role !== "author") return;
+  await deleteSecretInTx(tx, oauthSecretSlot(row));
+  await tx
+    .update(githubWorkspaceSettings)
+    .set({ oauthClientSecretSet: false, updatedAt: DB_NOW })
+    .where(eq(githubWorkspaceSettings.workspaceId, row.workspaceId));
+}
 
 function receiptRow(
   audit: SecretAudit,
@@ -65,7 +90,7 @@ function receiptRow(
 const ofRole = (workspaceId: string, role: GitHubAppRole) =>
   and(eq(githubApps.workspaceId, workspaceId), eq(githubApps.role, role));
 
-async function lockWorkspace(tx: Database, workspaceId: string) {
+export async function lockGitHubApps(tx: Database, workspaceId: string) {
   await tx.execute(
     sql`SELECT pg_advisory_xact_lock(hashtext(${`github_apps:${workspaceId}`}))`,
   );
@@ -93,6 +118,7 @@ async function recordOf(
     htmlUrl: row.htmlUrl,
     permissions: permissionsOf(row.permissions),
     permissionsCheckedAt: row.permissionsCheckedAt,
+    clientId: row.clientId,
     apiBase: row.apiBase,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -124,7 +150,7 @@ export function createPostgresGitHubAppStore(
           .from(workspaces)
           .where(eq(workspaces.id, workspaceId));
         if (!workspace) return { outcome: "workspace_not_found" };
-        await lockWorkspace(tx, workspaceId);
+        await lockGitHubApps(tx, workspaceId);
         const fields = {
           appId: app.appId,
           slug: app.slug,
@@ -133,11 +159,16 @@ export function createPostgresGitHubAppStore(
           apiBase: app.apiBase,
           permissions: app.permissions,
           permissionsCheckedAt: DB_NOW,
+          clientId: app.clientId,
         };
         const [current] = await tx
           .select()
           .from(githubApps)
           .where(ofRole(workspaceId, role));
+        // A new key for the same App keeps its OAuth client secret.
+        if (current && current.appId !== app.appId) {
+          await dropOAuthSecret(tx, current);
+        }
         const [row] = current
           ? await tx
               .update(githubApps)
@@ -185,13 +216,14 @@ export function createPostgresGitHubAppStore(
       return db.transaction(async (tx) => {
         const refused = await secretAuditRefusal(tx, workspaceId, audit);
         if (refused) return { outcome: refused };
-        await lockWorkspace(tx, workspaceId);
+        await lockGitHubApps(tx, workspaceId);
         const [row] = await tx
           .delete(githubApps)
           .where(ofRole(workspaceId, role))
           .returning();
         if (!row) return { outcome: "not_found" };
         await deleteSecretInTx(tx, keySlot(row));
+        await dropOAuthSecret(tx, row);
         await tx
           .insert(receipts)
           .values(
@@ -207,10 +239,14 @@ export function createPostgresGitHubAppStore(
       });
     },
 
-    async recordPermissions(id, permissions) {
+    async recordPermissions(id, permissions, clientId) {
       await db
         .update(githubApps)
-        .set({ permissions, permissionsCheckedAt: DB_NOW })
+        .set({
+          permissions,
+          permissionsCheckedAt: DB_NOW,
+          ...(clientId === undefined ? {} : { clientId }),
+        })
         .where(eq(githubApps.id, id));
     },
 

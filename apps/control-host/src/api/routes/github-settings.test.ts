@@ -102,7 +102,7 @@ function memoryStore() {
   return { store, writes, held: () => held };
 }
 
-function appWith() {
+function appWith(options: { authorApp?: boolean; secretsOn?: boolean } = {}) {
   const memory = memoryStore();
   const app = createApiApp({
     authMode: "api-key",
@@ -114,6 +114,17 @@ function appWith() {
         createGitHubSettingsService({
           authorization: createAuthorizationPolicy({}),
           store: memory.store,
+          oauth: {
+            status: async () => ({
+              authorApp: options.authorApp ?? false,
+              clientId: null,
+              clientSecretSet: false,
+            }),
+            client: async () => null,
+            putClientSecret: async () => ({ outcome: "no_author_app" }),
+          },
+          callbackUrl: null,
+          secretsOn: options.secretsOn ?? true,
         }),
       ),
   });
@@ -124,10 +135,11 @@ function appWith() {
       key?: boolean;
       body?: unknown;
       workspaceId?: string;
+      path?: string;
     } = {},
   ) => {
     const response = await app.request(
-      `/v1/workspaces/${request.workspaceId ?? WORKSPACE}/github-settings`,
+      `/v1/workspaces/${request.workspaceId ?? WORKSPACE}/github-settings${request.path ?? ""}`,
       {
         method,
         headers: {
@@ -168,6 +180,7 @@ describe("the GitHub settings API", () => {
         issues: 0,
         review: 0,
       },
+      oauth: { client_id: null, client_secret_set: false, callback_url: null },
       apps: {
         author: { permissions: { contents: "write", actions: "write" } },
         reviewer: null,
@@ -270,5 +283,72 @@ describe("the GitHub settings API", () => {
     for (const method of ["GET", "PUT"] as const) {
       expect((await call(method)).status).toBe(401);
     }
+  });
+});
+
+// Each refusal here comes before a client secret would be read, so no
+// request carries one.
+describe("PUT the GitHub OAuth client secret", () => {
+  const path = "/oauth-client-secret";
+
+  test("without an author App it is 409 GITHUB_LINK_NOT_CONFIGURED", async () => {
+    const { call } = appWith();
+    const response = await call("PUT", {
+      cookie: cookieFor("owner"),
+      path,
+      body: {},
+    });
+    expect(response.status).toBe(409);
+    expect(code(response.json)).toMatchObject({
+      code: "GITHUB_LINK_NOT_CONFIGURED",
+      details: { reason_code: "no_author_app" },
+    });
+  });
+
+  test("a member is 403, an API key 403, another workspace 404, no login 401", async () => {
+    const { call } = appWith({ authorApp: true });
+    expect(
+      (await call("PUT", { cookie: cookieFor("member"), path, body: {} }))
+        .status,
+    ).toBe(403);
+    expect((await call("PUT", { key: true, path, body: {} })).status).toBe(403);
+    expect(
+      (
+        await call("PUT", {
+          cookie: cookieFor("owner", OTHER_WORKSPACE),
+          path,
+          body: {},
+        })
+      ).status,
+    ).toBe(404);
+    expect((await call("PUT", { path, body: {} })).status).toBe(401);
+  });
+
+  test("a body without a secret is 400 and an oversized one 413", async () => {
+    const { call } = appWith({ authorApp: true });
+    const owner = cookieFor("owner");
+    expect((await call("PUT", { cookie: owner, path, body: {} })).status).toBe(
+      400,
+    );
+    expect(
+      (
+        await call("PUT", {
+          cookie: owner,
+          path,
+          body: { pad: "a".repeat(REQUEST_BODY_MAX_BYTES) },
+        })
+      ).status,
+    ).toBe(413);
+  });
+
+  test("with the secret store off it is 503", async () => {
+    const { call } = appWith({ authorApp: true, secretsOn: false });
+    const response = await call("PUT", {
+      cookie: cookieFor("owner"),
+      path,
+      body: {},
+    });
+    expect(response.status).toBe(503);
+    expect(code(response.json).code).toBe("BACKEND_UNAVAILABLE");
   });
 });

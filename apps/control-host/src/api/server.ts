@@ -12,6 +12,7 @@ import {
   createPostgresDecisionLog,
   createPostgresGitHubAppStore,
   createPostgresGitHubGateStore,
+  createPostgresGitHubOAuthStore,
   createPostgresGitHubSettingsStore,
   createPostgresInstallationProfileStore,
   createPostgresInviteStore,
@@ -23,6 +24,7 @@ import {
   createPostgresPushRequests,
   createPostgresSecretStore,
   createPostgresSessionControl,
+  createPostgresSessionAttributionStore,
   createPostgresSessionReader,
   createPostgresSessionShareStore,
   createPostgresSessionTitleStore,
@@ -60,6 +62,7 @@ import {
   createGitHubGate,
   createGitHubSettingsService,
   createGitHubWorkService,
+  createSessionAttributionService,
   createInstallationProfileService,
   createInterruptService,
   createInviteService,
@@ -163,7 +166,10 @@ import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerGitHubAppRoutes } from "./routes/github-app.ts";
 import { registerGitHubSettingsRoutes } from "./routes/github-settings.ts";
-import { registerGitHubWorkRoutes } from "./routes/github-work.ts";
+import {
+  registerGitHubWorkRoutes,
+  registerSessionAttributionRoutes,
+} from "./routes/github-work.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
 import {
   registerInviteRoutes,
@@ -197,6 +203,7 @@ import {
   slackApiUrlFrom,
   slackEventsPublicUrlFrom,
 } from "./slack-config.ts";
+import { githubCallbackUrl } from "./github-link.ts";
 import { signInWithSlackOff, slackOidcSettingsFromEnv } from "./slack-link.ts";
 
 const authMode = process.env.AUTH_MODE;
@@ -708,10 +715,16 @@ const githubWork = createGitHubWorkService({
   gate: github,
   store: githubGateStore,
 });
+const githubOAuth = createPostgresGitHubOAuthStore(db, secretKey);
+const githubCallback = githubCallbackUrl(consoleOrigin);
 const githubSettings = createGitHubSettingsService({
   authorization,
   store: githubSettingsStore,
+  oauth: githubOAuth,
+  callbackUrl: githubCallback,
+  secretsOn: secretKey !== null,
 });
+const sessionAttribution = createPostgresSessionAttributionStore(db);
 const pushStore = createPostgresPushRequests(db);
 const pushRequests = createPushRequestService({
   authorization,
@@ -725,6 +738,9 @@ const pullRequests = createPullRequestService({
   catalog,
   gate: github,
   redact: sanitizeText,
+  attribution: sessionAttribution,
+  consoleOrigin,
+  logger,
 });
 const pushExecutor = createPushExecutor({
   store: pushStore,
@@ -760,6 +776,7 @@ const workers = createWorkerGateway({
     : { checkpointProtocol: checkpoints.protocol }),
   pending: createPostgresWorkerPendingStore(db),
   github,
+  attribution: { store: sessionAttribution, consoleOrigin },
   mcp: createPostgresMcpEgressStore(db),
   onMcpReceiptError: (error) =>
     logger.error("MCP refusal receipt not recorded", {
@@ -899,9 +916,17 @@ const app = createApiApp({
     registerPushRequestRoutes(router, pushRequests);
     registerPullRequestRoutes(router, pullRequests);
     registerGitHubWorkRoutes(router, githubWork);
+    registerSessionAttributionRoutes(
+      router,
+      createSessionAttributionService({
+        authorization,
+        store: sessionAttribution,
+      }),
+    );
     registerInterruptRoutes(router, interrupts);
     registerLinkedAccountRoutes(router, {
       service: linkedAccounts,
+      github: { oauth: githubOAuth, redirectUri: githubCallback },
       slack:
         slackOidc === null
           ? null

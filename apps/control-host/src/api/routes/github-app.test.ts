@@ -350,6 +350,7 @@ describe("the GitHub App API", () => {
         slug: "reviewer",
         name: "Reviewer",
         htmlUrl: "https://github.com/apps/reviewer",
+        clientId: null,
         permissions: {},
         apiBase: github.origin,
       },
