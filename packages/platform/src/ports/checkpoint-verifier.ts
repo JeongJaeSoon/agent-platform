@@ -1,6 +1,7 @@
 import type { CheckpointRef } from "@werft-ai/contracts";
 import {
   type CheckpointOutput,
+  type RuntimeFingerprint,
   storedOutputs,
   type TranscriptSizeProblem,
   transcriptBytes,
@@ -26,9 +27,11 @@ export type CheckpointVerdict =
   // `transcriptBytes`: the manifest's transcript total, recorded on its row.
   // `outputs`: the stored output objects it names, inherited ones included;
   // finalize records them beside its row.
+  // `runtime`: the manifest's fingerprint, recorded on its row.
   | {
       status: "verified";
       outputs?: readonly CheckpointOutputObject[];
+      runtime?: RuntimeFingerprint;
       transcriptBytes?: number;
       versionsHeld?: boolean;
     }
@@ -111,14 +114,16 @@ export function serviceCheckpointVerifier(service: {
         transcriptParts(verdict.manifest.transcripts),
       );
       const outputs = checkpointOutputObjects(verdict.manifest.outputs);
+      const { runtime } = verdict.manifest;
       return verdict.versionsHeld === true
         ? {
             status: "verified",
             outputs,
+            runtime,
             transcriptBytes: bytes,
             versionsHeld: true,
           }
-        : { status: "verified", outputs, transcriptBytes: bytes };
+        : { status: "verified", outputs, runtime, transcriptBytes: bytes };
     },
   };
 }

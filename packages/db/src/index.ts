@@ -6,6 +6,10 @@ export * from "./agents.ts";
 export * from "./api-keys.ts";
 export * from "./authz-decisions.ts";
 export * from "./catalog-authority.ts";
+export {
+  type RuntimeFingerprint,
+  readPointerRuntime,
+} from "./checkpoint-runtime.ts";
 export * from "./checkpoint-store.ts";
 export * from "./close-control.ts";
 export * from "./control-unit-of-work.ts";
