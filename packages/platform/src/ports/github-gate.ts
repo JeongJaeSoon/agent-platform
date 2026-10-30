@@ -132,6 +132,8 @@ export interface GitHubGrant {
   /** For git over HTTP (clone, push). */
   readonly gitCredential: GitCredential;
   readonly api: GitHubApi;
+  /** The rate-limit unit `api` spends from: the connection's `quotaKey`. */
+  unit(): Promise<string>;
   /** dispatch and rerun: the allow-list entry that matched. */
   readonly allowedBy: AgentGitHub["actions_allow"][number] | null;
   /** What the receipts of the work name. */

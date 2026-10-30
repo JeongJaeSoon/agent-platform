@@ -239,6 +239,7 @@ function harness(
         permissions: { contents: "read", pull_requests: "write" },
         gitCredential: { username: "x-access-token", password: "issued" },
         api: forge,
+        unit: async () => "app:test:1",
         allowedBy: null,
         context: {
           ownerId: "owner-a",

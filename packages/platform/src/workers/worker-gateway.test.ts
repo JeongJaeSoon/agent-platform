@@ -2308,6 +2308,7 @@ describe("authorizeEgress through a forge", () => {
           permissions: { contents: "read" },
           gitCredential: issued,
           api: {} as GitHubGrant["api"],
+          unit: async () => "app:test:1",
           allowedBy: null,
           context: {
             ownerId: "owner",

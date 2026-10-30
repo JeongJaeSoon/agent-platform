@@ -112,8 +112,10 @@ integration("postgres session outcomes and the outcome refresher", () => {
       repositoryId,
       checkpointRevision: 1,
     });
+    repositoryOf.set(id, repositoryId);
     return id;
   }
+  const repositoryOf = new Map<string, string>();
 
   let nextNumber = 100;
   async function outcome(
@@ -206,7 +208,14 @@ integration("postgres session outcomes and the outcome refresher", () => {
         ),
       },
       gate: {
-        grant: input.grant ?? (async () => ({ api }) as unknown as GitHubGrant),
+        // The grant's connection is the one the replica's own stub serves.
+        grant:
+          input.grant ??
+          (async ({ sessionId }) =>
+            ({
+              api,
+              unit: () => input.unitOf(repositoryOf.get(sessionId) ?? ""),
+            }) as unknown as GitHubGrant),
       },
       connections: (repositoryId) =>
         input.repositories.includes(repositoryId)
@@ -592,28 +601,40 @@ integration("postgres session outcomes and the outcome refresher", () => {
     });
   });
 
-  test("a grant slower than the lease sends no read", async () => {
-    const repo = repository();
-    const row = await outcome(repo);
-    const { refresher, calls } = replica({
-      repositories: [repo],
-      unitOf: async () => `app:test:${repo}`,
-      read: states(new Map()),
-      leaseMs: 200,
-      grant: async () => {
-        await Bun.sleep(300);
-        return {
-          api: { getPullRequest: async () => ({}) },
-        } as unknown as GitHubGrant;
-      },
-    });
-    await refresher.runOnce();
-    expect(calls).toEqual([]);
-    expect(await rowOf(row.id)).toMatchObject({
-      leaseToken: null,
-      stateCheckedAt: null,
-      checkError: null,
-    });
+  test("a grant or unit lookup slower than the lease sends no read", async () => {
+    for (const slow of ["grant", "unit"] as const) {
+      const repo = repository();
+      const row = await outcome(repo);
+      const unit = `app:test:${repo}`;
+      let reads = 0;
+      const { refresher } = replica({
+        repositories: [repo],
+        unitOf: async () => unit,
+        read: states(new Map()),
+        leaseMs: 200,
+        grant: async () => {
+          if (slow === "grant") await Bun.sleep(300);
+          return {
+            api: {
+              getPullRequest: async () => {
+                reads += 1;
+                return { pullRequest: answer(1, "open"), rateLimit: NO_LIMIT };
+              },
+            },
+            unit: async () => {
+              if (slow === "unit") await Bun.sleep(300);
+              return unit;
+            },
+          } as unknown as GitHubGrant;
+        },
+      });
+      await refresher.runOnce();
+      expect([slow, reads]).toEqual([slow, 0]);
+      expect(await rowOf(row.id)).toMatchObject({
+        leaseToken: null,
+        stateCheckedAt: null,
+      });
+    }
   });
 
   test("an App whose pinned installation is gone gets not_found when its token is refused; installed, forge_failed", async () => {
@@ -645,26 +666,31 @@ integration("postgres session outcomes and the outcome refresher", () => {
     expect((await quotaOf(`app:test:${gone}`))?.used).toBe(1);
   });
 
-  test("a row whose connection moved to another unit after the claim goes back unread", async () => {
+  test("a read whose granted connection spends from another unit than the claim goes back unread", async () => {
     const repo = repository();
     const row = await outcome(repo);
     const before = `app:test:${randomUUID()}`;
     const after = `app:test:${randomUUID()}`;
-    let unit = before;
-    const { refresher, calls } = replica({
+    let reads = 0;
+    const { refresher } = replica({
       repositories: [repo],
-      unitOf: async () => unit,
+      // Claimed under A, and the repository's connection is A again by the
+      // time the read would go: only the grant's own connection tells.
+      unitOf: async () => before,
       read: states(new Map()),
-      // The App is replaced while the grant is issued.
-      grant: async () => {
-        unit = after;
-        return {
-          api: { getPullRequest: async () => ({}) },
-        } as unknown as GitHubGrant;
-      },
+      grant: async () =>
+        ({
+          api: {
+            getPullRequest: async () => {
+              reads += 1;
+              return { pullRequest: answer(1, "open"), rateLimit: NO_LIMIT };
+            },
+          },
+          unit: async () => after,
+        }) as unknown as GitHubGrant,
     });
     await refresher.runOnce();
-    expect(calls).toEqual([]);
+    expect(reads).toBe(0);
     expect(await rowOf(row.id)).toMatchObject({
       leaseToken: null,
       stateCheckedAt: null,

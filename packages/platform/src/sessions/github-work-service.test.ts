@@ -111,6 +111,7 @@ function harness(
         permissions: { actions: "write" },
         gitCredential: { username: "x-access-token", password: "issued" },
         api,
+        unit: async () => "app:test:1",
         allowedBy: { workflow: "ci.yml" },
         context: {
           ownerId: "owner-a",

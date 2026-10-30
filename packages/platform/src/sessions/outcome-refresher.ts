@@ -171,16 +171,13 @@ export function createOutcomeRefresher(deps: {
       }
       throw error;
     }
-    // A slow grant can outlast the lease; another replica may read it now.
-    if (grant === null || !leased()) return release;
+    if (grant === null) return release;
     // The App was replaced, or its installation moved, after the claim: this
     // read would spend from a unit other than the one that paid for it.
-    const { repo, connection } = reachOf(outcome.repositoryId);
-    const unit =
-      repo === null || connection === null
-        ? null
-        : await connection.quotaKey(repo).catch(() => null);
-    if (unit !== quotaKey) return release;
+    const unit = await grant.unit().catch(() => null);
+    // A slow grant or unit lookup can outlast the lease; another replica may
+    // read the row by now.
+    if (unit !== quotaKey || !leased()) return release;
     try {
       const { pullRequest, rateLimit } = await grant.api.getPullRequest(
         outcome.number,

@@ -91,6 +91,7 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
         permissions: { actions: "write" },
         gitCredential: { username: "x", password: "y" },
         api,
+        unit: async () => "app:test:1",
         allowedBy: { workflow: "ci.yml" },
         context: {
           ownerId: "owner-a",
