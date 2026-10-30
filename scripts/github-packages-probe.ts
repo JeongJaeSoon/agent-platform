@@ -309,7 +309,13 @@ try {
 }
 
 async function probeAll() {
-  const jwt = appJwt();
+  let jwt: string;
+  try {
+    jwt = appJwt();
+  } catch (error) {
+    emit("M0", "app-jwt", "ERR", "-", errorName(error));
+    throw error;
+  }
   for (const [index, set] of TOKEN_SETS.entries())
     await mint(`M${index + 1}`, set, jwt);
   if (full) await probePackages();
