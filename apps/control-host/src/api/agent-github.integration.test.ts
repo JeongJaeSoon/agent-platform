@@ -416,12 +416,14 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
         url: "https://github.com/acme/pat-app",
         available: false,
         reason: "app_required",
+        installed: { author: null, reviewer: null },
       },
       {
         id: "sample-app",
         url: "https://github.com/acme/sample-app",
         available: true,
         reason: null,
+        installed: { author: null, reviewer: null },
       },
     ]);
     expect(body.options.features.actions).toEqual({

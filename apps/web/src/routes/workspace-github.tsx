@@ -7,6 +7,8 @@ import {
 } from "@werft-ai/client";
 import type {
   GetGitHubAppResponse,
+  GitHubAppPermissions,
+  GitHubAppRole,
   PutGitHubAppRequest,
   PutGitHubAppResponse,
 } from "@werft-ai/contracts";
@@ -27,7 +29,14 @@ import {
   SettingRow,
   Skeleton,
 } from "@werft-ai/ui";
-import { type FormEvent, useEffect, useId, useRef, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { scopedKey } from "../api/queries.ts";
 import {
   permissionReason,
@@ -53,8 +62,8 @@ const ACTION = "min-w-12";
 // GitHub's own limit is far below this; the server refuses past it anyway.
 const KEY_FILE_MAX_BYTES = 16_384;
 
-const appKey = (client: ApiClient, workspaceId: string) =>
-  scopedKey(client, "workspace", workspaceId, "github-app");
+const appKey = (client: ApiClient, workspaceId: string, role: GitHubAppRole) =>
+  scopedKey(client, "workspace", workspaceId, "github-apps", role);
 
 const reasonOf = (error: ApiError): unknown =>
   (error.details as { reason_code?: unknown } | null)?.reason_code;
@@ -71,13 +80,29 @@ export function WorkspaceGitHubScreen() {
           <Notice>{outcome.text}</Notice>
         )
       ) : null}
-      <GitHubApp onOutcome={setOutcome} />
+      <GitHubApp appRole="author" onOutcome={setOutcome}>
+        <GitHubApp appRole="reviewer" onOutcome={setOutcome} />
+      </GitHubApp>
     </WorkspacePage>
   );
 }
 
-function GitHubApp({ onOutcome }: { readonly onOutcome: OnOutcome }) {
+/**
+ * One role's App. The author's page holds the rest of the screen, with
+ * `children` (the reviewer's card) right under its own card.
+ */
+function GitHubApp({
+  appRole,
+  onOutcome,
+  children,
+}: {
+  readonly appRole: GitHubAppRole;
+  readonly onOutcome: OnOutcome;
+  readonly children?: ReactNode;
+}) {
+  const author = appRole === "author";
   const { t, locale } = useI18n();
+  const deletedText = t(author ? "github.deleted" : "github.reviewer.deleted");
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   const role = useRole();
@@ -104,11 +129,11 @@ function GitHubApp({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   }, [editing]);
 
   const app = useQuery({
-    queryKey: appKey(client, workspaceId),
+    queryKey: appKey(client, workspaceId, appRole),
     queryFn: () =>
       unwrap(
-        client.GET("/v1/workspaces/{id}/github-app", {
-          params: { path: { id: workspaceId } },
+        client.GET("/v1/workspaces/{id}/github-apps/{role}", {
+          params: { path: { id: workspaceId, role: appRole } },
         }),
       ),
     enabled: workspaceId !== "" && canManage,
@@ -117,7 +142,9 @@ function GitHubApp({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   // The settings carry the App's permissions too.
   const refresh = () =>
     Promise.all([
-      queryClient.invalidateQueries({ queryKey: appKey(client, workspaceId) }),
+      queryClient.invalidateQueries({
+        queryKey: appKey(client, workspaceId, appRole),
+      }),
       queryClient.invalidateQueries({
         queryKey: githubSettingsKey(client, workspaceId),
       }),
@@ -129,13 +156,17 @@ function GitHubApp({ onOutcome }: { readonly onOutcome: OnOutcome }) {
       text:
         reason === "invalid_private_key"
           ? t("github.invalidKey")
-          : reason === "github_app_rejected"
-            ? t("github.rejected")
-            : reason === "github_unreachable"
-              ? t("github.saveUnreachable")
-              : storeOff(error)
-                ? t("workspace.tokenStoreUnavailable")
-                : refusalText(t, error, "workspace.manage", role),
+          : reason === "same_app"
+            ? t(author ? "github.sameAsReviewer" : "github.reviewer.sameApp")
+            : reason === "no_author_app"
+              ? t("github.reviewer.noAuthorApp")
+              : reason === "github_app_rejected"
+                ? t("github.rejected")
+                : reason === "github_unreachable"
+                  ? t("github.saveUnreachable")
+                  : storeOff(error)
+                    ? t("workspace.tokenStoreUnavailable")
+                    : refusalText(t, error, "workspace.manage", role),
     });
   };
 
@@ -145,15 +176,18 @@ function GitHubApp({ onOutcome }: { readonly onOutcome: OnOutcome }) {
       gcTime: 0,
       mutationFn: (body) =>
         unwrap(
-          client.PUT("/v1/workspaces/{id}/github-app", {
-            params: { path: { id: workspaceId } },
+          client.PUT("/v1/workspaces/{id}/github-apps/{role}", {
+            params: { path: { id: workspaceId, role: appRole } },
             body,
           }),
         ),
       onMutate: () => onOutcome(null),
       onSuccess: () => {
         setEditing(false);
-        onOutcome({ kind: "notice", text: t("github.saved") });
+        onOutcome({
+          kind: "notice",
+          text: t(author ? "github.saved" : "github.reviewer.saved"),
+        });
         // Not awaited: the reset that drops the key waits for this callback.
         void refresh();
       },
@@ -163,14 +197,14 @@ function GitHubApp({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   const remove = useMutation<unknown, ApiError>({
     mutationFn: () =>
       unwrap(
-        client.DELETE("/v1/workspaces/{id}/github-app", {
-          params: { path: { id: workspaceId } },
+        client.DELETE("/v1/workspaces/{id}/github-apps/{role}", {
+          params: { path: { id: workspaceId, role: appRole } },
         }),
       ),
     onMutate: () => onOutcome(null),
     onSuccess: async () => {
       setDeleting(false);
-      onOutcome({ kind: "notice", text: t("github.deleted") });
+      onOutcome({ kind: "notice", text: deletedText });
       await refresh();
     },
     onError: async (error) => {
@@ -179,7 +213,7 @@ function GitHubApp({ onOutcome }: { readonly onOutcome: OnOutcome }) {
       if (isApiError(error, "NOT_FOUND")) {
         const again = await app.refetch();
         if (again.data?.github_app === null) {
-          onOutcome({ kind: "notice", text: t("github.deleted") });
+          onOutcome({ kind: "notice", text: deletedText });
           return;
         }
       }
@@ -257,9 +291,11 @@ function GitHubApp({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   ) : (
     <>
       <SettingRow
-        title={registered?.name ?? t("github.app")}
+        title={
+          registered?.name ?? t(author ? "github.app" : "github.reviewer.app")
+        }
         badge={<AppBadge data={data} />}
-        description={appLine(data, t, locale)}
+        description={appLine(data, t, locale, appRole)}
         actions={
           editing ? undefined : (
             <>
@@ -361,6 +397,80 @@ function GitHubApp({ onOutcome }: { readonly onOutcome: OnOutcome }) {
     </>
   );
 
+  const confirm = (
+    <ConfirmDialog
+      open={deleting}
+      onOpenChange={setDeleting}
+      title={t(author ? "github.deleteTitle" : "github.reviewer.deleteTitle")}
+      consequence={t(
+        author ? "github.deleteHint" : "github.reviewer.deleteHint",
+      )}
+      confirmLabel={t("workspace.delete")}
+      cancelLabel={t("common.cancel")}
+      tone="danger"
+      busy={remove.isPending}
+      onConfirm={() => {
+        if (!remove.isPending) remove.mutate();
+      }}
+    />
+  );
+
+  if (!author) {
+    return (
+      <>
+        <SettingsCard
+          title={t("github.reviewer.title")}
+          description={t("github.reviewer.hint")}
+          rows={
+            <>
+              {appRows}
+              {canManage && registered
+                ? data?.repositories.map((repository) => (
+                    <SettingRow
+                      key={repository.id}
+                      title={repository.id}
+                      description={repository.url}
+                      badge={
+                        <InstallBadge data={data} repository={repository} />
+                      }
+                    />
+                  ))
+                : null}
+              {registered ? null : (
+                <SettingRow
+                  title={t("github.reviewer.permissionsTitle")}
+                  description={t("github.reviewer.permissions")}
+                />
+              )}
+              <SettingRow
+                title={t("github.reviewer.riskTitle")}
+                description={t("github.reviewer.risk")}
+              />
+              {canManage && registered ? (
+                <SettingRow
+                  title={t("github.reviewer.delete")}
+                  description={t("github.reviewer.deleteHint")}
+                  actions={
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className={`${ACTION} text-(color:--ap-tone-danger-fg)`}
+                      onClick={() => setDeleting(true)}
+                    >
+                      {t("workspace.delete")}
+                    </Button>
+                  }
+                />
+              ) : null}
+            </>
+          }
+        />
+        {confirm}
+      </>
+    );
+  }
+
   return (
     <>
       <SettingsCard
@@ -368,6 +478,7 @@ function GitHubApp({ onOutcome }: { readonly onOutcome: OnOutcome }) {
         description={t("github.appHint")}
         rows={appRows}
       />
+      {children}
       <GitHubAccess
         fresh={
           canManage && app.isSuccess
@@ -431,17 +542,7 @@ function GitHubApp({ onOutcome }: { readonly onOutcome: OnOutcome }) {
                     key={repository.id}
                     title={repository.id}
                     description={repository.url}
-                    badge={
-                      data.check?.state !== "ok" ? (
-                        <Badge>{t("github.unknown")}</Badge>
-                      ) : repository.installation_id === null ? (
-                        <Badge variant="amber">
-                          {t("github.notInstalled")}
-                        </Badge>
-                      ) : (
-                        <Badge variant="green">{t("github.installed")}</Badge>
-                      )
-                    }
+                    badge={<InstallBadge data={data} repository={repository} />}
                   />
                 ))
               ) : (
@@ -468,21 +569,46 @@ function GitHubApp({ onOutcome }: { readonly onOutcome: OnOutcome }) {
           </DangerZone>
         </>
       ) : null}
-      <ConfirmDialog
-        open={deleting}
-        onOpenChange={setDeleting}
-        title={t("github.deleteTitle")}
-        consequence={t("github.deleteHint")}
-        confirmLabel={t("workspace.delete")}
-        cancelLabel={t("common.cancel")}
-        tone="danger"
-        busy={remove.isPending}
-        onConfirm={() => {
-          if (!remove.isPending) remove.mutate();
-        }}
-      />
+      {confirm}
     </>
   );
+}
+
+function InstallBadge({
+  data,
+  repository,
+}: {
+  readonly data: GetGitHubAppResponse;
+  readonly repository: GetGitHubAppResponse["repositories"][number];
+}) {
+  const { t } = useI18n();
+  if (data.check?.state !== "ok") return <Badge>{t("github.unknown")}</Badge>;
+  if (repository.installation_id === null) {
+    return <Badge variant="amber">{t("github.notInstalled")}</Badge>;
+  }
+  if (
+    approvalPending(
+      data.github_app?.permissions,
+      repository.installation_permissions,
+    )
+  ) {
+    return <Badge variant="amber">{t("github.approvalPending")}</Badge>;
+  }
+  return <Badge variant="green">{t("github.installed")}</Badge>;
+}
+
+const RANK = { read: 1, write: 2, admin: 3 } as const;
+
+/** The App asks for more than the installation has accepted so far. */
+function approvalPending(
+  app: GitHubAppPermissions | null | undefined,
+  installation: GitHubAppPermissions | null | undefined,
+): boolean {
+  if (!app || !installation) return false;
+  return Object.entries(app).some(([name, level]) => {
+    const held = installation[name];
+    return held === undefined || RANK[level] > RANK[held];
+  });
 }
 
 function AppBadge({
@@ -502,9 +628,14 @@ function appLine(
   data: GetGitHubAppResponse | undefined,
   t: ReturnType<typeof useI18n>["t"],
   locale: ReturnType<typeof useI18n>["locale"],
+  role: GitHubAppRole,
 ): string {
   const app = data?.github_app;
-  if (!app) return t("github.unsetLine");
+  if (!app) {
+    return t(
+      role === "author" ? "github.unsetLine" : "github.reviewer.unsetLine",
+    );
+  }
   if (data.check?.state === "failed") {
     return t(
       data.check.reason_code === "github_rejected"

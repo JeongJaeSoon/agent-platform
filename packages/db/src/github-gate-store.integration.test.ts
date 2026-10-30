@@ -344,4 +344,46 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
       approvalOffRelease: null,
     });
   });
+
+  test("the opener of a pull request is the latest session that recorded it, within the owner", async () => {
+    const { workspaceId, userId } = await workspace();
+    const { agentId, releaseId } = await agent(workspaceId, {});
+    const first = await session(workspaceId, null, userId);
+    const latest = await session(workspaceId, releaseId, userId);
+    const stranger = await workspace();
+    const elsewhere = await session(stranger.workspaceId, null, null);
+    for (const [sessionId, ownerId, at] of [
+      [first, workspaceId, "2026-10-01T00:00:00Z"],
+      [latest, workspaceId, "2026-10-02T00:00:00Z"],
+      [elsewhere, stranger.workspaceId, "2026-10-03T00:00:00Z"],
+    ] as const) {
+      await pool.query(
+        `INSERT INTO pull_requests (session_id, url, owner_id, repository_id, number, created_at)
+         VALUES ($1, $2, $3, 'sample-app', 7, $4)`,
+        [
+          sessionId,
+          `https://github.com/acme/app/pull/7#${sessionId}`,
+          ownerId,
+          at,
+        ],
+      );
+    }
+    const store = createPostgresGitHubGateStore(db);
+    expect(await store.pullRequestOpener(workspaceId, "sample-app", 7)).toEqual(
+      { sessionId: latest, agentId },
+    );
+    await pool.query(
+      "UPDATE pull_requests SET created_at = now() WHERE session_id = $1",
+      [first],
+    );
+    expect(await store.pullRequestOpener(workspaceId, "sample-app", 7)).toEqual(
+      { sessionId: first, agentId: null },
+    );
+    expect(
+      await store.pullRequestOpener(workspaceId, "sample-app", 8),
+    ).toBeNull();
+    expect(
+      await store.pullRequestOpener(workspaceId, "other-app", 7),
+    ).toBeNull();
+  });
 });

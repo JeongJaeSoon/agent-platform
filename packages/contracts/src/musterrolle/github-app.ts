@@ -5,11 +5,26 @@ import {
   timestampSchema,
   userIdSchema,
 } from "../shared/index.ts";
-import { displayNameSchema } from "./workspaces.ts";
+import { githubAppRoleSchema } from "./github-settings.ts";
+import { displayNameSchema, workspaceParamsSchema } from "./workspaces.ts";
 
-// The workspace's author GitHub App, registered in the console. Catalog
-// repositories whose `auth` is `{ kind: github_app }` clone, push and open
-// pull requests with it. The private key goes in once and is never read back.
+// The workspace's GitHub Apps, registered in the console: the author App,
+// with which catalog repositories whose `auth` is `{ kind: github_app }`
+// clone, push and open pull requests, and an optional reviewer App that only
+// reviews. A private key goes in once and is never read back.
+
+export const githubAppRoleParamsSchema = workspaceParamsSchema
+  .extend({ role: githubAppRoleSchema })
+  .strict();
+
+/** `details.reason_code` of a refused `PUT …/github-apps/{role}` (409). */
+export const GITHUB_APP_CONFLICT_VALUES = [
+  // The other role holds the same App: GitHub refuses an approval from the
+  // App that opened the pull request.
+  "same_app",
+  // A reviewer App needs the author App first.
+  "no_author_app",
+] as const;
 
 export const GITHUB_APP_PRIVATE_KEY_MAX_LENGTH = 16_384;
 
@@ -99,6 +114,8 @@ export function githubAppWarnings(
 
 export const githubAppSchema = z
   .object({
+    /** Absent from servers before the reviewer App: the author. */
+    role: githubAppRoleSchema.optional(),
     app_id: githubAppIdSchema,
     slug: z.string().min(1),
     name: z.string().min(1),
@@ -141,6 +158,11 @@ export const githubAppRepositorySchema = z
     url: z.string().url(),
     /** Null while the App is not installed on the repository. */
     installation_id: z.number().int().positive().nullable(),
+    /**
+     * What that installation grants, as GitHub answered now. It trails the
+     * App's own permissions until an owner approves a raise on GitHub.
+     */
+    installation_permissions: githubAppPermissionsSchema.nullable().optional(),
   })
   .strict();
 
@@ -170,7 +192,7 @@ export const getGitHubAppResponseSchema = z
       ])
       .nullable(),
     installations: z.array(githubAppInstallationSchema),
-    /** Catalog repositories that use the registered App. */
+    /** Catalog repositories that use the registered Apps. */
     repositories: z.array(githubAppRepositorySchema),
   })
   .strict();
@@ -183,6 +205,7 @@ export const deleteGitHubAppResponseSchema = z
   .object({ receipt_id: receiptIdSchema })
   .strict();
 
+export type GitHubAppConflict = (typeof GITHUB_APP_CONFLICT_VALUES)[number];
 export type PutGitHubAppRequest = z.infer<typeof putGitHubAppRequestSchema>;
 export type GitHubApp = z.infer<typeof githubAppSchema>;
 export type GitHubAppInstallation = z.infer<typeof githubAppInstallationSchema>;

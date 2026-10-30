@@ -251,6 +251,16 @@ integration("the GitHub App on PostgreSQL", () => {
     const ws = await workspace();
     const owner = await person(ws, "owner");
     const reviewerKey = pemOf();
+    expect(
+      await store.put(ws, "reviewer", profile(51), reviewerKey, owner()),
+    ).toEqual({ outcome: "no_author_app" });
+    expect(await store.find(ws, "reviewer")).toBeNull();
+
+    const author = await store.put(ws, "author", profile(52), pemOf(), owner());
+    if (author.outcome !== "stored") throw new Error(author.outcome);
+    expect(
+      await store.put(ws, "reviewer", profile(52), pemOf(), owner()),
+    ).toEqual({ outcome: "same_app" });
     const reviewer = await store.put(
       ws,
       "reviewer",
@@ -259,16 +269,9 @@ integration("the GitHub App on PostgreSQL", () => {
       owner(),
     );
     if (reviewer.outcome !== "stored") throw new Error(reviewer.outcome);
-    expect(await store.find(ws, "author")).toBeNull();
     expect(
-      (await store.credentials("author")).some((app) => app.workspaceId === ws),
-    ).toBe(false);
-    expect(await store.delete(ws, "author", owner())).toEqual({
-      outcome: "not_found",
-    });
-
-    const author = await store.put(ws, "author", profile(52), pemOf(), owner());
-    if (author.outcome !== "stored") throw new Error(author.outcome);
+      await store.put(ws, "author", profile(51), pemOf(), owner()),
+    ).toEqual({ outcome: "same_app" });
     expect(author.app.id).not.toBe(reviewer.app.id);
     expect(
       (await store.credentials("author"))
@@ -320,6 +323,26 @@ integration("the GitHub App on PostgreSQL", () => {
       [randomUUID(), ws],
     );
     await expect(unknownRole).rejects.toThrow(/github_apps_role_check/);
+  });
+
+  test("one App put into both roles at once lands in one role only", async () => {
+    const store = createPostgresGitHubAppStore(db, key);
+    const ws = await workspace();
+    const owner = await person(ws, "owner");
+    await store.put(ws, "author", profile(61), pemOf(), owner());
+    const outcomes = await Promise.all([
+      store.put(ws, "author", profile(62), pemOf(), owner()),
+      store.put(ws, "reviewer", profile(62), pemOf(), owner()),
+    ]);
+    expect(outcomes.map((outcome) => outcome.outcome).sort()).toEqual([
+      "same_app",
+      "stored",
+    ]);
+    const rows = await db
+      .select({ role: githubApps.role, appId: githubApps.appId })
+      .from(githubApps)
+      .where(eq(githubApps.workspaceId, ws));
+    expect(rows.filter((row) => row.appId === 62)).toHaveLength(1);
   });
 
   // The key read can land after a delete that committed past the row read.

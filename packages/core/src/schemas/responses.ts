@@ -93,6 +93,7 @@ import {
   startGoogleLoginResponseSchema,
   startSlackInstallResponseSchema,
   startSlackLinkResponseSchema,
+  submitPullRequestReviewResponseSchema,
   teamChangeResponseSchema,
   teamDetailSchema,
   terminateSessionResponseSchema,
@@ -133,6 +134,10 @@ export const responseSchemas = {
   "GET /v1/workspaces/{id}/github-app": getGitHubAppResponseSchema,
   "PUT /v1/workspaces/{id}/github-app": putGitHubAppResponseSchema,
   "DELETE /v1/workspaces/{id}/github-app": deleteGitHubAppResponseSchema,
+  "GET /v1/workspaces/{id}/github-apps/{role}": getGitHubAppResponseSchema,
+  "PUT /v1/workspaces/{id}/github-apps/{role}": putGitHubAppResponseSchema,
+  "DELETE /v1/workspaces/{id}/github-apps/{role}":
+    deleteGitHubAppResponseSchema,
   "GET /v1/workspaces/{id}/github-settings": githubSettingsResponseSchema,
   "PUT /v1/workspaces/{id}/github-settings": githubSettingsResponseSchema,
   "DELETE /v1/workspaces/{id}/slack/apps/{app_id}":
@@ -194,6 +199,8 @@ export const responseSchemas = {
     githubWorkflowRunSchema,
   "POST /v1/sessions/{id}/github/workflow-runs/{run_id}/rerun":
     rerunWorkflowResponseSchema,
+  "POST /v1/sessions/{id}/github/pull-requests/{number}/reviews":
+    submitPullRequestReviewResponseSchema,
   "GET /v1/invites": listInvitesResponseSchema,
   "POST /v1/invites": createInviteResponseSchema,
   "POST /v1/invites/accept": acceptInviteResponseSchema,

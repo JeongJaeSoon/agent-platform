@@ -120,6 +120,31 @@ export const githubKo = {
   "github.ceiling.lowerItem":
     "{feature}(활성 릴리스에서 켠 에이전트 {count}개)",
   "github.ceiling.lowerConfirm": "낮추고 저장",
+  "github.approvalPending": "설치 승인 대기",
+  "github.sameAsReviewer":
+    "리뷰용 App으로 등록된 App입니다. 작성용 App은 다른 App이어야 합니다.",
+  "github.reviewer.title": "리뷰용 App (선택)",
+  "github.reviewer.hint":
+    "PR 승인 리뷰를 하려면 PR을 만드는 App과 다른 App이 필요합니다. GitHub는 PR을 연 App의 승인을 받지 않습니다.",
+  "github.reviewer.app": "리뷰용 App",
+  "github.reviewer.unsetLine":
+    "등록하면 에이전트 GitHub 탭에서 리뷰 승인을 켤 수 있습니다.",
+  "github.reviewer.permissionsTitle": "권장 권한",
+  "github.reviewer.permissions":
+    "Contents 읽기, Pull requests 읽기·쓰기, Metadata 읽기. 리뷰할 저장소에 설치하세요.",
+  "github.reviewer.riskTitle": "같은 에이전트의 작성과 승인",
+  "github.reviewer.risk":
+    "같은 에이전트가 작성용 App으로 연 PR을 리뷰용 App으로 승인할 수 있고, 플랫폼은 이를 막지 않습니다. 필수 리뷰가 1명인 저장소에서는 이 승인으로 머지 조건이 채워집니다. GitHub에서 필수 리뷰어를 2명 이상으로 두거나, CODEOWNERS로 사람 리뷰를 요구하거나, 리뷰용 App을 ruleset 우회 목록에 넣지 마세요.",
+  "github.reviewer.saved": "리뷰용 App을 저장했습니다.",
+  "github.reviewer.sameApp":
+    "작성용 App과 같은 App은 리뷰용으로 등록할 수 없습니다. 리뷰용 App을 따로 만들어 등록하세요.",
+  "github.reviewer.noAuthorApp":
+    "작성용 App을 먼저 등록해야 리뷰용 App을 등록할 수 있습니다.",
+  "github.reviewer.delete": "리뷰용 App 삭제",
+  "github.reviewer.deleteHint":
+    "다시 등록할 때까지 에이전트의 리뷰 요청은 거절됩니다. GitHub의 App과 설치는 그대로 남습니다.",
+  "github.reviewer.deleteTitle": "리뷰용 App을 삭제할까요?",
+  "github.reviewer.deleted": "리뷰용 App을 삭제했습니다.",
 };
 
 export const githubEn: Record<keyof typeof githubKo, string> = {
@@ -246,6 +271,31 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.ceiling.lowerItem":
     "{feature} ({count} agents in their active release)",
   "github.ceiling.lowerConfirm": "Lower and save",
+  "github.approvalPending": "Approval pending",
+  "github.sameAsReviewer":
+    "This App is registered as the reviewer App. The author App must be a different App.",
+  "github.reviewer.title": "Reviewer App (optional)",
+  "github.reviewer.hint":
+    "Approving pull requests takes an App other than the one that opens them. GitHub does not take an approval from the App that opened the pull request.",
+  "github.reviewer.app": "Reviewer App",
+  "github.reviewer.unsetLine":
+    "Once registered, review approval can be turned on in an agent's GitHub tab.",
+  "github.reviewer.permissionsTitle": "Recommended permissions",
+  "github.reviewer.permissions":
+    "Contents read, Pull requests read & write, Metadata read. Install it on the repositories it reviews.",
+  "github.reviewer.riskTitle": "One agent opening and approving",
+  "github.reviewer.risk":
+    "An agent can approve, with the reviewer App, a pull request it opened with the author App; the platform does not stop it. Where one review is required, that approval meets the rule. On GitHub, require two or more reviewers, require a person's review through CODEOWNERS, or keep the reviewer App off ruleset bypass lists.",
+  "github.reviewer.saved": "Saved the reviewer App.",
+  "github.reviewer.sameApp":
+    "The author App cannot also be the reviewer App. Create a separate reviewer App and register it.",
+  "github.reviewer.noAuthorApp":
+    "Register the author App before the reviewer App.",
+  "github.reviewer.delete": "Delete reviewer App",
+  "github.reviewer.deleteHint":
+    "Agents' review requests are refused until it is registered again. The App and its installations stay on GitHub.",
+  "github.reviewer.deleteTitle": "Delete the reviewer App?",
+  "github.reviewer.deleted": "Deleted the reviewer App.",
 };
 
 export const githubJa: Record<keyof typeof githubKo, string> = {
@@ -370,4 +420,29 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.ceiling.lowerItem":
     "{feature}(有効なリリースで有効にしたエージェント {count} 件)",
   "github.ceiling.lowerConfirm": "下げて保存",
+  "github.approvalPending": "インストール承認待ち",
+  "github.sameAsReviewer":
+    "レビュー用 App として登録されている App です。作成用 App は別の App にしてください。",
+  "github.reviewer.title": "レビュー用 App(任意)",
+  "github.reviewer.hint":
+    "PR を承認レビューするには、PR を作る App とは別の App が必要です。GitHub は PR を開いた App の承認を受け付けません。",
+  "github.reviewer.app": "レビュー用 App",
+  "github.reviewer.unsetLine":
+    "登録すると、エージェントの GitHub タブでレビュー承認を有効にできます。",
+  "github.reviewer.permissionsTitle": "推奨する権限",
+  "github.reviewer.permissions":
+    "Contents 読み取り、Pull requests 読み取り・書き込み、Metadata 読み取り。レビューするリポジトリにインストールしてください。",
+  "github.reviewer.riskTitle": "同じエージェントによる作成と承認",
+  "github.reviewer.risk":
+    "同じエージェントが作成用 App で開いた PR を、レビュー用 App で承認できます。プラットフォームはこれを止めません。必須レビューが 1 人のリポジトリでは、この承認でマージ条件が満たされます。GitHub で必須レビュアーを 2 人以上にする、CODEOWNERS で人のレビューを求める、またはレビュー用 App を ruleset のバイパス一覧に入れないでください。",
+  "github.reviewer.saved": "レビュー用 App を保存しました。",
+  "github.reviewer.sameApp":
+    "作成用 App と同じ App はレビュー用に登録できません。レビュー用 App を別に作って登録してください。",
+  "github.reviewer.noAuthorApp":
+    "レビュー用 App を登録する前に、作成用 App を登録してください。",
+  "github.reviewer.delete": "レビュー用 App を削除",
+  "github.reviewer.deleteHint":
+    "再登録するまで、エージェントのレビューリクエストは拒否されます。GitHub の App とインストールはそのまま残ります。",
+  "github.reviewer.deleteTitle": "レビュー用 App を削除しますか?",
+  "github.reviewer.deleted": "レビュー用 App を削除しました。",
 };

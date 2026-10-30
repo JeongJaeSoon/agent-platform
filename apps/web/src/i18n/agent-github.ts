@@ -101,6 +101,9 @@ export const agentGitHubKo = {
   "agentGitHub.featureReason.github_host_unsupported":
     "고른 저장소가 모두 GitHub Enterprise에 있어 기본 작업만 할 수 있습니다.",
   "agentGitHub.settingsLink": "GitHub 연결 설정",
+  "agentGitHub.appNotInstalled": "App 미설치",
+  "agentGitHub.reviewerNotInstalled":
+    "리뷰용 App이 설치되지 않은 저장소: {repositories}. 그 저장소의 리뷰는 GitHub가 거절합니다.",
   "agentGitHub.workflowsActions":
     "워크플로 파일 수정과 Actions 실행을 같이 켜면, 에이전트가 허용 목록의 워크플로 파일을 자기 브랜치에서 고칠 수 있습니다. 사람이 그 브랜치를 머지하면 고친 파일이 실행 대상이 됩니다.",
   "agentGitHub.ceilingNote":
@@ -277,6 +280,9 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.featureReason.github_host_unsupported":
     "Every chosen repository is on GitHub Enterprise, which takes the default work only.",
   "agentGitHub.settingsLink": "GitHub connection settings",
+  "agentGitHub.appNotInstalled": "App not installed",
+  "agentGitHub.reviewerNotInstalled":
+    "The reviewer App is not installed on: {repositories}. GitHub refuses reviews there.",
   "agentGitHub.workflowsActions":
     "With workflow edits and Actions both on, the agent can change an allowed workflow file on its own branch. Once a person merges that branch, the changed file is what runs.",
   "agentGitHub.ceilingNote":
@@ -457,6 +463,9 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.featureReason.github_host_unsupported":
     "選んだリポジトリがすべて GitHub Enterprise にあるため、基本の作業だけができます。",
   "agentGitHub.settingsLink": "GitHub 連携の設定",
+  "agentGitHub.appNotInstalled": "App 未インストール",
+  "agentGitHub.reviewerNotInstalled":
+    "レビュー用 App がインストールされていないリポジトリ: {repositories}。そこでのレビューは GitHub が拒否します。",
   "agentGitHub.workflowsActions":
     "ワークフローファイルの変更と Actions の実行を両方オンにすると、エージェントが許可リストのワークフローファイルを自分のブランチで変えられます。人がそのブランチをマージすると、変えたファイルが実行対象になります。",
   "agentGitHub.ceilingNote":

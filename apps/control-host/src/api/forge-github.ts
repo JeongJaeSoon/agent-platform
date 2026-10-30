@@ -2,6 +2,7 @@ import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/core";
 import { retry } from "@octokit/plugin-retry";
 import { throttling } from "@octokit/plugin-throttling";
+import type { GitHubAppPermissions, GitHubAppRole } from "@werft-ai/contracts";
 import type { StructuredLogger } from "@werft-ai/observability";
 import {
   type ForgeComment,
@@ -438,6 +439,24 @@ export function createGitHubConnection(
           ),
         );
       },
+      async submitReview(input) {
+        const { data } = await quiet("pull request review", () =>
+          client.request(
+            "POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+            {
+              ...target,
+              pull_number: input.number,
+              commit_id: input.commitId,
+              event: input.event,
+              ...(input.body === undefined ? {} : { body: input.body }),
+              headers,
+              // A review GitHub stored and answered 5xx would post twice.
+              request: { retries: 0 },
+            },
+          ),
+        );
+        return { id: Number(data.id), html_url: data.html_url };
+      },
     };
   }
 
@@ -446,7 +465,27 @@ export function createGitHubConnection(
     githubCom: apiBase === GITHUB_API_BASE,
     appId: credentials.kind === "app" ? credentials.appId : null,
     credential,
+    installed: installedCheck(client, credentials),
     api,
+  };
+}
+
+function installedCheck(
+  client: Client,
+  credentials: GitHubCredentials,
+): GitHubConnection["installed"] {
+  if (credentials.kind !== "app") return async () => null;
+  const fixed = credentials.installationId;
+  const auth = createAppAuth({
+    appId: credentials.appId,
+    privateKey: credentials.privateKey,
+    request: client.request,
+  });
+  return async (repo) => {
+    const found = await installationFor(client, auth, repo);
+    // A catalog App names its installation; another one of the App's own
+    // does not let that installation's tokens reach the repository.
+    return found !== null && (fixed === undefined || found.id === fixed);
   };
 }
 
@@ -487,7 +526,7 @@ function issuer(
     const key = `${repo.owner}/${repo.name}`;
     const held = found.get(key);
     if (held !== undefined) return held;
-    const id = await installationFor(client, auth, repo);
+    const id = (await installationFor(client, auth, repo))?.id ?? null;
     if (id === null) {
       throw new ForgeCredentialError(
         `GitHub App is not installed on ${repo.owner}/${repo.name}`,
@@ -549,18 +588,24 @@ const requestIdOf = (error: unknown): string | null => {
   return typeof id === "string" ? id.slice(0, 64) : null;
 };
 
-/** The installation that covers `repo`, or null when the App has none there. */
+/**
+ * The installation that covers `repo` and what it grants, or null when the
+ * App has none there.
+ */
 async function installationFor(
   client: Client,
   auth: AppAuth,
   repo: RepoRef,
-): Promise<number | null> {
+): Promise<{ id: number; permissions: GitHubAppPermissions } | null> {
   try {
     const { data } = await client.request(
       "GET /repos/{owner}/{repo}/installation",
       { owner: repo.owner, repo: repo.name, headers: await appHeaders(auth) },
     );
-    return Number(data.id);
+    return {
+      id: Number(data.id),
+      permissions: permissionsOf(data.permissions),
+    };
   } catch (error) {
     if (statusOf(error) === 404) return null;
     throw error;
@@ -679,25 +724,25 @@ function permissionsOf(
 }
 
 /**
- * The connection of the App registered in the console, rebuilt (and its
+ * The connection of the console's App for `role`, rebuilt (and its
  * token cache dropped) when the App or its key changes. `refresh` reads the
  * store; until the first read, and with no App registered, there is none.
  */
 export function createRegisteredGitHubConnection(
   options: {
     store: Pick<GitHubAppStore, "credentials"> | null;
+    role: GitHubAppRole;
   } & Pick<ConnectionOptions, "logger" | "now" | "retryAfterBaseMs" | "paced">,
 ) {
-  const { store, ...connectionOptions } = options;
+  const { store, role, ...connectionOptions } = options;
   let current: { version: string; connection: GitHubConnection } | null = null;
   // Reads run one after another, so a read that started before a change
   // cannot land after the read that saw it.
   let queue: Promise<void> = Promise.resolve();
   const read = async (): Promise<void> => {
     if (store === null) return;
-    // Bootstrap makes the one workspace, so there is at most one author App;
-    // a reviewer App never clones, pushes or opens a pull request.
-    const [app] = await store.credentials("author");
+    // Bootstrap makes the one workspace, so there is at most one App a role.
+    const [app] = await store.credentials(role);
     if (app === undefined) {
       current = null;
       return;
@@ -789,7 +834,8 @@ function githubReason(cause: unknown): {
  * The connection behind each catalog repository: a GitHub App repository's
  * own App (one connection each), the console's App for `{ kind: github_app }`,
  * and a PAT on github.com. Others (Gitea, GHES with a PAT, bearer, public)
- * have none and keep their static credential. No reviewer connection yet.
+ * have none and keep their static credential. Only `{ kind: github_app }`
+ * repositories have a reviewer: the console's reviewer App.
  */
 export function connectionsOf(
   catalog: SessionCatalog,
@@ -797,8 +843,8 @@ export function connectionsOf(
     ConnectionOptions,
     "logger" | "now" | "retryAfterBaseMs" | "paced"
   > & {
-    /** The console's App, for repositories written as `{ kind: github_app }`. */
-    registered?: () => GitHubConnection | null;
+    /** The console's Apps, for repositories written as `{ kind: github_app }`. */
+    registered?: (role: GitHubAppRole) => GitHubConnection | null;
   } = {},
 ): GitHubConnections {
   const { registered, ...connectionOptions } = options;
@@ -841,10 +887,7 @@ export function connectionsOf(
     }
   }
   return (id, role) => {
-    if (role !== "author") return null;
-    return (
-      connections.get(id) ??
-      (usesRegistered.has(id) ? (registered?.() ?? null) : null)
-    );
+    if (usesRegistered.has(id)) return registered?.(role) ?? null;
+    return role === "author" ? (connections.get(id) ?? null) : null;
   };
 }

@@ -9,6 +9,7 @@ import {
   githubWorkflowRunSchema,
   rerunWorkflowResponseSchema,
   type SessionScope,
+  submitPullRequestReviewResponseSchema,
 } from "@werft-ai/contracts";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
@@ -31,6 +32,10 @@ const createApiApp = recordRouteErrors("routes/github-work.test.ts");
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const AGENT = "019a0000-0000-7000-8000-0000000000e1";
 const RELEASE = "019a0000-0000-7000-8000-0000000000f1";
+// Pull requests the author App opened, and one the reviewer App did.
+const OPENED = 1;
+const OPENED_BY_REVIEWER = 2;
+const COMMIT = "a".repeat(40);
 const KEYS: Record<string, readonly SessionScope[]> = {
   csp_writer: ["sessions:read", "sessions:write"],
   csp_reader: ["sessions:read"],
@@ -48,17 +53,51 @@ const privateKey = keys.privateKey
 const publicKey = keys.publicKey
   .export({ type: "spki", format: "pem" })
   .toString();
+const reviewerKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
+const reviewerPrivateKey = reviewerKeys.privateKey
+  .export({ type: "pkcs1", format: "pem" })
+  .toString();
 
 let github: FakeGitHub;
 beforeAll(async () => {
-  github = await startFakeGitHub({ appId: 101, publicKey });
+  github = await startFakeGitHub({
+    appId: 101,
+    publicKey,
+    installationId: 202,
+    secondApp: {
+      appId: 303,
+      publicKey: reviewerKeys.publicKey
+        .export({ type: "spki", format: "pem" })
+        .toString(),
+      installationId: 404,
+    },
+  });
   await github.createRepository("acme", "app", { "README.md": "hello\n" });
+  for (const [number, author] of [
+    [OPENED, 101],
+    [OPENED_BY_REVIEWER, 303],
+  ] as const) {
+    github.pullRequests("acme", "app").push({
+      number,
+      head: `agent/${number}`,
+      base: "main",
+      title: "",
+      body: "",
+      state: "open",
+      author_app_id: author,
+      html_url: `${github.origin}/acme/app/pull/${number}`,
+    });
+  }
 });
 afterAll(async () => {
   await github.stop();
 });
 
-const ACTIONS_ON: GitHubCeiling = { ...GITHUB_CEILING_NONE, actions: true };
+const ACTIONS_ON: GitHubCeiling = {
+  ...GITHUB_CEILING_NONE,
+  actions: true,
+  review: true,
+};
 const SETTINGS: AgentGitHub = {
   repositories: ["app"],
   push_approval: true,
@@ -73,6 +112,9 @@ function app(
   options: {
     ceiling?: GitHubCeiling;
     repository?: "github" | "elsewhere";
+    reviewer?: boolean;
+    reviewerInstallationId?: number;
+    settings?: AgentGitHub;
   } = {},
 ) {
   const catalog: SessionCatalog = {
@@ -113,6 +155,20 @@ function app(
   });
   // The fake serves on localhost; the gate allows Actions on github.com only.
   const onGitHubCom: GitHubConnection = { ...connection, githubCom: true };
+  const reviewer: GitHubConnection = {
+    ...createGitHubConnection({
+      apiBase: github.origin,
+      credentials: {
+        kind: "app",
+        appId: 303,
+        installationId: options.reviewerInstallationId ?? 404,
+        privateKey: reviewerPrivateKey,
+      },
+      retryAfterBaseMs: 1,
+      paced: false,
+    }),
+    githubCom: true,
+  };
   const receipts: GitHubGateReceipt[] = [];
   const dispatches: GitHubDispatchRecord[] = [];
   let receiptCount = 0;
@@ -120,10 +176,11 @@ function app(
     `44444444-4444-4444-8444-${String(++receiptCount).padStart(12, "0")}`;
   const gate = createGitHubGate({
     catalog,
-    connections: (id, role) =>
-      id === "app" && role === "author" && options.repository !== "elsewhere"
-        ? onGitHubCom
-        : null,
+    connections: (id, role) => {
+      if (id !== "app" || options.repository === "elsewhere") return null;
+      if (role === "author") return onGitHubCom;
+      return options.reviewer === false ? null : reviewer;
+    },
     store: {
       context: async (sessionId) =>
         sessionId === SESSION
@@ -137,7 +194,7 @@ function app(
               },
               startedBy: null,
               agent: { id: AGENT, workspaceId: "owner-a", githubEnabled: true },
-              release: { id: RELEASE, github: SETTINGS },
+              release: { id: RELEASE, github: options.settings ?? SETTINGS },
               ceiling: options.ceiling ?? ACTIONS_ON,
             }
           : null,
@@ -184,6 +241,8 @@ function app(
         }
         return nextReceipt();
       },
+      pullRequestOpener: async (_ownerId, _repositoryId, number) =>
+        number === OPENED ? { sessionId: SESSION, agentId: AGENT } : null,
     },
   });
   const logs = new MemoryLogSink();
@@ -588,5 +647,215 @@ describe("GitHub work routes", () => {
       ).status,
     ).toBe(413);
     expect(target.receipts).toEqual([]);
+  });
+});
+
+describe("reviewing a pull request", () => {
+  const review = (
+    target: ReturnType<typeof app>,
+    body: unknown,
+    number: number | string = OPENED,
+    key?: string,
+  ) => target.send("POST", `/pull-requests/${number}/reviews`, body, key);
+
+  test("the review goes out with the reviewer App's token and names the commit; its receipt keeps no body", async () => {
+    const target = app();
+    const approved = await review(target, {
+      event: "APPROVE",
+      commit_id: COMMIT,
+    });
+    expect(approved.status).toBe(201);
+    const { receipt_id, review: sent } =
+      submitPullRequestReviewResponseSchema.parse(approved.json);
+    expect(receipt_id).toMatch(/^44444444-/);
+    const changes = await review(target, {
+      event: "REQUEST_CHANGES",
+      commit_id: COMMIT,
+      body: "review-body-value-5d2b",
+    });
+    expect(changes.status).toBe(201);
+    expect(
+      github.reviews("acme", "app", OPENED).map(({ id: _id, ...rest }) => rest),
+    ).toEqual([
+      {
+        pull_number: OPENED,
+        commit_id: COMMIT,
+        event: "APPROVE",
+        body: null,
+        app_id: 303,
+      },
+      {
+        pull_number: OPENED,
+        commit_id: COMMIT,
+        event: "REQUEST_CHANGES",
+        body: "review-body-value-5d2b",
+        app_id: 303,
+      },
+    ]);
+    expect(sent.id).toBe(github.reviews("acme", "app", OPENED)[0]?.id ?? 0);
+    expect(target.receipts).toMatchObject([
+      {
+        operation: "mint_github_token",
+        status: "succeeded",
+        result: {
+          role: "reviewer",
+          app_id: 303,
+          permissions: { pull_requests: "write" },
+        },
+      },
+      {
+        operation: "review_pull_request",
+        status: "succeeded",
+        result: {
+          session_id: SESSION,
+          repository_id: "app",
+          number: OPENED,
+          commit_id: COMMIT,
+          event: "APPROVE",
+          opened_by_session_id: SESSION,
+          opened_by_agent_id: AGENT,
+          review_id: sent.id,
+        },
+      },
+      { operation: "review_pull_request", status: "succeeded" },
+    ]);
+    for (const text of target.seen()) {
+      expect(text).not.toContain("review-body-value-5d2b");
+    }
+  });
+
+  test("GitHub refusing the review is a 503 with a failed receipt", async () => {
+    const target = app();
+    const response = await review(
+      target,
+      { event: "APPROVE", commit_id: COMMIT },
+      OPENED_BY_REVIEWER,
+    );
+    expect(response.status).toBe(503);
+    expect(errorOf(response.json)).toMatchObject({
+      code: "BACKEND_UNAVAILABLE",
+      details: { receipt_id: expect.any(String) },
+    });
+    expect(target.receipts.at(-1)).toMatchObject({
+      operation: "review_pull_request",
+      status: "failed",
+      result: {
+        number: OPENED_BY_REVIEWER,
+        opened_by_session_id: null,
+        status: 422,
+      },
+    });
+    expect(github.reviews("acme", "app", OPENED_BY_REVIEWER)).toEqual([]);
+  });
+
+  test("a reviewer App not installed on the repository is a 503 that still leaves the review's failed receipt", async () => {
+    const before = github.reviews("acme", "app", OPENED).length;
+    const target = app({ reviewerInstallationId: 999 });
+    const response = await review(target, {
+      event: "APPROVE",
+      commit_id: COMMIT,
+    });
+    expect(response.status).toBe(503);
+    expect(errorOf(response.json)).toMatchObject({
+      code: "BACKEND_UNAVAILABLE",
+      details: { receipt_id: expect.any(String) },
+    });
+    expect(target.receipts).toMatchObject([
+      {
+        operation: "review_pull_request",
+        status: "failed",
+        result: {
+          role: "reviewer",
+          app_id: 303,
+          number: OPENED,
+          commit_id: COMMIT,
+          event: "APPROVE",
+        },
+      },
+    ]);
+    expect(github.reviews("acme", "app", OPENED)).toHaveLength(before);
+  });
+
+  test("no reviewer App, review off for the agent, or over the ceiling: refused before GitHub hears of it", async () => {
+    const before = github.reviews("acme", "app", OPENED).length;
+    const approve = { event: "APPROVE", commit_id: COMMIT };
+    for (const [target, status, reason] of [
+      [app({ reviewer: false }), 409, "no_reviewer_app"],
+      [
+        app({
+          settings: {
+            ...SETTINGS,
+            features: { ...ACTIONS_ON, review: false },
+          },
+        }),
+        403,
+        "feature_off",
+      ],
+      [
+        app({ ceiling: { ...ACTIONS_ON, review: false } }),
+        409,
+        "over_workspace_ceiling",
+      ],
+    ] as const) {
+      const response = await review(target, approve);
+      expect(response.status).toBe(status);
+      expect(errorOf(response.json)).toMatchObject({
+        code: "GITHUB_REFUSED",
+        details: { reason_code: reason, receipt_id: expect.any(String) },
+      });
+      expect(target.receipts).toMatchObject([
+        {
+          operation: "review_pull_request",
+          status: "failed",
+          result: {
+            reason_code: reason,
+            number: OPENED,
+            commit_id: COMMIT,
+            event: "APPROVE",
+          },
+        },
+      ]);
+    }
+    expect(github.reviews("acme", "app", OPENED)).toHaveLength(before);
+  });
+
+  test("bad bodies are 400, a bad number or an unseen session 404, an oversized body 413, a read-only key 403, a repository off GitHub 422", async () => {
+    const target = app();
+    for (const body of [
+      { event: "APPROVE" },
+      { event: "APPROVE", commit_id: "abc" },
+      { event: "COMMENT", commit_id: COMMIT },
+      { event: "DISMISS", commit_id: COMMIT },
+      { event: "APPROVE", commit_id: COMMIT, extra: 1 },
+    ]) {
+      expect((await review(target, body)).status).toBe(400);
+    }
+    const approve = { event: "APPROVE", commit_id: COMMIT };
+    for (const number of ["0", "abc"]) {
+      expect((await review(target, approve, number)).status).toBe(404);
+    }
+    const unseen = await target.send(
+      "POST",
+      `/pull-requests/${OPENED}/reviews`,
+      approve,
+      "csp_writer",
+      "99999999-9999-4999-8999-999999999999",
+    );
+    expect(unseen.status).toBe(404);
+    expect(
+      (
+        await review(target, {
+          ...approve,
+          body: "x".repeat(70 * 1024),
+        })
+      ).status,
+    ).toBe(413);
+    const reader = await review(target, approve, OPENED, "csp_reader");
+    expect(reader.status).toBe(403);
+    expect(errorOf(reader.json).code).toBe("FORBIDDEN");
+    expect(target.receipts).toEqual([]);
+    const elsewhere = await review(app({ repository: "elsewhere" }), approve);
+    expect(elsewhere.status).toBe(422);
+    expect(errorOf(elsewhere.json).code).toBe("UNSUPPORTED_CAPABILITY");
   });
 });

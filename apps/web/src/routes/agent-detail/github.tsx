@@ -739,6 +739,13 @@ function GitHubSettings({
                     <SettingRow
                       key={repository.id}
                       title={repository.id}
+                      badge={
+                        repository.installed.author === false ? (
+                          <Badge variant="amber">
+                            {t("agentGitHub.appNotInstalled")}
+                          </Badge>
+                        ) : undefined
+                      }
                       description={
                         <span className="[overflow-wrap:anywhere]">
                           {repository.url}
@@ -812,10 +819,27 @@ function GitHubSettings({
               {FEATURES.map((feature) => {
                 const option = data.options.features[feature];
                 const on = settings.features[feature];
+                // GitHub refuses a review where the reviewer App is not installed.
+                const uninstalled =
+                  feature === "review" && option.available
+                    ? settings.repositories.filter(
+                        (id) =>
+                          data.options.repositories.find(
+                            (repository) => repository.id === id,
+                          )?.installed.reviewer === false,
+                      )
+                    : [];
                 return (
                   <SettingRow
                     key={feature}
                     title={t(`agentGitHub.feature.${feature}`)}
+                    badge={
+                      uninstalled.length > 0 ? (
+                        <Badge variant="amber">
+                          {t("agentGitHub.appNotInstalled")}
+                        </Badge>
+                      ) : undefined
+                    }
                     // A locked feature shows why in place of its hint, so
                     // every row keeps one detail line.
                     description={
@@ -830,6 +854,17 @@ function GitHubSettings({
                               </RouterLink>
                             </Link>
                           )}
+                        </>
+                      ) : uninstalled.length > 0 ? (
+                        <>
+                          {t("agentGitHub.reviewerNotInstalled", {
+                            repositories: uninstalled.join(", "),
+                          })}{" "}
+                          <Link asChild>
+                            <RouterLink to="/settings/workspace/github">
+                              {t("agentGitHub.settingsLink")}
+                            </RouterLink>
+                          </Link>
                         </>
                       ) : (
                         t(`agentGitHub.feature.${feature}Hint`)

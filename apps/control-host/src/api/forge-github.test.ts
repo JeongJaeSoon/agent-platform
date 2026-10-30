@@ -347,6 +347,7 @@ describe("the App registered in the console", () => {
 
   test("finds the installation that covers the repository, then asks for a token on it", async () => {
     const registered = createRegisteredGitHubConnection({
+      role: "author",
       store: { credentials: async () => [credential()] },
       paced: false,
     });
@@ -363,9 +364,23 @@ describe("the App registered in the console", () => {
     });
   });
 
-  test("reads the author App only, with a reviewer App registered beside it", async () => {
+  test("reads its own role's App only, with the other registered beside it", async () => {
     const asked: string[] = [];
+    const reviewer = createRegisteredGitHubConnection({
+      role: "reviewer",
+      store: {
+        credentials: async (role: "author" | "reviewer") => {
+          asked.push(role);
+          return [credential({ appId: role === "reviewer" ? 202 : 101 })];
+        },
+      },
+    });
+    await reviewer.refresh();
+    expect(asked).toEqual(["reviewer"]);
+    expect(reviewer.connection()?.appId).toBe(202);
+    asked.length = 0;
     const registered = createRegisteredGitHubConnection({
+      role: "author",
       store: {
         credentials: async (role: "author" | "reviewer") => {
           asked.push(role);
@@ -396,6 +411,7 @@ describe("the App registered in the console", () => {
 
   test("a repository the App is not installed on fails the ask by name", async () => {
     const registered = createRegisteredGitHubConnection({
+      role: "author",
       store: { credentials: async () => [credential()] },
       paced: false,
     });
@@ -411,6 +427,7 @@ describe("the App registered in the console", () => {
   test("a replaced App or key gets a new connection; a removed one leaves none", async () => {
     let held = [credential()];
     const registered = createRegisteredGitHubConnection({
+      role: "author",
       store: { credentials: async () => held },
     });
     await registered.refresh();
@@ -434,6 +451,7 @@ describe("the App registered in the console", () => {
       Promise.resolve([]),
     ];
     const registered = createRegisteredGitHubConnection({
+      role: "author",
       store: { credentials: () => reads.shift() ?? Promise.resolve([]) },
     });
     const periodic = registered.refresh();
@@ -443,9 +461,14 @@ describe("the App registered in the console", () => {
     expect(registered.connection()).toBeNull();
   });
 
-  test("connectionsOf hands it to repositories written as { kind: github_app }", async () => {
+  test("connectionsOf hands each role's App to repositories written as { kind: github_app }", async () => {
     const registered = createRegisteredGitHubConnection({
+      role: "author",
       store: { credentials: async () => [credential()] },
+    });
+    const reviewer = createRegisteredGitHubConnection({
+      role: "reviewer",
+      store: { credentials: async () => [credential({ appId: 202 })] },
     });
     const connections = connectionsOf(
       {
@@ -459,13 +482,53 @@ describe("the App registered in the console", () => {
           open: { branch: "main", url: "https://github.com/acme/open.git" },
         },
       },
-      { registered: registered.connection },
+      {
+        registered: (role) =>
+          (role === "author" ? registered : reviewer).connection(),
+      },
     );
     expect(connections("app", "author")).toBeNull();
     await registered.refresh();
     expect(connections("app", "author")).toBe(registered.connection());
     expect(connections("app", "reviewer")).toBeNull();
+    await reviewer.refresh();
+    expect(connections("app", "reviewer")).toBe(reviewer.connection());
+    expect(connections("app", "reviewer")?.appId).toBe(202);
     expect(connections("open", "author")).toBeNull();
+    expect(connections("open", "reviewer")).toBeNull();
+  });
+
+  test("installed asks GitHub with the App's JWT and issues no token", async () => {
+    const registered = createRegisteredGitHubConnection({
+      role: "author",
+      store: { credentials: async () => [credential()] },
+    });
+    await registered.refresh();
+    const before = github.tokenRequests.length;
+    expect(await registered.connection()?.installed(repo)).toBe(true);
+    expect(
+      await registered
+        .connection()
+        ?.installed({ owner: "acme", name: "absent" }),
+    ).toBe(false);
+    expect(github.tokenRequests.length).toBe(before);
+  });
+
+  test("a catalog App is installed only where its named installation covers the repository", async () => {
+    const catalogApp = (installationId: number) =>
+      createGitHubConnection({
+        apiBase: github.origin,
+        credentials: { kind: "app", appId: 101, installationId, privateKey },
+        paced: false,
+      });
+    const before = github.tokenRequests.length;
+    // The fake's one installation is 1.
+    expect(await catalogApp(1).installed(repo)).toBe(true);
+    expect(await catalogApp(202).installed(repo)).toBe(false);
+    expect(
+      await catalogApp(1).installed({ owner: "acme", name: "absent" }),
+    ).toBe(false);
+    expect(github.tokenRequests.length).toBe(before);
   });
 });
 
@@ -502,7 +565,14 @@ describe("createGitHubAppDirectory", () => {
         htmlUrl: `${github.origin}/organizations/acme/settings/installations/1`,
       },
     ]);
-    expect(await directory.installationFor(app(), repo)).toBe(1);
+    expect(await directory.installationFor(app(), repo)).toEqual({
+      id: 1,
+      permissions: {
+        contents: "write",
+        metadata: "read",
+        pull_requests: "write",
+      },
+    });
     expect(
       await directory.installationFor(app(), { owner: "acme", name: "absent" }),
     ).toBeNull();

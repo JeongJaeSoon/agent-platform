@@ -6,7 +6,11 @@ import {
   githubEffectiveFeatures,
   githubPermissionsFor,
 } from "@werft-ai/contracts";
-import { type GitCredential, repoRefOf } from "../ports/forge.ts";
+import {
+  ForgeCredentialError,
+  type GitCredential,
+  repoRefOf,
+} from "../ports/forge.ts";
 import {
   type GitHubConnections,
   type GitHubGate,
@@ -44,7 +48,9 @@ export function createGitHubGate(deps: {
           ? "dispatch_workflow"
           : work.purpose === "rerun"
             ? "rerun_workflow"
-            : "mint_github_token";
+            : work.purpose === "review"
+              ? "review_pull_request"
+              : "mint_github_token";
       const fields: Record<string, unknown> = {
         session_id: context.sessionId,
         agent_id: context.agent?.id ?? null,
@@ -55,6 +61,13 @@ export function createGitHubGate(deps: {
           ? {}
           : { workflow: work.workflow.file, ref: work.workflow.ref }),
         ...(work.runId === undefined ? {} : { run_id: work.runId }),
+        ...(work.review === undefined
+          ? {}
+          : {
+              number: work.review.number,
+              commit_id: work.review.commitId,
+              event: work.review.event,
+            }),
       };
       const receipt = (
         status: GitHubGateReceipt["status"],
@@ -203,6 +216,20 @@ export function createGitHubGate(deps: {
       } catch (error) {
         if (error instanceof GitHubPermissionError) {
           return await refuse("app_permission_missing");
+        }
+        // A reviewer App registered but not installed on the repository:
+        // the review attempt still leaves its receipt.
+        if (
+          work.purpose === "review" &&
+          error instanceof ForgeCredentialError
+        ) {
+          const receiptId = await receipt(
+            "failed",
+            { role: needs.role, app_id: connection.appId },
+            null,
+            operation,
+          );
+          throw new GitHubUnavailableError(error.message, receiptId);
         }
         throw error;
       }
