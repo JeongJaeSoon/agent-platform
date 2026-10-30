@@ -161,10 +161,7 @@ describe("실행 프로필", () => {
       rows(table)
         .slice(1)
         .map((row) => row[0]),
-    ).toEqual([
-      "coding-claude설치 상한 · v1",
-      "general-read설치 상한 · v1",
-    ]);
+    ).toEqual(["coding-claude설치 상한 · v1", "general-read설치 상한 · v1"]);
   });
 
   test("a name with several versions shows its latest, the earlier ones folded under it", async () => {
