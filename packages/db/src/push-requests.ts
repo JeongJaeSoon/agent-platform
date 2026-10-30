@@ -420,7 +420,15 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
           if (input.gitCommit !== row.gitCommit) {
             return refuse("commit_mismatch", row);
           }
-          if (session.checkpointRevision !== row.checkpointRevision) {
+          // A later checkpoint of the same commit still pushes what the
+          // person approved: the push runs from the pinned revision.
+          const sameCommit =
+            input.latest?.revision === session.checkpointRevision &&
+            input.latest.gitCommit === row.gitCommit;
+          if (
+            session.checkpointRevision !== row.checkpointRevision &&
+            !sameCommit
+          ) {
             return refuse("checkpoint_moved", row);
           }
         }

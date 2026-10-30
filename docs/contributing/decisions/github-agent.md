@@ -93,6 +93,7 @@ GitHub 토큰 하나가 가질 권한은 아래 다섯의 교집합이고, **발
 - **false:** push 요청을 만드는 같은 트랜잭션에서 `approved`로 둔다. `decided_by`는 `{ kind: "policy", agent_release_id }`이고 `decide_push` receipt를 남긴다. 결정 0의 "기본값은 PR 작성·수정까지"를 사람 승인 없이 쓰는 경우다.
 - **PR 열기·코멘트(두 경우 공통).** push가 끝난(`pushed`) 요청에서는 `session.submit` 호출자(에이전트 key와 내장 MCP 포함)도 PR을 열고 코멘트를 달 수 있다. 사람이 승인했든 정책이 승인했든 같다. PR은 그 요청이 push한 브랜치와 commit으로만 열리므로, 사람 승인이 지키는 것(무엇이 push되나)은 PR을 누가 여느냐와 상관없이 그대로다. 지금은 `sessions:approve` scope와 `session.approve` 권한을 가진 호출자만 PR을 연다(`pull-request-service.ts:103-107`). GA-2가 이 규칙을 바꾼다. `sessions:approve` 호출자는 지금처럼 그대로 열 수 있다.
 - 대상 브랜치 고정과 force push 금지는 승인 여부와 상관없이 그대로다.
+- **승인이 지키는 것은 commit이다(GA-7).** 요청 뒤에 세션이 checkpoint를 다시 남겼어도, 그 마지막 checkpoint의 commit이 요청이 고정한 `git_commit`과 같고 결정 본문의 `git_commit`도 같으면 승인한다. 셋 중 하나라도 다르면 지금처럼 `409 CHECKPOINT_MOVED`(`checkpoint_moved`)다. push되는 것은 여전히 요청이 고정한 revision의 commit이다. [GA-7에서 정한 것](#ga-7에서-정한-것).
 
 ### 결정 7. 릴리스와의 관계
 
@@ -255,10 +256,19 @@ GA-7이 정한다. 지금 있는 원격 MCP 경로(카탈로그 `mcp_servers`, `
 - **MCP 호출의 actor(2절 "선행 수정"의 GA-7 몫).** 부르는 쪽은 세션 안의 에이전트이고 key가 없다. receipt actor는 지금의 원격 MCP 거절 receipt(`call_mcp`)와 같이 정한다. principal은 세션을 만든 credential(`created_by_api_key_id`가 있으면 그 `api_key`, 없으면 `created_by_user_id`의 `user`)이고, `actor_user_id`는 세션을 만든 사람, `agent_id`는 세션 릴리스의 에이전트다. 둘 다 없는 세션에는 도구를 열지 않는다(허가의 (3) 다음에 거절한다). push 요청의 `requested_by`는 null일 수 없고, 누가 시작했는지 모르는 세션에 GitHub 쓰기를 열지 않으려는 것이다. 2절의 "`actor.agent_id`는 호출자 key에서만 채운다"와 어긋나지 않는다. 이 호출의 호출자는 바로 그 세션의 에이전트이기 때문이다. receipt를 다른 입구와 나눠 보려면 actor의 principal이 아니라 이 `agent_id`가 세션 릴리스와 같다는 점을 본다.
 - **권한 판정.** 서비스 함수는 입구 1과 같은 것을 부른다. 다만 권한 판정(`AuthorizationPolicy`)은 그 attempt의 세션 하나에 묶인 판정으로 바꿔 끼운다. 그 세션의 `session.read`·`session.submit`만 허용하고 나머지는 모두 거절한다. principal의 scope는 비워 둔다. 그래서 MCP 호출은 push를 결정할 수 없고(`decide_push` 도구가 없고, 있어도 `missing_scope`), PR 열기·코멘트는 `pushed` 요청에서만 된다(결정 6). 세션을 만든 사람의 지금 권한은 다시 보지 않는다. 이 호출의 권한은 세션 안에서 도는 attempt라는 사실에서 나오고, 그 사실은 (1)의 fence가 교환마다 다시 확인한다.
 - **`request_push`는 기다리지 않는다.** push 승인을 켠 릴리스에서 도구는 `requested` 요청을 만들고 바로 돌아온다. 사람이 승인하고 push 실행기가 push한 뒤, 에이전트가 `open_pull_request`를 부른다. 그 전에 부르면 지금의 PR 서비스 거절(`not_pushed`)이 돌아온다. 도구가 사람의 결정을 붙잡고 기다리면 턴 하나가 사람을 기다리며 비용 없이 멈춰 있게 되고, 그 사이 lease와 호출 시간 제한(30분)에 걸린다. push 승인을 끈 릴리스는 같은 트랜잭션에서 `approved`가 되고 push 실행기가 곧 push한다.
-- **push하는 것은 마지막 checkpoint다.** `request_push`는 입구 1과 같이 세션의 마지막으로 커밋된 checkpoint를 push한다. 턴 안에서 방금 만든 commit은 그 턴이 끝나 checkpoint가 생겨야 들어간다. 도구 설명에 이것을 적는다.
+- **push하는 것은 마지막 checkpoint다.** `request_push`는 입구 1과 같이 세션의 마지막으로 커밋된 checkpoint를 push한다. 턴 안에서 방금 만든 commit은 그 턴이 끝나 checkpoint가 생겨야 들어간다. 도구 설명에 이것을 적는다. 도구를 부른 턴이 끝나면 checkpoint가 늘 새로 생기므로, 승인은 checkpoint revision이 아니라 commit으로 판정한다([GA-7에서 정한 것](#ga-7에서-정한-것)).
 - **worker 환경.** worker는 여전히 GitHub 토큰을 받지 않는다. runtime config에는 egress 토큰과 proxy 경로만 있고, 서명된 grant는 proxy와 control-host 사이에만 있다. GA-7 테스트는 claim 응답과 worker가 엔진에 넘기는 환경·설정 파일에 GitHub 토큰 모양(`ghs_`, `ghp_`, `github_pat_`, `x-access-token`)이 없음을 본다.
 - **도구 결과.** 성공하면 입구 1의 응답 본문을 JSON 텍스트로 준다. 서비스 거절은 `isError: true`와 입구 1과 같은 `code`·`message`·`details`(`reason_code`, `refusal`, `receipt_id`)를 준다. 인자가 스키마에 맞지 않으면 서비스를 부르지 않고 `isError: true`로 답한다.
 - **섞인 배포.** `mcp_servers` 최대 둘을 모르는 앞 worker 이미지는 원격 서버와 `github`가 같이 붙은 claim을 거절한다. 앞 proxy 이미지는 경로 모양의 upstream을 거절한다(`parseGrant`). 둘 다 그 세션의 GitHub 도구가 동작하지 않는 쪽으로만 틀린다. proxy와 worker 이미지를 API보다 먼저 올린다. GitHub 설정이 있는 릴리스로 이 배포 전에 checkpoint를 남긴 세션은 `github` 서버 없이 만든 runtime config를 claim의 `restore_runtime_configs`로 함께 받으므로, 그 checkpoint에서 그대로 이어진다.
+
+### GA-7에서 정한 것
+
+- **checkpoint가 움직인 뒤의 승인.** werft-sandbox 실측에서, 에이전트가 턴 안에서 `request_push`를 부르면 그 턴이 끝날 때 checkpoint revision이 올라가 사람의 승인이 늘 `409 CHECKPOINT_MOVED`였다. push 승인을 켠 릴리스에서는 도구로 만든 요청을 하나도 승인할 수 없었다. 결정 6이 지키는 것은 "사람이 본 commit이 push된다"이므로, 판정을 commit으로 옮긴다.
+  - 서비스가 결정 전에 세션의 마지막 checkpoint(revision과 commit)를 읽는다.
+  - 결정 트랜잭션은 세션의 지금 revision이 요청이 고정한 revision과 같으면 지금처럼 승인한다. 다르면 지금 revision이 서비스가 읽은 revision과 같고, 그 commit이 요청의 `git_commit`과 같을 때만 승인한다. 결정 본문의 `git_commit`은 이미 요청의 것과 같아야 한다(`commit_mismatch`).
+  - 그 사이에 checkpoint가 또 움직였거나 commit이 다르면 `checkpoint_moved`다.
+  - push 실행기는 지금처럼 요청이 고정한 revision의 commit을 push한다.
+  - 입구 1(HTTP 결정)도 같은 규칙이다. commit 없는 턴이 지난 뒤의 승인이 이제 된다.
 
 ## 4. 데이터 모델
 
