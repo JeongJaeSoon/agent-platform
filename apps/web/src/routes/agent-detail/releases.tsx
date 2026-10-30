@@ -24,7 +24,6 @@ import {
   FieldDescription,
   FieldError,
   FieldLabel,
-  formatTimestamp,
   NativeSelect,
   NativeSelectOption,
   Table,
@@ -52,6 +51,27 @@ import { errorKey, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
 import { MUTED, SECTION, SECTION_TITLE } from "./classes.ts";
 import { latestVersion, VersionSelect } from "./versions.tsx";
+
+// To the second, as the release label is: activations a few seconds apart
+// must not read as the same time. Seoul, as every console timestamp.
+const SECOND = new Intl.DateTimeFormat("en-US", {
+  timeZone: "Asia/Seoul",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+function toSecond(iso: string): string {
+  const parts = new Map(
+    SECOND.formatToParts(new Date(iso)).map((part) => [part.type, part.value]),
+  );
+  const at = (type: Intl.DateTimeFormatPartTypes) => parts.get(type) ?? "";
+  return `${at("year")}-${at("month")}-${at("day")}_${at("hour")}:${at("minute")}:${at("second")}`;
+}
 
 // The note column no longer takes all the spare width; the columns share it,
 // so a short history does not crowd to the left with only the gutter between.
@@ -81,7 +101,7 @@ export function Releases({
   /** Whether the tab is open; every tab stays mounted. */
   readonly shown: boolean;
 }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   const role = useRole();
@@ -359,11 +379,11 @@ export function Releases({
                           {t("agent.releases.noteNone")}
                         </span>
                       ) : item.deactivated_at === null ? (
-                        formatTimestamp(item.activated_at, locale)
+                        toSecond(item.activated_at)
                       ) : (
                         t("agent.releases.activePeriod", {
-                          from: formatTimestamp(item.activated_at, locale),
-                          to: formatTimestamp(item.deactivated_at, locale),
+                          from: toSecond(item.activated_at),
+                          to: toSecond(item.deactivated_at),
                         })
                       )}
                     </TableCell>
