@@ -797,12 +797,7 @@ describe("worker image upgrade impact", () => {
       ].join("\n"),
       uncollected,
     });
-    expect(
-      notResumableOnPrevious({
-        target: target.affected,
-        previous: previous.affected,
-      }),
-    ).toEqual(["s2"]);
+    expect(notResumableOnPrevious({ target, previous })).toEqual(["s2"]);
   });
 
   test("a check of the previous image that could not finish leaves the target's list whole", () => {
@@ -813,7 +808,34 @@ describe("worker image upgrade impact", () => {
     });
     expect(previous.failClosed).toBe(true);
     expect(
-      notResumableOnPrevious({ target: ["s2"], previous: previous.affected }),
+      notResumableOnPrevious({
+        target: { affected: ["s2"], failClosed: false },
+        previous,
+      }),
     ).toEqual(["s2"]);
+  });
+
+  test("a target check that failed closed stays whole even where the previous image restores", () => {
+    // A same-combination rebuild launches on the target, so a session the
+    // target could not be shown to restore must stay on the list.
+    const target = upgradeImpact({
+      exitCode: 5,
+      output: [
+        "FAIL s1@1 plan: profile digest could not be computed",
+        "checkpoints=1 passed=0 failed=1",
+      ].join("\n"),
+      uncollected: ["s1"],
+    });
+    expect(target.failClosed).toBe(true);
+    const previous = upgradeImpact({
+      exitCode: 0,
+      output: [
+        "PASS s1@1 plan: ready under locked",
+        "checkpoints=1 passed=1 failed=0",
+      ].join("\n"),
+      uncollected: ["s1"],
+    });
+    expect(previous.failClosed).toBe(false);
+    expect(notResumableOnPrevious({ target, previous })).toEqual(["s1"]);
   });
 });

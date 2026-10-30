@@ -442,20 +442,20 @@ upgrade_affected_sessions() {
   fi
   # The upgrade keeps the replaced image as the previous one, which the
   # scheduler uses only when both images print their runtime.
-  if [ "$status" = 0 ] || [ "$status" = 5 ]; then
-    if [ -n "$(worker_runtime "$WORKER_IMAGE")" ] && [ -n "$(worker_runtime "$previous_worker")" ]; then
-      upgrade_previous_filter "$previous_worker" "$affected" "$all" "$catalog_dir" "$bucket"
-    fi
+  if [ -n "$catalog_dir" ] && [ -n "$bucket" ] \
+    && [ -n "$(worker_runtime "$WORKER_IMAGE")" ] && [ -n "$(worker_runtime "$previous_worker")" ]; then
+    upgrade_previous_filter "$previous_worker" "$affected" "$all" "$catalog_dir" "$bucket" "$status" "$output"
   fi
   rm -f "$all" "$output"
 }
 
 # Narrows $affected to the sessions the previous image cannot restore either.
-# A check that cannot finish leaves the list as it was (fail-closed).
+# The helper keeps the list whole when either check failed closed, and a
+# helper that cannot run leaves it as it was.
 upgrade_previous_filter() {
-  local previous_worker="$1" affected="$2" all="$3" catalog_dir="$4" bucket="$5" output on_previous status=0
+  local previous_worker="$1" affected="$2" all="$3" catalog_dir="$4" bucket="$5" \
+    target_status="$6" target_output="$7" output status=0
   output="$(mktemp)"
-  on_previous="$(mktemp)"
   if [ "$STORE" = s3 ]; then
     (with_api_store "${REPO_ROOT}/scripts/verify-restore.sh" --project "$PROJECT" \
       --object-store env --bucket "$bucket" --image "$previous_worker" --config-dir "$catalog_dir") \
@@ -465,15 +465,15 @@ upgrade_previous_filter() {
       --object-store localstack --bucket "$bucket" --image "$previous_worker" --config-dir "$catalog_dir" \
       > "$output" || status=$?
   fi
-  if bun_script "$HELPER" upgrade-impact "$status" "$output" "$all" > "$on_previous" \
-    && bun_script "$HELPER" upgrade-previous "$affected" "$on_previous" > "${affected}.new"; then
+  if bun_script "$HELPER" upgrade-previous "$all" "$target_status" "$target_output" "$status" "$output" \
+    > "${affected}.new"; then
     log "upgrade: $(grep -c . "$affected" || true) session(s) incompatible with the target, $(grep -c . "${affected}.new" || true) of them with the previous image $previous_worker too"
     mv "${affected}.new" "$affected"
   else
     rm -f "${affected}.new"
     log "upgrade: could not check the previous image; every session incompatible with the target stays affected"
   fi
-  rm -f "$output" "$on_previous"
+  rm -f "$output"
 }
 
 deploy() {
@@ -539,7 +539,8 @@ upgrade() {
   fi
   # What the gate counted on: the replaced image stays as the previous one.
   if [ "$WORKER_IMAGE" != "$from_worker" ]; then
-    printf '%s\n' "$from_worker" > "${PREVIOUS_WORKER}.new" && mv "${PREVIOUS_WORKER}.new" "$PREVIOUS_WORKER"
+    { printf '%s\n' "$from_worker" > "${PREVIOUS_WORKER}.new" && mv "${PREVIOUS_WORKER}.new" "$PREVIOUS_WORKER"; } \
+      || die "upgrade: could not record the previous worker in $PREVIOUS_WORKER; nothing was started"
   fi
   start_apps
   # The API reads the catalog once at startup; a bind mount's new contents
