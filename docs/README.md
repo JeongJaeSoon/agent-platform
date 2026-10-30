@@ -30,6 +30,7 @@ API로 세션을 만들고 쓰는 사람.
 | [백업과 복원](operator/backup-restore.md) | compose 설치의 백업·복원 |
 | [용량 관리](operator/capacity.md) | transcript 상한, worker 메모리, 노드당 세션 수 |
 | [Datadog 감시 기준](operator/monitoring-datadog.md) | Datadog Agent와 monitor |
+| [플랫폼 지표 (Kubernetes)](operator/metrics.md) | `/metrics` 지표 이름·라벨·뜻, 켜는 법, 수집기가 읽는 법 |
 | [세션 데이터가 흐르는 길](operator/observability.md) | `events` 표, 비밀값 마스킹, 예제 OTLP 수집기 |
 | [플랫폼이 보존하는 데이터](operator/data-retention.md) | 데이터별 저장 위치·보존 기간·삭제 조건, 내용과 마스킹, 세션 하나 따라가기 |
 | [test-ops 운영 runbook](operator/test-ops.md) | test-ops 설치의 운영 절차 |
