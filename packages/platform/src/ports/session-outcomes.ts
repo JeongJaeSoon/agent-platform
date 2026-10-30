@@ -59,6 +59,16 @@ export interface SessionOutcomeStore {
    * taken over meanwhile: a late answer never overwrites a newer one.
    */
   finish(outcome: ClaimedOutcome, check: OutcomeCheck): Promise<boolean>;
+  /**
+   * Writes `checkError` and the check time on at most `limit` due, unleased
+   * outcomes of `repositoryIds`, state kept, for a repository no read can
+   * reach (its App gone or uninstalled). Returns how many.
+   */
+  failDue(
+    repositoryIds: readonly string[],
+    checkError: SessionOutcomeCheckError,
+    limit: number,
+  ): Promise<number>;
   /** Keeps the last `x-ratelimit-limit` seen and, with `until`, pauses the unit. */
   noteRateLimit(
     quotaKey: string,

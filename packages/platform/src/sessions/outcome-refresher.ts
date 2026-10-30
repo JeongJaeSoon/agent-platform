@@ -1,3 +1,4 @@
+import type { SessionOutcomeCheckError } from "@werft-ai/contracts";
 import { ForgeCredentialError, repoRefOf } from "../ports/forge.ts";
 import {
   GitHubCallError,
@@ -61,16 +62,27 @@ export function createOutcomeRefresher(deps: {
   const now = deps.now ?? (() => new Date());
   const limits = new Map<string, number>();
 
-  /** The due repositories under the unit each one's next request spends from. */
+  /**
+   * The due repositories under the unit each one's next request spends from,
+   * and those no read can reach with the check error their rows get instead.
+   */
   async function units(repositoryIds: readonly string[]) {
     const byKey = new Map<string, string[]>();
+    const unreachable = new Map<SessionOutcomeCheckError, string[]>();
+    const fail = (id: string, checkError: SessionOutcomeCheckError) =>
+      unreachable.set(checkError, [...(unreachable.get(checkError) ?? []), id]);
     for (const id of repositoryIds) {
       const entry = Object.hasOwn(catalog.repositories, id)
         ? catalog.repositories[id]
         : undefined;
-      const connection = entry ? connections(id, "author") : null;
       const repo = entry ? repoRefOf(entry.url) : null;
-      if (connection === null || repo === null) continue;
+      if (repo === null) continue;
+      const connection = connections(id, "author");
+      // The gate would refuse every grant: no App or PAT serves it now.
+      if (connection === null) {
+        fail(id, "github_refused");
+        continue;
+      }
       let key: string;
       try {
         key = await connection.quotaKey(repo);
@@ -79,11 +91,17 @@ export function createOutcomeRefresher(deps: {
           repository_id: id,
           error: error instanceof Error ? error.name : "error",
         });
+        // A PAT whose user is unknown waits out its hour unread (§10); an
+        // App's installation lookup failing is the read's own failure.
+        if (connection.kind === "app") {
+          const installed = await connection.installed(repo).catch(() => null);
+          fail(id, installed === false ? "not_found" : "forge_failed");
+        }
         continue;
       }
       byKey.set(key, [...(byKey.get(key) ?? []), id]);
     }
-    return byKey;
+    return { byKey, unreachable };
   }
 
   async function read(outcome: ClaimedOutcome): Promise<{
@@ -187,7 +205,10 @@ export function createOutcomeRefresher(deps: {
   /** One pass over every unit. Returns how many pull requests it read. */
   async function runOnce(): Promise<number> {
     await store.fillMissing(FILL_PER_PASS);
-    const byKey = await units(await store.dueRepositories());
+    const { byKey, unreachable } = await units(await store.dueRepositories());
+    for (const [checkError, repositoryIds] of unreachable) {
+      await store.failDue(repositoryIds, checkError, claimMax);
+    }
     let reads = 0;
     for (const [quotaKey, repositoryIds] of byKey) {
       const claimed = await store.claim({
@@ -196,10 +217,12 @@ export function createOutcomeRefresher(deps: {
         max: claimMax,
         leaseMs,
       });
+      const leasedUntil = now().getTime() + leaseMs;
       let paused = false;
       for (const outcome of claimed) {
-        // Once the unit pauses, the rest go back unread.
-        if (paused) {
+        // Once the unit pauses, the rest go back unread; so do rows whose
+        // lease ran out meanwhile, which another replica may hold by now.
+        if (paused || now().getTime() >= leasedUntil) {
           await store.finish(outcome, { kind: "release" });
           continue;
         }

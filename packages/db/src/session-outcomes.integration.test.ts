@@ -179,6 +179,10 @@ integration("postgres session outcomes and the outcome refresher", () => {
     grant?: () => Promise<GitHubGrant | null>;
     claimMax?: number;
     leaseMs?: number;
+    /** An App connection whose own JWT tells this. */
+    installed?: () => Promise<boolean>;
+    /** In the catalog with no App or PAT serving them. */
+    unconnected?: string[];
   }) {
     const calls: number[] = [];
     const warnings: Array<{ message: string; fields?: unknown }> = [];
@@ -188,16 +192,27 @@ integration("postgres session outcomes and the outcome refresher", () => {
         return input.read(number);
       },
     };
+    // Only this replica's repositories: the other tests' rows stay out of it.
+    const own = [...input.repositories, ...(input.unconnected ?? [])];
     const refresher = createOutcomeRefresher({
       store,
-      catalog,
+      catalog: {
+        ...catalog,
+        repositories: Object.fromEntries(
+          Object.entries(catalog.repositories).filter(([id]) =>
+            own.includes(id),
+          ),
+        ),
+      },
       gate: {
         grant: input.grant ?? (async () => ({ api }) as unknown as GitHubGrant),
       },
       connections: (repositoryId) =>
         input.repositories.includes(repositoryId)
           ? ({
+              kind: input.installed ? "app" : "pat",
               quotaKey: () => input.unitOf(repositoryId),
+              installed: input.installed ?? (async () => null),
             } as unknown as GitHubConnection)
           : null,
       logger: {
@@ -487,6 +502,78 @@ integration("postgres session outcomes and the outcome refresher", () => {
         message: "Outcome refresh: rate-limit unit unknown",
       }),
     );
+  });
+
+  test("a repository no read can reach still gets its check: App uninstalled is not_found, its lookup failing forge_failed, no App or PAT github_refused", async () => {
+    const [gone, failing, unconnected] = [
+      repository(),
+      repository(),
+      repository(),
+    ];
+    const rows = [
+      await outcome(gone),
+      await outcome(failing),
+      await outcome(unconnected),
+    ];
+    const lookupFails = async () => {
+      throw new Error("installation lookup failed");
+    };
+    const first = replica({
+      repositories: [gone],
+      unitOf: lookupFails,
+      read: states(new Map()),
+      installed: async () => false,
+      unconnected: [unconnected],
+    });
+    await first.refresher.runOnce();
+    const second = replica({
+      repositories: [failing],
+      unitOf: lookupFails,
+      read: states(new Map()),
+      installed: async () => {
+        throw new Error("JWT refused");
+      },
+    });
+    await second.refresher.runOnce();
+    expect([...first.calls, ...second.calls]).toEqual([]);
+    const checked = await Promise.all(rows.map((row) => rowOf(row.id)));
+    expect(checked.map((row) => row.checkError)).toEqual([
+      "not_found",
+      "forge_failed",
+      "github_refused",
+    ]);
+    for (const row of checked) {
+      expect(row).toMatchObject({ state: "open", leaseToken: null });
+      expect(row.stateCheckedAt).not.toBeNull();
+    }
+
+    // Checked now, they wait out their interval like any other check.
+    await first.refresher.runOnce();
+    expect((await rowOf(rows[0]?.id ?? "")).stateCheckedAt).toEqual(
+      checked[0]?.stateCheckedAt ?? null,
+    );
+  });
+
+  test("rows whose lease ran out while earlier ones were read go back unread", async () => {
+    const repo = repository();
+    const unit = `app:test:${randomUUID()}`;
+    const rows = [await outcome(repo), await outcome(repo)];
+    const slow = slowGitHub("open");
+    const { refresher, calls } = replica({
+      repositories: [repo],
+      unitOf: async () => unit,
+      read: slow.read,
+      leaseMs: 200,
+    });
+    const running = refresher.runOnce();
+    await slow.askedOnce;
+    await Bun.sleep(300);
+    slow.release();
+    await running;
+    expect(calls).toHaveLength(1);
+    const after = await Promise.all(rows.map((row) => rowOf(row.id)));
+    expect(after.map((row) => row.leaseToken)).toEqual([null, null]);
+    expect(after.filter((row) => row.stateCheckedAt === null)).toHaveLength(1);
   });
 
   test("two repositories of one PAT user spend from one unit; switching one to another user's PAT moves it to a new unit next pass", async () => {
@@ -803,5 +890,19 @@ integration("postgres session outcomes and the outcome refresher", () => {
     expect(await store.refusals(OWNER, elsewhere, 10)).toEqual([
       expect.objectContaining({ reason_code: "github_disabled" }),
     ]);
+
+    // Receipts naming a reason or purpose this build does not know (a newer
+    // image wrote them) do not push the known ones out of the ten.
+    for (let index = 0; index < 10; index += 1) {
+      await record(sessionId, "mint_github_token", "failed", {
+        purpose: index % 2 === 0 ? "push" : "a_later_purpose",
+        reason_code: index % 2 === 0 ? "a_later_reason" : "github_disabled",
+      });
+    }
+    expect(
+      ((await store.refusals(OWNER, sessionId, 10)) ?? []).map(
+        (item) => item.receipt_id,
+      ),
+    ).toEqual([dispatched, ...written.slice(2).reverse()]);
   });
 });

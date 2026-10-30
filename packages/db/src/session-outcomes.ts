@@ -279,6 +279,22 @@ export function createPostgresSessionOutcomes(
       return rows.length > 0;
     },
 
+    async failDue(repositoryIds, checkError, limit) {
+      if (repositoryIds.length === 0 || limit <= 0) return 0;
+      const repositories = sql.join(
+        repositoryIds.map((id) => sql`${id}`),
+        sql`, `,
+      );
+      const rows = await db
+        .update(sessionOutcomes)
+        .set({ checkError, stateCheckedAt: sql`now()` })
+        .where(
+          sql`${sessionOutcomes.id} IN (SELECT ${sessionOutcomes.id} FROM ${sessionOutcomes} WHERE ${due} AND ${sessionOutcomes.repositoryId} IN (${repositories}) ORDER BY ${sessionOutcomes.stateCheckedAt} NULLS FIRST, ${sessionOutcomes.createdAt} LIMIT ${limit} FOR UPDATE SKIP LOCKED)`,
+        )
+        .returning({ id: sessionOutcomes.id });
+      return rows.length;
+    },
+
     async noteRateLimit(quotaKey, input) {
       await db
         .insert(outcomeRefreshQuotas)
@@ -318,10 +334,12 @@ export function createPostgresSessionOutcomes(
     async refusals(ownerId, rawSessionId, limit) {
       const sessionId = rawSessionId.toLowerCase();
       if (!(await owned(ownerId, sessionId))) return null;
-      const operations = sql.join(
-        GATE_OPERATIONS.map((operation) => sql`${operation}`),
-        sql`, `,
-      );
+      const listed = (values: readonly string[]) =>
+        sql.join(
+          values.map((value) => sql`${value}`),
+          sql`, `,
+        );
+      const operations = listed(GATE_OPERATIONS);
       const { rows } = (await db.execute(sql`
         SELECT id, operation, result ->> 'purpose' AS purpose,
                result ->> 'reason_code' AS reason_code, created_at
@@ -330,7 +348,8 @@ export function createPostgresSessionOutcomes(
           AND target_ref ->> 'session_id' = ${sessionId}
           AND operation IN (${operations})
           AND status = 'failed'
-          AND result ->> 'reason_code' IS NOT NULL
+          AND result ->> 'reason_code' IN (${listed(GITHUB_REFUSAL_VALUES)})
+          AND result ->> 'purpose' IN (${listed(GITHUB_PURPOSE_VALUES)})
         ORDER BY created_at DESC, id DESC
         LIMIT ${limit}`)) as unknown as {
         rows: {

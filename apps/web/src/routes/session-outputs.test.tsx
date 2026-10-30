@@ -395,6 +395,25 @@ describe("the session's GitHub pull requests", () => {
     expect(screen.queryByText("아직 결과물이 없습니다.")).toBeNull();
   });
 
+  // GitHub merges a pull request after the session stopped and no session
+  // event says so: an open tab reads both lists again each refresher minute.
+  test("an open tab reads its pull requests and refusals again every minute", async () => {
+    const { services } = renderAt(`/sessions/${SESSION_ID}`, pulled(pulls));
+    await openOutputs();
+    await screen.findByRole("region", { name: "GitHub PR" });
+    const intervals = (path: string) =>
+      services.queryClient
+        .getQueryCache()
+        .findAll()
+        .filter((query) => query.queryKey.at(-1) === path)
+        .flatMap((query) =>
+          query.observers.map((observer) => observer.options.refetchInterval),
+        );
+    expect(intervals("outcomes")).not.toHaveLength(0);
+    expect(new Set(intervals("outcomes"))).toEqual(new Set([60_000]));
+    expect(intervals("github-refusals")).toEqual([60_000]);
+  });
+
   test("a pull request not checked yet says so", async () => {
     renderAt(
       `/sessions/${SESSION_ID}`,

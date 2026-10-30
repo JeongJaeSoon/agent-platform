@@ -73,6 +73,10 @@ function useSessionOutputs(session: SessionDetail) {
 // Absent from a cached detail older than the field, as well as null.
 const hasRepository = (session: SessionDetail) => Boolean(session.repository);
 
+// GitHub changes a pull request after the session has stopped, and the
+// server's refresher reads it once a minute, so no session event says when.
+const OUTCOMES_REFETCH_MS = 60_000;
+
 function useSessionOutcomes(session: SessionDetail) {
   const { client } = useAgentPlatform();
   return useQuery({
@@ -85,6 +89,7 @@ function useSessionOutcomes(session: SessionDetail) {
       ) as Promise<ListSessionOutcomesResponse>,
     retry: false,
     enabled: hasRepository(session),
+    refetchInterval: OUTCOMES_REFETCH_MS,
   });
 }
 
@@ -241,6 +246,7 @@ function SessionGitHubRefusals({
       ) as Promise<ListSessionGitHubRefusalsResponse>,
     retry: false,
     enabled: hasRepository(session),
+    refetchInterval: OUTCOMES_REFETCH_MS,
   });
   const items = refusals.data?.items ?? [];
   if (!hasRepository(session) || items.length === 0) return null;
