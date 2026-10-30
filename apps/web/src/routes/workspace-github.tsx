@@ -45,6 +45,7 @@ import {
   SettingsCard,
   WorkspacePage,
 } from "./workspace-settings.tsx";
+import { GitHubUserLinkSection } from "./workspace-github-user-link.tsx";
 import { DangerZone, storeOff } from "./workspace-slack.tsx";
 
 // Row buttons share one width down the right edge.
@@ -435,6 +436,10 @@ function GitHubApp({ onOutcome }: { readonly onOutcome: OnOutcome }) {
                 <SettingRow title={t("github.repositoriesEmpty")} />
               )
             }
+          />
+          <GitHubUserLinkSection
+            workspaceId={workspaceId}
+            onOutcome={onOutcome}
           />
           <DangerZone>
             <SettingRow

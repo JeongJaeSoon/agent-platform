@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type {
   ListSessionOutputsResponse,
   SessionDetail,
+  SessionGitHubAttribution,
 } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { apiError, json, me } from "../test-support/fake-api.ts";
@@ -193,5 +194,69 @@ describe("session outputs", () => {
       await screen.findByRole("button", { name: "다시 시도" }),
     ).toBeTruthy();
     expect(screen.queryByText(/out\/ 폴더에 남긴 파일만/)).toBeNull();
+  });
+});
+
+describe("session GitHub attribution", () => {
+  const ATTRIBUTION = `/v1/sessions/${SESSION_ID}/github/attribution`;
+  const withRepository = {
+    ...detail,
+    repository: { id: "demo", full_name: "acme/demo", branch: "main" },
+  };
+  function attributed(answer: SessionGitHubAttribution) {
+    return {
+      ...routes(() => json(200, outputs)),
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, withRepository),
+      [`GET ${ATTRIBUTION}`]: () => json(200, answer),
+    };
+  }
+
+  test("names the linked starter as the commits' co-author", async () => {
+    renderAt(
+      `/sessions/${SESSION_ID}`,
+      attributed({ trigger: "web", attribution: "co_author", login: "octocat" }),
+    );
+    await openOutputs();
+    expect(
+      await screen.findByText("commit 공동 작성자: octocat"),
+    ).toBeDefined();
+  });
+
+  test("an unlinked starter is pointed at linked accounts", async () => {
+    renderAt(
+      `/sessions/${SESSION_ID}`,
+      attributed({ trigger: "slack", attribution: "unlinked", login: null }),
+    );
+    await openOutputs();
+    expect(
+      await screen.findByText(/GitHub 계정이 연결되지 않아/),
+    ).toBeDefined();
+    expect(
+      screen.getByRole("link", { name: "연동 계정" }).getAttribute("href"),
+    ).toBe("/settings/linked-accounts");
+  });
+
+  test("a session no person started says the App alone signs", async () => {
+    renderAt(
+      `/sessions/${SESSION_ID}`,
+      attributed({ trigger: "agent_key", attribution: "app_only", login: null }),
+    );
+    await openOutputs();
+    expect(
+      await screen.findByText(
+        "시작한 사람이 없는 세션이라 commit은 App 이름으로만 남습니다.",
+      ),
+    ).toBeDefined();
+  });
+
+  test("a session without a repository is not asked", async () => {
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...attributed({ trigger: "web", attribution: "co_author", login: "x" }),
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, { ...detail, repository: null }),
+    });
+    await openOutputs();
+    await screen.findByRole("region", { name: "결과물" });
+    expect(api.calls.some((call) => call.path === ATTRIBUTION)).toBe(false);
   });
 });

@@ -7,6 +7,8 @@ import {
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import {
   apiError,
+  GITHUB_SETTINGS,
+  githubSettings,
   json,
   keys,
   me,
@@ -15,7 +17,13 @@ import {
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor } = await appHarness();
+const { renderAt, screen, waitFor, within } = await appHarness();
+
+// The GitHub row says "연결 안 됨" too; these look at Slack's alone.
+const slackRow = () =>
+  screen.getByRole("heading", { name: "Slack" }).closest("li") as HTMLElement;
+const slackNotLinked = () =>
+  waitFor(() => expect(within(slackRow()).getByText("연결 안 됨")).toBeTruthy());
 
 const LINK_ID = "4e5f6a7b-8c9d-4e0f-9a1b-2c3d4e5f6a7b";
 const AUTHORIZE = "http://mock-slack.test/openid/connect/authorize?state=s1";
@@ -77,7 +85,7 @@ describe("연동 계정", () => {
           expires_at: "2026-10-11T00:10:00.000Z",
         }),
     });
-    expect(await screen.findByText("연결 안 됨")).toBeDefined();
+    await slackNotLinked();
     const user = await setupUser();
     await user.click(screen.getByRole("button", { name: "Slack 계정 연결" }));
     await waitFor(() => expect(left).toEqual([AUTHORIZE]));
@@ -128,7 +136,7 @@ describe("연동 계정", () => {
     const user = await setupUser();
     screen.getByRole("button", { name: "연결 해제" }).focus();
     await user.keyboard("{Enter}");
-    expect(await screen.findByText("연결 안 됨")).toBeDefined();
+    await slackNotLinked();
     expect(screen.getByRole("status")).toBe(status);
     expect(status.textContent).toBe("Slack 계정 연결을 해제했습니다.");
     // No row is left, so focus goes to the list's heading.
@@ -382,7 +390,7 @@ describe("연동 계정", () => {
       ).toBe(true),
     );
     releaseFirst();
-    expect(await screen.findByText("연결 안 됨")).toBeDefined();
+    await slackNotLinked();
     await waitFor(() =>
       expect(
         document.activeElement ===
@@ -665,7 +673,7 @@ describe("연동 계정", () => {
     });
     const user = await setupUser();
     await user.click(await screen.findByRole("button", { name: "다시 시도" }));
-    expect(await screen.findByText("연결 안 됨")).toBeTruthy();
+    await slackNotLinked();
     expect(calls).toBe(2);
   });
 
@@ -681,5 +689,174 @@ describe("연동 계정", () => {
     expect(history.location.search).toContain(
       encodeURIComponent("/settings/linked-accounts/slack?code=c1&state=s1"),
     );
+  });
+});
+
+describe("연동 계정 — GitHub", () => {
+  const GITHUB_LINK_ID = "6a7b8c9d-0e1f-4a2b-9c3d-4e5f6a7b8c9d";
+  const github: LinkedAccount = {
+    ...slack,
+    id: GITHUB_LINK_ID,
+    provider: "github",
+    external_tenant: "github.com",
+    external_user_id: "583231",
+    external_user_name: "octocat",
+  };
+  const AUTHORIZE_GITHUB =
+    "https://github.com/login/oauth/authorize?client_id=Iv23lifake&state=s1";
+  const ready = {
+    [`GET ${GITHUB_SETTINGS}`]: () => json(200, githubSettings()),
+  };
+  const githubRow = () =>
+    screen
+      .getByRole("heading", { name: "GitHub" })
+      .closest("li") as HTMLElement;
+
+  test("픽스처는 서버가 보낼 수 있는 모양이다", () => {
+    expect(linkedAccountSchema.safeParse(github).success).toBe(true);
+  });
+
+  test("사용자 연결이 준비됐으면 연결 버튼이 GitHub 동의 화면으로 보낸다", async () => {
+    const { api, left } = renderAt("/settings/linked-accounts", {
+      ...meOk,
+      ...ready,
+      "GET /v1/linked-accounts": () => json(200, { items: [] }),
+      "POST /v1/linked-accounts/github/start": () =>
+        json(200, {
+          authorize_url: AUTHORIZE_GITHUB,
+          expires_at: "2026-10-11T00:10:00.000Z",
+        }),
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "GitHub 계정 연결" }),
+    );
+    await waitFor(() => expect(left).toEqual([AUTHORIZE_GITHUB]));
+    expect(
+      api.calls.filter((c) => c.path === "/v1/linked-accounts/github/start")
+        .length,
+    ).toBe(1);
+  });
+
+  test("client secret이 없으면 버튼을 막고 관리자에게 맡긴다는 안내를 보인다", async () => {
+    renderAt("/settings/linked-accounts", {
+      ...meOk,
+      [`GET ${GITHUB_SETTINGS}`]: () =>
+        json(200, githubSettings({ client_secret_set: false })),
+      "GET /v1/linked-accounts": () => json(200, { items: [] }),
+    });
+    expect(
+      await screen.findByText(
+        "owner·admin이 GitHub 연결 설정에서 사용자 연결을 켜야 연결할 수 있어요",
+      ),
+    ).toBeDefined();
+    const button = within(githubRow()).getByRole("button", { name: "연결" });
+    expect(button.hasAttribute("disabled")).toBe(true);
+  });
+
+  test("설정이 안 됐다는 시작 거절은 서버의 안내 문구 그대로다", async () => {
+    renderAt("/settings/linked-accounts", {
+      ...meOk,
+      "GET /v1/linked-accounts": () => json(200, { items: [] }),
+      "POST /v1/linked-accounts/github/start": () =>
+        apiError(409, "GITHUB_LINK_NOT_CONFIGURED", LINK_MESSAGES.githubUnset),
+    });
+    const user = await setupUser();
+    // Unread settings leave the button; the start says why it cannot.
+    await user.click(
+      await screen.findByRole("button", { name: "GitHub 계정 연결" }),
+    );
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      LINK_MESSAGES.githubUnset,
+    );
+  });
+
+  test("연결된 GitHub 계정은 login과 commit에 들어갈 줄을 보이고 해제한다", async () => {
+    let items = [github];
+    renderAt("/settings/linked-accounts", {
+      ...meOk,
+      ...ready,
+      "GET /v1/linked-accounts": () => json(200, { items }),
+      [`DELETE /v1/linked-accounts/${GITHUB_LINK_ID}`]: () => {
+        items = [{ ...github, status: "revoked" }];
+        return json(200, {
+          receipt_id: RECEIPT_ID,
+          receipt_status: "succeeded",
+        });
+      },
+    });
+    expect(
+      await screen.findByText(
+        "commit에 들어가는 줄: Co-authored-by: octocat <583231+octocat@users.noreply.github.com>",
+      ),
+    ).toBeDefined();
+    const row = within(githubRow());
+    expect(row.getByText("octocat")).toBeDefined();
+    expect(row.queryByRole("button", { name: "GitHub 계정 연결" })).toBeNull();
+    // Slack's row is untouched by a GitHub link.
+    await slackNotLinked();
+    const user = await setupUser();
+    await user.click(row.getByRole("button", { name: "연결 해제" }));
+    expect(
+      await screen.findByText("GitHub 계정 연결을 해제했습니다."),
+    ).toBeDefined();
+    await waitFor(() =>
+      expect(
+        within(githubRow()).getByRole("button", { name: "GitHub 계정 연결" }),
+      ).toBeDefined(),
+    );
+  });
+
+  test("GitHub가 돌려보내면 code·state를 GitHub 콜백에 한 번 보내고 목록으로 간다", async () => {
+    let items: LinkedAccount[] = [];
+    const { api, history } = renderAt(
+      "/settings/linked-accounts/github?code=c1&state=s1",
+      {
+        ...meOk,
+        ...ready,
+        "POST /v1/linked-accounts/github/callback": () => {
+          items = [github];
+          return json(201, { linked_account: github, receipt_id: RECEIPT_ID });
+        },
+        "GET /v1/linked-accounts": () => json(200, { items }),
+      },
+    );
+    await waitFor(() =>
+      expect(history.location.pathname).toBe("/settings/linked-accounts"),
+    );
+    expect(await within(githubRow()).findByText("octocat")).toBeDefined();
+    expect(
+      api.calls
+        .filter((c) => c.path.startsWith("/v1/linked-accounts/"))
+        .filter((c) => c.method === "POST")
+        .map((c) => [c.path, c.body]),
+    ).toEqual([
+      ["/v1/linked-accounts/github/callback", { code: "c1", state: "s1" }],
+    ]);
+  });
+
+  test("이미 다른 사람에게 연결된 GitHub 계정이면 서버 문구와 돌아갈 링크다", async () => {
+    renderAt("/settings/linked-accounts/github?code=c1&state=s1", {
+      ...meOk,
+      "POST /v1/linked-accounts/github/callback": () =>
+        apiError(409, "LINK_TAKEN", LINK_MESSAGES.githubTaken),
+    });
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      LINK_MESSAGES.githubTaken,
+    );
+    expect(
+      screen.getByRole("link", { name: "연동 계정으로" }).getAttribute("href"),
+    ).toBe("/settings/linked-accounts");
+  });
+
+  test("code 없이 돌아오면(동의 취소) 서버에 묻지 않고 다시 하라고 한다", async () => {
+    const { api } = renderAt(
+      "/settings/linked-accounts/github?error=access_denied&state=s1",
+      meOk,
+    );
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "GitHub 계정 연결을 마치지 못했습니다 — 다시 시도하세요.",
+    );
+    expect(api.calls.some((c) => c.path.endsWith("/callback"))).toBe(false);
   });
 });

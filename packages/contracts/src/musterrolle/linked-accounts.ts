@@ -162,4 +162,10 @@ export type SlackLinkCallbackRequest = z.infer<
 export type SlackLinkCallbackResponse = z.infer<
   typeof slackLinkCallbackResponseSchema
 >;
+export type StartGitHubLinkResponse = z.infer<
+  typeof startGitHubLinkResponseSchema
+>;
+export type GitHubLinkCallbackResponse = z.infer<
+  typeof githubLinkCallbackResponseSchema
+>;
 export type UnlinkAccountResponse = z.infer<typeof unlinkAccountResponseSchema>;

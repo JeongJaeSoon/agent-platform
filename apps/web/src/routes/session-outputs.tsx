@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link as RouterLink } from "@tanstack/react-router";
 import { isApiError, unwrap } from "@werft-ai/client";
 import type {
   ListSessionOutputsResponse,
   SessionDetail,
+  SessionGitHubAttribution,
 } from "@werft-ai/contracts";
 import { queryKeysOf } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
@@ -67,6 +69,53 @@ export function SessionOutputsCount({
   return session.checkpoint_revision === null
     ? 0
     : (outputs.data?.items.length ?? null);
+}
+
+/**
+ * Whom the session's commits name besides the App. Shown only for a session
+ * with a repository; a failed read leaves the line out, as the outputs do not
+ * depend on it.
+ */
+export function SessionAttribution({
+  session,
+}: {
+  readonly session: SessionDetail;
+}) {
+  const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  // Absent from a cached detail older than the field, as well as null.
+  const hasRepository = Boolean(session.repository);
+  const attribution = useQuery({
+    queryKey: [...queryKeysOf(client).session(session.id), "github-attribution"],
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/sessions/{id}/github/attribution", {
+          params: { path: { id: session.id } },
+        }),
+      ) as Promise<SessionGitHubAttribution>,
+    retry: false,
+    enabled: hasRepository,
+  });
+  const data = attribution.data;
+  if (!hasRepository || data === undefined) return null;
+  return (
+    <p className="m-0 text-caption text-muted-foreground">
+      {data.attribution === "co_author" && data.login !== null ? (
+        t("session.attribution.coAuthor", { login: data.login })
+      ) : data.attribution === "unlinked" ? (
+        <>
+          {t("session.attribution.unlinked")}{" "}
+          <Link asChild underline="always">
+            <RouterLink to="/settings/linked-accounts">
+              {t("session.attribution.link")}
+            </RouterLink>
+          </Link>
+        </>
+      ) : (
+        t("session.attribution.appOnly")
+      )}
+    </p>
+  );
 }
 
 /**

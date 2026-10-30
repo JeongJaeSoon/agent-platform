@@ -5,6 +5,7 @@ import { authJa } from "./auth.ts";
 import { commonJa } from "./common.ts";
 import { errorsJa } from "./errors.ts";
 import { githubJa } from "./github.ts";
+import { githubUserLinkJa } from "./github-user-link.ts";
 import { homeJa } from "./home.ts";
 import type { MessageKey } from "./ko.ts";
 import { linkedJa } from "./linked.ts";
@@ -184,6 +185,7 @@ export const ja: Record<MessageKey, string> = {
   ...apiKeysJa,
   ...workspaceJa,
   ...githubJa,
+  ...githubUserLinkJa,
   ...usageJa,
   ...preferencesJa,
   ...errorsJa,

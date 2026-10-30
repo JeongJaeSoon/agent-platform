@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import {
   apiError,
+  GITHUB_SETTINGS,
+  githubSettings,
   json,
   me,
   memberMe,
@@ -14,6 +16,9 @@ const { cleanup, renderAt, screen, waitFor, within } = await appHarness();
 const PATH = "/settings/workspace/github";
 const APP = `/v1/workspaces/${WORKSPACE_ID}/github-app`;
 const KEY_TEXT = "fake-pem-text";
+const settingsRead = {
+  [`GET ${GITHUB_SETTINGS}`]: () => json(200, githubSettings()),
+};
 const UNSET = {
   github_app: null,
   check: null,
@@ -87,6 +92,7 @@ describe("워크스페이스 GitHub 연결", () => {
     let saved = false;
     const { api, services } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
+      ...settingsRead,
       [`GET ${APP}`]: () => json(200, saved ? REGISTERED : UNSET),
       [`PUT ${APP}`]: () => {
         saved = true;
@@ -135,6 +141,7 @@ describe("워크스페이스 GitHub 연결", () => {
   test("App ID나 파일이 없으면 서버에 묻지 않고 그 칸으로 간다", async () => {
     const { api } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
+      ...settingsRead,
       [`GET ${APP}`]: () => json(200, UNSET),
     });
     const user = await setupUser();
@@ -175,6 +182,7 @@ describe("워크스페이스 GitHub 연결", () => {
     for (const [response, text] of cases) {
       renderAt(PATH, {
         "GET /v1/auth/me": () => json(200, me()),
+        ...settingsRead,
         [`GET ${APP}`]: () => json(200, UNSET),
         [`PUT ${APP}`]: () => response.clone(),
       });
@@ -189,6 +197,7 @@ describe("워크스페이스 GitHub 연결", () => {
   test("GitHub에 닿지 못한 읽기는 확인 실패와 설치 상태를 모른다고 보인다", async () => {
     renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
+      ...settingsRead,
       [`GET ${APP}`]: () =>
         json(200, {
           ...REGISTERED,
@@ -209,6 +218,7 @@ describe("워크스페이스 GitHub 연결", () => {
     let deleted = false;
     const { api } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
+      ...settingsRead,
       [`GET ${APP}`]: () => json(200, deleted ? UNSET : REGISTERED),
       [`DELETE ${APP}`]: () => {
         deleted = true;
@@ -231,6 +241,7 @@ describe("워크스페이스 GitHub 연결", () => {
   test("저장을 두 번 눌러도 한 번만 보낸다", async () => {
     const { api } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
+      ...settingsRead,
       [`GET ${APP}`]: () => json(200, UNSET),
       [`PUT ${APP}`]: () =>
         json(200, {
@@ -255,6 +266,7 @@ describe("워크스페이스 GitHub 연결", () => {
   test("키가 거절되면 확인 실패이고, 빈 설치 카드도 다시 등록하라고 말한다", async () => {
     renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
+      ...settingsRead,
       [`GET ${APP}`]: () =>
         json(200, {
           ...REGISTERED,
@@ -274,10 +286,99 @@ describe("워크스페이스 GitHub 연결", () => {
   test("구성원은 이유만 읽고 서버에 묻지 않는다", async () => {
     const { api } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, memberMe()),
+      ...settingsRead,
     });
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "등록" })).toBeNull(),
     );
     expect(api.calls.some((c) => c.path === APP)).toBe(false);
+  });
+});
+
+describe("워크스페이스 GitHub 연결 — 사용자 계정 연결", () => {
+  const registered = (settings = githubSettings()) => ({
+    "GET /v1/auth/me": () => json(200, me()),
+    [`GET ${APP}`]: () => json(200, REGISTERED),
+    [`GET ${GITHUB_SETTINGS}`]: () => json(200, settings),
+  });
+  const section = async () =>
+    within(await screen.findByRole("region", { name: "사용자 계정 연결" }));
+
+  test("Client ID와 콜백 URL을 보이고, 콜백 URL은 복사하면 화면의 알림 줄이 알린다", async () => {
+    renderAt(PATH, registered());
+    const card = await section();
+    expect(await card.findByText("Iv23lifake")).toBeDefined();
+    expect(
+      card.getByText("http://console.test/settings/linked-accounts/github"),
+    ).toBeDefined();
+    expect(card.getByText("입력됨")).toBeDefined();
+    expect(card.getByRole("button", { name: "교체" })).toBeDefined();
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    const written: string[] = [];
+    const user = await setupUser();
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (text: string) => void written.push(text) },
+    });
+    try {
+      await user.click(card.getByRole("button", { name: "콜백 URL 복사" }));
+      expect(written).toEqual([
+        "http://console.test/settings/linked-accounts/github",
+      ]);
+      expect((await screen.findByRole("status")).textContent).toBe("복사됨");
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
+  test("콘솔 주소와 client secret이 없으면 무엇이 빠졌는지 말한다", async () => {
+    renderAt(
+      PATH,
+      registered(
+        githubSettings({
+          client_id: null,
+          callback_url: null,
+          client_secret_set: false,
+        }),
+      ),
+    );
+    const card = await section();
+    expect(
+      await card.findByText(/운영자에게 CONSOLE_ORIGIN 설정을 요청하세요/),
+    ).toBeDefined();
+    expect(
+      card.getByText(
+        "GitHub App을 등록하면 GitHub가 알려 주는 값이 여기에 보입니다.",
+      ),
+    ).toBeDefined();
+    expect(card.getByText("입력 안 됨")).toBeDefined();
+    expect(card.queryByRole("button", { name: "콜백 URL 복사" })).toBeNull();
+  });
+
+  test("빈 client secret은 서버에 보내지 않고 그 칸으로 돌아간다", async () => {
+    const { api } = renderAt(
+      PATH,
+      registered(githubSettings({ client_secret_set: false })),
+    );
+    const card = await section();
+    const user = await setupUser();
+    await user.click(await card.findByRole("button", { name: "입력" }));
+    const input = card.getByLabelText("Client secret");
+    expect(document.activeElement === input).toBe(true);
+    expect(input.getAttribute("type")).toBe("password");
+    await user.click(card.getByRole("button", { name: "저장" }));
+    expect(
+      await card.findByText("client secret을 넣어 주세요."),
+    ).toBeDefined();
+    expect(document.activeElement === input).toBe(true);
+    expect(api.calls.some((c) => c.method === "PUT")).toBe(false);
+    // Cancelling closes the form and hands focus back to its button.
+    await user.click(card.getByRole("button", { name: "취소" }));
+    await waitFor(() =>
+      expect(
+        document.activeElement === card.getByRole("button", { name: "입력" }),
+      ).toBe(true),
+    );
   });
 });
