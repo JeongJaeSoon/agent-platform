@@ -116,7 +116,7 @@ curl -s localhost:9464/metrics
 
 - 세션 id, turn id, 사용자 id, API key id, 에이전트 id, attempt id는 라벨로 쓰지 않는다. 에이전트별 비용은 `GET /v1/usage/*`로 본다.
 - `state`·`status`·`admission`·`outcome`·`priced_by`·`kind`·`le`는 정해진 값만 나온다.
-- `tool`과 `model`은 데이터에서 온다. MCP 도구 `mcp__<server>__<tool>`은 `mcp__<server>`로 접는다. 그다음 처음 나타난 순서로 `tool`은 100개, `model`은 50개까지만 이름을 두고 나머지는 `other`로 합친다. 행을 지우지 않으므로 이름을 얻은 값은 보통 그대로 남는다. 다만 상한이 찬 뒤 projection이 늦게 넣은 행이 더 이른 시각을 가지면 이름 하나가 `other`와 자리를 바꿀 수 있고, 그때 그 이름과 `other`의 counter가 한 번 튀거나 reset으로 읽힌다.
+- `tool`과 `model`은 데이터에서 온다. MCP 도구 `mcp__<server>__<tool>`은 `mcp__<server>`로 접는다. 그다음 처음 나타난 순서로 `tool`은 100개, `model`은 50개까지만 이름을 두고 나머지는 `other`로 합친다. 행을 지우지 않으므로 이름을 얻은 값은 보통 그대로 남는다. 다만 상한이 찬 뒤 projection이 늦게 넣은 행(`tool`)이나 늦게 커밋된 행(`model`, `recorded_at`은 트랜잭션 시작 시각)이 더 이른 시각을 가지면 이름 하나가 `other`와 자리를 바꿀 수 있다. 그때 밀려난 이름의 series는 끊기고, 들어온 이름은 새 series로 시작하며, `other`는 한 번 튀거나 reset으로 읽힌다.
 - 테스트: `apps/control-host/src/metrics/families.test.ts`의 cardinality 절이 라벨 이름 목록, id 모양 값이 없음, 상한을 확인한다.
 
 ## compose 지표와의 대응
