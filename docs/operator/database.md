@@ -54,7 +54,7 @@ await pool.end();'
 # {"statement_timeout":"10s","idle_in_transaction":"30s","application_name":"agent-platform:api"}
 ```
 
-Helm은 `docker compose … exec -T -w /app/apps/control-host api` 대신 `kubectl -n <namespace> exec deploy/<release>-api -- sh -c 'cd /app/apps/control-host && bun -e …'`로 같은 스크립트를 돌린다.
+Helm은 `docker compose … exec -T -w /app/apps/control-host api` 대신 `kubectl -n agent-platform exec deploy/agent-platform-api -- sh -c 'cd /app/apps/control-host && bun -e …'`로 같은 스크립트를 돌린다. release 이름이 `agent-platform`이 아니면 namespace와 deployment 이름을 그 설치의 것으로 바꾼다.
 
 ## 느린 쿼리와 잠금 대기 보기
 
