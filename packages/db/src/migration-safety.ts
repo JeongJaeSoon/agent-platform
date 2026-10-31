@@ -92,10 +92,8 @@ export function migrationSafetyProblems(
     for (const statement of statementsOf(raw)) {
       // Every check reads one statement from its start, and a no-transaction
       // migration sent as one query string runs in an implicit transaction.
-      if (
-        !/\$\w*\$/.test(statement) &&
-        /;\s*\S/.test(statement.replace(/'(?:[^']|'')*'/g, "''"))
-      ) {
+      const bare = statement.replace(/'(?:[^']|'')*'/g, "''");
+      if (!/\$\w*\$/.test(bare) && /;\s*\S/.test(bare)) {
         problems.push(
           `${file}: more than one statement between breakpoints; put "--> statement-breakpoint" after each`,
         );
