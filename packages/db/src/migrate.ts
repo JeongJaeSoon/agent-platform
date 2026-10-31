@@ -1,12 +1,22 @@
 import { join } from "node:path";
 import { createLogger, type StructuredLogger } from "@werft-ai/observability";
-import { readMigrationFiles } from "drizzle-orm/migrator";
-import { drizzle } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { type MigrationMeta, readMigrationFiles } from "drizzle-orm/migrator";
 import type { Pool, PoolClient } from "pg";
 import { createEnforcedPool, type PoolTimeouts } from "./pool.ts";
 
-const migrationsFolder = join(import.meta.dir, "../migrations");
+const packagedMigrationsFolder = join(import.meta.dir, "../migrations");
+
+// Drizzle's migrator applies every pending migration in one transaction, where
+// CREATE INDEX CONCURRENTLY is refused. A migration whose first line is this
+// marker runs alone, each statement committing on its own, and its journal row
+// is written after the last one. A failure part way leaves the earlier
+// statements applied and the migration pending, so every statement in such a
+// file must be safe to run again (docs/contributing/development.md).
+export const NO_TRANSACTION_MARKER = "-- migrate:no-transaction";
+
+export function runsOutsideTransaction(statements: readonly string[]): boolean {
+  return statements[0]?.trimStart().startsWith(NO_TRANSACTION_MARKER) ?? false;
+}
 const expectedLegacyTables = [
   "api_keys",
   "events",
@@ -40,6 +50,7 @@ export const MIGRATION_POOL_TIMEOUTS: PoolTimeouts = {
 export interface MigrateDatabaseOptions {
   readonly logger?: StructuredLogger;
   readonly timeouts?: PoolTimeouts;
+  readonly migrationsFolder?: string;
 }
 
 export async function migrateDatabase(
@@ -53,10 +64,14 @@ export async function migrateDatabase(
     "migrate",
     options.timeouts ?? MIGRATION_POOL_TIMEOUTS,
   );
+  const migrationsFolder = options.migrationsFolder ?? packagedMigrationsFolder;
   try {
-    const adopted = await adoptLegacyM0Schema(pool);
+    const adopted = await adoptLegacyM0Schema(pool, migrationsFolder);
     const before = await countJournal(pool);
-    await migrate(drizzle(pool), { migrationsFolder });
+    await applyPendingMigrations(
+      pool,
+      readMigrationFiles({ migrationsFolder }),
+    );
     const total = await countJournal(pool);
     const summary: MigrationSummary = {
       adopted,
@@ -85,7 +100,79 @@ async function countJournal(pool: Pool): Promise<number> {
   return Number(count.rows[0]?.count ?? 0);
 }
 
-async function adoptLegacyM0Schema(pool: Pool): Promise<number> {
+// Drizzle's rule for what is pending: everything newer than the newest
+// journal row. Runs of ordinary migrations still share one transaction.
+async function applyPendingMigrations(
+  pool: Pool,
+  migrations: readonly MigrationMeta[],
+): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await createJournalTable(client);
+    const newest = await client.query<{ created_at: string }>(
+      'SELECT created_at FROM "drizzle"."__drizzle_migrations" ORDER BY created_at DESC LIMIT 1',
+    );
+    const appliedThrough = newest.rows[0]
+      ? Number(newest.rows[0].created_at)
+      : Number.NEGATIVE_INFINITY;
+    let batch: MigrationMeta[] = [];
+    for (const migration of migrations) {
+      if (migration.folderMillis <= appliedThrough) {
+        continue;
+      }
+      if (!runsOutsideTransaction(migration.sql)) {
+        batch.push(migration);
+        continue;
+      }
+      await applyInTransaction(client, batch);
+      batch = [];
+      for (const statement of migration.sql) {
+        await client.query(statement);
+      }
+      await recordAppliedMigrations(client, [
+        { hash: migration.hash, when: migration.folderMillis },
+      ]);
+    }
+    await applyInTransaction(client, batch);
+  } finally {
+    client.release();
+  }
+}
+
+async function applyInTransaction(
+  client: PoolClient,
+  migrations: readonly MigrationMeta[],
+): Promise<void> {
+  if (migrations.length === 0) {
+    return;
+  }
+  await client.query("BEGIN");
+  try {
+    for (const migration of migrations) {
+      for (const statement of migration.sql) {
+        await client.query(statement);
+      }
+    }
+    await recordAppliedMigrations(
+      client,
+      migrations.map((migration) => ({
+        hash: migration.hash,
+        when: migration.folderMillis,
+      })),
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    // A ROLLBACK on a dead connection fails too; the statement's own error
+    // is the one to report.
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  }
+}
+
+async function adoptLegacyM0Schema(
+  pool: Pool,
+  migrationsFolder: string,
+): Promise<number> {
   const state = await pool.query<{
     claim_token: boolean;
     migration_journal: string | null;
@@ -174,6 +261,18 @@ export async function recordAppliedMigrations(
   client: Pick<PoolClient, "query">,
   migrations: readonly { hash: string; when: number }[],
 ): Promise<void> {
+  await createJournalTable(client);
+  for (const migration of migrations) {
+    await client.query(
+      'INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at) VALUES ($1, $2)',
+      [migration.hash, migration.when],
+    );
+  }
+}
+
+async function createJournalTable(
+  client: Pick<PoolClient, "query">,
+): Promise<void> {
   await client.query('CREATE SCHEMA IF NOT EXISTS "drizzle"');
   await client.query(`
     CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations" (
@@ -182,12 +281,6 @@ export async function recordAppliedMigrations(
       created_at bigint
     )
   `);
-  for (const migration of migrations) {
-    await client.query(
-      'INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at) VALUES ($1, $2)',
-      [migration.hash, migration.when],
-    );
-  }
 }
 
 if (import.meta.main) {
