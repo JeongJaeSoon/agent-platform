@@ -19,6 +19,7 @@ export const githubKo = {
   "github.register": "등록",
   "github.replace": "교체",
   "github.install": "GitHub에서 설치",
+  "github.manageRepositories": "GitHub에서 저장소 관리",
   "github.appId": "App ID",
   "github.appIdHint": "GitHub App 설정 페이지 위쪽에 있는 숫자입니다.",
   "github.appIdMissing": "App ID를 숫자로 넣어 주세요.",
@@ -168,6 +169,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.register": "Register",
   "github.replace": "Replace",
   "github.install": "Install on GitHub",
+  "github.manageRepositories": "Manage repositories on GitHub",
   "github.appId": "App ID",
   "github.appIdHint":
     "The number at the top of the GitHub App's settings page.",
@@ -319,6 +321,7 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.register": "登録",
   "github.replace": "置き換え",
   "github.install": "GitHub でインストール",
+  "github.manageRepositories": "GitHub でリポジトリを管理",
   "github.appId": "App ID",
   "github.appIdHint": "GitHub App の設定ページ上部にある数字です。",
   "github.appIdMissing": "App ID を数字で入力してください。",

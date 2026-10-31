@@ -307,7 +307,11 @@ function GitHubApp({
                   target="_blank"
                   newTabLabel={t("github.newTab")}
                 >
-                  {t("github.install")}
+                  {t(
+                    data?.installations.length
+                      ? "github.manageRepositories"
+                      : "github.install",
+                  )}
                 </Link>
               ) : null}
               <Button
