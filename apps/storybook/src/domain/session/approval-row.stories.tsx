@@ -51,7 +51,7 @@ function messagesFrom(
 }
 
 const subject = (
-  <a href="#session" className="font-mono text-primary underline">
+  <a href="#session" className="font-mono text-link underline">
     <code>{SESSION_SHORT}…</code>
   </a>
 );

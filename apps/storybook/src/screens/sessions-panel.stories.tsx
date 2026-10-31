@@ -85,7 +85,7 @@ function Approvals() {
               onDeny={() => {}}
               now={NOW}
               subject={
-                <a href="#session" className="font-mono text-primary underline">
+                <a href="#session" className="font-mono text-link underline">
                   <code>{session}…</code>
                 </a>
               }
