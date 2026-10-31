@@ -54,7 +54,7 @@ export function WorkspacePage({
   page,
   children,
 }: {
-  readonly page: "general" | "slack" | "slack-apps" | "github";
+  readonly page: "general" | "slack" | "github";
   readonly children: ReactNode;
 }) {
   const { t } = useI18n();
@@ -68,20 +68,16 @@ export function WorkspacePage({
           ? "workspace.general"
           : page === "slack"
             ? "workspace.slack"
-            : page === "slack-apps"
-              ? "workspace.slackApps"
-              : "github.nav",
+            : "github.nav",
       )}
       description={t(
         page === "slack"
           ? "workspace.slackDescription"
-          : page === "slack-apps"
-            ? "workspace.slackAppsDescription"
-            : page === "github"
-              ? "github.description"
-              : editable
-                ? "workspace.description"
-                : "workspace.readOnly",
+          : page === "github"
+            ? "github.description"
+            : editable
+              ? "workspace.description"
+              : "workspace.readOnly",
       )}
     >
       <div className={SECTIONS}>{children}</div>
@@ -116,6 +112,7 @@ export function WorkspaceSettingsScreen() {
 }
 
 export function SettingsCard({
+  id,
   title,
   titleAs: Heading = "h2",
   badge,
@@ -126,6 +123,8 @@ export function SettingsCard({
   onSubmit,
   children,
 }: {
+  /** A fragment others link to. */
+  readonly id?: string;
   readonly title: string;
   /** `h3` under a page whose own sections are `h2`, as a team's are. */
   readonly titleAs?: "h2" | "h3";
@@ -152,7 +151,7 @@ export function SettingsCard({
     </>
   );
   return (
-    <section aria-labelledby={titleId} className="flex flex-col gap-4">
+    <section id={id} aria-labelledby={titleId} className="flex flex-col gap-4">
       <div className="flex flex-col gap-1 border-b pb-2">
         <div className="flex items-center gap-2">
           <Heading

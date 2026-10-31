@@ -75,7 +75,7 @@ import { TeamDetailScreen, TeamsScreen } from "./routes/teams.tsx";
 import { WorkspaceGitHubScreen } from "./routes/workspace-github.tsx";
 import { WorkspaceSettingsScreen } from "./routes/workspace-settings.tsx";
 import { WorkspaceSlackScreen } from "./routes/workspace-slack.tsx";
-import { WorkspaceSlackAppsScreen } from "./routes/workspace-slack-apps.tsx";
+import { SLACK_APPS_ANCHOR } from "./routes/workspace-slack-apps.tsx";
 import type { Services } from "./services.tsx";
 
 /*
@@ -324,10 +324,17 @@ const workspaceSlack = createRoute({
   component: WorkspaceSlackScreen,
 });
 
-const workspaceSlackApps = createRoute({
+// Where the list of apps the console made lived before it joined the Slack page.
+const oldWorkspaceSlackApps = createRoute({
   getParentRoute: () => authed,
   path: "/settings/workspace/slack-apps",
-  component: WorkspaceSlackAppsScreen,
+  beforeLoad: () => {
+    throw redirect({
+      to: "/settings/workspace/slack",
+      hash: SLACK_APPS_ANCHOR,
+      replace: true,
+    });
+  },
 });
 
 const workspaceGitHub = createRoute({
@@ -455,7 +462,7 @@ const routeTree = root.addChildren([
     preferences,
     workspaceSettings,
     workspaceSlack,
-    workspaceSlackApps,
+    oldWorkspaceSlackApps,
     workspaceGitHub,
     orgKeys,
     oldUsage,
