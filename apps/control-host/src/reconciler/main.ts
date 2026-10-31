@@ -10,7 +10,11 @@ import {
   reconcileOrphanedSessions,
   reconcileOverdueInterrupts,
 } from "@werft-ai/db";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
+import {
+  createEnforcedPool,
+  JOB_POOL_TIMEOUTS,
+  SEQUENTIAL_ROLE_POOL_MAX,
+} from "@werft-ai/db/pool";
 import { createLogger, logLevelFromEnv } from "@werft-ai/observability";
 import {
   INTERRUPT_RECEIPT_DEADLINE_MS,
@@ -52,6 +56,7 @@ export async function main(
     logger,
     "reconciler",
     JOB_POOL_TIMEOUTS,
+    { max: SEQUENTIAL_ROLE_POOL_MAX },
   );
   try {
     await reconcileOnce(drizzle(pool, { schema }), environment, logger);

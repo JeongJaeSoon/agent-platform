@@ -6,6 +6,7 @@ import {
   createEnforcedPool,
   EvictOnReadTimeoutClient,
   enforcedConfig,
+  IDLE_IN_TRANSACTION_MS,
   isConnectionFailure,
   JOB_POOL_TIMEOUTS,
   LookupEveryTimeSocket,
@@ -19,11 +20,15 @@ const url =
 
 describe("pool configuration", () => {
   test("keeps the URL's connection details but not its timeout overrides", () => {
-    const config = enforcedConfig(url, {
-      connectMs: 1_000,
-      statementMs: 2_000,
-      queryMs: 4_000,
-    });
+    const config = enforcedConfig(
+      url,
+      {
+        connectMs: 1_000,
+        statementMs: 2_000,
+        queryMs: 4_000,
+      },
+      "scheduler",
+    );
     expect(config).toMatchObject({
       host: "db.internal",
       port: 5433,
@@ -34,8 +39,19 @@ describe("pool configuration", () => {
       connectionTimeoutMillis: 1_000,
       statement_timeout: 2_000,
       query_timeout: 4_000,
+      idle_in_transaction_session_timeout: IDLE_IN_TRANSACTION_MS,
     });
     expect(config).not.toHaveProperty("connectionString");
+  });
+
+  test("names the connection after its role unless the URL names it", () => {
+    expect(
+      enforcedConfig(
+        "postgresql://user@db.internal/sessions",
+        JOB_POOL_TIMEOUTS,
+        "scheduler",
+      ).application_name,
+    ).toBe("agent-platform:scheduler");
   });
 
   test("a job pool keeps the job limits whatever the URL asks for", () => {
@@ -50,6 +66,7 @@ describe("pool configuration", () => {
         connectionTimeoutMillis: JOB_POOL_TIMEOUTS.connectMs,
         statement_timeout: JOB_POOL_TIMEOUTS.statementMs,
         query_timeout: JOB_POOL_TIMEOUTS.queryMs,
+        max: 10,
       });
       expect(pool.listenerCount("error")).toBe(1);
     } finally {
@@ -137,7 +154,7 @@ describe("database host resolution", () => {
       () => (answers.shift() ?? (async () => []))() as never,
     );
     try {
-      const config = enforcedConfig(url, JOB_POOL_TIMEOUTS);
+      const config = enforcedConfig(url, JOB_POOL_TIMEOUTS, "job");
       const connect = () => dial(config.stream?.() as Socket, port, "postgres");
 
       expect(await connect()).toBe("127.0.0.1");
@@ -169,7 +186,7 @@ describe("database host resolution", () => {
   );
 
   test("pg dials through that socket", () => {
-    const client = new Client(enforcedConfig(url, JOB_POOL_TIMEOUTS));
+    const client = new Client(enforcedConfig(url, JOB_POOL_TIMEOUTS, "job"));
     const { stream } = (
       client as unknown as { connection: { stream: unknown } }
     ).connection;
