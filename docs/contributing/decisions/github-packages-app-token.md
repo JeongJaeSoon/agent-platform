@@ -1,6 +1,6 @@
 # 결정: GitHub Packages(npm·RubyGems)를 App token으로 읽을 수 있는가
 
-- 상태: 1차(`--no-packages`) 결과만 있음. 결론은 2차 실측 대기. 94S-1098. 이 결론에 따라 94S-1096(조직 레지스트리에 App token을 붙인다)을 시작하거나 보류한다.
+- 상태: 결정됨(2026-10-31). **지금 App 설정으로는 불가. 조직 레지스트리(GitHub Packages) 요청에 proxy가 App token을 붙이는 작업(이하 "조직 레지스트리 작업")은 시작하지 않고 보류한다.** App에 Packages 권한을 준 경우는 재지 않았다.
 - 기준 커밋: `origin/main` `fc1e7f26`. 아래 `파일:줄`은 모두 이 커밋 기준이다.
 - 실측 로그: `~/share/owner-checks/session-deps-20261031/1098-measure.log`(오너가 실행, 이 문서의 표는 그 로그에서 옮겼다).
 
@@ -59,21 +59,81 @@
 - npm은 익명과 token 모두 없는 이름에 404를 준다. 이 행으로는 token을 받아들이는지 알 수 없다.
 - M3(권한 생략)은 설치가 가진 권한 전체를 받는다. 그 안에 packages가 없으므로 0-none도 403이다.
 
+### 패키지 접근 설정
+
+오너가 게시한 테스트 패키지 두 개의 설정이다. 로그의 `# owner(agent-read):` 줄로, 에이전트가 브라우저로 설정 화면을 읽어 기록했다.
+
+| 패키지 | visibility | 저장소 권한 상속 | 저장소 접근 |
+| --- | --- | --- | --- |
+| npm `@jeongjaesoon/werft-probe` 0.0.1 | private | yes | `werft-sandbox` 있음 |
+| gem `werft-probe` 0.0.1 | private | yes | `werft-sandbox` 있음 |
+
+### 2차: `--control` (2026-10-31T08:43:05Z, 오너 classic PAT와 무인증)
+
+| 행 | 대상 | status | redirect host | 요약 |
+| --- | --- | --- | --- | --- |
+| C-pat/1 | npm-metadata | 200 | - | versions=yes |
+| C-pat/2 | npm-tarball | 302 | `pkg-npm.githubusercontent.com` | followed=200+content-length=yes |
+| C-pat/3-basic | gem-index | 200 | - | gzip=yes |
+| C-pat/3-bearer | gem-index | 200 | - | gzip=yes |
+| C-pat/4-basic | gem-file | 302 | `rubygemsregistryv2prod.blob.core.windows.net` | followed=200+content-length=yes |
+| C-pat/4-bearer | gem-file | 302 | `rubygemsregistryv2prod.blob.core.windows.net` | followed=200+content-length=yes |
+| C-anon/1 | npm-metadata | 401 | - | content-length=yes |
+| C-anon/2 | npm-tarball | 401 | - | content-length=yes |
+| C-anon/3-basic | gem-index | 401 | - | content-length=yes |
+| C-anon/3-bearer | gem-index | 401 | - | content-length=yes |
+| C-anon/4-basic | gem-file | 401 | - | content-length=yes |
+| C-anon/4-bearer | gem-file | 401 | - | content-length=yes |
+
+PAT로는 네 대상이 모두 받아지고, 무인증은 모두 401이다. 테스트 패키지가 맞게 게시됐고 private이다. 본체(tarball·`.gem`)는 레지스트리가 302로 다른 host에 넘기고, 그 host는 Authorization 없이 200을 준다.
+
+### 3차: 전체 (2026-10-31T08:44:27Z, 설치 token만, `env -i`·빈 HOME)
+
+| 행 | 대상 | status | redirect host | 요약 |
+| --- | --- | --- | --- | --- |
+| M1 | mint:contents | 201 | - | granted=contents:read+metadata:read |
+| M2 | mint:packages | 422 | - | granted=- |
+| M3 | mint:none | 201 | - | granted=actions:write+checks:write+contents:write+issues:write+metadata:read+pull_requests:write+workflows:write |
+| 1 | npm-metadata | 403 | - | content-length=yes |
+| 2 | npm-tarball | - | - | skipped=no-url |
+| 3-basic | gem-index | 403 | - | content-length=yes |
+| 3-bearer | gem-index | 403 | - | content-length=yes |
+| 4-basic | gem-file | 403 | - | content-length=yes |
+| 4-bearer | gem-file | 403 | - | content-length=yes |
+| 5-packages/1~4 | 전부 | - | - | skipped=no-token(M2가 422) |
+| 5-none/1 | npm-metadata | 403 | - | content-length=yes |
+| 5-none/2 | npm-tarball | - | - | skipped=no-url |
+| 5-none/3-basic | gem-index | 403 | - | content-length=yes |
+| 5-none/3-bearer | gem-index | 403 | - | content-length=yes |
+| 5-none/4-basic | gem-file | 403 | - | content-length=yes |
+| 5-none/4-bearer | gem-file | 403 | - | content-length=yes |
+| R1 | revoke:contents | 204 | - | - |
+| R3 | revoke:none | 204 | - | - |
+
+- 설치 token은 `contents:read`든 설치 권한 전체든 npm metadata·gem index·`.gem` 모두 403이다. 저장소 권한을 상속하는 private 패키지인데도 그렇다. **저장소 권한 상속은 App installation token에 이어지지 않는다.**
+- 2행(tarball)은 재지 못했다. tarball URL은 metadata 응답에서만 얻는데 metadata가 403이었다. 같은 레지스트리 host의 같은 인증이므로 결론을 바꾸지 않는다고 본다.
+- 403은 token을 알아보고 권한이 없다고 거절한 것이다(무인증은 401). 남은 변수는 App의 Packages 권한 하나다.
+
 ## 결론
 
-<!-- TODO(94S-1098): 가능/불가/부분, 94S-1096 진행 여부. -->
+**지금 App 설정(Packages: No access)으로는 불가.** 설치 token으로는 사설 npm·gem의 metadata·index·본체를 하나도 받지 못한다. 패키지가 저장소 권한을 상속하고 그 저장소에 App이 설치돼 있어도 마찬가지다.
+
+- **조직 레지스트리 작업은 시작하지 않는다(보류).** 조직 npm·RubyGems 설치는 비활성으로 둔다(아래 대안 D). 공개 레지스트리(npm·RubyGems·Go module proxy)를 자격 증명 없이 받는 경로는 이 결정과 관계없다.
+- 재지 않은 것: App에 Packages: Read를 주고 설치에서 승인한 뒤의 token(M2·`5-packages/` 행). 이번 실측에서는 App 권한을 바꾸지 않았다. 무인증 401과 token 403이 갈리므로, 권한을 주면 통할 가능성은 남아 있다.
+- 다시 재는 방법: App 설정의 Repository permissions에서 Packages를 Read로 바꾸고 설치에서 새 권한을 승인한다. 그다음 오너 절차 `~/share/owner-checks/session-deps-20261031/publish-steps.md`의 6단계 명령(전체 실행)을 한 번 더 돌린다. M2가 201이고 `5-packages/1·3·4`가 200이면 "가능"으로 바꾸고 조직 레지스트리 작업을 연다. 그때도 403이면 "불가"로 확정한다.
+- 조직 레지스트리 작업 착수에 필요한 사실(이번에 얻음): 본체 redirect host는 npm이 `pkg-npm.githubusercontent.com`, gem이 `rubygemsregistryv2prod.blob.core.windows.net`이다. 둘 다 Authorization 없이 받아진다. proxy는 이 host만 따라가고 Authorization을 떼면 된다.
 
 ## 사용자 계정과 org
 
-이 실측은 사용자 계정 소유 저장소와 패키지에서만 했다. 조직 소유 패키지는 권한 모델(조직 패키지 설정, 조직 수준 App 설치)이 다를 수 있으므로 이 결과를 조직에 일반화하지 않는다. 조직 재검증이 필요하다(todo 등록됨).
-
-<!-- TODO(94S-1098): 실측 결과에 따른 판단을 덧붙인다. -->
+이 실측은 사용자 계정 소유 저장소와 패키지에서만 했다. 조직 소유 패키지는 권한 모델(조직 패키지 설정, 조직 수준 App 설치)이 다를 수 있으므로 이 결과를 조직에 일반화하지 않는다. 조직 재검증이 필요하다(todo 등록됨). 사용자 계정에서 불가였다고 조직에서도 불가라고 단정하지 않는다. 반대로 조직에서 Packages 권한을 줘서 된다면, 사용자 계정에서도 같은 권한으로 다시 재서 맞춰 본다.
 
 ## 안 될 때의 대안 (보류)
 
 | 안 | 장점 | 단점 | 다시 볼 조건 |
 | --- | --- | --- | --- |
-| A. 조직 소유 machine user의 `read:packages` classic PAT를 proxy가 붙인다 | 지금 바로 동작한다. 94S-1096의 proxy 모양을 그대로 쓴다 | 개인·계정에 기댄다(App만 쓴다는 원칙과 어긋난다). 만료·순환이 수동이다. classic PAT는 저장소 단위로 좁힐 수 없다 | 사설 npm·gem 설치를 요구하는 사용자가 생기고, 오너가 PAT 예외를 받아들일 때 |
+| A. 조직 소유 machine user의 `read:packages` classic PAT를 proxy가 붙인다 | 지금 바로 동작한다. 조직 레지스트리 작업의 proxy 모양을 그대로 쓴다 | 개인·계정에 기댄다(App만 쓴다는 원칙과 어긋난다). 만료·순환이 수동이다. classic PAT는 저장소 단위로 좁힐 수 없다 | 사설 npm·gem 설치를 요구하는 사용자가 생기고, 오너가 PAT 예외를 받아들일 때 |
 | B. 레지스트리 앞 gateway(Verdaccio·Gemstash 같은 조직 운영 캐시) | worker와 proxy는 사내 host 하나만 본다. 캐시 효과가 있다 | 운영 대상이 늘어난다. gateway의 상류 자격 증명은 결국 A와 같은 문제다 | A의 조건에 더해, 조직에 그런 gateway가 이미 있을 때 |
 | C. Actions `GITHUB_TOKEN`으로 받은 tarball을 artifact로 넘긴다 | 문서가 지원하는 token이다 | 세션 중 즉시 받을 수 없고 workflow를 한 번 돌아야 한다. 경로가 복잡하다 | 사설 패키지가 적고 버전이 고정일 때 |
-| D. 비활성으로 둔다 | App만 쓴다는 원칙을 지킨다 | 사설 npm·gem에 기대는 저장소는 세션 안에서 설치할 수 없다 | GitHub가 App token의 Packages 지원을 공지할 때 |
+| D. 비활성으로 둔다(**지금 고른 안**) | App만 쓴다는 원칙을 지킨다. 구현할 것이 없다 | 사설 npm·gem에 기대는 저장소는 세션 안에서 설치할 수 없다 | 오너가 App에 Packages: Read 부여를 허용할 때(위 "다시 재는 방법"), 또는 GitHub가 App token의 Packages 지원을 공지할 때 |
+
+A~C는 구현하지 않고 보류한다. 다시 볼 조건이 오면 A·B·C를 이 표의 장단점으로 다시 비교한다.
