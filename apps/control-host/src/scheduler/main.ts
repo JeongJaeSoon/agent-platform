@@ -1,6 +1,10 @@
 import * as schema from "@werft-ai/db";
 import { createPostgresSchedulerStore } from "@werft-ai/db";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
+import {
+  createEnforcedPool,
+  JOB_POOL_TIMEOUTS,
+  SEQUENTIAL_ROLE_POOL_MAX,
+} from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
 import { runScheduler, type SchedulerRunSummary } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -29,6 +33,7 @@ export async function main(
     logger,
     "scheduler",
     JOB_POOL_TIMEOUTS,
+    { max: SEQUENTIAL_ROLE_POOL_MAX },
   );
   try {
     const db = drizzle(pool, { schema });

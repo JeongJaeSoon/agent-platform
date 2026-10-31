@@ -3,6 +3,7 @@ import { createLogger, MemoryLogSink } from "@werft-ai/observability";
 import { Pool } from "pg";
 import {
   createEnforcedPool,
+  JOB_POOL_TIMEOUTS,
   RequestDeadline,
   RequestDeadlineExceededError,
   runWithDeadline,
@@ -12,6 +13,30 @@ const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const integration = databaseUrl ? describe : describe.skip;
 
 integration("enforced pool on PostgreSQL", () => {
+  test("the server applies the session limits and the role name", async () => {
+    const pool = createEnforcedPool(
+      databaseUrl ?? "",
+      createLogger(),
+      "reconciler",
+      JOB_POOL_TIMEOUTS,
+    );
+    try {
+      const { rows } = await pool.query<Record<string, string>>(
+        `SELECT current_setting('statement_timeout') AS statement_timeout,
+                current_setting('idle_in_transaction_session_timeout') AS idle_in_transaction,
+                application_name
+           FROM pg_stat_activity WHERE pid = pg_backend_pid()`,
+      );
+      expect(rows[0]).toEqual({
+        statement_timeout: "10s",
+        idle_in_transaction: "30s",
+        application_name: "agent-platform:reconciler",
+      });
+    } finally {
+      await pool.end();
+    }
+  });
+
   test("no error a read timeout produces carries the client", async () => {
     // statement_timeout high so only the client-side read timeout can fire,
     // as it does when the server is frozen and never answers.

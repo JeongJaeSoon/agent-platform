@@ -925,6 +925,28 @@ integration("Slack apps and the config token on PostgreSQL", () => {
       clientId: "1.other",
       redirectUrl: "https://example.invalid/slack/callback",
     });
+    // Summaries come from one query over every listed app: each must land
+    // on its own app and purpose, and another workspace's slot on none.
+    const secret = (
+      ws: string,
+      appId: string,
+      purpose: string,
+      last4: string,
+    ) =>
+      db.insert(secretValues).values({
+        id: randomUUID(),
+        workspaceId: ws,
+        ownerRef: `slack_app:${appId}`,
+        purpose,
+        secretVersion: 1,
+        keyVersion: 1,
+        nonce: Buffer.alloc(12),
+        ciphertext: Buffer.alloc(16),
+        last4,
+      });
+    await secret(workspaceId, zedApp, "slack_bot_token", "zbot");
+    await secret(workspaceId, link, "slack_signing_secret", "lsig");
+    await secret(other, alphaApp, "slack_bot_token", "oops");
 
     const made = await createPostgresSlackAppStore(db, key).listMade(
       workspaceId,
@@ -951,5 +973,36 @@ integration("Slack apps and the config token on PostgreSQL", () => {
     ]);
     expect(made[3]?.agent?.slug).toBe(`a-${zed.slice(0, 8)}`);
     expect(made[0]?.app.secrets.slack_bot_token).toBeNull();
+    expect(
+      made.map(({ app }) =>
+        Object.fromEntries(
+          Object.entries(app.secrets).map(([purpose, summary]) => [
+            purpose,
+            summary?.last4 ?? null,
+          ]),
+        ),
+      ),
+    ).toEqual([
+      {
+        slack_signing_secret: "lsig",
+        slack_client_secret: null,
+        slack_bot_token: null,
+      },
+      {
+        slack_signing_secret: null,
+        slack_client_secret: null,
+        slack_bot_token: null,
+      },
+      {
+        slack_signing_secret: null,
+        slack_client_secret: null,
+        slack_bot_token: null,
+      },
+      {
+        slack_signing_secret: null,
+        slack_client_secret: null,
+        slack_bot_token: "zbot",
+      },
+    ]);
   });
 });

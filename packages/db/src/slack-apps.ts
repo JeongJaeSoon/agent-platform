@@ -5,7 +5,9 @@ import {
 } from "@werft-ai/contracts";
 import {
   type SecretKey,
+  type SecretOwner,
   type SecretSlot,
+  type SecretSummary,
   type SlackAppActor,
   type SlackAppAgent,
   type SlackAppRecord,
@@ -26,8 +28,9 @@ import {
 } from "./schema.ts";
 import {
   deleteSecretInTx,
-  describeSecret,
+  describeSecrets,
   readSecretInTx,
+  secretSummaryKey,
   writeSecretInTx,
 } from "./secret-values.ts";
 
@@ -54,11 +57,22 @@ function slackAppSecretRef(
 }
 
 async function recordOf(db: Database, row: Row): Promise<SlackAppRecord> {
-  const summaries = await Promise.all(
-    SLACK_APP_SECRET_PURPOSE_VALUES.map((purpose) =>
-      describeSecret(db, secretSlot(row, purpose)),
-    ),
+  return recordFrom(
+    row,
+    await describeSecrets(db, row.workspaceId, [appOwner(row)]),
   );
+}
+
+const appOwner = (row: Pick<Row, "id">): SecretOwner => ({
+  kind: "slack_app",
+  id: row.id,
+});
+
+function recordFrom(
+  row: Row,
+  summaries: ReadonlyMap<string, SecretSummary>,
+): SlackAppRecord {
+  const ownerRef = secretOwnerRef(appOwner(row));
   return {
     id: row.id,
     workspaceId: row.workspaceId,
@@ -78,9 +92,9 @@ async function recordOf(db: Database, row: Row): Promise<SlackAppRecord> {
       ...(row.eventsError === null ? {} : { error: row.eventsError }),
     },
     secrets: Object.fromEntries(
-      SLACK_APP_SECRET_PURPOSE_VALUES.map((purpose, index) => [
+      SLACK_APP_SECRET_PURPOSE_VALUES.map((purpose) => [
         purpose,
-        summaries[index] ?? null,
+        summaries.get(secretSummaryKey(ownerRef, purpose)) ?? null,
       ]),
     ) as SlackAppRecord["secrets"],
   };
@@ -593,20 +607,23 @@ export function createPostgresSlackAppStore(
           agents.name,
           slackApps.createdAt,
         );
-      return Promise.all(
-        rows.map(async (row) => ({
-          app: await recordOf(db, row.app),
-          agent:
-            row.app.agentId === null || row.name === null || row.slug === null
-              ? null
-              : {
-                  id: row.app.agentId,
-                  name: row.name,
-                  slug: row.slug,
-                  installed: row.installed,
-                },
-        })),
+      const summaries = await describeSecrets(
+        db,
+        workspaceId,
+        rows.map((row) => appOwner(row.app)),
       );
+      return rows.map((row) => ({
+        app: recordFrom(row.app, summaries),
+        agent:
+          row.app.agentId === null || row.name === null || row.slug === null
+            ? null
+            : {
+                id: row.app.agentId,
+                name: row.name,
+                slug: row.slug,
+                installed: row.installed,
+              },
+      }));
     },
 
     linkAppClient(workspaceId) {

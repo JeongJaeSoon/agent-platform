@@ -290,31 +290,50 @@ export function lookupEveryTimeStream(): LookupEveryTimeSocket {
   return new LookupEveryTimeSocket();
 }
 
+// pg's own default. The connection budget across roles is in
+// docs/operator/database.md; a role that never runs statements side by side
+// takes less.
+export const DEFAULT_POOL_MAX = 10;
+
+// The scheduler, reconciler and slack roles run their passes one statement
+// at a time; the scheduler holds one more client for its pass lock. The rest
+// is headroom, not concurrency they use.
+export const SEQUENTIAL_ROLE_POOL_MAX = 4;
+
 export function createEnforcedPool(
   connectionString: string,
   logger: StructuredLogger,
   name: string,
   timeouts: PoolTimeouts,
-  // Every transaction starts read only, so the database refuses a write a
-  // reader should never make.
-  { readOnly = false }: { readOnly?: boolean } = {},
+  {
+    // Every transaction starts read only, so the database refuses a write a
+    // reader should never make.
+    readOnly = false,
+    max = DEFAULT_POOL_MAX,
+  }: { readOnly?: boolean; max?: number } = {},
 ): Pool {
-  const config = enforcedConfig(connectionString, timeouts);
+  const config = enforcedConfig(connectionString, timeouts, name);
   return watchIdleErrors(
-    new DeadlinePool(
-      readOnly
+    new DeadlinePool({
+      ...config,
+      max,
+      ...(readOnly
         ? {
-            ...config,
             options: [config.options, "-c default_transaction_read_only=on"]
               .filter(Boolean)
               .join(" "),
           }
-        : config,
-    ),
+        : {}),
+    }),
     logger,
     name,
   );
 }
+
+// No transaction waits on anything but its own statements (94S-1120's
+// audit), so one left idle this long belongs to a holder that has stopped:
+// the server ends that session and its row locks go with it.
+export const IDLE_IN_TRANSACTION_MS = 30_000;
 
 // pg parses connectionString last, so `?statement_timeout=0&query_timeout=0`
 // in DATABASE_URL would silently switch the limits off. Parse the URL here
@@ -322,14 +341,19 @@ export function createEnforcedPool(
 export function enforcedConfig(
   connectionString: string,
   timeouts: PoolTimeouts,
+  // pg_stat_activity and the server log tell the roles apart by it.
+  name: string,
 ): PoolConfig {
+  const parsed = parseIntoClientConfig(connectionString);
   return {
-    ...parseIntoClientConfig(connectionString),
+    ...parsed,
     Client: EvictOnReadTimeoutClient,
     stream: lookupEveryTimeStream,
     connectionTimeoutMillis: timeouts.connectMs,
     statement_timeout: timeouts.statementMs,
     query_timeout: timeouts.queryMs,
+    idle_in_transaction_session_timeout: IDLE_IN_TRANSACTION_MS,
+    application_name: parsed.application_name ?? `agent-platform:${name}`,
   };
 }
 

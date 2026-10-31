@@ -24,7 +24,11 @@ import {
   type Database,
   getSlackAppSettings,
 } from "@werft-ai/db";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
+import {
+  createEnforcedPool,
+  JOB_POOL_TIMEOUTS,
+  SEQUENTIAL_ROLE_POOL_MAX,
+} from "@werft-ai/db/pool";
 import {
   createLogger,
   logLevelFromEnv,
@@ -296,6 +300,7 @@ export async function main(
     logger,
     "slack",
     JOB_POOL_TIMEOUTS,
+    { max: SEQUENTIAL_ROLE_POOL_MAX },
   );
   try {
     const db = drizzle(pool, { schema });
