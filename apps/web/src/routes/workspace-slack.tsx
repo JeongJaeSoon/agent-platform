@@ -73,8 +73,7 @@ export function WorkspaceSlackScreen() {
         )
       ) : null}
       <SlackGuest onOutcome={setOutcome} />
-      <ConfigToken onOutcome={setOutcome} />
-      <SlackApps />
+      <ConfigToken onOutcome={setOutcome} after={<SlackApps />} />
     </WorkspacePage>
   );
 }
@@ -83,7 +82,14 @@ export function WorkspaceSlackScreen() {
  * The token only reads as a state and who saved it when; the value never
  * comes back. Replacing it is the same PUT as setting it the first time.
  */
-function ConfigToken({ onOutcome }: { readonly onOutcome: OnOutcome }) {
+function ConfigToken({
+  onOutcome,
+  after,
+}: {
+  readonly onOutcome: OnOutcome;
+  /** Sections under the token card; its danger zone stays last on the page. */
+  readonly after?: ReactNode;
+}) {
   const { t, locale } = useI18n();
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
@@ -307,6 +313,7 @@ function ConfigToken({ onOutcome }: { readonly onOutcome: OnOutcome }) {
         description={t("workspace.tokenHint")}
         rows={rows}
       />
+      {after}
       {canManage && summary?.configured ? (
         <DangerZone>
           <SettingRow
