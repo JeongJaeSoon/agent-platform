@@ -55,8 +55,18 @@ services:
   postgres:
     image: postgres:16@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6
     # A wait past deadlock_timeout (1s) logs the PIDs holding the lock, so
-    # a statement_timeout on a row lock can be traced to its holder.
-    command: ["postgres", "-c", "log_lock_waits=on"]
+    # a statement_timeout on a row lock can be traced to its holder. A
+    # statement slower than log_min_duration_statement is logged with its
+    # text; pg_stat_statements is loaded so an operator can CREATE EXTENSION
+    # it without a restart (docs/operator/database.md).
+    command:
+      - postgres
+      - -c
+      - log_lock_waits=on
+      - -c
+      - log_min_duration_statement=${POSTGRES_LOG_MIN_DURATION_STATEMENT:-500ms}
+      - -c
+      - shared_preload_libraries=pg_stat_statements
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-sessions}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
