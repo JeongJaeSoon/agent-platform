@@ -107,7 +107,8 @@ jobs:
           node-version: 24
           registry-url: https://npm.pkg.github.com
           scope: "@werft-ai"
-      - run: npm publish pkg/*.tgz
+      # `./` keeps npm from reading `pkg/<name>.tgz` as a GitHub `user/repo`.
+      - run: npm publish ./pkg/*.tgz
         env:
           # The scope belongs to the Werft-ai organization, and this
           # repository's token may not write there (design F6, decision
