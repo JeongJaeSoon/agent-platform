@@ -75,10 +75,7 @@ export async function migrateDatabase(
     throw error;
   });
   try {
-    await takeMigrationLock(
-      lock,
-      (options.timeouts ?? MIGRATION_POOL_TIMEOUTS).statementMs,
-    );
+    await takeMigrationLock(lock);
     const adopted = await adoptLegacyM0Schema(pool, migrationsFolder);
     const before = await countJournal(pool);
     await applyPendingMigrations(
@@ -104,23 +101,16 @@ export async function migrateDatabase(
 
 // Polled rather than waited on: a blocking pg_advisory_lock is an open
 // transaction, and the holder's CREATE INDEX CONCURRENTLY waits for every
-// open transaction to end, so the two would wait on each other.
-async function takeMigrationLock(
-  client: PoolClient,
-  waitMs: number,
-): Promise<void> {
-  const deadline = Date.now() + waitMs;
+// open transaction to end, so the two would wait on each other. No deadline
+// of its own: the holder's session ending frees the lock, and the caller's
+// (the Job's activeDeadlineSeconds) bounds the whole run.
+async function takeMigrationLock(client: PoolClient): Promise<void> {
   for (;;) {
     const { rows } = await client.query<{ locked: boolean }>(
       "SELECT pg_try_advisory_lock(hashtext($1)) AS locked",
       [MIGRATION_LOCK_KEY],
     );
     if (rows[0]?.locked) return;
-    if (Date.now() >= deadline) {
-      throw new Error(
-        `another migration has held the migration lock for over ${waitMs} ms`,
-      );
-    }
     await Bun.sleep(1_000);
   }
 }

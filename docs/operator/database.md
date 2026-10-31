@@ -94,4 +94,4 @@ chart는 DB를 만들지 않으므로 서버 설정도 바꾸지 않는다. 운�
 
 ## migration이 잠그는 시간
 
-migrate job은 문장마다 최대 300초를 쓴다. migrate가 둘 겹치면(손으로 돌린 `db:migrate`와 Helm hook Job 등) 뒤의 것은 앞의 것이 끝날 때까지 최대 300초 기다린 뒤 남은 migration만 적용한다. 커지는 표에 인덱스를 만드는 migration은 `CREATE INDEX CONCURRENTLY`로 쓰기를 막지 않고 만든다. 표가 커서 300초를 넘길 것 같으면 그 migration의 릴리스 노트가 따로 알린다. `CONCURRENTLY` 인덱스는 시작할 때 열려 있던 트랜잭션이 모두 끝나기를 기다리므로, 오래 열린 운영자 세션(`psql`의 열린 `BEGIN`)이 있으면 그만큼 늦어진다.
+migrate job은 문장마다 최대 300초를 쓴다. migrate가 둘 겹치면(손으로 돌린 `db:migrate`와 Helm hook Job 등) 뒤의 것은 앞의 것이 끝날 때까지 기다린 뒤 남은 migration만 적용한다. Helm hook Job은 `migrate.activeDeadlineSeconds`(기본 600초)가 지나면 끝난다. 커지는 표에 인덱스를 만드는 migration은 `CREATE INDEX CONCURRENTLY`로 쓰기를 막지 않고 만든다. 표가 커서 300초를 넘길 것 같으면 그 migration의 릴리스 노트가 따로 알린다. `CONCURRENTLY` 인덱스는 시작할 때 열려 있던 트랜잭션이 모두 끝나기를 기다리므로, 오래 열린 운영자 세션(`psql`의 열린 `BEGIN`)이 있으면 그만큼 늦어진다.
