@@ -379,7 +379,7 @@ function WaitingSession({
   const link = renderLink({
     to: "session",
     id: session.id,
-    className: "font-mono text-primary underline underline-offset-2",
+    className: "font-mono text-link underline underline-offset-2",
     "aria-label": `${t("inbox.open")} ${session.id}`,
     children: <code>{session.id.slice(0, 8)}…</code>,
   });

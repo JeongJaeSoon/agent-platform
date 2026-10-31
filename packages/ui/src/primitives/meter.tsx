@@ -52,9 +52,7 @@ export function Meter({
           "block h-full w-(--meter-share) rounded-full",
           tone === "caution"
             ? "bg-(color:--ap-tone-caution-fg)"
-            : size === "inline"
-              ? "bg-chart-mark"
-              : "bg-chart-mark-active",
+            : "bg-chart-mark",
         )}
         style={
           {

@@ -57,7 +57,7 @@ export function Sparkline({
             points={`0,${HEIGHT} ${line.join(" ")} ${WIDTH},${HEIGHT}`}
           />
           <polyline
-            className="fill-none stroke-2 stroke-chart-mark-active"
+            className="fill-none stroke-2 stroke-chart-mark"
             strokeLinejoin="round"
             strokeLinecap="round"
             vectorEffect="non-scaling-stroke"

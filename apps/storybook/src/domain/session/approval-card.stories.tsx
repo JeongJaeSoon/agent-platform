@@ -68,7 +68,7 @@ export const Failed: Story = {
 export const WithSubject: Story = {
   args: {
     subject: (
-      <a href="#session" className="font-mono text-primary underline">
+      <a href="#session" className="font-mono text-link underline">
         <code>819f21a8…</code>
       </a>
     ),
