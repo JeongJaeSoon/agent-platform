@@ -1210,7 +1210,7 @@ function GlanceCard({
     <li className="min-w-0">
       <Card className="h-full gap-3 p-4">
         <div className="flex items-center gap-3">
-          <IconTile {...tile} large />
+          <IconTile {...tile} />
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <p className="m-0 text-caption text-muted-foreground">{eyebrow}</p>
             <h3 className="m-0 font-semibold text-body">{title}</h3>

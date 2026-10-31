@@ -299,7 +299,7 @@ function ServiceMark({ children }: { readonly children: ReactNode }) {
   return (
     <span
       aria-hidden="true"
-      className="grid size-6 shrink-0 place-items-center rounded-control bg-muted font-semibold text-caption text-muted-foreground"
+      className="grid size-(--ap-size-icon-tile) shrink-0 place-items-center rounded-control bg-muted font-semibold text-caption text-muted-foreground"
     >
       {children}
     </span>

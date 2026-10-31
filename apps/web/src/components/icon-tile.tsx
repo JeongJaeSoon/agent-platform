@@ -30,17 +30,15 @@ type TileIcon = ComponentType<{
 }>;
 
 /**
- * A white glyph on a solid hue: the mark of a sidebar page (20px) and of a
- * home card about it (`large`, 32px).
+ * A white glyph on a solid hue: the mark of a sidebar page and of a home card
+ * about it, one size everywhere (owner, 2026-10-31).
  */
 export function IconTile({
   icon: Icon,
   hue,
-  large = false,
 }: {
   readonly icon: TileIcon;
   readonly hue: TileHue;
-  readonly large?: boolean;
 }) {
   return (
     <span
@@ -48,16 +46,11 @@ export function IconTile({
       data-slot="icon-tile"
       data-hue={hue}
       className={cn(
-        "grid shrink-0 place-items-center text-(--ap-color-tile-foreground)",
-        large ? "size-8 rounded-card" : "size-5 rounded-[0.3125rem]",
+        "grid size-(--ap-size-icon-tile) shrink-0 place-items-center rounded-control text-(--ap-color-tile-foreground)",
         HUE_CLASS[hue],
       )}
     >
-      <Icon
-        aria-hidden="true"
-        strokeWidth={2}
-        className={large ? "size-4" : "size-3.5"}
-      />
+      <Icon aria-hidden="true" strokeWidth={2} className="size-3.5" />
     </span>
   );
 }

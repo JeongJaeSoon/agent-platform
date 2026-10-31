@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { waitingSessionsQuery } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
-import { Badge, cn } from "@werft-ai/ui";
+import { cn } from "@werft-ai/ui";
 import {
   Bell,
   Bot,
@@ -267,11 +267,18 @@ function WaitingBadge() {
   const waiting = useWaitingSessions().data;
   if (!waiting || waiting.count === 0) return null;
   const { count, more } = waiting;
+  // A plain grey count; the accent dot marks what waits on the reader
+  // (owner, 2026-10-31).
   return (
     <>
-      <Badge variant="amber" className="ml-auto" aria-hidden="true">
+      <span
+        data-slot="nav-count"
+        aria-hidden="true"
+        className="ml-auto flex items-center gap-1.5 text-caption text-muted-foreground tabular-nums"
+      >
+        <span className="size-1.5 rounded-full bg-(--ap-color-accent)" />
         {more ? `${count}+` : count}
-      </Badge>
+      </span>
       <span className="sr-only">
         {t(more ? "shell.waitingMore" : "shell.waiting", { count })}
       </span>
