@@ -147,3 +147,18 @@ git worktree remove ~/.cache/agent-platform/preview-reap/checkout
 스키마(`packages/db/src/schema.ts`)를 고친 뒤 `bun run --cwd packages/db db:generate`로 다음 번호의 migration을 만든다. drizzle-kit generate에 인자를 그대로 넘기고, 생성된 `migrations/meta`를 Biome 형식으로 맞춘다. 다른 migration이 main에 먼저 들어가 번호가 겹치면, 커밋을 하나로 합치고 `origin/main`에 rebase한 뒤 `bun run --cwd packages/db db:restack`으로 번호·snapshot·journal을 다시 만든다. 직접 쓴 SQL(backfill, trigger 등)은 새 base에 맞는지 읽은 뒤에만 `--keep-handwritten`으로 남긴다. 사용법과 충돌 처리는 `packages/db/scripts/restack-migration.ts` 머리 주석에 있다.
 
 옛 이미지가 도는 동안 열·테이블을 지우거나 제약을 강화하는 순서는 [DB 스키마를 바꾸는 순서](../operator/images-and-supply-chain.md#db-스키마를-바꾸는-순서)를 따른다.
+
+## DB 사용 규칙
+
+`packages/db`에 쿼리나 migration을 더할 때 지킨다. 운영자 쪽 설정(연결 수, 서버 파라미터, 느린 쿼리 보기)은 [데이터베이스 연결과 느린 쿼리](../operator/database.md)에 있다.
+
+- **트랜잭션 범위.** 한 요청이 여러 표에 쓰면(turn·이벤트·사용량·receipt 등) 모두 한 `db.transaction` 안에서 쓴다. 트랜잭션 안에서는 SQL만 기다린다. object store·HTTP·Slack·GitHub·Docker·Kubernetes 호출, 파일 읽기, sleep은 트랜잭션 앞이나 뒤에 둔다. checkpoint는 S3 검증을 끝낸 뒤 트랜잭션을 연다(`finalizeAtomic`). 풀은 30초 동안 문장 없이 열린 트랜잭션의 연결을 서버가 끊게 한다(`IDLE_IN_TRANSACTION_MS`).
+- **격리 수준.** 기본 READ COMMITTED에 행 잠금으로 맞춘다. 여러 문장이 같은 스냅샷을 봐야 하는 읽기만 `{ isolationLevel: "repeatable read", accessMode: "read only" }`로 연다. serializable은 쓰지 않는다.
+- **잠금 순서.** 세션에 딸린 행을 고치는 쓰기는 세션 행을 먼저 `FOR UPDATE`로 잡고, 그다음 attempt·turn·대기 요청을 잡는다. 이벤트를 쓰는 곳은 모두 세션 행을 잡은 채로 쓴다(`session-events.ts`). 실행 쪽은 launch → session → attempt → execution 순서다. 요청 주체(user·membership·key 등)를 다시 확인하는 순서는 `requester-locks.ts` 주석에 있다. 이 순서를 뒤집어야 하는 곳(claim은 `unassigned_sessions`를 세션보다 먼저 잡는다)은 deadlock(40P01)을 `transactionWithBindingRetry`로 다시 시도한다. 여러 worker가 나눠 가지는 큐 행은 `FOR UPDATE SKIP LOCKED`로 고른다.
+- **타임아웃.** 풀은 `createEnforcedPool`로만 만든다. 문장 10초(migrate 300초), 응답 없는 소켓 20초, 연결 대기 5초를 걸고, `DATABASE_URL`의 timeout 값으로 끌 수 없다. 기다림이 짧아야 하는 쓰기(heartbeat)는 `SET LOCAL lock_timeout`을 따로 건다. 문장을 하나씩 내는 역할의 풀은 `SEQUENTIAL_ROLE_POOL_MAX`로 둔다.
+- **페이지 상한.** 사용과 함께 늘어나는 행(세션, turn, 이벤트, 도구 호출, receipt 등)을 돌려주는 목록은 contracts의 `paginationQuerySchema`(최대 `PAGE_LIMIT_MAX`)나 고정 상한을 받고, 같은 값을 SQL `LIMIT`으로 건다. 행마다 쿼리를 내지 않는다. 딸린 정보는 `inArray`로 한 번에 읽는다.
+- **migration.** `0200` 뒤의 migration은 `packages/db/src/migration-safety.ts`가 `GROWING_TABLES`(사용과 함께 커지는 표)에 대해 검사한다. 새로 커지는 표를 만들면 이 목록에 넣는다.
+  - 인덱스는 첫 줄이 `-- migrate:no-transaction`인 migration에서 `DROP INDEX CONCURRENTLY IF EXISTS <이름>` 다음에 `CREATE INDEX CONCURRENTLY <이름>`으로 만든다. 이 migration은 트랜잭션 없이 문장마다 commit하므로, 중간에 실패하면 앞 문장은 남고 migration은 다음 실행에 처음부터 다시 돈다. 그래서 모든 문장이 다시 돌아도 안전해야 한다. 문장 사이는 `--> statement-breakpoint`로 나눈다. drizzle-kit이 만든 `CREATE INDEX`는 손으로 이렇게 고친다.
+  - CHECK·FOREIGN KEY는 `NOT VALID`로 더하고, `VALIDATE CONSTRAINT`는 다음 migration에서 한다. 같은 트랜잭션에서 하면 더할 때 잡은 배타 잠금 아래에서 표 전체를 읽는다. UNIQUE·PRIMARY KEY는 인덱스를 `CONCURRENTLY`로 만든 뒤 `USING INDEX`로 붙인다.
+  - 새 열의 volatile DEFAULT(`gen_random_uuid()` 등), 열 타입 변경, `SET NOT NULL`, DEFAULT 없는 `NOT NULL` 열은 쓰지 않는다. `now()` 같은 stable DEFAULT는 표를 다시 쓰지 않으니 괜찮다.
+  - 커지는 표의 backfill(`UPDATE`·`DELETE`)은 migration 안에서 하지 않는다. 진행 cursor를 두고 앱이 batch로 채운다(`tool_call_progress`, `neutral_field_progress`).

@@ -28,6 +28,7 @@ API로 세션을 만들고 쓰는 사람.
 | [이미지와 공급망](operator/images-and-supply-chain.md) | 이미지와 Compose `apps` profile, 업그레이드·롤백, 취약점 정책 |
 | [설정 레퍼런스](operator/configuration.md) | 설치 상한, API 설정, scheduler·worker·egress 설정 |
 | [백업과 복원](operator/backup-restore.md) | compose 설치의 백업·복원 |
+| [데이터베이스 연결과 느린 쿼리](operator/database.md) | 역할별 연결 수, 연결마다 거는 timeout, 느린 쿼리·잠금 대기 로그 켜고 보기 |
 | [용량 관리](operator/capacity.md) | transcript 상한, worker 메모리, 노드당 세션 수 |
 | [Datadog 감시 기준](operator/monitoring-datadog.md) | Datadog Agent와 monitor |
 | [플랫폼 지표 (Kubernetes)](operator/metrics.md) | `/metrics` 지표 이름·라벨·뜻, 켜는 법, 수집기가 읽는 법 |
