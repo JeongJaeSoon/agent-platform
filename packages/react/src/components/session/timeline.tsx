@@ -17,6 +17,7 @@ import {
   Hourglass,
   LoaderCircle,
   type LucideIcon,
+  Wrench,
 } from "lucide-react";
 import { type JSX, type ReactNode, useId, useState } from "react";
 
@@ -102,7 +103,7 @@ const KIND_TONE = {
 
 const KIND_ICON = {
   agent: Sparkles,
-  tool: LoaderCircle,
+  tool: Wrench,
   request: Hourglass,
   error: CircleX,
   system: CircleDot,
@@ -602,13 +603,16 @@ function KindIcon({
   kind,
   messages,
   small = false,
+  running = false,
 }: {
   readonly kind: TimelineKind;
   readonly messages: TimelineMessages;
   readonly small?: boolean;
+  /** A tool call still running: its ring turns, unless motion is reduced. */
+  readonly running?: boolean;
 }): JSX.Element {
   const kindName = messages.kind?.(kind);
-  const Icon = KIND_ICON[kind];
+  const Icon = running ? LoaderCircle : KIND_ICON[kind];
   return (
     <span
       {...(kindName
@@ -620,7 +624,14 @@ function KindIcon({
         KIND_TONE[kind],
       )}
     >
-      <Icon size={small ? 10 : 14} strokeWidth={1.5} aria-hidden="true" />
+      <Icon
+        size={small ? 10 : 14}
+        strokeWidth={1.5}
+        aria-hidden="true"
+        className={
+          running ? "animate-spin motion-reduce:animate-none" : undefined
+        }
+      />
     </span>
   );
 }
@@ -691,11 +702,12 @@ function EventItem({
     row.toolCallId !== undefined &&
     result === undefined &&
     presentation.label.key === "session.event.kind.toolUse";
+  const running = open && !held?.has(row.toolCallId as string);
   const progress = !open
     ? undefined
-    : held?.has(row.toolCallId as string)
-      ? { text: messages.waiting, tone: "text-[var(--ap-tone-attention-fg)]" }
-      : { text: messages.running, tone: "text-[var(--ap-tone-progress-fg)]" };
+    : running
+      ? { text: messages.running, tone: "text-[var(--ap-tone-progress-fg)]" }
+      : { text: messages.waiting, tone: "text-[var(--ap-tone-attention-fg)]" };
   const slot =
     row.requestId === undefined ? null : (request?.(row.requestId) ?? null);
   const options = row.options ?? [];
@@ -706,7 +718,7 @@ function EventItem({
       className={cn(ROW, "py-3 last:border-b-0")}
     >
       <Rail top="h-3" bottom="top-9" first={first} last={last} />
-      <KindIcon kind={kind} messages={messages} />
+      <KindIcon kind={kind} messages={messages} running={running && !error} />
       <div className="flex min-w-0 flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2 text-control font-medium">
           <span>
