@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { useIsFetching, useQuery } from "@tanstack/react-query";
+import { Link, useLocation } from "@tanstack/react-router";
 import { unwrap } from "@werft-ai/client";
 import type { ListWorkspaceSlackAppsResponse } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
@@ -19,6 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@werft-ai/ui";
+import { useEffect, useRef } from "react";
 import { scopedKey } from "../api/queries.ts";
 import {
   permissionReason,
@@ -51,6 +52,24 @@ export function SlackApps() {
       ),
     enabled: workspaceId !== "" && canManage,
   });
+  const anchored = useLocation({
+    select: (location) => location.hash === SLACK_APPS_ANCHOR,
+  });
+  const loading =
+    useIsFetching({ queryKey: scopedKey(client, "workspace", workspaceId) }) >
+      0 ||
+    (canManage && apps.isPending);
+  const scrolled = useRef(false);
+  // The router scrolls to the hash on render, while the cards above this one
+  // are still loading and the page is too short to move; land here once
+  // they have settled.
+  useEffect(() => {
+    if (!anchored || loading || scrolled.current) return;
+    scrolled.current = true;
+    document.getElementById(SLACK_APPS_ANCHOR)?.scrollIntoView({
+      block: "start",
+    });
+  }, [anchored, loading]);
 
   return (
     <SettingsCard
