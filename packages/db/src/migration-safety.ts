@@ -57,6 +57,7 @@ function statementsOf(sql: string): string[] {
       chunk
         .split("\n")
         .filter((line) => !line.trimStart().startsWith("--"))
+        .map((line) => line.replace(/\s+--[^'"]*$/, ""))
         .join("\n")
         .replace(/\s+/g, " ")
         .trim(),
@@ -91,7 +92,10 @@ export function migrationSafetyProblems(
     for (const statement of statementsOf(raw)) {
       // Every check reads one statement from its start, and a no-transaction
       // migration sent as one query string runs in an implicit transaction.
-      if (!statement.includes("$$") && /;\s*\S/.test(statement)) {
+      if (
+        !/\$\w*\$/.test(statement) &&
+        /;\s*\S/.test(statement.replace(/'(?:[^']|'')*'/g, "''"))
+      ) {
         problems.push(
           `${file}: more than one statement between breakpoints; put "--> statement-breakpoint" after each`,
         );
@@ -148,12 +152,14 @@ export function migrationSafetyProblems(
       if (alter?.[1] && alter[2] !== undefined && existingGrowing(alter[1])) {
         const [, table, action] = alter;
         const addsColumn = ADDS_COLUMN.test(action);
+        // A quoted column may be named "generated" or "references".
+        const unquoted = action.replace(/"[^"]*"/g, '""');
         if (addsColumn && VOLATILE_DEFAULT.test(action)) {
           problems.push(
             `${file}: a volatile DEFAULT on a new column rewrites ${table}; add the column without it and backfill in batches`,
           );
         }
-        if (addsColumn && FILLED_COLUMN.test(action)) {
+        if (addsColumn && FILLED_COLUMN.test(unquoted)) {
           problems.push(
             `${file}: a serial, identity or generated column rewrites ${table}; add a plain column and fill it in batches`,
           );
@@ -166,7 +172,7 @@ export function migrationSafetyProblems(
             `${file}: a NOT NULL column without a DEFAULT fails on a non-empty ${table}`,
           );
         }
-        if (addsColumn && INLINE_INDEX_OR_KEY.test(action)) {
+        if (addsColumn && INLINE_INDEX_OR_KEY.test(unquoted)) {
           problems.push(
             `${file}: a UNIQUE, PRIMARY KEY or REFERENCES clause on a new column locks ${table} while it builds or checks; add the column, then the index or constraint the safe way`,
           );
@@ -190,7 +196,7 @@ export function migrationSafetyProblems(
         const validate = action.match(
           new RegExp(`\\bVALIDATE CONSTRAINT ${name}`, "i"),
         );
-        if (validate?.[1] && addedNotValid.has(validate[1])) {
+        if (!outside && validate?.[1] && addedNotValid.has(validate[1])) {
           problems.push(
             `${file}: VALIDATE CONSTRAINT ${validate[1]} runs under the lock its ADD took; validate it in a later migration`,
           );

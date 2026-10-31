@@ -181,6 +181,10 @@ describe("migration safety", () => {
         `ALTER TABLE "events" ADD COLUMN "unique_ref" text;`,
         `UPDATE "slack_apps" SET "x" = 1;`,
         `CREATE FUNCTION f() RETURNS void AS $$ BEGIN PERFORM 1; PERFORM 2; END $$ LANGUAGE plpgsql;`,
+        `CREATE FUNCTION g() RETURNS void AS $fn$ BEGIN PERFORM 1; PERFORM 2; END $fn$ LANGUAGE plpgsql;`,
+        `ALTER TABLE "events" ADD COLUMN "sep" text DEFAULT ';x'; -- a note`,
+        `ALTER TABLE "events" ADD COLUMN "generated" text;`,
+        `ALTER TABLE "events" ADD COLUMN "references" text;`,
       ),
     ).toEqual([]);
   });
