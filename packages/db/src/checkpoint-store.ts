@@ -307,20 +307,23 @@ export function createPostgresCheckpointStore(
     },
 
     readPointer(sessionId: string): Promise<CheckpointPointer | null> {
-      // One transaction, so the row and the checkpoint it names are read
-      // from a single snapshot.
-      return db.transaction(async (tx) => {
-        const [row] = await tx
-          .select({
-            id: sessions.id,
-            checkpointRevision: sessions.checkpointRevision,
-            checkpointCommittedAt: sessions.checkpointCommittedAt,
-          })
-          .from(sessions)
-          .where(eq(sessions.id, sessionId))
-          .limit(1);
-        return row ? readCheckpointPointer(tx, row) : null;
-      });
+      // Repeatable read, so the row and the checkpoint it names are read
+      // from a single snapshot; read committed takes one per statement.
+      return db.transaction(
+        async (tx) => {
+          const [row] = await tx
+            .select({
+              id: sessions.id,
+              checkpointRevision: sessions.checkpointRevision,
+              checkpointCommittedAt: sessions.checkpointCommittedAt,
+            })
+            .from(sessions)
+            .where(eq(sessions.id, sessionId))
+            .limit(1);
+          return row ? readCheckpointPointer(tx, row) : null;
+        },
+        { isolationLevel: "repeatable read", accessMode: "read only" },
+      );
     },
 
     async listCheckpoints(
