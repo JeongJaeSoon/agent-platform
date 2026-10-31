@@ -183,6 +183,30 @@ describe("Slack 연결 설정의 자동으로 만든 Slack 앱", () => {
     ).toBeNull();
   });
 
+  test("앱 목록 절은 토큰 카드 아래, 위험 구역 위에 온다", async () => {
+    harness.renderAt(SLACK, {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${CONFIG}`]: () =>
+        json(200, {
+          ...UNSET,
+          configured: true,
+          last4: "f76d",
+          updated_at: "2026-10-23T12:48:00.000Z",
+          state: "active",
+        }),
+      [`GET ${APPS}`]: () => json(200, { items: [] }),
+    });
+    await screen.findByText(EMPTY);
+    const danger = await screen.findByRole("heading", { name: "위험 구역" });
+    const headings = screen
+      .getAllByRole("heading", { level: 2 })
+      .map((heading) => heading.textContent);
+    expect(headings.indexOf("자동으로 만든 Slack 앱")).toBe(
+      headings.indexOf(danger.textContent) - 1,
+    );
+    expect(headings.at(-1)).toBe("위험 구역");
+  });
+
   test("예전 주소는 Slack 연결 설정의 앱 목록 절로 보낸다", async () => {
     const { history } = harness.renderAt("/settings/workspace/slack-apps", {
       "GET /v1/auth/me": () => json(200, me()),
