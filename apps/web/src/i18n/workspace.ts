@@ -44,7 +44,6 @@ export const workspaceKo = {
   "workspace.basics": "기본 정보",
   "workspace.slackDescription": "소유자와 관리자만 바꿀 수 있습니다.",
   "workspace.slackApps": "자동으로 만든 Slack 앱",
-  "workspace.slackAppsDescription": "소유자와 관리자만 볼 수 있습니다.",
   "workspace.slackAppsList": "앱 목록",
   "workspace.slackAppsHint":
     "여기서는 앱의 상태만 봅니다. 에이전트 앱의 설치, 연결 해제, 삭제는 그 에이전트의 Slack 탭에서 합니다.",
@@ -144,7 +143,6 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.basics": "Basics",
   "workspace.slackDescription": "Only owners and admins can change these.",
   "workspace.slackApps": "Slack apps made here",
-  "workspace.slackAppsDescription": "Only owners and admins can see these.",
   "workspace.slackAppsList": "Apps",
   "workspace.slackAppsHint":
     "This page only shows each app's state. Install, disconnect and delete an agent app in that agent's Slack tab.",
@@ -245,7 +243,6 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "workspace.basics": "基本情報",
   "workspace.slackDescription": "オーナーと管理者だけが変更できます。",
   "workspace.slackApps": "自動で作った Slack アプリ",
-  "workspace.slackAppsDescription": "オーナーと管理者だけが閲覧できます。",
   "workspace.slackAppsList": "アプリ一覧",
   "workspace.slackAppsHint":
     "ここではアプリの状態だけを確認します。エージェントのアプリのインストール・連携解除・削除は、そのエージェントの Slack タブで行います。",

@@ -52,6 +52,7 @@ import {
   SlackGuest,
   WorkspacePage,
 } from "./workspace-settings.tsx";
+import { SlackApps } from "./workspace-slack-apps.tsx";
 
 // Row buttons share one width down the right edge.
 const ACTION = "min-w-12";
@@ -59,7 +60,7 @@ const ACTION = "min-w-12";
 const tokenKey = (client: ApiClient, workspaceId: string) =>
   scopedKey(client, "workspace", workspaceId, "slack-config-token");
 
-/** Workspace › Slack: who may use agents from Slack, and the app-making token. */
+/** Workspace › Slack: who may use agents from Slack, the app-making token, and the apps it made. */
 export function WorkspaceSlackScreen() {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   return (
@@ -73,6 +74,7 @@ export function WorkspaceSlackScreen() {
       ) : null}
       <SlackGuest onOutcome={setOutcome} />
       <ConfigToken onOutcome={setOutcome} />
+      <SlackApps />
     </WorkspacePage>
   );
 }

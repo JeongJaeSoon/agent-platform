@@ -28,12 +28,14 @@ import {
 } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import { SettingsCard, WorkspacePage } from "./workspace-settings.tsx";
+import { SettingsCard } from "./workspace-settings.tsx";
 
 type MadeApp = ListWorkspaceSlackAppsResponse["items"][number];
 
-/** Workspace › Slack apps the console made: their state, changed elsewhere. */
-export function WorkspaceSlackAppsScreen() {
+export const SLACK_APPS_ANCHOR = "slack-apps";
+
+/** The Slack apps the console made: their state, changed elsewhere. */
+export function SlackApps() {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const role = useRole();
@@ -51,30 +53,29 @@ export function WorkspaceSlackAppsScreen() {
   });
 
   return (
-    <WorkspacePage page="slack-apps">
-      <SettingsCard
-        title={t("workspace.slackAppsList")}
-        description={t("workspace.slackAppsHint")}
-        rows={
-          !canManage ? (
-            <SettingRow
-              title={t("workspace.slackApps")}
-              description={permissionReason(t, "workspace.manage", role)}
-            />
-          ) : undefined
-        }
-      >
-        {!canManage ? null : apps.isPending ? (
-          <Skeleton width="50%" />
-        ) : apps.isError ? (
-          <LoadFailure error={apps.error} onRetry={() => void apps.refetch()} />
-        ) : apps.data.items.length === 0 ? (
-          <EmptyState size="sm" title={t("workspace.slackAppsEmpty")} />
-        ) : (
-          <AppTable items={apps.data.items} />
-        )}
-      </SettingsCard>
-    </WorkspacePage>
+    <SettingsCard
+      id={SLACK_APPS_ANCHOR}
+      title={t("workspace.slackApps")}
+      description={t("workspace.slackAppsHint")}
+      rows={
+        !canManage ? (
+          <SettingRow
+            title={t("workspace.slackAppsList")}
+            description={permissionReason(t, "workspace.manage", role)}
+          />
+        ) : undefined
+      }
+    >
+      {!canManage ? null : apps.isPending ? (
+        <Skeleton width="50%" />
+      ) : apps.isError ? (
+        <LoadFailure error={apps.error} onRetry={() => void apps.refetch()} />
+      ) : apps.data.items.length === 0 ? (
+        <EmptyState size="sm" title={t("workspace.slackAppsEmpty")} />
+      ) : (
+        <AppTable items={apps.data.items} />
+      )}
+    </SettingsCard>
   );
 }
 
