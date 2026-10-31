@@ -1,6 +1,6 @@
 # 결정: GitHub Packages(npm·RubyGems)를 App token으로 읽을 수 있는가
 
-- 상태: 실측 결과 대기. 94S-1098. 이 결론에 따라 94S-1096(조직 레지스트리에 App token을 붙인다)을 시작하거나 보류한다.
+- 상태: 1차(`--no-packages`) 결과만 있음. 결론은 2차 실측 대기. 94S-1098. 이 결론에 따라 94S-1096(조직 레지스트리에 App token을 붙인다)을 시작하거나 보류한다.
 - 기준 커밋: `origin/main` `fc1e7f26`. 아래 `파일:줄`은 모두 이 커밋 기준이다.
 - 실측 로그: `~/share/owner-checks/session-deps-20261031/1098-measure.log`(오너가 실행, 이 문서의 표는 그 로그에서 옮겼다).
 
@@ -30,7 +30,34 @@
 
 ## 결과
 
-<!-- TODO(94S-1098): 로그에서 행별 status·redirect host를 옮긴다. -->
+### 1차: `--no-packages` (2026-10-31T07:13:28Z)
+
+로그에서 그대로 옮겼다. 첫 `# owner:` 줄은 절차 파일의 빈 양식이 한 번 붙은 것이라 뺐다.
+
+| 행 | 대상 | status | redirect host | 요약 |
+| --- | --- | --- | --- | --- |
+| owner | App 권한 목록의 Packages | - | - | 항목이 있고 값은 No access |
+| M1 | mint:contents | 201 | - | granted=contents:read+metadata:read |
+| M2 | mint:packages | 422 | - | granted=- |
+| M3 | mint:none | 201 | - | granted=actions:write+checks:write+contents:write+issues:write+metadata:read+pull_requests:write+workflows:write |
+| 0-anon | npm-absent | 404 | - | content-length=yes |
+| 0-anon | gem-index | 401 | - | content-length=yes |
+| 0-contents | npm-absent | 404 | - | content-length=yes |
+| 0-contents | gem-index | 403 | - | content-length=yes |
+| 0-packages | npm-absent | - | - | skipped=no-token |
+| 0-packages | gem-index | - | - | skipped=no-token |
+| 0-none | npm-absent | 404 | - | content-length=yes |
+| 0-none | gem-index | 403 | - | content-length=yes |
+| R1 | revoke:contents | 204 | - | - |
+| R3 | revoke:none | 204 | - | - |
+
+읽은 것:
+
+- **App 권한 목록에는 Packages가 있다.** 티켓 배경의 "GitHub App 권한 목록에는 Packages가 없다"는 사실과 다르다. 이 App은 그 권한을 받지 않았을 뿐이다(값 No access).
+- M2의 422는 설치가 받지 않은 권한을 요청한 결과다(`forge-github.ts`의 422 처리와 같은 뜻). App token이 레지스트리에 원래 안 통한다는 근거는 아니다.
+- gem index는 익명이면 401, App token이면 403이다. RubyGems 레지스트리는 App token을 인증 정보로 받아들이고, 권한이 없다고 거절했다.
+- npm은 익명과 token 모두 없는 이름에 404를 준다. 이 행으로는 token을 받아들이는지 알 수 없다.
+- M3(권한 생략)은 설치가 가진 권한 전체를 받는다. 그 안에 packages가 없으므로 0-none도 403이다.
 
 ## 결론
 
