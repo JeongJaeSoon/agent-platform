@@ -138,7 +138,7 @@ describe("워크스페이스 GitHub 연결", () => {
     expect(screen.getByText("werft test")).toBeDefined();
     expect(
       screen
-        .getByRole("link", { name: /GitHub에서 설치/ })
+        .getByRole("link", { name: /GitHub에서 저장소 관리/ })
         .getAttribute("href"),
     ).toBe("https://github.com/apps/werft-test/installations/new");
     expect(screen.getByText("acme")).toBeDefined();
@@ -159,6 +159,32 @@ describe("워크스페이스 GitHub 연결", () => {
         ),
       ).not.toContain(KEY_TEXT),
     );
+  });
+
+  test("App 링크는 설치가 없으면 설치를, 설치가 있으면 저장소 관리를 말한다", async () => {
+    renderAt(PATH, {
+      "GET /v1/auth/me": () => json(200, me()),
+      ...settingsRead,
+      [`GET ${APP}`]: () => json(200, { ...REGISTERED, installations: [] }),
+      [`GET ${REVIEWER}`]: () => json(200, REGISTERED),
+    });
+    const author = await authorCard();
+    const install = await author.findByRole("link", {
+      name: /GitHub에서 설치/,
+    });
+    expect(install.getAttribute("href")).toBe(
+      "https://github.com/apps/werft-test/installations/new",
+    );
+    expect(author.queryByRole("link", { name: /저장소 관리/ })).toBeNull();
+    const reviewer = cardOf("리뷰용 App (선택)");
+    expect(
+      reviewer
+        .getByRole("link", { name: /GitHub에서 저장소 관리/ })
+        .getAttribute("href"),
+    ).toBe("https://github.com/apps/werft-test/installations/new");
+    expect(
+      reviewer.queryByRole("link", { name: /GitHub에서 설치/ }),
+    ).toBeNull();
   });
 
   test("App ID나 파일이 없으면 서버에 묻지 않고 그 칸으로 간다", async () => {
