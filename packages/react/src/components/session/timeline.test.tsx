@@ -222,6 +222,31 @@ describe("Timeline 도구 호출과 결과", () => {
     expect(open?.textContent).not.toContain("waiting");
   });
 
+  test("실행 중인 호출만 진행 원이 돌고, 끝났거나 답을 기다리는 호출은 멈춘 도구 아이콘이다", () => {
+    render(
+      <Timeline
+        entries={[call("c1"), result("c1"), call("c2"), call("c3")]}
+        formatMessage={formatMessage}
+        messages={{ ...MESSAGES, waiting: "waiting" }}
+        held={new Set(["c3"])}
+        now={START}
+      />,
+    );
+    const icon = (row: HTMLElement | undefined) =>
+      row?.querySelector('[role="img"] svg')?.getAttribute("class") ?? "";
+    const [done, running, held] = rows();
+    expect(icon(running)).toContain("lucide-loader-circle");
+    expect(icon(running)).toContain("animate-spin");
+    // Reduced motion stops the ring; the "running" label still says it.
+    expect(icon(running)).toContain("motion-reduce:animate-none");
+    expect(running?.textContent).toContain("running");
+    for (const still of [done, held]) {
+      expect(icon(still)).not.toContain("lucide-loader-circle");
+      expect(icon(still)).not.toContain("animate-spin");
+      expect(icon(still)).toContain("lucide-wrench");
+    }
+  });
+
   test("막힌 호출도 결과가 오면 대기도 실행 중도 아니다", () => {
     render(
       <Timeline
