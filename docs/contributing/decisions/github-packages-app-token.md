@@ -53,7 +53,7 @@
 
 읽은 것:
 
-- **App 권한 목록에는 Packages가 있다.** 티켓 배경의 "GitHub App 권한 목록에는 Packages가 없다"는 사실과 다르다. 이 App은 그 권한을 받지 않았을 뿐이다(값 No access).
+- **App 권한 목록에는 Packages가 있다.** "GitHub App 권한 목록에는 Packages가 없다"는 이전 가정은 사실과 다르다. 이 App은 그 권한을 받지 않았을 뿐이다(값 No access).
 - M2의 422는 설치가 받지 않은 권한을 요청한 결과다(`forge-github.ts`의 422 처리와 같은 뜻). App token이 레지스트리에 원래 안 통한다는 근거는 아니다.
 - gem index는 익명이면 401, App token이면 403이다. RubyGems 레지스트리는 App token을 인증 정보로 받아들이고, 권한이 없다고 거절했다.
 - npm은 익명과 token 모두 없는 이름에 404를 준다. 이 행으로는 token을 받아들이는지 알 수 없다.
@@ -110,9 +110,9 @@ PAT로는 네 대상이 모두 받아지고, 무인증은 모두 401이다. 테�
 | R1 | revoke:contents | 204 | - | - |
 | R3 | revoke:none | 204 | - | - |
 
-- 설치 token은 `contents:read`든 설치 권한 전체든 npm metadata·gem index·`.gem` 모두 403이다. 저장소 권한을 상속하는 private 패키지인데도 그렇다. **저장소 권한 상속은 App installation token에 이어지지 않는다.**
+- 설치 token은 `contents:read`든 설치 권한 전체든 npm metadata·gem index·`.gem` 모두 403이다. 저장소 권한을 상속하는 private 패키지인데도 그렇다. **Packages: No access인 App에서는 저장소 권한 상속이 installation token에 이어지지 않는다.**
 - 2행(tarball)은 재지 못했다. tarball URL은 metadata 응답에서만 얻는데 metadata가 403이었다. 같은 레지스트리 host의 같은 인증이므로 결론을 바꾸지 않는다고 본다.
-- 403은 token을 알아보고 권한이 없다고 거절한 것이다(무인증은 401). 남은 변수는 App의 Packages 권한 하나다.
+- 403은 token을 알아보고 권한이 없다고 거절한 것이다(무인증은 401). 사용자 계정에서 남은 변수는 App의 Packages 권한 하나다.
 
 ## 결론
 
@@ -121,11 +121,11 @@ PAT로는 네 대상이 모두 받아지고, 무인증은 모두 401이다. 테�
 - **조직 레지스트리 작업은 시작하지 않는다(보류).** 조직 npm·RubyGems 설치는 비활성으로 둔다(아래 대안 D). 공개 레지스트리(npm·RubyGems·Go module proxy)를 자격 증명 없이 받는 경로는 이 결정과 관계없다.
 - 재지 않은 것: App에 Packages: Read를 주고 설치에서 승인한 뒤의 token(M2·`5-packages/` 행). 이번 실측에서는 App 권한을 바꾸지 않았다. 무인증 401과 token 403이 갈리므로, 권한을 주면 통할 가능성은 남아 있다.
 - 다시 재는 방법: App 설정의 Repository permissions에서 Packages를 Read로 바꾸고 설치에서 새 권한을 승인한다. 그다음 오너 절차 `~/share/owner-checks/session-deps-20261031/publish-steps.md`의 6단계 명령(전체 실행)을 한 번 더 돌린다. M2가 201이고 `5-packages/1·3·4`가 200이면 "가능"으로 바꾸고 조직 레지스트리 작업을 연다. 그때도 403이면 "불가"로 확정한다.
-- 조직 레지스트리 작업 착수에 필요한 사실(이번에 얻음): 본체 redirect host는 npm이 `pkg-npm.githubusercontent.com`, gem이 `rubygemsregistryv2prod.blob.core.windows.net`이다. 둘 다 Authorization 없이 받아진다. proxy는 이 host만 따라가고 Authorization을 떼면 된다.
+- 조직 레지스트리 작업 착수에 필요한 사실(이번에 얻음, PAT 대조 run의 `C-pat/2`·`C-pat/4` 행. App token으로는 본체까지 가지 못해 보지 못했다): 본체 redirect host는 npm이 `pkg-npm.githubusercontent.com`, gem이 `rubygemsregistryv2prod.blob.core.windows.net`이다. 둘 다 Authorization 없이 받아진다. proxy는 이 host만 따라가고 Authorization을 떼면 된다.
 
 ## 사용자 계정과 org
 
-이 실측은 사용자 계정 소유 저장소와 패키지에서만 했다. 조직 소유 패키지는 권한 모델(조직 패키지 설정, 조직 수준 App 설치)이 다를 수 있으므로 이 결과를 조직에 일반화하지 않는다. 조직 재검증이 필요하다(todo 등록됨). 사용자 계정에서 불가였다고 조직에서도 불가라고 단정하지 않는다. 반대로 조직에서 Packages 권한을 줘서 된다면, 사용자 계정에서도 같은 권한으로 다시 재서 맞춰 본다.
+이 실측은 사용자 계정 소유 저장소와 패키지에서만 했다. 조직 소유 패키지는 권한 모델(조직 패키지 설정, 조직 수준 App 설치)이 다를 수 있으므로 이 결과를 조직에 일반화하지 않는다. 조직 소유 패키지와 조직에 설치한 App으로 같은 실측을 다시 해야 한다(프로그램 할 일 목록에 올려 두었다). 사용자 계정에서 불가였다고 조직에서도 불가라고 단정하지 않는다. 반대로 조직에서 Packages 권한을 줘서 된다면, 사용자 계정에서도 같은 권한으로 다시 재서 맞춰 본다.
 
 ## 안 될 때의 대안 (보류)
 

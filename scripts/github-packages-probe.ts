@@ -305,9 +305,15 @@ async function revokeAll() {
   }
 }
 
-process.on("SIGINT", () => {
-  void revokeAll().finally(() => process.exit(130));
-});
+for (const [signal, code] of [
+  ["SIGINT", 130],
+  ["SIGTERM", 143],
+  ["SIGHUP", 129],
+] as const) {
+  process.on(signal, () => {
+    void revokeAll().finally(() => process.exit(code));
+  });
+}
 
 try {
   await probeAll();
@@ -322,7 +328,10 @@ try {
 async function probeAll() {
   if (control) {
     try {
-      tokens.set("pat", readFileSync(secretPath as string, "utf8").trim());
+      const pat = readFileSync(secretPath as string, "utf8").trim();
+      // An empty PAT would read as the anonymous 401 instead of failing.
+      if (pat === "") throw new Error("empty PAT file");
+      tokens.set("pat", pat);
     } catch (error) {
       emit("M0", "pat-file", "ERR", "-", errorName(error));
       throw error;
