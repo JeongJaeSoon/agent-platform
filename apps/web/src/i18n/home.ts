@@ -81,7 +81,7 @@ export const homeKo = {
   "home.todo.cta.events_failed": "이벤트 주소 다시 확인",
   "home.todo.cta.events_unverified": "이벤트 주소 확인",
   "home.todo.cta.install": "앱 설치",
-  "home.todo.cta.reinstall": "다시 설치",
+  "home.todo.cta.reinstall": "앱 다시 설치",
   "home.todo.cta.home_unset": "홈 채널 고르기",
   "home.todo.effect.events_failed": "멘션을 받지 못하고 있습니다",
   "home.todo.effect.events_unverified":
@@ -192,7 +192,7 @@ export const homeEn: Record<keyof typeof homeKo, string> = {
   "home.todo.cta.events_failed": "Recheck events URL",
   "home.todo.cta.events_unverified": "Verify events URL",
   "home.todo.cta.install": "Install app",
-  "home.todo.cta.reinstall": "Reinstall",
+  "home.todo.cta.reinstall": "Reinstall app",
   "home.todo.cta.home_unset": "Choose home channel",
   "home.todo.effect.events_failed": "Mentions are not reaching it",
   "home.todo.effect.events_unverified":
@@ -306,7 +306,7 @@ export const homeJa: Record<keyof typeof homeKo, string> = {
   "home.todo.cta.events_failed": "イベント URL を再確認",
   "home.todo.cta.events_unverified": "イベント URL を確認",
   "home.todo.cta.install": "アプリをインストール",
-  "home.todo.cta.reinstall": "再インストール",
+  "home.todo.cta.reinstall": "アプリを再インストール",
   "home.todo.cta.home_unset": "ホームチャンネルを選ぶ",
   "home.todo.effect.events_failed": "メンションを受け取れていません",
   "home.todo.effect.events_unverified":

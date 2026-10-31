@@ -606,7 +606,7 @@ describe("홈 요약", () => {
       ["events_failed", "이벤트 주소 다시 확인"],
       ["events_unverified", "이벤트 주소 확인"],
       ["install", "앱 설치"],
-      ["reinstall", "다시 설치"],
+      ["reinstall", "앱 다시 설치"],
       ["home_unset", "홈 채널 고르기"],
     ] as const)(
       "%s 행의 버튼은 Slack 탭에서 할 일을 %s(으)로 말한다",
