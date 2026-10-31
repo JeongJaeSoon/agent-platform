@@ -296,6 +296,9 @@ describe("Timeline 도구 호출과 결과", () => {
     expect(row?.dataset.error).toBe("true");
     const icon = row?.querySelector('[role="img"]');
     expect(icon?.getAttribute("aria-label")).toBe("kind:error");
+    expect(icon?.querySelector("svg")?.getAttribute("class")).not.toContain(
+      "animate-spin",
+    );
     expect(icon?.className).toContain("--ap-tone-danger-bg");
     expect(icon?.className).toContain("--ap-tone-danger-fg");
     expect(row?.querySelector(".text-destructive")?.textContent).toContain(

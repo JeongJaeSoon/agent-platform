@@ -718,7 +718,7 @@ function EventItem({
       className={cn(ROW, "py-3 last:border-b-0")}
     >
       <Rail top="h-3" bottom="top-9" first={first} last={last} />
-      <KindIcon kind={kind} messages={messages} running={running} />
+      <KindIcon kind={kind} messages={messages} running={running && !error} />
       <div className="flex min-w-0 flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2 text-control font-medium">
           <span>
