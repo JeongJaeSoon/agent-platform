@@ -39,6 +39,7 @@ import {
   type MessageKey,
   useI18n,
 } from "../i18n/i18n.tsx";
+import { IconTile, type TileHue } from "./icon-tile.tsx";
 import { MAIN_CONTENT_ID } from "./main.tsx";
 import { chooseTheme, THEMES, type Theme, useTheme } from "./theme.ts";
 
@@ -67,6 +68,8 @@ export interface NavItem {
   readonly to: NavPath;
   readonly label: MessageKey;
   readonly icon: NavIcon;
+  /** The sidebar tile's colour; the settings nav draws no icons. */
+  readonly hue?: TileHue;
   /** The path prefix the item stands for when it is wider than `to`. */
   readonly match?: string;
 }
@@ -118,6 +121,7 @@ const MEMBERS_ITEM: NavItem = {
   to: "/members",
   label: "nav.members",
   icon: Users,
+  hue: "green",
 };
 // Every settings page sits behind one item (V4-SETTINGS-LAYOUT A); the
 // settings nav beside the page lists them.
@@ -126,6 +130,7 @@ const SETTINGS_ITEM: NavItem = {
   match: "/settings",
   label: "nav.settings",
   icon: SettingsIcon,
+  hue: "slate",
 };
 
 /**
@@ -146,8 +151,13 @@ export function useNavGroups(): readonly NavGroup[] {
   // member's own settings open from the account menu; the screens and the
   // server keep the rights.
   const workspace: NavItem[] = [
-    { to: "/profiles", label: "nav.profiles", icon: SlidersHorizontal },
-    { to: "/operations", label: "nav.operations", icon: Gauge },
+    {
+      to: "/profiles",
+      label: "nav.profiles",
+      icon: SlidersHorizontal,
+      hue: "teal",
+    },
+    { to: "/operations", label: "nav.operations", icon: Gauge, hue: "pink" },
   ];
   if (memberManage) workspace.push(MEMBERS_ITEM);
   if (workspaceManage || retentionManage) workspace.push(SETTINGS_ITEM);
@@ -155,9 +165,14 @@ export function useNavGroups(): readonly NavGroup[] {
     {
       label: "shell.group.work",
       items: [
-        { to: "/", label: "nav.home", icon: House },
-        { to: "/sessions", label: "nav.sessions", icon: ListIcon },
-        { to: "/agents", label: "nav.agents", icon: Bot },
+        { to: "/", label: "nav.home", icon: House, hue: "blue" },
+        {
+          to: "/sessions",
+          label: "nav.sessions",
+          icon: ListIcon,
+          hue: "violet",
+        },
+        { to: "/agents", label: "nav.agents", icon: Bot, hue: "orange" },
       ],
     },
     { label: "shell.group.workspace", items: workspace },
@@ -345,6 +360,8 @@ function NavSection({
 }) {
   const { t } = useI18n();
   const headingId = useId();
+  const itemsId = useId();
+  const [open, setOpen] = useState(true);
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
@@ -353,45 +370,65 @@ function NavSection({
     // Not a list: the home checklist's items are the page's only list items.
     // biome-ignore lint/a11y/useSemanticElements: a fieldset groups form controls, these are links
     <div role="group" aria-labelledby={headingId} className="flex flex-col">
-      <p
-        id={headingId}
-        className={cn(
-          "m-0 px-2 pt-3 pb-1 text-caption text-subtle-foreground",
-          headingHidden && "sr-only",
-        )}
-      >
-        {t(group.label)}
-      </p>
-      {group.items.map((item) => (
-        <Link
-          key={item.to}
-          to={item.to}
-          activeOptions={{ exact: item.to === "/" }}
-          aria-current={
-            item.match !== undefined &&
-            (pathname === item.match || pathname.startsWith(`${item.match}/`))
-              ? "page"
-              : undefined
-          }
-          onClick={onNavigate}
-          // Console v4 `.nav`: text-2 at 500, the icon in the label's colour;
-          // the current page darkens to text on `active`.
-          className={cn(
-            "flex h-8 items-center gap-2 rounded-control px-2 font-medium text-control text-muted-foreground no-underline",
-            "hover:bg-sidebar-hover hover:text-foreground",
-            "data-[status=active]:bg-sidebar-accent data-[status=active]:text-foreground",
-            "aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-foreground",
-          )}
+      {headingHidden ? (
+        <p id={headingId} className="sr-only">
+          {t(group.label)}
+        </p>
+      ) : (
+        <button
+          id={headingId}
+          type="button"
+          aria-expanded={open}
+          aria-controls={itemsId}
+          onClick={() => setOpen((value) => !value)}
+          className="mt-2 mb-0.5 flex h-6 w-fit items-center gap-1 rounded-control px-2 text-caption text-subtle-foreground hover:text-foreground"
         >
-          <item.icon
+          {t(group.label)}
+          <ChevronDown
             aria-hidden="true"
-            strokeWidth={RAIL_STROKE}
-            className="size-4 shrink-0"
+            className={cn(
+              "size-3.5 shrink-0 transition-transform duration-[var(--ap-motion-fast)] motion-reduce:transition-none",
+              !open && "-rotate-90",
+            )}
           />
-          <span className="min-w-0 flex-1 truncate">{t(item.label)}</span>
-          {item.to === "/sessions" ? <WaitingBadge /> : null}
-        </Link>
-      ))}
+        </button>
+      )}
+      <div id={itemsId} hidden={!open} className={open ? "flex flex-col" : ""}>
+        {group.items.map((item) => (
+          <Link
+            key={item.to}
+            to={item.to}
+            activeOptions={{ exact: item.to === "/" }}
+            aria-current={
+              item.match !== undefined &&
+              (pathname === item.match || pathname.startsWith(`${item.match}/`))
+                ? "page"
+                : undefined
+            }
+            onClick={onNavigate}
+            // Each page's icon sits on its own hue (owner, 2026-10-31); the
+            // current page takes `active`.
+            className={cn(
+              "flex h-8 items-center gap-2 rounded-control px-2 font-medium text-control text-foreground no-underline",
+              "hover:bg-sidebar-hover",
+              "data-[status=active]:bg-sidebar-accent",
+              "aria-[current=page]:bg-sidebar-accent",
+            )}
+          >
+            {item.hue ? (
+              <IconTile icon={item.icon} hue={item.hue} />
+            ) : (
+              <item.icon
+                aria-hidden="true"
+                strokeWidth={RAIL_STROKE}
+                className="size-4 shrink-0 text-muted-foreground"
+              />
+            )}
+            <span className="min-w-0 flex-1 truncate">{t(item.label)}</span>
+            {item.to === "/sessions" ? <WaitingBadge /> : null}
+          </Link>
+        ))}
+      </div>
     </div>
   );
 }
@@ -769,7 +806,7 @@ function UserMenu({
           event.preventDefault();
           setOpen(true);
         }}
-        className="inline-flex h-9 max-w-full items-center gap-2 rounded-full px-2 text-left hover:bg-sidebar-hover aria-expanded:bg-sidebar-accent"
+        className="inline-flex min-h-9 max-w-full items-center gap-2 rounded-full px-2 py-1 text-left hover:bg-sidebar-hover aria-expanded:bg-sidebar-accent"
       >
         <span
           aria-hidden="true"
@@ -777,8 +814,18 @@ function UserMenu({
         >
           {initial(me?.user?.display_name ?? me?.workspace?.name ?? "")}
         </span>
-        <span className="min-w-0 truncate font-medium text-control">
-          {name}
+        <span className="flex min-w-0 flex-col">
+          <span className="truncate font-medium text-control">{name}</span>
+          {/* Heard between the name and the address; the column hides it. */}{" "}
+          {me?.user?.email ? (
+            // A long address is cut; the whole one shows on hover.
+            <span
+              title={me.user.email}
+              className="truncate text-caption text-muted-foreground"
+            >
+              {me.user.email}
+            </span>
+          ) : null}
         </span>
         {/* The role shows in the menu head, not on the pill; it is still
             heard after the name. No aria-label: the name must begin with the

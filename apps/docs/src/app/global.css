@@ -18,8 +18,10 @@
   --card-foreground: var(--ap-color-foreground);
   --popover: var(--ap-color-surface);
   --popover-foreground: var(--ap-color-foreground);
-  --primary: var(--ap-color-accent);
-  --primary-foreground: var(--ap-color-accent-foreground);
+  /* Fumadocs draws primary mostly as text (the current page, the TOC), so
+     it takes the link colour: the blue accent is under 4.5:1 as dark text. */
+  --primary: var(--ap-color-link);
+  --primary-foreground: var(--ap-color-surface);
   --secondary: var(--ap-tone-neutral-bg);
   --secondary-foreground: var(--ap-tone-neutral-fg);
   --muted: var(--ap-color-surface-sunken);

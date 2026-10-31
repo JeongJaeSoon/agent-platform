@@ -362,7 +362,7 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
                     to="/agents/$id"
                     params={{ id: agent.id }}
                     className={cn(
-                      "font-medium text-primary underline-offset-2 hover:underline [overflow-wrap:anywhere]",
+                      "font-medium text-link underline-offset-2 hover:underline [overflow-wrap:anywhere]",
                       TABLE_ROW_LINK,
                     )}
                   >

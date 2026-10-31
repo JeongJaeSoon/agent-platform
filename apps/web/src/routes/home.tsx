@@ -48,8 +48,24 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@werft-ai/ui";
-import { ArrowRight, Folder, GitBranch, Inbox } from "lucide-react";
-import { type ReactNode, useEffect, useId, useState } from "react";
+import {
+  ArrowRight,
+  Bot,
+  ClipboardCheck,
+  Folder,
+  Gauge,
+  GitBranch,
+  Inbox,
+  Link as LinkIcon,
+  List,
+} from "lucide-react";
+import {
+  type ComponentProps,
+  type ReactNode,
+  useEffect,
+  useId,
+  useState,
+} from "react";
 import {
   administeredAgentsQuery,
   agentCountsQuery,
@@ -64,6 +80,12 @@ import { useHasPermission, useMe, useRole } from "../auth/guard.tsx";
 import { AdministeredAgents } from "../components/agent-admins.tsx";
 import { CredentialNeed } from "../components/agent-cards.tsx";
 import { AgentStateBadge } from "../components/agent-state.tsx";
+import {
+  GitHubMark,
+  GoogleDriveMark,
+  SlackMark,
+} from "../components/brand-marks.tsx";
+import { IconTile } from "../components/icon-tile.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
@@ -381,6 +403,7 @@ export function HomeScreen() {
   const installCard = operator ? (
     <GlanceCard
       key="install"
+      tile={{ icon: Gauge, hue: "pink" }}
       eyebrow={t("home.glance.installation")}
       title={t("home.glance.installationTitle")}
       value={installSummary ? usd(installSummary.cost_usd) : unknown}
@@ -424,6 +447,7 @@ export function HomeScreen() {
   const oversightCard = (
     <GlanceCard
       key="oversight"
+      tile={{ icon: ClipboardCheck, hue: "slate" }}
       eyebrow={t("home.glance.workspace")}
       title={t("home.glance.workspaceTitle")}
       badge={<Badge>{t("shell.group.workspace")}</Badge>}
@@ -493,6 +517,7 @@ export function HomeScreen() {
   const mineCard = (
     <GlanceCard
       key="mine"
+      tile={{ icon: Gauge, hue: "pink" }}
       eyebrow={t("home.glance.mine")}
       title={t("home.glance.mineTitle")}
       value={mySummary ? usd(mySummary.cost_usd) : unknown}
@@ -539,6 +564,7 @@ export function HomeScreen() {
   const progressCard = (
     <GlanceCard
       key="progress"
+      tile={{ icon: List, hue: "violet" }}
       eyebrow={t("home.glance.progress")}
       title={t("home.glance.progressTitle")}
       badge={<Badge>{t("home.glance.now")}</Badge>}
@@ -583,6 +609,7 @@ export function HomeScreen() {
   const accountsCard = (
     <GlanceCard
       key="accounts"
+      tile={{ icon: LinkIcon, hue: "sky" }}
       eyebrow={t("home.glance.accounts")}
       title={t("home.glance.accountsTitle")}
       badge={<Badge>{t("home.glance.myAccounts")}</Badge>}
@@ -599,15 +626,22 @@ export function HomeScreen() {
       rows={[
         {
           label: "GitHub",
+          mark: <GitHubMark />,
           dot: github && LINK_DOT[github],
           value: github ? t(LINK_LABEL[github]) : t("home.overview.unknown"),
         },
         {
           label: "Slack",
+          mark: <SlackMark />,
           dot: slack && LINK_DOT[slack],
           value: slack ? t(LINK_LABEL[slack]) : t("home.overview.unknown"),
         },
-        { label: "Google Workspace", dot: "idle", value: t("linked.soon") },
+        {
+          label: "Google Workspace",
+          mark: <GoogleDriveMark />,
+          dot: "idle",
+          value: t("linked.soon"),
+        },
       ]}
       footer={t("home.glance.accountsFooter")}
       link={
@@ -626,6 +660,7 @@ export function HomeScreen() {
     return (
       <GlanceCard
         key={agent.id}
+        tile={{ icon: Bot, hue: "orange" }}
         eyebrow={t("home.glance.agent")}
         title={agent.name}
         badge={<AgentStateBadge agent={agent} />}
@@ -1123,6 +1158,8 @@ function KeyName({
 
 interface GlanceRow {
   readonly label: ReactNode;
+  /** A service's own mark before the label. */
+  readonly mark?: ReactNode;
   readonly value: ReactNode;
   /** A label from data (an agent's name) wraps; fixed labels stay on one line. */
   readonly wraps?: boolean;
@@ -1146,6 +1183,7 @@ const SESSION_DOT = {
 } as const satisfies Record<SessionSummary["status"], StatusDotStatus>;
 
 function GlanceCard({
+  tile,
   eyebrow,
   title,
   badge,
@@ -1155,6 +1193,8 @@ function GlanceCard({
   footer,
   link,
 }: {
+  /** The tile of the sidebar page the card is about. */
+  readonly tile: ComponentProps<typeof IconTile>;
   readonly eyebrow: string;
   readonly title: string;
   readonly badge?: ReactNode;
@@ -1169,8 +1209,9 @@ function GlanceCard({
   return (
     <li className="min-w-0">
       <Card className="h-full gap-3 p-4">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex min-w-0 flex-col gap-0.5">
+        <div className="flex items-center gap-3">
+          <IconTile {...tile} large />
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <p className="m-0 text-caption text-muted-foreground">{eyebrow}</p>
             <h3 className="m-0 font-semibold text-body">{title}</h3>
           </div>
@@ -1195,8 +1236,10 @@ function GlanceCard({
                   row.wraps
                     ? "min-w-0 [overflow-wrap:anywhere]"
                     : "shrink-0 whitespace-nowrap",
+                  row.mark && "inline-flex items-center gap-2",
                 )}
               >
+                {row.mark}
                 {row.label}
               </dt>
               <dd

@@ -49,7 +49,7 @@ describe("연동 계정", () => {
     expect(linkedAccountSchema.safeParse(slack).success).toBe(true);
   });
 
-  test("GitHub 줄은 공식 마크를, 로고 사용 허락이 없는 Slack·Google Workspace는 브랜드가 아닌 아이콘을 보인다", async () => {
+  test("GitHub·Slack·Google Workspace 줄은 각 서비스의 마크를 보인다", async () => {
     renderAt("/settings/linked-accounts", {
       ...meOk,
       "GET /v1/linked-accounts": () => json(200, { items: [] }),
@@ -68,12 +68,25 @@ describe("연동 계정", () => {
     expect(githubMark?.textContent).toBe("");
     // The mark is decoration: the row is named by its heading alone.
     expect(screen.getAllByText("GitHub").length).toBe(1);
-    for (const name of ["Slack", "Google Workspace"]) {
+    // Each service's own mark in its own colours (brand-marks.tsx sources).
+    const marks: [string, string, string[]][] = [
+      ["Slack", "0 0 54 54", ["#E3066A", "#00B3FF", "#41B658", "#FCC003"]],
+      [
+        "Google Workspace",
+        "8 6 176 176",
+        ["#EA4335", "#188038", "#1967D2", "#FBBC04", "#4285F4", "#34A853"],
+      ],
+    ];
+    for (const [name, viewBox, fills] of marks) {
       const icon = mark(screen.getByRole("heading", { name }));
-      expect(icon?.querySelector("svg")?.getAttribute("class")).toContain(
-        "lucide",
-      );
+      expect(icon?.querySelector("svg")?.getAttribute("viewBox")).toBe(viewBox);
+      expect(
+        Array.from(icon?.querySelectorAll("path") ?? [], (path) =>
+          path.getAttribute("fill"),
+        ).filter((fill, index, all) => all.indexOf(fill) === index),
+      ).toEqual(fills);
       expect(icon?.textContent).toBe("");
+      expect(screen.getAllByText(name).length).toBe(1);
     }
   });
 

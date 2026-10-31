@@ -136,7 +136,9 @@ describe("workspace shell", () => {
     services.queryClient.setQueryData(["me", "optional"], me());
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "Owner · 소유자" }),
+      await screen.findByRole("button", {
+        name: "Owner owner@example.com · 소유자",
+      }),
     );
     await user.click(screen.getByRole("menuitem", { name: "로그아웃" }));
     expect(await screen.findByText("로그아웃했습니다.")).toBeDefined();
@@ -153,7 +155,9 @@ describe("workspace shell", () => {
     });
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "Owner · 소유자" }),
+      await screen.findByRole("button", {
+        name: "Owner owner@example.com · 소유자",
+      }),
     );
     await user.click(screen.getByRole("menuitem", { name: "로그아웃" }));
     expect((await screen.findByRole("alert")).textContent).toContain(
@@ -175,7 +179,9 @@ describe("workspace shell", () => {
     });
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "Owner · 소유자" }),
+      await screen.findByRole("button", {
+        name: "Owner owner@example.com · 소유자",
+      }),
     );
     await user.click(screen.getByRole("menuitem", { name: "로그아웃" }));
     expect(await screen.findByText("로그아웃했습니다.")).toBeDefined();
@@ -506,7 +512,9 @@ describe("i18n·반응형·키보드", () => {
       renderAt("/", meOk);
       expect(await screen.findByRole("heading", { name: "홈" })).toBeDefined();
       expect(
-        screen.getByRole("button", { name: "Owner · 소유자" }),
+        screen.getByRole("button", {
+          name: "Owner owner@example.com · 소유자",
+        }),
       ).toBeDefined();
       expect(window.innerWidth).toBe(width);
     },
@@ -518,7 +526,11 @@ describe("i18n·반응형·키보드", () => {
     // axe label-content-name-mismatch compares an aria-label with the
     // visible text, avatar letter included; the name comes from content.
     expect(trigger.hasAttribute("aria-label")).toBe(false);
-    expect(trigger.textContent).toBe("OOwner · 소유자");
+    expect(trigger.textContent).toBe("OOwner owner@example.com · 소유자");
+    // A long address is cut on screen; the title holds all of it.
+    expect(
+      within(trigger).getByText("owner@example.com").getAttribute("title"),
+    ).toBe("owner@example.com");
   });
 
   test("본문 건너뛰기 링크가 처음 Tab에 잡힌다", async () => {

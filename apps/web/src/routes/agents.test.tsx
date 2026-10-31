@@ -1185,7 +1185,7 @@ describe("새 에이전트", () => {
     await toJobStep(user);
     who = "mate";
     await services.queryClient.refetchQueries({ queryKey: ["me"] });
-    await screen.findByRole("button", { name: /^Mate · / });
+    await screen.findByRole("button", { name: /^Mate mate@example\.com · / });
     const name = (await screen.findByLabelText("이름")) as HTMLInputElement;
     expect(currentStep()).toBe("1이름");
     expect(name.value).toBe("");
