@@ -3,10 +3,22 @@ import { json, me, memberMe, WORKSPACE_ID } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
 const harness = await appHarness();
-const { screen, within } = harness;
+const { screen, waitFor, within } = harness;
 
 const APPS = `/v1/workspaces/${WORKSPACE_ID}/slack/apps`;
 const SLACK = "/settings/workspace/slack";
+const EMPTY = "이 콘솔이 만든 Slack 앱이 아직 없습니다.";
+// The token card above the list, settled so the page stops loading.
+const CONFIG = `/v1/workspaces/${WORKSPACE_ID}/slack/config-token`;
+const UNSET = {
+  configured: false,
+  last4: null,
+  updated_at: null,
+  updated_by: null,
+  state: "unset",
+  expires_at: null,
+  issuer: null,
+};
 const AGENT_ID = "019a0000-0000-7000-8000-0000000000c1";
 const NO_SECRET = {
   configured: false,
@@ -179,6 +191,46 @@ describe("Slack 연결 설정의 자동으로 만든 Slack 앱", () => {
     await screen.findByText("이 콘솔이 만든 Slack 앱이 아직 없습니다.");
     expect(history.location.pathname).toBe(SLACK);
     expect(history.location.hash).toBe("#slack-apps");
+  });
+
+  test("앵커로 들어오면 목록이 그려진 뒤 그 절로 스크롤한다", async () => {
+    const scrolled: Element[] = [];
+    const original = Element.prototype.scrollIntoView;
+    // The router also scrolls on render, before the cards above have loaded.
+    Element.prototype.scrollIntoView = function (this: Element) {
+      if (this.textContent?.includes(EMPTY)) scrolled.push(this);
+    };
+    try {
+      harness.renderAt("/settings/workspace/slack-apps", {
+        "GET /v1/auth/me": () => json(200, me()),
+        [`GET ${CONFIG}`]: () => json(200, UNSET),
+        [`GET ${APPS}`]: () => json(200, { items: [] }),
+      });
+      await screen.findByText("이 콘솔이 만든 Slack 앱이 아직 없습니다.");
+      await waitFor(() => expect(scrolled).toHaveLength(1));
+      expect(scrolled[0]?.id).toBe("slack-apps");
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
+  test("앵커 없이 열면 스크롤하지 않는다", async () => {
+    const scrolled: Element[] = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this);
+    };
+    try {
+      harness.renderAt(SLACK, {
+        "GET /v1/auth/me": () => json(200, me()),
+        [`GET ${CONFIG}`]: () => json(200, UNSET),
+        [`GET ${APPS}`]: () => json(200, { items: [] }),
+      });
+      await screen.findByText("이 콘솔이 만든 Slack 앱이 아직 없습니다.");
+      expect(scrolled).toEqual([]);
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
   });
 
   test("구성원은 목록을 부르지 않는다", async () => {
