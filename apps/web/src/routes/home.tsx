@@ -1022,11 +1022,12 @@ function SlackTodo({
                 params={{ id: agent.id }}
                 search={{ tab: "slack" }}
                 className={buttonVariants({ variant: "outline", size: "sm" })}
+                aria-label={t("home.todo.ctaName", {
+                  action: t(`home.todo.cta.${action}`),
+                  agent: agent.name,
+                })}
               >
-                {t("home.todo.fix")}
-                <span className="sr-only">
-                  : {agent.name} {title}
-                </span>
+                {t(`home.todo.cta.${action}`)}
               </Link>
             </RowListItem>
           );
