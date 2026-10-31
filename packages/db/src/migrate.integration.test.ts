@@ -330,6 +330,48 @@ integrationTest(
 );
 
 integrationTest(
+  "two migrators started together apply each migration once",
+  async () => {
+    const folder = folderWithMigration(CONCURRENT_INDEX_MIGRATION);
+    const database = await createTempDatabase({
+      migrate: false,
+      prefix: "concurrent_runners",
+    });
+    try {
+      const options = {
+        logger: captureLogger().logger,
+        migrationsFolder: folder,
+      };
+      const runs = await Promise.all([
+        migrateDatabase(database.url, options),
+        migrateDatabase(database.url, options),
+      ]);
+      expect(runs.map((run) => run.applied).sort()).toEqual([
+        0,
+        totalMigrations + 1,
+      ]);
+      const pool = new Pool({ connectionString: database.url, max: 1 });
+      try {
+        const { rows } = await pool.query<{ rows: string; hashes: string }>(
+          'SELECT count(*)::text AS rows, count(DISTINCT hash)::text AS hashes FROM "drizzle"."__drizzle_migrations"',
+        );
+        expect(rows[0]).toEqual({
+          rows: String(totalMigrations + 1),
+          hashes: String(totalMigrations + 1),
+        });
+      } finally {
+        await pool.end();
+      }
+      expect(await indexValidity(database.url)).toBe(true);
+    } finally {
+      await database.drop();
+      rmSync(folder, { recursive: true, force: true });
+    }
+  },
+  60_000,
+);
+
+integrationTest(
   "a no-transaction migration that fails part way stays pending and applies on the next run",
   async () => {
     const failing = folderWithMigration(

@@ -47,6 +47,8 @@ export const MIGRATION_POOL_TIMEOUTS: PoolTimeouts = {
   queryMs: 330_000,
 };
 
+const MIGRATION_LOCK_KEY = "db:migrate";
+
 export interface MigrateDatabaseOptions {
   readonly logger?: StructuredLogger;
   readonly timeouts?: PoolTimeouts;
@@ -65,7 +67,18 @@ export async function migrateDatabase(
     options.timeouts ?? MIGRATION_POOL_TIMEOUTS,
   );
   const migrationsFolder = options.migrationsFolder ?? packagedMigrationsFolder;
+  // A second migrate (a manual run beside the Helm hook Job) waits here and
+  // then finds nothing pending; unlocked, its DROP INDEX CONCURRENTLY IF
+  // EXISTS could remove an index the first one already recorded as built.
+  const lock = await pool.connect().catch(async (error: unknown) => {
+    await pool.end();
+    throw error;
+  });
   try {
+    await takeMigrationLock(
+      lock,
+      (options.timeouts ?? MIGRATION_POOL_TIMEOUTS).statementMs,
+    );
     const adopted = await adoptLegacyM0Schema(pool, migrationsFolder);
     const before = await countJournal(pool);
     await applyPendingMigrations(
@@ -83,7 +96,32 @@ export async function migrateDatabase(
     logger.info(`db.migrate.${outcome}`, { ...summary });
     return summary;
   } finally {
+    // Closing the session releases its lock.
+    lock.release(true);
     await pool.end();
+  }
+}
+
+// Polled rather than waited on: a blocking pg_advisory_lock is an open
+// transaction, and the holder's CREATE INDEX CONCURRENTLY waits for every
+// open transaction to end, so the two would wait on each other.
+async function takeMigrationLock(
+  client: PoolClient,
+  waitMs: number,
+): Promise<void> {
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    const { rows } = await client.query<{ locked: boolean }>(
+      "SELECT pg_try_advisory_lock(hashtext($1)) AS locked",
+      [MIGRATION_LOCK_KEY],
+    );
+    if (rows[0]?.locked) return;
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `another migration has held the migration lock for over ${waitMs} ms`,
+      );
+    }
+    await Bun.sleep(1_000);
   }
 }
 
