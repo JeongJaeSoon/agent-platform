@@ -160,5 +160,5 @@ git worktree remove ~/.cache/agent-platform/preview-reap/checkout
 - **migration.** `0200` 뒤의 migration은 `packages/db/src/migration-safety.ts`가 `GROWING_TABLES`(사용과 함께 커지는 표)에 대해 검사한다. 새로 커지는 표를 만들면 이 목록에 넣는다.
   - 인덱스는 첫 줄이 `-- migrate:no-transaction`인 migration에서 `DROP INDEX CONCURRENTLY IF EXISTS <이름>` 다음에 `CREATE INDEX CONCURRENTLY <이름>`으로 만든다. 이 migration은 트랜잭션 없이 문장마다 commit하므로, 중간에 실패하면 앞 문장은 남고 migration은 다음 실행에 처음부터 다시 돈다. 그래서 모든 문장이 다시 돌아도 안전해야 한다. 문장 사이는 `--> statement-breakpoint`로 나눈다. drizzle-kit이 만든 `CREATE INDEX`는 손으로 이렇게 고친다.
   - CHECK·FOREIGN KEY는 `NOT VALID`로 더하고, `VALIDATE CONSTRAINT`는 다음 migration에서 한다. 같은 트랜잭션에서 하면 더할 때 잡은 배타 잠금 아래에서 표 전체를 읽는다. UNIQUE·PRIMARY KEY는 인덱스를 `CONCURRENTLY`로 만든 뒤 `USING INDEX`로 붙인다.
-  - 새 열의 volatile DEFAULT(`gen_random_uuid()` 등), 열 타입 변경, `SET NOT NULL`, DEFAULT 없는 `NOT NULL` 열은 쓰지 않는다. `now()` 같은 stable DEFAULT는 표를 다시 쓰지 않으니 괜찮다.
+  - 새 열의 volatile DEFAULT(`gen_random_uuid()` 등), serial·identity·generated 열, 새 열에 붙인 UNIQUE·PRIMARY KEY·REFERENCES, 열 타입 변경, `SET NOT NULL`, DEFAULT 없는 `NOT NULL` 열은 쓰지 않는다. `now()` 같은 stable DEFAULT는 표를 다시 쓰지 않으니 괜찮다.
   - 커지는 표의 backfill(`UPDATE`·`DELETE`)은 migration 안에서 하지 않는다. 진행 cursor를 두고 앱이 batch로 채운다(`tool_call_progress`, `neutral_field_progress`).

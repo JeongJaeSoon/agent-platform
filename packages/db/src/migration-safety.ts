@@ -45,6 +45,10 @@ export const SAFETY_CHECKED_AFTER_IDX = 200;
 
 const VOLATILE_DEFAULT =
   /\bDEFAULT\s+[^,;]*\b(gen_random_uuid|uuid_generate_v\d\w*|random|clock_timestamp|timeofday|nextval)\s*\(/i;
+const ADDS_COLUMN =
+  /\bADD (?:COLUMN )?(?:IF NOT EXISTS )?(?!(?:CONSTRAINT|FOREIGN|UNIQUE|PRIMARY|CHECK|EXCLUDE)\b)"?\w/i;
+const FILLED_COLUMN = /\b(?:small|big)?serial\b|\bGENERATED\b/i;
+const INLINE_INDEX_OR_KEY = /\b(?:UNIQUE|PRIMARY KEY|REFERENCES)\b/i;
 
 function statementsOf(sql: string): string[] {
   return sql
@@ -81,9 +85,17 @@ export function migrationSafetyProblems(
     );
     const created = new Set<string>();
     const dropped = new Set<string>();
+    const addedNotValid = new Set<string>();
     const existingGrowing = (table: string) =>
       growing.has(table) && !created.has(table);
     for (const statement of statementsOf(raw)) {
+      // Every check reads one statement from its start, and a no-transaction
+      // migration sent as one query string runs in an implicit transaction.
+      if (!statement.includes("$$") && /;\s*\S/.test(statement)) {
+        problems.push(
+          `${file}: more than one statement between breakpoints; put "--> statement-breakpoint" after each`,
+        );
+      }
       const createTable = statement.match(
         new RegExp(`^CREATE TABLE (?:IF NOT EXISTS )?${qualified}`, "i"),
       );
@@ -104,18 +116,22 @@ export function migrationSafetyProblems(
       }
       const index = statement.match(
         new RegExp(
-          `^CREATE (?:UNIQUE )?INDEX (CONCURRENTLY )?(?:IF NOT EXISTS )?${name} ON (?:ONLY )?${qualified}`,
+          `^CREATE (?:UNIQUE )?INDEX (CONCURRENTLY )?(?:IF NOT EXISTS )?(?:${name} )?ON (?:ONLY )?${qualified}`,
           "i",
         ),
       );
-      if (index?.[2] && index[3]) {
+      if (index?.[3]) {
         const [, concurrently, indexName, table] = index;
         if (existingGrowing(table) && !concurrently) {
           problems.push(
-            `${file}: index ${indexName} on ${table} must be built CONCURRENTLY in a no-transaction migration`,
+            `${file}: index ${indexName ?? "(unnamed)"} on ${table} must be built CONCURRENTLY in a no-transaction migration`,
           );
         }
-        if (concurrently && !dropped.has(indexName)) {
+        if (concurrently && !indexName) {
+          problems.push(
+            `${file}: CREATE INDEX CONCURRENTLY on ${table} needs a name, so a failed build can be dropped before the next try`,
+          );
+        } else if (concurrently && indexName && !dropped.has(indexName)) {
           // A failed concurrent build leaves an INVALID index that IF NOT
           // EXISTS would then keep for good.
           problems.push(
@@ -131,18 +147,28 @@ export function migrationSafetyProblems(
       );
       if (alter?.[1] && alter[2] !== undefined && existingGrowing(alter[1])) {
         const [, table, action] = alter;
-        if (/\bADD COLUMN\b/i.test(action) && VOLATILE_DEFAULT.test(action)) {
+        const addsColumn = ADDS_COLUMN.test(action);
+        if (addsColumn && VOLATILE_DEFAULT.test(action)) {
           problems.push(
             `${file}: a volatile DEFAULT on a new column rewrites ${table}; add the column without it and backfill in batches`,
           );
         }
-        if (
-          /\bADD COLUMN\b/i.test(action) &&
+        if (addsColumn && FILLED_COLUMN.test(action)) {
+          problems.push(
+            `${file}: a serial, identity or generated column rewrites ${table}; add a plain column and fill it in batches`,
+          );
+        } else if (
+          addsColumn &&
           /\bNOT NULL\b/i.test(action) &&
           !/\bDEFAULT\b/i.test(action)
         ) {
           problems.push(
             `${file}: a NOT NULL column without a DEFAULT fails on a non-empty ${table}`,
+          );
+        }
+        if (addsColumn && INLINE_INDEX_OR_KEY.test(action)) {
+          problems.push(
+            `${file}: a UNIQUE, PRIMARY KEY or REFERENCES clause on a new column locks ${table} while it builds or checks; add the column, then the index or constraint the safe way`,
           );
         }
         if (/\bALTER COLUMN \S+ (SET DATA )?TYPE\b/i.test(action)) {
@@ -155,8 +181,22 @@ export function migrationSafetyProblems(
             `${file}: SET NOT NULL scans ${table} under an exclusive lock; VALIDATE a CHECK (... IS NOT NULL) NOT VALID in an earlier migration first`,
           );
         }
+        const notValid = action.match(
+          new RegExp(`\\bADD CONSTRAINT ${name} .*\\bNOT VALID\\b`, "i"),
+        );
+        if (notValid?.[1]) {
+          addedNotValid.add(notValid[1]);
+        }
+        const validate = action.match(
+          new RegExp(`\\bVALIDATE CONSTRAINT ${name}`, "i"),
+        );
+        if (validate?.[1] && addedNotValid.has(validate[1])) {
+          problems.push(
+            `${file}: VALIDATE CONSTRAINT ${validate[1]} runs under the lock its ADD took; validate it in a later migration`,
+          );
+        }
         if (
-          /\bADD CONSTRAINT \S+ (FOREIGN KEY|CHECK)\b/i.test(action) &&
+          /\bADD (?:CONSTRAINT \S+ )?(FOREIGN KEY|CHECK)\b/i.test(action) &&
           !/\bNOT VALID\b/i.test(action)
         ) {
           problems.push(
@@ -166,7 +206,7 @@ export function migrationSafetyProblems(
           );
         }
         if (
-          /\bADD CONSTRAINT \S+ (UNIQUE|PRIMARY KEY)\b/i.test(action) &&
+          /\bADD (?:CONSTRAINT \S+ )?(UNIQUE|PRIMARY KEY)\b/i.test(action) &&
           !/\bUSING INDEX\b/i.test(action)
         ) {
           problems.push(
@@ -175,7 +215,10 @@ export function migrationSafetyProblems(
         }
       }
       const update = statement.match(
-        new RegExp(`^(UPDATE|DELETE FROM) (?:ONLY )?${qualified}`, "i"),
+        new RegExp(
+          `^(?:WITH\\b.*?\\)\\s*)?(UPDATE|DELETE FROM) (?:ONLY )?${qualified}`,
+          "i",
+        ),
       );
       if (update?.[1] && update[2] && existingGrowing(update[2])) {
         problems.push(

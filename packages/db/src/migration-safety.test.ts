@@ -124,13 +124,63 @@ describe("migration safety", () => {
     ]);
   });
 
+  test("the shorter spellings of the same changes are caught", () => {
+    expect(
+      problemsOf(
+        `ALTER TABLE "events" ADD "token" uuid DEFAULT gen_random_uuid();`,
+        `ALTER TABLE "events" ADD COLUMN "n" serial NOT NULL;`,
+        `ALTER TABLE "events" ADD COLUMN "n" bigint GENERATED ALWAYS AS IDENTITY;`,
+        `ALTER TABLE "events" ADD COLUMN "ref" text UNIQUE;`,
+        `ALTER TABLE "events" ADD COLUMN "turn" uuid REFERENCES "turns"("id");`,
+        `ALTER TABLE "events" ADD FOREIGN KEY ("turn_id") REFERENCES "turns"("id");`,
+        `ALTER TABLE "events" ADD UNIQUE ("ref");`,
+        `WITH old AS (SELECT 1) UPDATE "turns" SET "x" = 1;`,
+      ).map((problem) => problem.split(": ")[1]?.split(";")[0]),
+    ).toEqual([
+      "a volatile DEFAULT on a new column rewrites events",
+      "a serial, identity or generated column rewrites events",
+      "a serial, identity or generated column rewrites events",
+      "a UNIQUE, PRIMARY KEY or REFERENCES clause on a new column locks events while it builds or checks",
+      "a UNIQUE, PRIMARY KEY or REFERENCES clause on a new column locks events while it builds or checks",
+      "a new constraint on events scans it under a lock that blocks writes",
+      "a new UNIQUE or PRIMARY KEY constraint builds its index on events under an exclusive lock",
+      "UPDATE on turns inside the migration holds its row locks until the whole migration commits",
+    ]);
+  });
+
+  test("a constraint validated in the migration that adds it is caught", () => {
+    expect(
+      problemsOf(
+        `ALTER TABLE "events" ADD CONSTRAINT "events_turn_fk" FOREIGN KEY ("turn_id") REFERENCES "turns"("id") NOT VALID;`,
+        `ALTER TABLE "events" VALIDATE CONSTRAINT "events_turn_fk";`,
+      ),
+    ).toEqual([
+      "0201_under_test.sql: VALIDATE CONSTRAINT events_turn_fk runs under the lock its ADD took; validate it in a later migration",
+    ]);
+  });
+
+  test("an unnamed concurrent index and statements without a breakpoint between them are caught", () => {
+    expect(
+      problemsOf(
+        `-- migrate:no-transaction\nCREATE INDEX CONCURRENTLY ON "turns" ("status");`,
+        `DROP INDEX CONCURRENTLY IF EXISTS "a";\nCREATE INDEX CONCURRENTLY "a" ON "turns" ("status");`,
+      ),
+    ).toEqual([
+      "0201_under_test.sql: CREATE INDEX CONCURRENTLY on turns needs a name, so a failed build can be dropped before the next try",
+      '0201_under_test.sql: more than one statement between breakpoints; put "--> statement-breakpoint" after each',
+    ]);
+  });
+
   test("the safe forms of the same changes pass", () => {
     expect(
       problemsOf(
         `ALTER TABLE "events" ADD COLUMN "kind" text DEFAULT 'event' NOT NULL;`,
         `ALTER TABLE "events" ADD COLUMN "seen_at" timestamp with time zone DEFAULT now();`,
         `ALTER TABLE "sessions" ADD CONSTRAINT "sessions_x_check" CHECK ("sessions"."x" >= 0) NOT VALID;`,
+        `ALTER TABLE "turns" VALIDATE CONSTRAINT "turns_y_check";`,
+        `ALTER TABLE "events" ADD COLUMN "unique_ref" text;`,
         `UPDATE "slack_apps" SET "x" = 1;`,
+        `CREATE FUNCTION f() RETURNS void AS $$ BEGIN PERFORM 1; PERFORM 2; END $$ LANGUAGE plpgsql;`,
       ),
     ).toEqual([]);
   });
