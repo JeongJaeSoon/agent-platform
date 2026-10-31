@@ -55,7 +55,7 @@ describe("migration safety", () => {
   });
 
   test("every growing table is a table in the schema", () => {
-    const tables = new Set(
+    const tables = new Set<string>(
       Object.values(schema)
         .filter((value) => isTable(value))
         .map((table) => getTableName(table)),

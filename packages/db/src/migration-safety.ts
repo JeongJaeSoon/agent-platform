@@ -177,7 +177,7 @@ export function migrationSafetyProblems(
       const update = statement.match(
         new RegExp(`^(UPDATE|DELETE FROM) (?:ONLY )?${qualified}`, "i"),
       );
-      if (update?.[2] && existingGrowing(update[2])) {
+      if (update?.[1] && update[2] && existingGrowing(update[2])) {
         problems.push(
           `${file}: ${update[1].toUpperCase()} on ${update[2]} inside the migration holds its row locks until the whole migration commits; backfill in batches outside it (0170, 0182)`,
         );
