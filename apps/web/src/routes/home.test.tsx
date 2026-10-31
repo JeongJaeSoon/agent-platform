@@ -557,7 +557,7 @@ describe("홈 요약", () => {
           fix: row.querySelector("a")?.getAttribute("href"),
         }));
 
-    test("Slack 조치가 필요한 에이전트를 세 개까지 시작하기 위에 보이고, 고치기는 그 Slack 탭으로 간다", async () => {
+    test("Slack 조치가 필요한 에이전트를 세 개까지 시작하기 위에 보이고, 각 행의 버튼은 그 Slack 탭으로 간다", async () => {
       renderAt("/", {
         ...homeRoutes(),
         "GET /v1/agents": listed([
@@ -590,8 +590,10 @@ describe("홈 요약", () => {
       const all = within(todo).getByRole("link", { name: "전체 보기 5건" });
       expect(all.getAttribute("href")).toBe("/agents");
       expect(
-        within(todo).getAllByRole("link", { name: /^고치기/ })[0]?.textContent,
-      ).toBe("고치기: 에이전트 1 Slack 이벤트 주소 등록 실패");
+        within(todo).getByRole("link", {
+          name: "이벤트 주소 다시 확인: 에이전트 1",
+        }).textContent,
+      ).toBe("이벤트 주소 다시 확인");
       const order = [...document.querySelectorAll("main section > div h2")].map(
         (heading) => heading.textContent,
       );
@@ -599,6 +601,30 @@ describe("홈 요약", () => {
         order.indexOf("한눈에 보기"),
       );
     });
+
+    test.each([
+      ["events_failed", "이벤트 주소 다시 확인"],
+      ["events_unverified", "이벤트 주소 확인"],
+      ["install", "앱 설치"],
+      ["reinstall", "앱 다시 설치"],
+      ["home_unset", "홈 채널 고르기"],
+    ] as const)(
+      "%s 행의 버튼은 Slack 탭에서 할 일을 %s(으)로 말한다",
+      async (action, label) => {
+        renderAt("/", {
+          ...homeRoutes(),
+          "GET /v1/agents": listed([action]),
+        });
+        const todo = await screen.findByRole("region", { name: "지금 할 일" });
+        const button = within(todo).getByRole("link", {
+          name: `${label}: 에이전트 0`,
+        });
+        expect(button.textContent).toBe(label);
+        expect(button.getAttribute("href")).toBe(
+          "/agents/5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c80?tab=slack",
+        );
+      },
+    );
 
     test("목록 뒤에 더 있으면 건수는 읽은 만큼 이상이라고 한다", async () => {
       renderAt("/", {
