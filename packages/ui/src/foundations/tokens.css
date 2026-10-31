@@ -205,11 +205,12 @@
     --ap-space-block: var(--ap-space-4);
 
     /* Controls 6px; cards, menus and dialogs 8px; pills. */
-    /* Every coloured icon tile in the console, sidebar and cards alike. */
-    --ap-size-icon-tile: 1.5rem;
     --ap-radius-control: 0.375rem;
     --ap-radius-card: 0.5rem;
     --ap-radius-pill: 999px;
+
+    /* Every coloured icon tile in the console, sidebar and cards alike. */
+    --ap-size-icon-tile: 1.5rem;
 
     /* One shadow, for what floats (menus, dialogs, toasts). */
     --ap-shadow-pop:
