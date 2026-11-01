@@ -298,7 +298,10 @@ describe("워크스페이스 GitHub 연결", () => {
         }),
     });
     expect(await screen.findByText("확인 실패")).toBeDefined();
-    expect(screen.getAllByText("확인 못 함")).toHaveLength(2);
+    // The catalog list is its own read.
+    await waitFor(() =>
+      expect(screen.getAllByText("확인 못 함")).toHaveLength(2),
+    );
     expect(screen.queryByText("설치 안 됨")).toBeNull();
   });
 

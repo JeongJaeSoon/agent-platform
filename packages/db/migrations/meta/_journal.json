@@ -806,6 +806,13 @@
       "when": 1793544870380,
       "tag": "0205_github_packages_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 206,
+      "version": "7",
+      "when": 1793548597369,
+      "tag": "0206_catalog_repositories",
+      "breakpoints": true
     }
   ]
 }
