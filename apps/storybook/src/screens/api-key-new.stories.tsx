@@ -88,10 +88,8 @@ function NewKeyScreen({
   readonly state: State;
 }) {
   const screen = SCREEN[kind];
-  // An agent key never approves, so its form does not offer it.
-  const scopes = SCOPES.filter(
-    (scope) => kind === "personal" || scope.scope !== "sessions:approve",
-  );
+  // GA-8: both kinds offer the same scopes.
+  const scopes = SCOPES;
   // As in the console, generate waits for at least one scope.
   const [chosen, setChosen] = useState<readonly string[]>(
     state === "noScope" ? [] : ["sessions:read"],
@@ -167,12 +165,10 @@ function NewKeyScreen({
                     </FieldContent>
                   </Field>
                 ))}
-                {kind === "agent" ? (
-                  <FieldDescription>
-                    '요청에 답하기'(sessions:approve)는 에이전트 key에 넣을 수
-                    없습니다. 승인과 질문 답변은 사람이 합니다.
-                  </FieldDescription>
-                ) : null}
+                <FieldDescription>
+                  '요청에 답하기'를 넣어도 이 키로 시작한 세션의 요청은 이 키로
+                  승인하지 못합니다. 다른 키나 사람이 승인합니다.
+                </FieldDescription>
               </FieldSet>
               <Field>
                 <FieldLabel>만료일(필수 아님)</FieldLabel>

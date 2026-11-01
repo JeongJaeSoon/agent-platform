@@ -224,12 +224,16 @@ describe("API key", () => {
     ).toEqual(["?limit=100", "?cursor=page-2&limit=100"]);
   });
 
-  test("에이전트 key 화면은 에이전트와 이름으로 key를 보이고, 이름 없는 key는 그렇다고 하며 승인 배지를 달지 않는다", async () => {
+  test("에이전트 key 화면은 에이전트와 이름으로 key를 보이고, 이름 없는 key는 그렇다고 하며 승인 배지는 범위에서 읽는다", async () => {
     const { api } = renderAt(AGENTS, {
       ...ownerOk,
       ...keysServer([
         key(),
-        key({ id: "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f", name: "ci-deploy" }),
+        key({
+          id: "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f",
+          name: "ci-deploy",
+          scopes: ["sessions:read", "sessions:approve"],
+        }),
         key({
           id: "4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f7a",
           kind: "personal",
@@ -259,10 +263,16 @@ describe("API key", () => {
         .map((c) => new URLSearchParams(c.search).get("ids")?.split(",")),
     ).toEqual([[AGENT_ID, GONE_ID].sort()]);
     for (const row of listed) {
-      expect(within(row).getByText("세션 보기")).toBeDefined();
+      expect(within(row).getByText(/^세션 보기/)).toBeDefined();
       expect(within(row).getByText("발급자가 떠나도 유효")).toBeDefined();
-      expect(row.querySelector("[data-approve]")).toBeNull();
     }
+    // GA-8: an agent key may hold sessions:approve, so its badge says so too.
+    expect(
+      listed.map(
+        (row) =>
+          (row.querySelector("[data-approve]") as HTMLElement).dataset.approve,
+      ),
+    ).toEqual(["false", "true", "false"]);
     expect(screen.getByTestId("guide-agent")).toBeDefined();
     expect(screen.queryByTestId("guide-personal")).toBeNull();
     expect(document.body.textContent).not.toContain("서비스 키");
@@ -607,14 +617,14 @@ describe("API key", () => {
     ).toEqual(["false", "true"]);
   });
 
-  test("에이전트 key 폼에는 요청에 답하기가 없고, 권한을 다 빼면 버튼이 이유와 함께 닫힌다", async () => {
+  test("에이전트 key 폼은 개인 key와 같은 권한을 고르고 자기 승인 금지를 알리며, 권한을 다 빼면 버튼이 이유와 함께 닫힌다", async () => {
     renderAt(NEW_AGENT, { ...memberOk, ...keysServer() });
     const user = await setupUser();
     await screen.findByRole("combobox", { name: "에이전트" });
     expect(
-      screen.queryByRole("checkbox", { name: /sessions:approve/ }),
-    ).toBeNull();
-    expect(screen.getByText(apiKeysKo["apiKeys.agentNoApprove"])).toBeDefined();
+      screen.getByRole("checkbox", { name: /sessions:approve/ }),
+    ).toBeDefined();
+    expect(screen.getByText(apiKeysKo["apiKeys.selfApproval"])).toBeDefined();
     await chooseAgent(user, "Billing");
     await user.click(screen.getByRole("checkbox", { name: /sessions:read/ }));
     const button = screen.getByRole("button", { name: "키 만들기" });
@@ -623,6 +633,22 @@ describe("API key", () => {
       document.getElementById(button.getAttribute("aria-describedby") ?? "")
         ?.textContent,
     ).toBe("권한을 하나 이상 고르세요.");
+  });
+
+  test("에이전트 key도 요청에 답하기를 골라 받는다 (GA-8)", async () => {
+    const { api } = renderAt(NEW_AGENT, { ...memberOk, ...keysServer() });
+    const user = await setupUser();
+    await chooseAgent(user, "Billing");
+    await user.click(
+      screen.getByRole("checkbox", { name: /sessions:approve/ }),
+    );
+    await user.click(screen.getByRole("button", { name: "키 만들기" }));
+    await screen.findByRole("region", { name: "새 키" });
+    const posts = api.calls.filter((c) => c.method === "POST");
+    expect((posts[0]?.body as { scopes: unknown }).scopes).toEqual([
+      "sessions:read",
+      "sessions:approve",
+    ]);
   });
 
   test("관리 에이전트 조회가 실패하면 없다고 하지 않고 실패를 이유로 보인다", async () => {

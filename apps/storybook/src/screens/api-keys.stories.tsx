@@ -71,8 +71,8 @@ const KEYS: Record<Kind, readonly KeyRow[]> = {
       kind: "agent",
       name: "ci-deploy",
       agent: "배포 봇",
-      scopes: ["세션 보기", "세션 만들기"],
-      approves: false,
+      scopes: ["세션 보기", "세션 만들기", "요청에 답하기"],
+      approves: true,
       created_at: "2026-10-01T01:30:00.000Z",
       expiry: "soon",
       at: "2026-10-27T14:59:59.000Z",
@@ -109,7 +109,7 @@ const FACTS: Record<Kind, readonly string[]> = {
     "사람이 아니라 key 자체로 동작합니다. 이 key로 시작한 세션은 key의 세션입니다.",
     "발급한 사람이 떠나도 계속 유효합니다. 필요 없어지면 직접 폐기하세요.",
     "고른 에이전트의 세션에만 닿습니다. 세션을 시작할 때도 그 에이전트의 release를 지정해야 합니다.",
-    "'요청에 답하기'(sessions:approve) 권한이 없습니다. 승인과 질문 답변은 사람이 합니다.",
+    "'요청에 답하기'(sessions:approve) 권한을 넣으면 그 에이전트의 세션에서 승인과 질문 답변을 합니다. 이 키로 시작한 세션의 요청은 이 키로 승인하지 못합니다.",
   ],
 };
 
@@ -183,11 +183,9 @@ function Row({ row }: { readonly row: KeyRow }) {
             {title}
           </div>
           <Badge variant={kind.variant}>{kind.label}</Badge>
-          {row.kind === "personal" ? (
-            <Badge variant={row.approves ? "green" : "gray"}>
-              {row.approves ? "승인 가능" : "승인 불가"}
-            </Badge>
-          ) : null}
+          <Badge variant={row.approves ? "green" : "gray"}>
+            {row.approves ? "승인 가능" : "승인 불가"}
+          </Badge>
         </div>
         <div className={META}>{row.scopes.join(", ")}</div>
         <div className={META}>
