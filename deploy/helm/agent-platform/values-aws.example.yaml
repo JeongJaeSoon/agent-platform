@@ -65,8 +65,9 @@ ingress:
   hosts:
     - host: agent-platform.example.com
   console:
-    # "/" serves the web console; /internal gets the ALB's own 404 ahead of it.
-    enabled: true
+    # "/" serves the web console; /internal gets the ALB's own 404 ahead of
+    # it. See docs/operator/kubernetes-deployment.md before turning it on.
+    enabled: false
 
 networkPolicy:
   # The VPC CNI's network policy agent must be on for these to hold.
