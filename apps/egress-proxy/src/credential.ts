@@ -138,6 +138,8 @@ const MCP_PATH = /^\/mcp\/([a-z0-9](?:[a-z0-9-]|_(?!_)){0,31})$/;
 const PACKAGES_METHODS = new Set(["GET", "HEAD"]);
 const PACKAGES_PATH = /^\/packages\/([a-z][a-z0-9-]{0,31})(\/.*)$/;
 const MAX_PACKAGE_REDIRECTS = 5;
+// A 304 answers a cache revalidation and carries no location to follow.
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
 /**
  * A segment the upstream would resolve as `.` or `..` once decoded, which
@@ -180,7 +182,8 @@ export function routeOf(
   const packages = PACKAGES_PATH.exec(pathname);
   if (packages !== null) {
     const [, registry = "", path = ""] = packages;
-    return PACKAGES_METHODS.has(method) && !climbs(path)
+    // `//` would make the upstream target a protocol-relative URL.
+    return PACKAGES_METHODS.has(method) && !path.includes("//") && !climbs(path)
       ? { purpose: "packages", registry, path, search }
       : null;
   }
@@ -982,7 +985,7 @@ export function startCredentialProxy(
   ): Promise<{ response: Response } | { refused: Response }> {
     let response = first;
     let at = from;
-    for (let hop = 0; response.status >= 300 && response.status < 400; hop++) {
+    for (let hop = 0; REDIRECT_STATUSES.has(response.status); hop++) {
       const location = response.headers.get("location");
       await response.body?.cancel();
       const next = location === null ? null : URL.parse(location, at);
@@ -1131,8 +1134,7 @@ export function startCredentialProxy(
     logger.info("Credential route", { ...fields, status: response.status });
     if (
       route.purpose === "packages" &&
-      response.status >= 300 &&
-      response.status < 400
+      REDIRECT_STATUSES.has(response.status)
     ) {
       const followed = await followRedirects(
         response,
@@ -1145,7 +1147,11 @@ export function startCredentialProxy(
       if ("refused" in followed) return followed.refused;
       response = followed.response;
     }
-    if (response.status >= 300 && response.status < 400) {
+    if (
+      response.status >= 300 &&
+      response.status < 400 &&
+      !(route.purpose === "packages" && response.status === 304)
+    ) {
       // A followed redirect would carry the credential somewhere the catalog
       // never named, and a relayed one invites the client to.
       await response.body?.cancel();

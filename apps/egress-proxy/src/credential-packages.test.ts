@@ -35,6 +35,8 @@ describe("routeOf: packages", () => {
     expect(routeOf("GET", "/packages/npm/%2e%2e/admin", "")).toBeNull();
     expect(routeOf("GET", "/packages/npm/a/%2E/b", "")).toBeNull();
     expect(routeOf("GET", "/packages/npm/%E0%A4%A", "")).toBeNull();
+    expect(routeOf("GET", "/packages/npm//evil.example/x", "")).toBeNull();
+    expect(routeOf("GET", "/packages/npm/a//b", "")).toBeNull();
   });
 });
 
@@ -272,6 +274,29 @@ describe("the packages route", () => {
     expect(response.status).toBe(502);
     expect(response.headers.get("location")).toBeNull();
     expect(elsewhere.seen).toHaveLength(0);
+  });
+
+  test("a revalidation's 304 reaches the client, and HEAD reads too", async () => {
+    const registry = upstream((request) =>
+      request.headers.get("if-none-match") === '"v1"'
+        ? new Response(null, { status: 304, headers: { etag: '"v1"' } })
+        : new Response("rake", { headers: { etag: '"v1"' } }),
+    );
+    const auth = authorizer(`http://registry.test:${registry.port}`);
+    const { server } = proxy(auth.url, registry.port);
+    const url = `http://127.0.0.1:${server.port}/packages/rubygems/info/rake`;
+    const bearer = `Bearer ${PACKAGES_TOKEN}`;
+    const revalidated = await fetch(url, {
+      headers: { authorization: bearer, "if-none-match": '"v1"' },
+    });
+    expect(revalidated.status).toBe(304);
+    expect(revalidated.headers.get("etag")).toBe('"v1"');
+    const head = await fetch(url, {
+      method: "HEAD",
+      headers: { authorization: bearer },
+    });
+    expect(head.status).toBe(200);
+    expect(registry.seen.map((seen) => seen.method)).toEqual(["GET", "HEAD"]);
   });
 
   test("a redirect loop ends in a refusal", async () => {
