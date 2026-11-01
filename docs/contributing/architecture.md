@@ -79,7 +79,7 @@ Werft의 모듈과 각 모듈의 책임은 [README](../../README.md)의 모듈 �
 - Claude adapter의 진입점은 export할 심볼을 이름으로 적는다(`export *` 없음). `scripts/lib`는 codec을 `runtime-claude-codec`에서 가져온다.
 - `/v1` route는 DB-backed 오류와 row를 platform port(`InvalidCursorError`, `IdentityStore`)로만 알고, db 구현을 직접 import하지 않는다.
 - `packages/testkit`은 devDependency로만 쓰고 runtime 코드가 import하지 않는다. 패키지의 testing helper(`testing` entry)도 runtime 코드가 import하지 않는다. 패키지 밖으로 나가는 상대 경로 import는 없다.
-- 웹 콘솔: `apps/web`은 workspace에서 `packages/client`·`packages/core`·`packages/react`·`packages/ui`만 import하고 contracts는 타입으로만 import한다. `apps/web/package.json`의 `dependencies`는 비어 있다(devDependency만). 그래서 workspace를 `--production`으로 설치하는 이미지(worker 등)에 React·router가 따라 들어가지 않는다. code split은 `lazyRouteComponent`로 하고 `React.lazy`는 쓰지 않는다. `packages/ui`·`packages/react`의 컴포넌트를 두고 자기 UI를 그리는 곳은 `tests/web-ui-allowlist.ts`에 적은 것뿐이다. 목록에 없는 새 위반도, 코드보다 큰 목록도 테스트가 실패시킨다. `packages/ui`는 fetch·WebSocket·EventSource를 부르지 않는다.
+- 웹 콘솔: `apps/web`은 workspace에서 `packages/client`·`packages/core`·`packages/react`·`packages/ui`만 import하고 contracts는 타입으로만 import한다. `apps/web/package.json`의 `dependencies`는 비어 있다(devDependency만). 그래서 이미지의 `bun install --production`은 React·router 패키지를 설치하지 않고, 웹 콘솔은 빌드한 번들(`apps/web/dist`)로만 control-host 이미지에 들어간다. code split은 `lazyRouteComponent`로 하고 `React.lazy`는 쓰지 않는다. `packages/ui`·`packages/react`의 컴포넌트를 두고 자기 UI를 그리는 곳은 `tests/web-ui-allowlist.ts`에 적은 것뿐이다. 목록에 없는 새 위반도, 코드보다 큰 목록도 테스트가 실패시킨다. `packages/ui`는 fetch·WebSocket·EventSource를 부르지 않는다.
 
 ## 권한과 비활성
 
