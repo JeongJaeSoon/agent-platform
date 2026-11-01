@@ -112,7 +112,7 @@ release 이름에 `agent-platform`이 들어가지 않으면 리소스 이름은
 
 이 규칙은 ALB에서만 효과가 있다. 다른 controller는 `block-internal`이라는 Service가 없는 경로를 건너뛰고 `/`로 `/internal`을 열 수 있으므로, `ingress.className`이 `alb`가 아니면 chart가 render를 거부한다. `/internal` 요청을 404 규칙 밖으로 보낼 수 있는 annotation(`alb.ingress.kubernetes.io/`의 `actions.*`·`conditions.*`·`transforms.*`·`group.*`, `kubernetes.io/ingress.class`)이 `ingress.annotations`에 있어도 render를 거부한다. IngressClass의 `IngressClassParams`가 이 Ingress를 다른 Ingress와 같은 group에 넣으면 앞선 Ingress의 규칙이 먼저 평가되므로, 콘솔을 켤 때는 `alb` IngressClass가 group을 강제하지 않는지 확인한다(**AWS 전용**).
 
-**켜는 조건.** api는 percent-encoding을 디코드한 경로로 route하므로 `/%69nternal/…`을 `/internal/…`로 처리한다. ALB path pattern에는 `%`를 쓸 수 없어 이런 경로를 규칙으로 막을 수 없고, `/internal` 규칙에 걸리지 않은 요청은 `/` 규칙으로 api에 닿는다. 앱이 인코딩한 `/internal` 요청을 거부하게 하는 94S-1179가 land 하기 전에는 `ingress.console.enabled`를 켜지 않는다.
+**켜는 조건.** api는 percent-encoding을 디코드한 경로로 route하므로 `/%69nternal/…`을 `/internal/…`로 처리한다. ALB path pattern에는 `%`를 쓸 수 없어 이런 경로를 규칙으로 막을 수 없고, `/internal` 규칙에 걸리지 않은 요청은 `/` 규칙으로 api에 닿는다. api가 인코딩한 `/internal` 요청을 거부하기 전에는 `ingress.console.enabled`를 켜지 않는다.
 
 켤 때는 설치별 파일에 다음을 둔다. 끄면 `/`와 `/internal` 규칙이 함께 빠지고 `/v1`·`/docs`·`/healthz`·`/readyz`는 그대로다.
 
