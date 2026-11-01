@@ -102,6 +102,12 @@ export function NewAppForm({
   };
   useEffect(() => {
     loginRef.current?.focus();
+    // Back from GitHub may restore this page from the bfcache with the lock set.
+    const restored = (event: PageTransitionEvent) => {
+      if (event.persisted) handedOff.current = false;
+    };
+    window.addEventListener("pageshow", restored);
+    return () => window.removeEventListener("pageshow", restored);
   }, []);
 
   const start = useMutation<

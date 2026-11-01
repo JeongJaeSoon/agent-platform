@@ -228,6 +228,13 @@ describe("새 GitHub App 만들기", () => {
     // Handed off to GitHub: another click mints no second state.
     await user.click(submit);
     expect(api.calls.filter((call) => call.method === "POST")).toHaveLength(2);
+
+    // Back from GitHub restores the page from the bfcache: the form works again.
+    const back = new Event("pageshow") as PageTransitionEvent;
+    Object.defineProperty(back, "persisted", { value: true });
+    window.dispatchEvent(back);
+    await user.click(submit);
+    await waitFor(() => expect(posted).toHaveLength(2));
   });
 });
 
