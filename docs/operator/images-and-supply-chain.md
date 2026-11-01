@@ -52,6 +52,19 @@ worker가 쓰는 npm 설정은 user 수준이라, 저장소의 `.npmrc`가 `regi
 
 같은 날 실제 세션(npm 캐시를 비운 상태)에서 설치까지 돌린 결과도 같다. 저장소가 공개 registry를 고정한 프로젝트에서 `npm ci`는 `403 Forbidden - GET https://registry.npmjs.org/...`로 실패했다. `pnpm install`은 저장소 registry로 가면서 route 주소에만 걸린 token을 찾지 못해 `No authorization header was set for the request`로 실패했다. 고정하지 않은 프로젝트의 `npm ci`·`bundle install`은 route로 받았다.
 
+Go는 공식 릴리스 tarball을 checksum으로 고정해 파생 이미지의 `/usr/local/go`에 풀고 `PATH`에 더한다. `GOTOOLCHAIN=local`을 함께 둔다. 그러지 않으면 `go.mod`의 `go` 줄이 이미지보다 새로울 때 Go가 새 툴체인을 받으러 나간다. 사용자는 이미지의 원래 사용자(`USER 1000:1000`)로 되돌린다. local-docker 실행 기반에서는 worker의 `/tmp` tmpfs가 실행을 막아(Docker tmpfs의 기본값 `noexec`) `go run`이 `fork/exec … permission denied`로 실패한다. 실행 파일은 `go build -o`로 workspace에 만든다.
+
+```dockerfile
+FROM <출하 worker 이미지>
+USER root
+ADD --checksum=sha256:<릴리스의 sha256> https://go.dev/dl/go<버전>.linux-<arch>.tar.gz /tmp/go.tar.gz
+RUN tar -xzf /tmp/go.tar.gz -C /usr/local && rm /tmp/go.tar.gz
+ENV PATH=/usr/local/go/bin:$PATH GOTOOLCHAIN=local
+USER 1000:1000
+```
+
+2026-11-02에 이 형태의 파생 이미지(go1.27.3)로 실제 GitHub sandbox 세션을 돌렸다. 세션의 사설 저장소에 있는 모듈은 저장소 route로, 공개 모듈은 `packages` route로 받았다([api-server.md](api-server.md)의 "LFS·submodule·Go 모듈" 항목).
+
 출하 이미지의 `bun install`은 user `.npmrc`의 registry와 token으로 metadata를 route에서 받는다. 하지만 tarball은 metadata의 `dist.tarball`에 적힌 `https://registry.npmjs.org/...` 주소로 직접 받으려 해서 forward proxy가 `403`으로 막는다(2026-11-01 실측). npm은 `replace-registry-host` 기본값(`npmjs`)으로 그 host를 설정한 registry로 바꿔 받는다. Bun에는 그런 설정이 없어 지금은 Bun으로 공개 npm 패키지를 설치할 수 없다.
 
 ### worker 이미지 업그레이드와 checkpoint 호환
