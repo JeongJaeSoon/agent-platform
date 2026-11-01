@@ -1,6 +1,7 @@
 {{- if .Values.sessionArchive.enabled }}
 {{- $days := int .Values.sessionArchive.afterDays }}
-{{- if and (ne $days 0) (or (lt $days 30) (gt $days 3650)) }}
+{{- /* int turns "45.5" or "abc" into a valid-looking 45 or 0 */}}
+{{- if or (not (regexMatch "^[0-9]+$" (toString .Values.sessionArchive.afterDays))) (and (ne $days 0) (or (lt $days 30) (gt $days 3650))) }}
 {{- fail (printf "sessionArchive.afterDays must be 0 (off) or 30–3650, got %v" .Values.sessionArchive.afterDays) }}
 {{- end }}
 # One session event archive pass (apps/control-host/src/api/

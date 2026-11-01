@@ -746,11 +746,13 @@ const MUST_FAIL: [string, string[], RegExp][] = [
     ["-f", ciDigests, "--set", "images.egressProxy.digest=sha256:abc"],
     /digest must be sha256/,
   ],
-  ...["29", "3651"].map((days): [string, string[], RegExp] => [
-    `sessionArchive.afterDays=${days}`,
-    ["-f", ciDigests, "--set", `sessionArchive.afterDays=${days}`],
-    /sessionArchive.afterDays must be 0 \(off\) or 30–3650/,
-  ]),
+  ...["29", "3651", "45.5", "abc", "-30"].map(
+    (days): [string, string[], RegExp] => [
+      `sessionArchive.afterDays=${days}`,
+      ["-f", ciDigests, "--set", `sessionArchive.afterDays=${days}`],
+      /sessionArchive.afterDays must be 0 \(off\) or 30–3650/,
+    ],
+  ),
   [
     "an installation id that is no label value",
     ["-f", ciDigests, "--set", "installationId=not/a/label"],

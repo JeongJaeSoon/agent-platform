@@ -458,6 +458,8 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     const script = maintenance?.command?.join(" ") ?? "";
     expect(script).toContain("apps/control-host/src/api/checkpoint-gc.ts");
     expect(script).toContain("apps/control-host/src/api/session-archive.ts");
+    // A restart keeps the weekly slot instead of starting a fresh week.
+    expect(script).toMatch(/% \$\$\{MAINTENANCE_INTERVAL_SEC\}/);
     for (const [key, fallback] of [
       ["MAINTENANCE_INTERVAL_SEC", "604800"],
       ["SESSION_ARCHIVE_AFTER_DAYS", "180"],

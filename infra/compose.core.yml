@@ -524,8 +524,9 @@ services:
         condition: service_healthy
 
   # The weekly jobs: checkpoint GC, then the session event archive
-  # (docs/operator/data-retention.md). It sleeps first, so a restart does not
-  # run them at once; `docker compose exec maintenance bun run <job>` runs one
+  # (docs/operator/data-retention.md). It sleeps to the next multiple of the
+  # interval since the Unix epoch, so restarts neither run them at once nor
+  # push them back; `docker compose exec maintenance bun run <job>` runs one
   # now. A writer: backup.sh refuses to start while it runs. Its object store
   # endpoint and credentials are the layer's, as for api.
   maintenance:
@@ -536,7 +537,7 @@ services:
       - sh
       - -c
       - >-
-        while sleep "$${MAINTENANCE_INTERVAL_SEC}"; do
+        while sleep "$$(( $${MAINTENANCE_INTERVAL_SEC} - $$(date +%s) % $${MAINTENANCE_INTERVAL_SEC} ))"; do
         bun run apps/control-host/src/api/checkpoint-gc.ts;
         bun run apps/control-host/src/api/session-archive.ts;
         done
