@@ -1,21 +1,29 @@
-import { createPrivateKey } from "node:crypto";
+import { createHash, createPrivateKey, randomBytes } from "node:crypto";
 import {
+  type CompleteGitHubAppManifestRequest,
+  type CompleteGitHubAppManifestResponse,
   type DeleteGitHubAppResponse,
   type GetGitHubAppResponse,
+  GITHUB_APP_MANIFEST_STATE_TTL_SECONDS,
   type GitHubApp,
   type GitHubAppRepository,
   type GitHubAppRole,
   githubAppWarnings,
   type PutGitHubAppRequest,
   type PutGitHubAppResponse,
+  type StartGitHubAppManifestRequest,
+  type StartGitHubAppManifestResponse,
 } from "@werft-ai/contracts";
 import { repoRefOf } from "../ports/forge.ts";
 import {
   GitHubAppCheckError,
   type GitHubAppCredential,
   type GitHubAppDirectory,
+  type GitHubAppManifestConversion,
+  type GitHubAppManifestStore,
   type GitHubAppRecord,
   type GitHubAppStore,
+  type PutGitHubAppResult,
 } from "../ports/github-app-store.ts";
 import type { SecretAudit } from "../ports/secret-store.ts";
 import {
@@ -68,6 +76,47 @@ export function githubAppOf(
   };
 }
 
+const hashState = (state: string) =>
+  createHash("sha256").update(state, "utf8").digest();
+
+// managedStore has already refused anyone but a signed-in user.
+function userOf(caller: Caller): string {
+  const userId = caller.actor?.userId;
+  if (!userId) throw new Error("A console caller without a user");
+  return userId;
+}
+
+/** The author App's manifest (design github-app-manifest.md §5). */
+export function githubAppManifest(input: {
+  origin: string;
+  callbackUrl: string;
+  login: string | null;
+  public: boolean;
+  actions: boolean;
+  /** Four hex characters: App names are unique across GitHub. */
+  suffix: string;
+}) {
+  const origin = input.origin.replace(/\/+$/, "");
+  const owner = (input.login ?? "agent").slice(0, 22).toLowerCase();
+  return {
+    name: `werft-${owner}-${input.suffix}`,
+    url: origin,
+    redirect_url: `${origin}/settings/workspace/github/new-app`,
+    callback_urls: [input.callbackUrl],
+    setup_url: `${origin}/settings/workspace/github`,
+    public: input.public,
+    default_permissions: {
+      contents: "write",
+      pull_requests: "write",
+      metadata: "read",
+      ...(input.actions ? { actions: "write", workflows: "write" } : {}),
+    },
+    default_events: [],
+    hook_attributes: { url: origin, active: false },
+    request_oauth_on_install: false,
+  };
+}
+
 /**
  * A PEM as GitHub hands it out, or pasted with Windows line ends; anything
  * that is not an RSA private key is refused before GitHub sees it.
@@ -100,6 +149,24 @@ export function createGitHubAppService(deps: {
   /** Called after a change commits, so this replica's connections pick it up. */
   changed: () => Promise<void>;
   newId?: () => string;
+  /** Making the author App from a manifest; absent, it is refused. */
+  manifests?: {
+    states: GitHubAppManifestStore;
+    /** `POST /app-manifests/{code}/conversions`; sent once, never retried. */
+    convert: (
+      apiBase: string,
+      code: string,
+    ) => Promise<GitHubAppManifestConversion>;
+    /** Null when CONSOLE_ORIGIN is unset. */
+    consoleOrigin: string | null;
+    /** The account-link callback (`githubCallbackUrl`). */
+    callbackUrl: string | null;
+    /** GitHub's web origin, where the browser posts the manifest. */
+    webBase: string;
+    now?: () => Date;
+    /** Which check refused a state; for the log, never the response. */
+    refused?: (check: string) => void;
+  };
 }) {
   const { authorization, directory } = deps;
   const newId = deps.newId ?? (() => crypto.randomUUID());
@@ -137,6 +204,11 @@ export function createGitHubAppService(deps: {
   // After a write has committed, a failed reload must not report it failed;
   // the periodic one catches up.
   const reload = () => deps.changed().catch(() => undefined);
+
+  const manifestBlocked = () =>
+    deps.manifests?.consoleOrigin && deps.manifests.callbackUrl
+      ? null
+      : ("console_origin_unset" as const);
 
   const unchecked = (): GitHubAppRepository[] =>
     deps
@@ -209,6 +281,7 @@ export function createGitHubAppService(deps: {
           check: null,
           installations: [],
           repositories: unchecked(),
+          manifest_blocked: manifestBlocked(),
         };
       }
       const [checked, profile] = await Promise.all([
@@ -242,6 +315,7 @@ export function createGitHubAppService(deps: {
           role,
         ),
         ...checked,
+        manifest_blocked: manifestBlocked(),
       };
     },
 
@@ -296,34 +370,200 @@ export function createGitHubAppService(deps: {
         privateKey,
         audit,
       );
-      switch (result.outcome) {
-        case "stored":
-          await reload();
-          return {
-            github_app: githubAppOf(result.app, role),
-            receipt_id: audit.receiptId,
-          };
-        case "same_app":
-          throw new SessionServiceError(
-            "GITHUB_APP_CONFLICT",
-            "The workspace's other GitHub App is this App; GitHub refuses an approval from the App that opened the pull request",
-            undefined,
-            { reason_code: "same_app" },
-          );
-        case "no_author_app":
-          throw new SessionServiceError(
-            "GITHUB_APP_CONFLICT",
-            "Register the author GitHub App before the reviewer App",
-            undefined,
-            { reason_code: "no_author_app" },
-          );
-        case "actor_inactive":
-          throw ACTOR_INACTIVE();
-        case "outranked":
-          throw OUTRANKED();
-        default:
-          throw NOT_FOUND();
+      return {
+        github_app: await stored(result, role),
+        receipt_id: audit.receiptId,
+      };
+    },
+
+    /**
+     * A manifest for a new author App and the GitHub URL the browser posts it
+     * to, with a single-use state bound to the caller (design
+     * github-app-manifest.md).
+     */
+    async startManifest(
+      caller: Caller,
+      workspaceId: string,
+      readBody: () => Promise<StartGitHubAppManifestRequest>,
+    ): Promise<StartGitHubAppManifestResponse> {
+      const store = await managedStore(caller, workspaceId);
+      const manifests = deps.manifests;
+      const origin = manifests?.consoleOrigin;
+      if (!manifests || !origin || !manifests.callbackUrl) {
+        throw new SessionServiceError(
+          "BACKEND_UNAVAILABLE",
+          "CONSOLE_ORIGIN is not set, so GitHub has nowhere to send the browser back",
+          undefined,
+          { reason_code: "console_origin_unset" },
+        );
       }
+      const body = await readBody();
+      const current = await store.find(workspaceId, "author");
+      if (current !== null && !body.replace) {
+        throw new SessionServiceError(
+          "GITHUB_APP_CONFLICT",
+          "An author GitHub App is registered; send replace: true to replace it",
+          undefined,
+          { reason_code: "author_app_exists" },
+        );
+      }
+      const at = manifests.now?.() ?? new Date();
+      const expiresAt = new Date(
+        at.getTime() + GITHUB_APP_MANIFEST_STATE_TTL_SECONDS * 1000,
+      );
+      const state = randomBytes(32).toString("base64url");
+      const login =
+        body.owner.kind === "organization" ? body.owner.login : null;
+      await manifests.states.issueState(
+        hashState(state),
+        {
+          workspaceId,
+          actorUserId: userOf(caller),
+          role: "author",
+          ownerLogin: login,
+          public: body.public,
+          replacesAppId: current?.appId ?? null,
+          expiresAt,
+        },
+        at,
+      );
+      const web = manifests.webBase.replace(/\/+$/, "");
+      const target =
+        login === null
+          ? `${web}/settings/apps/new`
+          : `${web}/organizations/${encodeURIComponent(login)}/settings/apps/new`;
+      return {
+        action_url: `${target}?state=${state}`,
+        manifest: JSON.stringify(
+          githubAppManifest({
+            origin,
+            callbackUrl: manifests.callbackUrl,
+            login,
+            public: body.public,
+            actions: body.actions,
+            suffix: randomBytes(2).toString("hex"),
+          }),
+        ),
+        expires_at: expiresAt.toISOString(),
+      };
+    },
+
+    /**
+     * Spends the state, exchanges the code once, and stores the App, its key
+     * and its OAuth client secret in one transaction.
+     */
+    async completeManifest(
+      caller: Caller,
+      workspaceId: string,
+      readBody: () => Promise<CompleteGitHubAppManifestRequest>,
+    ): Promise<CompleteGitHubAppManifestResponse> {
+      const store = await managedStore(caller, workspaceId);
+      const manifests = deps.manifests;
+      if (!manifests) {
+        throw new SessionServiceError(
+          "BACKEND_UNAVAILABLE",
+          "Making a GitHub App from a manifest is off on this server",
+          undefined,
+          { reason_code: "console_origin_unset" },
+        );
+      }
+      const body = await readBody();
+      const state = await manifests.states.consumeState(hashState(body.state));
+      const at = manifests.now?.() ?? new Date();
+      const refusal =
+        state === null
+          ? "not_found"
+          : state.expiresAt.getTime() <= at.getTime()
+            ? "expired"
+            : state.workspaceId !== workspaceId
+              ? "workspace"
+              : state.actorUserId !== userOf(caller)
+                ? "actor"
+                : state.role !== "author"
+                  ? "role"
+                  : null;
+      if (state === null || refusal !== null) {
+        manifests.refused?.(refusal ?? "not_found");
+        throw refused(
+          "state_invalid",
+          "This GitHub App link is expired, spent or someone else's; start again",
+        );
+      }
+      let app: GitHubAppManifestConversion;
+      try {
+        app = await manifests.convert(deps.apiBase, body.code);
+      } catch (error) {
+        if (
+          error instanceof GitHubAppCheckError &&
+          error.reason === "github_rejected"
+        ) {
+          throw refused(
+            "code_rejected",
+            "GitHub did not accept the code; it may have expired or been used",
+          );
+        }
+        throw new SessionServiceError(
+          "BACKEND_UNAVAILABLE",
+          "GitHub could not be reached to finish the App",
+          undefined,
+          { reason_code: "github_unreachable" },
+        );
+      }
+      const audit = auditOf(caller);
+      let result: PutGitHubAppResult;
+      try {
+        result = await store.put(
+          workspaceId,
+          "author",
+          {
+            appId: app.appId,
+            slug: app.slug,
+            name: app.name,
+            htmlUrl: app.htmlUrl,
+            permissions: app.permissions,
+            clientId: app.clientId,
+            apiBase: deps.apiBase,
+          },
+          app.privateKey,
+          audit,
+          {
+            clientSecret: app.clientSecret,
+            replaces: state.replacesAppId,
+            owner: app.owner,
+            public: state.public,
+          },
+        );
+      } catch {
+        // The code is spent: GitHub holds the App, and its key is gone.
+        throw new SessionServiceError(
+          "BACKEND_UNAVAILABLE",
+          "The App was made on GitHub but its key could not be stored",
+          undefined,
+          {
+            reason_code: "store_failed",
+            app_id: app.appId,
+            html_url: app.htmlUrl,
+          },
+        );
+      }
+      if (result.outcome === "author_app_changed") {
+        throw new SessionServiceError(
+          "GITHUB_APP_CONFLICT",
+          "The author GitHub App changed while this one was being made; nothing was stored",
+          undefined,
+          {
+            reason_code: "author_app_changed",
+            app_id: app.appId,
+            html_url: app.htmlUrl,
+          },
+        );
+      }
+      const githubApp = await stored(result, "author");
+      return {
+        github_app: githubApp,
+        install_url: `${app.htmlUrl}/installations/new`,
+        receipt_id: audit.receiptId,
+      };
     },
 
     async remove(
@@ -347,6 +587,45 @@ export function createGitHubAppService(deps: {
       }
     },
   };
+
+  async function stored(
+    result: PutGitHubAppResult,
+    role: GitHubAppRole,
+  ): Promise<GitHubApp> {
+    switch (result.outcome) {
+      case "stored":
+        await reload();
+        return githubAppOf(result.app, role);
+      case "author_app_exists":
+      case "author_app_changed":
+        throw new SessionServiceError(
+          "GITHUB_APP_CONFLICT",
+          "The author GitHub App changed; nothing was stored",
+          undefined,
+          { reason_code: result.outcome },
+        );
+      case "same_app":
+        throw new SessionServiceError(
+          "GITHUB_APP_CONFLICT",
+          "The workspace's other GitHub App is this App; GitHub refuses an approval from the App that opened the pull request",
+          undefined,
+          { reason_code: "same_app" },
+        );
+      case "no_author_app":
+        throw new SessionServiceError(
+          "GITHUB_APP_CONFLICT",
+          "Register the author GitHub App before the reviewer App",
+          undefined,
+          { reason_code: "no_author_app" },
+        );
+      case "actor_inactive":
+        throw ACTOR_INACTIVE();
+      case "outranked":
+        throw OUTRANKED();
+      default:
+        throw NOT_FOUND();
+    }
+  }
 }
 
 export type GitHubAppService = ReturnType<typeof createGitHubAppService>;

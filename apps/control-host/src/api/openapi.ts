@@ -32,6 +32,8 @@ import {
   closeSessionRequestSchema,
   commentPullRequestRequestSchema,
   commentPullRequestResponseSchema,
+  completeGitHubAppManifestRequestSchema,
+  completeGitHubAppManifestResponseSchema,
   completeSlackInstallRequestSchema,
   completeSlackInstallResponseSchema,
   countAgentsResponseSchema,
@@ -63,6 +65,7 @@ import {
   deleteTeamResponseSchema,
   dispatchWorkflowRequestSchema,
   dispatchWorkflowResponseSchema,
+  GITHUB_APP_MANIFEST_STATE_TTL_SECONDS,
   getGitHubAppResponseSchema,
   getReceiptResponseSchema,
   getSessionResponseSchema,
@@ -201,6 +204,8 @@ import {
   slackLinkCallbackResponseSchema,
   slackSecretSummarySchema,
   sseEventSchema,
+  startGitHubAppManifestRequestSchema,
+  startGitHubAppManifestResponseSchema,
   startGitHubLinkResponseSchema,
   startGoogleLoginResponseSchema,
   startSlackInstallResponseSchema,
@@ -315,6 +320,8 @@ const requestComponents = {
   SlackGuestRequest: slackGuestRequestSchema,
   PutSlackSecretRequest: putSlackSecretRequestSchema,
   PutGitHubAppRequest: putGitHubAppRequestSchema,
+  StartGitHubAppManifestRequest: startGitHubAppManifestRequestSchema,
+  CompleteGitHubAppManifestRequest: completeGitHubAppManifestRequestSchema,
   PostGitHubRepositoryRequest: postGitHubRepositoryRequestSchema,
   PatchGitHubRepositoryRequest: patchGitHubRepositoryRequestSchema,
   CreateSlackAppRequest: createSlackAppRequestSchema,
@@ -407,6 +414,8 @@ const responseComponents = {
   SlackConfigTokenSummary: slackConfigTokenSummarySchema,
   PutSlackConfigTokenResponse: putSlackConfigTokenResponseSchema,
   GetGitHubAppResponse: getGitHubAppResponseSchema,
+  StartGitHubAppManifestResponse: startGitHubAppManifestResponseSchema,
+  CompleteGitHubAppManifestResponse: completeGitHubAppManifestResponseSchema,
   PutGitHubAppResponse: putGitHubAppResponseSchema,
   DeleteGitHubAppResponse: deleteGitHubAppResponseSchema,
   ListGitHubRepositoriesResponse: listGitHubRepositoriesResponseSchema,
@@ -1472,6 +1481,94 @@ export const API_ROUTE_DECLARATIONS = [
     errorNotes: {
       BACKEND_UNAVAILABLE:
         "Also when the API runs without a master key (PLATFORM_SECRET_KEY), or GitHub could not be reached (`github_unreachable`); nothing stored changed.",
+    },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/workspaces/{id}/github-apps/author/manifest",
+    operationId: "startGitHubAppManifest",
+    tag: "Workspace settings",
+    summary:
+      "Start making the author GitHub App from a manifest (owner or admin)",
+    description: `Returns the manifest for a new author App and the GitHub URL the browser form-POSTs it to (field \`manifest\`), with a new single-use \`state\` in that URL, valid ${GITHUB_APP_MANIFEST_STATE_TTL_SECONDS / 60} minutes and bound to the caller and the workspace. \`owner\` picks an organization (its owners can create the App) or the caller's own account; a private App (\`public: false\`, the default) installs only on that account. The manifest asks for \`contents\` and \`pull_requests\` write and \`metadata\` read, plus \`actions\` and \`workflows\` write with \`actions: true\`; its webhook is off, its redirect is the console's \`/settings/workspace/github/new-app\` and its callback the account-link page. While an author App is registered the request must say \`replace: true\` (else 409 \`GITHUB_APP_CONFLICT\` \`author_app_exists\`). API keys are refused.`,
+    auth: "session",
+    body: "StartGitHubAppManifestRequest",
+    requestExample: {
+      owner: { kind: "organization", login: "acme" },
+      public: false,
+      actions: false,
+    },
+    success: {
+      status: 200,
+      schema: "StartGitHubAppManifestResponse",
+      description:
+        "Where the browser posts the manifest, and when the state expires.",
+      example: {
+        action_url:
+          "https://github.com/organizations/acme/settings/apps/new?state=<single-use>",
+        manifest: '{"name":"werft-acme-1a2b","public":false}',
+        expires_at: "2026-11-01T10:00:00Z",
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 503],
+    errorCodes: { 409: ["GITHUB_APP_CONFLICT"] },
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY), or without CONSOLE_ORIGIN (`console_origin_unset`).",
+    },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/workspaces/{id}/github-apps/author/manifest/complete",
+    operationId: "completeGitHubAppManifest",
+    tag: "Workspace settings",
+    summary: "Finish making the author GitHub App with what GitHub returned",
+    description:
+      "The console's callback page sends the `code` and `state` from GitHub's redirect. The state is spent first: unknown, spent, expired, or issued to another caller or workspace answers 400 `BAD_REQUEST` `state_invalid`. The code is exchanged once with `POST /app-manifests/{code}/conversions` (400 `code_rejected` when GitHub refuses it, 503 `github_unreachable` when it cannot be reached; never retried). The App, its private key and its OAuth client secret are stored in one transaction with a `set_github_app` receipt (`source: manifest`); the webhook secret is not kept. If the author App changed since the start, nothing is stored (409 `GITHUB_APP_CONFLICT` `author_app_changed`); if storing fails, 503 `store_failed`. Both name the App made on GitHub in `details.app_id` and `details.html_url`. No key, secret or code is in any response, receipt or log, and every answer carries `Referrer-Policy: no-referrer`. API keys are refused.",
+    auth: "session",
+    body: "CompleteGitHubAppManifestRequest",
+    requestExample: {
+      code: "code-from-the-redirect",
+      state: "state-from-the-redirect",
+    },
+    success: {
+      status: 200,
+      schema: "CompleteGitHubAppManifestResponse",
+      description:
+        "Stored; the App, where it is installed next, and the receipt.",
+      example: {
+        github_app: {
+          role: "author",
+          app_id: 234568,
+          slug: "werft-acme-1a2b",
+          name: "werft-acme-1a2b",
+          html_url: "https://github.com/apps/werft-acme-1a2b",
+          private_key: {
+            updated_at: "2026-11-01T09:05:00Z",
+            updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
+          },
+          created_at: "2026-11-01T09:05:00Z",
+          updated_at: "2026-11-01T09:05:00Z",
+          permissions: {
+            contents: "write",
+            metadata: "read",
+            pull_requests: "write",
+          },
+          permissions_checked_at: "2026-11-01T09:05:00Z",
+          warnings: [],
+        },
+        install_url:
+          "https://github.com/apps/werft-acme-1a2b/installations/new",
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 503],
+    errorCodes: { 409: ["GITHUB_APP_CONFLICT"] },
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY), GitHub could not be reached (`github_unreachable`), or the App could not be stored (`store_failed`).",
     },
     idempotent: false,
   },

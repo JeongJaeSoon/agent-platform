@@ -12,6 +12,7 @@ import {
   createPostgresCatalogRepositoryStore,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
+  createPostgresGitHubAppManifestStore,
   createPostgresGitHubAppStore,
   createPostgresGitHubGateStore,
   createPostgresGitHubMcpStore,
@@ -163,6 +164,7 @@ import {
 import {
   connectionsOf,
   createGitHubAppDirectory,
+  createGitHubManifestConverter,
   createRegisteredGitHubConnection,
 } from "./forge-github.ts";
 import { createGitPusher } from "./git-push.ts";
@@ -767,6 +769,15 @@ const githubApps = createGitHubAppService({
       )
       .map(([id, repository]) => ({ id, url: repository.url })),
   changed: reloadRegisteredGitHub,
+  manifests: {
+    states: createPostgresGitHubAppManifestStore(db),
+    convert: createGitHubManifestConverter({ logger }),
+    consoleOrigin,
+    callbackUrl: githubCallbackUrl(consoleOrigin),
+    webBase: "https://github.com",
+    refused: (check) =>
+      logger.warn("GitHub App manifest state refused", { check }),
+  },
 });
 // Every GitHub token (clone, push, pull requests, Actions) is issued here,
 // from one connection per repository and so one token cache.
@@ -1044,7 +1055,7 @@ const app = createApiApp({
       slackGuests,
     });
     registerSlackSecretRoutes(router, slackSecrets);
-    registerGitHubAppRoutes(router, githubApps);
+    registerGitHubAppRoutes(router, githubApps, logger);
     registerGitHubRepositoryRoutes(router, githubRepositories);
     registerGitHubSettingsRoutes(router, githubSettings);
     registerGitHubPackagesRoutes(router, githubPackages);
