@@ -204,6 +204,7 @@ function app(
               sessionId,
               repositoryId: "app",
               profileId: null,
+              attachedRepositoryIds: null,
               repository: {
                 url: catalog.repositories.app?.url ?? "",
                 branch: "main",

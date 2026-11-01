@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   type AgentGitHub,
   type AuthorizationRequest,
+  type CreateSessionRequest,
   GITHUB_CEILING_NONE,
   scopesForRole,
   sessionCredentialUnboundDetailsSchema,
@@ -235,6 +236,118 @@ describe("a session pinned to an agent release", () => {
       body: { ...body, agent_release_id: "rel-1" },
     });
     expect(allowed.accepted[0]?.repository).toMatchObject({ id: "app" });
+  });
+
+  describe("attached repositories", () => {
+    const attaching = withSeededInstallation({
+      profiles: {
+        "coding-v1": profile,
+        "bare-v1": { ...profile, repository_mode: "none" as const },
+      },
+      repositories: {
+        app: catalog.repositories.app as SessionCatalog["repositories"][string],
+        docs: {
+          url: "https://example.invalid/docs.git",
+          branch: "main",
+          profiles: ["coding-v1"],
+        },
+        tools: {
+          url: "https://example.invalid/tools.git",
+          branch: "main",
+          profiles: ["coding-v1"],
+        },
+        elsewhere: {
+          url: "https://example.invalid/elsewhere.git",
+          branch: "main",
+          profiles: ["review-v1"],
+        },
+      },
+    }) satisfies SessionCatalog;
+    const github: AgentGitHub = {
+      repositories: ["app", "docs", "tools", "elsewhere"],
+      push_approval: true,
+      features: GITHUB_CEILING_NONE,
+      actions_allow: [],
+    };
+    type Options = Omit<NonNullable<Parameters<typeof setup>[0]>, "github"> & {
+      /** Null: a release without GitHub settings. */
+      github?: AgentGitHub | null;
+    };
+    const create = (
+      { github: settings = github, ...options }: Options,
+      sent: Record<string, unknown>,
+    ) => {
+      const target = setup({
+        catalog: attaching,
+        ...options,
+        ...(settings === null ? {} : { github: settings }),
+      });
+      // An undefined value in `sent` leaves the key out.
+      const merged = JSON.parse(
+        JSON.stringify({ ...body, agent_release_id: "rel-1", ...sent }),
+      ) as CreateSessionRequest;
+      return {
+        ...target,
+        result: target.service
+          .createSession(target.caller, {
+            idempotencyKey: "k",
+            body: merged,
+          })
+          .catch((caught: unknown) => caught),
+      };
+    };
+
+    test("are stored as sent, and left out when not sent", async () => {
+      const listed = create({}, { attached_repository_ids: ["docs"] });
+      await listed.result;
+      expect(listed.accepted[0]?.attachedRepositoryIds).toEqual(["docs"]);
+      const empty = create({}, { attached_repository_ids: [] });
+      await empty.result;
+      expect(empty.accepted[0]?.attachedRepositoryIds).toEqual([]);
+      const omitted = create({}, {});
+      await omitted.result;
+      expect(omitted.accepted[0]).not.toHaveProperty("attachedRepositoryIds");
+    });
+
+    test("are refused as repository_not_allowed off the release's list or the profile, as the session's own, without a release or without a repository", async () => {
+      const cases: Array<[Options, Record<string, unknown>]> = [
+        // The release does not list it.
+        [
+          { github: { ...github, repositories: ["app", "docs"] } },
+          { attached_repository_ids: ["docs", "tools"] },
+        ],
+        // A release without GitHub settings lists none.
+        [{ github: null }, { attached_repository_ids: ["docs"] }],
+        // The profile does not allow it.
+        [{}, { attached_repository_ids: ["elsewhere"] }],
+        // Not in the catalog.
+        [
+          { github: { ...github, repositories: ["app", "missing"] } },
+          { attached_repository_ids: ["missing"] },
+        ],
+        // The session's own repository.
+        [{}, { attached_repository_ids: ["app"] }],
+        // No release.
+        [{}, { agent_release_id: undefined, attached_repository_ids: [] }],
+        // A session without a repository.
+        [
+          { releaseProfile: "bare-v1" },
+          {
+            profile_id: "bare-v1",
+            repository_id: undefined,
+            attached_repository_ids: [],
+          },
+        ],
+      ];
+      for (const [options, sent] of cases) {
+        const target = create(options, sent);
+        expect(await target.result).toMatchObject({
+          code: "GITHUB_REFUSED",
+          details: { reason_code: "repository_not_allowed", receipt_id: null },
+        });
+        expect(target.accepted).toEqual([]);
+      }
+    });
   });
 
   test("runs the card's model unless the request names another the profile offers", async () => {

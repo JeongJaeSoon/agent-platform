@@ -18,6 +18,10 @@ import {
   turnIdSchema,
   userIdSchema,
 } from "../shared/index.ts";
+import {
+  ADDITIONAL_REPOSITORY_ID_PATTERN,
+  additionalRepositoryIdUsable,
+} from "./push-request.ts";
 import { receiptStatusSchema } from "./receipt.ts";
 
 export const SESSION_STATUS_VALUES = [
@@ -522,6 +526,14 @@ export const sessionSummarySchema = z.object({
     description:
       "The repository the session was created against, as the session recorded it then: a later catalog change or removal does not alter it. Null for a session created without a repository.",
   }),
+  attached_repository_ids: z
+    .array(z.string().min(1))
+    .nullable()
+    .optional()
+    .meta({
+      description:
+        "The catalog repositories besides `repository_id` the session was created with (`attached_repository_ids` at create). The session reaches only those of them its agent release's GitHub settings still list. Null when none were given: every repository the release lists, besides its own, is reachable. Absent from a server older than the field.",
+    }),
   current_turn_id: turnIdSchema.nullable(),
   queued_turn_count: z.number().int().nonnegative(),
   last_event_at: timestampSchema.nullable(),
@@ -566,6 +578,7 @@ export const messageTextSchema = z
   })
   .meta({ description: `At most ${MESSAGE_MAX_BYTES} bytes of UTF-8` });
 
+export const ATTACHED_REPOSITORIES_MAX = 32;
 export const createSessionRequestSchema = z
   .object({
     profile_id: z.string().min(1).optional().meta({
@@ -579,6 +592,23 @@ export const createSessionRequestSchema = z
       description:
         "The catalog repository the session works on. Required when the profile's `repository_mode` is `required`, refused when it is `none`, either when it is `optional`; omitted, the session works on the release's `repository_id` when `agent_release_id` is sent, else starts in an empty workspace with no repository to push to.",
     }),
+    attached_repository_ids: z
+      .array(
+        z
+          .string()
+          .regex(ADDITIONAL_REPOSITORY_ID_PATTERN)
+          .refine(additionalRepositoryIdUsable, {
+            message: "Not a repository id a git remote can be named",
+          }),
+      )
+      .max(ATTACHED_REPOSITORIES_MAX)
+      .refine((ids) => new Set(ids).size === ids.length, {
+        message: "attached_repository_ids lists a repository twice",
+      })
+      .optional()
+      .meta({
+        description: `Catalog repositories besides the session's own that it may fetch, push to and open pull requests on, at most ${ATTACHED_REPOSITORIES_MAX}. Each one has to be listed in the agent release's GitHub settings (\`github.repositories\`), allowed for the profile, and other than the session's repository; otherwise 403 \`GITHUB_REFUSED\` with \`repository_not_allowed\`, as is any list sent for a session without an agent release or without a repository. Omitted, the session may use every repository its release lists; \`[]\`, none besides its own.`,
+      }),
     message: messageTextSchema,
     // Pins the session to this release of an agent: the session then belongs
     // to that agent, and an agent's key may create it. The run itself still
