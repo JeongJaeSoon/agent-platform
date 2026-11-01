@@ -88,6 +88,8 @@ const reasonOf = (error: ApiError): unknown =>
 
 const REPOSITORIES_ANCHOR = "github-repositories";
 const META = "text-caption text-subtle-foreground";
+const PRIVATE_KEYS_DOC =
+  "https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps";
 
 /** Workspace › GitHub: the App agents reach GitHub repositories with. */
 export function WorkspaceGitHubScreen() {
@@ -448,6 +450,7 @@ function GitHubApp({
   const [missing, setMissing] = useState<"appId" | "key" | null>(null);
   const appIdId = useId();
   const appIdHint = useId();
+  const introId = useId();
   const keyId = useId();
   const keyHint = useId();
   const appIdRef = useRef<HTMLInputElement>(null);
@@ -666,7 +669,7 @@ function GitHubApp({
                   className={ACTION}
                   onClick={() => setEditing(true)}
                 >
-                  {t("github.register")}
+                  {t(author ? "github.addExisting" : "github.register")}
                 </Button>
               )}
             </>
@@ -689,6 +692,8 @@ function GitHubApp({
   // Under the card's row for a first App, under the danger zone's row when it
   // replaces one. Hoisted: appRows above renders it.
   function appForm() {
+    // A first author App: the reviewer and the replace forms skip the intro.
+    const adding = author && !registered;
     return (
       <RowListItem>
         <form
@@ -701,6 +706,21 @@ function GitHubApp({
             })
           }
         >
+          {adding ? (
+            <div
+              id={introId}
+              className="text-description text-muted-foreground"
+            >
+              {t("github.addExistingHint")}{" "}
+              <Link
+                href={PRIVATE_KEYS_DOC}
+                target="_blank"
+                newTabLabel={t("github.newTab")}
+              >
+                {t("github.privateKeysLink")}
+              </Link>
+            </div>
+          ) : null}
           <Field>
             <FieldLabel htmlFor={appIdId}>{t("github.appId")}</FieldLabel>
             <Input
@@ -712,7 +732,8 @@ function GitHubApp({
               autoComplete="off"
               spellCheck={false}
               defaultValue={registered ? String(registered.app_id) : ""}
-              aria-describedby={appIdHint}
+              // Focus lands here, so the intro is read with the field.
+              aria-describedby={adding ? `${introId} ${appIdHint}` : appIdHint}
               aria-invalid={missing === "appId" || undefined}
             />
             <FieldDescription id={appIdHint}>
@@ -743,7 +764,10 @@ function GitHubApp({
               <FieldError>{t("github.keyMissing")}</FieldError>
             ) : null}
           </Field>
-          <div className="flex flex-wrap items-start justify-end gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {adding ? (
+              <div className={`${META} mr-auto`}>{t("github.connectNote")}</div>
+            ) : null}
             <Button
               type="button"
               variant="ghost"
@@ -755,7 +779,7 @@ function GitHubApp({
               {t("common.cancel")}
             </Button>
             <Button type="submit" aria-disabled={save.isPending || undefined}>
-              {t("github.save")}
+              {t(registered ? "github.save" : "github.connect")}
             </Button>
           </div>
         </form>

@@ -36,6 +36,13 @@ export const githubKo = {
     "키는 GitHub에서 확인한 뒤 암호화해 저장하고, 저장한 뒤에는 다시 보여 주지 않습니다. 저장했으면 내려받은 파일은 지우세요.",
   "github.keyMissing": ".pem 파일을 골라 주세요.",
   "github.save": "확인하고 저장",
+  "github.addExisting": "이미 있는 App 추가",
+  "github.addExistingHint":
+    "조직에 쓰던 GitHub App이 있으면 App ID와 개인 키 파일로 연결합니다. GitHub는 키의 공개 부분만 보관해서, 예전에 받은 .pem을 다시 내려받을 수 없습니다. 파일이 없으면 App 설정 › Private keys에서 새로 만드세요.",
+  "github.privateKeysLink": "GitHub 문서: 개인 키 관리",
+  "github.connect": "연결",
+  "github.connectNote":
+    "연결하면 GitHub에서 권한과 설치를 바로 읽어 이 화면에 보여 줍니다.",
   "github.saved": "GitHub App을 저장했습니다.",
   "github.invalidKey":
     "이 파일은 RSA private key가 아닙니다. GitHub App 페이지의 Private keys에서 받은 .pem 파일을 고르세요.",
@@ -224,6 +231,13 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
     "The key is checked with GitHub, then stored encrypted and never shown again. Delete the downloaded file once it is saved.",
   "github.keyMissing": "Choose the .pem file.",
   "github.save": "Check and save",
+  "github.addExisting": "Add an existing App",
+  "github.addExistingHint":
+    "If your organization already has a GitHub App, connect it with its App ID and private key file. GitHub keeps only the public part of a key, so a .pem you downloaded before cannot be downloaded again. Without the file, generate a new one under the App's settings › Private keys.",
+  "github.privateKeysLink": "GitHub docs: managing private keys",
+  "github.connect": "Connect",
+  "github.connectNote":
+    "Once connected, the App's permissions and installations are read from GitHub and shown here.",
   "github.saved": "Saved the GitHub App.",
   "github.invalidKey":
     "This file is not an RSA private key. Choose the .pem file from the GitHub App's Private keys.",
@@ -412,6 +426,13 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
     "鍵は GitHub で確認してから暗号化して保存し、保存後は二度と表示しません。保存したら、ダウンロードしたファイルは削除してください。",
   "github.keyMissing": ".pem ファイルを選んでください。",
   "github.save": "確認して保存",
+  "github.addExisting": "既存の App を追加",
+  "github.addExistingHint":
+    "組織で使っている GitHub App があれば、App ID と秘密鍵ファイルで接続します。GitHub は鍵の公開部分しか保管しないため、以前取得した .pem を再ダウンロードすることはできません。ファイルがなければ App 設定 › Private keys で新しく作成してください。",
+  "github.privateKeysLink": "GitHub ドキュメント: 秘密鍵の管理",
+  "github.connect": "接続",
+  "github.connectNote":
+    "接続すると、GitHub から権限とインストールをすぐに読み取ってこの画面に表示します。",
   "github.saved": "GitHub App を保存しました。",
   "github.invalidKey":
     "このファイルは RSA private key ではありません。GitHub App の Private keys から取得した .pem ファイルを選んでください。",

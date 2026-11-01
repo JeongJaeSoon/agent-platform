@@ -10,27 +10,34 @@
 # apps/worker/Dockerfile for why and tests/images.test.ts for the check.
 ARG BUN_IMAGE=oven/bun:1.3.14@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
 
+FROM ${BUN_IMAGE} AS manifests
+WORKDIR /app
+COPY package.json bun.lock bunfig.toml tsconfig.base.json THIRD_PARTY_NOTICES.md ./
+# Keep the workspace layout, but let source-only edits reuse the install layers.
+RUN --mount=type=bind,source=apps,target=/src/apps \
+    --mount=type=bind,source=packages,target=/src/packages \
+  cd /src && find apps packages -name package.json -exec cp --parents '{}' /app/ \;
+
 FROM ${BUN_IMAGE} AS web
 WORKDIR /app
-COPY package.json bun.lock bunfig.toml tsconfig.base.json ./
-COPY apps ./apps
+COPY --from=manifests /app/ ./
+RUN bun install --frozen-lockfile --filter ./apps/web
+COPY apps/web ./apps/web
 COPY packages ./packages
-RUN bun install --frozen-lockfile --filter ./apps/web \
-  && bun run --cwd apps/web build \
+RUN bun run --cwd apps/web build \
   && test -f apps/web/dist/index.html
 
 FROM ${BUN_IMAGE} AS deps
 WORKDIR /app
-# THIRD_PARTY_NOTICES.md: the licenses of what this image ships (94S-338).
-COPY package.json bun.lock bunfig.toml tsconfig.base.json THIRD_PARTY_NOTICES.md ./
-COPY apps ./apps
-COPY packages ./packages
-COPY docs/api/index.html docs/api/scalar.js ./docs/api/
+COPY --from=manifests /app/ ./
 # --filter limits the install to the one app this image runs, which is what
 # keeps @anthropic-ai/* out of it; the lockfile stays frozen either way.
 RUN bun install --frozen-lockfile --production \
     --filter ./apps/control-host \
   && test ! -e node_modules/@anthropic-ai
+COPY apps ./apps
+COPY packages ./packages
+COPY docs/api/index.html docs/api/scalar.js ./docs/api/
 
 FROM ${BUN_IMAGE} AS runtime
 # git: the checkpoint verifier fetches each workspace bundle into a scratch
