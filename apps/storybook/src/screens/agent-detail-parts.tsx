@@ -95,8 +95,8 @@ export function AgentHead({
         </div>
       }
       titleAside={
-        <Badge variant={agent.released ? "green" : "gray"}>
-          {agent.released ? "활성" : "아직 쓸 수 없음"}
+        <Badge variant={agent.released ? "green" : "blue"}>
+          {agent.released ? "릴리스" : "초안"}
         </Badge>
       }
       description={

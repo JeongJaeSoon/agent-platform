@@ -669,7 +669,7 @@ describe("에이전트 카드", () => {
             mcp_servers: ["linear"],
             credential_refs: ["github", "slack"],
           },
-          runtime_profile_id: PROFILE,
+          runtime_profile_id: index === 0 ? null : PROFILE,
           release_label: index === 0 ? null : "2026-10-11_10:00:00-2",
           bound_credential_refs: ["github"],
           admins: ["Owner", "재무팀"],
@@ -686,7 +686,10 @@ describe("에이전트 카드", () => {
       const card = await cardFor("에이전트 13");
       expect(fact(card, "릴리스")).toBe("2026. 10. 11. 10:00");
       // The dash is drawn; a screen reader hears the words.
-      expect(fact(await cardFor("에이전트 0"), "릴리스")).toBe("—릴리스 전");
+      const draft = await cardFor("에이전트 0");
+      expect(fact(draft, "릴리스")).toBe("—릴리스 전");
+      // Said once: the profile row of an unreleased card is only a dash.
+      expect(fact(draft, "실행 프로필")).toBe("—없음");
       expect(fact(card, "실행 프로필")).toBe(PROFILE);
       expect(fact(card, "MCP")).toBe("linear");
       expect(fact(card, "자격 증명")).toBe("연결 필요 1개");
@@ -1675,9 +1678,7 @@ describe("에이전트 상세", () => {
     });
     const heading = screen.getByRole("heading", { level: 1 });
     await waitFor(() =>
-      expect(heading.nextElementSibling?.textContent).toBe(
-        "2026-10-11_10:00:00 · 활성",
-      ),
+      expect(heading.nextElementSibling?.textContent).toBe("릴리스"),
     );
     expect(agentDetailSchema.safeParse(server.detail()).success).toBe(true);
   });
@@ -2352,7 +2353,7 @@ describe("식별자와 상태 문구", () => {
     renderAt(DETAIL, { ...meOk, ...agentServer().routes });
     const heading = await screen.findByRole("heading", { level: 1 });
     const head = heading.closest("[data-slot=page-header]") as HTMLElement;
-    expect(within(head).getByText("아직 쓸 수 없음")).toBeDefined();
+    expect(within(head).getByText("초안")).toBeDefined();
     expect(within(head).getByText("결제 문의 담당")).toBeDefined();
     expect(within(head).queryByText(/billing/)).toBeNull();
     const card = screen
