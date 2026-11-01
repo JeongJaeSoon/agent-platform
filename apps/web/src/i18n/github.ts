@@ -1,7 +1,115 @@
 export const githubKo = {
   "github.nav": "GitHub 연결 설정",
   "github.description":
-    "에이전트가 저장소를 clone하고, 승인된 결과를 push하고, PR을 열 때 쓰는 GitHub App과 저장소입니다. 소유자와 관리자만 바꿀 수 있습니다.",
+    "에이전트가 GitHub 저장소에 쓰는 App, 워크스페이스가 허용하는 기능, App마다의 권한과 설치된 저장소입니다.",
+  "github.descriptionMember":
+    "에이전트가 GitHub 저장소에 쓰는 App과 워크스페이스가 허용한 기능입니다. 소유자와 관리자가 바꿀 수 있습니다.",
+  "github.add": "App 추가",
+  "github.added": "{name}을(를) 추가했습니다.",
+  "github.rotated": "{name}의 키를 교체했습니다.",
+  "github.empty.title": "GitHub App을 추가하면 에이전트가 저장소를 쓸 수 있습니다",
+  "github.empty.hint":
+    "작성용 App으로 clone·push·PR을 하고, 리뷰 승인용 App으로 PR에 리뷰를 남깁니다.",
+  "github.role.author.title": "작성용 App",
+  "github.role.author.hint":
+    "에이전트가 저장소를 clone하고, 승인된 결과를 push하고, PR을 열 때 쓰는 App입니다.",
+  "github.role.author.badge": "작성용",
+  "github.role.author.features": "작성용 App으로 켤 수 있는 기능",
+  "github.role.author.add": "작성용 App 추가",
+  "github.role.author.none": "작성용 App이 없습니다.",
+  "github.role.reviewer.title": "리뷰 승인용 App",
+  "github.role.reviewer.hint":
+    "에이전트가 PR에 리뷰를 남길 때 쓰는 App입니다. GitHub는 PR을 연 App의 승인을 받지 않으므로 작성용과 다른 App이어야 합니다.",
+  "github.role.reviewer.badge": "리뷰 승인용",
+  "github.role.reviewer.features": "리뷰 승인용 App으로 켤 수 있는 기능",
+  "github.role.reviewer.add": "리뷰 승인용 App 추가",
+  "github.role.reviewer.none": "리뷰 승인용 App이 없습니다.",
+  "github.ceiling.baseMeta": "GitHub를 쓰는 에이전트 모두",
+  "github.ceiling.unsaved": "저장 전",
+  "github.ceiling.theirs": "다른 사람이 바꿈",
+  "github.ceiling.footChanged":
+    "{role} 기능 {count}개를 바꿉니다. 저장하면 아래 표의 필요 권한이 이대로 적용되고 변경 기록에 남습니다.",
+  "github.ceiling.footLowered":
+    "끄는 기능을 켠 에이전트({list})의 다음 GitHub 요청부터 거절됩니다.",
+  "github.ceiling.save": "저장",
+  "github.card.keyRejected": "키 거절됨",
+  "github.card.memberLine": "App ID {id}",
+  "github.card.settings": "GitHub에서 App 설정",
+  "github.card.rotate": "키 교체",
+  "github.card.rotateName": "{name} 키 교체",
+  "github.card.lackingTitle": "이 App에 {list} 권한이 없습니다",
+  "github.card.lackingNow": "켠 기능의 요청을 GitHub가 거절합니다.",
+  "github.card.lackingDraft":
+    "이대로 저장하면 켠 기능의 요청을 GitHub가 거절합니다.",
+  "github.card.lackingFix":
+    "GitHub의 App 설정에서 권한을 더하고, 설치마다 변경을 승인하세요.",
+  "github.card.accounts": "{name}을(를) 설치한 GitHub 계정",
+  "github.card.selectionAll": "모든 저장소 {count}개",
+  "github.card.selectionSelected": "선택한 저장소 {count}개",
+  "github.card.manageInstallation": "GitHub에서 설치 관리",
+  "github.card.noInstallation": "이 App을 설치한 GitHub 계정이 없습니다.",
+  "github.permissions.col.install": "설치",
+  "github.permissions.changedRow": "(저장 전 변경)",
+  "github.permissions.pendingCell": "(승인 대기)",
+  "github.permissions.folded": "필요 {need} · App {app} · 설치 {granted}",
+  "github.permissions.changedNote":
+    "파란 줄은 저장하지 않은 기능 변경으로 바뀐 필요 권한입니다: {list}.",
+  "github.permissions.status.beyond": "안내보다 넓음",
+  "github.permissions.status.unused": "현재 필요 없음",
+  "github.permissions.status.pending": "설치 승인 대기",
+  "github.repos.title": "설치된 저장소",
+  "github.repos.col.name": "저장소",
+  "github.repos.col.branch": "기본 브랜치",
+  "github.repos.col.agents": "고른 에이전트",
+  "github.repos.agents": "{count}개",
+  "github.repos.empty": "이 설치가 닿는 저장소가 없습니다.",
+  "github.repos.range": "{from}–{to} / {total}",
+  "github.repos.pages": "{page} / {pages}",
+  "github.repos.nav": "{label} 저장소 페이지",
+  "github.repos.previous": "{label} 이전 페이지",
+  "github.repos.next": "{label} 다음 페이지",
+  "github.repos.retry": "다시 시도",
+  "github.repos.unavailable.title": "GitHub에서 저장소 목록을 받지 못했습니다",
+  "github.repos.unavailable.body":
+    "잠시 뒤 다시 시도하세요. 저장된 설정과 에이전트 실행에는 영향이 없습니다.",
+  "github.repos.auth.title": "이 App의 키를 GitHub가 받지 않습니다",
+  "github.repos.auth.body":
+    "GitHub의 App 설정에서 새 private key를 만들어 키를 교체하세요.",
+  "github.repos.suspended.title": "이 설치가 GitHub에서 중지됐습니다",
+  "github.repos.suspended.body":
+    "설치 관리에서 다시 켜기 전까지 이 계정 저장소의 요청이 거절됩니다.",
+  "github.outside.title": "설치 밖 저장소",
+  "github.outside.hint":
+    "에이전트가 고른 적 있지만 지금 어느 작성용 설치도 닿지 않는 저장소입니다. 이 저장소를 쓰는 에이전트의 GitHub 요청은 거절됩니다.",
+  "github.outside.badge": "설치 밖",
+  "github.outside.unchecked": "확인 안 됨",
+  "github.repo.editTitle": "기본 브랜치 바꾸기",
+  "github.addDialog.title": "GitHub App 추가",
+  "github.addDialog.hint":
+    "GitHub에서 만든 App의 ID와 private key를 넣습니다. 저장하면 GitHub에 물어 App 이름·권한·설치를 읽습니다. GitHub는 키의 공개 부분만 보관하므로, 예전 .pem이 없으면 App 설정 › Private keys에서 새로 만드세요.",
+  "github.addDialog.role": "용도",
+  "github.addDialog.authorHint": "clone·push·PR에 씁니다.",
+  "github.addDialog.reviewerHint": "작성용과 다른 App이어야 합니다.",
+  "github.addDialog.taken":
+    "연결된 App이 있습니다. 바꾸려면 위험 구역에서 연결을 해제하세요.",
+  "github.addDialog.full":
+    "작성용과 리뷰 승인용 App이 모두 연결돼 있습니다. 다른 App으로 바꾸려면 위험 구역에서 지금 App의 연결을 해제한 뒤 추가하세요.",
+  "github.addDialog.submit": "추가",
+  "github.addDialog.close": "닫기",
+  "github.rotate.title": "{name} 키 교체",
+  "github.rotate.hint":
+    "같은 App에서 새로 만든 private key를 넣습니다. GitHub가 받아들이면 이전 키 대신 씁니다.",
+  "github.rotate.appIdHint": "키를 교체할 App입니다.",
+  "github.rotate.submit": "확인하고 교체",
+  "github.disconnect.row": "{name} 연결 해제",
+  "github.disconnect.action": "연결 해제",
+  "github.disconnect.title": "{name} 연결을 해제할까요?",
+  "github.disconnect.done": "{name} 연결을 해제했습니다.",
+  "github.disconnect.authorHint":
+    "다시 추가할 때까지 에이전트의 clone·push·PR 요청과 진행 중 세션의 GitHub 요청이 거절됩니다. GitHub의 App과 설치는 그대로 남습니다.",
+  "github.disconnect.reviewerHint":
+    "다시 추가할 때까지 에이전트의 리뷰 요청이 거절됩니다. GitHub의 App과 설치는 그대로 남습니다.",
+  "github.disconnect.userLink": "구성원 계정 연결도 끊깁니다.",
   "github.app": "GitHub App",
   "github.appHint":
     "에이전트는 이 App 하나로 clone·push·PR·Actions를 합니다. 권한 원본은 GitHub에 있고, 여기서는 플랫폼이 필요한 수준과 비교해 보여 줍니다.",
@@ -170,7 +278,7 @@ export const githubKo = {
   "github.ceiling.always": "항상 켜짐",
   "github.ceiling.feature.review": "PR 리뷰",
   "github.ceiling.feature.reviewHint":
-    "PR에 코멘트·변경 요청·승인 리뷰를 남깁니다. 리뷰 승인용 App을 등록해야 켤 수 있습니다.",
+    "작성용 App이 연 PR에 코멘트·변경 요청·승인 리뷰를 남깁니다. 리뷰 승인용 App을 추가하면 켤 수 있습니다.",
   "github.ceiling.feature.actions": "Actions 실행",
   "github.ceiling.feature.actionsHint":
     "에이전트 허용 목록의 워크플로를 실행하거나 다시 실행합니다.",
@@ -183,15 +291,15 @@ export const githubKo = {
   "github.ceiling.receiptNote":
     "바꾸면 감사 기록(receipt)에 남습니다. 검사 결과 쓰기·이슈 쓰기는 아직 작업이 없어 목록에서 뺐습니다.",
   "github.ceiling.revert": "되돌리기",
-  "github.ceiling.saved": "최대 권한을 저장했습니다.",
+  "github.ceiling.saved": "기능 설정을 저장했습니다.",
   "github.ceiling.conflict":
-    "다른 사람이 먼저 최대 권한을 바꿨습니다. 지금 저장된 값을 다시 불러왔으니 확인하고 다시 저장하세요.",
-  "github.ceiling.lowerTitle": "최대 권한을 낮출까요?",
+    "다른 사람이 먼저 기능 설정을 바꿨습니다. 바꾼 칸을 표시했으니 확인하고 다시 저장하세요.",
+  "github.ceiling.lowerTitle": "기능을 끌까요?",
   "github.ceiling.lowerBody":
     "{features} 권한을 끕니다. 앞 릴리스로 도는 세션도 다음 GitHub 요청부터 거절됩니다.",
   "github.ceiling.lowerItem":
     "{feature}(활성 릴리스에서 켠 에이전트 {count}개)",
-  "github.ceiling.lowerConfirm": "낮추고 저장",
+  "github.ceiling.lowerConfirm": "끄고 저장",
   "github.approvalPending": "권한 변경 승인 대기",
   "github.sameAsReviewer":
     "리뷰용 App으로 등록된 App입니다. 작성용 App은 다른 App이어야 합니다.",
@@ -230,7 +338,116 @@ export const githubKo = {
 export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.nav": "GitHub connection",
   "github.description":
-    "The GitHub App and repositories agents use to clone, push approved results and open pull requests. Only owners and admins can change them.",
+    "The Apps agents reach GitHub repositories with, the features the workspace allows, and each App's permissions and installed repositories.",
+  "github.descriptionMember":
+    "The Apps agents reach GitHub repositories with, and the features the workspace allows. Owners and admins can change them.",
+  "github.add": "Add App",
+  "github.added": "Added {name}.",
+  "github.rotated": "Replaced the key of {name}.",
+  "github.empty.title": "Add a GitHub App so agents can work in repositories",
+  "github.empty.hint":
+    "An author App clones, pushes and opens pull requests; a reviewer App leaves reviews on them.",
+  "github.role.author.title": "Author App",
+  "github.role.author.hint":
+    "The App agents clone repositories, push approved results and open pull requests with.",
+  "github.role.author.badge": "Author",
+  "github.role.author.features": "Features the author App allows",
+  "github.role.author.add": "Add author App",
+  "github.role.author.none": "No author App.",
+  "github.role.reviewer.title": "Reviewer App",
+  "github.role.reviewer.hint":
+    "The App agents review pull requests with. GitHub does not accept an approval from the App that opened the pull request, so it must be another App than the author's.",
+  "github.role.reviewer.badge": "Reviewer",
+  "github.role.reviewer.features": "Features the reviewer App allows",
+  "github.role.reviewer.add": "Add reviewer App",
+  "github.role.reviewer.none": "No reviewer App.",
+  "github.ceiling.baseMeta": "Every agent that uses GitHub",
+  "github.ceiling.unsaved": "Unsaved",
+  "github.ceiling.theirs": "Changed by someone else",
+  "github.ceiling.footChanged":
+    "Changes {count} {role} feature(s). Saving applies the needed permissions in the tables below and is recorded.",
+  "github.ceiling.footLowered":
+    "Agents that turned on a feature being turned off ({list}) are refused from their next GitHub request.",
+  "github.ceiling.save": "Save",
+  "github.card.keyRejected": "Key refused",
+  "github.card.memberLine": "App ID {id}",
+  "github.card.settings": "App settings on GitHub",
+  "github.card.rotate": "Replace key",
+  "github.card.rotateName": "Replace the key of {name}",
+  "github.card.lackingTitle": "This App lacks {list}",
+  "github.card.lackingNow":
+    "GitHub refuses the requests of the features turned on.",
+  "github.card.lackingDraft":
+    "Saved as is, GitHub refuses the requests of the features turned on.",
+  "github.card.lackingFix":
+    "Add the permissions in the App's settings on GitHub, then approve the change on each installation.",
+  "github.card.accounts": "GitHub accounts {name} is installed on",
+  "github.card.selectionAll": "All repositories: {count}",
+  "github.card.selectionSelected": "Selected repositories: {count}",
+  "github.card.manageInstallation": "Manage installation on GitHub",
+  "github.card.noInstallation": "No GitHub account has installed this App.",
+  "github.permissions.col.install": "Install",
+  "github.permissions.changedRow": "(unsaved change)",
+  "github.permissions.pendingCell": "(approval pending)",
+  "github.permissions.folded": "Need {need} · App {app} · Install {granted}",
+  "github.permissions.changedNote":
+    "Blue rows are needs the unsaved feature changes alter: {list}.",
+  "github.permissions.status.beyond": "Beyond guidance",
+  "github.permissions.status.unused": "Not needed now",
+  "github.permissions.status.pending": "Approval pending",
+  "github.repos.title": "Installed repositories",
+  "github.repos.col.name": "Repository",
+  "github.repos.col.branch": "Default branch",
+  "github.repos.col.agents": "Agents",
+  "github.repos.agents": "{count}",
+  "github.repos.empty": "This installation reaches no repositories.",
+  "github.repos.range": "{from}–{to} of {total}",
+  "github.repos.pages": "{page} / {pages}",
+  "github.repos.nav": "{label} repository pages",
+  "github.repos.previous": "{label} previous page",
+  "github.repos.next": "{label} next page",
+  "github.repos.retry": "Try again",
+  "github.repos.unavailable.title": "GitHub did not return the repositories",
+  "github.repos.unavailable.body":
+    "Try again shortly. Saved settings and agent runs are not affected.",
+  "github.repos.auth.title": "GitHub does not accept this App's key",
+  "github.repos.auth.body":
+    "Make a new private key in the App's settings on GitHub and replace the key.",
+  "github.repos.suspended.title": "This installation is suspended on GitHub",
+  "github.repos.suspended.body":
+    "Requests to this account's repositories are refused until it is resumed in the installation settings.",
+  "github.outside.title": "Repositories outside the installations",
+  "github.outside.hint":
+    "Repositories agents picked that no author installation reaches now. GitHub requests of agents using them are refused.",
+  "github.outside.badge": "Not installed",
+  "github.outside.unchecked": "Not checked",
+  "github.repo.editTitle": "Change the default branch",
+  "github.addDialog.title": "Add a GitHub App",
+  "github.addDialog.hint":
+    "Enter the ID and private key of an App made on GitHub. Saving asks GitHub for the App's name, permissions and installations. GitHub keeps only the public half of a key, so without the old .pem, make a new one under the App's settings › Private keys.",
+  "github.addDialog.role": "Role",
+  "github.addDialog.authorHint": "Clones, pushes and opens pull requests.",
+  "github.addDialog.reviewerHint": "Must be another App than the author's.",
+  "github.addDialog.taken":
+    "An App is connected. Disconnect it in the danger zone to change it.",
+  "github.addDialog.full":
+    "Both an author and a reviewer App are connected. To change one, disconnect it in the danger zone, then add the other App.",
+  "github.addDialog.submit": "Add",
+  "github.addDialog.close": "Close",
+  "github.rotate.title": "Replace the key of {name}",
+  "github.rotate.hint":
+    "Enter a private key made for the same App. Once GitHub accepts it, it is used instead of the old one.",
+  "github.rotate.appIdHint": "The App whose key is replaced.",
+  "github.rotate.submit": "Check and replace",
+  "github.disconnect.row": "Disconnect {name}",
+  "github.disconnect.action": "Disconnect",
+  "github.disconnect.title": "Disconnect {name}?",
+  "github.disconnect.done": "Disconnected {name}.",
+  "github.disconnect.authorHint":
+    "Until an App is added again, agents' clone, push and pull request requests and running sessions' GitHub requests are refused. The App and its installations stay on GitHub.",
+  "github.disconnect.reviewerHint":
+    "Until an App is added again, agents' review requests are refused. The App and its installations stay on GitHub.",
+  "github.disconnect.userLink": "Members' account linking stops too.",
   "github.app": "GitHub App",
   "github.appHint":
     "Agents clone, push, open pull requests and run Actions with this one App. Its permissions live on GitHub; here they are compared with what the platform needs.",
@@ -416,7 +633,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.ceiling.revert": "Revert",
   "github.ceiling.saved": "Saved what agents may turn on.",
   "github.ceiling.conflict":
-    "Someone changed this first. The saved values were loaded again; check them and save again.",
+    "Someone changed the features first. The switches they changed are marked; check them and save again.",
   "github.ceiling.lowerTitle": "Lower what agents may turn on?",
   "github.ceiling.lowerBody":
     "Turns off: {features}. Sessions still on an earlier release are refused from their next GitHub request too.",
@@ -461,7 +678,119 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
 export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.nav": "GitHub 連携設定",
   "github.description":
-    "エージェントがリポジトリを clone し、承認された結果を push し、PR を開くときに使う GitHub App とリポジトリです。オーナーと管理者だけが変更できます。",
+    "エージェントが GitHub リポジトリに使う App、ワークスペースが許可する機能、App ごとの権限とインストール済みリポジトリです。",
+  "github.descriptionMember":
+    "エージェントが GitHub リポジトリに使う App と、ワークスペースが許可した機能です。オーナーと管理者が変更できます。",
+  "github.add": "App を追加",
+  "github.added": "{name} を追加しました。",
+  "github.rotated": "{name} のキーを交換しました。",
+  "github.empty.title":
+    "GitHub App を追加すると、エージェントがリポジトリを使えます",
+  "github.empty.hint":
+    "作成用 App で clone・push・PR を行い、レビュー承認用 App で PR にレビューを残します。",
+  "github.role.author.title": "作成用 App",
+  "github.role.author.hint":
+    "エージェントがリポジトリを clone し、承認された結果を push し、PR を開くときに使う App です。",
+  "github.role.author.badge": "作成用",
+  "github.role.author.features": "作成用 App で有効にできる機能",
+  "github.role.author.add": "作成用 App を追加",
+  "github.role.author.none": "作成用 App はありません。",
+  "github.role.reviewer.title": "レビュー承認用 App",
+  "github.role.reviewer.hint":
+    "エージェントが PR にレビューを残すときに使う App です。GitHub は PR を開いた App の承認を受け付けないため、作成用とは別の App にしてください。",
+  "github.role.reviewer.badge": "レビュー承認用",
+  "github.role.reviewer.features": "レビュー承認用 App で有効にできる機能",
+  "github.role.reviewer.add": "レビュー承認用 App を追加",
+  "github.role.reviewer.none": "レビュー承認用 App はありません。",
+  "github.ceiling.baseMeta": "GitHub を使うすべてのエージェント",
+  "github.ceiling.unsaved": "未保存",
+  "github.ceiling.theirs": "ほかの人が変更",
+  "github.ceiling.footChanged":
+    "{role} の機能を {count} 件変更します。保存すると下の表の必要な権限がこのとおり適用され、変更記録に残ります。",
+  "github.ceiling.footLowered":
+    "無効にする機能を有効にしたエージェント({list})は、次の GitHub リクエストから拒否されます。",
+  "github.ceiling.save": "保存",
+  "github.card.keyRejected": "キー拒否",
+  "github.card.memberLine": "App ID {id}",
+  "github.card.settings": "GitHub で App 設定",
+  "github.card.rotate": "キーを交換",
+  "github.card.rotateName": "{name} のキーを交換",
+  "github.card.lackingTitle": "この App に {list} の権限がありません",
+  "github.card.lackingNow": "有効にした機能のリクエストを GitHub が拒否します。",
+  "github.card.lackingDraft":
+    "このまま保存すると、有効にした機能のリクエストを GitHub が拒否します。",
+  "github.card.lackingFix":
+    "GitHub の App 設定で権限を追加し、インストールごとに変更を承認してください。",
+  "github.card.accounts": "{name} をインストールした GitHub アカウント",
+  "github.card.selectionAll": "すべてのリポジトリ {count} 件",
+  "github.card.selectionSelected": "選択したリポジトリ {count} 件",
+  "github.card.manageInstallation": "GitHub でインストールを管理",
+  "github.card.noInstallation":
+    "この App をインストールした GitHub アカウントはありません。",
+  "github.permissions.col.install": "インストール",
+  "github.permissions.changedRow": "(未保存の変更)",
+  "github.permissions.pendingCell": "(承認待ち)",
+  "github.permissions.folded":
+    "必要 {need} · App {app} · インストール {granted}",
+  "github.permissions.changedNote":
+    "青い行は、保存していない機能の変更で変わった必要な権限です: {list}。",
+  "github.permissions.status.beyond": "ガイドより広い",
+  "github.permissions.status.unused": "現在は不要",
+  "github.permissions.status.pending": "インストールの承認待ち",
+  "github.repos.title": "インストール済みリポジトリ",
+  "github.repos.col.name": "リポジトリ",
+  "github.repos.col.branch": "デフォルトブランチ",
+  "github.repos.col.agents": "選んだエージェント",
+  "github.repos.agents": "{count} 件",
+  "github.repos.empty": "このインストールが届くリポジトリはありません。",
+  "github.repos.range": "{from}–{to} / {total}",
+  "github.repos.pages": "{page} / {pages}",
+  "github.repos.nav": "{label} のリポジトリのページ",
+  "github.repos.previous": "{label} の前のページ",
+  "github.repos.next": "{label} の次のページ",
+  "github.repos.retry": "再試行",
+  "github.repos.unavailable.title":
+    "GitHub からリポジトリ一覧を受け取れませんでした",
+  "github.repos.unavailable.body":
+    "しばらくしてから再試行してください。保存された設定とエージェントの実行には影響しません。",
+  "github.repos.auth.title": "この App のキーを GitHub が受け付けません",
+  "github.repos.auth.body":
+    "GitHub の App 設定で新しい private key を作成し、キーを交換してください。",
+  "github.repos.suspended.title": "このインストールは GitHub で停止されています",
+  "github.repos.suspended.body":
+    "インストール管理で再開するまで、このアカウントのリポジトリへのリクエストは拒否されます。",
+  "github.outside.title": "インストール外のリポジトリ",
+  "github.outside.hint":
+    "エージェントが選んだことはあるが、今はどの作成用インストールも届かないリポジトリです。これを使うエージェントの GitHub リクエストは拒否されます。",
+  "github.outside.badge": "インストール外",
+  "github.outside.unchecked": "未確認",
+  "github.repo.editTitle": "デフォルトブランチを変更",
+  "github.addDialog.title": "GitHub App を追加",
+  "github.addDialog.hint":
+    "GitHub で作成した App の ID と private key を入力します。保存すると GitHub に問い合わせて App の名前・権限・インストールを読み込みます。GitHub はキーの公開部分しか保管しないため、以前の .pem がなければ App 設定 › Private keys で新しく作成してください。",
+  "github.addDialog.role": "用途",
+  "github.addDialog.authorHint": "clone・push・PR に使います。",
+  "github.addDialog.reviewerHint": "作成用とは別の App にしてください。",
+  "github.addDialog.taken":
+    "接続済みの App があります。変更するには危険な操作で接続を解除してください。",
+  "github.addDialog.full":
+    "作成用とレビュー承認用の App がどちらも接続されています。別の App に変えるには、危険な操作で今の App の接続を解除してから追加してください。",
+  "github.addDialog.submit": "追加",
+  "github.addDialog.close": "閉じる",
+  "github.rotate.title": "{name} のキーを交換",
+  "github.rotate.hint":
+    "同じ App で新しく作成した private key を入力します。GitHub が受け付けると、以前のキーの代わりに使います。",
+  "github.rotate.appIdHint": "キーを交換する App です。",
+  "github.rotate.submit": "確認して交換",
+  "github.disconnect.row": "{name} の接続を解除",
+  "github.disconnect.action": "接続を解除",
+  "github.disconnect.title": "{name} の接続を解除しますか?",
+  "github.disconnect.done": "{name} の接続を解除しました。",
+  "github.disconnect.authorHint":
+    "再び追加するまで、エージェントの clone・push・PR リクエストと実行中セッションの GitHub リクエストは拒否されます。GitHub の App とインストールはそのまま残ります。",
+  "github.disconnect.reviewerHint":
+    "再び追加するまで、エージェントのレビューリクエストは拒否されます。GitHub の App とインストールはそのまま残ります。",
+  "github.disconnect.userLink": "メンバーのアカウント連携も切れます。",
   "github.app": "GitHub App",
   "github.appHint":
     "エージェントはこの App 一つで clone・push・PR・Actions を行います。権限の元は GitHub にあり、ここではプラットフォームが必要とする水準と比べて表示します。",
@@ -646,10 +975,10 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.ceiling.receiptNote":
     "変更は監査記録(receipt)に残ります。チェック結果と Issue の書き込みは、まだ作業がないため一覧から外しました。",
   "github.ceiling.revert": "元に戻す",
-  "github.ceiling.saved": "最大の権限を保存しました。",
+  "github.ceiling.saved": "機能の設定を保存しました。",
   "github.ceiling.conflict":
-    "ほかの人が先に最大の権限を変更しました。保存されている値を読み直したので、確認してからもう一度保存してください。",
-  "github.ceiling.lowerTitle": "最大の権限を下げますか?",
+    "ほかの人が先に機能の設定を変更しました。変更された項目に印を付けたので、確認してからもう一度保存してください。",
+  "github.ceiling.lowerTitle": "機能を無効にしますか?",
   "github.ceiling.lowerBody":
     "{features} の権限を無効にします。以前のリリースで動いているセッションも、次の GitHub リクエストから拒否されます。",
   "github.ceiling.lowerItem":

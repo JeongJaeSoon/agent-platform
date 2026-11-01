@@ -13,73 +13,50 @@ import {
 import type {
   GitHubAppPermissionLevel,
   GitHubAppPermissions,
+  GitHubAppRole,
   GitHubCeiling,
   GitHubSettingsResponse,
   PutGitHubSettingsRequest,
 } from "@werft-ai/contracts";
-import { githubAppWarnings } from "@werft-ai/core/forms";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
   Badge,
   Button,
+  Card,
+  CardFooter,
   ConfirmDialog,
   GridTable,
   GridTableCell,
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
-  Link,
-  RowListItem,
+  RowList,
   SettingRow,
   Skeleton,
   Switch,
 } from "@werft-ai/ui";
 import { GitPullRequest, ShieldCheck } from "lucide-react";
-import { type FormEvent, type ReactNode, useId, useState } from "react";
+import { useId, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
-import {
-  permissionReason,
-  refusalText,
-  useHasPermission,
-  useMe,
-  useRole,
-} from "../auth/guard.tsx";
+import { refusalText, useMe, useRole } from "../auth/guard.tsx";
 import { IconTile } from "../components/icon-tile.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { isMessageKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 import {
-  BASE_NEED,
-  FEATURE_NEED,
-  firstShortfall,
-  OFFERED_FEATURES,
   type OfferedFeature,
   type PermissionRow,
-  permissionRows,
-  REVIEW_NEED,
+  permissionTable,
+  ROLE_FEATURES,
 } from "./github-permission-table.ts";
-import {
-  type OnOutcome,
-  ReadOnlyMark,
-  SettingsCard,
-} from "./workspace-settings.tsx";
+import type { OnOutcome } from "./workspace-settings.tsx";
 
-const STATUS = "text-caption text-subtle-foreground min-w-14 text-right";
-const META = "text-caption text-subtle-foreground";
-
-/** The anchors the summary and the ceiling's group heads link to. */
-export const GITHUB_APP_ANCHOR = "github-app";
-export const GITHUB_REVIEWER_ANCHOR = "github-reviewer";
+export const META = "text-caption text-subtle-foreground";
+const STATUS = `${META} min-w-14 text-right`;
 
 export const githubSettingsKey = (client: ApiClient, workspaceId: string) =>
   scopedKey(client, "workspace", workspaceId, "github-settings");
 
-/** `enabled` false keeps a late-mounted reader from fetching the settings again. */
-export function useGitHubSettings(
-  enabled = true,
-): UseQueryResult<GitHubSettingsResponse> {
+export function useGitHubSettings(): UseQueryResult<GitHubSettingsResponse> {
   const { client } = useAgentPlatform();
   const workspaceId = useMe()?.workspace?.id ?? "";
   return useQuery({
@@ -90,16 +67,16 @@ export function useGitHubSettings(
           params: { path: { id: workspaceId } },
         }),
       ),
-    enabled: enabled && workspaceId !== "",
+    enabled: workspaceId !== "",
   });
 }
 
-/** The tile an App is marked with wherever the screen names it. */
-export function AppTile({ app }: { readonly app: "author" | "reviewer" }) {
-  return app === "author" ? (
-    <IconTile icon={GitPullRequest} hue="slate" />
+/** The tile an App is marked with, as tall as the two lines beside it. */
+export function AppTile({ role }: { readonly role: GitHubAppRole }) {
+  return role === "author" ? (
+    <IconTile icon={GitPullRequest} hue="slate" size="two-line" />
   ) : (
-    <IconTile icon={ShieldCheck} hue="blue" />
+    <IconTile icon={ShieldCheck} hue="blue" size="two-line" />
   );
 }
 
@@ -112,289 +89,71 @@ export function permissionName(t: Translate, name: string): string {
   return isMessageKey(key) ? t(key) : name;
 }
 
-/** "Contents · Pull requests write": names joined, the level said once. */
-function needText(t: Translate, need: GitHubAppPermissions): string {
-  const levels = new Set(Object.values(need));
-  if (levels.size === 1) {
-    return `${Object.keys(need)
-      .map((name) => permissionName(t, name))
-      .join(
-        " · ",
-      )} ${levelText(t, [...levels][0] as GitHubAppPermissionLevel)}`;
-  }
-  return Object.entries(need)
-    .map(([name, level]) => `${permissionName(t, name)} ${levelText(t, level)}`)
-    .join(" · ");
-}
+const pick = (from: GitHubCeiling, role: GitHubAppRole) =>
+  Object.fromEntries(
+    ROLE_FEATURES[role].map((feature) => [feature, from[feature]]),
+  ) as Partial<GitHubCeiling>;
 
-function purposeText(t: Translate, row: PermissionRow, ceiling: GitHubCeiling) {
-  if (row.feature === "base") return t("github.permissions.use.base");
-  if (row.feature === "actions" || row.feature === "workflows") {
-    return t(
-      ceiling[row.feature]
-        ? `github.permissions.use.${row.feature}`
-        : `github.permissions.use.${row.feature}Off`,
-    );
-  }
-  return t("github.permissions.use.none");
-}
-
-const STATUS_BADGE = {
-  missing: "amber",
-  short: "amber",
-  wide: "amber",
-  ok: "green",
-} as const;
+export type CeilingDraft = ReturnType<typeof useCeilingDraft>;
 
 /**
- * The author App's permissions next to what the platform needs of it now,
- * one row a permission, problems first.
+ * The switches as the page shows them: one draft over the saved ceiling,
+ * read by every role section and permission table, saved and reverted a
+ * role at a time. Checks and issues, which no switch shows, and the other
+ * role's draft go back in the PUT as saved.
  */
-export function AppPermissionTable({
-  permissions,
-  ceiling,
-}: {
-  readonly permissions: GitHubAppPermissions | null;
-  readonly ceiling: GitHubCeiling | undefined;
-}) {
-  const { t } = useI18n();
-  const headingId = useId();
-  if (permissions === null || ceiling === undefined) {
-    return (
-      <div className="flex flex-col gap-2">
-        <h3 id={headingId} className="m-0 font-semibold text-control">
-          {t("github.permissions.title")}
-        </h3>
-        <p className={`m-0 ${META}`}>
-          {permissions === null
-            ? t("github.permissions.unread")
-            : t("github.permissions.waiting")}
-        </p>
-      </div>
-    );
-  }
-  // Beyond what the platform could ever use: red, and the alert says why.
-  const beyond = new Set(
-    githubAppWarnings("author", permissions).map((item) => item.permission),
-  );
-  const rows = permissionRows(permissions, ceiling);
-  return (
-    <div className="flex min-w-0 flex-col gap-2">
-      <h3 id={headingId} className="m-0 font-semibold text-control">
-        {t("github.permissions.title")}{" "}
-        <span className={`${META} font-normal`}>
-          · {t("github.permissions.hint")}
-        </span>
-      </h3>
-      <GridTable
-        aria-labelledby={headingId}
-        columns="minmax(0,1fr) 64px 64px 112px"
-        narrowAt={480}
-        narrowColumns="minmax(0,1fr) 48px 48px 96px"
-        className="rounded-card border"
-      >
-        <GridTableHeader>
-          <GridTableColumnHeader>
-            {t("github.permissions.col.name")}
-          </GridTableColumnHeader>
-          <GridTableColumnHeader>
-            {t("github.permissions.col.need")}
-          </GridTableColumnHeader>
-          <GridTableColumnHeader>
-            {t("github.permissions.col.app")}
-          </GridTableColumnHeader>
-          <GridTableColumnHeader align="end">
-            {t("github.permissions.col.status")}
-          </GridTableColumnHeader>
-        </GridTableHeader>
-        {rows.map((row) => {
-          const wideRed = row.status === "wide" && beyond.has(row.name);
-          return (
-            <GridTableRow key={row.name} data-status={row.status}>
-              <GridTableCell>
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate">
-                    {permissionName(t, row.name)}
-                  </span>
-                  <span className="truncate font-mono text-caption text-subtle-foreground">
-                    {row.name} · {purposeText(t, row, ceiling)}
-                  </span>
-                </span>
-              </GridTableCell>
-              <GridTableCell>
-                <Level t={t} level={row.need} />
-              </GridTableCell>
-              <GridTableCell>
-                <Level t={t} level={row.app} />
-              </GridTableCell>
-              <GridTableCell align="end">
-                <Badge variant={wideRed ? "red" : STATUS_BADGE[row.status]}>
-                  {t(`github.permissions.status.${row.status}`)}
-                </Badge>
-              </GridTableCell>
-            </GridTableRow>
-          );
-        })}
-      </GridTable>
-      <p className={`m-0 ${META}`}>{t("github.permissions.foot")}</p>
-      {beyond.size > 0 ? (
-        <Alert variant="amber">
-          <AlertTitle>{t("github.permissions.wideTitle")}</AlertTitle>
-          <AlertDescription>
-            {t("github.permissions.wideBody", {
-              list: [...beyond]
-                .sort()
-                .map(
-                  (name) =>
-                    `${name} ${levelText(t, permissions[name] as GitHubAppPermissionLevel)}`,
-                )
-                .join(", "),
-            })}
-          </AlertDescription>
-        </Alert>
-      ) : null}
-    </div>
-  );
-}
-
-function Level({
-  t,
-  level,
-}: {
-  readonly t: Translate;
-  readonly level: GitHubAppPermissionLevel | null;
-}) {
-  if (level === null) {
-    return (
-      <span className="text-subtle-foreground">
-        <span aria-hidden="true">—</span>
-        <span className="sr-only">{t("github.permissions.levelNone")}</span>
-      </span>
-    );
-  }
-  return <span>{levelText(t, level)}</span>;
-}
-
-type AppSide = {
-  readonly name: string | null;
-  readonly permissions: GitHubAppPermissions | null;
-} | null;
-
-/** What a feature asks its App for, and what that App holds of it. */
-function NeedLine({
-  t,
-  need,
-  app,
-}: {
-  readonly t: Translate;
-  readonly need: GitHubAppPermissions;
-  readonly app: AppSide;
-}) {
-  const short = app ? firstShortfall(need, app.permissions) : null;
-  return (
-    <div className={META}>
-      {t("github.ceiling.needLabel")}: {needText(t, need)}
-      {app?.permissions ? (
-        short ? (
-          <span className="text-(color:--ap-tone-caution-fg)">
-            {" · "}
-            {short.held
-              ? t("github.ceiling.heldShort", {
-                  level: levelText(t, short.held),
-                })
-              : t("github.ceiling.heldNone")}
-          </span>
-        ) : (
-          ` · ${t("github.ceiling.heldOk")}`
-        )
-      ) : null}
-    </div>
-  );
-}
-
-function GroupHead({
-  app,
-  title,
-  aside,
-}: {
-  readonly app: "author" | "reviewer";
-  readonly title: string;
-  readonly aside: ReactNode;
-}) {
-  return (
-    <RowListItem className="flex items-center gap-2 bg-surface-sunken py-2 font-medium text-caption">
-      <AppTile app={app} />
-      <span className="min-w-0 flex-1 truncate">{title}</span>
-      {aside}
-    </RowListItem>
-  );
-}
-
-/**
- * What agents may turn on beyond writing a PR, grouped by the App whose
- * permissions each feature's token comes from. Owners and admins change it,
- * the rule the execution-profile ceiling keeps; lowering asks first, since a
- * running release loses the feature at its next token.
- */
-export function Ceiling({
-  settings,
-  author,
-  reviewer,
-  onOutcome,
-}: {
-  readonly settings: UseQueryResult<GitHubSettingsResponse>;
-  /** The author App as last read; null when none is registered. */
-  readonly author: AppSide;
-  readonly reviewer: AppSide;
-  readonly onOutcome: OnOutcome;
-}) {
+export function useCeilingDraft(
+  settings: UseQueryResult<GitHubSettingsResponse>,
+  onOutcome: OnOutcome,
+) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   const role = useRole();
   const workspaceId = useMe()?.workspace?.id ?? "";
-  const canManage = useHasPermission("workspace.manage");
-  // The draft keeps the revision it was made on: a refetch while editing
-  // must not let the save overwrite a change this screen never showed.
-  const [draft, setDraft] = useState<{
-    readonly ceiling: GitHubCeiling;
-    readonly base: GitHubSettingsResponse;
-  } | null>(null);
-  const [confirming, setConfirming] = useState(false);
-  const hintId = useId();
-  const data = settings.data;
-  const shown = draft?.ceiling ?? data?.ceiling;
-  const changed = OFFERED_FEATURES.filter(
-    (feature) =>
-      draft !== null && draft.ceiling[feature] !== draft.base.ceiling[feature],
-  );
-  const lowered = changed.filter((feature) => draft?.base.ceiling[feature]);
+  const [draft, setDraft] = useState<GitHubCeiling | null>(null);
+  // Switches someone else changed under a draft a save then found stale.
+  const [theirs, setTheirs] = useState<readonly OfferedFeature[]>([]);
+  const saved = settings.data?.ceiling;
+  const shown = draft ?? saved;
+
+  const changedOf = (appRole: GitHubAppRole): OfferedFeature[] =>
+    draft === null || saved === undefined
+      ? []
+      : ROLE_FEATURES[appRole].filter(
+          (feature) => draft[feature] !== saved[feature],
+        );
 
   const save = useMutation<
     GitHubSettingsResponse,
     ApiError,
-    PutGitHubSettingsRequest
+    PutGitHubSettingsRequest & { readonly appRole: GitHubAppRole }
   >({
-    mutationFn: (body) =>
+    mutationFn: ({ ceiling, revision }) =>
       unwrap(
         client.PUT("/v1/workspaces/{id}/github-settings", {
           params: { path: { id: workspaceId } },
-          body,
+          body: { ceiling, revision },
         }),
       ),
     onMutate: () => onOutcome(null),
-    onSuccess: (next) => {
-      setConfirming(false);
+    onSuccess: (next, { appRole }) => {
       queryClient.setQueryData(githubSettingsKey(client, workspaceId), next);
-      setDraft(null);
+      setDraft((was) => (was ? { ...was, ...pick(next.ceiling, appRole) } : was));
+      setTheirs([]);
       onOutcome({ kind: "notice", text: t("github.ceiling.saved") });
     },
-    onError: async (error) => {
-      setConfirming(false);
+    onError: async (error, { appRole }) => {
       if (isApiError(error, "REVISION_CONFLICT")) {
-        // The screen shows what is saved now; the owner decides again on it.
-        setDraft(null);
-        await settings.refetch();
+        // The draft stays; the switches someone else moved are marked.
+        const fresh = (await settings.refetch()).data?.ceiling;
+        if (fresh && draft) {
+          setTheirs(
+            ROLE_FEATURES[appRole].filter(
+              (feature) => fresh[feature] !== draft[feature],
+            ),
+          );
+        }
         onOutcome({ kind: "error", text: t("github.ceiling.conflict") });
         return;
       }
@@ -405,194 +164,372 @@ export function Ceiling({
     },
   });
 
-  const send = () => {
-    if (save.isPending || draft === null) return;
-    save.mutate({ ceiling: draft.ceiling, revision: draft.base.revision });
+  return {
+    saved,
+    shown,
+    saving: save.isPending,
+    theirs,
+    changedOf,
+    toggle(feature: OfferedFeature, on: boolean) {
+      if (shown === undefined) return;
+      setDraft({ ...shown, [feature]: on });
+    },
+    revert(appRole: GitHubAppRole) {
+      if (saved === undefined) return;
+      setDraft((was) => (was ? { ...was, ...pick(saved, appRole) } : was));
+      setTheirs([]);
+    },
+    save(appRole: GitHubAppRole) {
+      const data = settings.data;
+      if (save.isPending || draft === null || data === undefined) return;
+      save.mutate({
+        appRole,
+        ceiling: { ...data.ceiling, ...pick(draft, appRole) },
+        revision: data.revision,
+      });
+    },
   };
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    if (changed.length === 0) return;
-    if (lowered.length > 0) setConfirming(true);
-    else send();
-  };
+}
 
-  const featureRow = (feature: OfferedFeature) => {
-    const on = shown?.[feature] ?? false;
-    const app = feature === "review" ? reviewer : author;
-    const need = feature === "review" ? REVIEW_NEED : FEATURE_NEED[feature];
-    const short =
-      app === null ? null : firstShortfall(need, app.permissions ?? null);
-    // A review needs a reviewer App; one already on can still be turned off.
-    const locked = feature === "review" && reviewer === null && !on;
-    return (
-      <SettingRow
-        key={feature}
-        title={t(`github.ceiling.feature.${feature}`)}
-        badge={
-          short ? (
-            <Badge variant="amber">{t("github.ceiling.appShort")}</Badge>
-          ) : feature === "review" ? (
-            <Badge>{t("github.reviewer.advanced")}</Badge>
-          ) : undefined
-        }
-        description={t(`github.ceiling.feature.${feature}Hint`)}
-        meta={
-          <>
-            <NeedLine t={t} need={need} app={app} />
-            <div className={META}>
-              {t("github.ceiling.agentsUsing", {
-                count: data?.agents_using[feature] ?? 0,
-              })}
-            </div>
-          </>
-        }
-        status={
-          <div aria-hidden="true" className={STATUS}>
-            {t(on ? "github.ceiling.allowed" : "github.ceiling.denied")}
-          </div>
-        }
-        control={
-          <Switch
-            checked={on}
-            aria-describedby={canManage ? undefined : hintId}
-            disabled={
-              !canManage || save.isPending || data === undefined || locked
-            }
-            onCheckedChange={(next) => {
-              const base = draft?.base ?? data;
-              if (base === undefined) return;
-              setDraft({
-                base,
-                ceiling: {
-                  ...(draft?.ceiling ?? base.ceiling),
-                  [feature]: next,
-                },
-              });
-            }}
-          />
-        }
-      />
-    );
-  };
+const ROLE_BASE: Record<GitHubAppRole, boolean> = {
+  author: true,
+  reviewer: false,
+};
 
-  const appLink = (anchor: string) => (
-    <Link href={`#${anchor}`} className="shrink-0">
-      {t("github.ceiling.viewApp")}
-    </Link>
+/**
+ * What a role's App lets agents turn on, as switches over the workspace's
+ * ceiling. A change shows "unsaved" on its row and a save strip under the
+ * list, which saves this role's switches only; lowering one agents use
+ * asks first.
+ */
+export function FeatureList({
+  appRole,
+  settings,
+  ceiling,
+  canManage,
+  hasApp,
+}: {
+  readonly appRole: GitHubAppRole;
+  readonly settings: UseQueryResult<GitHubSettingsResponse>;
+  readonly ceiling: CeilingDraft;
+  readonly canManage: boolean;
+  /** A switch with no App to serve it stays off; one on can be turned off. */
+  readonly hasApp: boolean;
+}) {
+  const { t } = useI18n();
+  const [confirming, setConfirming] = useState(false);
+  const data = settings.data;
+  const shown = ceiling.shown;
+  const changed = ceiling.changedOf(appRole);
+  const lowered = changed.filter(
+    (feature) => ceiling.saved?.[feature] && (data?.agents_using[feature] ?? 0) > 0,
   );
+  const using = (feature: OfferedFeature) => data?.agents_using[feature] ?? 0;
+  const lowerList = lowered
+    .map((feature) =>
+      t("github.ceiling.lowerItem", {
+        feature: t(`github.ceiling.feature.${feature}`),
+        count: using(feature),
+      }),
+    )
+    .join(", ");
 
-  const rows = settings.isPending ? (
-    <RowListItem>
+  const body = settings.isPending ? (
+    <div className="p-4">
       <Skeleton width="50%" />
-    </RowListItem>
+    </div>
   ) : settings.isError ? (
-    <RowListItem>
+    <div className="p-4">
       <LoadFailure
         error={settings.error}
         onRetry={() => void settings.refetch()}
       />
-    </RowListItem>
+    </div>
   ) : (
-    <>
-      <GroupHead
-        app="author"
-        title={
-          author?.name
-            ? t("github.ceiling.groupAuthor", { name: author.name })
-            : t("github.ceiling.groupAuthorUnset")
-        }
-        aside={author ? appLink(GITHUB_APP_ANCHOR) : null}
-      />
-      <SettingRow
-        title={t("github.ceiling.base")}
-        badge={<Badge>{t("github.ceiling.baseBadge")}</Badge>}
-        description={t("github.ceiling.baseHint")}
-        meta={<NeedLine t={t} need={BASE_NEED} app={author} />}
-        actions={<div className={STATUS}>{t("github.ceiling.always")}</div>}
-      />
-      {featureRow("actions")}
-      {featureRow("workflows")}
-      <GroupHead
-        app="reviewer"
-        title={t("github.ceiling.groupReviewer")}
-        aside={
-          !reviewer ? (
-            <Badge>{t("github.unset")}</Badge>
-          ) : canManage ? (
-            // Members do not get the reviewer section the link points to.
-            appLink(GITHUB_REVIEWER_ANCHOR)
-          ) : null
-        }
-      />
-      {featureRow("review")}
-    </>
+    <RowList
+      variant="joined"
+      className="rounded-none border-0 bg-transparent"
+      aria-label={t(`github.role.${appRole}.features`)}
+    >
+      {ROLE_BASE[appRole] ? (
+        <SettingRow
+          title={t("github.ceiling.base")}
+          badge={<Badge>{t("github.ceiling.baseBadge")}</Badge>}
+          description={t("github.ceiling.baseHint")}
+          meta={<div className={META}>{t("github.ceiling.baseMeta")}</div>}
+          actions={<div className={STATUS}>{t("github.ceiling.always")}</div>}
+        />
+      ) : null}
+      {ROLE_FEATURES[appRole].map((feature) => {
+        const on = shown?.[feature] ?? false;
+        const title = t(`github.ceiling.feature.${feature}`);
+        return (
+          <SettingRow
+            key={feature}
+            title={title}
+            badge={
+              ceiling.theirs.includes(feature) ? (
+                <Badge variant="amber">{t("github.ceiling.theirs")}</Badge>
+              ) : changed.includes(feature) ? (
+                <Badge variant="blue">{t("github.ceiling.unsaved")}</Badge>
+              ) : undefined
+            }
+            description={t(`github.ceiling.feature.${feature}Hint`)}
+            meta={
+              <div className={META}>
+                {t("github.ceiling.agentsUsing", { count: using(feature) })}
+              </div>
+            }
+            status={
+              <div aria-hidden="true" className={STATUS}>
+                {t(on ? "github.ceiling.allowed" : "github.ceiling.denied")}
+              </div>
+            }
+            control={
+              <Switch
+                aria-label={title}
+                checked={on}
+                disabled={
+                  !canManage ||
+                  ceiling.saving ||
+                  data === undefined ||
+                  (!hasApp && !on)
+                }
+                onCheckedChange={(next) => ceiling.toggle(feature, next)}
+              />
+            }
+          />
+        );
+      })}
+    </RowList>
   );
 
   return (
-    <>
-      <SettingsCard
-        title={t("github.ceiling.title")}
-        description={t("github.ceiling.hint")}
-        rows={rows}
-        onSubmit={submit}
-        foot={
-          canManage ? (
-            <>
-              <div className={META}>{t("github.ceiling.receiptNote")}</div>
-              <div className="flex gap-2">
-                {changed.length > 0 ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setDraft(null)}
-                  >
-                    {t("github.ceiling.revert")}
-                  </Button>
-                ) : null}
-                {/* aria-disabled, not disabled: a disabled button drops its focus. */}
-                <Button
-                  type="submit"
-                  size="sm"
-                  className="aria-disabled:opacity-45"
-                  aria-disabled={
-                    changed.length === 0 || save.isPending || undefined
-                  }
-                >
-                  {t("workspace.save")}
-                </Button>
-              </div>
-            </>
-          ) : (
-            <div id={hintId} className="flex flex-wrap items-center gap-2">
-              <ReadOnlyMark />
-              <div className={META}>
-                {permissionReason(t, "workspace.manage", role)}
-              </div>
-            </div>
-          )
-        }
-      />
+    <Card flush>
+      {body}
+      {canManage && changed.length > 0 ? (
+        <CardFooter variant="form">
+          <div className={META}>
+            {t("github.ceiling.footChanged", {
+              role: t(`github.role.${appRole}.title`),
+              count: changed.length,
+            })}
+            {lowered.length > 0
+              ? ` ${t("github.ceiling.footLowered", { list: lowerList })}`
+              : ""}
+          </div>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => ceiling.revert(appRole)}
+            >
+              {t("github.ceiling.revert")}
+            </Button>
+            {/* aria-disabled, not disabled: a disabled button drops its focus. */}
+            <Button
+              type="button"
+              size="sm"
+              className="aria-disabled:opacity-45"
+              aria-disabled={ceiling.saving || undefined}
+              onClick={() => {
+                if (ceiling.saving) return;
+                if (lowered.length > 0) setConfirming(true);
+                else ceiling.save(appRole);
+              }}
+            >
+              {t("github.ceiling.save")}
+            </Button>
+          </div>
+        </CardFooter>
+      ) : null}
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
         title={t("github.ceiling.lowerTitle")}
         // Per feature: one agent may turn on several, so the counts do not add.
-        consequence={t("github.ceiling.lowerBody", {
-          features: lowered
-            .map((feature) =>
-              t("github.ceiling.lowerItem", {
-                feature: t(`github.ceiling.feature.${feature}`),
-                count: data?.agents_using[feature] ?? 0,
-              }),
-            )
-            .join(", "),
-        })}
+        consequence={t("github.ceiling.lowerBody", { features: lowerList })}
         confirmLabel={t("github.ceiling.lowerConfirm")}
         cancelLabel={t("common.cancel")}
-        busy={save.isPending}
-        onConfirm={send}
+        busy={ceiling.saving}
+        onConfirm={() => {
+          setConfirming(false);
+          ceiling.save(appRole);
+        }}
       />
-    </>
+    </Card>
+  );
+}
+
+const BADGE_TONE = {
+  missing: "amber",
+  short: "amber",
+  beyond: "red",
+  unused: "gray",
+  ok: "green",
+  pending: "amber",
+} as const;
+
+/**
+ * An App's permissions against what its role needs under the switches as
+ * shown, and what the picked installation approved. Rows keep one order;
+ * a row the unsaved switches changed is tinted and said so.
+ */
+export function PermissionTable({
+  appRole,
+  appName,
+  permissions,
+  approved,
+  ceiling,
+  saved,
+  onRetry,
+}: {
+  readonly appRole: GitHubAppRole;
+  readonly appName: string;
+  /** Null when GitHub has not given them. */
+  readonly permissions: GitHubAppPermissions | null;
+  readonly approved: GitHubAppPermissions | null;
+  readonly ceiling: GitHubCeiling;
+  readonly saved: GitHubCeiling;
+  readonly onRetry?: (() => void) | undefined;
+}) {
+  const { t } = useI18n();
+  const headingId = useId();
+  const heading = (
+    <h4 id={headingId} className="m-0 font-semibold text-control">
+      {t("github.permissions.title")}
+      <span className="sr-only"> — {appName}</span>
+    </h4>
+  );
+  if (permissions === null) {
+    return (
+      <div className="flex min-w-0 flex-col gap-2">
+        {heading}
+        <p className={`m-0 ${META}`}>{t("github.permissions.unread")}</p>
+        {onRetry ? (
+          <div>
+            <Button type="button" size="sm" variant="outline" onClick={onRetry}>
+              {t("github.repos.retry")}
+            </Button>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+  const table = permissionTable({
+    role: appRole,
+    app: permissions,
+    approved,
+    ceiling,
+    saved,
+  });
+  const short = (level: GitHubAppPermissionLevel | null) =>
+    level ? levelText(t, level) : "—";
+  const granted = (row: PermissionRow) =>
+    row.approval === "unknown" ? t("github.unknown") : short(row.granted);
+  const none = (label: string) => (
+    <span className="text-subtle-foreground">
+      <span aria-hidden="true">—</span>
+      <span className="sr-only">{label}</span>
+    </span>
+  );
+  const level = (value: GitHubAppPermissionLevel | null) =>
+    value === null ? none(t("github.permissions.levelNone")) : levelText(t, value);
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      {heading}
+      <GridTable
+        aria-labelledby={headingId}
+        columns="minmax(0,1fr) 56px 56px 56px 112px"
+        narrowAt={480}
+        narrowColumns="minmax(0,1fr) 112px"
+        className="rounded-card border"
+      >
+        <GridTableHeader>
+          <GridTableColumnHeader>
+            {t("github.permissions.col.name")}
+          </GridTableColumnHeader>
+          <GridTableColumnHeader hideNarrow>
+            {t("github.permissions.col.need")}
+          </GridTableColumnHeader>
+          <GridTableColumnHeader hideNarrow>
+            {t("github.permissions.col.app")}
+          </GridTableColumnHeader>
+          <GridTableColumnHeader hideNarrow>
+            {t("github.permissions.col.install")}
+          </GridTableColumnHeader>
+          <GridTableColumnHeader align="end">
+            {t("github.permissions.col.status")}
+          </GridTableColumnHeader>
+        </GridTableHeader>
+        {table.rows.map((row) => (
+          <GridTableRow
+            key={row.name}
+            data-status={row.status}
+            data-approval={row.approval}
+            data-changed={row.changed || undefined}
+            className={
+              row.changed ? "bg-(color:--ap-tone-progress-bg)" : undefined
+            }
+          >
+            <GridTableCell>
+              <span className="flex min-w-0 flex-col">
+                <span className="[overflow-wrap:anywhere]" title={row.name}>
+                  {permissionName(t, row.name)}
+                  {row.changed ? (
+                    <span className="sr-only">
+                      {" "}
+                      {t("github.permissions.changedRow")}
+                    </span>
+                  ) : null}
+                </span>
+                {/* Below 480px the need, App and installation columns fold here. */}
+                <span
+                  className={`[overflow-wrap:anywhere] [@container(width>=480px)]:hidden ${META}`}
+                >
+                  {t("github.permissions.folded", {
+                    need: short(row.need),
+                    app: short(row.app),
+                    granted: granted(row),
+                  })}
+                </span>
+              </span>
+            </GridTableCell>
+            <GridTableCell hideNarrow>{level(row.need)}</GridTableCell>
+            <GridTableCell hideNarrow>{level(row.app)}</GridTableCell>
+            <GridTableCell hideNarrow>
+              {row.approval === "unknown" ? (
+                none(t("github.unknown"))
+              ) : row.approval === "pending" ? (
+                <span className="text-(color:--ap-tone-caution-fg)">
+                  {short(row.granted)}
+                  <span className="sr-only">
+                    {" "}
+                    {t("github.permissions.pendingCell")}
+                  </span>
+                </span>
+              ) : (
+                level(row.granted)
+              )}
+            </GridTableCell>
+            <GridTableCell align="end">
+              <Badge variant={BADGE_TONE[row.badge]}>
+                {t(`github.permissions.status.${row.badge}`)}
+              </Badge>
+            </GridTableCell>
+          </GridTableRow>
+        ))}
+      </GridTable>
+      <output className={`m-0 block ${META}`}>
+        {table.changed.length > 0
+          ? t("github.permissions.changedNote", {
+              list: table.changed
+                .map((row) => `${permissionName(t, row.name)} ${short(row.need)}`)
+                .join(", "),
+            })
+          : null}
+      </output>
+    </div>
   );
 }

@@ -52,9 +52,14 @@ export type OnOutcome = (outcome: Outcome | null) => void;
 
 export function WorkspacePage({
   page,
+  description,
+  actions,
   children,
 }: {
   readonly page: "general" | "slack" | "github";
+  /** In place of the page's own line, for a viewer it reads otherwise. */
+  readonly description?: string | undefined;
+  readonly actions?: ReactNode;
   readonly children: ReactNode;
 }) {
   const { t } = useI18n();
@@ -70,15 +75,19 @@ export function WorkspacePage({
             ? "workspace.slack"
             : "github.nav",
       )}
-      description={t(
-        page === "slack"
-          ? "workspace.slackDescription"
-          : page === "github"
-            ? "github.description"
-            : editable
-              ? "workspace.description"
-              : "workspace.readOnly",
-      )}
+      description={
+        description ??
+        t(
+          page === "slack"
+            ? "workspace.slackDescription"
+            : page === "github"
+              ? "github.description"
+              : editable
+                ? "workspace.description"
+                : "workspace.readOnly",
+        )
+      }
+      actions={actions}
     >
       <div className={SECTIONS}>{children}</div>
     </Page>

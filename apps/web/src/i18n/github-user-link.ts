@@ -1,7 +1,7 @@
 export const githubUserLinkKo = {
   "githubUserLink.title": "사용자 계정 연결",
   "githubUserLink.intro":
-    "구성원이 자기 GitHub 계정을 연결하면, 그 사람이 시작한 세션의 commit에 공동 작성자로 이름이 들어갑니다. 작성용 App의 GitHub 설정에 아래 콜백 URL을 넣고, 그 App에서 만든 client secret을 여기에 입력하세요.",
+    "구성원이 자기 GitHub 계정을 연결하면, 그 사람이 시작한 세션의 commit에 공동 작성자로 이름이 들어갑니다. {name}의 사용자 인증을 씁니다. 그 App의 GitHub 설정에 아래 콜백 URL을 넣고, 그 App에서 만든 client secret을 여기에 입력하세요.",
   "githubUserLink.clientId": "Client ID",
   "githubUserLink.clientIdUnset":
     "GitHub App을 등록하면 GitHub가 알려 주는 값이 여기에 보입니다.",
@@ -28,7 +28,7 @@ export const githubUserLinkKo = {
 export const githubUserLinkEn: Record<keyof typeof githubUserLinkKo, string> = {
   "githubUserLink.title": "User account linking",
   "githubUserLink.intro":
-    "When members link their GitHub account, commits of the sessions they start name them as co-author. Put the callback URL below in the author App's settings on GitHub, and enter a client secret made in that App here.",
+    "When members link their GitHub account, commits of the sessions they start name them as co-author. It uses {name}'s user authorization: put the callback URL below in that App's settings on GitHub, and enter a client secret made in that App here.",
   "githubUserLink.clientId": "Client ID",
   "githubUserLink.clientIdUnset":
     "Shown here once a GitHub App is registered and GitHub reports it.",
@@ -55,7 +55,7 @@ export const githubUserLinkEn: Record<keyof typeof githubUserLinkKo, string> = {
 export const githubUserLinkJa: Record<keyof typeof githubUserLinkKo, string> = {
   "githubUserLink.title": "ユーザーアカウント連携",
   "githubUserLink.intro":
-    "メンバーが自分の GitHub アカウントを連携すると、その人が開始したセッションのコミットに共同作成者として名前が入ります。作成用 App の GitHub 設定に下のコールバック URL を入れ、その App で作成した client secret をここに入力してください。",
+    "メンバーが自分の GitHub アカウントを連携すると、その人が開始したセッションのコミットに共同作成者として名前が入ります。{name} のユーザー認可を使います。その App の GitHub 設定に下のコールバック URL を入れ、その App で作成した client secret をここに入力してください。",
   "githubUserLink.clientId": "Client ID",
   "githubUserLink.clientIdUnset":
     "GitHub App を登録すると、GitHub が返す値がここに表示されます。",
