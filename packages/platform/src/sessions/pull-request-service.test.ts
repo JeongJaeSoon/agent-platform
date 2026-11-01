@@ -9,6 +9,7 @@ import {
   type AuthorizationPolicy,
   callerFor,
   createAuthorizationPolicy,
+  type SessionAccess,
 } from "../musterrolle/policy.ts";
 import { ForgeCredentialError, type ForgePullRequest } from "../ports/forge.ts";
 import {
@@ -37,6 +38,11 @@ import { SessionServiceError } from "./session-service.ts";
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const PUSH = "22222222-2222-4222-8222-222222222222";
 const HEAD = `agent/${SESSION}`;
+// No session here was started by the calling key.
+const UNTRACED_SESSIONS: SessionAccess = {
+  visibleTo: async () => true,
+  originOf: async () => null,
+};
 const ZWSP = "​";
 const CATALOG = {
   profiles: {},
@@ -256,7 +262,9 @@ function harness(
     },
   };
   const service = createPullRequestService({
-    authorization: options.authorization ?? createAuthorizationPolicy(),
+    authorization:
+      options.authorization ??
+      createAuthorizationPolicy({ sessions: UNTRACED_SESSIONS }),
     store,
     catalog: CATALOG,
     gate,
@@ -369,6 +377,7 @@ describe("opening a pull request", () => {
             keyCreator: { userId: issuer, role: "owner" },
           }),
         },
+        sessions: UNTRACED_SESSIONS,
       }),
     });
     const caller = callerFor(human, { kind: "api" }, "request-1", {
@@ -799,6 +808,7 @@ describe("a caller that may submit to the session", () => {
         resource.kind === "session" && resource.id === SESSION ? AGENT : null,
       isAdmin: async () => false,
     },
+    sessions: UNTRACED_SESSIONS,
   });
   const pulled: PullRequest = {
     push_request_id: PUSH,

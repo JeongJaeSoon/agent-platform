@@ -4,6 +4,7 @@ import { testCaller } from "@werft-ai/testkit";
 import type { PushSourceResult } from "../checkpoints/checkpoint-service.ts";
 import {
   type AuthorizationPolicy,
+  callerFor,
   createAuthorizationPolicy,
 } from "../musterrolle/policy.ts";
 import type {
@@ -166,7 +167,9 @@ describe("push request decisions", () => {
     const decided: Array<{ latest?: unknown }> = [];
     const approve = (readPushSource: () => Promise<PushSourceResult>) =>
       createPushRequestService({
-        authorization: createAuthorizationPolicy(),
+        authorization: createAuthorizationPolicy({
+          sessions: { visibleTo: async () => true, originOf: async () => null },
+        }),
         store: {
           decide: async (input: { latest?: unknown }) => {
             decided.push(input);
@@ -210,6 +213,116 @@ describe("push request decisions", () => {
     expect(decided.map((input) => input.latest)).toEqual([
       { revision: 3, gitCommit: "a".repeat(40) },
       null,
+    ]);
+  });
+
+  test("the key that started the session cannot approve its push; another key of the agent can (GA-8)", async () => {
+    const workspace = "9d2c4e61-8a3b-4f70-b1e5-6c0a7d3f2b98";
+    const agent = "019a0000-0000-7000-8000-0000000000a1";
+    const issuer = "019a0000-0000-7000-8000-0000000000c1";
+    const starter = "019a0000-0000-7000-8000-0000000000f1";
+    const second = "019a0000-0000-7000-8000-0000000000f2";
+    const refusals: PushRefusalRecord[] = [];
+    const decided: Array<{ deciderKey?: unknown; actor?: unknown }> = [];
+    let bodyRead = 0;
+    const push = createPushRequestService({
+      authorization: createAuthorizationPolicy({
+        identity: {
+          reread: async (s) => ({
+            status: "ok",
+            principal: s.principal,
+            keyAgentId: agent,
+          }),
+        },
+        agents: {
+          agentOf: async () => agent,
+          isAdmin: async () => false,
+        },
+        sessions: {
+          visibleTo: async () => true,
+          originOf: async () => ({
+            creatorUserId: null,
+            creatorApiKeyId: starter,
+          }),
+        },
+      }),
+      store: {
+        recordRefusal: async (input: PushRefusalRecord) => {
+          refusals.push(input);
+          return "receipt-self";
+        },
+        decide: async (input: { deciderKey?: unknown; actor?: unknown }) => {
+          decided.push(input);
+          return { outcome: "conflict" };
+        },
+      } as unknown as PushRequestStore,
+      catalog: CATALOG,
+      source: { readPushSource: async () => ({ status: "none" }) },
+    });
+    const actorOf = (id: string) => {
+      const principal: Principal = {
+        kind: "api_key",
+        id,
+        owner_id: workspace,
+        workspace_id: workspace,
+        scopes: ["sessions:read", "sessions:write", "sessions:approve"],
+      };
+      return {
+        caller: callerFor(principal, { kind: "api" }, "r", {
+          creatorId: null,
+          agentId: agent,
+          issuerId: issuer,
+        }),
+        principal,
+        ownerId: workspace,
+        verified: true,
+      };
+    };
+    const decide = (id: string) =>
+      push.decide(actorOf(id), SESSION, PUSH, {
+        idempotencyKey: `k-${id}`,
+        readBody: async () => {
+          bodyRead += 1;
+          return { decision: "approve", git_commit: "a".repeat(40) };
+        },
+      });
+
+    const error = await decide(starter).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(SessionServiceError);
+    expect((error as SessionServiceError).code).toBe("FORBIDDEN");
+    expect((error as SessionServiceError).details).toEqual({
+      refusal: "self_approval",
+      receipt_id: "receipt-self",
+    });
+    expect(refusals).toMatchObject([
+      {
+        operation: "decide_push",
+        refusal: "self_approval",
+        actor: {
+          principal: { kind: "api_key", id: starter },
+          agent_id: agent,
+        },
+        result: {
+          verdict: "refuse",
+          refusal: "self_approval",
+          decider_key: {
+            id: starter,
+            kind: "agent",
+            issued_by_user_id: issuer,
+          },
+        },
+      },
+    ]);
+    expect(bodyRead).toBe(0);
+    expect(decided).toEqual([]);
+
+    await decide(second).catch(() => {});
+    expect(bodyRead).toBe(1);
+    expect(decided).toMatchObject([
+      {
+        actor: { principal: { kind: "api_key", id: second } },
+        deciderKey: { id: second, kind: "agent", issued_by_user_id: issuer },
+      },
     ]);
   });
 

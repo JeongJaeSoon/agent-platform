@@ -717,8 +717,9 @@ type Rendered = {
       profiles?: string[];
       environment?: Record<string, string | null>;
       ports?: { host_ip?: string; published?: string; target: number }[];
-      volumes?: { source?: string; target: string }[];
+      volumes?: { source?: string; target: string; read_only?: boolean }[];
       depends_on?: Record<string, unknown>;
+      command?: string[];
     }
   >;
   volumes?: Record<string, unknown>;
@@ -1438,6 +1439,77 @@ describe("compose layers", () => {
         .sort();
       console.log(`${files.join(" + ")}: master key on ${holders.join(", ")}`);
       expect(holders).toEqual(["api", "slack"]);
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  // `scripts/local.sh dev`: the control host roles run the checkout's source
+  // read-only under the restarter, and the stack without the overlay is the
+  // same as before.
+  test(
+    "the dev overlay runs the control host roles on the mounted source and leaves the base render alone",
+    () => {
+      const base = render(["compose.yaml", FAKE_MODEL]);
+      const dev = render(["compose.yaml", FAKE_MODEL, "infra/compose.dev.yml"]);
+      expect({ exitCode: dev.exitCode, stderr: dev.stderr }).toEqual({
+        exitCode: 0,
+        stderr: "",
+      });
+      const services = dev.model?.services ?? {};
+      const source = [
+        { source: "apps/control-host", target: "/app/apps/control-host" },
+        { source: "packages", target: "/app/packages" },
+        { source: "scripts/dev", target: "/app/scripts/dev" },
+      ];
+      const mounted = (name: string) =>
+        (services[name]?.volumes ?? [])
+          .filter(({ source }) => source?.startsWith(`${root}/`))
+          .map(({ source, target, read_only }) => ({
+            source: source?.slice(root.length + 1),
+            target,
+            read_only,
+          }));
+      for (const role of ["api", "scheduler", "reconciler"]) {
+        const command = services[role]?.command ?? [];
+        expect({
+          role,
+          head: command.slice(0, 2),
+          tail: command.slice(-4),
+        }).toEqual({
+          role,
+          head: ["bun", "scripts/dev/hot-restart.ts"],
+          tail: ["bun", "run", "apps/control-host/src/main.ts", role],
+        });
+        expect({ role, mounted: mounted(role) }).toEqual({
+          role,
+          mounted: expect.arrayContaining(
+            source.map((mount) => ({ ...mount, read_only: true })),
+          ),
+        });
+      }
+      // What the layers already mount stays.
+      expect(
+        services.scheduler?.volumes?.map(({ target }) => target),
+      ).toContain("/var/run/docker.sock");
+      expect(services.api?.volumes?.map(({ target }) => target)).toContain(
+        "/app/config",
+      );
+      expect(Object.keys(services)).not.toContain("slack");
+      expect(Object.keys(services)).not.toContain("maintenance");
+
+      const baseServices = base.model?.services ?? {};
+      expect(Object.keys(baseServices)).toEqual(
+        expect.arrayContaining(["slack", "maintenance"]),
+      );
+      for (const [name, service] of Object.entries(baseServices))
+        expect({
+          name,
+          source: (service.volumes ?? []).some(
+            ({ target }) => target === "/app/apps/control-host",
+          ),
+        }).toEqual({ name, source: false });
+      // The image's own CMD.
+      expect(baseServices.api?.command ?? null).toBeNull();
     },
     COMPOSE_RENDER_TIMEOUT_MS,
   );

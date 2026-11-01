@@ -36,6 +36,7 @@ interface Row {
   readonly draft: boolean;
   /** agents.tsx draws an archived row in the inactive tone. */
   readonly archived?: boolean;
+  readonly paused?: boolean;
   readonly slack: Slack;
   readonly why: string;
   // Detail stories only draw Release Notes; other rows stay unlinked rather
@@ -51,6 +52,20 @@ const SLACK = {
   error: ["오류", "red"],
   none: ["연결 안 됨", "gray"],
 } as const;
+
+// apps/web agent-state.tsx: the state's name alone, one tone each.
+const STATE = {
+  draft: ["초안", "blue"],
+  released: ["릴리스", "green"],
+  paused: ["일시정지", "amber"],
+  archived: ["보관됨", "gray"],
+} as const;
+
+function stateOf(row: Row): keyof typeof STATE {
+  if (row.archived) return "archived";
+  if (row.draft) return "draft";
+  return row.paused ? "paused" : "released";
+}
 
 const RELEASE_NOTES: Row = {
   name: "Release Notes",
@@ -74,6 +89,7 @@ const ROWS = {
       name: "On-call Helper",
       slug: "oncall-helper",
       draft: false,
+      paused: true,
       slack: "action",
       why: "승인 요청 1건",
     },
@@ -192,13 +208,14 @@ function AgentTable({ rows }: { readonly rows: readonly Row[] }) {
                   </div>
                 </TableCell>
                 <TableCell className={cn(FIT, LAST_WHEN_NARROW)}>
-                  {row.archived ? (
-                    <Badge variant="gray">보관됨</Badge>
-                  ) : (
-                    <Badge variant={row.draft ? "gray" : "green"}>
-                      {row.draft ? "초안" : "활성"}
-                    </Badge>
-                  )}
+                  <Badge
+                    variant={STATE[stateOf(row)][1]}
+                    className={
+                      row.archived ? "text-muted-foreground" : undefined
+                    }
+                  >
+                    {STATE[stateOf(row)][0]}
+                  </Badge>
                 </TableCell>
                 <TableCell className={cn(FIT, WIDE)}>
                   <div className="flex flex-col gap-[var(--ap-row-line-gap)]">

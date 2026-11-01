@@ -483,6 +483,32 @@ integration("pending requests and answers on PostgreSQL", () => {
     );
   });
 
+  test("a key refused for answering the session it started leaves a failed answer receipt (GA-8)", async () => {
+    const { owner, sessionId } = await runningSession();
+    const deciderKey = {
+      id: crypto.randomUUID(),
+      kind: "agent",
+      issued_by_user_id: crypto.randomUUID(),
+    } as const;
+    const id = await createPostgresPendingRequests(db).recordSelfApproval({
+      principal: owner,
+      sessionId: sessionId.toUpperCase(),
+      requestId: "req_self",
+      deciderKey,
+    });
+    expect(await receiptOf(id)).toMatchObject({
+      operation: "answer",
+      status: "failed",
+      targetRef: {
+        session_id: sessionId,
+        turn_id: null,
+        request_id: "req_self",
+      },
+      result: { reason_code: "self_approval", decider_key: deciderKey },
+      error: { code: "FORBIDDEN" },
+    });
+  });
+
   test("refuses options the request never offered, and answers of the other kind", async () => {
     const { owner, sessionId, worker } = await runningSession();
     const { requestId } = await register(worker, QUESTION);

@@ -15,14 +15,14 @@ An API key is a Bearer token for calling the `/v1` session API. Send it with eve
 | `sessions:approve` | Answer permission requests and questions, approve or reject push requests, open PRs and comment on them |
 | `sessions:recover` | Recovery decisions. Not included in `write` or `control` |
 
-A request without the scope gets 403 `FORBIDDEN` before the body is read. Issue `sessions:approve` only to people.
+A request without the scope gets 403 `FORBIDDEN` before the body is read. Both personal and agent keys can be issued with `sessions:approve`. No key approves requests of a session it started (403 `self_approval`); another key or a person approves them.
 
 ## Kinds
 
 | Kind | Issued by | How it behaves |
 | --- | --- | --- |
 | Personal key (`personal`) | Any member, their own only | Acts as the person who created it. Its scopes are the intersection of the key's scopes and the scopes that person's current role allows. If that person is deactivated, 401 |
-| Agent key (`agent` + `agent_id`) | owner, admin, and that agent's administrator | Acts as the key itself, not as a person. Creates and sees only sessions created from that agent's release. It keeps working after the person who issued it leaves. It cannot have `sessions:approve`, so it cannot approve requests or answer questions |
+| Agent key (`agent` + `agent_id`) | owner, admin, and that agent's administrator | Acts as the key itself, not as a person. Creates and sees only sessions created from that agent's release. It keeps working after the person who issued it leaves. With `sessions:approve` it approves requests and answers questions in that agent's sessions, except sessions it started itself |
 
 There is no key without an agent, that is, no key that reaches the whole workspace. Sending `kind: "agent"` without `agent_id` gets 400 `BAD_REQUEST`.
 
