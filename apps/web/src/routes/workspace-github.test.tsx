@@ -103,12 +103,13 @@ async function register(appId = "4242", card = "GitHub App") {
   // The reviewer App waits behind "Advanced".
   const advanced = cardOf(card).queryByRole("button", { name: "설정 열기" });
   if (advanced) await user.click(advanced);
-  await user.click(await cardOf(card).findByRole("button", { name: "등록" }));
+  const open = card === "GitHub App" ? "이미 있는 App 추가" : "등록";
+  await user.click(await cardOf(card).findByRole("button", { name: open }));
   const input = screen.getByLabelText("App ID");
   expect(document.activeElement === input).toBe(true);
   await user.type(input, appId);
   await user.upload(screen.getByLabelText("Private key (.pem)"), keyFile());
-  await user.click(screen.getByRole("button", { name: "확인하고 저장" }));
+  await user.click(screen.getByRole("button", { name: "연결" }));
   return user;
 }
 
@@ -214,15 +215,30 @@ describe("워크스페이스 GitHub 연결", () => {
     });
     const user = await setupUser();
     await user.click(
-      await (await authorCard()).findByRole("button", { name: "등록" }),
+      await (await authorCard()).findByRole("button", {
+        name: "이미 있는 App 추가",
+      }),
     );
-    await user.click(screen.getByRole("button", { name: "확인하고 저장" }));
+    // The form says why an old .pem cannot be fetched again, and links the docs.
+    const described = (
+      screen.getByLabelText("App ID").getAttribute("aria-describedby") ?? ""
+    )
+      .split(" ")
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" ");
+    expect(described).toContain("예전에 받은 .pem을 다시 내려받을 수 없습니다");
+    expect(
+      screen
+        .getByRole("link", { name: /GitHub 문서: 개인 키 관리/ })
+        .getAttribute("href"),
+    ).toContain("managing-private-keys-for-github-apps");
+    await user.click(screen.getByRole("button", { name: "연결" }));
     expect(screen.getByText("App ID를 숫자로 넣어 주세요.")).toBeDefined();
     expect(document.activeElement === screen.getByLabelText("App ID")).toBe(
       true,
     );
     await user.type(screen.getByLabelText("App ID"), "4242");
-    await user.click(screen.getByRole("button", { name: "확인하고 저장" }));
+    await user.click(screen.getByRole("button", { name: "연결" }));
     expect(screen.getByText(".pem 파일을 골라 주세요.")).toBeDefined();
     expect(
       document.activeElement === screen.getByLabelText("Private key (.pem)"),
@@ -330,14 +346,14 @@ describe("워크스페이스 GitHub 연결", () => {
     });
     const user = await setupUser();
     await user.click(
-      await (await authorCard()).findByRole("button", { name: "등록" }),
+      await (await authorCard()).findByRole("button", {
+        name: "이미 있는 App 추가",
+      }),
     );
     await user.type(screen.getByLabelText("App ID"), "4242");
     await user.upload(screen.getByLabelText("Private key (.pem)"), keyFile());
     // Two submits in one tick, before the first has read the file.
-    const form = screen
-      .getByRole("button", { name: "확인하고 저장" })
-      .closest("form");
+    const form = screen.getByRole("button", { name: "연결" }).closest("form");
     form?.requestSubmit();
     form?.requestSubmit();
     await screen.findByRole("status");
@@ -518,7 +534,9 @@ describe("워크스페이스 GitHub 연결", () => {
       ...settingsRead,
     });
     await waitFor(() =>
-      expect(screen.queryByRole("button", { name: "등록" })).toBeNull(),
+      expect(
+        screen.queryByRole("button", { name: "이미 있는 App 추가" }),
+      ).toBeNull(),
     );
     expect(api.calls.some((c) => c.path === APP || c.path === REVIEWER)).toBe(
       false,
@@ -696,6 +714,8 @@ describe("워크스페이스 GitHub 연결 — 사용자 계정 연결", () => {
     expect(
       screen.getByRole("region", { name: "위험 구역" }).contains(input),
     ).toBe(true);
+    // Replacing is not adding an existing App: no intro, no connect note.
+    expect(screen.queryByText(/예전에 받은 \.pem/)).toBeNull();
     await user.type(input, "4243");
     await user.upload(screen.getByLabelText("Private key (.pem)"), keyFile());
     await user.click(screen.getByRole("button", { name: "확인하고 저장" }));
