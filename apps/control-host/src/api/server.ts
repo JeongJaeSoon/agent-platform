@@ -750,6 +750,8 @@ const githubRepositories = createGitHubRepositoryService({
   store: catalogRepositoryStore,
   apps: githubAppStore,
   directory: githubAppDirectory,
+  agents: agentStore,
+  catalog,
   fileRepositories: profileSources.catalog.repositories,
   changed: () => workspaceProfileVersions.refresh(),
 });
