@@ -16,7 +16,8 @@ import type { Database } from "./queries.ts";
 import {
   agentReleases,
   agents,
-  checkpointOutputs,
+  checkpointOutputObjects,
+  checkpointOutputTotals,
   checkpoints,
   sessionModelUsage,
   sessionOutcomes,
@@ -336,14 +337,6 @@ function figuresOf(row: BreakdownRow) {
   };
 }
 
-// One row per output object: an object stays in the store while any
-// checkpoint naming it is uncollected, and a later checkpoint names its
-// parent's objects again rather than uploading them. Object keys carry the
-// session prefix, so a key never spans sessions. A collected revision still
-// counts until a pass has deleted its objects (objects_purged_at). Scans
-// checkpoint_outputs on every read.
-const outputObjects = sql`(SELECT ${checkpointOutputs.objectKey}, max(${checkpointOutputs.bytes}) AS bytes, bool_or(${checkpoints.objectsPurgedAt} IS NULL) AS kept, min(${checkpoints.committedAt}) AS first_at, max(${checkpoints.objectsPurgedAt}) AS released_at FROM ${checkpointOutputs} JOIN ${checkpoints} ON ${checkpoints.sessionId} = ${checkpointOutputs.sessionId} AND ${checkpoints.revision} = ${checkpointOutputs.revision} GROUP BY ${checkpointOutputs.objectKey}) AS output_objects`;
-
 function counted(condition: SQL | undefined) {
   return sql<number>`count(${turns.id}) FILTER (WHERE ${condition})`.mapWith(
     Number,
@@ -363,9 +356,7 @@ export function createPostgresUsageReader(db: Database): UsageReader {
             .from(workerLaunches)
             .where(isNull(workerLaunches.slotReleasedAt))})`.mapWith(Number),
           // Queued turns, not queue rows: a delivered input keeps its row
-          // until it settles. No index on turns.status, so this scans turns;
-          // add a partial index on status = 'queued' once that shows up in
-          // this route's latency.
+          // until it settles.
           queuedInputCount: sql<number>`(${db
             .select({ count: sql`count(*)` })
             .from(turns)
@@ -373,14 +364,18 @@ export function createPostgresUsageReader(db: Database): UsageReader {
           storageUsedBytes:
             sql<number>`coalesce(${storageUsage.bytes}, 0)`.mapWith(Number),
           storageUpdatedAt: storageUsage.updatedAt,
+          // An output object stays in the store while any checkpoint naming
+          // it is not purged; a later checkpoint names its parent's objects
+          // again rather than uploading them. Kept per key by triggers
+          // (checkpointOutputObjects).
           outputsUsedBytes:
-            sql<number>`(SELECT coalesce(sum(bytes) FILTER (WHERE kept), 0) FROM ${outputObjects})`.mapWith(
+            sql<number>`coalesce((SELECT ${checkpointOutputTotals.keptBytes} FROM ${checkpointOutputTotals} WHERE ${checkpointOutputTotals.scope} = 'installation'), 0)`.mapWith(
               Number,
             ),
           // A kept key's count moved when its first checkpoint committed; a
           // released key's when the last checkpoint naming it was purged.
           outputsUpdatedAt:
-            sql<Date | null>`(SELECT greatest(max(first_at), max(released_at) FILTER (WHERE NOT kept)) FROM ${outputObjects})`.mapWith(
+            sql<Date | null>`greatest((SELECT max(${checkpointOutputObjects.firstAt}) FROM ${checkpointOutputObjects}), (SELECT max(${checkpointOutputObjects.releasedAt}) FROM ${checkpointOutputObjects} WHERE ${checkpointOutputObjects.liveRefs} = 0))`.mapWith(
               (value) => new Date(value),
             ),
           // Rows collected before objects_purged_at existed are stamped by

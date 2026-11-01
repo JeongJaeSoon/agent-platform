@@ -14,8 +14,8 @@ import {
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
+import { migrate } from "./migrate.ts";
 import { MIGRATIONS_FOLDER } from "./migration-folder.ts";
 import * as schema from "./schema.ts";
 import {
@@ -37,8 +37,18 @@ const MIGRATIONS_ONLY = [
   "function agent_releases_approve_once() trigger language plpgsql volatility=v parallel=u body md5 c6e3025aa20a67be3dc0885bb3301b1b",
   "function agents_reject_mutation() trigger language plpgsql volatility=v parallel=u body md5 f434237a3126c21bab918af2558fbc88",
   "function authz_decisions_refuse_update() trigger language plpgsql volatility=v parallel=u body md5 f3f5febb7e684f1ec6da6675a5dc196c",
+  // 0201: counters kept by statement triggers, so /metrics and the usage
+  // panel read a few rows instead of aggregating their source tables.
+  "function checkpoint_output_objects_add() trigger language plpgsql volatility=v parallel=u body md5 ce8ec290ddac2d63d71d1106be79f97a",
+  "function checkpoint_output_objects_clear() trigger language plpgsql volatility=v parallel=u body md5 dbef021522410ff4a0caef67dd9503f0",
+  "function checkpoint_output_objects_forget() trigger language plpgsql volatility=v parallel=u body md5 1475242b94f49467838a4e0dcd12700e",
+  "function checkpoint_output_objects_recount(affected uuid[]) void language plpgsql volatility=v parallel=u body md5 fa8cb7ea69f7bee9c69cba73d958f0c9",
+  "function checkpoint_output_objects_release() trigger language plpgsql volatility=v parallel=u body md5 fbdc0ed8aed48cce0d51940877feccbd",
   // 0143: an agent identity's credential name is never an agent's.
   "function credential_bindings_exclusive_target() trigger language plpgsql volatility=v parallel=u body md5 55270e3870adbfee5a5edd2ab0daf6a8",
+  "function provider_usage_totals_add() trigger language plpgsql volatility=v parallel=u body md5 51a5dbe75562562eb9d0788546a19357",
+  "function provider_usage_totals_clear() trigger language plpgsql volatility=v parallel=u body md5 85a0b1f735cb692332ac4baaa297ba69",
+  "function provider_usage_totals_recount() trigger language plpgsql volatility=v parallel=u body md5 21f013ae13ff4eeb4ca390ed5296bf34",
   // 0000: the queue's admission count.
   "function queue_unassigned_session_count() double precision language sql volatility=s parallel=u body md5 77ab23e0fa3455549b846ff0e7980c2a",
   // 0172: a system pause's reason is cleared once the session leaves it.
@@ -48,6 +58,10 @@ const MIGRATIONS_ONLY = [
   "function sessions_count_provider_tokens() trigger language plpgsql volatility=v parallel=u body md5 d379ea7e669588977ef342b8f7d882d5",
   // 0107: retained input is charged to storage_usage as turns are inserted.
   "function storage_usage_charge_turn() trigger language plpgsql volatility=v parallel=u body md5 181d4bb80e87699778f44b2c2d4b738f",
+  "function tool_call_outcomes_add() trigger language plpgsql volatility=v parallel=u body md5 658a9e9cf14c49d749ab3d2d896981e9",
+  "function tool_call_outcomes_clear() trigger language plpgsql volatility=v parallel=u body md5 4a1a849f5fa78d7ae7af0811e384d367",
+  "function tool_call_outcomes_move() trigger language plpgsql volatility=v parallel=u body md5 82bf46a170d219511ff317b80c5fbedc",
+  "function tool_call_outcomes_recount() trigger language plpgsql volatility=v parallel=u body md5 6c067f1329647fde76975f2d42ad57b4",
   // 0170: tool_call_days' duration histogram, filled and summed in SQL.
   "function tool_hist(integer, integer) integer[] language internal volatility=i parallel=u body md5 3eb6d2f5e7ee95ed566dd6cdda54dac3",
   "function tool_hist_add(a integer[], b integer[]) integer[] language sql volatility=i parallel=s body md5 06b5f26e393c4c8ceab73150900e0667",
@@ -58,9 +72,20 @@ const MIGRATIONS_ONLY = [
   "trigger CREATE TRIGGER agent_releases_approve_once BEFORE DELETE OR UPDATE ON public.agent_releases FOR EACH ROW EXECUTE FUNCTION agent_releases_approve_once() enabled=O",
   "trigger CREATE TRIGGER agent_versions_insert_only BEFORE DELETE OR UPDATE ON public.agent_versions FOR EACH ROW EXECUTE FUNCTION agents_reject_mutation() enabled=O",
   "trigger CREATE TRIGGER authz_decisions_append_only BEFORE UPDATE ON public.authz_decisions FOR EACH ROW EXECUTE FUNCTION authz_decisions_refuse_update() enabled=O",
+  "trigger CREATE TRIGGER checkpoint_outputs_count_delete AFTER DELETE ON public.checkpoint_outputs REFERENCING OLD TABLE AS removed_rows FOR EACH STATEMENT EXECUTE FUNCTION checkpoint_output_objects_forget() enabled=O",
+  "trigger CREATE TRIGGER checkpoint_outputs_count_insert AFTER INSERT ON public.checkpoint_outputs REFERENCING NEW TABLE AS added_rows FOR EACH STATEMENT EXECUTE FUNCTION checkpoint_output_objects_add() enabled=O",
+  "trigger CREATE TRIGGER checkpoint_outputs_count_truncate AFTER TRUNCATE ON public.checkpoint_outputs FOR EACH STATEMENT EXECUTE FUNCTION checkpoint_output_objects_clear() enabled=O",
+  "trigger CREATE TRIGGER checkpoints_count_release AFTER UPDATE ON public.checkpoints REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION checkpoint_output_objects_release() enabled=O",
   "trigger CREATE TRIGGER credential_bindings_exclusive_target BEFORE INSERT OR UPDATE ON public.credential_bindings FOR EACH ROW EXECUTE FUNCTION credential_bindings_exclusive_target() enabled=O",
+  "trigger CREATE TRIGGER provider_usage_count_delete AFTER DELETE ON public.provider_usage REFERENCING OLD TABLE AS removed_rows FOR EACH STATEMENT EXECUTE FUNCTION provider_usage_totals_recount() enabled=O",
+  "trigger CREATE TRIGGER provider_usage_count_insert AFTER INSERT ON public.provider_usage REFERENCING NEW TABLE AS added_rows FOR EACH STATEMENT EXECUTE FUNCTION provider_usage_totals_add() enabled=O",
   "trigger CREATE TRIGGER provider_usage_count_tokens AFTER INSERT ON public.provider_usage FOR EACH ROW EXECUTE FUNCTION sessions_count_provider_tokens() enabled=O",
+  "trigger CREATE TRIGGER provider_usage_count_truncate AFTER TRUNCATE ON public.provider_usage FOR EACH STATEMENT EXECUTE FUNCTION provider_usage_totals_clear() enabled=O",
   "trigger CREATE TRIGGER sessions_clear_pause_reason BEFORE UPDATE ON public.sessions FOR EACH ROW WHEN (((new.pause_reason IS NOT NULL) AND (new.admission_state <> ALL (ARRAY['pausing'::admission_state, 'paused'::admission_state])))) EXECUTE FUNCTION sessions_clear_pause_reason() enabled=O",
+  "trigger CREATE TRIGGER tool_calls_count_delete AFTER DELETE ON public.tool_calls REFERENCING OLD TABLE AS removed_rows FOR EACH STATEMENT EXECUTE FUNCTION tool_call_outcomes_recount() enabled=O",
+  "trigger CREATE TRIGGER tool_calls_count_insert AFTER INSERT ON public.tool_calls REFERENCING NEW TABLE AS added_rows FOR EACH STATEMENT EXECUTE FUNCTION tool_call_outcomes_add() enabled=O",
+  "trigger CREATE TRIGGER tool_calls_count_truncate AFTER TRUNCATE ON public.tool_calls FOR EACH STATEMENT EXECUTE FUNCTION tool_call_outcomes_clear() enabled=O",
+  "trigger CREATE TRIGGER tool_calls_count_update AFTER UPDATE ON public.tool_calls REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION tool_call_outcomes_move() enabled=O",
   "trigger CREATE TRIGGER turns_charge_storage AFTER INSERT ON public.turns FOR EACH ROW EXECUTE FUNCTION storage_usage_charge_turn() enabled=O",
 ];
 

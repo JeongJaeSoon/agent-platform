@@ -12,6 +12,7 @@ export const GROWING_TABLES: readonly string[] = [
   "approval_checkpoints",
   "attempts",
   "authz_decisions",
+  "checkpoint_output_objects",
   "checkpoint_outputs",
   "checkpoints",
   "control_intents",
