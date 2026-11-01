@@ -31,6 +31,7 @@ import {
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
+  Link,
   RowListItem,
   SettingRow,
   Skeleton,
@@ -475,12 +476,9 @@ export function Ceiling({
   };
 
   const appLink = (anchor: string) => (
-    <a
-      href={`#${anchor}`}
-      className="shrink-0 font-medium text-link underline-offset-2 hover:underline"
-    >
+    <Link href={`#${anchor}`} className="shrink-0">
       {t("github.ceiling.viewApp")}
-    </a>
+    </Link>
   );
 
   const rows = settings.isPending ? (
@@ -518,11 +516,12 @@ export function Ceiling({
         app="reviewer"
         title={t("github.ceiling.groupReviewer")}
         aside={
-          reviewer ? (
-            appLink(GITHUB_REVIEWER_ANCHOR)
-          ) : (
+          !reviewer ? (
             <Badge>{t("github.unset")}</Badge>
-          )
+          ) : canManage ? (
+            // Members do not get the reviewer section the link points to.
+            appLink(GITHUB_REVIEWER_ANCHOR)
+          ) : null
         }
       />
       {featureRow("review")}

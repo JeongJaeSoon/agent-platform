@@ -158,7 +158,7 @@ function ReviewerAdvanced({ onOutcome }: { readonly onOutcome: OnOutcome }) {
               size="sm"
               variant="outline"
               aria-expanded={open}
-              aria-controls={panelId}
+              aria-controls={open ? panelId : undefined}
               onClick={() => setChosen(!open)}
             >
               {t(open ? "github.reviewer.close" : "github.reviewer.open")}
@@ -190,15 +190,15 @@ function GitHubSummary({
     (repository) => repositoryState(app, repository) !== "installed",
   ).length;
   const cell = (href: string, label: string, value: ReactNode) => (
-    <a
+    <Link
       href={`#${href}`}
-      className="flex min-w-0 flex-col gap-1 rounded-card border bg-card px-3 py-2 text-foreground no-underline hover:bg-hover"
+      className="flex min-w-0 flex-col gap-1 rounded-card border bg-card px-3 py-2 font-normal text-foreground no-underline hover:bg-hover hover:no-underline"
     >
       <span className={META}>{label}</span>
       <span className="flex min-w-0 flex-wrap items-center gap-2 font-medium text-control">
         {value}
       </span>
-    </a>
+    </Link>
   );
   return (
     <nav
@@ -342,12 +342,9 @@ function Installations({ data }: { readonly data: GetGitHubAppResponse }) {
           })}
         </ul>
       )}
-      <a
-        href={`#${REPOSITORIES_ANCHOR}`}
-        className="text-caption text-link underline-offset-2 hover:underline"
-      >
+      <Link href={`#${REPOSITORIES_ANCHOR}`} className="text-caption">
         {t("github.repositoriesByAccount")}
-      </a>
+      </Link>
     </div>
   );
 }
