@@ -20,7 +20,10 @@ export const repositoryBranchSchema = z
   .min(1)
   .max(255)
   .regex(
-    /^(?![-/.])(?!.*\.\.)(?!.*@\{)(?!.*\/\/)(?!.*\/\.)(?!.*\/$)(?!.*\.lock$)[^\s\p{Cc}~^:?*[\\]+$/u,
+    // No `u` flag and no \p{…}: the pattern is published in the OpenAPI
+    // document, and clients compile it as a plain regex.
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what it refuses
+    /^(?![-/.])(?!.*\.\.)(?!.*@\{)(?!.*\/\/)(?!.*\/\.)(?!.*\/$)(?!.*\.lock$)[^\s\x00-\x1f\x7f~^:?*[\\]+$/,
   );
 
 export const githubRepositoryParamsSchema = workspaceParamsSchema

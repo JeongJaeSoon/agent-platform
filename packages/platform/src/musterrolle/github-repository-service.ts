@@ -211,9 +211,10 @@ export function createGitHubRepositoryService(deps: {
     };
   };
 
-  /** The file id holding that GitHub repository with its own credential. */
+  /** The file id that already holds that github.com repository. */
   const fileHolder = (repository: { owner: string; name: string }) =>
     fileEntries
+      .filter(([, entry]) => new URL(entry.url).hostname === "github.com")
       .map(fileView)
       .find(
         (entry) =>

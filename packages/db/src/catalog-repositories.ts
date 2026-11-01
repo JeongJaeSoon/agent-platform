@@ -99,14 +99,20 @@ export function createPostgresCatalogRepositoryStore(
   return {
     listActive,
 
-    async readCatalog() {
-      const active = await listActive();
-      if (active.length > 0) return active;
-      const [any] = await db
-        .select({ id: catalogRepositories.id })
-        .from(catalogRepositories)
-        .limit(1);
-      return any ? active : null;
+    // One snapshot: a seed committing between two reads would otherwise
+    // read as "seeded, with no rows".
+    readCatalog() {
+      return db.transaction(
+        async (tx) => {
+          const rows = await tx
+            .select()
+            .from(catalogRepositories)
+            .orderBy(asc(catalogRepositories.id));
+          if (rows.length === 0) return null;
+          return rows.filter((row) => row.removedAt === null).map(rowOf);
+        },
+        { isolationLevel: "repeatable read", accessMode: "read only" },
+      );
     },
 
     seed(input) {
