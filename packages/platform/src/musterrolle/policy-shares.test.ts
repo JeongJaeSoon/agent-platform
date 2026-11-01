@@ -399,8 +399,8 @@ describe("session.share (D21)", () => {
 describe("session.approve (94S-798)", () => {
   // Seeing a session through its share is not answering for its creator.
   // o allowed, r refused (403), n not found (404), s the key that started
-  // the session (GA-8: every fixture session was started through the
-  // service key). Columns: owner, admin, creator, member, agent admin,
+  // the session (every fixture session was started through the service
+  // key). Columns: owner, admin, creator, member, agent admin,
   // service key, the creator's personal key.
   const WHO: Who[] = [
     "owner",
@@ -464,6 +464,39 @@ describe("session.approve (94S-798)", () => {
       request_id: "r",
     });
     expect(decision.reason_code).toBe("ok");
+  });
+
+  test("a key from before workspaces approves no session it started itself", async () => {
+    const legacy = callerFor(
+      {
+        kind: "api_key",
+        id: "legacy",
+        owner_id: WORKSPACE,
+        workspace_id: null,
+        scopes: [...SESSION_SCOPE_VALUES],
+      },
+      { kind: "api" },
+      "r",
+    );
+    const decision = await createAuthorizationPolicy({
+      identity: {
+        reread: async (s) => ({ status: "ok", principal: s.principal }),
+      },
+      agents,
+      sessions: {
+        ...sessions,
+        originOf: async () => ({
+          creatorUserId: null,
+          creatorApiKeyId: "legacy",
+        }),
+      },
+    }).authorize({
+      subject: legacy.subject,
+      action: "session.approve",
+      resource: { kind: "session", id: CREATORS_OPEN, owner_scope: WORKSPACE },
+      request_id: "r",
+    });
+    expect(decision.reason_code).toBe("self_approval");
   });
 
   test("a session link is not resolved to its session yet, so only a manager answers through one", async () => {

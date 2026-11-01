@@ -660,8 +660,6 @@ export function createPostgresPendingRequests(
           .limit(1)
           .for("update");
         if (!session) return { outcome: "not_found" };
-        // GA-8: a key bound to an agent answers for its agent's sessions,
-        // as the policy's agent ceiling and mayAnswer judged.
         const agentKey = requester.keyAgentId !== null;
         if (
           agentKey &&

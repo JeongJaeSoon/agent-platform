@@ -266,7 +266,6 @@ describe("API key", () => {
       expect(within(row).getByText(/^세션 보기/)).toBeDefined();
       expect(within(row).getByText("발급자가 떠나도 유효")).toBeDefined();
     }
-    // GA-8: an agent key may hold sessions:approve, so its badge says so too.
     expect(
       listed.map(
         (row) =>

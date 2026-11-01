@@ -92,7 +92,6 @@ export class SessionServiceError extends Error {
   }
 }
 
-/** requireAllowed's refusal of a key approving the session it started. */
 export function selfApproval(error: unknown): boolean {
   return (
     error instanceof SessionServiceError &&

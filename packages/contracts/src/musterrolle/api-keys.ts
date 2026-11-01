@@ -77,7 +77,7 @@ export const createApiKeyRequestSchema = z
   .object({
     kind: apiKeyKindSchema,
     name: apiKeyNameSchema.optional(),
-    // Never more than the issuer holds now, for either kind (GA-8).
+    // Never more than the issuer holds now.
     scopes: z.array(sessionScopeSchema).min(1),
     /** Required for an agent key, refused on a personal key. */
     agent_id: agentIdSchema.optional(),

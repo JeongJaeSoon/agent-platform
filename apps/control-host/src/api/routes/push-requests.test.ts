@@ -138,7 +138,6 @@ function app(
     store?: Partial<PushRequestStore>;
     source?: PushSourceResult;
     authMode?: "none";
-    /** The key that started the session; null for a person's session. */
     startedBy?: string | null;
   } = {},
 ) {

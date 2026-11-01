@@ -167,7 +167,9 @@ describe("push request decisions", () => {
     const decided: Array<{ latest?: unknown }> = [];
     const approve = (readPushSource: () => Promise<PushSourceResult>) =>
       createPushRequestService({
-        authorization: createAuthorizationPolicy(),
+        authorization: createAuthorizationPolicy({
+          sessions: { visibleTo: async () => true, originOf: async () => null },
+        }),
         store: {
           decide: async (input: { latest?: unknown }) => {
             decided.push(input);

@@ -189,7 +189,6 @@ describe("issuing a key", () => {
     });
     expect(issued.key.scopes).toEqual([...SESSION_SCOPE_VALUES]);
     expect(issued.key.scopes).toContain("sessions:approve");
-    // An agent's admin who is a member holds no recover to hand on.
     const beyond = await refusal(
       keys.issue(user(AGENT_ADMIN, "member"), {
         ...agentKey(AGENT_A),

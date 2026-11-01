@@ -438,18 +438,15 @@ export function createAuthorizationPolicy(
   }
   // 94S-798: seeing a session through its share is not answering for it,
   // nor renaming it (94S-804). Its creator answers (a key's session: that
-  // key), as do its agent's admins and the workspace's managers. GA-8: an
-  // agent key answers for its agent's sessions, which the agent ceiling
-  // already held it to, and no key approves a session it started itself.
+  // key renames it but never approves it), as do its agent's admins, the
+  // workspace's managers and its agent's keys, which the agent ceiling holds
+  // to that agent.
   async function mayAnswer(
     reading: Extract<IdentityReading, { status: "ok" }>,
     workspaceId: string,
     sessionId: string,
     approve: boolean,
   ): Promise<"ok" | "role" | "self_approval"> {
-    // A caller from before workspaces (a legacy key, AUTH_MODE=none) has no
-    // members beside it to answer for, nor another key to approve instead.
-    if (reading.principal.workspace_id === null) return "ok";
     const viewer = viewerOf(reading);
     const same = (a: string | null, b: string | null) =>
       a !== null && b !== null && a.toLowerCase() === b.toLowerCase();
@@ -460,6 +457,9 @@ export function createAuthorizationPolicy(
         return "self_approval";
       }
     }
+    // A caller from before workspaces (a legacy key, AUTH_MODE=none) has no
+    // members beside it to answer for.
+    if (reading.principal.workspace_id === null) return "ok";
     if (approve && reading.keyAgentId !== undefined) return "ok";
     const role =
       reading.principal.kind === "user"

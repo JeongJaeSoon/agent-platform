@@ -88,7 +88,6 @@ function NewKeyScreen({
   readonly state: State;
 }) {
   const screen = SCREEN[kind];
-  // GA-8: both kinds offer the same scopes.
   const scopes = SCOPES;
   // As in the console, generate waits for at least one scope.
   const [chosen, setChosen] = useState<readonly string[]>(
