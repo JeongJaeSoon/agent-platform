@@ -53,7 +53,8 @@ const SERVICE_ROW =
 const SERVICE_NAME = "m-0 font-semibold text-body";
 const SERVICE_BUTTON = "ml-auto min-w-[var(--ap-row-action-min-width)]";
 // Lines under a service start where its name does: inset, mark, gap.
-const SERVICE_INDENT = "pl-[calc(var(--ap-row-padding-x)+1.5rem+0.75rem)]";
+const SERVICE_INDENT =
+  "pl-[calc(var(--ap-row-padding-x)+var(--ap-size-tile-two-line)+0.75rem)]";
 const SERVICE_DETAIL = cn(
   SERVICE_INDENT,
   "border-t pr-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]",
@@ -356,7 +357,7 @@ function ServiceMark({ children }: { readonly children: ReactNode }) {
   return (
     <span
       aria-hidden="true"
-      className="grid size-(--ap-size-icon-tile) shrink-0 place-items-center rounded-control bg-muted font-semibold text-caption text-muted-foreground"
+      className="grid size-(--ap-size-tile-two-line) shrink-0 place-items-center self-start rounded-control bg-muted font-semibold text-caption text-muted-foreground"
     >
       {children}
     </span>
