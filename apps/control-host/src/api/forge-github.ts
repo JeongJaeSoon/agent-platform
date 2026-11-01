@@ -15,6 +15,7 @@ import {
   GitHubAppCheckError,
   type GitHubAppDirectory,
   type GitHubAppInstallationView,
+  type GitHubAppManifestConversion,
   type GitHubAppStore,
   GitHubCallError,
   type GitHubConnection,
@@ -915,6 +916,54 @@ function installationRepositoryOf(repository: {
     url: repository.html_url,
     defaultBranch: repository.default_branch ?? "main",
     private: repository.private,
+  };
+}
+
+/**
+ * `POST /app-manifests/{code}/conversions`. The code is single-use: a retry
+ * after GitHub made the App would be refused and lose the key, so none is
+ * sent. Neither the code nor the answer's secrets reach the log.
+ */
+export function createGitHubManifestConverter(
+  options: { logger?: Logger } = {},
+) {
+  const clients = new Map<string, Client>();
+  return async (
+    apiBase: string,
+    code: string,
+  ): Promise<GitHubAppManifestConversion> => {
+    const base = apiBase.replace(/\/+$/, "");
+    let client = clients.get(base);
+    if (client === undefined) {
+      client = clientOf(base, options.logger, { paced: false });
+      clients.set(base, client);
+    }
+    try {
+      const { data } = await client.request(
+        "POST /app-manifests/{code}/conversions",
+        { code, request: { retries: 0 } },
+      );
+      const owner = data.owner as { login?: string; slug?: string } | null;
+      return {
+        appId: Number(data.id),
+        slug: data.slug ?? String(data.id),
+        name: data.name,
+        htmlUrl: data.html_url,
+        permissions: permissionsOf(data.permissions),
+        clientId: data.client_id,
+        clientSecret: data.client_secret,
+        privateKey: data.pem.replace(/\r\n?/g, "\n").trim(),
+        owner: owner?.login ?? owner?.slug ?? String(data.id),
+      };
+    } catch (error) {
+      const status = statusOf(error);
+      failure(options.logger, "App manifest conversion", error);
+      throw new GitHubAppCheckError(
+        status === 404 || status === 422
+          ? "github_rejected"
+          : "github_unreachable",
+      );
+    }
   };
 }
 

@@ -563,6 +563,35 @@ export const githubApps = pgTable(
   ],
 );
 
+// A GitHub App manifest's single-use state, stored as its SHA-256 (design
+// github-app-manifest.md §3).
+export const githubAppManifestStates = pgTable(
+  "github_app_manifest_states",
+  {
+    stateHash: bytea("state_hash").primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    actorUserId: uuid("actor_user_id").notNull(),
+    role: text().$type<GitHubAppRole>().notNull(),
+    /** Null: the actor's own account. */
+    ownerLogin: text("owner_login"),
+    public: boolean().notNull(),
+    replacesAppId: bigint("replaces_app_id", { mode: "number" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("github_app_manifest_states_expires_idx").on(table.expiresAt),
+    check(
+      "github_app_manifest_states_role_check",
+      sql`${table.role} IN ('author', 'reviewer')`,
+    ),
+  ],
+);
+
 // What the workspace lets its agents' GitHub settings reach. No row reads as
 // every ceiling off and no OAuth client secret.
 export const githubWorkspaceSettings = pgTable("github_workspace_settings", {
