@@ -1,5 +1,5 @@
 {
-  "id": "82ef51cf-7a40-48f5-b3c2-768f1229bcd5",
+  "id": "d7ea0a2f-ece0-4541-9ff7-b3b4184855ae",
   "prevId": "0ad0297e-c15c-4bef-b769-13b416eaab68",
   "version": "7",
   "dialect": "postgresql",
@@ -1791,203 +1791,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.catalog_repositories": {
-      "name": "catalog_repositories",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "github_repository_id": {
-          "name": "github_repository_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "owner": {
-          "name": "owner",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "url": {
-          "name": "url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "branch": {
-          "name": "branch",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "profiles": {
-          "name": "profiles",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "app_role": {
-          "name": "app_role",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'author'"
-        },
-        "source": {
-          "name": "source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "version": {
-          "name": "version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_by": {
-          "name": "updated_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "removed_at": {
-          "name": "removed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "removed_by": {
-          "name": "removed_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "catalog_repositories_github_id_key": {
-          "name": "catalog_repositories_github_id_key",
-          "columns": [
-            {
-              "expression": "github_repository_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"catalog_repositories\".\"removed_at\" IS NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "catalog_repositories_full_name_key": {
-          "name": "catalog_repositories_full_name_key",
-          "columns": [
-            {
-              "expression": "lower(\"owner\")",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "lower(\"name\")",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"catalog_repositories\".\"removed_at\" IS NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "catalog_repositories_created_by_users_id_fk": {
-          "name": "catalog_repositories_created_by_users_id_fk",
-          "tableFrom": "catalog_repositories",
-          "tableTo": "users",
-          "columnsFrom": ["created_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "catalog_repositories_updated_by_users_id_fk": {
-          "name": "catalog_repositories_updated_by_users_id_fk",
-          "tableFrom": "catalog_repositories",
-          "tableTo": "users",
-          "columnsFrom": ["updated_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "catalog_repositories_removed_by_users_id_fk": {
-          "name": "catalog_repositories_removed_by_users_id_fk",
-          "tableFrom": "catalog_repositories",
-          "tableTo": "users",
-          "columnsFrom": ["removed_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "catalog_repositories_source_check": {
-          "name": "catalog_repositories_source_check",
-          "value": "\"catalog_repositories\".\"source\" IN ('seed', 'console')"
-        },
-        "catalog_repositories_app_role_check": {
-          "name": "catalog_repositories_app_role_check",
-          "value": "\"catalog_repositories\".\"app_role\" = 'author'"
-        },
-        "catalog_repositories_version_check": {
-          "name": "catalog_repositories_version_check",
-          "value": "\"catalog_repositories\".\"version\" >= 1"
-        },
-        "catalog_repositories_console_id_check": {
-          "name": "catalog_repositories_console_id_check",
-          "value": "\"catalog_repositories\".\"source\" = 'seed' OR \"catalog_repositories\".\"github_repository_id\" IS NOT NULL"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.checkpoint_output_objects": {
       "name": "checkpoint_output_objects",
       "schema": "",
@@ -3035,6 +2838,73 @@
           "value": "(\"github_apps\".\"permissions\" IS NULL) = (\"github_apps\".\"permissions_checked_at\" IS NULL)"
         }
       },
+      "isRLSEnabled": false
+    },
+    "public.github_packages_settings": {
+      "name": "github_packages_settings",
+      "schema": "",
+      "columns": {
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "allowlist": {
+          "name": "allowlist",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token_login": {
+          "name": "token_login",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "token_expires_at": {
+          "name": "token_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "github_packages_settings_workspace_id_workspaces_id_fk": {
+          "name": "github_packages_settings_workspace_id_workspaces_id_fk",
+          "tableFrom": "github_packages_settings",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.github_workflow_dispatches": {

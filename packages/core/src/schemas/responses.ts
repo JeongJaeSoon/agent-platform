@@ -35,6 +35,8 @@ import {
   getSlackAppResponseSchema,
   getTurnResponseSchema,
   githubLinkCallbackResponseSchema,
+  githubPackagesSettingsResponseSchema,
+  githubPackagesWriteResponseSchema,
   githubRepositoryWriteResponseSchema,
   githubSettingsResponseSchema,
   githubWorkflowRunSchema,
@@ -165,6 +167,14 @@ export const responseSchemas = {
   "GET /v1/workspaces/{id}/slack/apps": listWorkspaceSlackAppsResponseSchema,
   "PUT /v1/workspaces/{id}/github-settings/oauth-client-secret":
     putGitHubOAuthClientSecretResponseSchema,
+  "GET /v1/workspaces/{id}/github-packages":
+    githubPackagesSettingsResponseSchema,
+  "PUT /v1/workspaces/{id}/github-packages/token":
+    githubPackagesWriteResponseSchema,
+  "DELETE /v1/workspaces/{id}/github-packages/token":
+    githubPackagesWriteResponseSchema,
+  "PUT /v1/workspaces/{id}/github-packages/allowlist":
+    githubPackagesWriteResponseSchema,
   "DELETE /v1/workspaces/{id}/slack/apps/{app_id}":
     deleteSlackAppResponseSchema,
   "PUT /v1/workspaces/{id}/slack/apps/{app_id}/secrets/{purpose}":

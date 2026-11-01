@@ -82,6 +82,7 @@ describe("database schema", () => {
       "events",
       "executions",
       "github_apps",
+      "github_packages_settings",
       "github_workflow_dispatches",
       "github_workspace_settings",
       "grants",

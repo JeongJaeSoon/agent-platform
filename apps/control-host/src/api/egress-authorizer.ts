@@ -122,6 +122,10 @@ const authorizeRequestSchema = z.union([
       token: tokenSchema,
       purpose: z.literal("packages"),
       registry: z.enum(PACKAGE_REGISTRY_NAMES),
+      // Path and query below the registry; a GitHub Packages registry is
+      // judged on it, and a proxy from before them sends none.
+      path: z.string().startsWith("/").max(4096).optional(),
+      regrant: z.literal(true).optional(),
     })
     .strict(),
   z

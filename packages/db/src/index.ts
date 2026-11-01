@@ -22,6 +22,7 @@ export * from "./enqueue.ts";
 export * from "./execution-revocation.ts";
 export * from "./github-apps.ts";
 export * from "./github-oauth.ts";
+export * from "./github-packages.ts";
 export * from "./github-settings.ts";
 export * from "./identity.ts";
 export * from "./identity-reader.ts";

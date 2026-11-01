@@ -72,6 +72,8 @@ import {
   githubAppRoleParamsSchema,
   githubLinkCallbackRequestSchema,
   githubLinkCallbackResponseSchema,
+  githubPackagesSettingsResponseSchema,
+  githubPackagesWriteResponseSchema,
   githubRepositoryParamsSchema,
   githubRepositoryWriteResponseSchema,
   githubSettingsResponseSchema,
@@ -150,6 +152,8 @@ import {
   putGitHubAppResponseSchema,
   putGitHubOAuthClientSecretRequestSchema,
   putGitHubOAuthClientSecretResponseSchema,
+  putGitHubPackagesAllowlistRequestSchema,
+  putGitHubPackagesTokenRequestSchema,
   putGitHubSettingsRequestSchema,
   putSlackBindingRequestSchema,
   putSlackBindingResponseSchema,
@@ -293,6 +297,8 @@ const requestComponents = {
   SubmitPullRequestReviewRequest: submitPullRequestReviewRequestSchema,
   PutGitHubSettingsRequest: putGitHubSettingsRequestSchema,
   PutGitHubOAuthClientSecretRequest: putGitHubOAuthClientSecretRequestSchema,
+  PutGitHubPackagesTokenRequest: putGitHubPackagesTokenRequestSchema,
+  PutGitHubPackagesAllowlistRequest: putGitHubPackagesAllowlistRequestSchema,
   GitHubLinkCallbackRequest: githubLinkCallbackRequestSchema,
   PutAgentGitHubEnabledRequest: putAgentGitHubEnabledRequestSchema,
   BootstrapRequest: bootstrapRequestSchema,
@@ -374,6 +380,8 @@ const responseComponents = {
   SubmitPullRequestReviewResponse: submitPullRequestReviewResponseSchema,
   GitHubSettingsResponse: githubSettingsResponseSchema,
   PutGitHubOAuthClientSecretResponse: putGitHubOAuthClientSecretResponseSchema,
+  GitHubPackagesSettingsResponse: githubPackagesSettingsResponseSchema,
+  GitHubPackagesWriteResponse: githubPackagesWriteResponseSchema,
   StartGitHubLinkResponse: startGitHubLinkResponseSchema,
   GitHubLinkCallbackResponse: githubLinkCallbackResponseSchema,
   SessionGitHubAttribution: sessionGitHubAttributionSchema,
@@ -1813,6 +1821,166 @@ export const API_ROUTE_DECLARATIONS = [
     errorNotes: {
       BACKEND_UNAVAILABLE: "Also when the API runs without a secret key.",
     },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/workspaces/{id}/github-packages",
+    operationId: "getGitHubPackages",
+    tag: "Workspace settings",
+    summary:
+      "The workspace's GitHub Packages bot token and allowlist (members)",
+    description:
+      "What sessions may fetch from GitHub Packages (npm and RubyGems) through the egress proxy. `token` says whether a bot token is registered, with its last four characters, the GitHub login it belongs to and its expiry (`expires_at` null when it never expires), never the value. `allowlist` lists each owner's package, or every package of an owner (`name` `*`), that sessions may read; an entry with `repository_id` or `agent_id` applies only to sessions of that repository or agent. Without a token, or for a package no entry names, the proxy refuses the request. `revision` is 0 until the allowlist is first saved. Any member signed in to the console reads it; API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "GitHubPackagesSettingsResponse",
+      description: "The token's summary and the allowlist.",
+      example: {
+        token: {
+          configured: true,
+          last4: "x9Qa",
+          login: "acme-packages-bot",
+          expires_at: "2027-01-30T00:00:00.000Z",
+          updated_at: "2026-11-01T09:00:00.000Z",
+          updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Mina" },
+        },
+        allowlist: [
+          {
+            registry: "npm",
+            owner: "acme",
+            name: "*",
+            repository_id: null,
+            agent_id: null,
+          },
+        ],
+        revision: 1,
+      },
+    },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "put",
+    path: "/v1/workspaces/{id}/github-packages/token",
+    operationId: "putGitHubPackagesToken",
+    tag: "Workspace settings",
+    summary:
+      "Register or replace the GitHub Packages bot token (owner or admin)",
+    description:
+      "Stores a bot account's classic personal access token whose only scope is `read:packages`; GitHub Packages accepts no GitHub App token. Before storing, the API calls GitHub's `GET /user` with it: a token GitHub refuses is 400 `BAD_REQUEST` (`reason_code` `token_invalid`), and one with any other scope, or a fine-grained token, which has no classic scopes, is 400 (`reason_code` `token_scopes`). The login and expiry GitHub reports are kept beside it. The token is kept encrypted and never returned, logged or echoed; only the egress proxy's requests to GitHub Packages carry it. Setting it again replaces it. Writes a `set_github_packages_token` receipt with its last four characters. API keys are refused.",
+    auth: "session",
+    body: "PutGitHubPackagesTokenRequest",
+    requestExample: { token: "ghp_EXAMPLE" },
+    success: {
+      status: 200,
+      schema: "GitHubPackagesWriteResponse",
+      description: "Stored; the receipt and the settings.",
+      example: {
+        receipt_id: EXAMPLE_RECEIPT_ID,
+        token: {
+          configured: true,
+          last4: "MPLE",
+          login: "acme-packages-bot",
+          expires_at: "2027-01-30T00:00:00.000Z",
+          updated_at: "2026-11-01T09:00:00.000Z",
+          updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Mina" },
+        },
+        allowlist: [],
+        revision: 0,
+      },
+    },
+    errors: [400, 401, 403, 404, 413, 503],
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "When GitHub cannot be asked about the token, or the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
+    idempotent: false,
+  },
+  {
+    method: "delete",
+    path: "/v1/workspaces/{id}/github-packages/token",
+    operationId: "deleteGitHubPackagesToken",
+    tag: "Workspace settings",
+    summary: "Remove the GitHub Packages bot token (owner or admin)",
+    description:
+      "Drops the stored token; from the next request on, the proxy refuses every GitHub Packages request. The allowlist stays. Writes a `delete_github_packages_token` receipt with the token's last four characters; 404 when none is stored. API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "GitHubPackagesWriteResponse",
+      description: "Removed; the receipt and the settings.",
+      example: {
+        receipt_id: EXAMPLE_RECEIPT_ID,
+        token: {
+          configured: false,
+          last4: null,
+          login: null,
+          expires_at: null,
+          updated_at: null,
+          updated_by: null,
+        },
+        allowlist: [],
+        revision: 0,
+      },
+    },
+    errors: [401, 403, 404, 503],
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "When the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
+    idempotent: false,
+  },
+  {
+    method: "put",
+    path: "/v1/workspaces/{id}/github-packages/allowlist",
+    operationId: "putGitHubPackagesAllowlist",
+    tag: "Workspace settings",
+    summary: "Replace the GitHub Packages allowlist (owner or admin)",
+    description:
+      "Replaces the whole allowlist, at most 200 entries. Each entry names a registry (`npm` or `rubygems`), a GitHub owner and a package name or `*`; `repository_id` (a catalog repository id) or `agent_id` narrows it to sessions of that repository or agent. Owners compare case-insensitively. `revision` is the one last read: a stale one is 409 `REVISION_CONFLICT`. Takes effect from the next request; a session's npm scopes and gem sources follow the owners named here from its next claim. Writes a `set_github_packages_allowlist` receipt. API keys are refused.",
+    auth: "session",
+    body: "PutGitHubPackagesAllowlistRequest",
+    requestExample: {
+      allowlist: [
+        {
+          registry: "rubygems",
+          owner: "acme",
+          name: "acme-auth",
+          repository_id: "billing",
+          agent_id: null,
+        },
+      ],
+      revision: 0,
+    },
+    success: {
+      status: 200,
+      schema: "GitHubPackagesWriteResponse",
+      description: "Stored; the receipt and the settings.",
+      example: {
+        receipt_id: EXAMPLE_RECEIPT_ID,
+        token: {
+          configured: false,
+          last4: null,
+          login: null,
+          expires_at: null,
+          updated_at: null,
+          updated_by: null,
+        },
+        allowlist: [
+          {
+            registry: "rubygems",
+            owner: "acme",
+            name: "acme-auth",
+            repository_id: "billing",
+            agent_id: null,
+          },
+        ],
+        revision: 1,
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 413],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
     idempotent: false,
   },
   {

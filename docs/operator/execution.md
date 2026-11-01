@@ -59,6 +59,18 @@ worker 컨테이너는 scheduler가 execution마다 만드는 **전용 네트워
 
 proxy 로그의 `Credential route` 줄에 `purpose: packages`, `registry`, `session_id`, `attempt_id`, upstream host와 status가 남는다. 따라간 redirect는 `Credential route redirect followed`(`to_host`·`to_port`), 거절한 redirect는 `Credential route redirect refused` 또는 `Credential route denied`로 남는다.
 
+#### GitHub Packages(사설 npm·gem)
+
+조직의 사설 npm·gem은 `<registry>` `github-npm`(`https://npm.pkg.github.com`)과 `github-rubygems`(`https://rubygems.pkg.github.com`)로 받는다. 공개 레지스트리와 달리 authorizer가 워크스페이스 관리자가 등록한 bot classic PAT를 `Authorization: Bearer`로 붙여 준다. 이 값은 worker에 가지 않는다. 등록·허용 목록·감사의 설계는 [결정: GitHub Packages bot token](../contributing/decisions/github-packages-bot-token.md)에 있다. 운영자가 할 일은 셋이다.
+
+1. `EGRESS_CREDENTIAL_ALLOWLIST`에 `npm.pkg.github.com:443,rubygems.pkg.github.com:443`을 더한다. 빠져 있으면 등록해 둔 token이 있어도 요청이 `403 egress denied`다.
+2. `EGRESS_PACKAGES_REDIRECT_ALLOWLIST`에 `pkg-npm.githubusercontent.com:443,rubygemsregistryv2prod.blob.core.windows.net:443`을 더한다. GitHub는 tarball과 `.gem`을 이 host로 302 redirect한다(2026-10-31 실측). proxy는 이 redirect를 token 없이 따라간다.
+3. GitHub Enterprise Server라면 `GITHUB_PACKAGES_*_URL`을 설정한다([설정 레퍼런스](configuration.md#api-설정)).
+
+authorizer는 GitHub 요청을 경로로 판정한다. 허용 목록에 없는 패키지, 알아볼 수 없는 경로, token이 없거나 만료된 경우는 `403`이고 `fetch_github_package` receipt가 `failed`와 `reason_code`로 남는다. 허용한 요청도 같은 receipt가 `succeeded`로 남는다. receipt를 쓸 수 없으면 요청이 실패한다. 이 경로의 proxy 로그는 다른 packages 요청과 같다.
+
+npm 11은 GitHub tarball 위치를 기본 registry 기준으로 바꾸므로(`replace-registry-host=always`) tarball 요청은 `npm` route로 온다. authorizer는 `/download/@owner/<name>/<version>/<digest>` 모양의 `npm` 경로를 GitHub 요청으로 판정한다. 공개 npm에는 이 모양의 경로가 없다.
+
 worker는 claim을 받을 때마다 engine의 HOME(tmpfs)에 user 수준 설정만 쓴다. 저장소 파일(`.npmrc`·`Gemfile`·`.bundle/config`·`go.mod`)은 바꾸지 않는다.
 
 | 도구 | 파일(HOME 기준) | 내용 |
@@ -66,6 +78,8 @@ worker는 claim을 받을 때마다 engine의 HOME(tmpfs)에 user 수준 설정�
 | npm(pnpm·Bun도 읽음) | `.npmrc` | `registry=<route>/packages/npm/`, `//<route host>/packages/npm/:_authToken=<token>` |
 | Bundler | `.bundle/config` | `BUNDLE_MIRROR__HTTPS://RUBYGEMS__ORG/`를 `<route, userinfo에 token>/packages/rubygems`로 |
 | Go | `.config/go/env` | `GOPROXY=<route>/packages/go/_token/<token>`(`direct` 없음), `GOSUMDB=sum.golang.org <route>/packages/gosum/_token/<token>`, `GOFLAGS=-mod=readonly` |
+
+허용 목록에 GitHub owner가 있으면 claim의 `packages.github`에 owner 이름만 실려 오고(token은 없다), worker는 위 파일에 다음을 더한다. `.npmrc`에는 `replace-registry-host=always`, owner마다 `@<owner>:registry=<route>/packages/github-npm/`, 그리고 `//<route host>/packages/github-npm/:_authToken=<token>`이 들어간다. `.bundle/config`에는 owner마다 `https://rubygems.pkg.github.com/<owner>/`를 `<route>/packages/github-rubygems/<owner>`로 돌리는 mirror가 들어간다. Bundler는 mirror 키를 소문자로 읽으므로 `Gemfile`의 `source`도 owner를 소문자로 적어야 mirror를 탄다. 저장소의 `.npmrc`가 `@<owner>:registry=https://npm.pkg.github.com`을 고정하면 그 설정이 HOME 설정을 이겨 요청이 credential route가 아니라 forward proxy로 가고, 거기서 거절된다. 그 줄은 저장소에서 빼야 한다.
 
 `GOPROXY`에 `direct`를 두지 않으므로 Go가 VCS host로 직접 나가지 않는다. `GONOSUMDB`·`GOPRIVATE`·`GONOSUMCHECK`는 두지 않아 모든 모듈이 checksum DB 검증을 받는다. 이 파일은 token이 들어 있어 0600이고, claim에 `packages`가 없는 옛 API를 만나면 지운다. 세션 안에서 사용자가 `go env -w`나 `npm config set`으로 바꿀 수는 있지만 경계는 proxy이므로 바꿔도 다른 곳에 닿지 않는다.
 

@@ -107,11 +107,12 @@ export function createWorkerHost(
     },
     gateway,
     gitTrailers: (git) => writeGitTrailers(config.runtime.home, git),
-    packageManagers: (token) =>
+    packageManagers: (token, github) =>
       writePackageManagerConfig(
         config.runtime.home,
         config.egressCredentialUrl,
         token,
+        github,
       ),
     imageRuntime: parseImageRuntime(runtime.imageFingerprint()),
     logger,

@@ -49,6 +49,7 @@ import { registerCloseRoutes } from "./routes/close.ts";
 import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerGitHubAppRoutes } from "./routes/github-app.ts";
+import { registerGitHubPackagesRoutes } from "./routes/github-packages.ts";
 import { registerGitHubRepositoryRoutes } from "./routes/github-repositories.ts";
 import { registerGitHubSettingsRoutes } from "./routes/github-settings.ts";
 import {
@@ -162,6 +163,10 @@ function apiApp() {
       registerGitHubAppRoutes(router, {} as GitHubAppService);
       registerGitHubRepositoryRoutes(router, {} as GitHubRepositoryService);
       registerGitHubSettingsRoutes(router, {} as GitHubSettingsService);
+      registerGitHubPackagesRoutes(
+        router,
+        {} as Parameters<typeof registerGitHubPackagesRoutes>[1],
+      );
       registerAgentGitHubRoutes(router, {} as AgentGitHubService);
       registerGitHubWorkRoutes(router, {} as GitHubWorkService);
       registerSessionAttributionRoutes(router, {} as SessionAttributionService);

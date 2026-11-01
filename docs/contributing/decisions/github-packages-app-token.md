@@ -161,7 +161,7 @@ PAT로는 네 대상이 모두 받아지고, 무인증은 모두 401이다. 테�
 
 | 안 | 장점 | 단점 | 상태 |
 | --- | --- | --- | --- |
-| A. 조직 bot 계정의 `read:packages` classic PAT를 proxy가 붙인다 | 지금 바로 동작한다. PAT 값은 egress proxy만 알고 worker·에이전트에 노출되지 않는다. Renovate·Artifactory도 같은 모양이다(Devin도 그렇다고 추정) | App만 쓴다는 원칙의 예외다. 만료·회전이 수동이다. bot이 읽을 수 있는 조직 패키지 전부가 읽히므로 허용 목록이 필요하다 | **고른 안.** 오너 승인 2026-11-01, 구현은 gh-packages-proxy-token 카드 |
+| A. 조직 bot 계정의 `read:packages` classic PAT를 proxy가 붙인다 | 지금 바로 동작한다. PAT 값은 egress proxy만 알고 worker·에이전트에 노출되지 않는다. Renovate·Artifactory도 같은 모양이다(Devin도 그렇다고 추정) | App만 쓴다는 원칙의 예외다. 만료·회전이 수동이다. bot이 읽을 수 있는 조직 패키지 전부가 읽히므로 허용 목록이 필요하다 | **고른 안.** 오너 승인 2026-11-01, 구현은 [결정: GitHub Packages bot token](github-packages-bot-token.md) |
 | B. 레지스트리 앞 gateway(Verdaccio·Gemstash 같은 조직 운영 캐시) | worker와 proxy는 사내 host 하나만 본다. 캐시 효과가 있다 | 운영 대상이 늘어난다. 상류 자격 증명은 결국 A의 PAT다 | 보류. 캐시가 필요해지면 A 위에 얹는다 |
 | C. Actions `GITHUB_TOKEN`으로 받은 tarball을 artifact로 넘긴다 | 문서가 지원하는 token이다. PAT가 없다 | 세션 중 즉시 받을 수 없고 workflow를 한 번 돌아야 한다. 경로가 복잡하다 | 보류. 조직이 classic PAT를 막아 둔 경우의 대안 |
 | D. 비활성으로 둔다 | 노출이 없다. 구현할 것이 없다 | 사설 npm·gem에 기대는 저장소는 세션 안에서 설치할 수 없다 | A가 구현되기 전까지, 그리고 관리자가 PAT를 등록하지 않은 조직의 기본값 |
