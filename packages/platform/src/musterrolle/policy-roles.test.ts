@@ -194,6 +194,19 @@ const TABLE: [
   ["Slack 앱 설치·채널 설정", "binding.manage", onAgentA, "ooxoxx"],
   ["그 에이전트의 사용량 읽기", "usage.agent_read", onAgentA, "ooxoxx"],
   ["에이전트 보관", "agent.manage", onAgentA, "ooxoxx"],
+  [
+    "성과 구분·type·규칙·판정 설정 읽기",
+    "workspace.read",
+    onWorkspace,
+    "ooooxo",
+  ],
+  [
+    "성과 규칙·판정 설정 관리",
+    "achievement_rule.manage",
+    onWorkspace,
+    "ooxxxx",
+  ],
+  ["그 에이전트의 성과 확인·거절", "achievement.review", onAgentA, "ooxoxx"],
   ["보관한 에이전트 되살리기", "agent.restore", onAgentA, "oxxxxx"],
   // Every agent, across the workspace, is the roles' alone.
   ["에이전트 목록", "agent.manage", onWorkspace, "ooxxxx"],
@@ -224,6 +237,7 @@ describe("design 4.1 role table", () => {
       "agent.admin.manage",
       "binding.manage",
       "api_key.manage",
+      "achievement.review",
     ] as const) {
       expect(await allowed("agent_admin", action, onAgentA)).toBe(true);
       expect(

@@ -1,3 +1,4 @@
+export * from "./achievement-rules.ts";
 export * from "./agent-admins.ts";
 export * from "./agent-authority.ts";
 export * from "./agent-github.ts";

@@ -1,3 +1,4 @@
+export * from "./achievements.ts";
 export * from "./agent-github.ts";
 export * from "./answer.ts";
 export * from "./control.ts";

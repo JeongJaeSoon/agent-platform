@@ -4,6 +4,7 @@ import {
   backfillSessionModels,
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
+  createPostgresAchievementRuleStore,
   createPostgresAgentAdminStore,
   createPostgresAgentGitHubStore,
   createPostgresAgentIdentityStore,
@@ -58,6 +59,7 @@ import {
   allowedRun,
   catalogRevision,
   composeSlackFinalize,
+  createAchievementRuleService,
   createAgentAdminService,
   createAgentGitHubService,
   createAgentIdentityService,
@@ -181,6 +183,7 @@ import {
 } from "./profile-import.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { createReadinessProbe } from "./readiness.ts";
+import { registerAchievementRoutes } from "./routes/achievements.ts";
 import { registerAgentGitHubRoutes } from "./routes/agent-github.ts";
 import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
@@ -703,6 +706,10 @@ const workspaceProfiles = createWorkspaceProfileService({
   store: workspaceProfileStore,
   catalog,
 });
+const achievementRules = createAchievementRuleService({
+  authorization,
+  store: createPostgresAchievementRuleStore(db),
+});
 const installationProfiles = createInstallationProfileService({
   authorization,
   store: installationProfileStore,
@@ -1070,6 +1077,7 @@ const app = createApiApp({
     registerReceiptRoutes(router, sessions);
     registerUsageRoutes(router, usage);
     registerProfileRoutes(router, workspaceProfiles, installationProfiles);
+    registerAchievementRoutes(router, achievementRules);
     registerPendingRoutes(router, pendingRequests);
     registerPushRequestRoutes(router, pushRequests);
     registerPullRequestRoutes(router, pullRequests);
