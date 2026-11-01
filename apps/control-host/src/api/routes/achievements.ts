@@ -14,11 +14,16 @@ import {
   listAchievementCategoriesResponseSchema,
   listAchievementRulesResponseSchema,
   listAchievementTypesResponseSchema,
+  listSessionAchievementsResponseSchema,
+  sessionIdParamsSchema,
   updateAchievementCategoryRequestSchema,
   updateAchievementTypeRequestSchema,
   workspaceParamsSchema,
 } from "@werft-ai/contracts";
-import type { AchievementRuleService } from "@werft-ai/platform";
+import type {
+  AchievementRuleService,
+  SessionAchievementService,
+} from "@werft-ai/platform";
 import {
   type ApiRouter,
   apiRoute,
@@ -211,5 +216,22 @@ export function registerAchievementRoutes(
       achievements.setJudge(context.get("caller"), params.id, body),
     );
     return jsonWithSchema(context, achievementJudgeChangeResponseSchema, saved);
+  });
+}
+
+export function registerSessionAchievementRoutes(
+  router: ApiRouter,
+  service: SessionAchievementService,
+) {
+  apiRoute(router, "listSessionAchievements", async (context) => {
+    const params = requireParams(context, sessionIdParamsSchema);
+    const listed = await mapped(() =>
+      service.list(context.get("caller"), params.id),
+    );
+    return jsonWithSchema(
+      context,
+      listSessionAchievementsResponseSchema,
+      listed,
+    );
   });
 }

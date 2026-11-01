@@ -125,5 +125,8 @@ export * from "./workers/github-packages-egress.ts";
 export * from "./workers/package-registries.ts";
 export * from "./workers/worker-gateway.ts";
 
+export * from "./sessions/achievements/achievement-judge.ts";
+export * from "./sessions/achievements/achievement-judgment-store.ts";
 export * from "./sessions/achievements/achievement-rules.ts";
 export * from "./sessions/achievements/achievement-store.ts";
+export * from "./sessions/achievements/session-achievement-service.ts";

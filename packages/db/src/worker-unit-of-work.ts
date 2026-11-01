@@ -78,6 +78,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import { queueAchievementJudgment } from "./achievement-judgments.ts";
 import {
   type RuntimeFingerprint,
   runtimeColumns,
@@ -530,6 +531,10 @@ export async function advanceCheckpointPointer(
           bytes,
         })),
     );
+  }
+  // The out/ files a checkpoint lists are evidence (achievement-rules.md §4).
+  if (outputs.length > 0) {
+    await queueAchievementJudgment(tx, input.fence.sessionId);
   }
   if (input.transcriptBytes !== undefined) {
     await warnNearTranscriptLimit(tx, input, input.transcriptBytes);

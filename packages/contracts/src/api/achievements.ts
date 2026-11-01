@@ -2,10 +2,14 @@ import { z } from "zod";
 
 import {
   agentIdSchema,
+  agentReleaseIdSchema,
   receiptIdSchema,
+  sessionIdSchema,
   timestampSchema,
   userIdSchema,
 } from "../shared/index.ts";
+import { GITHUB_REVIEW_EVENT_VALUES } from "./github-work.ts";
+import { GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES } from "./session-outcome.ts";
 
 /**
  * What the platform itself sees a session do. Fixed in code: adding one
@@ -237,4 +241,166 @@ export type AchievementTypeChangeResponse = z.infer<
 >;
 export type AchievementRuleChangeResponse = z.infer<
   typeof achievementRuleChangeResponseSchema
+>;
+
+/** What queued a judgment (achievement-rules.md §4). */
+export const ACHIEVEMENT_JUDGMENT_TRIGGER_VALUES = [
+  "evidence",
+  "turns",
+  "idle",
+  "manual",
+] as const;
+
+/** `deferred` waits for the next day's budget; `skipped` had no judge. */
+export const ACHIEVEMENT_JUDGMENT_STATUS_VALUES = [
+  "queued",
+  "running",
+  "succeeded",
+  "failed",
+  "deferred",
+  "skipped",
+] as const;
+
+export const ACHIEVEMENT_JUDGE_BACKEND_VALUES = ["luna"] as const;
+
+/** Why a judgment did not judge every rule and evidence pair it had. */
+export const ACHIEVEMENT_JUDGMENT_ERROR_VALUES = [
+  "judge_unavailable",
+  "outputs_unavailable",
+] as const;
+
+/** `auto` counts at once; `needs_review` counts once a person confirms it. */
+export const ACHIEVEMENT_REVIEW_STATE_VALUES = [
+  "auto",
+  "needs_review",
+  "confirmed",
+  "rejected",
+] as const;
+
+export const achievementJudgmentTriggerSchema = z.enum(
+  ACHIEVEMENT_JUDGMENT_TRIGGER_VALUES,
+);
+export const achievementJudgmentStatusSchema = z.enum(
+  ACHIEVEMENT_JUDGMENT_STATUS_VALUES,
+);
+export const achievementJudgmentErrorSchema = z.enum(
+  ACHIEVEMENT_JUDGMENT_ERROR_VALUES,
+);
+export const achievementReviewStateSchema = z.enum(
+  ACHIEVEMENT_REVIEW_STATE_VALUES,
+);
+
+/** `owner/repo`, as an achievement's title names it. */
+const repositoryNameSchema = z.string().regex(/^[^/\s]+\/[^/\s]+$/);
+
+// A built-in type's payload, copied by code from the evidence.
+export const pullRequestAchievementPayloadSchema = z
+  .object({
+    repository: repositoryNameSchema,
+    number: z.number().int().positive(),
+    url: z.url(),
+    state: z.enum(GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES),
+    merged_at: timestampSchema.nullable(),
+    additions: z.number().int().nonnegative().nullable(),
+    deletions: z.number().int().nonnegative().nullable(),
+  })
+  .strict();
+export const codeReviewAchievementPayloadSchema = z
+  .object({
+    repository: repositoryNameSchema,
+    number: z.number().int().positive(),
+    url: z.url(),
+    event: z.enum(GITHUB_REVIEW_EVENT_VALUES),
+    commit_id: z.string().min(1),
+  })
+  .strict();
+export const documentAchievementPayloadSchema = z
+  .object({
+    path: z.string().min(1),
+    size: z.number().int().nonnegative(),
+  })
+  .strict();
+
+/** By built-in type key; a type a person made has no payload. */
+export const BUILTIN_ACHIEVEMENT_PAYLOAD_SCHEMAS = {
+  pull_request: pullRequestAchievementPayloadSchema,
+  code_review: codeReviewAchievementPayloadSchema,
+  document: documentAchievementPayloadSchema,
+} as const satisfies Record<
+  (typeof BUILTIN_ACHIEVEMENT_TYPES)[number]["key"],
+  z.ZodType
+>;
+
+export const achievementPayloadSchema = z.union([
+  pullRequestAchievementPayloadSchema,
+  codeReviewAchievementPayloadSchema,
+  documentAchievementPayloadSchema,
+]);
+
+export const sessionAchievementSchema = z
+  .object({
+    id: z.uuid(),
+    session_id: sessionIdSchema,
+    agent_id: agentIdSchema.nullable(),
+    agent_release_id: agentReleaseIdSchema.nullable(),
+    /** The rule version that counted it, and that version's type. */
+    rule_id: z.uuid(),
+    rule_family_id: z.uuid(),
+    type_id: z.uuid(),
+    title: z.string().min(1),
+    link: z.string().min(1),
+    evidence_kind: achievementEvidenceKindSchema,
+    /** Null for `conversation`. */
+    evidence_id: z.string().min(1).nullable(),
+    /** Null for a type a person made. */
+    payload: achievementPayloadSchema.nullable(),
+    judge: achievementRuleJudgeSchema,
+    /** Null for `always`. */
+    probability: z.number().min(0).max(1).nullable(),
+    judgment_id: z.uuid(),
+    review_state: achievementReviewStateSchema,
+    reviewed_by: userIdSchema.nullable(),
+    reviewed_at: timestampSchema.nullable(),
+    review_note: z.string().nullable(),
+    created_at: timestampSchema,
+  })
+  .strict();
+
+export const achievementJudgmentSchema = z
+  .object({
+    id: z.uuid(),
+    trigger: achievementJudgmentTriggerSchema,
+    status: achievementJudgmentStatusSchema,
+    error_code: achievementJudgmentErrorSchema.nullable(),
+    created_at: timestampSchema,
+    finished_at: timestampSchema.nullable(),
+  })
+  .strict();
+
+export const listSessionAchievementsResponseSchema = z
+  .object({
+    /** Those in force, oldest first. */
+    items: z.array(sessionAchievementSchema),
+    /** The session's latest judgment; null before its first. */
+    judgment: achievementJudgmentSchema.nullable(),
+  })
+  .strict();
+
+export type AchievementJudgmentTrigger = z.infer<
+  typeof achievementJudgmentTriggerSchema
+>;
+export type AchievementJudgmentStatus = z.infer<
+  typeof achievementJudgmentStatusSchema
+>;
+export type AchievementJudgmentError = z.infer<
+  typeof achievementJudgmentErrorSchema
+>;
+export type AchievementReviewState = z.infer<
+  typeof achievementReviewStateSchema
+>;
+export type AchievementPayload = z.infer<typeof achievementPayloadSchema>;
+export type SessionAchievement = z.infer<typeof sessionAchievementSchema>;
+export type AchievementJudgment = z.infer<typeof achievementJudgmentSchema>;
+export type ListSessionAchievementsResponse = z.infer<
+  typeof listSessionAchievementsResponseSchema
 >;
