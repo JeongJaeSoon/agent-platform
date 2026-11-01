@@ -73,7 +73,7 @@ export const agentGitHubKo = {
     "목록에 없는 저장소는 GitHub에서 App 설치에 더한 뒤 운영자가 카탈로그에 추가합니다.",
   "agentGitHub.pickTitle": "App이 설치된 저장소에서 고르기",
   "agentGitHub.pickHint":
-    "실행 프로필 상한이 App 저장소 전체를 허용합니다. 고른 저장소는 위 목록에 켜진 채로 더해지고, 저장하면 새 릴리스에 반영됩니다.",
+    "설치 프로필이 App 저장소 전체를 허용합니다. 고른 저장소는 위 목록에 켜진 채로 더해지고, 저장하면 새 릴리스에 반영됩니다.",
   "agentGitHub.pickOne": "고르기",
   "agentGitHub.pickName": "{name} 고르기",
   "agentGitHub.picked": "{name}을(를) 더했습니다. 저장하면 반영됩니다.",
@@ -254,7 +254,7 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
     "To add a repository, add it to the App's installation on GitHub; the operator then adds it to the catalog.",
   "agentGitHub.pickTitle": "Pick from repositories the App is installed on",
   "agentGitHub.pickHint":
-    "The run profile ceiling allows every App repository. A picked repository joins the list above, turned on, and takes effect in a new release when you save.",
+    "The installation profile allows every App repository. A picked repository joins the list above, turned on, and takes effect in a new release when you save.",
   "agentGitHub.pickOne": "Pick",
   "agentGitHub.pickName": "Pick {name}",
   "agentGitHub.picked": "Added {name}. Save to apply it.",
@@ -439,7 +439,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
     "一覧にないリポジトリは、GitHub で App のインストールに加えたあと運用者がカタログに追加します。",
   "agentGitHub.pickTitle": "App がインストールされたリポジトリから選ぶ",
   "agentGitHub.pickHint":
-    "実行プロファイルの上限が App のリポジトリすべてを許可しています。選んだリポジトリはオンの状態で上の一覧に加わり、保存すると新しいリリースに反映されます。",
+    "インストールプロファイルが App のリポジトリすべてを許可しています。選んだリポジトリはオンの状態で上の一覧に加わり、保存すると新しいリリースに反映されます。",
   "agentGitHub.pickOne": "選ぶ",
   "agentGitHub.pickName": "{name} を選ぶ",
   "agentGitHub.picked": "{name} を加えました。保存すると反映されます。",
