@@ -48,7 +48,8 @@ export const sessionOutcomeCheckErrorSchema = z.enum(
  * size fields are null until the first read of the pull request.
  */
 export const githubPullRequestOutcomeMetadataSchema = z.object({
-  // Null on a row written before titles were kept, until its next read.
+  // Null on a row written before titles were kept, until its next read;
+  // one merged by then is never read again and stays null.
   title: z.string().max(PULL_REQUEST_OUTCOME_TITLE_MAX_LENGTH).nullable(),
   head: z.string(),
   base: z.string(),

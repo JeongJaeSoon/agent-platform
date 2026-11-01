@@ -1,6 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import type { ReceiptActor } from "@werft-ai/contracts";
+import {
+  listSessionOutcomesResponseSchema,
+  type ReceiptActor,
+} from "@werft-ai/contracts";
 import {
   createOutcomeRefresher,
   ForgeCredentialError,
@@ -984,8 +987,41 @@ integration("postgres session outcomes and the outcome refresher", () => {
       sessionId: first.sessionId,
       createdAt: new Date(first.createdAt.getTime() + 1000),
     });
+    const review = await outcome(repo, {
+      sessionId: first.sessionId,
+      type: "github_review",
+      url: `https://github.com/acme/${repo}/pull/1#pullrequestreview-7`,
+      externalId: "7",
+      state: "submitted",
+      metadata: {
+        number: 1,
+        event: "APPROVE",
+        commit_id: "abc",
+        opened_by_session_id: null,
+      },
+      createdAt: new Date(first.createdAt.getTime() + 2000),
+    });
     const listed = await store.list(OWNER, first.sessionId.toUpperCase());
-    expect(listed?.map((item) => item.id)).toEqual([first.id, second.id]);
+    expect(listed?.map((item) => item.id)).toEqual([
+      first.id,
+      second.id,
+      review.id,
+    ]);
+    expect(() =>
+      listSessionOutcomesResponseSchema.parse({ items: listed }),
+    ).not.toThrow();
+    expect(listed?.[2]).toMatchObject({
+      type: "github_review",
+      state: "submitted",
+      external_id: "7",
+      metadata: {
+        number: 1,
+        event: "APPROVE",
+        commit_id: "abc",
+        opened_by_session_id: null,
+      },
+    });
+    // The fixture row has no title, like one written before titles were kept.
     expect(listed?.[0]).toMatchObject({
       type: "github_pull_request",
       url: first.url,
@@ -995,6 +1031,7 @@ integration("postgres session outcomes and the outcome refresher", () => {
       state_checked_at: null,
       check_error: null,
       metadata: {
+        title: null,
         head: "agent/x",
         base: "main",
         adopted: false,
