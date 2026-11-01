@@ -139,22 +139,38 @@ $$;
 -- deadlocking over keys, and the statements after the lock read a snapshot
 -- that holds every write committed before it.
 --
+-- The planner has no row count for a transition table. Once these tables
+-- were analyzed while small, a join put them outside and rescanned the
+-- transition table for each of their rows: 1,000 keys took 15 s. A LATERAL
+-- with LIMIT is not pulled up into a join, so the transition table stays
+-- outside and each row is one key lookup; seq scans are off so the lookup
+-- uses the key's index however small the table looks.
+--
 -- The kept bytes change by what the touched keys hold after the statement
--- less what they held before it; every CTE reads the same snapshot.
-CREATE OR REPLACE FUNCTION "checkpoint_output_objects_add"() RETURNS trigger LANGUAGE plpgsql AS $$
+-- less what they held before it, both summed over the same keys.
+CREATE OR REPLACE FUNCTION "checkpoint_output_objects_add"() RETURNS trigger LANGUAGE plpgsql
+SET "enable_seqscan" = off AS $$
+DECLARE
+  "was_kept" bigint;
+  "now_kept" bigint;
 BEGIN
   PERFORM 1 FROM "checkpoint_output_totals" WHERE "scope" = 'installation' FOR UPDATE;
+  SELECT coalesce(sum("o"."bytes") FILTER (WHERE "o"."live_refs" > 0), 0) INTO "was_kept"
+  FROM (SELECT DISTINCT "session_id", "object_key" FROM "added_rows") "a"
+  CROSS JOIN LATERAL (
+    SELECT "bytes", "live_refs" FROM "checkpoint_output_objects"
+    WHERE "session_id" = "a"."session_id" AND "object_key" = "a"."object_key" LIMIT 1
+  ) "o";
   WITH "added" AS (
     SELECT "a"."session_id", "a"."object_key", max("a"."bytes") AS "bytes",
            (count(*) FILTER (WHERE "c"."objects_purged_at" IS NULL))::integer AS "live_refs",
            min("c"."committed_at") AS "first_at", max("c"."objects_purged_at") AS "released_at"
     FROM "added_rows" "a"
-    JOIN "checkpoints" "c" ON "c"."session_id" = "a"."session_id" AND "c"."revision" = "a"."revision"
+    CROSS JOIN LATERAL (
+      SELECT "committed_at", "objects_purged_at" FROM "checkpoints"
+      WHERE "session_id" = "a"."session_id" AND "revision" = "a"."revision" LIMIT 1
+    ) "c"
     GROUP BY "a"."session_id", "a"."object_key"
-  ),
-  "was" AS (
-    SELECT "o"."session_id", "o"."object_key", "o"."bytes", "o"."live_refs"
-    FROM "checkpoint_output_objects" "o" JOIN "added" USING ("session_id", "object_key")
   ),
   "now" AS (
     INSERT INTO "checkpoint_output_objects" AS "o" ("session_id", "object_key", "bytes", "live_refs", "first_at", "released_at")
@@ -164,19 +180,17 @@ BEGIN
           "live_refs" = "o"."live_refs" + EXCLUDED."live_refs",
           "first_at" = LEAST("o"."first_at", EXCLUDED."first_at"),
           "released_at" = GREATEST("o"."released_at", EXCLUDED."released_at")
-    RETURNING "o"."session_id", "o"."object_key", "o"."bytes", "o"."live_refs"
+    RETURNING "o"."bytes", "o"."live_refs"
   )
-  UPDATE "checkpoint_output_totals" SET "kept_bytes" = "kept_bytes" + (
-    SELECT coalesce(sum("now"."bytes") FILTER (WHERE "now"."live_refs" > 0), 0)
-         - coalesce(sum("was"."bytes") FILTER (WHERE "was"."live_refs" > 0), 0)
-    FROM "now" LEFT JOIN "was" USING ("session_id", "object_key")
-  )
+  SELECT coalesce(sum("bytes") FILTER (WHERE "live_refs" > 0), 0) INTO "now_kept" FROM "now";
+  UPDATE "checkpoint_output_totals" SET "kept_bytes" = "kept_bytes" + "now_kept" - "was_kept"
   WHERE "scope" = 'installation';
   RETURN NULL;
 END
 $$;
 --> statement-breakpoint
-CREATE OR REPLACE FUNCTION "checkpoint_output_objects_recount"("affected" uuid[]) RETURNS void LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION "checkpoint_output_objects_recount"("affected" uuid[]) RETURNS void LANGUAGE plpgsql
+SET "enable_seqscan" = off AS $$
 DECLARE
   "dropped" bigint;
   "counted" bigint;
@@ -210,7 +224,8 @@ $$;
 -- A collection pass purges a revision once, which releases each key it was
 -- the last unpurged revision to name. Any other change to the columns the
 -- figures read (none is made today) counts the session again.
-CREATE OR REPLACE FUNCTION "checkpoint_output_objects_release"() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION "checkpoint_output_objects_release"() RETURNS trigger LANGUAGE plpgsql
+SET "enable_seqscan" = off AS $$
 BEGIN
   -- Most checkpoint updates (collected_at, profile fingerprints) touch
   -- neither column, and must not queue on the totals row.
