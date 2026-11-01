@@ -2,6 +2,7 @@ export * from "./callers.ts";
 export * from "./checkpoint-objects.ts";
 export * from "./fake-anthropic.ts";
 export * from "./fake-github.ts";
+export * from "./git.ts";
 export * from "./git-bundle.ts";
 export * from "./git-http.ts";
 export * from "./localstack.ts";
