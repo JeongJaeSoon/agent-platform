@@ -131,6 +131,7 @@ import {
   archiveChunksAfter,
   archivedRows,
   createArchivedEventCache,
+  sameChunks,
 } from "./session-event-archives.ts";
 import { recordStatus } from "./session-events.ts";
 import { sessionRelationIs, sessionVisibleTo } from "./session-shares.ts";
@@ -695,6 +696,34 @@ export function createPostgresSessionReader(
       );
     }
     return archiveCache;
+  }
+  // Ordered by row id, which is commit order within one session: every
+  // writer (the worker's appendEvents, PostgresQueue.publish) inserts
+  // under the session row lock, so a lower id can never become visible
+  // after a higher one and a reader that resumes from the last id it saw
+  // misses nothing. A new writer must take the same lock.
+  //
+  // The byte bound is applied in SQL over a running sum of payload sizes
+  // so that Postgres, not this process, holds whatever falls past it.
+  // The candidate set is cut to `limit` rows first, because window
+  // functions run before LIMIT and would otherwise size the whole
+  // remaining history on every page. The first row always comes
+  // through, or an oversized event could never be read at all.
+  // The Database type is generic over the driver, so execute() cannot
+  // name its row shape; pg hands back bigints and counts as strings and
+  // raw timestamps in a driver-dependent form, hence the epoch column.
+  // Rows written outside the worker protocol carry no occurred_at; the
+  // insert time is the closest thing to when it happened.
+  async function pageRows(
+    sessionId: string,
+    after: number,
+    query: ReadEventsQuery,
+    archived: readonly string[],
+  ): Promise<EventPageRow[]> {
+    const result = (await db.execute(
+      eventPageQuery(sessionId, after, query.limit, query.maxBytes, archived),
+    )) as { rows: EventPageRow[] };
+    return result.rows;
   }
   async function ownedSession(ownerId: string, sessionId: string) {
     const [row] = await db
@@ -1318,35 +1347,31 @@ export function createPostgresSessionReader(
         }
       }
       // A page's rows from archived chunks: enough of them to fill it, the
-      // rows still stored follow.
-      const archived: string[] = [];
-      for (const chunk of await archiveChunksAfter(db, sessionId, after)) {
-        if (archived.length >= query.limit) break;
-        for (const { id, line } of await archive().lines(chunk)) {
-          if (id > after && archived.length < query.limit) archived.push(line);
+      // rows still stored follow. The chunk list and the page query are two
+      // statements, so an archive or restore committing between them would
+      // drop or repeat rows: the list is read again after the query and the
+      // page is taken again while it moved.
+      let rows: EventPageRow[] = [];
+      for (let attempt = 0; ; attempt += 1) {
+        const chunks = await archiveChunksAfter(db, sessionId, after);
+        const archived: string[] = [];
+        for (const chunk of chunks) {
+          if (archived.length >= query.limit) break;
+          for (const { id, line } of await archive().lines(chunk)) {
+            if (id > after && archived.length < query.limit) {
+              archived.push(line);
+            }
+          }
+        }
+        rows = await pageRows(sessionId, after, query, archived);
+        const again = await archiveChunksAfter(db, sessionId, after);
+        if (sameChunks(chunks, again)) break;
+        if (attempt >= 4) {
+          throw new Error(
+            "Session events kept moving between the archive and the table while a page was read",
+          );
         }
       }
-      // Ordered by row id, which is commit order within one session: every
-      // writer (the worker's appendEvents, PostgresQueue.publish) inserts
-      // under the session row lock, so a lower id can never become visible
-      // after a higher one and a reader that resumes from the last id it saw
-      // misses nothing. A new writer must take the same lock.
-      //
-      // The byte bound is applied in SQL over a running sum of payload sizes
-      // so that Postgres, not this process, holds whatever falls past it.
-      // The candidate set is cut to `limit` rows first, because window
-      // functions run before LIMIT and would otherwise size the whole
-      // remaining history on every page. The first row always comes
-      // through, or an oversized event could never be read at all.
-      // The Database type is generic over the driver, so execute() cannot
-      // name its row shape; pg hands back bigints and counts as strings and
-      // raw timestamps in a driver-dependent form, hence the epoch column.
-      // Rows written outside the worker protocol carry no occurred_at; the
-      // insert time is the closest thing to when it happened.
-      const result = (await db.execute(
-        eventPageQuery(sessionId, after, query.limit, query.maxBytes, archived),
-      )) as { rows: EventPageRow[] };
-      const rows = result.rows;
       const fetched = Number(rows[0]?.fetched ?? 0);
       // Fields filled here on read count against the byte bound too: a page
       // stops before the row they would push past it.

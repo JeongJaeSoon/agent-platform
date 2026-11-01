@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import type { PGlite } from "@electric-sql/pglite";
 import { InvalidCursorError } from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/pglite";
 import { encodeEventCursor } from "./cursors.ts";
 import { createPostgresSessionReader } from "./postgres-unit-of-work.ts";
@@ -10,9 +12,12 @@ import type { Database } from "./queries.ts";
 import * as schema from "./schema.ts";
 import {
   ARCHIVE_CHUNK_EVENTS,
+  type ArchiveChunkRow,
   type ArchiveObjectStore,
   archiveSessionEvents,
+  createArchivedEventCache,
   decodeArchiveChunk,
+  encodeArchiveChunk,
   restoreSessionEvents,
   SESSION_ARCHIVE_PREFIX,
 } from "./session-event-archives.ts";
@@ -390,18 +395,25 @@ describe("session event archiving", () => {
     await projectionsCaughtUp(Number(tenth?.id));
 
     const results = new Map<string, unknown>();
-    await archiveSessionEvents(db, memoryBucket(), {
-      afterDays: 180,
-      dryRun: false,
-      batchSize: 10,
-      onSession: (id, result) => results.set(id, result),
-    });
+    const pass = () =>
+      archiveSessionEvents(db, memoryBucket(), {
+        afterDays: 180,
+        dryRun: false,
+        batchSize: 10,
+        onSession: (id, result) => results.set(id, result),
+      });
+    await pass();
+    expect([...results.keys()]).toEqual([]);
+    expect(await eventRows(beyond)).toHaveLength(20);
+
+    await projectionsCaughtUp();
+    await pass();
     expect([...results.keys()]).toEqual([beyond]);
     expect(results.get(beyond)).toMatchObject({
       status: "archived",
-      events: 10,
+      events: 20,
     });
-    expect(await eventRows(beyond)).toHaveLength(10);
+    expect(await eventRows(beyond)).toHaveLength(0);
     for (const id of [recent, running, waiting, pushing]) {
       expect(
         await rows(
@@ -524,5 +536,132 @@ describe("session event archiving", () => {
       InvalidCursorError,
     );
     expect((await read(Number(own?.id)))?.items).toHaveLength(7);
+  });
+
+  test.each(["archive", "restore"] as const)(
+    "a page read while a pass commits (%s) neither drops nor repeats rows",
+    async (move) => {
+      await projectionsCaughtUp();
+      const id = await session();
+      await seedEvents(id, 20);
+      const store = memoryBucket();
+      if (move === "restore") await archive(store);
+      const settled = await allPages(id, store, undefined, 50, 1_000_000);
+      // The move commits just before the page query, after the reader has
+      // taken the session's chunk list.
+      let fired = false;
+      const racing = new Proxy(db, {
+        get(target, prop, receiver) {
+          if (prop !== "execute") return Reflect.get(target, prop, receiver);
+          return async (query: Parameters<Database["execute"]>[0]) => {
+            const text = new PgDialect().sqlToQuery(query as SQL).sql;
+            if (!fired && text.includes("running_bytes")) {
+              fired = true;
+              if (move === "archive") await archive(store);
+              else await restoreSessionEvents(db, store, id);
+            }
+            return target.execute(query);
+          };
+        },
+      });
+      const page = await createPostgresSessionReader(racing, {
+        archivedEvents: store,
+      }).readEvents(OWNER, id, { limit: 50, maxBytes: 1_000_000 });
+      expect(fired).toBe(true);
+      expect(JSON.stringify([page])).toBe(settled);
+    },
+  );
+});
+
+describe("a session that wakes during a pass", () => {
+  test.each(["listed", "held"] as const)(
+    "keeps its events when a turn starts after it was %s",
+    async (moment) => {
+      await projectionsCaughtUp();
+      const id = await session();
+      await seedEvents(id, 20);
+      const store = memoryBucket();
+      const wake = () =>
+        client.query(
+          `INSERT INTO turns (session_id, sequence, message, status) VALUES ($1, 3, 'again', 'queued')`,
+          [id],
+        );
+      if (moment === "held") {
+        const hold = store.hold.bind(store);
+        store.hold = async (...args: Parameters<typeof hold>) => {
+          await hold(...args);
+          await wake();
+        };
+      }
+      let woke = false;
+      const waking = new Proxy(db, {
+        get(target, prop, receiver) {
+          if (prop !== "execute") return Reflect.get(target, prop, receiver);
+          return async (query: Parameters<Database["execute"]>[0]) => {
+            const result = await target.execute(query);
+            const text = new PgDialect().sqlToQuery(query as SQL).sql;
+            if (
+              moment === "listed" &&
+              !woke &&
+              text.includes("make_interval")
+            ) {
+              woke = true;
+              await wake();
+            }
+            return result;
+          };
+        },
+      });
+      const results = new Map<string, unknown>();
+      await archiveSessionEvents(waking, store, {
+        afterDays: 180,
+        dryRun: false,
+        batchSize: 10,
+        onSession: (sid, result) => results.set(sid, result),
+      });
+      expect(results.get(id)).toMatchObject({ status: "archived", events: 0 });
+      expect(await eventRows(id)).toHaveLength(20);
+      expect(
+        await rows(
+          `SELECT 1 FROM session_event_archives WHERE session_id = $1`,
+          [id],
+        ),
+      ).toEqual([]);
+    },
+  );
+});
+
+describe("archived event cache", () => {
+  test("two readers missing one chunk at once count its bytes once", async () => {
+    const line = (id: number) => JSON.stringify({ id, pad: "x".repeat(90) });
+    const bodies = new Map([
+      ["a", encodeArchiveChunk([line(1)])],
+      ["b", encodeArchiveChunk([line(2)])],
+    ]);
+    const reads: string[] = [];
+    const cache = createArchivedEventCache(
+      {
+        async get(key) {
+          reads.push(key);
+          return bodies.get(key);
+        },
+      },
+      2 * line(1).length,
+    );
+    const chunk = (key: string, id: number): ArchiveChunkRow => ({
+      fromId: id,
+      throughId: id,
+      objectKey: key,
+      versionId: "v1",
+      sha256: createHash("sha256")
+        .update(bodies.get(key) ?? new Uint8Array())
+        .digest("hex"),
+      eventCount: 1,
+    });
+
+    await Promise.all([cache.lines(chunk("a", 1)), cache.lines(chunk("a", 1))]);
+    await cache.lines(chunk("b", 2));
+    await cache.lines(chunk("a", 1));
+    expect(reads).toEqual(["a", "a", "b"]);
   });
 });

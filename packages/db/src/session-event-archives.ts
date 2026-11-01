@@ -4,7 +4,7 @@ import {
   OPEN_PUSH_REQUEST_STATES,
   type SessionActivity,
 } from "@werft-ai/contracts";
-import { sql } from "drizzle-orm";
+import { type SQL, sql } from "drizzle-orm";
 import { rowsOf } from "./control-unit-of-work.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -20,7 +20,7 @@ import {
 import { mergeActivity, readActivityRange } from "./session-activity.ts";
 
 /**
- * Old sessions' events moved to the checkpoint bucket (94S-1121), one gzip
+ * Old sessions' events moved to the checkpoint bucket, one gzip
  * JSON Lines object per chunk under `session-archive/<session id>/`: outside
  * the `sessions/<id>/` prefix a worker's object route is confined to, so no
  * running worker can create or read an archive key, and outside what the
@@ -165,6 +165,20 @@ export async function archiveChunksAfter(
   return rows.map(chunkOf);
 }
 
+export function sameChunks(
+  a: readonly ArchiveChunkRow[],
+  b: readonly ArchiveChunkRow[],
+): boolean {
+  return (
+    a.length === b.length &&
+    a.every(
+      (chunk, index) =>
+        chunk.fromId === b[index]?.fromId &&
+        chunk.versionId === b[index]?.versionId,
+    )
+  );
+}
+
 /** The chunk whose id range takes in `id`, if any. */
 export async function archiveChunkHolding(
   db: Database,
@@ -207,6 +221,9 @@ export function createArchivedEventCache(
       }
       const lines = await readArchiveChunk(source, chunk);
       const bytes = lines.reduce((sum, { line }) => sum + line.length, 0);
+      // Concurrent misses of one chunk each land here; count it once.
+      total -= cached.get(key)?.bytes ?? 0;
+      cached.delete(key);
       cached.set(key, { bytes, lines });
       total += bytes;
       for (const [oldest, entry] of cached) {
@@ -239,18 +256,34 @@ async function projectedThrough(db: Database): Promise<number> {
 const UNSETTLED_TURN_STATUSES = sql`('queued', 'running', 'needs_input', 'outcome_unknown')`;
 
 /**
- * Sessions whose events through `cap` may be archived: no activity for
- * `afterDays`, nothing running or waiting on anyone, and an event past their
- * last chunk at or below `cap`. A page of `limit`, ids after `afterId`.
+ * Nothing running or waiting on anyone in the session, and the projections
+ * have passed every event it has, so its stored activity is the window over
+ * all of them.
+ */
+function settled(sessionId: SQL, cap: number): SQL {
+  const openPush = sql.join(
+    OPEN_PUSH_REQUEST_STATES.map((state) => sql`${state}`),
+    sql`, `,
+  );
+  return sql`NOT EXISTS (SELECT 1 FROM ${turns} t
+      WHERE t.session_id = ${sessionId} AND t.status IN ${UNSETTLED_TURN_STATUSES})
+    AND NOT EXISTS (SELECT 1 FROM ${pendingRequests} r
+      WHERE r.session_id = ${sessionId} AND r.resolved_at IS NULL)
+    AND NOT EXISTS (SELECT 1 FROM ${pushRequests} p
+      WHERE p.session_id = ${sessionId} AND p.state IN (${openPush}))
+    AND NOT EXISTS (SELECT 1 FROM ${events} e
+      WHERE e.session_id = ${sessionId} AND e.id > ${cap})`;
+}
+
+/**
+ * Sessions whose events may be archived: no activity for `afterDays`,
+ * nothing running or waiting on anyone, an event past their last chunk, and
+ * none past `cap`. A page of `limit`, ids after `afterId`.
  */
 export async function archivableSessions(
   db: Database,
   input: { afterDays: number; cap: number; afterId: string; limit: number },
 ): Promise<{ id: string; after: number }[]> {
-  const openPush = sql.join(
-    OPEN_PUSH_REQUEST_STATES.map((state) => sql`${state}`),
-    sql`, `,
-  );
   const rows = rowsOf<{ id: string; after: string }>(
     await db.execute(sql`
       SELECT s.id::text AS id, coalesce(a.through_id, 0) AS after
@@ -262,12 +295,7 @@ export async function archivableSessions(
       WHERE s.id > ${input.afterId}::uuid
         AND coalesce(s.last_turn_at, s.created_at)
           < statement_timestamp() - make_interval(days => ${input.afterDays}::int)
-        AND NOT EXISTS (SELECT 1 FROM ${turns} t
-          WHERE t.session_id = s.id AND t.status IN ${UNSETTLED_TURN_STATUSES})
-        AND NOT EXISTS (SELECT 1 FROM ${pendingRequests} r
-          WHERE r.session_id = s.id AND r.resolved_at IS NULL)
-        AND NOT EXISTS (SELECT 1 FROM ${pushRequests} p
-          WHERE p.session_id = s.id AND p.state IN (${openPush}))
+        AND ${settled(sql`s.id`, input.cap)}
         AND EXISTS (SELECT 1 FROM ${events} e
           WHERE e.session_id = s.id
             AND e.id > coalesce(a.through_id, 0) AND e.id <= ${input.cap})
@@ -297,7 +325,10 @@ async function lastChunk(
   return row;
 }
 
-/** The next chunk's rows, read under the session row lock every events writer takes. */
+/**
+ * The next chunk's rows, read under the session row lock every events
+ * writer takes; none once the session has moved on since it was listed.
+ */
 async function nextChunk(
   db: Database,
   sessionId: string,
@@ -312,6 +343,7 @@ async function nextChunk(
       await tx.execute(sql`
         SELECT e.id, ${LINE} AS line FROM ${events} e
         WHERE e.session_id = ${sessionId} AND e.id > ${after} AND e.id <= ${cap}
+          AND ${settled(sql`${sessionId}::uuid`, cap)}
         ORDER BY e.id LIMIT ${ARCHIVE_CHUNK_EVENTS}`),
     );
   });
@@ -329,7 +361,8 @@ async function nextChunk(
  * Records the chunk and deletes its rows in one transaction. Refuses, so
  * nothing is deleted, when another pass recorded a chunk of the session
  * since this one read `after`, or when the rows deleted are not exactly the
- * rows archived.
+ * rows archived. False, with nothing changed, once the session is no longer
+ * settled.
  */
 async function commitChunk(
   db: Database,
@@ -340,10 +373,11 @@ async function commitChunk(
     bytes: number;
     activity: SessionActivity;
     activityThrough: number;
+    cap: number;
   },
-): Promise<void> {
+): Promise<boolean> {
   const { sessionId, chunk } = input;
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     await tx.execute(
       sql`SELECT 1 FROM ${sessions} WHERE id = ${sessionId} FOR UPDATE`,
     );
@@ -357,6 +391,12 @@ async function commitChunk(
         `Session ${sessionId} gained an archived chunk while this one was written`,
       );
     }
+    const [still] = rowsOf<{ ok: boolean }>(
+      await tx.execute(
+        sql`SELECT ${settled(sql`${sessionId}::uuid`, input.cap)} AS ok`,
+      ),
+    );
+    if (still?.ok !== true) return false;
     const recorded = rowsOf<{ from_id: string }>(
       await tx.execute(sql`
         INSERT INTO ${sessionEventArchives} (session_id, from_id, through_id,
@@ -388,6 +428,7 @@ async function commitChunk(
         `Session ${sessionId} held ${deleted.length} events in ${chunk.fromId}..${chunk.throughId}, ${chunk.eventCount} archived`,
       );
     }
+    return true;
   });
 }
 
@@ -450,14 +491,17 @@ async function archiveSession(
     if (back.some(({ line }, index) => line !== rows[index]?.line)) {
       throw new Error(`Archive object ${key} does not read back as written`);
     }
-    await commitChunk(db, {
+    const committed = await commitChunk(db, {
       sessionId,
       after,
       chunk,
       bytes: body.byteLength,
       activity,
       activityThrough,
+      cap,
     });
+    // The held object stays behind unrecorded; nothing reads it.
+    if (!committed) break;
     after = last.id;
     chunks += 1;
     archived += rows.length;
