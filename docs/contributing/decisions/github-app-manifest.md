@@ -58,7 +58,7 @@ GitHub 연결 설정에 '새 App 만들기'를 주 버튼으로 둔다. '이미 
 | `setup_url` | `{CONSOLE_ORIGIN}/settings/workspace/github` |
 | `public` | 기본 `false`. 관리자가 '여러 조직에서 쓰기'를 고르면 `true` |
 | `default_permissions` | `contents: write`, `pull_requests: write`, `metadata: read`. 고르면 `actions: write`, `workflows: write`를 더한다. administration과 조직 권한은 넣지 않는다 |
-| `hook_attributes` | `{ url: CONSOLE_ORIGIN, active: false }` |
+| `hook_attributes` | 넣지 않는다. GitHub는 꺼 둔 webhook이어도 인터넷에서 닿지 않는 URL이면 manifest를 거절한다(`localhost` 콘솔에서 확인) |
 | `default_events` | `[]` |
 | `request_oauth_on_install` | `false` |
 

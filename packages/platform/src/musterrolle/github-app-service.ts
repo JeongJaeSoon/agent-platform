@@ -111,8 +111,9 @@ export function githubAppManifest(input: {
       metadata: "read",
       ...(input.actions ? { actions: "write", workflows: "write" } : {}),
     },
+    // No hook_attributes: GitHub rejects a hook URL it cannot reach, even an
+    // inactive one, and the platform subscribes to no events.
     default_events: [],
-    hook_attributes: { url: origin, active: false },
     request_oauth_on_install: false,
   };
 }

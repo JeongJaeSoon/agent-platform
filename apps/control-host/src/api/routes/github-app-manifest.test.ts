@@ -322,7 +322,6 @@ describe("making the author GitHub App from a manifest", () => {
         metadata: "read",
       },
       default_events: [],
-      hook_attributes: { url: ORIGIN, active: false },
       request_oauth_on_install: false,
     });
   });
