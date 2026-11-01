@@ -22,7 +22,8 @@ import { Heading, MUTED_TEXT } from "./slack-kit.tsx";
  * to the workspace GitHub settings. The repository ids are the catalog's.
  */
 
-type Feature = "review" | "actions" | "checks" | "issues" | "workflows";
+// checks and issues are in the contract but not offered: no work stands behind them.
+type Feature = "review" | "actions" | "workflows";
 type Reason =
   | "app_permission_missing"
   | "over_workspace_ceiling"
@@ -37,14 +38,6 @@ const FEATURE: Record<Feature, { title: string; hint: string }> = {
   actions: {
     title: "Actions 실행",
     hint: "허용 목록의 워크플로만 실행(workflow_dispatch)하거나 다시 실행합니다. 필요한 권한: actions 쓰기",
-  },
-  checks: {
-    title: "검사 결과 쓰기",
-    hint: "check run을 만들고 결과를 올립니다. 필요한 권한: checks 쓰기",
-  },
-  issues: {
-    title: "이슈 쓰기",
-    hint: "이슈를 열고 코멘트를 남깁니다. 필요한 권한: issues 쓰기",
   },
   workflows: {
     title: "워크플로 파일 수정",
@@ -61,13 +54,7 @@ const REASON: Record<Reason, string> = {
   github_host_unsupported:
     "고른 저장소가 모두 GitHub Enterprise에 있어 기본 작업만 할 수 있습니다.",
 };
-const ORDER: readonly Feature[] = [
-  "review",
-  "actions",
-  "checks",
-  "issues",
-  "workflows",
-];
+const ORDER: readonly Feature[] = ["review", "actions", "workflows"];
 const SECTION = "flex flex-col gap-[var(--ap-space-block)]";
 
 interface TabProps {
@@ -283,8 +270,7 @@ export const AgentGitHubCeiling: Story = {
   name: "상한·App 권한 밖",
   args: {
     locked: {
-      checks: "over_workspace_ceiling",
-      issues: "over_workspace_ceiling",
+      actions: "over_workspace_ceiling",
       workflows: "app_permission_missing",
     },
   },

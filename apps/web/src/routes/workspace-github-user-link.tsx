@@ -29,6 +29,9 @@ import { storeOff } from "./workspace-slack.tsx";
 
 const ACTION = "min-w-12";
 
+/** The section's anchor, which the GitHub page's summary links to. */
+export const GITHUB_USER_LINK_ANCHOR = "github-user-link";
+
 export function githubSettingsQuery(client: ApiClient, workspaceId: string) {
   return {
     queryKey: githubSettingsKey(client, workspaceId),
@@ -288,6 +291,7 @@ export function GitHubUserLinkSection({
 
   return (
     <SettingsCard
+      id={GITHUB_USER_LINK_ANCHOR}
       title={t("githubUserLink.title")}
       description={t("githubUserLink.intro")}
       rows={rows}

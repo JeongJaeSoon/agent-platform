@@ -17,10 +17,7 @@ import type {
   GitHubSettingsResponse,
   PutGitHubSettingsRequest,
 } from "@werft-ai/contracts";
-import {
-  GITHUB_APP_PERMISSION_GUIDANCE,
-  githubAppWarnings,
-} from "@werft-ai/core/forms";
+import { githubAppWarnings } from "@werft-ai/core/forms";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   Alert,
@@ -29,12 +26,18 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  GridTable,
+  GridTableCell,
+  GridTableColumnHeader,
+  GridTableHeader,
+  GridTableRow,
   RowListItem,
   SettingRow,
   Skeleton,
   Switch,
 } from "@werft-ai/ui";
-import { type FormEvent, useId, useState } from "react";
+import { GitPullRequest, ShieldCheck } from "lucide-react";
+import { type FormEvent, type ReactNode, useId, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import {
   permissionReason,
@@ -43,55 +46,42 @@ import {
   useMe,
   useRole,
 } from "../auth/guard.tsx";
+import { IconTile } from "../components/icon-tile.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { isMessageKey, type Translate, useI18n } from "../i18n/i18n.tsx";
+import {
+  BASE_NEED,
+  FEATURE_NEED,
+  firstShortfall,
+  OFFERED_FEATURES,
+  type OfferedFeature,
+  type PermissionRow,
+  permissionRows,
+  REVIEW_NEED,
+} from "./github-permission-table.ts";
 import {
   type OnOutcome,
   ReadOnlyMark,
   SettingsCard,
 } from "./workspace-settings.tsx";
 
-type Feature = keyof GitHubCeiling;
-
-// The mockup's order (screen C): the reviewer's feature, then the author's.
-const FEATURES: readonly Feature[] = [
-  "review",
-  "actions",
-  "checks",
-  "issues",
-  "workflows",
-];
-
-// What every agent holds without the ceiling; the rest of the guidance is optional.
-const DEFAULTS: ReadonlySet<string> = new Set([
-  "contents",
-  "pull_requests",
-  "metadata",
-]);
-
 const STATUS = "text-caption text-subtle-foreground min-w-14 text-right";
 const META = "text-caption text-subtle-foreground";
+
+/** The anchors the summary and the ceiling's group heads link to. */
+export const GITHUB_APP_ANCHOR = "github-app";
+export const GITHUB_REVIEWER_ANCHOR = "github-reviewer";
 
 export const githubSettingsKey = (client: ApiClient, workspaceId: string) =>
   scopedKey(client, "workspace", workspaceId, "github-settings");
 
-type AuthorApp = GitHubSettingsResponse["apps"]["author"];
-
-/**
- * The App permission table and the agents' ceiling. `fresh` is the author
- * App as GET …/github-app just read it, null when none is registered (owners
- * and admins); left undefined, the settings' last read stands.
- */
-export function GitHubAccess({
-  fresh,
-  onOutcome,
-}: {
-  readonly fresh: AuthorApp | undefined;
-  readonly onOutcome: OnOutcome;
-}) {
+/** `enabled` false keeps a late-mounted reader from fetching the settings again. */
+export function useGitHubSettings(
+  enabled = true,
+): UseQueryResult<GitHubSettingsResponse> {
   const { client } = useAgentPlatform();
   const workspaceId = useMe()?.workspace?.id ?? "";
-  const settings = useQuery({
+  return useQuery({
     queryKey: githubSettingsKey(client, workspaceId),
     queryFn: () =>
       unwrap(
@@ -99,138 +89,262 @@ export function GitHubAccess({
           params: { path: { id: workspaceId } },
         }),
       ),
-    enabled: workspaceId !== "",
+    enabled: enabled && workspaceId !== "",
   });
-  const author = fresh !== undefined ? fresh : settings.data?.apps.author;
-  return (
-    <>
-      {author ? <AppPermissions permissions={author.permissions} /> : null}
-      <Ceiling
-        settings={settings}
-        permissions={author?.permissions ?? null}
-        onOutcome={onOutcome}
-      />
-    </>
+}
+
+/** The tile an App is marked with wherever the screen names it. */
+export function AppTile({ app }: { readonly app: "author" | "reviewer" }) {
+  return app === "author" ? (
+    <IconTile icon={GitPullRequest} hue="slate" />
+  ) : (
+    <IconTile icon={ShieldCheck} hue="blue" />
   );
 }
 
-const levelText = (t: Translate, level: GitHubAppPermissionLevel) =>
+export const levelText = (t: Translate, level: GitHubAppPermissionLevel) =>
   t(`github.permissions.level.${level}`);
 
 // A permission this build has no words for is shown as GitHub names it.
-function permissionName(t: Translate, name: string): string {
+export function permissionName(t: Translate, name: string): string {
   const key = `github.permissions.name.${name}`;
   return isMessageKey(key) ? t(key) : name;
 }
 
-function AppPermissions({
+/** "Contents · Pull requests write": names joined, the level said once. */
+function needText(t: Translate, need: GitHubAppPermissions): string {
+  const levels = new Set(Object.values(need));
+  if (levels.size === 1) {
+    return `${Object.keys(need)
+      .map((name) => permissionName(t, name))
+      .join(
+        " · ",
+      )} ${levelText(t, [...levels][0] as GitHubAppPermissionLevel)}`;
+  }
+  return Object.entries(need)
+    .map(([name, level]) => `${permissionName(t, name)} ${levelText(t, level)}`)
+    .join(" · ");
+}
+
+function purposeText(t: Translate, row: PermissionRow, ceiling: GitHubCeiling) {
+  if (row.feature === "base") return t("github.permissions.use.base");
+  if (row.feature === "actions" || row.feature === "workflows") {
+    return t(
+      ceiling[row.feature]
+        ? `github.permissions.use.${row.feature}`
+        : `github.permissions.use.${row.feature}Off`,
+    );
+  }
+  return t("github.permissions.use.none");
+}
+
+const STATUS_BADGE = {
+  missing: "amber",
+  short: "amber",
+  wide: "amber",
+  ok: "green",
+} as const;
+
+/**
+ * The author App's permissions next to what the platform needs of it now,
+ * one row a permission, problems first.
+ */
+export function AppPermissionTable({
   permissions,
+  ceiling,
 }: {
   readonly permissions: GitHubAppPermissions | null;
+  readonly ceiling: GitHubCeiling | undefined;
 }) {
   const { t } = useI18n();
-  const guidance = GITHUB_APP_PERMISSION_GUIDANCE.author;
-  const warnings = githubAppWarnings("author", permissions);
-  const names = [
-    ...Object.keys(guidance),
-    ...Object.keys(permissions ?? {})
-      .filter((name) => guidance[name] === undefined)
-      .sort(),
-  ];
+  const headingId = useId();
+  if (permissions === null || ceiling === undefined) {
+    return (
+      <div className="flex flex-col gap-2">
+        <h3 id={headingId} className="m-0 font-semibold text-control">
+          {t("github.permissions.title")}
+        </h3>
+        <p className={`m-0 ${META}`}>
+          {permissions === null
+            ? t("github.permissions.unread")
+            : t("github.permissions.waiting")}
+        </p>
+      </div>
+    );
+  }
+  // Beyond what the platform could ever use: red, and the alert says why.
+  const beyond = new Set(
+    githubAppWarnings("author", permissions).map((item) => item.permission),
+  );
+  const rows = permissionRows(permissions, ceiling);
   return (
-    <SettingsCard
-      title={t("github.permissions.title")}
-      description={t("github.permissions.hint")}
-      rows={
-        permissions === null ? (
-          <SettingRow title={t("github.permissions.unread")} />
-        ) : (
-          names.map((name) => {
-            const guided = guidance[name];
-            const level = permissions[name];
-            const wide = warnings.some((item) => item.permission === name);
-            return (
-              <SettingRow
-                key={name}
-                title={permissionName(t, name)}
-                badge={<Badge variant="mono">{name}</Badge>}
-                description={
-                  guided === undefined
-                    ? t("github.permissions.notGuided")
-                    : t(
-                        DEFAULTS.has(name)
-                          ? "github.permissions.guidedDefault"
-                          : "github.permissions.guidedOptional",
-                        { level: levelText(t, guided) },
-                      )
-                }
-                meta={
-                  <div>
-                    {level === undefined ? (
-                      <Badge variant={DEFAULTS.has(name) ? "amber" : "gray"}>
-                        {t("github.permissions.appNone")}
-                      </Badge>
-                    ) : wide ? (
-                      <Badge variant="red">
-                        {t("github.permissions.appWide", {
-                          level: levelText(t, level),
-                        })}
-                      </Badge>
-                    ) : (
-                      <Badge variant="green">
-                        {t("github.permissions.app", {
-                          level: levelText(t, level),
-                        })}
-                      </Badge>
-                    )}
-                  </div>
-                }
-              />
-            );
-          })
-        )
-      }
-    >
-      {warnings.length > 0 ? (
+    <div className="flex min-w-0 flex-col gap-2">
+      <h3 id={headingId} className="m-0 font-semibold text-control">
+        {t("github.permissions.title")}{" "}
+        <span className={`${META} font-normal`}>
+          · {t("github.permissions.hint")}
+        </span>
+      </h3>
+      <GridTable
+        aria-labelledby={headingId}
+        columns="minmax(0,1fr) 64px 64px 112px"
+        narrowAt={480}
+        narrowColumns="minmax(0,1fr) 48px 48px 96px"
+        className="rounded-card border"
+      >
+        <GridTableHeader>
+          <GridTableColumnHeader>
+            {t("github.permissions.col.name")}
+          </GridTableColumnHeader>
+          <GridTableColumnHeader>
+            {t("github.permissions.col.need")}
+          </GridTableColumnHeader>
+          <GridTableColumnHeader>
+            {t("github.permissions.col.app")}
+          </GridTableColumnHeader>
+          <GridTableColumnHeader align="end">
+            {t("github.permissions.col.status")}
+          </GridTableColumnHeader>
+        </GridTableHeader>
+        {rows.map((row) => {
+          const wideRed = row.status === "wide" && beyond.has(row.name);
+          return (
+            <GridTableRow key={row.name} data-status={row.status}>
+              <GridTableCell>
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate">
+                    {permissionName(t, row.name)}
+                  </span>
+                  <span className="truncate font-mono text-caption text-subtle-foreground">
+                    {row.name} · {purposeText(t, row, ceiling)}
+                  </span>
+                </span>
+              </GridTableCell>
+              <GridTableCell>
+                <Level t={t} level={row.need} />
+              </GridTableCell>
+              <GridTableCell>
+                <Level t={t} level={row.app} />
+              </GridTableCell>
+              <GridTableCell align="end">
+                <Badge variant={wideRed ? "red" : STATUS_BADGE[row.status]}>
+                  {t(`github.permissions.status.${row.status}`)}
+                </Badge>
+              </GridTableCell>
+            </GridTableRow>
+          );
+        })}
+      </GridTable>
+      <p className={`m-0 ${META}`}>{t("github.permissions.foot")}</p>
+      {beyond.size > 0 ? (
         <Alert variant="amber">
           <AlertTitle>{t("github.permissions.wideTitle")}</AlertTitle>
           <AlertDescription>
             {t("github.permissions.wideBody", {
-              list: warnings
-                .map((item) => `${item.permission} ${levelText(t, item.level)}`)
+              list: [...beyond]
+                .sort()
+                .map(
+                  (name) =>
+                    `${name} ${levelText(t, permissions[name] as GitHubAppPermissionLevel)}`,
+                )
                 .join(", "),
             })}
           </AlertDescription>
         </Alert>
       ) : null}
-    </SettingsCard>
+    </div>
   );
 }
 
-/** The App a feature's token comes from must hold this, or the feature never mints. */
-function appLacks(
-  feature: Feature,
-  permissions: GitHubAppPermissions | null,
-  reviewer: GitHubSettingsResponse["apps"]["reviewer"] | undefined,
-): "author" | "reviewer" | null {
-  if (feature === "review") return reviewer ? null : "reviewer";
-  if (permissions === null) return null;
-  const level = permissions[feature];
-  return level === "write" || level === "admin" ? null : "author";
+function Level({
+  t,
+  level,
+}: {
+  readonly t: Translate;
+  readonly level: GitHubAppPermissionLevel | null;
+}) {
+  if (level === null) {
+    return (
+      <span className="text-subtle-foreground">
+        <span aria-hidden="true">—</span>
+        <span className="sr-only">{t("github.permissions.levelNone")}</span>
+      </span>
+    );
+  }
+  return <span>{levelText(t, level)}</span>;
+}
+
+type AppSide = {
+  readonly name: string | null;
+  readonly permissions: GitHubAppPermissions | null;
+} | null;
+
+/** What a feature asks its App for, and what that App holds of it. */
+function NeedLine({
+  t,
+  need,
+  app,
+}: {
+  readonly t: Translate;
+  readonly need: GitHubAppPermissions;
+  readonly app: AppSide;
+}) {
+  const short = app ? firstShortfall(need, app.permissions) : null;
+  return (
+    <div className={META}>
+      {t("github.ceiling.needLabel")}: {needText(t, need)}
+      {app?.permissions ? (
+        short ? (
+          <span className="text-(color:--ap-tone-caution-fg)">
+            {" · "}
+            {short.held
+              ? t("github.ceiling.heldShort", {
+                  level: levelText(t, short.held),
+                })
+              : t("github.ceiling.heldNone")}
+          </span>
+        ) : (
+          ` · ${t("github.ceiling.heldOk")}`
+        )
+      ) : null}
+    </div>
+  );
+}
+
+function GroupHead({
+  app,
+  title,
+  aside,
+}: {
+  readonly app: "author" | "reviewer";
+  readonly title: string;
+  readonly aside: ReactNode;
+}) {
+  return (
+    <RowListItem className="flex items-center gap-2 bg-surface-sunken py-2 font-medium text-caption">
+      <AppTile app={app} />
+      <span className="min-w-0 flex-1 truncate">{title}</span>
+      {aside}
+    </RowListItem>
+  );
 }
 
 /**
- * What agents may turn on beyond writing a PR. Owners and admins change it,
+ * What agents may turn on beyond writing a PR, grouped by the App whose
+ * permissions each feature's token comes from. Owners and admins change it,
  * the rule the execution-profile ceiling keeps; lowering asks first, since a
  * running release loses the feature at its next token.
  */
-function Ceiling({
+export function Ceiling({
   settings,
-  permissions,
+  author,
+  reviewer,
   onOutcome,
 }: {
   readonly settings: UseQueryResult<GitHubSettingsResponse>;
-  readonly permissions: GitHubAppPermissions | null;
+  /** The author App as last read; null when none is registered. */
+  readonly author: AppSide;
+  readonly reviewer: AppSide;
   readonly onOutcome: OnOutcome;
 }) {
   const { t } = useI18n();
@@ -249,7 +363,7 @@ function Ceiling({
   const hintId = useId();
   const data = settings.data;
   const shown = draft?.ceiling ?? data?.ceiling;
-  const changed = FEATURES.filter(
+  const changed = OFFERED_FEATURES.filter(
     (feature) =>
       draft !== null && draft.ceiling[feature] !== draft.base.ceiling[feature],
   );
@@ -301,6 +415,74 @@ function Ceiling({
     else send();
   };
 
+  const featureRow = (feature: OfferedFeature) => {
+    const on = shown?.[feature] ?? false;
+    const app = feature === "review" ? reviewer : author;
+    const need = feature === "review" ? REVIEW_NEED : FEATURE_NEED[feature];
+    const short =
+      app === null ? null : firstShortfall(need, app.permissions ?? null);
+    // A review needs a reviewer App; one already on can still be turned off.
+    const locked = feature === "review" && reviewer === null && !on;
+    return (
+      <SettingRow
+        key={feature}
+        title={t(`github.ceiling.feature.${feature}`)}
+        badge={
+          short ? (
+            <Badge variant="amber">{t("github.ceiling.appShort")}</Badge>
+          ) : feature === "review" ? (
+            <Badge>{t("github.reviewer.advanced")}</Badge>
+          ) : undefined
+        }
+        description={t(`github.ceiling.feature.${feature}Hint`)}
+        meta={
+          <>
+            <NeedLine t={t} need={need} app={app} />
+            <div className={META}>
+              {t("github.ceiling.agentsUsing", {
+                count: data?.agents_using[feature] ?? 0,
+              })}
+            </div>
+          </>
+        }
+        status={
+          <div aria-hidden="true" className={STATUS}>
+            {t(on ? "github.ceiling.allowed" : "github.ceiling.denied")}
+          </div>
+        }
+        control={
+          <Switch
+            checked={on}
+            aria-describedby={canManage ? undefined : hintId}
+            disabled={
+              !canManage || save.isPending || data === undefined || locked
+            }
+            onCheckedChange={(next) => {
+              const base = draft?.base ?? data;
+              if (base === undefined) return;
+              setDraft({
+                base,
+                ceiling: {
+                  ...(draft?.ceiling ?? base.ceiling),
+                  [feature]: next,
+                },
+              });
+            }}
+          />
+        }
+      />
+    );
+  };
+
+  const appLink = (anchor: string) => (
+    <a
+      href={`#${anchor}`}
+      className="shrink-0 font-medium text-link underline-offset-2 hover:underline"
+    >
+      {t("github.ceiling.viewApp")}
+    </a>
+  );
+
   const rows = settings.isPending ? (
     <RowListItem>
       <Skeleton width="50%" />
@@ -314,64 +496,36 @@ function Ceiling({
     </RowListItem>
   ) : (
     <>
+      <GroupHead
+        app="author"
+        title={
+          author?.name
+            ? t("github.ceiling.groupAuthor", { name: author.name })
+            : t("github.ceiling.groupAuthorUnset")
+        }
+        aside={author ? appLink(GITHUB_APP_ANCHOR) : null}
+      />
       <SettingRow
         title={t("github.ceiling.base")}
         badge={<Badge>{t("github.ceiling.baseBadge")}</Badge>}
         description={t("github.ceiling.baseHint")}
+        meta={<NeedLine t={t} need={BASE_NEED} app={author} />}
         actions={<div className={STATUS}>{t("github.ceiling.always")}</div>}
       />
-      {FEATURES.map((feature) => {
-        const on = shown?.[feature] ?? false;
-        const lacks = appLacks(feature, permissions, data?.apps.reviewer);
-        return (
-          <SettingRow
-            key={feature}
-            title={t(`github.ceiling.feature.${feature}`)}
-            description={t(`github.ceiling.feature.${feature}Hint`)}
-            meta={
-              <>
-                <div className={META}>
-                  {t("github.ceiling.agentsUsing", {
-                    count: data?.agents_using[feature] ?? 0,
-                  })}
-                </div>
-                {lacks ? (
-                  <div className="text-caption text-(color:--ap-tone-caution-fg)">
-                    {t(
-                      lacks === "reviewer"
-                        ? "github.ceiling.noReviewer"
-                        : "github.ceiling.appLacks",
-                    )}
-                  </div>
-                ) : null}
-              </>
-            }
-            status={
-              <div aria-hidden="true" className={STATUS}>
-                {t(on ? "github.ceiling.allowed" : "github.ceiling.denied")}
-              </div>
-            }
-            control={
-              <Switch
-                checked={on}
-                aria-describedby={canManage ? undefined : hintId}
-                disabled={!canManage || save.isPending || data === undefined}
-                onCheckedChange={(next) => {
-                  const base = draft?.base ?? data;
-                  if (base === undefined) return;
-                  setDraft({
-                    base,
-                    ceiling: {
-                      ...(draft?.ceiling ?? base.ceiling),
-                      [feature]: next,
-                    },
-                  });
-                }}
-              />
-            }
-          />
-        );
-      })}
+      {featureRow("actions")}
+      {featureRow("workflows")}
+      <GroupHead
+        app="reviewer"
+        title={t("github.ceiling.groupReviewer")}
+        aside={
+          reviewer ? (
+            appLink(GITHUB_REVIEWER_ANCHOR)
+          ) : (
+            <Badge>{t("github.unset")}</Badge>
+          )
+        }
+      />
+      {featureRow("review")}
     </>
   );
 
