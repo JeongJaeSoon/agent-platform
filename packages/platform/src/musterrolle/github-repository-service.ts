@@ -359,6 +359,10 @@ export function createGitHubRepositoryService(deps: {
     installationId: number,
     repositoryId: number,
   ): Promise<GitHubInstallationRepository | null> {
+    // GitHub refuses a token for an installation of another App as it does
+    // when it is down; only the App's own list tells the two apart.
+    const installations = await directory.installations(app);
+    if (!installations.some(({ id }) => id === installationId)) return null;
     const repository = await directory.repositoryById(
       app,
       installationId,

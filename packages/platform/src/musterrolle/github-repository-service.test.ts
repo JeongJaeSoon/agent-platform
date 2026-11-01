@@ -3,6 +3,7 @@ import type { AgentDetail } from "@werft-ai/contracts";
 import type { CatalogRepositoryStore } from "../ports/catalog-repository-store.ts";
 import type {
   GitHubAppDirectory,
+  GitHubAppInstallationView,
   GitHubAppStore,
   GitHubInstallationRepository,
 } from "../ports/github-app-store.ts";
@@ -40,6 +41,13 @@ const repository = (
   url: `https://github.com/acme/${name}`,
   defaultBranch: "main",
   private: false,
+});
+
+const installation = (id: number): GitHubAppInstallationView => ({
+  id,
+  account: "acme",
+  repositorySelection: "all",
+  htmlUrl: null,
 });
 
 const apps = {
@@ -92,7 +100,12 @@ function serviceWith(directory: Partial<GitHubAppDirectory>) {
     authorization: createAuthorizationPolicy({}),
     store,
     apps,
-    directory: directory as GitHubAppDirectory,
+    directory: {
+      async installations() {
+        return [installation(INSTALLATION)];
+      },
+      ...directory,
+    } as GitHubAppDirectory,
     agents: {
       async get() {
         return {
@@ -188,6 +201,24 @@ describe("picking a GitHub App repository for an agent", () => {
       },
     });
     expect(await reasonOf(pick(5))).toBe("not_installed");
+    expect(resolved).toEqual([]);
+  });
+
+  test("an installation the App does not have is refused before GitHub is asked for a token", async () => {
+    let read = false;
+    const { pick, resolved } = serviceWith({
+      async installations() {
+        return [installation(99)];
+      },
+      async repositoryById() {
+        read = true;
+        throw new Error(
+          "GitHub refuses a token for another App's installation",
+        );
+      },
+    });
+    expect(await reasonOf(pick(5))).toBe("not_installed");
+    expect(read).toBe(false);
     expect(resolved).toEqual([]);
   });
 
