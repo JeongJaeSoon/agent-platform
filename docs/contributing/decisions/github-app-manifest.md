@@ -79,10 +79,12 @@ master key가 없어 키를 봉인할 수 없을 때는 `reason_code` 없이 App
 ## 7. 로그와 응답
 
 - `code`, `state`, `pem`, `client_secret`, `webhook_secret`은 로그, 오류 응답, receipt에 넣지 않는다. 로그에는 App ID, slug, 결과, 거절 사유만 남긴다.
-- complete 응답에 `Referrer-Policy: no-referrer`를 붙인다. 콜백 화면은 API를 부른 직후 URL에서 `code`와 `state`를 지운다(`history.replaceState`).
+- complete 응답에 `Referrer-Policy: no-referrer`를 붙인다. 콜백 화면은 API를 부른 직후 URL에서 `code`와 `state`를 지운다(router의 replace 이동).
 - complete 응답은 App 정보와 설치 주소, receipt id만 담는다. 키와 secret은 응답에 없다.
 
 ## 8. LATER
+
+- App 여러 개 허용(오너 결정 2026-11-02) 뒤 `replace`는 GHUI-impl 2에서 연결 추가로 바뀐다.
 
 - GitHub Enterprise Server의 manifest(`{GHES}/settings/apps/new`).
 - 리뷰 승인용 App의 manifest 생성.
