@@ -544,7 +544,7 @@ export function createGitHubRepositoryService(deps: {
       if (result.outcome === "name_held") {
         throw refused(
           "name_held",
-          `Catalog row ${result.id} holds that name for another GitHub repository; pick the repository it was (now renamed) to update it`,
+          `Catalog row ${result.id} holds that name, for another GitHub repository or not yet tied to one; picking the repository it was, now renamed, frees the name`,
         );
       }
       if (result.outcome !== "resolved") throw ACTOR_INACTIVE();

@@ -178,7 +178,7 @@ export const pickAgentGitHubRepositoryResponseSchema = z
   .object({
     /** The id to name in the release's `github.repositories`. */
     catalog_id: z.string().min(1),
-    /** Null when an earlier pick had resolved it already. */
+    /** Null unless this pick added the row or moved it to a new name. */
     receipt_id: receiptIdSchema.nullable(),
   })
   .strict();
