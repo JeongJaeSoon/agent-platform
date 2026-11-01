@@ -55,6 +55,8 @@ const card = {
 
 let cookie = "";
 let api: Api;
+// The key that starts a session never answers it (GA-8), so another answers.
+let approver: Api;
 let agentId = "";
 let releaseId = "";
 let bindingId = "";
@@ -137,7 +139,7 @@ async function settle(
       if (answered.has(request.request_id)) continue;
       await before[answered.size]?.();
       answered.add(request.request_id);
-      await api.allow(sessionId, request.request_id);
+      await approver.allow(sessionId, request.request_id);
     }
     return null;
   });
@@ -174,6 +176,13 @@ beforeAll(async () => {
   });
   expect(key.status).toBe(201);
   api = new Api({ ...env, apiKey: key.body.secret });
+
+  const approverKey = await web<{ secret: string }>("POST", "/v1/api-keys", {
+    kind: "personal",
+    scopes: ["sessions:read", "sessions:approve"],
+  });
+  expect(approverKey.status).toBe(201);
+  approver = new Api({ ...env, apiKey: approverKey.body.secret });
 
   const created = await web<{
     agent: { id: string };

@@ -3,7 +3,11 @@ import type {
   PostSessionAnswerRequest,
   PostSessionAnswerResponse,
 } from "@werft-ai/contracts";
-import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
+import {
+  type AuthorizationPolicy,
+  type Caller,
+  deciderKeyOf,
+} from "../musterrolle/policy.ts";
 import type { PendingRequestStore } from "../ports/pending-requests.ts";
 import {
   idempotencyConflict,
@@ -11,6 +15,7 @@ import {
   requireAllowed,
   requirePermitted,
   SessionServiceError,
+  selfApproval,
 } from "./session-service.ts";
 
 // api.md § 승인·중단·강제 종료. Kept apart from the session service so the
@@ -63,7 +68,25 @@ export function createPendingRequestService(deps: {
         actor,
         "session.approve",
         { kind: "session", id: sessionId },
-      );
+      ).catch(async (error: unknown) => {
+        if (!selfApproval(error)) throw error;
+        const receiptId = await store.recordSelfApproval({
+          principal: actor,
+          sessionId,
+          requestId: input.body.request_id,
+          deciderKey: deciderKeyOf(actor),
+        });
+        const refusal = error as SessionServiceError;
+        throw new SessionServiceError(
+          refusal.code,
+          refusal.message,
+          undefined,
+          {
+            reason_code: "self_approval",
+            receipt_id: receiptId,
+          },
+        );
+      });
       const result = await store.answerAtomic({
         principal: actor,
         sessionId,

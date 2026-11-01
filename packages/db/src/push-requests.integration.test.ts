@@ -241,6 +241,45 @@ integration("postgres push requests", () => {
     );
   });
 
+  test("a decision by a key names that key and its issuer in the receipt (GA-8)", async () => {
+    const sessionId = await session();
+    const request = written(await create(sessionId));
+    const deciderKey = {
+      id: crypto.randomUUID(),
+      kind: "agent",
+      issued_by_user_id: crypto.randomUUID(),
+    } as const;
+    const decided = written(
+      await decide(sessionId, request.id, {
+        actor: {
+          principal: { kind: "api_key", id: deciderKey.id },
+          actor_user_id: null,
+          agent_id: crypto.randomUUID(),
+        },
+        deciderKey,
+        idempotencyKey: "k-key",
+      }),
+    );
+    expect(
+      (await receipt(decided.decision_receipt_id ?? "")).result,
+    ).toMatchObject({ verdict: "allow", decider_key: deciderKey });
+    const again = await decide(sessionId, request.id, {
+      deciderKey,
+      idempotencyKey: "k-key-again",
+    });
+    if (again.outcome !== "refused") throw new Error("expected a refusal");
+    expect((await receipt(again.receiptId)).result).toMatchObject({
+      verdict: "refuse",
+      decider_key: deciderKey,
+    });
+    const person = await session();
+    const asked = written(await create(person));
+    const byPerson = written(await decide(person, asked.id));
+    expect(
+      (await receipt(byPerson.decision_receipt_id ?? "")).result,
+    ).toMatchObject({ decider_key: null });
+  });
+
   test("an approval of another commit, or after the session checkpointed again, is refused", async () => {
     const sessionId = await session();
     const request = written(await create(sessionId));

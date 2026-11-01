@@ -27,6 +27,7 @@ const SESSION_A = "019a0000-0000-7000-8000-00000000e0a1";
 const SESSION_B = "019a0000-0000-7000-8000-00000000e0b1";
 const SESSION_NONE = "019a0000-0000-7000-8000-00000000e0c1";
 const KEY = "019a0000-0000-7000-8000-0000000000f1";
+const OTHER_KEY = "019a0000-0000-7000-8000-0000000000f2";
 
 const USERS: Record<WorkspaceRole | "agent_admin", string> = {
   owner: "019a0000-0000-7000-8000-0000000000c1",
@@ -295,13 +296,46 @@ describe("a service key bound to an agent", () => {
     ).toMatchObject({ outcome: "deny", reason_code: "agent_ceiling" });
   });
 
-  test("never approves, whatever scopes the row holds (D26 5)", async () => {
-    const decision = await decide("session.approve", {
-      kind: "session",
-      id: SESSION_A,
+  test("approves its own agent's sessions, never one it started itself (GA-8)", async () => {
+    let startedBy: string | null = OTHER_KEY;
+    const approving = createAuthorizationPolicy({
+      identity: bound,
+      agents,
+      sessions: {
+        visibleTo: async () => true,
+        originOf: async () => ({
+          creatorUserId: null,
+          creatorApiKeyId: startedBy,
+        }),
+      },
     });
-    expect(decision).toMatchObject({ outcome: "deny", reason_code: "role" });
-    expect(decision.effective_scopes).not.toContain("sessions:approve");
+    const approve = async (id: string) =>
+      authorizationDecisionSchema.parse(
+        await approving.authorize({
+          subject: caller.subject,
+          action: "session.approve",
+          resource: { kind: "session", id, owner_scope: WORKSPACE },
+          request_id: "r",
+        }),
+      );
+    expect(await approve(SESSION_A)).toMatchObject({ outcome: "allow" });
+    expect(await approve(SESSION_B)).toMatchObject({
+      outcome: "deny",
+      reason_code: "agent_ceiling",
+    });
+    startedBy = KEY.toUpperCase();
+    const own = await approve(SESSION_A);
+    expect(own).toMatchObject({
+      outcome: "deny",
+      reason_code: "self_approval",
+    });
+    expect(own.effective_scopes).toContain("sessions:approve");
+  });
+
+  test("with no session store to read who started it, approves nothing", async () => {
+    expect(
+      await decide("session.approve", { kind: "session", id: SESSION_A }),
+    ).toMatchObject({ outcome: "deny", reason_code: "error" });
   });
 
   test("takes no management action, its own agent's included", async () => {

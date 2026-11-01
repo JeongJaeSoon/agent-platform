@@ -398,8 +398,10 @@ describe("session.share (D21)", () => {
 
 describe("session.approve (94S-798)", () => {
   // Seeing a session through its share is not answering for its creator.
-  // o allowed, r refused (403), n not found (404). Columns: owner, admin,
-  // creator, member, agent admin, service key, the creator's personal key.
+  // o allowed, r refused (403), n not found (404), s the key that started
+  // the session (every fixture session was started through the service
+  // key). Columns: owner, admin, creator, member, agent admin,
+  // service key, the creator's personal key.
   const WHO: Who[] = [
     "owner",
     "admin",
@@ -410,11 +412,11 @@ describe("session.approve (94S-798)", () => {
     "creators_key",
   ];
   const TABLE: [string, string, string][] = [
-    ["a person's session shared with the workspace", CREATORS_OPEN, "ooororo"],
+    ["a person's session shared with the workspace", CREATORS_OPEN, "oooroso"],
     ["a person's session shared with a team", CREATORS_TEAM, "noorono"],
     ["a person's private session", PERSONS, "nnonnno"],
-    ["a service key's session shared with the workspace", KEYS_OPEN, "oorroor"],
-    ["a service key's private session", KEYS, "nnnnnon"],
+    ["a service key's session shared with the workspace", KEYS_OPEN, "oorrosr"],
+    ["a service key's private session", KEYS, "nnnnnsn"],
   ];
   const cell = (decision: AuthorizationDecision) =>
     decision.outcome === "allow"
@@ -423,7 +425,9 @@ describe("session.approve (94S-798)", () => {
         ? "n"
         : decision.reason_code === "role"
           ? "r"
-          : decision.reason_code;
+          : decision.reason_code === "self_approval"
+            ? "s"
+            : decision.reason_code;
   for (const [row, id, cells] of TABLE) {
     test(row, async () => {
       const got = await Promise.all(
@@ -453,6 +457,39 @@ describe("session.approve (94S-798)", () => {
       },
       agents,
       sessions,
+    }).authorize({
+      subject: legacy.subject,
+      action: "session.approve",
+      resource: { kind: "session", id: CREATORS_OPEN, owner_scope: WORKSPACE },
+      request_id: "r",
+    });
+    expect(decision.reason_code).toBe("ok");
+  });
+
+  test("a key from before workspaces still approves a session it started itself, as the quickstart's one key does", async () => {
+    const legacy = callerFor(
+      {
+        kind: "api_key",
+        id: "legacy",
+        owner_id: WORKSPACE,
+        workspace_id: null,
+        scopes: [...SESSION_SCOPE_VALUES],
+      },
+      { kind: "api" },
+      "r",
+    );
+    const decision = await createAuthorizationPolicy({
+      identity: {
+        reread: async (s) => ({ status: "ok", principal: s.principal }),
+      },
+      agents,
+      sessions: {
+        ...sessions,
+        originOf: async () => ({
+          creatorUserId: null,
+          creatorApiKeyId: "legacy",
+        }),
+      },
     }).authorize({
       subject: legacy.subject,
       action: "session.approve",
@@ -557,6 +594,9 @@ describe("the pending requests a viewer is offered (94S-798)", () => {
         answered += 1;
         throw new Error("never reached");
       },
+      async recordSelfApproval() {
+        throw new Error("never reached");
+      },
     };
     const pending = createPendingRequestService({
       authorization: createAuthorizationPolicy({
@@ -608,6 +648,52 @@ describe("the pending requests a viewer is offered (94S-798)", () => {
     });
     expect(answered()).toBe(0);
     expect(rows).toEqual(["session.approve"]);
+  });
+
+  test("the key that started the session is offered no answer, and its answer leaves a failed receipt (GA-8)", async () => {
+    const { caller, identity } = subject("service_key");
+    const refused: unknown[] = [];
+    let answered = 0;
+    const pending = createPendingRequestService({
+      authorization: createAuthorizationPolicy({ identity, agents, sessions }),
+      store: {
+        async listOpen() {
+          return [];
+        },
+        async answerAtomic() {
+          answered += 1;
+          throw new Error("never reached");
+        },
+        async recordSelfApproval(input) {
+          refused.push(input);
+          return "receipt-self";
+        },
+      },
+    });
+    expect(await pending.listPendingRequests(caller, KEYS_OPEN)).toEqual({
+      items: [],
+      answerable: false,
+    });
+    const error = await pending
+      .answer(caller, KEYS_OPEN, {
+        idempotencyKey: "k",
+        body: { request_id: "req_1", kind: "permission", decision: "allow" },
+      })
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(SessionServiceError);
+    expect(error).toMatchObject({
+      code: "FORBIDDEN",
+      details: { reason_code: "self_approval", receipt_id: "receipt-self" },
+    });
+    expect(refused).toMatchObject([
+      {
+        sessionId: KEYS_OPEN,
+        requestId: "req_1",
+        principal: { actor: { principal: { kind: "api_key", id: KEY } } },
+        deciderKey: { id: KEY },
+      },
+    ]);
+    expect(answered).toBe(0);
   });
 
   test("out of the share it is still not found", async () => {

@@ -94,6 +94,7 @@ const NOTICE_FOR: Record<
   // Slack has no field for a reason, so a reason-gated action is out of reach.
   justification_required: "noRight",
   credential_unbound: "credentialUnbound",
+  self_approval: "noRight",
   no_requester: "failed",
   error: "failed",
 };

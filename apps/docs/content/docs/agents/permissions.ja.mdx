@@ -51,7 +51,7 @@ curl: (28) Operation timed out after 5006 milliseconds with 4482 bytes received
 
 ## 承認: 人だけが行う
 
-権限リクエストと質問に答えるには `sessions:approve` scope が必要である。worker 内のエージェントが持つ認証情報は `/v1` で 401 になるため、自分で承認することはできない。エージェントキーは `sessions:approve` を持てない。答え方は [承認待ちと再開](/sessions/waiting-and-resume) にある。
+権限リクエストと質問に答えるには `sessions:approve` scope が必要である。worker 内のエージェントが持つ認証情報は `/v1` で 401 になるため、自分で承認することはできない。エージェントキーも `sessions:approve` を持てるが、そのキーで開始したセッションのリクエストは承認できない。答え方は [承認待ちと再開](/sessions/waiting-and-resume) にある。
 
 セッションを見られるからといって、そのセッションのリクエストに答えられるわけではない。権限リクエストと質問に答え、push・PR を承認するのは次の人だけである。
 

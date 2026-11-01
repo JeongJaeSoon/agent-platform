@@ -138,6 +138,7 @@ function app(
     store?: Partial<PushRequestStore>;
     source?: PushSourceResult;
     authMode?: "none";
+    startedBy?: string | null;
   } = {},
 ) {
   const seen: Seen = { created: [], decided: [], refusals: [] };
@@ -171,7 +172,16 @@ function app(
     ...options.store,
   };
   const service = createPushRequestService({
-    authorization: createAuthorizationPolicy({ identity: keyIssuers }),
+    authorization: createAuthorizationPolicy({
+      identity: keyIssuers,
+      sessions: {
+        visibleTo: async () => true,
+        originOf: async () => ({
+          creatorUserId: options.startedBy ? null : ISSUER,
+          creatorApiKeyId: options.startedBy ?? null,
+        }),
+      },
+    }),
     store,
     catalog: CATALOG,
     source: {
@@ -657,6 +667,59 @@ describe("push request routes", () => {
       ),
     ).toMatchObject({ status: 409, code: "IDEMPOTENCY_CONFLICT" });
     expect(target.seen.decided).toEqual([]);
+  });
+});
+
+describe("a key approving the session it started (GA-8)", () => {
+  test("is refused 403 self_approval with a decide_push receipt naming the key and its issuer, body unread", async () => {
+    const owners = new Set(["owner-a", WORKSPACE]);
+    const target = app({
+      startedBy: `key-${PERSONAL}`,
+      store: {
+        findSession: async (ownerId) =>
+          owners.has(ownerId)
+            ? {
+                ...NO_GITHUB,
+                repositoryId: "sample-app",
+                approvalOffRelease: null,
+              }
+            : null,
+      },
+    });
+    const response = await target.api.request(
+      `/v1/sessions/${SESSION}/push-requests/${PUSH}/decision`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${PERSONAL}`,
+          "Content-Type": "application/json",
+          "Idempotency-Key": crypto.randomUUID(),
+        },
+        body: JSON.stringify({ decision: "approve", git_commit: COMMIT }),
+      },
+    );
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: "FORBIDDEN",
+        details: { refusal: "self_approval", receipt_id: RECEIPT },
+      },
+    });
+    expect(target.seen.decided).toEqual([]);
+    expect(target.seen.refusals).toMatchObject([
+      {
+        operation: "decide_push",
+        refusal: "self_approval",
+        actor: { principal: { kind: "api_key", id: `key-${PERSONAL}` } },
+        result: {
+          decider_key: {
+            id: `key-${PERSONAL}`,
+            kind: "personal",
+            issued_by_user_id: ISSUER,
+          },
+        },
+      },
+    ]);
   });
 });
 
