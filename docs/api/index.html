@@ -52899,7 +52899,7 @@
           "API keys"
         ],
         "summary": "Issue a personal key or an agent key",
-        "description": "A personal key is the caller's own; an agent key names its agent in `agent_id` and takes an owner, an admin, or that agent's admin. No key reaches a whole workspace: an agent key without `agent_id` is a 400. `name` (1-64 characters once trimmed) is optional. `scopes` may not exceed what the caller holds now (403 SCOPE_NOT_GRANTABLE); within that, either kind may hold any scope, `sessions:approve` included. A key holding `sessions:approve` still never approves a session it started itself. An API key never issues one. The secret is returned once; only its sha256 is stored. Writes a `create_api_key` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "A personal key is the caller's own; an agent key names its agent in `agent_id` and takes an owner, an admin, or that agent's admin. No key reaches a whole workspace: an agent key without `agent_id` is a 400. `name` (1-64 characters once trimmed) is optional. `scopes` may not exceed what the caller holds now (403 SCOPE_NOT_GRANTABLE); within that, either kind may hold any scope, `sessions:approve` included. A personal or agent key holding `sessions:approve` still never approves a session it started itself. An API key never issues one. The secret is returned once; only its sha256 is stored. Writes a `create_api_key` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
