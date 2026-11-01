@@ -776,6 +776,9 @@ async function parkOnApprovalCheckpoint(
     ...(promotedRuntime === null ? {} : { runtime: promotedRuntime }),
   });
   if (advanced.outcome !== "committed") return false;
+  // No out/ list is kept for an approval checkpoint, so whether it changed is
+  // unknown; the judge reads the pointer's own and counts nothing twice.
+  await queueAchievementJudgment(tx, session.id);
   await tx
     .update(approvalCheckpoints)
     .set({ promotedAt: now })

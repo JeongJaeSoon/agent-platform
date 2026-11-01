@@ -482,9 +482,10 @@ integration("achievement judgments on PostgreSQL", () => {
       await judgments.claim({ max: 100, leaseMs: 60_000 })
     ).filter((row) => row.sessionId === sessionId);
     if (!claimed) throw new Error("not claimed");
+    // Longer than the quiet time, so a fold visibly moves a trigger's wait.
     const retry = {
       status: "queued" as const,
-      retryInMs: 60_000,
+      retryInMs: 300_000,
       errorCode: "outputs_unavailable" as const,
       rules: [counted.id],
       evidenceIds: [pr.id],
@@ -541,9 +542,27 @@ integration("achievement judgments on PostgreSQL", () => {
       ["queued", null],
     ]);
     expect(folded[1]?.nextAttemptAt.getTime()).toBeGreaterThan(
-      Date.now() + 50_000,
+      Date.now() + 250_000,
     );
     expect(await achievementsOf(before.sessionId)).toHaveLength(1);
+
+    // A wait already longer than the retry's is kept.
+    const longer = await claimedRetry();
+    await queueAchievementJudgment(db, longer.sessionId);
+    await db
+      .update(achievementJudgments)
+      .set({ nextAttemptAt: sql`now() + interval '1 hour'` })
+      .where(
+        and(
+          eq(achievementJudgments.sessionId, longer.sessionId),
+          eq(achievementJudgments.status, "queued"),
+        ),
+      );
+    const [, kept] = await judgmentsOf(longer.sessionId);
+    expect(await judgments.finish(longer.claimed, longer.retry)).toBe(true);
+    expect((await judgmentsOf(longer.sessionId))[1]?.nextAttemptAt).toEqual(
+      kept?.nextAttemptAt,
+    );
 
     // Still uncommitted when the retry looks: it takes the queued slot first.
     const during = await claimedRetry();
@@ -559,7 +578,7 @@ integration("achievement judgments on PostgreSQL", () => {
     const raced = await judgmentsOf(during.sessionId);
     expect(raced.map((row) => row.status)).toEqual(["failed", "queued"]);
     expect(raced[1]?.nextAttemptAt.getTime()).toBeGreaterThan(
-      Date.now() + 50_000,
+      Date.now() + 250_000,
     );
     expect(await achievementsOf(during.sessionId)).toHaveLength(1);
   });
