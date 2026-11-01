@@ -647,6 +647,35 @@ describe("createAppBotUsers", () => {
     }
   });
 
+  test("claims at once share one request; a slow GitHub is cut short, not retried", async () => {
+    let answerNow: (() => void) | undefined;
+    const calls = spyOn(globalThis, "fetch").mockImplementation(
+      ((_url: string, init: RequestInit) =>
+        new Promise<Response>((resolve, reject) => {
+          answerNow = () => resolve(answer(200, { id: 5, login: "a[bot]" }));
+          init.signal?.addEventListener("abort", () =>
+            reject(init.signal?.reason),
+          );
+        })) as unknown as typeof fetch,
+    );
+    try {
+      const botUser = createAppBotUsers();
+      const app = { slug: "a", apiBase: GITHUB_COM };
+      const both = Promise.all([botUser(app), botUser(app)]);
+      answerNow?.();
+      expect(await both).toEqual(["5", "5"]);
+      expect(calls.mock.calls).toHaveLength(1);
+
+      const slow = createAppBotUsers({ timeoutMs: 20 });
+      const started = Date.now();
+      expect(await slow({ slug: "b", apiBase: GITHUB_COM })).toBeNull();
+      expect(Date.now() - started).toBeLessThan(2_000);
+      expect(calls.mock.calls).toHaveLength(2);
+    } finally {
+      calls.mockRestore();
+    }
+  });
+
   test("a login other than the App's bot is no answer", async () => {
     const calls = spyOn(globalThis, "fetch").mockImplementation((async () =>
       answer(200, { id: 9, login: "someone" })) as unknown as typeof fetch);
