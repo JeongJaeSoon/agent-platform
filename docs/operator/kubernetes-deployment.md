@@ -12,7 +12,7 @@ worker Pod 하나의 메모리(`worker.memoryMb`)는 transcript 상한에 맞춰
 
 | 리소스 | 수 | 비고 |
 |---|---|---|
-| api Deployment + Service(3000) + authorizer Service(3100) | 2 | 3100은 egress-proxy만 닿는다(NetworkPolicy). Ingress는 3000의 `/v1`·`/docs`·`/healthz`·`/readyz`만 route한다. worker용 `/internal`은 열지 않는다 |
+| api Deployment + Service(3000) + authorizer Service(3100) | 2 | 3100은 egress-proxy만 닿는다(NetworkPolicy). Ingress는 3000의 `/v1`·`/docs`·`/healthz`·`/readyz`와 웹 콘솔 `/`를 route한다. worker용 `/internal`은 ALB가 404로 막는다([아래](#웹-콘솔과-internal)) |
 | scheduler Deployment + Role/RoleBinding | 1, `Recreate` | worker Pod·nonce Secret·workspace PVC를 같은 namespace에서만 만들고 지운다 |
 | reconciler Deployment | 1 | |
 | slack Deployment | 1 | Slack inbox를 비운다. `slack.enabled: false`면 없다. 바깥으로는 DNS(53), 443, DB 포트(`networkPolicy.slack.databasePort`, 기본 5432)로만 나간다 |
@@ -106,6 +106,22 @@ release 이름에 `agent-platform`이 들어가지 않으면 리소스 이름은
 
 **ALB는 사내망 전용이다.** 이 설치는 사내망에서만 닿는 입구를 전제로 하므로, 예제의 Ingress annotation `scheme`은 이미 `internal`이다. 설치별 파일에서도 `internet-facing`으로 바꾸지 않는다. `render-check`가 예제 render에서 `internet-facing`을 거부한다. 적용 뒤에는 ALB가 사내망 subnet에 생겼는지 확인한다(**AWS 전용**).
 
+### 웹 콘솔과 `/internal`
+
+웹 콘솔은 api가 3000번에서 서빙하므로 Ingress는 `/`(Prefix)를 api Service로 보낸다. 같은 포트에 worker용 `/internal`도 있고, `/` Prefix는 `/internal`까지 맞는다. 그래서 chart는 `/` 앞에 `/internal`(Prefix) 규칙을 두고, 그 규칙은 api가 아니라 annotation `alb.ingress.kubernetes.io/actions.block-internal`의 fixed-response(404)로 보낸다. AWS Load Balancer Controller는 Ingress의 경로 순서대로 ALB 규칙을 평가하므로 `/internal`과 그 아래 경로는 api에 닿지 않고 ALB가 404로 답한다. `render-check`가 이 규칙이 있는지, `/`보다 앞에 있는지, 404 action을 가리키는지 검사한다.
+
+이 규칙은 ALB 전용이다. 다른 Ingress controller에서는 `block-internal`이라는 Service가 없으므로 `/internal`이 api로 가지 않지만, 응답 코드는 controller가 정한다.
+
+웹 콘솔을 Ingress로 열지 않으려면 설치별 파일에 다음을 둔다. `/`와 `/internal` 규칙이 함께 빠지고 `/v1`·`/docs`·`/healthz`·`/readyz`는 그대로다.
+
+```yaml
+ingress:
+  console:
+    enabled: false
+```
+
+적용 뒤 사내망에서 `curl -s -o /dev/null -w '%{http_code}\n' https://<host>/`는 200, `https://<host>/internal/healthz`처럼 `/internal` 아래 경로는 404여야 한다(**AWS 전용**).
+
 ```bash
 helm lint deploy/helm/agent-platform -f deploy/helm/agent-platform/values-aws.example.yaml   # kind 머신에서 확인
 helm template agent-platform deploy/helm/agent-platform \
@@ -119,7 +135,8 @@ helm upgrade --install agent-platform deploy/helm/agent-platform \
 | `images.registry`, `images.*.digest` | ECR host와 그 이미지의 digest |
 | `secrets.objectStoreKeys: false`, `serviceAccounts.api.annotations` | 정적 AWS key 대신 IRSA. api와 checkpoint GC가 이 role로 S3·Secrets Manager에 서명한다. scheduler와 worker는 S3 권한이 없다 |
 | `secrets.externalSecret` | External Secrets Operator가 Secrets Manager의 `remoteKey`(JSON, 위 Secret 키 전부. IRSA면 AWS key 둘은 뺀다)로 Secret을 쓴다. 운영자 CRD가 필요하다 |
-| `ingress` | ALB Ingress. `scheme`은 `internal`이다(위). `healthcheck-path: /readyz`, SSE를 위해 idle timeout 300초. 공개 경로(`/v1`·`/docs`·`/healthz`·`/readyz`)만 route하고 `/internal`과 authorizer(3100)는 열지 않는다 |
+| `ingress` | ALB Ingress. `scheme`은 `internal`이다(위). `healthcheck-path: /readyz`, SSE를 위해 idle timeout 300초. 공개 경로(`/v1`·`/docs`·`/healthz`·`/readyz`)와 웹 콘솔 `/`만 route하고, `/internal`은 ALB가 404로 답하며 authorizer(3100)는 열지 않는다 |
+| `ingress.console.enabled` | 기본 `true`. 웹 콘솔 `/`와 `/internal` 404 규칙을 더한다. `false`면 둘 다 빠지고 API 경로만 남는다([아래](#웹-콘솔과-internal)) |
 | `config.egress.credentialAllowlist` | provider host에 checkpoint bucket의 virtual-hosted endpoint를 더한다. worker의 checkpoint upload·restore가 credential route로 나간다 |
 | `worker.storageClass`, `worker.nodeSelector`, `worker.tolerations` | worker 전용 node group과 workspace PVC의 StorageClass(gp3) |
 | `networkPolicy.enabled` | VPC CNI의 network policy agent가 켜져 있어야 효력이 있다 |

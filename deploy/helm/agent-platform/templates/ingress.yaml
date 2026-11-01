@@ -5,14 +5,24 @@
 # workers' gateway, which they reach through the egress proxy.
 # /v1 already covers /v1/slack/events; it is listed on its own so an
 # internet-facing entrance for Slack can copy that one rule.
+# The web console at "/" is a Prefix that would also match /internal, so a
+# /internal rule ahead of it answers 404 from the ALB itself
+# (alb.ingress.kubernetes.io/actions.*). The AWS Load Balancer Controller
+# keeps the spec's path order; other controllers find no such Service.
 {{- $paths := list (list "/v1" "Prefix") (list "/v1/slack/events" "Prefix") (list "/docs" "Prefix") (list "/healthz" "Exact") (list "/readyz" "Exact") }}
+{{- $blockInternal := "block-internal" }}
+{{- $annotations := deepCopy (.Values.ingress.annotations | default dict) }}
+{{- if .Values.ingress.console.enabled }}
+{{- $paths = append (prepend $paths (list "/internal" "Prefix" $blockInternal)) (list "/" "Prefix") }}
+{{- $_ := set $annotations (printf "alb.ingress.kubernetes.io/actions.%s" $blockInternal) (dict "type" "fixed-response" "fixedResponseConfig" (dict "contentType" "text/plain" "statusCode" "404") | toJson) }}
+{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {{ include "ap.apiHost" . }}
   labels:
     {{- include "ap.labels" (dict "root" . "component" "api") | nindent 4 }}
-  {{- with .Values.ingress.annotations }}
+  {{- with $annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
@@ -34,9 +44,15 @@ spec:
             pathType: {{ index . 1 }}
             backend:
               service:
+                {{- if eq (len .) 3 }}
+                name: {{ index . 2 }}
+                port:
+                  name: use-annotation
+                {{- else }}
                 name: {{ include "ap.apiHost" $ }}
                 port:
                   name: http
+                {{- end }}
           {{- end }}
     {{- end }}
 {{- end }}

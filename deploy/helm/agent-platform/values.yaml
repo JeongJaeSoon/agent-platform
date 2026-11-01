@@ -365,6 +365,10 @@ ingress:
   hosts: []
   #  - host: agent-platform.example.com
   tls: []
+  console:
+    # Routes "/" (the web console the api serves) and answers /internal with
+    # an ALB fixed-response 404 ahead of it. Off leaves the API paths alone.
+    enabled: true
 
 networkPolicy:
   enabled: true

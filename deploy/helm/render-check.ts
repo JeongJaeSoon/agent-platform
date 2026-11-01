@@ -5,7 +5,8 @@
 // traffic held to the egress proxy (no DNS), the master key only on the api
 // and the slack role, slack holding no provider or AWS key and its egress
 // held to DNS, HTTPS and the database, and the Ingress routing only the
-// api's public paths on an ALB that is not internet-facing, and the preview
+// api's public paths (the web console's "/" behind an ALB 404 on /internal)
+// on an ALB that is not internet-facing, and the preview
 // flag off in the AWS example. Run from the
 // repository root:
 // `bun deploy/helm/render-check.ts` (CI's helm-chart job).
@@ -530,11 +531,40 @@ const PUBLIC_PATHS = [
   "Exact /healthz",
   "Exact /readyz",
 ];
+// With the web console on, "/" would match /internal too, so an ALB
+// fixed-response 404 on /internal has to come first.
+const CONSOLE_PATHS = ["Prefix /internal", ...PUBLIC_PATHS, "Prefix /"];
+const ALB_ACTION = "alb.ingress.kubernetes.io/actions.";
+
+function blocksInternal(
+  annotations: Record<string, string>,
+  // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
+  path: any,
+): boolean {
+  const service = path.backend?.service;
+  if (
+    path.path !== "/internal" ||
+    path.pathType !== "Prefix" ||
+    service?.port?.name !== "use-annotation"
+  ) {
+    return false;
+  }
+  try {
+    const action = JSON.parse(annotations[`${ALB_ACTION}${service.name}`]);
+    return (
+      action.type === "fixed-response" &&
+      action.fixedResponseConfig?.statusCode === "404"
+    );
+  } catch {
+    return false;
+  }
+}
 
 function checkIngress(
   label: string,
   manifests: Manifest[],
   enabled: boolean,
+  console = enabled,
 ): string[] {
   const errors: string[] = [];
   const ingresses = manifests.filter((m) => m.kind === "Ingress");
@@ -546,10 +576,8 @@ function checkIngress(
   for (const ingress of ingresses) {
     const fail = (message: string) =>
       errors.push(`${label}: Ingress/${ingress.metadata.name}: ${message}`);
-    const scheme = (
-      ingress.metadata as { annotations?: Record<string, string> }
-    ).annotations?.["alb.ingress.kubernetes.io/scheme"];
-    if (scheme === "internet-facing") {
+    const annotations = ingress.metadata.annotations ?? {};
+    if (annotations["alb.ingress.kubernetes.io/scheme"] === "internet-facing") {
       fail("the ALB scheme is internet-facing; the entrance is in-house only");
     }
     if (ingress.spec.defaultBackend !== undefined) {
@@ -558,16 +586,24 @@ function checkIngress(
     for (const rule of ingress.spec.rules ?? []) {
       const paths: { path: string; pathType: string }[] =
         rule.http?.paths ?? [];
-      for (const { path } of paths) {
-        if ("/internal/".startsWith(path) || path.startsWith("/internal")) {
-          fail(`${path} routes /internal`);
+      let blocked = false;
+      for (const path of paths) {
+        if (blocksInternal(annotations, path)) {
+          blocked = true;
+          continue;
+        }
+        const { path: p } = path;
+        if (
+          ("/internal/".startsWith(p) || p.startsWith("/internal")) &&
+          !blocked
+        ) {
+          fail(`${p} routes /internal`);
         }
       }
+      const want = console ? CONSOLE_PATHS : PUBLIC_PATHS;
       const got = paths.map((p) => `${p.pathType} ${p.path}`);
-      if (JSON.stringify(got) !== JSON.stringify(PUBLIC_PATHS)) {
-        fail(
-          `paths ${JSON.stringify(got)} are not ${JSON.stringify(PUBLIC_PATHS)}`,
-        );
+      if (JSON.stringify(got) !== JSON.stringify(want)) {
+        fail(`paths ${JSON.stringify(got)} are not ${JSON.stringify(want)}`);
       }
     }
   }
@@ -841,6 +877,8 @@ const MUST_FAIL: [string, string[], RegExp][] = [
   ]),
 ];
 
+const awsRender = (...args: string[]) =>
+  render(["-f", ciDigests, "-f", awsExample, ...args]);
 const slackOff = render(["-f", ciDigests, "--set", "slack.enabled=false"]);
 const errors = [
   ...check("default", render(["-f", ciDigests]), true),
@@ -905,11 +943,55 @@ errors.push(
   ...checkSlack("slack off", slackOff, false),
   ...checkIngress("default", render(["-f", ciDigests]), false),
   ...checkIngress(
-    "aws example",
-    render(["-f", ciDigests, "-f", awsExample]),
+    "default, ingress on",
+    render([
+      "-f",
+      ciDigests,
+      "--set",
+      "ingress.enabled=true",
+      "--set",
+      "ingress.hosts[0].host=agent-platform.example.com",
+    ]),
     true,
   ),
+  ...checkIngress("aws example", awsRender(), true),
+  ...checkIngress(
+    "aws example, console off",
+    awsRender("--set", "ingress.console.enabled=false"),
+    true,
+    false,
+  ),
 );
+// The chart cannot render these, so break a good render by hand.
+const CONSOLE_BREAKS: [string, (ingress: Manifest) => void, string][] = [
+  [
+    "no /internal rule",
+    (ingress) => ingress.spec.rules[0].http.paths.shift(),
+    "/ routes /internal",
+  ],
+  [
+    "/ ahead of /internal",
+    ({ spec }) =>
+      spec.rules[0].http.paths.unshift(spec.rules[0].http.paths.pop()),
+    "/ routes /internal",
+  ],
+  [
+    "no fixed-response action",
+    ({ metadata }) => {
+      for (const key of Object.keys(metadata.annotations ?? {})) {
+        if (key.startsWith(ALB_ACTION)) delete metadata.annotations?.[key];
+      }
+    },
+    "/internal routes /internal",
+  ],
+];
+for (const [name, breakIngress, expected] of CONSOLE_BREAKS) {
+  const manifests = awsRender();
+  manifests.filter((m) => m.kind === "Ingress").forEach(breakIngress);
+  if (!checkIngress(name, manifests, true).some((e) => e.endsWith(expected))) {
+    errors.push(`a console Ingress with ${name} was not refused`);
+  }
+}
 const exposed = checkIngress(
   "aws example, internet-facing",
   render([
@@ -1088,5 +1170,5 @@ if (errors.length > 0) {
   process.exit(1);
 }
 console.log(
-  `render-check: default and aws example renders pass, scheduler off and on, slack off, preview on, metrics on, worker images (one, current runtime, two) alike on api, slack and scheduler, the upgrade check ahead of migrate; ${MUST_FAIL.length} bad inputs, an internet-facing ALB and a preview aws example refused`,
+  `render-check: default and aws example renders pass, scheduler off and on, slack off, preview on, metrics on, worker images (one, current runtime, two) alike on api, slack and scheduler, the upgrade check ahead of migrate; ${MUST_FAIL.length} bad inputs, an internet-facing ALB, ${CONSOLE_BREAKS.length} console Ingresses that open /internal and a preview aws example refused; the console Ingress on and off`,
 );
