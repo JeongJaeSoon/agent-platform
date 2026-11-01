@@ -5,10 +5,10 @@ import {
   AGENT_STATUS_VALUES,
   BINDING_MODE_VALUES,
   GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES,
+  GITHUB_REVIEW_OUTCOME_STATE_VALUES,
   type GitHubAppRole,
   type GitHubCeiling,
   type GitHubPackagesAllowEntry,
-  type GitHubPullRequestOutcomeState,
   MEMORY_WRITE_POLICY_VALUES,
   OPEN_PUSH_REQUEST_STATES,
   PERMISSION_MODE_VALUES,
@@ -17,6 +17,7 @@ import {
   SESSION_OUTCOME_CHECK_ERROR_VALUES,
   SESSION_OUTCOME_TYPE_VALUES,
   SESSION_STATUS_VALUES,
+  type SessionOutcome,
   type SessionOutcomeCheckError,
   type SessionOutcomeType,
   SLACK_APP_KIND_VALUES,
@@ -1411,7 +1412,7 @@ export const sessionOutcomes = pgTable(
     url: text().notNull(),
     repositoryId: text("repository_id"),
     externalId: text("external_id"),
-    state: text().$type<GitHubPullRequestOutcomeState>().notNull(),
+    state: text().$type<SessionOutcome["state"]>().notNull(),
     stateChangedAt: timestamp("state_changed_at", {
       withTimezone: true,
     }).notNull(),
@@ -1449,6 +1450,10 @@ export const sessionOutcomes = pgTable(
     check(
       "session_outcomes_pull_request_state_check",
       sql`${table.type} <> 'github_pull_request' OR ${table.state} IN (${sql.raw(sqlList(GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES))})`,
+    ),
+    check(
+      "session_outcomes_review_state_check",
+      sql`${table.type} <> 'github_review' OR ${table.state} IN (${sql.raw(sqlList(GITHUB_REVIEW_OUTCOME_STATE_VALUES))})`,
     ),
     check(
       "session_outcomes_check_error_check",

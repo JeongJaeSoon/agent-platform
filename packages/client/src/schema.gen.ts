@@ -1364,10 +1364,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * What the session made: the pull requests it opened
-         * @description The session's outcomes, oldest first. Each pull request the platform's pull request opening recorded is one `github_pull_request` outcome, written in the same transaction as its `open_pull_request` receipt (`receipt_id`); opening it again for a later push request of the session answers the same pull request and adds none. Only the server writes outcomes.
+         * What the session made: the pull requests it opened and the reviews it submitted
+         * @description The session's outcomes, oldest first. Each pull request the platform's pull request opening recorded is one `github_pull_request` outcome, written in the same transaction as its `open_pull_request` receipt (`receipt_id`); opening it again for a later push request of the session answers the same pull request and adds none. Each review the session submitted is one `github_review` outcome, written in the same transaction as its `review_pull_request` receipt: `url` is the review's, `external_id` the review id, `state` always `submitted`, and `metadata` the pull request `number`, the `event`, the `commit_id` reviewed and `opened_by_session_id` (null for a pull request the platform did not open); never the review's body. Only the server writes outcomes.
          *
-         *     `state` is `open`, `merged` or `closed` as GitHub last answered, at `state_checked_at` (null until the first answer): GitHub tells the platform nothing, so the platform reads each pull request again on an interval (every 5 minutes in its first day, hourly to 30 days, then daily; a closed one daily for 30 days; a merged one never). A failed read keeps the state and sets `check_error` (`not_found`, `forge_failed`, `github_refused`). `metadata.adopted` is true when the platform answered a pull request it did not create, already open for the session's branch, and null when unknown. Reading changes nothing.
+         *     A pull request's `state` is `open`, `merged` or `closed` as GitHub last answered, at `state_checked_at` (null until the first answer): GitHub tells the platform nothing, so the platform reads each pull request again on an interval (every 5 minutes in its first day, hourly to 30 days, then daily; a closed one daily for 30 days; a merged one never). A failed read keeps the state and sets `check_error` (`not_found`, `forge_failed`, `github_refused`). `metadata.adopted` is true when the platform answered a pull request it did not create, already open for the session's branch, and null when unknown. `metadata.title` is the pull request's title cut to 200 characters, as the platform sent it or GitHub last answered; null until the first read of one the platform did not create, and on a row written before titles were kept until its next read, so a pull request already merged then keeps null. A review is never read again. Reading changes nothing.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -5191,24 +5191,27 @@ export interface components {
             }[];
         };
         ListSessionOutcomesResponse: {
-            items: {
+            items: ({
                 /** Format: uuid */
                 id: string;
-                /** @enum {string} */
-                type: "github_pull_request";
                 /** Format: uri */
                 url: string;
                 repository_id: string | null;
                 external_id: string | null;
-                /** @enum {string} */
-                state: "open" | "merged" | "closed";
                 /** Format: date-time */
                 state_changed_at: string;
                 merged_at: string | null;
                 closed_at: string | null;
                 state_checked_at: string | null;
                 check_error: ("not_found" | "forge_failed" | "github_refused") | null;
+                /** Format: date-time */
+                created_at: string;
+                /** @constant */
+                type: "github_pull_request";
+                /** @enum {string} */
+                state: "open" | "merged" | "closed";
                 metadata: {
+                    title: string | null;
                     head: string;
                     base: string;
                     adopted: boolean | null;
@@ -5218,9 +5221,33 @@ export interface components {
                     changed_files: number | null;
                     commits: number | null;
                 };
+            } | {
+                /** Format: uuid */
+                id: string;
+                /** Format: uri */
+                url: string;
+                repository_id: string | null;
+                external_id: string | null;
+                /** Format: date-time */
+                state_changed_at: string;
+                merged_at: string | null;
+                closed_at: string | null;
+                state_checked_at: string | null;
+                check_error: ("not_found" | "forge_failed" | "github_refused") | null;
                 /** Format: date-time */
                 created_at: string;
-            }[];
+                /** @constant */
+                type: "github_review";
+                /** @enum {string} */
+                state: "submitted";
+                metadata: {
+                    number: number;
+                    /** @enum {string} */
+                    event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
+                    commit_id: string;
+                    opened_by_session_id: string | null;
+                };
+            })[];
         };
         AgentGitHubResponse: {
             enabled: boolean;
@@ -16646,6 +16673,7 @@ export interface operations {
                      *           "state_checked_at": "2026-10-30T10:02:11.000Z",
                      *           "check_error": null,
                      *           "metadata": {
+                     *             "title": "Retry failed payment webhooks",
                      *             "head": "agent/0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
                      *             "base": "main",
                      *             "adopted": false,
@@ -16656,6 +16684,26 @@ export interface operations {
                      *             "commits": 2
                      *           },
                      *           "created_at": "2026-10-30T09:40:03.000Z"
+                     *         },
+                     *         {
+                     *           "id": "6c1f5b0e-2d7a-4e8b-9f3c-1a2b3c4d5e70",
+                     *           "type": "github_review",
+                     *           "url": "https://github.com/acme/sample-app/pull/9#pullrequestreview-2104",
+                     *           "repository_id": "sample-app",
+                     *           "external_id": "2104",
+                     *           "state": "submitted",
+                     *           "state_changed_at": "2026-10-30T10:20:00.000Z",
+                     *           "merged_at": null,
+                     *           "closed_at": null,
+                     *           "state_checked_at": null,
+                     *           "check_error": null,
+                     *           "metadata": {
+                     *             "number": 9,
+                     *             "event": "APPROVE",
+                     *             "commit_id": "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d",
+                     *             "opened_by_session_id": null
+                     *           },
+                     *           "created_at": "2026-10-30T10:20:00.000Z"
                      *         }
                      *       ]
                      *     }

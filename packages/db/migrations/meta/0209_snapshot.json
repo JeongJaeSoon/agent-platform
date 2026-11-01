@@ -1,5 +1,5 @@
 {
-  "id": "fba5ed45-348b-4819-9308-dfcdbcbed54f",
+  "id": "225b1429-86a9-417f-a5bf-e1473575d79d",
   "prevId": "0188ed58-3f42-4db5-bf0c-82b4e6ced5f0",
   "version": "7",
   "dialect": "postgresql",
@@ -2906,105 +2906,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.github_app_manifest_states": {
-      "name": "github_app_manifest_states",
-      "schema": "",
-      "columns": {
-        "state_hash": {
-          "name": "state_hash",
-          "type": "bytea",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "actor_user_id": {
-          "name": "actor_user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "role": {
-          "name": "role",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "owner_login": {
-          "name": "owner_login",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "public": {
-          "name": "public",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "replaces_app_id": {
-          "name": "replaces_app_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "github_app_manifest_states_expires_idx": {
-          "name": "github_app_manifest_states_expires_idx",
-          "columns": [
-            {
-              "expression": "expires_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "github_app_manifest_states_workspace_id_workspaces_id_fk": {
-          "name": "github_app_manifest_states_workspace_id_workspaces_id_fk",
-          "tableFrom": "github_app_manifest_states",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "github_app_manifest_states_role_check": {
-          "name": "github_app_manifest_states_role_check",
-          "value": "\"github_app_manifest_states\".\"role\" IN ('author', 'reviewer')"
-        }
-      },
       "isRLSEnabled": false
     },
     "public.github_apps": {
@@ -6968,11 +6869,15 @@
       "checkConstraints": {
         "session_outcomes_type_check": {
           "name": "session_outcomes_type_check",
-          "value": "\"session_outcomes\".\"type\" IN ('github_pull_request')"
+          "value": "\"session_outcomes\".\"type\" IN ('github_pull_request','github_review')"
         },
         "session_outcomes_pull_request_state_check": {
           "name": "session_outcomes_pull_request_state_check",
           "value": "\"session_outcomes\".\"type\" <> 'github_pull_request' OR \"session_outcomes\".\"state\" IN ('open','merged','closed')"
+        },
+        "session_outcomes_review_state_check": {
+          "name": "session_outcomes_review_state_check",
+          "value": "\"session_outcomes\".\"type\" <> 'github_review' OR \"session_outcomes\".\"state\" IN ('submitted')"
         },
         "session_outcomes_check_error_check": {
           "name": "session_outcomes_check_error_check",

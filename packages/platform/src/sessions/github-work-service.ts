@@ -1,6 +1,7 @@
 import type {
   DispatchWorkflowRequest,
   DispatchWorkflowResponse,
+  GitHubReviewOutcomeMetadata,
   GitHubWorkflowRunView,
   ReceiptActor,
   RerunWorkflowRequest,
@@ -38,6 +39,17 @@ export interface GitHubWorkStore
     actor: ReceiptActor;
     result: Record<string, unknown>;
     run: { id: number; workflow: string; ref: string } | null;
+  }): Promise<string>;
+  /**
+   * The succeeded `review_pull_request` receipt and the review's
+   * `github_review` outcome, in one transaction.
+   */
+  recordReview(input: {
+    context: GitHubWorkContext;
+    actor: ReceiptActor;
+    result: Record<string, unknown>;
+    review: { id: number; url: string };
+    metadata: GitHubReviewOutcomeMetadata;
   }): Promise<string>;
   /**
    * The owner's session and agent that opened pull request `number` of the
@@ -294,14 +306,17 @@ export function createGitHubWorkService(deps: {
         }
         throw error;
       }
-      const receiptId = await store.recordReceipt({
-        ownerId: grant.context.ownerId,
-        sessionId: grant.context.sessionId,
+      const receiptId = await store.recordReview({
+        context: grant.context,
         actor: pushReceiptActor(actor),
-        operation: "review_pull_request",
-        status: "succeeded",
         result: { ...result, review_id: review.id },
-        error: null,
+        review: { id: review.id, url: review.html_url },
+        metadata: {
+          number,
+          event: body.event,
+          commit_id: body.commit_id,
+          opened_by_session_id: opener?.sessionId ?? null,
+        },
       });
       return { receipt_id: receiptId, review };
     },

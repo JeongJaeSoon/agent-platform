@@ -44,6 +44,7 @@ function harness(
   const calls: string[] = [];
   const receipts: GitHubGateReceipt[] = [];
   const dispatches: Parameters<GitHubWorkStore["recordDispatch"]>[0][] = [];
+  const reviews: Parameters<GitHubWorkStore["recordReview"]>[0][] = [];
   const fail = () => {
     if (options.fail) throw options.fail;
   };
@@ -133,6 +134,19 @@ function harness(
       dispatches.push(input);
       return "receipt-dispatch";
     },
+    recordReview: async (input) => {
+      reviews.push(input);
+      receipts.push({
+        ownerId: input.context.ownerId,
+        sessionId: input.context.sessionId,
+        actor: input.actor,
+        operation: "review_pull_request",
+        status: "succeeded",
+        result: input.result,
+        error: null,
+      });
+      return `receipt-${receipts.length}`;
+    },
     pullRequestOpener: async (ownerId, repositoryId, number) => {
       calls.push(`opener ${ownerId} ${repositoryId} ${number}`);
       return number === 12
@@ -148,7 +162,7 @@ function harness(
     gate,
     store,
   });
-  return { service, works, calls, receipts, dispatches };
+  return { service, works, calls, receipts, dispatches, reviews };
 }
 
 async function refusal(promise: Promise<unknown>) {
@@ -372,7 +386,7 @@ describe("reviewing a pull request", () => {
   const REVIEW_BODY = "looks-good-private-note";
 
   test("submits on the commit read and records who opened the pull request, never the body", async () => {
-    const { service, works, calls, receipts } = harness();
+    const { service, works, calls, receipts, reviews } = harness();
     expect(
       await service.review(actor, SESSION, 12, {
         event: "REQUEST_CHANGES",
@@ -423,6 +437,25 @@ describe("reviewing a pull request", () => {
       },
     ]);
     expect(JSON.stringify(receipts)).not.toContain(REVIEW_BODY);
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0]?.review).toEqual({
+      id: 77,
+      url: "https://github.com/acme/app/pull/12#pullrequestreview-77",
+    });
+    expect(reviews[0]?.context.repositoryId).toBe("app");
+    expect(Object.keys(reviews[0]?.metadata ?? {}).sort()).toEqual([
+      "commit_id",
+      "event",
+      "number",
+      "opened_by_session_id",
+    ]);
+    expect(reviews[0]?.metadata).toEqual({
+      number: 12,
+      event: "REQUEST_CHANGES",
+      commit_id: COMMIT,
+      opened_by_session_id: "33333333-3333-4333-8333-333333333333",
+    });
+    expect(JSON.stringify(reviews)).not.toContain(REVIEW_BODY);
   });
 
   test("a pull request the platform did not open names no opener", async () => {
@@ -440,7 +473,7 @@ describe("reviewing a pull request", () => {
   });
 
   test("GitHub refusing the review is BACKEND_UNAVAILABLE with a failed receipt and no body", async () => {
-    const { service, receipts } = harness({
+    const { service, receipts, reviews } = harness({
       fail: new GitHubCallError("pull request review", 422, "req-9"),
     });
     expect(
@@ -460,6 +493,7 @@ describe("reviewing a pull request", () => {
       status: "failed",
       result: { number: 12, status: 422, github_request_id: "req-9" },
     });
+    expect(reviews).toEqual([]);
     expect(JSON.stringify(receipts)).not.toContain(REVIEW_BODY);
   });
 
