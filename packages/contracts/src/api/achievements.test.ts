@@ -30,6 +30,18 @@ describe("achievement requests", () => {
         archived_by: null,
       }),
     ).toBe(true);
+    const stored = (position: number) =>
+      ok(achievementCategorySchema)({
+        id: ID,
+        name: "Delivery",
+        position,
+        created_by: ID,
+        created_at: "2026-11-02T00:00:00.000Z",
+        archived_at: null,
+        archived_by: null,
+      });
+    expect(stored(2_147_483_647)).toBe(true);
+    expect(stored(2_147_483_648)).toBe(false);
   });
 
   test("a category name is 1 to 32 characters; a patch names something", () => {
