@@ -20,6 +20,7 @@ worker Pod 하나의 메모리(`worker.memoryMb`)는 transcript 상한에 맞춰
 | migrate Job | install·upgrade마다 1 | `pre-install,pre-upgrade` hook |
 | upgrade-check Job | upgrade마다 1 | `pre-upgrade` hook, migrate 앞. `scheduler.enabled: false`면 없다([업그레이드 전 검사](#업그레이드-전-검사)) |
 | checkpoint GC CronJob | 주 1회 | `checkpointGc.schedule` |
+| session archive CronJob | 주 1회 | `sessionArchive.schedule`(기본 `0 5 * * 0`)·`afterDays`(기본 180, 0=끔, 30~3650)·`dryRun`(기본 `true`). 오래 쉰 세션의 이벤트를 bucket으로 옮긴다([data-retention.md](data-retention.md#세션-이벤트-보관)) |
 | 카탈로그 ConfigMap | 1 | `catalog.connections`(필수)·`catalog.profiles`(빈 DB 시드)·`catalog.repositories` |
 | NetworkPolicy | 5 | worker는 egress-proxy로만 나간다. 제어 영역 Pod 중 바깥 연결을 막는 것은 slack 하나다 |
 | Ingress, ExternalSecret | 선택 | `ingress.enabled`, `secrets.externalSecret.enabled` |

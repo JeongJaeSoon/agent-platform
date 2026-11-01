@@ -231,7 +231,7 @@ manifest "$project" "$session" "$revision" >"$out/manifest-source.json"
 jq -e . "$out/manifest-source.json" >/dev/null || fail "source manifest is not JSON"
 
 # --- 2. backup, then remove the source --------------------------------------
-src stop api scheduler reconciler >/dev/null 2>&1
+src stop api scheduler reconciler maintenance >/dev/null 2>&1
 # `paused` commits while the worker is still releasing; give it time to exit.
 for _ in $(seq 60); do
   [ -n "$(docker ps -q --filter "label=${label}" --filter "name=ap-worker-")" ] || break

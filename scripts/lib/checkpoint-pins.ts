@@ -18,6 +18,10 @@
  * - `planRepin` + `applyRepin` (restore) verify every row against the
  *   restored bucket before writing anything, then write the manifests, read
  *   them back and hold every version. The caller commits the DB rows.
+ *
+ * Archived session event chunks (`session_event_archives`) go through the
+ * same two passes: captured at their version, found again by their bytes in
+ * the restored bucket and held there.
  */
 
 import { createHash } from "node:crypto";
@@ -787,4 +791,107 @@ export async function applyRepin(input: {
     });
   }
   return rows;
+}
+
+/**
+ * One `session_event_archives` row: once its events left the database the
+ * object at that version is their only copy, so a backup and a restore pin
+ * it the way they pin a checkpoint's objects.
+ */
+export type ArchiveRow = {
+  readonly sessionId: string;
+  readonly fromId: number;
+  readonly objectKey: string;
+  readonly versionId: string;
+  readonly sha256: string;
+  readonly bytes: number;
+};
+
+const archiveLabel = (row: ArchiveRow) =>
+  `archive ${row.sessionId}@${row.fromId}`;
+
+/**
+ * Backup side: makes `objectsDir` carry each archived chunk as recorded,
+ * read at its version. Throws `CheckpointPinError` for a chunk that is
+ * missing or does not hash to its row.
+ */
+export async function captureArchiveObjects(input: {
+  objects: CheckpointObjectStore;
+  objectsDir: string;
+  rows: readonly ArchiveRow[];
+}): Promise<{ replaced: string[] }> {
+  const problems: string[] = [];
+  const replaced: string[] = [];
+  for (const row of input.rows) {
+    const bytes = await input.objects.get(row.objectKey, row.versionId);
+    if (
+      bytes === undefined ||
+      bytes.byteLength !== row.bytes ||
+      sha256Hex(bytes) !== row.sha256
+    ) {
+      problems.push(
+        `${archiveLabel(row)}: ${row.objectKey} (version ${row.versionId}) is ${bytes === undefined ? "missing" : `${bytes.byteLength} bytes hashing to ${sha256Hex(bytes)}`}; the row says ${row.bytes} bytes, ${row.sha256}`,
+      );
+      continue;
+    }
+    const path = backupPath(input.objectsDir, row.objectKey);
+    const onDisk = await readIfPresent(path);
+    if (onDisk !== undefined && sha256Hex(onDisk) === row.sha256) continue;
+    await writeAtomically(path, bytes);
+    replaced.push(row.objectKey);
+  }
+  if (problems.length > 0) throw new CheckpointPinError(problems);
+  return { replaced: replaced.sort() };
+}
+
+/** An archived chunk's version in the restored bucket. */
+export type RepinnedArchive = { readonly row: ArchiveRow; version: string };
+
+/**
+ * Restore side, read-only: the version the restored bucket holds each
+ * archived chunk's exact bytes under.
+ */
+export async function planArchiveRepin(input: {
+  objects: CheckpointObjectStore;
+  rows: readonly ArchiveRow[];
+}): Promise<RepinnedArchive[]> {
+  const problems: string[] = [];
+  const planned: RepinnedArchive[] = [];
+  for (const row of input.rows) {
+    const head = await input.objects.head(row.objectKey);
+    if (head?.version === undefined) {
+      problems.push(
+        `${archiveLabel(row)}: ${row.objectKey} ${head === undefined ? "is not in the restored bucket" : "has no version in the restored bucket"}`,
+      );
+      continue;
+    }
+    const bytes = await input.objects.get(row.objectKey, head.version);
+    if (
+      bytes === undefined ||
+      bytes.byteLength !== row.bytes ||
+      sha256Hex(bytes) !== row.sha256
+    ) {
+      problems.push(
+        `${archiveLabel(row)}: ${row.objectKey} (version ${head.version}) does not match the row (${row.bytes} bytes, ${row.sha256})`,
+      );
+      continue;
+    }
+    planned.push({ row, version: head.version });
+  }
+  if (problems.length > 0) throw new CheckpointPinError(problems);
+  return planned;
+}
+
+/** Restore side, writing: holds every planned chunk version. */
+export async function applyArchiveRepin(input: {
+  objects: CheckpointObjectStore;
+  planned: readonly RepinnedArchive[];
+}): Promise<void> {
+  const hold = input.objects.hold?.bind(input.objects);
+  if (hold === undefined) {
+    throw new Error("the restored object store cannot hold versions");
+  }
+  for (const { row, version } of input.planned) {
+    await hold(row.objectKey, version);
+  }
 }

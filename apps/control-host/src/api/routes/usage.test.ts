@@ -35,6 +35,8 @@ const app = createApiApp({
             outputsUsedBytes: 0,
             outputsUpdatedAt: null,
             outputsComplete: true,
+            archivedEventsBytes: 0,
+            archivedEventsUpdatedAt: null,
           }),
           agentExists: async () => false,
           sessionUsage: async () => null,

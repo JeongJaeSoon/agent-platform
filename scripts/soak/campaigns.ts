@@ -232,19 +232,27 @@ async function pointerMismatches(db: Pool): Promise<unknown[]> {
  */
 async function numberingProblems(db: Pool): Promise<string[]> {
   const { rows } = await db.query(
-    `SELECT attempt_id, source_sequence FROM events
-      WHERE attempt_id IS NOT NULL AND source_sequence IS NOT NULL
-      ORDER BY attempt_id, source_sequence`,
+    `SELECT e.attempt_id, e.source_sequence,
+        EXISTS (SELECT 1 FROM session_event_archives a
+                WHERE a.session_id = e.session_id AND a.through_id < e.id)
+          AS follows_archive
+      FROM events e
+      WHERE e.attempt_id IS NOT NULL AND e.source_sequence IS NOT NULL
+      ORDER BY e.attempt_id, e.source_sequence`,
   );
   const problems: string[] = [];
   let last: string | null = null;
   let sequence = 0;
   for (const row of rows as Array<{
     attempt_id: string;
+    follows_archive: boolean;
     source_sequence: number;
   }>) {
-    const expected = row.attempt_id === last ? sequence + 1 : 1;
-    if (row.source_sequence !== expected) {
+    const continues = row.attempt_id === last;
+    const expected = continues ? sequence + 1 : 1;
+    // An attempt's opening events may have moved into an archived chunk.
+    const archivedStart = !continues && row.follows_archive;
+    if (row.source_sequence !== expected && !archivedStart) {
       problems.push(`${row.attempt_id}: ${sequence} → ${row.source_sequence}`);
     }
     last = row.attempt_id;

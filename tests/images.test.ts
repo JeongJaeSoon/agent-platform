@@ -447,6 +447,60 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(reconcilerBlock).not.toMatch(/^ {4}ports:/m);
   });
 
+  test("maintenance runs checkpoint GC and a dry-run session archive on the api's image and env", () => {
+    const { api, maintenance } = layeredServices<
+      ComposeService & { profiles?: string[] }
+    >(LOCAL_LAYERS);
+    expect(maintenance?.build).toBeUndefined();
+    expect(maintenance?.image).toBe(api?.image);
+    expect(maintenance?.profiles).toEqual(["apps"]);
+    expect(maintenance?.restart).toBe("unless-stopped");
+    const script = maintenance?.command?.join(" ") ?? "";
+    expect(script).toContain("apps/control-host/src/api/checkpoint-gc.ts");
+    expect(script).toContain("apps/control-host/src/api/session-archive.ts");
+    // A restart keeps the weekly slot instead of starting a fresh week.
+    expect(script).toMatch(/% \$\$\{MAINTENANCE_INTERVAL_SEC\}/);
+    for (const [key, fallback] of [
+      ["MAINTENANCE_INTERVAL_SEC", "604800"],
+      ["SESSION_ARCHIVE_AFTER_DAYS", "180"],
+      ["SESSION_ARCHIVE_DRY_RUN", "true"],
+    ] as const) {
+      expect(maintenance?.environment?.[key]).toEndWith(`:-${fallback}}`);
+    }
+    // The bucket settings it reads are the api's, so both see one store.
+    for (const key of [
+      "AWS_ENDPOINT_URL",
+      "AWS_REGION",
+      "S3_BUCKET",
+      "CHECKPOINT_OBJECT_PROTECTION",
+      "DATABASE_URL",
+    ]) {
+      expect(maintenance?.environment?.[key]).toBe(api?.environment?.[key]);
+    }
+    expect(maintenance?.volumes).toBeUndefined();
+    expect(maintenance?.ports).toBeUndefined();
+    const testOps = layeredServices<ComposeService>(TEST_OPS_LAYERS);
+    expect(testOps.maintenance?.image).toBe(testOps.api?.image);
+  });
+
+  test("every compose service rotates its json-file log at 50 MB × 5", () => {
+    const services = layeredServices<
+      ComposeService & {
+        logging?: { driver?: string; options?: Record<string, string> };
+      }
+    >([CORE]);
+    expect(Object.keys(services).length).toBeGreaterThan(8);
+    for (const [name, service] of Object.entries(services)) {
+      expect({ name, logging: service.logging }).toEqual({
+        name,
+        logging: {
+          driver: "json-file",
+          options: { "max-file": "5", "max-size": "50m" },
+        },
+      });
+    }
+  });
+
   test("the slack role runs with the apps, or alone in its own profile, on the api's image", () => {
     expect(slackBlock).toContain('profiles: ["apps", "slack"]');
     const { api, slack } = localStack();
@@ -753,6 +807,9 @@ describe("compose layers", () => {
   };
   // What only the s3 store's layer requires; LocalStack needs none of it.
   const S3_ONLY = ["S3_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"];
+  const holdsKey = (service: string, variable: string) =>
+    service === "api" ||
+    (service === "maintenance" && variable.startsWith("AWS_"));
   const S3_LAYERS = [...TEST_OPS_LAYERS, TEST_OPS_STORE_LAYERS.s3];
   const LOCALSTACK_LAYERS = [
     ...TEST_OPS_LAYERS,
@@ -1268,8 +1325,9 @@ describe("compose layers", () => {
         expect(services[name]?.environment?.EGRESS_AUTHORIZER_TOKEN).toBe(
           TEST_OPS_SECRETS.EGRESS_AUTHORIZER_TOKEN,
         );
-      // The keys reach the API and nothing else; the core's catalog mount is
-      // replaced, not added to.
+      // The keys reach the API and nothing else, but for the bucket key the
+      // maintenance jobs hold and delete objects with; the core's catalog
+      // mount is replaced, not added to.
       for (const [name, service] of Object.entries(services))
         for (const [variable, value] of Object.entries(API_KEYS))
           expect({
@@ -1279,7 +1337,7 @@ describe("compose layers", () => {
           }).toEqual({
             name,
             variable,
-            value: name === "api" ? value : undefined,
+            value: holdsKey(name, variable) ? value : undefined,
           });
       expect(
         services.api?.volumes?.map(
@@ -1496,7 +1554,8 @@ describe("compose layers", () => {
         expect(Object.keys(services[name]?.depends_on ?? {})).toContain(
           "localstack",
         );
-      // LocalStack's key signs for the API alone; the provider key too.
+      // LocalStack's key signs for the API and the maintenance jobs alone;
+      // the provider key for the API alone.
       for (const [name, service] of Object.entries(services)) {
         if (name === "localstack") continue;
         for (const variable of [...S3_ONLY.slice(1), "ANTHROPIC_API_KEY"])
@@ -1504,7 +1563,7 @@ describe("compose layers", () => {
             name,
             variable,
             set: service.environment?.[variable] !== undefined,
-          }).toEqual({ name, variable, set: name === "api" });
+          }).toEqual({ name, variable, set: holdsKey(name, variable) });
       }
       expect(
         services.api?.volumes?.map(

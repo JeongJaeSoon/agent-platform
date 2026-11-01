@@ -5618,6 +5618,10 @@ export interface components {
                     updated_at: string | null;
                     complete: boolean;
                 };
+                archived_events: {
+                    used_bytes: number;
+                    updated_at: string | null;
+                };
             };
         };
         MemberLimitsResponse: {
@@ -25546,6 +25550,10 @@ export interface operations {
                      *           "used_bytes": 3145728,
                      *           "updated_at": "2026-10-11T08:12:30Z",
                      *           "complete": true
+                     *         },
+                     *         "archived_events": {
+                     *           "used_bytes": 18712,
+                     *           "updated_at": "2026-10-05T05:00:12Z"
                      *         }
                      *       }
                      *     }

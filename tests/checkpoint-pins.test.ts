@@ -45,15 +45,19 @@ import {
   imageRuntimeOf,
 } from "../apps/worker/src/image-runtime.ts";
 import {
+  type ArchiveRow,
   alternateDigests,
+  applyArchiveRepin,
   applyRepin,
   CheckpointPinError,
   type CheckpointRow,
+  captureArchiveObjects,
   captureCheckpointObjects,
   describeMismatches,
   earlierProfileClaims,
   earlierProfileKey,
   parseImageRuntime,
+  planArchiveRepin,
   planRepin,
   planRuntime,
   refsOf,
@@ -703,6 +707,84 @@ describe("backup → restore re-pin", () => {
         { manifest: incremental, row: second },
       );
       expect(result.status).toBe("ready");
+    });
+  });
+});
+
+describe("archived session events through backup → restore", () => {
+  async function archived(objects: MemoryCheckpointObjectStore, text: string) {
+    const bytes = new TextEncoder().encode(text);
+    const objectKey = `session-archive/${randomUUID()}/events-1-2-${publishId().slice(0, 16)}.jsonl.gz`;
+    const put = await objects.putImmutable(objectKey, bytes);
+    if (put.version === undefined) throw new Error("no version");
+    await objects.hold?.(objectKey, put.version);
+    return {
+      bytes: bytes.byteLength,
+      fromId: 1,
+      objectKey,
+      sessionId: randomUUID(),
+      sha256: sha256Hex(bytes),
+      versionId: put.version,
+    } satisfies ArchiveRow;
+  }
+
+  test("a chunk is captured at its version and re-pinned, held, on the restored bucket", async () => {
+    await withDir(async (dir) => {
+      const source = createMemoryCheckpointObjectStore({ versioned: true });
+      const row = await archived(source, '{"id":1}\n{"id":2}\n');
+      // A later object under the key must not stand in for the pinned one.
+      await source.overwrite(row.objectKey, new TextEncoder().encode("other"));
+      await syncDown(source, dir);
+      const capture = await captureArchiveObjects({
+        objects: source,
+        objectsDir: dir,
+        rows: [row],
+      });
+      expect(capture.replaced).toEqual([row.objectKey]);
+
+      const restored = await restoredBucket();
+      await syncUp(dir, restored, new Set());
+      const planned = await planArchiveRepin({
+        objects: restored,
+        rows: [row],
+      });
+      expect(planned).toHaveLength(1);
+      const [plan] = planned;
+      if (plan === undefined) throw new Error("no plan");
+      expect(plan.version).not.toBe(row.versionId);
+      expect((await restored.head(row.objectKey, plan.version))?.held).not.toBe(
+        true,
+      );
+      await applyArchiveRepin({ objects: restored, planned });
+      expect((await restored.head(row.objectKey, plan.version))?.held).toBe(
+        true,
+      );
+      const bytes = await restored.get(row.objectKey, plan.version);
+      if (bytes === undefined) throw new Error("not restored");
+      expect(sha256Hex(bytes)).toBe(row.sha256);
+    });
+  });
+
+  test("a chunk missing or altered is refused on both sides before anything is held", async () => {
+    await withDir(async (dir) => {
+      const source = createMemoryCheckpointObjectStore({ versioned: true });
+      const row = await archived(source, '{"id":1}\n');
+      await expect(
+        captureArchiveObjects({
+          objects: source,
+          objectsDir: dir,
+          rows: [{ ...row, sha256: "0".repeat(64) }],
+        }),
+      ).rejects.toBeInstanceOf(CheckpointPinError);
+
+      const restored = await restoredBucket();
+      await expect(
+        planArchiveRepin({ objects: restored, rows: [row] }),
+      ).rejects.toBeInstanceOf(CheckpointPinError);
+      await restored.overwrite(row.objectKey, new TextEncoder().encode("x"));
+      await expect(
+        planArchiveRepin({ objects: restored, rows: [row] }),
+      ).rejects.toThrow("does not match the row");
     });
   });
 });

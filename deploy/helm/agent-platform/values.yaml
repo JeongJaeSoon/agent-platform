@@ -310,6 +310,22 @@ checkpointGc:
   nodeSelector: {}
   tolerations: []
 
+# Moves events of sessions idle longer than afterDays into held objects under
+# session-archive/ (docs/operator/data-retention.md). afterDays is 0 (off) or
+# 30–3650. Counts only until dryRun is false. Runs only with
+# CHECKPOINT_OBJECT_PROTECTION=locked. Must not run while a backup is being
+# taken (docs/operator/backup-restore.md).
+sessionArchive:
+  enabled: true
+  schedule: "0 5 * * 0"
+  afterDays: 180
+  dryRun: true
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+  nodeSelector: {}
+  tolerations: []
+
 # Settings the scheduler hands the worker Pods it launches.
 worker:
   # StorageClass of workspace PVCs; empty is the cluster default.

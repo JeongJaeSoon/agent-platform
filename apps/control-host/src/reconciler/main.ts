@@ -1,6 +1,7 @@
 import * as schema from "@werft-ai/db";
 import {
   announceLapsedInputWaits,
+  deleteExpiredWebSessions,
   expireAuthzDecisions,
   expireOverdueInterrupts,
   expireOverdueTerminations,
@@ -106,6 +107,8 @@ export function reconcileOnce(
     expireParked: (options) => expireParkedGroups(db, options),
     announceInputReturns: (options) => announceLapsedInputWaits(db, options),
     expireDecisions: (options) => expireAuthzDecisions(db, options),
+    deleteExpiredWebSessions: (options) =>
+      deleteExpiredWebSessions(db, options),
     projectToolCalls: () =>
       projectToolCalls(db, {
         batchSize: TOOL_CALL_BATCH_SIZE,

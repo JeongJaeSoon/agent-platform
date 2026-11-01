@@ -139,6 +139,7 @@ import {
   unattendedProfiles,
 } from "./catalog-config.ts";
 import {
+  archivedEventSource,
   assertCheckpointBucketEncryption,
   assertCheckpointBucketProtection,
   assertCheckpointObjectsPresent,
@@ -465,6 +466,7 @@ const agents = createAgentService({
   ...(slackWelcome === null ? {} : { welcome: slackWelcome }),
   keys: createPostgresWorkspaceKeyStore(db),
 });
+const archivedEvents = archivedEventSource(checkpointStorage);
 const sessions = createSessionService({
   authorization,
   inputs: createPostgresSessionUnitOfWork(db),
@@ -472,7 +474,11 @@ const sessions = createSessionService({
     connect: () => pool.connect(),
     logger,
   }),
-  reader: createPostgresSessionReader(db, { logger, neutralize }),
+  reader: createPostgresSessionReader(db, {
+    logger,
+    neutralize,
+    ...(archivedEvents === undefined ? {} : { archivedEvents }),
+  }),
   catalog,
   releases: agents,
   credentials: credentialBindings,

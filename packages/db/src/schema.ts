@@ -347,6 +347,8 @@ export const webSessions = pgTable(
     index("web_sessions_user_live_idx")
       .on(table.userId)
       .where(sql`${table.revokedAt} IS NULL`),
+    // The reconciler deletes rows 30 days past expiry.
+    index("web_sessions_expires_at_idx").on(table.expiresAt),
   ],
 );
 
@@ -1446,6 +1448,52 @@ export const events = pgTable(
 );
 
 /**
+ * One archived chunk of a session's events: the rows with ids from
+ * `from_id` through `through_id` now live only in the checkpoint bucket
+ * object at `object_key`, version `version_id`, held, as one JSON line per
+ * row with the events columns as stored (session-event-archives.ts). A
+ * session's chunks never overlap and every event row left for it is past
+ * the last one.
+ */
+export const sessionEventArchives = pgTable(
+  "session_event_archives",
+  {
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id),
+    fromId: bigint("from_id", { mode: "number" }).notNull(),
+    throughId: bigint("through_id", { mode: "number" }).notNull(),
+    objectKey: text("object_key").notNull(),
+    versionId: text("version_id").notNull(),
+    // Of the gzip object as stored.
+    sha256: text().notNull(),
+    eventCount: integer("event_count").notNull(),
+    bytes: bigint({ mode: "number" }).notNull(),
+    // The chunk's last row, for readers that took them from the newest event.
+    lastCreatedAt: timestamp("last_created_at", {
+      withTimezone: true,
+    }).notNull(),
+    lastOccurredAt: timestamp("last_occurred_at", {
+      withTimezone: true,
+    }).notNull(),
+    // The list card's activity over every event through activity_through,
+    // taken before they left; a later chunk of the same pass repeats it.
+    activity: jsonb().notNull(),
+    activityThrough: bigint("activity_through", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sessionId, table.fromId] }),
+    check(
+      "session_event_archives_range_check",
+      sql`${table.fromId} <= ${table.throughId} AND ${table.eventCount} > 0`,
+    ),
+  ],
+);
+
+/**
  * One row per tool call, projected from the tool_use and tool_result events
  * by the reconciler (`projectToolCalls`), paired as the run tree pairs them
  * (94S-923). A read of the usage API never parses events.
@@ -1453,7 +1501,8 @@ export const events = pgTable(
  * No foreign keys: a key on session_id would take KEY SHARE on the session
  * row, which a worker append holds FOR UPDATE, so each projection batch and
  * the appends of its sessions would wait on each other. Nothing deletes
- * sessions or events.
+ * sessions; event rows leave only once archived, their content kept in the
+ * object a `session_event_archives` row names.
  */
 export const toolCalls = pgTable(
   "tool_calls",

@@ -31,6 +31,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { rowsOf } from "./control-unit-of-work.ts";
 import { DB_NOW, fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -884,6 +885,32 @@ export async function revokeWebSession(
     .where(
       and(eq(webSessions.tokenHash, tokenHash), isNull(webSessions.revokedAt)),
     );
+}
+
+/** Rows a login cookie can no longer resolve to stay this long, then go. */
+export const EXPIRED_WEB_SESSION_KEEP_DAYS = 30;
+
+/**
+ * Deletes up to `limit` web sessions that expired more than
+ * EXPIRED_WEB_SESSION_KEEP_DAYS ago; a dry run counts them. Invites and
+ * password resets are not touched.
+ */
+export async function deleteExpiredWebSessions(
+  db: Database,
+  input: { limit: number; dryRun: boolean },
+): Promise<number> {
+  const expired = sql`
+    SELECT id FROM ${webSessions}
+    WHERE expires_at < statement_timestamp()
+      - make_interval(days => ${EXPIRED_WEB_SESSION_KEEP_DAYS}::int)
+    ORDER BY expires_at
+    LIMIT ${input.limit}`;
+  const result = await db.execute(
+    input.dryRun
+      ? expired
+      : sql`DELETE FROM ${webSessions} WHERE id IN (${expired} FOR UPDATE SKIP LOCKED) RETURNING id`,
+  );
+  return rowsOf<{ id: string }>(result).length;
 }
 
 export async function setUserLocale(

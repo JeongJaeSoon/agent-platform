@@ -16,6 +16,14 @@
 # credentials back, so set your own in ../.env anywhere else.
 x-egress-authorizer-token: &egress-authorizer-token ${EGRESS_AUTHORIZER_TOKEN:-local-egress-authorizer-token-0123456789}
 
+# Docker's json-file default never rotates; a long-lived stack fills the
+# disk with logs. Every service below takes this block.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 50m
+    max-file: "5"
+
 x-installation-limits: &installation-limits
   EXECUTION_SLOT_LIMIT: ${EXECUTION_SLOT_LIMIT:-10}
   QUEUED_INPUT_LIMIT_PER_SESSION: ${QUEUED_INPUT_LIMIT_PER_SESSION:-20}
@@ -54,6 +62,7 @@ x-worker-runtimes:
 services:
   postgres:
     image: postgres:16@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6
+    logging: *logging
     # A wait past deadlock_timeout (1s) logs the PIDs holding the lock, so
     # a statement_timeout on a row lock can be traced to its holder. A
     # statement slower than log_min_duration_statement is logged with its
@@ -95,6 +104,7 @@ services:
   # `bun install` first. No `image:` here: the local layer builds it, and the
   # test-ops layer names the released one.
   migrate:
+    logging: *logging
     command: ["bun", "run", "--cwd", "packages/db", "db:migrate"]
     environment:
       # Always the compose postgres, never an ambient DATABASE_URL: `up`
@@ -108,6 +118,7 @@ services:
 
   gitea:
     image: gitea/gitea:1.22@sha256:538658de667c5d098a274f2f63aa6ec891d88f670cdd5282cf27221ba747dda4
+    logging: *logging
     environment:
       GITEA__database__DB_TYPE: sqlite3
       GITEA__security__INSTALL_LOCK: "true"
@@ -137,6 +148,7 @@ services:
     # Released with the other apps (images.yml); a deployment points
     # EGRESS_PROXY_IMAGE at that digest.
     image: ${EGRESS_PROXY_IMAGE:-agent-platform-egress-proxy:dev}
+    logging: *logging
     environment:
       # Nothing public: a worker's one public destination is its provider,
       # which it reaches through the credential route below.
@@ -209,6 +221,7 @@ services:
   # installation picks up a checkout's .env.
   api:
     image: ${API_IMAGE:-agent-platform-control-host:dev}
+    logging: *logging
     profiles: ["apps"]
     # Docker's default 10s would SIGKILL a shutdown that may run to
     # SHUTDOWN_DRAIN_MS + SHUTDOWN_CLOSE_MS (35s + 5s,
@@ -342,6 +355,7 @@ services:
   # builds it alone.
   worker:
     image: ${WORKER_IMAGE:-agent-platform-worker:dev}
+    logging: *logging
     profiles: ["apps", "worker"]
     command: ["claude", "--version"]
     network_mode: none
@@ -379,6 +393,7 @@ services:
   # slot is given back only once a pass has seen the worker gone.
   scheduler:
     image: ${API_IMAGE:-agent-platform-control-host:dev}
+    logging: *logging
     profiles: ["apps"]
     # The control-host image's scheduler role. Where a layer builds that
     # image, `api` does, and depends_on a healthy api orders the build before
@@ -477,6 +492,7 @@ services:
   # needs that image first (`docker compose build api`).
   reconciler:
     image: ${API_IMAGE:-agent-platform-control-host:dev}
+    logging: *logging
     profiles: ["apps"]
     command: ["bun", "run", "apps/control-host/src/main.ts", "reconciler"]
     restart: unless-stopped
@@ -507,8 +523,46 @@ services:
       postgres:
         condition: service_healthy
 
+  # The weekly jobs: checkpoint GC, then the session event archive
+  # (docs/operator/data-retention.md). It sleeps to the next multiple of the
+  # interval since the Unix epoch, so restarts neither run them at once nor
+  # push them back; `docker compose exec maintenance bun run <job>` runs one
+  # now. A writer: backup.sh refuses to start while it runs. Its object store
+  # endpoint and credentials are the layer's, as for api.
+  maintenance:
+    image: ${API_IMAGE:-agent-platform-control-host:dev}
+    logging: *logging
+    profiles: ["apps"]
+    command:
+      - sh
+      - -c
+      - >-
+        while sleep "$$(( $${MAINTENANCE_INTERVAL_SEC} - $$(date +%s) % $${MAINTENANCE_INTERVAL_SEC} ))"; do
+        bun run apps/control-host/src/api/checkpoint-gc.ts;
+        bun run apps/control-host/src/api/session-archive.ts;
+        done
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-sessions}
+      MAINTENANCE_INTERVAL_SEC: ${MAINTENANCE_INTERVAL_SEC:-604800}
+      CHECKPOINT_GC_DRY_RUN: ${CHECKPOINT_GC_DRY_RUN:-false}
+      # 0 turns archiving off; otherwise 30–3650 days of idleness. Dry run
+      # until the operator sets it to false.
+      SESSION_ARCHIVE_AFTER_DAYS: ${SESSION_ARCHIVE_AFTER_DAYS:-180}
+      SESSION_ARCHIVE_DRY_RUN: ${SESSION_ARCHIVE_DRY_RUN:-true}
+      AWS_REGION: ${AWS_REGION:-ap-northeast-1}
+      S3_BUCKET: ${S3_BUCKET:-claude-sessions}
+      CHECKPOINT_OBJECT_PROTECTION: ${CHECKPOINT_OBJECT_PROTECTION:-locked}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+
   slack:
     image: ${API_IMAGE:-agent-platform-control-host:dev}
+    logging: *logging
     profiles: ["apps", "slack"]
     command: ["bun", "run", "apps/control-host/src/main.ts", "slack"]
     restart: unless-stopped

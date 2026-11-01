@@ -37,15 +37,19 @@ import {
   createApiCheckpointService,
 } from "../../apps/control-host/src/api/checkpoints.ts";
 import {
+  type ArchiveRow,
   alternateDigests,
+  applyArchiveRepin,
   applyRepin,
   CheckpointPinError,
   type CheckpointRow,
+  captureArchiveObjects,
   captureCheckpointObjects,
   describeMismatches,
   earlierProfileClaims,
   type ImageRuntime,
   parseImageRuntime,
+  planArchiveRepin,
   planRepin,
   planRuntime,
   sessionClaim,
@@ -116,21 +120,53 @@ async function readRows(): Promise<CheckpointRow[]> {
   }));
 }
 
+async function readArchiveRows(): Promise<ArchiveRow[]> {
+  const { rows } = await pool.query<{
+    bytes: string;
+    from_id: string;
+    object_key: string;
+    session_id: string;
+    sha256: string;
+    version_id: string;
+  }>(
+    `SELECT session_id, from_id, object_key, version_id, sha256, bytes
+     FROM session_event_archives ORDER BY session_id, from_id`,
+  );
+  return rows.map((row) => ({
+    bytes: Number(row.bytes),
+    fromId: Number(row.from_id),
+    objectKey: row.object_key,
+    sessionId: row.session_id,
+    sha256: row.sha256,
+    versionId: row.version_id,
+  }));
+}
+
 async function capture(dir: string) {
   const rows = await readRows();
+  const archiveRows = await readArchiveRows();
   const { replaced } = await captureCheckpointObjects({
     codecs,
     objects,
     objectsDir: dir,
     rows,
   });
-  for (const key of replaced) {
+  const archives = await captureArchiveObjects({
+    objects,
+    objectsDir: dir,
+    rows: archiveRows,
+  });
+  for (const key of [...replaced, ...archives.replaced]) {
     console.error(
-      `capture: warning — ${key} now holds the bytes its checkpoint pinned; the bucket's current object differs or is gone`,
+      `capture: warning — ${key} now holds the bytes its row pinned; the bucket's current object differs or is gone`,
     );
   }
   console.log(
-    JSON.stringify({ checkpoints: rows.length, replaced: replaced.length }),
+    JSON.stringify({
+      checkpoints: rows.length,
+      archives: archiveRows.length,
+      replaced: replaced.length + archives.replaced.length,
+    }),
   );
 }
 
@@ -149,10 +185,27 @@ async function repin(dir: string) {
   );
   const rows = await readRows();
   const planned = await planRepin({ codecs, objects, objectsDir: dir, rows });
+  const archives = await planArchiveRepin({
+    objects,
+    rows: await readArchiveRows(),
+  });
   const repinned = await applyRepin({ objects, planned });
+  await applyArchiveRepin({ objects, planned: archives });
   const db = await pool.connect();
   try {
     await db.query("BEGIN");
+    for (const { row, version } of archives) {
+      const updated = await db.query(
+        `UPDATE session_event_archives SET version_id = $3
+         WHERE session_id = $1 AND from_id = $2 AND version_id = $4`,
+        [row.sessionId, row.fromId, version, row.versionId],
+      );
+      if (updated.rowCount !== 1) {
+        throw new Error(
+          `archive ${row.sessionId}@${row.fromId} changed while it was re-pinned`,
+        );
+      }
+    }
     for (const row of repinned) {
       const updated = await db.query(
         `UPDATE checkpoints
@@ -179,7 +232,12 @@ async function repin(dir: string) {
   } finally {
     db.release();
   }
-  console.log(JSON.stringify({ checkpoints: repinned.length }));
+  console.log(
+    JSON.stringify({
+      checkpoints: repinned.length,
+      archives: archives.length,
+    }),
+  );
 }
 
 /**
@@ -427,6 +485,27 @@ async function plans(
   }
   if (pointers.length === 0) {
     console.error("plans: warning — no session has a checkpoint pointer");
+  }
+  // Archived events are read by the version their row names.
+  for (const row of await readArchiveRows()) {
+    const tag = `archive ${row.sessionId}@${row.fromId}`;
+    const bytes = await objects.get(row.objectKey, row.versionId);
+    if (
+      bytes === undefined ||
+      bytes.byteLength !== row.bytes ||
+      sha256Hex(bytes) !== row.sha256
+    ) {
+      fail(
+        `${tag}: ${row.objectKey} version ${row.versionId} does not read back`,
+      );
+      continue;
+    }
+    const head = await objects.head(row.objectKey, row.versionId);
+    if (head?.held !== true) {
+      fail(`${tag}: ${row.objectKey} version ${row.versionId} is not held`);
+      continue;
+    }
+    console.log(`PASS ${tag}: read back and held`);
   }
   return failed;
 }
