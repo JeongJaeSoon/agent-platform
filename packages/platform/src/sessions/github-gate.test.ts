@@ -20,7 +20,7 @@ import {
   type GitHubSessionContext,
   type GitHubWork,
 } from "../ports/github-gate.ts";
-import type { SessionCatalog } from "./catalog.ts";
+import type { InstallationProfileEntry, SessionCatalog } from "./catalog.ts";
 import { createGitHubGate } from "./github-gate.ts";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
@@ -146,8 +146,10 @@ function harness(
     author?: ReturnType<typeof fakeConnection> | null;
     reviewer?: ReturnType<typeof fakeConnection> | null;
     dispatches?: GitHubDispatchRecord[];
+    catalog?: SessionCatalog;
   } = {},
 ) {
+  const catalog = options.catalog ?? CATALOG;
   const author =
     options.author === undefined ? fakeConnection("author") : options.author;
   const reviewer =
@@ -185,6 +187,7 @@ function harness(
             ownerId: "owner-a",
             sessionId,
             repositoryId: state.repositoryId,
+            profileId: "default",
             repository,
             startedBy: STARTER,
             agent: {
@@ -207,11 +210,11 @@ function harness(
   };
   const gate = createGitHubGate({
     store,
-    catalog: CATALOG,
+    catalog,
     connections: (repositoryId, role) => {
       asked.push({ repositoryId, role });
       if (repositoryId === "ghes") return ghes.connection;
-      if (repositoryId !== "app") return null;
+      if (repositoryId !== "app" && repositoryId !== "docs") return null;
       return (role === "author" ? author : reviewer)?.connection ?? null;
     },
   });
@@ -767,5 +770,92 @@ describe("workflow allow-list", () => {
       operation: "rerun_workflow",
       result: { run_id: 9, workflow: "old.yml", ref: "main" },
     });
+  });
+});
+
+describe("another repository than the session's", () => {
+  // `docs` is on the session's profile; `app` is the session's own.
+  const MULTI = {
+    ...CATALOG,
+    profiles: { default: {} as SessionCatalog["profiles"][string] },
+    repositories: {
+      ...CATALOG.repositories,
+      docs: {
+        url: "https://github.com/acme/docs.git",
+        branch: "main",
+        auth: { kind: "github_app", registered: true },
+      },
+    },
+    installation: new Map<string, InstallationProfileEntry>([
+      [
+        "default",
+        {
+          id: "default",
+          origin: "catalog",
+          state: "usable",
+          repository_ids: ["app", "docs"],
+        },
+      ],
+    ]),
+  } satisfies SessionCatalog;
+
+  test("is granted for the repository named, as its release lists it", async () => {
+    const { grant, receipts } = harness({
+      catalog: MULTI,
+      github: settings({ repositories: ["app", "docs"] }),
+    });
+    const granted = await grant({ purpose: "push", repositoryId: "docs" });
+    expect(granted).toMatchObject({
+      repo: { owner: "acme", name: "docs" },
+      permissions: { contents: "write" },
+      context: { repositoryId: "docs" },
+    });
+    expect(receipts.at(-1)).toMatchObject({
+      operation: "mint_github_token",
+      result: { repository_id: "docs", purpose: "push" },
+    });
+  });
+
+  test("is repository_not_allowed off the release's list, the profile or with GitHub off", async () => {
+    const cases: Array<Parameters<typeof harness>[0]> = [
+      { catalog: MULTI, github: settings({ repositories: ["app"] }) },
+      { catalog: CATALOG, github: settings({ repositories: ["app", "docs"] }) },
+      {
+        catalog: MULTI,
+        github: settings({ repositories: ["app", "docs"] }),
+        githubEnabled: false,
+      },
+      { catalog: MULTI, github: null },
+    ];
+    for (const options of cases) {
+      const { grant, receipts } = harness(options);
+      expect(
+        (await refused(grant({ purpose: "clone", repositoryId: "docs" })))
+          .reason,
+      ).toBe("repository_not_allowed");
+      expect(receipts.at(-1)?.result).toMatchObject({ repository_id: "docs" });
+    }
+  });
+
+  test("the platform's own read of a recorded pull request needs only the catalog", async () => {
+    const { grant } = harness({
+      catalog: MULTI,
+      github: settings({ repositories: ["app"] }),
+    });
+    expect(
+      await grant({ purpose: "outcome_refresh", repositoryId: "docs" }),
+    ).toMatchObject({ repo: { name: "docs" } });
+  });
+
+  test("lists the repositories a claim attaches", async () => {
+    const listed = harness({
+      catalog: MULTI,
+      github: settings({ repositories: ["app", "docs", "gitea"] }),
+    });
+    expect(await listed.gate.additionalRepositories?.(SESSION)).toEqual([
+      "docs",
+    ]);
+    const off = harness({ catalog: MULTI, githubEnabled: false });
+    expect(await off.gate.additionalRepositories?.(SESSION)).toEqual([]);
   });
 });

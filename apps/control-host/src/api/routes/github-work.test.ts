@@ -203,6 +203,7 @@ function app(
               ownerId: "owner-a",
               sessionId,
               repositoryId: "app",
+              profileId: null,
               repository: {
                 url: catalog.repositories.app?.url ?? "",
                 branch: "main",

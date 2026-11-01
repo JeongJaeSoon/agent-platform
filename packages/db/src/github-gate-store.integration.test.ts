@@ -137,6 +137,7 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
       ownerId: workspaceId,
       sessionId,
       repositoryId: "sample-app",
+      profileId: null,
       repository: { url: "https://github.com/acme/app.git", branch: "main" },
       startedBy: userId,
       agent: { id: agentId, workspaceId, githubEnabled: true },
@@ -315,6 +316,9 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
     const found = await pushes.findSession(workspaceId, sessionId);
     expect(found).toEqual({
       repositoryId: "sample-app",
+      profileId: null,
+      github: expect.objectContaining({ repositories: ["sample-app"] }),
+      githubEnabled: true,
       approvalOffRelease: releaseId,
     });
     const created = await pushes.create({
@@ -341,6 +345,9 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
     const other = await session(workspaceId, plain.releaseId, userId);
     expect(await pushes.findSession(workspaceId, other)).toEqual({
       repositoryId: "sample-app",
+      profileId: null,
+      github: null,
+      githubEnabled: true,
       approvalOffRelease: null,
     });
   });

@@ -22,6 +22,10 @@ import {
   GitHubUnavailableError,
   type GitHubWork,
 } from "../ports/github-gate.ts";
+import {
+  additionalRepositoriesOf,
+  additionalRepositoryAllowed,
+} from "./additional-repositories.ts";
 import type { SessionCatalog } from "./catalog.ts";
 
 /**
@@ -51,11 +55,17 @@ export function createGitHubGate(deps: {
             : work.purpose === "review"
               ? "review_pull_request"
               : "mint_github_token";
+      const own =
+        work.repositoryId === undefined ||
+        work.repositoryId === context.repositoryId;
+      const repositoryId = own
+        ? context.repositoryId
+        : (work.repositoryId ?? null);
       const fields: Record<string, unknown> = {
         session_id: context.sessionId,
         agent_id: context.agent?.id ?? null,
         agent_release_id: context.release?.id ?? null,
-        repository_id: context.repositoryId,
+        repository_id: repositoryId,
         purpose: work.purpose,
         ...(work.workflow === undefined
           ? {}
@@ -109,30 +119,55 @@ export function createGitHubGate(deps: {
         throw new GitHubGateError(reason, receiptId);
       };
 
-      const { repositoryId } = context;
       if (repositoryId === null) return await refuse("repository_none");
-      const entry = Object.hasOwn(catalog.repositories, repositoryId)
+      // Reading a pull request the platform recorded is not the agent's
+      // work: no switch, scope, feature or ceiling applies (§10).
+      const platformRead = work.purpose === "outcome_refresh";
+      const listed = Object.hasOwn(catalog.repositories, repositoryId)
         ? catalog.repositories[repositoryId]
         : undefined;
-      if (
-        entry === undefined ||
-        context.repository === null ||
-        entry.url !== context.repository.url ||
-        entry.branch !== context.repository.branch
-      ) {
-        throw new GitHubUnavailableError("The session's repository moved");
+      let entry: SessionCatalog["repositories"][string];
+      if (own) {
+        if (
+          listed === undefined ||
+          context.repository === null ||
+          listed.url !== context.repository.url ||
+          listed.branch !== context.repository.branch
+        ) {
+          throw new GitHubUnavailableError("The session's repository moved");
+        }
+        entry = listed;
+      } else if (platformRead) {
+        if (listed === undefined) {
+          throw new GitHubUnavailableError("The repository left the catalog");
+        }
+        entry = listed;
+      } else {
+        const allowed = additionalRepositoryAllowed(
+          catalog,
+          {
+            repositoryId: context.repositoryId,
+            profileId: context.profileId,
+            github: context.release?.github ?? null,
+            githubEnabled: context.agent?.githubEnabled ?? false,
+          },
+          repositoryId,
+        );
+        if (allowed === null) return await refuse("repository_not_allowed");
+        entry = allowed;
       }
       const author = connections(repositoryId, "author");
       // Not on GitHub: the catalog's own credential, as before the gate.
-      if (author === null && entry.auth?.kind !== "github_app") return null;
+      if (author === null && entry.auth?.kind !== "github_app") {
+        // Another repository is only ever reached with the gate's own token.
+        if (!own) throw new GitHubUnavailableError("No GitHub connection");
+        return null;
+      }
 
       const settings = context.release?.github ?? null;
       if (settings === "invalid") {
         return await refuse("github_settings_unsupported");
       }
-      // Reading a pull request the platform recorded is not the agent's
-      // work: no switch, scope, feature or ceiling applies (§10).
-      const platformRead = work.purpose === "outcome_refresh";
       if (!platformRead) {
         if (context.agent !== null && !context.agent.githubEnabled) {
           return await refuse("github_disabled");
@@ -262,6 +297,23 @@ export function createGitHubGate(deps: {
           repositoryId,
         },
       };
+    },
+
+    async additionalRepositories(sessionId: string): Promise<string[]> {
+      const context = await store.context(sessionId);
+      if (context === null) return [];
+      return additionalRepositoriesOf(catalog, {
+        repositoryId: context.repositoryId,
+        profileId: context.profileId,
+        github: context.release?.github ?? null,
+        githubEnabled: context.agent?.githubEnabled ?? false,
+      })
+        .filter(
+          ({ id, repository }) =>
+            connections(id, "author") !== null ||
+            repository.auth?.kind === "github_app",
+        )
+        .map(({ id }) => id);
     },
   };
 }

@@ -202,6 +202,7 @@ integration("postgres pull requests", () => {
       await store.findBranchPullRequest(
         OWNER,
         first.sessionId.toUpperCase(),
+        "app",
         `agent/${first.sessionId}`,
       ),
     ).toEqual(opened.pullRequest);
@@ -209,11 +210,26 @@ integration("postgres pull requests", () => {
       await store.findBranchPullRequest(
         "someone-else",
         first.sessionId,
+        "app",
         `agent/${first.sessionId}`,
       ),
     ).toBeNull();
     expect(
-      await store.findBranchPullRequest(OWNER, first.sessionId, "agent/other"),
+      await store.findBranchPullRequest(
+        OWNER,
+        first.sessionId,
+        "app",
+        "agent/other",
+      ),
+    ).toBeNull();
+    // The same branch name in another repository is another pull request.
+    expect(
+      await store.findBranchPullRequest(
+        OWNER,
+        first.sessionId,
+        "other-app",
+        `agent/${first.sessionId}`,
+      ),
     ).toBeNull();
   });
 

@@ -176,6 +176,40 @@ export function createGitPusher(
             "the remote branch is not an ancestor of the pinned commit",
           );
         }
+      } else if (remote.head !== null) {
+        // A new branch must build on the repository it goes to: a session
+        // working on several repositories could otherwise put one's content
+        // into another. What the bundles already hold is not fetched again.
+        if (!gitRefNameAcceptable(remote.head)) {
+          return refused("push_failed", "the remote's HEAD is not a branch");
+        }
+        const fetched = await git(
+          inRepo([
+            "-c",
+            "fetch.fsckObjects=true",
+            "-c",
+            "transfer.fsckObjects=true",
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            "--no-write-fetch-head",
+            input.remoteUrl,
+            `+${remote.head}:refs/push/base`,
+          ]),
+          true,
+        );
+        if (fetched.exitCode !== 0) {
+          return refused("push_failed", `git fetch exited ${fetched.exitCode}`);
+        }
+        const common = await git(
+          inRepo(["merge-base", input.commit, "refs/push/base"]),
+        );
+        if (common.exitCode !== 0) {
+          return refused(
+            "unrelated_history",
+            "the pinned commit shares no history with the remote's HEAD",
+          );
+        }
       }
       const pushed = await git(
         inRepo([

@@ -28,6 +28,7 @@ import {
   type FakeGitHub,
   type GitBundleFixture,
   type GitHttpServer,
+  seedServedBranch,
   startFakeGitHub,
   startGitHttpServer,
 } from "@werft-ai/testkit";
@@ -59,6 +60,9 @@ beforeAll(async () => {
   gitea = await startGitHttpServer({ authorization: BASIC_LOGIN, push: true });
   await createServedRepository(gitea, "app", { "README.md": "gitea\n" });
   chain = await createGitBundleChain();
+  // A checkpoint builds on the repository it was cloned from.
+  await github.seedBranch("acme", "app", "main", chain.base);
+  await seedServedBranch(gitea, "app", "main", chain.base);
   tempRoot = await mkdtemp(join(tmpdir(), "push-executor-test-"));
 });
 afterAll(async () => {
@@ -147,6 +151,7 @@ async function run(
         ownerId: job.ownerId,
         sessionId,
         repositoryId: job.repositoryId,
+        profileId: null,
         // The executor checks the job's binding itself; the gate sees the
         // entry as pinned.
         repository: Object.hasOwn(catalog.repositories, job.repositoryId)
@@ -350,6 +355,50 @@ describe("the platform's push", () => {
         (request) => request.push && request.method === "POST",
       ).length,
     ).toBe(pushesBefore);
+  });
+
+  test("a new branch whose commit shares no history with the remote's HEAD is refused as unrelated_history", async () => {
+    // acme/other was never cloned into the checkpoint: its content is not
+    // what the bundles carry.
+    const catalog = catalogOf({ other: appRepository("other") });
+    const job = jobFor(catalog, "other");
+    const pushesBefore = github.gitRequests.filter(
+      (request) => request.push && request.method === "POST",
+    ).length;
+    expect((await run(catalog, job)).outcome).toEqual({
+      state: "failed",
+      refusal: "unrelated_history",
+      remoteUrl: `${github.origin}/acme/other.git`,
+      remoteRef: `refs/heads/${job.targetBranch}`,
+    });
+    expect(
+      (await github.refs("acme", "other"))[`refs/heads/${job.targetBranch}`],
+    ).toBeUndefined();
+    expect(
+      github.gitRequests.filter(
+        (request) => request.push && request.method === "POST",
+      ).length,
+    ).toBe(pushesBefore);
+    expect(await readdir(tempRoot)).toEqual([]);
+  });
+
+  test("pushes to the session's suffixed branch, and only to a branch of its own", async () => {
+    const catalog = catalogOf({ app: appRepository() });
+    const base = jobFor(catalog, "app");
+    const suffixed = { ...base, targetBranch: `${base.targetBranch}-docs-fix` };
+    expect((await run(catalog, suffixed)).outcome).toMatchObject({
+      state: "pushed",
+      remoteRef: `refs/heads/${suffixed.targetBranch}`,
+    });
+    for (const targetBranch of [
+      `${base.targetBranch}/nested`,
+      `${base.targetBranch}-Upper`,
+      `agent/00000000-0000-4000-8000-999999999999-docs`,
+    ]) {
+      expect(
+        (await run(catalog, { ...base, targetBranch })).outcome,
+      ).toMatchObject({ state: "failed", refusal: "target_refused" });
+    }
   });
 
   test("refuses the repository's default branch, by the catalog and by the remote", async () => {

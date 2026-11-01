@@ -20,9 +20,13 @@ export type GitHubPermissions = Readonly<Record<string, "read" | "write">>;
 
 /** One piece of a session's GitHub work, as a caller asks the gate for it. */
 export type GitHubWork = {
-  // The repository is never passed: the gate reads it off the session row.
   sessionId: string;
   purpose: GitHubPurpose;
+  /**
+   * Absent: the session's own repository, read off the session row. Another
+   * one only as its release lists it (session-multi-repository.md decision 5).
+   */
+  repositoryId?: string;
   /** dispatch only: a branch name, never `refs/...`. */
   workflow?: { file: string; ref: string };
   /** rerun only: the gate finds its workflow and ref in github_workflow_dispatches. */
@@ -180,6 +184,11 @@ export interface GitHubGate {
    * Refuses with GitHubGateError before any GitHub call.
    */
   grant(work: GitHubWork): Promise<GitHubGrant | null>;
+  /**
+   * The catalog ids of the repositories besides its own the session may
+   * work on now, in its release's order; absent, none.
+   */
+  additionalRepositories?(sessionId: string): Promise<string[]>;
 }
 
 /** What the gate reads of a session at every grant. */
@@ -187,6 +196,7 @@ export type GitHubSessionContext = {
   ownerId: string;
   sessionId: string;
   repositoryId: string | null;
+  profileId: string | null;
   /** The URL and branch the session pinned at creation. */
   repository: { url: string; branch: string } | null;
   /** The human who started the session, for the receipts of clone. */
