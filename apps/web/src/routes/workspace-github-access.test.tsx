@@ -268,7 +268,7 @@ describe("GitHub 연결 › App 권한과 최대 권한", () => {
     });
     const user = await setupUser();
     await screen.findByRole("heading", { name: "App 권한" });
-    await user.click(screen.getByRole("button", { name: "삭제" }));
+    await user.click(screen.getByRole("button", { name: "GitHub App 삭제" }));
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "삭제" }));
     await within(screen.getByRole("region", { name: "GitHub App" })).findByText(

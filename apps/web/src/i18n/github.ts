@@ -55,6 +55,13 @@ export const githubKo = {
     "다시 등록할 때까지 이 App을 쓰는 저장소는 clone·push·PR을 할 수 없습니다. GitHub의 App과 설치는 그대로 남습니다.",
   "github.deleteTitle": "GitHub App을 삭제할까요?",
   "github.deleted": "GitHub App을 삭제했습니다.",
+  "github.replaceRow": "GitHub App 교체",
+  "github.replaceRowHint":
+    "App ID와 private key를 다시 등록합니다. 영향은 다음 단계에서 확인합니다.",
+  "github.replaceHint":
+    "App ID와 private key를 다시 등록합니다. 다른 App으로 바꾸면 새 App이 설치되지 않은 저장소는 clone·push·PR을 할 수 없고, 사용자 계정 연결의 Client secret이 지워집니다.",
+  "github.replaceTitle": "GitHub App을 교체할까요?",
+  "github.replaceNext": "다음 단계에서 새 App ID와 private key를 고릅니다.",
   "github.newTab": "(새 탭에서 열림)",
   "github.permissions.title": "App 권한",
   "github.permissions.hint":
@@ -146,6 +153,10 @@ export const githubKo = {
     "다시 등록할 때까지 에이전트의 리뷰 요청은 거절됩니다. GitHub의 App과 설치는 그대로 남습니다.",
   "github.reviewer.deleteTitle": "리뷰용 App을 삭제할까요?",
   "github.reviewer.deleted": "리뷰용 App을 삭제했습니다.",
+  "github.reviewer.replaceRow": "리뷰용 App 교체",
+  "github.reviewer.replaceHint":
+    "App ID와 private key를 다시 등록합니다. 다른 App으로 바꾸면 새 App이 설치되지 않은 저장소의 리뷰 요청은 거절됩니다.",
+  "github.reviewer.replaceTitle": "리뷰용 App을 교체할까요?",
 };
 
 export const githubEn: Record<keyof typeof githubKo, string> = {
@@ -206,6 +217,13 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
     "Until an App is registered again, repositories that use it cannot be cloned, pushed to or get pull requests. The App and its installations stay on GitHub.",
   "github.deleteTitle": "Delete the GitHub App?",
   "github.deleted": "Deleted the GitHub App.",
+  "github.replaceRow": "Replace the GitHub App",
+  "github.replaceRowHint":
+    "Registers an App ID and private key again. The next step shows what changes.",
+  "github.replaceHint":
+    "Registers an App ID and private key again. Switching to another App stops clones, pushes and pull requests on repositories it is not installed on, and clears the Client secret for linking user accounts.",
+  "github.replaceTitle": "Replace the GitHub App?",
+  "github.replaceNext": "Next, choose the new App ID and private key.",
   "github.newTab": "(opens in a new tab)",
   "github.permissions.title": "App permissions",
   "github.permissions.hint":
@@ -298,6 +316,10 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
     "Agents' review requests are refused until it is registered again. The App and its installations stay on GitHub.",
   "github.reviewer.deleteTitle": "Delete the reviewer App?",
   "github.reviewer.deleted": "Deleted the reviewer App.",
+  "github.reviewer.replaceRow": "Replace the reviewer App",
+  "github.reviewer.replaceHint":
+    "Registers an App ID and private key again. Switching to another App refuses review requests on repositories it is not installed on.",
+  "github.reviewer.replaceTitle": "Replace the reviewer App?",
 };
 
 export const githubJa: Record<keyof typeof githubKo, string> = {
@@ -357,6 +379,13 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
     "再登録するまで、この App を使うリポジトリは clone・push・PR ができません。GitHub 上の App とインストールはそのまま残ります。",
   "github.deleteTitle": "GitHub App を削除しますか?",
   "github.deleted": "GitHub App を削除しました。",
+  "github.replaceRow": "GitHub App を置き換え",
+  "github.replaceRowHint":
+    "App ID と private key を登録し直します。影響は次の手順で確認します。",
+  "github.replaceHint":
+    "App ID と private key を登録し直します。別の App に替えると、新しい App がインストールされていないリポジトリは clone・push・PR ができなくなり、ユーザーアカウント連携の Client secret は消去されます。",
+  "github.replaceTitle": "GitHub App を置き換えますか?",
+  "github.replaceNext": "次の手順で新しい App ID と private key を選びます。",
   "github.newTab": "(新しいタブで開きます)",
   "github.permissions.title": "App の権限",
   "github.permissions.hint":
@@ -448,4 +477,8 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
     "再登録するまで、エージェントのレビューリクエストは拒否されます。GitHub の App とインストールはそのまま残ります。",
   "github.reviewer.deleteTitle": "レビュー用 App を削除しますか?",
   "github.reviewer.deleted": "レビュー用 App を削除しました。",
+  "github.reviewer.replaceRow": "レビュー用 App を置き換え",
+  "github.reviewer.replaceHint":
+    "App ID と private key を登録し直します。別の App に替えると、新しい App がインストールされていないリポジトリのレビューリクエストは拒否されます。",
+  "github.reviewer.replaceTitle": "レビュー用 App を置き換えますか?",
 };

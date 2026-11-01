@@ -15,6 +15,12 @@ export {
   type ConfirmDialogProps,
 } from "./confirm-dialog.tsx";
 export {
+  DangerZone,
+  type DangerZoneProps,
+  DangerZoneRow,
+  type DangerZoneRowProps,
+} from "./danger-zone.tsx";
+export {
   DestructiveActionDialog,
   type DestructiveActionDialogProps,
 } from "./destructive-action-dialog.tsx";

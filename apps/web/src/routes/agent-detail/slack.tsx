@@ -20,6 +20,8 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  DangerZone,
+  DangerZoneRow,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -483,6 +485,9 @@ export function SlackConnect({
     (item) => item.provider === "slack_bot" && item.status === "active",
   );
   const record = app.data?.slack_app;
+  const appTarget = record?.app_id
+    ? `${t("slack.appId")} ${record.app_id}`
+    : undefined;
   // At most one: the server reports the first reason sessions would fail.
   const warning = app.data?.warnings[0];
   const refresh = () => cache.invalidateQueries({ queryKey: key });
@@ -810,6 +815,7 @@ export function SlackConnect({
           onOpenChange={setDeleting}
           title={t("slack.delete")}
           consequence={t("slack.deleteWarning")}
+          target={appTarget}
           confirmLabel={t("slack.delete")}
           cancelLabel={t("common.cancel")}
           tone="danger"
@@ -825,6 +831,7 @@ export function SlackConnect({
           onOpenChange={setRevoking}
           title={t("slack.revoke")}
           consequence={t("slack.revokeWarning")}
+          target={appTarget}
           confirmLabel={t("slack.revoke")}
           cancelLabel={t("common.cancel")}
           tone="danger"
@@ -837,57 +844,32 @@ export function SlackConnect({
         </ConfirmDialog>
       </section>
       {manage && record ? (
-        <section
+        <DangerZone
           id={SECTION.danger}
           tabIndex={-1}
           className={SECTION_BOX}
-          aria-labelledby={`${SECTION.danger}-title`}
+          title={t("slack.danger")}
+          titleId={`${SECTION.danger}-title`}
         >
-          <h2 id={`${SECTION.danger}-title`} className={HEADING}>
-            {t("slack.danger")}
-          </h2>
-          <RowList
-            variant="joined"
-            className="border-(color:--ap-tone-danger-border)"
-          >
-            {identity ? (
-              <SettingRow
-                title={t("slack.revokeTitle")}
-                description={t("slack.revokeWarning")}
-                actions={
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => setRevoking(true)}
-                  >
-                    {t("slack.revoke")}
-                  </Button>
-                }
-              />
-            ) : null}
-            <SettingRow
-              title={t("slack.deleteTitle")}
-              description={t("slack.deleteWarning")}
-              actions={
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="sm"
-                  // A delete Slack refused leaves the app "deleting"; asking
-                  // again is how it finishes.
-                  disabled={
-                    busy || record?.state === "creating" || !me?.workspace
-                  }
-                  onClick={() => setDeleting(true)}
-                >
-                  {t("slack.delete")}
-                </Button>
-              }
+          {identity ? (
+            <DangerZoneRow
+              title={t("slack.revokeTitle")}
+              description={t("slack.revokeWarning")}
+              actionLabel={t("slack.revoke")}
+              disabled={busy}
+              onAction={() => setRevoking(true)}
             />
-          </RowList>
-        </section>
+          ) : null}
+          <DangerZoneRow
+            title={t("slack.deleteTitle")}
+            description={t("slack.deleteWarning")}
+            actionLabel={t("slack.delete")}
+            // A delete Slack refused leaves the app "deleting"; asking
+            // again is how it finishes.
+            disabled={busy || record?.state === "creating" || !me?.workspace}
+            onAction={() => setDeleting(true)}
+          />
+        </DangerZone>
       ) : null}
     </>
   );

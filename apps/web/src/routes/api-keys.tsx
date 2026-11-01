@@ -705,10 +705,9 @@ function KeyList({
               {key.revoked_at ? null : (
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="danger"
                   size="sm"
-                  data-tone="danger"
-                  className="shrink-0 border-[var(--ap-tone-border)] text-[var(--ap-tone-fg)] hover:bg-[var(--ap-tone-bg)] hover:text-[var(--ap-tone-fg)]"
+                  className="shrink-0"
                   disabled={revoke.isPending}
                   aria-label={t("apiKeys.revokeFor", {
                     key: `${label} (${key.id})`,

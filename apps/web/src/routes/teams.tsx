@@ -21,6 +21,8 @@ import {
   buttonVariants,
   Combobox,
   ConfirmDialog,
+  DangerZone,
+  DangerZoneRow,
   EmptyState,
   Field,
   FieldLabel,
@@ -34,7 +36,6 @@ import {
   RowList,
   RowListItem,
   SearchInput,
-  SettingRow,
   Link as TextLink,
 } from "@werft-ai/ui";
 import { ArrowLeft, ChevronRight, X } from "lucide-react";
@@ -71,7 +72,6 @@ import {
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { SettingsCard } from "./workspace-settings.tsx";
-import { DangerZone } from "./workspace-slack.tsx";
 
 // The name and its button share a row; the button drops under the field only
 // when the row is too narrow for both.
@@ -392,22 +392,13 @@ function TeamDangerZone({
 
   return (
     <>
-      <DangerZone titleAs="h3">
-        <SettingRow
+      <DangerZone title={t("workspace.danger")} titleAs="h3">
+        <DangerZoneRow
           title={t("teams.delete")}
           description={t("teams.deleteHint")}
-          actions={
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="min-w-12 text-(color:--ap-tone-danger-fg)"
-              disabled={remove.isPending}
-              onClick={() => setConfirming(true)}
-            >
-              {t("teams.delete")}
-            </Button>
-          }
+          actionLabel={t("teams.delete")}
+          disabled={remove.isPending}
+          onAction={() => setConfirming(true)}
         />
       </DangerZone>
       <ConfirmDialog
