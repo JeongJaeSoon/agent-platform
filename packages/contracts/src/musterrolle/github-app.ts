@@ -24,6 +24,10 @@ export const GITHUB_APP_CONFLICT_VALUES = [
   "same_app",
   // A reviewer App needs the author App first.
   "no_author_app",
+  // A manifest start without `replace` while an author App is registered.
+  "author_app_exists",
+  // The author App changed between a manifest's start and its completion.
+  "author_app_changed",
 ] as const;
 
 export const GITHUB_APP_PRIVATE_KEY_MAX_LENGTH = 16_384;
@@ -166,6 +170,11 @@ export const githubAppRepositorySchema = z
   })
   .strict();
 
+export const GITHUB_APP_MANIFEST_BLOCKED_VALUES = [
+  // CONSOLE_ORIGIN is unset: no redirect or account-link callback to name.
+  "console_origin_unset",
+] as const;
+
 export const GITHUB_APP_CHECK_FAILURE_VALUES = [
   // GitHub did not answer, or answered with a server error.
   "github_unreachable",
@@ -194,6 +203,62 @@ export const getGitHubAppResponseSchema = z
     installations: z.array(githubAppInstallationSchema),
     /** Catalog repositories that use the registered Apps. */
     repositories: z.array(githubAppRepositorySchema),
+    /** Why a new App cannot be made from a manifest; null when it can. */
+    manifest_blocked: z
+      .enum(GITHUB_APP_MANIFEST_BLOCKED_VALUES)
+      .nullable()
+      .optional(),
+  })
+  .strict();
+
+/** How long a manifest's `state` can be completed; GitHub's code lasts as long. */
+export const GITHUB_APP_MANIFEST_STATE_TTL_SECONDS = 3600;
+
+// GitHub's rule for user and organization logins.
+const githubLoginSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/);
+
+export const startGitHubAppManifestRequestSchema = z
+  .object({
+    owner: z.discriminatedUnion("kind", [
+      z
+        .object({ kind: z.literal("organization"), login: githubLoginSchema })
+        .strict(),
+      z.object({ kind: z.literal("user") }).strict(),
+    ]),
+    /** A private App installs only on its owner's account. */
+    public: z.boolean().default(false),
+    /** Also ask for `actions` and `workflows` write. */
+    actions: z.boolean().default(false),
+    /** Required while an author App is registered. */
+    replace: z.boolean().default(false),
+  })
+  .strict();
+
+export const startGitHubAppManifestResponseSchema = z
+  .object({
+    /** Where the browser form-POSTs `manifest`; carries the single-use state. */
+    action_url: z.url(),
+    /** The JSON the form sends as its `manifest` field. */
+    manifest: z.string().min(2),
+    expires_at: timestampSchema,
+  })
+  .strict();
+
+export const completeGitHubAppManifestRequestSchema = z
+  .object({
+    code: z.string().regex(/^[A-Za-z0-9_-]{1,512}$/),
+    state: z.string().regex(/^[A-Za-z0-9_-]{1,512}$/),
+  })
+  .strict();
+
+export const completeGitHubAppManifestResponseSchema = z
+  .object({
+    github_app: githubAppSchema,
+    /** Where the App is installed next. */
+    install_url: z.url(),
+    receipt_id: receiptIdSchema,
   })
   .strict();
 
@@ -213,6 +278,20 @@ export type GitHubAppRepository = z.infer<typeof githubAppRepositorySchema>;
 export type GitHubAppCheckFailure =
   (typeof GITHUB_APP_CHECK_FAILURE_VALUES)[number];
 export type GetGitHubAppResponse = z.infer<typeof getGitHubAppResponseSchema>;
+export type GitHubAppManifestBlocked =
+  (typeof GITHUB_APP_MANIFEST_BLOCKED_VALUES)[number];
+export type StartGitHubAppManifestRequest = z.infer<
+  typeof startGitHubAppManifestRequestSchema
+>;
+export type StartGitHubAppManifestResponse = z.infer<
+  typeof startGitHubAppManifestResponseSchema
+>;
+export type CompleteGitHubAppManifestRequest = z.infer<
+  typeof completeGitHubAppManifestRequestSchema
+>;
+export type CompleteGitHubAppManifestResponse = z.infer<
+  typeof completeGitHubAppManifestResponseSchema
+>;
 export type PutGitHubAppResponse = z.infer<typeof putGitHubAppResponseSchema>;
 export type DeleteGitHubAppResponse = z.infer<
   typeof deleteGitHubAppResponseSchema

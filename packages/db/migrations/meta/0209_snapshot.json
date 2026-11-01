@@ -1,5 +1,5 @@
 {
-  "id": "37b53bdb-e1e8-44a8-859e-f3affced9253",
+  "id": "225b1429-86a9-417f-a5bf-e1473575d79d",
   "prevId": "0188ed58-3f42-4db5-bf0c-82b4e6ced5f0",
   "version": "7",
   "dialect": "postgresql",
@@ -6869,11 +6869,15 @@
       "checkConstraints": {
         "session_outcomes_type_check": {
           "name": "session_outcomes_type_check",
-          "value": "\"session_outcomes\".\"type\" IN ('github_pull_request')"
+          "value": "\"session_outcomes\".\"type\" IN ('github_pull_request','github_review')"
         },
         "session_outcomes_pull_request_state_check": {
           "name": "session_outcomes_pull_request_state_check",
           "value": "\"session_outcomes\".\"type\" <> 'github_pull_request' OR \"session_outcomes\".\"state\" IN ('open','merged','closed')"
+        },
+        "session_outcomes_review_state_check": {
+          "name": "session_outcomes_review_state_check",
+          "value": "\"session_outcomes\".\"type\" <> 'github_review' OR \"session_outcomes\".\"state\" IN ('submitted')"
         },
         "session_outcomes_check_error_check": {
           "name": "session_outcomes_check_error_check",
@@ -7862,6 +7866,10 @@
         "sessions_repository_mode_check": {
           "name": "sessions_repository_mode_check",
           "value": "(\"sessions\".\"repository_mode\" = 'repository' AND \"sessions\".\"repo_url\" IS NOT NULL AND \"sessions\".\"branch\" IS NOT NULL) OR (\"sessions\".\"repository_mode\" = 'none' AND \"sessions\".\"repository_id\" IS NULL AND \"sessions\".\"repo_url\" IS NULL AND \"sessions\".\"branch\" IS NULL)"
+        },
+        "sessions_attached_repositories_check": {
+          "name": "sessions_attached_repositories_check",
+          "value": "\"sessions\".\"attached_repository_ids\" IS NULL OR \"sessions\".\"repository_mode\" = 'repository'"
         }
       },
       "isRLSEnabled": false

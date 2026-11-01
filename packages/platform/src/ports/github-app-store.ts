@@ -57,6 +57,47 @@ export type DeleteGitHubAppResult =
   | { outcome: "deleted"; appId: number }
   | { outcome: "not_found" | "actor_inactive" | "outranked" };
 
+/** What a manifest's code turned into on GitHub, secrets included. */
+export type GitHubAppManifestConversion = GitHubAppProfile & {
+  privateKey: string;
+  clientSecret: string;
+  /** The login that owns the App. */
+  owner: string;
+};
+
+/** A manifest made in the console, stored with what its state is bound to. */
+export type GitHubAppManifestState = {
+  workspaceId: string;
+  actorUserId: string;
+  role: GitHubAppRole;
+  /** Null: the actor's own account. */
+  ownerLogin: string | null;
+  public: boolean;
+  /** The author App registered at the start; null when there was none. */
+  replacesAppId: number | null;
+  expiresAt: Date;
+};
+
+export interface GitHubAppManifestStore {
+  /** Stores a new state and drops states that expired before `now`. */
+  issueState(
+    stateHash: Uint8Array,
+    state: GitHubAppManifestState,
+    now: Date,
+  ): Promise<void>;
+  /** Removes the state and returns it, so it is spent whatever comes next. */
+  consumeState(stateHash: Uint8Array): Promise<GitHubAppManifestState | null>;
+}
+
+/** What `put` also stores when the App came from a manifest. */
+export type GitHubAppManifestPut = {
+  clientSecret: string;
+  /** Stored only while the author App is still this one (null: none). */
+  replaces: number | null;
+  owner: string;
+  public: boolean;
+};
+
 /**
  * One GitHub App per workspace and role. Every call names its role, so a
  * caller that only knows the author App never reads, replaces or deletes
@@ -74,6 +115,7 @@ export interface GitHubAppStore {
     app: GitHubAppProfile & { apiBase: string },
     privateKey: string,
     audit: SecretAudit,
+    manifest?: GitHubAppManifestPut,
   ): Promise<PutGitHubAppResult>;
   delete(
     workspaceId: string,

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  GITHUB_CEILING_NONE,
   type GitHubAppPermissions,
   type GitHubAppRole,
   githubAppPermissionsSchema,
@@ -57,6 +58,32 @@ async function dropOAuthSecret(tx: Database, row: Row) {
     .update(githubWorkspaceSettings)
     .set({ oauthClientSecretSet: false, updatedAt: DB_NOW })
     .where(eq(githubWorkspaceSettings.workspaceId, row.workspaceId));
+}
+
+export async function writeOAuthSecret(
+  tx: Database,
+  key: SecretKey,
+  row: Pick<Row, "id" | "workspaceId">,
+  clientSecret: string,
+  audit: SecretAudit,
+) {
+  const updatedBy = audit.principal.actor?.userId ?? null;
+  await writeSecretInTx(tx, key, oauthSecretSlot(row), clientSecret, updatedBy);
+  // `revision` is the ceiling's compare-and-set, which this leaves be: a row
+  // made here reads as the never-saved ceiling, revision 0.
+  await tx
+    .insert(githubWorkspaceSettings)
+    .values({
+      workspaceId: row.workspaceId,
+      ceiling: GITHUB_CEILING_NONE,
+      oauthClientSecretSet: true,
+      revision: 0,
+      updatedBy,
+    })
+    .onConflictDoUpdate({
+      target: githubWorkspaceSettings.workspaceId,
+      set: { oauthClientSecretSet: true, updatedAt: DB_NOW },
+    });
 }
 
 function receiptRow(
@@ -140,7 +167,7 @@ export function createPostgresGitHubAppStore(
       return row ? recordOf(db, row) : null;
     },
 
-    put(named, role, app, privateKey, audit) {
+    put(named, role, app, privateKey, audit, manifest) {
       const workspaceId = named.toLowerCase();
       return db.transaction(async (tx) => {
         const refused = await secretAuditRefusal(tx, workspaceId, audit);
@@ -163,6 +190,16 @@ export function createPostgresGitHubAppStore(
         if (other.some((held) => held.appId === app.appId)) {
           return { outcome: "same_app" };
         }
+        const [current] = await tx
+          .select()
+          .from(githubApps)
+          .where(ofRole(workspaceId, role));
+        if (
+          manifest !== undefined &&
+          (current?.appId ?? null) !== manifest.replaces
+        ) {
+          return { outcome: "author_app_changed" };
+        }
         const fields = {
           appId: app.appId,
           slug: app.slug,
@@ -173,10 +210,6 @@ export function createPostgresGitHubAppStore(
           permissionsCheckedAt: DB_NOW,
           clientId: app.clientId,
         };
-        const [current] = await tx
-          .select()
-          .from(githubApps)
-          .where(ofRole(workspaceId, role));
         // A new key for the same App keeps its OAuth client secret.
         if (current && current.appId !== app.appId) {
           await dropOAuthSecret(tx, current);
@@ -205,18 +238,30 @@ export function createPostgresGitHubAppStore(
           privateKey,
           audit.principal.actor?.userId ?? null,
         );
-        await tx
-          .insert(receipts)
-          .values(
-            receiptRow(
-              audit,
-              workspaceId,
-              "set_github_app",
-              app.appId,
-              role,
-              app.permissions,
-            ),
-          );
+        if (manifest !== undefined) {
+          await writeOAuthSecret(tx, key, row, manifest.clientSecret, audit);
+        }
+        const receipt = receiptRow(
+          audit,
+          workspaceId,
+          "set_github_app",
+          app.appId,
+          role,
+          app.permissions,
+        );
+        await tx.insert(receipts).values(
+          manifest === undefined
+            ? receipt
+            : {
+                ...receipt,
+                result: {
+                  ...receipt.result,
+                  source: "manifest",
+                  owner: manifest.owner,
+                  public: manifest.public,
+                },
+              },
+        );
         const stored = await recordOf(tx, row);
         if (stored === null) throw new Error("GitHub App key was not written");
         return { outcome: "stored", app: stored };

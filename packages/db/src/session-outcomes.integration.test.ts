@@ -1,6 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import type { ReceiptActor } from "@werft-ai/contracts";
+import {
+  listSessionOutcomesResponseSchema,
+  type ReceiptActor,
+} from "@werft-ai/contracts";
 import {
   createOutcomeRefresher,
   ForgeCredentialError,
@@ -57,6 +60,7 @@ function answer(number: number, state: PullState) {
     state: state === "open" ? "open" : "closed",
     head: "agent/x",
     base: "main",
+    title: `${"t".repeat(200)}-${number}`,
     mergedAt: state === "merged" ? at : null,
     closedAt: state === "open" ? null : at,
     mergeCommitSha: state === "merged" ? "d".repeat(40) : null,
@@ -286,6 +290,7 @@ integration("postgres session outcomes and the outcome refresher", () => {
       repositoryId: repo,
       number: 5,
       url,
+      title: "Retry failed payments",
       head: `agent/${sessionId}`,
       base: "main",
       created: true,
@@ -906,6 +911,7 @@ integration("postgres session outcomes and the outcome refresher", () => {
       state: "merged",
       mergedAt: new Date("2026-10-31T00:00:00.000Z"),
       metadata: expect.objectContaining({
+        title: "t".repeat(200),
         adopted: false,
         merge_commit_sha: "d".repeat(40),
         additions: 2,
@@ -943,6 +949,37 @@ integration("postgres session outcomes and the outcome refresher", () => {
     expect(back).toMatchObject({ state: "open", checkError: null });
   });
 
+  test("a review outcome is never read from GitHub", async () => {
+    const repo = repository();
+    const review = await outcome(repo, {
+      type: "github_review",
+      url: `https://github.com/acme/${repo}/pull/9#pullrequestreview-77`,
+      externalId: "77",
+      state: "submitted",
+      metadata: {
+        number: 9,
+        event: "APPROVE",
+        commit_id: "e".repeat(40),
+        opened_by_session_id: null,
+      },
+    });
+    const { refresher, calls } = replica({
+      repositories: [repo],
+      unitOf: async () => `app:test:${randomUUID()}`,
+      read: async (number) => ({
+        pullRequest: answer(number, "open"),
+        rateLimit: NO_LIMIT,
+      }),
+    });
+    await refresher.runOnce();
+    expect(calls).toEqual([]);
+    expect(await rowOf(review.id)).toMatchObject({
+      state: "submitted",
+      stateCheckedAt: null,
+      leaseToken: null,
+    });
+  });
+
   test("lists a session's outcomes for its owner only, oldest first", async () => {
     const repo = repository();
     const first = await outcome(repo);
@@ -950,8 +987,41 @@ integration("postgres session outcomes and the outcome refresher", () => {
       sessionId: first.sessionId,
       createdAt: new Date(first.createdAt.getTime() + 1000),
     });
+    const review = await outcome(repo, {
+      sessionId: first.sessionId,
+      type: "github_review",
+      url: `https://github.com/acme/${repo}/pull/1#pullrequestreview-7`,
+      externalId: "7",
+      state: "submitted",
+      metadata: {
+        number: 1,
+        event: "APPROVE",
+        commit_id: "abc",
+        opened_by_session_id: null,
+      },
+      createdAt: new Date(first.createdAt.getTime() + 2000),
+    });
     const listed = await store.list(OWNER, first.sessionId.toUpperCase());
-    expect(listed?.map((item) => item.id)).toEqual([first.id, second.id]);
+    expect(listed?.map((item) => item.id)).toEqual([
+      first.id,
+      second.id,
+      review.id,
+    ]);
+    expect(() =>
+      listSessionOutcomesResponseSchema.parse({ items: listed }),
+    ).not.toThrow();
+    expect(listed?.[2]).toMatchObject({
+      type: "github_review",
+      state: "submitted",
+      external_id: "7",
+      metadata: {
+        number: 1,
+        event: "APPROVE",
+        commit_id: "abc",
+        opened_by_session_id: null,
+      },
+    });
+    // The fixture row has no title, like one written before titles were kept.
     expect(listed?.[0]).toMatchObject({
       type: "github_pull_request",
       url: first.url,
@@ -961,6 +1031,7 @@ integration("postgres session outcomes and the outcome refresher", () => {
       state_checked_at: null,
       check_error: null,
       metadata: {
+        title: null,
         head: "agent/x",
         base: "main",
         adopted: false,

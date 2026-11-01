@@ -13,6 +13,7 @@ import {
   authMeResponseSchema,
   bootstrapResponseSchema,
   commentPullRequestResponseSchema,
+  completeGitHubAppManifestResponseSchema,
   completeSlackInstallResponseSchema,
   countAgentsResponseSchema,
   countSessionsResponseSchema,
@@ -102,6 +103,7 @@ import {
   slackEventsResponseSchema,
   slackGuestResponseSchema,
   slackLinkCallbackResponseSchema,
+  startGitHubAppManifestResponseSchema,
   startGitHubLinkResponseSchema,
   startGoogleLoginResponseSchema,
   startSlackInstallResponseSchema,
@@ -152,6 +154,10 @@ export const responseSchemas = {
   "PUT /v1/workspaces/{id}/github-apps/{role}": putGitHubAppResponseSchema,
   "DELETE /v1/workspaces/{id}/github-apps/{role}":
     deleteGitHubAppResponseSchema,
+  "POST /v1/workspaces/{id}/github-apps/author/manifest":
+    startGitHubAppManifestResponseSchema,
+  "POST /v1/workspaces/{id}/github-apps/author/manifest/complete":
+    completeGitHubAppManifestResponseSchema,
   "GET /v1/workspaces/{id}/github-repositories":
     listGitHubRepositoriesResponseSchema,
   "PATCH /v1/workspaces/{id}/github-repositories/{repositoryId}":

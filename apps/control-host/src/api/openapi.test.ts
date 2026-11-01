@@ -375,6 +375,8 @@ describe("OpenAPI document", () => {
         "/v1/workspaces/{id}/slack/apps",
         "/v1/workspaces/{id}/github-app",
         "/v1/workspaces/{id}/github-apps/{role}",
+        "/v1/workspaces/{id}/github-apps/author/manifest",
+        "/v1/workspaces/{id}/github-apps/author/manifest/complete",
         "/v1/workspaces/{id}/github-repositories",
         "/v1/workspaces/{id}/github-repositories/{repositoryId}",
         "/v1/workspaces/{id}/github-settings",

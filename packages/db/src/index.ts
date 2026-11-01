@@ -20,6 +20,7 @@ export { decodeEventCursor, encodeEventCursor } from "./cursors.ts";
 export * from "./drain.ts";
 export * from "./enqueue.ts";
 export * from "./execution-revocation.ts";
+export * from "./github-app-manifest-states.ts";
 export * from "./github-apps.ts";
 export * from "./github-oauth.ts";
 export * from "./github-packages.ts";
