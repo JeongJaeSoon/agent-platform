@@ -50,7 +50,7 @@
 - **상한**은 #986 결정 1 그대로다. 오너가 릴리스에 고른 목록이고, 쓸 때마다 다시 읽는다. 새 승인 단위는 만들지 않는다.
 - **부착 목록**은 세션 행에 둔다(`attached_repository_ids`). 시작할 때 고른 저장소와 도중에 붙인 저장소가 들어간다. 기본 저장소는 들어가지 않는다.
 - egress `/repository/<id>`, push, PR은 모두 게이트에서 "기본 저장소이거나, 부착 목록에 있고 지금도 상한 안인가"를 본다. 부착 도구만 검사하면 다른 경로로 우회할 수 있기 때문이다. 어기면 `repository_not_allowed`(403)와 receipt다.
-- 세션 안에서 엔진이 받는 git 의존(submodule, git URL 의존성, 사설 Go 모듈, Git LFS 객체)도 같은 허용 집합을 따른다(94S-1095). worker가 엔진 HOME의 git 설정에 기본 저장소와 부착 저장소마다 `https://github.com/<owner>/<repo>` → `/repository/<id>/` `insteadOf`를 쓰므로, 이 의존들은 모두 `/repository/<id>/…` 경로로 나가 위의 게이트 판단을 받는다. 따로 허용 목록을 두지 않는다. 부착하지 않은 저장소를 가리키는 submodule·Go 모듈은 `insteadOf`가 없어 proxy가 막고, `/repository/<id>`로 와도 `repository_not_allowed`와 receipt다. 의존 저장소는 시작할 때 붙이거나(목록을 준 세션) 상한에 넣어 둔다(NULL 세션).
+- 세션 안에서 엔진이 받는 git 의존(submodule, git URL 의존성, 사설 Go 모듈, Git LFS 객체)도 같은 허용 집합을 따른다. worker가 엔진 HOME의 git 설정에 기본 저장소와 부착 저장소마다 `https://github.com/<owner>/<repo>` → `/repository/<id>/.git` `insteadOf`를 쓰므로, 이 의존들은 모두 `/repository/<id>/…` 경로로 나가 위의 게이트 판단을 받는다. 따로 허용 목록을 두지 않는다. 부착하지 않은 저장소를 가리키는 submodule·Go 모듈은 `insteadOf`가 없어 proxy가 막고, `/repository/<id>`로 와도 `repository_not_allowed`와 receipt다. 의존 저장소는 시작할 때 붙이거나(목록을 준 세션) 상한에 넣어 둔다(NULL 세션).
 - 성과물 조회(`outcome_refresh`)는 부착 목록을 대지 않고 카탈로그만 본다. 플랫폼이 이미 기록한 PR을 읽는 일이고, 그 PR을 열 때 부착 목록 검사를 지났다.
 - 호환: 기존 행과, 생략해서 만든 세션은 NULL이다. NULL은 #986 동작(상한 전체를 붙인 것으로 본다)이다. `[]`는 처음엔 아무것도 붙이지 않은 것, `[a, b]`는 a·b만 붙인 것이다. 어느 쪽이든 도중 부착으로 늘어난다.
 - `attach_repository`가 들어간 뒤 생략의 의미를 "처음엔 없음"으로 바꾼다. 그 전까지는 NULL이 상한 전체를 미리 받아 온다([오너 결정](#오너-결정-2026-11-02) 2). 바꾼 뒤(순서 5)에는 생략을 `[]`로 저장하고, 이미 NULL인 행은 #986 동작을 유지한다.
