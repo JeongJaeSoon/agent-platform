@@ -820,6 +820,13 @@
       "when": 1793550485753,
       "tag": "0207_session_attached_repositories",
       "breakpoints": true
+    },
+    {
+      "idx": 208,
+      "version": "7",
+      "when": 1793559307796,
+      "tag": "0208_session_attached_without_repository",
+      "breakpoints": true
     }
   ]
 }

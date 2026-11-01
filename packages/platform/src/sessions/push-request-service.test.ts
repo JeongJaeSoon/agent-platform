@@ -412,7 +412,11 @@ describe("a push to another repository", () => {
     ]),
   } satisfies SessionCatalog;
 
-  function pushing(attached: string[] | null) {
+  function pushing(
+    attached: string[] | null,
+    own: string | null = "sample-app",
+    released = ["sample-app", "docs", "tools"],
+  ) {
     const created: CreatePushRequestInput[] = [];
     const refusals: PushRefusalRecord[] = [];
     const push = createPushRequestService({
@@ -420,11 +424,11 @@ describe("a push to another repository", () => {
       store: {
         replayCreate: async () => null,
         findSession: async () => ({
-          repositoryId: "sample-app",
+          repositoryId: own,
           profileId: "default",
           attached,
           github: {
-            repositories: ["sample-app", "docs", "tools"],
+            repositories: released,
             features: GITHUB_CEILING_NONE,
             actions_allow: [],
             push_approval: true,
@@ -462,11 +466,11 @@ describe("a push to another repository", () => {
       ownerId: "owner-a",
       verified: true,
     };
-    const to = (repository_id: string) =>
+    const to = (repository_id?: string) =>
       push
         .create(actor, SESSION, {
           idempotencyKey: `k-${repository_id}`,
-          body: { repository_id },
+          body: repository_id === undefined ? {} : { repository_id },
         })
         .then(
           () => null,
@@ -492,6 +496,33 @@ describe("a push to another repository", () => {
     const { to, created } = pushing(null);
     expect(await to("tools")).toBeNull();
     expect(created.map((input) => input.repositoryId)).toEqual(["tools"]);
+  });
+
+  test("from a session without a repository: an attached one in the release's list, never by omission", async () => {
+    const { to, created, refusals } = pushing(["docs", "tools"], null, [
+      "docs",
+    ]);
+    expect(await to("docs")).toBeNull();
+    expect(created.map((input) => input.repositoryId)).toEqual(["docs"]);
+
+    // Attached, but off the release's list.
+    const outside = await to("tools");
+    expect((outside as SessionServiceError).details).toEqual({
+      refusal: "repository_not_allowed",
+      receipt_id: "receipt-1",
+    });
+    expect(refusals.at(-1)?.result).toMatchObject({
+      verdict: "refuse",
+      repository_id: "tools",
+    });
+
+    const omitted = await to();
+    expect((omitted as SessionServiceError).details).toEqual({
+      refusal: "no_repository",
+      receipt_id: "receipt-1",
+    });
+    expect(refusals.at(-1)?.result).toMatchObject({ repository_id: null });
+    expect(created).toHaveLength(1);
   });
 });
 

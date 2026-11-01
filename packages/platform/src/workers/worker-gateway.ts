@@ -1279,13 +1279,10 @@ export function createWorkerGateway(deps: {
                   attribution.consoleOrigin,
                   binding.sessionId,
                 );
-          const additional =
-            binding.repository === null
-              ? []
-              : await additionalWorkspaceRepositories(
-                  binding.sessionId,
-                  repositoryToken,
-                );
+          const additional = await additionalWorkspaceRepositories(
+            binding.sessionId,
+            repositoryToken,
+          );
           return {
             session_id: binding.sessionId,
             turn_id: null,
@@ -1527,9 +1524,16 @@ export function createWorkerGateway(deps: {
         }
         return grant(providerUpstreamOf(listed));
       }
-      if (result.repository === null) moved("session's repository");
-      const { id, url, branch } = result.repository;
       const other = request.repository_id;
+      // A session started without a repository reaches only the ones it
+      // attached (session-repository-attachment.md decision 4).
+      if (result.repository === null) {
+        if (other === undefined) moved("session's repository");
+        return grant(
+          await additionalRepositoryUpstream(result.sessionId, other),
+        );
+      }
+      const { id, url, branch } = result.repository;
       if (other !== undefined && other !== id) {
         return grant(
           await additionalRepositoryUpstream(result.sessionId, other),

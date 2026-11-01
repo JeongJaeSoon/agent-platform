@@ -253,15 +253,13 @@ integration("sessions.repository_mode", () => {
     expect(await read()).toBeNull();
   });
 
-  test("the CHECK refuses an attached list on a session without a repository", async () => {
+  test("a session without a repository keeps an attached list", async () => {
     await migrate(db, { migrationsFolder: MIGRATIONS });
-    await expect(
-      pool.query(
-        `INSERT INTO sessions (id, owner_id, repository_mode, attached_repository_ids)
-         VALUES ($1, 'owner', 'none', '{}')`,
-        [randomUUID()],
-      ),
-    ).rejects.toThrow("sessions_attached_repositories_check");
+    await pool.query(
+      `INSERT INTO sessions (id, owner_id, repository_mode, attached_repository_ids)
+       VALUES ($1, 'owner', 'none', '{repo-b}')`,
+      [randomUUID()],
+    );
     await pool.query(
       `INSERT INTO sessions (id, owner_id, repository_mode, attached_repository_ids)
        VALUES ($1, 'owner', 'none', NULL)`,
