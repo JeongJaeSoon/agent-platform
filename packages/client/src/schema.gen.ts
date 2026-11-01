@@ -5618,6 +5618,10 @@ export interface components {
                     updated_at: string | null;
                     complete: boolean;
                 };
+                archived_events: {
+                    used_bytes: number;
+                    updated_at: string | null;
+                };
             };
         };
         MemberLimitsResponse: {

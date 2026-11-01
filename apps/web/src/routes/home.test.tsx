@@ -391,6 +391,7 @@ describe("홈 요약", () => {
         updated_at: "2026-10-24T12:35:00Z",
         complete: true,
       },
+      archived_events: { used_bytes: 0, updated_at: null },
     },
   };
   const since = new Date(Date.now() - 30 * 86_400_000)

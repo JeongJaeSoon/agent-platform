@@ -17,6 +17,7 @@ import {
   SESSION_ARCHIVE_PREFIX,
 } from "./session-event-archives.ts";
 import { streamClock } from "./session-events.ts";
+import { createPostgresUsageReader } from "./usage-reader.ts";
 
 const OWNER = "owner-archive";
 
@@ -55,7 +56,7 @@ function memoryBucket() {
       if (!found) return undefined;
       if (bucket.tamper) {
         const changed = found.body.slice();
-        changed[changed.length - 1] ^= 1;
+        changed.set([(changed.at(-1) ?? 0) ^ 1], changed.length - 1);
         return changed;
       }
       return found.body;
@@ -259,7 +260,7 @@ describe("session event archiving", () => {
       const [object] = store.objects.get(chunk.object_key) ?? [];
       expect(object?.held).toBe(true);
       expect(object?.version).toBe(chunk.version_id);
-      expect(Number(chunk.bytes)).toBe(object?.body.byteLength);
+      expect(Number(chunk.bytes)).toBe(object?.body.byteLength ?? -1);
       expect(
         createHash("sha256")
           .update(object?.body ?? new Uint8Array())
@@ -280,6 +281,12 @@ describe("session event archiving", () => {
         "type",
       ]);
     }
+
+    const usage = await createPostgresUsageReader(db).installationUsage();
+    expect(usage.archivedEventsBytes).toBe(
+      chunks.reduce((sum, chunk) => sum + Number(chunk.bytes), 0),
+    );
+    expect(usage.archivedEventsUpdatedAt).toBeInstanceOf(Date);
 
     expect(await allPages(id, store)).toBe(before.pages);
     expect(await allPages(id, store, middle)).toBe(before.fromMiddle);

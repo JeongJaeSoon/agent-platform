@@ -231,6 +231,10 @@ export function createUsageService(deps: {
             updated_at: usage.outputsUpdatedAt?.toISOString() ?? null,
             complete: usage.outputsComplete,
           },
+          archived_events: {
+            used_bytes: usage.archivedEventsBytes,
+            updated_at: usage.archivedEventsUpdatedAt?.toISOString() ?? null,
+          },
         },
       };
     },

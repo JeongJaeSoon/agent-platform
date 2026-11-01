@@ -607,6 +607,7 @@ const LIMITS = {
       updated_at: "2026-10-24T12:35:00Z",
       complete: true,
     },
+    archived_events: { used_bytes: 0, updated_at: null },
   },
 };
 

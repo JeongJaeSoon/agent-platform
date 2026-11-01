@@ -19,6 +19,7 @@ import {
   checkpointOutputObjects,
   checkpointOutputTotals,
   checkpoints,
+  sessionEventArchives,
   sessionModelUsage,
   sessionOutcomes,
   sessionPreMeteringCost,
@@ -381,6 +382,15 @@ export function createPostgresUsageReader(db: Database): UsageReader {
           // Rows collected before objects_purged_at existed are stamped by
           // the next collection pass that deletes cleanly.
           outputsComplete: sql<boolean>`NOT EXISTS (SELECT 1 FROM ${checkpoints} WHERE ${checkpoints.objectsPurgedAt} IS NULL AND NOT ${checkpoints.outputsRecorded})`,
+          // A row per chunk of up to a thousand events: small enough to sum.
+          archivedEventsBytes:
+            sql<number>`(SELECT coalesce(sum(${sessionEventArchives.bytes}), 0) FROM ${sessionEventArchives})`.mapWith(
+              Number,
+            ),
+          archivedEventsUpdatedAt:
+            sql<Date | null>`(SELECT max(${sessionEventArchives.createdAt}) FROM ${sessionEventArchives})`.mapWith(
+              (value) => new Date(value),
+            ),
         })
         .from(sql`(SELECT 1) AS one`)
         .leftJoin(

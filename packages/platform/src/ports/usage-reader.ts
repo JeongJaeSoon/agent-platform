@@ -15,6 +15,10 @@ export type InstallationUsage = {
   outputsUpdatedAt: Date | null;
   /** false while an uncollected checkpoint predates output recording. */
   outputsComplete: boolean;
+  /** Archived event chunks as stored in the object store. */
+  archivedEventsBytes: number;
+  /** null while no chunk was archived. */
+  archivedEventsUpdatedAt: Date | null;
 };
 
 /**

@@ -67,6 +67,16 @@ export const installationLimitsResponseSchema = z
             complete: z.boolean(),
           })
           .strict(),
+        // Session events moved to the object store once their sessions went
+        // idle (docs/operator/data-retention.md), as stored, compressed;
+        // shown, never enforced.
+        archived_events: z
+          .object({
+            used_bytes: countSchema,
+            // When the last chunk was archived; null while none was.
+            updated_at: timestampSchema.nullable(),
+          })
+          .strict(),
       })
       .strict(),
   })
