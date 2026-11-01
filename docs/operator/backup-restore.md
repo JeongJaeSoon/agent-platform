@@ -13,7 +13,9 @@ test-ops 설치에서는 이 스크립트들을 직접 부르지 않는다. `scr
 - **DB**: RDS 자동 백업(point-in-time 복원)과 수동 스냅샷.
 - **checkpoint object**: S3 versioning과 Object Lock. 커밋된 checkpoint는 version으로 고정되고 legal hold가 걸려 있어(`locked`, 아래 "checkpoint 객체의 version" 절), 같은 key를 덮어쓰거나 지워도 그 version은 남는다. 복원은 bucket을 복사하지 않고 같은 bucket의 version을 그대로 가리킨다.
 
-checkpoint object의 삭제는 chart의 checkpoint GC CronJob(`checkpointGc.schedule`, 기본 `0 4 * * 0`)만 한다. **bucket에 lifecycle 만료 규칙을 두지 않는다.** GC는 DB를 읽고 현재 pointer와 그 부모가 가리키지 않는 revision만 골라, legal hold를 푼 뒤 그 version을 지우고 행에 `collected_at`을 적는다. lifecycle 규칙은 나이와 prefix만 보고 DB를 모른다. 그래서 둘이 겹치면 다음 일이 생긴다.
+bucket은 DB와 함께 설치의 정본이다. [세션 이벤트 보관](data-retention.md#세션-이벤트-보관)이 `session-archive/` 아래로 옮긴 이벤트는 그 object가 유일한 사본이다. DB만 되살리고 bucket을 잃으면 그 세션의 이벤트는 읽을 수 없다.
+
+checkpoint object의 삭제는 chart의 checkpoint GC CronJob(`checkpointGc.schedule`, 기본 `0 4 * * 0`)만 한다. **만료 규칙은 두지 않는다. `session-archive/`에 storage class 이동만 허용한다.** API가 요청마다 이 object를 바로 읽으므로 즉시 읽히는 class(`STANDARD_IA`, `ONEZONE_IA`, `GLACIER_IR`, archive tier를 켜지 않은 `INTELLIGENT_TIERING`)로만 옮긴다. `GLACIER`·`DEEP_ARCHIVE`로 옮기면 그 세션의 이벤트를 읽지 못한다. 보관한 이벤트 object는 아무것도 지우지 않으며 legal hold가 걸려 있다. GC는 DB를 읽고 현재 pointer와 그 부모가 가리키지 않는 revision만 골라, legal hold를 푼 뒤 그 version을 지우고 행에 `collected_at`을 적는다. lifecycle 규칙은 나이와 prefix만 보고 DB를 모른다. 그래서 둘이 겹치면 다음 일이 생긴다.
 
 - hold가 걸리기 전의 object(worker가 올렸고 finalize가 아직 검증 중인 것)나 GC가 hold를 푼 version을 lifecycle이 먼저 지운다. finalize가 실패하거나, GC가 행을 표시하기 전에 object가 사라진다.
 - hold가 걸린 version은 lifecycle이 지우지 못한다. 저장량은 lifecycle로 줄지 않고 GC로만 준다(api-server.md의 "한계: checkpoint 바이트").
@@ -70,14 +72,15 @@ backup-20260923T101500Z/
 주의:
 
 - 로컬 compose의 S3는 SeaweedFS이며 객체·메타데이터·암호화 키를 `local-s3-data` named volume에 보존한다. Docker 재시작과 `docker compose down`(`-v` 없이) 뒤에도 남는다. 보존하며 내릴 때는 `scripts/local.sh down --keep-volumes`를 쓴다. 옵션 없는 `scripts/local.sh down`과 `reset`은 데이터까지 지우므로 보존할 때 쓰지 않는다. 이전 휘발성 LocalStack 설치에서 전환할 때는 **pull 전 옛 checkout에서 백업**하고, pull 뒤 사용한 적 없는 새 project에 restore한다. 이미 유실된 checkpoint는 백업으로 되살릴 수 없으며 [전환 안내](../quickstart.md#재부팅이나-docker-재시작-뒤)의 명시적 복구 결정을 따른다.
-- `pg_dump`는 자체로 일관되지만 object·repo는 그 뒤에 복사한다. 백업 중 checkpoint가 커밋되면 pointer만 있고 object가 없는 행이 생길 수 있다. 그래서 writer가 돌고 있으면 백업은 아무것도 쓰지 않고 exit 1로 거부한다. writer는 compose 서비스 api·scheduler·reconciler·worker와, scheduler가 띄운 worker 컨테이너다. worker 컨테이너는 `agent-platform.installation=<scheduler 컨테이너의 EXECUTION_INSTALLATION_ID>` 라벨로 찾는다. scheduler 컨테이너가 없으면 설치 id를 알 수 없으므로 `agent-platform.installation` 라벨이 붙은 컨테이너는 어느 설치 것이든 writer로 센다. 서비스는 compose 라벨로 찾으므로 `apps` profile 밖에서도 보인다. docker가 답하지 않으면 거부한다. `--allow-running-writers`를 주면 경고만 하고 진행한다.
+- `pg_dump`는 자체로 일관되지만 object·repo는 그 뒤에 복사한다. 백업 중 checkpoint가 커밋되면 pointer만 있고 object가 없는 행이 생길 수 있다. 그래서 writer가 돌고 있으면 백업은 아무것도 쓰지 않고 exit 1로 거부한다. writer는 compose 서비스 api·scheduler·reconciler·maintenance·worker와, scheduler가 띄운 worker 컨테이너다. worker 컨테이너는 `agent-platform.installation=<scheduler 컨테이너의 EXECUTION_INSTALLATION_ID>` 라벨로 찾는다. scheduler 컨테이너가 없으면 설치 id를 알 수 없으므로 `agent-platform.installation` 라벨이 붙은 컨테이너는 어느 설치 것이든 writer로 센다. 서비스는 compose 라벨로 찾으므로 `apps` profile 밖에서도 보인다. docker가 답하지 않으면 거부한다. `--allow-running-writers`를 주면 경고만 하고 진행한다.
 - checkpoint GC(`apps/control-host/src/api/checkpoint-gc.ts`)는 백업 중에 돌리지 않는다. GC는 더 이상 복원될 수 없는 revision의 행에 `collected_at`을 적은 뒤 그 객체를 지운다. capture와 repin은 이렇게 표시된 행을 건너뛴다. 그런데 `pg_dump` 뒤에 GC가 행을 표시하면, 덤프에는 표시가 없는 행이 남고 그 객체는 백업에 없다. 그러면 restore의 repin이 실패한다. 그래서 `backup.sh`는 객체 복사를 마친 뒤 `pg_dump` 시작 1분 전 이후에 `collected_at`이 적힌 행이 있는지 확인하고, 있으면 백업을 실패로 끝낸다. GC를 멈추고 다시 백업한다.
 - object 복사(`object-store-cli.ts download`)는 각 key의 **현재** 객체만 받는다. 그 뒤 `checkpoint-pins-cli.ts capture`가 `collected_at`이 비어 있는 `checkpoints` 행을 모두 읽고 다음을 확인한다.
   - manifest는 `manifest_version`으로, 그 안의 모든 ref는 자기 `version`으로 읽는다. incremental checkpoint의 `workspace.baseBundles`도 ref다. base bundle은 앞 checkpoint의 디렉터리에 있지만, 그 checkpoint가 GC로 빠졌어도 이 checkpoint의 ref로서 백업된다. version이 없는 행(`unversioned`로 커밋된 행)은 key로 읽는다.
   - sha256과 크기를 대조한다.
   - `objects/<key>`가 고정된 바이트와 다르거나 없으면 고정된 바이트로 바꾸고 경고한다. 커밋 뒤 덮어쓰기나 delete marker가 있어도 백업이 손상본을 담지 않게 하려는 것이다.
+- capture는 `session_event_archives`의 모든 행도 읽는다. 보관한 이벤트 object를 행의 `version_id`로 읽고 sha256과 크기를 대조한 뒤, `objects/<key>`가 그 바이트와 다르면 바꾼다. 이 object는 DB에서 빠진 이벤트의 유일한 사본이다.
 - 다음 경우에는 백업이 실패한다(exit 1).
-  - 고정된 version이 없거나 해시가 맞지 않는다.
+  - 고정된 version이 없거나 해시가 맞지 않는다. 보관한 이벤트 object도 같다.
   - 한 key에 서로 다른 바이트가 고정되어 있다(`objects/<key>` 파일 하나로 둘을 담을 수 없다).
   - 한 checkpoint의 manifest key를 다른 checkpoint가 ref로 쓴다. 복원 때 manifest를 다시 쓸 수 없다.
 - `gitea/app.ini`에는 Gitea의 SECRET_KEY·INTERNAL_TOKEN이, `db.sql`에는 api key 해시가 들어 있다. 디렉터리는 `umask 077`로 만들어지며 보관 위치는 백업 소유자가 책임진다.
@@ -109,8 +112,9 @@ scripts/restore.sh <dir> --into ap-drill-1 --object-store env --bucket ap-drill-
    4. `checkpoints` 행이 가리키는 manifest key를 **빼고** `object-store-cli.ts upload`로 올린다. 모든 쓰기는 create-only(`If-None-Match: *`)다. 그 사이 누가 같은 key를 썼으면 멈춘다. 빈 bucket 검사는 다른 writer를 막지 못한다. 그래서 대상 bucket은 이 복원 전용으로 새로 만든다. 다른 설치의 자격 증명이 그 bucket에 쓸 수 없게 하는 것은 운영자 몫이다.
    5. `checkpoint-pins-cli.ts repin`이 재고정한다. 먼저 모든 행을 쓰기 없이 검증한다. 백업 manifest가 행의 sha256과 맞는지, 모든 ref가 복원 bucket에서 같은 바이트의 version으로 있는지 본다.
    6. 그 뒤 manifest를 새 version으로 다시 써서 같은 key에 create-only로 만든다. version으로 다시 읽어 확인하고, 모든 version에 legal hold를 건다. 마지막으로 모든 행의 `manifest_sha256`·`manifest_version`·`versions_held=true`를 한 트랜잭션으로 바꾼다.
-   7. object 수가 manifest와 같아야 한다.
-   8. 재고정이 실패하면 restore는 exit 1로 끝난다. 이미 올라간 object와 hold는 되돌릴 수 없으므로, 그 project는 내리고 새 project로 다시 복원한다. 이미 있는 object를 덮어쓰는 경로는 없다.
+   7. `session_event_archives` 행도 같은 순서를 따른다. 쓰기 전에 행마다 복원 bucket에서 같은 바이트의 version을 찾고, 하나라도 없거나 다르면 아무것도 쓰지 않고 멈춘다. 그 version에 legal hold를 건 뒤, 위 트랜잭션 안에서 `version_id`를 새 version으로 바꾼다. 행의 `version_id`가 그사이 바뀌었으면 트랜잭션 전체를 되돌린다.
+   8. object 수가 manifest와 같아야 한다.
+   9. 재고정이 실패하면 restore는 exit 1로 끝난다. 이미 올라간 object와 hold는 되돌릴 수 없으므로, 그 project는 내리고 새 project로 다시 복원한다. 이미 있는 object를 덮어쓰는 경로는 없다.
 8. gitea를 멈추고 `gitea.db`·`app.ini`를 백업본으로 교체, bundle마다 `git clone --mirror`, 빈 repo는 `git init --bare`, `gitea admin regenerate hooks`, 재시작. `app.ini`는 secret(`SECRET_KEY`·`INTERNAL_TOKEN`·`[oauth2] JWT_SECRET`)을 지키려고 통째로 복사하므로 `[server]`의 외부 주소는 원본 것이다. restore override가 gitea에 `GITEA__server__ROOT_URL`·`DOMAIN`·`SSH_DOMAIN`·`SSH_PORT`를 주고, Gitea 이미지 entrypoint의 `environment-to-ini`가 기동할 때마다 이 네 키만 복원 주소(`http://127.0.0.1:<port-base+2>/`, ssh `<port-base+3>`)로 덮어쓴다. 나머지 키와 섹션은 백업본 그대로다. 컨테이너 안 포트인 `HTTP_PORT`(3000)·`SSH_LISTEN_PORT`(22)는 건드리지 않는다. 재시작 뒤 네 값이 실제로 들어갔는지 확인하고, 아니면 실패한다.
 9. `migrate` 서비스를 한 번 돌려 `db.migrate.noop`을 확인한다.
 
@@ -145,6 +149,7 @@ restore와 같은 `--object-store`와 bucket을 준다. restore가 끝에 출력
 - `describeBucketProtection` 결과를 출력하고 API의 `locked` 기동 검사(`assertCheckpointBucketProtection`)와 bucket 기본 암호화 검사(`assertCheckpointBucketEncryption`, SSE-S3)를 통과하는지 본다. `repin`도 객체를 쓰기 전에 같은 암호화 검사를 한다.
 - pointer마다 production 배선(`createApiCheckpointService` + Postgres store, `locked`)의 `getRestorePlan`이 `ready`인지 본다. `--image`가 있으면 그 이미지의 worker가 묻는 runtime으로 묻는다. 먼저 pointer마다 API가 줄 claim의 digest 입력(`principal`=`sessions.owner_id`, `runtime_config`=`--config-dir` catalog의 `sessions.profile_id` profile)을 다시 만든다. catalog가 세션의 profile·repository 쌍(`profile_id`·`repository_id`·`repo_url`·`branch`)을 더 이상 허용하지 않거나 profile 설정이 `sessions.profile_fingerprint`와 다르면 실제 claim도 이 세션을 받지 않으므로 `FAIL <session>@<rev> plan: no claim for the target image: …`다. 그다음 `docker run --rm -i --network none --entrypoint bun <image> run apps/worker/src/image-runtime.ts`에 claim을 stdin으로 넣어, 이미지 코드의 `CLAUDE_RUNTIME_FINGERPRINT`(engine·SDK·CLI 버전)와 그 이미지가 claim으로 계산한 profile digest를 받는다. 복원은 manifest의 값과 이 값이 모두 같아야 하므로, 다른 버전으로 봉인되었거나 digest 계산 방식이 바뀐 이미지 앞의 pointer는 `FAIL <session>@<rev> plan: incompatible with the target image (checkpoint → image): cliVersion 2.1.270 → …`(또는 `profileSha256 … → …`)가 된다. 이미지에는 이 값을 담은 label이 없어서 이미지를 직접 실행한다. `image-runtime.ts`가 없는 이미지는 읽지 못하므로 검사 전체가 멈춘다. `--image`가 없으면 manifest 자신의 runtime으로 묻고 `SKIP restore plans against the worker image …`를 출력한다. 이 경우 이미지가 달라도 `ready`가 나온다.
 - plan의 manifest와 모든 object를 plan이 가리키는 version으로 읽고, hold가 걸려 있는지 본다.
+- `session_event_archives` 행마다 object를 `version_id`로 읽어 크기와 sha256을 대조하고, 그 version에 hold가 걸려 있는지 본다(`PASS archive <session>@<from id>: read back and held`).
 
 하나라도 실패하면 exit 5.
 
@@ -182,7 +187,7 @@ tests/e2e/restore-resume.sh    # macOS: PATH="/bin:/usr/bin:$PATH" bash tests/e2
 `tests/e2e/run.sh`와 같은 이미지·overlay로 제품 스택(`apps` profile)을 띄워 다음을 한 번에 끝까지 수행한다. 기록은 `RR_OUT`(기본값은 새 임시 디렉터리)에 남는다. 기록에는 tested SHA, image id, SDK·Claude Code 버전, 단계별 JSON, 두 project의 checkpoint 행과 manifest, restore·verify 로그, compose 로그, worker 로그, 대조표가 들어간다. backup 디렉터리는 Gitea secret과 API key 해시를 담으므로 `manifest.json`만 남기고 지운다.
 
 1. 원본 project에서 세션을 만들고 turn 2개를 실제 Claude Code로 돌린다. turn 1은 `echo alpha > hello.txt`, turn 2는 `echo beta >> hello.txt`이다. 그다음 pause로 checkpoint를 커밋하고 worker를 내린다.
-2. api·scheduler·reconciler를 멈추고 `scripts/backup.sh`를 뜬다. 그다음 원본 project와 그 installation 라벨이 붙은 container·network·volume(worker workspace volume 포함)을 모두 지운다. 세션을 넘기는 것은 backup뿐이다.
+2. api·scheduler·reconciler·maintenance를 멈추고 `scripts/backup.sh`를 뜬다. 그다음 원본 project와 그 installation 라벨이 붙은 container·network·volume(worker workspace volume 포함)을 모두 지운다. 세션을 넘기는 것은 backup뿐이다.
 3. `scripts/restore.sh`로 새 project에 복원하고 `scripts/verify-restore.sh`를 돈다. 그 위에 restore override를 겹친 채 같은 이미지로 apps를 띄운다. 이때 restore가 띄운 localstack이 다시 만들어지면 실패로 친다. 로컬 S3는 named volume으로 보존되지만 앱 시작이 저장소를 불필요하게 다시 만드는지 확인하는 회귀 검사다.
 4. 원본에서 발급한 API key로 공개 API의 `resume`를 부른다. key 해시도 복원된 DB에 있다. 새 worker가 checkpoint를 복원하고 ready를 보고하면 turn 3(`cat hello.txt`)을 보낸다.
 5. 대조한다.
@@ -210,8 +215,8 @@ AWS_ENDPOINT_URL=http://127.0.0.1:4566 AWS_REGION=ap-northeast-1 \
 AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test S3_BUCKET=claude-sessions \
 bun run scripts/dev/seed-checkpoint.ts
 
-# 2. 백업 → 복원 → 검증. api·scheduler가 돌면 backup이 거부한다. DB를 쓰는 reconciler도 함께 멈춘다
-docker compose stop api scheduler reconciler
+# 2. 백업 → 복원 → 검증. writer(api·scheduler·reconciler·maintenance)가 돌면 backup이 거부한다
+docker compose stop api scheduler reconciler maintenance
 dir=$(scripts/backup.sh --project agent-platform)
 scripts/restore.sh "$dir" --into ap-restore-1 --port-base 25432
 scripts/verify-restore.sh --project ap-restore-1   # 마지막 줄들: bucket PASS, "<session>@<rev> plan: ready under locked"
@@ -225,7 +230,7 @@ CHECKPOINT_OBJECT_PROTECTION=locked bun apps/control-host/src/api/server.ts   # 
 
 # 4. 정리 (복원본만. --rmi local은 복원이 빌드한 migrate 이미지)
 docker compose -p ap-restore-1 -f infra/compose.yml down -v --rmi local
-docker compose start api scheduler reconciler   # 원본을 다시 연다
+docker compose start api scheduler reconciler maintenance   # 원본을 다시 연다
 ```
 
 `tests/backup-restore.test.ts`는 docker 없이 다음을 검사한다: schema 게이트와 SHA256SUMS 게이트, verify-restore의 bundle 사슬 적용(`unbundle_chain`), 가짜 S3 HTTP 서버에 대한 `--object-store env` 복원 대상 거부(원본 bucket 이름, version·delete marker가 있는 bucket, Object Lock이 없는 bucket, 쓰기 요청 0건), `objects/` 밖을 가리키는 key 거부, 가짜 `docker`에 대한 writer 가동 중 백업 거부와 실패한 백업의 `.failed` 이름. `tests/checkpoint-pins.test.ts`는 in-memory versioned store로 capture·재고정과 그 거부 경로(base bundle 사슬 포함), 재고정한 checkpoint의 locked `getRestorePlan`, `--image`가 엔진 build나 profile digest 계산만 바뀐 이미지를 incompatible로, 봉인한 이미지를 ready로 판정하는지를 검사하며 `bun run test`에 포함된다.

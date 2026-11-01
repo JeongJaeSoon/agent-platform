@@ -47,6 +47,7 @@ export * from "./scheduler-store.ts";
 export * from "./schema.ts";
 export * from "./secret-values.ts";
 export * from "./session-attribution.ts";
+export * from "./session-event-archives.ts";
 export * from "./session-events.ts";
 export * from "./session-links.ts";
 export * from "./session-model-backfill.ts";

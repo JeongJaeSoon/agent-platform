@@ -112,6 +112,8 @@ function service(
         outputsUsedBytes: 0,
         outputsUpdatedAt: null,
         outputsComplete: true,
+        archivedEventsBytes: 2048,
+        archivedEventsUpdatedAt: readAt,
       }),
       agentExists: async (ownerId, agentId) =>
         ownerId === WORKSPACE && agentId === AGENT,
@@ -336,6 +338,10 @@ describe("usage service", () => {
       provider_max_retries: 0,
     });
     expect(body.usage.storage.updated_at).toBeNull();
+    expect(body.usage.archived_events).toEqual({
+      used_bytes: 2048,
+      updated_at: readAt.toISOString(),
+    });
   });
 
   test("an open turn or an unreported one makes the cost incomplete", async () => {

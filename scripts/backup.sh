@@ -63,7 +63,7 @@ for service in "${STORES[@]}"; do
 done
 # pg_dump is consistent on its own; the objects and repositories are copied
 # afterwards, so a checkpoint committed in between has a pointer without its
-# object. api, scheduler, reconciler and worker are found by compose's own
+# object. api, scheduler, reconciler, maintenance and worker are found by compose's own
 # labels, so a container outside the active profiles still counts. The
 # scheduler's workers carry its installation label. With no scheduler
 # container left, the installation cannot be named, so a running container
@@ -75,7 +75,7 @@ service_containers() {
     --filter "label=com.docker.compose.service=${service}"
 }
 WRITERS=""
-for service in api scheduler reconciler worker; do
+for service in api scheduler reconciler maintenance worker; do
   running="$(service_containers "$service")" \
     || die "docker ps failed; cannot tell whether '$service' of project '$PROJECT' runs"
   [ -z "$running" ] || WRITERS="$WRITERS $service"

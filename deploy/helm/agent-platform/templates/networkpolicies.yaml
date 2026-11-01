@@ -105,7 +105,7 @@ spec:
     matchExpressions:
       - key: app.kubernetes.io/component
         operator: In
-        values: [scheduler, reconciler, slack, migrate, checkpoint-gc]
+        values: [scheduler, reconciler, slack, migrate, checkpoint-gc, session-archive]
   policyTypes: [Ingress]
   ingress: []
 {{- if .Values.slack.enabled }}

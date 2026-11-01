@@ -25,6 +25,7 @@ export const GROWING_TABLES: readonly string[] = [
   "pull_requests",
   "push_requests",
   "receipts",
+  "session_event_archives",
   "session_links",
   "session_model_usage",
   "session_outcomes",

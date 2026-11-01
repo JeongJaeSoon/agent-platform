@@ -12865,13 +12865,41 @@
                   "complete"
                 ],
                 "additionalProperties": false
+              },
+              "archived_events": {
+                "type": "object",
+                "properties": {
+                  "used_bytes": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "updated_at": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "used_bytes",
+                  "updated_at"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
               "execution_slots_used",
               "queued_input_count",
               "storage",
-              "outputs"
+              "outputs",
+              "archived_events"
             ],
             "additionalProperties": false
           }
@@ -58910,6 +58938,10 @@
                       "used_bytes": 3145728,
                       "updated_at": "2026-10-11T08:12:30Z",
                       "complete": true
+                    },
+                    "archived_events": {
+                      "used_bytes": 18712,
+                      "updated_at": "2026-10-05T05:00:12Z"
                     }
                   }
                 },
