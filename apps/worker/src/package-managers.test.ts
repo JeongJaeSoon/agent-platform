@@ -61,6 +61,33 @@ describe("packageManagerFiles", () => {
     );
     expect(files.go).toContain("/packages/go/_token/a%40b%2Fc\n");
   });
+
+  test("GitHub owners send their scopes and Gemfile sources to the GitHub routes", () => {
+    const github = packageManagerFiles(ROUTE, "tok", {
+      npm: ["acme", "acme-labs"],
+      rubygems: ["acme"],
+    });
+    expect(github.npm).toBe(
+      [
+        "registry=http://egress-proxy:3129/packages/npm/",
+        "//egress-proxy:3129/packages/npm/:_authToken=tok",
+        "replace-registry-host=always",
+        "@acme:registry=http://egress-proxy:3129/packages/github-npm/",
+        "@acme-labs:registry=http://egress-proxy:3129/packages/github-npm/",
+        "//egress-proxy:3129/packages/github-npm/:_authToken=tok",
+        "",
+      ].join("\n"),
+    );
+    expect(github.bundler).toContain(
+      'BUNDLE_MIRROR__HTTPS://RUBYGEMS__PKG__GITHUB__COM/ACME/: "http://werft:tok@egress-proxy:3129/packages/github-rubygems/acme"',
+    );
+  });
+
+  test("without GitHub owners npm keeps the default tarball hosts", () => {
+    expect(packageManagerFiles(ROUTE, "tok").npm).not.toContain(
+      "replace-registry-host",
+    );
+  });
 });
 
 describe("writePackageManagerConfig", () => {

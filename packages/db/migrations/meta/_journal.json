@@ -799,6 +799,13 @@
       "when": 1793543212403,
       "tag": "0204_push_request_targets",
       "breakpoints": true
+    },
+    {
+      "idx": 205,
+      "version": "7",
+      "when": 1793544870380,
+      "tag": "0205_github_packages_settings",
+      "breakpoints": true
     }
   ]
 }

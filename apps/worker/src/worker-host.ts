@@ -152,7 +152,10 @@ export type WorkerHostOptions = {
   /** Hands the claim's commit trailers to the image's git hook. */
   gitTrailers?: (git: ClaimGit | undefined) => Promise<void>;
   /** Points the engine's package managers at the claim's packages route. */
-  packageManagers?: (token: string | undefined) => Promise<void>;
+  packageManagers?: (
+    token: string | undefined,
+    github?: { npm: string[]; rubygems: string[] },
+  ) => Promise<void>;
   /** What this image runs, sent with the claim so a misconfigured image is refused. */
   imageRuntime?: ImageRuntime;
 };
@@ -414,7 +417,7 @@ export class WorkerHost {
     );
     // Not a boundary either: the proxy is. Without it an install fails.
     await this.options
-      .packageManagers?.(claim.packages?.access.token)
+      .packageManagers?.(claim.packages?.access.token, claim.packages?.github)
       .catch((error: unknown) =>
         this.logger.warn("worker.package_managers.not_written", {
           reason: describe(error),

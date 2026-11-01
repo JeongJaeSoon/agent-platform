@@ -112,6 +112,13 @@ export const RECEIPT_OPERATION_VALUES = [
   "review_pull_request",
   "dispatch_workflow",
   "rerun_workflow",
+  // The workspace's GitHub Packages bot token and package allowlist; the
+  // receipt names the token's last four characters, never the value.
+  "set_github_packages_token",
+  "delete_github_packages_token",
+  "set_github_packages_allowlist",
+  // One GitHub Packages request through the egress proxy, allowed or refused.
+  "fetch_github_package",
   "create_workspace_profile",
   "retire_workspace_profile",
   "create_installation_profile",

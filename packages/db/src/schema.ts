@@ -7,6 +7,7 @@ import {
   GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES,
   type GitHubAppRole,
   type GitHubCeiling,
+  type GitHubPackagesAllowEntry,
   type GitHubPullRequestOutcomeState,
   MEMORY_WRITE_POLICY_VALUES,
   OPEN_PUSH_REQUEST_STATES,
@@ -571,6 +572,24 @@ export const githubWorkspaceSettings = pgTable("github_workspace_settings", {
   oauthClientSecretSet: boolean("oauth_client_secret_set")
     .notNull()
     .default(false),
+  revision: integer().notNull().default(1),
+  /** No foreign key: the row outlives the account. */
+  updatedBy: uuid("updated_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+// The GitHub Packages bot token's facts (the value is in `secret_values`)
+// and the packages sessions may fetch with it. No row reads as no token and
+// an empty allowlist.
+export const githubPackagesSettings = pgTable("github_packages_settings", {
+  workspaceId: uuid("workspace_id")
+    .primaryKey()
+    .references(() => workspaces.id),
+  allowlist: jsonb().$type<GitHubPackagesAllowEntry[]>().notNull(),
+  tokenLogin: text("token_login"),
+  tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
   revision: integer().notNull().default(1),
   /** No foreign key: the row outlives the account. */
   updatedBy: uuid("updated_by"),
