@@ -134,10 +134,16 @@ BEGIN
 END
 $$;
 --> statement-breakpoint
+-- Every writer of checkpoint_output_objects locks the totals row first, in a
+-- statement of its own. Writers then queue on that one row instead of
+-- deadlocking over keys, and the statements after the lock read a snapshot
+-- that holds every write committed before it.
+--
 -- The kept bytes change by what the touched keys hold after the statement
 -- less what they held before it; every CTE reads the same snapshot.
 CREATE OR REPLACE FUNCTION "checkpoint_output_objects_add"() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
+  PERFORM 1 FROM "checkpoint_output_totals" WHERE "scope" = 'installation' FOR UPDATE;
   WITH "added" AS (
     SELECT "a"."session_id", "a"."object_key", max("a"."bytes") AS "bytes",
            (count(*) FILTER (WHERE "c"."objects_purged_at" IS NULL))::integer AS "live_refs",
@@ -178,6 +184,7 @@ BEGIN
   IF coalesce(cardinality("affected"), 0) = 0 THEN
     RETURN;
   END IF;
+  PERFORM 1 FROM "checkpoint_output_totals" WHERE "scope" = 'installation' FOR UPDATE;
   WITH "gone" AS (
     DELETE FROM "checkpoint_output_objects" WHERE "session_id" = ANY("affected")
     RETURNING "bytes", "live_refs"
@@ -205,6 +212,16 @@ $$;
 -- figures read (none is made today) counts the session again.
 CREATE OR REPLACE FUNCTION "checkpoint_output_objects_release"() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
+  -- Most checkpoint updates (collected_at, profile fingerprints) touch
+  -- neither column, and must not queue on the totals row.
+  IF NOT EXISTS (
+    SELECT 1 FROM "old_rows" "o" JOIN "new_rows" "n" USING ("session_id", "revision")
+    WHERE "o"."committed_at" IS DISTINCT FROM "n"."committed_at"
+       OR "o"."objects_purged_at" IS DISTINCT FROM "n"."objects_purged_at"
+  ) THEN
+    RETURN NULL;
+  END IF;
+  PERFORM 1 FROM "checkpoint_output_totals" WHERE "scope" = 'installation' FOR UPDATE;
   WITH "purged" AS (
     SELECT "n"."session_id", "n"."revision", "n"."objects_purged_at"
     FROM "old_rows" "o" JOIN "new_rows" "n" USING ("session_id", "revision")

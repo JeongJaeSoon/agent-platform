@@ -39,11 +39,11 @@ const MIGRATIONS_ONLY = [
   "function authz_decisions_refuse_update() trigger language plpgsql volatility=v parallel=u body md5 f3f5febb7e684f1ec6da6675a5dc196c",
   // 0201: counters kept by statement triggers, so /metrics and the usage
   // panel read a few rows instead of aggregating their source tables.
-  "function checkpoint_output_objects_add() trigger language plpgsql volatility=v parallel=u body md5 ce8ec290ddac2d63d71d1106be79f97a",
+  "function checkpoint_output_objects_add() trigger language plpgsql volatility=v parallel=u body md5 88ae2f420fbb87f9da286419d5c5d2a2",
   "function checkpoint_output_objects_clear() trigger language plpgsql volatility=v parallel=u body md5 dbef021522410ff4a0caef67dd9503f0",
   "function checkpoint_output_objects_forget() trigger language plpgsql volatility=v parallel=u body md5 1475242b94f49467838a4e0dcd12700e",
-  "function checkpoint_output_objects_recount(affected uuid[]) void language plpgsql volatility=v parallel=u body md5 fa8cb7ea69f7bee9c69cba73d958f0c9",
-  "function checkpoint_output_objects_release() trigger language plpgsql volatility=v parallel=u body md5 fbdc0ed8aed48cce0d51940877feccbd",
+  "function checkpoint_output_objects_recount(affected uuid[]) void language plpgsql volatility=v parallel=u body md5 7feb5d0e1390b9bd183063c453496e88",
+  "function checkpoint_output_objects_release() trigger language plpgsql volatility=v parallel=u body md5 f9c1384d33099e58aafbf4c3e1895063",
   // 0143: an agent identity's credential name is never an agent's.
   "function credential_bindings_exclusive_target() trigger language plpgsql volatility=v parallel=u body md5 55270e3870adbfee5a5edd2ab0daf6a8",
   "function provider_usage_totals_add() trigger language plpgsql volatility=v parallel=u body md5 51a5dbe75562562eb9d0788546a19357",
