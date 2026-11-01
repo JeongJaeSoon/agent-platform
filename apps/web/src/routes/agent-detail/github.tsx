@@ -41,6 +41,7 @@ import {
   type Translate,
   useI18n,
 } from "../../i18n/i18n.tsx";
+import { AppRepositoryPicker } from "./github-app-repositories.tsx";
 import { type Notify, useToast } from "./toast.tsx";
 import { useCurrentSection } from "./use-current-section.ts";
 import { usePageFits } from "./use-page-fits.ts";
@@ -787,6 +788,25 @@ function GitHubSettings({
                 })}
               </RowList>
             )}
+            <AppRepositoryPicker
+              agentId={agentId}
+              chosen={settings.repositories}
+              disabled={readOnly}
+              onPicked={async (catalogId, name) => {
+                edit((current) =>
+                  current.repositories.includes(catalogId)
+                    ? current
+                    : {
+                        ...current,
+                        repositories: [...current.repositories, catalogId],
+                      },
+                );
+                notify(t("agentGitHub.picked", { name }));
+                await cache.invalidateQueries({
+                  queryKey: githubKey(client, agentId),
+                });
+              }}
+            />
             <span className="text-caption text-muted-foreground">
               {t("agentGitHub.repositoriesFoot")}
             </span>

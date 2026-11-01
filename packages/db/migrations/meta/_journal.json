@@ -820,6 +820,27 @@
       "when": 1793550485753,
       "tag": "0207_session_attached_repositories",
       "breakpoints": true
+    },
+    {
+      "idx": 208,
+      "version": "7",
+      "when": 1793558755818,
+      "tag": "0208_github_app_repository_selection",
+      "breakpoints": true
+    },
+    {
+      "idx": 209,
+      "version": "7",
+      "when": 1793563247981,
+      "tag": "0209_session_outcome_reviews",
+      "breakpoints": true
+    },
+    {
+      "idx": 210,
+      "version": "7",
+      "when": 1793567291458,
+      "tag": "0210_github_app_manifest_states",
+      "breakpoints": true
     }
   ]
 }

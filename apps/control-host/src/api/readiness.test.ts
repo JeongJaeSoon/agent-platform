@@ -27,9 +27,7 @@ const requiredEnv = ["DATABASE_URL", "AUTH_MODE"];
 
 describe("readiness probe", () => {
   test("journal head is the last migration tag", () => {
-    expect(expectedMigrationHead().tag).toBe(
-      "0207_session_attached_repositories",
-    );
+    expect(expectedMigrationHead().tag).toBe("0210_github_app_manifest_states");
   });
 
   test("passes on a migrated database with the required configuration", async () => {
@@ -92,7 +90,7 @@ describe("readiness probe", () => {
     })();
     expect(result).toMatchObject({ ready: false, check: "schema" });
     expect(result.ready === false && result.reason).toContain(
-      "0207_session_attached_repositories",
+      "0210_github_app_manifest_states",
     );
 
     // Same timestamp, different SQL behind it: not the schema this build ships.

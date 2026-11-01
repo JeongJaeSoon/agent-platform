@@ -20,7 +20,8 @@ const APP_CSP = [
   "font-src 'self'",
   "object-src 'none'",
   "base-uri 'none'",
-  "form-action 'self'",
+  // The GitHub App manifest flow posts its form to github.com.
+  "form-action 'self' https://github.com",
   "frame-ancestors 'none'",
 ].join("; ");
 

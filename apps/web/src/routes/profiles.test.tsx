@@ -68,18 +68,18 @@ describe("실행 프로필", () => {
     expect(rows(table)).toEqual([
       HEADER,
       [
-        "coding-claude설치 상한 · v1",
+        "coding-claude설치 프로필 · v1",
         "v1",
-        "설치 상한",
+        "설치 프로필",
         "—",
         "claude-sonnet-5",
         "acceptEdits",
         "사용 가능",
       ],
       [
-        "general-read설치 상한 · v1",
+        "general-read설치 프로필 · v1",
         "v1",
-        "설치 상한",
+        "설치 프로필",
         "—",
         "claude-haiku-5",
         "default",
@@ -106,8 +106,11 @@ describe("실행 프로필", () => {
     const user = await setupUser();
     // The workspace one waits for a usable ceiling in the list.
     await screen.findByRole("link", { name: "프로필 만들기" });
-    await user.click(screen.getByRole("link", { name: "설치 상한 만들기" }));
-    await screen.findByRole("heading", { level: 1, name: "설치 상한 만들기" });
+    await user.click(screen.getByRole("link", { name: "설치 프로필 만들기" }));
+    await screen.findByRole("heading", {
+      level: 1,
+      name: "설치 프로필 만들기",
+    });
     expect(history.location.pathname).toBe("/profiles/new");
     expect(history.location.search).toContain("kind=installation");
   });
@@ -116,7 +119,7 @@ describe("실행 프로필", () => {
     renderAt("/profiles", routes([CODING], me(undefined, "admin")));
     await screen.findByRole("link", { name: "프로필 만들기" });
     expect(
-      screen.queryAllByRole("link", { name: "설치 상한 만들기" }).length,
+      screen.queryAllByRole("link", { name: "설치 프로필 만들기" }).length,
     ).toBe(0);
   });
 
@@ -142,7 +145,7 @@ describe("실행 프로필", () => {
         ]),
     ).toEqual([
       ["전체 3", "true"],
-      ["설치 상한 2", "false"],
+      ["설치 프로필 2", "false"],
       ["워크스페이스 프로필 1", "false"],
     ]);
     const user = await setupUser();
@@ -155,13 +158,16 @@ describe("실행 프로필", () => {
         .map((row) => row[0]),
     ).toEqual(["strictws_acme_strict_v1워크스페이스 프로필 · v1"]);
     await user.click(
-      within(filter).getByRole("button", { name: /^설치 상한/ }),
+      within(filter).getByRole("button", { name: /^설치 프로필/ }),
     );
     expect(
       rows(table)
         .slice(1)
         .map((row) => row[0]),
-    ).toEqual(["coding-claude설치 상한 · v1", "general-read설치 상한 · v1"]);
+    ).toEqual([
+      "coding-claude설치 프로필 · v1",
+      "general-read설치 프로필 · v1",
+    ]);
   });
 
   test("a name with several versions shows its latest, the earlier ones folded under it", async () => {
@@ -180,7 +186,7 @@ describe("실행 프로필", () => {
         .slice(1)
         .map((row) => [row[0], row[6]]),
     ).toEqual([
-      ["wide 이전 버전 1개op_wide_v2설치 상한 · v2", "사용 가능"],
+      ["wide 이전 버전 1개op_wide_v2설치 프로필 · v2", "사용 가능"],
       [
         "strict 이전 버전 1개ws_acme_strict_v2워크스페이스 프로필 · v2",
         "사용 가능",
@@ -198,8 +204,8 @@ describe("실행 프로필", () => {
         .slice(1)
         .map((row) => [row[0], row[6]]),
     ).toEqual([
-      ["wide 이전 버전 1개op_wide_v2설치 상한 · v2", "사용 가능"],
-      ["wideop_wide_v1설치 상한 · v1", "사용 중지됨"],
+      ["wide 이전 버전 1개op_wide_v2설치 프로필 · v2", "사용 가능"],
+      ["wideop_wide_v1설치 프로필 · v1", "사용 중지됨"],
       [
         "strict 이전 버전 1개ws_acme_strict_v2워크스페이스 프로필 · v2",
         "사용 가능",
@@ -227,9 +233,9 @@ describe("실행 프로필", () => {
         .slice(1)
         .map((row) => row[0]),
     ).toEqual([
-      "coding 이전 버전 1개op_coding_v1설치 상한 · v1",
-      "wideop_wide_v1설치 상한 · v1",
-      "wide설치 상한 · v1",
+      "coding 이전 버전 1개op_coding_v1설치 프로필 · v1",
+      "wideop_wide_v1설치 프로필 · v1",
+      "wide설치 프로필 · v1",
     ]);
   });
 
@@ -338,7 +344,7 @@ describe("실행 프로필", () => {
     ).toBe(0);
     // An owner can still make the first ceiling.
     expect(
-      screen.getByRole("link", { name: "설치 상한 만들기" }),
+      screen.getByRole("link", { name: "설치 프로필 만들기" }),
     ).toBeDefined();
   });
 

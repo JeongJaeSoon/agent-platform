@@ -299,6 +299,8 @@ describe("the GitHub App API", () => {
       github_app: null,
       check: null,
       installations: [],
+      // This service is built without manifests.
+      manifest_blocked: "console_origin_unset",
       repositories: [
         {
           id: "app",

@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 import type { ExecutionState } from "@werft-ai/contracts";
 import {
+  ENV,
+  egressCredentialUrlOf,
+  NO_PROXY_VALUE,
+  noProxyValueFor,
+} from "@werft-ai/contracts/execution";
+import {
   type EnsureExecutionResult,
   type ExecutionBackend,
   type ExecutionBackendCapabilities,
@@ -95,85 +101,12 @@ export const LABELS = {
   workspaceQuota: "agent-platform.workspace-quota",
 } as const;
 
-/**
- * Everything the worker needs for its bootstrap claim
- * (`bootstrapClaimRequestSchema`): identity, generation, nonce, where to call.
- * Labels are invisible from inside the container, so these ride on env.
- */
-export const ENV = {
-  bootstrapNonce: "WORKER_BOOTSTRAP_NONCE",
-  executionGeneration: "WORKER_EXECUTION_GENERATION",
-  executionId: "WORKER_EXECUTION_ID",
-  gatewayUrl: "WORKER_GATEWAY_URL",
-  /** The egress proxy's credential routes. */
-  egressCredentialUrl: "WORKER_EGRESS_CREDENTIAL_URL",
-  /** Points at the tmpfs HOME, whatever the image's /etc/passwd says. */
-  home: "HOME",
-  /**
-   * Where the session volume is mounted. Placement is this backend's
-   * knowledge, not the session's, so it travels with the launch rather than
-   * in the claim response that names the repository.
-   */
-  workspaceDir: "WORKER_WORKSPACE_DIR",
-  /**
-   * Both spellings, because tools are split on which one they read. They are
-   * a convenience, not the control: the worker network has no route off
-   * itself, so a client that ignores them reaches nothing at all.
-   */
-  httpProxy: "HTTP_PROXY",
-  httpProxyLower: "http_proxy",
-  httpsProxy: "HTTPS_PROXY",
-  httpsProxyLower: "https_proxy",
-  noProxy: "NO_PROXY",
-  noProxyLower: "no_proxy",
-  /**
-   * Which objects are the session's: the bucket and region under
-   * the names the control host reads, plus the prefix this session owns.
-   * No credential and no endpoint: the worker reaches them through the
-   * proxy's object store route, signed for that prefix only.
-   */
-  objectBucket: "S3_BUCKET",
-  objectPrefix: "WORKER_OBJECT_PREFIX",
-  objectRegion: "AWS_REGION",
-  /**
-   * The seconds `terminate` gives between SIGTERM and SIGKILL, so the worker
-   * sizes its drain to what it will actually get.
-   */
-  stopGrace: "WORKER_STOP_GRACE_SEC",
-  maxTurnSeconds: "WORKER_MAX_TURN_SEC",
-  providerMaxRetries: "WORKER_PROVIDER_MAX_RETRIES",
-  logLevel: "LOG_LEVEL",
-} as const;
-
-/**
- * The credential routes, on the alias the proxy has on every worker network.
- * Plain http: the network holds only the worker and the proxy.
- */
-export function egressCredentialUrlOf(
-  config: Pick<
-    LocalDockerBackendConfig,
-    "egressCredentialPort" | "egressProxyUrl"
-  >,
-): string {
-  const url = new URL(config.egressProxyUrl);
-  url.port = String(config.egressCredentialPort);
-  return url.toString().replace(/\/$/, "");
-}
-
-/** The worker's own loopback is the only thing worth not proxying. */
-export const NO_PROXY_VALUE = "localhost,127.0.0.1,::1";
-
-/**
- * Plus the proxy's own name: its credential routes are reached directly,
- * and through the forward proxy they would be refused. The worker
- * could reach that name on any port anyway; it is the only other member of
- * its network.
- */
-export function noProxyValueFor(
-  config: Pick<LocalDockerBackendConfig, "egressProxyUrl">,
-): string {
-  return `${NO_PROXY_VALUE},${new URL(config.egressProxyUrl).hostname}`;
-}
+export {
+  ENV,
+  egressCredentialUrlOf,
+  NO_PROXY_VALUE,
+  noProxyValueFor,
+} from "@werft-ai/contracts/execution";
 
 /**
  * Bumped whenever the isolation a worker container is created with changes.

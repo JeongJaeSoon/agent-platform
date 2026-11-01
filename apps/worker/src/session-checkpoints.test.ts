@@ -44,6 +44,7 @@ import {
   createMemoryCheckpointObjectStore,
   type MemoryCheckpointObjectStore,
 } from "@werft-ai/testkit/checkpoint-objects";
+import { isolatedGit } from "@werft-ai/testkit/git";
 
 import { stageCheckpointBundle } from "./checkpoint-restore.ts";
 import { RestoreRefused, SessionCheckpoints } from "./session-checkpoints.ts";
@@ -93,44 +94,21 @@ const root = { projectKey: "-workspace", sessionId: resume };
 
 let scratch: string;
 let workspace: string;
+const git = isolatedGit(() => scratch);
 
 beforeEach(async () => {
   scratch = await mkdtemp(join(tmpdir(), "94s-246-publish-"));
   workspace = join(scratch, "workspace");
   await mkdir(workspace);
-  await git("init", "--quiet", "--initial-branch=main");
+  await git(workspace, "init", "--quiet", "--initial-branch=main");
   await writeFile(join(workspace, "README.md"), "hello\n");
-  await git("add", "--all");
-  await git("commit", "--quiet", "-m", "first");
+  await git(workspace, "add", "--all");
+  await git(workspace, "commit", "--quiet", "-m", "first");
 });
 
 afterEach(async () => {
   await rm(scratch, { force: true, recursive: true });
 });
-
-async function git(...args: string[]): Promise<string> {
-  const child = Bun.spawn(["git", ...args], {
-    cwd: workspace,
-    env: {
-      PATH: process.env.PATH ?? "/usr/bin:/bin",
-      HOME: scratch,
-      GIT_CONFIG_NOSYSTEM: "1",
-      GIT_AUTHOR_NAME: "test",
-      GIT_AUTHOR_EMAIL: "test@example.test",
-      GIT_COMMITTER_NAME: "test",
-      GIT_COMMITTER_EMAIL: "test@example.test",
-    },
-    stderr: "pipe",
-    stdout: "pipe",
-  });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
-  if (code !== 0) throw new Error(`git ${args.join(" ")}: ${stderr}`);
-  return stdout;
-}
 
 type Logged = { event: string; fields: Record<string, unknown> | undefined };
 
@@ -329,7 +307,7 @@ describe("SessionCheckpoints", () => {
     expect(stored.byteLength).toBe(bundle.bytes);
     // The capture commits the edit on top of HEAD; HEAD itself is untouched.
     expect(manifest.workspace.gitCommit).not.toBe(
-      (await git("rev-parse", "HEAD")).trim(),
+      (await git(workspace, "rev-parse", "HEAD")).trim(),
     );
     expect(manifest.transcripts.root.parts).toHaveLength(1);
     const part = manifest.transcripts.root.parts[0];
@@ -386,8 +364,8 @@ describe("SessionCheckpoints", () => {
     await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
     // Incompressible, so the bundle spans many reads of the file.
     await writeFile(join(workspace, "noise.bin"), randomBytes(512 * 1024));
-    await git("add", "noise.bin");
-    await git("commit", "--quiet", "-m", "noise");
+    await git(workspace, "add", "noise.bin");
+    await git(workspace, "commit", "--quiet", "-m", "noise");
 
     const ref = await h.port.capture(ready, {
       scope: scopeOf(claim),
@@ -1605,9 +1583,9 @@ async function published(
   let instructions: string | null = null;
   if (options.instructions === true) {
     await writeFile(join(workspace, "CLAUDE.md"), "rules as fetched\n");
-    await git("add", "CLAUDE.md");
-    await git("commit", "--quiet", "-m", "rules");
-    instructions = (await git("rev-parse", "HEAD")).trim();
+    await git(workspace, "add", "CLAUDE.md");
+    await git(workspace, "commit", "--quiet", "-m", "rules");
+    instructions = (await git(workspace, "rev-parse", "HEAD")).trim();
   }
   const h = harness({ instructionsCommit: () => instructions, objects });
   const { claim, mirror } = await opened(h);
@@ -1746,7 +1724,7 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     );
     expect(existsSync(join(workspace, "left-behind.txt"))).toBe(false);
     // Uncommitted before, uncommitted again.
-    expect(await git("status", "--porcelain")).toBe(
+    expect(await git(workspace, "status", "--porcelain")).toBe(
       " M CLAUDE.md\n M README.md\n",
     );
     // CLAUDE.md as fetched, not as the engine left it on disk.
@@ -1770,9 +1748,9 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
       expect(await readFile(join(workspace, "notes", "new.txt"), "utf8")).toBe(
         "never added\n",
       );
-      expect(await git("status", "--porcelain", "--untracked-files=all")).toBe(
-        " M README.md\n?? notes/new.txt\n",
-      );
+      expect(
+        await git(workspace, "status", "--porcelain", "--untracked-files=all"),
+      ).toBe(" M README.md\n?? notes/new.txt\n");
     },
   );
 
@@ -1855,7 +1833,7 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
 
   test("a capture after the restore pins the same instructions commit", async () => {
     const from = await published({ instructions: true });
-    const pinned = (await git("rev-parse", "HEAD")).trim();
+    const pinned = (await git(workspace, "rev-parse", "HEAD")).trim();
     await replaceWorkspaceWithLeftovers();
     const h = restoring(from);
     const claim = await claimOf(h.gateway);
@@ -1948,7 +1926,7 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
       await readdir(join(workspace, ".git", "agent-platform-checkpoint")),
     ).toEqual(["checkpoint.git"]);
     // Out of the tree's way: nothing new to commit or capture.
-    expect(await git("status", "--porcelain")).toBe(
+    expect(await git(workspace, "status", "--porcelain")).toBe(
       " M CLAUDE.md\n M README.md\n",
     );
   });
@@ -2567,8 +2545,8 @@ describe("a bundle built on the checkpoint before", () => {
       join(workspace, "random.txt"),
       crypto.getRandomValues(new Uint8Array(64 * 1024)).join(),
     );
-    await git("add", "random.txt");
-    await git("commit", "--quiet", "-m", "big");
+    await git(workspace, "add", "random.txt");
+    await git(workspace, "commit", "--quiet", "-m", "big");
     const turn = { scope: scopeOf(claim), recheck: async () => ready };
     const manifestOf = async (ref: CheckpointRef | null) => {
       if (ref === null)
@@ -2609,7 +2587,9 @@ describe("a bundle built on the checkpoint before", () => {
     expect(await readFile(join(workspace, "README.md"), "utf8")).toBe(
       "second turn\n",
     );
-    expect(await git("status", "--porcelain")).toBe(" M README.md\n");
+    expect(await git(workspace, "status", "--porcelain")).toBe(
+      " M README.md\n",
+    );
 
     // The restored chain is what the next capture builds on.
     h.gateway.checkpointRevision = second.ref.revision;
@@ -2748,7 +2728,7 @@ describe("SessionCheckpoints for a session without a repository", () => {
       "report\n",
     );
     expect(existsSync(join(workspace, "left-behind.txt"))).toBe(false);
-    expect(await git("remote")).toBe("");
+    expect(await git(workspace, "remote")).toBe("");
     expect(
       await readFile(join(workspace, ".git", "info", "exclude"), "utf8"),
     ).toBe("node_modules/\n.venv/\n__pycache__/\n.cache/\n");

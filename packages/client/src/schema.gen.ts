@@ -390,6 +390,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/workspaces/{id}/github-apps/author/manifest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start making the author GitHub App from a manifest (owner or admin)
+         * @description Returns the manifest for a new author App and the GitHub URL the browser form-POSTs it to (field `manifest`), with a new single-use `state` in that URL, valid 60 minutes and bound to the caller and the workspace. `owner` picks an organization (its owners can create the App) or the caller's own account; a private App (`public: false`, the default) installs only on that account. The manifest asks for `contents` and `pull_requests` write and `metadata` read, plus `actions` and `workflows` write with `actions: true`; its webhook is off, its redirect is the console's `/settings/workspace/github/new-app` and its callback the account-link page. While an author App is registered the request must say `replace: true` (else 409 `GITHUB_APP_CONFLICT` `author_app_exists`). API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["startGitHubAppManifest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{id}/github-apps/author/manifest/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish making the author GitHub App with what GitHub returned
+         * @description The console's callback page sends the `code` and `state` from GitHub's redirect. The state is spent first: unknown, spent, expired, or issued to another caller or workspace answers 400 `BAD_REQUEST` `state_invalid`. The code is exchanged once with `POST /app-manifests/{code}/conversions` (400 `code_rejected` when GitHub refuses it, 503 `github_unreachable` when it cannot be reached; never retried). The App, its private key and its OAuth client secret are stored in one transaction with a `set_github_app` receipt (`source: manifest`); the webhook secret is not kept. If the author App changed since the start, nothing is stored (409 `GITHUB_APP_CONFLICT` `author_app_changed`); if storing fails, 503 `store_failed`. Both name the App made on GitHub in `details.app_id` and `details.html_url`. No key, secret or code is in any response, receipt or log, and every answer carries `Referrer-Policy: no-referrer`. API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["completeGitHubAppManifest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/workspaces/{id}/github-repositories": {
         parameters: {
             query?: never;
@@ -398,40 +442,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The catalog's GitHub repositories (owner or admin)
-         * @description Every GitHub repository agents can work in: those added from the console or imported from repositories.yaml (`source` `console` or `seed`; `editable`), then the operator file's entries that carry their own credentials (`source: file`, read-only; change them in the file). `installed` says whether the author App is installed on the repository now, null when GitHub was not asked or could not answer. Adding a repository grants no agent anything: an installation profile ceiling's `repository_ids` and an agent's repository scope decide that. API keys are refused.
+         * A page of the author App's repositories, and the catalog's (owner or admin)
+         * @description The repositories one installation of the author App reaches, a page at a time as GitHub pages them (`GET /installation/repositories`): `installation_id` picks the installation (absent: the first in `installations`, by account), `page` and `per_page` (at most 100) the page, and `total_count` is GitHub's count. Nothing is registered: a repository becomes a catalog row when an agent's manager picks it (`POST /v1/agents/{id}/github/repositories`), and `catalog_id` then names it; `agent_count` counts agents whose active release names it. `unavailable` says why the page is empty: `no_author_app`, `no_installation`, `github_rejected` or `github_unreachable`. `catalog` lists the rows picks resolved or repositories.yaml seeded (`source` `selection`, `console` or `seed`; their branch is changed with PATCH) and the operator file's entries that carry their own credentials (`source: file`, read-only); `installed` says whether an installation of the App covers a row now (asked for the first 100 rows; null past them, or when GitHub could not answer). An installation id the App does not have is 400 `not_installed`. API keys are refused.
          *
          *     **Auth:** cookie session only; no scope.
          */
         get: operations["listGitHubRepositories"];
-        put?: never;
-        /**
-         * Add a repository the author App is installed on (owner or admin)
-         * @description Takes the GitHub repository id from `…/candidates` and, optionally, the catalog `id`. The server finds the repository among the author App's installations again and takes its URL and default branch from GitHub; one it does not find is 400 `not_installed`. Without `id`, the repository's name in lower case, numbered `-2`, `-3` past ids already used (removed ones included). A repository in the catalog already is 400 `already_added`, an `id` in use is 400 `id_taken`. Writes an `add_repository` receipt. API keys are refused.
-         *
-         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
-         */
-        post: operations["addGitHubRepository"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/workspaces/{id}/github-repositories/candidates": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Repositories the author App can reach, to add to the catalog (owner or admin)
-         * @description Lists, for each installation of the author App, the repositories GitHub lets it reach (`GET /installation/repositories`), with `catalog_id` set on those in the catalog already. `unavailable` says why the list is empty when it could not be read: `no_author_app`, `github_rejected` or `github_unreachable`. API keys are refused.
-         *
-         *     **Auth:** cookie session only; no scope.
-         */
-        get: operations["listGitHubRepositoryCandidates"];
         put?: never;
         post?: never;
         delete?: never;
@@ -450,13 +466,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /**
-         * Remove a repository from the catalog (owner or admin)
-         * @description Takes the repository out of the catalog for new sessions and releases. Its id is never handed out again. A repository an installation profile ceiling or an agent's active release still names is 409 `REPOSITORY_IN_USE`, with them in `error.details`. An operator file entry is 400 `file_repository`. The App stays installed on GitHub. Writes a `remove_repository` receipt. API keys are refused.
-         *
-         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
-         */
-        delete: operations["deleteGitHubRepository"];
+        delete?: never;
         options?: never;
         head?: never;
         /**
@@ -1354,10 +1364,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * What the session made: the pull requests it opened
-         * @description The session's outcomes, oldest first. Each pull request the platform's pull request opening recorded is one `github_pull_request` outcome, written in the same transaction as its `open_pull_request` receipt (`receipt_id`); opening it again for a later push request of the session answers the same pull request and adds none. Only the server writes outcomes.
+         * What the session made: the pull requests it opened and the reviews it submitted
+         * @description The session's outcomes, oldest first. Each pull request the platform's pull request opening recorded is one `github_pull_request` outcome, written in the same transaction as its `open_pull_request` receipt (`receipt_id`); opening it again for a later push request of the session answers the same pull request and adds none. Each review the session submitted is one `github_review` outcome, written in the same transaction as its `review_pull_request` receipt: `url` is the review's, `external_id` the review id, `state` always `submitted`, and `metadata` the pull request `number`, the `event`, the `commit_id` reviewed and `opened_by_session_id` (null for a pull request the platform did not open); never the review's body. Only the server writes outcomes.
          *
-         *     `state` is `open`, `merged` or `closed` as GitHub last answered, at `state_checked_at` (null until the first answer): GitHub tells the platform nothing, so the platform reads each pull request again on an interval (every 5 minutes in its first day, hourly to 30 days, then daily; a closed one daily for 30 days; a merged one never). A failed read keeps the state and sets `check_error` (`not_found`, `forge_failed`, `github_refused`). `metadata.adopted` is true when the platform answered a pull request it did not create, already open for the session's branch, and null when unknown. Reading changes nothing.
+         *     A pull request's `state` is `open`, `merged` or `closed` as GitHub last answered, at `state_checked_at` (null until the first answer): GitHub tells the platform nothing, so the platform reads each pull request again on an interval (every 5 minutes in its first day, hourly to 30 days, then daily; a closed one daily for 30 days; a merged one never). A failed read keeps the state and sets `check_error` (`not_found`, `forge_failed`, `github_refused`). `metadata.adopted` is true when the platform answered a pull request it did not create, already open for the session's branch, and null when unknown. `metadata.title` is the pull request's title cut to 200 characters, as the platform sent it or GitHub last answered; null until the first read of one the platform did not create, and on a row written before titles were kept until its next read, so a pull request already merged then keeps null. A review is never read again. Reading changes nothing.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -2315,6 +2325,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{id}/github/repositories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A page of the author App's repositories, to pick for the agent
+         * @description The repositories one installation of the author App reaches, a page at a time, as `GET /v1/workspaces/{id}/github-repositories` pages them, with `catalog_id` set on those a pick resolved already. Only when the active release's installation profile ceiling runs on every App repository (`github_app_repositories: installed`); otherwise `unavailable` is `ceiling_listed` (pick among `options.repositories` of `GET /v1/agents/{id}/github`) or `no_active_release`, and the page is empty. Whoever manages the agent reads it.
+         *
+         *     **Auth:** cookie session only; no scope.
+         */
+        get: operations["listAgentGitHubRepositories"];
+        put?: never;
+        /**
+         * Resolve an App repository to the catalog id a release names
+         * @description Takes a repository from `GET …/github/repositories` and returns the catalog id to put in `github.repositories` of the next release (`POST /v1/agents/{id}/releases`); the release itself is unchanged. The server reads the repository by its GitHub id and checks that the named installation covers it, then takes its URL and default branch from GitHub. The same repository always resolves to the same id, by its GitHub id: the first pick writes a `resolve_repository` receipt (`receipt_id`), and so does a pick after a rename on GitHub, which moves the row to the new name and URL; other picks return null. 400 `details.reason_code`: `repository_not_allowed` (the active release's ceiling does not run on App repositories, or there is no active release), `no_author_app`, `not_installed`, `file_repository` (the operator file holds that repository with its own credential), or `name_held` (another row has that name: another GitHub repository's, whose pick after its rename frees the name, or one not yet tied to a GitHub id). A signed-in manager of the agent; API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["pickAgentGitHubRepository"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{id}/github/enabled": {
         parameters: {
             query?: never;
@@ -2824,7 +2862,7 @@ export interface paths {
         put?: never;
         /**
          * Save a new version of an installation ceiling
-         * @description The operator (`profile.installation.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Saves the next version of `name` with a new id (`op_<name>_v<n>`) on the connection `connection_id`, whose provider the server copies in; earlier versions, and the workspace profiles and releases on them, stay as they were. A new version of an existing name sends that name's latest id as `previous_id`; anything else is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`), as is the second of two saves at once. A first version may name the ceiling it replaces in `previous_id` (400 `unknown_previous` when there is none). 400 `details.reason_code`: `unknown_connection`, `runtime_not_installed`, `unattended_not_allowed` (`bypassPermissions` while `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` is not `true`), `unknown_repository`, `model_not_in_models` or `invalid_profile`, each with `details.field`. 409 `details.reason_code: id_taken` when the id is already an imported profile's. A ceiling runs against its `repository_ids` and no other repository. Writes a `create_installation_profile` receipt.
+         * @description The operator (`profile.installation.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Saves the next version of `name` with a new id (`op_<name>_v<n>`) on the connection `connection_id`, whose provider the server copies in; earlier versions, and the workspace profiles and releases on them, stay as they were. A new version of an existing name sends that name's latest id as `previous_id`; anything else is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`), as is the second of two saves at once. A first version may name the ceiling it replaces in `previous_id` (400 `unknown_previous` when there is none). 400 `details.reason_code`: `unknown_connection`, `runtime_not_installed`, `unattended_not_allowed` (`bypassPermissions` while `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` is not `true`), `unknown_repository`, `model_not_in_models` or `invalid_profile`, each with `details.field`. 409 `details.reason_code: id_taken` when the id is already an imported profile's. A ceiling runs against its `repository_ids` and, with `github_app_repositories: installed`, every repository the author GitHub App's installations reach (picked per agent through `POST /v1/agents/{id}/github/repositories`); no other repository. Writes a `create_installation_profile` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3535,13 +3573,40 @@ export interface components {
             app_id: number;
             private_key: string;
         };
-        PostGitHubRepositoryRequest: {
-            github_repository_id: number;
-            id?: string;
+        StartGitHubAppManifestRequest: {
+            owner: {
+                /** @constant */
+                kind: "organization";
+                login: string;
+            } | {
+                /** @constant */
+                kind: "user";
+            };
+            /** @default false */
+            public: boolean;
+            /** @default false */
+            actions: boolean;
+            /** @default false */
+            replace: boolean;
+        };
+        CompleteGitHubAppManifestRequest: {
+            code: string;
+            state: string;
+        };
+        GitHubRepositoryPageQuery: {
+            installation_id?: number;
+            /** @default 1 */
+            page: number;
+            /** @default 30 */
+            per_page: number;
         };
         PatchGitHubRepositoryRequest: {
             branch: string;
             version: number;
+        };
+        PickAgentGitHubRepositoryRequest: {
+            installation_id: number;
+            github_repository_id: number;
         };
         CreateSlackAppRequest: {
             /** @default false */
@@ -3730,6 +3795,8 @@ export interface components {
             /** @enum {string} */
             repository_mode?: "required" | "optional" | "none";
             repository_ids: string[];
+            /** @enum {string} */
+            github_app_repositories?: "listed" | "installed";
             previous_id?: string;
         };
         SetSessionShareRequest: {
@@ -3789,7 +3856,7 @@ export interface components {
         ApiErrorResponse: {
             error: {
                 /** @enum {string} */
-                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "PROFILE_BLOCKED" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "REPOSITORY_IN_USE" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_PROFILE";
+                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "PROFILE_BLOCKED" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_PROFILE";
                 message: string;
                 retryable: boolean;
                 request_id: string;
@@ -5124,24 +5191,27 @@ export interface components {
             }[];
         };
         ListSessionOutcomesResponse: {
-            items: {
+            items: ({
                 /** Format: uuid */
                 id: string;
-                /** @enum {string} */
-                type: "github_pull_request";
                 /** Format: uri */
                 url: string;
                 repository_id: string | null;
                 external_id: string | null;
-                /** @enum {string} */
-                state: "open" | "merged" | "closed";
                 /** Format: date-time */
                 state_changed_at: string;
                 merged_at: string | null;
                 closed_at: string | null;
                 state_checked_at: string | null;
                 check_error: ("not_found" | "forge_failed" | "github_refused") | null;
+                /** Format: date-time */
+                created_at: string;
+                /** @constant */
+                type: "github_pull_request";
+                /** @enum {string} */
+                state: "open" | "merged" | "closed";
                 metadata: {
+                    title: string | null;
                     head: string;
                     base: string;
                     adopted: boolean | null;
@@ -5151,9 +5221,33 @@ export interface components {
                     changed_files: number | null;
                     commits: number | null;
                 };
+            } | {
+                /** Format: uuid */
+                id: string;
+                /** Format: uri */
+                url: string;
+                repository_id: string | null;
+                external_id: string | null;
+                /** Format: date-time */
+                state_changed_at: string;
+                merged_at: string | null;
+                closed_at: string | null;
+                state_checked_at: string | null;
+                check_error: ("not_found" | "forge_failed" | "github_refused") | null;
                 /** Format: date-time */
                 created_at: string;
-            }[];
+                /** @constant */
+                type: "github_review";
+                /** @enum {string} */
+                state: "submitted";
+                metadata: {
+                    number: number;
+                    /** @enum {string} */
+                    event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
+                    commit_id: string;
+                    opened_by_session_id: string | null;
+                };
+            })[];
         };
         AgentGitHubResponse: {
             enabled: boolean;
@@ -5250,7 +5344,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "change_profile" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "share_session" | "request_push" | "decide_push" | "push" | "open_pull_request" | "comment_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "set_agent_github" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_workspace_profile" | "retire_workspace_profile" | "create_installation_profile" | "retire_installation_profile" | "block_installation_profile" | "unblock_installation_profile";
+            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "change_profile" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "share_session" | "request_push" | "decide_push" | "push" | "open_pull_request" | "comment_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "resolve_repository" | "set_agent_github" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_workspace_profile" | "retire_workspace_profile" | "create_installation_profile" | "retire_installation_profile" | "block_installation_profile" | "unblock_installation_profile";
             target_ref: {
                 /** Format: uuid */
                 session_id: string;
@@ -5284,7 +5378,7 @@ export interface components {
             result: unknown | null;
             error: {
                 /** @enum {string} */
-                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "PROFILE_BLOCKED" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "REPOSITORY_IN_USE" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_PROFILE";
+                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "PROFILE_BLOCKED" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_PROFILE";
                 message: string;
             } | null;
             /** Format: date-time */
@@ -5480,6 +5574,52 @@ export interface components {
                     [key: string]: "read" | "write" | "admin";
                 } | null;
             }[];
+            manifest_blocked?: "console_origin_unset" | null;
+        };
+        StartGitHubAppManifestResponse: {
+            /** Format: uri */
+            action_url: string;
+            manifest: string;
+            /** Format: date-time */
+            expires_at: string;
+        };
+        CompleteGitHubAppManifestResponse: {
+            github_app: {
+                /** @enum {string} */
+                role?: "author" | "reviewer";
+                app_id: number;
+                slug: string;
+                name: string;
+                /** Format: uri */
+                html_url: string;
+                private_key: {
+                    /** Format: date-time */
+                    updated_at: string;
+                    updated_by: {
+                        /** Format: uuid */
+                        user_id: string;
+                        display_name: string;
+                    } | null;
+                };
+                /** Format: date-time */
+                created_at: string;
+                /** Format: date-time */
+                updated_at: string;
+                permissions?: {
+                    [key: string]: "read" | "write" | "admin";
+                } | null;
+                permissions_checked_at?: string | null;
+                warnings?: {
+                    permission: string;
+                    /** @enum {string} */
+                    level: "read" | "write" | "admin";
+                    guided: ("read" | "write" | "admin") | null;
+                }[];
+            };
+            /** Format: uri */
+            install_url: string;
+            /** Format: uuid */
+            receipt_id: string;
         };
         PutGitHubAppResponse: {
             github_app: {
@@ -5522,7 +5662,24 @@ export interface components {
             receipt_id: string;
         };
         ListGitHubRepositoriesResponse: {
+            installations: {
+                id: number;
+                account: string;
+            }[];
+            installation_id: number | null;
+            page: number;
+            per_page: number;
+            total_count: number;
             repositories: {
+                github_repository_id: number;
+                full_name: string;
+                default_branch: string;
+                private: boolean;
+                catalog_id: string | null;
+                agent_count: number;
+            }[];
+            unavailable: ("no_author_app" | "no_installation" | "github_unreachable" | "github_rejected") | null;
+            catalog: {
                 id: string;
                 github_repository_id: number | null;
                 full_name: string | null;
@@ -5530,23 +5687,12 @@ export interface components {
                 url: string;
                 branch: string;
                 /** @enum {string} */
-                source: "console" | "seed" | "file";
+                source: "console" | "seed" | "selection" | "file";
                 editable: boolean;
                 version: number | null;
                 installed: boolean | null;
                 updated_at: string | null;
             }[];
-        };
-        ListGitHubRepositoryCandidatesResponse: {
-            candidates: {
-                github_repository_id: number;
-                full_name: string;
-                account: string;
-                default_branch: string;
-                private: boolean;
-                catalog_id: string | null;
-            }[];
-            unavailable: ("no_author_app" | "github_unreachable" | "github_rejected") | null;
         };
         GitHubRepositoryWriteResponse: {
             repository: {
@@ -5557,7 +5703,7 @@ export interface components {
                 url: string;
                 branch: string;
                 /** @enum {string} */
-                source: "console" | "seed" | "file";
+                source: "console" | "seed" | "selection" | "file";
                 editable: boolean;
                 version: number | null;
                 installed: boolean | null;
@@ -5566,9 +5712,27 @@ export interface components {
             /** Format: uuid */
             receipt_id: string;
         };
-        DeleteGitHubRepositoryResponse: {
-            /** Format: uuid */
-            receipt_id: string;
+        ListAgentGitHubRepositoriesResponse: {
+            installations: {
+                id: number;
+                account: string;
+            }[];
+            installation_id: number | null;
+            page: number;
+            per_page: number;
+            total_count: number;
+            repositories: {
+                github_repository_id: number;
+                full_name: string;
+                default_branch: string;
+                private: boolean;
+                catalog_id: string | null;
+            }[];
+            unavailable: ("no_author_app" | "no_installation" | "github_unreachable" | "github_rejected" | "no_active_release" | "ceiling_listed") | null;
+        };
+        PickAgentGitHubRepositoryResponse: {
+            catalog_id: string;
+            receipt_id: string | null;
         };
         GetSlackAppResponse: {
             slack_app: {
@@ -6208,6 +6372,8 @@ export interface components {
                     retired_at: string | null;
                     blocked_by?: string | null;
                     blocked_at?: string | null;
+                    /** @enum {string} */
+                    github_app_repositories?: "listed" | "installed";
                 };
             }[];
         };
@@ -6272,6 +6438,8 @@ export interface components {
                     retired_at: string | null;
                     blocked_by?: string | null;
                     blocked_at?: string | null;
+                    /** @enum {string} */
+                    github_app_repositories?: "listed" | "installed";
                 };
             };
             receipt_id: string | null;
@@ -9519,94 +9687,7 @@ export interface operations {
             };
         };
     };
-    listGitHubRepositories: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The repositories. */
-            200: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "repositories": [
-                     *         {
-                     *           "id": "app",
-                     *           "github_repository_id": 123456789,
-                     *           "full_name": "acme/app",
-                     *           "url": "https://github.com/acme/app.git",
-                     *           "branch": "main",
-                     *           "source": "console",
-                     *           "editable": true,
-                     *           "version": 1,
-                     *           "installed": true,
-                     *           "updated_at": "2026-11-01T09:00:00Z"
-                     *         }
-                     *       ]
-                     *     }
-                     */
-                    "application/json": components["schemas"]["ListGitHubRepositoriesResponse"];
-                };
-            };
-            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
-            401: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "UNAUTHORIZED";
-                        };
-                    };
-                };
-            };
-            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
-            403: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "FORBIDDEN";
-                        };
-                    };
-                };
-            };
-            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
-            404: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "NOT_FOUND";
-                        };
-                    };
-                };
-            };
-            500: components["responses"]["InternalError"];
-        };
-    };
-    addGitHubRepository: {
+    startGitHubAppManifest: {
         parameters: {
             query?: never;
             header?: {
@@ -9622,15 +9703,20 @@ export interface operations {
             content: {
                 /**
                  * @example {
-                 *       "github_repository_id": 123456789
+                 *       "owner": {
+                 *         "kind": "organization",
+                 *         "login": "acme"
+                 *       },
+                 *       "public": false,
+                 *       "actions": false
                  *     }
                  */
-                "application/json": components["schemas"]["PostGitHubRepositoryRequest"];
+                "application/json": components["schemas"]["StartGitHubAppManifestRequest"];
             };
         };
         responses: {
-            /** @description Added; the repository and the receipt. */
-            201: {
+            /** @description Where the browser posts the manifest, and when the state expires. */
+            200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
@@ -9638,22 +9724,12 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "repository": {
-                     *         "id": "app",
-                     *         "github_repository_id": 123456789,
-                     *         "full_name": "acme/app",
-                     *         "url": "https://github.com/acme/app.git",
-                     *         "branch": "main",
-                     *         "source": "console",
-                     *         "editable": true,
-                     *         "version": 1,
-                     *         "installed": true,
-                     *         "updated_at": "2026-11-01T09:00:00Z"
-                     *       },
-                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *       "action_url": "https://github.com/organizations/acme/settings/apps/new?state=<single-use>",
+                     *       "manifest": "{\"name\":\"werft-acme-1a2b\",\"public\":false}",
+                     *       "expires_at": "2026-11-01T10:00:00Z"
                      *     }
                      */
-                    "application/json": components["schemas"]["GitHubRepositoryWriteResponse"];
+                    "application/json": components["schemas"]["StartGitHubAppManifestResponse"];
                 };
             };
             /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
@@ -9731,8 +9807,8 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
-            413: {
+            /** @description - `GITHUB_APP_CONFLICT`: The App would clash with the workspace's other GitHub App. `error.details.reason_code` says how: `same_app` (the other role already holds this App; GitHub refuses an approval from the App that opened the pull request) or `no_author_app` (a reviewer App needs the author App first). */
+            409: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
@@ -9741,13 +9817,13 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "PAYLOAD_TOO_LARGE";
+                            code?: "GITHUB_APP_CONFLICT";
                         };
                     };
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. GitHub could not be reached to list the App's repositories; nothing stored changed. */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also when the API runs without a master key (PLATFORM_SECRET_KEY), or without CONSOLE_ORIGIN (`console_origin_unset`). */
             503: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -9765,91 +9841,7 @@ export interface operations {
             };
         };
     };
-    listGitHubRepositoryCandidates: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The candidates. */
-            200: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "candidates": [
-                     *         {
-                     *           "github_repository_id": 123456789,
-                     *           "full_name": "acme/app",
-                     *           "account": "acme",
-                     *           "default_branch": "main",
-                     *           "private": true,
-                     *           "catalog_id": null
-                     *         }
-                     *       ],
-                     *       "unavailable": null
-                     *     }
-                     */
-                    "application/json": components["schemas"]["ListGitHubRepositoryCandidatesResponse"];
-                };
-            };
-            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
-            401: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "UNAUTHORIZED";
-                        };
-                    };
-                };
-            };
-            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
-            403: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "FORBIDDEN";
-                        };
-                    };
-                };
-            };
-            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
-            404: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "NOT_FOUND";
-                        };
-                    };
-                };
-            };
-            500: components["responses"]["InternalError"];
-        };
-    };
-    deleteGitHubRepository: {
+    completeGitHubAppManifest: {
         parameters: {
             query?: never;
             header?: {
@@ -9858,13 +9850,22 @@ export interface operations {
             };
             path: {
                 id: string;
-                repositoryId: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "code": "code-from-the-redirect",
+                 *       "state": "state-from-the-redirect"
+                 *     }
+                 */
+                "application/json": components["schemas"]["CompleteGitHubAppManifestRequest"];
+            };
+        };
         responses: {
-            /** @description Removed; the receipt. */
+            /** @description Stored; the App, where it is installed next, and the receipt. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -9873,13 +9874,37 @@ export interface operations {
                 content: {
                     /**
                      * @example {
+                     *       "github_app": {
+                     *         "role": "author",
+                     *         "app_id": 234568,
+                     *         "slug": "werft-acme-1a2b",
+                     *         "name": "werft-acme-1a2b",
+                     *         "html_url": "https://github.com/apps/werft-acme-1a2b",
+                     *         "private_key": {
+                     *           "updated_at": "2026-11-01T09:05:00Z",
+                     *           "updated_by": {
+                     *             "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *             "display_name": "Jae"
+                     *           }
+                     *         },
+                     *         "created_at": "2026-11-01T09:05:00Z",
+                     *         "updated_at": "2026-11-01T09:05:00Z",
+                     *         "permissions": {
+                     *           "contents": "write",
+                     *           "metadata": "read",
+                     *           "pull_requests": "write"
+                     *         },
+                     *         "permissions_checked_at": "2026-11-01T09:05:00Z",
+                     *         "warnings": []
+                     *       },
+                     *       "install_url": "https://github.com/apps/werft-acme-1a2b/installations/new",
                      *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
                      *     }
                      */
-                    "application/json": components["schemas"]["DeleteGitHubRepositoryResponse"];
+                    "application/json": components["schemas"]["CompleteGitHubAppManifestResponse"];
                 };
             };
-            /** @description - `BAD_REQUEST`: The request is malformed: . Fix the request before retrying. */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -9954,7 +9979,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `REPOSITORY_IN_USE`: An installation profile ceiling (`repository_ids`) or an agent's active release still names the repository. `error.details` lists them: `installation_profiles` and `agents` (slugs). Take the repository out of those first. */
+            /** @description - `GITHUB_APP_CONFLICT`: The App would clash with the workspace's other GitHub App. `error.details.reason_code` says how: `same_app` (the other role already holds this App; GitHub refuses an approval from the App that opened the pull request) or `no_author_app` (a reviewer App needs the author App first). */
             409: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -9964,7 +9989,150 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "REPOSITORY_IN_USE";
+                            code?: "GITHUB_APP_CONFLICT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also when the API runs without a master key (PLATFORM_SECRET_KEY), GitHub could not be reached (`github_unreachable`), or the App could not be stored (`store_failed`). */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    listGitHubRepositories: {
+        parameters: {
+            query?: {
+                installation_id?: number;
+                page?: number;
+                per_page?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page and the catalog's repositories. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "installations": [
+                     *         {
+                     *           "id": 4242,
+                     *           "account": "acme"
+                     *         }
+                     *       ],
+                     *       "installation_id": 4242,
+                     *       "page": 1,
+                     *       "per_page": 30,
+                     *       "total_count": 1,
+                     *       "repositories": [
+                     *         {
+                     *           "github_repository_id": 123456789,
+                     *           "full_name": "acme/app",
+                     *           "default_branch": "main",
+                     *           "private": true,
+                     *           "catalog_id": "app",
+                     *           "agent_count": 2
+                     *         }
+                     *       ],
+                     *       "unavailable": null,
+                     *       "catalog": [
+                     *         {
+                     *           "id": "app",
+                     *           "github_repository_id": 123456789,
+                     *           "full_name": "acme/app",
+                     *           "url": "https://github.com/acme/app.git",
+                     *           "branch": "main",
+                     *           "source": "selection",
+                     *           "editable": true,
+                     *           "version": 1,
+                     *           "installed": true,
+                     *           "updated_at": "2026-11-01T09:00:00Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ListGitHubRepositoriesResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
                         };
                     };
                 };
@@ -10012,7 +10180,7 @@ export interface operations {
                      *         "full_name": "acme/app",
                      *         "url": "https://github.com/acme/app.git",
                      *         "branch": "develop",
-                     *         "source": "console",
+                     *         "source": "selection",
                      *         "editable": true,
                      *         "version": 2,
                      *         "installed": true,
@@ -16505,6 +16673,7 @@ export interface operations {
                      *           "state_checked_at": "2026-10-30T10:02:11.000Z",
                      *           "check_error": null,
                      *           "metadata": {
+                     *             "title": "Retry failed payment webhooks",
                      *             "head": "agent/0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
                      *             "base": "main",
                      *             "adopted": false,
@@ -16515,6 +16684,26 @@ export interface operations {
                      *             "commits": 2
                      *           },
                      *           "created_at": "2026-10-30T09:40:03.000Z"
+                     *         },
+                     *         {
+                     *           "id": "6c1f5b0e-2d7a-4e8b-9f3c-1a2b3c4d5e70",
+                     *           "type": "github_review",
+                     *           "url": "https://github.com/acme/sample-app/pull/9#pullrequestreview-2104",
+                     *           "repository_id": "sample-app",
+                     *           "external_id": "2104",
+                     *           "state": "submitted",
+                     *           "state_changed_at": "2026-10-30T10:20:00.000Z",
+                     *           "merged_at": null,
+                     *           "closed_at": null,
+                     *           "state_checked_at": null,
+                     *           "check_error": null,
+                     *           "metadata": {
+                     *             "number": 9,
+                     *             "event": "APPROVE",
+                     *             "commit_id": "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d",
+                     *             "opened_by_session_id": null
+                     *           },
+                     *           "created_at": "2026-10-30T10:20:00.000Z"
                      *         }
                      *       ]
                      *     }
@@ -22850,6 +23039,267 @@ export interface operations {
             };
             500: components["responses"]["InternalError"];
             /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    listAgentGitHubRepositories: {
+        parameters: {
+            query?: {
+                installation_id?: number;
+                page?: number;
+                per_page?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "installations": [
+                     *         {
+                     *           "id": 4242,
+                     *           "account": "acme"
+                     *         }
+                     *       ],
+                     *       "installation_id": 4242,
+                     *       "page": 1,
+                     *       "per_page": 30,
+                     *       "total_count": 1,
+                     *       "repositories": [
+                     *         {
+                     *           "github_repository_id": 123456789,
+                     *           "full_name": "acme/app",
+                     *           "default_branch": "main",
+                     *           "private": true,
+                     *           "catalog_id": null
+                     *         }
+                     *       ],
+                     *       "unavailable": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ListAgentGitHubRepositoriesResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    pickAgentGitHubRepository: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "installation_id": 4242,
+                 *       "github_repository_id": 123456789
+                 *     }
+                 */
+                "application/json": components["schemas"]["PickAgentGitHubRepositoryRequest"];
+            };
+        };
+        responses: {
+            /** @description The catalog id, and the receipt when this pick added or renamed its row. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "catalog_id": "app",
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["PickAgentGitHubRepositoryResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. GitHub could not be reached to read the repository; nothing stored changed. */
             503: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];

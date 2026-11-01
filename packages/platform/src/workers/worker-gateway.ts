@@ -607,8 +607,8 @@ export function createWorkerGateway(deps: {
       ...Object.entries(catalog.repositories).flatMap(
         ([repositoryId, repository]) =>
           ceilings
-            .filter(({ repository_ids }) =>
-              repository_ids.includes(repositoryId),
+            .filter(({ id }) =>
+              profileAllowsRepository(catalog, id, repositoryId),
             )
             .flatMap(({ id }) => pairsOf(id, repositoryId, repository)),
       ),

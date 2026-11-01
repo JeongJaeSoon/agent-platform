@@ -44,6 +44,47 @@ export const githubKo = {
   "github.connectNote":
     "연결하면 GitHub에서 권한과 설치를 바로 읽어 이 화면에 보여 줍니다.",
   "github.saved": "GitHub App을 저장했습니다.",
+  "github.newApp": "새 App 만들기",
+  "github.newAppHint":
+    "GitHub에서 Create를 한 번 누르면 콘솔이 App ID·개인 키·client secret을 받아 저장합니다. pem 파일을 다루지 않습니다.",
+  "github.newApp.owner": "App을 소유할 곳",
+  "github.newApp.org": "조직",
+  "github.newApp.orgHint": "조직 소유자만 만들 수 있습니다.",
+  "github.newApp.orgLogin": "조직 이름",
+  "github.newApp.orgLoginMissing":
+    "GitHub 조직 이름(영문·숫자·하이픈, 39자 이하)을 적어 주세요.",
+  "github.newApp.user": "내 개인 계정",
+  "github.newApp.userHint":
+    "계정 주인이 떠나도 App은 그 개인 계정에 남습니다. 시험용에만 권합니다.",
+  "github.newApp.scope": "설치할 범위",
+  "github.newApp.private": "이 계정에서만 (비공개 App)",
+  "github.newApp.privateHint": "App을 소유한 계정에만 설치할 수 있습니다.",
+  "github.newApp.public": "여러 조직에서 (공개 App)",
+  "github.newApp.publicHint":
+    "다른 조직도 설치할 수 있게 됩니다. 콘솔은 '에이전트가 쓰는 저장소'에 고른 저장소에만 토큰을 받습니다.",
+  "github.newApp.actions": "Actions·워크플로 권한도 받기",
+  "github.newApp.actionsHint":
+    "에이전트가 워크플로를 실행하고 워크플로 파일을 고칠 수 있게 actions·workflows 쓰기를 더합니다.",
+  "github.newApp.next":
+    "GitHub로 이동해 이름을 확인하고 Create를 누릅니다. 콘솔로 돌아오면 키가 저장됩니다(1시간 안에 마쳐야 합니다). 그다음 설치 화면에서 저장소를 고릅니다.",
+  "github.newApp.submit": "GitHub에서 만들기",
+  "github.newApp.blocked":
+    "CONSOLE_ORIGIN이 설정되지 않아 GitHub가 콘솔로 돌아올 주소가 없습니다. 운영자에게 콘솔 주소 설정을 요청하거나 '이미 있는 App 추가'를 쓰세요.",
+  "github.newApp.exists":
+    "그사이 다른 사람이 App을 등록했습니다. 화면을 새로 고친 뒤 '교체'로 다시 시작하세요.",
+  "github.newApp.working": "GitHub에서 만든 App을 저장하는 중입니다.",
+  "github.newApp.done": "App을 저장했습니다. 설치 화면으로 이동합니다.",
+  "github.newApp.stateInvalid":
+    "이 링크는 만료되었거나 이미 쓰였습니다. GitHub 연결 설정에서 다시 시작하세요.",
+  "github.newApp.codeRejected":
+    "GitHub가 이 요청을 받지 않았습니다(만료되었거나 이미 쓰였습니다). 다시 시작하세요.",
+  "github.newApp.changed":
+    "그사이 다른 App이 등록되어 이 App은 저장하지 않았습니다. GitHub에 만들어진 App은 필요 없으면 지우세요.",
+  "github.newApp.storeFailed":
+    "App은 GitHub에 만들어졌지만 키를 저장하지 못했습니다. App 설정에서 새 개인 키를 만들어 '이미 있는 App 추가'로 연결하세요.",
+  "github.newApp.openApp": "GitHub에서 App 열기",
+  "github.newApp.back": "GitHub 연결 설정으로",
+  "github.replaceChoose": "새 App을 어떻게 연결할지 고르세요.",
   "github.invalidKey":
     "이 파일은 RSA private key가 아닙니다. GitHub App 페이지의 Private keys에서 받은 .pem 파일을 고르세요.",
   "github.rejected":
@@ -59,27 +100,31 @@ export const githubKo = {
   "github.openOnGitHub": "GitHub에서 보기",
   "github.repositories": "에이전트가 쓰는 저장소",
   "github.repositoriesHint":
-    "App이 설치된 저장소 중 에이전트에게 열어 줄 것을 고릅니다. 에이전트마다 쓸 수 있는 저장소는 실행 프로필 상한과 에이전트 설정에서 이 목록 안에서 다시 고릅니다.",
+    "App이 설치된 저장소는 등록 없이 GitHub 설치 목록에서 바로 읽습니다. 에이전트마다 쓸 저장소는 에이전트의 GitHub 탭에서 고릅니다.",
   "github.repositoriesByAccount": "계정별 저장소 보기 ↓",
   "github.repositoriesEmpty":
-    "아직 추가한 저장소가 없습니다. '저장소 추가'에서 App이 설치된 저장소를 고르세요.",
+    "아직 에이전트가 고른 저장소가 없습니다. 에이전트의 GitHub 탭에서 App이 설치된 저장소를 고르면 여기에 나옵니다.",
   "github.repositoriesFoot":
-    "추가·브랜치 변경·제거는 감사 기록(receipt)에 남습니다. 처음 한 번 config/repositories.yaml에서 가져온 저장소도 여기서 고칩니다. 로그인 비밀값이 필요한 저장소는 운영자가 설정 파일에서 관리합니다.",
-  "github.repo.add": "저장소 추가",
+    "고르기와 브랜치 변경은 감사 기록(receipt)에 남습니다. 처음 한 번 config/repositories.yaml에서 가져온 저장소도 여기서 고칩니다. 로그인 비밀값이 필요한 저장소는 운영자가 설정 파일에서 관리합니다.",
+  "github.repo.browse": "설치된 저장소 보기",
   "github.repo.pickTitle": "App이 설치된 저장소",
   "github.repo.pickHint":
-    "App이 설치된 저장소만 고를 수 있습니다. 기본 브랜치는 GitHub에서 읽어 채웁니다. 목록에 없으면 GitHub에서 App 설치에 저장소를 더하세요.",
-  "github.repo.pickEmpty": "App이 설치된 저장소가 없습니다.",
-  "github.repo.search": "저장소 이름으로 찾기",
-  "github.repo.pickList": "추가할 수 있는 저장소 목록",
-  "github.repo.searchEmpty": "맞는 저장소가 없습니다.",
+    "GitHub가 App 설치에 허용한 저장소입니다. 목록에 없으면 GitHub에서 App 설치에 저장소를 더하세요.",
+  "github.repo.pickEmpty": "이 설치에 허용된 저장소가 없습니다.",
   "github.repo.pickNoApp": "작성용 App을 먼저 등록하세요.",
+  "github.repo.pickFileHeld":
+    "운영자 설정 파일이 자체 자격 증명으로 이 저장소를 이미 등록했습니다. 목록의 그 항목을 쓰세요.",
+  "github.repo.pickNameHeld":
+    "같은 이름을 쓰던 다른 저장소의 항목이 남아 있습니다. GitHub에서 이름이 바뀐 그 저장소를 먼저 한 번 고르면 항목이 새 이름으로 바뀝니다.",
+  "github.repo.pickNoInstallation":
+    "App이 아직 어디에도 설치되지 않았습니다. GitHub에서 App을 설치하세요.",
   "github.repo.pickUnreachable":
     "GitHub에 연결하지 못해 저장소 목록을 읽지 못했습니다. 잠시 뒤 다시 여세요.",
-  "github.repo.added": "{name}을(를) 추가했습니다.",
-  "github.repo.alreadyAdded": "이미 추가됨",
-  "github.repo.addOne": "추가",
-  "github.repo.addName": "{name} 추가",
+  "github.repo.installation": "설치",
+  "github.repo.pageOf": "{total}개 중 {from}–{to}",
+  "github.repo.previousPage": "이전",
+  "github.repo.nextPage": "다음",
+  "github.repo.agentCount": "에이전트 {count}개가 사용",
   "github.repo.private": "비공개",
   "github.repo.branch": "기본 브랜치",
   "github.repo.branchHint":
@@ -91,15 +136,6 @@ export const githubKo = {
   "github.repo.saved": "{name}의 기본 브랜치를 {branch}(으)로 바꿨습니다.",
   "github.repo.conflict":
     "다른 곳에서 이 저장소를 먼저 바꿨습니다. 새로 읽은 값을 확인하고 다시 저장하세요.",
-  "github.repo.remove": "제거",
-  "github.repo.removeName": "{name} 제거",
-  "github.repo.removeTitle": "저장소를 카탈로그에서 제거할까요?",
-  "github.repo.removeConsequence":
-    "새 세션과 에이전트 release에서 이 저장소를 고를 수 없게 됩니다. 이 id는 다시 쓰이지 않습니다. GitHub의 App 설치는 그대로 남습니다.",
-  "github.repo.removed": "{name}을(를) 제거했습니다.",
-  "github.repo.inUse":
-    "아직 이 저장소를 쓰는 곳이 있어 제거하지 못했습니다. 실행 프로필 상한: {profiles}. 에이전트: {agents}.",
-  "github.repo.none": "없음",
   "github.repo.file": "설정 파일",
   "github.repo.fileHint":
     "운영자 설정 파일의 저장소입니다. 콘솔에서 바꾸지 않습니다.",
@@ -118,7 +154,8 @@ export const githubKo = {
   "github.replaceHint":
     "App ID와 private key를 다시 등록합니다. 다른 App으로 바꾸면 새 App이 설치되지 않은 저장소는 clone·push·PR을 할 수 없고, 사용자 계정 연결의 Client secret이 지워집니다.",
   "github.replaceTitle": "GitHub App을 교체할까요?",
-  "github.replaceNext": "다음 단계에서 새 App ID와 private key를 고릅니다.",
+  "github.replaceNext":
+    "다음 단계에서 새 App을 만들거나 이미 있는 App을 연결합니다.",
   "github.newTab": "(새 탭에서 열림)",
   "github.permissions.title": "권한",
   "github.permissions.hint": "문제 있는 권한이 위에 옵니다",
@@ -231,6 +268,8 @@ export const githubKo = {
   "github.reviewer.replaceHint":
     "App ID와 private key를 다시 등록합니다. 다른 App으로 바꾸면 새 App이 설치되지 않은 저장소의 리뷰 요청은 거절됩니다.",
   "github.reviewer.replaceTitle": "리뷰용 App을 교체할까요?",
+  "github.reviewer.replaceNext":
+    "다음 단계에서 새 App ID와 private key를 고릅니다.",
 };
 
 export const githubEn: Record<keyof typeof githubKo, string> = {
@@ -280,6 +319,48 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.connectNote":
     "Once connected, the App's permissions and installations are read from GitHub and shown here.",
   "github.saved": "Saved the GitHub App.",
+  "github.newApp": "Create a new App",
+  "github.newAppHint":
+    "Click Create once on GitHub and the console receives and stores the App ID, private key and client secret. No .pem file to handle.",
+  "github.newApp.owner": "Who owns the App",
+  "github.newApp.org": "An organization",
+  "github.newApp.orgHint": "Only organization owners can create it.",
+  "github.newApp.orgLogin": "Organization name",
+  "github.newApp.orgLoginMissing":
+    "Enter the GitHub organization name (letters, digits and hyphens, up to 39).",
+  "github.newApp.user": "My personal account",
+  "github.newApp.userHint":
+    "The App stays tied to the account if its owner leaves. Use it for trials only.",
+  "github.newApp.scope": "Where it can be installed",
+  "github.newApp.private": "This account only (private App)",
+  "github.newApp.privateHint":
+    "It can be installed only on the account that owns it.",
+  "github.newApp.public": "Several organizations (public App)",
+  "github.newApp.publicHint":
+    "Other organizations can install it too. The console gets tokens only for repositories picked under 'Repositories agents use'.",
+  "github.newApp.actions": "Also ask for Actions and workflow permissions",
+  "github.newApp.actionsHint":
+    "Adds actions and workflows write so agents can run workflows and change workflow files.",
+  "github.newApp.next":
+    "On GitHub, check the name and click Create. Back in the console the key is stored (finish within an hour). Then pick repositories on the install screen.",
+  "github.newApp.submit": "Create on GitHub",
+  "github.newApp.blocked":
+    "CONSOLE_ORIGIN is not set, so GitHub has no console address to come back to. Ask the operator to set it, or use 'Add an existing App'.",
+  "github.newApp.exists":
+    "Someone registered an App in the meantime. Reload and start again from 'Replace'.",
+  "github.newApp.working": "Storing the App created on GitHub.",
+  "github.newApp.done": "Saved the App. Going to the install screen.",
+  "github.newApp.stateInvalid":
+    "This link has expired or was already used. Start again from GitHub settings.",
+  "github.newApp.codeRejected":
+    "GitHub did not accept this request (it expired or was already used). Start again.",
+  "github.newApp.changed":
+    "Another App was registered in the meantime, so this one was not stored. Delete the App GitHub created if you do not need it.",
+  "github.newApp.storeFailed":
+    "The App was created on GitHub but its key could not be stored. Generate a new private key in the App's settings and connect it with 'Add an existing App'.",
+  "github.newApp.openApp": "Open the App on GitHub",
+  "github.newApp.back": "Back to GitHub settings",
+  "github.replaceChoose": "Choose how to connect the new App.",
   "github.invalidKey":
     "This file is not an RSA private key. Choose the .pem file from the GitHub App's Private keys.",
   "github.rejected":
@@ -295,27 +376,31 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.openOnGitHub": "View on GitHub",
   "github.repositories": "Repositories agents use",
   "github.repositoriesHint":
-    "Choose which repositories the App is installed on to open to agents. Each agent's repositories are chosen again from this list, in the run profile ceiling and the agent's settings.",
+    "Repositories the App is installed on are read from GitHub's installation list, without registering them. Each agent's repositories are picked on its GitHub tab.",
   "github.repositoriesByAccount": "Repositories by account ↓",
   "github.repositoriesEmpty":
-    "No repository added yet. Pick one the App is installed on with 'Add repository'.",
+    "No agent has picked a repository yet. Pick one the App is installed on from an agent's GitHub tab and it shows here.",
   "github.repositoriesFoot":
-    "Adding, branch changes and removal are kept in the audit record (receipts). Repositories imported once from config/repositories.yaml are edited here too. Repositories that need a login secret stay in the operator's file.",
-  "github.repo.add": "Add repository",
+    "Picks and branch changes are kept in the audit record (receipts). Repositories imported once from config/repositories.yaml are edited here too. Repositories that need a login secret stay in the operator's file.",
+  "github.repo.browse": "Browse installed repositories",
   "github.repo.pickTitle": "Repositories the App is installed on",
   "github.repo.pickHint":
-    "Only repositories the App is installed on can be picked. The default branch is read from GitHub. If one is missing, add it to the App's installation on GitHub.",
-  "github.repo.pickEmpty": "The App is installed on no repository.",
-  "github.repo.search": "Find by repository name",
-  "github.repo.pickList": "Repositories you can add",
-  "github.repo.searchEmpty": "No repository matches.",
+    "The repositories GitHub lets the App's installation reach. If one is missing, add it to the App's installation on GitHub.",
+  "github.repo.pickEmpty": "This installation reaches no repository.",
   "github.repo.pickNoApp": "Register the author App first.",
+  "github.repo.pickFileHeld":
+    "The operator's file already lists this repository with its own credential. Use that entry from the list.",
+  "github.repo.pickNameHeld":
+    "Another repository's entry still holds this name. Pick that repository, renamed on GitHub, once first and its entry takes the new name.",
+  "github.repo.pickNoInstallation":
+    "The App is not installed anywhere yet. Install it on GitHub.",
   "github.repo.pickUnreachable":
     "GitHub could not be reached, so the repositories could not be read. Open this again shortly.",
-  "github.repo.added": "Added {name}.",
-  "github.repo.alreadyAdded": "Added already",
-  "github.repo.addOne": "Add",
-  "github.repo.addName": "Add {name}",
+  "github.repo.installation": "Installation",
+  "github.repo.pageOf": "{from}–{to} of {total}",
+  "github.repo.previousPage": "Previous",
+  "github.repo.nextPage": "Next",
+  "github.repo.agentCount": "Used by {count} agents",
   "github.repo.private": "Private",
   "github.repo.branch": "Default branch",
   "github.repo.branchHint":
@@ -327,15 +412,6 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.repo.saved": "{name} now starts from {branch}.",
   "github.repo.conflict":
     "Someone changed this repository first. Check the values just read and save again.",
-  "github.repo.remove": "Remove",
-  "github.repo.removeName": "Remove {name}",
-  "github.repo.removeTitle": "Remove this repository from the catalog?",
-  "github.repo.removeConsequence":
-    "New sessions and agent releases can no longer pick it. Its id is never used again. The App stays installed on GitHub.",
-  "github.repo.removed": "Removed {name}.",
-  "github.repo.inUse":
-    "Still in use, so it was not removed. Run profile ceilings: {profiles}. Agents: {agents}.",
-  "github.repo.none": "none",
   "github.repo.file": "Operator file",
   "github.repo.fileHint":
     "A repository in the operator's file. It is not changed from the console.",
@@ -354,7 +430,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.replaceHint":
     "Registers an App ID and private key again. Switching to another App stops clones, pushes and pull requests on repositories it is not installed on, and clears the Client secret for linking user accounts.",
   "github.replaceTitle": "Replace the GitHub App?",
-  "github.replaceNext": "Next, choose the new App ID and private key.",
+  "github.replaceNext": "Next, create a new App or connect an existing one.",
   "github.newTab": "(opens in a new tab)",
   "github.permissions.title": "Permissions",
   "github.permissions.hint": "problems first",
@@ -468,6 +544,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.reviewer.replaceHint":
     "Registers an App ID and private key again. Switching to another App refuses review requests on repositories it is not installed on.",
   "github.reviewer.replaceTitle": "Replace the reviewer App?",
+  "github.reviewer.replaceNext": "Next, choose the new App ID and private key.",
 };
 
 export const githubJa: Record<keyof typeof githubKo, string> = {
@@ -516,6 +593,48 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.connectNote":
     "接続すると、GitHub から権限とインストールをすぐに読み取ってこの画面に表示します。",
   "github.saved": "GitHub App を保存しました。",
+  "github.newApp": "新しい App を作成",
+  "github.newAppHint":
+    "GitHub で Create を一度押すと、コンソールが App ID・秘密鍵・client secret を受け取って保存します。pem ファイルを扱う必要はありません。",
+  "github.newApp.owner": "App を所有する場所",
+  "github.newApp.org": "組織",
+  "github.newApp.orgHint": "組織のオーナーだけが作成できます。",
+  "github.newApp.orgLogin": "組織名",
+  "github.newApp.orgLoginMissing":
+    "GitHub の組織名 (英数字とハイフン、39 文字以内) を入力してください。",
+  "github.newApp.user": "自分の個人アカウント",
+  "github.newApp.userHint":
+    "アカウントの持ち主が離れても App はそのアカウントに残ります。試用にだけおすすめします。",
+  "github.newApp.scope": "インストールできる範囲",
+  "github.newApp.private": "このアカウントだけ (非公開 App)",
+  "github.newApp.privateHint":
+    "App を所有するアカウントにだけインストールできます。",
+  "github.newApp.public": "複数の組織 (公開 App)",
+  "github.newApp.publicHint":
+    "ほかの組織もインストールできるようになります。コンソールは「エージェントが使うリポジトリ」で選んだリポジトリにだけトークンを取得します。",
+  "github.newApp.actions": "Actions・ワークフローの権限も取得する",
+  "github.newApp.actionsHint":
+    "エージェントがワークフローを実行し、ワークフローファイルを変更できるよう actions・workflows の書き込みを追加します。",
+  "github.newApp.next":
+    "GitHub で名前を確認して Create を押します。コンソールに戻ると鍵が保存されます (1 時間以内に完了してください)。続いてインストール画面でリポジトリを選びます。",
+  "github.newApp.submit": "GitHub で作成",
+  "github.newApp.blocked":
+    "CONSOLE_ORIGIN が設定されていないため、GitHub がコンソールに戻る先がありません。運用者にコンソールのアドレス設定を依頼するか、「既存の App を追加」を使ってください。",
+  "github.newApp.exists":
+    "その間に別の人が App を登録しました。再読み込みして「置き換え」からやり直してください。",
+  "github.newApp.working": "GitHub で作成した App を保存しています。",
+  "github.newApp.done": "App を保存しました。インストール画面に移動します。",
+  "github.newApp.stateInvalid":
+    "このリンクは期限切れか、すでに使われています。GitHub 連携設定からやり直してください。",
+  "github.newApp.codeRejected":
+    "GitHub がこのリクエストを受け付けませんでした (期限切れか使用済み)。やり直してください。",
+  "github.newApp.changed":
+    "その間に別の App が登録されたため、この App は保存しませんでした。GitHub に作成された App が不要なら削除してください。",
+  "github.newApp.storeFailed":
+    "App は GitHub に作成されましたが、鍵を保存できませんでした。App 設定で新しい秘密鍵を作成し、「既存の App を追加」で接続してください。",
+  "github.newApp.openApp": "GitHub で App を開く",
+  "github.newApp.back": "GitHub 連携設定に戻る",
+  "github.replaceChoose": "新しい App の接続方法を選んでください。",
   "github.invalidKey":
     "このファイルは RSA private key ではありません。GitHub App の Private keys から取得した .pem ファイルを選んでください。",
   "github.rejected":
@@ -532,27 +651,32 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.openOnGitHub": "GitHub で見る",
   "github.repositories": "エージェントが使うリポジトリ",
   "github.repositoriesHint":
-    "App がインストールされたリポジトリのうち、エージェントに開くものを選びます。エージェントごとのリポジトリは、実行プロファイルの上限とエージェント設定でこの一覧から選び直します。",
+    "App がインストールされたリポジトリは、登録せずに GitHub のインストール一覧から読み取ります。エージェントごとのリポジトリはエージェントの GitHub タブで選びます。",
   "github.repositoriesByAccount": "アカウント別のリポジトリ ↓",
   "github.repositoriesEmpty":
-    "まだリポジトリを追加していません。「リポジトリを追加」で App がインストールされたリポジトリを選んでください。",
+    "まだエージェントが選んだリポジトリはありません。エージェントの GitHub タブで App がインストールされたリポジトリを選ぶと、ここに表示されます。",
   "github.repositoriesFoot":
-    "追加・ブランチ変更・削除は監査記録(receipt)に残ります。最初に config/repositories.yaml から取り込んだリポジトリもここで編集します。ログイン用の秘密値が必要なリポジトリは運用者が設定ファイルで管理します。",
-  "github.repo.add": "リポジトリを追加",
+    "選択とブランチ変更は監査記録(receipt)に残ります。最初に config/repositories.yaml から取り込んだリポジトリもここで編集します。ログイン用の秘密値が必要なリポジトリは運用者が設定ファイルで管理します。",
+  "github.repo.browse": "インストール済みのリポジトリを見る",
   "github.repo.pickTitle": "App がインストールされたリポジトリ",
   "github.repo.pickHint":
-    "App がインストールされたリポジトリだけを選べます。デフォルトブランチは GitHub から読み取ります。一覧にない場合は GitHub で App のインストールにリポジトリを加えてください。",
-  "github.repo.pickEmpty": "App がインストールされたリポジトリがありません。",
-  "github.repo.search": "リポジトリ名で探す",
-  "github.repo.pickList": "追加できるリポジトリの一覧",
-  "github.repo.searchEmpty": "一致するリポジトリがありません。",
+    "GitHub が App のインストールに許可したリポジトリです。一覧にない場合は GitHub で App のインストールにリポジトリを加えてください。",
+  "github.repo.pickEmpty":
+    "このインストールで許可されたリポジトリはありません。",
   "github.repo.pickNoApp": "先に作成用 App を登録してください。",
+  "github.repo.pickFileHeld":
+    "運用者の設定ファイルが独自の認証情報でこのリポジトリをすでに登録しています。一覧のその項目を使ってください。",
+  "github.repo.pickNameHeld":
+    "同じ名前を使っていた別のリポジトリの項目が残っています。GitHub で名前が変わったそのリポジトリを先に一度選ぶと、項目が新しい名前になります。",
+  "github.repo.pickNoInstallation":
+    "App はまだどこにもインストールされていません。GitHub で App をインストールしてください。",
   "github.repo.pickUnreachable":
     "GitHub に接続できず、リポジトリ一覧を読めませんでした。しばらくしてから開き直してください。",
-  "github.repo.added": "{name} を追加しました。",
-  "github.repo.alreadyAdded": "追加済み",
-  "github.repo.addOne": "追加",
-  "github.repo.addName": "{name} を追加",
+  "github.repo.installation": "インストール先",
+  "github.repo.pageOf": "{total} 件中 {from}–{to}",
+  "github.repo.previousPage": "前へ",
+  "github.repo.nextPage": "次へ",
+  "github.repo.agentCount": "{count} 件のエージェントが使用",
   "github.repo.private": "非公開",
   "github.repo.branch": "デフォルトブランチ",
   "github.repo.branchHint":
@@ -564,15 +688,6 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.repo.saved": "{name} のデフォルトブランチを {branch} に変えました。",
   "github.repo.conflict":
     "ほかの場所で先にこのリポジトリが変更されました。読み直した値を確かめて、もう一度保存してください。",
-  "github.repo.remove": "削除",
-  "github.repo.removeName": "{name} を削除",
-  "github.repo.removeTitle": "このリポジトリをカタログから削除しますか?",
-  "github.repo.removeConsequence":
-    "新しいセッションとエージェントの release でこのリポジトリを選べなくなります。この id は再び使われません。GitHub の App インストールはそのまま残ります。",
-  "github.repo.removed": "{name} を削除しました。",
-  "github.repo.inUse":
-    "まだ使われているため削除できませんでした。実行プロファイルの上限: {profiles}。エージェント: {agents}。",
-  "github.repo.none": "なし",
   "github.repo.file": "設定ファイル",
   "github.repo.fileHint":
     "運用者の設定ファイルにあるリポジトリです。コンソールからは変更しません。",
@@ -591,7 +706,8 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.replaceHint":
     "App ID と private key を登録し直します。別の App に替えると、新しい App がインストールされていないリポジトリは clone・push・PR ができなくなり、ユーザーアカウント連携の Client secret は消去されます。",
   "github.replaceTitle": "GitHub App を置き換えますか?",
-  "github.replaceNext": "次の手順で新しい App ID と private key を選びます。",
+  "github.replaceNext":
+    "次の手順で新しい App を作成するか、既存の App を接続します。",
   "github.newTab": "(新しいタブで開きます)",
   "github.permissions.title": "権限",
   "github.permissions.hint": "問題のある権限が上に来ます",
@@ -705,4 +821,6 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.reviewer.replaceHint":
     "App ID と private key を登録し直します。別の App に替えると、新しい App がインストールされていないリポジトリのレビューリクエストは拒否されます。",
   "github.reviewer.replaceTitle": "レビュー用 App を置き換えますか?",
+  "github.reviewer.replaceNext":
+    "次の手順で新しい App ID と private key を選びます。",
 };

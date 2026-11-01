@@ -1,12 +1,15 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import {
+  type AgentDetail,
   apiErrorResponseSchema,
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
+  type GitHubAppRepositories,
   githubRepositoryWriteResponseSchema,
+  listAgentGitHubRepositoriesResponseSchema,
   listGitHubRepositoriesResponseSchema,
-  listGitHubRepositoryCandidatesResponseSchema,
+  pickAgentGitHubRepositoryResponseSchema,
   REQUEST_BODY_MAX_BYTES,
   WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
@@ -18,6 +21,7 @@ import {
   createGitHubRepositoryService,
   type GitHubAppStore,
   type IdentityStore,
+  type InstallationProfileEntry,
   type MembershipRole,
   type ResolvedWebSession,
 } from "@werft-ai/platform";
@@ -32,7 +36,10 @@ const createApiApp = recordRouteErrors("routes/github-repositories.test.ts");
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const OTHER_WORKSPACE = "019a0000-0000-7000-8000-0000000000b1";
+const AGENT = "019a0000-0000-7000-8000-0000000000c1";
+const LISTED_AGENT = "019a0000-0000-7000-8000-0000000000c2";
 const APP_ID = 4242;
+const INSTALLATION = 77;
 
 const keys = generateKeyPairSync("rsa", {
   modulusLength: 2048,
@@ -124,17 +131,16 @@ function appStore(): GitHubAppStore {
   } as GitHubAppStore;
 }
 
-// The Postgres store's locking, numbering and in-use checks are its own
-// integration test; this one keeps what the routes need.
+// The Postgres store's locking and numbering are its own integration test;
+// this one keeps what the routes need.
 function memoryRepositories() {
-  const rows = new Map<string, CatalogRepositoryRow & { removed: boolean }>();
+  const rows = new Map<string, CatalogRepositoryRow>();
   const receipts: Array<{ operation: string; id: string; receipt: string }> =
     [];
-  const inUse = new Set<string>();
-  const active = () => [...rows.values()].filter((row) => !row.removed);
+  const counts = new Map<string, number>();
   const store: CatalogRepositoryStore = {
     async listActive() {
-      return active().map(({ removed: _, ...row }) => row);
+      return [...rows.values()];
     },
     async readCatalog() {
       return rows.size === 0 ? null : store.listActive();
@@ -142,22 +148,25 @@ function memoryRepositories() {
     async seed() {
       return [];
     },
-    async add(input) {
-      if (
-        active().some(
-          (row) => row.github_repository_id === input.githubRepositoryId,
-        )
-      ) {
-        return { outcome: "already_added" };
+    async resolve(input) {
+      const held = [...rows.values()].find(
+        (row) =>
+          row.github_repository_id === input.githubRepositoryId ||
+          `${row.owner}/${row.name}`.toLowerCase() ===
+            `${input.owner}/${input.name}`.toLowerCase(),
+      );
+      if (held) {
+        held.github_repository_id ??= input.githubRepositoryId;
+        return {
+          outcome: "resolved",
+          repository: held,
+          created: false,
+          changed: false,
+        };
       }
-      const free = (id: string) => !rows.has(id) && !input.reserved.has(id);
-      let id: string;
-      if ("exact" in input.id) {
-        if (!free(input.id.exact)) return { outcome: "id_taken" };
-        id = input.id.exact;
-      } else {
-        id = input.id.base;
-        for (let n = 2; !free(id); n += 1) id = `${input.id.base}-${n}`;
+      let id = input.base;
+      for (let n = 2; rows.has(id) || input.reserved.has(id); n += 1) {
+        id = `${input.base}-${n}`;
       }
       const at = new Date().toISOString();
       const row = {
@@ -168,22 +177,27 @@ function memoryRepositories() {
         url: input.url,
         branch: input.branch,
         profiles: null,
-        source: "console" as const,
+        source: "selection" as const,
         version: 1,
         created_at: at,
         updated_at: at,
       };
-      rows.set(id, { ...row, removed: false });
+      rows.set(id, row);
       receipts.push({
-        operation: "add_repository",
+        operation: "resolve_repository",
         id,
         receipt: input.receiptId,
       });
-      return { outcome: "stored", repository: row };
+      return {
+        outcome: "resolved",
+        repository: row,
+        created: true,
+        changed: true,
+      };
     },
     async setBranch(input) {
       const row = rows.get(input.id);
-      if (row === undefined || row.removed) return { outcome: "not_found" };
+      if (row === undefined) return { outcome: "not_found" };
       if (row.version !== input.version) {
         return { outcome: "revision_conflict" };
       }
@@ -194,30 +208,32 @@ function memoryRepositories() {
         id: input.id,
         receipt: input.receiptId,
       });
-      const { removed: _, ...view } = row;
-      return { outcome: "stored", repository: view };
+      return { outcome: "stored", repository: { ...row } };
     },
-    async remove(input) {
-      const row = rows.get(input.id);
-      if (row === undefined || row.removed) return { outcome: "not_found" };
-      if (inUse.has(input.id)) {
-        return { outcome: "in_use", profiles: ["default"], agents: [] };
-      }
-      row.removed = true;
-      receipts.push({
-        operation: "remove_repository",
-        id: input.id,
-        receipt: input.receiptId,
-      });
-      return { outcome: "removed" };
+    async agentCounts() {
+      return counts;
     },
   };
-  return { store, receipts, inUse, rows };
+  return { store, receipts, rows, counts };
 }
 
 const logs = new MemoryLogSink();
 const memory = memoryRepositories();
 let changes = 0;
+
+const ceiling = (
+  id: string,
+  apps: GitHubAppRepositories,
+): [string, InstallationProfileEntry] => [
+  id,
+  {
+    id,
+    origin: "console",
+    state: "usable",
+    repository_ids: [],
+    github_app_repositories: apps,
+  },
+];
 
 function appWith() {
   const app = createApiApp({
@@ -233,6 +249,28 @@ function appWith() {
           store: memory.store,
           apps: appStore(),
           directory: createGitHubAppDirectory({ retryAfterBaseMs: 1 }),
+          agents: {
+            async get(_workspaceId, agentId) {
+              const profile =
+                agentId === AGENT
+                  ? "op_open_v1"
+                  : agentId === LISTED_AGENT
+                    ? "op_closed_v1"
+                    : null;
+              return profile === null
+                ? null
+                : ({
+                    active_release: { runtime_profile_id: profile },
+                  } as unknown as AgentDetail);
+            },
+          },
+          catalog: {
+            profiles: {},
+            installation: new Map([
+              ceiling("op_open_v1", "installed"),
+              ceiling("op_closed_v1", "listed"),
+            ]),
+          },
           fileRepositories: {
             // A credentialed entry: shown read-only and its id reserved.
             tool: {
@@ -258,195 +296,256 @@ function appWith() {
       ),
   });
   return async (
-    method: "GET" | "POST" | "PATCH" | "DELETE",
+    method: "GET" | "POST" | "PATCH",
     path: string,
     request: {
       cookie?: string;
       key?: boolean;
       body?: unknown;
-      workspaceId?: string;
     } = {},
   ) => {
-    const response = await app.request(
-      `/v1/workspaces/${request.workspaceId ?? WORKSPACE}/github-repositories${path}`,
-      {
-        method,
-        headers: {
-          ...(request.cookie ? { Cookie: request.cookie } : {}),
-          ...(request.key ? { Authorization: `Bearer ${KEY.plaintext}` } : {}),
-          [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
-          ...(request.body === undefined
-            ? {}
-            : { "Content-Type": "application/json" }),
-        },
+    const response = await app.request(path, {
+      method,
+      headers: {
+        ...(request.cookie ? { Cookie: request.cookie } : {}),
+        ...(request.key ? { Authorization: `Bearer ${KEY.plaintext}` } : {}),
+        [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
         ...(request.body === undefined
           ? {}
-          : { body: JSON.stringify(request.body) }),
+          : { "Content-Type": "application/json" }),
       },
-    );
+      ...(request.body === undefined
+        ? {}
+        : { body: JSON.stringify(request.body) }),
+    });
     const text = await response.text();
     return { status: response.status, json: text ? JSON.parse(text) : null };
   };
 }
 
+const workspacePath = (suffix = "", workspaceId = WORKSPACE) =>
+  `/v1/workspaces/${workspaceId}/github-repositories${suffix}`;
+const agentPath = (agentId = AGENT, query = "") =>
+  `/v1/agents/${agentId}/github/repositories${query}`;
+
 let call: ReturnType<typeof appWith>;
-let appRepositoryId: number;
+const ids = new Map<string, number>();
 beforeAll(async () => {
   github = await startFakeGitHub({
     appId: APP_ID,
     publicKey: keys.publicKey,
-    installationId: 77,
+    installationId: INSTALLATION,
   });
-  await github.createRepository("acme", "App", { "README.md": "hi\n" });
-  await github.createRepository("acme", "other", { "README.md": "hi\n" });
+  for (const name of ["App", "other", "tool"]) {
+    await github.createRepository("acme", name, { "README.md": "hi\n" });
+  }
   call = appWith();
-  const listed = listGitHubRepositoryCandidatesResponseSchema.parse(
-    (await call("GET", "/candidates", { cookie: cookieFor("owner") })).json,
+  const listed = listGitHubRepositoriesResponseSchema.parse(
+    (await call("GET", workspacePath(), { cookie: cookieFor("owner") })).json,
   );
-  const app = listed.candidates.find((c) => c.full_name === "acme/App");
-  if (app === undefined) throw new Error("fake GitHub lists no acme/App");
-  appRepositoryId = app.github_repository_id;
+  for (const repository of listed.repositories) {
+    ids.set(repository.full_name, repository.github_repository_id);
+  }
 });
 afterAll(async () => {
   await github.stop();
 });
 
 const code = (json: unknown) => apiErrorResponseSchema.parse(json).error;
+const idOf = (fullName: string) => {
+  const id = ids.get(fullName);
+  if (id === undefined) throw new Error(`fake GitHub lists no ${fullName}`);
+  return id;
+};
+const bodyFor = (method: "GET" | "POST" | "PATCH") =>
+  method === "POST"
+    ? { installation_id: INSTALLATION, github_repository_id: 1 }
+    : method === "PATCH"
+      ? { branch: "main", version: 1 }
+      : undefined;
 
 describe("the GitHub repository API", () => {
-  test("an owner lists candidates, adds one, changes its branch and removes it", async () => {
+  test("an owner reads the App's repositories a page at a time with the catalog beside them", async () => {
     const owner = cookieFor("owner");
-    const candidates = listGitHubRepositoryCandidatesResponseSchema.parse(
-      (await call("GET", "/candidates", { cookie: owner })).json,
+    const first = listGitHubRepositoriesResponseSchema.parse(
+      (await call("GET", workspacePath("?per_page=2"), { cookie: owner })).json,
     );
-    expect(candidates.unavailable).toBeNull();
-    expect(candidates.candidates.map((c) => c.full_name)).toEqual([
+    expect(first).toMatchObject({
+      installations: [{ id: INSTALLATION, account: "acme" }],
+      installation_id: INSTALLATION,
+      page: 1,
+      per_page: 2,
+      total_count: 3,
+      unavailable: null,
+    });
+    expect(first.repositories.map((r) => r.full_name)).toEqual([
       "acme/App",
       "acme/other",
     ]);
-    expect(candidates.candidates[0]).toMatchObject({
-      github_repository_id: appRepositoryId,
-      account: "acme",
+    expect(first.repositories[0]).toMatchObject({
       default_branch: "main",
       catalog_id: null,
+      agent_count: 0,
     });
+    const second = listGitHubRepositoriesResponseSchema.parse(
+      (
+        await call(
+          "GET",
+          workspacePath(`?installation_id=${INSTALLATION}&page=2&per_page=2`),
+          { cookie: owner },
+        )
+      ).json,
+    );
+    // The file's credentialed entry holds acme/tool already.
+    expect(second.repositories).toEqual([
+      expect.objectContaining({ full_name: "acme/tool", catalog_id: "tool" }),
+    ]);
+    expect(second.catalog).toEqual([
+      expect.objectContaining({ id: "tool", source: "file", editable: false }),
+    ]);
 
-    const added = await call("POST", "", {
+    const elsewhere = await call("GET", workspacePath("?installation_id=5"), {
       cookie: owner,
-      body: { github_repository_id: appRepositoryId },
     });
-    expect(added.status).toBe(201);
-    const write = githubRepositoryWriteResponseSchema.parse(added.json);
-    // The URL and branch are GitHub's, the id the name in lower case.
-    expect(write.repository).toMatchObject({
+    expect(elsewhere.status).toBe(400);
+    expect(code(elsewhere.json).details).toEqual({
+      reason_code: "not_installed",
+    });
+    for (const bad of ["?per_page=101", "?page=0", "?installation_id=x"]) {
+      expect(
+        (await call("GET", workspacePath(bad), { cookie: owner })).status,
+        bad,
+      ).toBe(400);
+    }
+  });
+
+  test("a manager picks a repository for the agent: one catalog id, one receipt", async () => {
+    const owner = cookieFor("owner");
+    const page = listAgentGitHubRepositoriesResponseSchema.parse(
+      (await call("GET", agentPath(), { cookie: owner })).json,
+    );
+    expect(page.unavailable).toBeNull();
+    expect(page.total_count).toBe(3);
+
+    const body = {
+      installation_id: INSTALLATION,
+      github_repository_id: idOf("acme/App"),
+    };
+    const picked = await call("POST", agentPath(), { cookie: owner, body });
+    expect(picked.status).toBe(200);
+    const first = pickAgentGitHubRepositoryResponseSchema.parse(picked.json);
+    expect(first.catalog_id).toBe("app");
+    expect(first.receipt_id).not.toBeNull();
+    expect(memory.receipts.at(-1)).toEqual({
+      operation: "resolve_repository",
       id: "app",
-      full_name: "acme/App",
+      receipt: first.receipt_id ?? "",
+    });
+    // The URL and branch are GitHub's.
+    expect(memory.rows.get("app")).toMatchObject({
       url: "https://github.com/acme/App.git",
       branch: "main",
-      source: "console",
-      editable: true,
-      version: 1,
-      installed: true,
-    });
-    expect(memory.receipts.at(-1)).toEqual({
-      operation: "add_repository",
-      id: "app",
-      receipt: write.receipt_id,
+      source: "selection",
     });
     expect(changes).toBeGreaterThan(0);
 
+    const again = pickAgentGitHubRepositoryResponseSchema.parse(
+      (await call("POST", agentPath(), { cookie: owner, body })).json,
+    );
+    expect(again).toEqual({ catalog_id: "app", receipt_id: null });
+
+    memory.counts.set("app", 2);
     const listed = listGitHubRepositoriesResponseSchema.parse(
-      (await call("GET", "", { cookie: owner })).json,
+      (await call("GET", workspacePath(), { cookie: owner })).json,
     );
     expect(
-      listed.repositories.map(({ id, source, editable }) => ({
-        id,
-        source,
-        editable,
-      })),
-    ).toEqual([
-      { id: "app", source: "console", editable: true },
-      { id: "tool", source: "file", editable: false },
-    ]);
-
-    const again = await call("POST", "", {
-      cookie: owner,
-      body: { github_repository_id: appRepositoryId },
+      listed.repositories.find((r) => r.full_name === "acme/App"),
+    ).toMatchObject({ catalog_id: "app", agent_count: 2 });
+    expect(listed.catalog.find((r) => r.id === "app")).toMatchObject({
+      source: "selection",
+      editable: true,
+      installed: true,
     });
-    expect(again.status).toBe(400);
-    expect(code(again.json).details).toEqual({ reason_code: "already_added" });
+  });
 
-    const branch = await call("PATCH", "/app", {
+  test("a pick outside the installation, a file entry's repository or a listed ceiling is refused", async () => {
+    const owner = cookieFor("owner");
+    const absent = await call("POST", agentPath(), {
+      cookie: owner,
+      body: { installation_id: INSTALLATION, github_repository_id: 999_999 },
+    });
+    expect(absent.status).toBe(400);
+    expect(code(absent.json).details).toEqual({ reason_code: "not_installed" });
+
+    const file = await call("POST", agentPath(), {
+      cookie: owner,
+      body: {
+        installation_id: INSTALLATION,
+        github_repository_id: idOf("acme/tool"),
+      },
+    });
+    expect(file.status).toBe(400);
+    expect(code(file.json).details).toEqual({
+      reason_code: "file_repository",
+    });
+
+    expect(
+      listAgentGitHubRepositoriesResponseSchema.parse(
+        (await call("GET", agentPath(LISTED_AGENT), { cookie: owner })).json,
+      ),
+    ).toMatchObject({ repositories: [], unavailable: "ceiling_listed" });
+    const listed = await call("POST", agentPath(LISTED_AGENT), {
+      cookie: owner,
+      body: {
+        installation_id: INSTALLATION,
+        github_repository_id: idOf("acme/other"),
+      },
+    });
+    expect(listed.status).toBe(400);
+    expect(code(listed.json).details).toEqual({
+      reason_code: "repository_not_allowed",
+    });
+    const huge = "x".repeat(REQUEST_BODY_MAX_BYTES + 1);
+    expect(
+      (await call("POST", agentPath(), { cookie: owner, body: { huge } }))
+        .status,
+    ).toBe(413);
+    expect(
+      (
+        await call("POST", agentPath(), {
+          cookie: owner,
+          body: { installation_id: INSTALLATION },
+        })
+      ).status,
+    ).toBe(400);
+  });
+
+  test("an owner changes a resolved row's branch; a file entry and bad branches are refused", async () => {
+    const owner = cookieFor("owner");
+    const branch = await call("PATCH", workspacePath("/app"), {
       cookie: owner,
       body: { branch: "develop", version: 1 },
     });
     expect(branch.status).toBe(200);
     expect(
       githubRepositoryWriteResponseSchema.parse(branch.json).repository,
-    ).toMatchObject({ branch: "develop", version: 2 });
+    ).toMatchObject({ branch: "develop", version: 2, installed: true });
 
-    const stale = await call("PATCH", "/app", {
+    const stale = await call("PATCH", workspacePath("/app"), {
       cookie: owner,
       body: { branch: "main", version: 1 },
     });
     expect(stale.status).toBe(409);
     expect(code(stale.json).code).toBe("REVISION_CONFLICT");
 
-    memory.inUse.add("app");
-    const held = await call("DELETE", "/app", { cookie: owner });
-    expect(held.status).toBe(409);
-    expect(code(held.json)).toMatchObject({
-      code: "REPOSITORY_IN_USE",
-      details: { installation_profiles: ["default"], agents: [] },
-    });
-    memory.inUse.delete("app");
-
-    const removed = await call("DELETE", "/app", { cookie: owner });
-    expect(removed.status).toBe(200);
-    expect((await call("DELETE", "/app", { cookie: owner })).status).toBe(404);
-  });
-
-  test("an id the operator's file holds, or one in use, is not handed out", async () => {
-    const owner = cookieFor("admin");
-    const others = listGitHubRepositoryCandidatesResponseSchema
-      .parse((await call("GET", "/candidates", { cookie: owner })).json)
-      .candidates.find((c) => c.full_name === "acme/other");
-    if (others === undefined) throw new Error("candidate missing");
-    const taken = await call("POST", "", {
-      cookie: owner,
-      body: { github_repository_id: others.github_repository_id, id: "tool" },
-    });
-    expect(taken.status).toBe(400);
-    expect(code(taken.json).details).toEqual({ reason_code: "id_taken" });
-
-    // `app` was removed above: its id is still never reused.
-    const numbered = await call("POST", "", {
-      cookie: owner,
-      body: { github_repository_id: appRepositoryId },
-    });
-    expect(
-      githubRepositoryWriteResponseSchema.parse(numbered.json).repository.id,
-    ).toBe("app-2");
-  });
-
-  test("a repository the App cannot reach, a file entry and bad bodies are refused", async () => {
-    const owner = cookieFor("owner");
-    const absent = await call("POST", "", {
-      cookie: owner,
-      body: { github_repository_id: 999_999 },
-    });
-    expect(absent.status).toBe(400);
-    expect(code(absent.json).details).toEqual({ reason_code: "not_installed" });
-
-    const file = await call("PATCH", "/tool", {
+    const file = await call("PATCH", workspacePath("/tool"), {
       cookie: owner,
       body: { branch: "x", version: 1 },
     });
     expect(file.status).toBe(400);
     expect(code(file.json).details).toEqual({ reason_code: "file_repository" });
-    expect((await call("DELETE", "/tool", { cookie: owner })).status).toBe(400);
 
-    for (const branch of [
+    for (const bad of [
       "",
       "-x",
       "a..b",
@@ -459,28 +558,24 @@ describe("the GitHub repository API", () => {
       "a/.hidden",
       ".dot",
     ]) {
-      const bad = await call("PATCH", "/app-2", {
+      const refused = await call("PATCH", workspacePath("/app"), {
         cookie: owner,
-        body: { branch, version: 1 },
+        body: { branch: bad, version: 2 },
       });
-      expect(bad.status, branch).toBe(400);
+      expect(refused.status, bad).toBe(400);
     }
     const huge = "x".repeat(REQUEST_BODY_MAX_BYTES + 1);
     expect(
-      (await call("POST", "", { cookie: owner, body: { id: huge } })).status,
+      (
+        await call("PATCH", workspacePath("/app"), {
+          cookie: owner,
+          body: { branch: huge },
+        })
+      ).status,
     ).toBe(413);
-    expect(
-      (await call("PATCH", "/app-2", { cookie: owner, body: { branch: huge } }))
-        .status,
-    ).toBe(413);
-    const badId = await call("POST", "", {
-      cookie: owner,
-      body: { github_repository_id: appRepositoryId, id: "Bad Id" },
-    });
-    expect(badId.status).toBe(400);
     expect(
       (
-        await call("PATCH", "/missing", {
+        await call("PATCH", workspacePath("/missing"), {
           cookie: owner,
           body: { branch: "main", version: 1 },
         })
@@ -488,70 +583,29 @@ describe("the GitHub repository API", () => {
     ).toBe(404);
   });
 
-  test("a row seeded from a registered-App file entry is listed and edited; a credentialed file entry's repository is not added again", async () => {
-    const owner = cookieFor("owner");
-    const at = new Date().toISOString();
-    memory.rows.set("seeded", {
-      id: "seeded",
-      github_repository_id: null,
-      owner: "acme",
-      name: "seeded",
-      url: "https://github.com/acme/seeded.git",
-      branch: "main",
-      profiles: null,
-      source: "seed",
-      version: 1,
-      created_at: at,
-      updated_at: at,
-      removed: false,
-    });
-    const listed = listGitHubRepositoriesResponseSchema.parse(
-      (await call("GET", "", { cookie: owner })).json,
-    );
-    expect(listed.repositories.find((r) => r.id === "seeded")).toMatchObject({
-      source: "seed",
-      editable: true,
-    });
-    const branch = await call("PATCH", "/seeded", {
-      cookie: owner,
-      body: { branch: "develop", version: 1 },
-    });
-    expect(branch.status).toBe(200);
-
-    await github.createRepository("acme", "tool", { "README.md": "hi\n" });
-    const tool = listGitHubRepositoryCandidatesResponseSchema
-      .parse((await call("GET", "/candidates", { cookie: owner })).json)
-      .candidates.find((c) => c.full_name === "acme/tool");
-    expect(tool?.catalog_id).toBe("tool");
-    const again = await call("POST", "", {
-      cookie: owner,
-      body: { github_repository_id: tool?.github_repository_id },
-    });
-    expect(again.status).toBe(400);
-    expect(code(again.json).details).toEqual({ reason_code: "already_added" });
-  });
-
-  test("without the author App the candidates say so and adding is refused", async () => {
+  test("without the author App the pages say so and a pick is refused", async () => {
     const owner = cookieFor("owner");
     appRegistered = false;
     try {
-      expect(
-        listGitHubRepositoryCandidatesResponseSchema.parse(
-          (await call("GET", "/candidates", { cookie: owner })).json,
-        ),
-      ).toEqual({ candidates: [], unavailable: "no_author_app" });
       const listed = listGitHubRepositoriesResponseSchema.parse(
-        (await call("GET", "", { cookie: owner })).json,
+        (await call("GET", workspacePath(), { cookie: owner })).json,
       );
-      expect(listed.repositories.find((r) => r.id === "app-2")?.installed).toBe(
-        null,
-      );
-      const add = await call("POST", "", {
-        cookie: owner,
-        body: { github_repository_id: appRepositoryId },
+      expect(listed).toMatchObject({
+        installations: [],
+        installation_id: null,
+        repositories: [],
+        unavailable: "no_author_app",
       });
-      expect(add.status).toBe(400);
-      expect(code(add.json).details).toEqual({ reason_code: "no_author_app" });
+      expect(listed.catalog.find((r) => r.id === "app")?.installed).toBe(null);
+      const pick = await call("POST", agentPath(), {
+        cookie: owner,
+        body: {
+          installation_id: INSTALLATION,
+          github_repository_id: idOf("acme/other"),
+        },
+      });
+      expect(pick.status).toBe(400);
+      expect(code(pick.json).details).toEqual({ reason_code: "no_author_app" });
     } finally {
       appRegistered = true;
     }
@@ -559,30 +613,53 @@ describe("the GitHub repository API", () => {
 
   test("members, API keys and other workspaces are refused", async () => {
     const member = cookieFor("member");
-    for (const [method, path] of [
-      ["GET", ""],
-      ["GET", "/candidates"],
-      ["POST", ""],
-      ["PATCH", "/app-2"],
-      ["DELETE", "/app-2"],
-    ] as const) {
-      const body =
-        method === "POST"
-          ? { github_repository_id: appRepositoryId }
-          : method === "PATCH"
-            ? { branch: "main", version: 1 }
-            : undefined;
+    const routes = [
+      ["GET", workspacePath()],
+      ["PATCH", workspacePath("/app")],
+      ["GET", agentPath()],
+      ["POST", agentPath()],
+    ] as const;
+    for (const [method, path] of routes) {
+      const body = bodyFor(method);
       const refused = await call(method, path, { cookie: member, body });
       expect(refused.status, `${method} ${path}`).toBe(403);
-      const keyed = await call(method, path, { key: true, body });
-      expect(keyed.status, `${method} ${path} key`).toBe(403);
-      const elsewhere = await call(method, path, {
-        cookie: cookieFor("owner"),
-        workspaceId: OTHER_WORKSPACE,
-        body,
-      });
-      expect(elsewhere.status, `${method} ${path} other`).toBe(404);
       expect((await call(method, path, { body })).status).toBe(401);
     }
+    // A key never manages the workspace's repositories or picks one.
+    for (const [method, path] of [routes[0], routes[1], routes[3]]) {
+      expect(
+        (await call(method, path, { key: true, body: bodyFor(method) })).status,
+        `${method} ${path} key`,
+      ).toBe(403);
+    }
+    expect(
+      (
+        await call("GET", workspacePath("", OTHER_WORKSPACE), {
+          cookie: cookieFor("owner"),
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await call("GET", agentPath(crypto.randomUUID()), {
+          cookie: cookieFor("owner"),
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await call("POST", agentPath(crypto.randomUUID()), {
+          cookie: cookieFor("owner"),
+          body: { installation_id: 1, github_repository_id: 1 },
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await call("GET", agentPath(AGENT, "?per_page=0"), {
+          cookie: cookieFor("owner"),
+        })
+      ).status,
+    ).toBe(400);
   });
 });

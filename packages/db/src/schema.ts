@@ -5,10 +5,10 @@ import {
   AGENT_STATUS_VALUES,
   BINDING_MODE_VALUES,
   GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES,
+  GITHUB_REVIEW_OUTCOME_STATE_VALUES,
   type GitHubAppRole,
   type GitHubCeiling,
   type GitHubPackagesAllowEntry,
-  type GitHubPullRequestOutcomeState,
   MEMORY_WRITE_POLICY_VALUES,
   OPEN_PUSH_REQUEST_STATES,
   PERMISSION_MODE_VALUES,
@@ -17,6 +17,7 @@ import {
   SESSION_OUTCOME_CHECK_ERROR_VALUES,
   SESSION_OUTCOME_TYPE_VALUES,
   SESSION_STATUS_VALUES,
+  type SessionOutcome,
   type SessionOutcomeCheckError,
   type SessionOutcomeType,
   SLACK_APP_KIND_VALUES,
@@ -558,6 +559,35 @@ export const githubApps = pgTable(
     check(
       "github_apps_permissions_check",
       sql`(${table.permissions} IS NULL) = (${table.permissionsCheckedAt} IS NULL)`,
+    ),
+  ],
+);
+
+// A GitHub App manifest's single-use state, stored as its SHA-256 (design
+// github-app-manifest.md §3).
+export const githubAppManifestStates = pgTable(
+  "github_app_manifest_states",
+  {
+    stateHash: bytea("state_hash").primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    actorUserId: uuid("actor_user_id").notNull(),
+    role: text().$type<GitHubAppRole>().notNull(),
+    /** Null: the actor's own account. */
+    ownerLogin: text("owner_login"),
+    public: boolean().notNull(),
+    replacesAppId: bigint("replaces_app_id", { mode: "number" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("github_app_manifest_states_expires_idx").on(table.expiresAt),
+    check(
+      "github_app_manifest_states_role_check",
+      sql`${table.role} IN ('author', 'reviewer')`,
     ),
   ],
 );
@@ -1382,7 +1412,7 @@ export const sessionOutcomes = pgTable(
     url: text().notNull(),
     repositoryId: text("repository_id"),
     externalId: text("external_id"),
-    state: text().$type<GitHubPullRequestOutcomeState>().notNull(),
+    state: text().$type<SessionOutcome["state"]>().notNull(),
     stateChangedAt: timestamp("state_changed_at", {
       withTimezone: true,
     }).notNull(),
@@ -1420,6 +1450,10 @@ export const sessionOutcomes = pgTable(
     check(
       "session_outcomes_pull_request_state_check",
       sql`${table.type} <> 'github_pull_request' OR ${table.state} IN (${sql.raw(sqlList(GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES))})`,
+    ),
+    check(
+      "session_outcomes_review_state_check",
+      sql`${table.type} <> 'github_review' OR ${table.state} IN (${sql.raw(sqlList(GITHUB_REVIEW_OUTCOME_STATE_VALUES))})`,
     ),
     check(
       "session_outcomes_check_error_check",
@@ -3610,6 +3644,10 @@ export const installationProfiles = pgTable(
     // Null on a `catalog` row until startup fills it once from the
     // `profiles` arrays of repositories.yaml.
     repositoryIds: jsonb("repository_ids").$type<string[]>(),
+    // Beside repository_ids and, like it, outside the fingerprint.
+    githubAppRepositories: text("github_app_repositories")
+      .notNull()
+      .default("listed"),
     previousId: text("previous_id"),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -3654,13 +3692,18 @@ export const installationProfiles = pgTable(
       "installation_profiles_repository_ids_check",
       sql`${table.repositoryIds} IS NOT NULL OR ${table.origin} = 'catalog'`,
     ),
+    check(
+      "installation_profiles_github_app_repositories_check",
+      sql`${table.githubAppRepositories} IN ('listed', 'installed')`,
+    ),
   ],
 );
 
 /**
- * Repositories that use the console's GitHub App (repository-catalog-db.md).
- * A row is never deleted, so a catalog id never comes back meaning another
- * repository.
+ * Repositories that use the console's GitHub App: seeded or console rows
+ * from before, and rows an agent's pick resolved (decision
+ * settings-replace-file-catalog.md §1.1). A row is never deleted, so a
+ * catalog id never comes back meaning another repository.
  */
 export const catalogRepositories = pgTable(
   "catalog_repositories",
@@ -3697,7 +3740,7 @@ export const catalogRepositories = pgTable(
       .where(sql`${table.removedAt} IS NULL`),
     check(
       "catalog_repositories_source_check",
-      sql`${table.source} IN ('seed', 'console')`,
+      sql`${table.source} IN ('seed', 'console', 'selection')`,
     ),
     check(
       "catalog_repositories_app_role_check",

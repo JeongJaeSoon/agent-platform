@@ -5,7 +5,8 @@
 // traffic held to the egress proxy (no DNS), the master key only on the api
 // and the slack role, slack holding no provider or AWS key and its egress
 // held to DNS, HTTPS and the database, and the Ingress routing only the
-// api's public paths on an ALB that is not internet-facing, and the preview
+// api's public paths (the web console's "/" behind an ALB 404 on /internal)
+// on an ALB that is not internet-facing, and the preview
 // flag off in the AWS example. Run from the
 // repository root:
 // `bun deploy/helm/render-check.ts` (CI's helm-chart job).
@@ -530,11 +531,46 @@ const PUBLIC_PATHS = [
   "Exact /healthz",
   "Exact /readyz",
 ];
+// With the web console on, "/" would match /internal too, so an ALB
+// fixed-response 404 on /internal has to come first. The controller ranks
+// the longer Prefix first anyway; the spec order holds that on its face.
+const CONSOLE_PATHS = ["Prefix /internal", ...PUBLIC_PATHS, "Prefix /"];
+const ALB_ACTION = "alb.ingress.kubernetes.io/actions.";
+const BLOCK_ACTION = {
+  type: "fixed-response",
+  fixedResponseConfig: { contentType: "text/plain", statusCode: "404" },
+};
+// Extra conditions, rewrites, a shared group's earlier rules or another
+// controller can each send /internal past the 404 to the api.
+const ROUTE_OVERRIDE =
+  /^(alb\.ingress\.kubernetes\.io\/(actions|conditions|transforms|group)\.|kubernetes\.io\/ingress\.class$)/;
+
+function blocksInternal(
+  annotations: Record<string, string>,
+  // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
+  path: any,
+): boolean {
+  const service = path.backend?.service;
+  if (
+    path.path !== "/internal" ||
+    path.pathType !== "Prefix" ||
+    service?.port?.name !== "use-annotation"
+  ) {
+    return false;
+  }
+  try {
+    const action = JSON.parse(annotations[`${ALB_ACTION}${service.name}`]);
+    return Bun.deepEquals(action, BLOCK_ACTION, true);
+  } catch {
+    return false;
+  }
+}
 
 function checkIngress(
   label: string,
   manifests: Manifest[],
   enabled: boolean,
+  console = enabled,
 ): string[] {
   const errors: string[] = [];
   const ingresses = manifests.filter((m) => m.kind === "Ingress");
@@ -546,28 +582,58 @@ function checkIngress(
   for (const ingress of ingresses) {
     const fail = (message: string) =>
       errors.push(`${label}: Ingress/${ingress.metadata.name}: ${message}`);
-    const scheme = (
-      ingress.metadata as { annotations?: Record<string, string> }
-    ).annotations?.["alb.ingress.kubernetes.io/scheme"];
-    if (scheme === "internet-facing") {
+    // The Ingress carries the api Service's name; its "http" port is 3000.
+    const api = ingress.metadata.name;
+    const apiService = manifests.find(
+      (m) => m.kind === "Service" && m.metadata.name === api,
+    );
+    const httpPort = apiService?.spec.ports?.find(
+      (port: { name: string }) => port.name === "http",
+    );
+    if (httpPort?.port !== 3000) {
+      fail(`Service/${api} has no "http" port 3000`);
+    }
+    const annotations = ingress.metadata.annotations ?? {};
+    if (annotations["alb.ingress.kubernetes.io/scheme"] === "internet-facing") {
       fail("the ALB scheme is internet-facing; the entrance is in-house only");
     }
     if (ingress.spec.defaultBackend !== undefined) {
       fail("a default backend routes every path");
     }
+    if (console && ingress.spec.ingressClassName !== "alb") {
+      fail("the console needs ingressClassName alb");
+    }
+    const blockAction = `${ALB_ACTION}block-internal`;
+    for (const key of Object.keys(annotations)) {
+      if (console && key !== blockAction && ROUTE_OVERRIDE.test(key)) {
+        fail(`${key} can route /internal past the 404`);
+      }
+    }
     for (const rule of ingress.spec.rules ?? []) {
-      const paths: { path: string; pathType: string }[] =
-        rule.http?.paths ?? [];
-      for (const { path } of paths) {
-        if ("/internal/".startsWith(path) || path.startsWith("/internal")) {
-          fail(`${path} routes /internal`);
+      // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
+      const paths: any[] = rule.http?.paths ?? [];
+      let blocked = false;
+      for (const path of paths) {
+        if (blocksInternal(annotations, path)) {
+          blocked = true;
+          continue;
+        }
+        const { path: p } = path;
+        const service = path.backend?.service;
+        if (service?.name !== api || service?.port?.name !== "http") {
+          fail(`${p} does not route to Service/${api} port http`);
+        }
+        if (
+          ("/internal/".startsWith(p) || p.startsWith("/internal")) &&
+          !blocked
+        ) {
+          fail(`${p} routes /internal`);
         }
       }
+      const want = console ? CONSOLE_PATHS : PUBLIC_PATHS;
       const got = paths.map((p) => `${p.pathType} ${p.path}`);
-      if (JSON.stringify(got) !== JSON.stringify(PUBLIC_PATHS)) {
-        fail(
-          `paths ${JSON.stringify(got)} are not ${JSON.stringify(PUBLIC_PATHS)}`,
-        );
+      if (JSON.stringify(got) !== JSON.stringify(want)) {
+        fail(`paths ${JSON.stringify(got)} are not ${JSON.stringify(want)}`);
       }
     }
   }
@@ -732,6 +798,41 @@ function checkUpgradeHook(
 const MUST_FAIL: [string, string[], RegExp][] = [
   ["default values (no digests)", [], /digest must be sha256/],
   [
+    "the console on a controller other than the ALB",
+    [
+      "-f",
+      ciDigests,
+      "--set",
+      "ingress.enabled=true",
+      "--set",
+      "ingress.hosts[0].host=agent-platform.example.com",
+      "--set",
+      "ingress.console.enabled=true",
+    ],
+    /ingress\.console\.enabled needs ingress\.className alb/,
+  ],
+  ...[
+    "alb.ingress.kubernetes.io/conditions.block-internal",
+    "alb.ingress.kubernetes.io/conditions.ap-agent-platform-api",
+    "alb.ingress.kubernetes.io/transforms.ap-agent-platform-api",
+    "alb.ingress.kubernetes.io/actions.block-internal",
+    "alb.ingress.kubernetes.io/group.name",
+    "kubernetes.io/ingress.class",
+  ].map((key): [string, string[], RegExp] => [
+    `${key} with the console on`,
+    [
+      "-f",
+      ciDigests,
+      "-f",
+      awsExample,
+      "--set",
+      "ingress.console.enabled=true",
+      "--set-string",
+      `ingress.annotations.${key.replaceAll(".", "\\.")}=x`,
+    ],
+    /ingress\.annotations must not set .* while ingress\.console\.enabled/,
+  ]),
+  [
     "a tag-only image",
     [
       "-f",
@@ -841,6 +942,9 @@ const MUST_FAIL: [string, string[], RegExp][] = [
   ]),
 ];
 
+const awsRender = (...args: string[]) =>
+  render(["-f", ciDigests, "-f", awsExample, ...args]);
+const consoleRender = () => awsRender("--set", "ingress.console.enabled=true");
 const slackOff = render(["-f", ciDigests, "--set", "slack.enabled=false"]);
 const errors = [
   ...check("default", render(["-f", ciDigests]), true),
@@ -905,11 +1009,107 @@ errors.push(
   ...checkSlack("slack off", slackOff, false),
   ...checkIngress("default", render(["-f", ciDigests]), false),
   ...checkIngress(
-    "aws example",
-    render(["-f", ciDigests, "-f", awsExample]),
+    "default, ingress on",
+    render([
+      "-f",
+      ciDigests,
+      "--set",
+      "ingress.enabled=true",
+      "--set",
+      "ingress.hosts[0].host=agent-platform.example.com",
+    ]),
     true,
+    false,
   ),
+  ...checkIngress("aws example", awsRender(), true, false),
+  ...checkIngress("aws example, console on", consoleRender(), true, true),
 );
+// The chart cannot render these, so break a good render by hand.
+const CONSOLE_BREAKS: [string, (ingress: Manifest) => void, string][] = [
+  [
+    "no /internal rule",
+    (ingress) => ingress.spec.rules[0].http.paths.shift(),
+    "/ routes /internal",
+  ],
+  [
+    "/ ahead of /internal",
+    ({ spec }) =>
+      spec.rules[0].http.paths.unshift(spec.rules[0].http.paths.pop()),
+    "/ routes /internal",
+  ],
+  [
+    "no fixed-response action",
+    ({ metadata }) => {
+      for (const key of Object.keys(metadata.annotations ?? {})) {
+        if (key.startsWith(ALB_ACTION)) delete metadata.annotations?.[key];
+      }
+    },
+    "/internal routes /internal",
+  ],
+  [
+    "a fixed-response the ALB refuses",
+    ({ metadata }) => {
+      for (const key of Object.keys(metadata.annotations ?? {})) {
+        if (key.startsWith(ALB_ACTION) && metadata.annotations) {
+          metadata.annotations[key] = metadata.annotations[key].replace(
+            "text/plain",
+            "invalid",
+          );
+        }
+      }
+    },
+    "/internal routes /internal",
+  ],
+  [
+    "a fixed-response with a body over the ALB's limit",
+    ({ metadata }) => {
+      if (metadata.annotations) {
+        metadata.annotations[`${ALB_ACTION}block-internal`] = JSON.stringify({
+          ...BLOCK_ACTION,
+          fixedResponseConfig: {
+            ...BLOCK_ACTION.fixedResponseConfig,
+            messageBody: "x".repeat(1025),
+          },
+        });
+      }
+    },
+    "/internal routes /internal",
+  ],
+  [
+    "another controller",
+    ({ spec }) => {
+      spec.ingressClassName = "nginx";
+    },
+    "the console needs ingressClassName alb",
+  ],
+  ...[
+    "alb.ingress.kubernetes.io/conditions.block-internal",
+    "alb.ingress.kubernetes.io/conditions.ap-agent-platform-api",
+    "alb.ingress.kubernetes.io/transforms.ap-agent-platform-api",
+    "alb.ingress.kubernetes.io/group.order",
+    "kubernetes.io/ingress.class",
+  ].map((key): [string, (ingress: Manifest) => void, string] => [
+    key,
+    ({ metadata }) => {
+      metadata.annotations = { ...metadata.annotations, [key]: "x" };
+    },
+    `${key} can route /internal past the 404`,
+  ]),
+  [
+    "/ on another Service",
+    ({ spec }) => {
+      spec.rules[0].http.paths.at(-1).backend.service.name = "elsewhere";
+    },
+    "/ does not route to Service/ap-agent-platform-api port http",
+  ],
+];
+for (const [name, breakIngress, expected] of CONSOLE_BREAKS) {
+  const manifests = consoleRender();
+  manifests.filter((m) => m.kind === "Ingress").forEach(breakIngress);
+  if (!checkIngress(name, manifests, true).some((e) => e.endsWith(expected))) {
+    errors.push(`a console Ingress with ${name} was not refused`);
+  }
+}
 const exposed = checkIngress(
   "aws example, internet-facing",
   render([
@@ -1088,5 +1288,5 @@ if (errors.length > 0) {
   process.exit(1);
 }
 console.log(
-  `render-check: default and aws example renders pass, scheduler off and on, slack off, preview on, metrics on, worker images (one, current runtime, two) alike on api, slack and scheduler, the upgrade check ahead of migrate; ${MUST_FAIL.length} bad inputs, an internet-facing ALB and a preview aws example refused`,
+  `render-check: default and aws example renders pass, scheduler off and on, slack off, preview on, metrics on, worker images (one, current runtime, two) alike on api, slack and scheduler, the upgrade check ahead of migrate; ${MUST_FAIL.length} bad inputs, an internet-facing ALB, ${CONSOLE_BREAKS.length} broken console Ingresses and a preview aws example refused; the console Ingress on and off`,
 );
