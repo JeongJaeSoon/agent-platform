@@ -498,7 +498,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.retireText":
     "Releases and sessions that already use it keep running. New releases and sessions cannot pick it. Turning it off cannot be undone.",
   "profiles.retireCeilingText":
-    "Releases, sessions and workspace profiles already on this profile keep running. New releases, sessions and workspace profiles cannot pick it. Turning it off cannot be undone.",
+    "Releases, sessions and workspace profiles already using this one keep running. New releases, sessions and workspace profiles cannot pick it. Turning it off cannot be undone.",
   "profiles.retiring": "Turning off…",
   "profiles.retired": "Turned off version {id}.",
   "profiles.retireRow": "Turn off this version",
@@ -532,7 +532,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
     "Sets the widest range every workspace on this installation can use. A saved version never changes; editing makes a new one.",
   "profiles.detail.ownerOnly":
     "Only a workspace owner changes installation profiles",
-  "profiles.detail.createFrom": "Create a profile from this",
+  "profiles.detail.createFrom": "Create a workspace profile from this one",
   "profiles.detail.settings": "Settings",
   "profiles.detail.id": "ID",
   "profiles.detail.models": "Models to choose from",
@@ -576,17 +576,17 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "nav.profiles": "実行プロファイル",
   "profiles.title": "実行プロファイル",
   "profiles.description":
-    "エージェントが使うモデルとツールを決めます。インストールプロファイルは、このインストールのすべてのワークスペースが使える最も広い範囲を決めます。ワークスペースのプロファイルはインストールプロファイルを 1 つ絞って作ります。",
+    "エージェントが使うモデルとツールを決めます。インストールのプロファイルは、このインストールのすべてのワークスペースが使える最も広い範囲を決めます。ワークスペースのプロファイルはインストールのプロファイルを 1 つ絞って作ります。",
   "profiles.create": "プロファイルを作成",
-  "profiles.createCeiling": "インストールプロファイルを作成",
-  "profiles.kind.installation": "インストールプロファイル",
+  "profiles.createCeiling": "インストールのプロファイルを作成",
+  "profiles.kind.installation": "インストールのプロファイル",
   "profiles.kind.workspace": "ワークスペースのプロファイル",
   "profiles.filter.label": "プロファイルの種類",
   "profiles.filter.all": "すべて",
   "profiles.workspace.title": "ワークスペースのプロファイル",
   "profiles.workspace.description":
     "編集すると新しいバージョンとして保存されます。前のバージョンを使っていたエージェントはそのまま動きます。",
-  "profiles.operator.title": "インストールプロファイル",
+  "profiles.operator.title": "インストールのプロファイル",
   "profiles.locked":
     "変更するにはワークスペースのオーナーか管理者に依頼してください",
   "profiles.count": "{count} 件",
@@ -649,19 +649,19 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.emptyWorkspace.title":
     "ワークスペースのプロファイルはまだありません",
   "profiles.emptyWorkspace.text":
-    "エージェントはインストールプロファイルをそのまま使います。インストールプロファイルをもとに、モデルやツールを減らしたプロファイルを作成できます。",
+    "エージェントはインストールのプロファイルをそのまま使います。インストールのプロファイルをもとに、モデルやツールを減らしたプロファイルを作成できます。",
   "profiles.baseChanged.title": "{name} のベースプロファイルが変わりました",
   "profiles.baseChanged.text":
     "{base} が変わりました。{id} では新しいリリースを作成できず、このバージョンを使うリリースも新しいセッションを開始できません。作り直して新しいバージョンに移してください。",
   "profiles.baseMissing.title": "{name} のベースプロファイルがなくなりました",
   "profiles.baseMissing.text":
-    "{base} がなくなりました。{id} では新しいリリースを作成できず、このバージョンを使うリリースも新しいセッションを開始できません。別のインストールプロファイルから新しく作成してください。",
+    "{base} がなくなりました。{id} では新しいリリースを作成できず、このバージョンを使うリリースも新しいセッションを開始できません。別のインストールのプロファイルから新しく作成してください。",
   "profiles.editor.versionTitle": "{name} の新しいバージョン",
   "profiles.editor.remakeTitle": "{name} を作り直す",
   "profiles.editor.description":
-    "ベースのインストールプロファイルから、モデル・ツールを減らすか、権限モードをより厳しくすることだけができます。",
+    "ベースのインストールのプロファイルから、モデル・ツールを減らすか、権限モードをより厳しくすることだけができます。",
   "profiles.editor.base": "ベースプロファイル",
-  "profiles.editor.baseHeading": "インストールプロファイル {id}",
+  "profiles.editor.baseHeading": "インストールのプロファイル {id}",
   "profiles.editor.engineModel": "エンジン・モデル",
   "profiles.editor.engineModelValue": "Claude Agent SDK {version} · {model}",
   "profiles.editor.permissionMode": "権限モード",
@@ -684,7 +684,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.editor.autoClosed":
     "auto はベースプロファイルが auto か bypassPermissions のときだけ選べます。",
   "profiles.editor.bypassClosed":
-    "bypassPermissions はベースプロファイルが bypassPermissions のときだけ選べます。インストール設定 PLATFORM_ALLOW_UNATTENDED_PERMISSIONS が有効で、オーナーがそのようなインストールプロファイルを作成する必要があります。",
+    "bypassPermissions はベースプロファイルが bypassPermissions のときだけ選べます。インストール設定 PLATFORM_ALLOW_UNATTENDED_PERMISSIONS が有効で、オーナーがそのようなインストールのプロファイルを作成する必要があります。",
   "profiles.editor.bypassRisk":
     "bypassPermissions はすべてのツール呼び出しを判定なしで実行します。ファイルの書き込み・シェルコマンド・git commit も人や分類器が確認せず、制限はコンテナ・外部接続の許可リスト・ツール一覧・コスト上限だけです。危険な呼び出しを分類器に止めさせるには auto を選んでください。",
   "profiles.editor.scriptCeiling": "スクリプト上限",
@@ -715,13 +715,13 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.review.text": "{id} と異なる項目です。",
   "profiles.review.none": "{id} と異なる項目はありません。",
   "profiles.review.change": "{before} → {after}",
-  "profiles.new.ceilingTitle": "インストールプロファイルを作成",
+  "profiles.new.ceilingTitle": "インストールのプロファイルを作成",
   "profiles.new.ceilingVersionTitle": "{name} の新しいバージョン",
   "profiles.new.ceilingDescription":
-    "インストールプロファイルは、このインストールのすべてのワークスペースが使える最も広い範囲を決めます。ワークスペースのプロファイルはこれを絞ることだけができます。接続・認証情報・コスト上限はインストール設定で決めます。",
+    "インストールのプロファイルは、このインストールのすべてのワークスペースが使える最も広い範囲を決めます。ワークスペースのプロファイルはこれを絞ることだけができます。接続・認証情報・コスト上限はインストール設定で決めます。",
   "profiles.new.kind": "種類",
   "profiles.new.kindHint.workspace":
-    "インストールプロファイル 1 つをもとに、モデル・ツール・権限モードを絞ります。",
+    "インストールのプロファイル 1 つをもとに、モデル・ツール・権限モードを絞ります。",
   "profiles.new.kindHint.installation":
     "接続 1 つの上で、ランタイム・モデル・ツール・権限モード・リポジトリを決めます。オーナーだけが作れます。",
   "profiles.new.fromMissing":
@@ -731,7 +731,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "このインストールに接続がありません。インストール設定に接続を置いてから開き直してください。",
   "profiles.new.noRuntimes":
     "このインストールの worker が受け付けるランタイムがありません。",
-  "profiles.new.noBase": "もとにできるインストールプロファイルがありません。",
+  "profiles.new.noBase": "もとにできるインストールのプロファイルがありません。",
   "profiles.ceiling.connection": "接続",
   "profiles.ceiling.connectionOption": "{id} ({kind} · {billing})",
   "profiles.ceiling.connectionHint":
@@ -765,7 +765,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "保存したバージョンは変わりません。変更するには新しいバージョンを作ります。",
   "profiles.ceiling.save": "保存",
   "profiles.ceiling.ownerOnly":
-    "インストールプロファイルはワークスペースのオーナーだけが作成・使用停止できます。",
+    "インストールのプロファイルはワークスペースのオーナーだけが作成・使用停止できます。",
   "profiles.ceiling.error.unknownConnection":
     "その接続はこのインストールにありません。再読み込みして接続を選んでください。",
   "profiles.ceiling.error.runtimeNotInstalled":
@@ -797,36 +797,36 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.retireRow": "このバージョンを使用停止",
   "profiles.retireRowHint":
     "新しいリリースとセッションではこのバージョンを選べなくなります。元に戻せません。",
-  "profiles.blockRow": "このインストールプロファイルをブロック",
+  "profiles.blockRow": "このインストールのプロファイルをブロック",
   "profiles.blockRowHint":
     "このプロファイルを使うセッションも次のターンで止まります。解除できますが、止まったターンは再実行されません。",
   "profiles.block": "ブロック",
   "profiles.unblock": "ブロック解除",
-  "profiles.blockTitle": "インストールプロファイル {id} をブロックしますか?",
+  "profiles.blockTitle": "インストールのプロファイル {id} をブロックしますか?",
   "profiles.unblockTitle":
-    "インストールプロファイル {id} のブロックを解除しますか?",
+    "インストールのプロファイル {id} のブロックを解除しますか?",
   "profiles.blockText":
     "このプロファイルとその上のワークスペースのプロファイルでは、新しいリリースとセッションを作成できません。すでに使っているセッションも次のターンで止まり、いま動いているターンは 1 秒ほどでモデルとリポジトリへのリクエストが切れます。解除できますが、止まったターンは再実行されません。",
   "profiles.unblockText":
     "このプロファイルを再び選べるようになります。ブロック中に止まったセッションとターンは自動では再実行されません。必要なセッションには新しいメッセージを送ってください。",
   "profiles.blocking": "ブロックしています…",
   "profiles.unblocking": "ブロックを解除しています…",
-  "profiles.blockDone": "インストールプロファイル {id} をブロックしました。",
+  "profiles.blockDone": "インストールのプロファイル {id} をブロックしました。",
   "profiles.unblockDone":
-    "インストールプロファイル {id} のブロックを解除しました。",
+    "インストールのプロファイル {id} のブロックを解除しました。",
   "profiles.blockOwnerOnly":
-    "インストールプロファイルはワークスペースのオーナーだけがブロック・解除できます。",
+    "インストールのプロファイルはワークスペースのオーナーだけがブロック・解除できます。",
   "profiles.open": "{name} の詳細を見る",
   "profiles.detail.notFound.title": "プロファイルが見つかりません",
   "profiles.detail.notFound.text":
     "プロファイル {id} はありません。アドレスが誤っている可能性があります。",
   "profiles.detail.back": "実行プロファイル一覧へ",
   "profiles.detail.workspaceDescription":
-    "インストールプロファイルをもとにこのワークスペースで作ったプロファイルです。編集すると新しいバージョンとして保存され、このバージョンはそのまま残ります。",
+    "インストールのプロファイルをもとにこのワークスペースで作ったプロファイルです。編集すると新しいバージョンとして保存され、このバージョンはそのまま残ります。",
   "profiles.detail.ceilingDescription":
     "このインストールのすべてのワークスペースが使える最も広い範囲を決めます。保存したバージョンは変わらず、編集すると新しいバージョンになります。",
   "profiles.detail.ownerOnly":
-    "インストールプロファイルはワークスペースのオーナーだけが変更できます",
+    "インストールのプロファイルはワークスペースのオーナーだけが変更できます",
   "profiles.detail.createFrom":
     "このプロファイルからワークスペースのプロファイルを作成",
   "profiles.detail.settings": "設定",
@@ -848,7 +848,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.detail.audit.you": "{id} (自分)",
   "profiles.detail.history.title": "バージョン履歴",
   "profiles.detail.history.ceilingDescription":
-    "前のバージョンでつながったインストールプロファイルです。前のバージョンを使うリリースはそのまま動きます。",
+    "前のバージョンでつながったインストールのプロファイルです。前のバージョンを使うリリースはそのまま動きます。",
   "profiles.detail.history.version": "バージョン",
   "profiles.detail.history.named": "{name} v{version}",
   "profiles.detail.history.current": "表示中",
