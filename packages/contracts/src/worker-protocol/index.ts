@@ -290,6 +290,10 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   // object store credential, only this token, which reaches its session's
   // prefix for as long as the attempt owns the session.
   object_store: z.object({ access: egressTokenAuthSchema }).strict(),
+  // The packages route's capability: public package registries, read
+  // through the egress proxy with no credential. Absent from an older API;
+  // a worker then points no package manager at the route.
+  packages: z.object({ access: egressTokenAuthSchema }).strict().optional(),
   principal: claimPrincipalSchema,
   restore: checkpointRefSchema.nullable(),
   // Present when the session's checkpoints up to `restore` were committed

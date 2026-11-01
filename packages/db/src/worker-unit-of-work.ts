@@ -1533,6 +1533,18 @@ async function issueCredentials(
             expiresAt,
           },
         ]),
+    ...(bindings.packages === undefined ||
+    input.egress.packagesHash === undefined
+      ? []
+      : [
+          {
+            tokenHash: input.egress.packagesHash,
+            attemptId,
+            purpose: "packages",
+            binding: bindings.packages,
+            expiresAt,
+          },
+        ]),
   ]);
 }
 

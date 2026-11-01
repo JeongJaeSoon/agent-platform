@@ -44,6 +44,8 @@ export async function main(
       allow: [...config.allow, ...config.credential.allow],
       allowPrivate: [...config.allowPrivate, ...config.credential.allowPrivate],
     },
+    // Public only: a registry's redirect is never a way into the private plane.
+    packagesRedirect: { allow: config.credential.packagesRedirect, allowPrivate: [] },
     port: config.credential.port,
   });
   return {

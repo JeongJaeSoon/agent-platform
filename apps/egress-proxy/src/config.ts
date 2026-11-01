@@ -15,6 +15,11 @@ export type EgressProxyEnvironment = {
    */
   EGRESS_CREDENTIAL_ALLOWLIST?: string | undefined;
   EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST?: string | undefined;
+  /**
+   * Public hosts the packages route follows a registry's redirect to, and
+   * reaches no other way.
+   */
+  EGRESS_PACKAGES_REDIRECT_ALLOWLIST?: string | undefined;
   /** Public destinations, `host:port`, comma separated. */
   EGRESS_ALLOWLIST?: string | undefined;
   /** Destinations deliberately inside the private plane. */
@@ -39,6 +44,7 @@ type EgressCredentialConfig = {
   /** Added to the forward allowlists for the credential routes' upstreams. */
   allow: EgressDestination[];
   allowPrivate: EgressDestination[];
+  packagesRedirect: EgressDestination[];
   authorizerToken: string;
   authorizerUrl: string;
   port: number;
@@ -73,12 +79,13 @@ export function egressProxyConfigFromEnv(
   const overlap = [
     ...(credential?.allow ?? []),
     ...(credential?.allowPrivate ?? []),
+    ...(credential?.packagesRedirect ?? []),
   ]
     .map(({ host, port }) => `${host}:${port}`)
     .filter((destination) => forward.has(destination));
   if (overlap.length > 0) {
     throw new Error(
-      `${overlap.join(", ")} must be on EGRESS_CREDENTIAL_(PRIVATE_)ALLOWLIST alone: on EGRESS_ALLOWLIST or EGRESS_PRIVATE_ALLOWLIST a worker reaches it without its credential route`,
+      `${overlap.join(", ")} must be on EGRESS_CREDENTIAL_(PRIVATE_)ALLOWLIST or EGRESS_PACKAGES_REDIRECT_ALLOWLIST alone: on EGRESS_ALLOWLIST or EGRESS_PRIVATE_ALLOWLIST a worker reaches it without its credential route`,
     );
   }
   return {
@@ -138,6 +145,10 @@ function credentialConfig(
     allowPrivate: parseDestinations(
       environment.EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST ?? "",
       "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST",
+    ),
+    packagesRedirect: parseDestinations(
+      environment.EGRESS_PACKAGES_REDIRECT_ALLOWLIST ?? "",
+      "EGRESS_PACKAGES_REDIRECT_ALLOWLIST",
     ),
     authorizerToken: token,
     authorizerUrl: parsed.href,

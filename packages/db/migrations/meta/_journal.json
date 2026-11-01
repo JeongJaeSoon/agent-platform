@@ -778,6 +778,13 @@
       "when": 1793507107541,
       "tag": "0201_session_data_rollups",
       "breakpoints": true
+    },
+    {
+      "idx": 202,
+      "version": "7",
+      "when": 1793517451924,
+      "tag": "0202_worker_credentials_packages",
+      "breakpoints": true
     }
   ]
 }
