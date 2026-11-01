@@ -67,9 +67,12 @@
 |---|---|
 | `GET /v1/workspaces/{id}/github-repositories` | 카탈로그의 GitHub 저장소. 행마다 `source`(`console`·`seed`·`file`), `editable`, 설치 상태 |
 | `GET /v1/workspaces/{id}/github-repositories/candidates` | 작성용 App의 설치마다 `GET /installation/repositories`로 읽은 저장소. 이미 카탈로그에 있으면 `catalog_id`를 붙인다 |
-| `POST /v1/workspaces/{id}/github-repositories` | `{ github_repository_id, id? }`. 서버가 후보 목록에서 그 저장소를 다시 찾아 URL과 기본 브랜치를 정한다. 후보에 없으면 422 `not_installed` |
+| `POST /v1/workspaces/{id}/github-repositories` | `{ github_repository_id, id? }`. 서버가 후보 목록에서 그 저장소를 다시 찾아 URL과 기본 브랜치를 정한다. 후보에 없으면 400 `not_installed`, 이미 있으면 400 `already_added`, `id`가 쓰였으면 400 `id_taken` |
 | `PATCH /v1/workspaces/{id}/github-repositories/{repositoryId}` | `{ branch, version }`. `version`이 다르면 409 `REVISION_CONFLICT` |
-| `DELETE /v1/workspaces/{id}/github-repositories/{repositoryId}` | 제거. 참조가 있으면 409 `REPOSITORY_IN_USE` |
+| `DELETE /v1/workspaces/{id}/github-repositories/{repositoryId}` | 제거. 참조가 있으면 409 `REPOSITORY_IN_USE`(`details`에 프로필 상한 id와 에이전트 slug) |
+
+- 운영자 파일의 항목에 PATCH·DELETE를 보내면 400 `file_repository`다. 응답 코드는 기존 400 `BAD_REQUEST` + `reason_code` 방식을 따른다(이 API에 422를 따로 두지 않는다).
+- 브랜치 이름은 공백, git이 받지 않는 문자, `..`, 앞의 `-`, 끝의 `/`·`.lock`을 막는다. 그 브랜치가 GitHub에 있는지는 묻지 않는다(LATER).
 
 - `id`를 주지 않으면 서버가 저장소 이름을 소문자로 바꿔 쓰고, 이미 쓰인 id(제거된 것 포함)면 `-2`, `-3`을 붙인다. 형식은 지금 카탈로그 id 규칙을 따른다.
 - `GET …/github-app`의 `repositories`는 그대로 둔다. 화면은 새 목록 API를 쓴다.
@@ -113,5 +116,6 @@ receipt에는 id, owner/name, URL, 브랜치(바꾸기 전과 후)만 넣는다.
 ## LATER
 
 - yaml을 다시 가져오는 명시적 명령(IaC로 저장소를 관리하는 설치용).
+- 기본 브랜치를 바꿀 때 GitHub에 그 브랜치가 있는지 확인.
 - 리뷰용 App 전용 저장소(`app_role: reviewer`).
 - GHES의 콘솔 App.

@@ -50,7 +50,8 @@ export function fakeApi(routes: Record<string, Handler>) {
             routes["GET /v1/administered-agents"],
             input,
           )
-        : undefined);
+        : undefined) ??
+      repositoriesFrom(routes, key, input);
     if (!handler) return apiError(404, "NOT_FOUND", `no fake for ${key}`);
     // The body was read for the record; a handler gets one it can read again.
     return handler(
@@ -64,6 +65,55 @@ export function fakeApi(routes: Record<string, Handler>) {
     );
   };
   return { fetch: fetch as unknown as typeof globalThis.fetch, calls };
+}
+
+/**
+ * The catalog list a test that fakes only the author App's read implies: its
+ * repositories as console rows, as the server lists them.
+ */
+function repositoriesFrom(
+  routes: Record<string, Handler>,
+  key: string,
+  input: Request,
+): Handler | undefined {
+  const match = /^GET \/v1\/workspaces\/([^/]+)\/github-repositories$/.exec(
+    key,
+  );
+  const app = match
+    ? routes[`GET /v1/workspaces/${match[1]}/github-apps/author`]
+    : undefined;
+  if (!app) return undefined;
+  return async () => {
+    const answer = await app(input);
+    if (!answer.ok) return answer;
+    const read = (await answer.json()) as {
+      check: { state: string } | null;
+      repositories: {
+        id: string;
+        url: string;
+        installation_id: number | null;
+      }[];
+    };
+    return json(200, {
+      repositories: read.repositories.map((repository) => ({
+        id: repository.id,
+        github_repository_id: null,
+        full_name: new URL(repository.url).pathname
+          .replace(/^\//, "")
+          .replace(/\.git$/, ""),
+        url: repository.url,
+        branch: "main",
+        source: "console",
+        editable: true,
+        version: 1,
+        installed:
+          read.check?.state === "ok"
+            ? repository.installation_id !== null
+            : null,
+        updated_at: null,
+      })),
+    });
+  };
 }
 
 /**
