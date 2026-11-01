@@ -59,27 +59,27 @@ export const githubKo = {
   "github.openOnGitHub": "GitHub에서 보기",
   "github.repositories": "에이전트가 쓰는 저장소",
   "github.repositoriesHint":
-    "App이 설치된 저장소 중 에이전트에게 열어 줄 것을 고릅니다. 에이전트마다 쓸 수 있는 저장소는 실행 프로필 상한과 에이전트 설정에서 이 목록 안에서 다시 고릅니다.",
+    "App이 설치된 저장소는 등록 없이 GitHub 설치 목록에서 바로 읽습니다. 에이전트마다 쓸 저장소는 에이전트의 GitHub 탭에서 고릅니다.",
   "github.repositoriesByAccount": "계정별 저장소 보기 ↓",
   "github.repositoriesEmpty":
-    "아직 추가한 저장소가 없습니다. '저장소 추가'에서 App이 설치된 저장소를 고르세요.",
+    "아직 에이전트가 고른 저장소가 없습니다. 에이전트의 GitHub 탭에서 App이 설치된 저장소를 고르면 여기에 나옵니다.",
   "github.repositoriesFoot":
-    "추가·브랜치 변경·제거는 감사 기록(receipt)에 남습니다. 처음 한 번 config/repositories.yaml에서 가져온 저장소도 여기서 고칩니다. 로그인 비밀값이 필요한 저장소는 운영자가 설정 파일에서 관리합니다.",
-  "github.repo.add": "저장소 추가",
+    "고르기와 브랜치 변경은 감사 기록(receipt)에 남습니다. 처음 한 번 config/repositories.yaml에서 가져온 저장소도 여기서 고칩니다. 로그인 비밀값이 필요한 저장소는 운영자가 설정 파일에서 관리합니다.",
+  "github.repo.browse": "설치된 저장소 보기",
   "github.repo.pickTitle": "App이 설치된 저장소",
   "github.repo.pickHint":
-    "App이 설치된 저장소만 고를 수 있습니다. 기본 브랜치는 GitHub에서 읽어 채웁니다. 목록에 없으면 GitHub에서 App 설치에 저장소를 더하세요.",
-  "github.repo.pickEmpty": "App이 설치된 저장소가 없습니다.",
-  "github.repo.search": "저장소 이름으로 찾기",
-  "github.repo.pickList": "추가할 수 있는 저장소 목록",
-  "github.repo.searchEmpty": "맞는 저장소가 없습니다.",
+    "GitHub가 App 설치에 허용한 저장소입니다. 목록에 없으면 GitHub에서 App 설치에 저장소를 더하세요.",
+  "github.repo.pickEmpty": "이 설치에 허용된 저장소가 없습니다.",
   "github.repo.pickNoApp": "작성용 App을 먼저 등록하세요.",
+  "github.repo.pickNoInstallation":
+    "App이 아직 어디에도 설치되지 않았습니다. GitHub에서 App을 설치하세요.",
   "github.repo.pickUnreachable":
     "GitHub에 연결하지 못해 저장소 목록을 읽지 못했습니다. 잠시 뒤 다시 여세요.",
-  "github.repo.added": "{name}을(를) 추가했습니다.",
-  "github.repo.alreadyAdded": "이미 추가됨",
-  "github.repo.addOne": "추가",
-  "github.repo.addName": "{name} 추가",
+  "github.repo.installation": "설치",
+  "github.repo.pageOf": "{total}개 중 {from}–{to}",
+  "github.repo.previousPage": "이전",
+  "github.repo.nextPage": "다음",
+  "github.repo.agentCount": "에이전트 {count}개가 사용",
   "github.repo.private": "비공개",
   "github.repo.branch": "기본 브랜치",
   "github.repo.branchHint":
@@ -91,15 +91,6 @@ export const githubKo = {
   "github.repo.saved": "{name}의 기본 브랜치를 {branch}(으)로 바꿨습니다.",
   "github.repo.conflict":
     "다른 곳에서 이 저장소를 먼저 바꿨습니다. 새로 읽은 값을 확인하고 다시 저장하세요.",
-  "github.repo.remove": "제거",
-  "github.repo.removeName": "{name} 제거",
-  "github.repo.removeTitle": "저장소를 카탈로그에서 제거할까요?",
-  "github.repo.removeConsequence":
-    "새 세션과 에이전트 release에서 이 저장소를 고를 수 없게 됩니다. 이 id는 다시 쓰이지 않습니다. GitHub의 App 설치는 그대로 남습니다.",
-  "github.repo.removed": "{name}을(를) 제거했습니다.",
-  "github.repo.inUse":
-    "아직 이 저장소를 쓰는 곳이 있어 제거하지 못했습니다. 실행 프로필 상한: {profiles}. 에이전트: {agents}.",
-  "github.repo.none": "없음",
   "github.repo.file": "설정 파일",
   "github.repo.fileHint":
     "운영자 설정 파일의 저장소입니다. 콘솔에서 바꾸지 않습니다.",
@@ -295,27 +286,27 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.openOnGitHub": "View on GitHub",
   "github.repositories": "Repositories agents use",
   "github.repositoriesHint":
-    "Choose which repositories the App is installed on to open to agents. Each agent's repositories are chosen again from this list, in the run profile ceiling and the agent's settings.",
+    "Repositories the App is installed on are read from GitHub's installation list, without registering them. Each agent's repositories are picked on its GitHub tab.",
   "github.repositoriesByAccount": "Repositories by account ↓",
   "github.repositoriesEmpty":
-    "No repository added yet. Pick one the App is installed on with 'Add repository'.",
+    "No agent has picked a repository yet. Pick one the App is installed on from an agent's GitHub tab and it shows here.",
   "github.repositoriesFoot":
-    "Adding, branch changes and removal are kept in the audit record (receipts). Repositories imported once from config/repositories.yaml are edited here too. Repositories that need a login secret stay in the operator's file.",
-  "github.repo.add": "Add repository",
+    "Picks and branch changes are kept in the audit record (receipts). Repositories imported once from config/repositories.yaml are edited here too. Repositories that need a login secret stay in the operator's file.",
+  "github.repo.browse": "Browse installed repositories",
   "github.repo.pickTitle": "Repositories the App is installed on",
   "github.repo.pickHint":
-    "Only repositories the App is installed on can be picked. The default branch is read from GitHub. If one is missing, add it to the App's installation on GitHub.",
-  "github.repo.pickEmpty": "The App is installed on no repository.",
-  "github.repo.search": "Find by repository name",
-  "github.repo.pickList": "Repositories you can add",
-  "github.repo.searchEmpty": "No repository matches.",
+    "The repositories GitHub lets the App's installation reach. If one is missing, add it to the App's installation on GitHub.",
+  "github.repo.pickEmpty": "This installation reaches no repository.",
   "github.repo.pickNoApp": "Register the author App first.",
+  "github.repo.pickNoInstallation":
+    "The App is not installed anywhere yet. Install it on GitHub.",
   "github.repo.pickUnreachable":
     "GitHub could not be reached, so the repositories could not be read. Open this again shortly.",
-  "github.repo.added": "Added {name}.",
-  "github.repo.alreadyAdded": "Added already",
-  "github.repo.addOne": "Add",
-  "github.repo.addName": "Add {name}",
+  "github.repo.installation": "Installation",
+  "github.repo.pageOf": "{from}–{to} of {total}",
+  "github.repo.previousPage": "Previous",
+  "github.repo.nextPage": "Next",
+  "github.repo.agentCount": "Used by {count} agents",
   "github.repo.private": "Private",
   "github.repo.branch": "Default branch",
   "github.repo.branchHint":
@@ -327,15 +318,6 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.repo.saved": "{name} now starts from {branch}.",
   "github.repo.conflict":
     "Someone changed this repository first. Check the values just read and save again.",
-  "github.repo.remove": "Remove",
-  "github.repo.removeName": "Remove {name}",
-  "github.repo.removeTitle": "Remove this repository from the catalog?",
-  "github.repo.removeConsequence":
-    "New sessions and agent releases can no longer pick it. Its id is never used again. The App stays installed on GitHub.",
-  "github.repo.removed": "Removed {name}.",
-  "github.repo.inUse":
-    "Still in use, so it was not removed. Run profile ceilings: {profiles}. Agents: {agents}.",
-  "github.repo.none": "none",
   "github.repo.file": "Operator file",
   "github.repo.fileHint":
     "A repository in the operator's file. It is not changed from the console.",
@@ -532,27 +514,28 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.openOnGitHub": "GitHub で見る",
   "github.repositories": "エージェントが使うリポジトリ",
   "github.repositoriesHint":
-    "App がインストールされたリポジトリのうち、エージェントに開くものを選びます。エージェントごとのリポジトリは、実行プロファイルの上限とエージェント設定でこの一覧から選び直します。",
+    "App がインストールされたリポジトリは、登録せずに GitHub のインストール一覧から読み取ります。エージェントごとのリポジトリはエージェントの GitHub タブで選びます。",
   "github.repositoriesByAccount": "アカウント別のリポジトリ ↓",
   "github.repositoriesEmpty":
-    "まだリポジトリを追加していません。「リポジトリを追加」で App がインストールされたリポジトリを選んでください。",
+    "まだエージェントが選んだリポジトリはありません。エージェントの GitHub タブで App がインストールされたリポジトリを選ぶと、ここに表示されます。",
   "github.repositoriesFoot":
-    "追加・ブランチ変更・削除は監査記録(receipt)に残ります。最初に config/repositories.yaml から取り込んだリポジトリもここで編集します。ログイン用の秘密値が必要なリポジトリは運用者が設定ファイルで管理します。",
-  "github.repo.add": "リポジトリを追加",
+    "選択とブランチ変更は監査記録(receipt)に残ります。最初に config/repositories.yaml から取り込んだリポジトリもここで編集します。ログイン用の秘密値が必要なリポジトリは運用者が設定ファイルで管理します。",
+  "github.repo.browse": "インストール済みのリポジトリを見る",
   "github.repo.pickTitle": "App がインストールされたリポジトリ",
   "github.repo.pickHint":
-    "App がインストールされたリポジトリだけを選べます。デフォルトブランチは GitHub から読み取ります。一覧にない場合は GitHub で App のインストールにリポジトリを加えてください。",
-  "github.repo.pickEmpty": "App がインストールされたリポジトリがありません。",
-  "github.repo.search": "リポジトリ名で探す",
-  "github.repo.pickList": "追加できるリポジトリの一覧",
-  "github.repo.searchEmpty": "一致するリポジトリがありません。",
+    "GitHub が App のインストールに許可したリポジトリです。一覧にない場合は GitHub で App のインストールにリポジトリを加えてください。",
+  "github.repo.pickEmpty":
+    "このインストールで許可されたリポジトリはありません。",
   "github.repo.pickNoApp": "先に作成用 App を登録してください。",
+  "github.repo.pickNoInstallation":
+    "App はまだどこにもインストールされていません。GitHub で App をインストールしてください。",
   "github.repo.pickUnreachable":
     "GitHub に接続できず、リポジトリ一覧を読めませんでした。しばらくしてから開き直してください。",
-  "github.repo.added": "{name} を追加しました。",
-  "github.repo.alreadyAdded": "追加済み",
-  "github.repo.addOne": "追加",
-  "github.repo.addName": "{name} を追加",
+  "github.repo.installation": "インストール先",
+  "github.repo.pageOf": "{total} 件中 {from}–{to}",
+  "github.repo.previousPage": "前へ",
+  "github.repo.nextPage": "次へ",
+  "github.repo.agentCount": "{count} 件のエージェントが使用",
   "github.repo.private": "非公開",
   "github.repo.branch": "デフォルトブランチ",
   "github.repo.branchHint":
@@ -564,15 +547,6 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.repo.saved": "{name} のデフォルトブランチを {branch} に変えました。",
   "github.repo.conflict":
     "ほかの場所で先にこのリポジトリが変更されました。読み直した値を確かめて、もう一度保存してください。",
-  "github.repo.remove": "削除",
-  "github.repo.removeName": "{name} を削除",
-  "github.repo.removeTitle": "このリポジトリをカタログから削除しますか?",
-  "github.repo.removeConsequence":
-    "新しいセッションとエージェントの release でこのリポジトリを選べなくなります。この id は再び使われません。GitHub の App インストールはそのまま残ります。",
-  "github.repo.removed": "{name} を削除しました。",
-  "github.repo.inUse":
-    "まだ使われているため削除できませんでした。実行プロファイルの上限: {profiles}。エージェント: {agents}。",
-  "github.repo.none": "なし",
   "github.repo.file": "設定ファイル",
   "github.repo.fileHint":
     "運用者の設定ファイルにあるリポジトリです。コンソールからは変更しません。",

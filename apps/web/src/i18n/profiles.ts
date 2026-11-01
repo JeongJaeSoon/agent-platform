@@ -177,6 +177,9 @@ export const profilesKo = {
   "profiles.ceiling.repositories": "허용할 저장소",
   "profiles.ceiling.repositoriesHint":
     "이 상한의 세션과 릴리스가 쓸 수 있는 저장소입니다.",
+  "profiles.ceiling.appRepositories": "App이 설치된 저장소 모두 허용",
+  "profiles.ceiling.appRepositoriesHint":
+    "켜면 콘솔에 등록한 GitHub App이 설치된 저장소를 에이전트가 GitHub 탭에서 골라 쓸 수 있습니다. 끄면 아래에서 고른 저장소만 씁니다.",
   "profiles.ceiling.noRepositories": "이 설치에 저장소가 없습니다.",
   "profiles.ceiling.repositoriesEmpty":
     "저장소를 하나 이상 고르세요. 저장소 없이 돌리려면 '저장소 쓰지 않음'을 고릅니다.",
@@ -465,6 +468,10 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.ceiling.repositories": "Allowed repositories",
   "profiles.ceiling.repositoriesHint":
     "The repositories sessions and releases on this ceiling may use.",
+  "profiles.ceiling.appRepositories":
+    "Allow every repository the App is installed on",
+  "profiles.ceiling.appRepositoriesHint":
+    "On: agents pick, on their GitHub tab, any repository the console's GitHub App is installed on. Off: only the repositories chosen below.",
   "profiles.ceiling.noRepositories": "This installation has no repositories.",
   "profiles.ceiling.repositoriesEmpty":
     "Pick at least one repository. To run without one, choose 'No repository'.",
@@ -756,6 +763,10 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.ceiling.repositories": "許可するリポジトリ",
   "profiles.ceiling.repositoriesHint":
     "この上限のセッションとリリースが使えるリポジトリです。",
+  "profiles.ceiling.appRepositories":
+    "App がインストールされたリポジトリをすべて許可",
+  "profiles.ceiling.appRepositoriesHint":
+    "オンにすると、コンソールに登録した GitHub App がインストールされたリポジトリを、エージェントが GitHub タブで選んで使えます。オフにすると、下で選んだリポジトリだけを使います。",
   "profiles.ceiling.noRepositories":
     "このインストールにはリポジトリがありません。",
   "profiles.ceiling.repositoriesEmpty":
