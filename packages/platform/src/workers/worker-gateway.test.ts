@@ -1322,6 +1322,18 @@ describe("WorkerGateway", () => {
       object_store: "sessions/s-1/",
       packages: "public",
     });
+    // An optional session without a repository still gets a repository
+    // token, for the ones it attaches.
+    expect(
+      egress.bindingsOf({
+        id: "s-1",
+        profileId: "optional",
+        profileFingerprint: profileFingerprint(optional),
+        model: "claude-sonnet-5",
+        repositoryMode: "none",
+        repositoryId: null,
+      }).repository,
+    ).toBe("attached-only");
     const optionalClaim = await claimWith({
       ...binding,
       profileId: "optional",
@@ -2879,33 +2891,43 @@ describe("egress and claim through the real GitHub gate", () => {
         },
       },
     });
+    // What the claim bound the repository token to, as storage keeps it: a
+    // null binding issues no token, so the proxy's request is unknown.
+    let issued: string | null = repositoryBinding("app", onGitHub("app"));
     const gateway = createWorkerGateway({
       work: work({
-        authorizeEgressAtomic: async () => ({
-          outcome: "ok",
-          ...binding,
-          ...own,
-          // Not read for a session without a repository.
-          binding: repositoryBinding("app", onGitHub("app")),
-        }),
-        claimAtomic: async () => ({
-          outcome: "claimed",
-          binding: {
-            ...binding,
-            ...own,
-            leaseEpoch: 1,
-            executionGeneration: 1,
-            authRevision: 0,
-            leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
-            leaseRemainingMs: 29_950,
+        authorizeEgressAtomic: async () =>
+          issued === null
+            ? { outcome: "invalid_token" }
+            : { outcome: "ok", ...binding, ...own, binding: issued },
+        claimAtomic: async (input) => {
+          issued = input.egress.bindingsOf({
+            id: scope.session_id,
+            profileId: "p",
             profileFingerprint: null,
             model: null,
-            unmetered: false,
-            ownerScope: "owner-a",
-            restore: null,
-            restoreProfiles: [],
-          },
-        }),
+            repositoryMode: repositoryless ? "none" : "repository",
+            repositoryId: repositoryless ? null : "app",
+          }).repository;
+          return {
+            outcome: "claimed",
+            binding: {
+              ...binding,
+              ...own,
+              leaseEpoch: 1,
+              executionGeneration: 1,
+              authRevision: 0,
+              leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
+              leaseRemainingMs: 29_950,
+              profileFingerprint: null,
+              model: null,
+              unmetered: false,
+              ownerScope: "owner-a",
+              restore: null,
+              restoreProfiles: [],
+            },
+          };
+        },
       }),
       catalog,
       github: gate,
@@ -2916,7 +2938,16 @@ describe("egress and claim through the real GitHub gate", () => {
         leaseTtlMs: 30_000,
       },
     });
-    return { gateway, receipts };
+    const claim = () =>
+      gateway.bootstrapClaim(
+        { kind: "bootstrap" },
+        {
+          execution_id: "e",
+          execution_generation: 1,
+          credential: { kind: "launch_nonce", nonce: "n" },
+        },
+      );
+    return { gateway, receipts, claim };
   }
 
   test("a repository the release lists but the session did not attach is refused with its receipt", async () => {
@@ -2996,7 +3027,8 @@ describe("egress and claim through the real GitHub gate", () => {
   });
 
   test("a session without a repository fetches the attached one and is refused the rest", async () => {
-    const { gateway, receipts } = wired({ repositoryless: true });
+    const { gateway, receipts, claim } = wired({ repositoryless: true });
+    await claim();
     const grant = await gateway.authorizeEgress({
       token: "tok",
       purpose: "repository",

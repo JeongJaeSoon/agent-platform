@@ -21,6 +21,9 @@ export function claimSecrets(
     claim.session_credential,
     claim.runtime_config.provider.auth.token,
     claim.workspace.repository?.access?.token,
+    ...(claim.workspace.additional_repositories ?? []).map(
+      (repository) => repository.access?.token,
+    ),
     claim.object_store.access.token,
     claim.packages?.access.token,
     ...(claim.runtime_config.mcp_servers ?? []).map((s) => s.access.token),
