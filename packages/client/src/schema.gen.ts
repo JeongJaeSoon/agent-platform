@@ -1137,7 +1137,7 @@ export interface paths {
          *
          *     A parked request (`state: parked`) is answered the same way, whichever worker asked. The answer is kept until every request of its `group` is answered or expired; the one that closes the group resumes the session (`resumed: true`), and the receipt settles once the turn that resumes it has the answer. `waiting_for` counts the group's requests still open. A session paused by a person rather than by its park keeps the answer and stays paused.
          *
-         *     Seeing a session is not answering for it: only its creator (for a session an API key made, that key), its agent's admins and the workspace's owners and admins answer. Anyone else the session is visible to gets 403 (`reason_code: role`) and the request stays open; anyone it is not visible to, 404.
+         *     Seeing a session is not answering for it: only its creator, its agent's admins, the workspace's owners and admins, and the keys of its agent that hold `sessions:approve` answer. Anyone else the session is visible to gets 403 (`reason_code: role`) and the request stays open; anyone it is not visible to, 404. No workspace key (personal or agent) answers a session that key started: 403 (`reason_code: self_approval`) with a failed `answer` receipt named by `error.details.receipt_id`, and the request stays open for another key or a person.
          *
          *     **Scope:** `sessions:approve` (API key or cookie session). **Idempotency-Key:** required.
          */
@@ -1215,7 +1215,7 @@ export interface paths {
          * Approve or reject a push request
          * @description Decides a `requested` push request once: `approve` lets the platform push the pinned commit to the request's branch, `reject` closes it. `git_commit` must be the commit the decider reviewed; an approval naming any other is refused. An approval is also refused when the session has checkpointed since the request was made, so what is approved is what the session last committed; reject the request and ask again.
          *
-         *     Only a verified credential that holds `sessions:approve` decides: an API key or a signed-in user. Worker credentials are not accepted on `/v1` at all (401). Every attempt, refused ones included, leaves a `decide_push` receipt carrying the actor, the verdict and the refusal reason; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request this decision made, as it is now: once the platform has taken it to push, `state` reads `pushing`, `pushed` or `failed`, while `decided_by`, `decided_at` and `decision_receipt_id` still name this decision.
+         *     Only a verified credential that holds `sessions:approve` decides: an API key or a signed-in user. A workspace key (personal or agent) that started the session never decides its requests (403, `refusal: self_approval`); another key or a person does. Worker credentials are not accepted on `/v1` at all (401). Every attempt, refused ones included, leaves a `decide_push` receipt carrying the actor, the verdict and the refusal reason; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request this decision made, as it is now: once the platform has taken it to push, `state` reads `pushing`, `pushed` or `failed`, while `decided_by`, `decided_at` and `decision_receipt_id` still name this decision.
          *
          *     **Scope:** `sessions:approve` (API key or cookie session). **Idempotency-Key:** required.
          */
@@ -1243,7 +1243,7 @@ export interface paths {
          *
          *     Safe to retry: a request opens at most one pull request. When one is already recorded, or GitHub already has an open one for the branch, it is answered with `created: false` (200). Every attempt, refused ones included, leaves an `open_pull_request` receipt; `receipt_id` names this one, and a refusal's `error.details.receipt_id` names it.
          *
-         *     A verified credential that holds `sessions:approve` opens one, as for a push decision. One that holds only `sessions:submit` (an agent's key) opens one too, since the request was already pushed. The token is issued through the agent's GitHub settings: with GitHub off for the agent, or the repository outside its release, the call is refused with `GITHUB_REFUSED`. Worker credentials are not accepted on `/v1` (401).
+         *     A verified credential that holds `sessions:approve` opens one, as for a push decision. One that may only submit to the session (an agent's key without `sessions:approve`, or the key that started the session) opens one too, since the request was already pushed. The token is issued through the agent's GitHub settings: with GitHub off for the agent, or the repository outside its release, the call is refused with `GITHUB_REFUSED`. Worker credentials are not accepted on `/v1` (401).
          *
          *     **Scope:** `sessions:approve` (API key or cookie session). **Idempotency-Key:** ignored.
          */
@@ -2536,7 +2536,7 @@ export interface paths {
         put?: never;
         /**
          * Issue a personal key or an agent key
-         * @description A personal key is the caller's own; an agent key names its agent in `agent_id` and takes an owner, an admin, or that agent's admin. No key reaches a whole workspace: an agent key without `agent_id` is a 400. `name` (1-64 characters once trimmed) is optional. `scopes` may not exceed what the caller holds now, and an agent key never holds `sessions:approve` (403 SCOPE_NOT_GRANTABLE). An API key never issues one. The secret is returned once; only its sha256 is stored. Writes a `create_api_key` receipt.
+         * @description A personal key is the caller's own; an agent key names its agent in `agent_id` and takes an owner, an admin, or that agent's admin. No key reaches a whole workspace: an agent key without `agent_id` is a 400. `name` (1-64 characters once trimmed) is optional. `scopes` may not exceed what the caller holds now (403 SCOPE_NOT_GRANTABLE); within that, either kind may hold any scope, `sessions:approve` included. A personal or agent key holding `sessions:approve` still never approves a session it started itself. An API key never issues one. The secret is returned once; only its sha256 is stored. Writes a `create_api_key` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3175,6 +3175,8 @@ export interface components {
             title?: string;
             /** @description The catalog repository the session works on. Required when the profile's `repository_mode` is `required`, refused when it is `none`, either when it is `optional`; omitted, the session works on the release's `repository_id` when `agent_release_id` is sent, else starts in an empty workspace with no repository to push to. */
             repository_id?: string;
+            /** @description Catalog repositories besides the session's own that it may fetch, push to and open pull requests on, at most 32. Each one has to be listed in the agent release's GitHub settings (`github.repositories`), allowed for the profile, and other than the session's repository; otherwise 403 `GITHUB_REFUSED` with `repository_not_allowed`, as is any list sent for a session without an agent release or without a repository. Omitted, the session may use every repository its release lists; `[]`, none besides its own. */
+            attached_repository_ids?: string[];
             /** @description At most 32768 bytes of UTF-8 */
             message: string;
             agent_release_id?: string;
@@ -3974,6 +3976,8 @@ export interface components {
              * @default null
              */
             repository: components["schemas"]["SessionRepository"] | null;
+            /** @description The catalog repositories besides `repository_id` the session was created with (`attached_repository_ids` at create). The session reaches only those of them its agent release's GitHub settings still list. Null when none were given: every repository the release lists, besides its own, is reachable. Absent from a server older than the field. */
+            attached_repository_ids?: string[] | null;
             current_turn_id: string | null;
             queued_turn_count: number;
             last_event_at: string | null;
@@ -4133,6 +4137,8 @@ export interface components {
              * @default null
              */
             repository: components["schemas"]["SessionRepository"] | null;
+            /** @description The catalog repositories besides `repository_id` the session was created with (`attached_repository_ids` at create). The session reaches only those of them its agent release's GitHub settings still list. Null when none were given: every repository the release lists, besides its own, is reachable. Absent from a server older than the field. */
+            attached_repository_ids?: string[] | null;
             current_turn_id: string | null;
             queued_turn_count: number;
             last_event_at: string | null;
@@ -12604,7 +12610,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read. */
+            /**
+             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read.
+             *     - `GITHUB_REFUSED`: The platform refused the GitHub work before asking GitHub, or GitHub refused the token it asked for. `error.details.reason_code` says why and `error.details.receipt_id` names the receipt of the refusal. A refusal the workspace or the agent's release decided (`github_disabled`, `repository_not_allowed`, `feature_off`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`) is 403; one an owner fixes outside the release (`over_workspace_ceiling`, `app_required`, `app_permission_missing`, `github_host_unsupported`, `no_reviewer_app`, `github_settings_unsupported`) is 409. `repository_not_allowed`: the agent release's GitHub settings do not list `repository_id`, or one of `attached_repository_ids` is the session's own repository, not listed there, or not allowed for the profile, or the list was sent for a session without an agent release or without a repository. No receipt is written: `details.receipt_id` is null.
+             */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -12614,7 +12623,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "FORBIDDEN";
+                            code?: "FORBIDDEN" | "GITHUB_REFUSED";
                         };
                     };
                 };
@@ -24662,7 +24671,7 @@ export interface operations {
             };
             /**
              * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.
-             *     - `SCOPE_NOT_GRANTABLE`: The key asks for a scope its issuer does not hold now, or an agent's key asks for `sessions:approve`.
+             *     - `SCOPE_NOT_GRANTABLE`: The key asks for a scope its issuer does not hold now.
              */
             403: {
                 headers: {

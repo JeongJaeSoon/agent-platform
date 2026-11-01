@@ -57,7 +57,10 @@ function publicPushRequest(row: Row): PushRequest {
 
 function resultOf(
   row: Row | null,
-  fields: Pick<PushReceiptResult, "decision" | "verdict" | "refusal">,
+  fields: Pick<
+    PushReceiptResult,
+    "decision" | "verdict" | "refusal" | "decider_key"
+  >,
 ): PushReceiptResult {
   return {
     push_request_id: row?.id ?? null,
@@ -130,6 +133,7 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
         .select({
           repositoryId: sessions.repositoryId,
           profileId: sessions.profileId,
+          attached: sessions.attachedRepositoryIds,
           releaseId: agentReleases.id,
           // Only an explicit false: a release without GitHub settings, or
           // with a shape this image does not know, keeps a person deciding.
@@ -155,6 +159,7 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
       return {
         repositoryId: row.repositoryId,
         profileId: row.profileId,
+        attached: row.attached,
         github:
           github === null ? null : github.success ? github.data : "invalid",
         githubEnabled: row.githubEnabled ?? false,
@@ -382,6 +387,7 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
               decision: input.decision,
               verdict: "refuse",
               refusal,
+              decider_key: input.deciderKey ?? null,
             }),
           }),
         });
@@ -463,6 +469,7 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
             decision: input.decision,
             verdict: "allow",
             refusal: null,
+            decider_key: input.deciderKey ?? null,
           }),
           actor: input.actor,
         });

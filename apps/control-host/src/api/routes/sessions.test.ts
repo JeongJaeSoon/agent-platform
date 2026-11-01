@@ -181,6 +181,39 @@ describe("POST /v1/sessions validation", () => {
     ).toEqual(["title", "message"]);
   });
 
+  test("attached_repository_ids: 400 for a repeated, invalid or 33rd id; 403 without an agent release", async () => {
+    for (const ids of [
+      ["docs", "docs"],
+      ["../docs"],
+      ["origin"],
+      ["docs.lock"],
+      [""],
+      Array.from({ length: 33 }, (_, i) => `repo-${i}`),
+    ]) {
+      const response = await post({ ...valid, attached_repository_ids: ids });
+      expect(response.status).toBe(400);
+      const { error } = apiErrorResponseSchema.parse(await response.json());
+      expect(
+        requestBodyInvalidDetailsSchema
+          .parse(error.details)
+          .issues.every((issue) =>
+            issue.path.startsWith("attached_repository_ids"),
+          ),
+      ).toBe(true);
+    }
+    const unreleased = await post({
+      ...valid,
+      attached_repository_ids: Array.from({ length: 32 }, (_, i) => `r-${i}`),
+    });
+    expect(unreleased.status).toBe(403);
+    expect(await unreleased.json()).toMatchObject({
+      error: {
+        code: "GITHUB_REFUSED",
+        details: { reason_code: "repository_not_allowed", receipt_id: null },
+      },
+    });
+  });
+
   test("rejects unknown profile or repository with 422", async () => {
     const unsupported = async () => ({ outcome: "unsupported" }) as const;
     const request = (body: unknown) =>

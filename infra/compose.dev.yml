@@ -1,0 +1,50 @@
+# The development overlay: `scripts/local.sh dev` adds it over compose.yaml,
+# so a saved file reaches the running stack without an image build
+# (docs/contributing/development.md "개발 모드"). Paths are relative to the
+# repository root, compose.yaml's project directory; it does not merge over
+# infra/compose.yml alone. Images and Helm are untouched: nothing but the
+# development commands reads this file.
+#
+# The control host's source is mounted read-only over the image's copy and
+# scripts/dev/hot-restart.ts restarts each role when a file of control-host
+# or a workspace package it depends on changes (file events, else a 1s scan
+# of mtimes: see that file). The api's stop is
+# cut to 5s rather than the 35s drain an open SSE stream would hold; the
+# loops get their own stop grace, so the pass in flight stops at its safe
+# point.
+#
+# Not here: dependencies (bun.lock), the worker, the egress proxy and
+# migrations still come from the images `scripts/local.sh dev` builds.
+# Off here: slack and maintenance (weekly jobs); work on the Slack role
+# starts with `scripts/local.sh up` instead.
+x-source: &source
+  - ./apps/control-host:/app/apps/control-host:ro
+  - ./packages:/app/packages:ro
+  - ./scripts/dev:/app/scripts/dev:ro
+
+services:
+  api:
+    command: [bun, scripts/dev/hot-restart.ts, apps/control-host, --, bun, run, apps/control-host/src/main.ts, api]
+    environment:
+      DEV_STOP_GRACE_MS: "5000"
+    volumes: *source
+
+  scheduler:
+    command: [bun, scripts/dev/hot-restart.ts, apps/control-host, --, bun, run, apps/control-host/src/main.ts, scheduler]
+    environment:
+      # PASS_LOOP_ROLES.scheduler.stopGraceSec (30s) and room to exit.
+      DEV_STOP_GRACE_MS: "40000"
+    volumes: *source
+
+  reconciler:
+    command: [bun, scripts/dev/hot-restart.ts, apps/control-host, --, bun, run, apps/control-host/src/main.ts, reconciler]
+    environment:
+      # PASS_LOOP_ROLES.reconciler.stopGraceSec (10s) and room to exit.
+      DEV_STOP_GRACE_MS: "15000"
+    volumes: *source
+
+  slack:
+    profiles: !override ["slack"]
+
+  maintenance:
+    profiles: !override ["maintenance"]

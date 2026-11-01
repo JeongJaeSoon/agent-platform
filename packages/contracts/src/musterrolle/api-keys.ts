@@ -32,6 +32,19 @@ export const apiKeyNameSchema = z
 export const apiKeyIdSchema = z.uuid();
 export const apiKeyIdParamsSchema = z.object({ id: apiKeyIdSchema }).strict();
 
+/**
+ * The key behind an approval, in that receipt's result: an agent key's
+ * receipt actor names no person, so the issuer is only found here (GA-8).
+ */
+export const deciderKeySchema = z.object({
+  id: apiKeyIdSchema,
+  /** `operator`: a key CLI key, which no person issues through the API. */
+  kind: z.enum([...API_KEY_KIND_VALUES, "operator"]),
+  /** Null on a key issued before keys recorded who issued them. */
+  issued_by_user_id: userIdSchema.nullable(),
+});
+export type DeciderKey = z.infer<typeof deciderKeySchema>;
+
 export const apiKeyViewSchema = z
   .object({
     id: apiKeyIdSchema,
@@ -65,7 +78,7 @@ export const createApiKeyRequestSchema = z
   .object({
     kind: apiKeyKindSchema,
     name: apiKeyNameSchema.optional(),
-    // Never more than the issuer holds now; an agent's key never approves.
+    // Never more than the issuer holds now.
     scopes: z.array(sessionScopeSchema).min(1),
     /** Required for an agent key, refused on a personal key. */
     agent_id: agentIdSchema.optional(),

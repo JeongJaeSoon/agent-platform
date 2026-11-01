@@ -1362,7 +1362,10 @@ describe("startCredentialProxy", () => {
         },
       });
     });
-    const server = proxy(auth.url, up.port);
+    const lines: string[] = [];
+    const server = proxy(auth.url, up.port, {
+      logger: createProxyLogger("info", (line) => lines.push(line)),
+    });
     const response = await fetch(
       `http://127.0.0.1:${server.port}/repository/docs/info/refs?service=git-upload-pack`,
       { headers: { authorization: `Bearer ${WORKER_TOKEN}` } },
@@ -1374,6 +1377,16 @@ describe("startCredentialProxy", () => {
     expect(new URL(up.seen[0]?.url ?? "").pathname).toBe(
       "/acme/docs.git/info/refs",
     );
+    const routed = lines
+      .map((line) => JSON.parse(line) as { message: string; fields: unknown })
+      .find((entry) => entry.message === "Credential route");
+    expect(routed?.fields).toMatchObject({
+      purpose: "repository",
+      repository_id: "docs",
+      session_id: "s",
+      attempt_id: "a",
+      status: 200,
+    });
   });
 
   test("a success that echoes the credential is cut off before the value", async () => {

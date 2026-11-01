@@ -26,6 +26,9 @@ function app(overrides: Partial<PendingRequestStore> = {}) {
       answerAtomic: async () => {
         throw new Error("not reached");
       },
+      recordSelfApproval: async () => {
+        throw new Error("not reached");
+      },
       ...overrides,
     },
   });

@@ -63,6 +63,7 @@ const context = (
 ): AdditionalRepositoryContext => ({
   repositoryId: "app",
   profileId: "p",
+  attached: null,
   github: github(["app", "docs", "tools", "other-profile", "origin"]),
   githubEnabled: true,
   ...overrides,
@@ -104,6 +105,31 @@ describe("additionalRepositoryAllowed", () => {
     ).toEqual(["tools", "docs"]);
     expect(
       additionalRepositoriesOf(catalog, context({ github: null })),
+    ).toEqual([]);
+  });
+
+  test("an attached list narrows the release's and never widens it", () => {
+    const attachedDocs = context({ attached: ["docs"] });
+    expect(additionalRepositoryAllowed(catalog, attachedDocs, "docs")).toEqual(
+      expect.objectContaining({ url: "https://github.com/acme/docs.git" }),
+    );
+    expect(
+      additionalRepositoryAllowed(catalog, attachedDocs, "tools"),
+    ).toBeNull();
+    expect(
+      additionalRepositoriesOf(catalog, attachedDocs).map(({ id }) => id),
+    ).toEqual(["docs"]);
+    // Off the release's list: the attached entry no longer counts.
+    const dropped = context({
+      attached: ["docs", "tools"],
+      github: github(["app", "tools"]),
+    });
+    expect(additionalRepositoryAllowed(catalog, dropped, "docs")).toBeNull();
+    expect(
+      additionalRepositoriesOf(catalog, dropped).map(({ id }) => id),
+    ).toEqual(["tools"]);
+    expect(
+      additionalRepositoriesOf(catalog, context({ attached: [] })),
     ).toEqual([]);
   });
 });

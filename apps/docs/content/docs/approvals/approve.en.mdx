@@ -3,7 +3,7 @@ title: "Approve"
 description: Check the commit the push request pinned and approve it. The platform pushes within a few seconds
 ---
 
-Approving needs `sessions:approve`. This scope is issued only to people. Do not give it to automation such as CI. A worker running a session cannot call `/v1` with its credentials (401), so an agent cannot approve on its own. Use `SID`, `PUSH_ID`, and `PUSH_COMMIT` from the [Request](/approvals/request).
+Approving needs `sessions:approve`. Both personal and agent keys can hold it, but the key that started a session cannot approve that session's push requests; another key or a person does. A worker running a session cannot call `/v1` with its credentials (401), so an agent cannot approve on its own. Use `SID`, `PUSH_ID`, and `PUSH_COMMIT` from the [Request](/approvals/request).
 
 ## Approve
 
@@ -70,6 +70,7 @@ The platform sends only that one commit to that branch. It does not force push. 
 | 409 `CHECKPOINT_MOVED` | `git_commit` differs from the pinned commit, or the session saved a checkpoint again after the request. [Reject](/approvals/reject) this request and make a new one |
 | 409 `PUSH_REQUEST_DECIDED` | The request was already decided |
 | 403 `FORBIDDEN` | The key lacks `sessions:approve`, or the caller only sees the session and is not one who approves (its creator, its agent's admins, owners and admins) |
+| 403 `FORBIDDEN` (`details.refusal: self_approval`) | The key that started the session tried to approve. A failed `decide_push` receipt is left; another key or a person approves |
 
 A refused attempt also leaves a receipt. Read it with `error.details.receipt_id` in the error body.
 

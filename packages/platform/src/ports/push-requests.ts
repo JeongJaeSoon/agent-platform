@@ -1,6 +1,7 @@
 import type {
   AgentGitHub,
   ApiErrorCode,
+  DeciderKey,
   PushDecision,
   PushReasonCode,
   PushReceiptResult,
@@ -18,6 +19,11 @@ export const PUSH_REFUSAL_ERRORS: Record<
   missing_scope: {
     code: "FORBIDDEN",
     message: "This credential does not hold sessions:approve",
+  },
+  self_approval: {
+    code: "FORBIDDEN",
+    message:
+      "The key that started this session cannot approve its push requests; another key or a person approves them",
   },
   unverified_principal: {
     code: "FORBIDDEN",
@@ -150,6 +156,8 @@ export type DecidePushRequestInput = {
    * commit.
    */
   latest?: { revision: number; gitCommit: string } | null;
+  /** The deciding API key, for the receipt; null for a person. */
+  deciderKey?: DeciderKey | null;
 };
 
 export type PushWriteResult =
@@ -198,6 +206,8 @@ export interface PushRequestStore {
   ): Promise<{
     repositoryId: string | null;
     profileId: string | null;
+    /** The session row's attached list; null leaves the release's whole. */
+    attached: string[] | null;
     /** The release's GitHub settings, for another repository's push. */
     github: AgentGitHub | "invalid" | null;
     /** False without an agent, or with its GitHub switch off. */

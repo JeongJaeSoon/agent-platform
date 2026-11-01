@@ -1059,6 +1059,10 @@ export const sessions = pgTable(
     // a replica that does not know the profile must not price its calls.
     unmetered: boolean().notNull().default(false),
     repositoryId: text("repository_id"),
+    // The repositories besides its own the session was started with,
+    // narrowing what its release lists (session-multi-repository.md). Null:
+    // not given at create, so the release's list applies whole.
+    attachedRepositoryIds: text("attached_repository_ids").array(),
     checkpointRevision: integer("checkpoint_revision"),
     checkpointCommittedAt: timestamp("checkpoint_committed_at", {
       withTimezone: true,
@@ -1230,6 +1234,10 @@ export const sessions = pgTable(
     check(
       "sessions_repository_mode_check",
       sql`(${table.repositoryMode} = 'repository' AND ${table.repoUrl} IS NOT NULL AND ${table.branch} IS NOT NULL) OR (${table.repositoryMode} = 'none' AND ${table.repositoryId} IS NULL AND ${table.repoUrl} IS NULL AND ${table.branch} IS NULL)`,
+    ),
+    check(
+      "sessions_attached_repositories_check",
+      sql`${table.attachedRepositoryIds} IS NULL OR ${table.repositoryMode} = 'repository'`,
     ),
     uniqueIndex("sessions_pod_uniq")
       .on(table.podId)

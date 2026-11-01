@@ -647,6 +647,25 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
       return { ws, owner, creator, agentId, sessionId, requestId };
     }
 
+    test("a key of the session's agent answers; a key of another agent, or a revoked one, does not (GA-8)", async () => {
+      const { ws, owner, agentId, sessionId, requestId } = await answerable();
+      const other = await key(ws, {});
+      expect(await answer(other.caller, sessionId, requestId)).toEqual({
+        outcome: "role",
+      });
+      const revoked = await key(ws, { agentId });
+      await revokeKey(owner, revoked.id);
+      expect(await answer(revoked.caller, sessionId, requestId)).toEqual({
+        outcome: "actor_inactive",
+      });
+      expect(await answeredAt(requestId)).toBeNull();
+      const team = await key(ws, { agentId });
+      expect(await answer(team.caller, sessionId, requestId)).toMatchObject({
+        outcome: "accepted",
+      });
+      expect(await answeredAt(requestId)).not.toBeNull();
+    });
+
     test("an agent admin removed after the decision answers nothing", async () => {
       const { ws, owner, agentId, sessionId, requestId } = await answerable();
       const helper = await person(ws);

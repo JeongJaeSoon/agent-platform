@@ -544,6 +544,8 @@ export const AUTHORIZATION_REASON_VALUES = [
   // An audit read, or a manager's action on a session outside its share,
   // that gave no reason.
   "justification_required",
+  // An approval by the very key that started the session (GA-8).
+  "self_approval",
   // Fail-closed: a throw, a storage error, a malformed request or an
   // action/resource pair the policy has no rule for.
   "error",

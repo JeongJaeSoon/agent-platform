@@ -1,5 +1,5 @@
 {
-  "id": "9e1289f6-7251-451f-bd50-b62e3c09cf36",
+  "id": "fd6178ca-6245-41ef-bf00-52ccbcdab91a",
   "prevId": "03ede4b5-8c45-4be9-8419-c42e1eb1d60b",
   "version": "7",
   "dialect": "postgresql",
@@ -2906,105 +2906,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.github_app_manifest_states": {
-      "name": "github_app_manifest_states",
-      "schema": "",
-      "columns": {
-        "state_hash": {
-          "name": "state_hash",
-          "type": "bytea",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "actor_user_id": {
-          "name": "actor_user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "role": {
-          "name": "role",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "owner_login": {
-          "name": "owner_login",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "public": {
-          "name": "public",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "replaces_app_id": {
-          "name": "replaces_app_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "github_app_manifest_states_expires_idx": {
-          "name": "github_app_manifest_states_expires_idx",
-          "columns": [
-            {
-              "expression": "expires_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "github_app_manifest_states_workspace_id_workspaces_id_fk": {
-          "name": "github_app_manifest_states_workspace_id_workspaces_id_fk",
-          "tableFrom": "github_app_manifest_states",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "github_app_manifest_states_role_check": {
-          "name": "github_app_manifest_states_role_check",
-          "value": "\"github_app_manifest_states\".\"role\" IN ('author', 'reviewer')"
-        }
-      },
       "isRLSEnabled": false
     },
     "public.github_apps": {
@@ -7489,6 +7390,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "attached_repository_ids": {
+          "name": "attached_repository_ids",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
         "checkpoint_revision": {
           "name": "checkpoint_revision",
           "type": "integer",
@@ -7944,6 +7851,10 @@
         "sessions_repository_mode_check": {
           "name": "sessions_repository_mode_check",
           "value": "(\"sessions\".\"repository_mode\" = 'repository' AND \"sessions\".\"repo_url\" IS NOT NULL AND \"sessions\".\"branch\" IS NOT NULL) OR (\"sessions\".\"repository_mode\" = 'none' AND \"sessions\".\"repository_id\" IS NULL AND \"sessions\".\"repo_url\" IS NULL AND \"sessions\".\"branch\" IS NULL)"
+        },
+        "sessions_attached_repositories_check": {
+          "name": "sessions_attached_repositories_check",
+          "value": "\"sessions\".\"attached_repository_ids\" IS NULL OR \"sessions\".\"repository_mode\" = 'repository'"
         }
       },
       "isRLSEnabled": false

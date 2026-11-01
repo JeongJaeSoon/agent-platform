@@ -817,8 +817,15 @@
     {
       "idx": 207,
       "version": "7",
-      "when": 1793550737969,
-      "tag": "0207_github_app_manifest_states",
+      "when": 1793550485753,
+      "tag": "0207_session_attached_repositories",
+      "breakpoints": true
+    },
+    {
+      "idx": 208,
+      "version": "7",
+      "when": 1793558288549,
+      "tag": "0208_github_app_manifest_states",
       "breakpoints": true
     }
   ]

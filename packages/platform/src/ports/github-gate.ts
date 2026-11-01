@@ -197,6 +197,8 @@ export type GitHubSessionContext = {
   sessionId: string;
   repositoryId: string | null;
   profileId: string | null;
+  /** Null: none given at creation, so the release's list applies whole. */
+  attachedRepositoryIds: string[] | null;
   /** The URL and branch the session pinned at creation. */
   repository: { url: string; branch: string } | null;
   /** The human who started the session, for the receipts of clone. */
