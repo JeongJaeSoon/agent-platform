@@ -1,9 +1,10 @@
-# 결정(초안): 파일 카탈로그를 없애고 설치 설정을 DB와 콘솔로 옮긴다
+# 결정: 파일 카탈로그를 없애고 설치 설정을 DB와 콘솔로 옮긴다
 
-- 상태: **초안. 오너 확인 대기.** 아래 "오너가 정할 것"의 기본값으로 설계했다. 구현은 하지 않았다.
+- 상태: **확정(2026-11-02).** 오너 원문: "카탈로그 변경은 추천대로 진행해줘". 끝의 "오너 결정" 1~6이 그 내용이다.
 - 기준 커밋: `origin/main` `d90b26731`. `파일:줄`은 모두 이 커밋 기준이다. 진행 중 PR JeongJaeSoon/agent-platform#992(94S-1131)의 내용은 그 브랜치 기준이라고 따로 적는다.
 - 오너 원문(2026-11-02): "접속처(connections.yaml) 에 대한 내용도 제거해서 설정으로 옮기는거 어때 ? 그래서 최종적ㅡ로 파일로 제어하는 카탈로그 개ㅁ을 완전히삭제하는게 좋을거 같은데"
-- 앞 결정: [profile-db.md](profile-db.md)(프로필은 DB만), #992의 `repository-catalog-db.md`(GitHub App 저장소는 DB 정본). 이 문서는 두 결정이 파일에 남긴 것을 마저 옮긴다.
+- 추가 오너 원문(2026-11-02): "github app 이 연동할수 있는 저장소 목록이 페이지 네이션 형태로 떠야하지않을까". GitHub App 저장소는 등록하지 않는다. 설치 저장소 API가 정본이고 DB에는 에이전트별 선택만 남는다(1.1절).
+- 앞 결정: [profile-db.md](profile-db.md)(프로필은 DB만), #992의 `repository-catalog-db.md`(GitHub App 저장소는 DB 정본). 이 문서는 두 결정이 파일에 남긴 것을 마저 옮기고, GitHub App 저장소의 콘솔 등록(#992 5절의 추가·제거)을 1.1절의 선택 모델로 대체한다.
 
 ## 무엇을 골랐나
 
@@ -57,7 +58,19 @@
 - #992가 둔 `{ kind: github_app }` 행에 더해 `auth_kind`가 `none`(공개 저장소)·`basic`·`bearer`인 행을 받는다. `basic`·`bearer`도 `stored`(값은 `secret_values`, owner_ref `repository:<id>`) 또는 `external`이다.
 - `app_id`·`installation_id`를 적은 옛 `github_app` 항목은 가져올 때 등록 App(`github_apps`, 0192)과 같은 App이면 `{ kind: github_app }`으로 바꾸고, 다르면 가져오기가 실패하며 그 id를 알려 준다. 콘솔에 App을 먼저 등록한다.
 - URL·자격 증명 출처는 바꾸지 않는다. 기본 브랜치는 #992처럼 버전을 올려 바꾼다. 저장소 객체의 모양은 YAML에서 읽은 것과 같게 만들어 `repositoryBinding`(`catalog.ts:1277`)이 가져오기로 바뀌지 않게 한다.
-- URL을 받는 콘솔 추가는 `none`·`basic`·`bearer`에만 연다(GitHub App은 #992처럼 설치 목록에서 고른다). URL 규칙은 지금 스키마 그대로다(http(s), userinfo·query 없음).
+- URL을 받는 콘솔 추가는 `none`·`basic`·`bearer`에만 연다(GitHub App은 1.1절처럼 설치 목록에서 고르고 따로 추가하지 않는다). URL 규칙은 지금 스키마 그대로다(http(s), userinfo·query 없음).
+
+### 1.1 GitHub App 저장소: 등록 없이 설치 목록이 정본
+
+작성용 App이 닿는 저장소는 GitHub이 이미 안다(`GET /installation/repositories`). 이것을 콘솔에서 한 번 더 등록하게 하면 같은 목록을 두 곳에서 관리한다. 그래서:
+
+- **목록:** `GET /v1/workspaces/{id}/github-repositories`가 작성용 App 설치 하나의 저장소를 GitHub의 페이지 그대로 돌려준다(`installation_id`, `page`, `per_page` 최대 100, GitHub의 `total_count`). 행마다 GitHub id, `owner/name`, 기본 브랜치, 비공개 여부, 이미 해석된 카탈로그 id(없으면 null), 그 저장소를 고른 에이전트 수. 설치 목록은 `installations`로 함께 준다. 전체를 한 번에 읽던 #992의 후보 API(`…/candidates`)와 `MAX_INSTALLATION_PAGES` 반복 읽기는 이 페이지 API로 바꾼다.
+- **추가·제거 없음:** #992의 `POST`·`DELETE …/github-repositories`(콘솔 등록·제거)를 지운다. 저장소 화면은 설치 목록을 페이지로 보이고, PAT·공개 저장소 추가(S3)만 URL을 받는다.
+- **에이전트별 선택이 DB의 정본이다:** 에이전트 GitHub 설정(`policy_pins.github.repositories`, 지금 상한 32개)이 고른 저장소만 DB에 남는다. 저장 요청은 카탈로그 id 대신 `github_repository_id`도 받고, 서버가 작성용 App 설치에서 그 저장소를 다시 찾아(못 찾으면 400 `not_installed`) 카탈로그 id로 바꿔 저장한다.
+- **해석 행:** 세션·release·상한은 지금처럼 카탈로그 id 문자열로 저장소를 가리킨다(`repositoryBinding`이 url·branch로 계산되므로 객체가 고정돼야 한다). 그래서 처음 고를 때 서버가 `catalog_repositories`에 행 하나를 만든다(`source: selection`, id는 #992의 `repositoryIdBase` 규칙, URL은 `https://github.com/{owner}/{name}.git`, 브랜치는 그때의 GitHub 기본 브랜치). 같은 GitHub 저장소는 이 행 하나를 같이 쓴다(`github_repository_id` 부분 unique, #992). 이 행은 등록이 아니라 고른 결과를 고정한 기록이라 콘솔에 따로 보이지 않고 지우지 않는다. receipt `resolve_repository`. 기본 브랜치 변경은 #992의 `PATCH`(버전 증가)를 그대로 둔다.
+- **상한:** 상한(`installation_profiles`)은 지금 `repository_ids`를 나열해야 에이전트가 그 저장소를 고를 수 있다(`allowedPair`). 등록 없이 고르려면 상한에 `github_app_repositories: "installed"`(작성용 App이 닿는 모든 저장소 허용)를 둔다. 상한 정의의 한 칸이므로 새 버전으로만 바뀌고 지문에 든다. 기본값은 지금과 같은 `"listed"`(나열한 것만). `installed`인 상한 위의 세션·release가 가리키는 해석 행은 claim 때도 설치 여부를 다시 확인하지 않는다(설치에서 빠지면 토큰 발급이 실패하는 지금 경로가 막는다).
+- **#992에서 넘어온 행:** #992의 `seed`·`console` 행은 그대로 해석 행으로 쓴다. id와 객체가 같으므로 진행 중 세션의 binding은 바뀌지 않는다.
+- **문구:** #992가 land한 저장소 화면 문구(`apps/web/src/i18n/github.ts`)는 S0가 페이지 목록·선택 모델에 맞게 바꾼다. #992 카드와 나눈 범위다.
 
 ### `mcp_servers` (새 테이블)
 
@@ -93,7 +106,7 @@ release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.
 | 운영자 CLI(`settings import`, DB 접속 권한) | `external` 항목도 | env·Secrets Manager를 가진 사람은 배포 권한자다. 지금 파일을 고치는 사람과 같은 신뢰 주체 |
 | 콘솔에서 `external` 항목 | 보기, 사용 중지 | 새 참조를 들이거나 endpoint를 바꾸지 못한다 |
 
-이 경계의 본체는 **값과 목적지가 한 행에 묶이고 그 목적지가 바뀌지 않는 것**이다. egress 허용 목록은 보조 벽일 뿐이다. proxy의 자격 증명 route는 `EGRESS_CREDENTIAL_ALLOWLIST`와 일반 `EGRESS_ALLOWLIST`를 합친 host·port 목록으로 upstream을 연다(`apps/egress-proxy/src/config.ts:141-148`, `apps/egress-proxy/src/main.ts:44-45`). host 단위라 "이 키는 이 목적지에만"을 보장하지 못한다. 그래서 외부 참조를 콘솔에 열지 않는 규칙을 허용 목록으로 대신하지 않는다. 콘솔 저장 때 endpoint host가 자격 증명 허용 목록에 없으면 경고를 보인다(API는 proxy의 env를 모르므로 막지는 못한다. 같은 값을 API에도 주면 막을 수 있다: 오너가 정할 것 4).
+이 경계의 본체는 **값과 목적지가 한 행에 묶이고 그 목적지가 바뀌지 않는 것**이다. egress 허용 목록은 보조 벽일 뿐이다. proxy의 자격 증명 route는 `EGRESS_CREDENTIAL_ALLOWLIST`와 일반 `EGRESS_ALLOWLIST`를 합친 host·port 목록으로 upstream을 연다(`apps/egress-proxy/src/config.ts:141-148`, `apps/egress-proxy/src/main.ts:44-45`). host 단위라 "이 키는 이 목적지에만"을 보장하지 못한다. 그래서 외부 참조를 콘솔에 열지 않는 규칙을 허용 목록으로 대신하지 않는다. 콘솔 저장 때 endpoint host가 자격 증명 허용 목록에 없으면 경고를 보인다(API는 proxy의 env를 모르므로 막지는 못한다. 같은 값을 API에도 주면 막을 수 있지만 오너 결정 4로 경고만 한다).
 
 `secret_values`는 `workspace_id` FK를 요구한다(`0151_secret_values.sql`). 설치 단위 설정의 비밀 값을 기본 워크스페이스 아래 두는 것은 설치에 워크스페이스가 하나라는 지금 전제에 기댄다. S1은 owner_ref 접두(`connection:`·`repository:`·`mcp:`)를 워크스페이스 API가 읽거나 지우지 못하게 막고, 워크스페이스가 둘 이상이 되는 날 설치 소유 범위를 따로 둔다.
 
@@ -103,7 +116,8 @@ release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.
 |---|---|---|---|
 | 연결 만들기·사용 중지·값 회전 | `installation.settings.manage`(새, `profile.installation.manage`와 같이 `["owner"]`) | owner | 불가 |
 | MCP 서버 | 같음 | owner | 불가 |
-| 저장소 | #992의 `workspace.manage` | owner·admin | 불가 |
+| 저장소(PAT·공개 추가, 브랜치 변경, GitHub App 설치 목록 보기) | #992의 `workspace.manage` | owner·admin | 불가 |
+| 에이전트 GitHub 설정에서 GitHub App 저장소 고르기(해석 행 생성) | 지금 에이전트 GitHub 설정 저장 권한 그대로 | 그대로 | 그대로 |
 | 설정 내보내기 | `installation.settings.manage` | owner | 불가(LATER: 읽기 전용 scope) |
 | 설정 가져오기(API) | 같음 | owner | 불가 |
 
@@ -149,11 +163,12 @@ release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.
 
 ## 8. PR 나눔 (같은 릴리스, 쌓아서 한 번에 land)
 
-#992가 먼저 들어가야 한다(저장소 테이블을 넓힌다). #992의 결정 문서는 "비밀값을 쓰는 저장소는 운영자 파일에 둔다"고 적으므로, 이 문서가 확정되면 그 문장을 이 문서로 대체한다고 #992 문서에 한 줄 남긴다(코드 계약은 그대로 넓히면 된다).
+#992가 먼저 들어가야 한다(저장소 테이블을 넓힌다). #992의 결정 문서는 "비밀값을 쓰는 저장소는 운영자 파일에 둔다"와 "콘솔에서 추가·제거한다"고 적으므로, 이 문서가 그 두 문장을 대체한다고 #992 문서 머리에 한 줄 남긴다(S0에서).
 
 | PR | 범위 | 크기 감 |
 |---|---|---|
-| S0 | 이 결정 문서 | 문서 |
+| 결정 문서 | 이 문서(#993) | 문서 |
+| S0 | 1.1절: 설치 저장소 페이지 API, 콘솔 등록·제거 제거, 에이전트 설정의 `github_repository_id` 선택과 해석 행, 상한 `github_app_repositories`, 저장소 화면 페이지 목록·문구, OpenAPI·SDK | 중 |
 | S1 | DB: `provider_connections`, `mcp_servers`, `catalog_repositories` 확장, store, 레지스트리가 세 테이블을 읽음, 지연 replica 규칙, 지문·binding·release id 동일성 테스트 | 큼 |
 | S2 | 가져오기/내보내기: 설정 문서 스키마, CLI `settings import/export`, API export/import, receipt | 중 |
 | S3 | API·콘솔: 연결 화면, MCP 서버 화면, 저장소 화면에 PAT·공개 저장소, 빈 설치 안내, OpenAPI·SDK·core 응답 표 | 큼 |
@@ -165,7 +180,7 @@ release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.
 |---|---|
 | 지금처럼 연결·비밀 저장소는 파일 유지(profile-db.md·#992) | 오너 질문에 답하지 못한다. 연결 하나에 재배포 하나가 남는다 |
 | 외부 참조도 콘솔에서 만들게 한다 | #897이 막은 위험이 다시 열린다. egress 허용 목록 하나만 벽으로 남는다 |
-| 외부 참조를 아예 없애고 저장 값만 | Secrets Manager 회전을 쓰는 설치(EKS alpha, 94S-1109)가 키를 DB에 다시 넣어야 한다. 기본값에서 뺐지만 오너가 고를 수 있다(오너가 정할 것 2) |
+| 외부 참조를 아예 없애고 저장 값만 | Secrets Manager 회전을 쓰는 설치(EKS alpha, 94S-1109)가 키를 DB에 다시 넣어야 한다. 오너 결정 2 |
 | 파일을 늘 정본으로 두고 DB에 미러 | 두 곳을 고칠 수 있어 어느 쪽이 맞는지 모른다(#992 대안과 같다) |
 | 첫 기동 자동 가져오기(서버가 파일을 한 번 읽음) | 서버에 파일 로더가 남는다. 오너가 원한 "개념 완전 삭제"가 아니다. 대신 migrate 단계의 CLI가 한다 |
 | GitOps용 key scope(`settings:write`)로 CI가 적용 | 관리 action을 key에 여는 새 결정이다. LATER |
@@ -185,17 +200,19 @@ release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.
 | `secret_values` 범위 | workspace FK라 설치 소유 범위를 따로 설계해야 한다 | 기본 워크스페이스 아래, 접두로 막음 | 부분 합의. 워크스페이스가 둘이 되는 날 다시 본다 |
 | #992 계약 | 비밀값 저장소를 파일에 둔다는 문장부터 고쳐야 한다 | 8절에 대체 문장을 남긴다 | 합의 |
 
-## 오너가 정할 것 (기본값으로 설계함)
+## 오너 결정 (2026-11-02, 추천안 그대로)
 
-1. **한 번에 옮기기**: 기본값 예. #992 뒤 S1~S4를 한 릴리스로.
-2. **외부 참조(env·Secrets Manager)를 남기나**: 기본값 남긴다, 만들기는 운영자 CLI만.
-3. **빈 설치의 시작**: 기본값 아무것도 없이 뜨고 콘솔 안내. 다른 안은 env `ANTHROPIC_API_KEY`가 있으면 연결 하나를 자동으로 만드는 것.
-4. **API에도 egress 자격 증명 허용 목록을 주어 저장 때 막을지**: 기본값 경고만.
-5. **GitOps 강제(콘솔 쓰기 끄기 env)**: 기본값 LATER.
+1. **한 번에 옮기기**: 예. #992 뒤 S0~S4를 한 릴리스로.
+2. **외부 참조(env·Secrets Manager)를 남기나**: 남긴다, 만들기는 운영자 CLI만. 콘솔은 보기·사용 중지.
+3. **빈 설치의 시작**: 아무것도 없이 뜨고 콘솔이 안내한다.
+4. **API에도 egress 자격 증명 허용 목록을 주어 저장 때 막을지**: 경고만.
+5. **GitOps 강제(콘솔 쓰기 끄기 env)**: LATER.
+6. **GitHub App 저장소**: 등록하지 않는다. 설치 저장소 API(페이지)가 정본이고 DB에는 에이전트별 선택만 남는다(1.1절).
 
 ## DD에 넣을 문장(초안)
 
 - 설치 설정(LLM 연결, 저장소, 원격 MCP 서버, 실행 상한)은 DB에 두고 웹 콘솔에서 관리한다. 설정 파일을 읽지 않는다.
+- GitHub App 저장소는 App 설치가 닿는 목록을 그대로 보여 주고, 에이전트마다 쓸 저장소를 고른다. 따로 등록하지 않는다.
 - 자격 증명은 콘솔에서 입력해 암호화 저장하거나, 운영자가 배포의 비밀 저장소 참조로 등록한다. 콘솔은 참조를 새로 만들지 못한다.
 - egress 허용 목록, master key, 위험 기능 스위치, 설치 한도는 배포 설정(env)이다.
 - 설정은 비밀 값 없는 문서로 내보내고 가져올 수 있다. 환경 복제와 리뷰는 이 문서로 한다.
