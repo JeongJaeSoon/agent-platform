@@ -16,12 +16,12 @@ import {
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
 import {
   listUncollectedSessionPointers,
   readPointerRuntime,
 } from "./checkpoint-runtime.ts";
+import { migrate } from "./migrate.ts";
 import * as schema from "./schema.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;

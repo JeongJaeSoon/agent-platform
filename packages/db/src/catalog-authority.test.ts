@@ -14,12 +14,12 @@ import {
 import { testCaller } from "@werft-ai/testkit/callers";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import {
   activateCatalogRevision,
   activeCatalogRevision,
 } from "./catalog-authority.ts";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
+import { migrate } from "./migrate.ts";
 import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,

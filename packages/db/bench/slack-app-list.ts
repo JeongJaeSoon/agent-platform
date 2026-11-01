@@ -9,8 +9,8 @@ import { performance } from "node:perf_hooks";
 import { PGlite } from "@electric-sql/pglite";
 import { SecretKey } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import * as schema from "../src/index.ts";
+import { migrate } from "../src/migrate.ts";
 import type { Database } from "../src/queries.ts";
 import { createPostgresSlackAppStore } from "../src/slack-apps.ts";
 

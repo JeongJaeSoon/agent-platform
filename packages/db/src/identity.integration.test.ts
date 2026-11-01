@@ -145,6 +145,8 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "runtime_sdk_version",
     "runtime_cli_version",
     "runtime_profile_sha256",
+    // 0201
+    "checkpoint_collection_settled_at",
   ],
   turns: [
     "actor_id",

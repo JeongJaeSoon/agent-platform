@@ -45,6 +45,7 @@ import {
   verifySlackInstallation,
   workspaces,
 } from "@werft-ai/db";
+import { migrate } from "@werft-ai/db/migrate";
 import { createLogger, type LogRecord } from "@werft-ai/observability";
 import {
   type Caller,
@@ -76,7 +77,6 @@ import {
 import { and, asc, eq, sql } from "drizzle-orm";
 import { drizzle as drizzlePostgres } from "drizzle-orm/node-postgres";
 import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import { Pool } from "pg";
 import {
   CONNECTIONS_FILE,

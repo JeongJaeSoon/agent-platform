@@ -1069,6 +1069,13 @@ export const sessions = pgTable(
     workspaceReclaimedAt: timestamp("workspace_reclaimed_at", {
       withTimezone: true,
     }),
+    // Set by a checkpoint collection pass that found the session closed for
+    // a day with no open push request: nothing it could collect again, so
+    // later passes leave it out (settleCollection).
+    checkpointCollectionSettledAt: timestamp(
+      "checkpoint_collection_settled_at",
+      { withTimezone: true },
+    ),
     podId: text("pod_id"),
     pinned: boolean().notNull().default(false),
     lastTurnAt: timestamp("last_turn_at", { withTimezone: true }),
@@ -1192,6 +1199,10 @@ export const sessions = pgTable(
     index("sessions_input_announced_idx")
       .on(table.id)
       .where(sql`${table.inputAnnounced}`),
+    // The sessions a checkpoint collection pass still visits.
+    index("sessions_collection_unsettled_idx")
+      .on(table.id)
+      .where(sql`${table.checkpointCollectionSettledAt} IS NULL`),
     // Lets a later table reference (session_id, owner_id, workspace_id) as
     // one FK. That only pins the row to its session's workspace when the
     // referencing side declares workspace_id NOT NULL (or MATCH FULL): with
@@ -1288,6 +1299,13 @@ export const turns = pgTable(
       table.sessionId,
       table.sequence,
     ),
+    // The few turns not yet settled, which the metrics and installation
+    // usage count by status; outcome_unknown waits on an operator.
+    index("turns_unsettled_status_idx")
+      .on(table.status)
+      .where(
+        sql`${table.status} IN ('queued', 'running', 'needs_input', 'outcome_unknown')`,
+      ),
     check(
       "turns_channel_check",
       sql`${table.channel} IN (${sql.raw(sqlList(SURFACE_KIND_VALUES))})`,
@@ -1467,8 +1485,10 @@ export const toolCalls = pgTable(
       sql`${table.outcome} IN ('ok', 'failed', 'unknown')`,
     ),
     check("tool_calls_ms_check", sql`${table.ms} >= 0`),
-    uniqueIndex("tool_calls_pair_uniq")
-      .on(table.sessionId, table.attemptKey, table.toolUseId)
+    // tool_use id before attempt, so a denied permission request, which may
+    // have been answered under another attempt, finds its call by the pair.
+    uniqueIndex("tool_calls_session_tool_use_uniq")
+      .on(table.sessionId, table.toolUseId, table.attemptKey)
       .where(sql`${table.toolUseId} IS NOT NULL`),
     index("tool_calls_recent_idx").on(
       table.name,
@@ -1591,6 +1611,25 @@ export const toolCallDays = pgTable(
       sql`array_length(${table.hist}, 1) = 161`,
     ),
   ],
+);
+
+/**
+ * tool_calls counted per name and stored outcome by its insert, update,
+ * delete and truncate triggers (migration session_data_rollups), so the
+ * platform metrics read a row per pair instead of every call. `first_at` is
+ * the earliest created_at that entered the row; the least over a name's rows
+ * is the name's first call. A denied call still counts under its stored
+ * outcome here: the metrics read moves it to `denied`.
+ */
+export const toolCallOutcomes = pgTable(
+  "tool_call_outcomes",
+  {
+    name: text().notNull(),
+    outcome: text().notNull(),
+    calls: bigint({ mode: "number" }).notNull(),
+    firstAt: timestamp("first_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.name, table.outcome] })],
 );
 
 export const queueMessages = pgTable(
@@ -1811,6 +1850,12 @@ export const pendingRequests = pgTable(
       .on(table.attemptId, table.answerSequence)
       .where(
         sql`${table.answeredAt} IS NOT NULL AND ${table.settledAt} IS NULL`,
+      ),
+    // The calls the platform metrics count as denied.
+    index("pending_requests_denied_tool_use_idx")
+      .on(table.sessionId, table.toolUseId)
+      .where(
+        sql`${table.kind} = 'permission' AND (${table.answer} ->> 'decision') = 'deny' AND ${table.toolUseId} IS NOT NULL`,
       ),
     check(
       "pending_requests_answer_surface_check",
@@ -2088,7 +2133,16 @@ export const checkpoints = pgTable(
     // outputs no figure counts.
     outputsRecorded: boolean("outputs_recorded").notNull().default(false),
   },
-  (table) => [primaryKey({ columns: [table.sessionId, table.revision] })],
+  (table) => [
+    primaryKey({ columns: [table.sessionId, table.revision] }),
+    // Revisions whose outputs no figure counts yet, which installation usage
+    // reports as incomplete.
+    index("checkpoints_outputs_unrecorded_idx")
+      .on(table.sessionId)
+      .where(
+        sql`${table.objectsPurgedAt} IS NULL AND NOT ${table.outputsRecorded}`,
+      ),
+  ],
 );
 
 // Every output object a committed revision's manifest names, the ones it
@@ -2112,6 +2166,45 @@ export const checkpointOutputs = pgTable(
       foreignColumns: [checkpoints.sessionId, checkpoints.revision],
     }),
     check("checkpoint_outputs_bytes_nonneg", sql`${table.bytes} >= 0`),
+  ],
+);
+
+/**
+ * checkpoint_outputs per object key, kept by the triggers on it and on
+ * checkpoints (migration session_data_rollups): `bytes` the largest size
+ * recorded, `live_refs` the revisions naming it whose objects are not purged
+ * yet (kept while above 0), `first_at` the first naming revision's commit,
+ * `released_at` the latest purge among them. Keys carry the session prefix.
+ */
+export const checkpointOutputObjects = pgTable(
+  "checkpoint_output_objects",
+  {
+    sessionId: uuid("session_id").notNull(),
+    objectKey: text("object_key").notNull(),
+    bytes: bigint({ mode: "number" }).notNull(),
+    liveRefs: integer("live_refs").notNull(),
+    firstAt: timestamp("first_at", { withTimezone: true }).notNull(),
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sessionId, table.objectKey] }),
+    index("checkpoint_output_objects_first_at_idx").on(table.firstAt),
+    index("checkpoint_output_objects_released_at_idx")
+      .on(table.releasedAt)
+      .where(sql`${table.liveRefs} = 0`),
+  ],
+);
+
+// The bytes of the kept keys above, in one row ('installation'), kept by the
+// same triggers.
+export const checkpointOutputTotals = pgTable(
+  "checkpoint_output_totals",
+  {
+    scope: text().primaryKey(),
+    keptBytes: bigint("kept_bytes", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    check("checkpoint_output_totals_kept_nonneg", sql`${table.keptBytes} >= 0`),
   ],
 );
 
@@ -2296,6 +2389,26 @@ export const sessionModelUsage = pgTable(
     primaryKey({ columns: [table.sessionId, table.model] }),
     index("session_model_usage_created_at_idx").on(table.sessionCreatedAt),
   ],
+);
+
+// provider_usage summed per model and pricing by its insert, delete and
+// truncate triggers (migration session_data_rollups), for the platform
+// metrics. Unbounded numerics: the sums of every call an installation ever
+// made, exactly as sum() over provider_usage gives them.
+export const providerUsageTotals = pgTable(
+  "provider_usage_totals",
+  {
+    model: text().notNull(),
+    pricedBy: text("priced_by").notNull(),
+    calls: bigint({ mode: "number" }).notNull(),
+    inputTokens: numeric("input_tokens").notNull(),
+    outputTokens: numeric("output_tokens").notNull(),
+    cacheReadInputTokens: numeric("cache_read_input_tokens").notNull(),
+    cacheCreationInputTokens: numeric("cache_creation_input_tokens").notNull(),
+    costUsd: numeric("cost_usd").notNull(),
+    firstAt: timestamp("first_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.model, table.pricedBy] })],
 );
 
 // The part of a session's cost_usd no metered call explains: the engine's

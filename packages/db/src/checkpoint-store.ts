@@ -299,11 +299,35 @@ export function createPostgresCheckpointStore(
         .select({ id: sessions.id })
         .from(sessions)
         .where(
-          options.after === null ? undefined : gt(sessions.id, options.after),
+          and(
+            isNull(sessions.checkpointCollectionSettledAt),
+            options.after === null ? undefined : gt(sessions.id, options.after),
+          ),
         )
         .orderBy(asc(sessions.id))
         .limit(options.limit);
       return rows.map((row) => row.id);
+    },
+
+    async settleCollection(sessionId: string): Promise<boolean> {
+      // Closed is final, and a day is past the worker credential's 12 hours
+      // (worker-gateway.ts), so no attempt can still write an object here.
+      // updated_at is the close at the latest. Without an open push request
+      // no pin can be released to free more revisions.
+      const settled = await db
+        .update(sessions)
+        .set({ checkpointCollectionSettledAt: DB_NOW })
+        .where(
+          and(
+            eq(sessions.id, sessionId),
+            isNull(sessions.checkpointCollectionSettledAt),
+            eq(sessions.admissionState, "closed"),
+            lt(sessions.updatedAt, sql`now() - interval '1 day'`),
+            sql`NOT EXISTS (SELECT 1 FROM ${pushRequests} WHERE ${pushRequests.sessionId} = ${sessions.id} AND ${inArray(pushRequests.state, [...OPEN_PUSH_REQUEST_STATES])})`,
+          ),
+        )
+        .returning({ id: sessions.id });
+      return settled.length > 0;
     },
 
     readPointer(sessionId: string): Promise<CheckpointPointer | null> {

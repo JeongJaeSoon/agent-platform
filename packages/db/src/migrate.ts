@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { createLogger, type StructuredLogger } from "@werft-ai/observability";
 import { type MigrationMeta, readMigrationFiles } from "drizzle-orm/migrator";
-import type { Pool, PoolClient } from "pg";
+import { Pool, type PoolClient } from "pg";
 import { createEnforcedPool, type PoolTimeouts } from "./pool.ts";
 
 const packagedMigrationsFolder = join(import.meta.dir, "../migrations");
@@ -78,10 +78,15 @@ export async function migrateDatabase(
     await takeMigrationLock(lock);
     const adopted = await adoptLegacyM0Schema(pool, migrationsFolder);
     const before = await countJournal(pool);
-    await applyPendingMigrations(
-      pool,
-      readMigrationFiles({ migrationsFolder }),
-    );
+    const client = await pool.connect();
+    try {
+      await applyPendingMigrations(
+        client,
+        readMigrationFiles({ migrationsFolder }),
+      );
+    } finally {
+      client.release();
+    }
     const total = await countJournal(pool);
     const summary: MigrationSummary = {
       adopted,
@@ -128,47 +133,86 @@ async function countJournal(pool: Pool): Promise<number> {
   return Number(count.rows[0]?.count ?? 0);
 }
 
-// Drizzle's rule for what is pending: everything newer than the newest
-// journal row. Runs of ordinary migrations still share one transaction.
-async function applyPendingMigrations(
-  pool: Pool,
-  migrations: readonly MigrationMeta[],
+/** One connection: a pg client, or a PGlite database in tests. */
+interface SqlConnection {
+  query(text: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
+}
+
+/**
+ * Drizzle's `migrate` for a test or bench database, with this module's
+ * handling of no-transaction migrations, which Drizzle's own migrators run
+ * inside one transaction. Takes a drizzle database over a PGlite database or
+ * a pg pool, whose `$client` drizzle sets but types only for some callers.
+ */
+export async function migrate(
+  database: object,
+  config: { readonly migrationsFolder: string },
 ): Promise<void> {
-  const client = await pool.connect();
-  try {
-    await createJournalTable(client);
-    const newest = await client.query<{ created_at: string }>(
-      'SELECT created_at FROM "drizzle"."__drizzle_migrations" ORDER BY created_at DESC LIMIT 1',
+  const db = database as { readonly $client?: SqlConnection | Pool };
+  if (db.$client === undefined) {
+    throw new Error("migrate needs a drizzle database with a $client");
+  }
+  const migrations = readMigrationFiles(config);
+  if (!(db.$client instanceof Pool)) {
+    // PGlite runs Postgres in single-user mode, where a concurrent index
+    // build fails ("tuple concurrently updated"); with one connection there
+    // is nothing for it to wait out.
+    await applyPendingMigrations(
+      db.$client,
+      migrations.map((migration) => ({
+        ...migration,
+        sql: migration.sql.map((statement) =>
+          statement.replaceAll(/\bINDEX CONCURRENTLY\b/g, "INDEX"),
+        ),
+      })),
     );
-    const appliedThrough = newest.rows[0]
-      ? Number(newest.rows[0].created_at)
-      : Number.NEGATIVE_INFINITY;
-    let batch: MigrationMeta[] = [];
-    for (const migration of migrations) {
-      if (migration.folderMillis <= appliedThrough) {
-        continue;
-      }
-      if (!runsOutsideTransaction(migration.sql)) {
-        batch.push(migration);
-        continue;
-      }
-      await applyInTransaction(client, batch);
-      batch = [];
-      for (const statement of migration.sql) {
-        await client.query(statement);
-      }
-      await recordAppliedMigrations(client, [
-        { hash: migration.hash, when: migration.folderMillis },
-      ]);
-    }
-    await applyInTransaction(client, batch);
+    return;
+  }
+  const client = await db.$client.connect();
+  try {
+    await applyPendingMigrations(client, migrations);
   } finally {
     client.release();
   }
 }
 
+// Drizzle's rule for what is pending: everything newer than the newest
+// journal row. Runs of ordinary migrations still share one transaction.
+async function applyPendingMigrations(
+  client: SqlConnection,
+  migrations: readonly MigrationMeta[],
+): Promise<void> {
+  await createJournalTable(client);
+  const newest = await client.query(
+    'SELECT created_at FROM "drizzle"."__drizzle_migrations" ORDER BY created_at DESC LIMIT 1',
+  );
+  const [row] = newest.rows as { created_at: string | number }[];
+  const appliedThrough = row
+    ? Number(row.created_at)
+    : Number.NEGATIVE_INFINITY;
+  let batch: MigrationMeta[] = [];
+  for (const migration of migrations) {
+    if (migration.folderMillis <= appliedThrough) {
+      continue;
+    }
+    if (!runsOutsideTransaction(migration.sql)) {
+      batch.push(migration);
+      continue;
+    }
+    await applyInTransaction(client, batch);
+    batch = [];
+    for (const statement of migration.sql) {
+      await client.query(statement);
+    }
+    await recordAppliedMigrations(client, [
+      { hash: migration.hash, when: migration.folderMillis },
+    ]);
+  }
+  await applyInTransaction(client, batch);
+}
+
 async function applyInTransaction(
-  client: PoolClient,
+  client: SqlConnection,
   migrations: readonly MigrationMeta[],
 ): Promise<void> {
   if (migrations.length === 0) {
@@ -286,7 +330,7 @@ async function adoptLegacyM0Schema(
  * by tests that need a database standing at one exact migration.
  */
 export async function recordAppliedMigrations(
-  client: Pick<PoolClient, "query">,
+  client: SqlConnection,
   migrations: readonly { hash: string; when: number }[],
 ): Promise<void> {
   await createJournalTable(client);
@@ -298,9 +342,7 @@ export async function recordAppliedMigrations(
   }
 }
 
-async function createJournalTable(
-  client: Pick<PoolClient, "query">,
-): Promise<void> {
+async function createJournalTable(client: SqlConnection): Promise<void> {
   await client.query('CREATE SCHEMA IF NOT EXISTS "drizzle"');
   await client.query(`
     CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations" (

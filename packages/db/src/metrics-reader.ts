@@ -1,14 +1,12 @@
 import type { SessionBudget } from "@werft-ai/platform";
-import { type AnyColumn, and, eq, isNull, lte, sql } from "drizzle-orm";
+import { type AnyColumn, and, eq, gt, isNull, lte, sql } from "drizzle-orm";
 import { actionableOfSession } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import { awaitingLaunch } from "./scheduler-store.ts";
 import {
-  pendingRequests,
-  providerUsage,
+  providerUsageTotals,
   queueMessages,
   sessions,
-  toolCalls,
   turns,
   unassignedSessions,
 } from "./schema.ts";
@@ -170,74 +168,71 @@ async function readOutcomeUnknownTurns(db: Database) {
   return row?.count ?? 0;
 }
 
-// A call whose permission request a person denied. tool_use ids come from
-// the provider and are unique, so the pair names one call even when the
-// answer reached a later attempt than the one that asked (a parked request).
+// A call whose permission request a person denied counts as denied. tool_use
+// ids come from the provider and are unique, so the pair names one call even
+// when the answer reached a later attempt than the one that asked (a parked
+// request). tool_call_outcomes counts every call under its stored outcome; the
+// few denied ones are moved here. `first_at` is the name's first call,
+// across its outcomes.
 async function readToolCalls(db: Database) {
-  const denied = db.$with("denied").as(
-    db
-      .selectDistinct({
-        sessionId: pendingRequests.sessionId,
-        toolUseId: pendingRequests.toolUseId,
-      })
-      .from(pendingRequests)
-      .where(
-        and(
-          eq(pendingRequests.kind, "permission"),
-          sql`${pendingRequests.answer} ->> 'decision' = 'deny'`,
-          sql`${pendingRequests.toolUseId} IS NOT NULL`,
-        ),
-      ),
-  );
-  const outcome = sql<ToolCallOutcome>`CASE WHEN ${denied.sessionId} IS NULL THEN ${toolCalls.outcome} ELSE 'denied' END`;
-  const rows = await db
-    .with(denied)
-    .select({
-      name: toolCalls.name,
-      outcome: outcome.as("outcome"),
-      count: sql<number>`count(*)`.mapWith(Number),
-      firstAt: sql<Date>`min(${toolCalls.createdAt})`.mapWith(
-        (value) => new Date(value),
-      ),
-    })
-    .from(toolCalls)
-    .leftJoin(
-      denied,
-      and(
-        eq(denied.sessionId, toolCalls.sessionId),
-        eq(denied.toolUseId, toolCalls.toolUseId),
-      ),
+  const { rows } = (await db.execute(sql`
+    WITH denied AS (
+      SELECT DISTINCT session_id, tool_use_id FROM pending_requests
+      WHERE kind = 'permission' AND (answer ->> 'decision') = 'deny'
+        AND tool_use_id IS NOT NULL
+    ),
+    moved AS (
+      SELECT c.name, c.outcome, count(*) AS calls
+      FROM denied d
+      JOIN tool_calls c ON c.session_id = d.session_id AND c.tool_use_id = d.tool_use_id
+      GROUP BY c.name, c.outcome
+    ),
+    counted AS (
+      SELECT t.name, t.outcome, t.calls - coalesce(m.calls, 0) AS calls
+      FROM tool_call_outcomes t
+      LEFT JOIN moved m ON m.name = t.name AND m.outcome = t.outcome
+      UNION ALL
+      SELECT name, 'denied', sum(calls) FROM moved GROUP BY name
     )
-    .groupBy(sql`1, 2`);
-  // A name's first call, across its outcomes: the same instant whichever
-  // outcome row it is read from.
-  const firstOf = new Map<string, number>();
-  for (const row of rows) {
-    const at = row.firstAt.getTime();
-    firstOf.set(row.name, Math.min(firstOf.get(row.name) ?? at, at));
-  }
+    SELECT counted.name, counted.outcome, counted.calls::bigint AS count, f.first_at
+    FROM counted
+    JOIN (SELECT name, min(first_at) AS first_at FROM tool_call_outcomes GROUP BY name) f
+      ON f.name = counted.name
+    WHERE counted.calls > 0`)) as unknown as {
+    rows: {
+      name: string;
+      outcome: ToolCallOutcome;
+      count: number | string;
+      first_at: Date | string;
+    }[];
+  };
   return rows.map((row) => ({
-    ...row,
-    firstAt: new Date(firstOf.get(row.name) ?? row.firstAt.getTime()),
+    name: row.name,
+    outcome: row.outcome,
+    count: Number(row.count),
+    firstAt: new Date(row.first_at),
   }));
 }
 
 async function readProviderUsage(db: Database) {
+  const total = (column: AnyColumn) => sql<number>`${column}`.mapWith(Number);
   const rows = await db
     .select({
-      model: providerUsage.model,
-      pricedBy: providerUsage.pricedBy,
-      inputTokens: sumOf(providerUsage.inputTokens),
-      outputTokens: sumOf(providerUsage.outputTokens),
-      cacheReadInputTokens: sumOf(providerUsage.cacheReadInputTokens),
-      cacheCreationInputTokens: sumOf(providerUsage.cacheCreationInputTokens),
-      costUsd: sql<string>`coalesce(sum(${providerUsage.costUsd}), 0)::text`,
-      firstAt: sql<Date>`min(${providerUsage.recordedAt})`.mapWith(
-        (value) => new Date(value),
+      model: providerUsageTotals.model,
+      pricedBy: sql<
+        "table" | "fallback" | "unmetered"
+      >`${providerUsageTotals.pricedBy}`,
+      inputTokens: total(providerUsageTotals.inputTokens),
+      outputTokens: total(providerUsageTotals.outputTokens),
+      cacheReadInputTokens: total(providerUsageTotals.cacheReadInputTokens),
+      cacheCreationInputTokens: total(
+        providerUsageTotals.cacheCreationInputTokens,
       ),
+      costUsd: sql<string>`${providerUsageTotals.costUsd}::text`,
+      firstAt: providerUsageTotals.firstAt,
     })
-    .from(providerUsage)
-    .groupBy(providerUsage.model, providerUsage.pricedBy);
+    .from(providerUsageTotals)
+    .where(gt(providerUsageTotals.calls, 0));
   const firstOf = new Map<string, number>();
   for (const row of rows) {
     const at = row.firstAt.getTime();
@@ -247,10 +242,6 @@ async function readProviderUsage(db: Database) {
     ...row,
     firstAt: new Date(firstOf.get(row.model) ?? row.firstAt.getTime()),
   }));
-}
-
-function sumOf(column: AnyColumn) {
-  return sql<number>`coalesce(sum(${column}), 0)`.mapWith(Number);
 }
 
 async function readLaunchQueue(db: Database, budget: SessionBudget) {

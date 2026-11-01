@@ -9,9 +9,9 @@
 import { performance } from "node:perf_hooks";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import * as schema from "../src/index.ts";
 import { createPostgresSessionReader } from "../src/index.ts";
+import { migrate } from "../src/migrate.ts";
 
 const ownerSessions = Number(process.argv[2] ?? 1000);
 const eventsPerSession = Number(process.argv[3] ?? 20000);

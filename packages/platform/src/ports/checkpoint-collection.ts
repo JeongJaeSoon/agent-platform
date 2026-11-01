@@ -73,9 +73,19 @@ export interface CheckpointCollectionStore
     sessionId: string,
     options: { keep: readonly number[]; throughRevision: number },
   ): Promise<void>;
-  /** Session ids in ascending order, strictly after `after` when given. */
+  /**
+   * Session ids in ascending order, strictly after `after` when given,
+   * leaving out the sessions `settleCollection` settled.
+   */
   listSessionIds(options: {
     after: string | null;
     limit: number;
   }): Promise<string[]>;
+  /**
+   * Called once a pass collected the session: leaves it out of later passes
+   * when nothing there can become collectible again (closed long enough that
+   * no worker can still write, no open push request pinning a revision).
+   * Whether it did.
+   */
+  settleCollection(sessionId: string): Promise<boolean>;
 }

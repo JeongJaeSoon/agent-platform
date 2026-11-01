@@ -8,7 +8,7 @@ import {
   SESSION_STATUS_VALUES,
 } from "@werft-ai/contracts";
 import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
+import { migrate } from "./migrate.ts";
 import {
   admissionState,
   CREDENTIAL_BINDING_TARGETS,
@@ -72,6 +72,8 @@ describe("database schema", () => {
       "authz_decisions",
       "bootstrap_token_uses",
       "catalog_authority",
+      "checkpoint_output_objects",
+      "checkpoint_output_totals",
       "checkpoint_outputs",
       "checkpoints",
       "control_intents",
@@ -97,6 +99,7 @@ describe("database schema", () => {
       "pending_requests",
       "permission_grants",
       "provider_usage",
+      "provider_usage_totals",
       "pull_requests",
       "push_requests",
       "queue_messages",
@@ -119,6 +122,7 @@ describe("database schema", () => {
       "storage_usage",
       "surface_bindings",
       "tool_call_days",
+      "tool_call_outcomes",
       "tool_call_progress",
       "tool_calls",
       "tool_descriptions",

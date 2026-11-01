@@ -10,7 +10,7 @@ import { PGlite } from "@electric-sql/pglite";
 import type { UsageSummaryFilter, UsageToolsFilter } from "@werft-ai/platform";
 import { sql } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
+import { migrate } from "./migrate.ts";
 import * as schema from "./schema.ts";
 import { events, sessions, users } from "./schema.ts";
 import { projectToolCalls } from "./tool-calls.ts";

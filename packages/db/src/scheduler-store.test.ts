@@ -5,7 +5,7 @@ import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import { launchNonceFingerprint } from "@werft-ai/platform";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
+import { migrate } from "./migrate.ts";
 import { createPostgresSchedulerStore } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {

@@ -6,7 +6,7 @@ import {
   type RunnablePair,
 } from "@werft-ai/platform";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
+import { migrate } from "./migrate.ts";
 import * as schema from "./schema.ts";
 import { sessions } from "./schema.ts";
 import {

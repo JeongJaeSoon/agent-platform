@@ -133,6 +133,9 @@ function memoryStore(
     async listSessionIds({ after }) {
       return after === null ? [sessionId] : [];
     },
+    async settleCollection() {
+      return false;
+    },
   };
 }
 
