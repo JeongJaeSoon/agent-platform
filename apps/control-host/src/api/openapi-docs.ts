@@ -239,6 +239,10 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
     "The platform refused the GitHub work before asking GitHub, or GitHub refused the token it asked for. `error.details.reason_code` says why and `error.details.receipt_id` names the receipt of the refusal. A refusal the workspace or the agent's release decided (`github_disabled`, `repository_not_allowed`, `feature_off`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`) is 403; one an owner fixes outside the release (`over_workspace_ceiling`, `app_required`, `app_permission_missing`, `github_host_unsupported`, `no_reviewer_app`, `github_settings_unsupported`) is 409.",
   GITHUB_APP_CONFLICT:
     "The App would clash with the workspace's other GitHub App. `error.details.reason_code` says how: `same_app` (the other role already holds this App; GitHub refuses an approval from the App that opened the pull request) or `no_author_app` (a reviewer App needs the author App first).",
+  GITHUB_UNAVAILABLE:
+    "GitHub did not give the App's installations or repositories. `error.details.reason_code` is `github_unavailable` (GitHub did not answer, answered 5xx, or rate-limited the App; try again) or `github_app_auth_failed` (GitHub refused the App's key; replace it).",
+  INSTALLATION_SUSPENDED:
+    "GitHub has suspended the App installation the request named; an owner of that account resumes it on GitHub.",
   PENDING_REQUESTS_OPEN:
     "A request the parked turn waits on is neither answered nor expired yet.",
   PERMISSION_WAIT_ABOVE_PROFILE:

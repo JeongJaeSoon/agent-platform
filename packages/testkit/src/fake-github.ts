@@ -169,6 +169,10 @@ export type FakeGitHub = {
   ): void;
   /** The next `count` REST calls (not token issues) answer `status`. */
   failNext(count: number, status: number): void;
+  /** Until unset, every call signed with an App JWT answers `status`. */
+  failApp(status: number | undefined): void;
+  /** While on, `GET /app/installations` lists every installation suspended. */
+  suspendInstallations(on: boolean): void;
   /** `GET /user` with this PAT (`token <pat>`) names this user id. */
   addUser(pat: string, id: number): void;
   /** While on, `GET /user` answers 500. */
@@ -450,6 +454,8 @@ export async function startFakeGitHub(
   let failures = { count: 0, status: 500 };
   const users = new Map<string, number>();
   let failingUser = false;
+  let appFailure: number | undefined;
+  let suspended = false;
   let nextCommentId = 5000;
   let nextReviewId = 8000;
   function commentOn(
@@ -810,6 +816,9 @@ export async function startFakeGitHub(
         { status: 401 },
       );
     }
+    if (appFailure !== undefined) {
+      return Response.json({ message: "Server Error" }, { status: appFailure });
+    }
     const isSecond = second !== undefined && Number(jwt.iss) === second.appId;
     const app = isSecond
       ? {
@@ -852,6 +861,8 @@ export async function startFakeGitHub(
         account: { login: owner, type: "Organization" },
         repository_selection: "selected",
         html_url: `${origin()}/organizations/${owner}/settings/installations/${app.installation}`,
+        permissions: app.permissions,
+        suspended_at: suspended ? "2026-11-01T00:00:00Z" : null,
       },
     ]);
   }
@@ -1069,6 +1080,12 @@ export async function startFakeGitHub(
     },
     failNext(count, status) {
       failures = { count, status };
+    },
+    failApp(status) {
+      appFailure = status;
+    },
+    suspendInstallations(on) {
+      suspended = on;
     },
     addUser(pat, id) {
       users.set(pat, id);

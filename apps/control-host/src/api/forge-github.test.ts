@@ -592,6 +592,12 @@ describe("createGitHubAppDirectory", () => {
         account: "acme",
         repositorySelection: "selected",
         htmlUrl: `${github.origin}/organizations/acme/settings/installations/1`,
+        permissions: {
+          contents: "write",
+          pull_requests: "write",
+          metadata: "read",
+        },
+        suspended: false,
       },
     ]);
     expect(await directory.installationFor(app(), repo)).toEqual({

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type {
   CatalogGitHubRepository,
+  GitHubAppRole,
   GitHubRepositoryPageQuery,
   GitHubRepositoryWriteResponse,
   InstalledGitHubRepository,
@@ -19,6 +20,7 @@ import {
   GitHubAppCheckError,
   type GitHubAppCredential,
   type GitHubAppDirectory,
+  type GitHubAppInstallationView,
   type GitHubAppStore,
   type GitHubInstallationRepository,
 } from "../ports/github-app-store.ts";
@@ -46,29 +48,54 @@ type InstallationPage = Pick<
 > & {
   repositories: GitHubInstallationRepository[];
   unavailable: Unavailable | null;
+  /** The role of the App whose installation this page is of. */
+  role: GitHubAppRole;
 };
-type Credential = Pick<GitHubAppCredential, "appId" | "apiBase" | "privateKey">;
+type Credential = Pick<
+  GitHubAppCredential,
+  "id" | "appId" | "apiBase" | "privateKey"
+>;
 
 /** How many resolved rows the list asks GitHub about, one call each. */
 export const CATALOG_INSTALLED_CHECK_MAX = 100;
+/** How many installations the list counts repositories of, two calls each. */
+export const INSTALLATION_COUNT_MAX = 20;
 
 const refused = (reasonCode: string, message: string) =>
   new SessionServiceError("BAD_REQUEST", message, undefined, {
     reason_code: reasonCode,
   });
 
-const unreachable = (reasonCode: Unavailable) =>
+const installationNotFound = () =>
   new SessionServiceError(
-    "BACKEND_UNAVAILABLE",
-    "GitHub could not be reached to read the App's repositories",
+    "NOT_FOUND",
+    "No registered GitHub App has an installation with that id",
     undefined,
-    { reason_code: reasonCode },
+    { reason_code: "installation_not_found" },
   );
 
-const failureOf = (error: unknown): Unavailable =>
-  error instanceof GitHubAppCheckError && error.reason === "github_rejected"
-    ? "github_rejected"
-    : "github_unreachable";
+/**
+ * GitHub's failure as the API answers it. A 404 for an installation's own
+ * token means the installation is gone; any other 401 or 404 is the App.
+ */
+function githubFailure(error: unknown, asked: "app" | "installation") {
+  if (error instanceof SessionServiceError) return error;
+  const checked = error instanceof GitHubAppCheckError ? error : null;
+  if (asked === "installation" && checked?.status === 404) {
+    return installationNotFound();
+  }
+  const authFailed = checked?.reason === "github_rejected";
+  return new SessionServiceError(
+    "GITHUB_UNAVAILABLE",
+    authFailed
+      ? "GitHub refused the App's key"
+      : "GitHub could not be reached to read the App's repositories",
+    undefined,
+    {
+      reason_code: authFailed ? "github_app_auth_failed" : "github_unavailable",
+    },
+  );
+}
 
 /** A catalog id from a GitHub repository name: `My.Repo` → `my.repo`. */
 export function repositoryIdBase(name: string): string {
@@ -93,6 +120,7 @@ const emptyPage = (
   total_count: 0,
   repositories: [],
   unavailable,
+  role: "author",
 });
 
 /**
@@ -184,57 +212,131 @@ export function createGitHubRepositoryService(deps: {
   // the periodic one catches up.
   const reload = () => deps.changed().catch(() => undefined);
 
-  async function credential(workspaceId: string): Promise<Credential | null> {
+  async function credential(
+    workspaceId: string,
+    role: GitHubAppRole = "author",
+  ): Promise<Credential | null> {
     if (deps.apps === null) return null;
-    const record = await deps.apps.find(workspaceId, "author");
+    const record = await deps.apps.find(workspaceId, role);
     if (record === null) return null;
     return (
-      (await deps.apps.credentials("author", workspaceId)).find(
+      (await deps.apps.credentials(role, workspaceId)).find(
         (held) => held.id === record.id,
       ) ?? null
     );
   }
 
+  const repositoryCount = (
+    app: Credential,
+    installation: GitHubAppInstallationView,
+  ): Promise<number | null> =>
+    installation.suspended
+      ? Promise.resolve(null)
+      : directory
+          .installationRepositoriesPage(app, installation.id, {
+            page: 1,
+            perPage: 1,
+          })
+          .then(
+            (page) => page.totalCount,
+            () => null,
+          );
+
+  /**
+   * One page of one installation of the workspace's Apps: the author App's
+   * first by account when none is named. The picker passes only the author
+   * role, since a pick resolves through the author App.
+   */
   async function installationPage(
     workspaceId: string,
     query: GitHubRepositoryPageQuery,
+    roles: readonly GitHubAppRole[],
   ): Promise<InstallationPage> {
-    const app = await credential(workspaceId);
-    if (app === null) return emptyPage(query, "no_author_app");
-    try {
-      const installations = (await directory.installations(app))
-        .map(({ id, account }) => ({ id, account }))
-        .sort((a, b) => a.account.localeCompare(b.account) || a.id - b.id);
-      const first = installations[0];
-      if (first === undefined) return emptyPage(query, "no_installation");
-      const installation =
-        query.installation_id === undefined
-          ? first
-          : installations.find((held) => held.id === query.installation_id);
-      if (installation === undefined) {
-        throw refused(
-          "not_installed",
-          "The author App has no installation with that id",
-        );
-      }
-      const page = await directory.installationRepositoriesPage(
-        app,
-        installation.id,
-        { page: query.page, perPage: query.per_page },
-      );
-      return {
-        installations,
-        installation_id: installation.id,
-        page: query.page,
-        per_page: query.per_page,
-        total_count: page.totalCount,
-        repositories: page.repositories,
-        unavailable: null,
-      };
-    } catch (error) {
-      if (error instanceof SessionServiceError) throw error;
-      return emptyPage(query, failureOf(error));
+    const apps = (
+      await Promise.all(
+        roles.map(async (role) => {
+          const app = await credential(workspaceId, role);
+          return app === null ? [] : [{ role, app }];
+        }),
+      )
+    ).flat();
+    if (!apps.some(({ role }) => role === "author")) {
+      return emptyPage(query, "no_author_app");
     }
+    const held = (
+      await Promise.all(
+        apps.map(async ({ role, app }) => {
+          const installations = await directory
+            .installations(app)
+            .catch((error: unknown) => {
+              throw githubFailure(error, "app");
+            });
+          return installations.map((installation) => ({
+            role,
+            app,
+            installation,
+          }));
+        }),
+      )
+    )
+      .flat()
+      .sort(
+        (a, b) =>
+          roles.indexOf(a.role) - roles.indexOf(b.role) ||
+          a.installation.account.localeCompare(b.installation.account) ||
+          a.installation.id - b.installation.id,
+      );
+    const first = held[0];
+    if (first === undefined) return emptyPage(query, "no_installation");
+    const chosen =
+      query.installation_id === undefined
+        ? first
+        : held.find(
+            ({ installation }) => installation.id === query.installation_id,
+          );
+    if (chosen === undefined) throw installationNotFound();
+    if (chosen.installation.suspended) {
+      throw new SessionServiceError(
+        "INSTALLATION_SUSPENDED",
+        "GitHub has suspended this installation of the App",
+        undefined,
+        { reason_code: "installation_suspended" },
+      );
+    }
+    const page = await directory
+      .installationRepositoriesPage(chosen.app, chosen.installation.id, {
+        page: query.page,
+        perPage: query.per_page,
+      })
+      .catch((error: unknown) => {
+        throw githubFailure(error, "installation");
+      });
+    const counts = await Promise.all(
+      held.map((entry, index) =>
+        entry === chosen
+          ? Promise.resolve(page.totalCount)
+          : index < INSTALLATION_COUNT_MAX
+            ? repositoryCount(entry.app, entry.installation)
+            : Promise.resolve(null),
+      ),
+    );
+    return {
+      installations: held.map(({ role, app, installation }, index) => ({
+        id: installation.id,
+        account: installation.account,
+        connection_id: app.id,
+        role,
+        permissions: installation.permissions,
+        repository_count: counts[index] ?? null,
+      })),
+      installation_id: chosen.installation.id,
+      role: chosen.role,
+      page: query.page,
+      per_page: query.per_page,
+      total_count: page.totalCount,
+      repositories: page.repositories,
+      unavailable: null,
+    };
   }
 
   /** The file id that already holds that github.com repository. */
@@ -361,7 +463,11 @@ export function createGitHubRepositoryService(deps: {
   ): Promise<GitHubInstallationRepository | null> {
     // GitHub refuses a token for an installation of another App as it does
     // when it is down; only the App's own list tells the two apart.
-    const installations = await directory.installations(app);
+    const installations = await directory
+      .installations(app)
+      .catch((error: unknown) => {
+        throw githubFailure(error, "app");
+      });
     if (!installations.some(({ id }) => id === installationId)) return null;
     const repository = await directory.repositoryById(
       app,
@@ -383,8 +489,8 @@ export function createGitHubRepositoryService(deps: {
       query: GitHubRepositoryPageQuery,
     ): Promise<ListGitHubRepositoriesResponse> {
       await managed(caller, workspaceId);
-      const [page, rows, counts] = await Promise.all([
-        installationPage(workspaceId, query),
+      const [{ role, ...page }, rows, counts] = await Promise.all([
+        installationPage(workspaceId, query, ["author", "reviewer"]),
         store.listActive(),
         store.agentCounts(),
       ]);
@@ -393,13 +499,12 @@ export function createGitHubRepositoryService(deps: {
         ...page,
         repositories: page.repositories.map((repository) => {
           const picked = pickedOf(repository, own);
+          const catalogId = picked.catalog_id ?? fileHolder(repository) ?? null;
           return {
             ...picked,
-            catalog_id: picked.catalog_id ?? fileHolder(repository) ?? null,
+            catalog_id: catalogId,
             agent_count:
-              picked.catalog_id === null
-                ? 0
-                : (counts.get(picked.catalog_id) ?? 0),
+              catalogId === null ? 0 : (counts.get(catalogId)?.[role] ?? 0),
           };
         }),
         catalog: [
@@ -459,14 +564,11 @@ export function createGitHubRepositoryService(deps: {
       const workspaceId = caller.ownerId;
       const blocked = await installedCeiling(workspaceId, agentId);
       if (blocked !== null) {
-        return {
-          ...emptyPage(query, null),
-          repositories: [],
-          unavailable: blocked,
-        };
+        const { role: _author, ...empty } = emptyPage(query, null);
+        return { ...empty, repositories: [], unavailable: blocked };
       }
-      const [page, rows] = await Promise.all([
-        installationPage(workspaceId, query),
+      const [{ role: _author, ...page }, rows] = await Promise.all([
+        installationPage(workspaceId, query, ["author"]),
         store.listActive(),
       ]);
       const own = rows.filter((row) => !reserved.has(row.id));
@@ -518,7 +620,7 @@ export function createGitHubRepositoryService(deps: {
             body.github_repository_id,
           ));
       } catch (error) {
-        throw unreachable(failureOf(error));
+        throw githubFailure(error, "installation");
       }
       if (picked === null) {
         throw refused(

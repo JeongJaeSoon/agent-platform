@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentDetail } from "@werft-ai/contracts";
 import type { CatalogRepositoryStore } from "../ports/catalog-repository-store.ts";
-import type {
-  GitHubAppDirectory,
-  GitHubAppInstallationView,
-  GitHubAppStore,
-  GitHubInstallationRepository,
+import {
+  GitHubAppCheckError,
+  type GitHubAppDirectory,
+  type GitHubAppInstallationView,
+  type GitHubAppStore,
+  type GitHubInstallationRepository,
 } from "../ports/github-app-store.ts";
 import {
   ceilingAppRepositories,
@@ -43,11 +44,13 @@ const repository = (
   private: false,
 });
 
-const installation = (id: number): GitHubAppInstallationView => ({
+const installationView = (id: number): GitHubAppInstallationView => ({
   id,
   account: "acme",
-  repositorySelection: "all",
+  repositorySelection: "selected",
   htmlUrl: null,
+  permissions: {},
+  suspended: false,
 });
 
 const apps = {
@@ -102,7 +105,7 @@ function serviceWith(directory: Partial<GitHubAppDirectory>) {
     apps,
     directory: {
       async installations() {
-        return [installation(INSTALLATION)];
+        return [installationView(INSTALLATION)];
       },
       ...directory,
     } as GitHubAppDirectory,
@@ -208,7 +211,7 @@ describe("picking a GitHub App repository for an agent", () => {
     let read = false;
     const { pick, resolved } = serviceWith({
       async installations() {
-        return [installation(99)];
+        return [installationView(99)];
       },
       async repositoryById() {
         read = true;
@@ -243,14 +246,51 @@ describe("picking a GitHub App repository for an agent", () => {
     expect(resolved).toEqual(["acme/new-name"]);
   });
 
-  test("GitHub not answering is a 503, not a refusal", async () => {
+  test("GitHub failing is GITHUB_UNAVAILABLE by cause, or a vanished installation", async () => {
+    for (const [thrown, code, reason] of [
+      [new Error("socket hang up"), "GITHUB_UNAVAILABLE", "github_unavailable"],
+      [
+        new GitHubAppCheckError("github_unreachable", 502),
+        "GITHUB_UNAVAILABLE",
+        "github_unavailable",
+      ],
+      [
+        new GitHubAppCheckError("github_rejected", 401),
+        "GITHUB_UNAVAILABLE",
+        "github_app_auth_failed",
+      ],
+      // The token for the installation: it went away after it was listed.
+      [
+        new GitHubAppCheckError("github_rejected", 404),
+        "NOT_FOUND",
+        "installation_not_found",
+      ],
+    ] as const) {
+      const { pick, resolved } = serviceWith({
+        async repositoryById() {
+          throw thrown;
+        },
+      });
+      const failed = await pick(7).catch((error: unknown) => error);
+      expect(failed).toBeInstanceOf(SessionServiceError);
+      expect((failed as SessionServiceError).code).toBe(code);
+      expect((failed as SessionServiceError).details).toEqual({
+        reason_code: reason,
+      });
+      expect(resolved).toEqual([]);
+    }
+  });
+
+  test("a refused App key is told apart from the App's installation list", async () => {
     const { pick } = serviceWith({
-      async repositoryById() {
-        throw new Error("socket hang up");
+      async installations() {
+        throw new GitHubAppCheckError("github_rejected", 404);
       },
     });
-    const failed = await pick(7).catch((error: unknown) => error);
-    expect(failed).toBeInstanceOf(SessionServiceError);
-    expect((failed as SessionServiceError).code).toBe("BACKEND_UNAVAILABLE");
+    const failed = (await pick(7).catch(
+      (error: unknown) => error,
+    )) as SessionServiceError;
+    expect(failed.code).toBe("GITHUB_UNAVAILABLE");
+    expect(failed.details).toEqual({ reason_code: "github_app_auth_failed" });
   });
 });

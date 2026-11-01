@@ -306,6 +306,7 @@ export function createPostgresCatalogRepositoryStore(
         .select({
           id: sql<string>`ids.id`,
           count: sql<number>`count(DISTINCT ${agents.id})::int`,
+          reviewing: sql<number>`(count(DISTINCT ${agents.id}) FILTER (WHERE ${agentReleases.policyPins} #>> '{github,features,review}' = 'true'))::int`,
         })
         .from(agents)
         .innerJoin(agentReleases, eq(agentReleases.id, agents.activeReleaseId))
@@ -314,7 +315,12 @@ export function createPostgresCatalogRepositoryStore(
           sql`true`,
         )
         .groupBy(sql`ids.id`);
-      return new Map(rows.map((row) => [row.id, row.count]));
+      return new Map(
+        rows.map((row) => [
+          row.id,
+          { author: row.count, reviewer: row.reviewing },
+        ]),
+      );
     },
 
     setBranch(input) {

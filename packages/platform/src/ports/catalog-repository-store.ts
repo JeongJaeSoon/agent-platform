@@ -88,6 +88,11 @@ export interface CatalogRepositoryStore {
     | { outcome: "stored"; repository: CatalogRepositoryRow }
     | { outcome: "actor_inactive" | "not_found" | "revision_conflict" }
   >;
-  /** Per catalog id, how many agents' active releases name it. */
-  agentCounts(): Promise<ReadonlyMap<string, number>>;
+  /**
+   * Per catalog id, how many agents' active releases name it (`author`),
+   * and how many of those turn review on (`reviewer`).
+   */
+  agentCounts(): Promise<
+    ReadonlyMap<string, { author: number; reviewer: number }>
+  >;
 }

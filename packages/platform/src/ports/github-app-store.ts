@@ -104,6 +104,9 @@ export type GitHubAppInstallationView = {
   account: string;
   repositorySelection: "all" | "selected";
   htmlUrl: string | null;
+  /** What the account approved for this installation. */
+  permissions: GitHubAppPermissions;
+  suspended: boolean;
 };
 
 /** GitHub's side of a registered App, asked with the App's JWT. */
@@ -155,7 +158,11 @@ export type GitHubInstallationRepository = {
 /** A GitHub answer that says nothing about the request's own values. */
 export class GitHubAppCheckError extends Error {
   override readonly name = "GitHubAppCheckError";
-  constructor(readonly reason: GitHubAppCheckFailure) {
+  constructor(
+    readonly reason: GitHubAppCheckFailure,
+    /** GitHub's HTTP status; absent when it did not answer. */
+    readonly status?: number,
+  ) {
     super(`GitHub App check failed: ${reason}`);
   }
 }

@@ -813,6 +813,7 @@ export function createGitHubAppDirectory(
         status === 401 || status === 404
           ? "github_rejected"
           : "github_unreachable",
+        status,
       );
     }
   }
@@ -856,6 +857,8 @@ export function createGitHubAppDirectory(
                 account?.login ?? account?.slug ?? String(installation.id),
               repositorySelection: installation.repository_selection,
               htmlUrl: installation.html_url ?? null,
+              permissions: permissionsOf(installation.permissions),
+              suspended: installation.suspended_at != null,
             });
           }
           if (data.length < INSTALLATIONS_PER_PAGE) break;
