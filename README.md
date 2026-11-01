@@ -85,3 +85,5 @@ PolyForm Small Business 1.0.0의 조건은 다음과 같다.
 - 복사본을 넘길 때는 라이선스 전문(또는 그 URL)과 `LICENSE` 첫 줄의 `Required Notice:`를 함께 넘긴다.
 
 평가·상용 라이선스 문의: jaesoon@94soon.dev
+
+<!-- session-pr-e2e test 2026-11-01 (platform): 머지 금지, 오너 확인 뒤 닫음 -->
