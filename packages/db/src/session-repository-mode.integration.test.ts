@@ -255,15 +255,37 @@ integration("sessions.repository_mode", () => {
 
   test("a session without a repository keeps an attached list", async () => {
     await migrate(db, { migrationsFolder: MIGRATIONS });
-    await pool.query(
-      `INSERT INTO sessions (id, owner_id, repository_mode, attached_repository_ids)
-       VALUES ($1, 'owner', 'none', '{repo-b}')`,
-      [randomUUID()],
-    );
-    await pool.query(
-      `INSERT INTO sessions (id, owner_id, repository_mode, attached_repository_ids)
-       VALUES ($1, 'owner', 'none', NULL)`,
-      [randomUUID()],
-    );
+    const inputs = createPostgresSessionUnitOfWork(db);
+    const reader = createPostgresSessionReader(db);
+    const ownerId = `owner-${randomUUID()}`;
+    const read = async (attachedRepositoryIds?: string[]) => {
+      const accepted = await inputs.acceptInputAtomic({
+        principal: { ownerId },
+        idempotencyKey: randomUUID(),
+        payloadHash: randomUUID(),
+        profileId: "general",
+        repository: "none",
+        ...(attachedRepositoryIds === undefined
+          ? {}
+          : { attachedRepositoryIds }),
+        message: "hello",
+        limits: LIMITS,
+      });
+      if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
+      const session = await reader.getSession(
+        ownerId,
+        accepted.response.session_id,
+      );
+      return {
+        repository: session?.repository_id,
+        attached: session?.attached_repository_ids,
+      };
+    };
+
+    expect(await read(["repo-b"])).toEqual({
+      repository: null,
+      attached: ["repo-b"],
+    });
+    expect(await read()).toEqual({ repository: null, attached: null });
   });
 });
