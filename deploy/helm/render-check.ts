@@ -536,6 +536,10 @@ const PUBLIC_PATHS = [
 // the longer Prefix first anyway; the spec order holds that on its face.
 const CONSOLE_PATHS = ["Prefix /internal", ...PUBLIC_PATHS, "Prefix /"];
 const ALB_ACTION = "alb.ingress.kubernetes.io/actions.";
+const BLOCK_ACTION = {
+  type: "fixed-response",
+  fixedResponseConfig: { contentType: "text/plain", statusCode: "404" },
+};
 // Extra conditions, rewrites, a shared group's earlier rules or another
 // controller can each send /internal past the 404 to the api.
 const ROUTE_OVERRIDE =
@@ -556,11 +560,7 @@ function blocksInternal(
   }
   try {
     const action = JSON.parse(annotations[`${ALB_ACTION}${service.name}`]);
-    return (
-      action.type === "fixed-response" &&
-      action.fixedResponseConfig?.statusCode === "404" &&
-      action.fixedResponseConfig?.contentType === "text/plain"
-    );
+    return Bun.deepEquals(action, BLOCK_ACTION, true);
   } catch {
     return false;
   }
@@ -1056,6 +1056,21 @@ const CONSOLE_BREAKS: [string, (ingress: Manifest) => void, string][] = [
             "invalid",
           );
         }
+      }
+    },
+    "/internal routes /internal",
+  ],
+  [
+    "a fixed-response with a body over the ALB's limit",
+    ({ metadata }) => {
+      if (metadata.annotations) {
+        metadata.annotations[`${ALB_ACTION}block-internal`] = JSON.stringify({
+          ...BLOCK_ACTION,
+          fixedResponseConfig: {
+            ...BLOCK_ACTION.fixedResponseConfig,
+            messageBody: "x".repeat(1025),
+          },
+        });
       }
     },
     "/internal routes /internal",
