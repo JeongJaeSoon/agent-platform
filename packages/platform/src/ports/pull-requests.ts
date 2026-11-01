@@ -87,12 +87,13 @@ export interface PullRequestStore {
     pushRequestId: string,
   ): Promise<PullRequest | null>;
   /**
-   * The latest pull request recorded for the session's branch, whichever of
-   * its push requests opened it.
+   * The latest pull request recorded for the session's branch in this
+   * repository, whichever of its push requests opened it.
    */
   findBranchPullRequest(
     ownerId: string,
     sessionId: string,
+    repositoryId: string,
     head: string,
   ): Promise<PullRequest | null>;
   /**

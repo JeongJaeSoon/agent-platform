@@ -10,7 +10,10 @@ import {
   commentPullRequestRequestSchema,
   openPullRequestRequestSchema,
 } from "./pull-request.ts";
-import { pushRequestIdSchema } from "./push-request.ts";
+import {
+  createPushRequestRequestSchema,
+  pushRequestIdSchema,
+} from "./push-request.ts";
 
 /**
  * The built-in MCP server a session's agent reaches GitHub through (design
@@ -26,7 +29,7 @@ const runIdSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
  * from the path. Never a session id: the attempt token names the session.
  */
 export const GITHUB_MCP_TOOL_ARGUMENTS = {
-  request_push: z.object({}).strict(),
+  request_push: createPushRequestRequestSchema,
   open_pull_request: openPullRequestRequestSchema.extend({
     push_request_id: pushRequestIdSchema,
   }),

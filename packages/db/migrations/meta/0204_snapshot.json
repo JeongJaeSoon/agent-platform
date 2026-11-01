@@ -1,5 +1,5 @@
 {
-  "id": "307a37f3-ef6e-493b-84f9-363bfe8a07eb",
+  "id": "0ad0297e-c15c-4bef-b769-13b416eaab68",
   "prevId": "cb6cfa14-59e3-4b57-957c-7ad2ae8b3913",
   "version": "7",
   "dialect": "postgresql",
@@ -2840,73 +2840,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.github_packages_settings": {
-      "name": "github_packages_settings",
-      "schema": "",
-      "columns": {
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "allowlist": {
-          "name": "allowlist",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "token_login": {
-          "name": "token_login",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "token_expires_at": {
-          "name": "token_expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "revision": {
-          "name": "revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
-        "updated_by": {
-          "name": "updated_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "github_packages_settings_workspace_id_workspaces_id_fk": {
-          "name": "github_packages_settings_workspace_id_workspaces_id_fk",
-          "tableFrom": "github_packages_settings",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.github_workflow_dispatches": {
       "name": "github_workflow_dispatches",
       "schema": "",
@@ -5504,11 +5437,23 @@
         }
       },
       "indexes": {
-        "push_requests_open_session_idx": {
-          "name": "push_requests_open_session_idx",
+        "push_requests_open_target_idx": {
+          "name": "push_requests_open_target_idx",
           "columns": [
             {
               "expression": "session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "repository_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "target_branch",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -5630,7 +5575,7 @@
         },
         "push_requests_target_branch_check": {
           "name": "push_requests_target_branch_check",
-          "value": "\"push_requests\".\"target_branch\" = 'agent/' || \"push_requests\".\"session_id\"::text"
+          "value": "\"push_requests\".\"target_branch\" = 'agent/' || \"push_requests\".\"session_id\"::text OR \"push_requests\".\"target_branch\" ~ ('^agent/' || \"push_requests\".\"session_id\"::text || '-[a-z0-9][a-z0-9-]{0,39}$')"
         },
         "push_requests_decision_check": {
           "name": "push_requests_decision_check",

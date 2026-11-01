@@ -2076,14 +2076,16 @@ export const pushRequests = pgTable(
     ),
     check(
       "push_requests_target_branch_check",
-      sql`${table.targetBranch} = 'agent/' || ${table.sessionId}::text`,
+      sql`${table.targetBranch} = 'agent/' || ${table.sessionId}::text OR ${table.targetBranch} ~ ('^agent/' || ${table.sessionId}::text || '-[a-z0-9][a-z0-9-]{0,39}$')`,
     ),
     check(
       "push_requests_decision_check",
       sql`(${table.state} = 'requested') = (${table.decidedAt} IS NULL) AND (${table.decidedAt} IS NULL) = (${table.decidedBy} IS NULL) AND (${table.decidedAt} IS NULL) = (${table.decisionReceiptId} IS NULL)`,
     ),
-    uniqueIndex("push_requests_open_session_idx")
-      .on(table.sessionId)
+    // One open request per target: other repositories and branches of the
+    // session may each have their own (session-multi-repository.md).
+    uniqueIndex("push_requests_open_target_idx")
+      .on(table.sessionId, table.repositoryId, table.targetBranch)
       .where(
         sql`${table.state} IN (${sql.raw(sqlList(OPEN_PUSH_REQUEST_STATES))})`,
       ),

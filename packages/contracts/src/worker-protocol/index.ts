@@ -118,9 +118,22 @@ export const workspaceRepositorySchema = z
     access: egressTokenAuthSchema.optional(),
   })
   .strict();
-// Null for a session accepted without a repository.
+// Another catalog repository the session's release lets it work on
+// (session-multi-repository.md decision 2): a git remote named `id` in the
+// workspace, its `branch` fetched through the egress route for `id`.
+export const additionalWorkspaceRepositorySchema = workspaceRepositorySchema
+  .extend({ id: z.string().min(1) })
+  .strict();
+
+// Null for a session accepted without a repository. `additional_repositories`
+// is sent only when there is one.
 export const workspaceDescriptorSchema = z
-  .object({ repository: workspaceRepositorySchema.nullable() })
+  .object({
+    repository: workspaceRepositorySchema.nullable(),
+    additional_repositories: z
+      .array(additionalWorkspaceRepositorySchema)
+      .optional(),
+  })
   .strict();
 
 // Who the session acts for: its owner partition (`AuthorizationContext.
@@ -919,6 +932,9 @@ export type BootstrapClaimResponse = z.infer<
 export type ClaimGit = z.infer<typeof claimGitSchema>;
 export type WorkspaceRepository = z.infer<typeof workspaceRepositorySchema>;
 export type WorkspaceDescriptor = z.infer<typeof workspaceDescriptorSchema>;
+export type AdditionalWorkspaceRepository = z.infer<
+  typeof additionalWorkspaceRepositorySchema
+>;
 export type ClaimPrincipal = z.infer<typeof claimPrincipalSchema>;
 export type RuntimeProvider = z.infer<typeof runtimeProviderSchema>;
 export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;

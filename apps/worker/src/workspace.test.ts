@@ -400,6 +400,38 @@ describe("GitWorkspace", () => {
     ).toEqual([]);
   });
 
+  test("attaches another repository's branch as a remote and skips one that cannot be fetched", async () => {
+    await prepare(descriptor());
+    const docs = join(scratch, "docs.git");
+    git(["init", "--quiet", "--bare", "--initial-branch=trunk", docs], scratch);
+    const seed = join(scratch, "docs-seed");
+    git(["clone", "--quiet", docs, seed], scratch);
+    await writeFile(join(seed, "DOCS.md"), "docs\n");
+    git(["add", "DOCS.md"], seed);
+    git(["commit", "--quiet", "-m", "docs"], seed);
+    git(["push", "--quiet", "origin", "HEAD:trunk"], seed);
+
+    const result = await new GitWorkspace(root, "CLAUDE.md").attachRepositories(
+      {
+        descriptor: {
+          ...descriptor(),
+          additional_repositories: [
+            { id: "docs", url: docs, branch: "trunk" },
+            { id: "gone", url: join(scratch, "missing.git"), branch: "main" },
+          ],
+        },
+        signal: new AbortController().signal,
+      },
+    );
+    expect(result).toEqual({ attached: ["docs"], failed: ["gone"] });
+    expect(git(["rev-parse", "refs/remotes/docs/trunk"], root)).toBe(
+      git(["rev-parse", "HEAD"], seed),
+    );
+    expect(git(["remote", "get-url", "docs"], root)).toBe(docs);
+    expect(git(["status", "--porcelain"], root)).toBe("");
+    expect(await readdir(join(root, ".git"))).not.toContain("attach");
+  });
+
   test("brings the origin's new commits into a reused checkout", async () => {
     await prepare(descriptor());
     const seed = join(scratch, "seed");
