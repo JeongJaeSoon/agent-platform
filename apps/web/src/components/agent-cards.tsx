@@ -21,6 +21,7 @@ import {
   CardHeader,
   CardTitle,
   cn,
+  formatTimestamp,
   linkVariants,
   Skeleton,
   StatusDot,
@@ -31,7 +32,7 @@ import type { ReactNode } from "react";
 import { agentAdminsQuery, agentQuery } from "../api/queries.ts";
 import { useI18n } from "../i18n/i18n.tsx";
 import { credentialBindingsQuery } from "../routes/agent-detail/credentials.tsx";
-import { AgentStateBadge, agentState } from "./agent-state.tsx";
+import { AgentStateBadge } from "./agent-state.tsx";
 import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
 import { useSeen } from "./seen.ts";
 import { SlackActionLink } from "./slack-action-link.tsx";
@@ -141,6 +142,12 @@ function factsOf(data: AgentDetail): Facts {
   };
 }
 
+/** A release label is the Seoul second it was made, `-2` on a tie. */
+function releasedAt(label: string): string {
+  const [date, time] = label.slice(0, 19).split("_");
+  return `${date}T${time}+09:00`;
+}
+
 function liveRefs(page: ListCredentialBindingsResponse) {
   return page.items
     .filter((binding) => binding.revoked_at === null)
@@ -165,10 +172,8 @@ function AgentCard({
   readonly bound: Part<readonly string[]>;
   readonly admins: Part<readonly string[]>;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const version = facts.data?.version;
-  const released =
-    agentState(agent) === "active" ? facts.data?.release_label : null;
 
   return (
     <Card className={cn("w-full", OPENS_ROW)} data-agent={agent.slug}>
@@ -200,13 +205,7 @@ function AgentCard({
           </div>
         </div>
         <CardAction>
-          {released ? (
-            <Badge variant="green" data-state="active">
-              {t("agents.cards.released", { release: released })}
-            </Badge>
-          ) : (
-            <AgentStateBadge agent={agent} />
-          )}
+          <AgentStateBadge agent={agent} />
         </CardAction>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-3">
@@ -233,6 +232,22 @@ function AgentCard({
           </div>
         </div>
         <dl className="m-0 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-2 text-control">
+          <Fact term={t("agents.cards.release")}>
+            <Detail query={facts}>
+              {facts.data ? (
+                facts.data.release_label ? (
+                  formatTimestamp(releasedAt(facts.data.release_label), locale)
+                ) : (
+                  <>
+                    <span aria-hidden="true">—</span>
+                    <span className="sr-only">
+                      {t("agents.cards.notReleased")}
+                    </span>
+                  </>
+                )
+              ) : null}
+            </Detail>
+          </Fact>
           <Fact term={t("agents.cards.profile")}>
             <Detail query={facts}>
               {facts.data
