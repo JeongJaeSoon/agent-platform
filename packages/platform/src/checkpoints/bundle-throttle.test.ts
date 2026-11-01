@@ -85,6 +85,35 @@ describe("createGate", () => {
     expect(peak).toBe(1);
   });
 
+  test("leaves no gap between a release and the waiter resuming", async () => {
+    const run = createGate(1);
+    let running = 0;
+    let peak = 0;
+    const track = (wait: Promise<void>) =>
+      run(async () => {
+        running += 1;
+        peak = Math.max(peak, running);
+        await wait;
+        running -= 1;
+      });
+
+    const first = deferred();
+    const all = [track(first.promise), track(Promise.resolve())];
+    first.resolve();
+    // Newcomers at every microtask depth across the hand-over, so one lands
+    // between the first task's finally and the waiter's continuation.
+    let chain = Promise.resolve();
+    for (let depth = 0; depth < 10; depth += 1) {
+      chain = chain.then(() => {
+        all.push(track(Promise.resolve()));
+      });
+    }
+    await chain;
+    await Promise.all(all);
+
+    expect(peak).toBe(1);
+  });
+
   test("frees the slot when a task throws", async () => {
     const run = createGate(1);
     const failing = deferred();
