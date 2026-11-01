@@ -387,6 +387,21 @@ async function expectAlignedColumns(canvasElement: HTMLElement) {
     for (const row of rows) await expect(shown(row, "cell")).toBe(headers);
     await expect(table.scrollWidth).toBeLessThanOrEqual(table.clientWidth);
   }
+  // An end-aligned header or cell ends its content at the column's end, also
+  // when the text wraps, so a header sits over its values.
+  for (const cell of canvasElement.querySelectorAll(
+    "[role=columnheader], [role=cell]",
+  )) {
+    if (getComputedStyle(cell).justifyContent !== "flex-end") continue;
+    const range = document.createRange();
+    range.selectNodeContents(cell);
+    const end = Math.max(
+      ...[...range.getClientRects()].map((rect) => rect.right),
+    );
+    await expect(
+      Math.abs(end - cell.getBoundingClientRect().right),
+    ).toBeLessThanOrEqual(1);
+  }
   // A two-line cell: 20px first line, 16px after it, the opener aside.
   for (const cell of canvasElement.querySelectorAll("[data-lines]")) {
     const lines = [...cell.children].filter(
@@ -669,4 +684,14 @@ export const English: Story = {
   ...SessionList,
   name: "Session list (en)",
   globals: { locale: "en" },
+};
+
+/** "Last activity" wraps in its 64px column and still ends at the column's end. */
+export const English390: Story = {
+  ...SessionList,
+  name: "Session list (en, 390px)",
+  globals: {
+    locale: "en",
+    viewport: { value: "mobile390", isRotated: false },
+  },
 };
