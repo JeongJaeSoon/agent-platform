@@ -1,8 +1,9 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { GITHUB_LOGIN_PATTERN } from "@werft-ai/contracts";
 import type { GitHubOAuthClient } from "@werft-ai/platform";
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { sameString as sameToken } from "../same-string.ts";
 
 // Linking a person's GitHub account through the author App's user
 // authorization (design github-agent.md decision 5). The user token answers
@@ -30,12 +31,6 @@ const cookieOptions = {
   sameSite: "Lax",
   path: GITHUB_LINK_COOKIE_PATH,
 } as const;
-
-function sameToken(left: string, right: string): boolean {
-  const a = Buffer.from(left, "utf8");
-  const b = Buffer.from(right, "utf8");
-  return a.length === b.length && timingSafeEqual(a, b);
-}
 
 /**
  * The state rides in an HttpOnly cookie scoped to the callback and bound to

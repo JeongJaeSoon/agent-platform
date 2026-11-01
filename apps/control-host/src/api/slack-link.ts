@@ -1,7 +1,8 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { verifyWithJwks } from "hono/jwt";
+import { sameString as sameToken } from "../same-string.ts";
 
 // Sign in with Slack (Slack's OpenID Connect), used only to prove which
 // Slack account a logged-in person holds (design A.7). No Slack token is
@@ -131,12 +132,6 @@ export function issueSlackLinkState(
     },
   );
   return issued;
-}
-
-function sameToken(left: string, right: string): boolean {
-  const a = Buffer.from(left, "utf8");
-  const b = Buffer.from(right, "utf8");
-  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 /** Spends the cookie whatever the outcome; null unless it matches. */

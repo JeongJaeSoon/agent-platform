@@ -90,6 +90,7 @@ export * from "./ports/worker-unit-of-work.ts";
 export * from "./ports/workspace-bundle-verifier.ts";
 export * from "./ports/workspace-profile-store.ts";
 export * from "./ports/workspace-settings.ts";
+export { messageOf } from "./scheduler/pass-context.ts";
 export * from "./scheduler/session-scheduler.ts";
 export * from "./scheduler/upgrade-check.ts";
 export * from "./scheduler/worker-images.ts";

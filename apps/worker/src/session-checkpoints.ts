@@ -71,6 +71,7 @@ import {
   stageCheckpointBundle,
   stagedInstructions,
 } from "./checkpoint-restore.ts";
+import { messageOf as describe } from "./message-of.ts";
 import { isObjectStoreOutage } from "./object-store.ts";
 import type { WorkerLogger } from "./worker-host.ts";
 import {
@@ -1686,8 +1687,4 @@ async function inBatches<T>(
   for (let start = 0; start < items.length; start += size) {
     await Promise.all(items.slice(start, start + size).map(task));
   }
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

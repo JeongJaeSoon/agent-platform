@@ -19,6 +19,7 @@ import {
   launchNonceFingerprint,
   type ManagedExecution,
   type ManagedWorkspace,
+  messageOf,
   type NetworkReconcileResult,
   sessionObjectPrefix,
   type TerminateExecutionResult,
@@ -2270,10 +2271,6 @@ function apiAtLeast(
   if (match === null) return false;
   const found = [Number(match[1]), Number(match[2])] as const;
   return found[0] > major || (found[0] === major && found[1] >= minor);
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 /** Docker container status → the platform's execution state. */
