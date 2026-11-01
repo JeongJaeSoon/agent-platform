@@ -308,8 +308,8 @@ integration("execution Grant revocation on PostgreSQL", () => {
       receiptStatus: "accepted",
       authRevision: before.authRevision + 1,
       executionId: l.executionId,
-      // The attempt's gateway credential and its three egress tokens.
-      revokedCredentials: 4,
+      // The attempt's gateway credential and its four egress tokens.
+      revokedCredentials: 5,
     });
 
     const after = await sessionRow(session.session_id);
