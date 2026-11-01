@@ -164,6 +164,29 @@ describe("the GitHub Packages store", () => {
     expect(await store.allowlist(workspaceId.toUpperCase())).toEqual([ENTRY]);
   });
 
+  test("an owner that is not a workspace has no token and allows nothing", async () => {
+    expect(await store.allowlist("quickstart")).toEqual([]);
+    const accepted = await createPostgresSessionUnitOfWork(
+      db,
+    ).acceptInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
+      principal: { ownerId: "quickstart" },
+      idempotencyKey: randomUUID(),
+      payloadHash: "hash",
+      profileId: "claude-coding-v1",
+      repository: {
+        id: "app",
+        url: "https://git.invalid/app.git",
+        branch: "main",
+      },
+      message: "hello",
+    });
+    if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
+    expect(
+      await store.sessionState(accepted.response.session_id),
+    ).toMatchObject({ workspaceId: "quickstart", token: null, allowlist: [] });
+  });
+
   test("a row that does not parse allows nothing", async () => {
     await client.query(
       `INSERT INTO github_packages_settings (workspace_id, allowlist) VALUES ($1, $2)`,

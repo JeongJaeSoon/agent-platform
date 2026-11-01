@@ -28,6 +28,10 @@ import {
   writeSecretInTx,
 } from "./secret-values.ts";
 
+// A session's owner without a workspace (an installation's own key, as in
+// the quickstart) is not a uuid, and has no settings row or token.
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const tokenSlot = (workspaceId: string): SecretSlot => ({
   workspaceId: workspaceId.toLowerCase(),
   owner: { kind: "workspace" },
@@ -77,6 +81,7 @@ export function createPostgresGitHubPackagesStore(
   key: SecretKey | null,
 ): GitHubPackagesStore {
   async function settingsRow(executor: Database, workspaceId: string) {
+    if (!UUID.test(workspaceId)) return undefined;
     const [row] = await executor
       .select()
       .from(githubPackagesSettings)
@@ -243,7 +248,7 @@ export function createPostgresGitHubPackagesStore(
       ).toLowerCase();
       const row = await settingsRow(db, workspaceId);
       const value =
-        key === null
+        key === null || !UUID.test(workspaceId)
           ? null
           : await db.transaction((tx) =>
               readSecretInTx(tx, key, tokenSlot(workspaceId)),
