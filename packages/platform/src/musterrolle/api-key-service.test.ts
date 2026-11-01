@@ -181,15 +181,23 @@ describe("issuing a key", () => {
     ).toContain("sessions:recover");
   });
 
-  test("an agent key never approves (D26)", async () => {
+  test("an agent key takes any scope its issuer holds, sessions:approve included (GA-8)", async () => {
     const { keys } = service();
-    const error = await refusal(
-      keys.issue(user(OWNER, "owner"), {
+    const issued = await keys.issue(user(OWNER, "owner"), {
+      ...agentKey(AGENT_A),
+      scopes: [...SESSION_SCOPE_VALUES],
+    });
+    expect(issued.key.scopes).toEqual([...SESSION_SCOPE_VALUES]);
+    expect(issued.key.scopes).toContain("sessions:approve");
+    // An agent's admin who is a member holds no recover to hand on.
+    const beyond = await refusal(
+      keys.issue(user(AGENT_ADMIN, "member"), {
         ...agentKey(AGENT_A),
-        scopes: ["sessions:approve"],
+        scopes: ["sessions:approve", "sessions:recover"],
       }),
     );
-    expect(error.code).toBe("SCOPE_NOT_GRANTABLE");
+    expect(beyond.code).toBe("SCOPE_NOT_GRANTABLE");
+    expect(beyond.message).toContain("sessions:recover");
   });
 
   test("an API key issues no key, its own kind included", async () => {

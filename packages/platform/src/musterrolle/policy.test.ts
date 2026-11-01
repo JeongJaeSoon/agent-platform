@@ -23,6 +23,7 @@ import {
   type Caller,
   callerFor,
   createAuthorizationPolicy,
+  deciderKeyOf,
   type IdentityReader,
   MANAGEMENT_ROLES,
   mustRecord,
@@ -836,6 +837,7 @@ describe("callerFor records who acts", () => {
       workspaceId: WORKSPACE_A,
       apiKeyId: null,
       agentId: null,
+      apiKeyIssuerId: null,
     });
   });
 
@@ -868,12 +870,37 @@ describe("callerFor records who acts", () => {
       workspaceId: WORKSPACE_A,
       apiKeyId: KEY,
       agentId: null,
+      apiKeyIssuerId: null,
     });
     const personal = callerFor(key, { kind: "api" }, "r", {
       creatorId: USER,
     });
     expect(personal.actor?.userId).toBe(USER);
     expect(personal.subject.actor_user_id).toBe(USER);
+  });
+
+  test("the key behind a decision names its issuer, an agent key's too (GA-8)", () => {
+    const key = workspaceKey(["sessions:approve"]);
+    const agent = callerFor(key, { kind: "api" }, "r", {
+      creatorId: null,
+      agentId: "agent-1",
+      issuerId: USER,
+    });
+    expect(deciderKeyOf(agent)).toEqual({
+      id: KEY,
+      kind: "agent",
+      issued_by_user_id: USER,
+    });
+    const personal = callerFor(key, { kind: "api" }, "r", {
+      creatorId: USER,
+      issuerId: USER,
+    });
+    expect(deciderKeyOf(personal)).toEqual({
+      id: KEY,
+      kind: "personal",
+      issued_by_user_id: USER,
+    });
+    expect(deciderKeyOf(callerFor(member, { kind: "web" }, "r"))).toBeNull();
   });
 
   test("AUTH_MODE=none's owner-named principal is no key row, even when the owner is a UUID", () => {

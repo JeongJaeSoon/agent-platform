@@ -577,12 +577,13 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
     });
     expect(refused.status).toBe(403);
     expect((await errorOf(refused)).code).toBe("SCOPE_NOT_GRANTABLE");
+    // GA-8: an agent key takes sessions:approve like a personal key.
     const approve = await issue(asCookie(cookies.owner), {
       kind: "agent",
       agent_id: agentIds.owners,
       scopes: ["sessions:approve"],
     });
-    expect((await errorOf(approve)).code).toBe("SCOPE_NOT_GRANTABLE");
+    expect(approve.status).toBe(201);
     expect(
       (
         await issue(asCookie(cookies.admin), {
