@@ -272,7 +272,7 @@ const OBJECT_STORE_KEYS = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"];
 const IRSA_ROLE = "eks.amazonaws.com/role-arn";
 
 /**
- * Static S3 keys reach the api and the checkpoint GC exactly when `keys`, and
+ * Static S3 keys reach the api and its two object store jobs exactly when `keys`, and
  * no other workload ever. Without them the api's ServiceAccount must carry
  * an IRSA role, or nothing could sign the object store.
  */
@@ -282,7 +282,7 @@ function checkObjectStoreKeys(
   keys: boolean,
 ): string[] {
   const errors: string[] = [];
-  const holders = ["api", "checkpoint-gc"];
+  const holders = ["api", "checkpoint-gc", "session-archive"];
   for (const m of manifests) {
     const pod = podSpecOf(m);
     if (pod === undefined) continue;
@@ -746,6 +746,11 @@ const MUST_FAIL: [string, string[], RegExp][] = [
     ["-f", ciDigests, "--set", "images.egressProxy.digest=sha256:abc"],
     /digest must be sha256/,
   ],
+  ...["29", "3651"].map((days): [string, string[], RegExp] => [
+    `sessionArchive.afterDays=${days}`,
+    ["-f", ciDigests, "--set", `sessionArchive.afterDays=${days}`],
+    /sessionArchive.afterDays must be 0 \(off\) or 30–3650/,
+  ]),
   [
     "an installation id that is no label value",
     ["-f", ciDigests, "--set", "installationId=not/a/label"],
