@@ -119,6 +119,11 @@ export type CredentialRoute = {
   server?: string;
   /** The packages route's registry name; the authorizer maps it to a host. */
   registry?: string;
+  /**
+   * A packages token carried as the `/_token/<token>` segment, already cut
+   * from `path`: Go sends no credential to an http proxy in any header.
+   */
+  pathToken?: string;
   /** Path and query appended to the upstream's base. */
   path: string;
   search: string;
@@ -137,6 +142,9 @@ const MCP_PATH = /^\/mcp\/([a-z0-9](?:[a-z0-9-]|_(?!_)){0,31})$/;
 // Reads only: a publish, an unpublish or a yank has no route.
 const PACKAGES_METHODS = new Set(["GET", "HEAD"]);
 const PACKAGES_PATH = /^\/packages\/([a-z][a-z0-9-]{0,31})(\/.*)$/;
+// No npm name starts with `_`, a Go module path's first element holds a dot,
+// and the checksum database's paths are fixed, so no registry path is this.
+const PACKAGES_TOKEN_SEGMENT = /^\/_token\/([A-Za-z0-9_-]{1,256})(\/.*)$/;
 const MAX_PACKAGE_REDIRECTS = 5;
 // A 304 answers a cache revalidation and carries no location to follow.
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
@@ -181,10 +189,20 @@ export function routeOf(
   }
   const packages = PACKAGES_PATH.exec(pathname);
   if (packages !== null) {
-    const [, registry = "", path = ""] = packages;
+    const [, registry = "", full = ""] = packages;
+    if (full.startsWith("/_token/") && !PACKAGES_TOKEN_SEGMENT.test(full)) {
+      return null;
+    }
+    const [, pathToken, path = full] = PACKAGES_TOKEN_SEGMENT.exec(full) ?? [];
     // `//` would make the upstream target a protocol-relative URL.
     return PACKAGES_METHODS.has(method) && !path.includes("//") && !climbs(path)
-      ? { purpose: "packages", registry, path, search }
+      ? {
+          purpose: "packages",
+          registry,
+          ...(pathToken === undefined ? {} : { pathToken }),
+          path,
+          search,
+        }
       : null;
   }
   if (pathname.startsWith("/provider/")) {
@@ -1342,7 +1360,14 @@ export function startCredentialProxy(
       }
       const route = routeOf(request.method, url.pathname, url.search);
       if (route === null) return reply(404, "no such credential route");
-      const token = tokenOf(request.headers, route.purpose);
+      // A path token beside a header token is two carriers, refused alike.
+      const token =
+        route.pathToken === undefined
+          ? tokenOf(request.headers, route.purpose)
+          : request.headers.has("authorization") ||
+              request.headers.has("x-api-key")
+            ? null
+            : route.pathToken;
       if (token === null) {
         return reply(401, "one egress token is required", route.purpose);
       }

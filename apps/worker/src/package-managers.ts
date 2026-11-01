@@ -12,8 +12,9 @@ export const PACKAGE_MANAGER_FILES = {
   go: ".config/go/env",
 } as const;
 
-// Bundler and Go take the token from a URL's userinfo and send it as Basic;
-// the proxy reads the password and ignores this name.
+// Bundler takes the token from a URL's userinfo and sends it as Basic; the
+// proxy reads the password and ignores this name. Go refuses userinfo on an
+// http URL, so its token rides in the path instead.
 const BASIC_USER = "werft";
 
 /**
@@ -42,8 +43,8 @@ export function packageManagerFiles(
       "",
     ].join("\n"),
     go: [
-      `GOPROXY=${authed}/go`,
-      `GOSUMDB=sum.golang.org ${authed}/gosum`,
+      `GOPROXY=${base}/go/_token/${encodeURIComponent(token)}`,
+      `GOSUMDB=sum.golang.org ${base}/gosum/_token/${encodeURIComponent(token)}`,
       "GOFLAGS=-mod=readonly",
       "",
     ].join("\n"),

@@ -38,6 +38,25 @@ describe("routeOf: packages", () => {
     expect(routeOf("GET", "/packages/npm//evil.example/x", "")).toBeNull();
     expect(routeOf("GET", "/packages/npm/a//b", "")).toBeNull();
   });
+
+  test("cuts a path token from the path, and nothing that only looks like one", () => {
+    expect(
+      routeOf("GET", "/packages/go/_token/wek_a-B_9/golang.org/x/@v/list", ""),
+    ).toEqual({
+      purpose: "packages",
+      registry: "go",
+      pathToken: "wek_a-B_9",
+      path: "/golang.org/x/@v/list",
+      search: "",
+    });
+    expect(routeOf("GET", "/packages/go/_token/wek_a", "")).toBeNull();
+    expect(routeOf("GET", "/packages/go/_token//x", "")).toBeNull();
+    expect(routeOf("GET", "/packages/go/_token/a%2Fb/x", "")).toBeNull();
+    expect(routeOf("GET", "/packages/go/_token/t/_token/u/x", "")?.path).toBe(
+      "/_token/u/x",
+    );
+    expect(routeOf("PUT", "/packages/go/_token/t/x", "")).toBeNull();
+  });
 });
 
 describe("tokenOf: packages", () => {
@@ -185,6 +204,47 @@ describe("the packages route", () => {
     );
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("v1.0.0\n");
+  });
+
+  test("takes a packages token from the path, as Go needs, and never passes it on", async () => {
+    const registry = upstream(() => new Response("not here", { status: 404 }));
+    const auth = authorizer(`http://registry.test:${registry.port}`);
+    const { server, logged } = proxy(auth.url, registry.port);
+    const base = `http://127.0.0.1:${server.port}/packages/go/_token`;
+    const read = await fetch(
+      `${base}/${PACKAGES_TOKEN}/golang.org/x/text/@v/v0.14.0.mod`,
+    );
+    expect(read.status).toBe(404);
+    const body = await read.text();
+    expect(auth.asked).toEqual([
+      { token: PACKAGES_TOKEN, purpose: "packages", registry: "go" },
+    ]);
+    expect(new URL(registry.seen[0]?.url ?? "").pathname).toBe(
+      "/golang.org/x/text/@v/v0.14.0.mod",
+    );
+    // Another purpose's token in the same place is the authorizer's to refuse.
+    const other = await fetch(
+      `${base}/wpr_provider-token/golang.org/x/@v/list`,
+    );
+    expect(other.status).toBe(401);
+    expect(auth.asked.at(-1)).toMatchObject({
+      token: "wpr_provider-token",
+      purpose: "packages",
+    });
+    // A path token beside a header is two carriers, refused before asking.
+    const asked = auth.asked.length;
+    const both = await fetch(`${base}/${PACKAGES_TOKEN}/golang.org/x/@v/list`, {
+      headers: { authorization: `Bearer ${PACKAGES_TOKEN}` },
+    });
+    expect(both.status).toBe(401);
+    expect(auth.asked).toHaveLength(asked);
+    expect(registry.seen).toHaveLength(1);
+    for (const text of [body, await other.text(), await both.text()]) {
+      expect(text).not.toContain(PACKAGES_TOKEN);
+      expect(text).not.toContain("provider-token");
+    }
+    expect(logged.join("\n")).not.toContain(PACKAGES_TOKEN);
+    expect(logged.join("\n")).not.toContain("provider-token");
   });
 
   test("a publish never reaches the authorizer or the registry", async () => {

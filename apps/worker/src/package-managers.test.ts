@@ -41,9 +41,10 @@ describe("packageManagerFiles", () => {
         ]),
     );
     expect(env).toEqual({
-      GOPROXY: "http://werft:wek_attempt-token@egress-proxy:3129/packages/go",
+      // Go refuses userinfo on an http URL; the route reads this segment.
+      GOPROXY: "http://egress-proxy:3129/packages/go/_token/wek_attempt-token",
       GOSUMDB:
-        "sum.golang.org http://werft:wek_attempt-token@egress-proxy:3129/packages/gosum",
+        "sum.golang.org http://egress-proxy:3129/packages/gosum/_token/wek_attempt-token",
       GOFLAGS: "-mod=readonly",
     });
     expect(env.GOPROXY).not.toContain(",");
@@ -53,10 +54,12 @@ describe("packageManagerFiles", () => {
     expect(Object.keys(env)).not.toContain("GONOSUMCHECK");
   });
 
-  test("a token that would break a URL is escaped in the userinfo", () => {
-    expect(packageManagerFiles(ROUTE, "a@b/c").go).toContain(
-      "http://werft:a%40b%2Fc@egress-proxy:3129/packages/go",
+  test("a token that would break a URL is escaped", () => {
+    const files = packageManagerFiles(ROUTE, "a@b/c");
+    expect(files.bundler).toContain(
+      "http://werft:a%40b%2Fc@egress-proxy:3129/packages/rubygems",
     );
+    expect(files.go).toContain("/packages/go/_token/a%40b%2Fc\n");
   });
 });
 

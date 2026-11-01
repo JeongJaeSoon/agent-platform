@@ -50,6 +50,8 @@ worker가 쓰는 npm 설정은 user 수준이라, 저장소의 `.npmrc`가 `regi
 
 그래서 저장소가 registry를 고정했으면 세션에서 `npm ci --registry <route>/packages/npm/`처럼 CLI로 덮는다. worker는 engine 환경 변수를 정해진 목록만 넘기므로 `npm_config_registry`를 넣지 않는다. yarn 1은 `--registry` 또는 `YARN_REGISTRY`를 써야 한다.
 
+같은 날 실제 세션(npm 캐시를 비운 상태)에서 설치까지 돌린 결과도 같다. 저장소가 공개 registry를 고정한 프로젝트에서 `npm ci`는 `403 Forbidden - GET https://registry.npmjs.org/...`로 실패했다. `pnpm install`은 저장소 registry로 가면서 route 주소에만 걸린 token을 찾지 못해 `No authorization header was set for the request`로 실패했다. 고정하지 않은 프로젝트의 `npm ci`·`bundle install`은 route로 받았다.
+
 출하 이미지의 `bun install`은 user `.npmrc`의 registry와 token으로 metadata를 route에서 받는다. 하지만 tarball은 metadata의 `dist.tarball`에 적힌 `https://registry.npmjs.org/...` 주소로 직접 받으려 해서 forward proxy가 `403`으로 막는다(2026-11-01 실측). npm은 `replace-registry-host` 기본값(`npmjs`)으로 그 host를 설정한 registry로 바꿔 받는다. Bun에는 그런 설정이 없어 지금은 Bun으로 공개 npm 패키지를 설치할 수 없다.
 
 ### worker 이미지 업그레이드와 checkpoint 호환
