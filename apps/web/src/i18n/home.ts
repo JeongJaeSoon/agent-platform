@@ -135,7 +135,7 @@ export const homeEn: Record<keyof typeof homeKo, string> = {
   "home.overview.oldest": "Oldest request",
   "home.overview.sessionsNote": "Sessions you can see",
   "home.overview.agents": "Agents",
-  "home.overview.agentsNote": "{active} released · {draft} drafts",
+  "home.overview.agentsNote": "Released {active} · Draft {draft}",
   "home.overview.agentsWithheld": "Only owners and admins see the full list",
   "home.recent.title": "Recent sessions",
   "home.glance.installation":
