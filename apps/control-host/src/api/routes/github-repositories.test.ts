@@ -482,6 +482,7 @@ describe("the GitHub repository API", () => {
       source: "selection",
       editable: true,
       installed: true,
+      agent_count: 2,
     });
   });
 

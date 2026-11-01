@@ -11971,6 +11971,11 @@
                       "type": "null"
                     }
                   ]
+                },
+                "agent_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
                 }
               },
               "required": [
@@ -11983,7 +11988,8 @@
                 "editable",
                 "version",
                 "installed",
-                "updated_at"
+                "updated_at",
+                "agent_count"
               ],
               "additionalProperties": false
             }
@@ -25260,7 +25266,7 @@
           "Workspace settings"
         ],
         "summary": "A page of the GitHub Apps' repositories, and the catalog's (owner or admin)",
-        "description": "The repositories one installation of the workspace's GitHub Apps reaches, a page at a time as GitHub pages them (`GET /installation/repositories`): `installation_id` picks the installation (absent: the author App's first, by account), `page` and `per_page` (at most 100) the page, and `total_count` is GitHub's count. `installations` lists the author App's installations, then the reviewer App's, each with its App's `connection_id` and `role`, the `permissions` the account approved, and `repository_count` (GitHub's count, asked for the first 20 installations; null past them or when GitHub did not give it). Nothing is registered: a repository becomes a catalog row when an agent's manager picks it (`POST /v1/agents/{id}/github/repositories`), and `catalog_id` then names it; `agent_count` counts agents whose active release names it, and on a reviewer App's page only those that turn review on. `unavailable` says why the page is empty: `no_author_app` or `no_installation`. `catalog` lists the rows picks resolved or repositories.yaml seeded (`source` `selection`, `console` or `seed`; their branch is changed with PATCH) and the operator file's entries that carry their own credentials (`source: file`, read-only); `installed` says whether an installation of the author App covers a row now (asked for the first 100 rows; null past them, or when GitHub could not answer). An installation id no registered App has, or one GitHub no longer has, is 404 `installation_not_found`; a suspended one is 409 `INSTALLATION_SUSPENDED`; GitHub not answering is 502 `GITHUB_UNAVAILABLE`. API keys are refused.\n\n**Auth:** cookie session only; no scope.",
+        "description": "The repositories one installation of the workspace's GitHub Apps reaches, a page at a time as GitHub pages them (`GET /installation/repositories`): `installation_id` picks the installation (absent: the author App's first, by account), `page` and `per_page` (at most 100) the page, and `total_count` is GitHub's count. `installations` lists the author App's installations, then the reviewer App's, each with its App's `connection_id` and `role`, the `permissions` the account approved, and `repository_count` (GitHub's count, asked for the first 20 installations; null past them or when GitHub did not give it). Nothing is registered: a repository becomes a catalog row when an agent's manager picks it (`POST /v1/agents/{id}/github/repositories`), and `catalog_id` then names it; `agent_count` counts agents whose active release names it, and on a reviewer App's page only those that turn review on. `unavailable` says why the page is empty: `no_author_app` or `no_installation`. `catalog` lists the rows picks resolved or repositories.yaml seeded (`source` `selection`, `console` or `seed`; their branch is changed with PATCH) and the operator file's entries that carry their own credentials (`source: file`, read-only); `installed` says whether an installation of the author App covers a row now (asked for the first 100 rows; null past them, or when GitHub could not answer), and its `agent_count` counts agents whose active release names it. An installation id no registered App has, or one GitHub no longer has, is 404 `installation_not_found`; a suspended one is 409 `INSTALLATION_SUSPENDED`; GitHub not answering is 502 `GITHUB_UNAVAILABLE`. API keys are refused.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []
@@ -25360,7 +25366,8 @@
                       "editable": true,
                       "version": 1,
                       "installed": true,
-                      "updated_at": "2026-11-01T09:00:00Z"
+                      "updated_at": "2026-11-01T09:00:00Z",
+                      "agent_count": 2
                     }
                   ]
                 },

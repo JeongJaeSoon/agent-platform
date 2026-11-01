@@ -510,7 +510,10 @@ export function createGitHubRepositoryService(deps: {
         catalog: [
           ...(await rowViews(workspaceId, own)),
           ...fileEntries.map(fileView),
-        ],
+        ].map((row) => ({
+          ...row,
+          agent_count: counts.get(row.id)?.author ?? 0,
+        })),
       };
     },
 

@@ -150,7 +150,14 @@ export const listGitHubRepositoriesResponseSchema = z
      * The catalog's GitHub repositories: rows picks resolved (any branch is
      * changed here), and the operator file's entries, read-only.
      */
-    catalog: z.array(catalogGitHubRepositorySchema),
+    catalog: z.array(
+      catalogGitHubRepositorySchema
+        .extend({
+          /** Agents whose active release names it. */
+          agent_count: z.number().int().min(0),
+        })
+        .strict(),
+    ),
   })
   .strict();
 
