@@ -1,4 +1,6 @@
 import {
+  ACHIEVEMENT_EVIDENCE_KIND_VALUES,
+  ACHIEVEMENT_RULE_JUDGE_VALUES,
   ADMISSION_STATE_VALUES,
   AGENT_IDENTITY_PROVIDER_VALUES,
   AGENT_IDENTITY_STATUS_VALUES,
@@ -3623,6 +3625,151 @@ export const workspaceProfiles = pgTable(
     check(
       "workspace_profiles_retired_check",
       sql`(${table.retiredAt} IS NULL) = (${table.retiredBy} IS NULL)`,
+    ),
+  ],
+);
+
+// docs/contributing/decisions/achievement-rules.md §3: what a workspace counts
+// as an achievement. Categories group rules; a type is what a rule counts.
+export const achievementCategories = pgTable(
+  "achievement_categories",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    name: text().notNull(),
+    position: integer().notNull(),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    archivedBy: uuid("archived_by").references(() => users.id),
+  },
+  (table) => [
+    uniqueIndex("achievement_categories_live_name_uniq")
+      .on(table.workspaceId, table.name)
+      .where(sql`${table.archivedAt} IS NULL`),
+    check(
+      "achievement_categories_name_check",
+      sql`char_length(${table.name}) BETWEEN 1 AND 32`,
+    ),
+    check("achievement_categories_position_check", sql`${table.position} >= 0`),
+    check(
+      "achievement_categories_archived_check",
+      sql`(${table.archivedAt} IS NULL) = (${table.archivedBy} IS NULL)`,
+    ),
+  ],
+);
+
+export const achievementTypes = pgTable(
+  "achievement_types",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    key: text().notNull(),
+    name: text().notNull(),
+    evidenceKind: text("evidence_kind").notNull(),
+    builtin: boolean().notNull(),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    archivedBy: uuid("archived_by").references(() => users.id),
+  },
+  (table) => [
+    unique("achievement_types_key_uniq").on(table.workspaceId, table.key),
+    check(
+      "achievement_types_key_check",
+      sql`${table.key} ~ '^[a-z][a-z0-9_]{1,40}$'`,
+    ),
+    check(
+      "achievement_types_name_check",
+      sql`char_length(${table.name}) BETWEEN 1 AND 40`,
+    ),
+    check(
+      "achievement_types_evidence_kind_check",
+      sql`${table.evidenceKind} IN (${sql.raw(sqlList(ACHIEVEMENT_EVIDENCE_KIND_VALUES))})`,
+    ),
+    // Built-in types come from the platform, not from a person.
+    check(
+      "achievement_types_builtin_check",
+      sql`${table.builtin} = (${table.createdBy} IS NULL)`,
+    ),
+    check(
+      "achievement_types_archived_check",
+      sql`(${table.archivedAt} IS NULL) = (${table.archivedBy} IS NULL) AND (NOT ${table.builtin} OR ${table.archivedAt} IS NULL)`,
+    ),
+  ],
+);
+
+// A row never changes but `superseded_by` and its disable; an edit is the
+// family's next version. `superseded_by` has no foreign key: it is set
+// before the next version exists, so the old version leaves the type-in-use
+// index before the new one enters it.
+export const achievementRules = pgTable(
+  "achievement_rules",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    familyId: uuid("family_id").notNull(),
+    version: integer().notNull(),
+    categoryId: uuid("category_id")
+      .notNull()
+      .references(() => achievementCategories.id),
+    title: text().notNull(),
+    typeId: uuid("type_id")
+      .notNull()
+      .references(() => achievementTypes.id),
+    definition: text().notNull(),
+    judge: text().notNull(),
+    agentIds: uuid("agent_ids").array(),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    supersededBy: uuid("superseded_by"),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    disabledBy: uuid("disabled_by").references(() => users.id),
+  },
+  (table) => [
+    unique("achievement_rules_family_version_uniq").on(
+      table.familyId,
+      table.version,
+    ),
+    // One rule in use per type, so a type's achievements share one definition.
+    uniqueIndex("achievement_rules_type_in_use_uniq")
+      .on(table.typeId)
+      .where(
+        sql`${table.supersededBy} IS NULL AND ${table.disabledAt} IS NULL`,
+      ),
+    index("achievement_rules_workspace_idx").on(table.workspaceId),
+    check("achievement_rules_version_check", sql`${table.version} >= 1`),
+    check(
+      "achievement_rules_title_check",
+      sql`char_length(${table.title}) BETWEEN 1 AND 80`,
+    ),
+    check(
+      "achievement_rules_definition_check",
+      sql`char_length(${table.definition}) BETWEEN 1 AND 2000`,
+    ),
+    check(
+      "achievement_rules_judge_check",
+      sql`${table.judge} IN (${sql.raw(sqlList(ACHIEVEMENT_RULE_JUDGE_VALUES))})`,
+    ),
+    check(
+      "achievement_rules_disabled_check",
+      sql`(${table.disabledAt} IS NULL) = (${table.disabledBy} IS NULL)`,
     ),
   ],
 );

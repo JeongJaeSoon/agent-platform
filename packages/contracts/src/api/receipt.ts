@@ -134,6 +134,18 @@ export const RECEIPT_OPERATION_VALUES = [
   "retire_installation_profile",
   "block_installation_profile",
   "unblock_installation_profile",
+  // Achievement rules: ids and versions only, never a definition's text.
+  "create_achievement_category",
+  "update_achievement_category",
+  "archive_achievement_category",
+  "create_achievement_type",
+  "update_achievement_type",
+  "archive_achievement_type",
+  "create_achievement_rule",
+  "update_achievement_rule",
+  "disable_achievement_rule",
+  "enable_achievement_rule",
+  "set_achievement_judge",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);

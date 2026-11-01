@@ -290,6 +290,8 @@ export const MANAGEMENT_ROLES: Partial<
   "usage.installation_read": ["owner"],
   "usage.agent_read": ["owner", "admin"],
   "profile.installation.manage": ["owner"],
+  "achievement_rule.manage": ["owner", "admin"],
+  "achievement.review": ["owner", "admin"],
 };
 
 const WORKSPACE_MANAGERS: readonly WorkspaceRole[] = ["owner", "admin"];
@@ -311,6 +313,7 @@ export const AGENT_ADMIN_ACTIONS: ReadonlySet<AuthorizationAction> = new Set([
   "credential.bind",
   "binding.manage",
   "usage.agent_read",
+  "achievement.review",
 ]);
 
 function within(
@@ -504,7 +507,8 @@ export function createAuthorizationPolicy(
     if (
       (scope === undefined &&
         roles === undefined &&
-        action !== "session.share") ||
+        action !== "session.share" &&
+        action !== "workspace.read") ||
       !actionAppliesTo(action, resource.kind)
     ) {
       return ["error", []];
@@ -578,6 +582,15 @@ export function createAuthorizationPolicy(
     let scopes = authorityScopes(reading);
     if (action === "session.share") {
       // Judged above; a key never changes a share (design 4.1).
+    } else if (action === "workspace.read") {
+      // Every member and a member's personal key; an agent's key, the CLI's
+      // operator key and an installation read nothing here.
+      if (
+        principal.kind !== "user" &&
+        (reading.keyCreator === undefined || reading.keyAgentId !== undefined)
+      ) {
+        return ["role", scopes];
+      }
     } else if (roles !== undefined) {
       if (principal.kind !== "user") return ["role", scopes];
       if (!roles.includes(principal.role)) {

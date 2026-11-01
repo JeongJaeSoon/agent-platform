@@ -361,6 +361,11 @@ export const AUTHORIZATION_ACTION_VALUES = [
   // Making and retiring installation ceilings: the operator, who is the
   // workspace owner (docs/contributing/decisions/profile-db.md §2).
   "profile.installation.manage",
+  // Achievement categories, types, rules and the judge settings
+  // (docs/contributing/decisions/achievement-rules.md §5).
+  "achievement_rule.manage",
+  // Confirming or rejecting an achievement: managers and its agent's admins.
+  "achievement.review",
   "memory.read",
   "memory.write",
   "artifact.read",
@@ -410,6 +415,8 @@ const ACTION_RESOURCE_KINDS: Record<
   "usage.installation_read": new Set(["workspace"]),
   "usage.agent_read": new Set(["agent"]),
   "profile.installation.manage": new Set(["workspace"]),
+  "achievement_rule.manage": new Set(["workspace"]),
+  "achievement.review": new Set(["agent"]),
   "memory.read": new Set(["workspace", "agent", "memory"]),
   "memory.write": new Set(["workspace", "agent", "memory"]),
   "artifact.read": new Set(["artifact", "session"]),
