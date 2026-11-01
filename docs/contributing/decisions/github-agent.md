@@ -137,7 +137,7 @@ GitHub 토큰 하나가 가질 권한은 아래 다섯의 교집합이고, **발
 
 | operation | 언제 | actor | result |
 |---|---|---|---|
-| `mint_github_token` (새) | 게이트가 GitHub에 **새로** 토큰을 발급받았을 때. 캐시에서 꺼낸 것은 남기지 않는다 | 그 작업의 actor. clone은 세션 시작자, push 실행기는 없음(null). 시작자가 없으면 null([GA-2에서 정한 것](#ga-2에서-정한-것)) | `session_id`, `agent_id`, `agent_release_id`, `repository_id`, `role`(`author`·`reviewer`), `connection_id`(콘솔 연결이면 그 행 id, 카탈로그 App이면 null), `app_id`, `permissions`, `purpose`(`clone`·`push`·`pull_request`·`actions_read`·`dispatch`·`rerun`·`review`·`outcome_refresh`), `expires_at` |
+| `mint_github_token` (새) | 게이트가 GitHub에 **새로** 토큰을 발급받았을 때. 캐시에서 꺼낸 것은 남기지 않는다 | 그 작업의 actor. clone은 세션 시작자, push 실행기는 없음(null). 시작자가 없으면 null([GA-2에서 정한 것](#ga-2에서-정한-것)) | `session_id`, `agent_id`, `agent_release_id`, `repository_id`, `role`(`author`·`reviewer`), `connection_id`(콘솔 연결이면 그 행 id, 카탈로그 App이면 null), 이 발급이 고정을 썼으면 `pinned_by: first_mint`, `app_id`, `permissions`, `purpose`(`clone`·`push`·`pull_request`·`actions_read`·`dispatch`·`rerun`·`review`·`outcome_refresh`), `expires_at` |
 | 게이트의 거절 | 발급 전에 거절했을 때 | 같음 | 같은 칸 + `reason_code`. status `failed` |
 | `set_github_app` (있음) | 등록·교체, 구성원 계정 연결에 쓰는 연결 바꾸기(`purpose: user_link`) | 사람 | `app_id`에 `connection_id`, `role`, `permissions`, `warnings`를 더한다 |
 | `delete_github_app` (있음) | 연결 해제 | 사람 | `connection_id`, `app_id`, `role`, 해제할 때의 영향(`pinned_repository_count`, `agent_count`, `active_session_count`) |
@@ -186,6 +186,13 @@ GitHub App을 쓰는 카탈로그 저장소(`auth` `{ kind: github_app }`)마다
 - 릴리스에는 연결 id를 넣지 않는다. 그래서 릴리스 지문과 릴리스 이전 규칙([결정 7](#결정-7-릴리스와의-관계))은 바뀌지 않는다. 같은 릴리스가 저장소마다 다른 App을 쓴다.
 - `outcome_refresh`도 작성용 고정으로 같은 표를 따른다. `ambiguous_app`·`pinned_app_removed`는 `check_error: github_refused`, 설치 없음과 조회 실패는 `forge_failed`로 남고([10절](#pr-상태-갱신-조회로-한다)의 실패 규칙), 다음 간격에 다시 읽는다.
 - 이 고정의 판정은 발급 요청마다 하고, 캐시에서 꺼낸 토큰을 줄 때도 고정 연결의 캐시에서만 꺼낸다.
+
+#### 그대로 지키는 것
+
+- **에이전트별 저장소 범위([결정 8](#결정-8-에이전트별-저장소-범위)).** 고정은 "어느 App이 발급하나"만 정한다. 저장소가 릴리스 `github.repositories` 안인지는 게이트 3단계가 고정을 보기 전에 판정하고(`repository_not_allowed`), 고정이 있어도 범위 밖 저장소의 토큰은 나오지 않는다. 토큰은 지금처럼 저장소 하나로 좁혀 발급한다. 저장소를 고정한 연결이 다른 저장소에도 설치돼 있어도 범위는 넓어지지 않는다.
+- **게이트 하나의 발급([3절](#github-게이트)).** 고정을 읽고 쓰는 것은 게이트 6단계 안이고, 고정을 고른 연결의 발급기만 installation token을 만든다. 고르기·관리자 변경·해제 영향 조회는 App JWT로 `installationFor`만 부르고 installation token을 발급하지 않는다(고르기가 owner/name을 읽는 설치 토큰은 settings-replace-file-catalog.md 1.1절의 관리 경로 그대로이고 세션 작업에 쓰이지 않는다). 그래서 게이트를 거치지 않고 세션 작업용 토큰을 얻는 경로는 늘지 않는다.
+- **어느 연결이 발급했나([결정 10](#결정-10-감사)).** `mint_github_token`과 게이트 거절 receipt의 result에 `connection_id`를 싣는다. 첫 발급이 고정을 썼으면 그 `mint_github_token` result에 `pinned_by: first_mint`를 더한다. 고르기가 쓴 고정은 `resolve_repository` receipt(1.1절)의 result에 `connection_id`로, 관리자 변경은 `set_repository_github_app`으로 남는다. 그래서 고정이 언제 누구에 의해 생겼는지와, 토큰마다 어느 연결이 발급했는지를 receipt만으로 찾는다.
+- **`same_app`과 `no_author_app`의 비교 대상.** `same_app`은 새로 등록하거나 키를 교체하는 `app_id`를 그 워크스페이스의 **모든 연결**(역할 상관없이)과 비교한다. `UNIQUE (workspace_id, app_id)`가 같은 판정을 DB에서 한 번 더 한다. 그래서 리뷰용 App은 어느 작성용 App과도 같지 않고, 작성용 App이 여럿이어도 리뷰용 App이 연 PR의 작성자와 같은 App일 수 없다. `no_author_app`은 리뷰용 연결을 더할 때 작성용 연결이 **하나라도** 있는지만 본다. 리뷰용 연결을 특정 작성용 연결과 짝짓지 않는다. 마지막 작성용 연결을 해제해도 리뷰용 연결은 남는다([GA-5에서 정한 것](#ga-5에서-정한-것)과 같다).
 
 ## 3. 토큰 발급 경로와 좁히기
 
