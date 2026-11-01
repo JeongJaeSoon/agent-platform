@@ -110,9 +110,9 @@ release 이름에 `agent-platform`이 들어가지 않으면 리소스 이름은
 
 웹 콘솔은 api가 3000번에서 서빙한다. `ingress.console.enabled: true`(기본 `false`)면 Ingress가 `/`(Prefix)를 api Service로 보낸다. 같은 포트에 worker용 `/internal`도 있고, `/` Prefix는 `/internal`까지 맞는다. 그래서 chart는 `/` 앞에 `/internal`(Prefix) 규칙을 두고, 그 규칙은 api가 아니라 annotation `alb.ingress.kubernetes.io/actions.block-internal`의 fixed-response(404, `text/plain`)로 보낸다. AWS Load Balancer Controller는 긴 Prefix를 짧은 Prefix보다 먼저 평가하므로 `/internal`과 그 아래 경로는 ALB가 404로 답한다. `render-check`가 이 규칙이 `/`보다 앞에 있는지, 404 action을 가리키는지, 나머지 경로가 api Service의 `http`(3000) 포트로 가는지 검사한다.
 
-이 규칙은 ALB에서만 효과가 있다. 다른 controller는 `block-internal`이라는 Service가 없는 경로를 건너뛰고 `/`로 `/internal`을 열 수 있으므로, `ingress.className`이 `alb`가 아니면 chart가 render를 거부한다.
+이 규칙은 ALB에서만 효과가 있다. 다른 controller는 `block-internal`이라는 Service가 없는 경로를 건너뛰고 `/`로 `/internal`을 열 수 있으므로, `ingress.className`이 `alb`가 아니면 chart가 render를 거부한다. 404 규칙에 조건을 붙여 일부 요청을 `/`로 흘리는 `alb.ingress.kubernetes.io/conditions.block-internal` annotation도 거부한다.
 
-**켜는 조건.** api는 percent-encoding을 디코드한 경로로 route하므로 `/%69nternal/…`을 `/internal/…`로 처리한다. ALB path pattern에는 `%`를 쓸 수 없어 이런 경로를 규칙으로 막을 수 없고, `/internal` 규칙에 걸리지 않은 요청은 `/` 규칙으로 api에 닿는다. 앱이 인코딩한 `/internal` 요청을 거부하게 하는 후속 티켓이 land 하기 전에는 `ingress.console.enabled`를 켜지 않는다.
+**켜는 조건.** api는 percent-encoding을 디코드한 경로로 route하므로 `/%69nternal/…`을 `/internal/…`로 처리한다. ALB path pattern에는 `%`를 쓸 수 없어 이런 경로를 규칙으로 막을 수 없고, `/internal` 규칙에 걸리지 않은 요청은 `/` 규칙으로 api에 닿는다. 앱이 인코딩한 `/internal` 요청을 거부하게 하는 94S-1179가 land 하기 전에는 `ingress.console.enabled`를 켜지 않는다.
 
 켤 때는 설치별 파일에 다음을 둔다. 끄면 `/`와 `/internal` 규칙이 함께 빠지고 `/v1`·`/docs`·`/healthz`·`/readyz`는 그대로다.
 

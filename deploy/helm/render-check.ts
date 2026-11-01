@@ -543,10 +543,13 @@ function blocksInternal(
   path: any,
 ): boolean {
   const service = path.backend?.service;
+  // A conditions annotation narrows the rule, and what it lets through
+  // falls to "/".
   if (
     path.path !== "/internal" ||
     path.pathType !== "Prefix" ||
-    service?.port?.name !== "use-annotation"
+    service?.port?.name !== "use-annotation" ||
+    `alb.ingress.kubernetes.io/conditions.${service.name}` in annotations
   ) {
     return false;
   }
@@ -595,6 +598,9 @@ function checkIngress(
     }
     if (ingress.spec.defaultBackend !== undefined) {
       fail("a default backend routes every path");
+    }
+    if (console && ingress.spec.ingressClassName !== "alb") {
+      fail("the console needs ingressClassName alb");
     }
     for (const rule of ingress.spec.rules ?? []) {
       // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
@@ -797,6 +803,20 @@ const MUST_FAIL: [string, string[], RegExp][] = [
       "ingress.console.enabled=true",
     ],
     /ingress\.console\.enabled needs ingress\.className alb/,
+  ],
+  [
+    "conditions on the console's /internal 404",
+    [
+      "-f",
+      ciDigests,
+      "-f",
+      awsExample,
+      "--set",
+      "ingress.console.enabled=true",
+      "--set-string",
+      "ingress.annotations.alb\\.ingress\\.kubernetes\\.io/conditions\\.block-internal=[]",
+    ],
+    /must not narrow the \/internal 404 with conditions/,
   ],
   [
     "a tag-only image",
@@ -1023,6 +1043,24 @@ const CONSOLE_BREAKS: [string, (ingress: Manifest) => void, string][] = [
           );
         }
       }
+    },
+    "/internal routes /internal",
+  ],
+  [
+    "another controller",
+    ({ spec }) => {
+      spec.ingressClassName = "nginx";
+    },
+    "the console needs ingressClassName alb",
+  ],
+  [
+    "conditions on the /internal 404",
+    ({ metadata }) => {
+      metadata.annotations = {
+        ...metadata.annotations,
+        "alb.ingress.kubernetes.io/conditions.block-internal":
+          '[{"field":"http-request-method","httpRequestMethodConfig":{"Values":["GET"]}}]',
+      };
     },
     "/internal routes /internal",
   ],
