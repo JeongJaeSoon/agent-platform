@@ -79,7 +79,7 @@ Werft의 모듈과 각 모듈의 책임은 [README](../../README.md)의 모듈 �
 - Claude adapter의 진입점은 export할 심볼을 이름으로 적는다(`export *` 없음). `scripts/lib`는 codec을 `runtime-claude-codec`에서 가져온다.
 - `/v1` route는 DB-backed 오류와 row를 platform port(`InvalidCursorError`, `IdentityStore`)로만 알고, db 구현을 직접 import하지 않는다.
 - `packages/testkit`은 devDependency로만 쓰고 runtime 코드가 import하지 않는다. 패키지의 testing helper(`testing` entry)도 runtime 코드가 import하지 않는다. 패키지 밖으로 나가는 상대 경로 import는 없다.
-- 웹 콘솔: `apps/web`은 workspace에서 `packages/client`·`packages/core`·`packages/react`·`packages/ui`만 import하고 contracts는 타입으로만 import한다. `apps/web/package.json`의 `dependencies`는 비어 있다(devDependency만). 그래서 이미지의 `bun install --production`은 React·router 패키지를 설치하지 않고, 웹 콘솔은 빌드한 번들(`apps/web/dist`)로만 control-host 이미지에 들어간다. code split은 `lazyRouteComponent`로 하고 `React.lazy`는 쓰지 않는다. `packages/ui`·`packages/react`의 컴포넌트를 두고 자기 UI를 그리는 곳은 `tests/web-ui-allowlist.ts`에 적은 것뿐이다. 목록에 없는 새 위반도, 코드보다 큰 목록도 테스트가 실패시킨다. `packages/ui`는 fetch·WebSocket·EventSource를 부르지 않는다.
+- 웹 콘솔: `apps/web`은 workspace에서 `packages/client`·`packages/core`·`packages/react`·`packages/ui`만 import하고 contracts는 타입으로만 import한다. `apps/web/package.json`의 `dependencies`는 비어 있다(devDependency만). 그래서 이미지의 `bun install --production`은 React·router 패키지를 설치하지 않는다. control-host 이미지는 웹 콘솔을 빌드한 번들(`apps/web/dist`)을 따로 복사한다. code split은 `lazyRouteComponent`로 하고 `React.lazy`는 쓰지 않는다. `packages/ui`·`packages/react`의 컴포넌트를 두고 자기 UI를 그리는 곳은 `tests/web-ui-allowlist.ts`에 적은 것뿐이다. 목록에 없는 새 위반도, 코드보다 큰 목록도 테스트가 실패시킨다. `packages/ui`는 fetch·WebSocket·EventSource를 부르지 않는다.
 
 ## 권한과 비활성
 
@@ -99,11 +99,11 @@ checkpoint 객체의 version 고정과 복원 뒤 재고정은 [backup-restore.m
 
 `@anthropic-ai/claude-agent-sdk`는 `packages/adapters/runtimes/claude/src/{runtime,run}.ts` 안에서만 직접 호출한다. provider는 Anthropic 직접 연결 또는 승인된 LiteLLM Anthropic Messages endpoint를 거쳐 **Claude 모델**로 연결하는 profile로 분리하며, endpoint와 model alias를 allowlist로 검증한다. LiteLLM은 필수 서비스가 아니며 non-Claude 모델 호환은 지원 범위가 아니다. profile의 endpoint·model 설정은 [api-server.md § 운영자 카탈로그](../operator/api-server.md#운영자-카탈로그-agent-profile--repository)에 있다.
 
-검증은 adapter fake, 실제 SDK + local fake Messages API, 실제 LiteLLM proxy + local fake upstream, 별도 승인된 paid Claude smoke를 구분한다. 현재 제품 adapter의 direct-local suite는 SDK 0.3.270과 번들 Claude Code 2.1.270을 확인한다. 호환 harness(`scripts/agent-sdk-compat`)의 transport suite는 LiteLLM 1.100.1의 header·cache·error·timeout·cancel 전달을 별도로 확인한다. 제품 경로(빌드한 이미지의 worker·scheduler·API)는 `tests/e2e`가 확인한다. 각 명령은 [development.md](development.md)에 있다.
+검증은 adapter fake, 실제 SDK + local fake Messages API, 실제 LiteLLM proxy + local fake upstream, 별도 승인된 paid Claude smoke를 구분한다. 제품 adapter의 direct-local suite는 SDK 0.3.270과 번들 Claude Code 2.1.270을 확인한다. 호환 harness(`scripts/agent-sdk-compat`)의 transport suite는 LiteLLM 1.100.1의 header·cache·error·timeout·cancel 전달을 별도로 확인한다. 제품 경로(빌드한 이미지의 worker·scheduler·API)는 `tests/e2e`가 확인한다. 각 명령은 [development.md](development.md)에 있다.
 
 ## 설계 이력과 추가 참고
 
-내부 package scope는 `@werft-ai/*`이다. 이 문서는 저장소의 현재 구현을 따라간다. 아래는 추가 참고이고, 이 문서를 읽는 데 필요하지 않다.
+내부 package scope는 `@werft-ai/*`이다. 이 문서는 저장소 코드를 따라간다. 아래는 추가 참고이고, 이 문서를 읽는 데 필요하지 않다.
 
 - SDK 버전: 채택 버전을 고정하는 방식, 운영 제약, 호환 harness가 지키는 계약은 [결정 기록](decisions/agent-sdk.md)에 있다.
 - 저장 backend 선택: SessionStore를 채택한 이유와 그 계약을 지키는 제품 테스트는 [결정 기록](decisions/session-store.md)에 있다.
