@@ -134,6 +134,7 @@ function row(
     permission_mode: made.permission_mode,
     fingerprint: entry.fingerprint,
     repository_ids: catalogRepositoryIds(REPOSITORIES)(id),
+    github_app_repositories: "listed",
     previous_id: null,
     created_by: null,
     created_at: AT,

@@ -3639,6 +3639,10 @@ export const installationProfiles = pgTable(
     // Null on a `catalog` row until startup fills it once from the
     // `profiles` arrays of repositories.yaml.
     repositoryIds: jsonb("repository_ids").$type<string[]>(),
+    // Beside repository_ids and, like it, outside the fingerprint.
+    githubAppRepositories: text("github_app_repositories")
+      .notNull()
+      .default("listed"),
     previousId: text("previous_id"),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -3683,13 +3687,18 @@ export const installationProfiles = pgTable(
       "installation_profiles_repository_ids_check",
       sql`${table.repositoryIds} IS NOT NULL OR ${table.origin} = 'catalog'`,
     ),
+    check(
+      "installation_profiles_github_app_repositories_check",
+      sql`${table.githubAppRepositories} IN ('listed', 'installed')`,
+    ),
   ],
 );
 
 /**
- * Repositories that use the console's GitHub App (repository-catalog-db.md).
- * A row is never deleted, so a catalog id never comes back meaning another
- * repository.
+ * Repositories that use the console's GitHub App: seeded or console rows
+ * from before, and rows an agent's pick resolved (decision
+ * settings-replace-file-catalog.md §1.1). A row is never deleted, so a
+ * catalog id never comes back meaning another repository.
  */
 export const catalogRepositories = pgTable(
   "catalog_repositories",
@@ -3726,7 +3735,7 @@ export const catalogRepositories = pgTable(
       .where(sql`${table.removedAt} IS NULL`),
     check(
       "catalog_repositories_source_check",
-      sql`${table.source} IN ('seed', 'console')`,
+      sql`${table.source} IN ('seed', 'console', 'selection')`,
     ),
     check(
       "catalog_repositories_app_role_check",

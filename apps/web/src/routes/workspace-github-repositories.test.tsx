@@ -9,7 +9,7 @@ import {
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor, within } = await appHarness();
+const { renderAt, screen, within } = await appHarness();
 
 const PATH = "/settings/workspace/github";
 const BASE = `/v1/workspaces/${WORKSPACE_ID}`;
@@ -43,7 +43,7 @@ const row = (fields: Record<string, unknown>) => ({
   full_name: "acme/api",
   url: "https://github.com/acme/api.git",
   branch: "main",
-  source: "console",
+  source: "selection",
   editable: true,
   version: 1,
   installed: true,
@@ -63,6 +63,36 @@ const FILE_ROW = row({
   updated_at: null,
 });
 
+const installed = (n: number) => ({
+  github_repository_id: 100 + n,
+  full_name: `acme/repo-${String(n).padStart(3, "0")}`,
+  default_branch: "main",
+  private: n % 2 === 0,
+  catalog_id: n === 1 ? "api" : null,
+  agent_count: n === 1 ? 3 : 0,
+});
+
+/** 65 repositories, 30 a page, as GitHub pages them. */
+function page(search: string, catalog: unknown[]) {
+  const query = new URLSearchParams(search);
+  const at = Number(query.get("page") ?? "1");
+  const perPage = Number(query.get("per_page") ?? "30");
+  const all = Array.from({ length: 65 }, (_, i) => installed(i + 1));
+  return {
+    installations: [
+      { id: 77, account: "acme" },
+      { id: 78, account: "other" },
+    ],
+    installation_id: Number(query.get("installation_id") ?? "77"),
+    page: at,
+    per_page: perPage,
+    total_count: all.length,
+    repositories: all.slice((at - 1) * perPage, at * perPage),
+    unavailable: null,
+    catalog,
+  };
+}
+
 function routes(state: { rows: unknown[] }, extra = {}) {
   return {
     "GET /v1/auth/me": () => json(200, me()),
@@ -70,7 +100,8 @@ function routes(state: { rows: unknown[] }, extra = {}) {
     [`GET ${BASE}/github-apps/author`]: () => json(200, APP),
     [`GET ${BASE}/github-apps/reviewer`]: () =>
       json(200, { ...APP, github_app: null, check: null, installations: [] }),
-    [`GET ${LIST}`]: () => json(200, { repositories: state.rows }),
+    [`GET ${LIST}`]: (request: Request) =>
+      json(200, page(new URL(request.url).search, state.rows)),
     ...extra,
   };
 }
@@ -81,76 +112,59 @@ const card = async () => {
 };
 
 describe("GitHub 연결 › 에이전트가 쓰는 저장소", () => {
-  test("설치된 저장소에서 골라 추가하면 GitHub id만 보내고 목록을 다시 읽는다", async () => {
-    const state = { rows: [FILE_ROW] as unknown[] };
-    const { api } = renderAt(
-      PATH,
-      routes(state, {
-        [`GET ${LIST}/candidates`]: () =>
-          json(200, {
-            candidates: [
-              {
-                github_repository_id: 11,
-                full_name: "acme/api",
-                account: "acme",
-                default_branch: "main",
-                private: true,
-                catalog_id: null,
-              },
-              {
-                github_repository_id: 12,
-                full_name: "acme/web",
-                account: "acme",
-                default_branch: "develop",
-                private: false,
-                catalog_id: "web",
-              },
-            ],
-            unavailable: null,
-          }),
-        [`POST ${LIST}`]: () => {
-          state.rows = [row({}), FILE_ROW];
-          return json(201, { repository: row({}), receipt_id: RECEIPT });
-        },
-      }),
-    );
+  test("설치된 저장소를 한 쪽씩 읽고, 설치를 바꾸면 첫 쪽부터 읽는다", async () => {
+    const state = { rows: [row({}), FILE_ROW] as unknown[] };
+    const { api } = renderAt(PATH, routes(state));
     const user = await setupUser();
     const repos = await card();
-    // A file entry is read-only.
+    // A file entry is read-only; a picked row is edited here.
     expect(await repos.findByText("설정 파일")).toBeDefined();
     expect(repos.queryByRole("button", { name: "acme/tool 편집" })).toBeNull();
-
-    await user.click(repos.getByRole("button", { name: "저장소 추가" }));
-    const picker = within(
-      await screen.findByRole("region", { name: "App이 설치된 저장소" }),
-    );
-    expect(await picker.findByText("이미 추가됨")).toBeDefined();
-    // The search narrows the list by name.
-    await user.type(picker.getByRole("searchbox"), "ＷＥＢ");
-    expect(picker.queryByRole("button", { name: "acme/api 추가" })).toBeNull();
-    expect(picker.getByText("acme/web")).toBeDefined();
-    await user.clear(picker.getByRole("searchbox"));
-    await user.type(picker.getByRole("searchbox"), "nothing");
-    expect(picker.getByText("맞는 저장소가 없습니다.")).toBeDefined();
-    // Clearing puts the whole list back and focus in the box.
-    await user.click(picker.getByRole("button", { name: "검색어 지우기" }));
-    expect(document.activeElement === picker.getByRole("searchbox")).toBe(true);
-    expect(
-      picker.getByRole("region", { name: "추가할 수 있는 저장소 목록" }),
-    ).toBeDefined();
-    await user.click(picker.getByRole("button", { name: "acme/api 추가" }));
-    expect((await screen.findByRole("status")).textContent).toBe(
-      "acme/api을(를) 추가했습니다.",
-    );
-    expect(
-      api.calls.filter((c) => c.method === "POST").map((c) => c.body),
-    ).toEqual([{ github_repository_id: 11 }]);
     expect(
       await repos.findByRole("button", { name: "acme/api 편집" }),
     ).toBeDefined();
+
+    await user.click(repos.getByRole("button", { name: "설치된 저장소 보기" }));
+    const browse = within(
+      await screen.findByRole("region", { name: "App이 설치된 저장소" }),
+    );
+    expect(browse.getByText("acme/repo-001")).toBeDefined();
+    expect(browse.getByText("에이전트 3개가 사용")).toBeDefined();
+    expect(browse.getByText("65개 중 1–30")).toBeDefined();
+    expect(
+      browse.getByRole("button", { name: "이전" }).hasAttribute("disabled"),
+    ).toBe(true);
+
+    await user.click(browse.getByRole("button", { name: "다음" }));
+    expect(await browse.findByText("acme/repo-031")).toBeDefined();
+    await user.click(browse.getByRole("button", { name: "다음" }));
+    expect(await browse.findByText("65개 중 61–65")).toBeDefined();
+    expect(
+      browse.getByRole("button", { name: "다음" }).hasAttribute("disabled"),
+    ).toBe(true);
+
+    await user.selectOptions(browse.getByLabelText("설치"), "78");
+    expect(await browse.findByText("65개 중 1–30")).toBeDefined();
+    const searches = api.calls
+      .filter((c) => c.method === "GET" && c.path === LIST)
+      .map((c) => new URLSearchParams(c.search));
+    expect(
+      searches.map((s) => [
+        s.get("installation_id"),
+        s.get("page"),
+        s.get("per_page"),
+      ]),
+    ).toEqual(
+      expect.arrayContaining([
+        [null, "1", "30"],
+        [null, "2", "30"],
+        [null, "3", "30"],
+        ["78", "1", "30"],
+      ]),
+    );
   });
 
-  test("기본 브랜치를 바꾸면 읽은 version과 함께 보내고, 쓰는 곳이 있으면 제거를 거절한 이유를 보인다", async () => {
+  test("기본 브랜치를 바꾸면 읽은 version과 함께 보낸다", async () => {
     const state = { rows: [row({})] as unknown[] };
     const { api } = renderAt(
       PATH,
@@ -162,16 +176,6 @@ describe("GitHub 연결 › 에이전트가 쓰는 저장소", () => {
             receipt_id: RECEIPT,
           });
         },
-        [`DELETE ${LIST}/api`]: () =>
-          json(409, {
-            error: {
-              code: "REPOSITORY_IN_USE",
-              message: "in use",
-              retryable: false,
-              request_id: "req-1",
-              details: { installation_profiles: ["coding"], agents: [] },
-            },
-          }),
       }),
     );
     const user = await setupUser();
@@ -190,17 +194,7 @@ describe("GitHub 연결 › 에이전트가 쓰는 저장소", () => {
     expect(
       api.calls.filter((c) => c.method === "PATCH").map((c) => c.body),
     ).toEqual([{ branch: "develop", version: 1 }]);
-
-    await user.click(
-      await repos.findByRole("button", { name: "acme/api 편집" }),
-    );
-    await user.click(screen.getByRole("button", { name: "acme/api 제거" }));
-    const dialog = within(await screen.findByRole("dialog"));
-    await user.click(dialog.getByRole("button", { name: "제거" }));
-    await waitFor(() =>
-      expect(screen.getByRole("alert").textContent).toContain(
-        "실행 프로필 상한: coding. 에이전트: 없음.",
-      ),
-    );
+    // A row agents' releases may name is never removed.
+    expect(repos.queryByRole("button", { name: "acme/api 제거" })).toBeNull();
   });
 });

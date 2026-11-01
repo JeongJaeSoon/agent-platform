@@ -69,7 +69,7 @@ export function fakeApi(routes: Record<string, Handler>) {
 
 /**
  * The catalog list a test that fakes only the author App's read implies: its
- * repositories as console rows, as the server lists them.
+ * repositories as catalog rows, as the server lists them, beside no page.
  */
 function repositoriesFrom(
   routes: Record<string, Handler>,
@@ -95,7 +95,14 @@ function repositoriesFrom(
       }[];
     };
     return json(200, {
-      repositories: read.repositories.map((repository) => ({
+      installations: [],
+      installation_id: null,
+      page: 1,
+      per_page: 30,
+      total_count: 0,
+      repositories: [],
+      unavailable: "no_installation",
+      catalog: read.repositories.map((repository) => ({
         id: repository.id,
         github_repository_id: null,
         full_name: new URL(repository.url).pathname

@@ -1,5 +1,12 @@
 import { readFileSync } from "node:fs";
 import { isIP } from "node:net";
+import {
+  DEFAULT_INSTALLATION_ID,
+  DEFAULT_WORKER_USER,
+  DEFAULT_WORKSPACE_GC_MIN_AGE_SEC,
+  DEFAULT_WORKSPACE_QUOTA_MB,
+  MIN_WORKSPACE_QUOTA_MB,
+} from "@werft-ai/contracts/execution";
 import { integerSetting } from "@werft-ai/contracts/settings";
 
 export type WorkerObjectStoreAccess = { bucket: string; region: string };
@@ -73,14 +80,16 @@ export type KubernetesBackendEnvironment = {
 export const IN_CLUSTER_NAMESPACE_FILE =
   "/var/run/secrets/kubernetes.io/serviceaccount/namespace";
 
-export const DEFAULT_INSTALLATION_ID = "local";
-export const DEFAULT_WORKER_USER = "1000:1000";
+export {
+  DEFAULT_INSTALLATION_ID,
+  DEFAULT_WORKER_USER,
+  DEFAULT_WORKSPACE_GC_MIN_AGE_SEC,
+  DEFAULT_WORKSPACE_QUOTA_MB,
+  MIN_WORKSPACE_QUOTA_MB,
+} from "@werft-ai/contracts/execution";
+
 export const DEFAULT_STOP_TIMEOUT_SECONDS = 120;
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
-/** Same defaults and floor as the Docker backend's workspace quota. */
-export const DEFAULT_WORKSPACE_QUOTA_MB = 4096;
-export const MIN_WORKSPACE_QUOTA_MB = 1024;
-export const DEFAULT_WORKSPACE_GC_MIN_AGE_SEC = 3600;
 export const DEFAULT_WORKER_EPHEMERAL_STORAGE_MB = 1024;
 
 // RFC 1123 label, kept short: it is part of every Pod, Secret and PVC name.

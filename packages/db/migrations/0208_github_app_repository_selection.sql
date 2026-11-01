@@ -1,0 +1,4 @@
+ALTER TABLE "catalog_repositories" DROP CONSTRAINT "catalog_repositories_source_check";--> statement-breakpoint
+ALTER TABLE "installation_profiles" ADD COLUMN "github_app_repositories" text DEFAULT 'listed' NOT NULL;--> statement-breakpoint
+ALTER TABLE "catalog_repositories" ADD CONSTRAINT "catalog_repositories_source_check" CHECK ("catalog_repositories"."source" IN ('seed', 'console', 'selection'));--> statement-breakpoint
+ALTER TABLE "installation_profiles" ADD CONSTRAINT "installation_profiles_github_app_repositories_check" CHECK ("installation_profiles"."github_app_repositories" IN ('listed', 'installed'));

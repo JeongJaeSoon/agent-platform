@@ -164,11 +164,25 @@ export interface GitHubAppDirectory {
     app: Pick<GitHubAppCredential, "appId" | "apiBase" | "privateKey">,
     repo: RepoRef,
   ): Promise<{ id: number; permissions: GitHubAppPermissions } | null>;
-  /** The repositories one installation can reach, at most 1000. */
-  installationRepositories(
+  /** One page of the repositories an installation can reach, as GitHub pages them. */
+  installationRepositoriesPage(
     app: Pick<GitHubAppCredential, "appId" | "apiBase" | "privateKey">,
     installationId: number,
-  ): Promise<GitHubInstallationRepository[]>;
+    page: { page: number; perPage: number },
+  ): Promise<{
+    repositories: GitHubInstallationRepository[];
+    totalCount: number;
+  }>;
+  /**
+   * The repository with that GitHub id as the installation's token reads it,
+   * or null when it cannot. A public repository reads whether or not the
+   * installation covers it: check that with `installationFor`.
+   */
+  repositoryById(
+    app: Pick<GitHubAppCredential, "appId" | "apiBase" | "privateKey">,
+    installationId: number,
+    repositoryId: number,
+  ): Promise<GitHubInstallationRepository | null>;
 }
 
 export type GitHubInstallationRepository = {

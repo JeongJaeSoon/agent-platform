@@ -1,5 +1,5 @@
 {
-  "id": "252a6b73-e96d-48a9-aa3e-0ebf8b4ee28b",
+  "id": "0188ed58-3f42-4db5-bf0c-82b4e6ced5f0",
   "prevId": "fd6178ca-6245-41ef-bf00-52ccbcdab91a",
   "version": "7",
   "dialect": "postgresql",
@@ -1971,7 +1971,7 @@
       "checkConstraints": {
         "catalog_repositories_source_check": {
           "name": "catalog_repositories_source_check",
-          "value": "\"catalog_repositories\".\"source\" IN ('seed', 'console')"
+          "value": "\"catalog_repositories\".\"source\" IN ('seed', 'console', 'selection')"
         },
         "catalog_repositories_app_role_check": {
           "name": "catalog_repositories_app_role_check",
@@ -2908,105 +2908,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.github_app_manifest_states": {
-      "name": "github_app_manifest_states",
-      "schema": "",
-      "columns": {
-        "state_hash": {
-          "name": "state_hash",
-          "type": "bytea",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "actor_user_id": {
-          "name": "actor_user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "role": {
-          "name": "role",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "owner_login": {
-          "name": "owner_login",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "public": {
-          "name": "public",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "replaces_app_id": {
-          "name": "replaces_app_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "github_app_manifest_states_expires_idx": {
-          "name": "github_app_manifest_states_expires_idx",
-          "columns": [
-            {
-              "expression": "expires_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "github_app_manifest_states_workspace_id_workspaces_id_fk": {
-          "name": "github_app_manifest_states_workspace_id_workspaces_id_fk",
-          "tableFrom": "github_app_manifest_states",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "github_app_manifest_states_role_check": {
-          "name": "github_app_manifest_states_role_check",
-          "value": "\"github_app_manifest_states\".\"role\" IN ('author', 'reviewer')"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.github_apps": {
       "name": "github_apps",
       "schema": "",
@@ -3668,6 +3569,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "github_app_repositories": {
+          "name": "github_app_repositories",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'listed'"
+        },
         "previous_id": {
           "name": "previous_id",
           "type": "text",
@@ -3804,6 +3712,10 @@
         "installation_profiles_repository_ids_check": {
           "name": "installation_profiles_repository_ids_check",
           "value": "\"installation_profiles\".\"repository_ids\" IS NOT NULL OR \"installation_profiles\".\"origin\" = 'catalog'"
+        },
+        "installation_profiles_github_app_repositories_check": {
+          "name": "installation_profiles_github_app_repositories_check",
+          "value": "\"installation_profiles\".\"github_app_repositories\" IN ('listed', 'installed')"
         }
       },
       "isRLSEnabled": false

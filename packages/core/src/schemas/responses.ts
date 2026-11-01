@@ -24,7 +24,6 @@ import {
   createSessionResponseSchema,
   createSlackAppResponseSchema,
   deleteGitHubAppResponseSchema,
-  deleteGitHubRepositoryResponseSchema,
   deleteSlackAppResponseSchema,
   deleteSlackSecretResponseSchema,
   deleteTeamResponseSchema,
@@ -49,12 +48,12 @@ import {
   linkAgentIdentityResponseSchema,
   listAdministeredAgentsResponseSchema,
   listAdminSessionsResponseSchema,
+  listAgentGitHubRepositoriesResponseSchema,
   listAgentIdentitiesResponseSchema,
   listAgentsResponseSchema,
   listApiKeysResponseSchema,
   listCredentialBindingsResponseSchema,
   listGitHubRepositoriesResponseSchema,
-  listGitHubRepositoryCandidatesResponseSchema,
   listInvitesResponseSchema,
   listLinkedAccountsResponseSchema,
   listMembersResponseSchema,
@@ -77,6 +76,7 @@ import {
   memberViewSchema,
   openPullRequestResponseSchema,
   passwordResetResponseSchema,
+  pickAgentGitHubRepositoryResponseSchema,
   postSessionAnswerResponseSchema,
   postSessionMessageResponseSchema,
   pushRequestSchema,
@@ -160,14 +160,8 @@ export const responseSchemas = {
     completeGitHubAppManifestResponseSchema,
   "GET /v1/workspaces/{id}/github-repositories":
     listGitHubRepositoriesResponseSchema,
-  "GET /v1/workspaces/{id}/github-repositories/candidates":
-    listGitHubRepositoryCandidatesResponseSchema,
-  "POST /v1/workspaces/{id}/github-repositories":
-    githubRepositoryWriteResponseSchema,
   "PATCH /v1/workspaces/{id}/github-repositories/{repositoryId}":
     githubRepositoryWriteResponseSchema,
-  "DELETE /v1/workspaces/{id}/github-repositories/{repositoryId}":
-    deleteGitHubRepositoryResponseSchema,
   "GET /v1/workspaces/{id}/github-settings": githubSettingsResponseSchema,
   "PUT /v1/workspaces/{id}/github-settings": githubSettingsResponseSchema,
   "GET /v1/workspaces/{id}/slack/apps": listWorkspaceSlackAppsResponseSchema,
@@ -192,6 +186,10 @@ export const responseSchemas = {
   "PUT /v1/agents/{id}/slack/app/settings": slackAppSettingsSchema,
   "GET /v1/agents/{id}/github": agentGitHubResponseSchema,
   "PUT /v1/agents/{id}/github/enabled": putAgentGitHubEnabledResponseSchema,
+  "GET /v1/agents/{id}/github/repositories":
+    listAgentGitHubRepositoriesResponseSchema,
+  "POST /v1/agents/{id}/github/repositories":
+    pickAgentGitHubRepositoryResponseSchema,
   "GET /v1/agents/{id}/github/activity": agentGitHubActivityResponseSchema,
   "GET /v1/agents/{id}/slack-channels": lookupSlackChannelsResponseSchema,
   "POST /v1/agents/{id}/slack/app": createSlackAppResponseSchema,

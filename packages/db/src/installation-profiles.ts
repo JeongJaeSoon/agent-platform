@@ -62,6 +62,8 @@ function recordOf(
     permission_mode: row.permissionMode as PermissionMode,
     fingerprint: row.fingerprint,
     repository_ids: row.repositoryIds,
+    github_app_repositories:
+      row.githubAppRepositories === "installed" ? "installed" : "listed",
     previous_id: row.previousId,
     created_by: row.createdBy,
     created_at: row.createdAt,
@@ -153,12 +155,17 @@ export function createPostgresInstallationProfileStore(
           if (input.previousId !== latest.id) {
             return { outcome: "stale_previous" as const, latestId: latest.id };
           }
-        } else if (input.previousId !== null) {
+        }
+        let inherited: string | null = null;
+        if (input.previousId !== null) {
           const [previous] = await tx
-            .select({ id: installationProfiles.id })
+            .select({
+              githubAppRepositories: installationProfiles.githubAppRepositories,
+            })
             .from(installationProfiles)
             .where(eq(installationProfiles.id, input.previousId));
           if (!previous) return { outcome: "unknown_previous" as const };
+          inherited = previous.githubAppRepositories;
         }
         const version = (latest?.version ?? 0) + 1;
         const id = installationProfileId(input.name, version);
@@ -178,6 +185,8 @@ export function createPostgresInstallationProfileStore(
             permissionMode: input.permission_mode,
             fingerprint: input.fingerprint,
             repositoryIds: input.repository_ids,
+            githubAppRepositories:
+              input.github_app_repositories ?? inherited ?? "listed",
             previousId: input.previousId,
             createdBy: actor.userId,
           })
@@ -197,6 +206,7 @@ export function createPostgresInstallationProfileStore(
             permission_mode: record.permission_mode,
             connection_id: input.connectionId,
             repository_ids: record.repository_ids,
+            github_app_repositories: record.github_app_repositories,
           },
         });
         return { outcome: "created" as const, record };
