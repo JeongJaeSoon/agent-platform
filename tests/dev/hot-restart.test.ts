@@ -70,10 +70,10 @@ describe("scripts/dev/hot-restart.ts", () => {
 
   // Each start of the command appends a line; polling stands in for events,
   // which a temporary directory may not deliver either.
-  function supervise(command: string) {
+  function supervise(command: string, pollMs = "100") {
     return Bun.spawn(["bun", script, "apps/app", "--", "bun", "-e", command], {
       cwd: dir,
-      env: { ...process.env, DEV_POLL_MS: "100", DEV_STOP_GRACE_MS: "2000" },
+      env: { ...process.env, DEV_POLL_MS: pollMs, DEV_STOP_GRACE_MS: "2000" },
       stderr: "pipe",
       stdout: "ignore",
     });
@@ -120,10 +120,33 @@ describe("scripts/dev/hot-restart.ts", () => {
     } finally {
       supervisor.kill("SIGKILL");
     }
-  });
+  }, 20_000);
 
+  test("a stop that arrives while a restart waits for the old command starts nothing new", async () => {
+    const supervisor = supervise(
+      record(
+        'process.on("SIGTERM", () => setTimeout(() => process.exit(0), 800)); setInterval(() => {}, 1000)',
+      ),
+    );
+    try {
+      await until(async () => (await starts()).length === 1);
+      await writeFile(join(src, "nested", "a.ts"), "export const a = 4;\n");
+      await Bun.sleep(400);
+      supervisor.kill("SIGTERM");
+      expect(await supervisor.exited).toBe(0);
+      await Bun.sleep(300);
+      expect(await starts()).toHaveLength(1);
+      expect(await new Response(supervisor.stderr).text()).toContain(
+        "source changed; restarting",
+      );
+    } finally {
+      supervisor.kill("SIGKILL");
+    }
+  }, 20_000);
+
+  // A poll shorter than the 100ms settle delay must still get through.
   test("a command that exits on its own waits for the next change", async () => {
-    const supervisor = supervise(record("process.exit(3)"));
+    const supervisor = supervise(record("process.exit(3)"), "50");
     try {
       await until(async () => (await starts()).length === 1);
       await Bun.sleep(600);
@@ -138,5 +161,5 @@ describe("scripts/dev/hot-restart.ts", () => {
     } finally {
       supervisor.kill("SIGKILL");
     }
-  });
+  }, 20_000);
 });

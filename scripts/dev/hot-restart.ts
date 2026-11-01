@@ -144,6 +144,8 @@ async function main(args: string[]) {
   const stop = async (target: Bun.Subprocess) => {
     if (target.exitCode !== null || target.signalCode !== null)
       return target.exitCode;
+    // A second SIGTERM would cut short the grace the first one started.
+    if (stopping.has(target)) return target.exited;
     stopping.add(target);
     target.kill("SIGTERM");
     const timer = setTimeout(() => target.kill("SIGKILL"), graceMs);
@@ -157,33 +159,40 @@ async function main(args: string[]) {
   // One scan at a time; events and the poll only ask for one.
   let queue = Promise.resolve();
   let pending: Timer | undefined;
+  let shuttingDown = false;
   const check = async () => {
     const next = snapshot(roots);
     if (sameSnapshot(last, next)) return;
     last = next;
     log("source changed; restarting");
     await stop(child);
-    child = start();
+    if (!shuttingDown) child = start();
   };
+  // Not a trailing debounce: a poll shorter than the delay would keep
+  // pushing the check out forever.
   const schedule = () => {
-    clearTimeout(pending);
+    if (pending) return;
     pending = setTimeout(() => {
-      queue = queue.then(check);
+      pending = undefined;
+      queue = queue
+        .then(check)
+        .catch((error) => log(`restart failed: ${error}`));
     }, 100);
   };
+  // Before the watches: on a loaded host setting them up can take seconds.
+  for (const signal of ["SIGTERM", "SIGINT"] as const) {
+    process.on(signal, async () => {
+      shuttingDown = true;
+      process.exit((await stop(child)) ?? 0);
+    });
+  }
+  if (pollMs > 0) setInterval(schedule, pollMs);
   for (const root of roots) {
     try {
       watch(root, { recursive: true }, schedule);
     } catch {
       // A missing root is scanned as empty; the poll still covers the rest.
     }
-  }
-  if (pollMs > 0) setInterval(schedule, pollMs);
-
-  for (const signal of ["SIGTERM", "SIGINT"] as const) {
-    process.on(signal, async () => {
-      process.exit((await stop(child)) ?? 0);
-    });
   }
 }
 
