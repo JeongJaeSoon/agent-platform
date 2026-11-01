@@ -17,9 +17,9 @@ import {
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
 import { createPostgresGitHubAppStore } from "./github-apps.ts";
+import { migrate } from "./migrate.ts";
 import * as schema from "./schema.ts";
 import { writeSecretInTx } from "./secret-values.ts";
 

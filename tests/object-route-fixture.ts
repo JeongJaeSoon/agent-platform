@@ -5,6 +5,7 @@ import {
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
 } from "@werft-ai/db";
+import { migrate } from "@werft-ai/db/migrate";
 import {
   confirmExecutionGone,
   launchSession,
@@ -18,7 +19,6 @@ import {
 import { createObjectRouteSigner } from "@werft-ai/storage";
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import { createEgressAuthorizer } from "../apps/control-host/src/api/egress-authorizer.ts";
 
 /**

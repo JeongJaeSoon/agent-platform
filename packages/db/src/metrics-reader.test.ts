@@ -9,8 +9,8 @@ import {
 import { PGlite } from "@electric-sql/pglite";
 import { sql } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import { readPlatformMetrics } from "./metrics-reader.ts";
+import { migrate } from "./migrate.ts";
 import type { Database } from "./queries.ts";
 import * as schema from "./schema.ts";
 import { MAX_SESSION_COST_USD } from "./schema.ts";

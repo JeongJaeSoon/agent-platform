@@ -44,10 +44,11 @@ function withMigration(sql: string): string {
   return folder;
 }
 
+// The file's number follows the packaged head, so it is left out.
 const problemsOf = (...statements: string[]) =>
   migrationSafetyProblems(
     withMigration(statements.join("--> statement-breakpoint\n")),
-  );
+  ).map((problem) => problem.replace(/^\d+_under_test/, "under_test"));
 
 describe("migration safety", () => {
   test("the packaged migrations after the baseline follow the rules", () => {
@@ -69,7 +70,7 @@ describe("migration safety", () => {
         `CREATE INDEX "turns_status_idx" ON "turns" USING btree ("status");`,
       ),
     ).toEqual([
-      "0201_under_test.sql: index turns_status_idx on turns must be built CONCURRENTLY in a no-transaction migration",
+      "under_test.sql: index turns_status_idx on turns must be built CONCURRENTLY in a no-transaction migration",
     ]);
   });
 
@@ -79,8 +80,8 @@ describe("migration safety", () => {
         `CREATE INDEX CONCURRENTLY "turns_status_idx" ON "turns" ("status");`,
       ),
     ).toEqual([
-      '0201_under_test.sql: CONCURRENTLY needs the migration\'s first line to be "-- migrate:no-transaction"',
-      "0201_under_test.sql: CREATE INDEX CONCURRENTLY turns_status_idx needs DROP INDEX CONCURRENTLY IF EXISTS turns_status_idx before it",
+      'under_test.sql: CONCURRENTLY needs the migration\'s first line to be "-- migrate:no-transaction"',
+      "under_test.sql: CREATE INDEX CONCURRENTLY turns_status_idx needs DROP INDEX CONCURRENTLY IF EXISTS turns_status_idx before it",
     ]);
   });
 
@@ -155,7 +156,7 @@ describe("migration safety", () => {
         `ALTER TABLE "events" VALIDATE CONSTRAINT "events_turn_fk";`,
       ),
     ).toEqual([
-      "0201_under_test.sql: VALIDATE CONSTRAINT events_turn_fk runs under the lock its ADD took; validate it in a later migration",
+      "under_test.sql: VALIDATE CONSTRAINT events_turn_fk runs under the lock its ADD took; validate it in a later migration",
     ]);
   });
 
@@ -166,8 +167,8 @@ describe("migration safety", () => {
         `DROP INDEX CONCURRENTLY IF EXISTS "a";\nCREATE INDEX CONCURRENTLY "a" ON "turns" ("status");`,
       ),
     ).toEqual([
-      "0201_under_test.sql: CREATE INDEX CONCURRENTLY on turns needs a name, so a failed build can be dropped before the next try",
-      '0201_under_test.sql: more than one statement between breakpoints; put "--> statement-breakpoint" after each',
+      "under_test.sql: CREATE INDEX CONCURRENTLY on turns needs a name, so a failed build can be dropped before the next try",
+      'under_test.sql: more than one statement between breakpoints; put "--> statement-breakpoint" after each',
     ]);
   });
 

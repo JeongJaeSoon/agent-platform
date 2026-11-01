@@ -32,6 +32,7 @@ import {
   verifySlackInstallation,
   workspaces,
 } from "@werft-ai/db";
+import { migrate } from "@werft-ai/db/migrate";
 import { createLogger } from "@werft-ai/observability";
 import {
   agentSlackBotToken,
@@ -63,7 +64,6 @@ import {
 import { asc } from "drizzle-orm";
 import { drizzle as drizzlePostgres } from "drizzle-orm/node-postgres";
 import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import { Pool } from "pg";
 import {
   CONNECTIONS_FILE,

@@ -12,8 +12,8 @@ import {
 } from "@werft-ai/platform";
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import { enqueueWithin } from "./enqueue.ts";
+import { migrate } from "./migrate.ts";
 import { createPostgresSchedulerStore } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {

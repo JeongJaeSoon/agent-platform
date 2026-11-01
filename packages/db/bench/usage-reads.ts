@@ -10,10 +10,10 @@
  */
 import { performance } from "node:perf_hooks";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
 import * as schema from "../src/index.ts";
 import { createPostgresUsageReader } from "../src/index.ts";
+import { migrate } from "../src/migrate.ts";
 
 const url = process.env.BENCH_DATABASE_URL;
 if (!url) throw new Error("BENCH_DATABASE_URL names the database to use");

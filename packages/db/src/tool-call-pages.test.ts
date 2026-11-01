@@ -14,7 +14,7 @@ import {
 } from "@werft-ai/platform";
 import { sql } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
+import { migrate } from "./migrate.ts";
 import * as schema from "./schema.ts";
 import {
   agentReleases,

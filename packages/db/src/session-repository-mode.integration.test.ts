@@ -18,8 +18,8 @@ import {
 } from "@werft-ai/testkit/postgres";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
+import { migrate } from "./migrate.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import { sessions } from "./schema.ts";
