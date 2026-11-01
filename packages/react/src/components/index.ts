@@ -140,7 +140,6 @@ export {
   type QuestionRequest,
 } from "./session/question-card.tsx";
 export {
-  SESSION_OVERVIEW_COLUMNS,
   SESSION_OVERVIEW_HOME_TEMPLATE,
   SESSION_OVERVIEW_NARROW_TEMPLATE,
   SESSION_OVERVIEW_TEMPLATE,

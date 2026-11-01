@@ -35,7 +35,12 @@ const PUSH = "22222222-2222-4222-8222-222222222222";
 const RECEIPT = "33333333-3333-4333-8333-333333333333";
 const COMMIT = "a".repeat(40);
 // A session whose release has no GitHub settings: its own repository only.
-const NO_GITHUB = { profileId: null, github: null, githubEnabled: false };
+const NO_GITHUB = {
+  profileId: null,
+  attached: null,
+  github: null,
+  githubEnabled: false,
+};
 const KEYS: Record<string, readonly SessionScope[]> = {
   csp_writer: ["sessions:read", "sessions:write"],
   csp_approver: ["sessions:read", "sessions:approve"],
@@ -319,6 +324,7 @@ describe("push request routes", () => {
     const session = {
       repositoryId: "sample-app",
       profileId: "default",
+      attached: null,
       github,
       githubEnabled: true,
       approvalOffRelease: null,

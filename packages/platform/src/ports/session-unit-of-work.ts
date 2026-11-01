@@ -51,6 +51,8 @@ export type AcceptSessionInput = {
   // of an earlier acceptance must still succeed, a new request must not.
   // "none" when the profile is allowed to run without one.
   repository: { id: string; url: string; branch: string } | "none" | null;
+  // Already checked against the release; left out, the column stays null.
+  attachedRepositoryIds?: string[];
   // The profile's fingerprint under the catalog that allowed the pair, which
   // every claim of the session is then held to. Left out, the row
   // is pinned by its first claim, as one from before the column is.

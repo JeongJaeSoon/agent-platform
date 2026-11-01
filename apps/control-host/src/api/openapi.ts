@@ -2118,9 +2118,10 @@ export const API_ROUTE_DECLARATIONS = [
         status: "queued",
       },
     },
-    errors: [400, 401, 404, 409, 413, 422, 429, 503],
+    errors: [400, 401, 403, 404, 409, 413, 422, 429, 503],
     errorCodes: {
       400: ["BAD_REQUEST", "PERMISSION_WAIT_ABOVE_PROFILE"],
+      403: ["FORBIDDEN", "GITHUB_REFUSED"],
       409: [
         "IDEMPOTENCY_CONFLICT",
         "RELEASE_PROFILE_MISMATCH",
@@ -2135,6 +2136,8 @@ export const API_ROUTE_DECLARATIONS = [
         "A body its schema refuses, `profile_id` missing without `agent_release_id` included, names each field at fault in `details.issues` (`RequestBodyInvalidDetails`).",
       PERMISSION_WAIT_ABOVE_PROFILE:
         "A `permission_wait` value is longer than the profile's (`GET /v1/profiles`).",
+      GITHUB_REFUSED:
+        "`repository_not_allowed`: the agent release's GitHub settings do not list `repository_id`, or one of `attached_repository_ids` is the session's own repository, not listed there, or not allowed for the profile, or the list was sent for a session without an agent release or without a repository. No receipt is written: `details.receipt_id` is null.",
       UNSUPPORTED_CAPABILITY:
         "`profile_id` or `repository_id` is not in the catalog, the catalog does not allow the pair, the profile does not offer `model`, `repository_id` is missing for a profile whose `repository_mode` is `required` (`Profile <id> needs a repository: send repository_id`), or sent for one whose `repository_mode` is `none` (`Profile <id> runs without a repository: omit repository_id`).",
       RATE_LIMITED:

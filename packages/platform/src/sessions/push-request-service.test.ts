@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { Principal, PushRequest } from "@werft-ai/contracts";
+import {
+  GITHUB_CEILING_NONE,
+  type Principal,
+  type PushRequest,
+} from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
 import type { PushSourceResult } from "../checkpoints/checkpoint-service.ts";
 import {
@@ -12,7 +16,7 @@ import type {
   PushRefusalRecord,
   PushRequestStore,
 } from "../ports/push-requests.ts";
-import type { SessionCatalog } from "./catalog.ts";
+import type { InstallationProfileEntry, SessionCatalog } from "./catalog.ts";
 import { createPushRequestService } from "./push-request-service.ts";
 import { SessionServiceError } from "./session-service.ts";
 
@@ -384,6 +388,110 @@ describe("push request decisions", () => {
       expect((error as SessionServiceError).code).toBe("NOT_FOUND");
     }
     expect(touched).toEqual([]);
+  });
+});
+
+describe("a push to another repository", () => {
+  const MULTI = {
+    profiles: { default: {} as SessionCatalog["profiles"][string] },
+    repositories: {
+      ...CATALOG.repositories,
+      docs: { url: "https://git.example/acme/docs.git", branch: "main" },
+      tools: { url: "https://git.example/acme/tools.git", branch: "main" },
+    },
+    installation: new Map<string, InstallationProfileEntry>([
+      [
+        "default",
+        {
+          id: "default",
+          origin: "catalog",
+          state: "usable",
+          repository_ids: ["sample-app", "docs", "tools"],
+        },
+      ],
+    ]),
+  } satisfies SessionCatalog;
+
+  function pushing(attached: string[] | null) {
+    const created: CreatePushRequestInput[] = [];
+    const refusals: PushRefusalRecord[] = [];
+    const push = createPushRequestService({
+      authorization: createAuthorizationPolicy(),
+      store: {
+        replayCreate: async () => null,
+        findSession: async () => ({
+          repositoryId: "sample-app",
+          profileId: "default",
+          attached,
+          github: {
+            repositories: ["sample-app", "docs", "tools"],
+            features: GITHUB_CEILING_NONE,
+            actions_allow: [],
+            push_approval: true,
+          },
+          githubEnabled: true,
+          approvalOffRelease: null,
+        }),
+        recordRefusal: async (input: PushRefusalRecord) => {
+          refusals.push(input);
+          return "receipt-1";
+        },
+        create: async (input: CreatePushRequestInput) => {
+          created.push(input);
+          return { outcome: "written", request: {} as PushRequest };
+        },
+      } as unknown as PushRequestStore,
+      catalog: MULTI,
+      source: {
+        readPushSource: async () => ({
+          status: "ready",
+          revision: 3,
+          gitCommit: "a".repeat(40),
+        }),
+      },
+    });
+    const actor = {
+      caller: testCaller("owner-a"),
+      principal: {
+        kind: "api_key",
+        id: "owner-a",
+        owner_id: "owner-a",
+        workspace_id: null,
+        scopes: ["sessions:write"],
+      } as Principal,
+      ownerId: "owner-a",
+      verified: true,
+    };
+    const to = (repository_id: string) =>
+      push
+        .create(actor, SESSION, {
+          idempotencyKey: `k-${repository_id}`,
+          body: { repository_id },
+        })
+        .then(
+          () => null,
+          (caught: unknown) => caught,
+        );
+    return { to, created, refusals };
+  }
+
+  test("is refused for a repository the release lists but the session did not attach", async () => {
+    const { to, created, refusals } = pushing(["docs"]);
+    const error = await to("tools");
+    expect(error).toBeInstanceOf(SessionServiceError);
+    expect((error as SessionServiceError).details).toEqual({
+      refusal: "repository_not_allowed",
+      receipt_id: "receipt-1",
+    });
+    expect(refusals.at(-1)?.result).toMatchObject({ repository_id: "tools" });
+    expect(await to("docs")).toBeNull();
+    expect(created.map((input) => input.repositoryId)).toEqual(["docs"]);
+  });
+
+  test("without an attached list, every repository the release lists", async () => {
+    const { to, created } = pushing(null);
+    expect(await to("tools")).toBeNull();
+    expect(created.map((input) => input.repositoryId)).toEqual(["tools"]);
   });
 });
 

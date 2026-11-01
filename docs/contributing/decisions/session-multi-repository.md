@@ -18,7 +18,7 @@
 
 ## 결정 1: 세션이 다룰 수 있는 저장소
 
-세션의 저장소 목록은 **세션 저장소 하나와 그 세션 릴리스의 `github.repositories`** 다. 세션 행에는 아무것도 더하지 않는다. 목록은 쓸 때마다 다시 읽는다. 그래서 오너가 릴리스 설정에서 저장소를 빼면 진행 중인 세션도 다음 fetch·push·PR부터 그 저장소를 쓰지 못한다.
+세션의 저장소 목록은 **세션 저장소 하나와 그 세션 릴리스의 `github.repositories`** 다. 이 목록은 상한이다. 세션 생성 때 `attached_repository_ids`를 보내면 세션 행에 그 부착 목록을 두고, 세션이 쓰는 추가 저장소는 부착 목록 ∩ 상한으로 좁혀진다. 보내지 않으면 열이 NULL이고 상한 전체를 쓴다. 목록은 쓸 때마다 다시 읽는다. 그래서 오너가 릴리스 설정에서 저장소를 빼면 진행 중인 세션도 다음 fetch·push·PR부터 그 저장소를 쓰지 못한다.
 
 세션 저장소가 아닌 저장소(이하 **추가 저장소**)는 아래를 모두 만족해야 한다. 하나라도 어기면 쓰지 않는다.
 
@@ -91,12 +91,15 @@
 - 세션 저장소와 같으면 지금 검사를 그대로 한다.
 - 다르면 결정 1의 조건을 본다. 플랫폼의 읽기(`outcome_refresh`)는 카탈로그에 있는지만 본다. 지금도 이 읽기에는 스위치·목록을 적용하지 않는다.
 - 거절은 지금의 `repository_not_allowed`(`403`)이고 receipt의 `repository_id`는 요청한 저장소다.
-- 이번에 저장소를 넘기는 곳: egress clone 인가, push 실행기, PR 열기·코멘트, 성과물 상태 조회. dispatch·rerun·run 조회·리뷰는 지금처럼 세션 저장소만 쓴다([LATER](#later)).
+- 이번에 저장소를 넘기는 곳: egress clone 인가, push 실행기, PR 열기·코멘트, 성과물 상태 조회. dispatch·rerun·run 조회·리뷰는 지금처럼 세션 저장소만 쓴다([LATER](#later)). 게이트도 추가 저장소의 이 네 purpose(`dispatch`·`rerun`·`actions_read`·`review`)를 부착 여부와 관계없이 `repository_not_allowed`로 거절한다.
+- 성과물 상태 조회(`outcome_refresh`)는 부착 목록을 대지 않는다. 플랫폼이 이미 기록한 PR을 읽는 일이고, 그 PR을 열 때 부착 목록 검사를 지났다.
 
 ## 바뀌는 계약
 
 | 계약 | 바뀌는 것 | 호환 |
 |---|---|---|
+| `POST /v1/sessions` | optional `attached_repository_ids`(최대 32, 중복 금지, 원격 이름 규칙). 상한 밖·프로필 밖·주 저장소 id, 릴리스나 저장소가 없는 세션의 목록은 `403` `GITHUB_REFUSED`/`repository_not_allowed`. 세션 응답에 `attached_repository_ids`(`string[] \| null`) | 생략은 지금과 같다 |
+| DB `sessions` | `attached_repository_ids text[] NULL`, CHECK: NULL이 아니면 `repository_mode = 'repository'`. backfill 없음 | 옛 이미지는 열을 읽지 않는다. 롤백하면 목록을 준 세션이 상한 전체로 넓어진다 |
 | `POST /v1/sessions/{id}/push-requests` | 본문에 optional `repository_id`, `branch`. 새 refusal `repository_not_allowed`(403) | 빈 본문은 지금과 같다 |
 | 내장 MCP `request_push` | 인자 `{ repository_id?, branch? }` | 인자 없이 부르면 지금과 같다 |
 | push receipt·refusal 값 | `repository_not_allowed`, `unrelated_history` 추가 | 값이 늘기만 한다 |

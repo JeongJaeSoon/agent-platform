@@ -147,6 +147,8 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "runtime_profile_sha256",
     // 0201
     "checkpoint_collection_settled_at",
+    // 0207
+    "attached_repository_ids",
   ],
   turns: [
     "actor_id",

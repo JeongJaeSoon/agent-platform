@@ -1,5 +1,5 @@
 {
-  "id": "153feaf6-7ca7-48ba-8169-4cec7f082df8",
+  "id": "fd6178ca-6245-41ef-bf00-52ccbcdab91a",
   "prevId": "03ede4b5-8c45-4be9-8419-c42e1eb1d60b",
   "version": "7",
   "dialect": "postgresql",
@@ -1971,7 +1971,7 @@
       "checkConstraints": {
         "catalog_repositories_source_check": {
           "name": "catalog_repositories_source_check",
-          "value": "\"catalog_repositories\".\"source\" IN ('seed', 'console', 'selection')"
+          "value": "\"catalog_repositories\".\"source\" IN ('seed', 'console')"
         },
         "catalog_repositories_app_role_check": {
           "name": "catalog_repositories_app_role_check",
@@ -3569,13 +3569,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "github_app_repositories": {
-          "name": "github_app_repositories",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'listed'"
-        },
         "previous_id": {
           "name": "previous_id",
           "type": "text",
@@ -3712,10 +3705,6 @@
         "installation_profiles_repository_ids_check": {
           "name": "installation_profiles_repository_ids_check",
           "value": "\"installation_profiles\".\"repository_ids\" IS NOT NULL OR \"installation_profiles\".\"origin\" = 'catalog'"
-        },
-        "installation_profiles_github_app_repositories_check": {
-          "name": "installation_profiles_github_app_repositories_check",
-          "value": "\"installation_profiles\".\"github_app_repositories\" IN ('listed', 'installed')"
         }
       },
       "isRLSEnabled": false
@@ -7401,6 +7390,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "attached_repository_ids": {
+          "name": "attached_repository_ids",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
         "checkpoint_revision": {
           "name": "checkpoint_revision",
           "type": "integer",
@@ -7856,6 +7851,10 @@
         "sessions_repository_mode_check": {
           "name": "sessions_repository_mode_check",
           "value": "(\"sessions\".\"repository_mode\" = 'repository' AND \"sessions\".\"repo_url\" IS NOT NULL AND \"sessions\".\"branch\" IS NOT NULL) OR (\"sessions\".\"repository_mode\" = 'none' AND \"sessions\".\"repository_id\" IS NULL AND \"sessions\".\"repo_url\" IS NULL AND \"sessions\".\"branch\" IS NULL)"
+        },
+        "sessions_attached_repositories_check": {
+          "name": "sessions_attached_repositories_check",
+          "value": "\"sessions\".\"attached_repository_ids\" IS NULL OR \"sessions\".\"repository_mode\" = 'repository'"
         }
       },
       "isRLSEnabled": false
