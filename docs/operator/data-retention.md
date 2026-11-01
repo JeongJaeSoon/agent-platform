@@ -205,7 +205,7 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
 
 ## 이벤트 저장 형태
 
-**현재 형태 유지.** 이벤트 한 건이 `events` 한 행이고, 본문은 `payload jsonb`에 기본 압축(pglz)으로 둔다. payload에 GIN 인덱스는 두지 않는다. 다른 형태와 견준 결과다(94S-1119, 2026-11-01).
+**현재 형태 유지.** 이벤트 한 건이 `events` 한 행이고, 본문은 `payload jsonb`에 기본 압축(pglz)으로 둔다. payload에 GIN 인덱스는 두지 않는다. 다른 형태와 견준 결과다(2026-11-01).
 
 측정 조건: PostgreSQL 16과 MongoDB 7.0 컨테이너. 세션 20개에 이벤트 20,000건씩, 모두 40만 건이다. 그중 15%는 2~11 kB 도구 결과이고, payload 원문은 659 MB다. 페이지 읽기는 세션 중간에서 100건, 추가는 4 kB 도구 결과 1건이다. 둘 다 30번 잰 중앙값이다.
 
