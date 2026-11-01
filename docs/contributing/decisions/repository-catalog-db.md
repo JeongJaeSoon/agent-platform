@@ -18,7 +18,7 @@
 
 ## 1. 데이터 모델
 
-`catalog_repositories` (migration 0203)
+`catalog_repositories` (migration 0204)
 
 | 열 | 뜻 |
 |---|---|
@@ -27,7 +27,7 @@
 | `owner`, `name` text | GitHub의 owner/name. 화면 표시와 중복 검사에 쓴다 |
 | `url` text | clone URL. 콘솔 추가는 서버가 `https://github.com/{owner}/{name}.git`로 만든다. 시드는 yaml 값을 그대로 둔다 |
 | `branch` text | 기본 브랜치. 추가할 때 GitHub에서 읽은 값으로 채운다. 바꿀 수 있다 |
-| `profiles` text[] null | 시드 행의 yaml `profiles`. 허용은 프로필 상한의 `repository_ids`가 정한다(PD-5). 이 값은 binding 해시를 yaml 때와 같게 두려고만 남긴다 |
+| `profiles` jsonb null | 시드 행의 yaml `profiles`. 허용은 프로필 상한의 `repository_ids`가 정한다(PD-5). 이 값은 binding 해시를 yaml 때와 같게 두려고만 남긴다 |
 | `app_role` text | 지금은 `author`뿐이다. 리뷰용 App은 같은 저장소에 따라붙는다 |
 | `source` text | `seed` 또는 `console` |
 | `version` int | 기본 브랜치를 바꿀 때마다 1씩 오른다 |
@@ -39,7 +39,8 @@
 
 ## 2. 카탈로그에 합치기
 
-- 레지스트리(`createProfileRegistry`)가 프로필 행을 읽는 같은 주기에 저장소 행도 읽는다. 카탈로그의 `repositories`는 레지스트리를 따라가는 getter다. 레지스트리가 아직 읽지 못했을 때는 지금처럼 yaml 전체를 쓴다.
+- 레지스트리(`createProfileRegistry`)가 프로필 행을 읽는 같은 주기에 저장소 행도 읽는다. 카탈로그의 `repositories`는 레지스트리를 따라가는 getter다. 레지스트리가 아직 읽지 못했을 때와, 테이블에 행이 한 번도 없었을 때(시드 전)는 지금처럼 yaml 전체를 쓴다. 첫 배포에서 시드가 커밋되기 전에 읽어도 등록 App 저장소가 빠지지 않는다.
+- API와 Slack 프로세스가 같은 규칙으로 합친다. Slack이 세션을 만들 때도 콘솔에서 더하거나 바꾼 저장소를 본다.
 - 첫 읽기 뒤에는 yaml 가운데 `{ kind: github_app }`만 적은 항목을 빼고, 제거되지 않은 DB 행을 더한다. DB 행은 `{ url, branch, profiles?, auth: { kind: "github_app", registered: true } }`로 만든다. yaml에서 시드한 행은 시드 전과 같은 객체가 되므로, 진행 중인 세션의 `repositoryBinding`과 `catalogRevision`이 이전 때문에 바뀌지 않는다.
 - 같은 id가 운영자 파일(비밀값 저장소)과 DB에 함께 있으면 파일이 이긴다. 콘솔 추가는 파일의 id를 쓰지 못하게 막는다.
 - worker gateway의 claim 캐시는 저장소 객체가 바뀔 때도 다시 만든다.
@@ -56,6 +57,7 @@
 
 - API 기동 때 프로필 시드 바로 뒤에 같은 advisory lock 아래에서 돈다. 테이블에 행이 하나도 없을 때만 yaml의 `{ kind: github_app }` 항목을 id 그대로 넣는다(`source: seed`).
 - 행이 하나라도 있으면 아무것도 하지 않는다. 그래서 여러 번 돌아도 결과가 같고, 콘솔에서 지운 저장소가 재기동으로 되살아나지 않는다.
+- 한 GitHub 저장소에는 행이 하나다. yaml의 두 id가 같은 저장소를 가리키면 먼저 나온 id만 넣고 나머지는 경고 로그로 남긴다. 빠진 id를 쓰던 에이전트는 남은 id로 옮긴다.
 - yaml에 그런 항목이 없으면 아무것도 넣지 않는다. 그 뒤 yaml에 항목을 더하면 테이블이 여전히 비어 있으므로 다음 기동에서 가져온다.
 - 가져온 행마다 receipt `import_repository`를 남긴다(주체: 시스템).
 
@@ -67,12 +69,12 @@
 |---|---|
 | `GET /v1/workspaces/{id}/github-repositories` | 카탈로그의 GitHub 저장소. 행마다 `source`(`console`·`seed`·`file`), `editable`, 설치 상태 |
 | `GET /v1/workspaces/{id}/github-repositories/candidates` | 작성용 App의 설치마다 `GET /installation/repositories`로 읽은 저장소. 이미 카탈로그에 있으면 `catalog_id`를 붙인다 |
-| `POST /v1/workspaces/{id}/github-repositories` | `{ github_repository_id, id? }`. 서버가 후보 목록에서 그 저장소를 다시 찾아 URL과 기본 브랜치를 정한다. 후보에 없으면 400 `not_installed`, 이미 있으면 400 `already_added`, `id`가 쓰였으면 400 `id_taken` |
+| `POST /v1/workspaces/{id}/github-repositories` | `{ github_repository_id, id? }`. 서버가 후보 목록에서 그 저장소를 다시 찾아 URL과 기본 브랜치를 정한다. 후보에 없으면 400 `not_installed`, 이미 있거나 운영자 파일이 자격과 함께 가진 저장소면 400 `already_added`, `id`가 쓰였으면 400 `id_taken` |
 | `PATCH /v1/workspaces/{id}/github-repositories/{repositoryId}` | `{ branch, version }`. `version`이 다르면 409 `REVISION_CONFLICT` |
 | `DELETE /v1/workspaces/{id}/github-repositories/{repositoryId}` | 제거. 참조가 있으면 409 `REPOSITORY_IN_USE`(`details`에 프로필 상한 id와 에이전트 slug) |
 
 - 운영자 파일의 항목에 PATCH·DELETE를 보내면 400 `file_repository`다. 응답 코드는 기존 400 `BAD_REQUEST` + `reason_code` 방식을 따른다(이 API에 422를 따로 두지 않는다).
-- 브랜치 이름은 공백, git이 받지 않는 문자, `..`, 앞의 `-`, 끝의 `/`·`.lock`을 막는다. 그 브랜치가 GitHub에 있는지는 묻지 않는다(LATER).
+- 브랜치 이름은 공백·제어 문자, git이 받지 않는 문자, `..`·`@{`·`//`, `.`로 시작하는 구성 요소, 앞의 `-`·`/`, 끝의 `/`·`.lock`을 막는다. 그 브랜치가 GitHub에 있는지는 묻지 않는다(LATER).
 
 - `id`를 주지 않으면 서버가 저장소 이름을 소문자로 바꿔 쓰고, 이미 쓰인 id(제거된 것 포함)면 `-2`, `-3`을 붙인다. 형식은 지금 카탈로그 id 규칙을 따른다.
 - `GET …/github-app`의 `repositories`는 그대로 둔다. 화면은 새 목록 API를 쓴다.

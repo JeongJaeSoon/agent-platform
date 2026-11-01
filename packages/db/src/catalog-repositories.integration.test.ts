@@ -76,8 +76,13 @@ integration("catalog repositories on PostgreSQL", () => {
       branch: "trunk",
       profiles: ["coding"],
     };
+    // Never seeded: the catalog keeps the operator file.
+    expect(await store.readCatalog()).toBeNull();
     // Before bootstrap: rows go in, no receipt (no workspace to own it).
     expect(await store.seed({ entries: async () => [seedEntry] })).toEqual([
+      "seeded",
+    ]);
+    expect((await store.readCatalog())?.map((row) => row.id)).toEqual([
       "seeded",
     ]);
     expect(await db.select().from(receipts)).toEqual([]);

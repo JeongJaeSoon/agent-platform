@@ -96,7 +96,9 @@ describe("console repositories in the catalog", () => {
     const registry = createProfileRegistry({
       workspaces: { listAll: async () => [] },
       installations: { listAll: async () => [] },
-      repositories: { listActive: async () => rows.map((row) => ({ ...row })) },
+      repositories: {
+        readCatalog: async () => rows.map((row) => ({ ...row })),
+      },
       sources: SOURCES,
     });
     const catalog = profileCatalog({ repositories: FILE }, registry, (held) =>

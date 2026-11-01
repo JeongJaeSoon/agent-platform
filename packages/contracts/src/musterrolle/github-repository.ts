@@ -12,13 +12,16 @@ export const catalogRepositoryIdSchema = z
   .string()
   .regex(CATALOG_REPOSITORY_ID_PATTERN);
 
-// A git branch name, short of git's full ref rules: no whitespace, no
-// characters git refuses, no `..`, no leading `-` or trailing `/` or `.lock`.
+// A git branch name, short of git's full ref rules: no whitespace or control
+// characters, none git refuses, no `..`, `@{`, `//` or component starting
+// with `.`, no leading `-` or `/`, no trailing `/` or `.lock`.
 export const repositoryBranchSchema = z
   .string()
   .min(1)
   .max(255)
-  .regex(/^(?!-)(?!.*\.\.)(?!.*\/$)(?!.*\.lock$)[^\s~^:?*[\\]+$/);
+  .regex(
+    /^(?![-/.])(?!.*\.\.)(?!.*@\{)(?!.*\/\/)(?!.*\/\.)(?!.*\/$)(?!.*\.lock$)[^\s\p{Cc}~^:?*[\\]+$/u,
+  );
 
 export const githubRepositoryParamsSchema = workspaceParamsSchema
   .extend({ repositoryId: z.string().min(1).max(200) })

@@ -81,8 +81,16 @@ export function createGitHubRepositoryService(deps: {
       }
     },
   );
-  // Every id in the file, GitHub or not: a row may not shadow any of them.
-  const reserved = new Set(Object.keys(deps.fileRepositories));
+  // The file ids that stay in the file, GitHub or not: a row may not shadow
+  // them. A registered-App entry is the seed of a row, so it is the row's.
+  const reserved = new Set(
+    Object.entries(deps.fileRepositories)
+      .filter(([, repository]) => {
+        const auth = repository.auth;
+        return !(auth?.kind === "github_app" && "registered" in auth);
+      })
+      .map(([id]) => id),
+  );
 
   async function managed(caller: Caller, workspaceId: string) {
     if (workspaceId !== caller.ownerId) throw NOT_FOUND();
@@ -203,6 +211,17 @@ export function createGitHubRepositoryService(deps: {
     };
   };
 
+  /** The file id holding that GitHub repository with its own credential. */
+  const fileHolder = (repository: { owner: string; name: string }) =>
+    fileEntries
+      .map(fileView)
+      .find(
+        (entry) =>
+          entry.full_name !== null &&
+          entry.full_name.toLowerCase() ===
+            fullNameOf(repository.owner, repository.name),
+      )?.id;
+
   async function viewOf(
     id: string,
     workspaceId: string,
@@ -263,7 +282,9 @@ export function createGitHubRepositoryService(deps: {
                 row.github_repository_id === repository.id ||
                 fullNameOf(row.owner, row.name) ===
                   fullNameOf(repository.owner, repository.name),
-            )?.id ?? null,
+            )?.id ??
+            fileHolder(repository) ??
+            null,
         }))
         .sort((a, b) => a.full_name.localeCompare(b.full_name));
       return { candidates, unavailable: null };
@@ -303,6 +324,12 @@ export function createGitHubRepositoryService(deps: {
         throw refused(
           "not_installed",
           "The author App is not installed on that repository",
+        );
+      }
+      if (fileHolder(picked) !== undefined) {
+        throw refused(
+          "already_added",
+          "The operator file already holds that repository",
         );
       }
       const receiptId = newId();

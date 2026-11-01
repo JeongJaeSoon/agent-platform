@@ -88,14 +88,25 @@ const auditOf = (row: CatalogRepositoryRow) => ({
 export function createPostgresCatalogRepositoryStore(
   db: Database,
 ): CatalogRepositoryStore {
+  const listActive = async () => {
+    const rows = await db
+      .select()
+      .from(catalogRepositories)
+      .where(isNull(catalogRepositories.removedAt))
+      .orderBy(asc(catalogRepositories.id));
+    return rows.map(rowOf);
+  };
   return {
-    async listActive() {
-      const rows = await db
-        .select()
+    listActive,
+
+    async readCatalog() {
+      const active = await listActive();
+      if (active.length > 0) return active;
+      const [any] = await db
+        .select({ id: catalogRepositories.id })
         .from(catalogRepositories)
-        .where(isNull(catalogRepositories.removedAt))
-        .orderBy(asc(catalogRepositories.id));
-      return rows.map(rowOf);
+        .limit(1);
+      return any ? active : null;
     },
 
     seed(input) {

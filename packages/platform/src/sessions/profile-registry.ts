@@ -309,8 +309,8 @@ export interface ProfileRegistry<P extends CatalogProfileView>
   readonly profiles: Readonly<Record<string, P>>;
   readonly installation: ReadonlyMap<string, InstallationProfileEntry>;
   /**
-   * The console's repositories as last read, or null before the first read
-   * (or for a registry given no repository store).
+   * The console's repositories as last read, or null before the first read,
+   * before the table was ever seeded, or for a registry given no store.
    */
   readonly repositoryRows: readonly CatalogRepositoryRow[] | null;
 }
@@ -352,7 +352,7 @@ export function createProfileRegistry<P extends CatalogProfileView>(deps: {
   workspaces: Pick<WorkspaceProfileStore, "listAll">;
   installations: Pick<InstallationProfileStore, "listAll">;
   /** Absent: the catalog keeps the operator file's repositories. */
-  repositories?: Pick<CatalogRepositoryStore, "listActive">;
+  repositories?: Pick<CatalogRepositoryStore, "readCatalog">;
   sources: SnapshotSources<P>;
   now?: () => number;
   policy?: ProfileDerivationPolicy;
@@ -365,7 +365,7 @@ export function createProfileRegistry<P extends CatalogProfileView>(deps: {
       Promise.all([
         deps.workspaces.listAll(),
         deps.installations.listAll(),
-        deps.repositories?.listActive() ?? Promise.resolve(null),
+        deps.repositories?.readCatalog() ?? Promise.resolve(null),
       ]),
     ([workspaceRows, installationRows, rows]) => {
       snapshot = installationProfileSnapshot(deps.sources, installationRows);

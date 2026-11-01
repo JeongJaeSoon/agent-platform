@@ -5,6 +5,7 @@ import {
   createDatabaseIdentityReader,
   createPostgresAgentIdentityStore,
   createPostgresAgentStore,
+  createPostgresCatalogRepositoryStore,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresInstallationProfileStore,
@@ -36,6 +37,7 @@ import {
 } from "@werft-ai/observability";
 import {
   allowedRun,
+  type CatalogRepository,
   type Connections,
   createAuthorizationPolicy,
   createLoggingSlackNoticeSink,
@@ -49,6 +51,7 @@ import {
   drainSlackInbox,
   drainSlackOutbox,
   installationLimitsFromEnv,
+  isRegisteredGitHubApp,
   profileCatalog,
   resolveAgentRelease,
   type SecretKey,
@@ -59,6 +62,7 @@ import {
   type SlackNoticeSink,
   sessionCatalogView,
   slackBotToken,
+  withConsoleRepositories,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { Pool } from "pg";
@@ -159,12 +163,31 @@ export function slackProfileCatalog(
     createProfileRegistry({
       workspaces: createPostgresWorkspaceProfileStore(db),
       installations: createPostgresInstallationProfileStore(db),
+      repositories: createPostgresCatalogRepositoryStore(db),
       sources: profileViewSources(
         connections,
         config.repositories,
         environment,
       ),
     }),
+    // The api's catalog, so a release the console's repositories allow runs
+    // here too.
+    (rows) => {
+      const view = sessionCatalogView(config).repositories;
+      const file: Record<string, CatalogRepository> = {};
+      for (const [id, repository] of Object.entries(view)) {
+        const auth = config.repositories[id]?.auth;
+        file[id] =
+          auth !== undefined && isRegisteredGitHubApp(auth)
+            ? { ...repository, auth: { kind: "github_app", registered: true } }
+            : repository;
+      }
+      return Object.fromEntries(
+        Object.entries(withConsoleRepositories(file, rows)).map(
+          ([id, { auth: _auth, ...repository }]) => [id, repository],
+        ),
+      );
+    },
   );
 }
 

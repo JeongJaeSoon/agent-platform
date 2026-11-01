@@ -41,6 +41,11 @@ interface RepositoryWrite {
 export interface CatalogRepositoryStore {
   listActive(): Promise<CatalogRepositoryRow[]>;
   /**
+   * `listActive`, or null while the table has never held a row: the seed
+   * has not run yet, so the operator file still decides.
+   */
+  readCatalog(): Promise<CatalogRepositoryRow[] | null>;
+  /**
    * Inserts `entries` only while the table has no row at all, so a restart
    * never brings back what the console removed. Returns the ids inserted.
    */

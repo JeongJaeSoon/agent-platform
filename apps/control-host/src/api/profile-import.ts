@@ -67,6 +67,9 @@ export async function seedCatalogRepositories(
   const seeded = await store.seed({
     entries: async () => {
       const entries: SeedRepository[] = [];
+      // One row per GitHub repository (the table's unique key): a second
+      // yaml id on the same repository would fail the whole seed.
+      const seen = new Map<string, string>();
       for (const [id, repository] of Object.entries(repositories)) {
         const auth = repository.auth;
         if (auth?.kind !== "github_app" || !("registered" in auth)) continue;
@@ -77,6 +80,16 @@ export async function seedCatalogRepositories(
           });
           continue;
         }
+        const fullName = `${ref.owner}/${ref.name}`.toLowerCase();
+        const first = seen.get(fullName);
+        if (first !== undefined) {
+          logger.warn(
+            "Repository left out of the seed: another id already seeds that GitHub repository",
+            { repository: id, seeded_as: first },
+          );
+          continue;
+        }
+        seen.set(fullName, id);
         entries.push({
           id,
           owner: ref.owner,

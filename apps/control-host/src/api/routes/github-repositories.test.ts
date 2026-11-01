@@ -136,6 +136,9 @@ function memoryRepositories() {
     async listActive() {
       return active().map(({ removed: _, ...row }) => row);
     },
+    async readCatalog() {
+      return rows.size === 0 ? null : store.listActive();
+    },
     async seed() {
       return [];
     },
@@ -209,7 +212,7 @@ function memoryRepositories() {
       return { outcome: "removed" };
     },
   };
-  return { store, receipts, inUse };
+  return { store, receipts, inUse, rows };
 }
 
 const logs = new MemoryLogSink();
@@ -443,7 +446,19 @@ describe("the GitHub repository API", () => {
     expect(code(file.json).details).toEqual({ reason_code: "file_repository" });
     expect((await call("DELETE", "/tool", { cookie: owner })).status).toBe(400);
 
-    for (const branch of ["", "-x", "a..b", "has space", "end/"]) {
+    for (const branch of [
+      "",
+      "-x",
+      "a..b",
+      "has space",
+      "end/",
+      "nul\u0000",
+      "a@{1}",
+      "/lead",
+      "a//b",
+      "a/.hidden",
+      ".dot",
+    ]) {
       const bad = await call("PATCH", "/app-2", {
         cookie: owner,
         body: { branch, version: 1 },
@@ -471,6 +486,49 @@ describe("the GitHub repository API", () => {
         })
       ).status,
     ).toBe(404);
+  });
+
+  test("a row seeded from a registered-App file entry is listed and edited; a credentialed file entry's repository is not added again", async () => {
+    const owner = cookieFor("owner");
+    const at = new Date().toISOString();
+    memory.rows.set("seeded", {
+      id: "seeded",
+      github_repository_id: null,
+      owner: "acme",
+      name: "seeded",
+      url: "https://github.com/acme/seeded.git",
+      branch: "main",
+      profiles: null,
+      source: "seed",
+      version: 1,
+      created_at: at,
+      updated_at: at,
+      removed: false,
+    });
+    const listed = listGitHubRepositoriesResponseSchema.parse(
+      (await call("GET", "", { cookie: owner })).json,
+    );
+    expect(listed.repositories.find((r) => r.id === "seeded")).toMatchObject({
+      source: "seed",
+      editable: true,
+    });
+    const branch = await call("PATCH", "/seeded", {
+      cookie: owner,
+      body: { branch: "develop", version: 1 },
+    });
+    expect(branch.status).toBe(200);
+
+    await github.createRepository("acme", "tool", { "README.md": "hi\n" });
+    const tool = listGitHubRepositoryCandidatesResponseSchema
+      .parse((await call("GET", "/candidates", { cookie: owner })).json)
+      .candidates.find((c) => c.full_name === "acme/tool");
+    expect(tool?.catalog_id).toBe("tool");
+    const again = await call("POST", "", {
+      cookie: owner,
+      body: { github_repository_id: tool?.github_repository_id },
+    });
+    expect(again.status).toBe(400);
+    expect(code(again.json).details).toEqual({ reason_code: "already_added" });
   });
 
   test("without the author App the candidates say so and adding is refused", async () => {
