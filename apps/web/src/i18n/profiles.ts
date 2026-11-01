@@ -827,8 +827,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "このインストールのすべてのワークスペースが使える最も広い範囲を決めます。保存したバージョンは変わらず、編集すると新しいバージョンになります。",
   "profiles.detail.ownerOnly":
     "インストールのプロファイルはワークスペースのオーナーだけが変更できます",
-  "profiles.detail.createFrom":
-    "このプロファイルからワークスペースのプロファイルを作成",
+  "profiles.detail.createFrom": "ワークスペースのプロファイルを作成",
   "profiles.detail.settings": "設定",
   "profiles.detail.id": "ID",
   "profiles.detail.models": "選べるモデル",
