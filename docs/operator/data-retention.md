@@ -6,8 +6,8 @@
 
 ## 먼저 알아 둘 것
 
-- **세션과 이벤트는 지우지 않는다.** `schema.ts:1336-1339`의 주석이 "Nothing deletes sessions or events."라고 적는다. 세션을 지우는 API도 없다. 세션 route에는 GET·POST·PATCH만 있다(`packages/core/src/schemas/responses.ts:161-214`). 그래서 세션에 딸린 행(turn, 이벤트, 도구 호출, 대기 요청, 사용량, receipt)은 세션을 닫아도 남는다.
-- **기간이 지나면 지우는 것은 넷이다.** 권한 판정 기록(`authz_decisions`, 기본 90일), 로그인 세션(`web_sessions`, 14일), Slack 설치 state(10분), 멈춘 세션의 worker 작업 공간(24시간)이다. checkpoint object는 기간이 아니라 pointer 기준으로 GC가 지운다.
+- **세션은 지우지 않고, 이벤트는 보관한 뒤에만 DB에서 뺀다.** `schema.ts`의 `toolCalls` 주석이 "Nothing deletes sessions; event rows leave only once archived"라고 적는다. 세션을 지우는 API도 없다. 세션 route에는 GET·POST·PATCH만 있다(`packages/core/src/schemas/responses.ts:161-214`). 그래서 세션에 딸린 행(turn, 이벤트, 도구 호출, 대기 요청, 사용량, receipt)은 세션을 닫아도 남는다. 오래 쉰 세션의 이벤트만 [세션 이벤트 보관](#세션-이벤트-보관)이 checkpoint bucket으로 옮긴다. 옮겨도 API 응답은 같다.
+- **기간이 지나면 지우는 것은 넷이다.** 권한 판정 기록(`authz_decisions`, 기본 90일), 로그인 세션(`web_sessions`, 만료 30일 뒤), Slack 설치 state(10분), 멈춘 세션의 worker 작업 공간(24시간)이다. checkpoint object는 기간이 아니라 pointer 기준으로 GC가 지운다.
 - **트레이스는 내보내지 않는다.** 지금 앱에는 OTLP exporter가 없다([트레이스와의 경계](#트레이스와-플랫폼-정본의-경계)).
 
 ## 세션 실행 데이터 (PostgreSQL)
@@ -26,8 +26,23 @@
 - **세션 이벤트** — `events` 표(`schema.ts:1303`)
   - 담는 것: `system`·`assistant`·`tool_use`·`tool_result`·`question`·`result`·`status`·`error` 이벤트. `payload`(`schema.ts:1310`)에 assistant 텍스트, 도구 입력, 도구 결과 본문이 그대로 들어간다. 이 표가 기능의 정본이다([observability.md](observability.md)).
   - 만드는 시점: worker가 `/append-events`로 보낼 때(`worker-unit-of-work.ts:2364`). 제어 단계의 상태 이벤트는 `packages/db/src/session-events.ts`의 `recordEvent`.
-  - 보존 기간: 무기한. 이벤트 표 trim은 세션 관측(OTel) 방향 결정의 D8에서 "무기한(지금), 별도 결정"으로 남겼다. 그래서 SSE의 410 `CURSOR_EXPIRED`는 지금 생기지 않는다([api-guide.md](../api-guide.md)).
-  - 삭제 조건: 없음.
+  - 보존 기간: 무기한. 내용은 지우지 않는다. 오래 쉰 세션의 행은 [세션 이벤트 보관](#세션-이벤트-보관)이 bucket의 object로 옮기고, API는 그 object에서 같은 응답을 읽는다. 그래서 SSE의 410 `CURSOR_EXPIRED`는 지금 생기지 않는다([api-guide.md](../api-guide.md)).
+  - 삭제 조건: 보관 job이 object를 쓰고, hold를 걸고, 다시 읽어 확인한 뒤에만 그 행을 DB에서 뺀다.
+  - 바꾸기: `SESSION_ARCHIVE_AFTER_DAYS`(Helm `sessionArchive.afterDays`)로 옮기기 시작하는 기간을 정한다. 0이면 옮기지 않는다.
+
+### 세션 이벤트 보관
+
+오래 쉰 세션의 `events` 행을 checkpoint bucket으로 옮기는 주간 job이다(`apps/control-host/src/api/session-archive.ts`, 구현 `packages/db/src/session-event-archives.ts`). `events` 말고는 어떤 표의 행도 바꾸지 않는다.
+
+- **대상** — 마지막 활동(`last_turn_at`, 없으면 `created_at`)이 `SESSION_ARCHIVE_AFTER_DAYS`(기본 180일, 0이면 끔, 30~3650일)보다 오래된 세션. 도는 turn, 답을 기다리는 승인·질문 요청, 열린 push 요청이 있는 세션은 건너뛴다. 도구 호출과 숫자 집계 투영이 아직 읽지 않은 이벤트도 남긴다. 범위 밖 값이면 job이 시작하지 않는다.
+- **형식** — 이벤트 행 1000개 또는 8 MiB마다 JSONL.gz object 하나. key는 `session-archive/<session id>/events-<첫 id>-<끝 id>-<nonce>.jsonl.gz`다. 줄 하나가 DB 행 하나이고, 숫자와 마이크로초 시각은 DB의 텍스트 그대로다. worker의 object store 경로는 `sessions/<자기 세션>/`만 서명하므로 worker는 이 key를 읽지도 쓰지도 못한다.
+- **기록** — `session_event_archives` 표. object마다 id 범위, key, VersionId, sha256, 이벤트 수, 바이트, 마지막 이벤트 시각, 그리고 보관한 범위의 활동 요약을 담는다.
+- **순서** — create-only로 쓴다 → legal hold를 건다 → 그 버전을 다시 읽어 줄 단위로 대조한다 → 한 transaction에서 `session_event_archives` 행을 쓰고 같은 범위의 `events` 행을 지운다. 어느 단계든 실패하면 DB의 행은 그대로다. `locked` 설치에서만 돈다. `unversioned`나 `disabled`면 아무것도 하지 않고 끝난다.
+- **dry run이 기본이다.** `SESSION_ARCHIVE_DRY_RUN`(Helm `sessionArchive.dryRun`)이 `true`면 옮길 세션·이벤트·바이트 수만 로그(`Session archive completed`)에 남긴다. `false`로 바꿔야 옮긴다.
+- **읽기** — 이벤트 목록 API, SSE와 `Last-Event-ID`, 세션 목록의 마지막 이벤트 시각, 활동 요약, 설치 사용량(`usage.archived_events.used_bytes`)이 보관된 범위를 그대로 반영한다. API 프로세스가 object를 읽으므로, 보관된 세션은 API에 checkpoint object store가 설정돼 있어야 읽힌다.
+- **되돌리기** — `bun run apps/control-host/src/api/session-archive.ts restore <session id>`가 그 세션의 이벤트를 같은 id로 `events`에 되돌리고 `session_event_archives` 행을 지운다. object는 hold가 걸린 채 bucket에 남는다.
+- **일정** — compose는 `maintenance` 서비스가 checkpoint GC 뒤에 주 1회 돈다(`MAINTENANCE_INTERVAL_SEC`, 기본 604800초). 바로 한 번 돌리려면 `docker compose exec maintenance bun run apps/control-host/src/api/session-archive.ts`. Kubernetes는 CronJob(`sessionArchive.schedule`, 기본 `0 5 * * 0`)이 api ServiceAccount로 돈다.
+- **백업** — 보관한 object는 그 이벤트의 유일한 사본이다. bucket은 DB와 함께 정본이고, 백업과 복원은 `session_event_archives`의 VersionId도 고정한다([backup-restore.md](backup-restore.md)).
 - **도구 호출 기록** — `tool_calls`(`schema.ts:1342`), 일별 합계 `tool_call_days`, 도구 설명 `tool_descriptions`
   - 담는 것: 도구 이름, 시각, 결과(`ok`·`failed`·`unknown`), 걸린 시간, 이벤트 id. 입력·출력 본문은 없다. 본문은 이벤트에 있다.
   - 만드는 시점: reconciler가 pass마다 이벤트에서 투영한다(`packages/db/src/tool-calls.ts:72`, 호출 `apps/control-host/src/reconciler/reconcile.ts:185`).
@@ -74,8 +89,13 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
   - 담는 것: 작업 공간 git bundle, 추적하지 않는 파일, `out/` 결과물 파일, 그리고 이것들과 transcript를 묶는 manifest(`checkpoint-service.ts:336-346`, 쓰는 곳 `apps/worker/src/session-checkpoints.ts:1101`, `1137`, `1189`, `1314`).
   - 만드는 시점: turn 끝에 worker가 올린다. 모든 쓰기는 create-only다(`packages/storage/src/checkpoint-objects.ts:109-140`).
   - 보존 기간: pointer와 그 부모 `DEFAULT_MAX_RESTORE_FALLBACKS = 3`개(`checkpoint-service.ts:312`), 열린 push 요청이 고정한 revision은 남는다(`packages/platform/src/checkpoints/checkpoint-collector.ts:102-145`).
-  - 삭제 조건: checkpoint GC만 지운다(`checkpoint-collector.ts:174-259`, 삭제 `checkpoint-objects.ts:350-371`). Kubernetes 설치는 CronJob이 매주 일요일 04:00에 돈다(`values.yaml:258-261`의 `checkpointGc.schedule: "0 4 * * 0"`). compose 설치에는 일정이 없다. 운영자가 `apps/control-host/src/api/checkpoint-gc.ts`를 직접 돌린다. GC는 `locked`에서만 돈다. bucket에 lifecycle 만료 규칙을 두지 않는 이유와 백업과의 관계는 [backup-restore.md](backup-restore.md)에 있다.
+  - 삭제 조건: checkpoint GC만 지운다(`checkpoint-collector.ts:174-259`, 삭제 `checkpoint-objects.ts:350-371`). Kubernetes 설치는 CronJob이 매주 일요일 04:00에 돈다(`values.yaml`의 `checkpointGc.schedule: "0 4 * * 0"`). compose 설치는 `maintenance` 서비스가 주 1회 돈다. GC는 `locked`에서만 돈다. bucket에 lifecycle 만료 규칙을 두지 않는 이유와 백업과의 관계는 [backup-restore.md](backup-restore.md)에 있다.
   - 바꾸기: Helm `checkpointGc.enabled`·`schedule`·`dryRun`(`values.yaml:258-261`)으로 일정과 실행 여부를 바꾼다. compose에서는 `CHECKPOINT_GC_DRY_RUN`으로 세기만 할 수 있다. 남기는 부모 수(3)는 코드 상수라 바꿀 수 없다.
+- **보관한 세션 이벤트** — `session-archive/<session id>/events-<첫 id>-<끝 id>-<nonce>.jsonl.gz`
+  - 담는 것: 그 범위의 `events` 행 원문. assistant 텍스트, 도구 입력, 도구 결과 본문이 그대로 들어간다.
+  - 만드는 시점: [세션 이벤트 보관](#세션-이벤트-보관) job이 옮길 때. create-only로 쓰고 legal hold를 건다.
+  - 보존 기간: 무기한. checkpoint GC는 `sessions/` 아래만 보므로 이 object를 지우지 않는다. lifecycle 만료 규칙도 두지 않는다. 이 prefix에는 storage class 이동만 허용한다.
+  - 바꾸기: 없음.
 - **로컬 S3의 디스크** — compose의 SeaweedFS는 `local-s3-data` volume에 남는다(`infra/compose.local.yml:30`, `204`). test-ops의 LocalStack은 메모리에만 두므로 컨테이너와 함께 사라진다(`infra/compose.localstack.yml:10-12`).
 
 ## worker 작업 공간
@@ -91,9 +111,9 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
 - **API·worker·scheduler·reconciler·egress proxy의 stdout 로그**
   - 형식: JSON 한 줄(`packages/observability/src/index.ts:131-177`). worker는 자체 logger(`apps/worker/src/console-logger.ts`)를 쓴다.
   - 만드는 시점: 프로세스가 동작할 때마다. `LOG_LEVEL` 기본 `info`.
-  - 보존 기간: **정해지지 않음.** compose 파일과 chart에 log driver의 크기·개수 설정이 없다(`infra/`, `deploy/`에 `logging:`·`max-size`가 없음). Docker의 기본 json-file 설정, Kubernetes 노드의 로그 회전, Datadog의 index 보존이 그대로 적용된다([monitoring-datadog.md](monitoring-datadog.md)).
-  - 삭제 조건: 플랫폼이 정하지 않는다.
-  - 바꾸기: 설치처가 Docker log driver, 노드 로그 회전, 수집기에서 정한다. 플랫폼 쪽 설정은 `LOG_LEVEL`(Helm `config.logLevel`, `values.yaml:117`) 하나로, 양만 바꾼다.
+  - 보존 기간: compose 서비스는 json-file driver로 컨테이너마다 50 MB 파일 5개까지 남기고 오래된 것부터 지운다(`infra/compose.core.yml`의 `x-logging`). `docker inspect -f '{{json .HostConfig.LogConfig}}' <컨테이너>`로 확인한다. scheduler가 띄운 worker 컨테이너와 Kubernetes는 플랫폼이 정하지 않는다. Docker daemon 기본값, 노드의 로그 회전, Datadog의 index 보존이 적용된다([monitoring-datadog.md](monitoring-datadog.md)).
+  - 삭제 조건: 위 회전 말고는 플랫폼이 정하지 않는다.
+  - 바꾸기: compose는 `infra/compose.core.yml`의 `x-logging`을 고친다. 그 밖에는 설치처가 Docker log driver, 노드 로그 회전, 수집기에서 정한다. 플랫폼 쪽 설정은 `LOG_LEVEL`(Helm `config.logLevel`) 하나로, 양만 바꾼다.
 
 ## 계정·권한·감사 (PostgreSQL)
 
@@ -103,8 +123,8 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
   - 삭제 조건: reconciler pass마다(`RECONCILER_INTERVAL_SEC`, 기본 10초) 기간이 지난 행을 오래된 것부터 `RECONCILER_BATCH_SIZE`(기본 100)개씩 지운다(`authz-decisions.ts:82-106`, 호출 `reconcile.ts:180`). `RECONCILER_DRY_RUN=true`면 세기만 한다.
   - 바꾸기: 워크스페이스 owner가 `POST /v1/workspaces/{id}/audit-retention`으로 30~3650일 안에서 바꾼다([api-server.md](api-server.md#판정-감사와-보존-기간)). 지우는 속도는 Helm `reconciler.intervalSec`·`batchSize`(`values.yaml:202`, `206`).
 - **로그인 세션** — `web_sessions`(`schema.ts:323`)
-  - 보존 기간: 14일(`WEB_SESSION_TTL_MS`, `apps/control-host/src/api/auth.ts:50`), 사용자마다 최대 10개(`auth.ts:55`).
-  - 삭제 조건: 그 사용자가 다시 로그인할 때 만료·폐기된 행과, 최근 10개를 넘는 행을 지운다(`packages/db/src/identity.ts:571-581`, `603-614`). 다시 로그인하지 않는 사용자의 행은 남는다.
+  - 보존 기간: 14일(`WEB_SESSION_TTL_MS`, `apps/control-host/src/api/auth.ts:50`), 사용자마다 최대 10개(`auth.ts:55`). 만료된 행은 만료 30일 뒤까지 남는다.
+  - 삭제 조건: 그 사용자가 다시 로그인할 때 만료·폐기된 행과, 최근 10개를 넘는 행을 지운다(`packages/db/src/identity.ts`). 다시 로그인하지 않는 사용자의 행은 reconciler pass가 만료 30일 뒤에 `RECONCILER_BATCH_SIZE`개씩 지운다(`deleteExpiredWebSessions`, `EXPIRED_WEB_SESSION_KEEP_DAYS`). `RECONCILER_DRY_RUN=true`면 세기만 한다.
   - 바꾸기: 없음(코드 상수). 아래 Slack 설치 state도 같다.
 - **Slack 설치 state** — `slack_install_states`
   - 보존 기간: 600초(`packages/contracts/src/musterrolle/slack-install.ts:41`). 새 설치 링크를 만들 때 만료된 행을, 쓰면 그 행을 지운다(`packages/db/src/slack-install-states.ts:21-41`).
@@ -229,11 +249,10 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
 
 다음은 지금 기본값이 없어 「정해지지 않음」 또는 「무기한」으로 남은 항목이다. 정책을 정하는 일은 이 문서의 범위 밖이다.
 
-- 이벤트 표(`events`)의 보존 기간과 trim 방식(세션 관측 방향 결정의 D8).
+- 보관한 이벤트 object의 보존 기간. 지금은 무기한이고 지우는 경로가 없다.
 - 세션과 그에 딸린 행(`sessions`, `turns`, `tool_calls`, `pending_requests`, `provider_usage`, `receipts` 등)의 보존 기간과, 세션 삭제 API를 둘지.
 - 입력 원문(`turns.message`)과 transcript object의 마스킹 여부. 지금은 둘 다 가리지 않는다.
 - 닫힌 세션의 마지막 checkpoint와 transcript object의 보존 기간. 지금 GC는 pointer와 부모 3개를 늘 남기므로 닫힌 세션의 object도 무기한 남는다.
-- compose 설치의 checkpoint GC 일정. 지금은 Kubernetes CronJob만 있다.
-- 프로세스 로그의 보존 기간(Docker log driver, Kubernetes 로그 회전, 수집기 보존).
-- 다시 로그인하지 않는 사용자의 만료된 `web_sessions` 행, 만료된 초대·비밀번호 재설정 행의 정리.
+- worker 컨테이너와 Kubernetes의 프로세스 로그 보존 기간(Docker daemon 기본값, 노드 로그 회전, 수집기 보존).
+- 만료된 초대·비밀번호 재설정 행의 정리.
 - `session_outcomes`(GA-4b)의 보존 기간.
