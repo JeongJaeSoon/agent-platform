@@ -19,8 +19,8 @@ const encode = (value: unknown) =>
   new TextEncoder().encode(JSON.stringify(value));
 
 describe("routeOf: Git LFS", () => {
-  test("routes a download batch and the proxy's own object path, under either spelling", () => {
-    for (const prefix of ["/repository/docs/.git", "/repository/docs.git"]) {
+  test("routes a download batch and the proxy's own object path under `/.git`", () => {
+    for (const prefix of ["/repository/docs/.git"]) {
       expect(routeOf("POST", `${prefix}/info/lfs/objects/batch`, "")).toEqual({
         purpose: "repository",
         repository: "docs",
@@ -38,11 +38,11 @@ describe("routeOf: Git LFS", () => {
         search: "",
       });
     }
-    // An id may hold a dot; the `.git` Git LFS adds comes off the end.
+    // An id may itself end in `.git`; the route's own `/.git` is a segment.
     expect(
-      routeOf("POST", "/repository/v1.2.git/info/lfs/objects/batch", "")
+      routeOf("POST", "/repository/v1.2.git/.git/info/lfs/objects/batch", "")
         ?.repository,
-    ).toBe("v1.2");
+    ).toBe("v1.2.git");
   });
 
   test("routes nothing that writes, and nothing it did not name", () => {
@@ -60,6 +60,10 @@ describe("routeOf: Git LFS", () => {
     ).toBeNull();
     expect(
       routeOf("POST", "/repository/docs/info/lfs/objects/batch", ""),
+    ).toBeNull();
+    // `<id>.git` would read as another id; the worker never sends it.
+    expect(
+      routeOf("POST", "/repository/docs.git/info/lfs/objects/batch", ""),
     ).toBeNull();
     expect(
       routeOf("POST", "/repository/info/lfs/objects/batch", ""),
@@ -149,7 +153,14 @@ describe("lfsBatchForWorker and lfsDownloadHref", () => {
           upload: { href: "https://storage.test/up" },
         },
       },
-      { oid: OTHER_OID, size: 1, error: { code: 404, message: "Not found" } },
+      {
+        oid: OTHER_OID,
+        size: 1,
+        error: {
+          code: 404,
+          message: "Not found at https://storage.test/x?t=s",
+        },
+      },
     ],
   };
 
@@ -173,7 +184,11 @@ describe("lfsBatchForWorker and lfsDownloadHref", () => {
             },
           },
         },
-        { oid: OTHER_OID, size: 1, error: { code: 404, message: "Not found" } },
+        {
+          oid: OTHER_OID,
+          size: 1,
+          error: { code: 404, message: "the LFS server refused this object" },
+        },
       ],
     });
     expect(
@@ -383,7 +398,7 @@ describe("the LFS route", () => {
       { host: "storage.test", port: storage.port },
     ]);
     const response = await fetch(
-      `http://127.0.0.1:${server.port}/repository/docs.git/info/lfs/objects/${OID}?size=5`,
+      `http://127.0.0.1:${server.port}/repository/docs/.git/info/lfs/objects/${OID}?size=5`,
       { headers: { authorization: `Bearer ${REPOSITORY_TOKEN}` } },
     );
     expect(response.status).toBe(200);
@@ -411,16 +426,22 @@ describe("the LFS route", () => {
     });
   });
 
-  test("a storage error that echoes the presigned location is withheld", async () => {
-    const storage = upstream(
-      (request) =>
-        new Response(
-          `SignatureDoesNotMatch for ${new URL(request.url).search}`,
-          {
-            status: 403,
+  test("a storage error is not relayed, even one echoing a location it redirected to", async () => {
+    const storage = upstream((request) => {
+      const { search } = new URL(request.url);
+      if (search.includes("X-Amz-Signature=sig")) {
+        return new Response(null, {
+          status: 302,
+          headers: {
+            location: "/alambic/again?X-Amz-Signature=fresh-signature",
           },
-        ),
-    );
+        });
+      }
+      return new Response(`SignatureDoesNotMatch for ${search}`, {
+        status: 403,
+        headers: { "x-echo": search },
+      });
+    });
     const repo = github(storage.port);
     const auth = authorizer(`http://github.test:${repo.port}/o/docs`);
     const { server } = proxy(auth.url, repo.port, [
@@ -430,9 +451,13 @@ describe("the LFS route", () => {
       `http://127.0.0.1:${server.port}/repository/docs/.git/info/lfs/objects/${OID}?size=5`,
       { headers: { authorization: `Bearer ${REPOSITORY_TOKEN}` } },
     );
-    expect(response.status).toBe(403);
-    expect(await response.text()).not.toContain("presigned");
-    expect(storage.seen).toHaveLength(1);
+    expect(response.status).toBe(502);
+    expect(response.headers.get("x-echo")).toBeNull();
+    const text = await response.text();
+    expect(text).toContain("403");
+    expect(text).not.toContain("presigned");
+    expect(text).not.toContain("fresh-signature");
+    expect(storage.seen).toHaveLength(2);
   });
 
   test("an object on a host off the list is refused and not dialled", async () => {

@@ -24,8 +24,14 @@ const workspace: WorkspaceDescriptor = {
   additional_repositories: [
     { id: "docs", url: "https://github.com/o/docs", branch: "main", access },
     { id: "lab", url: "http://gitea:3000/o/lab.git", branch: "main", access },
-    // Left out: no route token, an id Git LFS would misread, one the route
-    // cannot name, not http(s).
+    // An id ending in `.git` is routed like any other.
+    {
+      id: "v1.git",
+      url: "https://github.com/o/v1.git",
+      branch: "main",
+      access,
+    },
+    // Left out: one the route cannot name, no route token, not http(s).
     {
       id: "a b",
       url: "https://github.com/o/space.git",
@@ -33,12 +39,6 @@ const workspace: WorkspaceDescriptor = {
       access,
     },
     { id: "plain", url: "https://github.com/o/plain.git", branch: "main" },
-    {
-      id: "v1.git",
-      url: "https://github.com/o/v1.git",
-      branch: "main",
-      access,
-    },
     { id: "ssh", url: "git@github.com:o/ssh.git", branch: "main", access },
   ],
 };
@@ -49,19 +49,24 @@ describe("repositoryRoutesConfig", () => {
       [
         '[url "http://egress-proxy:3129/repository/app/.git"]',
         '\tinsteadOf = "https://github.com/o/app.git"',
-        '[url "http://egress-proxy:3129/repository/app/"]',
+        '[url "http://egress-proxy:3129/repository/app/.git/"]',
         '\tinsteadOf = "https://github.com/o/app"',
         '\tinsteadOf = "https://github.com/o/app/"',
         '[url "http://egress-proxy:3129/repository/docs/.git"]',
         '\tinsteadOf = "https://github.com/o/docs.git"',
-        '[url "http://egress-proxy:3129/repository/docs/"]',
+        '[url "http://egress-proxy:3129/repository/docs/.git/"]',
         '\tinsteadOf = "https://github.com/o/docs"',
         '\tinsteadOf = "https://github.com/o/docs/"',
         '[url "http://egress-proxy:3129/repository/lab/.git"]',
         '\tinsteadOf = "http://gitea:3000/o/lab.git"',
-        '[url "http://egress-proxy:3129/repository/lab/"]',
+        '[url "http://egress-proxy:3129/repository/lab/.git/"]',
         '\tinsteadOf = "http://gitea:3000/o/lab"',
         '\tinsteadOf = "http://gitea:3000/o/lab/"',
+        '[url "http://egress-proxy:3129/repository/v1.git/.git"]',
+        '\tinsteadOf = "https://github.com/o/v1.git"',
+        '[url "http://egress-proxy:3129/repository/v1.git/.git/"]',
+        '\tinsteadOf = "https://github.com/o/v1"',
+        '\tinsteadOf = "https://github.com/o/v1/"',
         '[http "http://egress-proxy:3129/repository/"]',
         `\textraHeader = "Authorization: Bearer ${TOKEN}"`,
         "",
@@ -82,6 +87,7 @@ describe("goPrivateModules", () => {
     expect(goPrivateModules(workspace)).toEqual([
       "github.com/o/app",
       "github.com/o/docs",
+      "github.com/o/v1",
     ]);
   });
 });
@@ -182,7 +188,7 @@ describe("writeRepositoryRoutes", () => {
       expect(await git("ls-remote", "https://github.com/o/app/")).not.toBe(0);
       expect(asked).toEqual([
         {
-          path: "/repository/docs/info/refs?service=git-upload-pack",
+          path: "/repository/docs/.git/info/refs?service=git-upload-pack",
           authorization: `Bearer ${TOKEN}`,
         },
         {
@@ -190,7 +196,7 @@ describe("writeRepositoryRoutes", () => {
           authorization: `Bearer ${TOKEN}`,
         },
         {
-          path: "/repository/app/info/refs?service=git-upload-pack",
+          path: "/repository/app/.git/info/refs?service=git-upload-pack",
           authorization: `Bearer ${TOKEN}`,
         },
       ]);
@@ -241,7 +247,7 @@ describe("writeRepositoryRoutes", () => {
     test("a URL that only starts like a routed one names no id", async () => {
       await git("ls-remote", "https://github.com/o/docs-x.git");
       expect(asked.map(({ path }) => path)).toEqual([
-        "/repository/docs/-x.git/info/refs?service=git-upload-pack",
+        "/repository/docs/.git/-x.git/info/refs?service=git-upload-pack",
       ]);
     });
   });

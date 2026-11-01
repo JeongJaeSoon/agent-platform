@@ -18,9 +18,7 @@ type Routed = { id: string; url: URL };
 
 /**
  * The session's repositories the proxy's repository route serves: the
- * session's own and each one attached, by catalog id. An id ending in `.git`
- * is left out: Git LFS would find its endpoint by adding nothing to it, and
- * the proxy would read the id without that suffix.
+ * session's own and each one attached, by catalog id.
  */
 function routedRepositories(workspace: WorkspaceDescriptor): Routed[] {
   const listed = [
@@ -32,7 +30,6 @@ function routedRepositories(workspace: WorkspaceDescriptor): Routed[] {
     if (
       repository.id === null ||
       repository.access === undefined ||
-      repository.id.endsWith(".git") ||
       !ROUTE_ID.test(repository.id)
     ) {
       continue;
@@ -67,9 +64,10 @@ function quoted(value: string): string {
  * repository route, so a submodule, a git URL dependency, a private Go module
  * and Git LFS reach it the way the worker's own clone does: with the
  * attempt's token, and only for repositories the gate allows the session.
- * Each URL maps two ways, `.git` and bare; a URL that only starts like a bare
- * one (`…/repo-x`) comes out as a path no route has, rather than as another
- * id. Null when there is nothing to route.
+ * Each URL maps two ways, `.git` and bare, both onto `<id>/.git`: Git LFS
+ * then puts its endpoint under that path whatever the id ends in. A URL that
+ * only starts like a bare one (`…/repo-x`) comes out as a path no route has,
+ * rather than as another id. Null when there is nothing to route.
  */
 export function repositoryRoutesConfig(
   credentialUrl: string,
@@ -86,7 +84,7 @@ export function repositoryRoutesConfig(
     lines.push(
       `[url ${quoted(`${base}/${id}/.git`)}]`,
       `\tinsteadOf = ${quoted(`${bare}.git`)}`,
-      `[url ${quoted(`${base}/${id}/`)}]`,
+      `[url ${quoted(`${base}/${id}/.git/`)}]`,
       `\tinsteadOf = ${quoted(bare)}`,
       `\tinsteadOf = ${quoted(`${bare}/`)}`,
     );

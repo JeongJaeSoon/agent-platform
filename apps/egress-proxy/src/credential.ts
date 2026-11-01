@@ -151,11 +151,11 @@ const MCP_PATH = /^\/mcp\/([a-z0-9](?:[a-z0-9-]|_(?!_)){0,31})$/;
 // the worker's `insteadOf`.
 const REPOSITORY_PATH =
   /^\/repository\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:\/\.git)?(\/info\/refs|\/git-upload-pack)$/;
-// Git LFS puts its endpoint at the remote URL plus `/info/lfs`, adding `.git`
-// first when the URL does not end in it, so both spellings arrive. The object
-// path is the proxy's own: the batch answer's hrefs are rewritten to it.
+// The worker's routes all end in `/.git`, which Git LFS keeps as is when it
+// puts its endpoint at the remote URL plus `/info/lfs`. The object path is the
+// proxy's own: the batch answer's hrefs are rewritten to it.
 const LFS_PATH =
-  /^\/repository\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:\/?\.git)\/info\/lfs\/objects\/(batch|[0-9a-f]{64})$/;
+  /^\/repository\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})\/\.git\/info\/lfs\/objects\/(batch|[0-9a-f]{64})$/;
 const LFS_OBJECT_QUERY = /^\?size=(0|[1-9][0-9]{0,15})$/;
 const LFS_MEDIA_TYPE = "application/vnd.git-lfs+json";
 // The Git LFS API's own ceiling on objects per batch.
@@ -360,9 +360,11 @@ export function lfsBatchForWorker(
       size: object.size,
     };
     if (isRecord(object.error)) {
+      // The server's message is free text that can name anything; the code
+      // is what git-lfs acts on.
       kept.error = {
-        code: object.error.code,
-        message: object.error.message,
+        code: Number.isSafeInteger(object.error.code) ? object.error.code : 500,
+        message: "the LFS server refused this object",
       };
     }
     const download = isRecord(object.actions)
@@ -1311,9 +1313,31 @@ export function startCredentialProxy(
       });
       return { refused: reply(502, "upstream connection failed") };
     }
-    return REDIRECT_STATUSES.has(response.status)
-      ? followRedirects(response, href, request, grant, who, signal)
+    const fetched = REDIRECT_STATUSES.has(response.status)
+      ? await followRedirects(response, href, request, grant, who, signal)
       : { response };
+    if ("refused" in fetched) return fetched;
+    // A storage answer may echo a presigned location, the first or one it
+    // redirected to; only the object and its length and type go back.
+    const answer = fetched.response;
+    if (!answer.ok) {
+      await answer.body?.cancel();
+      logger.warn("Credential route LFS object refused", {
+        ...who,
+        status: answer.status,
+      });
+      return {
+        refused: reply(502, `the LFS storage answered ${answer.status}`),
+      };
+    }
+    const headers = new Headers();
+    for (const name of ["content-length", "content-type"]) {
+      const value = answer.headers.get(name);
+      if (value !== null) headers.set(name, value);
+    }
+    return {
+      response: new Response(answer.body, { status: answer.status, headers }),
+    };
   }
 
   async function exchange(
