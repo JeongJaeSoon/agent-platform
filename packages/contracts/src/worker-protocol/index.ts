@@ -278,6 +278,10 @@ export const claimGitSchema = z
   })
   .strict();
 
+export const claimGitAuthorSchema = z
+  .object({ name: trailerValueSchema, email: trailerValueSchema })
+  .strict();
+
 export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   session_credential: z.string().min(1),
   lease_expires_at: timestampSchema,
@@ -319,6 +323,12 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   // they linked one, and the session's console URL. Absent from an older
   // API; a worker then adds no trailer.
   git: claimGitSchema.optional(),
+  // The author and committer of the session's commits: the bot user of the
+  // workspace's author GitHub App, when the session's repository uses it.
+  // Null or absent, the image's default stays. Beside `git`, not in it: an
+  // older worker's strict `git` would refuse the whole claim over a new key,
+  // where an unknown top-level key is dropped.
+  git_author: claimGitAuthorSchema.nullable().optional(),
 });
 
 // The claim as a log line may carry it: an allowlist of identifiers, never
@@ -898,6 +908,7 @@ export type BootstrapClaimResponse = z.infer<
   typeof bootstrapClaimResponseSchema
 >;
 export type ClaimGit = z.infer<typeof claimGitSchema>;
+export type ClaimGitAuthor = z.infer<typeof claimGitAuthorSchema>;
 export type WorkspaceRepository = z.infer<typeof workspaceRepositorySchema>;
 export type WorkspaceDescriptor = z.infer<typeof workspaceDescriptorSchema>;
 export type ClaimPrincipal = z.infer<typeof claimPrincipalSchema>;

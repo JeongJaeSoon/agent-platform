@@ -53,9 +53,13 @@ RUN apt-get update --error-on=any \
 # The author and committer of Claude's commits when neither the repository nor
 # the session sets one; without it git refuses to commit and Claude asks the
 # user who they are (94S-423). System scope, so a `git config` the session
-# runs still wins; the worker's own git reads no system config.
+# runs still wins; the worker's own git reads no system config. The include
+# comes after them: when the session's repository uses the console's GitHub
+# App, the worker writes that App's bot user there (git-trailers.ts), and a
+# missing file is skipped.
 RUN git config --system user.name Werft \
-  && git config --system user.email noreply@werft.invalid
+  && git config --system user.email noreply@werft.invalid \
+  && git config --system include.path '~/.werft/git-identity'
 # The session's commit trailers (Co-authored-by, Agent-Session): every client
 # hook is one dispatcher that runs the repository's own hook of that name
 # too, since core.hooksPath stops git looking in .git/hooks. System scope

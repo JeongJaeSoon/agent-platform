@@ -105,7 +105,7 @@ export function createWorkerHost(
       id: config.executionId,
     },
     gateway,
-    gitTrailers: (git) => writeGitTrailers(config.runtime.home, git),
+    gitTrailers: (claim) => writeGitTrailers(config.runtime.home, claim),
     imageRuntime: parseImageRuntime(runtime.imageFingerprint()),
     logger,
     objectStoreAccess: objectToken,

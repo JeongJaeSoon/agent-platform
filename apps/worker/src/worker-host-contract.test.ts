@@ -230,7 +230,7 @@ describe("WorkerHost over a run that implements the contract itself", () => {
         execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
         gateway,
         gitTrailers: async (given) => {
-          handed.push(given);
+          handed.push(given.git);
           if (fails) throw new Error("read-only home");
         },
         logger: {

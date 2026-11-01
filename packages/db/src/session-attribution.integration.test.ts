@@ -183,4 +183,25 @@ integration("session attribution on PostgreSQL", () => {
     await linkGitHub(elsewhere, first, "777");
     expect((await store.attribution(sessionId))?.starter?.github).toBeNull();
   });
+
+  test("names the workspace's author App, never its reviewer or another workspace's", async () => {
+    const ws = await workspace();
+    const store = createPostgresSessionAttributionStore(db);
+    const sessionId = await session(ws, { channel: "web" });
+    const app = async (workspaceId: string, role: string, appId: number) =>
+      pool.query(
+        `INSERT INTO github_apps (id, workspace_id, app_id, slug, name, html_url, api_base, role)
+         VALUES ($1, $2, $3, $4, 'App', 'https://github.com/apps/x', 'https://api.github.com', $5)`,
+        [randomUUID(), workspaceId, appId, `app-${appId}`, role],
+      );
+    expect((await store.attribution(sessionId))?.authorApp).toBeNull();
+    await app(ws, "reviewer", 2);
+    await app(await workspace(), "author", 3);
+    expect((await store.attribution(sessionId))?.authorApp).toBeNull();
+    await app(ws, "author", 1);
+    expect((await store.attribution(sessionId))?.authorApp).toEqual({
+      slug: "app-1",
+      apiBase: "https://api.github.com",
+    });
+  });
 });
