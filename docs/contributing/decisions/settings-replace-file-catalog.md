@@ -30,7 +30,7 @@
 
 - 런타임: `apps/control-host/src/api/server.ts:262-378`(적재·시드), `:690`, `:734-747`; `apps/control-host/src/slack/main.ts:129-132`; `apps/control-host/src/api/slack-app.ts:58`, `:331`; `apps/control-host/src/api/demo-data.ts:761-764`; `apps/control-host/src/api/profiles.ts:8-29`(`connections-from-yaml` CLI); `scripts/lib/checkpoint-pins-cli.ts:68-87`; `scripts/lib/test-ops.ts:139-158`(디렉터리 전체를 해시해 배포 manifest에 넣음).
 - 배포: helm `templates/catalog-configmap.yaml:8-13`, `values.yaml:89-125`, `api.yaml:17`, `:100-107`, `slack.yaml:20`, `:91-98`; `deploy/kind/up.sh:200-215`; `infra/compose.core.yml:320-340`, `:597-600`, `compose.fake-model.yml`, `compose.fake-model-unattended.yml`, `compose.local-model.yml`, `compose.test-ops.yml`; `.github/scripts/image-smoke.sh:50-113`; `scripts/d2-gate/compose.yml`.
-- 테스트·검증: `tests/e2e/run.sh:222-231`(profiles.yaml을 `sed`로 고침), `tests/e2e/remote-mcp.e2e.ts:19`, `tests/images.test.ts`, `tests/test-ops.test.ts:361-456`, control-host 통합·단위 테스트, verify 스킬(`SKILL.md:53`, `github-sandbox/overlay.yml:10-11`이 자기 `repositories.yaml`을 덮어 mount).
+- 테스트·검증: `tests/e2e/run.sh:80-84`(`config/local-model/profiles.yaml`을 읽음), `:222-231`(보고용으로 profiles.yaml을 `sed -n`으로 읽음), `tests/e2e/remote-mcp.e2e.ts:19`, `tests/images.test.ts`, `tests/test-ops.test.ts:361-456`, control-host 통합·단위 테스트, verify 스킬(`SKILL.md:53`, `github-sandbox/overlay.yml:10-11`이 자기 `repositories.yaml`을 덮어 mount).
 - 문서: `docs/operator/api-server.md:35-60`, `:110`, `:137`, `:232-234`, `:737-746`, `:912`, `configuration.md:3`, `test-ops.md`, `kubernetes-deployment.md:90`, `backup-restore.md:134`, `docs/real-claude.md`, `docs/contributing/architecture.md:27`, `apps/docs`의 `integrations/github*.mdx:10`, `agents/run-profiles*.mdx:6`, 콘솔 문구 `apps/web/src/i18n/github.ts:65`, `:260`, `:456`.
 
 `catalogRevision`(`catalog.ts:1295-1314`)은 파일에서 온 프로필·저장소를 해시하고, `catalog_authority`(`docs/operator/api-server.md:57`, `apps/control-host/src/api/catalog-authority.ts`)는 운영자가 활성화한 revision과 같은 replica만 세션을 `catalog_mismatch`로 실패시키게 한다(`packages/db/src/worker-unit-of-work.ts:1083-1135`). 콘솔 상한은 이미 이 해시에서 빠져 있다.
@@ -56,7 +56,7 @@
 ### `catalog_repositories` (#992 테이블을 넓힌다)
 
 - #992가 둔 `{ kind: github_app }` 행에 더해 `auth_kind`가 `none`(공개 저장소)·`basic`·`bearer`인 행을 받는다. `basic`·`bearer`도 `stored`(값은 `secret_values`, owner_ref `repository:<id>`) 또는 `external`이다.
-- `app_id`·`installation_id`를 적은 옛 `github_app` 항목은 가져올 때 등록 App(`github_apps`, 0192)과 같은 App이면 `{ kind: github_app }`으로 바꾸고, 다르면 가져오기가 실패하며 그 id를 알려 준다. 콘솔에 App을 먼저 등록한다.
+- `app_id`·`installation_id`(·`api_base`)를 적은 옛 `github_app` 항목(명시 App)은 객체를 그대로 둔 `external` 행으로 가져온다. 키 참조가 들어 있어 운영자 CLI만 만들 수 있다. `{ kind: github_app }`으로 바꾸면 `repositoryBinding`이 바뀌고(`withoutRepositorySecret`은 `value`만 뺀다, `catalog.ts:1042-1048`), 등록 App은 github.com만 받으므로(`catalog.ts:338-352`) GHES 항목은 갈 곳이 없어진다. 그래서 바꾸지 않는다.
 - URL·자격 증명 출처는 바꾸지 않는다. 기본 브랜치는 #992처럼 버전을 올려 바꾼다. 저장소 객체의 모양은 YAML에서 읽은 것과 같게 만들어 `repositoryBinding`(`catalog.ts:1277`)이 가져오기로 바뀌지 않게 한다.
 - URL을 받는 콘솔 추가는 `none`·`basic`·`bearer`에만 연다(GitHub App은 1.1절처럼 설치 목록에서 고르고 따로 추가하지 않는다). URL 규칙은 지금 스키마 그대로다(http(s), userinfo·query 없음).
 
@@ -64,12 +64,15 @@
 
 작성용 App이 닿는 저장소는 GitHub이 이미 안다(`GET /installation/repositories`). 이것을 콘솔에서 한 번 더 등록하게 하면 같은 목록을 두 곳에서 관리한다. 그래서:
 
-- **목록:** `GET /v1/workspaces/{id}/github-repositories`가 작성용 App 설치 하나의 저장소를 GitHub의 페이지 그대로 돌려준다(`installation_id`, `page`, `per_page` 최대 100, GitHub의 `total_count`). 행마다 GitHub id, `owner/name`, 기본 브랜치, 비공개 여부, 이미 해석된 카탈로그 id(없으면 null), 그 저장소를 고른 에이전트 수. 설치 목록은 `installations`로 함께 준다. 전체를 한 번에 읽던 #992의 후보 API(`…/candidates`)와 `MAX_INSTALLATION_PAGES` 반복 읽기는 이 페이지 API로 바꾼다.
-- **추가·제거 없음:** #992의 `POST`·`DELETE …/github-repositories`(콘솔 등록·제거)를 지운다. 저장소 화면은 설치 목록을 페이지로 보이고, PAT·공개 저장소 추가(S3)만 URL을 받는다.
-- **에이전트별 선택이 DB의 정본이다:** 에이전트 GitHub 설정(`policy_pins.github.repositories`, 지금 상한 32개)이 고른 저장소만 DB에 남는다. 저장 요청은 카탈로그 id 대신 `github_repository_id`도 받고, 서버가 작성용 App 설치에서 그 저장소를 다시 찾아(못 찾으면 400 `not_installed`) 카탈로그 id로 바꿔 저장한다.
-- **해석 행:** 세션·release·상한은 지금처럼 카탈로그 id 문자열로 저장소를 가리킨다(`repositoryBinding`이 url·branch로 계산되므로 객체가 고정돼야 한다). 그래서 처음 고를 때 서버가 `catalog_repositories`에 행 하나를 만든다(`source: selection`, id는 #992의 `repositoryIdBase` 규칙, URL은 `https://github.com/{owner}/{name}.git`, 브랜치는 그때의 GitHub 기본 브랜치). 같은 GitHub 저장소는 이 행 하나를 같이 쓴다(`github_repository_id` 부분 unique, #992). 이 행은 등록이 아니라 고른 결과를 고정한 기록이라 콘솔에 따로 보이지 않고 지우지 않는다. receipt `resolve_repository`. 기본 브랜치 변경은 #992의 `PATCH`(버전 증가)를 그대로 둔다.
-- **상한:** 상한(`installation_profiles`)은 지금 `repository_ids`를 나열해야 에이전트가 그 저장소를 고를 수 있다(`allowedPair`). 등록 없이 고르려면 상한에 `github_app_repositories: "installed"`(작성용 App이 닿는 모든 저장소 허용)를 둔다. 상한 정의의 한 칸이므로 새 버전으로만 바뀌고 지문에 든다. 기본값은 지금과 같은 `"listed"`(나열한 것만). `installed`인 상한 위의 세션·release가 가리키는 해석 행은 claim 때도 설치 여부를 다시 확인하지 않는다(설치에서 빠지면 토큰 발급이 실패하는 지금 경로가 막는다).
-- **#992에서 넘어온 행:** #992의 `seed`·`console` 행은 그대로 해석 행으로 쓴다. id와 객체가 같으므로 진행 중 세션의 binding은 바뀌지 않는다.
+- **상한이 먼저다:** 상한(`installation_profiles`)은 지금 `repository_ids`를 나열해야 에이전트가 그 저장소를 고를 수 있고(`allowedPair` → `profileAllowsRepository`, `catalog.ts:967-979`), 나열은 카탈로그에 이미 있는 id만 받는다(`installation-profiles.ts:206-215`). 그대로 두면 등록 없는 저장소는 영영 고를 수 없다. 그래서 상한 행에 열 `github_app_repositories`(`listed`·`installed`)를 더한다. `installed`는 "작성용 App이 닿는 GitHub App 저장소는 모두 허용"이다. 이 열은 `repository_ids`처럼 정의(`catalogProfileConfigSchema`) 밖의 열이라 지문(`definitionFingerprint`, `installation-profiles.ts:225-234`)에 들지 않고, 상한의 새 버전으로만 바뀐다. 기존 행은 `listed`로 채운다. 지문이 그대로인지는 S0의 테스트로 보인다. 콘솔에서 새로 만드는 상한의 기본값은 `installed`다.
+- **`installed`가 허용하는 것:** `allowedPair`는 GitHub에 묻지 않는 동기 검사다. `installed`는 카탈로그에 있는 행 가운데 `auth`가 `{ kind: "github_app", registered: true }`인 것(해석 행·#992 행)만 허용한다. PAT·공개 저장소·명시 App 항목은 늘 `repository_ids` 나열로만 허용한다. 해석 행이 설치에서 빠지면 토큰 발급이 실패하는 지금 경로가 실행을 막으므로 claim에서 설치를 다시 묻지 않는다.
+- **목록(관리 화면):** `GET /v1/workspaces/{id}/github-repositories?installation_id=&page=&per_page=`(`workspace.manage`)가 작성용 App 설치 하나의 저장소를 GitHub 페이지 그대로 준다(`per_page` 최대 100, GitHub의 `total_count`). `installation_id`가 없으면 account 이름순 첫 설치다. 행마다 GitHub id, `owner/name`, 기본 브랜치, 비공개 여부, 해석된 카탈로그 id(없으면 null), 쓰는 에이전트 수(활성 release의 `policy_pins.github.repositories`에 그 id가 있는 에이전트). `installations`를 함께 준다. 같은 화면에 "선택됐지만 설치 밖" 목록(해석 행 가운데 지금 설치가 닿지 않는 것)을 따로 보이고, 기본 브랜치 변경(#992 `PATCH`)은 해석 행 어디서나 된다. 이 응답은 #992의 같은 경로·operationId `listGitHubRepositories`의 모양을 바꾼다(아직 릴리스 전). 검색은 LATER.
+- **목록(에이전트 화면):** 에이전트 GitHub 탭의 `options.repositories`는 지금 카탈로그 전체를 나열한다(`agent-github-service.ts:119-128`). 이것을 `GET /v1/agents/{id}/github/repositories?installation_id=&page=&per_page=`(`agent.manage`)로 바꾼다. 활성 release 상한이 `installed`면 설치 페이지를, `listed`면 그 상한이 나열한 저장소를 준다. 행마다 `available`·`reason`·역할별 `installed`는 지금 모양을 따른다.
+- **고르기:** `POST /v1/agents/{id}/github/repositories`(`agent.manage`, 콘솔 세션 cookie만) `{ installation_id, github_repository_id }` → `{ catalog_id }`. 서버는 (1) 상한이 `installed`인지 먼저 확인하고(아니면 400 `repository_not_allowed`, 행을 만들지 않는다), (2) 그 설치의 토큰으로 `GET /repositories/{id}`를 불러 저장소를 다시 찾고(설치가 닿지 않으면 400 `not_installed`), (3) 해석 행을 찾거나 만든다. 콘솔은 받은 id를 지금처럼 release의 `github.repositories`(최대 32개)에 넣어 `POST /v1/agents/{id}/releases`로 저장한다. release 계약은 바뀌지 않는다.
+- **해석 행:** 세션·release·상한은 카탈로그 id 문자열로 저장소를 가리키고 `repositoryBinding`은 url·branch로 계산되므로 객체가 고정돼야 한다. 그래서 처음 고를 때 `catalog_repositories`에 행 하나를 만든다: `source: selection`(CHECK에 값을 더하는 migration이 S0에 든다), id는 #992의 `repositoryIdBase` 규칙, URL `https://github.com/{owner}/{name}.git`, 브랜치는 그때의 GitHub 기본 브랜치. 찾기는 `github_repository_id`, 없으면 `lower(owner)/lower(name)`로 한다. 이름으로 찾은 #992 시드 행의 `github_repository_id`가 비어 있으면 채운다. 동시에 처음 고르는 두 요청은 `INSERT … ON CONFLICT DO NOTHING` 뒤 다시 읽어 같은 행을 받는다. 행은 지우지 않는다. receipt `resolve_repository`(새로 만들 때만).
+- **추가·제거 없음:** #992의 `POST`·`DELETE …/github-repositories`와 `…/candidates`를 지운다. `forge-github.ts`에서 없어지는 것은 `installationRepositories`의 전체 반복 읽기뿐이고 `GET /app/installations` 반복(`MAX_INSTALLATION_PAGES`)은 남는다. PAT·공개 저장소 추가(S3)만 URL을 받는다.
+- **#992에서 넘어온 행:** `seed`·`console` 행은 그대로 해석 행으로 쓴다. id와 객체가 같으므로 진행 중 세션의 binding은 바뀌지 않는다.
+- **권한 경계가 넓어지는 곳:** #992에서는 owner·admin만 카탈로그에 저장소를 더했다. 이제 에이전트 관리자(`agent.manage`, 에이전트별 관리자라면 member도)가 고르기로 해석 행을 만든다. 이것은 owner가 상한을 `installed`로 둔 경우에만 열리고, 만드는 행은 App이 이미 닿는 저장소를 고정한 기록일 뿐 상한 밖의 실행 권한을 주지 않는다. 대신 그 에이전트 관리자는 설치가 닿는 비공개 저장소 이름을 본다. owner가 이것을 원하지 않으면 상한을 `listed`로 둔다.
 - **문구:** #992가 land한 저장소 화면 문구(`apps/web/src/i18n/github.ts`)는 S0가 페이지 목록·선택 모델에 맞게 바꾼다. #992 카드와 나눈 범위다.
 
 ### `mcp_servers` (새 테이블)
@@ -86,7 +89,7 @@
 release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.ts:63-77`). release 생성은 카드가 이름으로 가리킨 서버가 있는지와 `credential_ref`만 검사하고(`release-ids.ts:175-200`), claim이 그때의 카탈로그에서 서버를 찾아 `mcpBinding`을 만든다(`packages/platform/src/workers/worker-gateway.ts:723-730`). 그래서 행을 제자리에서 고치면 진행 중 세션의 다음 claim이 다른 서버를 받는다. 이것을 막으려고:
 
 - `url`·`credential_ref`·자격 출처는 바꾸지 않는다. 바꾸려면 새 id로 만들고 카드를 새 release로 옮긴다.
-- `workspace_ids`가 `mcpBinding`에 들어가는지 S1이 확인하고, 들어가면 binding에서 빼거나 이 칸도 새 버전으로만 바꾼다.
+- `workspace_ids`는 `mcpBinding`에 들지 않는다(`release_id`·`server_id`·`url`·`credential_ref`만 해시한다, `catalog.ts:610-622`). 그래서 이 칸만 제자리에서 고친다.
 - 가져온 행이 YAML과 같은 객체로 풀려 binding이 같은지 S1이 테스트로 보인다.
 - release에 MCP 서버 버전을 명시적으로 고정할지는 LATER로 둔다(Codex 의견, 아래 합의·이견).
 
@@ -117,7 +120,7 @@ release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.
 | 연결 만들기·사용 중지·값 회전 | `installation.settings.manage`(새, `profile.installation.manage`와 같이 `["owner"]`) | owner | 불가 |
 | MCP 서버 | 같음 | owner | 불가 |
 | 저장소(PAT·공개 추가, 브랜치 변경, GitHub App 설치 목록 보기) | #992의 `workspace.manage` | owner·admin | 불가 |
-| 에이전트 GitHub 설정에서 GitHub App 저장소 고르기(해석 행 생성) | 지금 에이전트 GitHub 설정 저장 권한 그대로 | 그대로 | 그대로 |
+| 에이전트 GitHub 탭의 저장소 목록·고르기(해석 행 생성) | `agent.manage`, 상한이 `installed`일 때만 | owner·admin·그 에이전트의 관리자 | 불가(콘솔 세션 cookie만) |
 | 설정 내보내기 | `installation.settings.manage` | owner | 불가(LATER: 읽기 전용 scope) |
 | 설정 가져오기(API) | 같음 | owner | 불가 |
 
@@ -126,8 +129,9 @@ release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.
 ## 4. 첫 기동·개발·검증
 
 - **빈 설치:** 연결 0, 상한 0, 저장소 0으로 뜬다. 콘솔 첫 화면(owner)에 "연결 추가 → 실행 상한 만들기 → 저장소 추가" 순서의 빈 상태 안내를 둔다. 세션 생성은 상한이 없으므로 지금의 `400`/선택지 없음과 같다.
-- **개발 스택(`scripts/local.sh`)·E2E·verify·kind·image-smoke·d2-gate:** `config/**` YAML을 설정 문서 JSON(`tests/fixtures/settings/<stack>.json` 등)으로 바꾸고, compose `migrate` 서비스(`infra/compose.core.yml:106`) 뒤에 `settings import --document <file>`를 한 번 돌린다. 문서에는 비밀 값이 없다. fake-model 연결은 `external`(`value_env`)로 compose가 주는 가짜 값을 가리키고, 실모델 스택은 지금처럼 caller의 `ANTHROPIC_API_KEY`를 env로 넘긴다. `tests/e2e/run.sh`가 profiles.yaml을 `sed`로 고치던 일은 문서를 고르거나 API를 부르는 것으로 바꾼다.
-- **verify 스킬의 GitHub sandbox:** 자기 `repositories.yaml`을 mount하던 overlay 대신 콘솔/API로 저장소를 더한다(#992의 API).
+- **개발 스택(`scripts/local.sh`)·E2E·verify·kind·image-smoke·d2-gate:** `config/**` YAML을 설정 문서 JSON(`tests/fixtures/settings/<stack>.json` 등)으로 바꾸고, compose `migrate` 서비스(`infra/compose.core.yml:106`) 뒤에 `settings import --document <file>`를 한 번 돌린다. 문서에는 비밀 값이 없다. fake-model 연결은 `external`(`value_env`)로 compose가 주는 가짜 값을 가리키고, 실모델 스택은 지금처럼 caller의 `ANTHROPIC_API_KEY`를 env로 넘긴다. `tests/e2e/run.sh`가 profiles.yaml에서 읽던 값은 설정 문서에서 읽는다.
+- **verify 스킬의 GitHub sandbox:** 자기 `repositories.yaml`을 mount하던 overlay 대신, 상한을 `installed`로 두고 에이전트 GitHub 탭에서 `github_repository_id`로 고르거나(1.1절) 설정 문서로 가져온다.
+- **빈 설치 안내의 순서:** "연결 → 상한 → 저장소"에서 콘솔이 만드는 상한은 `installed`가 기본이라 GitHub App 저장소는 상한을 다시 만들지 않고 고를 수 있다. PAT·공개 저장소는 `listed` 나열이 필요하므로 그것을 더한 뒤 상한의 새 버전을 낸다고 안내 문구에 적는다.
 
 ## 5. 이전(한 번에)
 
@@ -168,7 +172,7 @@ release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.
 | PR | 범위 | 크기 감 |
 |---|---|---|
 | 결정 문서 | 이 문서(#993) | 문서 |
-| S0 | 1.1절: 설치 저장소 페이지 API, 콘솔 등록·제거 제거, 에이전트 설정의 `github_repository_id` 선택과 해석 행, 상한 `github_app_repositories`, 저장소 화면 페이지 목록·문구, OpenAPI·SDK | 중 |
+| S0 | 1.1절: 상한 열 `github_app_repositories`와 `source: selection` migration, 관리·에이전트 화면의 설치 저장소 페이지 API, 고르기 API와 해석 행, `allowedPair`의 `installed`, 콘솔 등록·제거 제거, 저장소 화면·에이전트 GitHub 탭·상한 폼, 문구, OpenAPI·SDK·core 응답 표 | 큼 |
 | S1 | DB: `provider_connections`, `mcp_servers`, `catalog_repositories` 확장, store, 레지스트리가 세 테이블을 읽음, 지연 replica 규칙, 지문·binding·release id 동일성 테스트 | 큼 |
 | S2 | 가져오기/내보내기: 설정 문서 스키마, CLI `settings import/export`, API export/import, receipt | 중 |
 | S3 | API·콘솔: 연결 화면, MCP 서버 화면, 저장소 화면에 PAT·공개 저장소, 빈 설치 안내, OpenAPI·SDK·core 응답 표 | 큼 |
