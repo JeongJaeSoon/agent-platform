@@ -51,6 +51,11 @@ ADD --checksum=sha256:e72cf723a4a660438862282e8aecf3885fc8123e88bfcad534cf6b941a
 ADD --checksum=sha256:67895dd77b63329796bc5efdd47b57f218e1f7b98717ebaf936a8238dbcaec0f \
   https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VERSION}/git-lfs-linux-arm64-v${GIT_LFS_VERSION}.tar.gz \
   /tmp/git-lfs-arm64.tar.gz
+# The tarball carries no license; this one also holds the Go license the
+# binary needs reproduced.
+ADD --checksum=sha256:4fae9062ab5cdd5fb15486b728534d8aded8b4ae9d84b6d66a956f5162c366b6 \
+  https://raw.githubusercontent.com/git-lfs/git-lfs/v${GIT_LFS_VERSION}/LICENSE.md \
+  /tmp/git-lfs-LICENSE.md
 RUN tar -xzf "/tmp/git-lfs-${TARGETARCH}.tar.gz" -C /tmp --strip-components=1 \
     "git-lfs-${GIT_LFS_VERSION}/git-lfs"
 
@@ -78,6 +83,7 @@ RUN git config --system user.name Werft \
 # skipped: a checkout leaves pointers rather than failing when the objects'
 # host is not on the proxy's list, and `git lfs pull` fetches them.
 COPY --from=git-lfs /tmp/git-lfs /usr/local/bin/git-lfs
+COPY --from=git-lfs /tmp/git-lfs-LICENSE.md /usr/local/share/doc/git-lfs/LICENSE.md
 RUN git lfs install --system --skip-repo --skip-smudge
 # The session's commit trailers (Co-authored-by, Agent-Session): every client
 # hook is one dispatcher that runs the repository's own hook of that name

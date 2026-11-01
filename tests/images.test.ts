@@ -176,6 +176,12 @@ describe("app Dockerfiles", () => {
     expect(source).toContain(
       "COPY --from=git-lfs /tmp/git-lfs /usr/local/bin/git-lfs\n",
     );
+    expect(source).toMatch(
+      /^ADD --checksum=sha256:[0-9a-f]{64} \\\n {2}https:\/\/raw\.githubusercontent\.com\/git-lfs\/git-lfs\/v\$\{GIT_LFS_VERSION\}\/LICENSE\.md \\$/m,
+    );
+    expect(source).toContain(
+      "COPY --from=git-lfs /tmp/git-lfs-LICENSE.md /usr/local/share/doc/git-lfs/LICENSE.md\n",
+    );
     expect(source).not.toMatch(/apt-get install .*\bgit-lfs\b/);
     expect(source).toMatch(
       /^RUN git lfs install --system --skip-repo --skip-smudge$/m,

@@ -25,8 +25,8 @@
 
 ### Git LFS 3.8.1 (worker, `/usr/local/bin/git-lfs`)
 
-- **라이선스.** Git LFS 자체는 MIT다(https://github.com/git-lfs/git-lfs/blob/v3.8.1/LICENSE.md). 이미지에는 git-lfs 프로젝트가 배포한 linux 실행 파일이 수정 없이 들어 있다. worker Dockerfile이 아키텍처마다 릴리스의 sha256으로 고정해 받는다.
-- **정적으로 링크된 Go 모듈.** 이 실행 파일은 Go 표준 라이브러리(BSD-3-Clause)와 https://github.com/git-lfs/git-lfs/blob/v3.8.1/go.mod 에 적힌 모듈을 링크한다. 각 모듈의 라이선스는 그 모듈의 소스에 있다.
+- **라이선스.** Git LFS 자체는 MIT다. 저작권 표시와 허가문 전문은 이미지 안 `/usr/local/share/doc/git-lfs/LICENSE.md`(https://github.com/git-lfs/git-lfs/blob/v3.8.1/LICENSE.md)에 있다. 이미지에는 git-lfs 프로젝트가 배포한 linux 실행 파일이 수정 없이 들어 있다. worker Dockerfile이 아키텍처마다 릴리스의 sha256으로 고정해 받는다.
+- **정적으로 링크된 Go 코드.** 이 실행 파일은 Go 표준 라이브러리를 링크한다. 그 BSD-3-Clause 문구도 같은 LICENSE.md에 있다. https://github.com/git-lfs/git-lfs/blob/v3.8.1/go.mod 에 적힌 모듈도 링크하며, 각 모듈의 라이선스는 그 모듈의 소스에 있다.
 - **대응 소스.** https://github.com/git-lfs/git-lfs/tree/v3.8.1
 
 ### Claude Code 실행 파일 (worker)
