@@ -4627,6 +4627,10 @@ export const API_ROUTE_DECLARATIONS = [
             updated_at: "2026-10-11T08:12:30Z",
             complete: true,
           },
+          archived_events: {
+            used_bytes: 18712,
+            updated_at: "2026-10-05T05:00:12Z",
+          },
         },
       },
     },
