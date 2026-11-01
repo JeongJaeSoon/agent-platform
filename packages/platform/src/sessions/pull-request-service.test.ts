@@ -120,11 +120,15 @@ function harness(
     },
     findPullRequest: async (_owner, push) =>
       saved.find((entry) => entry.push_request_id === push) ?? null,
-    findBranchPullRequest: async (_owner, session, head) =>
+    findBranchPullRequest: async (_owner, session, repositoryId, head) =>
       [...saved]
         .reverse()
-        .find((entry) => entry.session_id === session && entry.head === head) ??
-      null,
+        .find(
+          (entry) =>
+            entry.session_id === session &&
+            entry.repository_id === repositoryId &&
+            entry.head === head,
+        ) ?? null,
     recordReceipt: async (input) => {
       receipts.push(input);
       return `receipt-${receipts.length}`;
@@ -565,6 +569,7 @@ describe("opening a pull request", () => {
       {
         sessionId: SESSION,
         purpose: "pull_request",
+        repositoryId: "app",
         actor: {
           principal: { kind: "api_key", id: "key-1" },
           actor_user_id: null,

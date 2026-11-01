@@ -1,0 +1,4 @@
+ALTER TABLE "push_requests" DROP CONSTRAINT "push_requests_target_branch_check";--> statement-breakpoint
+DROP INDEX "push_requests_open_session_idx";--> statement-breakpoint
+CREATE UNIQUE INDEX "push_requests_open_target_idx" ON "push_requests" USING btree ("session_id","repository_id","target_branch") WHERE "push_requests"."state" IN ('requested','approved','pushing');--> statement-breakpoint
+ALTER TABLE "push_requests" ADD CONSTRAINT "push_requests_target_branch_check" CHECK ("push_requests"."target_branch" = 'agent/' || "push_requests"."session_id"::text OR "push_requests"."target_branch" ~ ('^agent/' || "push_requests"."session_id"::text || '-[a-z0-9][a-z0-9-]{0,39}$'));

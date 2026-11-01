@@ -2,10 +2,10 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  isSessionPushBranch,
   PUSH_BRANCH_PREFIX,
   type PushReasonCode,
   type PushRefusal,
-  pushBranchFor,
 } from "@werft-ai/contracts";
 import type { PushBundlesResult } from "../checkpoints/checkpoint-service.ts";
 import type { GitPusher } from "../ports/git-push.ts";
@@ -102,7 +102,7 @@ export function createPushExecutor(deps: {
       remoteRef: `refs/heads/${branch}`,
     };
     if (
-      branch !== pushBranchFor(job.sessionId) ||
+      !isSessionPushBranch(job.sessionId, branch) ||
       !branch.startsWith(PUSH_BRANCH_PREFIX)
     ) {
       return refuse("target_refused", remote);
@@ -113,6 +113,7 @@ export function createPushExecutor(deps: {
       grant = await deps.gate.grant({
         sessionId: job.sessionId,
         purpose: "push",
+        repositoryId: job.repositoryId,
         actor: null,
       });
     } catch (error) {

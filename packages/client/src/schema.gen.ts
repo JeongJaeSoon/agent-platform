@@ -971,9 +971,9 @@ export interface paths {
         put?: never;
         /**
          * Ask for the session's latest checkpoint to be pushed
-         * @description Pins the session's latest committed checkpoint: its `checkpoint_revision`, the `git_commit` its verified manifest names, the session's `repository_id`, and the target branch `agent/<session-id>`. None of these can be chosen: the body is `{}`. The request starts `requested` and nothing is pushed until a holder of `sessions:approve` approves it (`POST .../push-requests/{push_request_id}/decision`); the push itself is the platform's, never the worker's.
+         * @description Pins the session's latest committed checkpoint: its `checkpoint_revision`, the `git_commit` its verified manifest names, the repository and the target branch. The commit cannot be chosen. `repository_id` (default: the session's own) may name another catalog repository the session's release lists in `github.repositories` and its profile allows; the session's workspace has it as a git remote of that name. `branch` (default: none) makes the target `agent/<session-id>-<branch>` instead of `agent/<session-id>`, so one session can push to several branches, each its own pull request. The request starts `requested` and nothing is pushed until a holder of `sessions:approve` approves it (`POST .../push-requests/{push_request_id}/decision`); the push itself is the platform's, never the worker's.
          *
-         *     A session has at most one open request (`requested`, `approved` or `pushing`). Every attempt, refused ones included, leaves a `request_push` receipt; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request it created.
+         *     A session has at most one open request (`requested`, `approved` or `pushing`) per repository and branch; there is no limit on how many it makes. Every attempt, refused ones included, leaves a `request_push` receipt naming the repository and branch; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request it created.
          *
          *     **Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** required.
          */
@@ -1043,7 +1043,7 @@ export interface paths {
         put?: never;
         /**
          * Open a pull request from a pushed request
-         * @description Opens a pull request on the repository's forge (GitHub or GHES) from the request's branch `agent/<session-id>` into the catalog entry's `branch`. Only a `pushed` request opens one, and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`, or the entry's PAT.
+         * @description Opens a pull request on the request's repository's forge (GitHub or GHES) from the request's branch (`agent/<session-id>` or `agent/<session-id>-<branch>`) into that catalog entry's `branch`. Only a `pushed` request opens one, and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`, or the entry's PAT.
          *
          *     `title` (default `Agent session <session-id>`) and `body` are cleaned before GitHub sees them: `@` mentions, cross-repository references (`owner/repo#N`), closing keywords (`Closes #N` and the like) and HTML comments are broken with a zero-width space, a line that looks like a secret is replaced by `[REDACTED]`, and both are cut to GitHub's limits. The body ends with a line naming the session and the commit. The platform never approves, merges or asks for reviews.
          *
@@ -3252,7 +3252,10 @@ export interface components {
             /** @constant */
             decision: "retry_restore";
         };
-        CreatePushRequestRequest: Record<string, never>;
+        CreatePushRequestRequest: {
+            repository_id?: string;
+            branch?: string;
+        };
         DecidePushRequestRequest: {
             /** @enum {string} */
             decision: "approve" | "reject";
@@ -13469,7 +13472,12 @@ export interface operations {
         };
         requestBody: {
             content: {
-                /** @example {} */
+                /**
+                 * @example {
+                 *       "repository_id": "docs",
+                 *       "branch": "fix-typo"
+                 *     }
+                 */
                 "application/json": components["schemas"]["CreatePushRequestRequest"];
             };
         };
@@ -13541,7 +13549,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read. Also when the deployment does not authenticate callers (`AUTH_MODE=none`): push requests need a verified credential. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read. Also when the deployment does not authenticate callers (`AUTH_MODE=none`): push requests need a verified credential; and with `details.refusal: repository_not_allowed` when `repository_id` names a repository the session's release does not list, its profile does not allow, or its agent has GitHub off. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -13589,7 +13597,7 @@ export interface operations {
             /**
              * @description - `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.
              *     - `PUSH_SOURCE_MISSING`: The session has no repository, or no committed checkpoint, to push.
-             *     - `PUSH_REQUEST_OPEN`: The session already has an open push request (`requested`, `approved` or `pushing`); the refusal receipt's `result.push_request_id` names it.
+             *     - `PUSH_REQUEST_OPEN`: The session already has an open push request (`requested`, `approved` or `pushing`) to the same repository and branch; the refusal receipt's `result.push_request_id` names it. Here: the session already has an open request to this repository and branch; requests to other branches or repositories are not held back.
              *     - `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. Here: the latest checkpoint's manifest did not verify; a push never falls back to an older one.
              *     - `CHECKPOINT_MOVED`: The commit or checkpoint named no longer matches what the push request pinned. Here: the session checkpointed again while the request was being pinned; send it again.
              */

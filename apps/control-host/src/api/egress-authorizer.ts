@@ -4,7 +4,10 @@ import {
   randomUUID,
   timingSafeEqual,
 } from "node:crypto";
-import { mcpServerIdSchema } from "@werft-ai/contracts";
+import {
+  ADDITIONAL_REPOSITORY_ID_PATTERN,
+  mcpServerIdSchema,
+} from "@werft-ai/contracts";
 import { RequestDeadline, runWithDeadline } from "@werft-ai/db/pool";
 import type { StructuredLogger } from "@werft-ai/observability";
 import {
@@ -105,6 +108,12 @@ const authorizeRequestSchema = z.union([
     .object({
       token: tokenSchema,
       purpose: z.enum(["provider", "repository"]),
+      // repository only: the route named another repository than the
+      // session's own (session-multi-repository.md decision 2).
+      repository_id: z
+        .string()
+        .regex(ADDITIONAL_REPOSITORY_ID_PATTERN)
+        .optional(),
     })
     .strict(),
   z

@@ -1,10 +1,12 @@
-import type {
-  DecidePushRequestRequest,
-  ListPushRequestsResponse,
-  Principal,
-  PushRefusal,
-  PushRequest,
-  ReceiptActor,
+import {
+  type CreatePushRequestRequest,
+  type DecidePushRequestRequest,
+  type ListPushRequestsResponse,
+  type Principal,
+  type PushRefusal,
+  type PushRequest,
+  pushBranchFor,
+  type ReceiptActor,
 } from "@werft-ai/contracts";
 import type { PushSourceResult } from "../checkpoints/checkpoint-service.ts";
 import {
@@ -17,6 +19,7 @@ import {
   type PushRequestStore,
   type PushWriteResult,
 } from "../ports/push-requests.ts";
+import { additionalRepositoryAllowed } from "./additional-repositories.ts";
 import { repositoryBinding, type SessionCatalog } from "./catalog.ts";
 import {
   idempotencyConflict,
@@ -127,10 +130,11 @@ export function createPushRequestService(deps: {
     async create(
       actor: PushActor,
       rawSessionId: string,
-      input: { idempotencyKey: string },
+      input: { idempotencyKey: string; body?: CreatePushRequestRequest },
     ): Promise<PushRequest> {
       requireVerified(actor);
       const sessionId = rawSessionId.toLowerCase();
+      const body = input.body ?? {};
       await requireSession(actor, "session.submit", sessionId);
       const refuse = async (
         refusal: PushRefusal,
@@ -160,7 +164,7 @@ export function createPushRequestService(deps: {
         ownerId: actor.ownerId,
         sessionId,
         idempotencyKey: input.idempotencyKey,
-        payloadHash: payloadHash({}),
+        payloadHash: payloadHash(body),
       });
       if (replay !== null) return settled(replay);
       const session = await store.findSession(actor.ownerId, sessionId);
@@ -168,11 +172,18 @@ export function createPushRequestService(deps: {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
       if (session.repositoryId === null) return refuse("no_repository");
-      const repository = { repository_id: session.repositoryId };
-      const entry = Object.hasOwn(catalog.repositories, session.repositoryId)
-        ? catalog.repositories[session.repositoryId]
+      const repositoryId = body.repository_id ?? session.repositoryId;
+      const repository = { repository_id: repositoryId };
+      const entry = Object.hasOwn(catalog.repositories, repositoryId)
+        ? catalog.repositories[repositoryId]
         : undefined;
       if (entry === undefined) return refuse("no_repository", repository);
+      if (
+        repositoryId !== session.repositoryId &&
+        additionalRepositoryAllowed(catalog, session, repositoryId) === null
+      ) {
+        return refuse("repository_not_allowed", repository);
+      }
       const pinned = await source.readPushSource(sessionId);
       if (pinned.status === "none") return refuse("no_checkpoint", repository);
       if (pinned.status === "unavailable") {
@@ -184,9 +195,10 @@ export function createPushRequestService(deps: {
           sessionId,
           actor: pushReceiptActor(actor),
           idempotencyKey: input.idempotencyKey,
-          payloadHash: payloadHash({}),
-          repositoryId: session.repositoryId,
-          repositoryBinding: repositoryBinding(session.repositoryId, entry),
+          payloadHash: payloadHash(body),
+          repositoryId,
+          repositoryBinding: repositoryBinding(repositoryId, entry),
+          targetBranch: pushBranchFor(sessionId, body.branch),
           checkpointRevision: pinned.revision,
           gitCommit: pinned.gitCommit,
           approvedByRelease: session.approvalOffRelease,

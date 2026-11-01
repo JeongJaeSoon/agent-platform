@@ -112,6 +112,8 @@ export type EgressPurpose = "provider" | "repository" | "object_store" | "mcp";
 export type CredentialRoute = {
   purpose: EgressPurpose;
   server?: string;
+  /** repository only: the catalog id the path named, for another repository. */
+  repository?: string;
   /** Path and query appended to the upstream's base. */
   path: string;
   search: string;
@@ -126,6 +128,10 @@ const OBJECT_STORE_PREFIX = "/object-store";
 // The streamable HTTP transport's three methods, on the server's one URL.
 const MCP_METHODS = new Set(["POST", "GET", "DELETE"]);
 const MCP_PATH = /^\/mcp\/([a-z0-9](?:[a-z0-9-]|_(?!_)){0,31})$/;
+// `/repository/<id>/...`: another repository the session's release lets it
+// fetch. The id is the authorizer's to judge; this only keeps it one segment.
+const REPOSITORY_PATH =
+  /^\/repository\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})(\/info\/refs|\/git-upload-pack)$/;
 
 /** The exact operations routed, or null for everything else. */
 export function routeOf(
@@ -173,6 +179,14 @@ export function routeOf(
     search === ""
   ) {
     return { purpose: "repository", path: "/git-upload-pack", search };
+  }
+  const [, repository, path] = REPOSITORY_PATH.exec(pathname) ?? [];
+  if (repository !== undefined && path !== undefined) {
+    const upload =
+      path === "/info/refs"
+        ? method === "GET" && search === "?service=git-upload-pack"
+        : method === "POST" && search === "";
+    return upload ? { purpose: "repository", repository, path, search } : null;
   }
   return null;
 }
@@ -1153,7 +1167,9 @@ export function startCredentialProxy(
                 request.headers,
               ),
             }
-          : {};
+          : route.repository === undefined
+            ? {}
+            : { repository_id: route.repository };
       // Decided before anything is awaited: Bun takes the body off the
       // socket meanwhile, and only a request answered now is never held.
       const reservation = bodyReservation(request.headers, route.purpose);

@@ -154,6 +154,7 @@ export function createOutcomeRefresher(deps: {
       grant = await gate.grant({
         sessionId: outcome.sessionId,
         purpose: "outcome_refresh",
+        repositoryId: outcome.repositoryId,
         actor: null,
       });
     } catch (error) {

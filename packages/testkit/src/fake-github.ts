@@ -2,9 +2,11 @@ import { createPublicKey, randomBytes, verify } from "node:crypto";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { GitBundleFixture } from "./git-bundle.ts";
 import {
   createServedRepository,
   runTestGit,
+  seedServedBranch,
   serveGitHttp,
 } from "./git-http.ts";
 
@@ -121,6 +123,13 @@ export type FakeGitHub = {
     name: string,
     files: Record<string, string>,
     options?: { branch?: string; private?: boolean },
+  ): Promise<void>;
+  /** Points `branch` at a bundle's commit (`seedServedBranch`). */
+  seedBranch(
+    owner: string,
+    name: string,
+    branch: string,
+    bundle: GitBundleFixture,
   ): Promise<void>;
   /** Every branch and tag of a served repository, ref → commit. */
   refs(owner: string, name: string): Promise<Record<string, string>>;
@@ -1038,6 +1047,14 @@ export async function startFakeGitHub(
         runs: [],
         reviews: [],
       });
+    },
+    seedBranch(owner, name, branch, bundle) {
+      return seedServedBranch(
+        { root: join(root, owner) },
+        name,
+        branch,
+        bundle,
+      );
     },
     async refs(owner, name) {
       const listed = await runTestGit(

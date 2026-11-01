@@ -27,7 +27,11 @@ export type GitPushResult =
     }
   | {
       status: "refused";
-      refusal: "default_branch" | "non_fast_forward" | "push_failed";
+      refusal:
+        | "default_branch"
+        | "non_fast_forward"
+        | "push_failed"
+        | "unrelated_history";
       /** Safe to log: no header, no remote output. */
       detail: string;
       /** GitHub refused a change under `.github/workflows/` (no `workflows`). */
