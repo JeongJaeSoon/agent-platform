@@ -3,11 +3,16 @@ import { dirname, join } from "node:path";
 import type { WorkspaceDescriptor } from "@werft-ai/contracts";
 
 /**
- * The engine's user-level git configuration (`$HOME/.config/git/config`), so
- * a `git config --global` the session runs still lands in `~/.gitconfig`,
- * which git reads after this one.
+ * The engine's user-level git configuration (`$HOME/.config/git/config`).
+ * Git reads `~/.gitconfig` after it, and a `git config --global` the session
+ * runs writes there only when that file exists, so it is made empty if
+ * missing: otherwise the session's own settings would land here and go
+ * with the next claim's routes.
  */
 export const REPOSITORY_ROUTES_FILE = ".config/git/config";
+const USER_GIT_CONFIG = ".gitconfig";
+// The one segment the proxy's repository route takes as an id.
+const ROUTE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 type Routed = { id: string; url: URL };
 
@@ -27,7 +32,8 @@ function routedRepositories(workspace: WorkspaceDescriptor): Routed[] {
     if (
       repository.id === null ||
       repository.access === undefined ||
-      repository.id.endsWith(".git")
+      repository.id.endsWith(".git") ||
+      !ROUTE_ID.test(repository.id)
     ) {
       continue;
     }
@@ -82,6 +88,7 @@ export function repositoryRoutesConfig(
       `\tinsteadOf = ${quoted(`${bare}.git`)}`,
       `[url ${quoted(`${base}/${id}/`)}]`,
       `\tinsteadOf = ${quoted(bare)}`,
+      `\tinsteadOf = ${quoted(`${bare}/`)}`,
     );
   }
   lines.push(
@@ -116,7 +123,12 @@ export async function writeRepositoryRoutes(
   workspace: WorkspaceDescriptor,
 ): Promise<void> {
   const path = join(home, REPOSITORY_ROUTES_FILE);
-  const token = workspace.repository?.access?.token;
+  // One token per attempt stands for every repository the claim routes; a
+  // session without a repository of its own may still attach some.
+  const token = [
+    workspace.repository,
+    ...(workspace.additional_repositories ?? []),
+  ].find((repository) => repository?.access !== undefined)?.access?.token;
   const content =
     token === undefined
       ? null
@@ -126,6 +138,8 @@ export async function writeRepositoryRoutes(
     return;
   }
   await mkdir(dirname(path), { recursive: true });
+  // Appending nothing creates it when missing and leaves it alone otherwise.
+  await writeFile(join(home, USER_GIT_CONFIG), "", { flag: "a" });
   const staged = `${path}.${process.pid}.tmp`;
   // The token is attempt-scoped, but still nobody else's to read.
   await writeFile(staged, content, { mode: 0o600 });

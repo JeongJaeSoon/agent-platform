@@ -411,6 +411,30 @@ describe("the LFS route", () => {
     });
   });
 
+  test("a storage error that echoes the presigned location is withheld", async () => {
+    const storage = upstream(
+      (request) =>
+        new Response(
+          `SignatureDoesNotMatch for ${new URL(request.url).search}`,
+          {
+            status: 403,
+          },
+        ),
+    );
+    const repo = github(storage.port);
+    const auth = authorizer(`http://github.test:${repo.port}/o/docs`);
+    const { server } = proxy(auth.url, repo.port, [
+      { host: "storage.test", port: storage.port },
+    ]);
+    const response = await fetch(
+      `http://127.0.0.1:${server.port}/repository/docs/.git/info/lfs/objects/${OID}?size=5`,
+      { headers: { authorization: `Bearer ${REPOSITORY_TOKEN}` } },
+    );
+    expect(response.status).toBe(403);
+    expect(await response.text()).not.toContain("presigned");
+    expect(storage.seen).toHaveLength(1);
+  });
+
   test("an object on a host off the list is refused and not dialled", async () => {
     const storage = upstream(() => new Response("bytes"));
     const repo = github(storage.port);

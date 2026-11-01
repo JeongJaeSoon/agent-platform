@@ -160,6 +160,9 @@ describe("app Dockerfiles", () => {
   // A session's LFS objects come through the repository route (94S-1095).
   test("the worker carries git-lfs", () => {
     expect(basePins.worker.source).toMatch(/apt-get install .*\bgit-lfs\b/);
+    expect(basePins.worker.source).toMatch(
+      /^RUN git lfs install --system --skip-repo --skip-smudge$/m,
+    );
   });
 
   // The API pushes approved sessions over https with git, the worker clones

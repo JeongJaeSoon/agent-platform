@@ -1407,6 +1407,7 @@ export function startCredentialProxy(
       return reply(502, "upstream connection failed", route.purpose);
     }
     logger.info("Credential route", { ...fields, status: response.status });
+    let presigned: string[] = [];
     if (route.lfs !== undefined && response.ok) {
       const answered = await lfsAnswer(response);
       if (answered === null) {
@@ -1434,6 +1435,11 @@ export function startCredentialProxy(
         const fetched = await lfsObject(href, request, grant, fields, signal);
         if ("refused" in fetched) return fetched.refused;
         response = fetched.response;
+        // The presigned location is a credential of its own; a storage
+        // error that echoes it must not hand it over.
+        presigned = [...href.searchParams.values()].filter(
+          (value) => value.length >= 8,
+        );
       }
     }
     if (
@@ -1463,7 +1469,9 @@ export function startCredentialProxy(
     }
     // Every spelling the upstream could echo back to the worker: headers,
     // a success body and an error body are all checked for them.
-    const secrets = objectStore ? objectStoreSecrets(grant) : secretsOf(grant);
+    const secrets = objectStore
+      ? objectStoreSecrets(grant)
+      : [...secretsOf(grant), ...presigned];
     const headers = responseHeaders(response.headers, secrets);
     // A head's answer is its length; there is no body to take it from.
     const length = response.headers.get("content-length");

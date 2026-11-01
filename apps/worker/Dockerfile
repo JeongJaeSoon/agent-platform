@@ -57,6 +57,10 @@ RUN apt-get update --error-on=any \
 # runs still wins; the worker's own git reads no system config.
 RUN git config --system user.name Werft \
   && git config --system user.email noreply@werft.invalid
+# The LFS filter, so a commit stores a tracked file as a pointer. Smudge is
+# skipped: a checkout leaves pointers rather than failing when the objects'
+# host is not on the proxy's list, and `git lfs pull` fetches them.
+RUN git lfs install --system --skip-repo --skip-smudge
 # The session's commit trailers (Co-authored-by, Agent-Session): every client
 # hook is one dispatcher that runs the repository's own hook of that name
 # too, since core.hooksPath stops git looking in .git/hooks. System scope
