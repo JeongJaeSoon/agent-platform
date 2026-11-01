@@ -107,13 +107,25 @@ export const DEFAULT_MAX_BODY_BYTES_IN_FLIGHT = 512 * 1024 * 1024;
  */
 const UNAUTHORIZED_IDLE_SECONDS = 30;
 
-export type EgressPurpose = "provider" | "repository" | "object_store" | "mcp";
+export type EgressPurpose =
+  | "provider"
+  | "repository"
+  | "object_store"
+  | "mcp"
+  | "packages";
 
 export type CredentialRoute = {
   purpose: EgressPurpose;
   server?: string;
   /** repository only: the catalog id the path named, for another repository. */
   repository?: string;
+  /** The packages route's registry name; the authorizer maps it to a host. */
+  registry?: string;
+  /**
+   * A packages token carried as the `/_token/<token>` segment, already cut
+   * from `path`: Go sends no credential to an http proxy in any header.
+   */
+  pathToken?: string;
   /** Path and query appended to the upstream's base. */
   path: string;
   search: string;
@@ -132,6 +144,33 @@ const MCP_PATH = /^\/mcp\/([a-z0-9](?:[a-z0-9-]|_(?!_)){0,31})$/;
 // fetch. The id is the authorizer's to judge; this only keeps it one segment.
 const REPOSITORY_PATH =
   /^\/repository\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})(\/info\/refs|\/git-upload-pack)$/;
+
+// Reads only: a publish, an unpublish or a yank has no route.
+const PACKAGES_METHODS = new Set(["GET", "HEAD"]);
+const PACKAGES_PATH = /^\/packages\/([a-z][a-z0-9-]{0,31})(\/.*)$/;
+// No npm name starts with `_`, a Go module path's first element holds a dot,
+// and the checksum database's paths are fixed, so no registry path is this.
+const PACKAGES_TOKEN_SEGMENT = /^\/_token\/([A-Za-z0-9_-]{1,256})(\/.*)$/;
+const MAX_PACKAGE_REDIRECTS = 5;
+// A 304 answers a cache revalidation and carries no location to follow.
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+/**
+ * A segment the upstream would resolve as `.` or `..` once decoded, which
+ * would step out of the registry's base path; `%2f` inside a segment is how
+ * npm names a scoped package, and passes.
+ */
+function climbs(path: string): boolean {
+  return path.split("/").some((segment) => {
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(segment);
+    } catch {
+      return true;
+    }
+    return decoded === "." || decoded === "..";
+  });
+}
 
 /** The exact operations routed, or null for everything else. */
 export function routeOf(
@@ -152,6 +191,25 @@ export function routeOf(
   if (server !== undefined) {
     return MCP_METHODS.has(method) && search === ""
       ? { purpose: "mcp", server, path: "", search }
+      : null;
+  }
+  const packages = PACKAGES_PATH.exec(pathname);
+  if (packages !== null) {
+    const [, registry = "", full = ""] = packages;
+    if (full.startsWith("/_token/") && !PACKAGES_TOKEN_SEGMENT.test(full)) {
+      return null;
+    }
+    const [, pathToken, path = full] = PACKAGES_TOKEN_SEGMENT.exec(full) ?? [];
+    if (pathToken !== undefined && path.startsWith("/_token/")) return null;
+    // `//` would make the upstream target a protocol-relative URL.
+    return PACKAGES_METHODS.has(method) && !path.includes("//") && !climbs(path)
+      ? {
+          purpose: "packages",
+          registry,
+          ...(pathToken === undefined ? {} : { pathToken }),
+          path,
+          search,
+        }
       : null;
   }
   if (pathname.startsWith("/provider/")) {
@@ -246,6 +304,18 @@ export function mcpCallOf(
 const BEARER = /^Bearer ([!-~]+)$/;
 /** An S3 client's header signature; the access key id is the token. */
 const SIGV4 = /^AWS4-HMAC-SHA256 Credential=([A-Za-z0-9_-]+)\//;
+/**
+ * Bundler and Go send a URL's userinfo as Basic, and neither can be given a
+ * bearer, so the packages route takes the token as the password; the user
+ * name is anything.
+ */
+const BASIC = /^Basic ([A-Za-z0-9+/]+={0,2})$/;
+
+function basicPassword(encoded: string): string | null {
+  const decoded = Buffer.from(encoded, "base64").toString("utf8");
+  const password = decoded.slice(decoded.indexOf(":") + 1);
+  return decoded.includes(":") && /^[!-~]+$/.test(password) ? password : null;
+}
 
 /**
  * The one token the request carries. Two carriers — an `x-api-key` beside an
@@ -263,6 +333,10 @@ export function tokenOf(
     return SIGV4.exec(authorization)?.[1] ?? null;
   }
   if (apiKey !== null && authorization !== null) return null;
+  if (authorization !== null && purpose === "packages") {
+    const basic = BASIC.exec(authorization)?.[1];
+    if (basic !== undefined) return basicPassword(basic);
+  }
   if (authorization !== null) return BEARER.exec(authorization)?.[1] ?? null;
   if (apiKey !== null && purpose === "provider" && /^[!-~]+$/.test(apiKey)) {
     return apiKey;
@@ -605,6 +679,8 @@ export type CredentialProxyOptions = {
   maxExchangesPerClient?: number;
   maxBodyBytesInFlight?: number;
   policy: EgressPolicy;
+  /** Where the packages route follows a registry's redirect; nowhere when absent. */
+  packagesRedirect?: EgressPolicy;
   port?: number;
   regrantGraceMs?: number;
   regrantIntervalMs?: number;
@@ -667,6 +743,10 @@ export function startCredentialProxy(
     options.usageReportBackoffMs ?? DEFAULT_USAGE_REPORT_BACKOFF_MS;
   const maxBodyBytes =
     options.maxBodyBytesInFlight ?? DEFAULT_MAX_BODY_BYTES_IN_FLIGHT;
+  const packagesRedirect = options.packagesRedirect ?? {
+    allow: [],
+    allowPrivate: [],
+  };
   let open = 0;
   let bodyBytes = 0;
   const perClient = new Map<string, number>();
@@ -826,17 +906,15 @@ export function startCredentialProxy(
     }
   }
 
-  async function exchange(
-    request: Request,
-    route: CredentialRoute,
-    grant: EgressGrant,
-    client: string,
+  /** Where `upstream` may be dialled under `policy`, or the refusal to send. */
+  async function dialable(
+    upstream: URL,
+    // null: the API's own built-in MCP server, on the authorizer's listener.
+    policy: EgressPolicy | null,
+    purpose: EgressPurpose,
+    who: Readonly<Record<string, unknown>>,
     signal: AbortSignal,
-    // The route's body as read since admission; null for the object store,
-    // whose body streams upstream.
-    whole: Promise<UpstreamBody> | null,
-  ): Promise<Response> {
-    const upstream = grant.upstream;
+  ): Promise<Dialable | Response> {
     const host = normalizeHost(upstream.hostname);
     const port =
       upstream.port === ""
@@ -844,23 +922,11 @@ export function startCredentialProxy(
           ? 443
           : 80
         : Number(upstream.port);
-    const fields = {
-      purpose: route.purpose,
-      session_id: grant.sessionId,
-      attempt_id: grant.attemptId,
-      host,
-      port,
-      client,
-    };
-    // The upstream is the catalog's, not the worker's, and it is still held
-    // to the same allowlist and address rules as anything a worker asks for.
-    // The one exception is the API's own built-in MCP server, named by a
-    // path on the authorizer's listener: this process's control line, which
-    // no allowlist names on purpose. A catalog URL to that origin is not it.
+    const fields = { ...who, host, port };
     const decision = await untilEnded(
-      route.purpose === "mcp" && grant.builtin
+      policy === null
         ? authorizerDestination(host)
-        : decideEgress(options.policy, { host, port }, resolve),
+        : decideEgress(policy, { host, port }, resolve),
       signal,
     );
     if (!decision.allowed) {
@@ -869,13 +935,13 @@ export function startCredentialProxy(
           ...fields,
           reason: decision.reason,
         });
-        return reply(502, decision.reason, route.purpose);
+        return reply(502, decision.reason, purpose);
       }
       logger.warn("Credential route denied", {
         ...fields,
         reason: decision.reason,
       });
-      return reply(403, `egress denied: ${decision.reason}`, route.purpose);
+      return reply(403, `egress denied: ${decision.reason}`, purpose);
     }
     // A privately listed name may resolve publicly for a worker's own
     // traffic, but a name that carries a login stays inside: an internal git
@@ -891,13 +957,9 @@ export function startCredentialProxy(
       return reply(
         403,
         "egress denied: a private upstream resolved publicly",
-        route.purpose,
+        purpose,
       );
     }
-    // The address that was judged, and only it. A POST is never retried
-    // against a second address: its body may already have reached the
-    // first.
-    const address = decision.addresses[0] ?? "";
     // A certificate is checked for a name; an address would have to be
     // checked for itself, which the upstream client does not do. Nothing in
     // the catalog needs it: trigger to add, an https upstream only
@@ -907,9 +969,164 @@ export function startCredentialProxy(
         ...fields,
         reason: "an https upstream must be named, not an address",
       });
-      return reply(502, "an https upstream must be named", route.purpose);
+      return reply(502, "an https upstream must be named", purpose);
     }
+    // The address that was judged, and only it. A POST is never retried
+    // against a second address: its body may already have reached the
+    // first.
+    return { address: decision.addresses[0] ?? "", host, port };
+  }
+
+  function send(
+    upstream: URL,
+    at: Dialable,
+    exchange: Parameters<typeof upstreamExchange>[1],
+  ): Promise<Response> {
+    return upstreamExchange(
+      {
+        address: at.address,
+        port: at.port,
+        tls:
+          upstream.protocol === "https:"
+            ? {
+                serverName: at.host,
+                ...(options.upstreamCa === undefined
+                  ? {}
+                  : { ca: options.upstreamCa }),
+              }
+            : null,
+      },
+      exchange,
+    );
+  }
+
+  /**
+   * A registry's redirect, followed here rather than relayed, and only to a
+   * host on the packages redirect list: a relayed one would send the worker
+   * to a host it cannot reach, and one followed anywhere would make the
+   * route an open fetcher. Nothing the grant added goes along, so a
+   * credential put on the registry request never reaches the host it
+   * redirected to.
+   */
+  async function followRedirects(
+    first: Response,
+    from: URL,
+    request: Request,
+    grant: EgressGrant,
+    who: Readonly<Record<string, unknown>>,
+    signal: AbortSignal,
+  ): Promise<{ response: Response } | { refused: Response }> {
+    let response = first;
+    let at = from;
+    for (let hop = 0; REDIRECT_STATUSES.has(response.status); hop++) {
+      const location = response.headers.get("location");
+      await response.body?.cancel();
+      const next = location === null ? null : URL.parse(location, at);
+      const unusable =
+        next === null
+          ? "no usable location"
+          : hop >= MAX_PACKAGE_REDIRECTS
+            ? "too many redirects"
+            : (next.protocol !== "https:" && next.protocol !== "http:") ||
+                next.username !== "" ||
+                next.password !== ""
+              ? "the location is not a plain http(s) URL"
+              : null;
+      if (next === null || unusable !== null) {
+        logger.warn("Credential route redirect refused", {
+          ...who,
+          status: response.status,
+          reason: unusable,
+        });
+        return { refused: reply(502, "upstream redirected", "packages") };
+      }
+      const judged = await dialable(
+        next,
+        packagesRedirect,
+        "packages",
+        { ...who, redirect: true },
+        signal,
+      );
+      if (judged instanceof Response) {
+        await judged.body?.cancel();
+        return {
+          refused: reply(
+            502,
+            "upstream redirected to a host the packages route does not follow",
+            "packages",
+          ),
+        };
+      }
+      logger.info("Credential route redirect followed", {
+        ...who,
+        status: response.status,
+        to_host: judged.host,
+        to_port: judged.port,
+      });
+      try {
+        response = await send(next, judged, {
+          method: request.method,
+          target: `${next.pathname}${next.search}`,
+          headers: [
+            ...upstreamRequestHeaders(request.headers, {
+              ...grant,
+              upstream: next,
+              headers: [],
+            }),
+          ],
+          body: null,
+          signal,
+        });
+      } catch (error) {
+        logger.warn("Credential route upstream failed", {
+          ...who,
+          host: judged.host,
+          port: judged.port,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return {
+          refused: reply(502, "upstream connection failed", "packages"),
+        };
+      }
+      at = next;
+    }
+    return { response };
+  }
+
+  async function exchange(
+    request: Request,
+    route: CredentialRoute,
+    grant: EgressGrant,
+    client: string,
+    signal: AbortSignal,
+    // The route's body as read since admission; null for the object store,
+    // whose body streams upstream.
+    whole: Promise<UpstreamBody> | null,
+  ): Promise<Response> {
+    const who = {
+      purpose: route.purpose,
+      ...(route.registry === undefined ? {} : { registry: route.registry }),
+      session_id: grant.sessionId,
+      attempt_id: grant.attemptId,
+      client,
+    };
+    // The upstream is the catalog's, not the worker's, and it is still held
+    // to the same allowlist and address rules as anything a worker asks for.
+    // The one exception is the API's own built-in MCP server, named by a
+    // path on the authorizer's listener: this process's control line, which
+    // no allowlist names on purpose. A catalog URL to that origin is not it.
+    const first = await dialable(
+      grant.upstream,
+      route.purpose === "mcp" && grant.builtin ? null : options.policy,
+      route.purpose,
+      who,
+      signal,
+    );
+    if (first instanceof Response) return first;
+    const upstream = grant.upstream;
+    const fields = { ...who, host: first.host, port: first.port };
     const base = upstream.pathname.replace(/\/$/, "");
+    const target = grant.target ?? `${base}${route.path}${route.search}`;
     const objectStore = route.purpose === "object_store";
     if (objectStore && grant.target === null) {
       logger.error("Egress authorizer signed no target", fields);
@@ -922,36 +1139,21 @@ export function startCredentialProxy(
     try {
       const body = whole === null ? objectBody(request, grant) : await whole;
       if (body instanceof Uint8Array) sent = body;
-      response = await upstreamExchange(
-        {
-          address,
-          port,
-          tls:
-            upstream.protocol === "https:"
-              ? {
-                  serverName: host,
-                  ...(options.upstreamCa === undefined
-                    ? {}
-                    : { ca: options.upstreamCa }),
-                }
-              : null,
-        },
-        {
-          method: request.method,
-          target: grant.target ?? `${base}${route.path}${route.search}`,
-          // Only what the authorizer signed: the worker's own headers are
-          // what it was judged on, not what goes upstream.
-          headers: objectStore
-            ? [
-                ["host", upstream.host],
-                ["accept-encoding", "identity"],
-                ...grant.headers,
-              ]
-            : [...upstreamRequestHeaders(request.headers, grant)],
-          body,
-          signal,
-        },
-      );
+      response = await send(upstream, first, {
+        method: request.method,
+        target,
+        // Only what the authorizer signed: the worker's own headers are
+        // what it was judged on, not what goes upstream.
+        headers: objectStore
+          ? [
+              ["host", upstream.host],
+              ["accept-encoding", "identity"],
+              ...grant.headers,
+            ]
+          : [...upstreamRequestHeaders(request.headers, grant)],
+        body,
+        signal,
+      });
     } catch (error) {
       if (error instanceof BodyTooLargeError) {
         return reply(413, "request body too large", route.purpose);
@@ -963,7 +1165,26 @@ export function startCredentialProxy(
       return reply(502, "upstream connection failed", route.purpose);
     }
     logger.info("Credential route", { ...fields, status: response.status });
-    if (response.status >= 300 && response.status < 400) {
+    if (
+      route.purpose === "packages" &&
+      REDIRECT_STATUSES.has(response.status)
+    ) {
+      const followed = await followRedirects(
+        response,
+        new URL(target, upstream),
+        request,
+        grant,
+        fields,
+        signal,
+      );
+      if ("refused" in followed) return followed.refused;
+      response = followed.response;
+    }
+    if (
+      response.status >= 300 &&
+      response.status < 400 &&
+      !(route.purpose === "packages" && response.status === 304)
+    ) {
       // A followed redirect would carry the credential somewhere the catalog
       // never named, and a relayed one invites the client to.
       await response.body?.cancel();
@@ -1154,7 +1375,14 @@ export function startCredentialProxy(
       }
       const route = routeOf(request.method, url.pathname, url.search);
       if (route === null) return reply(404, "no such credential route");
-      const token = tokenOf(request.headers, route.purpose);
+      // A path token beside a header token is two carriers, refused alike.
+      const token =
+        route.pathToken === undefined
+          ? tokenOf(request.headers, route.purpose)
+          : request.headers.has("authorization") ||
+              request.headers.has("x-api-key")
+            ? null
+            : route.pathToken;
       if (token === null) {
         return reply(401, "one egress token is required", route.purpose);
       }
@@ -1167,9 +1395,11 @@ export function startCredentialProxy(
                 request.headers,
               ),
             }
-          : route.repository === undefined
-            ? {}
-            : { repository_id: route.repository };
+          : route.purpose === "packages"
+            ? { registry: route.registry }
+            : route.repository === undefined
+              ? {}
+              : { repository_id: route.repository };
       // Decided before anything is awaited: Bun takes the body off the
       // socket meanwhile, and only a request answered now is never held.
       const reservation = bodyReservation(request.headers, route.purpose);
@@ -1350,6 +1580,8 @@ export function startCredentialProxy(
 }
 
 class BodyTooLargeError extends Error {}
+
+type Dialable = { address: string; host: string; port: number };
 
 /** `work`, or the signal's reason if it fires first: a hung lookup too. */
 function untilEnded<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {

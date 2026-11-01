@@ -100,12 +100,16 @@ const keyFile = () =>
 async function register(appId = "4242", card = "GitHub App") {
   const user = await setupUser();
   await screen.findByRole("region", { name: card });
-  await user.click(await cardOf(card).findByRole("button", { name: "등록" }));
+  // The reviewer App waits behind "Advanced".
+  const advanced = cardOf(card).queryByRole("button", { name: "설정 열기" });
+  if (advanced) await user.click(advanced);
+  const open = card === "GitHub App" ? "이미 있는 App 추가" : "등록";
+  await user.click(await cardOf(card).findByRole("button", { name: open }));
   const input = screen.getByLabelText("App ID");
   expect(document.activeElement === input).toBe(true);
   await user.type(input, appId);
   await user.upload(screen.getByLabelText("Private key (.pem)"), keyFile());
-  await user.click(screen.getByRole("button", { name: "확인하고 저장" }));
+  await user.click(screen.getByRole("button", { name: "연결" }));
   return user;
 }
 
@@ -134,17 +138,31 @@ describe("워크스페이스 GitHub 연결", () => {
     expect(
       api.calls.filter((c) => c.method === "PUT").map((c) => c.body),
     ).toEqual([{ app_id: 4242, private_key: KEY_TEXT }]);
-    expect(await screen.findByText("연결됨")).toBeDefined();
-    expect(screen.getByText("werft test")).toBeDefined();
+    expect(await screen.findByText("키 확인됨")).toBeDefined();
+    expect((await authorCard()).getByText("werft test")).toBeDefined();
     expect(
       screen
         .getByRole("link", { name: /GitHub에서 저장소 관리/ })
         .getAttribute("href"),
     ).toBe("https://github.com/apps/werft-test/installations/new");
-    expect(screen.getByText("acme")).toBeDefined();
-    expect(screen.getByText("고른 저장소만")).toBeDefined();
-    expect(screen.getByText("설치됨")).toBeDefined();
-    expect(screen.getByText("설치 안 됨")).toBeDefined();
+    // The account the App is installed on, with its agent repositories.
+    const app = await authorCard();
+    expect(app.getByText("acme")).toBeDefined();
+    expect(app.getByText("고른 저장소만 · 에이전트 저장소 1개")).toBeDefined();
+    expect(app.getByText("권한 승인됨")).toBeDefined();
+    // Repositories under the account that holds them.
+    const repositories = cardOf("에이전트가 쓰는 저장소");
+    expect(repositories.getByText("acme")).toBeDefined();
+    expect(repositories.getByText("설치됨")).toBeDefined();
+    expect(repositories.getByText("설치 안 됨")).toBeDefined();
+    // The summary over the page counts what still needs a look.
+    const summary = within(
+      screen.getByRole("navigation", { name: "연결 요약" }),
+    );
+    expect(summary.getByText("1곳")).toBeDefined();
+    expect(summary.getByText("2개")).toBeDefined();
+    expect(summary.getByText("1개 확인 필요")).toBeDefined();
+    expect(summary.getByText("준비됨")).toBeDefined();
     expect(screen.getByRole("heading", { name: "위험 구역" })).toBeDefined();
     await waitFor(() =>
       expect(document.activeElement?.textContent).toBe("교체"),
@@ -176,7 +194,8 @@ describe("워크스페이스 GitHub 연결", () => {
       "https://github.com/apps/werft-test/installations/new",
     );
     expect(author.queryByRole("link", { name: /저장소 관리/ })).toBeNull();
-    const reviewer = cardOf("리뷰용 App (선택)");
+    // A registered reviewer App opens its "Advanced" block by itself.
+    const reviewer = cardOf("리뷰 승인용 App");
     expect(
       reviewer
         .getByRole("link", { name: /GitHub에서 저장소 관리/ })
@@ -196,15 +215,30 @@ describe("워크스페이스 GitHub 연결", () => {
     });
     const user = await setupUser();
     await user.click(
-      await (await authorCard()).findByRole("button", { name: "등록" }),
+      await (await authorCard()).findByRole("button", {
+        name: "이미 있는 App 추가",
+      }),
     );
-    await user.click(screen.getByRole("button", { name: "확인하고 저장" }));
+    // The form says why an old .pem cannot be fetched again, and links the docs.
+    const described = (
+      screen.getByLabelText("App ID").getAttribute("aria-describedby") ?? ""
+    )
+      .split(" ")
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" ");
+    expect(described).toContain("예전에 받은 .pem을 다시 내려받을 수 없습니다");
+    expect(
+      screen
+        .getByRole("link", { name: /GitHub 문서: 개인 키 관리/ })
+        .getAttribute("href"),
+    ).toContain("managing-private-keys-for-github-apps");
+    await user.click(screen.getByRole("button", { name: "연결" }));
     expect(screen.getByText("App ID를 숫자로 넣어 주세요.")).toBeDefined();
     expect(document.activeElement === screen.getByLabelText("App ID")).toBe(
       true,
     );
     await user.type(screen.getByLabelText("App ID"), "4242");
-    await user.click(screen.getByRole("button", { name: "확인하고 저장" }));
+    await user.click(screen.getByRole("button", { name: "연결" }));
     expect(screen.getByText(".pem 파일을 골라 주세요.")).toBeDefined();
     expect(
       document.activeElement === screen.getByLabelText("Private key (.pem)"),
@@ -312,14 +346,14 @@ describe("워크스페이스 GitHub 연결", () => {
     });
     const user = await setupUser();
     await user.click(
-      await (await authorCard()).findByRole("button", { name: "등록" }),
+      await (await authorCard()).findByRole("button", {
+        name: "이미 있는 App 추가",
+      }),
     );
     await user.type(screen.getByLabelText("App ID"), "4242");
     await user.upload(screen.getByLabelText("Private key (.pem)"), keyFile());
     // Two submits in one tick, before the first has read the file.
-    const form = screen
-      .getByRole("button", { name: "확인하고 저장" })
-      .closest("form");
+    const form = screen.getByRole("button", { name: "연결" }).closest("form");
     form?.requestSubmit();
     form?.requestSubmit();
     await screen.findByRole("status");
@@ -393,14 +427,23 @@ describe("워크스페이스 GitHub 연결", () => {
         });
       },
     });
-    const title = "리뷰용 App (선택)";
+    const title = "리뷰 승인용 App";
     await screen.findByRole("region", { name: title });
     const card = () => cardOf(title);
-    expect(await card().findByText("등록 안 됨")).toBeDefined();
+    // Behind "Advanced" by default: one App on the page.
+    expect(await card().findByText("고급 · 등록 안 됨")).toBeDefined();
+    expect(card().queryByText(/Pull requests 읽기·쓰기/)).toBeNull();
+    const user = await setupUser();
+    const toggle = card().getByRole("button", { name: "설정 열기" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    await user.click(toggle);
+    expect(card().getByText("등록 안 됨")).toBeDefined();
     expect(card().getByText(/Pull requests 읽기·쓰기/)).toBeDefined();
-    expect(card().getByText(/필수 리뷰어를 2명 이상으로/)).toBeDefined();
+    expect(card().getByText(/필수 리뷰어를 2명 이상 두거나/)).toBeDefined();
+    await user.click(card().getByRole("button", { name: "접기" }));
+    expect(card().queryByText(/Pull requests 읽기·쓰기/)).toBeNull();
 
-    const user = await register("4343", title);
+    await register("4343", title);
     expect((await screen.findByRole("status")).textContent).toBe(
       "리뷰용 App을 저장했습니다.",
     );
@@ -410,7 +453,7 @@ describe("워크스페이스 GitHub 연결", () => {
         .map((c) => [c.path, (c.body as { app_id: number }).app_id]),
     ).toEqual([[REVIEWER, 4343]]);
     expect(await card().findByText("werft reviewer")).toBeDefined();
-    expect(card().getByText("설치 승인 대기")).toBeDefined();
+    expect(card().getByText("권한 변경 승인 대기")).toBeDefined();
     expect(card().getByText("설치 안 됨")).toBeDefined();
     expect(card().queryByText(/Pull requests 읽기·쓰기/)).toBeNull();
 
@@ -479,7 +522,7 @@ describe("워크스페이스 GitHub 연결", () => {
         [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
         [`PUT ${REVIEWER}`]: () => refusal(409, "GITHUB_APP_CONFLICT", reason),
       });
-      await register("4343", "리뷰용 App (선택)");
+      await register("4343", "리뷰 승인용 App");
       expect((await screen.findByRole("alert")).textContent).toBe(text);
       cleanup();
     }
@@ -491,7 +534,9 @@ describe("워크스페이스 GitHub 연결", () => {
       ...settingsRead,
     });
     await waitFor(() =>
-      expect(screen.queryByRole("button", { name: "등록" })).toBeNull(),
+      expect(
+        screen.queryByRole("button", { name: "이미 있는 App 추가" }),
+      ).toBeNull(),
     );
     expect(api.calls.some((c) => c.path === APP || c.path === REVIEWER)).toBe(
       false,
@@ -669,6 +714,8 @@ describe("워크스페이스 GitHub 연결 — 사용자 계정 연결", () => {
     expect(
       screen.getByRole("region", { name: "위험 구역" }).contains(input),
     ).toBe(true);
+    // Replacing is not adding an existing App: no intro, no connect note.
+    expect(screen.queryByText(/예전에 받은 \.pem/)).toBeNull();
     await user.type(input, "4243");
     await user.upload(screen.getByLabelText("Private key (.pem)"), keyFile());
     await user.click(screen.getByRole("button", { name: "확인하고 저장" }));

@@ -14,6 +14,7 @@ import {
   GITHUB_MCP_UPSTREAM_PATH,
   type GitHubMcpGrant,
   type JsonRpcResponse,
+  PACKAGE_REGISTRY_NAMES,
   verifyGitHubMcpGrant,
   type WorkerGateway,
   WorkerGatewayError,
@@ -114,6 +115,13 @@ const authorizeRequestSchema = z.union([
         .string()
         .regex(ADDITIONAL_REPOSITORY_ID_PATTERN)
         .optional(),
+    })
+    .strict(),
+  z
+    .object({
+      token: tokenSchema,
+      purpose: z.literal("packages"),
+      registry: z.enum(PACKAGE_REGISTRY_NAMES),
     })
     .strict(),
   z
@@ -229,6 +237,7 @@ export function createEgressAuthorizer(deps: {
     | "authorizeEgress"
     | "authorizeMcpEgress"
     | "authorizeObjectAccess"
+    | "authorizePackagesEgress"
     | "recordProviderUsage"
   >;
   logger: StructuredLogger;
@@ -344,6 +353,8 @@ export function createEgressAuthorizer(deps: {
             return authorizeObjectStore(body.token, body);
           case "mcp":
             return deps.gateway.authorizeMcpEgress(body);
+          case "packages":
+            return deps.gateway.authorizePackagesEgress(body);
           default:
             return deps.gateway.authorizeEgress(body);
         }

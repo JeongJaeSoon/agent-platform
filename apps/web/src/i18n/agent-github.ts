@@ -83,12 +83,6 @@ export const agentGitHubKo = {
   "agentGitHub.feature.actions": "Actions 실행",
   "agentGitHub.feature.actionsHint":
     "허용 목록의 워크플로만 실행(workflow_dispatch)하거나 다시 실행합니다. 필요한 권한: actions 쓰기",
-  "agentGitHub.feature.checks": "검사 결과 쓰기",
-  "agentGitHub.feature.checksHint":
-    "check run을 만들고 결과를 올립니다. 필요한 권한: checks 쓰기",
-  "agentGitHub.feature.issues": "이슈 쓰기",
-  "agentGitHub.feature.issuesHint":
-    "이슈를 열고 코멘트를 남깁니다. 필요한 권한: issues 쓰기",
   "agentGitHub.feature.workflows": "워크플로 파일 수정",
   "agentGitHub.feature.workflowsHint":
     ".github/workflows 아래 파일을 바꾼 commit도 push합니다. 필요한 권한: workflows 쓰기",
@@ -262,12 +256,6 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.feature.actions": "Run Actions",
   "agentGitHub.feature.actionsHint":
     "Runs (workflow_dispatch) or reruns only workflows on the allow list. Needs: actions write",
-  "agentGitHub.feature.checks": "Write checks",
-  "agentGitHub.feature.checksHint":
-    "Creates check runs and reports results. Needs: checks write",
-  "agentGitHub.feature.issues": "Write issues",
-  "agentGitHub.feature.issuesHint":
-    "Opens issues and comments on them. Needs: issues write",
   "agentGitHub.feature.workflows": "Edit workflow files",
   "agentGitHub.feature.workflowsHint":
     "Also pushes commits that change files under .github/workflows. Needs: workflows write",
@@ -445,12 +433,6 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.feature.actions": "Actions の実行",
   "agentGitHub.feature.actionsHint":
     "許可リストのワークフローだけを実行(workflow_dispatch)または再実行します。必要な権限: actions の書き込み",
-  "agentGitHub.feature.checks": "チェック結果の書き込み",
-  "agentGitHub.feature.checksHint":
-    "check run を作って結果を上げます。必要な権限: checks の書き込み",
-  "agentGitHub.feature.issues": "Issue の書き込み",
-  "agentGitHub.feature.issuesHint":
-    "Issue を開いてコメントを残します。必要な権限: issues の書き込み",
   "agentGitHub.feature.workflows": "ワークフローファイルの変更",
   "agentGitHub.feature.workflowsHint":
     ".github/workflows 以下のファイルを変えた commit も push します。必要な権限: workflows の書き込み",

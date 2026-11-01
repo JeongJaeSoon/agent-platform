@@ -1,5 +1,5 @@
 {
-  "id": "6da55241-ee9a-46a6-92cc-6b502e873714",
+  "id": "cb6cfa14-59e3-4b57-957c-7ad2ae8b3913",
   "prevId": "7c3d7a66-98c1-460b-99f2-f853558a07c1",
   "version": "7",
   "dialect": "postgresql",
@@ -5437,23 +5437,11 @@
         }
       },
       "indexes": {
-        "push_requests_open_target_idx": {
-          "name": "push_requests_open_target_idx",
+        "push_requests_open_session_idx": {
+          "name": "push_requests_open_session_idx",
           "columns": [
             {
               "expression": "session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "repository_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "target_branch",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -5575,7 +5563,7 @@
         },
         "push_requests_target_branch_check": {
           "name": "push_requests_target_branch_check",
-          "value": "\"push_requests\".\"target_branch\" = 'agent/' || \"push_requests\".\"session_id\"::text OR \"push_requests\".\"target_branch\" ~ ('^agent/' || \"push_requests\".\"session_id\"::text || '-[a-z0-9][a-z0-9-]{0,39}$')"
+          "value": "\"push_requests\".\"target_branch\" = 'agent/' || \"push_requests\".\"session_id\"::text"
         },
         "push_requests_decision_check": {
           "name": "push_requests_decision_check",
@@ -9950,7 +9938,7 @@
       "checkConstraints": {
         "worker_credentials_purpose_check": {
           "name": "worker_credentials_purpose_check",
-          "value": "\"worker_credentials\".\"purpose\" IN ('gateway', 'provider', 'repository', 'object_store', 'mcp')"
+          "value": "\"worker_credentials\".\"purpose\" IN ('gateway', 'provider', 'repository', 'object_store', 'mcp', 'packages')"
         },
         "worker_credentials_binding_check": {
           "name": "worker_credentials_binding_check",
