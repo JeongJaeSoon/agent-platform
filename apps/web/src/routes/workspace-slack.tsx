@@ -14,6 +14,8 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  DangerZone,
+  DangerZoneRow,
   ErrorState,
   Field,
   FieldDescription,
@@ -21,7 +23,6 @@ import {
   FieldLabel,
   formatTimestamp,
   Input,
-  RowList,
   RowListItem,
   SettingRow,
   Skeleton,
@@ -315,21 +316,13 @@ function ConfigToken({
       />
       {after}
       {canManage && summary?.configured ? (
-        <DangerZone>
-          <SettingRow
+        <DangerZone title={t("workspace.danger")}>
+          <DangerZoneRow
             title={t("workspace.tokenDelete")}
             description={t("workspace.tokenDeleteHint")}
-            actions={
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className={`${ACTION} text-(color:--ap-tone-danger-fg)`}
-                onClick={() => setDeleting(true)}
-              >
-                {t("workspace.delete")}
-              </Button>
-            }
+            actionLabel={t("workspace.delete")}
+            actionName={t("workspace.tokenDelete")}
+            onAction={() => setDeleting(true)}
           />
         </DangerZone>
       ) : null}
@@ -338,6 +331,7 @@ function ConfigToken({
         onOpenChange={setDeleting}
         title={t("workspace.tokenDeleteTitle")}
         consequence={t("workspace.tokenDeleteHint")}
+        target={summary?.last4 ? `••••${summary.last4}` : undefined}
         confirmLabel={t("workspace.delete")}
         cancelLabel={t("common.cancel")}
         tone="danger"
@@ -392,30 +386,3 @@ function tokenLine(
 // cannot help, an administrator has to configure the store.
 export const storeOff = (error: unknown) =>
   isApiError(error, "BACKEND_UNAVAILABLE") && error.retryable === false;
-
-export function DangerZone({
-  titleAs: Heading = "h2",
-  children,
-}: {
-  readonly titleAs?: "h2" | "h3";
-  readonly children: ReactNode;
-}) {
-  const { t } = useI18n();
-  const titleId = useId();
-  return (
-    <section aria-labelledby={titleId} className="flex flex-col gap-3">
-      <Heading
-        id={titleId}
-        className="m-0 border-b pb-2 font-semibold text-body leading-6"
-      >
-        {t("workspace.danger")}
-      </Heading>
-      <RowList
-        variant="joined"
-        style={{ borderColor: "var(--ap-tone-danger-border)" }}
-      >
-        {children}
-      </RowList>
-    </section>
-  );
-}

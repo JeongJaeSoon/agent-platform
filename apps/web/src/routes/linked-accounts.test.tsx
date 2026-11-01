@@ -44,6 +44,14 @@ const slack: LinkedAccount = {
 };
 const meOk = { "GET /v1/auth/me": () => json(200, me()) };
 
+/** Presses the focused 연결 해제 and confirms in the dialog it opens. */
+async function unlinkFocused(user: Awaited<ReturnType<typeof setupUser>>) {
+  await user.keyboard("{Enter}");
+  const dialog = await screen.findByRole("dialog");
+  await user.click(within(dialog).getByRole("button", { name: "연결 해제" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+}
+
 describe("연동 계정", () => {
   test("픽스처는 서버가 보낼 수 있는 모양이다", () => {
     expect(linkedAccountSchema.safeParse(slack).success).toBe(true);
@@ -127,7 +135,7 @@ describe("연동 계정", () => {
 
   test("연결된 계정을 보이고 해제한다", async () => {
     let items = [slack];
-    renderAt("/settings/linked-accounts", {
+    const { api } = renderAt("/settings/linked-accounts", {
       ...meOk,
       "GET /v1/linked-accounts": () => json(200, { items }),
       [`DELETE /v1/linked-accounts/${LINK_ID}`]: () => {
@@ -150,7 +158,23 @@ describe("연동 계정", () => {
     expect(status.textContent).toBe("");
     const user = await setupUser();
     screen.getByRole("button", { name: "연결 해제" }).focus();
+    // Cancelling the dialog sends nothing and gives focus back.
     await user.keyboard("{Enter}");
+    const dialog = await screen.findByRole("dialog", {
+      name: "Slack 계정 연결을 해제할까요?",
+    });
+    expect(
+      within(dialog).getByText("Slack 사용자 U0MOCK (워크스페이스 T0MOCK)"),
+    ).toBeDefined();
+    await user.click(within(dialog).getByRole("button", { name: "취소" }));
+    await waitFor(() =>
+      expect(
+        document.activeElement ===
+          screen.getByRole("button", { name: "연결 해제" }),
+      ).toBe(true),
+    );
+    expect(api.calls.filter((c) => c.method === "DELETE")).toHaveLength(0);
+    await unlinkFocused(user);
     await slackNotLinked();
     expect(screen.getByRole("status")).toBe(status);
     expect(status.textContent).toBe("Slack 계정 연결을 해제했습니다.");
@@ -257,7 +281,7 @@ describe("연동 계정", () => {
     await screen.findByText("Slack 사용자 U0OTHER (워크스페이스 T0OTHER)");
     const user = await setupUser();
     screen.getAllByRole("button", { name: "연결 해제" })[0]?.focus();
-    await user.keyboard("{Enter}");
+    await unlinkFocused(user);
     await waitFor(() =>
       expect(screen.getAllByRole("button", { name: "연결 해제" }).length).toBe(
         1,
@@ -279,7 +303,7 @@ describe("연동 계정", () => {
     await screen.findByText("Slack 사용자 U0OTHER (워크스페이스 T0OTHER)");
     const user = await setupUser();
     screen.getAllByRole("button", { name: "연결 해제" })[1]?.focus();
-    await user.keyboard("{Enter}");
+    await unlinkFocused(user);
     await waitFor(() =>
       expect(screen.getAllByRole("button", { name: "연결 해제" }).length).toBe(
         1,
@@ -341,9 +365,9 @@ describe("연동 계정", () => {
     await screen.findByText("Slack 사용자 U0THIRD (워크스페이스 T0THIRD)");
     const user = await setupUser();
     screen.getAllByRole("button", { name: "연결 해제" })[0]?.focus();
-    await user.keyboard("{Enter}");
+    await unlinkFocused(user);
     screen.getAllByRole("button", { name: "연결 해제" })[2]?.focus();
-    await user.keyboard("{Enter}");
+    await unlinkFocused(user);
     await waitFor(() => expect(Object.keys(gates).length).toBe(2));
     // The first answer's reread already lacks both rows.
     gates[LINK_ID]?.();
@@ -395,9 +419,9 @@ describe("연동 계정", () => {
     await screen.findByText("Slack 사용자 U0OTHER (워크스페이스 T0OTHER)");
     const user = await setupUser();
     screen.getAllByRole("button", { name: "연결 해제" })[0]?.focus();
-    await user.keyboard("{Enter}");
+    await unlinkFocused(user);
     await user.tab();
-    await user.keyboard("{Enter}");
+    await unlinkFocused(user);
     releaseOther();
     await waitFor(() =>
       expect(
@@ -426,7 +450,7 @@ describe("연동 계정", () => {
     await screen.findByText("Slack 사용자 U0OTHER (워크스페이스 T0OTHER)");
     const user = await setupUser();
     screen.getAllByRole("button", { name: "연결 해제" })[0]?.focus();
-    await user.keyboard("{Enter}");
+    await unlinkFocused(user);
     expect(
       await screen.findByRole("button", { name: "다시 시도" }),
     ).toBeDefined();
@@ -445,7 +469,7 @@ describe("연동 계정", () => {
     const user = await setupUser();
     const first = screen.getAllByRole("button", { name: "연결 해제" })[0];
     first?.focus();
-    await user.keyboard("{Enter}");
+    await unlinkFocused(user);
     if (first) await user.click(first);
     release();
     await waitFor(() =>
@@ -465,7 +489,7 @@ describe("연동 계정", () => {
     await screen.findByText("Slack 사용자 U0OTHER (워크스페이스 T0OTHER)");
     const user = await setupUser();
     screen.getAllByRole("button", { name: "연결 해제" })[0]?.focus();
-    await user.keyboard("{Enter}");
+    await unlinkFocused(user);
     // A click outside <main> (which would take focus itself) leaves it on
     // the page, just as the removed row will.
     await user.click(document.body);
@@ -488,7 +512,7 @@ describe("연동 계정", () => {
     await screen.findByText("Slack 사용자 U0OTHER (워크스페이스 T0OTHER)");
     const user = await setupUser();
     screen.getAllByRole("button", { name: "연결 해제" })[0]?.focus();
-    await user.keyboard("{Enter}");
+    await unlinkFocused(user);
     await services.queryClient.invalidateQueries({
       queryKey: keys.linkedAccounts,
     });
@@ -532,9 +556,9 @@ describe("연동 계정", () => {
     await screen.findByText("Slack 사용자 U0OTHER (워크스페이스 T0OTHER)");
     const user = await setupUser();
     screen.getAllByRole("button", { name: "연결 해제" })[0]?.focus();
-    await user.keyboard("{Enter}");
+    await unlinkFocused(user);
     await user.tab();
-    await user.keyboard("{Enter}");
+    await unlinkFocused(user);
     refuse();
     await screen.findByRole("alert");
     answer();
@@ -560,7 +584,7 @@ describe("연동 계정", () => {
     const button = await screen.findByRole("button", { name: "연결 해제" });
     const user = await setupUser();
     button.focus();
-    await user.keyboard("{Enter}");
+    await unlinkFocused(user);
     await screen.findByRole("alert");
     expect(button.getAttribute("aria-disabled")).toBeNull();
     expect(document.activeElement === button).toBe(true);
@@ -810,6 +834,12 @@ describe("연동 계정 — GitHub", () => {
     await slackNotLinked();
     const user = await setupUser();
     await user.click(row.getByRole("button", { name: "연결 해제" }));
+    // Nothing is sent until the dialog naming the account is confirmed.
+    const dialog = await screen.findByRole("dialog", {
+      name: "GitHub 계정 연결을 해제할까요?",
+    });
+    expect(within(dialog).getByText("octocat")).toBeDefined();
+    await user.click(within(dialog).getByRole("button", { name: "연결 해제" }));
     expect(
       await screen.findByText("GitHub 계정 연결을 해제했습니다."),
     ).toBeDefined();

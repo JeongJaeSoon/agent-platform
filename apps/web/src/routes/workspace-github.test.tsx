@@ -283,8 +283,13 @@ describe("워크스페이스 GitHub 연결", () => {
       },
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "삭제" }));
-    const dialog = await screen.findByRole("dialog");
+    await user.click(
+      await screen.findByRole("button", { name: "GitHub App 삭제" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "GitHub App을 삭제할까요?",
+    });
+    expect(within(dialog).getByText("werft test")).toBeDefined();
     await user.click(within(dialog).getByRole("button", { name: "삭제" }));
     expect((await screen.findByRole("status")).textContent).toBe(
       "GitHub App을 삭제했습니다.",
@@ -409,10 +414,22 @@ describe("워크스페이스 GitHub 연결", () => {
     expect(card().getByText("설치 안 됨")).toBeDefined();
     expect(card().queryByText(/Pull requests 읽기·쓰기/)).toBeNull();
 
-    await user.click(card().getByRole("button", { name: "삭제" }));
+    // Its replace and delete join the author App's in the one danger zone.
+    expect(card().queryByRole("button", { name: /삭제|교체/ })).toBeNull();
+    const zone = within(screen.getByRole("region", { name: "위험 구역" }));
+    expect(
+      zone.getAllByRole("button").map((b) => b.getAttribute("aria-label")),
+    ).toEqual([
+      "GitHub App 교체",
+      "GitHub App 삭제",
+      "리뷰용 App 교체",
+      "리뷰용 App 삭제",
+    ]);
+    await user.click(zone.getByRole("button", { name: "리뷰용 App 삭제" }));
     const dialog = await screen.findByRole("dialog", {
       name: "리뷰용 App을 삭제할까요?",
     });
+    expect(within(dialog).getByText("werft reviewer")).toBeDefined();
     await user.click(within(dialog).getByRole("button", { name: "삭제" }));
     expect((await screen.findByRole("status")).textContent).toBe(
       "리뷰용 App을 삭제했습니다.",
@@ -621,11 +638,19 @@ describe("워크스페이스 GitHub 연결 — 사용자 계정 연결", () => {
     const card = await section();
     expect(await card.findByText("Iv23liold")).toBeDefined();
     const user = await setupUser();
-    // The App card's button comes first; the secret row has its own.
-    const [replace] = screen.getAllByRole("button", { name: "교체" });
-    if (!replace) throw new Error("no replace button");
-    await user.click(replace);
-    await user.type(screen.getByLabelText("App ID"), "4243");
+    // Replacing is in the danger zone and asks first, naming the App.
+    await user.click(screen.getByRole("button", { name: "GitHub App 교체" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "GitHub App을 교체할까요?",
+    });
+    expect(within(dialog).getByText("werft test")).toBeDefined();
+    await user.click(within(dialog).getByRole("button", { name: "교체" }));
+    const input = await screen.findByLabelText("App ID");
+    await waitFor(() => expect(document.activeElement === input).toBe(true));
+    expect(
+      screen.getByRole("region", { name: "위험 구역" }).contains(input),
+    ).toBe(true);
+    await user.type(input, "4243");
     await user.upload(screen.getByLabelText("Private key (.pem)"), keyFile());
     await user.click(screen.getByRole("button", { name: "확인하고 저장" }));
     expect(await card.findByText("Iv23linew")).toBeDefined();

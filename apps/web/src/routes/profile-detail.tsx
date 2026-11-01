@@ -19,6 +19,8 @@ import {
   buttonVariants,
   ConfirmDialog,
   cn,
+  DangerZone,
+  DangerZoneRow,
   EmptyState,
   formatTimestamp,
   GridTable,
@@ -299,37 +301,26 @@ export function ProfileDetailScreen() {
       </Link>,
     );
   }
-  if (changes && state !== "retired")
-    actions.push(
-      <Button
-        key="retire"
-        type="button"
-        variant="outline"
-        onClick={() => {
-          setRetireError(null);
-          setRetiring(profile.id);
-        }}
-      >
-        {t("profiles.retire")}
-      </Button>,
-    );
+  const canRetire = changes && state !== "retired";
   // Only the owner blocks a ceiling; a retired one can be blocked too.
-  if (ceiling && operates) {
-    const blocked = state === "blocked";
+  // Unblocking undoes nothing, so it stays in the head; blocking is in the
+  // danger zone.
+  const blocked = state === "blocked";
+  const canBlock = ceiling && operates && !blocked;
+  if (ceiling && operates && blocked)
     actions.push(
       <Button
-        key="block"
+        key="unblock"
         type="button"
         variant="outline"
         onClick={() => {
           setBlockError(null);
-          setBlocking({ id: profile.id, block: !blocked });
+          setBlocking({ id: profile.id, block: false });
         }}
       >
-        {t(blocked ? "profiles.unblock" : "profiles.block")}
+        {t("profiles.unblock")}
       </Button>,
     );
-  }
 
   // Losing the role closes the dialog; a request already sent still reports here.
   const retireOpen = retiring === profile.id && changes;
@@ -398,6 +389,32 @@ export function ProfileDetailScreen() {
       <History profile={profile} versions={lineOf(profile, items)} />
       {ceiling ? <Narrowings ceiling={profile} items={items} /> : null}
       <AgentsOn profile={profile} />
+      {canRetire || canBlock ? (
+        <DangerZone title={t("workspace.danger")}>
+          {canBlock ? (
+            <DangerZoneRow
+              title={t("profiles.blockRow")}
+              description={t("profiles.blockRowHint")}
+              actionLabel={t("profiles.block")}
+              onAction={() => {
+                setBlockError(null);
+                setBlocking({ id: profile.id, block: true });
+              }}
+            />
+          ) : null}
+          {canRetire ? (
+            <DangerZoneRow
+              title={t("profiles.retireRow")}
+              description={t("profiles.retireRowHint")}
+              actionLabel={t("profiles.retire")}
+              onAction={() => {
+                setRetireError(null);
+                setRetiring(profile.id);
+              }}
+            />
+          ) : null}
+        </DangerZone>
+      ) : null}
       <ConfirmDialog
         open={retireOpen}
         onOpenChange={(next) => {

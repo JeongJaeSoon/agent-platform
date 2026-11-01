@@ -165,6 +165,12 @@ const actions = () => {
     ? Array.from(side.querySelectorAll("a, button"), (item) => item.textContent)
     : [];
 };
+// The hard-to-undo ones, last on the page.
+const dangers = () =>
+  Array.from(
+    document.querySelectorAll("[data-slot=danger-zone] button"),
+    (item) => item.textContent,
+  );
 
 describe("실행 프로필 상세", () => {
   test("a workspace row opens its version with settings, record, history and the agents on it", async () => {
@@ -212,7 +218,8 @@ describe("실행 프로필 상세", () => {
       name: "이 프로필을 쓰는 에이전트",
     });
     expect(cells(agents)).toEqual([["결제 담당", "2026-10-20_09:00:01"]]);
-    expect(actions()).toEqual(["새 버전", "사용 중지"]);
+    expect(actions()).toEqual(["새 버전"]);
+    expect(dangers()).toEqual(["사용 중지"]);
     expect(
       within(agents)
         .getByRole("link", { name: "결제 담당의 릴리스 보기" })
@@ -317,12 +324,8 @@ describe("실행 프로필 상세", () => {
         }),
       ),
     ).toEqual([["strict v1ws_acme_strict_v1", "사용 가능", "claude-sonnet-5"]]);
-    expect(actions()).toEqual([
-      "이 상한으로 프로필 만들기",
-      "새 버전",
-      "사용 중지",
-      "차단",
-    ]);
+    expect(actions()).toEqual(["이 상한으로 프로필 만들기", "새 버전"]);
+    expect(dangers()).toEqual(["차단", "사용 중지"]);
   });
 
   test("an earlier ceiling version offers no 새 버전, which only the latest takes", async () => {
@@ -331,11 +334,8 @@ describe("실행 프로필 상세", () => {
       catalog([CODING, ceiling("wide", 1), ceiling("wide", 2)]),
     );
     await screen.findByRole("region", { name: "기록" });
-    expect(actions()).toEqual([
-      "이 상한으로 프로필 만들기",
-      "사용 중지",
-      "차단",
-    ]);
+    expect(actions()).toEqual(["이 상한으로 프로필 만들기"]);
+    expect(dangers()).toEqual(["차단", "사용 중지"]);
   });
 
   test("a ceiling followed only under another name still offers 새 버전", async () => {
@@ -349,12 +349,8 @@ describe("실행 프로필 상세", () => {
       ]),
     );
     await screen.findByRole("region", { name: "기록" });
-    expect(actions()).toEqual([
-      "이 상한으로 프로필 만들기",
-      "새 버전",
-      "사용 중지",
-      "차단",
-    ]);
+    expect(actions()).toEqual(["이 상한으로 프로필 만들기", "새 버전"]);
+    expect(dangers()).toEqual(["차단", "사용 중지"]);
   });
 
   test("an imported ceiling with a successor still offers 새 버전 under a new name", async () => {
@@ -506,7 +502,8 @@ describe("실행 프로필 상세", () => {
       catalog([CODING, version(1, "base_changed"), version(2, "retired")]),
     );
     await screen.findByRole("heading", { level: 1, name: "strict" });
-    expect(actions()).toEqual(["다시 만들기", "사용 중지"]);
+    expect(actions()).toEqual(["다시 만들기"]);
+    expect(dangers()).toEqual(["사용 중지"]);
     expect(
       screen.getByRole("link", { name: "다시 만들기" }).getAttribute("href"),
     ).toBe("/profiles/new?kind=workspace&from=ws_acme_strict_v1&mode=remake");
@@ -520,6 +517,7 @@ describe("실행 프로필 상세", () => {
       screen.getByRole("link", { name: "ws_acme_strict_v2 자세히 보기" }),
     );
     await waitFor(() => expect(actions()).toEqual([]));
+    expect(dangers()).toEqual([]);
   });
 
   test("a ceiling that does not run here says why and is no base to make from", async () => {
@@ -530,7 +528,8 @@ describe("실행 프로필 상세", () => {
     expect(
       await screen.findByText(/^이 상한의 연결이 이 설치에 없어/),
     ).toBeDefined();
-    expect(actions()).toEqual(["새 버전", "사용 중지", "차단"]);
+    expect(actions()).toEqual(["새 버전"]);
+    expect(dangers()).toEqual(["차단", "사용 중지"]);
   });
 
   test("an unknown id says the profile is not there", async () => {

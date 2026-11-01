@@ -21,6 +21,11 @@ export interface ConfirmDialogProps {
    * speed bump, not a decision.
    */
   readonly consequence: ReactNode;
+  /**
+   * The name of what the action hits, on its own line under the consequence,
+   * for a title that does not already say it.
+   */
+  readonly target?: ReactNode | undefined;
   readonly onConfirm: () => void;
   readonly confirmLabel?: string | undefined;
   readonly cancelLabel?: string | undefined;
@@ -46,6 +51,7 @@ export function ConfirmDialog({
   onOpenChange,
   title,
   consequence,
+  target,
   onConfirm,
   confirmLabel = "확인",
   cancelLabel = "취소",
@@ -130,6 +136,15 @@ export function ConfirmDialog({
         </DialogTitle>
         <DialogDescription className="ap-dialog__consequence text-[length:inherit]">
           {consequence}
+          {/* Inside the description, so the name is read with it. */}
+          {target === undefined || target === null ? null : (
+            <span
+              data-slot="confirm-target"
+              className="mt-2 block font-semibold text-foreground [overflow-wrap:anywhere]"
+            >
+              {target}
+            </span>
+          )}
         </DialogDescription>
         {children}
         <div className="ap-dialog__actions">
