@@ -7,6 +7,7 @@ import {
   GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES,
   type GitHubAppRole,
   type GitHubCeiling,
+  type GitHubPackagesAllowEntry,
   type GitHubPullRequestOutcomeState,
   MEMORY_WRITE_POLICY_VALUES,
   OPEN_PUSH_REQUEST_STATES,
@@ -571,6 +572,24 @@ export const githubWorkspaceSettings = pgTable("github_workspace_settings", {
   oauthClientSecretSet: boolean("oauth_client_secret_set")
     .notNull()
     .default(false),
+  revision: integer().notNull().default(1),
+  /** No foreign key: the row outlives the account. */
+  updatedBy: uuid("updated_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+// The GitHub Packages bot token's facts (the value is in `secret_values`)
+// and the packages sessions may fetch with it. No row reads as no token and
+// an empty allowlist.
+export const githubPackagesSettings = pgTable("github_packages_settings", {
+  workspaceId: uuid("workspace_id")
+    .primaryKey()
+    .references(() => workspaces.id),
+  allowlist: jsonb().$type<GitHubPackagesAllowEntry[]>().notNull(),
+  tokenLogin: text("token_login"),
+  tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
   revision: integer().notNull().default(1),
   /** No foreign key: the row outlives the account. */
   updatedBy: uuid("updated_by"),
@@ -3626,6 +3645,60 @@ export const installationProfiles = pgTable(
     check(
       "installation_profiles_repository_ids_check",
       sql`${table.repositoryIds} IS NOT NULL OR ${table.origin} = 'catalog'`,
+    ),
+  ],
+);
+
+/**
+ * Repositories that use the console's GitHub App (repository-catalog-db.md).
+ * A row is never deleted, so a catalog id never comes back meaning another
+ * repository.
+ */
+export const catalogRepositories = pgTable(
+  "catalog_repositories",
+  {
+    id: text().primaryKey(),
+    githubRepositoryId: bigint("github_repository_id", { mode: "number" }),
+    owner: text().notNull(),
+    name: text().notNull(),
+    url: text().notNull(),
+    branch: text().notNull(),
+    // A seeded row's yaml `profiles`, kept so its binding hash stays the
+    // one sessions claimed under before the move.
+    profiles: jsonb().$type<string[]>(),
+    appRole: text("app_role").notNull().default("author"),
+    source: text().notNull(),
+    version: integer().notNull().default(1),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedBy: uuid("updated_by").references(() => users.id),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+    removedBy: uuid("removed_by").references(() => users.id),
+  },
+  (table) => [
+    uniqueIndex("catalog_repositories_github_id_key")
+      .on(table.githubRepositoryId)
+      .where(sql`${table.removedAt} IS NULL`),
+    uniqueIndex("catalog_repositories_full_name_key")
+      .on(sql`lower(${table.owner})`, sql`lower(${table.name})`)
+      .where(sql`${table.removedAt} IS NULL`),
+    check(
+      "catalog_repositories_source_check",
+      sql`${table.source} IN ('seed', 'console')`,
+    ),
+    check(
+      "catalog_repositories_app_role_check",
+      sql`${table.appRole} = 'author'`,
+    ),
+    check("catalog_repositories_version_check", sql`${table.version} >= 1`),
+    check(
+      "catalog_repositories_console_id_check",
+      sql`${table.source} = 'seed' OR ${table.githubRepositoryId} IS NOT NULL`,
     ),
   ],
 );

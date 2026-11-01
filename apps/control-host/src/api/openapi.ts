@@ -57,6 +57,7 @@ import {
   credentialBindingParamsSchema,
   decidePushRequestRequestSchema,
   deleteGitHubAppResponseSchema,
+  deleteGitHubRepositoryResponseSchema,
   deleteSlackAppResponseSchema,
   deleteSlackSecretResponseSchema,
   deleteTeamResponseSchema,
@@ -71,6 +72,10 @@ import {
   githubAppRoleParamsSchema,
   githubLinkCallbackRequestSchema,
   githubLinkCallbackResponseSchema,
+  githubPackagesSettingsResponseSchema,
+  githubPackagesWriteResponseSchema,
+  githubRepositoryParamsSchema,
+  githubRepositoryWriteResponseSchema,
   githubSettingsResponseSchema,
   githubWorkflowRunSchema,
   googleLoginCallbackRequestSchema,
@@ -95,6 +100,8 @@ import {
   listApiKeysQuerySchema,
   listApiKeysResponseSchema,
   listCredentialBindingsResponseSchema,
+  listGitHubRepositoriesResponseSchema,
+  listGitHubRepositoryCandidatesResponseSchema,
   listInvitesResponseSchema,
   listLinkedAccountsResponseSchema,
   listMembersQuerySchema,
@@ -129,7 +136,9 @@ import {
   openPullRequestResponseSchema,
   passwordResetRequestSchema,
   passwordResetResponseSchema,
+  patchGitHubRepositoryRequestSchema,
   pauseSessionRequestSchema,
+  postGitHubRepositoryRequestSchema,
   postSessionAnswerRequestSchema,
   postSessionAnswerResponseSchema,
   postSessionMessageRequestSchema,
@@ -143,6 +152,8 @@ import {
   putGitHubAppResponseSchema,
   putGitHubOAuthClientSecretRequestSchema,
   putGitHubOAuthClientSecretResponseSchema,
+  putGitHubPackagesAllowlistRequestSchema,
+  putGitHubPackagesTokenRequestSchema,
   putGitHubSettingsRequestSchema,
   putSlackBindingRequestSchema,
   putSlackBindingResponseSchema,
@@ -286,6 +297,8 @@ const requestComponents = {
   SubmitPullRequestReviewRequest: submitPullRequestReviewRequestSchema,
   PutGitHubSettingsRequest: putGitHubSettingsRequestSchema,
   PutGitHubOAuthClientSecretRequest: putGitHubOAuthClientSecretRequestSchema,
+  PutGitHubPackagesTokenRequest: putGitHubPackagesTokenRequestSchema,
+  PutGitHubPackagesAllowlistRequest: putGitHubPackagesAllowlistRequestSchema,
   GitHubLinkCallbackRequest: githubLinkCallbackRequestSchema,
   PutAgentGitHubEnabledRequest: putAgentGitHubEnabledRequestSchema,
   BootstrapRequest: bootstrapRequestSchema,
@@ -302,6 +315,8 @@ const requestComponents = {
   SlackGuestRequest: slackGuestRequestSchema,
   PutSlackSecretRequest: putSlackSecretRequestSchema,
   PutGitHubAppRequest: putGitHubAppRequestSchema,
+  PostGitHubRepositoryRequest: postGitHubRepositoryRequestSchema,
+  PatchGitHubRepositoryRequest: patchGitHubRepositoryRequestSchema,
   CreateSlackAppRequest: createSlackAppRequestSchema,
   CompleteSlackInstallRequest: completeSlackInstallRequestSchema,
   SlackEventEnvelope: slackEventEnvelopeSchema,
@@ -365,6 +380,8 @@ const responseComponents = {
   SubmitPullRequestReviewResponse: submitPullRequestReviewResponseSchema,
   GitHubSettingsResponse: githubSettingsResponseSchema,
   PutGitHubOAuthClientSecretResponse: putGitHubOAuthClientSecretResponseSchema,
+  GitHubPackagesSettingsResponse: githubPackagesSettingsResponseSchema,
+  GitHubPackagesWriteResponse: githubPackagesWriteResponseSchema,
   StartGitHubLinkResponse: startGitHubLinkResponseSchema,
   GitHubLinkCallbackResponse: githubLinkCallbackResponseSchema,
   SessionGitHubAttribution: sessionGitHubAttributionSchema,
@@ -392,6 +409,11 @@ const responseComponents = {
   GetGitHubAppResponse: getGitHubAppResponseSchema,
   PutGitHubAppResponse: putGitHubAppResponseSchema,
   DeleteGitHubAppResponse: deleteGitHubAppResponseSchema,
+  ListGitHubRepositoriesResponse: listGitHubRepositoriesResponseSchema,
+  ListGitHubRepositoryCandidatesResponse:
+    listGitHubRepositoryCandidatesResponseSchema,
+  GitHubRepositoryWriteResponse: githubRepositoryWriteResponseSchema,
+  DeleteGitHubRepositoryResponse: deleteGitHubRepositoryResponseSchema,
   GetSlackAppResponse: getSlackAppResponseSchema,
   GetSlackAppManifestResponse: getSlackAppManifestResponseSchema,
   SlackAppSettings: slackAppSettingsSchema,
@@ -1477,6 +1499,160 @@ export const API_ROUTE_DECLARATIONS = [
   },
   {
     method: "get",
+    path: "/v1/workspaces/{id}/github-repositories",
+    operationId: "listGitHubRepositories",
+    tag: "Workspace settings",
+    summary: "The catalog's GitHub repositories (owner or admin)",
+    description:
+      "Every GitHub repository agents can work in: those added from the console or imported from repositories.yaml (`source` `console` or `seed`; `editable`), then the operator file's entries that carry their own credentials (`source: file`, read-only; change them in the file). `installed` says whether the author App is installed on the repository now, null when GitHub was not asked or could not answer. Adding a repository grants no agent anything: an installation profile ceiling's `repository_ids` and an agent's repository scope decide that. API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "ListGitHubRepositoriesResponse",
+      description: "The repositories.",
+      example: {
+        repositories: [
+          {
+            id: "app",
+            github_repository_id: 123456789,
+            full_name: "acme/app",
+            url: "https://github.com/acme/app.git",
+            branch: "main",
+            source: "console",
+            editable: true,
+            version: 1,
+            installed: true,
+            updated_at: "2026-11-01T09:00:00Z",
+          },
+        ],
+      },
+    },
+    errors: [401, 403, 404],
+  },
+  {
+    method: "get",
+    path: "/v1/workspaces/{id}/github-repositories/candidates",
+    operationId: "listGitHubRepositoryCandidates",
+    tag: "Workspace settings",
+    summary:
+      "Repositories the author App can reach, to add to the catalog (owner or admin)",
+    description:
+      "Lists, for each installation of the author App, the repositories GitHub lets it reach (`GET /installation/repositories`), with `catalog_id` set on those in the catalog already. `unavailable` says why the list is empty when it could not be read: `no_author_app`, `github_rejected` or `github_unreachable`. API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "ListGitHubRepositoryCandidatesResponse",
+      description: "The candidates.",
+      example: {
+        candidates: [
+          {
+            github_repository_id: 123456789,
+            full_name: "acme/app",
+            account: "acme",
+            default_branch: "main",
+            private: true,
+            catalog_id: null,
+          },
+        ],
+        unavailable: null,
+      },
+    },
+    errors: [401, 403, 404],
+  },
+  {
+    method: "post",
+    path: "/v1/workspaces/{id}/github-repositories",
+    operationId: "addGitHubRepository",
+    tag: "Workspace settings",
+    summary: "Add a repository the author App is installed on (owner or admin)",
+    description:
+      "Takes the GitHub repository id from `…/candidates` and, optionally, the catalog `id`. The server finds the repository among the author App's installations again and takes its URL and default branch from GitHub; one it does not find is 400 `not_installed`. Without `id`, the repository's name in lower case, numbered `-2`, `-3` past ids already used (removed ones included). A repository in the catalog already is 400 `already_added`, an `id` in use is 400 `id_taken`. Writes an `add_repository` receipt. API keys are refused.",
+    auth: "session",
+    body: "PostGitHubRepositoryRequest",
+    requestExample: { github_repository_id: 123456789 },
+    success: {
+      status: 201,
+      schema: "GitHubRepositoryWriteResponse",
+      description: "Added; the repository and the receipt.",
+      example: {
+        repository: {
+          id: "app",
+          github_repository_id: 123456789,
+          full_name: "acme/app",
+          url: "https://github.com/acme/app.git",
+          branch: "main",
+          source: "console",
+          editable: true,
+          version: 1,
+          installed: true,
+          updated_at: "2026-11-01T09:00:00Z",
+        },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 413, 503],
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "GitHub could not be reached to list the App's repositories; nothing stored changed.",
+    },
+    idempotent: false,
+  },
+  {
+    method: "patch",
+    path: "/v1/workspaces/{id}/github-repositories/{repositoryId}",
+    operationId: "updateGitHubRepository",
+    tag: "Workspace settings",
+    summary: "Change a repository's default branch (owner or admin)",
+    description:
+      "Sets the branch sessions start from. `version` is the one last read; another is 409 `REVISION_CONFLICT`. A session already running on the repository is refused its next repository request (`CATALOG_MISMATCH`), as after an operator edits the file. An operator file entry is 400 `file_repository`. Writes a `set_repository_branch` receipt with the branch before and after. API keys are refused.",
+    auth: "session",
+    body: "PatchGitHubRepositoryRequest",
+    requestExample: { branch: "develop", version: 1 },
+    success: {
+      status: 200,
+      schema: "GitHubRepositoryWriteResponse",
+      description: "Changed; the repository and the receipt.",
+      example: {
+        repository: {
+          id: "app",
+          github_repository_id: 123456789,
+          full_name: "acme/app",
+          url: "https://github.com/acme/app.git",
+          branch: "develop",
+          source: "console",
+          editable: true,
+          version: 2,
+          installed: true,
+          updated_at: "2026-11-01T09:05:00Z",
+        },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 413],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "delete",
+    path: "/v1/workspaces/{id}/github-repositories/{repositoryId}",
+    operationId: "deleteGitHubRepository",
+    tag: "Workspace settings",
+    summary: "Remove a repository from the catalog (owner or admin)",
+    description:
+      "Takes the repository out of the catalog for new sessions and releases. Its id is never handed out again. A repository an installation profile ceiling or an agent's active release still names is 409 `REPOSITORY_IN_USE`, with them in `error.details`. An operator file entry is 400 `file_repository`. The App stays installed on GitHub. Writes a `remove_repository` receipt. API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "DeleteGitHubRepositoryResponse",
+      description: "Removed; the receipt.",
+      example: { receipt_id: EXAMPLE_RECEIPT_ID },
+    },
+    errors: [400, 401, 403, 404, 409],
+    errorCodes: { 409: ["REPOSITORY_IN_USE"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
     path: "/v1/workspaces/{id}/github-settings",
     operationId: "getGitHubSettings",
     tag: "Workspace settings",
@@ -1645,6 +1821,166 @@ export const API_ROUTE_DECLARATIONS = [
     errorNotes: {
       BACKEND_UNAVAILABLE: "Also when the API runs without a secret key.",
     },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/workspaces/{id}/github-packages",
+    operationId: "getGitHubPackages",
+    tag: "Workspace settings",
+    summary:
+      "The workspace's GitHub Packages bot token and allowlist (members)",
+    description:
+      "What sessions may fetch from GitHub Packages (npm and RubyGems) through the egress proxy. `token` says whether a bot token is registered, with its last four characters, the GitHub login it belongs to and its expiry (`expires_at` null when it never expires), never the value. `allowlist` lists each owner's package, or every package of an owner (`name` `*`), that sessions may read; an entry with `repository_id` or `agent_id` applies only to sessions of that repository or agent. Without a token, or for a package no entry names, the proxy refuses the request. `revision` is 0 until the allowlist is first saved. Any member signed in to the console reads it; API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "GitHubPackagesSettingsResponse",
+      description: "The token's summary and the allowlist.",
+      example: {
+        token: {
+          configured: true,
+          last4: "x9Qa",
+          login: "acme-packages-bot",
+          expires_at: "2027-01-30T00:00:00.000Z",
+          updated_at: "2026-11-01T09:00:00.000Z",
+          updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Mina" },
+        },
+        allowlist: [
+          {
+            registry: "npm",
+            owner: "acme",
+            name: "*",
+            repository_id: null,
+            agent_id: null,
+          },
+        ],
+        revision: 1,
+      },
+    },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "put",
+    path: "/v1/workspaces/{id}/github-packages/token",
+    operationId: "putGitHubPackagesToken",
+    tag: "Workspace settings",
+    summary:
+      "Register or replace the GitHub Packages bot token (owner or admin)",
+    description:
+      "Stores a bot account's classic personal access token whose only scope is `read:packages`; GitHub Packages accepts no GitHub App token. Before storing, the API calls GitHub's `GET /user` with it: a token GitHub refuses is 400 `BAD_REQUEST` (`reason_code` `token_invalid`), and one with any other scope, or a fine-grained token, which has no classic scopes, is 400 (`reason_code` `token_scopes`). The login and expiry GitHub reports are kept beside it. The token is kept encrypted and never returned, logged or echoed; only the egress proxy's requests to GitHub Packages carry it. Setting it again replaces it. Writes a `set_github_packages_token` receipt with its last four characters. API keys are refused.",
+    auth: "session",
+    body: "PutGitHubPackagesTokenRequest",
+    requestExample: { token: "ghp_EXAMPLE" },
+    success: {
+      status: 200,
+      schema: "GitHubPackagesWriteResponse",
+      description: "Stored; the receipt and the settings.",
+      example: {
+        receipt_id: EXAMPLE_RECEIPT_ID,
+        token: {
+          configured: true,
+          last4: "MPLE",
+          login: "acme-packages-bot",
+          expires_at: "2027-01-30T00:00:00.000Z",
+          updated_at: "2026-11-01T09:00:00.000Z",
+          updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Mina" },
+        },
+        allowlist: [],
+        revision: 0,
+      },
+    },
+    errors: [400, 401, 403, 404, 413, 503],
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "When GitHub cannot be asked about the token, or the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
+    idempotent: false,
+  },
+  {
+    method: "delete",
+    path: "/v1/workspaces/{id}/github-packages/token",
+    operationId: "deleteGitHubPackagesToken",
+    tag: "Workspace settings",
+    summary: "Remove the GitHub Packages bot token (owner or admin)",
+    description:
+      "Drops the stored token; from the next request on, the proxy refuses every GitHub Packages request. The allowlist stays. Writes a `delete_github_packages_token` receipt with the token's last four characters; 404 when none is stored. API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "GitHubPackagesWriteResponse",
+      description: "Removed; the receipt and the settings.",
+      example: {
+        receipt_id: EXAMPLE_RECEIPT_ID,
+        token: {
+          configured: false,
+          last4: null,
+          login: null,
+          expires_at: null,
+          updated_at: null,
+          updated_by: null,
+        },
+        allowlist: [],
+        revision: 0,
+      },
+    },
+    errors: [401, 403, 404, 503],
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "When the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
+    idempotent: false,
+  },
+  {
+    method: "put",
+    path: "/v1/workspaces/{id}/github-packages/allowlist",
+    operationId: "putGitHubPackagesAllowlist",
+    tag: "Workspace settings",
+    summary: "Replace the GitHub Packages allowlist (owner or admin)",
+    description:
+      "Replaces the whole allowlist, at most 200 entries. Each entry names a registry (`npm` or `rubygems`), a GitHub owner and a package name or `*`; `repository_id` (a catalog repository id) or `agent_id` narrows it to sessions of that repository or agent. Owners compare case-insensitively. `revision` is the one last read: a stale one is 409 `REVISION_CONFLICT`. Takes effect from the next request; a session's npm scopes and gem sources follow the owners named here from its next claim. Writes a `set_github_packages_allowlist` receipt. API keys are refused.",
+    auth: "session",
+    body: "PutGitHubPackagesAllowlistRequest",
+    requestExample: {
+      allowlist: [
+        {
+          registry: "rubygems",
+          owner: "acme",
+          name: "acme-auth",
+          repository_id: "billing",
+          agent_id: null,
+        },
+      ],
+      revision: 0,
+    },
+    success: {
+      status: 200,
+      schema: "GitHubPackagesWriteResponse",
+      description: "Stored; the receipt and the settings.",
+      example: {
+        receipt_id: EXAMPLE_RECEIPT_ID,
+        token: {
+          configured: false,
+          last4: null,
+          login: null,
+          expires_at: null,
+          updated_at: null,
+          updated_by: null,
+        },
+        allowlist: [
+          {
+            registry: "rubygems",
+            owner: "acme",
+            name: "acme-auth",
+            repository_id: "billing",
+            agent_id: null,
+          },
+        ],
+        revision: 1,
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 413],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
     idempotent: false,
   },
   {
@@ -5121,6 +5457,9 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path.startsWith("/v1/users/{user_id}")) return memberUserParamsSchema;
   if (path === "/v1/workspaces/{id}/github-apps/{role}") {
     return githubAppRoleParamsSchema;
+  }
+  if (path === "/v1/workspaces/{id}/github-repositories/{repositoryId}") {
+    return githubRepositoryParamsSchema;
   }
   if (path.startsWith("/v1/workspaces/{id}")) return workspaceParamsSchema;
   if (path.includes("{turn_id}")) return turnIdParamsSchema;

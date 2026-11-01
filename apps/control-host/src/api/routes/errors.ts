@@ -74,6 +74,7 @@ const STATUS_BY_CODE: Partial<Record<ApiErrorCode, ContentfulStatusCode>> = {
   // 403 when details.reason_code is a policy refusal; mapped() decides.
   GITHUB_REFUSED: 409,
   GITHUB_APP_CONFLICT: 409,
+  REPOSITORY_IN_USE: 409,
 };
 
 // Storage outages need nothing here: the app's error hook answers them.

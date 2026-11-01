@@ -851,6 +851,37 @@ export async function startFakeGitHub(
       if (path === "/healthz") return new Response("ok");
       const app = appCall(request, path);
       if (app !== undefined) return app;
+      if (path === "/installation/repositories" && request.method === "GET") {
+        const carried = installationToken(
+          request.headers.get("authorization"),
+          "token",
+        );
+        if (carried === undefined) {
+          return Response.json({ message: "Bad credentials" }, { status: 401 });
+        }
+        const grant = carried[1];
+        const repositories: Record<string, unknown>[] = [...served.entries()]
+          .filter(([key]) => {
+            const [owner = "", name = ""] = key.split("/");
+            return reaches(grant, owner, name);
+          })
+          .map(([key, repo]): Record<string, unknown> => {
+            const [owner = "", name = ""] = key.split("/");
+            return {
+              id: repo.id,
+              name,
+              full_name: key,
+              owner: { login: owner },
+              html_url: `${origin()}/${key}`,
+              default_branch: repo.defaultBranch,
+              private: true,
+            };
+          });
+        return Response.json({
+          total_count: repositories.length,
+          repositories,
+        });
+      }
       const tokens = /^\/app\/installations\/(\d+)\/access_tokens$/.exec(path);
       if (tokens?.[1] && request.method === "POST") {
         return await accessTokens(request, Number(tokens[1]));

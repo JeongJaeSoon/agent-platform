@@ -53,7 +53,7 @@ import { IconTile } from "../components/icon-tile.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import { approvalPending, ownerOf } from "./github-permission-table.ts";
+import { approvalPending } from "./github-permission-table.ts";
 import {
   AppPermissionTable,
   AppTile,
@@ -63,6 +63,7 @@ import {
   githubSettingsKey,
   useGitHubSettings,
 } from "./workspace-github-access.tsx";
+import { RepositoryCatalog } from "./workspace-github-repositories.tsx";
 import {
   GITHUB_USER_LINK_ANCHOR,
   GitHubUserLinkSection,
@@ -348,55 +349,6 @@ function Installations({ data }: { readonly data: GetGitHubAppResponse }) {
         {t("github.repositoriesByAccount")}
       </Link>
     </div>
-  );
-}
-
-/** Catalog repositories by the account that holds them. */
-function RepositoryRows({ data }: { readonly data: GetGitHubAppResponse }) {
-  const groups = new Map<string, GetGitHubAppResponse["repositories"]>();
-  for (const repository of data.repositories) {
-    const account =
-      data.installations.find(
-        (installation) => installation.id === repository.installation_id,
-      )?.account ??
-      ownerOf(repository.url) ??
-      repository.id;
-    groups.set(account, [...(groups.get(account) ?? []), repository]);
-  }
-  return [...groups].map(([account, repositories]) => (
-    <RepositoryGroup
-      key={account}
-      account={account}
-      repositories={repositories}
-      data={data}
-    />
-  ));
-}
-
-function RepositoryGroup({
-  account,
-  repositories,
-  data,
-}: {
-  readonly account: string;
-  readonly repositories: GetGitHubAppResponse["repositories"];
-  readonly data: GetGitHubAppResponse;
-}) {
-  return (
-    <>
-      <RowListItem className="gap-2 bg-surface-sunken py-2 font-medium text-caption">
-        <IconTile icon={Building2} hue="slate" />
-        {account}
-      </RowListItem>
-      {repositories.map((repository) => (
-        <SettingRow
-          key={repository.id}
-          title={repository.id}
-          description={repository.url}
-          badge={<InstallBadge data={data} repository={repository} />}
-        />
-      ))}
-    </>
   );
 }
 
@@ -933,18 +885,22 @@ function GitHubApp({
       />
       {children}
       {canManage && registered ? (
-        <SettingsCard
+        <RepositoryCatalog
           id={REPOSITORIES_ANCHOR}
-          title={t("github.repositories")}
-          badge={<Badge>{data?.repositories.length ?? 0}</Badge>}
-          description={t("github.repositoriesHint")}
-          rows={
-            data?.repositories.length ? (
-              <RepositoryRows data={data} />
-            ) : (
-              <SettingRow title={t("github.repositoriesEmpty")} />
-            )
+          installBadge={(repositoryId) => {
+            const repository = data?.repositories.find(
+              (held) => held.id === repositoryId,
+            );
+            return data && repository ? (
+              <InstallBadge data={data} repository={repository} />
+            ) : null;
+          }}
+          onChanged={() =>
+            queryClient.invalidateQueries({
+              queryKey: appKey(client, workspaceId, appRole),
+            })
           }
+          onOutcome={onOutcome}
         />
       ) : null}
       <Ceiling

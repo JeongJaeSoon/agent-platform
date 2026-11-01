@@ -6,6 +6,7 @@ export * from "./agents.ts";
 export * from "./api-keys.ts";
 export * from "./authz-decisions.ts";
 export * from "./catalog-authority.ts";
+export * from "./catalog-repositories.ts";
 export {
   listUncollectedSessionPointers,
   type RuntimeFingerprint,
@@ -21,6 +22,7 @@ export * from "./enqueue.ts";
 export * from "./execution-revocation.ts";
 export * from "./github-apps.ts";
 export * from "./github-oauth.ts";
+export * from "./github-packages.ts";
 export * from "./github-settings.ts";
 export * from "./identity.ts";
 export * from "./identity-reader.ts";

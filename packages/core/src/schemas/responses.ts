@@ -23,6 +23,7 @@ import {
   createSessionResponseSchema,
   createSlackAppResponseSchema,
   deleteGitHubAppResponseSchema,
+  deleteGitHubRepositoryResponseSchema,
   deleteSlackAppResponseSchema,
   deleteSlackSecretResponseSchema,
   deleteTeamResponseSchema,
@@ -34,6 +35,9 @@ import {
   getSlackAppResponseSchema,
   getTurnResponseSchema,
   githubLinkCallbackResponseSchema,
+  githubPackagesSettingsResponseSchema,
+  githubPackagesWriteResponseSchema,
+  githubRepositoryWriteResponseSchema,
   githubSettingsResponseSchema,
   githubWorkflowRunSchema,
   healthResponseSchema,
@@ -48,6 +52,8 @@ import {
   listAgentsResponseSchema,
   listApiKeysResponseSchema,
   listCredentialBindingsResponseSchema,
+  listGitHubRepositoriesResponseSchema,
+  listGitHubRepositoryCandidatesResponseSchema,
   listInvitesResponseSchema,
   listLinkedAccountsResponseSchema,
   listMembersResponseSchema,
@@ -146,11 +152,29 @@ export const responseSchemas = {
   "PUT /v1/workspaces/{id}/github-apps/{role}": putGitHubAppResponseSchema,
   "DELETE /v1/workspaces/{id}/github-apps/{role}":
     deleteGitHubAppResponseSchema,
+  "GET /v1/workspaces/{id}/github-repositories":
+    listGitHubRepositoriesResponseSchema,
+  "GET /v1/workspaces/{id}/github-repositories/candidates":
+    listGitHubRepositoryCandidatesResponseSchema,
+  "POST /v1/workspaces/{id}/github-repositories":
+    githubRepositoryWriteResponseSchema,
+  "PATCH /v1/workspaces/{id}/github-repositories/{repositoryId}":
+    githubRepositoryWriteResponseSchema,
+  "DELETE /v1/workspaces/{id}/github-repositories/{repositoryId}":
+    deleteGitHubRepositoryResponseSchema,
   "GET /v1/workspaces/{id}/github-settings": githubSettingsResponseSchema,
   "PUT /v1/workspaces/{id}/github-settings": githubSettingsResponseSchema,
   "GET /v1/workspaces/{id}/slack/apps": listWorkspaceSlackAppsResponseSchema,
   "PUT /v1/workspaces/{id}/github-settings/oauth-client-secret":
     putGitHubOAuthClientSecretResponseSchema,
+  "GET /v1/workspaces/{id}/github-packages":
+    githubPackagesSettingsResponseSchema,
+  "PUT /v1/workspaces/{id}/github-packages/token":
+    githubPackagesWriteResponseSchema,
+  "DELETE /v1/workspaces/{id}/github-packages/token":
+    githubPackagesWriteResponseSchema,
+  "PUT /v1/workspaces/{id}/github-packages/allowlist":
+    githubPackagesWriteResponseSchema,
   "DELETE /v1/workspaces/{id}/slack/apps/{app_id}":
     deleteSlackAppResponseSchema,
   "PUT /v1/workspaces/{id}/slack/apps/{app_id}/secrets/{purpose}":

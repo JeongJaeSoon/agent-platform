@@ -139,6 +139,13 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "PUT /v1/workspaces/{id}/github-apps/{role}",
     "DELETE /v1/workspaces/{id}/github-apps/{role}",
   ],
+  "routes/github-repositories.test.ts": [
+    "GET /v1/workspaces/{id}/github-repositories",
+    "GET /v1/workspaces/{id}/github-repositories/candidates",
+    "POST /v1/workspaces/{id}/github-repositories",
+    "PATCH /v1/workspaces/{id}/github-repositories/{repositoryId}",
+    "DELETE /v1/workspaces/{id}/github-repositories/{repositoryId}",
+  ],
   "routes/agent-github.test.ts": [
     "GET /v1/agents/{id}/github",
     "PUT /v1/agents/{id}/github/enabled",
@@ -148,6 +155,12 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/workspaces/{id}/github-settings",
     "PUT /v1/workspaces/{id}/github-settings",
     "PUT /v1/workspaces/{id}/github-settings/oauth-client-secret",
+  ],
+  "routes/github-packages.test.ts": [
+    "GET /v1/workspaces/{id}/github-packages",
+    "PUT /v1/workspaces/{id}/github-packages/token",
+    "DELETE /v1/workspaces/{id}/github-packages/token",
+    "PUT /v1/workspaces/{id}/github-packages/allowlist",
   ],
   "routes/slack-secrets.test.ts": [
     "GET /v1/workspaces/{id}/slack/config-token",

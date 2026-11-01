@@ -5,6 +5,10 @@ import {
   WORKSPACE_PROFILE_POLICY,
 } from "@werft-ai/contracts";
 import type {
+  CatalogRepositoryRow,
+  CatalogRepositoryStore,
+} from "../ports/catalog-repository-store.ts";
+import type {
   CatalogProfileImport,
   InstallationProfileRecord,
   InstallationProfileStore,
@@ -14,6 +18,7 @@ import {
   type CatalogMcpServer,
   type CatalogProfileConfig,
   type CatalogProfileView,
+  type CatalogRepository,
   type CatalogRepositoryView,
   catalogProfileConfigSchema,
   type InstallationProfileEntry,
@@ -303,6 +308,40 @@ export interface ProfileRegistry<P extends CatalogProfileView>
   extends WorkspaceProfiles {
   readonly profiles: Readonly<Record<string, P>>;
   readonly installation: ReadonlyMap<string, InstallationProfileEntry>;
+  /**
+   * The console's repositories as last read, or null before the first read,
+   * before the table was ever seeded, or for a registry given no store.
+   */
+  readonly repositoryRows: readonly CatalogRepositoryRow[] | null;
+}
+
+/**
+ * The operator file's repositories with the database's in place of every
+ * `{ kind: github_app }` entry (repository-catalog-db.md §2). A file entry
+ * that holds a credential keeps its id against a row of the same id.
+ */
+export function withConsoleRepositories(
+  file: Readonly<Record<string, CatalogRepository>>,
+  rows: readonly CatalogRepositoryRow[],
+): Record<string, CatalogRepository> {
+  const merged: Record<string, CatalogRepository> = {};
+  for (const [id, repository] of Object.entries(file)) {
+    const auth = repository.auth;
+    if (auth?.kind === "github_app" && "registered" in auth) continue;
+    merged[id] = repository;
+  }
+  for (const row of rows) {
+    if (Object.hasOwn(merged, row.id)) continue;
+    // The shape resolveSessionCatalog gives the yaml entry, so a seeded
+    // row binds as it did before the move.
+    merged[row.id] = {
+      url: row.url,
+      branch: row.branch,
+      ...(row.profiles === null ? {} : { profiles: row.profiles }),
+      auth: { kind: "github_app", registered: true },
+    };
+  }
+  return merged;
 }
 
 /**
@@ -312,18 +351,34 @@ export interface ProfileRegistry<P extends CatalogProfileView>
 export function createProfileRegistry<P extends CatalogProfileView>(deps: {
   workspaces: Pick<WorkspaceProfileStore, "listAll">;
   installations: Pick<InstallationProfileStore, "listAll">;
+  /** Absent: the catalog keeps the operator file's repositories. */
+  repositories?: Pick<CatalogRepositoryStore, "readCatalog">;
   sources: SnapshotSources<P>;
   now?: () => number;
   policy?: ProfileDerivationPolicy;
 }): ProfileRegistry<P> {
   let records: ReadonlyMap<string, WorkspaceProfileRecord> = new Map();
   let snapshot = installationProfileSnapshot(deps.sources, []);
+  let repositoryRows: readonly CatalogRepositoryRow[] | null = null;
   const refresh = latestReads(
     () =>
-      Promise.all([deps.workspaces.listAll(), deps.installations.listAll()]),
-    ([workspaceRows, installationRows]) => {
+      Promise.all([
+        deps.workspaces.listAll(),
+        deps.installations.listAll(),
+        deps.repositories?.readCatalog() ?? Promise.resolve(null),
+      ]),
+    ([workspaceRows, installationRows, rows]) => {
       snapshot = installationProfileSnapshot(deps.sources, installationRows);
       records = new Map(workspaceRows.map((row) => [row.id, row]));
+      // Kept when unchanged: the catalog's repositories object, which claim
+      // caches key on, then stays the same object too.
+      if (
+        rows === null ||
+        repositoryRows === null ||
+        canonicalJson(rows) !== canonicalJson(repositoryRows)
+      ) {
+        repositoryRows = rows;
+      }
     },
     deps.now ?? Date.now,
   );
@@ -337,6 +392,9 @@ export function createProfileRegistry<P extends CatalogProfileView>(deps: {
     },
     get installation() {
       return snapshot.installation;
+    },
+    get repositoryRows() {
+      return repositoryRows;
     },
     refresh,
   };
@@ -357,14 +415,24 @@ export function profileCatalog<
     runtime_versions?: RuntimeVersions;
   },
   registry: ProfileRegistry<P>,
+  /**
+   * The repositories once the registry has read the console's rows, from
+   * `base.repositories` and those rows (`withConsoleRepositories`). Absent:
+   * `base.repositories` alone.
+   */
+  consoleRepositories?: (
+    rows: readonly CatalogRepositoryRow[],
+  ) => Record<string, R>,
 ): {
   readonly profiles: Record<string, P>;
-  repositories: Record<string, R>;
+  readonly repositories: Record<string, R>;
   mcp_servers?: Record<string, CatalogMcpServer>;
   readonly installation: ReadonlyMap<string, InstallationProfileEntry>;
   workspace_profiles: ProfileRegistry<P>;
   runtime_versions?: RuntimeVersions;
 } {
+  let mergedFrom: readonly CatalogRepositoryRow[] | null = null;
+  let merged = base.repositories;
   return {
     get profiles() {
       return registry.profiles as Record<string, P>;
@@ -372,7 +440,17 @@ export function profileCatalog<
     get installation() {
       return registry.installation;
     },
-    repositories: base.repositories,
+    get repositories() {
+      const rows = registry.repositoryRows;
+      if (consoleRepositories === undefined || rows === null) {
+        return base.repositories;
+      }
+      if (rows !== mergedFrom) {
+        merged = consoleRepositories(rows);
+        mergedFrom = rows;
+      }
+      return merged;
+    },
     ...(base.mcp_servers === undefined
       ? {}
       : { mcp_servers: base.mcp_servers }),

@@ -125,6 +125,9 @@ export const API_ERROR_CODE_VALUES = [
   // A GitHub App registration that would clash with the workspace's other
   // App; `details.reason_code` is one of GITHUB_APP_CONFLICT_VALUES.
   "GITHUB_APP_CONFLICT",
+  // A catalog repository a profile ceiling or an active release still names;
+  // `details` lists them.
+  "REPOSITORY_IN_USE",
   // A resume of a session parked on its requests while one of them is
   // neither answered nor expired.
   "PENDING_REQUESTS_OPEN",

@@ -107,11 +107,24 @@ export const RECEIPT_OPERATION_VALUES = [
   // A GitHub token issued afresh for a session's work, or refused before it.
   "mint_github_token",
   "set_github_ceiling",
+  // A GitHub App repository added to the catalog from the console, its
+  // default branch changed, removed, or imported from repositories.yaml.
+  "add_repository",
+  "set_repository_branch",
+  "remove_repository",
+  "import_repository",
   // An agent's GitHub switch turned on or off.
   "set_agent_github",
   "review_pull_request",
   "dispatch_workflow",
   "rerun_workflow",
+  // The workspace's GitHub Packages bot token and package allowlist; the
+  // receipt names the token's last four characters, never the value.
+  "set_github_packages_token",
+  "delete_github_packages_token",
+  "set_github_packages_allowlist",
+  // One GitHub Packages request through the egress proxy, allowed or refused.
+  "fetch_github_package",
   "create_workspace_profile",
   "retire_workspace_profile",
   "create_installation_profile",
