@@ -72,6 +72,7 @@ describe("database schema", () => {
       "authz_decisions",
       "bootstrap_token_uses",
       "catalog_authority",
+      "catalog_repositories",
       "checkpoint_output_objects",
       "checkpoint_output_totals",
       "checkpoint_outputs",

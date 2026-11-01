@@ -107,6 +107,12 @@ export const RECEIPT_OPERATION_VALUES = [
   // A GitHub token issued afresh for a session's work, or refused before it.
   "mint_github_token",
   "set_github_ceiling",
+  // A GitHub App repository added to the catalog from the console, its
+  // default branch changed, removed, or imported from repositories.yaml.
+  "add_repository",
+  "set_repository_branch",
+  "remove_repository",
+  "import_repository",
   // An agent's GitHub switch turned on or off.
   "set_agent_github",
   "review_pull_request",
