@@ -12,6 +12,7 @@ import { useAgentPlatform } from "@werft-ai/react";
 import {
   Badge,
   Button,
+  ConfirmDialog,
   cn,
   formatTimestamp,
   Page,
@@ -96,6 +97,7 @@ export function LinkedAccountsScreen() {
   const role = useRole();
   const accounts = useQuery(linkedAccountsQuery(client));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const [confirming, setConfirming] = useState<LinkedAccount | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   // The account whose row holds focus, until focus or a press goes elsewhere.
@@ -205,6 +207,22 @@ export function LinkedAccountsScreen() {
       setOutcome({ kind: "error", text: linkRefusal(t, error, role) }),
   });
 
+  // The dialog closes before the answer, unlike other confirmations: focus
+  // goes back to the row's button first, which waits (aria-disabled) and
+  // hands focus on when its row leaves, so several unlinks can overlap.
+  // Restored here rather than by the dialog, whose return can come after a
+  // fast answer has already taken the row away.
+  const [confirmed, setConfirmed] = useState<LinkedAccount | null>(null);
+  const { mutate } = unlink;
+  useEffect(() => {
+    if (confirmed === null || confirming !== null) return;
+    setConfirmed(null);
+    listRef.current
+      ?.querySelector<HTMLElement>(`li[data-account="${confirmed.id}"] button`)
+      ?.focus();
+    mutate(confirmed);
+  }, [confirmed, confirming, mutate]);
+
   const notice = outcome?.kind === "notice" ? outcome.text : null;
 
   return (
@@ -217,7 +235,7 @@ export function LinkedAccountsScreen() {
         <GitHubService
           accounts={accounts.isSuccess ? githubLive : undefined}
           unlinking={unlink.isPending ? unlink.variables?.id : undefined}
-          onUnlink={(account) => unlink.mutate(account)}
+          onUnlink={setConfirming}
           onOutcome={setOutcome}
         />
         <li>
@@ -281,7 +299,7 @@ export function LinkedAccountsScreen() {
             <SlackAccounts
               accounts={live}
               unlinking={unlink.isPending ? unlink.variables?.id : undefined}
-              onUnlink={(account) => unlink.mutate(account)}
+              onUnlink={setConfirming}
             />
           )}
         </li>
@@ -291,8 +309,47 @@ export function LinkedAccountsScreen() {
           use={t("linked.use.google")}
         />
       </ul>
+      <ConfirmDialog
+        open={confirming !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirming(null);
+        }}
+        title={t(
+          confirming?.provider === "github"
+            ? "linked.github.unlinkTitle"
+            : "linked.unlinkTitle",
+        )}
+        consequence={t(
+          confirming?.provider === "github"
+            ? "linked.github.unlinkHint"
+            : "linked.unlinkHint",
+        )}
+        target={confirming ? accountName(confirming, t) : undefined}
+        confirmLabel={t("linked.unlink")}
+        cancelLabel={t("common.cancel")}
+        tone="danger"
+        onConfirm={() => {
+          if (!confirming) return;
+          setConfirmed(confirming);
+          setConfirming(null);
+        }}
+      />
     </Page>
   );
+}
+
+/** The account as its row names it, in one line. */
+function accountName(account: LinkedAccount, t: Translate): string {
+  if (account.provider === "github")
+    return account.external_user_name ?? account.external_user_id;
+  const ids = { user: account.external_user_id, team: account.external_tenant };
+  return account.external_user_name === null &&
+    account.external_tenant_name === null
+    ? t("linked.slackAccount", ids)
+    : t("linked.slackNamed", {
+        user: account.external_user_name ?? ids.user,
+        team: account.external_tenant_name ?? ids.team,
+      });
 }
 
 function ServiceMark({ children }: { readonly children: ReactNode }) {
@@ -410,7 +467,7 @@ function GitHubService({
               </RowLines>
               <Button
                 type="button"
-                variant="outline"
+                variant="danger"
                 size="sm"
                 aria-disabled={unlinking === account.id || undefined}
                 className="aria-disabled:opacity-50"
@@ -491,7 +548,7 @@ function SlackAccounts({
           </RowLines>
           <Button
             type="button"
-            variant="outline"
+            variant="danger"
             size="sm"
             // Not `disabled` while it runs: Chrome takes focus off a disabled
             // button, and a refused unlink would leave the keyboard lost.

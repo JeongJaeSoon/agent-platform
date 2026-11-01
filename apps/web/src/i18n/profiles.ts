@@ -213,6 +213,12 @@ export const profilesKo = {
     "이미 이 상한을 쓰는 릴리스와 세션, 그 위의 워크스페이스 프로필은 계속 동작합니다. 새 릴리스·세션·워크스페이스 프로필은 이 상한을 고를 수 없습니다. 사용 중지는 되돌릴 수 없습니다.",
   "profiles.retiring": "사용 중지하는 중…",
   "profiles.retired": "{id} 버전을 사용 중지했습니다.",
+  "profiles.retireRow": "이 버전 사용 중지",
+  "profiles.retireRowHint":
+    "새 릴리스와 세션이 이 버전을 고를 수 없게 됩니다. 되돌릴 수 없습니다.",
+  "profiles.blockRow": "이 설치 상한 차단",
+  "profiles.blockRowHint":
+    "이 상한을 쓰는 세션도 다음 턴에서 멈춥니다. 해제할 수 있지만 멈춘 턴은 다시 돌지 않습니다.",
   "profiles.block": "차단",
   "profiles.unblock": "차단 해제",
   "profiles.blockTitle": "설치 상한 {id}을(를) 차단할까요?",
@@ -495,6 +501,12 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
     "Releases, sessions and workspace profiles already on this ceiling keep running. New releases, sessions and workspace profiles cannot pick it. Turning it off cannot be undone.",
   "profiles.retiring": "Turning off…",
   "profiles.retired": "Turned off version {id}.",
+  "profiles.retireRow": "Turn off this version",
+  "profiles.retireRowHint":
+    "New releases and sessions can no longer pick it. This cannot be undone.",
+  "profiles.blockRow": "Block this installation ceiling",
+  "profiles.blockRowHint":
+    "Sessions on it stop at their next turn. You can unblock it, but a stopped turn does not run again.",
   "profiles.block": "Block",
   "profiles.unblock": "Unblock",
   "profiles.blockTitle": "Block installation ceiling {id}?",
@@ -782,6 +794,12 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "すでにこの上限を使っているリリース・セッションと、その上のワークスペースのプロファイルは動き続けます。新しいリリース・セッション・ワークスペースのプロファイルではこの上限を選べません。使用停止は元に戻せません。",
   "profiles.retiring": "使用停止しています…",
   "profiles.retired": "バージョン {id} を使用停止しました。",
+  "profiles.retireRow": "このバージョンを使用停止",
+  "profiles.retireRowHint":
+    "新しいリリースとセッションではこのバージョンを選べなくなります。元に戻せません。",
+  "profiles.blockRow": "このインストール上限をブロック",
+  "profiles.blockRowHint":
+    "この上限を使うセッションも次のターンで止まります。解除できますが、止まったターンは再実行されません。",
   "profiles.block": "ブロック",
   "profiles.unblock": "ブロック解除",
   "profiles.blockTitle": "インストール上限 {id} をブロックしますか?",

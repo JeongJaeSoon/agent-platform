@@ -72,13 +72,13 @@ const SECTION_BOX =
   "flex scroll-mt-4 flex-col gap-[var(--ap-space-block)] outline-none";
 const HEADING = "m-0 font-semibold text-body leading-5";
 // The order the mockup lists them in: what most agents turn on first.
-const FEATURES: readonly Feature[] = [
+// checks and issues stay in the contract but have no work behind them yet
+// (github-agent.md LATER), so they are not offered.
+const FEATURES = [
   "review",
   "actions",
-  "checks",
-  "issues",
   "workflows",
-];
+] as const satisfies readonly Feature[];
 const WORKFLOW_FILE = /^[A-Za-z0-9._-]+\.ya?ml$/;
 const ALLOW_MAX = 32;
 const REF_MAX = 255;

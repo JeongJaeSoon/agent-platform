@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { discover } from "../.github/scripts/test-files.ts";
 import { PARTS, partOf, pick } from "../.github/scripts/unit-part.ts";
@@ -20,8 +21,10 @@ async function part(args: string[]) {
 }
 
 describe("unit-part.ts", () => {
-  test("packages/ is one part, apps/worker/ with apps/web/ another, and everything else, whatever its top directory, the last", () => {
-    expect(partOf("packages/db/src/queries.test.ts")).toBe("packages");
+  test("separates database fixtures from the other packages, worker/web and the rest", () => {
+    expect(partOf("packages/db/src/queries.test.ts")).toBe("packages-db");
+    expect(partOf("packages/storage/src/git-runner.test.ts")).toBe("packages");
+    expect(partOf("packages/db-extra/a.test.ts")).toBe("packages");
     expect(partOf("apps/worker/src/worker-host.test.ts")).toBe("worker-web");
     expect(partOf("apps/web/src/routes/agents.test.tsx")).toBe("worker-web");
     expect(partOf("apps/workers/a.test.ts")).toBe("rest");
@@ -47,7 +50,24 @@ describe("unit-part.ts", () => {
     for (const outcome of outcomes) expect(outcome.exitCode).toBe(0);
     expect(new Set(all).size).toBe(all.length);
     expect(all.sort()).toEqual(suite);
-    expect(outcomes[2]?.lines).toContain("./tests/unit-part.test.ts");
+    expect(outcomes[PARTS.indexOf("rest")]?.lines).toContain(
+      "./tests/unit-part.test.ts",
+    );
+  });
+
+  test("the CI matrix runs every planned part exactly once", () => {
+    const workflow = Bun.YAML.parse(
+      readFileSync(join(repo, ".github/workflows/ci.yml"), "utf8"),
+    ) as {
+      jobs: Record<
+        string,
+        { strategy: { matrix: { include: { unit?: string }[] } } }
+      >;
+    };
+    const units = workflow.jobs["check-part"]?.strategy.matrix.include.flatMap(
+      (entry) => (entry.unit ? [entry.unit] : []),
+    );
+    expect(units?.sort()).toEqual([...PARTS].sort());
   });
 
   test("rejects anything but a part name", async () => {

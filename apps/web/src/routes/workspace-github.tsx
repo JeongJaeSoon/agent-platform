@@ -7,7 +7,6 @@ import {
 } from "@werft-ai/client";
 import type {
   GetGitHubAppResponse,
-  GitHubAppPermissions,
   GitHubAppRole,
   PutGitHubAppRequest,
   PutGitHubAppResponse,
@@ -17,6 +16,8 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  DangerZone,
+  DangerZoneRow,
   ErrorState,
   Field,
   FieldDescription,
@@ -25,10 +26,12 @@ import {
   formatTimestamp,
   Input,
   Link,
+  RowList,
   RowListItem,
   SettingRow,
   Skeleton,
 } from "@werft-ai/ui";
+import { Building2 } from "lucide-react";
 import {
   type FormEvent,
   type ReactNode,
@@ -46,17 +49,31 @@ import {
   useRole,
 } from "../auth/guard.tsx";
 import { FormError, Notice } from "../components/auth-page.tsx";
+import { IconTile } from "../components/icon-tile.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import { GitHubAccess, githubSettingsKey } from "./workspace-github-access.tsx";
-import { GitHubUserLinkSection } from "./workspace-github-user-link.tsx";
+import { approvalPending, ownerOf } from "./github-permission-table.ts";
+import {
+  AppPermissionTable,
+  AppTile,
+  Ceiling,
+  GITHUB_APP_ANCHOR,
+  GITHUB_REVIEWER_ANCHOR,
+  githubSettingsKey,
+  useGitHubSettings,
+} from "./workspace-github-access.tsx";
+import {
+  GITHUB_USER_LINK_ANCHOR,
+  GitHubUserLinkSection,
+  userLinkReady,
+} from "./workspace-github-user-link.tsx";
 import {
   type OnOutcome,
   SettingsCard,
   WorkspacePage,
 } from "./workspace-settings.tsx";
-import { DangerZone, storeOff } from "./workspace-slack.tsx";
+import { storeOff } from "./workspace-slack.tsx";
 
 // Row buttons share one width down the right edge.
 const ACTION = "min-w-12";
@@ -68,6 +85,9 @@ const appKey = (client: ApiClient, workspaceId: string, role: GitHubAppRole) =>
 
 const reasonOf = (error: ApiError): unknown =>
   (error.details as { reason_code?: unknown } | null)?.reason_code;
+
+const REPOSITORIES_ANCHOR = "github-repositories";
+const META = "text-caption text-subtle-foreground";
 
 /** Workspace › GitHub: the App agents reach GitHub repositories with. */
 export function WorkspaceGitHubScreen() {
@@ -81,11 +101,318 @@ export function WorkspaceGitHubScreen() {
           <Notice>{outcome.text}</Notice>
         )
       ) : null}
-      <GitHubApp appRole="author" onOutcome={setOutcome}>
-        <GitHubApp appRole="reviewer" onOutcome={setOutcome} />
+      <GitHubApp
+        appRole="author"
+        onOutcome={setOutcome}
+        danger={
+          <GitHubApp appRole="reviewer" part="danger" onOutcome={setOutcome} />
+        }
+      >
+        <ReviewerAdvanced onOutcome={setOutcome} />
       </GitHubApp>
     </WorkspacePage>
   );
+}
+
+/**
+ * The reviewer App, behind "Advanced": most workspaces run on the author App
+ * alone, and reviews stay with people until one is registered.
+ */
+function ReviewerAdvanced({ onOutcome }: { readonly onOutcome: OnOutcome }) {
+  const { t } = useI18n();
+  const canManage = useHasPermission("workspace.manage");
+  const reviewer = useGitHubAppQuery("reviewer");
+  const registered = Boolean(reviewer.data?.github_app);
+  const [chosen, setChosen] = useState<boolean | null>(null);
+  // Open while one is registered, and stay open once it is deleted here.
+  useEffect(() => {
+    if (registered) setChosen((was) => was ?? true);
+  }, [registered]);
+  const open = chosen ?? registered;
+  const panelId = useId();
+  if (!canManage) return null;
+  return (
+    <section
+      id={GITHUB_REVIEWER_ANCHOR}
+      aria-label={t("github.reviewer.title")}
+    >
+      <RowList variant="joined">
+        <SettingRow
+          title={
+            <span className="flex items-center gap-2">
+              <AppTile app="reviewer" />
+              {t("github.reviewer.title")}
+            </span>
+          }
+          badge={
+            <Badge>
+              {registered
+                ? t("github.reviewer.advanced")
+                : t("github.reviewer.advancedUnset")}
+            </Badge>
+          }
+          description={t("github.reviewer.hint")}
+          actions={
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              aria-expanded={open}
+              aria-controls={open ? panelId : undefined}
+              onClick={() => setChosen(!open)}
+            >
+              {t(open ? "github.reviewer.close" : "github.reviewer.open")}
+            </Button>
+          }
+        />
+        {open ? (
+          <li id={panelId} className="list-none">
+            <RowList variant="joined" className="rounded-none border-0">
+              <GitHubApp appRole="reviewer" onOutcome={onOutcome} />
+            </RowList>
+          </li>
+        ) : null}
+      </RowList>
+    </section>
+  );
+}
+
+/** One line over the page: what is connected, and what still needs a look. */
+function GitHubSummary({
+  app,
+  userLink,
+}: {
+  readonly app: GetGitHubAppResponse;
+  readonly userLink: boolean | undefined;
+}) {
+  const { t } = useI18n();
+  const needsCheck = app.repositories.filter(
+    (repository) => repositoryState(app, repository) !== "installed",
+  ).length;
+  const cell = (href: string, label: string, value: ReactNode) => (
+    <Link
+      href={`#${href}`}
+      className="flex min-w-0 flex-col gap-1 rounded-card border bg-card px-3 py-2 font-normal text-foreground no-underline hover:bg-hover hover:no-underline"
+    >
+      <span className={META}>{label}</span>
+      <span className="flex min-w-0 flex-wrap items-center gap-2 font-medium text-control">
+        {value}
+      </span>
+    </Link>
+  );
+  return (
+    <nav
+      aria-label={t("github.summary.label")}
+      className="grid grid-cols-2 gap-2 lg:grid-cols-4"
+    >
+      {cell(
+        GITHUB_APP_ANCHOR,
+        t("github.app"),
+        app.github_app ? (
+          <>
+            <AppTile app="author" />
+            <span className="truncate">{app.github_app.name}</span>
+          </>
+        ) : (
+          <Badge>{t("github.unset")}</Badge>
+        ),
+      )}
+      {cell(
+        GITHUB_APP_ANCHOR,
+        t("github.summary.accounts"),
+        t("github.summary.accountsValue", { count: app.installations.length }),
+      )}
+      {cell(
+        REPOSITORIES_ANCHOR,
+        t("github.repositories"),
+        <>
+          {t("github.summary.repositoriesValue", {
+            count: app.repositories.length,
+          })}
+          {needsCheck > 0 ? (
+            <Badge variant="amber">
+              {t("github.summary.needsCheck", { count: needsCheck })}
+            </Badge>
+          ) : null}
+        </>,
+      )}
+      {cell(
+        GITHUB_USER_LINK_ANCHOR,
+        t("github.summary.userLink"),
+        userLink === undefined ? null : userLink ? (
+          <Badge variant="green">{t("github.summary.ready")}</Badge>
+        ) : (
+          <Badge variant="amber">{t("github.summary.setupNeeded")}</Badge>
+        ),
+      )}
+    </nav>
+  );
+}
+
+type RepositoryState = "unknown" | "notInstalled" | "pending" | "installed";
+
+function repositoryState(
+  data: GetGitHubAppResponse,
+  repository: GetGitHubAppResponse["repositories"][number],
+): RepositoryState {
+  if (data.check?.state !== "ok") return "unknown";
+  if (repository.installation_id === null) return "notInstalled";
+  if (
+    approvalPending(
+      data.github_app?.permissions,
+      repository.installation_permissions,
+    )
+  ) {
+    return "pending";
+  }
+  return "installed";
+}
+
+/** The accounts the App is installed on, each with how its repositories stand. */
+function Installations({ data }: { readonly data: GetGitHubAppResponse }) {
+  const { t } = useI18n();
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      <h3 className="m-0 font-semibold text-control">
+        {t("github.installations")}
+      </h3>
+      {data.installations.length === 0 ? (
+        <>
+          <p className={`m-0 ${META}`}>{t("github.installationsEmpty")}</p>
+          {data.check?.state === "failed" ? (
+            <p className={`m-0 ${META}`}>
+              {t(
+                data.check.reason_code === "github_rejected"
+                  ? "github.rejectedNow"
+                  : "github.unreachable",
+              )}
+            </p>
+          ) : null}
+        </>
+      ) : (
+        <ul className="m-0 flex list-none flex-col gap-2 p-0">
+          {data.installations.map((installation) => {
+            const repositories = data.repositories.filter(
+              (repository) => repository.installation_id === installation.id,
+            );
+            const pending = repositories.some(
+              (repository) => repositoryState(data, repository) === "pending",
+            );
+            return (
+              <li
+                key={installation.id}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-card border px-3 py-2"
+              >
+                <IconTile icon={Building2} hue="slate" />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate font-medium text-control">
+                    {installation.account}
+                  </span>
+                  <span className={META}>
+                    {t("github.installationLine", {
+                      selection: t(
+                        installation.repository_selection === "all"
+                          ? "github.selectionAll"
+                          : "github.selectionSelected",
+                      ),
+                      count: repositories.length,
+                    })}
+                  </span>
+                </span>
+                {repositories.length > 0 ? (
+                  pending ? (
+                    <Badge variant="amber">{t("github.approvalPending")}</Badge>
+                  ) : (
+                    <Badge variant="green">
+                      {t("github.installationApproved")}
+                    </Badge>
+                  )
+                ) : null}
+                {installation.html_url ? (
+                  <Link
+                    href={installation.html_url}
+                    target="_blank"
+                    newTabLabel={t("github.newTab")}
+                  >
+                    {t("github.openOnGitHub")}
+                  </Link>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <Link href={`#${REPOSITORIES_ANCHOR}`} className="text-caption">
+        {t("github.repositoriesByAccount")}
+      </Link>
+    </div>
+  );
+}
+
+/** Catalog repositories by the account that holds them. */
+function RepositoryRows({ data }: { readonly data: GetGitHubAppResponse }) {
+  const groups = new Map<string, GetGitHubAppResponse["repositories"]>();
+  for (const repository of data.repositories) {
+    const account =
+      data.installations.find(
+        (installation) => installation.id === repository.installation_id,
+      )?.account ??
+      ownerOf(repository.url) ??
+      repository.id;
+    groups.set(account, [...(groups.get(account) ?? []), repository]);
+  }
+  return [...groups].map(([account, repositories]) => (
+    <RepositoryGroup
+      key={account}
+      account={account}
+      repositories={repositories}
+      data={data}
+    />
+  ));
+}
+
+function RepositoryGroup({
+  account,
+  repositories,
+  data,
+}: {
+  readonly account: string;
+  readonly repositories: GetGitHubAppResponse["repositories"];
+  readonly data: GetGitHubAppResponse;
+}) {
+  return (
+    <>
+      <RowListItem className="gap-2 bg-surface-sunken py-2 font-medium text-caption">
+        <IconTile icon={Building2} hue="slate" />
+        {account}
+      </RowListItem>
+      {repositories.map((repository) => (
+        <SettingRow
+          key={repository.id}
+          title={repository.id}
+          description={repository.url}
+          badge={<InstallBadge data={data} repository={repository} />}
+        />
+      ))}
+    </>
+  );
+}
+
+function useGitHubAppQuery(appRole: GitHubAppRole) {
+  const { client } = useAgentPlatform();
+  const workspaceId = useMe()?.workspace?.id ?? "";
+  const canManage = useHasPermission("workspace.manage");
+  return useQuery({
+    queryKey: appKey(client, workspaceId, appRole),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/workspaces/{id}/github-apps/{role}", {
+          params: { path: { id: workspaceId, role: appRole } },
+        }),
+      ),
+    enabled: workspaceId !== "" && canManage,
+    retry: (failures, error) => !storeOff(error) && failures < 3,
+  });
 }
 
 /**
@@ -95,10 +422,16 @@ export function WorkspaceGitHubScreen() {
 function GitHubApp({
   appRole,
   onOutcome,
+  part = "page",
+  danger,
   children,
 }: {
   readonly appRole: GitHubAppRole;
   readonly onOutcome: OnOutcome;
+  /** "danger": only this App's danger zone rows, for the author's zone. */
+  readonly part?: "page" | "danger";
+  /** Another App's danger zone rows, after this one's. */
+  readonly danger?: ReactNode;
   readonly children?: ReactNode;
 }) {
   const author = appRole === "author";
@@ -111,6 +444,7 @@ function GitHubApp({
   const canManage = useHasPermission("workspace.manage");
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [replacing, setReplacing] = useState(false);
   const [missing, setMissing] = useState<"appId" | "key" | null>(null);
   const appIdId = useId();
   const appIdHint = useId();
@@ -129,17 +463,11 @@ function GitHubApp({
     wasEditing.current = editing;
   }, [editing]);
 
-  const app = useQuery({
-    queryKey: appKey(client, workspaceId, appRole),
-    queryFn: () =>
-      unwrap(
-        client.GET("/v1/workspaces/{id}/github-apps/{role}", {
-          params: { path: { id: workspaceId, role: appRole } },
-        }),
-      ),
-    enabled: workspaceId !== "" && canManage,
-    retry: (failures, error) => !storeOff(error) && failures < 3,
-  });
+  const app = useGitHubAppQuery(appRole);
+  // Either App can be deleted alone, so the zone stays while the reviewer's
+  // rows have an App to act on.
+  const reviewerApp = useGitHubAppQuery("reviewer");
+  const settings = useGitHubSettings(author);
   // The settings carry the App's permissions and the user-linking client id
   // (whose secret goes with the App), so they are read again with it.
   const refresh = () =>
@@ -271,10 +599,21 @@ function GitHubApp({
     : null;
 
   const appRows = !canManage ? (
-    <SettingRow
-      title={t("github.app")}
-      description={permissionReason(t, "workspace.manage", role)}
-    />
+    <>
+      <SettingRow
+        title={t("github.app")}
+        description={permissionReason(t, "workspace.manage", role)}
+      />
+      {/* Members read the App's permissions from the settings' last read. */}
+      {author && settings.data?.apps.author ? (
+        <RowListItem>
+          <AppPermissionTable
+            permissions={settings.data.apps.author.permissions}
+            ceiling={settings.data.ceiling}
+          />
+        </RowListItem>
+      ) : null}
+    </>
   ) : app.isPending ? (
     <RowListItem>
       <Skeleton width="50%" />
@@ -294,12 +633,16 @@ function GitHubApp({
     <>
       <SettingRow
         title={
-          registered?.name ?? t(author ? "github.app" : "github.reviewer.app")
+          <span className="flex min-w-0 items-center gap-2">
+            <AppTile app={appRole} />
+            {registered?.name ??
+              t(author ? "github.app" : "github.reviewer.app")}
+          </span>
         }
         badge={<AppBadge data={data} />}
         description={appLine(data, t, locale, appRole)}
         actions={
-          editing ? undefined : (
+          editing && !registered ? undefined : (
             <>
               {installUrl ? (
                 <Link
@@ -314,94 +657,111 @@ function GitHubApp({
                   )}
                 </Link>
               ) : null}
-              <Button
-                ref={actionRef}
-                type="button"
-                size="sm"
-                variant={registered ? "outline" : "default"}
-                className={ACTION}
-                onClick={() => setEditing(true)}
-              >
-                {t(registered ? "github.replace" : "github.register")}
-              </Button>
+              {/* Replacing a registered App is in the danger zone. */}
+              {registered ? null : (
+                <Button
+                  ref={actionRef}
+                  type="button"
+                  size="sm"
+                  className={ACTION}
+                  onClick={() => setEditing(true)}
+                >
+                  {t("github.register")}
+                </Button>
+              )}
             </>
           )
         }
       />
-      {editing ? (
-        <RowListItem>
-          <form
-            className="flex w-full flex-col gap-4"
-            noValidate
-            onSubmit={(event) =>
-              void submit(event).catch(() => {
-                submitting.current = false;
-                onOutcome({ kind: "error", text: t("github.invalidKey") });
-              })
-            }
-          >
-            <Field>
-              <FieldLabel htmlFor={appIdId}>{t("github.appId")}</FieldLabel>
-              <Input
-                ref={appIdRef}
-                id={appIdId}
-                className="max-w-80"
-                name="app_id"
-                inputMode="numeric"
-                autoComplete="off"
-                spellCheck={false}
-                defaultValue={registered ? String(registered.app_id) : ""}
-                aria-describedby={appIdHint}
-                aria-invalid={missing === "appId" || undefined}
-              />
-              <FieldDescription id={appIdHint}>
-                {t("github.appIdHint")}
-              </FieldDescription>
-              {missing === "appId" ? (
-                <FieldError>{t("github.appIdMissing")}</FieldError>
-              ) : null}
-            </Field>
-            <Field>
-              <FieldLabel htmlFor={keyId}>{t("github.key")}</FieldLabel>
-              <Input
-                id={keyId}
-                className="max-w-105"
-                name="private_key"
-                type="file"
-                accept=".pem,application/x-pem-file"
-                aria-describedby={keyHint}
-                aria-invalid={missing === "key" || undefined}
-                onChange={() => {
-                  if (missing === "key") setMissing(null);
-                }}
-              />
-              <FieldDescription id={keyHint}>
-                {t("github.keyHint")}
-              </FieldDescription>
-              {missing === "key" ? (
-                <FieldError>{t("github.keyMissing")}</FieldError>
-              ) : null}
-            </Field>
-            <div className="flex flex-wrap items-start justify-end gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  setMissing(null);
-                  setEditing(false);
-                }}
-              >
-                {t("common.cancel")}
-              </Button>
-              <Button type="submit" aria-disabled={save.isPending || undefined}>
-                {t("github.save")}
-              </Button>
-            </div>
-          </form>
+      {editing && !registered ? appForm() : null}
+      {author && registered && data ? (
+        <RowListItem className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+          <AppPermissionTable
+            permissions={registered.permissions ?? null}
+            ceiling={settings.data?.ceiling}
+          />
+          <Installations data={data} />
         </RowListItem>
       ) : null}
     </>
   );
+
+  // Under the card's row for a first App, under the danger zone's row when it
+  // replaces one. Hoisted: appRows above renders it.
+  function appForm() {
+    return (
+      <RowListItem>
+        <form
+          className="flex w-full flex-col gap-4"
+          noValidate
+          onSubmit={(event) =>
+            void submit(event).catch(() => {
+              submitting.current = false;
+              onOutcome({ kind: "error", text: t("github.invalidKey") });
+            })
+          }
+        >
+          <Field>
+            <FieldLabel htmlFor={appIdId}>{t("github.appId")}</FieldLabel>
+            <Input
+              ref={appIdRef}
+              id={appIdId}
+              className="max-w-80"
+              name="app_id"
+              inputMode="numeric"
+              autoComplete="off"
+              spellCheck={false}
+              defaultValue={registered ? String(registered.app_id) : ""}
+              aria-describedby={appIdHint}
+              aria-invalid={missing === "appId" || undefined}
+            />
+            <FieldDescription id={appIdHint}>
+              {t("github.appIdHint")}
+            </FieldDescription>
+            {missing === "appId" ? (
+              <FieldError>{t("github.appIdMissing")}</FieldError>
+            ) : null}
+          </Field>
+          <Field>
+            <FieldLabel htmlFor={keyId}>{t("github.key")}</FieldLabel>
+            <Input
+              id={keyId}
+              className="max-w-105"
+              name="private_key"
+              type="file"
+              accept=".pem,application/x-pem-file"
+              aria-describedby={keyHint}
+              aria-invalid={missing === "key" || undefined}
+              onChange={() => {
+                if (missing === "key") setMissing(null);
+              }}
+            />
+            <FieldDescription id={keyHint}>
+              {t("github.keyHint")}
+            </FieldDescription>
+            {missing === "key" ? (
+              <FieldError>{t("github.keyMissing")}</FieldError>
+            ) : null}
+          </Field>
+          <div className="flex flex-wrap items-start justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setMissing(null);
+                setEditing(false);
+              }}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button type="submit" aria-disabled={save.isPending || undefined}>
+              {t("github.save")}
+            </Button>
+          </div>
+        </form>
+      </RowListItem>
+    );
+  }
 
   const confirm = (
     <ConfirmDialog
@@ -413,6 +773,7 @@ function GitHubApp({
       )}
       confirmLabel={t("workspace.delete")}
       cancelLabel={t("common.cancel")}
+      target={registered?.name}
       tone="danger"
       busy={remove.isPending}
       onConfirm={() => {
@@ -421,166 +782,166 @@ function GitHubApp({
     />
   );
 
-  if (!author) {
-    return (
+  const replaceRow = t(
+    author ? "github.replaceRow" : "github.reviewer.replaceRow",
+  );
+  const replaceHint = t(
+    author ? "github.replaceHint" : "github.reviewer.replaceHint",
+  );
+  // The author's danger zone holds the reviewer's rows too, so both Apps'
+  // replace and delete sit last on the page.
+  const dangerRows =
+    canManage && registered ? (
       <>
-        <SettingsCard
-          title={t("github.reviewer.title")}
-          description={t("github.reviewer.hint")}
-          rows={
-            <>
-              {appRows}
-              {canManage && registered
-                ? data?.repositories.map((repository) => (
-                    <SettingRow
-                      key={repository.id}
-                      title={repository.id}
-                      description={repository.url}
-                      badge={
-                        <InstallBadge data={data} repository={repository} />
-                      }
-                    />
-                  ))
-                : null}
-              {registered ? null : (
-                <SettingRow
-                  title={t("github.reviewer.permissionsTitle")}
-                  description={t("github.reviewer.permissions")}
-                />
-              )}
-              <SettingRow
-                title={t("github.reviewer.riskTitle")}
-                description={t("github.reviewer.risk")}
-              />
-              {canManage && registered ? (
-                <SettingRow
-                  title={t("github.reviewer.delete")}
-                  description={t("github.reviewer.deleteHint")}
-                  actions={
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className={`${ACTION} text-(color:--ap-tone-danger-fg)`}
-                      onClick={() => setDeleting(true)}
-                    >
-                      {t("workspace.delete")}
-                    </Button>
-                  }
-                />
-              ) : null}
-            </>
-          }
+        {editing ? (
+          <>
+            <SettingRow
+              title={replaceRow}
+              description={t("github.replaceRowHint")}
+            />
+            {appForm()}
+          </>
+        ) : (
+          <DangerZoneRow
+            title={replaceRow}
+            description={t("github.replaceRowHint")}
+            actionLabel={t("github.replace")}
+            actionName={replaceRow}
+            actionRef={actionRef}
+            onAction={() => setReplacing(true)}
+          />
+        )}
+        <DangerZoneRow
+          title={t(author ? "github.delete" : "github.reviewer.delete")}
+          description={t(
+            author ? "github.deleteHint" : "github.reviewer.deleteHint",
+          )}
+          actionLabel={t("workspace.delete")}
+          actionName={t(author ? "github.delete" : "github.reviewer.delete")}
+          onAction={() => setDeleting(true)}
+        />
+        <ConfirmDialog
+          open={replacing}
+          onOpenChange={setReplacing}
+          title={t(
+            author ? "github.replaceTitle" : "github.reviewer.replaceTitle",
+          )}
+          consequence={`${replaceHint} ${t("github.replaceNext")}`}
+          target={registered.name}
+          confirmLabel={t("github.replace")}
+          cancelLabel={t("common.cancel")}
+          tone="danger"
+          onConfirm={() => {
+            setReplacing(false);
+            setEditing(true);
+          }}
         />
         {confirm}
+      </>
+    ) : null;
+
+  if (part === "danger") return dangerRows;
+
+  if (!author) {
+    // Rows inside ReviewerAdvanced's list, under its "Advanced" row.
+    return (
+      <>
+        {appRows}
+        {canManage && registered
+          ? data?.repositories.map((repository) => (
+              <SettingRow
+                key={repository.id}
+                title={repository.id}
+                description={repository.url}
+                badge={<InstallBadge data={data} repository={repository} />}
+              />
+            ))
+          : null}
+        {registered ? null : (
+          <SettingRow
+            title={t("github.reviewer.permissionsTitle")}
+            description={t("github.reviewer.permissions")}
+          />
+        )}
+        <SettingRow
+          title={t("github.reviewer.riskTitle")}
+          description={t("github.reviewer.risk")}
+        />
       </>
     );
   }
 
+  // GET …/github-apps reads GitHub now; the settings carry the last read.
+  // Owners and admins see the fresh one, and none once the App is deleted.
+  const fresh = canManage && app.isSuccess;
+  const reviewerRegistered = reviewerApp.data?.github_app ?? null;
+  const authorSide = fresh
+    ? registered && {
+        name: registered.name,
+        permissions: registered.permissions ?? null,
+      }
+    : settings.data?.apps.author
+      ? { name: null, permissions: settings.data.apps.author.permissions }
+      : null;
+  const reviewerSide =
+    canManage && reviewerApp.isSuccess
+      ? reviewerRegistered && {
+          name: reviewerRegistered.name,
+          permissions: reviewerRegistered.permissions ?? null,
+        }
+      : settings.data?.apps.reviewer
+        ? { name: null, permissions: settings.data.apps.reviewer.permissions }
+        : null;
+
   return (
     <>
+      {canManage && data ? (
+        <GitHubSummary
+          app={data}
+          userLink={settings.data ? userLinkReady(settings.data) : undefined}
+        />
+      ) : null}
       <SettingsCard
+        id={GITHUB_APP_ANCHOR}
         title={t("github.app")}
         description={t("github.appHint")}
         rows={appRows}
       />
       {children}
-      <GitHubAccess
-        fresh={
-          canManage && app.isSuccess
-            ? registered && { permissions: registered.permissions ?? null }
-            : undefined
-        }
+      {canManage && registered ? (
+        <SettingsCard
+          id={REPOSITORIES_ANCHOR}
+          title={t("github.repositories")}
+          badge={<Badge>{data?.repositories.length ?? 0}</Badge>}
+          description={t("github.repositoriesHint")}
+          rows={
+            data?.repositories.length ? (
+              <RepositoryRows data={data} />
+            ) : (
+              <SettingRow title={t("github.repositoriesEmpty")} />
+            )
+          }
+        />
+      ) : null}
+      <Ceiling
+        settings={settings}
+        author={authorSide || null}
+        reviewer={reviewerSide || null}
         onOutcome={onOutcome}
       />
       {canManage && registered ? (
-        <>
-          <SettingsCard
-            title={t("github.installations")}
-            description={t("github.installationsHint")}
-            rows={
-              data?.installations.length ? (
-                data.installations.map((installation) => (
-                  <SettingRow
-                    key={installation.id}
-                    title={installation.account}
-                    description={t(
-                      installation.repository_selection === "all"
-                        ? "github.selectionAll"
-                        : "github.selectionSelected",
-                    )}
-                    actions={
-                      installation.html_url ? (
-                        <Link
-                          href={installation.html_url}
-                          target="_blank"
-                          newTabLabel={t("github.newTab")}
-                        >
-                          {t("github.openOnGitHub")}
-                        </Link>
-                      ) : undefined
-                    }
-                  />
-                ))
-              ) : (
-                <SettingRow
-                  title={t("github.installationsEmpty")}
-                  description={
-                    data?.check?.state === "failed"
-                      ? t(
-                          data.check.reason_code === "github_rejected"
-                            ? "github.rejectedNow"
-                            : "github.unreachable",
-                        )
-                      : undefined
-                  }
-                />
-              )
-            }
-          />
-          <SettingsCard
-            title={t("github.repositories")}
-            description={t("github.repositoriesHint")}
-            rows={
-              data?.repositories.length ? (
-                data.repositories.map((repository) => (
-                  <SettingRow
-                    key={repository.id}
-                    title={repository.id}
-                    description={repository.url}
-                    badge={<InstallBadge data={data} repository={repository} />}
-                  />
-                ))
-              ) : (
-                <SettingRow title={t("github.repositoriesEmpty")} />
-              )
-            }
-          />
-          <GitHubUserLinkSection
-            workspaceId={workspaceId}
-            appReadAt={app.dataUpdatedAt}
-            onOutcome={onOutcome}
-          />
-          <DangerZone>
-            <SettingRow
-              title={t("github.delete")}
-              description={t("github.deleteHint")}
-              actions={
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className={`${ACTION} text-(color:--ap-tone-danger-fg)`}
-                  onClick={() => setDeleting(true)}
-                >
-                  {t("workspace.delete")}
-                </Button>
-              }
-            />
-          </DangerZone>
-        </>
+        <GitHubUserLinkSection
+          workspaceId={workspaceId}
+          appReadAt={app.dataUpdatedAt}
+          onOutcome={onOutcome}
+        />
       ) : null}
-      {confirm}
+      {canManage && (registered || reviewerApp.data?.github_app) ? (
+        <DangerZone title={t("workspace.danger")}>
+          {dangerRows}
+          {danger}
+        </DangerZone>
+      ) : null}
     </>
   );
 }
@@ -593,33 +954,16 @@ function InstallBadge({
   readonly repository: GetGitHubAppResponse["repositories"][number];
 }) {
   const { t } = useI18n();
-  if (data.check?.state !== "ok") return <Badge>{t("github.unknown")}</Badge>;
-  if (repository.installation_id === null) {
-    return <Badge variant="amber">{t("github.notInstalled")}</Badge>;
+  switch (repositoryState(data, repository)) {
+    case "unknown":
+      return <Badge>{t("github.unknown")}</Badge>;
+    case "notInstalled":
+      return <Badge variant="amber">{t("github.notInstalled")}</Badge>;
+    case "pending":
+      return <Badge variant="amber">{t("github.approvalPending")}</Badge>;
+    case "installed":
+      return <Badge variant="green">{t("github.installed")}</Badge>;
   }
-  if (
-    approvalPending(
-      data.github_app?.permissions,
-      repository.installation_permissions,
-    )
-  ) {
-    return <Badge variant="amber">{t("github.approvalPending")}</Badge>;
-  }
-  return <Badge variant="green">{t("github.installed")}</Badge>;
-}
-
-const RANK = { read: 1, write: 2, admin: 3 } as const;
-
-/** The App asks for more than the installation has accepted so far. */
-function approvalPending(
-  app: GitHubAppPermissions | null | undefined,
-  installation: GitHubAppPermissions | null | undefined,
-): boolean {
-  if (!app || !installation) return false;
-  return Object.entries(app).some(([name, level]) => {
-    const held = installation[name];
-    return held === undefined || RANK[level] > RANK[held];
-  });
 }
 
 function AppBadge({

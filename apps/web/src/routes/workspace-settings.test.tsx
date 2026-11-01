@@ -833,7 +833,11 @@ describe("워크스페이스 설정", () => {
         apiError(503, "BACKEND_UNAVAILABLE", "The secret store is off"),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "삭제" }));
+    await user.click(
+      await screen.findByRole("button", {
+        name: "App Configuration Token 삭제",
+      }),
+    );
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "삭제" }));
     expect((await screen.findByRole("alert")).textContent).toBe(
@@ -852,7 +856,11 @@ describe("워크스페이스 설정", () => {
       },
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "삭제" }));
+    await user.click(
+      await screen.findByRole("button", {
+        name: "App Configuration Token 삭제",
+      }),
+    );
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "삭제" }));
     expect((await screen.findByRole("status")).textContent).toBe(
