@@ -1,7 +1,7 @@
 # 결정: 파일 카탈로그를 없애고 설치 설정을 DB와 콘솔로 옮긴다
 
 - 상태: **확정(2026-11-02).** 오너 원문: "카탈로그 변경은 추천대로 진행해줘". 끝의 "오너 결정" 1~6이 그 내용이다.
-- 기준 커밋: `origin/main` `d90b26731`. `파일:줄`은 모두 이 커밋 기준이다. JeongJaeSoon/agent-platform#992(94S-1131, 이 문서를 쓴 뒤 `c0b27e605`로 land)의 내용은 그 브랜치 기준이라고 따로 적는다.
+- 기준 커밋: `origin/main` `d90b26731`. `파일:줄`은 모두 이 커밋 기준이다. JeongJaeSoon/agent-platform#992(이 문서를 쓴 뒤 `c0b27e605`로 land)의 내용은 그 브랜치 기준이라고 따로 적는다.
 - 오너 원문(2026-11-02): "접속처(connections.yaml) 에 대한 내용도 제거해서 설정으로 옮기는거 어때 ? 그래서 최종적ㅡ로 파일로 제어하는 카탈로그 개ㅁ을 완전히삭제하는게 좋을거 같은데"
 - 추가 오너 원문(2026-11-02): "github app 이 연동할수 있는 저장소 목록이 페이지 네이션 형태로 떠야하지않을까". GitHub App 저장소는 등록하지 않는다. 설치 저장소 API가 정본이고 DB에는 에이전트별 선택만 남는다(1.1절).
 - 앞 결정: [profile-db.md](profile-db.md)(프로필은 DB만), #992의 `repository-catalog-db.md`(GitHub App 저장소는 DB 정본). 이 문서는 두 결정이 파일에 남긴 것을 마저 옮기고, GitHub App 저장소의 콘솔 등록(#992 5절의 추가·제거)을 1.1절의 선택 모델로 대체한다.
@@ -124,7 +124,7 @@ release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.
 | 설정 내보내기 | `installation.settings.manage` | owner | 불가(LATER: 읽기 전용 scope) |
 | 설정 가져오기(API) | 같음 | owner | 불가 |
 
-- 관리 action은 API key가 가질 수 없다(`packages/platform/src/musterrolle/policy.ts:244-266`). 2026-11-01 오너 결정 (가)(94S-1134: 에이전트 key도 발급 때 필요한 scope를 골라 받는다)는 세션·승인 scope에 관한 것이고 관리 action을 key에 여는 결정이 아니다. 이 문서도 관리 action을 key에 열지 않는다. CI에서 설정을 적용하는 GitOps용 key scope는 [대안](#대안)의 LATER로 둔다.
+- 관리 action은 API key가 가질 수 없다(`packages/platform/src/musterrolle/policy.ts:244-266`). 2026-11-01 오너 결정 (가)(에이전트 key도 발급 때 필요한 scope를 골라 받는다)는 세션·승인 scope에 관한 것이고 관리 action을 key에 여는 결정이 아니다. 이 문서도 관리 action을 key에 열지 않는다. CI에서 설정을 적용하는 GitOps용 key scope는 [대안](#대안)의 LATER로 둔다.
 
 ## 4. 첫 기동·개발·검증
 
@@ -184,7 +184,7 @@ release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.
 |---|---|
 | 지금처럼 연결·비밀 저장소는 파일 유지(profile-db.md·#992) | 오너 질문에 답하지 못한다. 연결 하나에 재배포 하나가 남는다 |
 | 외부 참조도 콘솔에서 만들게 한다 | #897이 막은 위험이 다시 열린다. egress 허용 목록 하나만 벽으로 남는다 |
-| 외부 참조를 아예 없애고 저장 값만 | Secrets Manager 회전을 쓰는 설치(EKS alpha, 94S-1109)가 키를 DB에 다시 넣어야 한다. 오너 결정 2 |
+| 외부 참조를 아예 없애고 저장 값만 | Secrets Manager 회전을 쓰는 설치(EKS alpha)가 키를 DB에 다시 넣어야 한다. 오너 결정 2 |
 | 파일을 늘 정본으로 두고 DB에 미러 | 두 곳을 고칠 수 있어 어느 쪽이 맞는지 모른다(#992 대안과 같다) |
 | 첫 기동 자동 가져오기(서버가 파일을 한 번 읽음) | 서버에 파일 로더가 남는다. 오너가 원한 "개념 완전 삭제"가 아니다. 대신 migrate 단계의 CLI가 한다 |
 | GitOps용 key scope(`settings:write`)로 CI가 적용 | 관리 action을 key에 여는 새 결정이다. LATER |
