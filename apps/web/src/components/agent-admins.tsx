@@ -358,6 +358,7 @@ function AdminList({
           {admins.data.teams.map((row) => (
             <RowListItem key={`t:${row.team_id}`}>
               <Avatar
+                size="two-line"
                 shape="square"
                 initials={avatarInitials(row.name).slice(0, 1)}
                 tone={avatarTone(row.team_id)}
