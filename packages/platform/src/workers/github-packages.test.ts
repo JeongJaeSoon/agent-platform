@@ -103,6 +103,8 @@ describe("githubPackageReadOf: rubygems", () => {
       "/acme/versions?x=1",
       "/acme/api/v1/dependencies",
       "/acme/api/v1/dependencies?gems=a&other=b",
+      // An upstream may answer for the last value, which nothing checked.
+      "/acme/api/v1/dependencies?gems=a&gems=b",
       "/acme/api/v1/gems",
       "/acme/gems/../x.gem",
     ]) {
@@ -144,6 +146,16 @@ describe("allowedRead", () => {
       version: "1.2.0",
     });
     expect(allowed("/acme/gems/acme-auth-extra-1.0.0.gem")).toBeNull();
+    // Gems `acme-auth-2fa` and `acme-auth-2`, not versions of `acme-auth`.
+    expect(allowed("/acme/gems/acme-auth-2fa-1.0.0.gem")).toBeNull();
+    expect(
+      allowed("/acme/quick/Marshal.4.8/acme-auth-2fa-1.0.0.gemspec.rz"),
+    ).toBeNull();
+    expect(allowed("/acme/gems/acme-auth-2-1.0.0.gem")).toBeNull();
+    expect(allowed("/acme/gems/acme-auth-1.2.0-x86_64-linux.gem")).toEqual({
+      name: "acme-auth",
+      version: "1.2.0-x86_64-linux",
+    });
     expect(allowed("/acme/info/acme-db")).toBeNull();
     // The owner's index lists names only; any entry for the owner opens it.
     expect(allowed("/acme/specs.4.8.gz")).toEqual({

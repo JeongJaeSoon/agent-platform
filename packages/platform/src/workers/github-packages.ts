@@ -47,6 +47,11 @@ const GEM_FILE = new RegExp(
   `^/(${OWNER})/(?:gems/(${GEM_NAME})\\.gem|quick/Marshal\\.4\\.8/(${GEM_NAME})\\.gemspec\\.rz)$`,
 );
 const GEM_DEPENDENCIES = new RegExp(`^/(${OWNER})/api/v1/dependencies$`);
+// What follows `<name>-` in a gem file: a release version (no dash) and an
+// optional platform whose segments start with a letter. Anything looser lets
+// `foo-2fa-1.0.0.gem`, gem `foo-2fa`, pass as a version of `foo`.
+const GEM_VERSION_AND_PLATFORM =
+  /^[0-9]+(?:\.[0-9A-Za-z]+)*(?:-[A-Za-z][A-Za-z0-9_.]*)*$/;
 
 /**
  * The GitHub tarball path npm sends to the public npm route. With
@@ -90,8 +95,13 @@ export function githubPackageReadOf(
   const dependencies = GEM_DEPENDENCIES.exec(path);
   if (dependencies !== null) {
     const params = new URLSearchParams(query);
-    const gems = params.get("gems");
-    if ([...params.keys()].some((key) => key !== "gems") || !gems) return null;
+    const all = params.getAll("gems");
+    const gems = all[0];
+    // One `gems` only: the upstream may read a repeated key's last value.
+    if ([...params.keys()].some((key) => key !== "gems") || all.length !== 1) {
+      return null;
+    }
+    if (!gems) return null;
     const names = gems.split(",");
     return names.every((name) => new RegExp(`^${GEM_NAME}$`).test(name))
       ? { registry, owner: dependencies[1] ?? "", kind: "gems", names }
@@ -180,7 +190,7 @@ export function allowedRead(
         const rest = read.file.startsWith(`${entry.name}-`)
           ? read.file.slice(entry.name.length + 1)
           : null;
-        if (rest !== null && /^[0-9]/.test(rest)) {
+        if (rest !== null && GEM_VERSION_AND_PLATFORM.test(rest)) {
           return { name: entry.name, version: rest };
         }
       }
