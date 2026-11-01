@@ -339,6 +339,7 @@ function AdminList({
             return (
               <RowListItem key={`u:${user.user_id}`}>
                 <Avatar
+                  size="two-line"
                   initials={avatarInitials(name).slice(0, 1)}
                   tone={avatarTone(user.user_id)}
                 />
@@ -358,6 +359,7 @@ function AdminList({
           {admins.data.teams.map((row) => (
             <RowListItem key={`t:${row.team_id}`}>
               <Avatar
+                size="two-line"
                 shape="square"
                 initials={avatarInitials(row.name).slice(0, 1)}
                 tone={avatarTone(row.team_id)}

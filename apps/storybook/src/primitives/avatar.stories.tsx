@@ -25,7 +25,7 @@ const meta = {
   component: Avatar,
   args: { initials: "JS" },
   argTypes: {
-    size: { control: "select", options: ["default", "lg"] },
+    size: { control: "select", options: ["default", "lg", "two-line"] },
     shape: { control: "select", options: ["circle", "square"] },
     tone: { control: "select", options: ["default", 1, 2, 3, 4] },
   },
@@ -45,7 +45,7 @@ export const Matrix: Story = {
     const locale = localeOf(globals.locale);
     return (
       <div className="flex flex-col gap-4">
-        {(["default", "lg"] as const).map((size) =>
+        {(["default", "lg", "two-line"] as const).map((size) =>
           (["circle", "square"] as const).map((shape) => (
             <div key={`${size}-${shape}`} className="story-row">
               <Avatar size={size} shape={shape} initials="AP" />

@@ -15,6 +15,9 @@
 #   scripts/local.sh forget-lost-checkpoints
 #                                        after a Docker restart: give up the lost checkpoints, keep the rest
 #   scripts/local.sh demo-accounts       add whichever demo account, agent or session is missing to a running stack
+#   scripts/local.sh dev [--fake-model]  up with infra/compose.dev.yml: a saved control host file restarts
+#                                        api, scheduler and reconciler in place, without an image build
+#   scripts/local.sh web                 the web console's Vite dev server (hot module reload) against the running api
 #
 # The local S3 server keeps checkpoints and its encryption seed on a named
 # volume, just as postgres keeps its rows. Container and Docker restarts, or
@@ -67,12 +70,19 @@ die() {
 
 # The overlay `up` and `reset` add; empty for the commands that take no mode.
 overlay=""
+# Set by `dev`: infra/compose.dev.yml goes on top of the mode's overlay.
+dev=""
 compose() {
   local args=() file IFS=:
   if [ -n "$overlay" ]; then
     # -f replaces COMPOSE_FILE, so the overlay goes on top of its files.
     for file in ${COMPOSE_FILE:-compose.yaml}; do args+=(-f "$file"); done
     args+=(-f "$overlay")
+    # Once only, for a COMPOSE_FILE that already names it (a verify run's).
+    case ":${COMPOSE_FILE:-}:" in
+      *[:/]infra/compose.dev.yml:*) ;;
+      *) [ -z "$dev" ] || args+=(-f infra/compose.dev.yml) ;;
+    esac
   else
     # status, down and key: the fake-model profile too, so they still see
     # the fake Messages API of a --fake-model stack.
@@ -82,7 +92,7 @@ compose() {
 }
 
 usage() {
-  sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' >&2
   exit 2
 }
 
@@ -162,11 +172,18 @@ preflight() {
   echo "Docker Engine $engine, compose $compose_version" >&2
 }
 
-# Empty while the api publishes nothing.
-readyz() {
+# Where the host reaches the api; empty while it publishes nothing.
+api_address() {
   local address
   address=$(compose port api 3000 2>/dev/null | head -n 1) || true
   case "$address" in 0.0.0.0:* | "[::]:"*) address=127.0.0.1:${address##*:} ;; esac
+  echo "$address"
+}
+
+# Empty while the api publishes nothing.
+readyz() {
+  local address
+  address=$(api_address)
   [ -z "$address" ] ||
     curl -sS --noproxy '*' --max-time 3 "http://$address/readyz" 2>/dev/null || true
 }
@@ -303,8 +320,18 @@ forget_lost_checkpoints() {
   compose run --rm -T --build api bun run apps/control-host/src/api/forget-lost-checkpoints.ts
 }
 
+# Vite reads the files on this machine, so `bun install` must have run here.
+web() {
+  local address
+  address=$(api_address)
+  [ -n "$address" ] || die "the api publishes no port; start the stack first (scripts/local.sh dev)"
+  VITE_API_TARGET="http://$address" exec bun run --cwd apps/web dev
+}
+
 case "${1:-}" in
   up) shift; mode "$@"; up ;;
+  dev) shift; mode "$@"; dev=1; up ;;
+  web) web ;;
   down) shift; down "$@" ;;
   # Checked before down too, so a reset that cannot start deletes nothing.
   # Not `down && up`: errexit would not hold inside down.
