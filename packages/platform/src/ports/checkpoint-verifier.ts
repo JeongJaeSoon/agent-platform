@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { CheckpointRef } from "@werft-ai/contracts";
 import {
   type CheckpointOutput,
@@ -22,15 +23,35 @@ export function checkpointOutputObjects(
   return [...byKey].map(([key, bytes]) => ({ key, bytes }));
 }
 
+/**
+ * The out/ list as achievements see it, path by path; null when it names no
+ * file. Object keys alone miss a rename, a copy to a new path, and a file
+ * over the limits, which has no object.
+ */
+export function checkpointOutputsDigest(
+  outputs: readonly CheckpointOutput[] | undefined,
+): string | null {
+  if (outputs === undefined || outputs.length === 0) return null;
+  const lines = outputs
+    .map((output) =>
+      "omitted" in output
+        ? `${output.path}\0${output.omitted}\0${output.bytes}`
+        : `${output.path}\0${output.sha256}`,
+    )
+    .sort();
+  return createHash("sha256").update(lines.join("\n")).digest("hex");
+}
+
 export type CheckpointVerdict =
   // `versionsHeld`: see `ManifestVerdict`; finalize records it on the pointer.
   // `transcriptBytes`: the manifest's transcript total, recorded on its row.
   // `outputs`: the stored output objects it names, inherited ones included;
-  // finalize records them beside its row.
+  // finalize records them beside its row, and `outputsDigest` on it.
   // `runtime`: the manifest's fingerprint, recorded on its row.
   | {
       status: "verified";
       outputs?: readonly CheckpointOutputObject[];
+      outputsDigest?: string | null;
       runtime?: RuntimeFingerprint;
       transcriptBytes?: number;
       versionsHeld?: boolean;
@@ -114,16 +135,24 @@ export function serviceCheckpointVerifier(service: {
         transcriptParts(verdict.manifest.transcripts),
       );
       const outputs = checkpointOutputObjects(verdict.manifest.outputs);
+      const outputsDigest = checkpointOutputsDigest(verdict.manifest.outputs);
       const { runtime } = verdict.manifest;
       return verdict.versionsHeld === true
         ? {
             status: "verified",
             outputs,
+            outputsDigest,
             runtime,
             transcriptBytes: bytes,
             versionsHeld: true,
           }
-        : { status: "verified", outputs, runtime, transcriptBytes: bytes };
+        : {
+            status: "verified",
+            outputs,
+            outputsDigest,
+            runtime,
+            transcriptBytes: bytes,
+          };
     },
   };
 }

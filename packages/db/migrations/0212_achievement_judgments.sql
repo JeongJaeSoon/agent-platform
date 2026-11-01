@@ -62,6 +62,7 @@ CREATE TABLE "session_achievements" (
 	CONSTRAINT "session_achievements_reviewed_check" CHECK (("session_achievements"."reviewed_by" IS NULL) = ("session_achievements"."reviewed_at" IS NULL))
 );
 --> statement-breakpoint
+ALTER TABLE "checkpoints" ADD COLUMN "outputs_digest" text;--> statement-breakpoint
 ALTER TABLE "achievement_judgments" ADD CONSTRAINT "achievement_judgments_session_fk" FOREIGN KEY ("session_id","owner_id","workspace_id") REFERENCES "public"."sessions"("id","owner_id","workspace_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "session_achievements" ADD CONSTRAINT "session_achievements_rule_id_achievement_rules_id_fk" FOREIGN KEY ("rule_id") REFERENCES "public"."achievement_rules"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "session_achievements" ADD CONSTRAINT "session_achievements_type_id_achievement_types_id_fk" FOREIGN KEY ("type_id") REFERENCES "public"."achievement_types"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint

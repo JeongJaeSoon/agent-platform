@@ -163,7 +163,15 @@ export function createAchievementJudge(deps: {
     let files: { path: string; bytes: number }[] = [];
     let outputsUnavailable = false;
     if (context.rules.some((rule) => rule.evidenceKind === "out_file")) {
-      const listed = await outputs.readOutputs(claimed.sessionId);
+      const listed = await outputs
+        .readOutputs(claimed.sessionId)
+        .catch((error: unknown) => {
+          logger.warn("Achievement judgment could not list out/", {
+            judgment_id: claimed.id,
+            error: error instanceof Error ? error.name : String(error),
+          });
+          return { status: "unavailable" as const };
+        });
       // The pairs that need no out/ list are counted all the same.
       if (listed.status === "unavailable") outputsUnavailable = true;
       if (listed.status === "ready") {

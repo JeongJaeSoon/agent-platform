@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { CheckpointManifest } from "@werft-ai/runtime-core";
-import { serviceCheckpointVerifier } from "./checkpoint-verifier.ts";
+import {
+  checkpointOutputsDigest,
+  serviceCheckpointVerifier,
+} from "./checkpoint-verifier.ts";
 
 const fence = {
   sessionId: "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d",
@@ -72,7 +75,12 @@ describe("serviceCheckpointVerifier", () => {
     // The total the session detail judges TRANSCRIPT_LIMIT on.
     expect(
       await verifier.verify({ fence, turnId: "1", checkpoint, at }),
-    ).toEqual({ status: "verified", outputs: [], transcriptBytes: 22 });
+    ).toEqual({
+      status: "verified",
+      outputs: [],
+      outputsDigest: null,
+      transcriptBytes: 22,
+    });
 
     // Outputs: two paths of the same content are one object, an inherited
     // ref is named like any other, and an omitted file has no object at all.
@@ -96,8 +104,40 @@ describe("serviceCheckpointVerifier", () => {
         { key: "s/checkpoints/1/att_1/outputs/aa", bytes: 100 },
         { key: "s/checkpoints/0/att_0/outputs/cc", bytes: 30 },
       ],
+      outputsDigest: checkpointOutputsDigest(
+        (verdict.manifest as CheckpointManifest).outputs,
+      ),
       transcriptBytes: 0,
     });
+  });
+
+  test("the out/ digest changes with a path, a copy or an omitted file, not with the order", () => {
+    const report = {
+      bytes: 10,
+      key: "s/checkpoints/1/att_1/outputs/aa",
+      path: "out/report.md",
+      sha256: "a".repeat(64),
+    };
+    const big = {
+      bytes: 9_000_000_000,
+      omitted: "too_large" as const,
+      path: "out/big.bin",
+    };
+    const base = checkpointOutputsDigest([report]);
+    expect(checkpointOutputsDigest([])).toBeNull();
+    expect(checkpointOutputsDigest(undefined)).toBeNull();
+    expect(base).toMatch(/^[0-9a-f]{64}$/);
+    expect(checkpointOutputsDigest([{ ...report }])).toBe(base);
+    const changed = [
+      [{ ...report, path: "out/final.md" }],
+      [report, { ...report, path: "out/copy.md" }],
+      [report, big],
+      [report, { ...big, bytes: big.bytes + 1 }],
+    ].map(checkpointOutputsDigest);
+    expect(new Set([base, ...changed]).size).toBe(5);
+    expect(checkpointOutputsDigest([big, report])).toBe(
+      checkpointOutputsDigest([report, big]),
+    );
   });
 
   test("carries the manifest's runtime fingerprint to the pointer row", async () => {

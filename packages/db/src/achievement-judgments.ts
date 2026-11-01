@@ -19,6 +19,7 @@ import {
   type OutcomeEvidence,
 } from "@werft-ai/platform";
 import { and, asc, desc, eq, isNull, type SQL, sql } from "drizzle-orm";
+import { findPgError } from "./control-shared.ts";
 import type { Database } from "./queries.ts";
 import {
   achievementJudgments,
@@ -34,7 +35,7 @@ import {
  * Queues an `evidence` judgment of the session, in the transaction that wrote
  * its evidence (achievement-rules.md §4). A queued one already there is kept
  * and waits the quiet time again from now, never less than it already
- * waits. Nothing is queued for a session without a workspace, or when the
+ * waits; a retry it was becomes a first try, as new evidence counts afresh. Nothing is queued for a session without a workspace, or when the
  * workspace turned `on_evidence` off.
  */
 export async function queueAchievementJudgment(
@@ -58,7 +59,8 @@ export async function queueAchievementJudgment(
     WHERE s.id = ${sessionId}
       AND (w.settings -> 'achievement_judge' -> 'on_evidence') IS DISTINCT FROM 'false'::jsonb
     ON CONFLICT (session_id) WHERE status = 'queued'
-    DO UPDATE SET next_attempt_at = GREATEST(achievement_judgments.next_attempt_at, EXCLUDED.next_attempt_at)`);
+    DO UPDATE SET next_attempt_at = GREATEST(achievement_judgments.next_attempt_at, EXCLUDED.next_attempt_at),
+                  attempts = 0`);
 }
 
 const iso = (at: Date | null) => at?.toISOString() ?? null;
@@ -238,6 +240,10 @@ export function createPostgresAchievementJudgments(
 
     finish(judgment, result) {
       return db.transaction(async (tx) => {
+        // Before any judgment or achievement row, as queueAchievementJudgment.
+        await tx.execute(
+          sql`SELECT 1 FROM sessions WHERE id = ${judgment.sessionId} FOR KEY SHARE`,
+        );
         const [held] = await tx
           .select({
             workspaceId: achievementJudgments.workspaceId,
@@ -253,12 +259,17 @@ export function createPostgresAchievementJudgments(
           )
           .for("update");
         if (!held) return false;
-        let status = result.status;
-        let nextAttemptAt: SQL | undefined;
-        if (result.status === "queued") {
-          const at = sql`clock_timestamp() + make_interval(secs => ${result.retryInMs / 1000})`;
-          // A session has one queued judgment: a newer trigger's waits
-          // for the retry too, and judges everything this one would.
+        const done = {
+          errorCode: result.errorCode,
+          rules: result.rules,
+          evidenceIds: result.evidenceIds,
+          leaseToken: null,
+          leaseExpiresAt: null,
+        };
+        const self = eq(achievementJudgments.id, judgment.id);
+        // A session has one queued judgment: a newer trigger's waits for the
+        // retry too, and judges everything this one would.
+        const fold = async (at: SQL) => {
           const [other] = await tx
             .update(achievementJudgments)
             .set({
@@ -271,23 +282,36 @@ export function createPostgresAchievementJudgments(
               ),
             )
             .returning({ id: achievementJudgments.id });
-          if (other) status = "failed";
-          else nextAttemptAt = at;
+          return other !== undefined;
+        };
+        const end = (status: "succeeded" | "skipped" | "failed") =>
+          tx
+            .update(achievementJudgments)
+            .set({ ...done, status, finishedAt: sql`now()` })
+            .where(self);
+        if (result.status !== "queued") {
+          await end(result.status);
+        } else {
+          const at = sql`clock_timestamp() + make_interval(secs => ${result.retryInMs / 1000})`;
+          let requeued = false;
+          if (!(await fold(at))) {
+            // A trigger committing meanwhile takes the queued slot first.
+            requeued = await tx
+              .transaction(async (savepoint) => {
+                await savepoint
+                  .update(achievementJudgments)
+                  .set({ ...done, status: "queued", nextAttemptAt: at })
+                  .where(self);
+                return true;
+              })
+              .catch((error: unknown) => {
+                if (findPgError(error, "23505")) return false;
+                throw error;
+              });
+            if (!requeued) await fold(at);
+          }
+          if (!requeued) await end("failed");
         }
-        await tx
-          .update(achievementJudgments)
-          .set({
-            status,
-            errorCode: result.errorCode,
-            rules: result.rules,
-            evidenceIds: result.evidenceIds,
-            leaseToken: null,
-            leaseExpiresAt: null,
-            ...(nextAttemptAt === undefined
-              ? { finishedAt: sql`now()` }
-              : { nextAttemptAt }),
-          })
-          .where(eq(achievementJudgments.id, judgment.id));
         if (result.achievements.length > 0) {
           // A family's achievement for the evidence stays as it is, and so
           // does whatever a person decided about it.

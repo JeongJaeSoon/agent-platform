@@ -2252,6 +2252,9 @@ export const checkpoints = pgTable(
     // under outputs. False on rows committed before it was recorded, whose
     // outputs no figure counts.
     outputsRecorded: boolean("outputs_recorded").notNull().default(false),
+    // checkpointOutputsDigest of the manifest's out/ list, recorded with
+    // outputs_recorded; null when it names no file or was not recorded.
+    outputsDigest: text("outputs_digest"),
   },
   (table) => [
     primaryKey({ columns: [table.sessionId, table.revision] }),

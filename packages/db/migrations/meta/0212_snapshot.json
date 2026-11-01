@@ -1,5 +1,5 @@
 {
-  "id": "e268d113-1290-48c2-b717-73f025b1e73e",
+  "id": "d82f39ae-7ada-4b56-b2e4-4fb3db4d213f",
   "prevId": "b9a2aaaa-4876-4ffa-a272-e03214202c24",
   "version": "7",
   "dialect": "postgresql",
@@ -2992,6 +2992,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "outputs_digest": {
+          "name": "outputs_digest",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {

@@ -145,6 +145,7 @@ import {
   resumeLaunchesSpent,
 } from "./resume-control.ts";
 import {
+  achievementJudgments,
   approvalCheckpoints,
   attempts,
   catalogAuthority,
@@ -469,32 +470,46 @@ function parentRevisionOf(session: SessionRow, attemptId: string) {
 const OUTPUT_ROWS_PER_INSERT = 5_000;
 
 /**
- * Whether the out/ files differ from the parent revision's, which makes them
- * changed evidence (achievement-rules.md §4). Compared by stored object key,
- * so a file renamed with its content unchanged, or a second path with the
- * same content as one already listed, is no change.
+ * Whether this checkpoint's out/ list is new evidence (achievement-rules.md
+ * §4): it differs from the parent revision's, path by path, or the session's
+ * latest judgment could not read out/ and gave up.
  */
-async function outputsChanged(
+async function outputsAreEvidence(
   tx: Database,
   sessionId: string,
   parentRevision: number | null,
-  outputs: readonly { key: string }[],
+  digest: string | null,
 ): Promise<boolean> {
-  const parent =
+  const [parent] =
     parentRevision === null
       ? []
       : await tx
-          .select({ key: checkpointOutputs.objectKey })
-          .from(checkpointOutputs)
+          .select({
+            digest: checkpoints.outputsDigest,
+            recorded: checkpoints.outputsRecorded,
+          })
+          .from(checkpoints)
           .where(
             and(
-              eq(checkpointOutputs.sessionId, sessionId),
-              eq(checkpointOutputs.revision, parentRevision),
+              eq(checkpoints.sessionId, sessionId),
+              eq(checkpoints.revision, parentRevision),
             ),
           );
-  const before = new Set(parent.map(({ key }) => key));
-  const now = new Set(outputs.map(({ key }) => key));
-  return before.size !== now.size || [...now].some((key) => !before.has(key));
+  // A parent that recorded no list is read as differing.
+  if (parent !== undefined && !parent.recorded) return true;
+  if ((parent?.digest ?? null) !== digest) return true;
+  const [latest] = await tx
+    .select({
+      status: achievementJudgments.status,
+      errorCode: achievementJudgments.errorCode,
+    })
+    .from(achievementJudgments)
+    .where(eq(achievementJudgments.sessionId, sessionId))
+    .orderBy(desc(achievementJudgments.createdAt))
+    .limit(1);
+  return (
+    latest?.status === "failed" && latest.errorCode === "outputs_unavailable"
+  );
 }
 
 export async function advanceCheckpointPointer(
@@ -511,6 +526,8 @@ export async function advanceCheckpointPointer(
     // Absent when the verifier did not read the manifest's outputs; the row
     // then stays outputs_recorded = false and usage reports itself partial.
     outputs?: readonly { key: string; bytes: number }[];
+    /** checkpointOutputsDigest of the same list. */
+    outputsDigest?: string | null;
   },
 ): Promise<
   | { outcome: "committed"; revision: number }
@@ -546,6 +563,8 @@ export async function advanceCheckpointPointer(
     // launch's scheme is the one the manifest's digest was computed under.
     runtimeProfileScheme: sql`(SELECT ${workerLaunches.runtimeProfileScheme} FROM ${workerLaunches} WHERE ${workerLaunches.claimedAttemptId} = ${input.fence.attemptId})`,
     outputsRecorded: input.outputs !== undefined,
+    outputsDigest:
+      input.outputs === undefined ? null : (input.outputsDigest ?? null),
   });
   // A manifest may name up to DEFAULT_MAX_MANIFEST_OBJECTS objects; one
   // statement for all of them would pass PostgreSQL's 65,535 bind parameters.
@@ -564,7 +583,12 @@ export async function advanceCheckpointPointer(
   }
   if (
     input.outputs !== undefined &&
-    (await outputsChanged(tx, input.fence.sessionId, parentRevision, outputs))
+    (await outputsAreEvidence(
+      tx,
+      input.fence.sessionId,
+      parentRevision,
+      input.outputsDigest ?? null,
+    ))
   ) {
     await queueAchievementJudgment(tx, input.fence.sessionId);
   }
@@ -2636,6 +2660,9 @@ export function createPostgresWorkerUnitOfWork(
             ...(input.checkpointOutputs === undefined
               ? {}
               : { outputs: input.checkpointOutputs }),
+            ...(input.checkpointOutputsDigest === undefined
+              ? {}
+              : { outputsDigest: input.checkpointOutputsDigest }),
             ...(input.checkpointRuntime === undefined
               ? {}
               : { runtime: input.checkpointRuntime }),

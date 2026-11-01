@@ -58,7 +58,11 @@ function judgeOf(
     title?: string | null;
   },
   outputs: SessionOutputsResult = { status: "none" },
-  options: { attempts?: number; contextFails?: boolean } = {},
+  options: {
+    attempts?: number;
+    contextFails?: boolean;
+    outputsThrow?: boolean;
+  } = {},
 ) {
   const finished: JudgmentResult[] = [];
   const warnings: string[] = [];
@@ -89,6 +93,7 @@ function judgeOf(
     outputs: {
       readOutputs: async (sessionId) => {
         reads.push(sessionId);
+        if (options.outputsThrow) throw new Error("object store down");
         return outputs;
       },
     },
@@ -280,6 +285,28 @@ describe("achievement judge", () => {
       ["queued", 1_800_000, "outputs_unavailable", ["github_pull_request"]],
       ["failed", null, "outputs_unavailable", ["github_pull_request"]],
     ]);
+  });
+
+  test("an out/ list that throws is an unreadable one: the pull request still counts and the try is retried", async () => {
+    const { judge, finished, warnings } = judgeOf(
+      {
+        rules: [
+          rule("pull_request", "github_pull_request"),
+          rule("document", "out_file"),
+        ],
+        outcomes: [PULL_REQUEST],
+      },
+      undefined,
+      { outputsThrow: true },
+    );
+    await judge.runOnce();
+    expect(finished).toMatchObject([
+      { status: "queued", retryInMs: 60_000, errorCode: "outputs_unavailable" },
+    ]);
+    expect(finished[0]?.achievements.map((a) => a.evidenceKind)).toEqual([
+      "github_pull_request",
+    ]);
+    expect(warnings).toEqual(["Achievement judgment could not list out/"]);
   });
 
   test("a try that throws is retried the same way, and a judgment past its retries is failed without judging", async () => {

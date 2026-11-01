@@ -10,6 +10,8 @@ import {
   type AchievementJudgmentStore,
   type ClaimedJudgment,
   callerFor,
+  checkpointOutputObjects,
+  checkpointOutputsDigest,
   createAchievementJudge,
   type SessionOutputsResult,
   type TeamActor,
@@ -38,6 +40,7 @@ import {
   insertPullRequestOutcome,
 } from "./pull-requests.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
+import type { Database } from "./queries.ts";
 import * as schema from "./schema.ts";
 import {
   achievementJudgments,
@@ -465,6 +468,156 @@ integration("achievement judgments on PostgreSQL", () => {
     ]);
   });
 
+  /** A claimed judgment of a session with a pull request, and its retry. */
+  async function claimedRetry() {
+    const ws = await workspace();
+    const counted = await rule(
+      ws,
+      await typeId(ws.workspaceId, "pull_request"),
+    );
+    const sessionId = await session(ws.workspaceId);
+    const pr = await pullRequest(sessionId, ws.workspaceId);
+    await quietPassed(sessionId);
+    const [claimed] = (
+      await judgments.claim({ max: 100, leaseMs: 60_000 })
+    ).filter((row) => row.sessionId === sessionId);
+    if (!claimed) throw new Error("not claimed");
+    const retry = {
+      status: "queued" as const,
+      retryInMs: 60_000,
+      errorCode: "outputs_unavailable" as const,
+      rules: [counted.id],
+      evidenceIds: [pr.id],
+      achievements: [
+        {
+          ruleId: counted.id,
+          ruleFamilyId: counted.family_id,
+          typeId: counted.type_id,
+          agentId: null,
+          agentReleaseId: null,
+          title: "acme/app#pr",
+          link: pr.url,
+          evidenceKind: "github_pull_request" as const,
+          evidenceId: pr.id,
+          payload: null,
+          judge: "always" as const,
+          reviewState: "auto" as const,
+        },
+      ],
+    };
+    return { sessionId, claimed, retry };
+  }
+
+  /** Runs `body`, waits for `release`, runs `after`, then commits. */
+  function held(
+    body: (tx: Database) => Promise<void>,
+    after: (tx: Database) => Promise<void> = async () => {},
+  ) {
+    let ready: () => void = () => {};
+    const started = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    let release: () => void = () => {};
+    const go = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const done = db.transaction(async (tx) => {
+      await body(tx);
+      ready();
+      await go;
+      await after(tx);
+    });
+    return { started, release, done };
+  }
+
+  test("a retry folds into a judgment a trigger queued meanwhile, committed before or while it finishes", async () => {
+    // Committed before: the retry's wait moves onto the queued one.
+    const before = await claimedRetry();
+    await queueAchievementJudgment(db, before.sessionId);
+    expect(await judgments.finish(before.claimed, before.retry)).toBe(true);
+    const folded = await judgmentsOf(before.sessionId);
+    expect(folded.map((row) => [row.status, row.errorCode])).toEqual([
+      ["failed", "outputs_unavailable"],
+      ["queued", null],
+    ]);
+    expect(folded[1]?.nextAttemptAt.getTime()).toBeGreaterThan(
+      Date.now() + 50_000,
+    );
+    expect(await achievementsOf(before.sessionId)).toHaveLength(1);
+
+    // Still uncommitted when the retry looks: it takes the queued slot first.
+    const during = await claimedRetry();
+    const trigger = held((tx) =>
+      queueAchievementJudgment(tx, during.sessionId),
+    );
+    await trigger.started;
+    const finishing = judgments.finish(during.claimed, during.retry);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    trigger.release();
+    await trigger.done;
+    expect(await finishing).toBe(true);
+    const raced = await judgmentsOf(during.sessionId);
+    expect(raced.map((row) => row.status)).toEqual(["failed", "queued"]);
+    expect(raced[1]?.nextAttemptAt.getTime()).toBeGreaterThan(
+      Date.now() + 50_000,
+    );
+    expect(await achievementsOf(during.sessionId)).toHaveLength(1);
+  });
+
+  test("a retry's finish and a checkpoint's fence and queue do not deadlock", async () => {
+    const { sessionId, claimed, retry } = await claimedRetry();
+    // As a checkpoint commit: the fence locks the session, then it queues.
+    const checkpoint = held(
+      (tx) =>
+        tx
+          .execute(
+            sql`SELECT 1 FROM sessions WHERE id = ${sessionId} FOR UPDATE`,
+          )
+          .then(() => {}),
+      (tx) => queueAchievementJudgment(tx, sessionId),
+    );
+    await checkpoint.started;
+    const finishing = judgments.finish(claimed, retry);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    checkpoint.release();
+    const results = await Promise.allSettled([checkpoint.done, finishing]);
+    expect(
+      results.map((result) =>
+        result.status === "rejected"
+          ? findPgError(result.reason, "40P01")
+            ? "deadlock"
+            : "error"
+          : "ok",
+      ),
+    ).toEqual(["ok", "ok"]);
+    expect(await achievementsOf(sessionId)).toHaveLength(1);
+  });
+
+  test("new evidence makes a waiting retry a first try again", async () => {
+    const { sessionId, claimed, retry } = await claimedRetry();
+    expect(await judgments.finish(claimed, retry)).toBe(true);
+    expect(await judgmentsOf(sessionId)).toMatchObject([
+      { status: "queued", attempts: 1 },
+    ]);
+    await queueAchievementJudgment(db, sessionId);
+    expect(await judgmentsOf(sessionId)).toMatchObject([
+      { status: "queued", attempts: 0 },
+    ]);
+  });
+
+  test("a second finish of a claim that went back to queued writes nothing", async () => {
+    const { sessionId, claimed, retry } = await claimedRetry();
+    expect(await judgments.finish(claimed, retry)).toBe(true);
+    await db
+      .delete(sessionAchievements)
+      .where(eq(sessionAchievements.sessionId, sessionId));
+    expect(await judgments.finish(claimed, retry)).toBe(false);
+    expect(await achievementsOf(sessionId)).toEqual([]);
+    expect(await judgmentsOf(sessionId)).toMatchObject([
+      { status: "queued", attempts: 1 },
+    ]);
+  });
+
   test("a refresher read that changes a pull request's state queues a judgment; one that does not, queues none", async () => {
     const { workspaceId } = await workspace();
     const sessionId = await session(workspaceId);
@@ -523,7 +676,7 @@ integration("achievement judgments on PostgreSQL", () => {
     ]);
   });
 
-  test("a checkpoint queues a judgment only when its out/ files differ from its parent's, in its own transaction", async () => {
+  test("a checkpoint queues a judgment only when its out/ list differs from its parent's, path by path, in its own transaction", async () => {
     const { workspaceId } = await workspace();
     const sessionId = await session(workspaceId);
     const attemptId = `attempt-${randomUUID()}`;
@@ -549,21 +702,25 @@ integration("achievement judgments on PostgreSQL", () => {
       manifest_ref: `sessions/${sessionId}/checkpoints/${revision}/${attemptId}/manifest.json`,
       manifest_sha256: "a".repeat(64),
     });
-    const output = (revision: number, digest: string) => ({
-      key: `sessions/${sessionId}/checkpoints/${revision}/${attemptId}/outputs/${digest.repeat(64)}`,
+    type Listed = Parameters<typeof checkpointOutputsDigest>[0] & {};
+    const stored = (path: string, digit: string) => ({
+      path,
+      sha256: digit.repeat(64),
       bytes: 42,
+      key: `sessions/${sessionId}/checkpoints/1/${attemptId}/outputs/${digit.repeat(64)}`,
     });
-    const commit = (
-      revision: number,
-      outputs: { key: string; bytes: number }[],
-    ) =>
+    const listed = (outputs: Listed) => ({
+      outputs: checkpointOutputObjects(outputs),
+      outputsDigest: checkpointOutputsDigest(outputs),
+    });
+    const commit = (revision: number, outputs: Listed) =>
       commitCheckpoint(db, {
         checkpoint: checkpoint(revision),
         fence,
         now: new Date(),
         sessionId,
         turnId: null,
-        outputs,
+        ...listed(outputs),
       });
     const queued = async () => {
       const rows = await judgmentsOf(sessionId);
@@ -572,22 +729,46 @@ integration("achievement judgments on PostgreSQL", () => {
         .where(eq(achievementJudgments.sessionId, sessionId));
       return rows.map((row) => row.status);
     };
-    const a = output(1, "a");
-    expect(await commit(0, [])).toEqual({ outcome: "committed", revision: 0 });
-    expect(await queued()).toEqual([]);
-    expect(await commit(1, [a])).toEqual({ outcome: "committed", revision: 1 });
-    expect(await queued()).toEqual(["queued"]);
-    // The same file inherited: no change.
-    expect(await commit(2, [a])).toEqual({ outcome: "committed", revision: 2 });
-    expect(await queued()).toEqual([]);
-    expect(await commit(3, [a, output(3, "b")])).toEqual({
-      outcome: "committed",
-      revision: 3,
-    });
-    expect(await queued()).toEqual(["queued"]);
-    // Removing one is a change too.
-    expect(await commit(4, [a])).toEqual({ outcome: "committed", revision: 4 });
-    expect(await queued()).toEqual(["queued"]);
+    const report = stored("out/report.md", "a");
+    const steps: [string, Listed, string[]][] = [
+      ["no files", [], []],
+      ["a new file", [report], ["queued"]],
+      ["the same file inherited", [report], []],
+      ["a rename", [{ ...report, path: "out/final.md" }], ["queued"]],
+      [
+        "a copy of the same content to a new path",
+        [{ ...report, path: "out/final.md" }, report],
+        ["queued"],
+      ],
+      [
+        "a file over the limits, with no object",
+        [
+          { ...report, path: "out/final.md" },
+          report,
+          { path: "out/big.bin", bytes: 9e9, omitted: "too_large" },
+        ],
+        ["queued"],
+      ],
+      [
+        "the same list in another order",
+        [
+          { path: "out/big.bin", bytes: 9e9, omitted: "too_large" },
+          report,
+          { ...report, path: "out/final.md" },
+        ],
+        [],
+      ],
+      ["a removal", [report], ["queued"]],
+    ];
+    const seen: [string, string[]][] = [];
+    for (const [revision, [label, outputs]] of steps.entries()) {
+      expect(await commit(revision, outputs)).toEqual({
+        outcome: "committed",
+        revision,
+      });
+      seen.push([label, await queued()]);
+    }
+    expect(seen).toEqual(steps.map(([label, , expected]) => [label, expected]));
 
     await expect(
       db.transaction(async (tx) => {
@@ -596,11 +777,11 @@ integration("achievement judgments on PostgreSQL", () => {
         const advanced = await advanceCheckpointPointer(tx, {
           fence,
           session: fenced.session,
-          checkpoint: checkpoint(5),
+          checkpoint: checkpoint(steps.length),
           turnRowId: null,
           now: new Date(),
           versionsHeld: false,
-          outputs: [output(5, "c")],
+          ...listed([stored("out/other.md", "c")]),
         });
         expect(advanced.outcome).toBe("committed");
         const inside = await tx
@@ -611,6 +792,28 @@ integration("achievement judgments on PostgreSQL", () => {
         throw new Error("rolled back");
       }),
     ).rejects.toThrow("rolled back");
+    expect(await queued()).toEqual([]);
+
+    // A judgment that gave up on an unreadable out/ is retried by the next
+    // checkpoint, though the list did not change.
+    await db.insert(achievementJudgments).values({
+      id: randomUUID(),
+      workspaceId,
+      ownerId: workspaceId,
+      sessionId,
+      trigger: "evidence",
+      status: "failed",
+      errorCode: "outputs_unavailable",
+      nextAttemptAt: new Date(),
+      finishedAt: new Date(),
+    });
+    expect(await commit(steps.length, [report])).toMatchObject({
+      outcome: "committed",
+    });
+    expect(await queued()).toEqual(["failed", "queued"]);
+    expect(await commit(steps.length + 1, [report])).toMatchObject({
+      outcome: "committed",
+    });
     expect(await queued()).toEqual([]);
   });
 
