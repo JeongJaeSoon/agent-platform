@@ -345,6 +345,7 @@ integration("execution Grant revocation on PostgreSQL", () => {
     ).toEqual([
       { purpose: "gateway", revoked: true },
       { purpose: "object_store", revoked: true },
+      { purpose: "packages", revoked: true },
       { purpose: "provider", revoked: true },
       { purpose: "repository", revoked: true },
     ]);
