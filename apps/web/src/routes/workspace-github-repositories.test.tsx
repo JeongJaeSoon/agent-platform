@@ -126,12 +126,18 @@ describe("GitHub 연결 › 에이전트가 쓰는 저장소", () => {
     );
     expect(await picker.findByText("이미 추가됨")).toBeDefined();
     // The search narrows the list by name.
-    await user.type(picker.getByRole("searchbox"), "WEB");
+    await user.type(picker.getByRole("searchbox"), "ＷＥＢ");
     expect(picker.queryByRole("button", { name: "acme/api 추가" })).toBeNull();
+    expect(picker.getByText("acme/web")).toBeDefined();
     await user.clear(picker.getByRole("searchbox"));
     await user.type(picker.getByRole("searchbox"), "nothing");
     expect(picker.getByText("맞는 저장소가 없습니다.")).toBeDefined();
-    await user.clear(picker.getByRole("searchbox"));
+    // Clearing puts the whole list back and focus in the box.
+    await user.click(picker.getByRole("button", { name: "검색어 지우기" }));
+    expect(document.activeElement === picker.getByRole("searchbox")).toBe(true);
+    expect(
+      picker.getByRole("region", { name: "추가할 수 있는 저장소 목록" }),
+    ).toBeDefined();
     await user.click(picker.getByRole("button", { name: "acme/api 추가" }));
     expect((await screen.findByRole("status")).textContent).toBe(
       "acme/api을(를) 추가했습니다.",

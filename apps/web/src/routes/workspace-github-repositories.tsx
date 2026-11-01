@@ -14,6 +14,7 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  EmptyState,
   Field,
   FieldDescription,
   FieldError,
@@ -249,7 +250,8 @@ function Picker({
 
   const data = candidates.data;
   const [query, setQuery] = useState("");
-  const needle = query.trim().toLowerCase();
+  const search = useRef<HTMLInputElement>(null);
+  const needle = query.trim().normalize("NFKC").toLowerCase();
   const shown =
     data?.candidates.filter((candidate) =>
       candidate.full_name.toLowerCase().includes(needle),
@@ -285,6 +287,7 @@ function Picker({
         <>
           <div className="flex">
             <SearchInput
+              ref={search}
               type="search"
               aria-label={t("github.repo.search")}
               placeholder={t("github.repo.search")}
@@ -294,11 +297,33 @@ function Picker({
             />
           </div>
           {shown.length === 0 ? (
-            <p className="m-0 text-caption">{t("github.repo.searchEmpty")}</p>
+            <EmptyState
+              className="w-full"
+              title={t("github.repo.searchEmpty")}
+              action={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setQuery("");
+                    search.current?.focus();
+                  }}
+                >
+                  {t("members.clearSearch")}
+                </Button>
+              }
+            />
           ) : (
             // An App can sit on hundreds of repositories: the list scrolls
-            // inside the card instead of stretching the page.
-            <div className="max-h-96 overflow-y-auto">
+            // inside the card instead of stretching the page. Focusable, so
+            // the keyboard can scroll it when no row holds a button.
+            <section
+              aria-label={t("github.repo.pickList")}
+              // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region must take focus
+              tabIndex={0}
+              className="max-h-96 overflow-y-auto"
+            >
               <RowList variant="joined">
                 {shown.map((candidate) => (
                   <SettingRow
@@ -336,7 +361,7 @@ function Picker({
                   />
                 ))}
               </RowList>
-            </div>
+            </section>
           )}
         </>
       ) : (

@@ -71,6 +71,7 @@ export const githubKo = {
     "App이 설치된 저장소만 고를 수 있습니다. 기본 브랜치는 GitHub에서 읽어 채웁니다. 목록에 없으면 GitHub에서 App 설치에 저장소를 더하세요.",
   "github.repo.pickEmpty": "App이 설치된 저장소가 없습니다.",
   "github.repo.search": "저장소 이름으로 찾기",
+  "github.repo.pickList": "추가할 수 있는 저장소 목록",
   "github.repo.searchEmpty": "맞는 저장소가 없습니다.",
   "github.repo.pickNoApp": "작성용 App을 먼저 등록하세요.",
   "github.repo.pickUnreachable":
@@ -306,6 +307,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
     "Only repositories the App is installed on can be picked. The default branch is read from GitHub. If one is missing, add it to the App's installation on GitHub.",
   "github.repo.pickEmpty": "The App is installed on no repository.",
   "github.repo.search": "Find by repository name",
+  "github.repo.pickList": "Repositories you can add",
   "github.repo.searchEmpty": "No repository matches.",
   "github.repo.pickNoApp": "Register the author App first.",
   "github.repo.pickUnreachable":
@@ -542,6 +544,7 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
     "App がインストールされたリポジトリだけを選べます。デフォルトブランチは GitHub から読み取ります。一覧にない場合は GitHub で App のインストールにリポジトリを加えてください。",
   "github.repo.pickEmpty": "App がインストールされたリポジトリがありません。",
   "github.repo.search": "リポジトリ名で探す",
+  "github.repo.pickList": "追加できるリポジトリの一覧",
   "github.repo.searchEmpty": "一致するリポジトリがありません。",
   "github.repo.pickNoApp": "先に作成用 App を登録してください。",
   "github.repo.pickUnreachable":
