@@ -83,5 +83,8 @@ export default defineConfig(({ mode }) => ({
   },
   server: {
     proxy: { "/v1": { target: apiTarget, changeOrigin: false } },
+    // chokidar keeps FSEvents on even when CHOKIDAR_USEPOLLING asks for
+    // polling, so on a Mac where FSEvents delivers nothing no edit is seen.
+    watch: process.env.CHOKIDAR_USEPOLLING ? { useFsEvents: false } : undefined,
   },
 }));
