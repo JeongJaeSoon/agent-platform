@@ -102,6 +102,9 @@ function memorySession() {
     pointerReads: 0,
     /** Pointer reads left to fail, as a dropped database connection does. */
     failPointerReads: 0,
+    /** What the store would judge of the session after a collection. */
+    settleable: false,
+    settled: false,
   };
   const afterRead = async () => {
     const between = state.betweenReads;
@@ -158,7 +161,11 @@ function memorySession() {
       }
     },
     async listSessionIds({ after }) {
-      return after === null ? [sessionId] : [];
+      return after === null && !state.settled ? [sessionId] : [];
+    },
+    async settleCollection() {
+      state.settled ||= state.settleable;
+      return state.settled;
     },
   };
   async function commit(
@@ -1019,9 +1026,36 @@ describe("what the pointer vouches for", () => {
         batchSize: 10,
         dryRun: false,
       }),
-    ).toEqual({ failed: 0, purged: 0, sessions: 1 });
+    ).toEqual({ failed: 0, purged: 0, sessions: 1, settled: 0 });
     for (const entry of revision0.versions)
       expect(await present(entry)).toBe(true);
+  });
+
+  test("a session the store settles after a collection is left out of the next pass, and a dry run settles nothing", async () => {
+    const part = await transcriptPart(0);
+    await commit(0, "attempt-a", [part]);
+    await commit(1, "attempt-a", [part]);
+    session.state.settleable = true;
+    const pass = (dryRun: boolean) =>
+      collector({ maxRestoreFallbacks: 0 }).collect({ batchSize: 10, dryRun });
+
+    expect(await pass(true)).toMatchObject({ sessions: 1, settled: 0 });
+    expect(await pass(false)).toMatchObject({ sessions: 1, settled: 1 });
+    expect(await pass(false)).toEqual({
+      failed: 0,
+      purged: 0,
+      sessions: 0,
+      settled: 0,
+    });
+  });
+
+  test("a session the store does not settle is read again by every pass", async () => {
+    const part = await transcriptPart(0);
+    await commit(0, "attempt-a", [part]);
+    const pass = () => collector().collect({ batchSize: 10, dryRun: false });
+
+    expect(await pass()).toMatchObject({ sessions: 1, settled: 0 });
+    expect(await pass()).toMatchObject({ sessions: 1, settled: 0 });
   });
 });
 

@@ -4,7 +4,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresCheckpointStore } from "./checkpoint-store.ts";
@@ -229,5 +229,60 @@ integration("checkpoint collection store on PostgreSQL", () => {
     }
 
     expect(seen).toEqual(all);
+  });
+
+  test("settleCollection marks only a session closed over a day ago with no open push request, and listSessionIds then leaves it out", async () => {
+    const store = createPostgresCheckpointStore(db);
+    const closedAgo = async (interval: string) => {
+      const id = await session({
+        admissionState: "closed",
+        checkpointRevision: 2,
+        repositoryId: "sample-app",
+      });
+      await db.execute(
+        sql`UPDATE sessions SET updated_at = now() - ${interval}::interval WHERE id = ${id}`,
+      );
+      return id;
+    };
+    const settled = await closedAgo("2 days");
+    const recent = await closedAgo("1 hour");
+    const active = await session({ checkpointRevision: 2 });
+    await db.execute(
+      sql`UPDATE sessions SET updated_at = now() - interval '2 days' WHERE id = ${active}`,
+    );
+    const pushed = await session({
+      checkpointRevision: 2,
+      repositoryId: "sample-app",
+    });
+    const created = await createPostgresPushRequests(db).create({
+      ownerId: "owner-gc",
+      sessionId: pushed,
+      actor: {
+        principal: { kind: "api_key", id: "key-gc" },
+        actor_user_id: null,
+        agent_id: null,
+      },
+      idempotencyKey: "settle-push",
+      payloadHash: "h",
+      repositoryId: "sample-app",
+      repositoryBinding: "sha256:binding",
+      checkpointRevision: 2,
+      gitCommit: "a".repeat(40),
+      approvedByRelease: null,
+    });
+    expect(created.outcome).toBe("written");
+    await db.execute(
+      sql`UPDATE sessions SET admission_state = 'closed', updated_at = now() - interval '2 days' WHERE id = ${pushed}`,
+    );
+
+    expect(await store.settleCollection(settled)).toBe(true);
+    expect(await store.settleCollection(settled)).toBe(false);
+    expect(await store.settleCollection(recent)).toBe(false);
+    expect(await store.settleCollection(active)).toBe(false);
+    expect(await store.settleCollection(pushed)).toBe(false);
+
+    const listed = await store.listSessionIds({ after: null, limit: 10_000 });
+    expect(listed).not.toContain(settled);
+    expect(listed).toEqual(expect.arrayContaining([recent, active, pushed]));
   });
 });
