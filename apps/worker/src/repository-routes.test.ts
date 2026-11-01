@@ -102,7 +102,7 @@ describe("writeRepositoryRoutes", () => {
   });
 
   test("writes the engine's git configuration, readable by the worker alone", async () => {
-    await writeRepositoryRoutes(home, ROUTE, workspace);
+    expect(await writeRepositoryRoutes(home, ROUTE, workspace)).toBe(true);
     const path = join(home, REPOSITORY_ROUTES_FILE);
     expect(await readFile(path, "utf8")).toContain(TOKEN);
     expect((await stat(path)).mode & 0o777).toBe(0o600);
@@ -110,7 +110,7 @@ describe("writeRepositoryRoutes", () => {
 
   test("a claim with no repository token leaves no routes behind", async () => {
     await writeRepositoryRoutes(home, ROUTE, workspace);
-    await writeRepositoryRoutes(home, ROUTE, {
+    const written = await writeRepositoryRoutes(home, ROUTE, {
       repository: {
         id: "app",
         url: "https://github.com/o/app.git",
@@ -120,6 +120,7 @@ describe("writeRepositoryRoutes", () => {
         { id: "docs", url: "https://github.com/o/docs", branch: "main" },
       ],
     });
+    expect(written).toBe(false);
     expect(await Bun.file(join(home, REPOSITORY_ROUTES_FILE)).exists()).toBe(
       false,
     );

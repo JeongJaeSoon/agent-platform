@@ -257,7 +257,7 @@ describe("WorkerHost over a run that implements the contract itself", () => {
     }
   });
 
-  test("hands the engine routes to the claim's repositories and their Go modules before the run starts; a failed write is only logged", async () => {
+  test("hands the engine routes to the claim's repositories and their Go modules before the run starts; a failed or empty route write is only logged and names no Go module", async () => {
     const access = { kind: "egress_token" as const, token: "wek_routes" };
     const workspace = {
       repository: {
@@ -275,7 +275,7 @@ describe("WorkerHost over a run that implements the contract itself", () => {
         },
       ],
     };
-    for (const fails of [false, true]) {
+    for (const outcome of ["written", "none", "fails"] as const) {
       const run = new ScriptedRun();
       run.onSend = (sent) => finish(run, sent);
       const gateway = new FakeWorkerGateway();
@@ -295,7 +295,8 @@ describe("WorkerHost over a run that implements the contract itself", () => {
         },
         repositoryRoutes: async (given) => {
           handed.push(given);
-          if (fails) throw new Error("read-only home");
+          if (outcome === "fails") throw new Error("read-only home");
+          return outcome === "written";
         },
         logger: {
           info: () => {},
@@ -315,14 +316,15 @@ describe("WorkerHost over a run that implements the contract itself", () => {
       });
       gateway.enqueue("hello");
       const summary = await worker.runLoop();
+      // Without the routes, GOPRIVATE would send Go straight to github.com.
       expect(handed).toEqual([
-        ["github.com/o/app", "github.com/o/docs"],
         workspace,
+        outcome === "written" ? ["github.com/o/app", "github.com/o/docs"] : [],
         "started",
       ]);
       expect(summary.turns.map((turn) => turn.status)).toEqual(["completed"]);
       expect(warnings.includes("worker.repository_routes.not_written")).toBe(
-        fails,
+        outcome === "fails",
       );
     }
   });
