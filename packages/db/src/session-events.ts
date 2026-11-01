@@ -14,7 +14,7 @@ import {
   publicStatus,
 } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
-import { events, sessions } from "./schema.ts";
+import { events, sessionEventArchives, sessions } from "./schema.ts";
 
 /**
  * The `occurred_at` readers see on the session's last event, or on the last
@@ -42,7 +42,24 @@ export async function streamClock(
     )
     .orderBy(desc(events.id))
     .limit(1);
-  return row ? new Date(Number(row.epochMs)) : null;
+  if (row) return new Date(Number(row.epochMs));
+  // No stored row before it: the last one is the archived chunks' newest.
+  const [archived] = await tx
+    .select({
+      epochMs: sql<string>`ceil(extract(epoch FROM ${sessionEventArchives.lastOccurredAt}) * 1000)::text`,
+    })
+    .from(sessionEventArchives)
+    .where(
+      beforeId === undefined
+        ? eq(sessionEventArchives.sessionId, sessionId)
+        : and(
+            eq(sessionEventArchives.sessionId, sessionId),
+            lt(sessionEventArchives.throughId, beforeId),
+          ),
+    )
+    .orderBy(desc(sessionEventArchives.fromId))
+    .limit(1);
+  return archived ? new Date(Number(archived.epochMs)) : null;
 }
 
 export function notBefore(at: Date, floor: Date | null): Date {

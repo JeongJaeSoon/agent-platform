@@ -7,7 +7,7 @@ import { type SQL, sql } from "drizzle-orm";
 import { rowsOf } from "./control-unit-of-work.ts";
 import { eventWithNeutralFields } from "./event-payload.ts";
 import type { Database } from "./queries.ts";
-import { events } from "./schema.ts";
+import { events, sessionEventArchives } from "./schema.ts";
 
 /*
  * The list card's activity line and counts for a page of sessions, in one
@@ -56,18 +56,32 @@ const epochMs = (value: SQL) =>
 const firstUse = (value: SQL) =>
   sql`(array_agg(${value} ORDER BY at, id, ord) FILTER (WHERE kind = 'use'))[1]`;
 
-export function activityQuery(ids: readonly string[]) {
+/** Event ids a session's activity reads: after `after`, through `through`. */
+export type ActivityBounds = { after: number; through?: number };
+
+const BIGINT_MAX = "9223372036854775807";
+
+export function activityQuery(
+  ids: readonly string[],
+  bounds: ReadonlyMap<string, ActivityBounds> = new Map(),
+) {
   const window = SESSION_ACTIVITY_WINDOW_EVENTS;
   const live = sql.join(
     LIVE_PHASES.map((phase) => sql`${phase}`),
     sql`, `,
   );
+  const column = (values: readonly (number | string)[]) =>
+    sql.join(
+      values.map((value) => sql`${String(value)}`),
+      sql`, `,
+    );
   return sql`
     WITH page AS (
-      SELECT unnest(ARRAY[${sql.join(
-        ids.map((id) => sql`${id}`),
-        sql`, `,
-      )}]::uuid[]) AS session_id
+      SELECT * FROM unnest(
+        ARRAY[${column(ids)}]::uuid[],
+        ARRAY[${column(ids.map((id) => bounds.get(id)?.after ?? 0))}]::bigint[],
+        ARRAY[${column(ids.map((id) => bounds.get(id)?.through ?? BIGINT_MAX))}]::bigint[]
+      ) AS p(session_id, after_id, through_id)
     ),
     stream AS (
       SELECT p.session_id, e.id, e.type, e.turn_id, e.at, e.created_at,
@@ -92,6 +106,7 @@ export function activityQuery(ids: readonly string[]) {
                     THEN ${said} END AS said
         FROM ${events}
         WHERE session_id = p.session_id
+          AND id > p.after_id AND id <= p.through_id
         ORDER BY id DESC
         LIMIT ${window}
       ) e
@@ -184,6 +199,7 @@ export function activityQuery(ids: readonly string[]) {
            NOT EXISTS (
              SELECT 1 FROM ${events}
              WHERE session_id = p.session_id
+               AND id > p.after_id AND id <= p.through_id
              ORDER BY id DESC OFFSET ${window} LIMIT 1
            ) AS complete,
            sp.since_ms,
@@ -298,17 +314,97 @@ function activityOf(row: ActivityRow): SessionActivity {
   };
 }
 
+/**
+ * The activity of a session whose events through some id were archived,
+ * from what was stored then (`stored`) and what the events left read now
+ * (`tail`). A tail that fills the window alone is the answer; a shorter one
+ * adds to the stored counts, and the window no longer holds every event.
+ */
+export function mergeActivity(
+  stored: SessionActivity,
+  tail: SessionActivity,
+): SessionActivity {
+  if (tail.window.events === 0) return stored;
+  if (!tail.window.complete) return tail;
+  return {
+    last: tail.last ?? stored.last,
+    tool_count: stored.tool_count + tail.tool_count,
+    error_count: stored.error_count + tail.error_count,
+    subagent_count: stored.subagent_count + tail.subagent_count,
+    current_tool: tail.current_tool,
+    window: {
+      events: stored.window.events + tail.window.events,
+      complete: false,
+      since: stored.window.since ?? tail.window.since,
+    },
+  };
+}
+
+type ArchivedActivity = {
+  session_id: string;
+  activity: SessionActivity;
+  activity_through: string;
+};
+
+async function activityRows(
+  tx: Database,
+  ids: readonly string[],
+  bounds: ReadonlyMap<string, ActivityBounds>,
+): Promise<ActivityRow[]> {
+  // The plan's cost counts every event a listed session has, not the
+  // window, and crosses jit_above_cost: compiling took longer than the
+  // statement then ran (86 of 297 ms for 100 sessions in the bench).
+  await tx.execute(sql`SET LOCAL jit = off`);
+  return rowsOf<ActivityRow>(await tx.execute(activityQuery(ids, bounds)));
+}
+
 export async function readSessionActivity(
   executor: Database,
   ids: readonly string[],
 ): Promise<Map<string, SessionActivity>> {
   if (ids.length === 0) return new Map();
-  const rows = await executor.transaction(async (tx) => {
-    // The plan's cost counts every event a listed session has, not the
-    // window, and crosses jit_above_cost: compiling took longer than the
-    // statement then ran (86 of 297 ms for 100 sessions in the bench).
-    await tx.execute(sql`SET LOCAL jit = off`);
-    return rowsOf<ActivityRow>(await tx.execute(activityQuery(ids)));
+  const { rows, archived } = await executor.transaction(async (tx) => {
+    const archived = rowsOf<ArchivedActivity>(
+      await tx.execute(sql`
+        SELECT DISTINCT ON (session_id) session_id::text, activity,
+               activity_through
+        FROM ${sessionEventArchives}
+        WHERE session_id IN (${sql.join(
+          ids.map((id) => sql`${id}::uuid`),
+          sql`, `,
+        )})
+        ORDER BY session_id, from_id DESC`),
+    );
+    const bounds = new Map(
+      archived.map((row) => [
+        row.session_id,
+        { after: Number(row.activity_through) },
+      ]),
+    );
+    return { rows: await activityRows(tx, ids, bounds), archived };
   });
-  return new Map(rows.map((row) => [row.session_id, activityOf(row)]));
+  const stored = new Map(archived.map((row) => [row.session_id, row]));
+  return new Map(
+    rows.map((row) => {
+      const tail = activityOf(row);
+      const head = stored.get(row.session_id);
+      return [
+        row.session_id,
+        head === undefined ? tail : mergeActivity(head.activity, tail),
+      ];
+    }),
+  );
+}
+
+/** One session's activity over the events after `after` through `through`. */
+export async function readActivityRange(
+  executor: Database,
+  sessionId: string,
+  bounds: ActivityBounds,
+): Promise<SessionActivity> {
+  const [row] = await executor.transaction((tx) =>
+    activityRows(tx, [sessionId], new Map([[sessionId, bounds]])),
+  );
+  if (!row) throw new Error("session activity read returned no row");
+  return activityOf(row);
 }

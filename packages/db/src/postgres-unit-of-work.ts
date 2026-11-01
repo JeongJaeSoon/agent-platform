@@ -117,12 +117,21 @@ import {
   executions,
   idempotencyKeys,
   receipts,
+  sessionEventArchives,
   sessionShares,
   sessions,
   turns,
   users,
 } from "./schema.ts";
 import { readSessionActivity } from "./session-activity.ts";
+import {
+  type ArchivedEventCache,
+  type ArchivedEventSource,
+  archiveChunkHolding,
+  archiveChunksAfter,
+  archivedRows,
+  createArchivedEventCache,
+} from "./session-event-archives.ts";
 import { recordStatus } from "./session-events.ts";
 import { sessionRelationIs, sessionVisibleTo } from "./session-shares.ts";
 
@@ -529,13 +538,18 @@ const CREATED_AT_TEXT = sql<string>`${sessions.createdAt}::text`;
 const ID_PREFIX = /^[0-9a-f-]+$/;
 // The newest event in stream order (ids are commit order within a session),
 // one index probe where max(created_at) visited every event of every listed
-// session. Qualified by hand: drizzle renders a single-table
-// select's columns bare, and a bare "id" here would be the event's.
-const LAST_EVENT_AT = sql<Date | null>`(
+// session; with none left in events, the last archived one. Qualified by
+// hand: drizzle renders a single-table select's columns bare, and a bare
+// "id" here would be the event's.
+const LAST_EVENT_AT = sql<Date | null>`coalesce((
   SELECT e.created_at FROM ${events} e
   WHERE e.session_id = ${sessions}.id
   ORDER BY e.id DESC LIMIT 1
-)`.mapWith(events.createdAt);
+), (
+  SELECT a.last_created_at FROM ${sessionEventArchives} a
+  WHERE a.session_id = ${sessions}.id
+  ORDER BY a.from_id DESC LIMIT 1
+))`.mapWith(events.createdAt);
 
 type SessionRow = typeof sessions.$inferSelect;
 type TurnRow = typeof turns.$inferSelect;
@@ -592,12 +606,32 @@ const byteLength = (value: unknown) =>
 // serialized length, not pg_column_size: TOAST compresses a repetitive
 // 60 KiB document to under 1 KiB on disk, and it is the serialized form
 // that this process holds.
+//
+// `archived` are lines of the session's archived chunks past `after`: read
+// back as events rows ahead of the ones still stored, so a page reads the
+// same whichever side of an archive its rows are on.
 export function eventPageQuery(
   sessionId: string,
   after: number,
   limit: number,
   maxBytes: number,
+  archived: readonly string[] = [],
 ) {
+  const source =
+    archived.length === 0
+      ? events
+      : sql`(
+          SELECT r.id, r.type, r.payload, r.neutral, r.turn_id, r.attempt_id,
+                 r.occurred_at, r.created_at, ${sessionId}::uuid AS session_id
+          FROM ${archivedRows(archived)}
+          UNION ALL
+          (SELECT s.id, s.type, s.payload, s.neutral, s.turn_id, s.attempt_id,
+                  s.occurred_at, s.created_at, s.session_id
+           FROM ${events} s
+           WHERE s.session_id = ${sessionId} AND s.id > ${after}
+           ORDER BY s.id
+           LIMIT ${limit})
+        )`;
   return sql`
     SELECT id, type, payload, bare, attempt_id, occurred_ms, turn_sequence,
            running_bytes, fetched
@@ -615,7 +649,7 @@ export function eventPageQuery(
                t.sequence AS turn_sequence,
                (extract(epoch FROM coalesce(e.occurred_at, e.created_at))
                  * 1000)::bigint AS occurred_ms
-        FROM ${events} e
+        FROM ${source} e
         LEFT JOIN ${turns} t ON t.id = e.turn_id
         WHERE e.session_id = ${sessionId} AND e.id > ${after}
         ORDER BY e.id
@@ -645,8 +679,23 @@ export function createPostgresSessionReader(
     logger?: StructuredLogger;
     // Fills the neutral fields of a row stored before they were written.
     neutralize?: NeutralizeEvent;
+    // Where archived events are read; a session with archived chunks cannot
+    // be read without it.
+    archivedEvents?: ArchivedEventSource;
   } = {},
 ): SessionReader {
+  const archiveCache: ArchivedEventCache | undefined =
+    options.archivedEvents === undefined
+      ? undefined
+      : createArchivedEventCache(options.archivedEvents);
+  function archive(): ArchivedEventCache {
+    if (archiveCache === undefined) {
+      throw new Error(
+        "This session has archived events and this process has no checkpoint object store to read them from",
+      );
+    }
+    return archiveCache;
+  }
   async function ownedSession(ownerId: string, sessionId: string) {
     const [row] = await db
       .select({
@@ -1252,14 +1301,30 @@ export function createPostgresSessionReader(
       // would silently skip this one's history and a forged future cursor
       // would stream nothing forever. A nonzero cursor must name a row of
       // this session; alpha never trims, so a miss is a bad request rather
-      // than 410 CURSOR_EXPIRED.
+      // than 410 CURSOR_EXPIRED. A row that was archived is still the
+      // session's.
       if (after > 0) {
         const [anchor] = await db
           .select({ id: events.id })
           .from(events)
           .where(and(eq(events.sessionId, sessionId), eq(events.id, after)))
           .limit(1);
-        if (!anchor) throw new InvalidCursorError();
+        if (!anchor) {
+          const chunk = await archiveChunkHolding(db, sessionId, after);
+          const held =
+            chunk !== undefined &&
+            (await archive().lines(chunk)).some(({ id }) => id === after);
+          if (!held) throw new InvalidCursorError();
+        }
+      }
+      // A page's rows from archived chunks: enough of them to fill it, the
+      // rows still stored follow.
+      const archived: string[] = [];
+      for (const chunk of await archiveChunksAfter(db, sessionId, after)) {
+        if (archived.length >= query.limit) break;
+        for (const { id, line } of await archive().lines(chunk)) {
+          if (id > after && archived.length < query.limit) archived.push(line);
+        }
       }
       // Ordered by row id, which is commit order within one session: every
       // writer (the worker's appendEvents, PostgresQueue.publish) inserts
@@ -1279,7 +1344,7 @@ export function createPostgresSessionReader(
       // Rows written outside the worker protocol carry no occurred_at; the
       // insert time is the closest thing to when it happened.
       const result = (await db.execute(
-        eventPageQuery(sessionId, after, query.limit, query.maxBytes),
+        eventPageQuery(sessionId, after, query.limit, query.maxBytes, archived),
       )) as { rows: EventPageRow[] };
       const rows = result.rows;
       const fetched = Number(rows[0]?.fetched ?? 0);
