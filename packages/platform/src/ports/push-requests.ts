@@ -206,6 +206,8 @@ export interface PushRequestStore {
   ): Promise<{
     repositoryId: string | null;
     profileId: string | null;
+    /** The session row's attached list; null leaves the release's whole. */
+    attached: string[] | null;
     /** The release's GitHub settings, for another repository's push. */
     github: AgentGitHub | "invalid" | null;
     /** False without an agent, or with its GitHub switch off. */

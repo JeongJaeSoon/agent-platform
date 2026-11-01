@@ -424,7 +424,20 @@ describe("프로필 만들기 (설치 프로필)", () => {
         (box) =>
           box.closest("[data-slot=field]")?.querySelector("label")?.textContent,
       ),
-    ).toEqual(["저장소의 CLAUDE.md 읽기", "docs", "platform"]);
+    ).toEqual([
+      "저장소의 CLAUDE.md 읽기",
+      "App이 설치된 저장소 모두 허용",
+      "docs",
+      "platform",
+    ]);
+    // A new console ceiling starts on every App repository.
+    expect(
+      (
+        within(form()).getByRole("checkbox", {
+          name: "App이 설치된 저장소 모두 허용",
+        }) as HTMLButtonElement
+      ).getAttribute("aria-checked"),
+    ).toBe("true");
   });
 
   test("with the unattended switch off, bypassPermissions is listed closed with its reason; on, it warns", async () => {
@@ -512,6 +525,7 @@ describe("프로필 만들기 (설치 프로필)", () => {
         project_settings: { claude_md: false },
         repository_mode: "required",
         repository_ids: ["platform"],
+        github_app_repositories: "installed",
       },
     ]);
   });
@@ -523,6 +537,10 @@ describe("프로필 만들기 (설치 프로필)", () => {
     );
     const user = await setupUser();
     await user.clear(await screen.findByLabelText("런타임 버전"));
+    // Only a ceiling limited to its own list needs one picked there.
+    await user.click(
+      screen.getByRole("checkbox", { name: "App이 설치된 저장소 모두 허용" }),
+    );
     await user.click(screen.getByRole("button", { name: "저장" }));
     expect(
       await screen.findByText(
@@ -590,6 +608,8 @@ describe("프로필 만들기 (설치 프로필)", () => {
       project_settings: { claude_md: true },
       repository_mode: "required",
       repository_ids: ["platform", "docs"],
+      // Kept from the version before, which never had it on.
+      github_app_repositories: "listed",
       previous_id: "op_wide_v2",
     });
   });

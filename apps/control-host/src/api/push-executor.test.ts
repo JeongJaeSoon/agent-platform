@@ -152,6 +152,7 @@ async function run(
         sessionId,
         repositoryId: job.repositoryId,
         profileId: null,
+        attachedRepositoryIds: null,
         // The executor checks the job's binding itself; the gate sees the
         // entry as pinned.
         repository: Object.hasOwn(catalog.repositories, job.repositoryId)

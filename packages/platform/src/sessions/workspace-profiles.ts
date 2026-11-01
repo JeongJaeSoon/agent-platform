@@ -212,6 +212,7 @@ export function operatorSummary(
             retired_at: record.retired_at?.toISOString() ?? null,
             blocked_by: record.blocked_by,
             blocked_at: record.blocked_at?.toISOString() ?? null,
+            github_app_repositories: record.github_app_repositories,
           },
         }
       : {}),

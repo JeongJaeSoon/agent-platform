@@ -365,6 +365,11 @@ ingress:
   hosts: []
   #  - host: agent-platform.example.com
   tls: []
+  console:
+    # Routes "/" (the web console the api serves) and answers /internal with
+    # an ALB fixed-response 404 ahead of it; needs className alb. Read
+    # docs/operator/kubernetes-deployment.md before turning it on.
+    enabled: false
 
 networkPolicy:
   enabled: true

@@ -813,6 +813,20 @@
       "when": 1793548597369,
       "tag": "0206_catalog_repositories",
       "breakpoints": true
+    },
+    {
+      "idx": 207,
+      "version": "7",
+      "when": 1793550485753,
+      "tag": "0207_session_attached_repositories",
+      "breakpoints": true
+    },
+    {
+      "idx": 208,
+      "version": "7",
+      "when": 1793558755818,
+      "tag": "0208_github_app_repository_selection",
+      "breakpoints": true
     }
   ]
 }

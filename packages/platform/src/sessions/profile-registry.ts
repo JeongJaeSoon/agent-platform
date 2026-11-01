@@ -134,6 +134,7 @@ export function installationProfileSnapshot<P extends CatalogProfileView>(
         origin: row.origin,
         state,
         repository_ids: [...row.repository_ids],
+        github_app_repositories: row.github_app_repositories,
         record: row,
         definition: parsed ?? undefined,
         connection_id:
@@ -217,6 +218,7 @@ export function catalogRows(
     version: 1,
     origin: "catalog",
     repository_ids: repositoryIdsOf(entry.id),
+    github_app_repositories: "listed",
     previous_id: null,
     created_by: null,
     created_at: new Date(0),
