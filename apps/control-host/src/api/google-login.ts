@@ -5,7 +5,7 @@ import {
 } from "@werft-ai/contracts";
 import { Jwt } from "hono/utils/jwt";
 import type { HonoJsonWebKey } from "hono/utils/jwt/jws";
-import { sameString } from "../same-string.ts";
+import { sameString } from "./same-string.ts";
 
 export const GOOGLE_ISSUER = "https://accounts.google.com";
 const FLOW_TTL_MS = GOOGLE_LOGIN_FLOW_TTL_MINUTES * 60 * 1000;

@@ -3,7 +3,7 @@ import { GITHUB_LOGIN_PATTERN } from "@werft-ai/contracts";
 import type { GitHubOAuthClient } from "@werft-ai/platform";
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
-import { sameString as sameToken } from "../same-string.ts";
+import { sameString as sameToken } from "./same-string.ts";
 
 // Linking a person's GitHub account through the author App's user
 // authorization (design github-agent.md decision 5). The user token answers

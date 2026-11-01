@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { verifyWithJwks } from "hono/jwt";
-import { sameString as sameToken } from "../same-string.ts";
+import { sameString as sameToken } from "./same-string.ts";
 
 // Sign in with Slack (Slack's OpenID Connect), used only to prove which
 // Slack account a logged-in person holds (design A.7). No Slack token is
