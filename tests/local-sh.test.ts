@@ -410,9 +410,59 @@ echo '{"status":"ready"}'
     expect(result.stdout).toBe("");
   });
 
-  test("up and reset without a key start nothing and name --fake-model", async () => {
+  test.each([
+    [
+      "",
+      "compose.yaml -f infra/compose.fake-model.yml -f infra/compose.dev.yml",
+    ],
+    // A verify run's COMPOSE_FILE already names it: a second copy would change
+    // nothing, and is left out.
+    [
+      "/repo/compose.yaml:/run/ports.yml:/repo/infra/compose.dev.yml",
+      "/repo/compose.yaml -f /run/ports.yml -f /repo/infra/compose.dev.yml -f infra/compose.fake-model.yml",
+    ],
+  ])(
+    "dev --fake-model over COMPOSE_FILE %p starts the stack with the dev overlay once",
+    async (composeFile, files) => {
+      await writeFile(config, rendered("local"));
+      const result = await run(["dev", "--fake-model"], {
+        COMPOSE_FILE: composeFile,
+        STUB_API: "127.0.0.1:43123",
+        LOCAL_DEMO_ACCOUNTS: "0",
+      });
+      expect(result).toMatchObject({
+        exitCode: 0,
+        stdout: '{"status":"ready"}\n',
+      });
+      expect(await calls("docker-calls")).toContain(
+        `compose --profile apps -f ${files} up -d --build`,
+      );
+    },
+  );
+
+  test("web runs the Vite dev server against the published api, and nothing without one", async () => {
+    await writeFile(
+      join(dir, "bin", "bun"),
+      `#!/bin/sh
+echo "$VITE_API_TARGET $*" >> "${dir}/bun-calls"
+`,
+      { mode: 0o755 },
+    );
+    const none = await run(["web"]);
+    expect(none.exitCode).toBe(1);
+    expect(none.stderr).toContain("start the stack first");
+    expect(await calls("bun-calls")).toEqual([]);
+
+    const result = await run(["web"], { STUB_API: "0.0.0.0:43125" });
+    expect(result.exitCode).toBe(0);
+    expect(await calls("bun-calls")).toEqual([
+      "http://127.0.0.1:43125 run --cwd apps/web dev",
+    ]);
+  });
+
+  test("up, reset and dev without a key start nothing and name --fake-model", async () => {
     await writeFile(config, rendered("local"));
-    for (const command of ["up", "reset"]) {
+    for (const command of ["up", "reset", "dev"]) {
       const result = await run([command]);
       expect(result.exitCode).toBe(2);
       expect(result.stderr).toContain(
