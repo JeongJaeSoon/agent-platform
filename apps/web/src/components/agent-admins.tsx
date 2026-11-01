@@ -339,6 +339,7 @@ function AdminList({
             return (
               <RowListItem key={`u:${user.user_id}`}>
                 <Avatar
+                  size="two-line"
                   initials={avatarInitials(name).slice(0, 1)}
                   tone={avatarTone(user.user_id)}
                 />
