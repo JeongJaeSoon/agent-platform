@@ -251,7 +251,7 @@ describe("에이전트 목록", () => {
     expect(row.textContent).toContain("식별자 billing");
   });
 
-  test("배지는 초안·활성·일시정지·보관됨을 서로 다르게 보인다", async () => {
+  test("배지는 초안·릴리스·일시정지·보관됨을 이름만으로 서로 다르게 보인다", async () => {
     const base = agentServer().detail().agent;
     const agent = (
       name: string,
@@ -286,12 +286,16 @@ describe("에이전트 목록", () => {
       });
     const expected = [
       ["초안", "draft"],
-      ["활성", "active"],
+      ["릴리스", "active"],
       ["일시정지", "paused"],
       ["보관됨", "archived"],
     ];
     await screen.findByRole("link", { name: "draft" });
     await waitFor(() => expect(badges()).toEqual(expected));
+    const tones = ["draft", "live", "held", "old"].map(
+      (name) => stateOf(screen.getByRole("link", { name }))?.className,
+    );
+    expect(new Set(tones).size).toBe(4);
     await showTable(await setupUser());
     await waitFor(() =>
       expect(
@@ -470,8 +474,13 @@ describe("에이전트 카드", () => {
     renderAt("/agents", { ...meOk, ...releasedServer() });
     const card = await cardFor("결제 담당");
     await waitFor(() =>
-      expect(card.textContent).toContain("2026-10-11_10:00:00 릴리스"),
+      expect(fact(card, "릴리스")).toBe("2026. 10. 11. 10:00"),
     );
+    // The badge names the state; the label lives in the release row.
+    expect(
+      stateOf(screen.getByRole("link", { name: "결제 담당" }))?.textContent,
+    ).toBe("릴리스");
+    expect(card.textContent).not.toContain("2026-10-11_10:00:00");
     expect(card.textContent).toContain(CARD.role);
     expect(card.textContent).toContain(`지시문${CARD.instructions}`);
     expect(fact(card, "실행 프로필")).toBe(PROFILE);
@@ -488,11 +497,11 @@ describe("에이전트 카드", () => {
     renderAt("/agents", { ...meOk, ...releasedServer() });
     const card = await cardFor("결제 담당");
     await waitFor(() =>
-      expect(card.textContent).toContain("2026-10-11_10:00:00 릴리스"),
+      expect(fact(card, "릴리스")).toBe("2026. 10. 11. 10:00"),
     );
     expect(
       [...card.querySelectorAll("dt")].map((dt) => dt.textContent),
-    ).toEqual(["실행 프로필", "MCP", "자격 증명"]);
+    ).toEqual(["릴리스", "실행 프로필", "MCP", "자격 증명"]);
     expect(card.textContent).not.toContain("미계측");
     expect(
       within(card)
@@ -506,7 +515,7 @@ describe("에이전트 카드", () => {
     renderAt("/agents", { ...meOk, ...releasedServer([long]) });
     const card = await cardFor("결제 담당");
     await waitFor(() =>
-      expect(card.textContent).toContain("2026-10-11_10:00:00 릴리스"),
+      expect(fact(card, "릴리스")).toBe("2026. 10. 11. 10:00"),
     );
     const chip = [...card.querySelectorAll("dt")]
       .find((dt) => dt.textContent === "MCP")
@@ -650,7 +659,7 @@ describe("에이전트 카드", () => {
     });
 
     test("목록이 요약을 함께 주면 카드는 에이전트마다 따로 부르지 않는다", async () => {
-      const agents = items(14).map((agent) => ({
+      const agents = items(14).map((agent, index) => ({
         ...agent,
         summary: {
           version: {
@@ -660,8 +669,8 @@ describe("에이전트 카드", () => {
             mcp_servers: ["linear"],
             credential_refs: ["github", "slack"],
           },
-          runtime_profile_id: PROFILE,
-          release_label: "2026-10-11_10:00:00",
+          runtime_profile_id: index === 0 ? null : PROFILE,
+          release_label: index === 0 ? null : "2026-10-11_10:00:00-2",
           bound_credential_refs: ["github"],
           admins: ["Owner", "재무팀"],
           needs_input_count: 0,
@@ -675,6 +684,12 @@ describe("에이전트 카드", () => {
         "GET /v1/agents": () => json(200, { items: agents, next_cursor: null }),
       });
       const card = await cardFor("에이전트 13");
+      expect(fact(card, "릴리스")).toBe("2026. 10. 11. 10:00");
+      // The dash is drawn; a screen reader hears the words.
+      const draft = await cardFor("에이전트 0");
+      expect(fact(draft, "릴리스")).toBe("—릴리스 전");
+      // Said once: the profile row of an unreleased card is only a dash.
+      expect(fact(draft, "실행 프로필")).toBe("—없음");
       expect(fact(card, "실행 프로필")).toBe(PROFILE);
       expect(fact(card, "MCP")).toBe("linear");
       expect(fact(card, "자격 증명")).toBe("연결 필요 1개");
@@ -1663,9 +1678,7 @@ describe("에이전트 상세", () => {
     });
     const heading = screen.getByRole("heading", { level: 1 });
     await waitFor(() =>
-      expect(heading.nextElementSibling?.textContent).toBe(
-        "2026-10-11_10:00:00 · 활성",
-      ),
+      expect(heading.nextElementSibling?.textContent).toBe("릴리스"),
     );
     expect(agentDetailSchema.safeParse(server.detail()).success).toBe(true);
   });
@@ -2340,7 +2353,7 @@ describe("식별자와 상태 문구", () => {
     renderAt(DETAIL, { ...meOk, ...agentServer().routes });
     const heading = await screen.findByRole("heading", { level: 1 });
     const head = heading.closest("[data-slot=page-header]") as HTMLElement;
-    expect(within(head).getByText("아직 쓸 수 없음")).toBeDefined();
+    expect(within(head).getByText("초안")).toBeDefined();
     expect(within(head).getByText("결제 문의 담당")).toBeDefined();
     expect(within(head).queryByText(/billing/)).toBeNull();
     const card = screen

@@ -465,7 +465,12 @@ type Authenticated = {
    * Set when a key row authenticated; a personal key names its creator, an
    * agent key its agent.
    */
-  storedKey?: { creatorId: string | null; agentId: string | null };
+  storedKey?: {
+    creatorId: string | null;
+    agentId: string | null;
+    issuerId: string | null;
+    kind: ApiKeyRecord["kind"];
+  };
 };
 
 function bearerToken(value: string | undefined): string | null {
@@ -558,6 +563,8 @@ export function createAuthenticator(
           storedKey: {
             creatorId: key.kind === "personal" ? key.createdByUserId : null,
             agentId: key.kind === "agent" ? (key.agentId ?? null) : null,
+            issuerId: key.createdByUserId,
+            kind: key.kind,
           },
           verified: true,
           // Nothing edits a key's scopes today, but a stream that outlives

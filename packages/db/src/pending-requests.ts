@@ -41,7 +41,11 @@ import {
 import { DB_NOW, dbNow } from "./db-clock.ts";
 import { closeParkedGroup, continuationMessage } from "./parked-group.ts";
 import type { Database } from "./queries.ts";
-import { lockRequester, lockSessionReach } from "./requester-locks.ts";
+import {
+  keyReaches,
+  lockRequester,
+  lockSessionReach,
+} from "./requester-locks.ts";
 import {
   attempts,
   idempotencyKeys,
@@ -656,10 +660,15 @@ export function createPostgresPendingRequests(
           .limit(1)
           .for("update");
         if (!session) return { outcome: "not_found" };
-        // D26 5: a key bound to an agent never answers.
-        if (requester.keyAgentId !== null) return { outcome: "role" };
+        const agentKey = requester.keyAgentId !== null;
+        if (
+          agentKey &&
+          !(await keyReaches(tx, requester, session.agentReleaseId))
+        ) {
+          return { outcome: "role" };
+        }
         const reach = await lockSessionReach(tx, requester, session, {
-          answer: true,
+          answer: !agentKey,
         });
         if (reach !== "ok") return { outcome: reach };
         const [pending] = await tx
@@ -844,6 +853,33 @@ export function createPostgresPendingRequests(
           },
         };
       });
+    },
+
+    async recordSelfApproval(input) {
+      const id = randomUUID();
+      await db.insert(receipts).values({
+        id,
+        ownerId: input.principal.ownerId,
+        actor: receiptActorOf(input.principal),
+        requestId: input.principal.requestId ?? null,
+        operation: ANSWER,
+        targetRef: {
+          session_id: input.sessionId.toLowerCase(),
+          turn_id: null,
+          request_id: input.requestId,
+        },
+        status: "failed",
+        result: {
+          reason_code: "self_approval",
+          decider_key: input.deciderKey,
+        },
+        error: {
+          code: "FORBIDDEN",
+          message:
+            "The key that started this session cannot approve its requests",
+        },
+      });
+      return id;
     },
   };
 }

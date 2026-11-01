@@ -80,6 +80,22 @@ describe("Avatar", () => {
     for (const name of ["size-6", "text-2xs", "rounded-full", "bg-active"])
       expect(classes).not.toContain(name);
   });
+
+  test("two-line은 두 줄 높이 토큰으로 정사각형을 만들고 첫 줄 위에 맞춘다", () => {
+    const { container } = render(
+      <Avatar initials="A" size="two-line" shape="square" />,
+    );
+    const classes = (
+      container.querySelector("[data-slot=avatar]")?.className ?? ""
+    ).split(" ");
+    for (const name of [
+      "size-(--ap-size-tile-two-line)",
+      "self-start",
+      "text-control",
+    ])
+      expect(classes).toContain(name);
+    expect(classes).not.toContain("size-6");
+  });
 });
 
 describe("avatarInitials", () => {

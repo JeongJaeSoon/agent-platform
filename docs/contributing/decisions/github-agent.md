@@ -11,7 +11,7 @@
 - **어느 저장소가 그 App을 쓰나.** 카탈로그 저장소의 `auth`가 `{ kind: github_app }` 한 줄이면 콘솔 App을 쓴다(`packages/platform/src/sessions/catalog.ts:259-264`, `293`, `442-443`). `app_id`·`installation_id`·키 참조를 적은 저장소는 카탈로그의 App을 쓴다(`apps/control-host/src/api/forge-github.ts:707-759`). 콘솔 App의 forge는 `credentials()`의 첫 행으로 만든다(`forge-github.ts:612`). 이 query는 행을 거르지 않는다(`github-apps.ts:168-195`).
 - **토큰 발급.** control-host만 키를 쥔다. 요청마다 **저장소 하나**(`repositoryNames: [repo.name]`, `forge-github.ts:445`)와 작업별 권한으로 installation token을 발급한다. clone은 `contents: read`, push는 `contents: write`(`forge-github.ts:265-266`), PR·코멘트는 `contents: read` + `pull_requests: write`(`forge-github.ts:207-210`)다. 토큰은 저장소·권한 조합별로 메모리에 캐시한다(`forge-github.ts:152-177`).
 - **worker는 토큰을 받지 않는다.** clone은 egress proxy가 받아 gateway가 그때 발급한 자격 증명으로 보낸다(`packages/platform/src/workers/worker-gateway.ts:1241-1255`). proxy는 upload-pack만 받고 receive-pack(push)에는 경로가 없다(`apps/egress-proxy/src/credential.ts:160-175`). push는 API 프로세스가 한다. 쓰기 자격 증명을 받고(`packages/platform/src/sessions/push-executor.ts:108`) `deps.pusher.push`를 부른다(`push-executor.ts:138`).
-- **누가 무엇을 부르나.** push 요청은 `session.submit` 호출자(사람이나 에이전트 key)가 만든다(`packages/platform/src/sessions/push-request-service.ts:127-134`). 승인, PR 열기, 코멘트는 `sessions:approve`를 가진 사람이나 API key만 한다(`push-request-service.ts:66-77`, `packages/platform/src/sessions/pull-request-service.ts:103`). 에이전트 key는 `sessions:approve`를 가질 수 없다(`packages/platform/src/musterrolle/policy.ts:283-285`). 웹과 Slack에는 push·PR 화면이 없다. **세션 안의 에이전트가 GitHub 작업을 부를 경로도 없다.**
+- **누가 무엇을 부르나.** push 요청은 `session.submit` 호출자(사람이나 에이전트 key)가 만든다(`packages/platform/src/sessions/push-request-service.ts:127-134`). 승인, PR 열기, 코멘트는 `sessions:approve`를 가진 사람이나 API key만 한다(`push-request-service.ts:66-77`, `packages/platform/src/sessions/pull-request-service.ts:103`). 에이전트 key도 개인 key처럼 발급할 때 `sessions:approve`를 포함한 scope를 골라 받는다. 다만 workspace의 key(개인·에이전트)는 자기가 시작한 세션의 push 요청과 확인 요청을 승인하지 못한다(GA-8, [GA-8에서 정한 것](#ga-8에서-정한-것)). 이 문서를 쓸 때는 에이전트 key가 `sessions:approve`를 가질 수 없었다(`packages/platform/src/musterrolle/policy.ts:283-285`). 웹과 Slack에는 push·PR 화면이 없다. **세션 안의 에이전트가 GitHub 작업을 부를 경로도 없다.**
 - **에이전트 설정이 사는 곳.** 카드(`agent_versions.card`)는 불변 버전이다. 릴리스(`agent_releases`)는 카드·프로필·저장소·`policy_pins`를 해시한 id를 가진다(`schema.ts:2846-2888`, `packages/platform/src/agents/release-ids.ts:61-77`). 카드에 나중에 더한 칸은 optional로 두어 옛 카드의 해시를 지킨다(`packages/contracts/src/kollegium/agents.ts:101-105`). 릴리스 id 버전도 같은 이유로 올린다(`release-ids.ts:32-39`). 즉시 반영하는 스위치는 `agents` 행의 열로 둔다. 선례는 `slack_mention_only`다(`schema.ts:2408`, `packages/db/migrations/0188_slack_mention_only.sql:3`).
 - **사람의 외부 계정.** `linked_accounts`는 provider를 일반화한 테이블이지만 값은 `slack` 하나다(`schema.ts:720-783`, CHECK는 `766-769`, `packages/contracts/src/musterrolle/linked-accounts.ts:14`). 화면은 `/settings/linked-accounts`다(`apps/web/src/router.tsx:240-243`).
 - **세션을 시작한 사람.** turn 1의 `actor_id`가 시작자이고, 없으면 `sessions.created_by_user_id`다(`packages/db/src/session-shares.ts:68-71`). turn의 actor는 그 요청 principal 뒤의 사람이다(`packages/db/src/postgres-unit-of-work.ts:452`). 웹 cookie, 개인 API key(`api_keys.kind = 'personal'`, 만든 사람 필수 `schema.ts:2351-2357`), 연결된 Slack 사용자는 사람으로 풀린다. 에이전트 key와 operator key는 사람이 없다.
@@ -285,6 +285,17 @@ GA-7이 정한다. 지금 있는 원격 MCP 경로(카탈로그 `mcp_servers`, `
   - 그 사이에 checkpoint가 또 움직였거나 commit이 다르면 `checkpoint_moved`다.
   - push 실행기는 지금처럼 요청이 고정한 revision의 commit을 push한다.
   - 입구 1(HTTP 결정)도 같은 규칙이다. commit 없는 턴이 지난 뒤의 승인이 이제 된다.
+
+### GA-8에서 정한 것
+
+오너 결정(2026-11-01): "에이전트 key 도 개인 key 와 같은 것을 할수 있어 하지만 key 를 발급할 때 각 key 별로 필요한 권한을 적절히 설정할 수 있는거지", "이 에이전트 key 라는게 사실상 팀에서 사용하는 key 가 되는거지". D26 5의 "에이전트 key는 승인하지 않는다"를 아래로 바꾼다.
+
+- **발급.** 에이전트 key도 개인 key와 같은 칸으로 `sessions:approve`를 포함한 모든 scope를 고른다. 상한은 지금처럼 발급하는 사람이 그때 가진 scope다. 이미 있는 key의 scope는 바꾸지 않는다. 승인이 필요하면 새로 발급한다.
+- **에이전트 key가 승인하는 범위.** 그 에이전트의 세션뿐이다(지금의 `agent_ceiling`). 그 안에서는 세션 시작자나 에이전트 관리자처럼 확인 요청에 답하고 push를 결정한다.
+- **자기 승인 금지.** 승인하는 key가 그 세션을 시작한 key(`sessions.created_by_api_key_id`)이면 거절한다. 에이전트 key와 개인 key 모두 같다. 공유되는 것은 사람이 아니라 key이기 때문이다. 같은 사람이 웹(cookie)으로, 또는 다른 key로 승인하는 것은 막지 않는다. 세션을 시작한 key가 없는 세션(웹, Slack)에는 이 규칙이 걸리지 않는다. workspace에 속하지 않은 key(key CLI의 operator key, workspace 이전 key, AUTH_MODE=none)도 예외다. 곁에서 대신 승인할 구성원이나 다른 key가 없기 때문이다. quickstart와 E2E는 operator key 하나로 세션을 만들고 그 key로 답한다.
+- **판정하는 곳.** 권한 판정의 `session.approve` 한 곳이다(`reason_code: self_approval`). 모든 승인 입구가 이 판정을 지난다. HTTP의 push 결정과 확인 요청 답변이 그렇고, 내장 MCP의 `request_push`로 만든 요청도 같은 HTTP 결정으로 승인한다. MCP 호출 자체는 `session.approve`를 갖지 않는다([내장 MCP 서버](#내장-mcp-서버-github)의 권한 판정). Slack에는 지금 승인 입구가 없고, 생기면 같은 판정을 지난다. 확인 요청 목록의 `answerable`도 같은 판정이라 시작한 key에게는 false다.
+- **거절.** push 결정은 `403 FORBIDDEN`, `details.refusal: self_approval`과 `decide_push` 실패 receipt다. 확인 요청 답변은 `403 FORBIDDEN`, `details.reason_code: self_approval`과 `answer` 실패 receipt다. 둘 다 `details.receipt_id`로 receipt를 돌려준다.
+- **감사.** receipt actor는 지금처럼 key(`principal`)와 그 에이전트(`agent_id`)다. `decide_push` receipt(승인·거절 모두)와 `answer` 거절 receipt의 result에 `decider_key: { id, kind, issued_by_user_id }`를 더한다. 에이전트 key는 actor에 사람이 없으므로, 누가 발급한 key인지는 이 칸으로 본다. 사람이 결정하면 null이다.
 
 ## 4. 데이터 모델
 

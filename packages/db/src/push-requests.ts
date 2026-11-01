@@ -57,7 +57,10 @@ function publicPushRequest(row: Row): PushRequest {
 
 function resultOf(
   row: Row | null,
-  fields: Pick<PushReceiptResult, "decision" | "verdict" | "refusal">,
+  fields: Pick<
+    PushReceiptResult,
+    "decision" | "verdict" | "refusal" | "decider_key"
+  >,
 ): PushReceiptResult {
   return {
     push_request_id: row?.id ?? null,
@@ -382,6 +385,7 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
               decision: input.decision,
               verdict: "refuse",
               refusal,
+              decider_key: input.deciderKey ?? null,
             }),
           }),
         });
@@ -463,6 +467,7 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
             decision: input.decision,
             verdict: "allow",
             refusal: null,
+            decider_key: input.deciderKey ?? null,
           }),
           actor: input.actor,
         });

@@ -18,7 +18,6 @@ import {
   AlertActions,
   AlertDescription,
   AlertTitle,
-  Badge,
   Button,
   buttonVariants,
   Page,
@@ -34,6 +33,7 @@ import { useRole } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
 import { AgentAdmins } from "../components/agent-admins.tsx";
 import { AgentAvatar } from "../components/agent-cards.tsx";
+import { AgentStateBadge } from "../components/agent-state.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { RevisionDiff } from "../components/revision-diff.tsx";
@@ -534,7 +534,6 @@ function AgentView({
   );
 
   const cardRole = latestVersion(detail)?.card.role;
-  const activeRelease = agent.active_release_id ? detail.active_release : null;
   return (
     <Page
       // Below 1024 the two buttons leave the name too little room to keep
@@ -547,24 +546,7 @@ function AgentView({
           <span className="min-w-0 [overflow-wrap:anywhere]">{agent.name}</span>
         </span>
       }
-      titleAside={
-        <Badge
-          variant={
-            agent.active_release_id && agent.status === "active"
-              ? "green"
-              : "gray"
-          }
-        >
-          {activeRelease?.label
-            ? t("agent.headStatus", {
-                release: activeRelease.label,
-                status: t(`agents.status.${agent.status}`),
-              })
-            : agent.active_release_id
-              ? t(`agents.status.${agent.status}`)
-              : t("agents.state.notReleased")}
-        </Badge>
-      }
+      titleAside={<AgentStateBadge agent={agent} />}
       description={
         cardRole ? (
           <span className="[overflow-wrap:anywhere]">{cardRole}</span>

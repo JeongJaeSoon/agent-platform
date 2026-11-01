@@ -9,6 +9,7 @@ import {
   type AuthorizationSurface,
   actionAppliesTo,
   authorizationRequestSchema,
+  type DeciderKey,
   ownerScopeOf,
   type PrincipalRef,
   type ReceiptActor,
@@ -19,6 +20,7 @@ import {
 } from "@werft-ai/contracts";
 import type { DecisionLog } from "../ports/decision-log.ts";
 import type {
+  SessionOrigin,
   SessionShareStore,
   SessionViewer,
 } from "../ports/session-share-store.ts";
@@ -30,6 +32,9 @@ export type RecordedActor = {
   apiKeyId: string | null;
   /** The agent an agent key calls as; null for every other credential. */
   agentId?: string | null;
+  /** Who issued the key in `apiKeyId`; null when its row names nobody. */
+  apiKeyIssuerId?: string | null;
+  apiKeyKind?: DeciderKey["kind"] | null;
   /** The Slack link a person spoke through; a write re-reads it. */
   linkedAccount?: { id: string; revision: number };
 };
@@ -56,6 +61,18 @@ export function receiptActorOf(principal: Principal): ReceiptActor | null {
   };
 }
 
+/** The key behind an approval, for its receipt; null for anyone else. */
+export function deciderKeyOf(principal: Principal): DeciderKey | null {
+  const actor = principal.actor;
+  if (!actor?.apiKeyId) return null;
+  const agent = (actor.agentId ?? null) !== null;
+  return {
+    id: actor.apiKeyId,
+    kind: actor.apiKeyKind ?? (agent ? "agent" : "personal"),
+    issued_by_user_id: actor.apiKeyIssuerId ?? (agent ? null : actor.userId),
+  };
+}
+
 /**
  * Who calls a service. `ownerId` is what the stores partition on; the policy
  * checks it against the subject, so a caller assembled with another owner's
@@ -74,7 +91,12 @@ export function callerFor(
   principal: AuthenticatedPrincipal,
   surface: AuthorizationSurface,
   requestId: string,
-  storedKey?: { creatorId: string | null; agentId?: string | null },
+  storedKey?: {
+    creatorId: string | null;
+    agentId?: string | null;
+    issuerId?: string | null;
+    kind?: DeciderKey["kind"];
+  },
 ): Caller {
   const userId =
     principal.kind === "user"
@@ -91,6 +113,10 @@ export function callerFor(
       apiKeyId: principal.kind === "api_key" && storedKey ? principal.id : null,
       agentId:
         principal.kind === "api_key" ? (storedKey?.agentId ?? null) : null,
+      apiKeyIssuerId:
+        principal.kind === "api_key" ? (storedKey?.issuerId ?? null) : null,
+      apiKeyKind:
+        principal.kind === "api_key" ? (storedKey?.kind ?? null) : null,
     },
     subject: {
       principal,
@@ -287,11 +313,6 @@ export const AGENT_ADMIN_ACTIONS: ReadonlySet<AuthorizationAction> = new Set([
   "usage.agent_read",
 ]);
 
-// D26 5: automation bound to an agent never stands in for a person's approval.
-export const AGENT_KEY_WITHHELD: ReadonlySet<SessionScope> = new Set([
-  "sessions:approve",
-]);
-
 function within(
   scopes: readonly SessionScope[],
   role: WorkspaceRole,
@@ -303,15 +324,11 @@ function within(
 function authorityScopes(reading: {
   principal: AuthenticatedPrincipal;
   keyCreator?: { role: WorkspaceRole };
-  keyAgentId?: string;
 }): SessionScope[] {
-  const { principal, keyCreator, keyAgentId } = reading;
+  const { principal, keyCreator } = reading;
   if (principal.kind === "user")
     return within(principal.scopes, principal.role);
   if (keyCreator) return within(principal.scopes, keyCreator.role);
-  if (keyAgentId !== undefined) {
-    return principal.scopes.filter((scope) => !AGENT_KEY_WITHHELD.has(scope));
-  }
   return [...principal.scopes];
 }
 
@@ -425,41 +442,55 @@ export function createAuthorizationPolicy(
   }
   // 94S-798: seeing a session through its share is not answering for it,
   // nor renaming it (94S-804). Its creator answers (a key's session: that
-  // key), as do its agent's admins and the workspace's managers.
+  // key renames it but never approves it), as do its agent's admins, the
+  // workspace's managers and its agent's keys, which the agent ceiling holds
+  // to that agent.
   async function mayAnswer(
     reading: Extract<IdentityReading, { status: "ok" }>,
     workspaceId: string,
     sessionId: string,
-  ): Promise<boolean> {
-    // A caller from before workspaces (a legacy key, AUTH_MODE=none) has no
-    // members beside it to answer for.
-    if (reading.principal.workspace_id === null) return true;
+    approve: boolean,
+  ): Promise<"ok" | "role" | "self_approval"> {
+    // A caller from before workspaces (an operator's key CLI key, a legacy
+    // key, AUTH_MODE=none) has no members beside it to answer for, nor
+    // another key to approve instead: the quickstart runs on one such key.
+    if (reading.principal.workspace_id === null) return "ok";
     const viewer = viewerOf(reading);
+    const same = (a: string | null, b: string | null) =>
+      a !== null && b !== null && a.toLowerCase() === b.toLowerCase();
+    let origin: SessionOrigin | null | undefined;
+    if (approve && viewer.apiKeyId !== null) {
+      origin = await sessions.originOf(workspaceId, sessionId);
+      if (same(origin?.creatorApiKeyId ?? null, viewer.apiKeyId)) {
+        return "self_approval";
+      }
+    }
+    if (approve && reading.keyAgentId !== undefined) return "ok";
     const role =
       reading.principal.kind === "user"
         ? reading.principal.role
         : reading.keyCreator?.role;
-    if (role !== undefined && WORKSPACE_MANAGERS.includes(role)) return true;
-    const origin = await sessions.originOf(workspaceId, sessionId);
-    if (origin === null) return false;
-    const same = (a: string | null, b: string | null) =>
-      a !== null && b !== null && a.toLowerCase() === b.toLowerCase();
+    if (role !== undefined && WORKSPACE_MANAGERS.includes(role)) return "ok";
+    if (origin === undefined) {
+      origin = await sessions.originOf(workspaceId, sessionId);
+    }
+    if (origin === null) return "role";
     if (
       origin.creatorUserId !== null
         ? same(origin.creatorUserId, viewer.userId)
         : same(origin.creatorApiKeyId, viewer.apiKeyId)
     ) {
-      return true;
+      return "ok";
     }
-    if (viewer.userId === null) return false;
+    if (viewer.userId === null) return "role";
     const agentId = await agents.agentOf(workspaceId, {
       kind: "session",
       id: sessionId,
     });
-    return (
-      agentId !== null &&
+    return agentId !== null &&
       (await agents.isAdmin(workspaceId, agentId.toLowerCase(), viewer.userId))
-    );
+      ? "ok"
+      : "role";
   }
   const decisions = deps.decisions;
   const newDecisionId = deps.newDecisionId ?? (() => crypto.randomUUID());
@@ -604,12 +635,17 @@ export function createAuthorizationPolicy(
       redact =
         action === "session.read" && surface.ceiling?.disclosure === "summary";
     }
-    if (
-      (action === "session.approve" || action === "session.rename") &&
-      (resource.id === null ||
-        !(await mayAnswer(reading, resource.owner_scope, resource.id)))
-    ) {
-      return ["role", scopes];
+    if (action === "session.approve" || action === "session.rename") {
+      const answer =
+        resource.id === null
+          ? "role"
+          : await mayAnswer(
+              reading,
+              resource.owner_scope,
+              resource.id,
+              action === "session.approve",
+            );
+      if (answer !== "ok") return [answer, scopes];
     }
     // No agent identity has a ceiling to multiply by yet.
     if (subject.agent !== undefined) return ["agent_ceiling", scopes];
