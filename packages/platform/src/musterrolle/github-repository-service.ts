@@ -541,8 +541,14 @@ export function createGitHubRepositoryService(deps: {
         url: `https://github.com/${picked.owner}/${picked.name}.git`,
         branch: picked.defaultBranch,
       });
+      if (result.outcome === "name_held") {
+        throw refused(
+          "name_held",
+          `Catalog row ${result.id} holds that name for another GitHub repository; pick the repository it was (now renamed) to update it`,
+        );
+      }
       if (result.outcome !== "resolved") throw ACTOR_INACTIVE();
-      if (result.created) await reload();
+      if (result.changed) await reload();
       return {
         catalog_id: result.repository.id,
         receipt_id: result.created ? receiptId : null,

@@ -71,6 +71,7 @@ function serviceWith(directory: Partial<GitHubAppDirectory>) {
       return {
         outcome: "resolved",
         created: true,
+        changed: true,
         repository: {
           id: input.base,
           github_repository_id: input.githubRepositoryId,

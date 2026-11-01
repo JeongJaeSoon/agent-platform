@@ -169,31 +169,69 @@ export function createPostgresCatalogRepositoryStore(
         if ((await lockedRole(tx, input.workspaceId, input.userId)) === null) {
           return { outcome: "actor_inactive" as const };
         }
-        const [held] = await tx
+        const active = isNull(catalogRepositories.removedAt);
+        const sameName = sql`lower(${catalogRepositories.owner}) = lower(${input.owner}) AND lower(${catalogRepositories.name}) = lower(${input.name})`;
+        const [byId] = await tx
           .select()
           .from(catalogRepositories)
           .where(
             and(
-              isNull(catalogRepositories.removedAt),
-              sql`(${catalogRepositories.githubRepositoryId} = ${input.githubRepositoryId} OR (lower(${catalogRepositories.owner}) = lower(${input.owner}) AND lower(${catalogRepositories.name}) = lower(${input.name})))`,
+              active,
+              eq(
+                catalogRepositories.githubRepositoryId,
+                input.githubRepositoryId,
+              ),
             ),
-          )
-          .orderBy(
-            sql`${catalogRepositories.githubRepositoryId} = ${input.githubRepositoryId} DESC NULLS LAST`,
-          )
-          .limit(1);
-        if (held) {
-          if (held.githubRepositoryId !== null) {
+          );
+        const [byName] = await tx
+          .select()
+          .from(catalogRepositories)
+          .where(and(active, sameName));
+        // The name belongs to another GitHub repository's row: the one that
+        // had it was renamed or deleted and this one took the name since.
+        if (
+          byName !== undefined &&
+          byName.githubRepositoryId !== null &&
+          byName.githubRepositoryId !== input.githubRepositoryId
+        ) {
+          return { outcome: "name_held" as const, id: byName.id };
+        }
+        if (byId) {
+          if (byName !== undefined) {
             return {
               outcome: "resolved" as const,
-              repository: rowOf(held),
+              repository: rowOf(byId),
               created: false,
+              changed: false,
             };
           }
+          // Renamed on GitHub: the row follows, so sessions clone the new URL.
+          const [renamed] = await tx
+            .update(catalogRepositories)
+            .set({
+              owner: input.owner,
+              name: input.name,
+              url: input.url,
+              version: sql`${catalogRepositories.version} + 1`,
+              updatedAt: sql`now()`,
+              updatedBy: input.userId,
+            })
+            .where(eq(catalogRepositories.id, byId.id))
+            .returning();
+          if (!renamed)
+            throw new Error("catalog repository update returned no row");
+          return {
+            outcome: "resolved" as const,
+            repository: rowOf(renamed),
+            created: false,
+            changed: true,
+          };
+        }
+        if (byName) {
           const [filled] = await tx
             .update(catalogRepositories)
             .set({ githubRepositoryId: input.githubRepositoryId })
-            .where(eq(catalogRepositories.id, held.id))
+            .where(eq(catalogRepositories.id, byName.id))
             .returning();
           if (!filled)
             throw new Error("catalog repository update returned no row");
@@ -201,6 +239,7 @@ export function createPostgresCatalogRepositoryStore(
             outcome: "resolved" as const,
             repository: rowOf(filled),
             created: false,
+            changed: false,
           };
         }
         // Removed rows keep their id: none is ever handed out twice.
@@ -239,7 +278,12 @@ export function createPostgresCatalogRepositoryStore(
           operation: "resolve_repository",
           result: auditOf(repository),
         });
-        return { outcome: "resolved" as const, repository, created: true };
+        return {
+          outcome: "resolved" as const,
+          repository,
+          created: true,
+          changed: true,
+        };
       });
     },
 
@@ -252,7 +296,7 @@ export function createPostgresCatalogRepositoryStore(
         .from(agents)
         .innerJoin(agentReleases, eq(agentReleases.id, agents.activeReleaseId))
         .innerJoin(
-          sql`jsonb_array_elements_text(coalesce(${agentReleases.policyPins} -> 'github' -> 'repositories', '[]'::jsonb)) AS ids(id)`,
+          sql`LATERAL (SELECT jsonb_array_elements_text(coalesce(${agentReleases.policyPins} -> 'github' -> 'repositories', '[]'::jsonb)) UNION SELECT ${agentReleases.repositoryId} WHERE ${agentReleases.repositoryId} IS NOT NULL) AS ids(id)`,
           sql`true`,
         )
         .groupBy(sql`ids.id`);

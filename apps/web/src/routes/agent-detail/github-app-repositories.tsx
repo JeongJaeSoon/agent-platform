@@ -15,6 +15,8 @@ import {
 const PICK_REFUSALS: Partial<Record<string, MessageKey>> = {
   not_installed: "github.repo.pickHint",
   no_author_app: "github.repo.pickNoApp",
+  name_held: "github.repo.pickNameHeld",
+  file_repository: "github.repo.pickFileHeld",
 };
 
 /**
@@ -81,8 +83,10 @@ export function AppRepositoryPicker({
         }),
       ),
     onMutate: () => setRefusal(null),
-    onSuccess: (picked, repository) =>
-      onPicked(picked.catalog_id, repository.full_name),
+    onSuccess: async (picked, repository) => {
+      await onPicked(picked.catalog_id, repository.full_name);
+      await list.refetch();
+    },
     onError: (error) => {
       const reason = (error.details as { reason_code?: string } | null)
         ?.reason_code;

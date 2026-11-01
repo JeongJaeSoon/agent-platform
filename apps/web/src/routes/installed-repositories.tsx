@@ -103,7 +103,7 @@ export function InstalledRepositoryPage<R extends InstalledRepository>({
           ))}
         </RowList>
       )}
-      {page.total_count > page.per_page ? (
+      {page.total_count > page.per_page || page.page > 1 ? (
         <nav
           aria-label={t("github.repo.pickTitle")}
           className="flex items-center justify-end gap-2"

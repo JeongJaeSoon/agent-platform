@@ -52,10 +52,12 @@ export interface CatalogRepositoryStore {
    */
   seed(input: { entries: () => Promise<SeedRepository[]> }): Promise<string[]>;
   /**
-   * The row of that GitHub repository: found by its id, else by
-   * owner/name (filling in a seeded row's id), else inserted as a
-   * `selection` row under `base`, numbered `-2`, `-3` past ids ever used or
-   * `reserved`. Only an insert leaves a receipt.
+   * The row of that GitHub repository: found by its id (taking the new
+   * owner/name and URL after a rename), else by owner/name on a row with no
+   * GitHub id yet (filling it in), else inserted as a `selection` row under
+   * `base`, numbered `-2`, `-3` past ids ever used or `reserved`. A row of
+   * another GitHub repository under that name is `name_held`. Only an
+   * insert leaves a receipt.
    */
   resolve(
     input: RepositoryWrite & {
@@ -74,7 +76,10 @@ export interface CatalogRepositoryStore {
         repository: CatalogRepositoryRow;
         /** False when an earlier row was found: no receipt was written. */
         created: boolean;
+        /** Whether the catalog changed: an insert or a rename. */
+        changed: boolean;
       }
+    | { outcome: "name_held"; id: string }
     | { outcome: "actor_inactive" }
   >;
   setBranch(

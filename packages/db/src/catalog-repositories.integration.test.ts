@@ -148,22 +148,71 @@ integration("catalog repositories on PostgreSQL", () => {
       },
     });
 
-    // The same GitHub repository by id, or by name in another case, is the
-    // same row, and leaves no receipt.
-    for (const twin of [repo(1), { ...repo(9), owner: "acme", name: "app1" }]) {
-      const again = await store.resolve({
+    // The same GitHub repository, its name in another case, is the same
+    // row, and leaves no receipt.
+    expect(
+      await store.resolve({
         ...owner,
         receiptId: randomUUID(),
         base: "x",
         reserved: new Set(),
-        ...twin,
-      });
-      expect(again).toMatchObject({
-        outcome: "resolved",
-        created: false,
-        repository: { id: "app1", github_repository_id: 1001 },
-      });
-    }
+        ...repo(1),
+        owner: "acme",
+        name: "app1",
+      }),
+    ).toMatchObject({
+      outcome: "resolved",
+      created: false,
+      changed: false,
+      repository: { id: "app1", github_repository_id: 1001, version: 1 },
+    });
+    // Another repository under that name never takes the row.
+    const newcomer = { ...repo(9), name: "App1" };
+    expect(
+      await store.resolve({
+        ...owner,
+        receiptId: randomUUID(),
+        base: "app1",
+        reserved: new Set(),
+        ...newcomer,
+      }),
+    ).toEqual({ outcome: "name_held", id: "app1" });
+    // Picking the renamed one moves its row to the new name and URL, which
+    // frees the old name.
+    expect(
+      await store.resolve({
+        ...owner,
+        receiptId: randomUUID(),
+        base: "x",
+        reserved: new Set(),
+        ...repo(1),
+        name: "App1-old",
+        url: "https://github.com/Acme/App1-old.git",
+      }),
+    ).toMatchObject({
+      outcome: "resolved",
+      created: false,
+      changed: true,
+      repository: {
+        id: "app1",
+        name: "App1-old",
+        url: "https://github.com/Acme/App1-old.git",
+        version: 2,
+      },
+    });
+    expect(
+      await store.resolve({
+        ...owner,
+        receiptId: randomUUID(),
+        base: "app1",
+        reserved: new Set(),
+        ...newcomer,
+      }),
+    ).toMatchObject({
+      outcome: "resolved",
+      created: true,
+      repository: { id: "app1-2", github_repository_id: 1009 },
+    });
     // A seeded row found by name gets its GitHub id filled in.
     expect(
       await store.resolve({
@@ -231,7 +280,7 @@ integration("catalog repositories on PostgreSQL", () => {
         receiptId: randomUUID(),
         id: "app1",
         branch: "develop",
-        version: 2,
+        version: 1,
       }),
     ).toEqual({ outcome: "revision_conflict" });
     expect(
@@ -240,14 +289,15 @@ integration("catalog repositories on PostgreSQL", () => {
         receiptId: randomUUID(),
         id: "app1",
         branch: "develop",
-        version: 1,
+        version: 2,
       }),
     ).toMatchObject({
       outcome: "stored",
-      repository: { branch: "develop", version: 2 },
+      repository: { branch: "develop", version: 3 },
     });
     expect((await store.listActive()).map((row) => row.id)).toEqual([
       "app1",
+      "app1-2",
       "app3",
       "seeded",
       "tool-2",

@@ -157,7 +157,12 @@ function memoryRepositories() {
       );
       if (held) {
         held.github_repository_id ??= input.githubRepositoryId;
-        return { outcome: "resolved", repository: held, created: false };
+        return {
+          outcome: "resolved",
+          repository: held,
+          created: false,
+          changed: false,
+        };
       }
       let id = input.base;
       for (let n = 2; rows.has(id) || input.reserved.has(id); n += 1) {
@@ -183,7 +188,12 @@ function memoryRepositories() {
         id,
         receipt: input.receiptId,
       });
-      return { outcome: "resolved", repository: row, created: true };
+      return {
+        outcome: "resolved",
+        repository: row,
+        created: true,
+        changed: true,
+      };
     },
     async setBranch(input) {
       const row = rows.get(input.id);
@@ -636,5 +646,20 @@ describe("the GitHub repository API", () => {
         })
       ).status,
     ).toBe(404);
+    expect(
+      (
+        await call("POST", agentPath(crypto.randomUUID()), {
+          cookie: cookieFor("owner"),
+          body: { installation_id: 1, github_repository_id: 1 },
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await call("GET", agentPath(AGENT, "?per_page=0"), {
+          cookie: cookieFor("owner"),
+        })
+      ).status,
+    ).toBe(400);
   });
 });
