@@ -536,6 +536,10 @@ const PUBLIC_PATHS = [
 // the longer Prefix first anyway; the spec order holds that on its face.
 const CONSOLE_PATHS = ["Prefix /internal", ...PUBLIC_PATHS, "Prefix /"];
 const ALB_ACTION = "alb.ingress.kubernetes.io/actions.";
+// Extra conditions, rewrites, a shared group's earlier rules or another
+// controller can each send /internal past the 404 to the api.
+const ROUTE_OVERRIDE =
+  /^(alb\.ingress\.kubernetes\.io\/(actions|conditions|transforms|group)\.|kubernetes\.io\/ingress\.class$)/;
 
 function blocksInternal(
   annotations: Record<string, string>,
@@ -543,13 +547,10 @@ function blocksInternal(
   path: any,
 ): boolean {
   const service = path.backend?.service;
-  // A conditions annotation narrows the rule, and what it lets through
-  // falls to "/".
   if (
     path.path !== "/internal" ||
     path.pathType !== "Prefix" ||
-    service?.port?.name !== "use-annotation" ||
-    `alb.ingress.kubernetes.io/conditions.${service.name}` in annotations
+    service?.port?.name !== "use-annotation"
   ) {
     return false;
   }
@@ -601,6 +602,12 @@ function checkIngress(
     }
     if (console && ingress.spec.ingressClassName !== "alb") {
       fail("the console needs ingressClassName alb");
+    }
+    const blockAction = `${ALB_ACTION}block-internal`;
+    for (const key of Object.keys(annotations)) {
+      if (console && key !== blockAction && ROUTE_OVERRIDE.test(key)) {
+        fail(`${key} can route /internal past the 404`);
+      }
     }
     for (const rule of ingress.spec.rules ?? []) {
       // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
@@ -804,8 +811,15 @@ const MUST_FAIL: [string, string[], RegExp][] = [
     ],
     /ingress\.console\.enabled needs ingress\.className alb/,
   ],
-  [
-    "conditions on the console's /internal 404",
+  ...[
+    "alb.ingress.kubernetes.io/conditions.block-internal",
+    "alb.ingress.kubernetes.io/conditions.ap-agent-platform-api",
+    "alb.ingress.kubernetes.io/transforms.ap-agent-platform-api",
+    "alb.ingress.kubernetes.io/actions.block-internal",
+    "alb.ingress.kubernetes.io/group.name",
+    "kubernetes.io/ingress.class",
+  ].map((key): [string, string[], RegExp] => [
+    `${key} with the console on`,
     [
       "-f",
       ciDigests,
@@ -814,10 +828,10 @@ const MUST_FAIL: [string, string[], RegExp][] = [
       "--set",
       "ingress.console.enabled=true",
       "--set-string",
-      "ingress.annotations.alb\\.ingress\\.kubernetes\\.io/conditions\\.block-internal=[]",
+      `ingress.annotations.${key.replaceAll(".", "\\.")}=x`,
     ],
-    /must not narrow the \/internal 404 with conditions/,
-  ],
+    /ingress\.annotations must not set .* while ingress\.console\.enabled/,
+  ]),
   [
     "a tag-only image",
     [
@@ -1053,17 +1067,19 @@ const CONSOLE_BREAKS: [string, (ingress: Manifest) => void, string][] = [
     },
     "the console needs ingressClassName alb",
   ],
-  [
-    "conditions on the /internal 404",
+  ...[
+    "alb.ingress.kubernetes.io/conditions.block-internal",
+    "alb.ingress.kubernetes.io/conditions.ap-agent-platform-api",
+    "alb.ingress.kubernetes.io/transforms.ap-agent-platform-api",
+    "alb.ingress.kubernetes.io/group.order",
+    "kubernetes.io/ingress.class",
+  ].map((key): [string, (ingress: Manifest) => void, string] => [
+    key,
     ({ metadata }) => {
-      metadata.annotations = {
-        ...metadata.annotations,
-        "alb.ingress.kubernetes.io/conditions.block-internal":
-          '[{"field":"http-request-method","httpRequestMethodConfig":{"Values":["GET"]}}]',
-      };
+      metadata.annotations = { ...metadata.annotations, [key]: "x" };
     },
-    "/internal routes /internal",
-  ],
+    `${key} can route /internal past the 404`,
+  ]),
   [
     "/ on another Service",
     ({ spec }) => {

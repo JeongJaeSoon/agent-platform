@@ -16,7 +16,10 @@ ranks a longer Prefix ahead of a shorter one, so /internal wins over "/".
 {{- $annotations := deepCopy (.Values.ingress.annotations | default dict) }}
 {{- if .Values.ingress.console.enabled }}
 {{- if ne .Values.ingress.className "alb" }}{{ fail "ingress.console.enabled needs ingress.className alb: other controllers do not answer /internal with the ALB's 404" }}{{ end }}
-{{- if hasKey $annotations (printf "alb.ingress.kubernetes.io/conditions.%s" $blockInternal) }}{{ fail "ingress.annotations must not narrow the /internal 404 with conditions" }}{{ end }}
+{{- /* Each of these can send a request past the /internal 404 to the api. */}}
+{{- range $key, $_ := $annotations }}
+{{- if or (regexMatch "^alb\\.ingress\\.kubernetes\\.io/(actions|conditions|transforms|group)\\." $key) (eq $key "kubernetes.io/ingress.class") }}{{ fail (printf "ingress.annotations must not set %s while ingress.console.enabled: it can route /internal past the ALB's 404" $key) }}{{ end }}
+{{- end }}
 {{- $paths = append (prepend $paths (list "/internal" "Prefix" $blockInternal)) (list "/" "Prefix") }}
 {{- $_ := set $annotations (printf "alb.ingress.kubernetes.io/actions.%s" $blockInternal) (dict "type" "fixed-response" "fixedResponseConfig" (dict "contentType" "text/plain" "statusCode" "404") | toJson) }}
 {{- end }}
