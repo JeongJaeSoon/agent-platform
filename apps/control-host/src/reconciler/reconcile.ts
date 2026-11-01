@@ -28,6 +28,7 @@ export type ReconcilerRun = {
   parkedExpired: string[];
   inputReturns: AnnouncedInputReturn[];
   decisionsExpired: number;
+  webSessionsDeleted: number;
   // null on a dry run, which projects nothing.
   toolCalls: ToolCallProjection | null;
 };
@@ -106,6 +107,11 @@ export async function runReconciler(input: {
     limit: number;
   }): Promise<AnnouncedInputReturn[]>;
   expireDecisions(options: { dryRun: boolean; limit: number }): Promise<number>;
+  // Web sessions 30 days past expiry.
+  deleteExpiredWebSessions(options: {
+    dryRun: boolean;
+    limit: number;
+  }): Promise<number>;
   // Tool calls for the usage API, from the events since the last pass. Last,
   // because it spends what is left of its own time budget catching up.
   projectToolCalls(): Promise<ToolCallProjection>;
@@ -182,6 +188,14 @@ export async function runReconciler(input: {
     dry_run: dryRun,
     deleted_count: decisionsExpired,
   });
+  const webSessionsDeleted = await input.deleteExpiredWebSessions({
+    dryRun,
+    limit,
+  });
+  input.logger.info("Expired web sessions deleted", {
+    dry_run: dryRun,
+    deleted_count: webSessionsDeleted,
+  });
   const toolCalls = dryRun ? null : await input.projectToolCalls();
   input.logger.info("Tool calls projected", {
     dry_run: dryRun,
@@ -214,6 +228,7 @@ export async function runReconciler(input: {
     parkedExpired,
     inputReturns,
     decisionsExpired,
+    webSessionsDeleted,
     toolCalls,
   };
 }
