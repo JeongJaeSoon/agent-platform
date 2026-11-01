@@ -81,6 +81,7 @@ describe("database schema", () => {
       "credential_bindings",
       "events",
       "executions",
+      "github_app_manifest_states",
       "github_apps",
       "github_packages_settings",
       "github_workflow_dispatches",
