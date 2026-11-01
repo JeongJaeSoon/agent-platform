@@ -550,11 +550,11 @@ key는 웹(cookie 세션)에서 `POST /v1/api-keys`로 발급한다.
 | key | 누가 발급 | 무엇을 하나 |
 |---|---|---|
 | 개인 key (`kind: personal`) | 모든 멤버, 자기 것만 | 만든 사람의 지금 역할 안에서 그 사람으로 동작한다. 그 사람이 비활성화되면 `401` |
-| 에이전트 key (`kind: agent` + `agent_id`) | owner·admin·그 에이전트 관리자 | key 자체로 동작하고 그 에이전트의 세션 생성·조회만 한다. 발급자가 떠나도 계속 동작한다. `sessions:approve`는 갖지 못한다 |
+| 에이전트 key (`kind: agent` + `agent_id`) | owner·admin·그 에이전트 관리자 | key 자체로 동작하고 그 에이전트의 세션 생성·조회만 한다. 발급자가 떠나도 계속 동작한다. `sessions:approve`를 넣으면 그 에이전트의 세션에서 승인한다. 자기가 시작한 세션은 빼고 |
 
 에이전트 없는 key(workspace 전체에 닿는 key)는 없다. `agent_id` 없는 `kind: agent`는 `400 BAD_REQUEST`다. 둘 다 `name`(앞뒤 공백을 뺀 1~64자, 필수 아님)을 받는다. 0163 migration은 기존 `service` key 가운데 `agent_id`가 있는 것은 `agent`로, workspace 밖 운영자 key는 `operator`로 바꾸고, workspace 전체 key(그리고 owner가 workspace id인 운영자 key)는 그 key가 만든 세션의 `created_by_api_key_id`를 비운 뒤 지운다. 지운 개수는 migration NOTICE로 나온다.
 
-- 요청한 `scopes`가 발급자의 지금 scope를 넘으면 `403 SCOPE_NOT_GRANTABLE`이다. admin은 `sessions:recover`가 든 key를 만들 수 없다. 에이전트 key에 `sessions:approve`를 넣어도 같은 오류다.
+- 요청한 `scopes`가 발급자의 지금 scope를 넘으면 `403 SCOPE_NOT_GRANTABLE`이다. admin은 `sessions:recover`가 든 key를 만들 수 없다. 그 안에서는 개인 key와 에이전트 key가 같은 scope를 고른다(`sessions:approve` 포함). 이미 발급한 key의 scope는 바뀌지 않는다.
 - 권한이 없으면 `403 FORBIDDEN`이고 `error.details.reason_code`에 판정 이유(`role`, `agent_ceiling` 등)가 있다.
 - 에이전트 key로 세션을 만들려면 `POST /v1/sessions`에 그 에이전트의 `agent_release_id`를 넣는다. `profile_id`는 빼면 그 release의 실행 프로필이고, 보내면 그 프로필이어야 한다(`409 RELEASE_PROFILE_MISMATCH`). `repository_id`를 빼면 release의 `repository_id`로 시작한다. release의 프로필이 카탈로그에서 빠졌거나 release 뒤에 바뀌었으면 `409 PROFILE_DIGEST_MISMATCH`다. release를 넣지 않은 세션이나 다른 에이전트의 세션은 `403`(`agent_ceiling`)이다. 세션 목록과 receipt 조회도 에이전트를 가리지 못해 `403`이다. 실행은 아직 `profile_id`를 따르고, release의 지시문과 도구 정책은 세션에 고정만 된다.
 - 목록(`GET /v1/api-keys`)은 자기 개인 key와 자기가 관리하는 에이전트의 key만 보인다. 비밀값은 발급 응답에서 한 번만 나온다.
@@ -620,7 +620,7 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/admins" \
 - 범위를 좁히면 그 세션의 열린 SSE가 바로 깨어나 다시 판정되고, 더는 볼 수 없는 연결은 끊긴다(로그 `SSE stream closed`, `reason: not_visible`). 다시 연결하면 `404`다.
 - 아직 한 번도 바꾸지 않은 세션은 `session_shares` 행 없이 `workspace`로 읽힌다(`revision` 0).
 
-보는 것과 대신 답하는 것은 다르다. 권한 요청·질문에 답하고 push·PR을 결정하는 것(`session.approve`)은 세션을 볼 수 있는 사람 가운데 만든 사람(key가 만든 세션이면 그 key), 그 에이전트의 관리자, owner·admin만 한다. 공유로 보기만 하는 사람(member, 남이 만든 세션을 보는 에이전트 key)은 `403`(`reason_code: role`, "holds sessions:approve but may not use it on this session")이고 요청은 열린 채 세션은 `needs_input`에 머문다. 볼 수 없는 사람은 지금처럼 `404`다. 개인 key는 만든 사람으로, 그 사람의 지금 역할로 판정한다. workspace가 없는 호출자(legacy key, `AUTH_MODE=none`)는 곁에 대신 답할 멤버가 없으므로 지금처럼 답한다. `GET /v1/sessions/{id}/pending-requests`의 `answerable`이 같은 판정을 미리 알려 준다. 이 미리보기는 판정 행을 남기지 않는다.
+보는 것과 대신 답하는 것은 다르다. 권한 요청·질문에 답하고 push·PR을 결정하는 것(`session.approve`)은 세션을 볼 수 있는 사람 가운데 만든 사람, 그 에이전트의 관리자, owner·admin, 그리고 `sessions:approve`를 가진 그 에이전트의 key만 한다. 어떤 key도 그 key가 시작한 세션은 승인하지 못한다(`403`, `reason_code: self_approval`, 실패 receipt). 같은 사람이 웹이나 다른 key로 승인하는 것은 막지 않는다. 공유로 보기만 하는 사람(member)은 `403`(`reason_code: role`, "holds sessions:approve but may not use it on this session")이고 요청은 열린 채 세션은 `needs_input`에 머문다. 볼 수 없는 사람은 지금처럼 `404`다. 개인 key는 만든 사람으로, 그 사람의 지금 역할로 판정한다. workspace가 없는 호출자(legacy key, `AUTH_MODE=none`)는 곁에 대신 답할 멤버가 없으므로 지금처럼 답한다. `GET /v1/sessions/{id}/pending-requests`의 `answerable`이 같은 판정을 미리 알려 준다. 이 미리보기는 판정 행을 남기지 않는다.
 
 세션 이름을 바꾸는 것(`PATCH /v1/sessions/{id}`, `session.rename`)도 답하는 사람과 같은 사람만 한다. scope는 `sessions:write`이고, 응답이 세션 상세라 `sessions:read`도 함께 본다. 공유로 보기만 하는 사람은 `403`(`reason_code: role`, "holds sessions:write but may not use it on this session"), 볼 수 없는 사람은 `404`다. 거절은 판정 행으로 남고, 허용은 남지 않는다. 이름은 제어가 아니어서 세션 `revision`도 receipt도 바뀌지 않는다. 바뀐 이름은 `status` 이벤트의 `title`로 스트림에 실린다. 생성 때 `title`이 없으면 첫 메시지에서 결정적 규칙으로 만들고, 이 기능 전의 세션은 `sessions.title`이 `NULL`이다(backfill 없음, migration 0155).
 
