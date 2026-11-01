@@ -1,6 +1,6 @@
 # 결정: 실행 프로필을 DB 하나로 관리한다
 
-- 상태: 결정(2026-10-28). 저장소 허용·시드·회수 절은 같은 날 고쳤다. 설정 파일(`profiles.yaml` 시드, `connections.yaml`)을 읽는 부분은 대체됨 → [settings-replace-file-catalog.md](settings-replace-file-catalog.md)(2026-11-02).
+- 상태: 결정(2026-10-28). 저장소 허용·시드·회수 절은 같은 날 고쳤다. 설정 파일(`profiles.yaml` 시드, `connections.yaml`)을 읽는 부분과, 상한이 `repository_ids` 나열로만 저장소를 허용하는 [저장소 허용](#저장소-허용) 규칙(GitHub App 저장소의 `installed`)은 대체됨 → [settings-replace-file-catalog.md](settings-replace-file-catalog.md)(2026-11-02).
 - 기준 커밋: `origin/main` `77b91d84`. 아래 `파일:줄`은 모두 이 커밋 기준이다.
 - 오너 원문(2026-10-28): "설치 설정 파일을 고친 뒤 다시 배포해야하는 프로필 개념은 없애고 그냥 db 에서 관리하는 프로필 개념으로 통일하는게 낫지않아?", "DB 단일 관리로 통합하고 싶어 순차적으로 진행해도 좋아"
 
