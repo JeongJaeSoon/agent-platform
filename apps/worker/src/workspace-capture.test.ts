@@ -16,6 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readGitBundleHeader } from "@werft-ai/runtime-core";
+import { isolatedGit } from "@werft-ai/testkit/git";
 import {
   GitOutputLimitError,
   GitResourceLimitError,
@@ -36,6 +37,7 @@ const linux = process.platform === "linux";
 
 let scratch: string;
 let root: string;
+const git = isolatedGit(() => scratch);
 
 beforeEach(async () => {
   scratch = await mkdtemp(join(tmpdir(), "94s-246-capture-"));
@@ -47,37 +49,6 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(scratch, { force: true, recursive: true });
 });
-
-async function git(cwd: string, ...args: string[]): Promise<string> {
-  const child = Bun.spawn(["git", ...args], {
-    cwd,
-    env: {
-      PATH: process.env.PATH ?? "/usr/bin:/bin",
-      HOME: scratch,
-      GIT_CONFIG_NOSYSTEM: "1",
-      // As `runGit` does: a detached `git maintenance run --auto` would
-      // repack under a comparison of the repository's objects.
-      GIT_CONFIG_COUNT: "2",
-      GIT_CONFIG_KEY_0: "maintenance.auto",
-      GIT_CONFIG_VALUE_0: "false",
-      GIT_CONFIG_KEY_1: "gc.auto",
-      GIT_CONFIG_VALUE_1: "0",
-      GIT_AUTHOR_NAME: "test",
-      GIT_AUTHOR_EMAIL: "test@example.test",
-      GIT_COMMITTER_NAME: "test",
-      GIT_COMMITTER_EMAIL: "test@example.test",
-    },
-    stderr: "pipe",
-    stdout: "pipe",
-  });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
-  if (code !== 0) throw new Error(`git ${args.join(" ")}: ${stderr}`);
-  return stdout;
-}
 
 async function commitFiles(files: Record<string, string>): Promise<string> {
   for (const [path, body] of Object.entries(files)) {
