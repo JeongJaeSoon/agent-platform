@@ -71,7 +71,8 @@ GitHub 연결 설정에 '새 App 만들기'를 주 버튼으로 둔다. '이미 
 | `reason_code` | 조건 |
 |---|---|
 | `console_origin_unset` | `CONSOLE_ORIGIN`이 없다. redirect와 계정 연결 콜백을 만들 수 없다 |
-| `secret_store_off` | master key가 없다. 키를 봉인할 수 없다 |
+
+master key가 없어 키를 봉인할 수 없을 때는 `reason_code` 없이 App 등록과 같은 503을 돌려준다.
 
 - `localhost` origin도 된다. manifest의 redirect는 브라우저가 따라가는 이동이라 GitHub 서버가 콘솔에 접속하지 않는다. 다만 다른 사람의 계정 연결은 그 사람의 브라우저가 열 수 있는 주소여야 한다.
 

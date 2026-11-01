@@ -558,7 +558,18 @@ export function createGitHubAppService(deps: {
           },
         );
       }
-      const githubApp = await stored(result, "author");
+      let githubApp: GitHubApp;
+      try {
+        githubApp = await stored(result, "author");
+      } catch (error) {
+        // Whatever refused the save, the App already exists on GitHub.
+        if (!(error instanceof SessionServiceError)) throw error;
+        throw new SessionServiceError(error.code, error.message, error.retry, {
+          ...(error.details as object | null),
+          app_id: app.appId,
+          html_url: app.htmlUrl,
+        });
+      }
       return {
         github_app: githubApp,
         install_url: `${app.htmlUrl}/installations/new`,

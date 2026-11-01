@@ -524,6 +524,10 @@ integration("the GitHub App on PostgreSQL", () => {
       await db.select().from(receipts).where(eq(receipts.id, late.receiptId)),
     ).toEqual([]);
 
+    const stale = fakeGitHubClientSecret();
+    expect(await oauth.putClientSecret(ws, stale, owner(), "Iv23li62")).toEqual(
+      { outcome: "stored" },
+    );
     const replaced = await store.put(
       ws,
       "author",
@@ -538,7 +542,9 @@ integration("the GitHub App on PostgreSQL", () => {
       },
     );
     expect(replaced.outcome).toBe("stored");
-    expect((await oauth.client(ws))?.clientId).toBe("Iv23li64");
+    const next = await oauth.client(ws);
+    expect(next?.clientId).toBe("Iv23li64");
+    expect(next !== null && next.clientSecret !== stale).toBe(true);
   });
 
   test("a manifest state is spent by the first read; expired ones go at the next start", async () => {

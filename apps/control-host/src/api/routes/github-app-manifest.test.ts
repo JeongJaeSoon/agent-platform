@@ -94,6 +94,7 @@ function memoryStore() {
   const puts: Array<{ key: string; manifest?: GitHubAppManifestPut }> = [];
   const states = new Map<string, GitHubAppManifestState>();
   let failing = false;
+  let outranked = false;
   const record = (appId: number, slug: string): GitHubAppRecord => {
     const at = new Date();
     return {
@@ -118,6 +119,7 @@ function memoryStore() {
     },
     async put(_workspaceId, role, app, key, _audit, manifest) {
       if (failing) throw new Error("database went away");
+      if (outranked) return { outcome: "outranked" };
       const current = held.get(role);
       if (
         manifest !== undefined &&
@@ -160,6 +162,9 @@ function memoryStore() {
     clear: () => held.clear(),
     fail: (on: boolean) => {
       failing = on;
+    },
+    outrank: (on: boolean) => {
+      outranked = on;
     },
   };
 }
@@ -383,7 +388,7 @@ describe("making the author GitHub App from a manifest", () => {
     expect(conversions.filter((sent) => sent === code)).toHaveLength(1);
   });
 
-  test("an expired state, or one another person or workspace started, is refused before GitHub is asked", async () => {
+  test("an expired state, or one another person started, is refused before GitHub is asked", async () => {
     memory.clear();
     const owner = cookieFor("owner");
     const sent = conversions.length;
@@ -489,6 +494,18 @@ describe("making the author GitHub App from a manifest", () => {
     expect(lost.status).toBe(503);
     expect(error(lost.json).details).toEqual({
       reason_code: "store_failed",
+      app_id: nextApp - 1,
+      html_url: `https://github.com/apps/werft-acme-${nextApp - 1}`,
+    });
+
+    memory.outrank(true);
+    const refused = await call("manifest/complete", {
+      cookie: owner,
+      body: { code: newCode(), state: (await started(call, owner)).state },
+    });
+    memory.outrank(false);
+    expect(refused.status).toBe(403);
+    expect(error(refused.json).details).toMatchObject({
       app_id: nextApp - 1,
       html_url: `https://github.com/apps/werft-acme-${nextApp - 1}`,
     });
