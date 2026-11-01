@@ -238,12 +238,7 @@ function AgentCard({
                 facts.data.release_label ? (
                   formatTimestamp(releasedAt(facts.data.release_label), locale)
                 ) : (
-                  <>
-                    <span aria-hidden="true">—</span>
-                    <span className="sr-only">
-                      {t("agents.cards.notReleased")}
-                    </span>
-                  </>
+                  <Dash label={t("agents.cards.notReleased")} />
                 )
               ) : null}
             </Detail>
@@ -251,8 +246,9 @@ function AgentCard({
           <Fact term={t("agents.cards.profile")}>
             <Detail query={facts}>
               {facts.data
-                ? (facts.data.runtime_profile_id ??
-                  t("agents.cards.notReleased"))
+                ? (facts.data.runtime_profile_id ?? (
+                    <Dash label={t("agent.panel.none")} />
+                  ))
                 : null}
             </Detail>
           </Fact>
@@ -330,8 +326,7 @@ function Detail({
   if (queries.some((q) => q.isError))
     return (
       <span className="text-muted-foreground">
-        <span aria-hidden="true">—</span>
-        <span className="sr-only">{t("agents.cards.unavailable")}</span>
+        <Dash label={t("agents.cards.unavailable")} />
       </span>
     );
   if (queries.some((q) => q.isPending))
@@ -352,6 +347,16 @@ function Detail({
       </span>
     );
   return <>{children}</>;
+}
+
+/** A dash to the eye, words to a screen reader. */
+function Dash({ label }: { readonly label: string }) {
+  return (
+    <>
+      <span aria-hidden="true">—</span>
+      <span className="sr-only">{label}</span>
+    </>
+  );
 }
 
 function Fact({

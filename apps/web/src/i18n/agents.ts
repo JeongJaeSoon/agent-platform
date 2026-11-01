@@ -43,7 +43,6 @@ export const agentsKo = {
   "agents.cards.instructions": "지시문",
   "agents.cards.admins": "관리자",
   "agents.updated": "{at} 수정",
-  "agents.state.notReleased": "아직 쓸 수 없음",
   "agents.state.draft": "초안",
   "agents.state.released": "릴리스",
   "agents.status.active": "활성",
@@ -105,7 +104,6 @@ export const agentsKo = {
   "agent.releaseLabel": "릴리스 {release} · {profile}",
   "agent.versionLabel": "버전 {version}",
   "agent.versionShort": "v{version}",
-  "agent.headStatus": "{release} · {status}",
   "agent.saved":
     "저장했습니다 — 버전 {version}. 아직 활성화되지 않았습니다. 릴리스 탭에서 릴리스를 만들고 활성화해야 반영됩니다.",
   "agent.savedExisting":
@@ -356,7 +354,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.cards.instructions": "Instructions",
   "agents.cards.admins": "Admins",
   "agents.updated": "Updated {at}",
-  "agents.state.notReleased": "Not usable yet",
   "agents.state.draft": "Draft",
   "agents.state.released": "Released",
   "agents.status.active": "Active",
@@ -418,7 +415,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releaseLabel": "Release {release} · {profile}",
   "agent.versionLabel": "Version {version}",
   "agent.versionShort": "v{version}",
-  "agent.headStatus": "{release} · {status}",
   "agent.saved":
     "Saved as version {version}. It is not in use yet — create a release on the Release tab and activate it.",
   "agent.savedExisting":
@@ -657,7 +653,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.cards.instructions": "指示文",
   "agents.cards.admins": "管理者",
   "agents.updated": "{at}に更新",
-  "agents.state.notReleased": "まだ使用できません",
   "agents.state.draft": "下書き",
   "agents.state.released": "リリース済み",
   "agents.status.active": "有効",
@@ -720,7 +715,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.releaseLabel": "リリース {release} · {profile}",
   "agent.versionLabel": "バージョン {version}",
   "agent.versionShort": "v{version}",
-  "agent.headStatus": "{release} · {status}",
   "agent.saved":
     "バージョン {version} として保存しました。まだ使われていません。「リリース」タブでリリースを作成して有効化してください。",
   "agent.savedExisting":
