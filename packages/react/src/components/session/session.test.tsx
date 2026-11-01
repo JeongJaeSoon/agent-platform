@@ -12,14 +12,10 @@ import type { TimelineEntry, TimelineMessages } from "./timeline.tsx";
 const { render } = await setupDom();
 // After setupDom: these load @werft-ai/ui, whose Radix decides at import time
 // whether a DOM exists.
+const { SESSION_NARROW_TEMPLATE, SESSION_TEMPLATE, SessionRow } = await import(
+  "./session-row.tsx"
+);
 const {
-  SESSION_COLUMNS,
-  SESSION_NARROW_TEMPLATE,
-  SESSION_TEMPLATE,
-  SessionRow,
-} = await import("./session-row.tsx");
-const {
-  SESSION_OVERVIEW_COLUMNS,
   SESSION_OVERVIEW_HOME_TEMPLATE,
   SESSION_OVERVIEW_NARROW_TEMPLATE,
   SESSION_OVERVIEW_TEMPLATE,
@@ -42,22 +38,6 @@ test.each([
   const tracks = columns.split(" ");
   expect(tracks).toHaveLength(count);
   for (const track of tracks) expect(track).toMatch(TRACK);
-});
-
-// Kept for callers that lay out rows of their own with them.
-test("예전 div-grid 열 class는 그대로 폭마다 떨어진 class 하나씩이다", () => {
-  // Two classes run together are one unknown class, and Tailwind drops both.
-  expect(SESSION_COLUMNS.split(" ")).toEqual([
-    "grid",
-    expect.stringMatching(/^grid-cols-\[[^\s@]+\]$/),
-    expect.stringMatching(/^@\[480px\]:grid-cols-\[[^\s@]+\]$/),
-    expect.stringMatching(/^@\[820px\]:grid-cols-\[[^\s@]+\]$/),
-  ]);
-  expect(SESSION_OVERVIEW_COLUMNS.split(" ")).toEqual([
-    "grid",
-    expect.stringMatching(/^grid-cols-\[[^\s@]+\]$/),
-    expect.stringMatching(/^@\[820px\]:grid-cols-\[[^\s@]+\]$/),
-  ]);
 });
 
 // Echoes the key and params, so a test reads what the component asked for.

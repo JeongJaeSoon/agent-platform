@@ -18,14 +18,6 @@ import { type SessionRowLink, SessionRowOpener } from "./session-row.tsx";
 import { useMinute } from "./use-minute.ts";
 
 /**
- * @deprecated The div-grid classes the session list used before GridTable,
- * kept for rows a caller lays out itself. The table uses
- * SESSION_OVERVIEW_TEMPLATE.
- */
-export const SESSION_OVERVIEW_COLUMNS =
-  "grid grid-cols-[minmax(0,2fr)_116px_minmax(0,1.2fr)_64px] @[820px]:grid-cols-[minmax(0,2.2fr)_120px_minmax(0,1fr)_minmax(0,1.4fr)_72px]";
-
-/**
  * Console v4 `.t-sess`: title, status, agent · model, repository, started
  * by, recent. At 820px of table width and below, repository and started by
  * drop out for SESSION_OVERVIEW_NARROW_TEMPLATE; below 600px each row
