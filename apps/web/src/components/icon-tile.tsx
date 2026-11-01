@@ -51,7 +51,8 @@ export function IconTile({
         "grid shrink-0 place-items-center rounded-control text-(--ap-color-tile-foreground)",
         size === "line"
           ? "size-(--ap-size-icon-tile)"
-          : "size-(--ap-size-tile-two-line)",
+          : // Pinned to the first line when the text wraps past two.
+            "size-(--ap-size-tile-two-line) self-start",
         HUE_CLASS[hue],
       )}
     >

@@ -11,8 +11,9 @@ export const avatarVariants = cva(
       size: {
         default: "size-6 text-2xs",
         lg: "size-8 text-caption",
-        // Beside a 20px line over a 16px one, spanning both.
-        "two-line": "size-(--ap-size-tile-two-line) text-control",
+        // Beside a 20px line over a 16px one, spanning both; pinned to the
+        // first line when the text wraps past two.
+        "two-line": "size-(--ap-size-tile-two-line) self-start text-control",
       },
       shape: {
         circle: "rounded-full",
