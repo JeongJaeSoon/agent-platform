@@ -7,7 +7,7 @@
 Werft의 모듈과 각 모듈의 책임은 [README](../../README.md)의 모듈 구성 문단에 있고, 여기서는 모듈마다 코드가 어디 있는지를 적는다. 아래 control host·worker·egress proxy가 Kiel(세션 런타임)의 구성요소이고, 공개 `/v1` API는 control host의 api role이 서빙한다.
 
 - **Musterrolle**: `packages/contracts/src/musterrolle`, `packages/platform/src/musterrolle`, control host의 인증 route(`/v1/auth/*`)와 API 키·멤버·팀 route, `packages/db`(사용자·워크스페이스·인증·권한 테이블과 그 쿼리), `packages/platform/src/ports/identity-store.ts`. Kiel의 계약과 port도 이 계약과 policy 타입을 import한다. 권한 판정은 `packages/platform/src/musterrolle/policy.ts`의 `createAuthorizationPolicy`가 맡는다. 요청 주체를 다시 읽은 뒤 action의 scope, 관리 action이면 역할, 세션이면 공유 범위와 에이전트 관리자 여부로 판정한다.
-- **Kollegium**: `packages/contracts/src/kollegium`(에이전트 정의·채널 연결 surface·chat envelope), `packages/platform/src/agents`, control host의 에이전트 route와 `slack` role(`apps/control-host/src/slack`). 에이전트 release의 `policy_pins.tools`는 도구별 권한 정책(`allow`·`ask`·`deny`, 기본값은 내장 도구 allow·MCP 도구 ask)을 release를 만들 때 고정한 값이다. remote MCP server 경로는 이 값에서 `allow`인 MCP 도구만 세션에 주고, egress proxy가 중계하는 교환마다 그 목록으로 검사한다(`packages/db/src/mcp-egress.ts`가 읽고 `packages/platform/src/workers/mcp-egress.ts`가 판정한다). worker의 `canUseTool` → `pending_requests` 경로는 이 값을 읽지 않는다.
+- **Kollegium**: `packages/contracts/src/kollegium`(에이전트 정의·채널 연결 surface·chat envelope), `packages/platform/src/agents`, control host의 에이전트 route와 `slack` role(`apps/control-host/src/slack`). 에이전트 release의 `policy_pins.tools`는 도구별 권한 정책(`allow`·`ask`·`deny`, 기본값은 내장 도구 allow·MCP 도구 ask)을 release를 만들 때 고정한 값이다. remote MCP server 경로는 이 값에서 `allow`인 MCP 도구만 세션에 주고, egress proxy가 중계하는 `tools/call`마다 호출한 도구가 그 목록에 있는지 검사한다(`packages/db/src/mcp-egress.ts`가 읽고 `packages/platform/src/workers/mcp-egress.ts`가 판정한다). worker의 `canUseTool` → `pending_requests` 경로는 이 값을 읽지 않는다.
 - **웹 콘솔**: `apps/web`이 `packages/client`·`packages/core`·`packages/react`·`packages/ui`를 조립한 SPA이고, control host의 api role이 빌드 결과(`WEB_DIST_DIR`)를 서빙한다.
 - 소속 모듈을 정하지 않은 코드는 `packages/contracts/src/domain`(기억·digest. digest의 비용 형식은 `/v1` 사용량 응답이 쓴다)이다.
 
@@ -79,7 +79,7 @@ Werft의 모듈과 각 모듈의 책임은 [README](../../README.md)의 모듈 �
 - Claude adapter의 진입점은 export할 심볼을 이름으로 적는다(`export *` 없음). `scripts/lib`는 codec을 `runtime-claude-codec`에서 가져온다.
 - `/v1` route는 DB-backed 오류와 row를 platform port(`InvalidCursorError`, `IdentityStore`)로만 알고, db 구현을 직접 import하지 않는다.
 - `packages/testkit`은 devDependency로만 쓰고 runtime 코드가 import하지 않는다. 패키지의 testing helper(`testing` entry)도 runtime 코드가 import하지 않는다. 패키지 밖으로 나가는 상대 경로 import는 없다.
-- 웹 콘솔: `apps/web`은 workspace에서 `packages/client`·`packages/core`·`packages/react`·`packages/ui`만 import하고 contracts는 타입으로만 import한다. `dependencies`가 비어 있어(devDependency만) 어느 이미지도 그 의존성을 설치하지 않는다. code split은 `lazyRouteComponent`로 하고 `React.lazy`는 쓰지 않는다. `packages/ui`·`packages/react`의 컴포넌트를 두고 자기 UI를 그리는 곳은 `tests/web-ui-allowlist.ts`에 적은 것뿐이다. 목록에 없는 새 위반도, 코드보다 큰 목록도 테스트가 실패시킨다. `packages/ui`는 fetch·WebSocket·EventSource를 부르지 않는다.
+- 웹 콘솔: `apps/web`은 workspace에서 `packages/client`·`packages/core`·`packages/react`·`packages/ui`만 import하고 contracts는 타입으로만 import한다. `dependencies`가 비어 있어(devDependency만) 그 의존성은 빌드 단계에서만 설치되고 최종 실행 이미지에는 들어가지 않는다. code split은 `lazyRouteComponent`로 하고 `React.lazy`는 쓰지 않는다. `packages/ui`·`packages/react`의 컴포넌트를 두고 자기 UI를 그리는 곳은 `tests/web-ui-allowlist.ts`에 적은 것뿐이다. 목록에 없는 새 위반도, 코드보다 큰 목록도 테스트가 실패시킨다. `packages/ui`는 fetch·WebSocket·EventSource를 부르지 않는다.
 
 ## 권한과 비활성
 

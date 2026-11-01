@@ -304,7 +304,7 @@ export async function forbiddenImports(
   return offenders.sort();
 }
 
-// What stays behind the platform ports (docs/contributing/architecture.md, 경계): the business
+// What stays behind the platform ports (docs/contributing/architecture.md, boundaries section): the business
 // logic never sees a driver, an ORM, a cloud SDK or an agent SDK.
 const platformForbidden = [
   "@werft-ai/db",
