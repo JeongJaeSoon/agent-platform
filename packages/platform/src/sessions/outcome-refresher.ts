@@ -1,4 +1,7 @@
-import type { SessionOutcomeCheckError } from "@werft-ai/contracts";
+import {
+  PULL_REQUEST_OUTCOME_TITLE_MAX_LENGTH,
+  type SessionOutcomeCheckError,
+} from "@werft-ai/contracts";
 import {
   ForgeCredentialError,
   type RepoRef,
@@ -198,6 +201,10 @@ export function createOutcomeRefresher(deps: {
           mergedAt: time(pullRequest.mergedAt),
           closedAt: time(pullRequest.closedAt),
           metadata: {
+            title: pullRequest.title.slice(
+              0,
+              PULL_REQUEST_OUTCOME_TITLE_MAX_LENGTH,
+            ),
             merge_commit_sha: pullRequest.mergeCommitSha,
             additions: pullRequest.additions,
             deletions: pullRequest.deletions,

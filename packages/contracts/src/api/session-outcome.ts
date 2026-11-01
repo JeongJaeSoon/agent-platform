@@ -5,19 +5,29 @@ import {
   githubRefusalSchema,
 } from "../musterrolle/github-settings.ts";
 import { receiptIdSchema, timestampSchema } from "../shared/index.ts";
+import { GITHUB_REVIEW_EVENT_VALUES } from "./github-work.ts";
 
 /**
  * What a session made, by kind (design github-agent.md §10). Only the server
  * writes an outcome; a type is added by a migration widening the table's
  * CHECK together with its states here.
  */
-export const SESSION_OUTCOME_TYPE_VALUES = ["github_pull_request"] as const;
+export const SESSION_OUTCOME_TYPE_VALUES = [
+  "github_pull_request",
+  "github_review",
+] as const;
 
 export const GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES = [
   "open",
   "merged",
   "closed",
 ] as const;
+
+/** A review is recorded once, when GitHub took it; it is not read again. */
+export const GITHUB_REVIEW_OUTCOME_STATE_VALUES = ["submitted"] as const;
+
+/** The most of a pull request's title an outcome keeps (achievement-rules.md §3). */
+export const PULL_REQUEST_OUTCOME_TITLE_MAX_LENGTH = 200;
 
 /** Why the last read of an outcome's state failed; its state is left as it was. */
 export const SESSION_OUTCOME_CHECK_ERROR_VALUES = [
@@ -38,6 +48,9 @@ export const sessionOutcomeCheckErrorSchema = z.enum(
  * size fields are null until the first read of the pull request.
  */
 export const githubPullRequestOutcomeMetadataSchema = z.object({
+  // Null on a row written before titles were kept, until its next read;
+  // one merged by then is never read again and stays null.
+  title: z.string().max(PULL_REQUEST_OUTCOME_TITLE_MAX_LENGTH).nullable(),
   head: z.string(),
   base: z.string(),
   adopted: z.boolean().nullable(),
@@ -48,22 +61,45 @@ export const githubPullRequestOutcomeMetadataSchema = z.object({
   commits: z.number().int().nonnegative().nullable(),
 });
 
-export const sessionOutcomeSchema = z.object({
+/**
+ * A review outcome's metadata: the pull request it reviewed and the session
+ * that opened it (null for one the platform did not open). Never the body.
+ */
+export const githubReviewOutcomeMetadataSchema = z.object({
+  number: z.number().int().positive(),
+  event: z.enum(GITHUB_REVIEW_EVENT_VALUES),
+  commit_id: z.string(),
+  opened_by_session_id: z.uuid().nullable(),
+});
+
+const outcomeFields = {
   id: z.uuid(),
-  type: sessionOutcomeTypeSchema,
   url: z.url(),
   repository_id: z.string().nullable(),
   external_id: z.string().nullable(),
-  state: z.enum(GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES),
   state_changed_at: timestampSchema,
   merged_at: timestampSchema.nullable(),
   closed_at: timestampSchema.nullable(),
   // When the platform last had GitHub's answer; the state is as of then.
   state_checked_at: timestampSchema.nullable(),
   check_error: sessionOutcomeCheckErrorSchema.nullable(),
-  metadata: githubPullRequestOutcomeMetadataSchema,
   created_at: timestampSchema,
-});
+};
+
+export const sessionOutcomeSchema = z.discriminatedUnion("type", [
+  z.object({
+    ...outcomeFields,
+    type: z.literal("github_pull_request"),
+    state: z.enum(GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES),
+    metadata: githubPullRequestOutcomeMetadataSchema,
+  }),
+  z.object({
+    ...outcomeFields,
+    type: z.literal("github_review"),
+    state: z.enum(GITHUB_REVIEW_OUTCOME_STATE_VALUES),
+    metadata: githubReviewOutcomeMetadataSchema,
+  }),
+]);
 
 /** GET /v1/sessions/{id}/outcomes: oldest first. */
 export const listSessionOutcomesResponseSchema = z.object({
@@ -99,6 +135,9 @@ export type SessionOutcomeCheckError =
   (typeof SESSION_OUTCOME_CHECK_ERROR_VALUES)[number];
 export type GitHubPullRequestOutcomeMetadata = z.infer<
   typeof githubPullRequestOutcomeMetadataSchema
+>;
+export type GitHubReviewOutcomeMetadata = z.infer<
+  typeof githubReviewOutcomeMetadataSchema
 >;
 export type SessionOutcome = z.infer<typeof sessionOutcomeSchema>;
 export type ListSessionOutcomesResponse = z.infer<

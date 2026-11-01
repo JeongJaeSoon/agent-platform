@@ -22,6 +22,7 @@ import {
   githubWorkspaceSettings,
   pullRequests,
   receipts,
+  sessionOutcomes,
   sessions,
   turns,
 } from "./schema.ts";
@@ -186,6 +187,49 @@ export function createPostgresGitHubGateStore(
             receiptId: id,
           });
         }
+        return id;
+      });
+    },
+
+    recordReview(input) {
+      return db.transaction(async (tx) => {
+        const id = randomUUID();
+        await tx.insert(receipts).values({
+          id,
+          ownerId: input.context.ownerId,
+          operation: "review_pull_request",
+          targetRef: sessionTarget(input.context.sessionId),
+          status: "succeeded",
+          result: input.result,
+          error: null,
+          actor: input.actor,
+        });
+        const now = new Date();
+        await tx
+          .insert(sessionOutcomes)
+          .values({
+            id: randomUUID(),
+            ownerId: input.context.ownerId,
+            sessionId: input.context.sessionId,
+            agentReleaseId: input.context.agentReleaseId,
+            agentId: input.context.agentId,
+            type: "github_review",
+            url: input.review.url,
+            repositoryId: input.context.repositoryId,
+            externalId: String(input.review.id),
+            state: "submitted",
+            stateChangedAt: now,
+            metadata: input.metadata,
+            receiptId: id,
+            createdAt: now,
+          })
+          .onConflictDoNothing({
+            target: [
+              sessionOutcomes.sessionId,
+              sessionOutcomes.type,
+              sessionOutcomes.url,
+            ],
+          });
         return id;
       });
     },
