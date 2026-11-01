@@ -32,6 +32,7 @@
   - 담는 것: 도구 이름, 시각, 결과(`ok`·`failed`·`unknown`), 걸린 시간, 이벤트 id. 입력·출력 본문은 없다. 본문은 이벤트에 있다.
   - 만드는 시점: reconciler가 pass마다 이벤트에서 투영한다(`packages/db/src/tool-calls.ts:72`, 호출 `apps/control-host/src/reconciler/reconcile.ts:185`).
   - 보존 기간: 무기한. 삭제 조건: 없음.
+  - `/metrics`의 도구 호출 수는 trigger가 채우는 `tool_call_outcomes`(이름·결과별 수)에서 읽는다. 토큰·비용 합은 같은 방식의 `provider_usage_totals`에서 읽는다. psql로 원본 행을 지우면 trigger가 그 이름·모델의 합을 다시 센다.
 - **승인·질문 요청** — `pending_requests`(`schema.ts:1634`)와 `approval_checkpoints`, `permission_grants`, `turn_continuations`
   - 담는 것: 요청 본문 `payload`(`schema.ts:1645`), 답 `answer`(`schema.ts:1654`), 답한 주체 `answered_by`와 답을 허용한 판정 id `answer_decision_id`(`schema.ts:1660-1666`), 닫힌 방식(`settled_outcome`·`settled_reason`).
   - 판정 행(`authz_decisions`)은 감사 보존 기간이 지나면 지워지지만 `answered_by`는 이 행에 남는다. 그래서 기간이 지난 뒤에도 누가 답했는지는 남고, 그 판정의 세부만 사라진다.
@@ -47,6 +48,8 @@
   - 담는 것: manifest의 object key와 version, 부모 revision, transcript 바이트 수, 결과물 파일의 key와 크기.
   - 만드는 시점: turn 끝에 checkpoint pointer를 올릴 때(`worker-unit-of-work.ts:485`, `508`).
   - 보존 기간: 무기한. GC가 object를 지우면 행에 `collected_at`(`schema.ts:1960`)과 `objects_purged_at`(`schema.ts:1963`)만 적고 행은 남긴다(`packages/db/src/checkpoint-store.ts:251-292`).
+  - 닫힌 지 하루가 지났고 열린 push 요청이 없는 세션은 GC pass가 정리를 마치면 `sessions.checkpoint_collection_settled_at`을 적고, 다음 pass부터 읽지 않는다. 하루는 worker 자격 증명의 12시간보다 길어서, 그 뒤에 object를 쓸 attempt가 없다.
+  - 설치 사용량의 결과물 바이트는 trigger가 key마다 채우는 `checkpoint_output_objects`와 합계 `checkpoint_output_totals`에서 읽는다.
 - **receipt와 멱등 키** — `receipts`(`schema.ts:1538`), `idempotency_keys`(`schema.ts:1612`)
   - 담는 것: 명령(입력, 제어, 공유 변경, GitHub 게이트 등)마다 결과 한 행. 응답의 `X-Request-Id`가 `request_id`로 남는다.
   - 보존 기간: 무기한. 삭제 조건: 없음.
@@ -199,6 +202,28 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
     ```
 
     `decision`은 권한 요청에만 있고 질문 행에서는 비어 있다. `tool_calls`는 reconciler가 다음 pass에서 채우므로 몇 초 늦을 수 있다. checkpoint의 `manifest_ref`가 bucket 안의 manifest key다. 그 아래 object는 [오브젝트 스토리지](#오브젝트-스토리지-checkpoint-bucket) 절의 경로에 있다.
+
+## 이벤트 저장 형태
+
+**현재 형태 유지.** 이벤트 한 건이 `events` 한 행이고, 본문은 `payload jsonb`에 기본 압축(pglz)으로 둔다. payload에 GIN 인덱스는 두지 않는다. 다른 형태와 견준 결과다(94S-1119, 2026-11-01).
+
+측정 조건: PostgreSQL 16과 MongoDB 7.0 컨테이너. 세션 20개에 이벤트 20,000건씩, 모두 40만 건이다. 그중 15%는 2~11 kB 도구 결과이고, payload 원문은 659 MB다. 페이지 읽기는 세션 중간에서 100건, 추가는 4 kB 도구 결과 1건이다. 둘 다 30번 잰 중앙값이다.
+
+| 형태 | 디스크 (heap + TOAST + 인덱스) | 페이지 읽기 | 추가 | 백업 |
+| --- | --- | --- | --- | --- |
+| 행 + jsonb, pglz (지금) | 475 MB (207 + 222 + 43) | 1.29 ms | 1.13 ms | 24.3 MB |
+| 행 + jsonb, TOAST lz4 | 498 MB (204 + 248 + 43) | 1.31 ms | 1.22 ms | 24.2 MB |
+| 세션당 jsonb 문서 하나 | 236 MB, 추가 31번 뒤 601 MB | 18.38 ms | 324.73 ms | 127.0 MB |
+| 별도 문서 저장소 (MongoDB) | 143 MB (131 + 인덱스 12) | 1 ms | 1 ms 미만 | 39.1 MB |
+
+백업은 PostgreSQL이 `pg_dump -Fc -t <표>`, MongoDB가 `mongodump --archive --gzip`의 바이트 수다.
+
+- **lz4로 바꾸지 않는다.** 압축되는 값(2 kB가 넘는 6만 건)에서 pglz보다 11% 크고(TOAST 248 MB 대 222 MB), 읽기와 추가 시간은 같다.
+- **세션당 문서는 쓰지 않는다.** 추가할 때마다 30 MB쯤 되는 문서 전체를 다시 쓴다. 그래서 추가가 300 ms를 넘고, vacuum 전까지 쓸 때마다 디스크가 는다. 페이지 하나를 읽어도 문서 전체를 풀어야 한다. worker 재전송을 걸러 내는 (`attempt_id`, `source_sequence`) 확인도 문서 안을 뒤져야 한다.
+- **별도 저장소로 옮기지 않는다.** 디스크는 3분의 1이다. 작은 값까지 블록 단위로 압축하기 때문이다. 하지만 읽기와 추가는 지금과 같다. 이벤트는 turn·대기 요청·receipt와 한 트랜잭션에 쓰인다(`worker-unit-of-work.ts`). 저장소가 둘이 되면 이 원자성과 백업 시점의 일치가 깨지고, 운영할 저장소가 하나 는다.
+- 디스크 크기는 이벤트 보존 기간과 trim 정책(아래 결정할 항목의 첫 줄)으로 다룬다.
+
+다시 재는 법. PostgreSQL 쪽은 빈 데이터베이스를 하나 만들어 `BENCH_DATABASE_URL=postgresql://… bun packages/db/bench/event-storage.ts 20 20000`을 돌린다. MongoDB 쪽은 같은 행을 `SELECT row_to_json(…) FROM ev_row`로 `mongoimport`에 넘긴다. 그다음 `(session_id, id)` 인덱스와 (`session_id`, `attempt_id`, `source_sequence`) unique 인덱스를 만들고, `db.events.stats()`와 같은 읽기·추가로 잰다.
 
 ## 결정할 항목
 
