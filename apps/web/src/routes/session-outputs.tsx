@@ -111,12 +111,46 @@ export function SessionOutputsCount({
   return files === null || pulls === null ? null : files + pulls;
 }
 
-/** `owner/name#7` from a pull request's URL; the repository id otherwise. */
-function pullRequestName(outcome: SessionOutcome): string {
+type PullRequestOutcome = Extract<
+  SessionOutcome,
+  { type: "github_pull_request" }
+>;
+type ReviewOutcome = Extract<SessionOutcome, { type: "github_review" }>;
+
+/**
+ * `owner/name#7` from the outcome's URL (a review's is its pull request's,
+ * with a fragment); the repository id otherwise.
+ */
+function pullRequestName(outcome: SessionOutcome, number: string): string {
   const [, owner, name] = new URL(outcome.url).pathname.split("/");
   const repository =
     owner && name ? `${owner}/${name}` : (outcome.repository_id ?? "");
-  return `${repository}#${outcome.external_id ?? ""}`;
+  return `${repository}#${number}`;
+}
+
+function OutcomeLink({
+  outcome,
+  number,
+  kind,
+}: {
+  readonly outcome: SessionOutcome;
+  readonly number: string;
+  readonly kind: string;
+}) {
+  return (
+    <span className="min-w-0">
+      <Link
+        href={outcome.url}
+        target="_blank"
+        rel="noreferrer"
+        variant="table"
+        className="font-mono [overflow-wrap:anywhere]"
+      >
+        {pullRequestName(outcome, number)}
+      </Link>{" "}
+      {kind}
+    </span>
+  );
 }
 
 const STATE_BADGE = {
@@ -125,9 +159,10 @@ const STATE_BADGE = {
   closed: "gray",
 } as const;
 
-function PullRequestRow({ outcome }: { readonly outcome: SessionOutcome }) {
+function PullRequestRow({ outcome }: { readonly outcome: PullRequestOutcome }) {
   const { t, locale } = useI18n();
-  const state = outcome.state as keyof typeof STATE_BADGE;
+  const state = outcome.state;
+  const { additions, deletions } = outcome.metadata;
   const ended =
     outcome.state === "merged" && outcome.merged_at !== null
       ? { label: t("session.outcomes.mergedAt"), at: outcome.merged_at }
@@ -138,15 +173,11 @@ function PullRequestRow({ outcome }: { readonly outcome: SessionOutcome }) {
     <RowListItem>
       <RowLines>
         <Text as="span" className="flex min-w-0 items-center gap-2">
-          <Link
-            href={outcome.url}
-            target="_blank"
-            rel="noreferrer"
-            variant="table"
-            className="font-mono [overflow-wrap:anywhere]"
-          >
-            {pullRequestName(outcome)}
-          </Link>
+          <OutcomeLink
+            outcome={outcome}
+            number={outcome.external_id ?? ""}
+            kind={t("session.outcomes.kind.pullRequest")}
+          />
           <Badge variant={STATE_BADGE[state] ?? "gray"}>
             {t(`session.outcomes.state.${state}`)}
           </Badge>
@@ -158,6 +189,9 @@ function PullRequestRow({ outcome }: { readonly outcome: SessionOutcome }) {
               {" · "}
             </>
           )}
+          {additions === null || deletions === null
+            ? null
+            : `+${additions} −${deletions} · `}
           {outcome.state_checked_at === null ? (
             t("session.outcomes.notChecked")
           ) : (
@@ -172,6 +206,38 @@ function PullRequestRow({ outcome }: { readonly outcome: SessionOutcome }) {
             {t(`session.outcomes.checkError.${outcome.check_error}`)}
           </Text>
         )}
+      </RowLines>
+    </RowListItem>
+  );
+}
+
+function ReviewRow({
+  outcome,
+  session,
+}: {
+  readonly outcome: ReviewOutcome;
+  readonly session: SessionDetail;
+}) {
+  const { t, locale } = useI18n();
+  const { number, event, opened_by_session_id } = outcome.metadata;
+  return (
+    <RowListItem>
+      <RowLines>
+        <Text as="span" className="flex min-w-0 items-center gap-2">
+          <OutcomeLink
+            outcome={outcome}
+            number={String(number)}
+            kind={t("session.outcomes.kind.review")}
+          />
+          <Badge variant="gray">{t(`session.outcomes.event.${event}`)}</Badge>
+        </Text>
+        <Text as="span" variant="meta">
+          {t("session.outcomes.submittedAt")}{" "}
+          <RelativeTime value={outcome.created_at} locale={locale} />
+          {opened_by_session_id !== null && opened_by_session_id !== session.id
+            ? ` · ${t("session.outcomes.otherSessionPullRequest")}`
+            : null}
+        </Text>
       </RowLines>
     </RowListItem>
   );
@@ -217,10 +283,15 @@ function SessionPullRequests({
   return (
     <section className="flex flex-col gap-2" aria-labelledby={titleId}>
       <Heading id={titleId}>{t("session.outcomes.title")}</Heading>
+      <Text variant="sub">{t("session.outcomes.description")}</Text>
       <RowList variant="joined">
-        {items.map((outcome) => (
-          <PullRequestRow key={outcome.id} outcome={outcome} />
-        ))}
+        {items.map((outcome) =>
+          outcome.type === "github_review" ? (
+            <ReviewRow key={outcome.id} outcome={outcome} session={session} />
+          ) : (
+            <PullRequestRow key={outcome.id} outcome={outcome} />
+          ),
+        )}
       </RowList>
       <SessionUsageLine session={session} />
     </section>

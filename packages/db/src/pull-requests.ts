@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import type {
-  GitHubPullRequestOutcomeMetadata,
-  PullRequest,
-  PullRequestReceiptResult,
-  PushRequestState,
+import {
+  type GitHubPullRequestOutcomeMetadata,
+  PULL_REQUEST_OUTCOME_TITLE_MAX_LENGTH,
+  type PullRequest,
+  type PullRequestReceiptResult,
+  type PushRequestState,
 } from "@werft-ai/contracts";
 import {
   PULL_REQUEST_REFUSAL_ERRORS,
@@ -72,6 +73,32 @@ async function insertReceipt(
   return id;
 }
 
+/** The session's release and its agent, which every outcome copies. */
+export async function sessionRelease(
+  tx: Database,
+  sessionId: string,
+): Promise<{ agentReleaseId: string | null; agentId: string | null }> {
+  const [release] = await tx
+    .select({
+      agentReleaseId: sessions.agentReleaseId,
+      agentId: agentReleases.agentId,
+    })
+    .from(sessions)
+    .leftJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
+    .where(eq(sessions.id, sessionId))
+    .limit(1);
+  return {
+    agentReleaseId: release?.agentReleaseId ?? null,
+    agentId: release?.agentId ?? null,
+  };
+}
+
+export function outcomeTitle(title: string | null): string | null {
+  return title === null
+    ? null
+    : title.slice(0, PULL_REQUEST_OUTCOME_TITLE_MAX_LENGTH);
+}
+
 /**
  * The `github_pull_request` outcome of a recorded pull request, its agent
  * copied from the session's release. Kept if the session already has one
@@ -85,6 +112,7 @@ export async function insertPullRequestOutcome(
     url: string;
     repositoryId: string;
     number: number;
+    title: string | null;
     head: string;
     base: string;
     adopted: boolean | null;
@@ -92,23 +120,15 @@ export async function insertPullRequestOutcome(
     createdAt: Date;
   },
 ): Promise<void> {
-  const [release] = await tx
-    .select({
-      agentReleaseId: sessions.agentReleaseId,
-      agentId: agentReleases.agentId,
-    })
-    .from(sessions)
-    .leftJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
-    .where(eq(sessions.id, input.sessionId))
-    .limit(1);
+  const release = await sessionRelease(tx, input.sessionId);
   await tx
     .insert(sessionOutcomes)
     .values({
       id: randomUUID(),
       ownerId: input.ownerId,
       sessionId: input.sessionId,
-      agentReleaseId: release?.agentReleaseId ?? null,
-      agentId: release?.agentId ?? null,
+      agentReleaseId: release.agentReleaseId,
+      agentId: release.agentId,
       type: "github_pull_request",
       url: input.url,
       repositoryId: input.repositoryId,
@@ -116,6 +136,7 @@ export async function insertPullRequestOutcome(
       state: "open",
       stateChangedAt: input.createdAt,
       metadata: {
+        title: outcomeTitle(input.title),
         head: input.head,
         base: input.base,
         adopted: input.adopted,
@@ -297,6 +318,7 @@ export function createPostgresPullRequests(db: Database): PullRequestStore {
           url: input.url,
           repositoryId: input.repositoryId,
           number: input.number,
+          title: input.title,
           head: input.head,
           base: input.base,
           adopted: !input.created,

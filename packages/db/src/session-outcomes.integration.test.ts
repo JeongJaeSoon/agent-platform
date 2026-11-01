@@ -57,6 +57,7 @@ function answer(number: number, state: PullState) {
     state: state === "open" ? "open" : "closed",
     head: "agent/x",
     base: "main",
+    title: `${"t".repeat(200)}-${number}`,
     mergedAt: state === "merged" ? at : null,
     closedAt: state === "open" ? null : at,
     mergeCommitSha: state === "merged" ? "d".repeat(40) : null,
@@ -286,6 +287,7 @@ integration("postgres session outcomes and the outcome refresher", () => {
       repositoryId: repo,
       number: 5,
       url,
+      title: "Retry failed payments",
       head: `agent/${sessionId}`,
       base: "main",
       created: true,
@@ -906,6 +908,7 @@ integration("postgres session outcomes and the outcome refresher", () => {
       state: "merged",
       mergedAt: new Date("2026-10-31T00:00:00.000Z"),
       metadata: expect.objectContaining({
+        title: "t".repeat(200),
         adopted: false,
         merge_commit_sha: "d".repeat(40),
         additions: 2,
@@ -941,6 +944,37 @@ integration("postgres session outcomes and the outcome refresher", () => {
     missing = false;
     const [, back] = await pass();
     expect(back).toMatchObject({ state: "open", checkError: null });
+  });
+
+  test("a review outcome is never read from GitHub", async () => {
+    const repo = repository();
+    const review = await outcome(repo, {
+      type: "github_review",
+      url: `https://github.com/acme/${repo}/pull/9#pullrequestreview-77`,
+      externalId: "77",
+      state: "submitted",
+      metadata: {
+        number: 9,
+        event: "APPROVE",
+        commit_id: "e".repeat(40),
+        opened_by_session_id: null,
+      },
+    });
+    const { refresher, calls } = replica({
+      repositories: [repo],
+      unitOf: async () => `app:test:${randomUUID()}`,
+      read: async (number) => ({
+        pullRequest: answer(number, "open"),
+        rateLimit: NO_LIMIT,
+      }),
+    });
+    await refresher.runOnce();
+    expect(calls).toEqual([]);
+    expect(await rowOf(review.id)).toMatchObject({
+      state: "submitted",
+      stateCheckedAt: null,
+      leaseToken: null,
+    });
   });
 
   test("lists a session's outcomes for its owner only, oldest first", async () => {

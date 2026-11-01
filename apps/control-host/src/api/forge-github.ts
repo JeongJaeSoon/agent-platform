@@ -341,6 +341,7 @@ export function createGitHubConnection(
           return {
             pullRequest: {
               ...pullRequestOf(data),
+              title: data.title,
               mergeCommitSha: data.merged_at ? data.merge_commit_sha : null,
               additions: countOf(data.additions),
               deletions: countOf(data.deletions),

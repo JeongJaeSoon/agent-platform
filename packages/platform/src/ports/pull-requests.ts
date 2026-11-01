@@ -114,6 +114,8 @@ export interface PullRequestStore {
       repositoryId: string;
       number: number;
       url: string;
+      // The title the platform sent; null for one it did not create.
+      title: string | null;
       head: string;
       base: string;
       created: boolean;

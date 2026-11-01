@@ -39,6 +39,7 @@ export type ForgePullRequest = {
 
 /** One pull request read by number, with the figures its list entry lacks. */
 export type ForgePullRequestDetail = ForgePullRequest & {
+  title: string;
   mergeCommitSha: string | null;
   additions: number | null;
   deletions: number | null;
