@@ -288,6 +288,7 @@ export function createPostgresSessionUnitOfWork(
                 repositoryId: input.repository.id,
                 repoUrl: input.repository.url,
                 branch: input.repository.branch,
+                attachedRepositoryIds: input.attachedRepositoryIds ?? null,
               };
         await tx.insert(sessions).values({
           id: sessionId,
@@ -932,6 +933,7 @@ export function createPostgresSessionReader(
         model: row.model,
         repository_id: row.repositoryId,
         repository: sessionRepositoryOf(row),
+        attached_repository_ids: row.attachedRepositoryIds,
         current_turn_id: current ? String(current.sequence) : null,
         queued_turn_count: mine.filter((turn) => turn.status === "queued")
           .length,

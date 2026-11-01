@@ -140,6 +140,7 @@ function harness(
     repositoryId?: string | null;
     /** Default: the catalog entry's URL and branch. */
     repository?: { url: string; branch: string } | null;
+    attached?: string[] | null;
     github?: AgentGitHub | "invalid" | null;
     githubEnabled?: boolean;
     ceiling?: GitHubCeiling;
@@ -160,6 +161,7 @@ function harness(
   const state = {
     repositoryId:
       options.repositoryId === undefined ? "app" : options.repositoryId,
+    attached: options.attached ?? null,
     github: options.github === undefined ? settings() : options.github,
     githubEnabled: options.githubEnabled ?? true,
     ceiling: options.ceiling ?? GITHUB_CEILING_NONE,
@@ -188,6 +190,7 @@ function harness(
             sessionId,
             repositoryId: state.repositoryId,
             profileId: "default",
+            attachedRepositoryIds: state.attached,
             repository,
             startedBy: STARTER,
             agent: {
@@ -214,7 +217,7 @@ function harness(
     connections: (repositoryId, role) => {
       asked.push({ repositoryId, role });
       if (repositoryId === "ghes") return ghes.connection;
-      if (repositoryId !== "app" && repositoryId !== "docs") return null;
+      if (!["app", "docs", "tools"].includes(repositoryId)) return null;
       return (role === "author" ? author : reviewer)?.connection ?? null;
     },
   });
@@ -857,5 +860,162 @@ describe("another repository than the session's", () => {
     ]);
     const off = harness({ catalog: MULTI, githubEnabled: false });
     expect(await off.gate.additionalRepositories?.(SESSION)).toEqual([]);
+  });
+
+  describe("with the repositories the session was started with", () => {
+    const ATTACHED = {
+      ...MULTI,
+      repositories: {
+        ...MULTI.repositories,
+        tools: {
+          url: "https://github.com/acme/tools.git",
+          branch: "main",
+          auth: { kind: "github_app", registered: true },
+        },
+      },
+      installation: new Map<string, InstallationProfileEntry>([
+        [
+          "default",
+          {
+            id: "default",
+            origin: "catalog",
+            state: "usable",
+            repository_ids: ["app", "docs", "tools"],
+          },
+        ],
+      ]),
+    } satisfies SessionCatalog;
+    const released = settings({ repositories: ["app", "docs", "tools"] });
+
+    test("a repository the release lists but the session did not attach is repository_not_allowed", async () => {
+      const { grant, receipts, gate } = harness({
+        catalog: ATTACHED,
+        github: released,
+        attached: ["docs"],
+      });
+      expect(
+        (await refused(grant({ purpose: "clone", repositoryId: "tools" })))
+          .reason,
+      ).toBe("repository_not_allowed");
+      expect(receipts.at(-1)).toMatchObject({
+        operation: "mint_github_token",
+        status: "failed",
+        result: {
+          repository_id: "tools",
+          purpose: "clone",
+          reason_code: "repository_not_allowed",
+        },
+      });
+      expect(
+        await grant({ purpose: "clone", repositoryId: "docs" }),
+      ).toMatchObject({ repo: { name: "docs" } });
+      expect(await gate.additionalRepositories?.(SESSION)).toEqual(["docs"]);
+    });
+
+    test("an attached repository the release no longer lists is refused", async () => {
+      const { grant, gate } = harness({
+        catalog: ATTACHED,
+        github: settings({ repositories: ["app", "docs"] }),
+        attached: ["docs", "tools"],
+      });
+      expect(
+        (await refused(grant({ purpose: "push", repositoryId: "tools" })))
+          .reason,
+      ).toBe("repository_not_allowed");
+      expect(await gate.additionalRepositories?.(SESSION)).toEqual(["docs"]);
+    });
+
+    test("no list leaves the release's whole, an empty one leaves none", async () => {
+      const whole = harness({ catalog: ATTACHED, github: released });
+      expect(
+        await whole.grant({ purpose: "clone", repositoryId: "tools" }),
+      ).toMatchObject({ repo: { name: "tools" } });
+      expect(await whole.gate.additionalRepositories?.(SESSION)).toEqual([
+        "docs",
+        "tools",
+      ]);
+      const none = harness({
+        catalog: ATTACHED,
+        github: released,
+        attached: [],
+      });
+      expect(
+        (await refused(none.grant({ purpose: "clone", repositoryId: "docs" })))
+          .reason,
+      ).toBe("repository_not_allowed");
+      expect(await none.gate.additionalRepositories?.(SESSION)).toEqual([]);
+    });
+
+    test("another repository is read with contents: read, pushed to and given pull requests", async () => {
+      const { grant, receipts } = harness({
+        catalog: ATTACHED,
+        github: released,
+        attached: ["docs"],
+      });
+      expect(
+        await grant({ purpose: "clone", repositoryId: "docs" }),
+      ).toMatchObject({ permissions: { contents: "read" } });
+      expect(receipts.at(-1)?.result).toMatchObject({
+        repository_id: "docs",
+        purpose: "clone",
+        permissions: { contents: "read" },
+      });
+      for (const purpose of ["push", "pull_request"] as const) {
+        expect(await grant({ purpose, repositoryId: "docs" })).toMatchObject({
+          context: { repositoryId: "docs" },
+        });
+        expect(receipts.at(-1)?.result).toMatchObject({
+          repository_id: "docs",
+          purpose,
+        });
+      }
+      expect(
+        (
+          await refused(
+            grant({ purpose: "pull_request", repositoryId: "tools" }),
+          )
+        ).reason,
+      ).toBe("repository_not_allowed");
+    });
+
+    test("workflows, runs and reviews on another repository are repository_not_allowed even when attached", async () => {
+      const { grant, receipts } = harness({
+        catalog: ATTACHED,
+        github: settings({
+          repositories: ["app", "docs", "tools"],
+          features: features({ actions: true, review: true }),
+          actions_allow: [{ workflow: "ci.yml", ref: "main" }],
+        }),
+        ceiling: { ...GITHUB_CEILING_NONE, actions: true, review: true },
+        attached: ["docs"],
+      });
+      const works: Array<Omit<GitHubWork, "sessionId">> = [
+        { purpose: "actions_read", repositoryId: "docs" },
+        {
+          purpose: "dispatch",
+          repositoryId: "docs",
+          workflow: { file: "ci.yml", ref: "main" },
+        },
+        { purpose: "rerun", repositoryId: "docs", runId: 1 },
+        {
+          purpose: "review",
+          repositoryId: "docs",
+          review: { number: 1, commitId: "a".repeat(40), event: "COMMENT" },
+        },
+      ];
+      for (const work of works) {
+        expect((await refused(grant(work))).reason).toBe(
+          "repository_not_allowed",
+        );
+        expect(receipts.at(-1)).toMatchObject({
+          status: "failed",
+          result: { repository_id: "docs", purpose: work.purpose },
+        });
+      }
+      // The session's own repository keeps them.
+      expect(await grant({ purpose: "actions_read" })).toMatchObject({
+        context: { repositoryId: "app" },
+      });
+    });
   });
 });

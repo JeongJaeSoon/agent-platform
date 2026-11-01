@@ -59,6 +59,7 @@ import type {
   SessionDetailRecord,
   SessionReader,
 } from "../ports/session-unit-of-work.ts";
+import { additionalRepositoryAllowed } from "./additional-repositories.ts";
 import {
   acceptedRuntimeVersions,
   allowedRun,
@@ -650,17 +651,48 @@ export function createSessionService(deps: {
       // The gate would refuse its every token; refused here instead of at
       // the first clone.
       const githubScope = release?.policy_pins.github?.repositories;
+      const notAllowed = (message: string) =>
+        new SessionServiceError("GITHUB_REFUSED", message, undefined, {
+          reason_code: "repository_not_allowed",
+          receipt_id: null,
+        });
       if (
         githubScope !== undefined &&
         repositoryId !== null &&
         !githubScope.includes(repositoryId)
       ) {
-        throw new SessionServiceError(
-          "GITHUB_REFUSED",
+        throw notAllowed(
           "The agent's GitHub settings do not include this repository",
-          undefined,
-          { reason_code: "repository_not_allowed", receipt_id: null },
         );
+      }
+      const attached = input.body.attached_repository_ids;
+      if (attached !== undefined) {
+        if (release === null || repositoryId === null) {
+          throw notAllowed(
+            "Only a session of an agent release, on a repository, attaches others",
+          );
+        }
+        // The switch is read at every use, not here, as for the session's
+        // own repository above.
+        const refused = attached.find(
+          (id) =>
+            additionalRepositoryAllowed(
+              catalog,
+              {
+                repositoryId,
+                profileId,
+                attached: null,
+                github: release.policy_pins.github ?? null,
+                githubEnabled: true,
+              },
+              id,
+            ) === null,
+        );
+        if (refused !== undefined) {
+          throw notAllowed(
+            `Repository ${refused} is the session's own, or not one the agent's GitHub settings and the profile allow`,
+          );
+        }
       }
       const workspaceRefusal = await profileRefusalOf(
         actor,
@@ -705,6 +737,7 @@ export function createSessionService(deps: {
                   url: pair.repository.url,
                   branch: pair.repository.branch,
                 },
+        ...(attached === undefined ? {} : { attachedRepositoryIds: attached }),
         ...(pair
           ? {
               profileFingerprint: profileFingerprint(pair.profile),

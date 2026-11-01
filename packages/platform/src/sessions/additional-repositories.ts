@@ -11,13 +11,16 @@ import {
 
 /**
  * What decides whether a session may work on a repository other than its
- * own (design session-multi-repository.md decision 1): read again on every
- * use, so a repository the owner takes off the release's list stops at the
- * next fetch, push or pull request.
+ * own (design session-multi-repository.md decision 1): the release's list
+ * caps it and the session row's attached list, when there is one, narrows
+ * it. Read again on every use, so a repository the owner takes off the
+ * release's list stops at the next fetch, push or pull request.
  */
 export type AdditionalRepositoryContext = {
   repositoryId: string | null;
   profileId: string | null;
+  /** The session row's list; null leaves the release's list whole. */
+  attached: readonly string[] | null;
   /** Null when the session has no agent, or the agent's switch is off. */
   github: AgentGitHub | "invalid" | null;
   githubEnabled: boolean;
@@ -38,6 +41,7 @@ export function additionalRepositoryAllowed<
     github === null ||
     github === "invalid" ||
     profileId === null ||
+    (context.attached !== null && !context.attached.includes(repositoryId)) ||
     !github.repositories.includes(repositoryId) ||
     !additionalRepositoryIdUsable(repositoryId)
   ) {

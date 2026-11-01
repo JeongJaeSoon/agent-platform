@@ -1106,6 +1106,9 @@ export function startCredentialProxy(
     const who = {
       purpose: route.purpose,
       ...(route.registry === undefined ? {} : { registry: route.registry }),
+      ...(route.repository === undefined
+        ? {}
+        : { repository_id: route.repository }),
       session_id: grant.sessionId,
       attempt_id: grant.attemptId,
       client,
