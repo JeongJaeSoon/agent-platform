@@ -36,9 +36,26 @@ RUN bun install --frozen-lockfile --production \
     --filter ./apps/worker \
   && bun run --filter @werft-ai/runtime-registry image:verify
 
+# Git LFS, for a session's LFS objects through the proxy's repository route.
+# Upstream's release rather than Debian's package: Debian builds it with a Go
+# whose standard library the image scan fails on. Pinned per arch to the
+# release's sha256sums.asc; bumped by hand, since the daily apt upgrade does
+# not reach it. THIRD_PARTY_NOTICES names the version (GIT_LFS_VERSION in
+# scripts/third-party-notices.ts; tests/images.test.ts keeps them equal).
+FROM ${BUN_IMAGE} AS git-lfs
+ARG GIT_LFS_VERSION=3.8.1
+ARG TARGETARCH
+ADD --checksum=sha256:e72cf723a4a660438862282e8aecf3885fc8123e88bfcad534cf6b941a354b75 \
+  https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VERSION}/git-lfs-linux-amd64-v${GIT_LFS_VERSION}.tar.gz \
+  /tmp/git-lfs-amd64.tar.gz
+ADD --checksum=sha256:67895dd77b63329796bc5efdd47b57f218e1f7b98717ebaf936a8238dbcaec0f \
+  https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VERSION}/git-lfs-linux-arm64-v${GIT_LFS_VERSION}.tar.gz \
+  /tmp/git-lfs-arm64.tar.gz
+RUN tar -xzf "/tmp/git-lfs-${TARGETARCH}.tar.gz" -C /tmp --strip-components=1 \
+    "git-lfs-${GIT_LFS_VERSION}/git-lfs"
+
 FROM ${BUN_IMAGE} AS runtime
 # git: workspace checkout, bundles and the tools Claude Code shells out to.
-# git-lfs: a session's LFS objects, through the proxy's repository route.
 # ca-certificates: the egress proxy tunnels TLS, the worker still verifies it.
 # tini: see ENTRYPOINT.
 # xfsprogs: not for the worker. The scheduler runs this image once more per
@@ -49,7 +66,7 @@ FROM ${BUN_IMAGE} AS runtime
 ARG APT_UPGRADE_KEY=
 RUN apt-get update --error-on=any \
   && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --with-new-pkgs \
-  && apt-get install -y --no-install-recommends ca-certificates git git-lfs tini xfsprogs \
+  && apt-get install -y --no-install-recommends ca-certificates git tini xfsprogs \
   && rm -rf /var/lib/apt/lists/*
 # The author and committer of Claude's commits when neither the repository nor
 # the session sets one; without it git refuses to commit and Claude asks the
@@ -60,6 +77,7 @@ RUN git config --system user.name Werft \
 # The LFS filter, so a commit stores a tracked file as a pointer. Smudge is
 # skipped: a checkout leaves pointers rather than failing when the objects'
 # host is not on the proxy's list, and `git lfs pull` fetches them.
+COPY --from=git-lfs /tmp/git-lfs /usr/local/bin/git-lfs
 RUN git lfs install --system --skip-repo --skip-smudge
 # The session's commit trailers (Co-authored-by, Agent-Session): every client
 # hook is one dispatcher that runs the repository's own hook of that name

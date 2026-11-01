@@ -23,6 +23,12 @@
 - **대응 소스.** 이미지마다 `/app/DEBIAN_SOURCES.md`가 설치된 모든 Debian 패키지의 source package 이름과 정확한 버전, 그 소스가 보관된 https://snapshot.debian.org/ 주소를 적는다. GPL·LGPL 패키지도 모두 여기에 들어 있다. 이 목록은 빌드할 때 그 이미지의 dpkg 데이터베이스에서 만든다(`bun scripts/third-party-notices.ts --debian-sources`). images.yml은 빌드한 이미지마다 목록이 실제 설치 상태와 같은지, snapshot.debian.org가 각 소스를 실제로 갖고 있는지 확인한다. snapshot에 없는 소스는 PR·main·매일 실행에서 경고이고, 릴리스(tag)에서는 실패다. `apt-get upgrade` 때문에 빌드마다 버전이 달라질 수 있어, 목록은 저장소가 아니라 이미지에 둔다.
 - **Dockerfile이 추가로 설치하는 Debian 패키지.** control-host는 ca-certificates(MPL-2.0·GPL-2.0+)·git(GPL-2.0)·tini(MIT), worker는 ca-certificates·git·tini·xfsprogs(GPL-2.0·LGPL-2.1)다. egress-proxy는 추가 패키지가 없다.
 
+### Git LFS 3.8.1 (worker, `/usr/local/bin/git-lfs`)
+
+- **라이선스.** Git LFS 자체는 MIT다(https://github.com/git-lfs/git-lfs/blob/v3.8.1/LICENSE.md). 이미지에는 git-lfs 프로젝트가 배포한 linux 실행 파일이 수정 없이 들어 있다. worker Dockerfile이 아키텍처마다 릴리스의 sha256으로 고정해 받는다.
+- **정적으로 링크된 Go 모듈.** 이 실행 파일은 Go 표준 라이브러리(BSD-3-Clause)와 https://github.com/git-lfs/git-lfs/blob/v3.8.1/go.mod 에 적힌 모듈을 링크한다. 각 모듈의 라이선스는 그 모듈의 소스에 있다.
+- **대응 소스.** https://github.com/git-lfs/git-lfs/tree/v3.8.1
+
 ### Claude Code 실행 파일 (worker)
 
 - **권리와 조건.** `@anthropic-ai/claude-agent-sdk@0.3.270`과 그 플랫폼 빌드가 싣는 `claude` 실행 파일은 오픈소스가 아니다. © Anthropic PBC. All rights reserved. 이용 조건은 Anthropic Commercial Terms of Service(https://www.anthropic.com/legal/commercial-terms)와 Claude Code 법률 고지(https://code.claude.com/docs/en/legal-and-compliance)를 따른다.
