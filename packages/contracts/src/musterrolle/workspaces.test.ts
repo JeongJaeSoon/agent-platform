@@ -12,6 +12,7 @@ import {
   WEB_SESSION_COOKIE_NAME,
 } from "./auth.ts";
 import {
+  achievementJudgeSettingsSchema,
   auditRetentionRequestSchema,
   createInviteRequestSchema,
   createInviteResponseSchema,
@@ -46,6 +47,16 @@ describe("workspace", () => {
       idle_pause_minutes: 30,
       audit_retention_days: 90,
       slack_guest_enabled: false,
+      achievement_judge: {
+        connection_id: null,
+        threshold: 0.9,
+        on_evidence: true,
+        every_n_turns: null,
+        on_idle: false,
+        transcript: "recent",
+        daily_budget_usd: 1,
+        max_per_session: 20,
+      },
     });
     expect(
       workspaceSchema.safeParse({ ...workspace, slug: "Acme" }).success,
@@ -53,6 +64,38 @@ describe("workspace", () => {
     expect(
       workspaceSettingsSchema.safeParse({ idle_pause_minutes: 0 }).success,
     ).toBe(false);
+  });
+
+  test("the achievement judge takes the design's fields and no backend or model", () => {
+    const judge = (value: Record<string, unknown>) =>
+      achievementJudgeSettingsSchema.safeParse(value).success;
+    expect(judge({})).toBe(true);
+    expect(judge({ every_n_turns: 5 })).toBe(true);
+    expect(judge({ every_n_turns: 100 })).toBe(true);
+    expect(judge({ every_n_turns: 4 })).toBe(false);
+    expect(judge({ every_n_turns: 101 })).toBe(false);
+    expect(judge({ every_n_turns: 7.5 })).toBe(false);
+    expect(judge({ threshold: 1 })).toBe(true);
+    expect(judge({ threshold: 1.1 })).toBe(false);
+    expect(judge({ transcript: "none" })).toBe(true);
+    expect(judge({ transcript: "full" })).toBe(false);
+    expect(judge({ daily_budget_usd: -1 })).toBe(false);
+    expect(judge({ max_per_session: 0 })).toBe(false);
+    expect(judge({ backend: "luna" })).toBe(false);
+    expect(judge({ model: "gpt-5" })).toBe(false);
+    expect(
+      workspaceSettingsSchema.parse({ achievement_judge: { on_idle: true } })
+        .achievement_judge,
+    ).toEqual({
+      connection_id: null,
+      threshold: 0.9,
+      on_evidence: true,
+      every_n_turns: null,
+      on_idle: true,
+      transcript: "recent",
+      daily_budget_usd: 1,
+      max_per_session: 20,
+    });
   });
 
   test("keeps audit rows at least 30 days, whole days only", () => {

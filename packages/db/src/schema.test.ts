@@ -58,6 +58,9 @@ describe("database schema", () => {
       "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename",
     );
     expect(result.rows.map(({ tablename }) => tablename)).toEqual([
+      "achievement_categories",
+      "achievement_rules",
+      "achievement_types",
       "agent_activation_events",
       "agent_admin_teams",
       "agent_admins",

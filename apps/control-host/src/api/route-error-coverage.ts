@@ -232,6 +232,23 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/slack/install/complete",
   ],
   "routes/slack-events.test.ts": ["POST /v1/slack/events/{agent_id}"],
+  "routes/achievements.test.ts": [
+    "GET /v1/achievement-categories",
+    "POST /v1/achievement-categories",
+    "PATCH /v1/achievement-categories/{id}",
+    "POST /v1/achievement-categories/{id}/archive",
+    "GET /v1/achievement-types",
+    "POST /v1/achievement-types",
+    "PATCH /v1/achievement-types/{id}",
+    "POST /v1/achievement-types/{id}/archive",
+    "GET /v1/achievement-rules",
+    "POST /v1/achievement-rules",
+    "POST /v1/achievement-rules/{family_id}/versions",
+    "POST /v1/achievement-rules/{family_id}/disable",
+    "POST /v1/achievement-rules/{family_id}/enable",
+    "GET /v1/workspaces/{id}/achievement-judge",
+    "PUT /v1/workspaces/{id}/achievement-judge",
+  ],
 };
 
 // Declared for clients but produced by nothing yet: alpha never trims
