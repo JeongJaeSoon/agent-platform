@@ -36,6 +36,8 @@ import { useI18n } from "../i18n/i18n.tsx";
 import {
   INSTALLED_PER_PAGE,
   InstalledRepositoryPage,
+  installationGone,
+  retryUnlessGone,
 } from "./installed-repositories.tsx";
 import { type OnOutcome, SettingsCard } from "./workspace-settings.tsx";
 
@@ -100,7 +102,14 @@ export function RepositoryCatalog({
       ),
     enabled: workspaceId !== "",
     placeholderData: (previous) => previous,
+    retry: retryUnlessGone,
   });
+  const gone = installation !== undefined && installationGone(list.error);
+  useEffect(() => {
+    if (!gone) return;
+    setInstallation(undefined);
+    setPage(1);
+  }, [gone]);
   const queryClient = useQueryClient();
   const refresh = () =>
     Promise.all([

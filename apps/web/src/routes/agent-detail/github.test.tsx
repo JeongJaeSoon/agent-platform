@@ -138,7 +138,16 @@ describe("에이전트 GitHub 탭", () => {
       routesFor(server, tab, {
         [`GET ${PATH}/github/repositories`]: () =>
           json(200, {
-            installations: [{ id: 77, account: "acme" }],
+            installations: [
+              {
+                id: 77,
+                account: "acme",
+                connection_id: "app-author",
+                role: "author",
+                permissions: { contents: "write" },
+                repository_count: 2,
+              },
+            ],
             installation_id: 77,
             page: 1,
             per_page: 30,

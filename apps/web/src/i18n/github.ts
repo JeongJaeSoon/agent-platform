@@ -77,8 +77,7 @@ export const githubKo = {
     "같은 이름을 쓰던 다른 저장소의 항목이 남아 있습니다. GitHub에서 이름이 바뀐 그 저장소를 먼저 한 번 고르면 항목이 새 이름으로 바뀝니다.",
   "github.repo.pickNoInstallation":
     "App이 아직 어디에도 설치되지 않았습니다. GitHub에서 App을 설치하세요.",
-  "github.repo.pickUnreachable":
-    "GitHub에 연결하지 못해 저장소 목록을 읽지 못했습니다. 잠시 뒤 다시 여세요.",
+  "github.repo.installationReviewer": "{account} (리뷰용 App)",
   "github.repo.installation": "설치",
   "github.repo.pageOf": "{total}개 중 {from}–{to}",
   "github.repo.previousPage": "이전",
@@ -308,8 +307,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
     "Another repository's entry still holds this name. Pick that repository, renamed on GitHub, once first and its entry takes the new name.",
   "github.repo.pickNoInstallation":
     "The App is not installed anywhere yet. Install it on GitHub.",
-  "github.repo.pickUnreachable":
-    "GitHub could not be reached, so the repositories could not be read. Open this again shortly.",
+  "github.repo.installationReviewer": "{account} (reviewer App)",
   "github.repo.installation": "Installation",
   "github.repo.pageOf": "{from}–{to} of {total}",
   "github.repo.previousPage": "Previous",
@@ -541,8 +539,7 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
     "同じ名前を使っていた別のリポジトリの項目が残っています。GitHub で名前が変わったそのリポジトリを先に一度選ぶと、項目が新しい名前になります。",
   "github.repo.pickNoInstallation":
     "App はまだどこにもインストールされていません。GitHub で App をインストールしてください。",
-  "github.repo.pickUnreachable":
-    "GitHub に接続できず、リポジトリ一覧を読めませんでした。しばらくしてから開き直してください。",
+  "github.repo.installationReviewer": "{account}(レビュー用 App)",
   "github.repo.installation": "インストール先",
   "github.repo.pageOf": "{total} 件中 {from}–{to}",
   "github.repo.previousPage": "前へ",

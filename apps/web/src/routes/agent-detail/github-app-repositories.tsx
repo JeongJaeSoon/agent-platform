@@ -3,13 +3,15 @@ import { type ApiError, unwrap } from "@werft-ai/client";
 import { queryKeysOf } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
 import { Button, FieldError } from "@werft-ai/ui";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { LoadFailure } from "../../components/load-failure.tsx";
 import { errorKey, type MessageKey, useI18n } from "../../i18n/i18n.tsx";
 import {
   INSTALLED_PER_PAGE,
   type InstalledRepository,
   InstalledRepositoryPage,
+  installationGone,
+  retryUnlessGone,
 } from "../installed-repositories.tsx";
 
 const PICK_REFUSALS: Partial<Record<string, MessageKey>> = {
@@ -66,7 +68,14 @@ export function AppRepositoryPicker({
         }),
       ),
     placeholderData: (previous) => previous,
+    retry: retryUnlessGone,
   });
+  const gone = installation !== undefined && installationGone(list.error);
+  useEffect(() => {
+    if (!gone) return;
+    setInstallation(undefined);
+    setPage(1);
+  }, [gone]);
   const pick = useMutation<
     { catalog_id: string },
     ApiError,
