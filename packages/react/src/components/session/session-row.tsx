@@ -17,13 +17,6 @@ import { SessionStatusLabel } from "./session-status-label.tsx";
 import { useMinute } from "./use-minute.ts";
 
 /**
- * @deprecated The div-grid classes SessionTable used before GridTable, kept
- * for rows a caller lays out itself. SessionTable uses SESSION_TEMPLATE.
- */
-export const SESSION_COLUMNS =
-  "grid grid-cols-[minmax(0,1fr)_120px] @[480px]:grid-cols-[minmax(0,1fr)_160px_136px] @[820px]:grid-cols-[minmax(0,5fr)_160px_136px_minmax(0,3fr)_minmax(120px,2fr)]";
-
-/**
  * SessionTable's column template. The state columns fit their longest label
  * on one line: "Waiting for an answer" and "Needs recovery" in English. At
  * 820px of table width and below, admission and runtime drop out for
