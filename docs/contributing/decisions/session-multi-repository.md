@@ -46,7 +46,8 @@
 
 ### egress 경로
 
-- 경로: `GET /repository/<id>/info/refs?service=git-upload-pack`, `POST /repository/<id>/git-upload-pack`. `<id>`는 URL 인코딩한 저장소 id 한 조각이다. 읽기(upload-pack)만 있다. receive-pack 경로는 지금처럼 없다.
+- 경로: `GET /repository/<id>/info/refs?service=git-upload-pack`, `POST /repository/<id>/git-upload-pack`. `<id>`는 URL 인코딩한 저장소 id 한 조각이다. 읽기(upload-pack)만 있다. receive-pack 경로는 지금처럼 없다. 엔진의 `insteadOf`가 `.git`으로 끝나는 URL을 바꾼 `/repository/<id>/.git/…`도 같은 경로다.
+- Git LFS(94S-1095): `POST /repository/<id>(/).git/info/lfs/objects/batch`는 `operation: "download"`만 받는다. upload는 인가를 묻기 전에 400이다. proxy는 upstream 응답의 download 위치를 자기 경로 `GET …/info/lfs/objects/<oid>?size=<n>`로 바꿔 돌려준다. 그 GET이 오면 같은 인가로 batch를 다시 부르고, 응답이 가리킨 저장 위치를 `EGRESS_PACKAGES_REDIRECT_ALLOWLIST` 안의 호스트에서만 자격 없이 받는다. 저장 위치(GitHub는 presigned URL)는 worker에 닿지 않는다.
 - proxy는 인가 요청에 `repository_id`를 싣는다(`{ token, purpose: "repository", repository_id }`). 없으면 지금과 같다(세션 저장소).
 - gateway는 `repository_id`가 세션 저장소와 같으면 지금 검사를 그대로 한다. 다르면 결정 1의 조건을 보고 게이트에서 그 저장소의 `clone` 토큰을 받는다. 추가 저장소는 claim 때 binding을 고정하지 않는다. 게이트가 요청마다 카탈로그와 릴리스를 다시 읽는다.
 - GitHub 게이트가 없는 배포(카탈로그 PAT만 쓰는 배포)에서는 추가 저장소를 쓰지 않는다. claim에 싣지 않고, 인가도 거절한다.

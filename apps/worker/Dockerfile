@@ -38,6 +38,7 @@ RUN bun install --frozen-lockfile --production \
 
 FROM ${BUN_IMAGE} AS runtime
 # git: workspace checkout, bundles and the tools Claude Code shells out to.
+# git-lfs: a session's LFS objects, through the proxy's repository route.
 # ca-certificates: the egress proxy tunnels TLS, the worker still verifies it.
 # tini: see ENTRYPOINT.
 # xfsprogs: not for the worker. The scheduler runs this image once more per
@@ -48,7 +49,7 @@ FROM ${BUN_IMAGE} AS runtime
 ARG APT_UPGRADE_KEY=
 RUN apt-get update --error-on=any \
   && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --with-new-pkgs \
-  && apt-get install -y --no-install-recommends ca-certificates git tini xfsprogs \
+  && apt-get install -y --no-install-recommends ca-certificates git git-lfs tini xfsprogs \
   && rm -rf /var/lib/apt/lists/*
 # The author and committer of Claude's commits when neither the repository nor
 # the session sets one; without it git refuses to commit and Claude asks the
