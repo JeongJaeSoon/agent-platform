@@ -391,7 +391,12 @@ describe("the LFS route", () => {
   });
 
   test("an object is fetched from the batch's location on a listed host, without the credential", async () => {
-    const storage = upstream(() => new Response("bytes"));
+    const storage = upstream(
+      () =>
+        new Response("bytes", {
+          headers: { "x-amz-request-id": "storage-only" },
+        }),
+    );
     const repo = github(storage.port);
     const auth = authorizer(`http://github.test:${repo.port}/o/docs.git`);
     const { server, logged } = proxy(auth.url, repo.port, [
@@ -402,6 +407,7 @@ describe("the LFS route", () => {
       { headers: { authorization: `Bearer ${REPOSITORY_TOKEN}` } },
     );
     expect(response.status).toBe(200);
+    expect(response.headers.get("x-amz-request-id")).toBeNull();
     expect(await response.text()).toBe("bytes");
     expect(JSON.parse(repo.seen[0]?.body ?? "")).toEqual({
       operation: "download",
@@ -458,6 +464,26 @@ describe("the LFS route", () => {
     expect(text).not.toContain("presigned");
     expect(text).not.toContain("fresh-signature");
     expect(storage.seen).toHaveLength(2);
+  });
+
+  test("an encoded object is refused, not passed on as plain bytes", async () => {
+    const storage = upstream(
+      () =>
+        new Response(new Uint8Array([31, 139, 8, 0]), {
+          headers: { "content-encoding": "gzip" },
+        }),
+    );
+    const repo = github(storage.port);
+    const auth = authorizer(`http://github.test:${repo.port}/o/docs`);
+    const { server } = proxy(auth.url, repo.port, [
+      { host: "storage.test", port: storage.port },
+    ]);
+    const response = await fetch(
+      `http://127.0.0.1:${server.port}/repository/docs/.git/info/lfs/objects/${OID}?size=5`,
+      { headers: { authorization: `Bearer ${REPOSITORY_TOKEN}` } },
+    );
+    expect(response.status).toBe(502);
+    expect(await response.text()).toContain("encoded body");
   });
 
   test("an object on a host off the list is refused and not dialled", async () => {

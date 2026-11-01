@@ -1318,7 +1318,8 @@ export function startCredentialProxy(
       : { response };
     if ("refused" in fetched) return fetched;
     // A storage answer may echo a presigned location, the first or one it
-    // redirected to; only the object and its length and type go back.
+    // redirected to; only the object and its length, type and encoding go
+    // back, the encoding so the encoded-body check below still sees it.
     const answer = fetched.response;
     if (!answer.ok) {
       await answer.body?.cancel();
@@ -1331,7 +1332,7 @@ export function startCredentialProxy(
       };
     }
     const headers = new Headers();
-    for (const name of ["content-length", "content-type"]) {
+    for (const name of ["content-length", "content-type", "content-encoding"]) {
       const value = answer.headers.get(name);
       if (value !== null) headers.set(name, value);
     }
