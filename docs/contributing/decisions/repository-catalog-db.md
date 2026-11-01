@@ -1,5 +1,7 @@
 # 결정: GitHub App 저장소를 DB 카탈로그로 옮긴다
 
+상태: 결정(2026-11-01). 비밀값을 쓰는 저장소를 운영자 파일에 두는 것과 콘솔의 저장소 추가·제거([5절](#5-api))는 대체됨 → [settings-replace-file-catalog.md](settings-replace-file-catalog.md)([1절](settings-replace-file-catalog.md#1-데이터-모델), [1.1절](settings-replace-file-catalog.md#11-github-app-저장소-등록-없이-설치-목록이-정본), 2026-11-02).
+
 출처: GitHub 연결 설정 재구성 시안 v2 G절, 오너가 정할 것 2(추천안 채택, 2026-11-01).
 
 ## 무엇을 골랐나

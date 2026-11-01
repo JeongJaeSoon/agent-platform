@@ -1,6 +1,6 @@
 # 결정(제안): Kubernetes에서 worker Pod를 누가 만드나
 
-상태: 제안. 구현하지 않았고, 이 문서가 바꾸는 기본값은 없다. 지금 설치는 그대로 scheduler가 Pod를 만든다.
+상태: 제안(2026-10-31). 이 문서가 바꾸는 기본값은 없다. 지금 설치는 그대로 scheduler가 Pod를 만든다.
 
 control plane(api·scheduler·reconciler)은 어느 안에서도 남는다. 세션의 상태, 슬롯, lease, checkpoint는 계속 플랫폼이 쥔다. 이 문서가 고르는 것은 **worker Pod를 누가 만드느냐**뿐이다.
 
