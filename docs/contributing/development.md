@@ -51,6 +51,28 @@ compose가 host에 게시하는 포트는 전부 `127.0.0.1`에만 묶이고, ho
 
 API를 로컬 인증 비활성 모드로 띄울 때만 `X-Owner-Id`를 사용할 수 있다. 이 모드는 기동 시 경고를 출력하며 기본값이 아니다.
 
+## 개발 모드
+
+코드를 저장하면 이미지를 다시 빌드하지 않고 떠 있는 스택에 반영한다.
+
+```bash
+scripts/local.sh dev --fake-model   # up과 같은 스택에 개발 overlay를 얹어 띄운다
+scripts/local.sh web                # 웹을 고칠 때만: Vite dev 서버(첫 실행 전 bun install --frozen-lockfile)
+```
+
+`dev`는 [infra/compose.dev.yml](../../infra/compose.dev.yml)을 얹어 `up`을 돈다. api·scheduler·reconciler는 checkout의 `apps/control-host`·`packages`를 읽기 전용으로 mount해 그 소스로 돈다. [scripts/dev/hot-restart.ts](../../scripts/dev/hot-restart.ts)가 바뀐 파일을 보고 프로세스만 다시 띄운다. 컨테이너는 그대로라 포트도 바뀌지 않는다. 감지는 파일 이벤트가 먼저이고, 이벤트가 오지 않는 환경(이 저장소를 만든 Mac의 OrbStack mount가 그랬다)에서는 1초마다 mtime·size를 훑어 찾는다. `DEV_POLL_MS`로 간격을 바꾸고 `0`이면 훑지 않는다. `*.test.ts`, `testing/`, `node_modules/`는 보지 않는다.
+
+| 바꾼 곳 | 반영 |
+|---|---|
+| `apps/control-host/src`, `packages` | api는 SIGTERM 뒤 5초 안에 다시 뜬다. 열린 SSE의 35초 drain을 기다리지 않는다. scheduler·reconciler는 각 loop의 stop grace 안에서 진행 중인 pass를 안전 지점에서 멈추고 새 코드로 다시 뜬다. 저장 도중의 문법 오류로 프로세스가 죽으면 다음 저장까지 기다린다 |
+| `apps/web`, `packages/ui` 등 웹 소스 | `local.sh web`의 Vite가 브라우저에 hot module reload로 보낸다. 주소는 Vite가 출력하는 `http://localhost:5173`이고, `/v1`은 스택의 api로 proxy한다. api가 서빙하는 `/`는 이미지에 빌드된 그대로다. 파일 이벤트가 오지 않는 환경에서는 `CHOKIDAR_USEPOLLING=1 scripts/local.sh web`으로 띄운다 |
+| `bun.lock`, worker(`apps/worker`), `apps/egress-proxy`, migration | 이미지에서 온다. `scripts/local.sh dev --fake-model`을 다시 돌리면 바뀐 이미지만 다시 빌드한다. worker는 세션마다 그 이미지로 뜨므로 다음 세션부터 반영된다 |
+| `config/` | api 재시작(`docker compose restart api`)으로 반영한다 |
+
+개발 모드에서는 slack과 maintenance를 띄우지 않는다. Slack role을 고치거나 쓰는 작업은 `up`으로 띄운다. 내릴 때는 `scripts/local.sh down --keep-volumes`를 쓴다. 운영 이미지와 Helm chart에는 이 overlay가 들어가지 않는다.
+
+verify 스택은 `up.sh infra/compose.dev.yml`로 띄운다. 이 스택에서 소스를 바꾸면 `doctor.sh`는 "built from"이 달라졌다며 exit 1을 낸다. 개발 모드에서는 정상이다.
+
 ## e2e·gate·soak 도구 진입점
 
 `quickstart.sh`를 빼면 자기 compose project로 떠서 기본 스택(`agent-platform`)과 겹치지 않는다. `quickstart.sh`는 문서 그대로 기본 project와 기본 포트를 쓴다. 무거우므로 하나씩 돌린다. 각 스크립트의 머리 주석에 knob과 기록 위치가 있다.
