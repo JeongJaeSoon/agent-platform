@@ -135,7 +135,8 @@ export function createGitHubGate(deps: {
         ? catalog.repositories[repositoryId]
         : undefined;
       // Another repository is fetched, pushed to and given pull requests;
-      // its workflows and reviews stay with the session's own (F1, 94S-1094).
+      // its workflows and reviews stay with the session's own
+      // (session-multi-repository.md decision 5).
       if (!own && !ANOTHER_REPOSITORY_PURPOSES.has(work.purpose)) {
         return await refuse("repository_not_allowed");
       }
