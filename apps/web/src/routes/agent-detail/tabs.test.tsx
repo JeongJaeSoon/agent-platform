@@ -1109,7 +1109,7 @@ describe("에이전트 상세 탭", () => {
       ]),
     ).toEqual([
       [
-        "설치 상한",
+        "설치 프로필",
         [
           [
             "claude-coding-fast",

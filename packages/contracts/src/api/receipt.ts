@@ -109,10 +109,13 @@ export const RECEIPT_OPERATION_VALUES = [
   "set_github_ceiling",
   // A GitHub App repository added to the catalog from the console, its
   // default branch changed, removed, or imported from repositories.yaml.
+  // Console adds and removes are gone; their receipts stay readable.
   "add_repository",
   "set_repository_branch",
   "remove_repository",
   "import_repository",
+  // An agent's pick resolved a GitHub App repository to a new catalog row.
+  "resolve_repository",
   // An agent's GitHub switch turned on or off.
   "set_agent_github",
   "review_pull_request",

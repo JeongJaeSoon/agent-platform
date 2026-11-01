@@ -596,6 +596,74 @@ describe("WorkerGateway", () => {
     expect(seen).toEqual([hashWorkerToken("wsc_x")]);
   });
 
+  test("an operator ceiling on every installed App repository may claim one it does not list", async () => {
+    const profile = {
+      runtime_kind: "claude_agent_sdk" as const,
+      runtime_version: "0.3.270",
+      model: "claude-sonnet-5",
+      tools: ["Read"],
+      permission_mode: "plan" as const,
+      provider: {
+        kind: "anthropic" as const,
+        endpoint: "https://api.anthropic.invalid",
+        auth: {
+          kind: "api_key" as const,
+          value: "provider-key",
+          ref: { value_env: "PROVIDER_KEY" },
+        },
+      },
+    };
+    const appAndPat: Record<string, CatalogRepository> = {
+      app: {
+        url: "https://github.com/acme/app.git",
+        branch: "main",
+        auth: { kind: "github_app", registered: true },
+      },
+      pat: { url: "https://github.com/acme/pat.git", branch: "main" },
+    };
+    const seeded = withSeededInstallation({
+      profiles: { p: profile },
+      repositories: appAndPat,
+    });
+    const ceiling = seeded.installation.get("p");
+    if (!ceiling) throw new Error("no seeded ceiling");
+    const runnable: ClaimInput["runnable"][] = [];
+    const instance = createWorkerGateway({
+      work: work({
+        claimAtomic: async (input) => {
+          runnable.push(input.runnable);
+          throw new Error("stop after the pairs");
+        },
+      }),
+      catalog: {
+        ...seeded,
+        installation: new Map([
+          ["p", { ...ceiling, github_app_repositories: "installed" as const }],
+        ]),
+      },
+      checkpoints: acceptAllCheckpoints,
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
+    });
+    await instance
+      .bootstrapClaim(
+        { kind: "bootstrap" },
+        {
+          execution_id: "e",
+          execution_generation: 1,
+          credential: { kind: "launch_nonce" as const, nonce: "n" },
+        },
+      )
+      .catch(() => {});
+    const repositories = new Set(runnable[0]?.map((pair) => pair.repositoryId));
+    expect(ceiling.repository_ids).toEqual([]);
+    expect(repositories.has("app")).toBe(true);
+    expect(repositories.has("pat")).toBe(false);
+  });
+
   test("bootstrapClaim answers the row's repository and the catalog's resolved profile", async () => {
     const binding = {
       sessionId: scope.session_id,

@@ -1,4 +1,11 @@
 import { isIP } from "node:net";
+import {
+  DEFAULT_INSTALLATION_ID,
+  DEFAULT_WORKER_USER,
+  DEFAULT_WORKSPACE_GC_MIN_AGE_SEC,
+  DEFAULT_WORKSPACE_QUOTA_MB,
+  MIN_WORKSPACE_QUOTA_MB,
+} from "@werft-ai/contracts/execution";
 import { integerSetting } from "@werft-ai/contracts/settings";
 import {
   DEFAULT_DOCKER_API_VERSION,
@@ -139,8 +146,14 @@ export type LocalDockerBackendEnvironment = {
   [key: string]: string | undefined;
 };
 
-export const DEFAULT_WORKER_USER = "1000:1000";
-export const DEFAULT_INSTALLATION_ID = "local";
+export {
+  DEFAULT_INSTALLATION_ID,
+  DEFAULT_WORKER_USER,
+  DEFAULT_WORKSPACE_GC_MIN_AGE_SEC,
+  DEFAULT_WORKSPACE_QUOTA_MB,
+  MIN_WORKSPACE_QUOTA_MB,
+} from "@werft-ai/contracts/execution";
+
 const INSTALLATION_ID = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/;
 /**
  * The settings of the shared worker network that per-execution networks
@@ -218,17 +231,6 @@ export function localDockerConfigFromEnv(
   });
 }
 
-export const DEFAULT_WORKSPACE_QUOTA_MB = 4096;
-/**
- * What a worker's checkpoint restore holds at once on an emptied workspace
- * before any file is checked out: the chain's bundles and the
- * repository they are staged into, then that repository and the workspace's
- * fetched copy — two copies of the control plane's 256 MiB bundle limit —
- * beside up to 256 MiB of untracked files, with room for pack indexes and
- * the delta bases a thin incremental pack is completed with. A smaller quota
- * cannot resume a checkpoint the limits admit.
- */
-export const MIN_WORKSPACE_QUOTA_MB = 1024;
 /**
  * Room for a large monorepo checkout with its dependencies installed (a few
  * hundred thousand files) several times over. Empty files cost the byte
@@ -236,7 +238,6 @@ export const MIN_WORKSPACE_QUOTA_MB = 1024;
  * without this a loop of them only stops when the daemon's filesystem does.
  */
 export const DEFAULT_WORKSPACE_QUOTA_INODES = 1_000_000;
-export const DEFAULT_WORKSPACE_GC_MIN_AGE_SEC = 3600;
 
 function workspaceQuotaFromEnv(
   environment: LocalDockerBackendEnvironment,

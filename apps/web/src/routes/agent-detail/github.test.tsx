@@ -112,6 +112,16 @@ function routesFor(
         active_release_id: server.detail().agent.active_release_id,
       }),
     [`GET ${PATH}/github/activity`]: () => json(200, { items: [] }),
+    [`GET ${PATH}/github/repositories`]: () =>
+      json(200, {
+        installations: [],
+        installation_id: null,
+        page: 1,
+        per_page: 30,
+        total_count: 0,
+        repositories: [],
+        unavailable: "ceiling_listed",
+      }),
     ...extra,
   };
 }
@@ -120,6 +130,71 @@ const switchNamed = (name: string) =>
   screen.getByRole("switch", { name }) as HTMLButtonElement;
 
 describe("에이전트 GitHub 탭", () => {
+  test("상한이 App 저장소 전체를 허용하면 설치 목록에서 골라 저장 전 목록에 더한다", async () => {
+    const { server } = await activeAgent();
+    const tab = structuredClone(TAB);
+    const { api } = renderAt(
+      DETAIL,
+      routesFor(server, tab, {
+        [`GET ${PATH}/github/repositories`]: () =>
+          json(200, {
+            installations: [{ id: 77, account: "acme" }],
+            installation_id: 77,
+            page: 1,
+            per_page: 30,
+            total_count: 2,
+            repositories: [
+              {
+                github_repository_id: 11,
+                full_name: "acme/werft-sandbox",
+                default_branch: "main",
+                private: true,
+                catalog_id: "werft-sandbox",
+              },
+              {
+                github_repository_id: 12,
+                full_name: "acme/api",
+                default_branch: "main",
+                private: false,
+                catalog_id: null,
+              },
+            ],
+            unavailable: null,
+          }),
+        [`POST ${PATH}/github/repositories`]: () => {
+          tab.options.repositories.push({
+            id: "api",
+            url: "https://github.com/acme/api.git",
+            available: true,
+            reason: null,
+            installed: UNKNOWN,
+          });
+          return json(200, { catalog_id: "api", receipt_id: RECEIPT_ID });
+        },
+      }),
+    );
+    const user = await setupUser();
+    const picker = within(
+      await screen.findByRole("region", {
+        name: "App이 설치된 저장소에서 고르기",
+      }),
+    );
+    expect(await picker.findByText("목록에 있음")).toBeTruthy();
+    await user.click(picker.getByRole("button", { name: "acme/api 고르기" }));
+    await screen.findByText("릴리스에 넣지 않은 변경 1건");
+    expect(
+      api.calls
+        .filter(
+          (c) =>
+            c.method === "POST" && c.path === `${PATH}/github/repositories`,
+        )
+        .map((c) => c.body),
+    ).toEqual([{ installation_id: 77, github_repository_id: 12 }]);
+    await waitFor(() =>
+      expect(switchNamed("api").getAttribute("aria-checked")).toBe("true"),
+    );
+  });
+
   test("쓸 수 없는 저장소와 권한은 그 이유를 행에 적고 스위치를 잠근다", async () => {
     const { server } = await activeAgent();
     const reason = <R,>(r: R) => ({ available: false, reason: r });
