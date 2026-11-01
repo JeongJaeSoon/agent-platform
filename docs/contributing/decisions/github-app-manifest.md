@@ -81,6 +81,7 @@ master key가 없어 키를 봉인할 수 없을 때는 `reason_code` 없이 App
 - `code`, `state`, `pem`, `client_secret`, `webhook_secret`은 로그, 오류 응답, receipt에 넣지 않는다. 로그에는 App ID, slug, 결과, 거절 사유만 남긴다.
 - complete 응답에 `Referrer-Policy: no-referrer`를 붙인다. 콜백 화면은 API를 부른 직후 URL에서 `code`와 `state`를 지운다(router의 replace 이동).
 - complete 응답은 App 정보와 설치 주소, receipt id만 담는다. 키와 secret은 응답에 없다.
+- 콘솔 CSP의 `form-action`은 `'self' https://github.com`이다. manifest form은 github.com으로만 보낼 수 있다.
 
 ## 8. LATER
 

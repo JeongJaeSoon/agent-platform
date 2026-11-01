@@ -729,6 +729,8 @@ describe("web console (WEB_DIST_DIR)", () => {
         expect(csp).toContain("script-src 'self'");
         expect(csp).toContain("frame-ancestors 'none'");
         expect(csp).not.toContain("unsafe-inline");
+        // The GitHub App manifest is a form POST to github.com, and only there.
+        expect(csp).toContain("form-action 'self' https://github.com;");
       }
       const head = await app.request("/login", { method: "HEAD" });
       expect(head.status).toBe(200);
