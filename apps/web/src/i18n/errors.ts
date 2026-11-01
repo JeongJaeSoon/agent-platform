@@ -131,7 +131,7 @@ export const errorsJa: Record<keyof typeof errorsKo, string> = {
   "error.PROFILE_DIGEST_MISMATCH":
     "このリリースの作成後にプロファイルが変更されました。新しいリリースを作成してください。",
   "error.PROFILE_BLOCKED":
-    "運用担当者がこのプロファイルか、そのベースのインストールのプロファイルをブロックしました。解除されるまで、新しいリリースとセッションでは使えません。",
+    "運用担当者がこのプロファイルか、そのもとになっているインストールのプロファイルをブロックしました。解除されるまで、新しいリリースとセッションでは使えません。",
   "error.ALREADY_EXISTS": "この識別子（slug）はすでに使われています。",
   "error.SLACK_LINK_NOT_CONFIGURED":
     "Slack アカウント連携はまだ使えません。ワークスペースの管理者に Slack 連携の設定を依頼してください。",

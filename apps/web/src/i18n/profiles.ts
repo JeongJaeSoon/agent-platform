@@ -797,7 +797,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.retireRow": "このバージョンを使用停止",
   "profiles.retireRowHint":
     "新しいリリースとセッションではこのバージョンを選べなくなります。元に戻せません。",
-  "profiles.blockRow": "このインストールのプロファイルをブロック",
+  "profiles.blockRow": "このプロファイルをブロック",
   "profiles.blockRowHint":
     "このプロファイルを使うセッションも次のターンで止まります。解除できますが、止まったターンは再実行されません。",
   "profiles.block": "ブロック",

@@ -65,5 +65,5 @@ export const modelsJa: Record<keyof typeof modelsKo, string> = {
   "agent.releases.profileBlocked":
     "運用担当者がインストールのプロファイル {profile} をブロックしました。解除されるまで、このプロファイルのリリースは作成も有効化もできません。",
   "agent.releases.baseProfileBlocked":
-    "運用担当者がプロファイル {profile} のベースのインストールのプロファイルをブロックしました。解除されるまで、このプロファイルのリリースは作成も有効化もできません。",
+    "運用担当者がプロファイル {profile} のもとになっているインストールのプロファイルをブロックしました。解除されるまで、このプロファイルのリリースは作成も有効化もできません。",
 };
