@@ -200,8 +200,7 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
     "The account is suspended. Lift the suspension before changing the role or enabling the membership.",
   OWNER_PROTECTED:
     "Only an owner may grant the owner role or change an owner's role or access (disable, suspend, enable).",
-  SCOPE_NOT_GRANTABLE:
-    "The key asks for a scope its issuer does not hold now, or an agent's key asks for `sessions:approve`.",
+  SCOPE_NOT_GRANTABLE: "The key asks for a scope its issuer does not hold now.",
   SLACK_NOT_INSTALLED:
     "The workspace has no verified Slack install for this team.",
   LINK_TEAM_MISMATCH:
