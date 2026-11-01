@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type {
+  AdditionalWorkspaceRepository,
   ApiErrorCode,
   AppendEventsRequest,
   AppendEventsResponse,
@@ -883,6 +884,30 @@ export function createWorkerGateway(deps: {
     };
   }
 
+  // The repositories besides its own the session's release lets it work on
+  // (session-multi-repository.md decision 2), reached with the attempt's
+  // repository token on the route named for each. Not pinned at the claim:
+  // the gate reads the release and catalog again on every fetch.
+  async function additionalWorkspaceRepositories(
+    sessionId: string,
+    token: string,
+  ): Promise<AdditionalWorkspaceRepository[]> {
+    const ids = (await deps.github?.additionalRepositories?.(sessionId)) ?? [];
+    return ids.flatMap((id) => {
+      const entry = own(catalog.repositories, id);
+      return entry === undefined
+        ? []
+        : [
+            {
+              id,
+              url: entry.url,
+              branch: entry.branch,
+              access: { kind: "egress_token" as const, token },
+            },
+          ];
+    });
+  }
+
   // A catalog that moved since the claim (an edited config and a restart)
   // is not followed: the attempt agreed to one endpoint and one repository.
   // The proxy is refused rather than pointed somewhere new.
@@ -900,6 +925,41 @@ export function createWorkerGateway(deps: {
       "The repository's forge credential could not be issued",
       true,
     );
+  }
+
+  function githubRefused(error: GitHubGateError): never {
+    throw new WorkerGatewayError(
+      githubRefusalStatus(error.reasonCode),
+      "GITHUB_REFUSED",
+      `GitHub work refused: ${error.reasonCode}`,
+      false,
+      undefined,
+      error.reasonCode,
+    );
+  }
+
+  // Another repository is reached only with the gate's own token: the gate
+  // decides whether the session's release still lets it (decision 5), so a
+  // deployment without one has no route to it.
+  async function additionalRepositoryUpstream(
+    sessionId: string,
+    repositoryId: string,
+  ): Promise<EgressUpstream> {
+    if (deps.github === undefined) moved("session's repository");
+    let issued: GitHubGrant | null;
+    try {
+      issued = await deps.github.grant({
+        sessionId,
+        purpose: "clone",
+        repositoryId,
+      });
+    } catch (error) {
+      if (error instanceof GitHubGateError) githubRefused(error);
+      forgeUnavailable();
+    }
+    const entry = own(catalog.repositories, repositoryId);
+    if (issued === null || entry === undefined) forgeUnavailable();
+    return repositoryUpstreamOf(entry, issued.gitCredential);
   }
 
   // A title request's token, held to the session's budget and profile as
@@ -1187,6 +1247,13 @@ export function createWorkerGateway(deps: {
                   attribution.consoleOrigin,
                   binding.sessionId,
                 );
+          const additional =
+            binding.repository === null
+              ? []
+              : await additionalWorkspaceRepositories(
+                  binding.sessionId,
+                  repositoryToken,
+                );
           return {
             session_id: binding.sessionId,
             turn_id: null,
@@ -1213,6 +1280,9 @@ export function createWorkerGateway(deps: {
                 ...binding.repository,
                 access: { kind: "egress_token", token: repositoryToken },
               },
+              ...(additional.length === 0
+                ? {}
+                : { additional_repositories: additional }),
             },
             object_store: {
               access: { kind: "egress_token", token: objectStoreToken },
@@ -1325,6 +1395,8 @@ export function createWorkerGateway(deps: {
     async authorizeEgress(request: {
       token: string;
       purpose: "provider" | "repository";
+      /** repository only: another repository than the session's own. */
+      repository_id?: string | undefined;
     }): Promise<EgressGrant> {
       if (request.purpose === "provider") {
         const titled = await authorizedTitleEgress(request.token);
@@ -1375,6 +1447,12 @@ export function createWorkerGateway(deps: {
       }
       if (result.repository === null) moved("session's repository");
       const { id, url, branch } = result.repository;
+      const other = request.repository_id;
+      if (other !== undefined && other !== id) {
+        return grant(
+          await additionalRepositoryUpstream(result.sessionId, other),
+        );
+      }
       const pair =
         id !== null && result.profileId !== null
           ? allowedPair(catalog, result.profileId, id)
@@ -1401,16 +1479,7 @@ export function createWorkerGateway(deps: {
       } catch (error) {
         // The proxy hands git only a refusal; the session's receipt (the
         // gate's) carries the reason for the person reading the session.
-        if (error instanceof GitHubGateError) {
-          throw new WorkerGatewayError(
-            githubRefusalStatus(error.reasonCode),
-            "GITHUB_REFUSED",
-            `GitHub work refused: ${error.reasonCode}`,
-            false,
-            undefined,
-            error.reasonCode,
-          );
-        }
+        if (error instanceof GitHubGateError) githubRefused(error);
         // The adapter logs why; nothing of its error reaches the proxy.
         forgeUnavailable();
       }

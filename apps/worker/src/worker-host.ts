@@ -589,7 +589,25 @@ export class WorkerHost {
       () => {},
       () => {},
     );
-    return this.untilStopped(restoring);
+    const plan = await this.untilStopped(restoring);
+    const extra = claim.workspace.additional_repositories ?? [];
+    const attach = this.options.workspace.attachRepositories;
+    if (plan === undefined || extra.length === 0 || attach === undefined) {
+      return plan;
+    }
+    // After the restore, which rebuilds the checkout with origin alone.
+    const attached = await this.untilStopped(
+      attach.call(this.options.workspace, {
+        descriptor: claim.workspace,
+        signal: this.preparation.signal,
+      }),
+    );
+    if (attached === undefined || this.stopping !== undefined) return;
+    this.logger.info("worker.workspace.repositories_attached", {
+      attached: attached.attached,
+      failed: attached.failed,
+    });
+    return plan;
   }
 
   /**

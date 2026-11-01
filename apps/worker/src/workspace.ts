@@ -11,6 +11,7 @@ import {
 } from "node:fs/promises";
 import { join, posix } from "node:path";
 import type {
+  AdditionalWorkspaceRepository,
   CheckpointRef,
   WorkspaceDescriptor,
   WorkspaceRepository,
@@ -52,6 +53,15 @@ export interface WorkspacePreparer {
    * forward (`CHECKPOINT_INSTRUCTIONS_REF`); null when nothing was fetched.
    */
   instructionsCommit(): string | null;
+  /**
+   * The descriptor's additional repositories as git remotes, once the
+   * checkout (or its restore) is in place; absent on a host whose engine
+   * never touches a repository.
+   */
+  attachRepositories?(input: {
+    descriptor: WorkspaceDescriptor;
+    signal: AbortSignal;
+  }): Promise<{ attached: string[]; failed: string[] }>;
 }
 
 /** For hosts whose engine never touches a repository, like the fake. */
@@ -244,6 +254,95 @@ export class GitWorkspace implements WorkspacePreparer {
         await check(git(["checkout", "--quiet", plan.branch]), "checkout");
         return plan.action;
       }
+    }
+  }
+
+  /**
+   * Adds each additional repository as a git remote named by its id, its
+   * branch fetched to `refs/remotes/<id>/<branch>` (session-multi-repository.md
+   * decision 2). Runs once the checkout is in place, a restored one included.
+   * Fetched as `fetchThroughMirror` does: the network is reached only from a
+   * scratch mirror this worker just made, never with the checkout's own
+   * config, which the engine can write. One that fails is skipped.
+   */
+  async attachRepositories(input: {
+    descriptor: WorkspaceDescriptor;
+    signal: AbortSignal;
+  }): Promise<{ attached: string[]; failed: string[] }> {
+    const attached: string[] = [];
+    const failed: string[] = [];
+    if (input.descriptor.repository === null) return { attached, failed };
+    for (const repository of input.descriptor.additional_repositories ?? []) {
+      try {
+        await this.attachRepository(repository, input.signal);
+        attached.push(repository.id);
+      } catch (error) {
+        if (input.signal.aborted) throw error;
+        failed.push(repository.id);
+      }
+    }
+    return { attached, failed };
+  }
+
+  private async attachRepository(
+    repository: AdditionalWorkspaceRepository,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const { id, access, url, branch } = repository;
+    const remote = routed(splitSecret(url), access, this.egressTransport, id);
+    const git: Git = (args, options = {}) =>
+      runGit(args, {
+        cwd: options.cwd ?? this.root,
+        network: options.network === true ? remote : null,
+        overrides: [],
+        redact: redactor(
+          url,
+          remote.secret,
+          remote.route === undefined ? [] : [remote.route.token],
+        ),
+        signal,
+      });
+    const scratch = await workerScratch(this.root, "attach");
+    if (scratch === undefined) {
+      throw new Error(`Workspace ${this.root} has no .git directory`);
+    }
+    try {
+      const mirror = join(scratch, "remote.git");
+      await check(
+        git(
+          [
+            "clone",
+            "--quiet",
+            "--bare",
+            "--single-branch",
+            "--branch",
+            branch,
+            "--",
+            remote.route?.url ?? remote.url,
+            mirror,
+          ],
+          { network: true, cwd: "/" },
+        ),
+        "fetch",
+      );
+      await check(
+        git([
+          "fetch",
+          "--quiet",
+          "--no-tags",
+          mirror,
+          `+refs/heads/${branch}:refs/remotes/${id}/${branch}`,
+        ]),
+        "fetch",
+      );
+    } finally {
+      await rm(scratch, { force: true, recursive: true });
+    }
+    // The real URL, without a credential, as for origin: the engine sees
+    // where the remote is but cannot reach it.
+    const added = await git(["remote", "add", id, remote.url]);
+    if (added.code !== 0) {
+      await check(git(["remote", "set-url", id, remote.url]), "remote set-url");
     }
   }
 
@@ -851,6 +950,8 @@ function routed(
   remote: Remote,
   access: WorkspaceRepository["access"],
   transport: string | null,
+  /** Another repository than the session's own: its own route. */
+  repositoryId?: string,
 ): Remote {
   if (access === undefined) return remote;
   if (transport === null) {
@@ -860,7 +961,13 @@ function routed(
   }
   return {
     ...remote,
-    route: { token: access.token, url: `${transport}/repository` },
+    route: {
+      token: access.token,
+      url:
+        repositoryId === undefined
+          ? `${transport}/repository`
+          : `${transport}/repository/${encodeURIComponent(repositoryId)}`,
+    },
   };
 }
 

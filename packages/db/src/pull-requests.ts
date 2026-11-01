@@ -209,7 +209,7 @@ export function createPostgresPullRequests(db: Database): PullRequestStore {
       return findPullRequest(db, ownerId, pushRequestId);
     },
 
-    async findBranchPullRequest(ownerId, sessionId, head) {
+    async findBranchPullRequest(ownerId, sessionId, repositoryId, head) {
       const [row] = await db
         .select()
         .from(pullRequests)
@@ -217,6 +217,7 @@ export function createPostgresPullRequests(db: Database): PullRequestStore {
           and(
             eq(pullRequests.ownerId, ownerId),
             eq(pullRequests.sessionId, sessionId.toLowerCase()),
+            eq(pullRequests.repositoryId, repositoryId),
             eq(pullRequests.head, head),
             isNotNull(pullRequests.pushRequestId),
           ),

@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import type { GitBundleFixture } from "./git-bundle.ts";
 
 export type GitHttpRequest = {
   authorization: string | null;
@@ -111,6 +112,29 @@ export async function createServedRepository(
     return bare;
   } finally {
     await rm(work, { force: true, recursive: true });
+  }
+}
+
+/**
+ * Points `branch` of a served repository at a bundle's commit, so that a
+ * checkpoint built on that bundle shares the repository's history.
+ */
+export async function seedServedBranch(
+  server: Pick<GitHttpServer, "root">,
+  name: string,
+  branch: string,
+  bundle: GitBundleFixture,
+): Promise<void> {
+  const bare = join(server.root, `${name}.git`);
+  const file = join(await mkdtemp(join(tmpdir(), "testkit-seed-")), "b.bundle");
+  try {
+    await Bun.write(file, bundle.bytes);
+    await runTestGit(
+      ["fetch", "--quiet", file, `+${bundle.ref}:refs/heads/${branch}`],
+      bare,
+    );
+  } finally {
+    await rm(dirname(file), { force: true, recursive: true });
   }
 }
 
