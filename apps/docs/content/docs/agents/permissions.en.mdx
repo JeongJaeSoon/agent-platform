@@ -51,7 +51,7 @@ The mode exists only in the catalog and cannot be changed by a session request.
 
 ## Approval: only a person does it
 
-Answering permission requests and questions needs the `sessions:approve` scope. The credential held by the agent inside the worker gets 401 on `/v1`, so it cannot approve for itself. An agent key cannot have `sessions:approve`. How to answer is described in [Waiting for approval and resuming](/sessions/waiting-and-resume).
+Answering permission requests and questions needs the `sessions:approve` scope. The credential held by the agent inside the worker gets 401 on `/v1`, so it cannot approve for itself. An agent key can have `sessions:approve`, but it never approves requests of a session it started. How to answer is described in [Waiting for approval and resuming](/sessions/waiting-and-resume).
 
 Seeing a session does not mean answering for it. Only these people answer its permission requests and questions and approve its pushes and pull requests:
 

@@ -12,6 +12,7 @@ import type { PushSourceResult } from "../checkpoints/checkpoint-service.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
+  deciderKeyOf,
   receiptActorOf,
 } from "../musterrolle/policy.ts";
 import {
@@ -26,6 +27,7 @@ import {
   payloadHash,
   requirePermitted,
   SessionServiceError,
+  selfApproval,
 } from "./session-service.ts";
 
 export type PushActor = {
@@ -101,8 +103,9 @@ function settled(result: PushWriteResult): PushRequest {
 
 /**
  * Push requests (94S-628): a human asks for the session's latest checkpoint
- * to be pushed to `agent/<session-id>`, and a human holding sessions:approve
- * approves or rejects exactly that commit. The push itself is the platform's
+ * to be pushed to `agent/<session-id>`, and a holder of sessions:approve other
+ * than the key that started the session approves or rejects exactly that
+ * commit (GA-8). The push itself is the platform's
  * (94S-629, push-executor.ts).
  */
 export function createPushRequestService(deps: {
@@ -246,8 +249,8 @@ export function createPushRequestService(deps: {
       const sessionId = rawSessionId.toLowerCase();
       const pushRequestId = rawPushRequestId.toLowerCase();
       const receiptActor = pushReceiptActor(actor);
-      const refusal = mayDecidePush(actor.principal);
-      if (refusal !== null) {
+      const deciderKey = deciderKeyOf(actor.caller);
+      const refuseDecision = async (refusal: PushRefusal): Promise<never> =>
         refused(
           refusal,
           await store.recordRefusal({
@@ -265,11 +268,18 @@ export function createPushRequestService(deps: {
               checkpoint_revision: null,
               git_commit: null,
               target_branch: null,
+              decider_key: deciderKey,
             },
           }),
         );
+      const refusal = mayDecidePush(actor.principal);
+      if (refusal !== null) await refuseDecision(refusal);
+      try {
+        await requireSession(actor, "session.approve", sessionId);
+      } catch (error) {
+        if (selfApproval(error)) await refuseDecision("self_approval");
+        throw error;
       }
-      await requireSession(actor, "session.approve", sessionId);
       const body = await input.readBody();
       // Only consulted when the session checkpointed since the request; a
       // store that cannot answer leaves the exact-revision rule in force.
@@ -292,6 +302,7 @@ export function createPushRequestService(deps: {
             latest?.status === "ready"
               ? { revision: latest.revision, gitCommit: latest.gitCommit }
               : null,
+          deciderKey,
         }),
       );
     },

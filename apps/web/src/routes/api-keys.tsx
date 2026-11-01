@@ -104,9 +104,6 @@ type IssueRequest = Pick<CreateApiKeyRequest, "kind" | "scopes"> & {
   expires_at?: string;
 };
 
-// D26: an agent key never stands in for a person's approval.
-const AGENT_KEY_WITHHELD: readonly SessionScope[] = ["sessions:approve"];
-
 const SCOPE_NAME: Record<SessionScope, MessageKey> = {
   "sessions:read": "apiKeys.scope.read",
   "sessions:write": "apiKeys.scope.write",
@@ -666,15 +663,12 @@ function KeyList({
                     {title}
                   </span>
                   <KindBadge kind={key.kind} />
-                  {/* An agent key never approves, so only a person's says. */}
-                  {key.kind === "personal" ? (
-                    <Badge
-                      variant={approves ? "green" : "gray"}
-                      data-approve={approves}
-                    >
-                      {t(approves ? "apiKeys.approveYes" : "apiKeys.approveNo")}
-                    </Badge>
-                  ) : null}
+                  <Badge
+                    variant={approves ? "green" : "gray"}
+                    data-approve={approves}
+                  >
+                    {t(approves ? "apiKeys.approveYes" : "apiKeys.approveNo")}
+                  </Badge>
                 </div>
                 <span className={cn(META, "leading-4")}>{scopes}</span>
                 <div
@@ -1082,7 +1076,12 @@ function PersonalKeyForm({ busy, send }: FormProps) {
       <form onSubmit={submit}>
         <div className={FORM_BODY}>
           <NameField value={name} onChange={setName} />
-          <ScopePicker available={held} chosen={scopes} onChange={setScopes} />
+          <ScopePicker
+            available={held}
+            chosen={scopes}
+            onChange={setScopes}
+            note="apiKeys.selfApproval"
+          />
           <ExpiryField value={expires} onChange={setExpires} />
         </div>
         <FormFoot
@@ -1129,10 +1128,9 @@ function AgentKeyForm({ busy, send }: FormProps) {
     localDay(AGENT_KEY_DEFAULT_DAYS),
   );
   const pickerId = useId();
-  const available = held.filter((scope) => !AGENT_KEY_WITHHELD.includes(scope));
 
   // What the key would actually carry; the button judges by these.
-  const granted = scopes.filter((scope) => available.includes(scope));
+  const granted = scopes.filter((scope) => held.includes(scope));
   // Only an unsearched, fully read list proves there is no agent at all.
   const noAgents =
     !pending &&
@@ -1213,10 +1211,10 @@ function AgentKeyForm({ busy, send }: FormProps) {
           </Field>
           <NameField value={name} onChange={setName} />
           <ScopePicker
-            available={available}
+            available={held}
             chosen={scopes}
             onChange={setScopes}
-            note="apiKeys.agentNoApprove"
+            note="apiKeys.selfApproval"
           />
           <ExpiryField
             value={expires}

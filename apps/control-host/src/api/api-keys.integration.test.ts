@@ -582,7 +582,7 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
       agent_id: agentIds.owners,
       scopes: ["sessions:approve"],
     });
-    expect((await errorOf(approve)).code).toBe("SCOPE_NOT_GRANTABLE");
+    expect(approve.status).toBe(201);
     expect(
       (
         await issue(asCookie(cookies.admin), {

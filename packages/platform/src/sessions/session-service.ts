@@ -93,6 +93,14 @@ export class SessionServiceError extends Error {
   }
 }
 
+export function selfApproval(error: unknown): boolean {
+  return (
+    error instanceof SessionServiceError &&
+    (error.details as { reason_code?: unknown } | null)?.reason_code ===
+      "self_approval"
+  );
+}
+
 type OperatorBlock = {
   reason: string;
   reason_code: "blocked" | "base_blocked";
@@ -298,6 +306,14 @@ export async function requireAllowed(
       "This action on this session needs a justification",
       undefined,
       { reason_code: "justification_required" },
+    );
+  }
+  if (decision?.reason_code === "self_approval") {
+    throw new SessionServiceError(
+      "FORBIDDEN",
+      "The key that started this session cannot approve its requests; another key or a person approves them",
+      undefined,
+      { reason_code: "self_approval" },
     );
   }
   if (decision?.reason_code === "credential_unbound") {

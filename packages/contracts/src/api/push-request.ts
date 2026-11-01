@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { deciderKeySchema } from "../musterrolle/api-keys.ts";
 import { receiptActorSchema } from "../musterrolle/authorization.ts";
 import { githubRefusalSchema } from "../musterrolle/github-settings.ts";
 import {
@@ -167,6 +168,8 @@ export const PUSH_REFUSAL_VALUES = [
   // A new branch whose commit shares no history with the remote's default
   // branch: most likely another repository's content.
   "unrelated_history",
+  // The deciding key is the key that started the session (GA-8).
+  "self_approval",
 ] as const;
 export const pushRefusalSchema = z.enum(PUSH_REFUSAL_VALUES);
 
@@ -199,6 +202,9 @@ export const pushReceiptResultSchema = z.object({
   previous_commit: gitCommitShaSchema.nullable().optional(),
   approved_by: pushDeciderSchema.nullable().optional(),
   reason_code: pushReasonCodeSchema.nullable().optional(),
+  // A `decide_push` receipt only: the API key that decided, or null for a
+  // person or the policy.
+  decider_key: deciderKeySchema.nullable().optional(),
 });
 
 export type PushRequestState = (typeof PUSH_REQUEST_STATE_VALUES)[number];
