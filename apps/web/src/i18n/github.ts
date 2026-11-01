@@ -46,15 +46,16 @@ export const githubKo = {
   "github.saved": "GitHub App을 저장했습니다.",
   "github.newApp": "새 App 만들기",
   "github.newAppHint":
-    "GitHub에서 '만들기'를 한 번 누르면 콘솔이 App ID·개인 키·client secret을 받아 저장합니다. pem 파일을 다루지 않습니다.",
+    "GitHub에서 Create를 한 번 누르면 콘솔이 App ID·개인 키·client secret을 받아 저장합니다. pem 파일을 다루지 않습니다.",
   "github.newApp.owner": "App을 소유할 곳",
   "github.newApp.org": "조직",
   "github.newApp.orgHint": "조직 소유자만 만들 수 있습니다.",
   "github.newApp.orgLogin": "조직 이름",
-  "github.newApp.orgLoginMissing": "GitHub 조직 이름을 적어 주세요.",
+  "github.newApp.orgLoginMissing":
+    "GitHub 조직 이름(영문·숫자·하이픈, 39자 이하)을 적어 주세요.",
   "github.newApp.user": "내 개인 계정",
   "github.newApp.userHint":
-    "계정 주인이 떠나면 App도 함께 묶입니다. 시험용에만 권합니다.",
+    "계정 주인이 떠나도 App은 그 개인 계정에 남습니다. 시험용에만 권합니다.",
   "github.newApp.scope": "설치할 범위",
   "github.newApp.private": "이 계정에서만 (비공개 App)",
   "github.newApp.privateHint": "App을 소유한 계정에만 설치할 수 있습니다.",
@@ -272,6 +273,8 @@ export const githubKo = {
   "github.reviewer.replaceHint":
     "App ID와 private key를 다시 등록합니다. 다른 App으로 바꾸면 새 App이 설치되지 않은 저장소의 리뷰 요청은 거절됩니다.",
   "github.reviewer.replaceTitle": "리뷰용 App을 교체할까요?",
+  "github.reviewer.replaceNext":
+    "다음 단계에서 새 App ID와 private key를 고릅니다.",
 };
 
 export const githubEn: Record<keyof typeof githubKo, string> = {
@@ -328,7 +331,8 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.newApp.org": "An organization",
   "github.newApp.orgHint": "Only organization owners can create it.",
   "github.newApp.orgLogin": "Organization name",
-  "github.newApp.orgLoginMissing": "Enter the GitHub organization name.",
+  "github.newApp.orgLoginMissing":
+    "Enter the GitHub organization name (letters, digits and hyphens, up to 39).",
   "github.newApp.user": "My personal account",
   "github.newApp.userHint":
     "The App stays tied to the account if its owner leaves. Use it for trials only.",
@@ -550,6 +554,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.reviewer.replaceHint":
     "Registers an App ID and private key again. Switching to another App refuses review requests on repositories it is not installed on.",
   "github.reviewer.replaceTitle": "Replace the reviewer App?",
+  "github.reviewer.replaceNext": "Next, choose the new App ID and private key.",
 };
 
 export const githubJa: Record<keyof typeof githubKo, string> = {
@@ -600,12 +605,13 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.saved": "GitHub App を保存しました。",
   "github.newApp": "新しい App を作成",
   "github.newAppHint":
-    "GitHub で「作成」を一度押すと、コンソールが App ID・秘密鍵・client secret を受け取って保存します。pem ファイルを扱う必要はありません。",
+    "GitHub で Create を一度押すと、コンソールが App ID・秘密鍵・client secret を受け取って保存します。pem ファイルを扱う必要はありません。",
   "github.newApp.owner": "App を所有する場所",
   "github.newApp.org": "組織",
   "github.newApp.orgHint": "組織のオーナーだけが作成できます。",
   "github.newApp.orgLogin": "組織名",
-  "github.newApp.orgLoginMissing": "GitHub の組織名を入力してください。",
+  "github.newApp.orgLoginMissing":
+    "GitHub の組織名 (英数字とハイフン、39 文字以内) を入力してください。",
   "github.newApp.user": "自分の個人アカウント",
   "github.newApp.userHint":
     "アカウントの持ち主が離れても App はそのアカウントに残ります。試用にだけおすすめします。",
@@ -829,4 +835,6 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.reviewer.replaceHint":
     "App ID と private key を登録し直します。別の App に替えると、新しい App がインストールされていないリポジトリのレビューリクエストは拒否されます。",
   "github.reviewer.replaceTitle": "レビュー用 App を置き換えますか?",
+  "github.reviewer.replaceNext":
+    "次の手順で新しい App ID と private key を選びます。",
 };

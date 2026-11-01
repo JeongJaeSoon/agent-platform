@@ -1,5 +1,9 @@
 import { useMutation } from "@tanstack/react-query";
-import { Link as RouterLink, useSearch } from "@tanstack/react-router";
+import {
+  Link as RouterLink,
+  useNavigate,
+  useSearch,
+} from "@tanstack/react-router";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import type {
   CompleteGitHubAppManifestResponse,
@@ -83,13 +87,13 @@ export function NewAppForm({
   const [actions, setActions] = useState(false);
   const [loginMissing, setLoginMissing] = useState(false);
   const loginRef = useRef<HTMLInputElement>(null);
+  const handedOff = useRef(false);
   const ids = {
     intro: useId(),
     owner: useId(),
     org: useId(),
     user: useId(),
     login: useId(),
-    loginHint: useId(),
     scope: useId(),
     private: useId(),
     public: useId(),
@@ -127,6 +131,8 @@ export function NewAppForm({
         onOutcome({ kind: "error", text: t("status.loadFailed") });
         return;
       }
+      // The page is leaving; a second click would only mint another state.
+      handedOff.current = true;
       githubNavigation.post(started.action_url, started.manifest);
     },
     onError: (error) =>
@@ -143,7 +149,7 @@ export function NewAppForm({
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (blocked || start.isPending) return;
+    if (blocked || start.isPending || handedOff.current) return;
     const login = loginRef.current?.value.trim() ?? "";
     if (owner === "organization" && !LOGIN.test(login)) {
       setLoginMissing(true);
@@ -336,6 +342,9 @@ export function GitHubNewAppCallback() {
   const search = useSearch({
     from: "/authed/settings/workspace/github/new-app",
   });
+  // Kept from the first render: the address bar loses them right after.
+  const [sent] = useState(() => search);
+  const navigate = useNavigate();
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const role = useRole();
@@ -348,7 +357,7 @@ export function GitHubNewAppCallback() {
           "/v1/workspaces/{id}/github-apps/author/manifest/complete",
           {
             params: { path: { id: workspaceId ?? "" } },
-            body: { code: search.code ?? "", state: search.state ?? "" },
+            body: { code: sent.code ?? "", state: sent.state ?? "" },
           },
         ),
       ),
@@ -358,17 +367,18 @@ export function GitHubNewAppCallback() {
       }
     },
   });
-  const missing = !search.code || !search.state;
+  const missing = !sent.code || !sent.state;
   useEffect(() => {
     if (started.current || workspaceId === undefined) return;
     started.current = true;
     if (!missing) complete.mutate();
-    window.history.replaceState(
-      window.history.state,
-      "",
-      window.location.pathname,
-    );
-  }, [complete.mutate, missing, workspaceId]);
+    // Through the router, so its own location drops them too.
+    void navigate({
+      to: "/settings/workspace/github/new-app",
+      search: {},
+      replace: true,
+    });
+  }, [complete.mutate, missing, workspaceId, navigate]);
 
   const appUrl = appLeftOnGitHub(complete.error);
   const settled = missing || complete.isError || complete.isSuccess;

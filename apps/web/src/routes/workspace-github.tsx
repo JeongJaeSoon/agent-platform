@@ -888,7 +888,7 @@ function GitHubApp({
           title={t(
             author ? "github.replaceTitle" : "github.reviewer.replaceTitle",
           )}
-          consequence={`${replaceHint} ${t("github.replaceNext")}`}
+          consequence={`${replaceHint} ${t(author ? "github.replaceNext" : "github.reviewer.replaceNext")}`}
           target={registered.name}
           confirmLabel={t("github.replace")}
           cancelLabel={t("common.cancel")}

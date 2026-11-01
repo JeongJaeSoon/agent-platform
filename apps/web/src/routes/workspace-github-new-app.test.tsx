@@ -9,7 +9,7 @@ import {
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor, within } = await appHarness();
+const { cleanup, renderAt, screen, waitFor, within } = await appHarness();
 const { githubNavigation } = await import("./workspace-github-new-app.tsx");
 
 const PATH = "/settings/workspace/github";
@@ -105,7 +105,9 @@ describe("새 GitHub App 만들기", () => {
 
     await user.click(screen.getByRole("button", { name: "GitHub에서 만들기" }));
     expect(
-      await screen.findByText("GitHub 조직 이름을 적어 주세요."),
+      await screen.findByText(
+        "GitHub 조직 이름(영문·숫자·하이픈, 39자 이하)을 적어 주세요.",
+      ),
     ).toBeDefined();
     expect(api.calls.some((call) => call.method === "POST")).toBe(false);
 
@@ -190,10 +192,10 @@ describe("새 GitHub App 만들기", () => {
       [`POST ${START}`]: () => {
         attempt += 1;
         return attempt === 1
-          ? json(200, STARTED)
-          : refusal(409, "GITHUB_APP_CONFLICT", {
+          ? refusal(409, "GITHUB_APP_CONFLICT", {
               reason_code: "author_app_exists",
-            });
+            })
+          : json(200, STARTED);
       },
     });
     const user = await setupUser();
@@ -209,17 +211,23 @@ describe("새 GitHub App 만들기", () => {
       await danger.findByRole("button", { name: "새 App 만들기" }),
     );
     await user.type(await screen.findByLabelText("조직 이름"), "acme");
-    await user.click(screen.getByRole("button", { name: "GitHub에서 만들기" }));
-    await waitFor(() => expect(posted).toHaveLength(1));
-    expect(
-      api.calls.filter((call) => call.method === "POST").at(-1)?.body,
-    ).toMatchObject({ replace: true });
-
-    await user.click(screen.getByRole("button", { name: "GitHub에서 만들기" }));
+    const submit = screen.getByRole("button", { name: "GitHub에서 만들기" });
+    await user.click(submit);
     expect(
       await screen.findByText(/그사이 다른 사람이 App을 등록했습니다/),
     ).toBeDefined();
-    expect(posted).toHaveLength(1);
+    expect(posted).toHaveLength(0);
+
+    await user.click(submit);
+    await waitFor(() => expect(posted).toHaveLength(1));
+    const starts = api.calls.filter((call) => call.method === "POST");
+    expect(starts.map((call) => call.body)).toEqual([
+      expect.objectContaining({ replace: true }),
+      expect.objectContaining({ replace: true }),
+    ]);
+    // Handed off to GitHub: another click mints no second state.
+    await user.click(submit);
+    expect(api.calls.filter((call) => call.method === "POST")).toHaveLength(2);
   });
 });
 
@@ -227,7 +235,7 @@ describe("GitHub에서 돌아온 화면", () => {
   const CALLBACK = "/settings/workspace/github/new-app";
 
   test("code와 state를 한 번 보내고, 주소에서 지운 뒤 설치 화면으로 보낸다", async () => {
-    const { api } = renderAt(`${CALLBACK}?code=c0de&state=st4te`, {
+    const { api, history } = renderAt(`${CALLBACK}?code=c0de&state=st4te`, {
       "GET /v1/auth/me": () => json(200, me()),
       [`POST ${COMPLETE}`]: () =>
         json(200, {
@@ -244,7 +252,10 @@ describe("GitHub에서 돌아온 화면", () => {
     expect(
       api.calls.filter((call) => call.method === "POST").map((c) => c.body),
     ).toEqual([{ code: "c0de", state: "st4te" }]);
-    expect(window.location.search).toBe("");
+    // Replaced, not pushed: Back does not return to the code either.
+    await waitFor(() => expect(history.location.search).toBe(""));
+    expect(history.location.pathname).toBe(CALLBACK);
+    expect(history.length).toBe(1);
     expect(
       await screen.findByText("App을 저장했습니다. 설치 화면으로 이동합니다."),
     ).toBeDefined();
@@ -280,5 +291,36 @@ describe("GitHub에서 돌아온 화면", () => {
     expect(
       screen.getByRole("link", { name: "GitHub 연결 설정으로" }),
     ).toBeDefined();
+  });
+
+  test("서버가 state를 거절하면 다시 시작하라고 알리고, 바뀐 App이면 GitHub의 App 링크를 준다", async () => {
+    renderAt(`${CALLBACK}?code=c0de&state=used`, {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`POST ${COMPLETE}`]: () =>
+        refusal(400, "BAD_REQUEST", { reason_code: "state_invalid" }),
+    });
+    expect(
+      await screen.findByText(/만료되었거나 이미 쓰였습니다/),
+    ).toBeDefined();
+    expect(
+      screen.queryByRole("link", { name: /GitHub에서 App 열기/ }),
+    ).toBeNull();
+    cleanup();
+
+    renderAt(`${CALLBACK}?code=c0de&state=raced`, {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`POST ${COMPLETE}`]: () =>
+        refusal(409, "GITHUB_APP_CONFLICT", {
+          reason_code: "author_app_changed",
+          app_id: 9,
+          html_url: "https://github.com/apps/werft-acme-1a2b",
+        }),
+    });
+    expect(await screen.findByText(/그사이 다른 App이 등록되어/)).toBeDefined();
+    expect(
+      screen
+        .getByRole("link", { name: /GitHub에서 App 열기/ })
+        .getAttribute("href"),
+    ).toBe("https://github.com/apps/werft-acme-1a2b");
   });
 });
