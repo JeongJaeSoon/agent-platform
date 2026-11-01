@@ -1,6 +1,7 @@
 # 결정: GitHub Packages는 조직 bot의 classic PAT를 proxy가 붙여 받는다
 
-- 상태: 구현됨. 콘솔 화면은 아직 없어 API로 등록한다.
+- 상태: 결정(2026-11-01).
+- 등록: 콘솔 화면이 없어 API로 등록한다.
 - 배경 결정: [GitHub Packages와 App token](github-packages-app-token.md). App installation token은 레지스트리에서 403이라 안 A(bot PAT 주입)를 골랐다.
 - 오너 승인(2026-11-01): "GitHub Packages 키 방식은 이해햇어 그렇게 진행하자"
 

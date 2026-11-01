@@ -114,7 +114,7 @@ local Docker 실행 기반에서는 한 머신의 메모리를 `EXECUTION_SLOT_L
 | ① `worker.memoryMb` 낮추기 | values 값 하나만 바꾼다(`WORKER_MEMORY_MB`, 다음 launch부터 적용) | 노드당 세션이 는다. 예를 들어 3584MiB면 30GiB 노드에 8개다 | compaction 없는 큰 transcript를 resume할 여유가 같이 준다. 절반 기준을 지키려면 상한도 같이 내려야 한다(3584MiB면 상한 약 400MiB, 추정). 상한은 코드 상수라 빌드가 필요하다 |
 | ② requests < limits 오버커밋 | chart의 worker Pod requests를 limits보다 작게 둔다 | 작은 세션이 많을 때 노드당 세션이 크게 는다. 실측에서 64~150MiB transcript의 resume peak는 726~839MiB였다 | 지금 chart와 scheduler는 requests = limits로만 Pod를 만든다. 바꾸려면 코드 변경이 필요하다. QoS가 Burstable로 내려가, 큰 세션 몇 개가 동시에 resume하면 노드 메모리 압박으로 OOM kill이나 eviction이 난다 |
 | ③ 노드 그룹 키우기 | worker 노드 수나 노드 크기를 늘린다 | 세션당 보장은 그대로 두고 총 세션 수를 늘린다 | 비용이 는다. 코드 변경은 없다 |
-| ④ 세션 크기별 Pod 크기 | 복원할 transcript 크기를 보고 scheduler가 Pod 메모리를 고른다 | 작은 세션은 작게, 큰 세션만 크게 띄운다 | **미구현.** scheduler가 launch 전에 checkpoint 크기를 알아야 하고, 실행 중에 같은 Pod 안에서 transcript가 커지는 경우를 따로 다뤄야 한다 |
+| ④ 세션 크기별 Pod 크기 | 복원할 transcript 크기를 보고 scheduler가 Pod 메모리를 고른다 | 작은 세션은 작게, 큰 세션만 크게 띄운다 | 코드 변경이 필요하다. scheduler가 launch 전에 checkpoint 크기를 알아야 하고, 실행 중에 같은 Pod 안에서 transcript가 커지는 경우를 따로 다뤄야 한다 |
 
 상한(`MAX_TRANSCRIPT_BYTES`)만 올리고 메모리를 그대로 두는 것은 권하지 않는다. compaction 없는 큰 transcript의 resume이 한도에 닿으면 worker가 재기동을 반복하다 세션이 `recovery_required`가 된다. 상한을 바꿀 때는 이 문서의 방법으로 다시 재고, 위 표를 갱신한다.
 

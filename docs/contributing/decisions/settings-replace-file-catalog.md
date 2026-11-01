@@ -1,6 +1,7 @@
 # 결정: 파일 카탈로그를 없애고 설치 설정을 DB와 콘솔로 옮긴다
 
 - 상태: **확정(2026-11-02).** 오너 원문: "카탈로그 변경은 추천대로 진행해줘". 끝의 "오너 결정" 1~6이 그 내용이다.
+- 대체: [repository-catalog-db.md](repository-catalog-db.md)의 `repositories.yaml` 읽기(시드, 비밀값 저장소 파일 보관)와 콘솔 저장소 추가·제거(5절), [profile-db.md](profile-db.md)의 설정 파일(`profiles.yaml` 시드, `connections.yaml`) 읽기와 `repository_ids` 나열만으로 하는 저장소 허용(1.1절 `installed`).
 - 기준 커밋: `origin/main` `d90b26731`. `파일:줄`은 모두 이 커밋 기준이다. JeongJaeSoon/agent-platform#992(이 문서를 쓴 뒤 `c0b27e605`로 land)의 내용은 그 브랜치 기준이라고 따로 적는다.
 - 오너 원문(2026-11-02): "접속처(connections.yaml) 에 대한 내용도 제거해서 설정으로 옮기는거 어때 ? 그래서 최종적ㅡ로 파일로 제어하는 카탈로그 개ㅁ을 완전히삭제하는게 좋을거 같은데"
 - 추가 오너 원문(2026-11-02): "github app 이 연동할수 있는 저장소 목록이 페이지 네이션 형태로 떠야하지않을까". GitHub App 저장소는 등록하지 않는다. 설치 저장소 API가 정본이고 DB에는 에이전트별 선택만 남는다(1.1절).
