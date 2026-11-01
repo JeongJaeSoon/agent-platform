@@ -43,7 +43,7 @@ GitHub 연결 설정에 '새 App 만들기'를 주 버튼으로 둔다. '이미 
 - `github_apps` 행: 지금의 `put`과 같다. 키는 secret 저장소에 봉인한다.
 - client secret: 구성원 계정 연결(`putClientSecret`)과 같은 슬롯에 넣는다. 그래서 '구성원 GitHub 계정 연결'의 client secret 입력 단계가 사라진다.
 - receipt는 '이미 있는 App 추가'와 같은 `set_github_app`이다. `result`에 `source: "manifest"`, 소유 계정, 공개 여부를 더한다. 비밀값은 넣지 않는다. client secret을 따로 넣을 때 남기던 receipt는 쓰지 않는다. 같은 트랜잭션의 한 receipt가 App과 secret을 함께 말한다.
-- `webhook_secret`은 저장하지 않는다. webhook은 꺼 둔다(§5).
+- `webhook_secret`은 저장하지 않는다. manifest에 `hook_attributes`를 넣지 않아 webhook이 없다(§5).
 - 교체: 작성용 App이 있을 때는 위험 구역의 '교체'에서 확인 창을 거친 뒤 '새 App 만들기'와 '이미 있는 App 추가' 가운데 고른다. 시작 요청은 `replace: true`를 보내야 하고, 없으면 409 `GITHUB_APP_CONFLICT`(`reason_code: author_app_exists`)다. 시작할 때의 App ID(없으면 null)를 state의 `replaces_app_id`에 둔다. 완료할 때 잠금 아래 지금의 App ID와 다르면(그사이 다른 사람이 등록·교체·삭제했으면) 저장하지 않고 409 `author_app_changed`를 돌려준다. 이때 GitHub에는 App이 만들어진 채 남으므로 `details.html_url`로 App 링크를 보여 관리자가 지울 수 있게 한다. 교체는 '이미 있는 App 추가'의 교체와 같다. 행 id는 그대로 두고, 이전 App의 client secret은 지운다.
 - 교환은 성공했는데 저장이 실패하면 키를 잃는다(code는 한 번만 교환된다). 이때는 503 `BACKEND_UNAVAILABLE`, `reason_code: store_failed`, `details.app_id`, `details.html_url`을 돌려준다. GitHub가 code를 거절하면(만료·이미 씀) 400 `BAD_REQUEST` `code_rejected`, 닿지 않으면 503 `github_unreachable`이다. 교환 요청은 다시 보내지 않는다. 첫 요청이 GitHub에서 성공했다면 두 번째 요청은 거절되고 키만 잃는다. 화면은 "App은 GitHub에 만들어졌지만 키를 저장하지 못했습니다. App 설정에서 새 키를 만들어 '이미 있는 App 추가'로 연결하세요"와 App 링크를 보인다.
 
@@ -85,7 +85,7 @@ master key가 없어 키를 봉인할 수 없을 때는 `reason_code` 없이 App
 
 ## 8. LATER
 
-- App 여러 개 허용(오너 결정 2026-11-02) 뒤 `replace`는 GHUI-impl 2에서 연결 추가로 바뀐다.
+- App 여럿 허용(오너 결정 2026-11-02, [github-agent.md 결정 11](github-agent.md#결정-11-같은-역할에-app-여럿)) 뒤 manifest의 `replace`·`author_app_exists`는 GHUI-impl 2에서 연결 추가로 바뀐다.
 
 - GitHub Enterprise Server의 manifest(`{GHES}/settings/apps/new`).
 - 리뷰 승인용 App의 manifest 생성.
