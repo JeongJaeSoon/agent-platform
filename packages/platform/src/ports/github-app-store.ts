@@ -122,7 +122,21 @@ export interface GitHubAppDirectory {
     app: Pick<GitHubAppCredential, "appId" | "apiBase" | "privateKey">,
     repo: RepoRef,
   ): Promise<{ id: number; permissions: GitHubAppPermissions } | null>;
+  /** The repositories one installation can reach, at most 1000. */
+  installationRepositories(
+    app: Pick<GitHubAppCredential, "appId" | "apiBase" | "privateKey">,
+    installationId: number,
+  ): Promise<GitHubInstallationRepository[]>;
 }
+
+export type GitHubInstallationRepository = {
+  id: number;
+  owner: string;
+  name: string;
+  url: string;
+  defaultBranch: string;
+  private: boolean;
+};
 
 /** A GitHub answer that says nothing about the request's own values. */
 export class GitHubAppCheckError extends Error {

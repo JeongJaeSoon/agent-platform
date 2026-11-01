@@ -1,11 +1,15 @@
 import { canonicalJson } from "@werft-ai/contracts";
 import type { StructuredLogger } from "@werft-ai/observability";
 import {
+  type CatalogRepository,
+  type CatalogRepositoryStore,
   type CatalogSeedResult,
   type Connections,
   catalogImports,
   catalogRepositoryIds,
   type InstallationProfileStore,
+  repoRefOf,
+  type SeedRepository,
   type SessionCatalogConfig,
 } from "@werft-ai/platform";
 import { stringify as stringifyYaml } from "yaml";
@@ -48,6 +52,46 @@ export async function seedCatalogProfiles(
     });
   }
   return result;
+}
+
+/**
+ * Seeds an empty `catalog_repositories` from the `{ kind: github_app }`
+ * entries of repositories.yaml. A filled table is never seeded again, so a
+ * repository the console removed does not come back.
+ */
+export async function seedCatalogRepositories(
+  store: Pick<CatalogRepositoryStore, "seed">,
+  repositories: Readonly<Record<string, CatalogRepository>>,
+  logger: Pick<StructuredLogger, "info" | "warn">,
+): Promise<void> {
+  const seeded = await store.seed({
+    entries: async () => {
+      const entries: SeedRepository[] = [];
+      for (const [id, repository] of Object.entries(repositories)) {
+        const auth = repository.auth;
+        if (auth?.kind !== "github_app" || !("registered" in auth)) continue;
+        const ref = repoRefOf(repository.url);
+        if (ref === null) {
+          logger.warn("Repository left out of the seed: not a GitHub URL", {
+            repository: id,
+          });
+          continue;
+        }
+        entries.push({
+          id,
+          owner: ref.owner,
+          name: ref.name,
+          url: repository.url,
+          branch: repository.branch,
+          profiles: repository.profiles ? [...repository.profiles] : null,
+        });
+      }
+      return entries;
+    },
+  });
+  if (seeded.length > 0) {
+    logger.info("Repositories seeded", { repositories: seeded });
+  }
 }
 
 /**

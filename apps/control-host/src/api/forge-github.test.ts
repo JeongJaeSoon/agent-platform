@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  type CatalogRepository,
   ForgeCredentialError,
   GitHubAppCheckError,
   type GitHubAppCredential,
@@ -496,6 +497,33 @@ describe("the App registered in the console", () => {
     expect(connections("app", "reviewer")?.appId).toBe(202);
     expect(connections("open", "author")).toBeNull();
     expect(connections("open", "reviewer")).toBeNull();
+  });
+
+  test("a repository the console adds after startup uses the registered App", async () => {
+    const registered = createRegisteredGitHubConnection({
+      role: "author",
+      store: { credentials: async () => [credential()] },
+    });
+    await registered.refresh();
+    const repositories: Record<string, CatalogRepository> = {};
+    const connections = connectionsOf(
+      {
+        profiles: {},
+        get repositories() {
+          return repositories;
+        },
+      },
+      { registered: () => registered.connection() },
+    );
+    expect(connections("later", "author")).toBeNull();
+    repositories.later = {
+      branch: "main",
+      url: "https://github.com/acme/later.git",
+      auth: { kind: "github_app", registered: true },
+    };
+    expect(connections("later", "author")).toBe(registered.connection());
+    delete repositories.later;
+    expect(connections("later", "author")).toBeNull();
   });
 
   test("installed asks GitHub with the App's JWT and issues no token", async () => {

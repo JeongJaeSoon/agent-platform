@@ -610,6 +610,7 @@ export function createWorkerGateway(deps: {
   let runnableOf: {
     records: WorkspaceProfiles["records"] | undefined;
     profiles: SessionCatalog["profiles"];
+    repositories: SessionCatalog["repositories"];
     pairs: RunnablePair[];
     revision: string;
     settled: ReadonlySet<string>;
@@ -617,15 +618,18 @@ export function createWorkerGateway(deps: {
   function claimCatalog(): NonNullable<typeof runnableOf> {
     const records = catalog.workspace_profiles?.records;
     const profiles = catalog.profiles;
+    const repositories = catalog.repositories;
     if (
       runnableOf === null ||
       runnableOf.records !== records ||
-      runnableOf.profiles !== profiles
+      runnableOf.profiles !== profiles ||
+      runnableOf.repositories !== repositories
     ) {
       const workspace = workspaceCatalogProfiles(catalog);
       runnableOf = {
         records,
         profiles,
+        repositories,
         pairs: buildRunnablePairs(workspace),
         revision: catalogRevision(catalog),
         settled: new Set([

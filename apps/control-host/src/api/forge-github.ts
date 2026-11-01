@@ -19,6 +19,7 @@ import {
   GitHubCallError,
   type GitHubConnection,
   type GitHubConnections,
+  type GitHubInstallationRepository,
   GitHubPermissionError,
   type GitHubPermissions,
   type GitHubRateLimit,
@@ -865,6 +866,30 @@ export function createGitHubAppDirectory(
       asking("App installation lookup", app, (client, auth) =>
         installationFor(client, auth, repo),
       ),
+    installationRepositories: (app, installationId) =>
+      asking("Installation repositories", app, async (client, auth) => {
+        const { token } = await auth({ type: "installation", installationId });
+        const headers = { authorization: `token ${token}` };
+        const all: GitHubInstallationRepository[] = [];
+        for (let page = 1; page <= MAX_INSTALLATION_PAGES; page += 1) {
+          const { data } = await client.request(
+            "GET /installation/repositories",
+            { per_page: INSTALLATIONS_PER_PAGE, page, headers },
+          );
+          for (const repository of data.repositories) {
+            all.push({
+              id: Number(repository.id),
+              owner: repository.owner.login,
+              name: repository.name,
+              url: repository.html_url,
+              defaultBranch: repository.default_branch,
+              private: repository.private,
+            });
+          }
+          if (data.repositories.length < INSTALLATIONS_PER_PAGE) break;
+        }
+        return all;
+      }),
   };
 }
 
@@ -1007,11 +1032,9 @@ export function connectionsOf(
 ): GitHubConnections {
   const { registered, ...connectionOptions } = options;
   const connections = new Map<string, GitHubConnection>();
-  const usesRegistered = new Set<string>();
   for (const [id, repository] of Object.entries(catalog.repositories)) {
     const { auth } = repository;
     if (auth?.kind === "github_app" && "registered" in auth) {
-      usesRegistered.add(id);
     } else if (auth?.kind === "github_app") {
       connections.set(
         id,
@@ -1044,8 +1067,16 @@ export function connectionsOf(
       );
     }
   }
+  // Looked up per call: the console adds and removes registered-App
+  // repositories while the API runs; credentialed entries come from the
+  // file, which does not change.
   return (id, role) => {
-    if (usesRegistered.has(id)) return registered?.(role) ?? null;
+    const auth = Object.hasOwn(catalog.repositories, id)
+      ? catalog.repositories[id]?.auth
+      : undefined;
+    if (auth?.kind === "github_app" && "registered" in auth) {
+      return registered?.(role) ?? null;
+    }
     return role === "author" ? (connections.get(id) ?? null) : null;
   };
 }
