@@ -54,6 +54,17 @@ describe("packageManagerFiles", () => {
     expect(Object.keys(env)).not.toContain("GONOSUMCHECK");
   });
 
+  test("the session's own modules skip the proxy and the checksum database", () => {
+    const go = packageManagerFiles(ROUTE, "t", undefined, [
+      "github.com/o/a",
+      "github.com/o/b",
+    ]).go.split("\n");
+    expect(go).toContain("GOPRIVATE=github.com/o/a,github.com/o/b");
+    expect(go).toContain(
+      "GOPROXY=http://egress-proxy:3129/packages/go/_token/t",
+    );
+  });
+
   test("a token that would break a URL is escaped", () => {
     const files = packageManagerFiles(ROUTE, "a@b/c");
     expect(files.bundler).toContain(
