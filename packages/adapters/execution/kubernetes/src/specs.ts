@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 import { posix } from "node:path";
 import {
+  ENV,
+  egressCredentialUrlOf,
+  NO_PROXY_VALUE,
+  noProxyValueFor,
+} from "@werft-ai/contracts/execution";
+import {
   type ExecutionRef,
   hashWorkerToken,
   type LaunchIntent,
@@ -43,35 +49,16 @@ export const ANNOTATIONS = {
   workspaceSize: "agent-platform.workspace-size",
 } as const;
 
-/** The worker's view; the same names the Docker backend's `ENV` uses. */
-export const ENV = {
-  bootstrapNonce: "WORKER_BOOTSTRAP_NONCE",
-  executionGeneration: "WORKER_EXECUTION_GENERATION",
-  executionId: "WORKER_EXECUTION_ID",
-  gatewayUrl: "WORKER_GATEWAY_URL",
-  egressCredentialUrl: "WORKER_EGRESS_CREDENTIAL_URL",
-  home: "HOME",
-  workspaceDir: "WORKER_WORKSPACE_DIR",
-  httpProxy: "HTTP_PROXY",
-  httpProxyLower: "http_proxy",
-  httpsProxy: "HTTPS_PROXY",
-  httpsProxyLower: "https_proxy",
-  noProxy: "NO_PROXY",
-  noProxyLower: "no_proxy",
-  objectBucket: "S3_BUCKET",
-  objectPrefix: "WORKER_OBJECT_PREFIX",
-  objectRegion: "AWS_REGION",
-  stopGrace: "WORKER_STOP_GRACE_SEC",
-  maxTurnSeconds: "WORKER_MAX_TURN_SEC",
-  providerMaxRetries: "WORKER_PROVIDER_MAX_RETRIES",
-  logLevel: "LOG_LEVEL",
-} as const;
+export {
+  ENV,
+  egressCredentialUrlOf,
+  NO_PROXY_VALUE,
+  noProxyValueFor,
+} from "@werft-ai/contracts/execution";
 
 /** The key in the nonce Secret the worker's env reads. */
 export const NONCE_KEY = "nonce";
 export const CONTAINER_NAME = "worker";
-
-export const NO_PROXY_VALUE = "localhost,127.0.0.1,::1";
 
 /**
  * The claim is mounted at `workspaceDir` and the checkout lives one level
@@ -396,28 +383,10 @@ export function bootstrapFingerprintOf(nonce: string): string {
   return launchNonceFingerprint(hashWorkerToken(nonce));
 }
 
-export function egressCredentialUrlOf(
-  config: Pick<
-    KubernetesBackendConfig,
-    "egressCredentialPort" | "egressProxyUrl"
-  >,
-): string {
-  const url = new URL(config.egressProxyUrl);
-  url.port = String(config.egressCredentialPort);
-  return url.toString().replace(/\/$/, "");
-}
-
 export function proxyHostOf(
   config: Pick<KubernetesBackendConfig, "egressProxyUrl">,
 ): string {
   return new URL(config.egressProxyUrl).hostname;
-}
-
-/** Plus the proxy's own name: its credential routes are reached directly. */
-export function noProxyValueFor(
-  config: Pick<KubernetesBackendConfig, "egressProxyUrl">,
-): string {
-  return `${NO_PROXY_VALUE},${proxyHostOf(config)}`;
 }
 
 type EnvVar =
