@@ -174,8 +174,8 @@ function AgentCard({
     <Card className={cn("w-full", OPENS_ROW)} data-agent={agent.slug}>
       <CardHeader>
         <div className="flex min-w-0 items-center gap-3">
-          <AgentAvatar name={agent.name} />
-          <div className="flex min-w-0 flex-col gap-1">
+          <AgentAvatar name={agent.name} size="two-line" />
+          <div className="flex min-w-0 flex-col gap-(--ap-row-line-gap)">
             <CardTitle className="[overflow-wrap:anywhere]">
               <RouterLink
                 to="/agents/$id"
@@ -192,7 +192,7 @@ function AgentCard({
               truncate
               title={agent.slug}
               // Above the card's stretched link, so the hover reaches the title.
-              className="relative z-1"
+              className="relative z-1 leading-(--ap-leading-caption)"
             >
               <span className="sr-only">{t("agents.slug")} </span>
               {agent.slug}
@@ -408,11 +408,17 @@ export function CredentialNeed({
   );
 }
 
-/** The design's 32px square initials mark, one colour per name. */
-export function AgentAvatar({ name }: { readonly name: string }) {
+/** The design's square initials mark, one colour per name. */
+export function AgentAvatar({
+  name,
+  size = "lg",
+}: {
+  readonly name: string;
+  readonly size?: "lg" | "two-line";
+}) {
   return (
     <Avatar
-      size="lg"
+      size={size}
       shape="square"
       tone={avatarTone(name)}
       initials={avatarInitials(name)}

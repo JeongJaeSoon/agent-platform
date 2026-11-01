@@ -209,8 +209,18 @@
     --ap-radius-card: 0.5rem;
     --ap-radius-pill: 999px;
 
-    /* Every coloured icon tile in the console, sidebar and cards alike. */
+    /* A coloured icon tile beside one line, such as a sidebar item. */
     --ap-size-icon-tile: 1.5rem;
+    /*
+     * A tile beside two stacked lines (a 20px line, the row line gap, a 16px
+     * line) spans both, so its top and bottom meet theirs (owner, 2026-11-02).
+     */
+    --ap-leading-caption: 1rem;
+    --ap-size-tile-two-line: calc(
+      var(--ap-leading-body) +
+      var(--ap-row-line-gap) +
+      var(--ap-leading-caption)
+    );
 
     /* One shadow, for what floats (menus, dialogs, toasts). */
     --ap-shadow-pop:
