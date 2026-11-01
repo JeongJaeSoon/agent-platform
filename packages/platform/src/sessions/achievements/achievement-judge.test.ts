@@ -13,6 +13,7 @@ const SESSION = "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01";
 const CLAIMED: ClaimedJudgment = {
   id: "judgment-1",
   sessionId: SESSION,
+  attempts: 1,
   leaseToken: "lease-1",
 };
 
@@ -57,21 +58,25 @@ function judgeOf(
     title?: string | null;
   },
   outputs: SessionOutputsResult = { status: "none" },
+  options: { attempts?: number; contextFails?: boolean } = {},
 ) {
   const finished: JudgmentResult[] = [];
   const warnings: string[] = [];
   const store: AchievementJudgmentStore = {
-    claim: async () => [CLAIMED],
-    context: async () => ({
-      session: {
-        id: SESSION,
-        title: context.title ?? null,
-        agentId: "agent-1",
-        agentReleaseId: "release-1",
-      },
-      rules: context.rules,
-      outcomes: context.outcomes,
-    }),
+    claim: async () => [{ ...CLAIMED, attempts: options.attempts ?? 1 }],
+    context: async () => {
+      if (options.contextFails) throw new Error("connection refused");
+      return {
+        session: {
+          id: SESSION,
+          title: context.title ?? null,
+          agentId: "agent-1",
+          agentReleaseId: "release-1",
+        },
+        rules: context.rules,
+        outcomes: context.outcomes,
+      };
+    },
     finish: async (_judgment, result) => {
       finished.push(result);
       return true;
@@ -176,7 +181,7 @@ describe("achievement judge", () => {
         agentId: "agent-1",
         agentReleaseId: "release-1",
         title: "out/report.md",
-        link: `/v1/sessions/${SESSION}/outputs/out%2Freport.md`,
+        link: `/sessions/${SESSION}`,
         evidenceKind: "out_file",
         evidenceId: "out/report.md",
         payload: { path: "out/report.md", size: 120 },
@@ -243,23 +248,84 @@ describe("achievement judge", () => {
     });
   });
 
-  test("an out/ list that cannot be read fails the judgment and counts nothing", async () => {
-    const { judge, finished } = judgeOf(
+  test("an out/ list that cannot be read still counts the pull request and retries 1, 5 and 30 minutes later, then fails", async () => {
+    const unread = (attempts: number) =>
+      judgeOf(
+        {
+          rules: [
+            rule("pull_request", "github_pull_request"),
+            rule("document", "out_file"),
+          ],
+          outcomes: [PULL_REQUEST],
+        },
+        { status: "unavailable", reason: "manifest missing" },
+        { attempts },
+      );
+    const results = [];
+    for (const attempts of [1, 2, 3, 4]) {
+      const { judge, finished } = unread(attempts);
+      await judge.runOnce();
+      results.push(finished[0]);
+    }
+    expect(
+      results.map((result) => [
+        result?.status,
+        result && "retryInMs" in result ? result.retryInMs : null,
+        result?.errorCode,
+        result?.achievements.map((a) => a.evidenceKind),
+      ]),
+    ).toEqual([
+      ["queued", 60_000, "outputs_unavailable", ["github_pull_request"]],
+      ["queued", 300_000, "outputs_unavailable", ["github_pull_request"]],
+      ["queued", 1_800_000, "outputs_unavailable", ["github_pull_request"]],
+      ["failed", null, "outputs_unavailable", ["github_pull_request"]],
+    ]);
+  });
+
+  test("a try that throws is retried the same way, and a judgment past its retries is failed without judging", async () => {
+    const thrown = judgeOf({ rules: [], outcomes: [] }, undefined, {
+      attempts: 1,
+      contextFails: true,
+    });
+    await thrown.judge.runOnce();
+    expect(thrown.finished).toEqual([
       {
-        rules: [
-          rule("pull_request", "github_pull_request"),
-          rule("document", "out_file"),
-        ],
+        status: "queued",
+        retryInMs: 60_000,
+        errorCode: null,
+        rules: [],
+        evidenceIds: [],
+        achievements: [],
+      },
+    ]);
+    const last = judgeOf({ rules: [], outcomes: [] }, undefined, {
+      attempts: 4,
+      contextFails: true,
+    });
+    await last.judge.runOnce();
+    expect(last.finished[0]).toMatchObject({
+      status: "failed",
+      errorCode: null,
+    });
+    // A replica that died on every try never finished one.
+    const spent = judgeOf(
+      {
+        rules: [rule("pull_request", "github_pull_request")],
         outcomes: [PULL_REQUEST],
       },
-      { status: "unavailable", reason: "manifest missing" },
+      undefined,
+      { attempts: 5 },
     );
-    await judge.runOnce();
-    expect(finished[0]).toMatchObject({
-      status: "failed",
-      errorCode: "outputs_unavailable",
-      achievements: [],
-    });
+    await spent.judge.runOnce();
+    expect(spent.finished).toEqual([
+      {
+        status: "failed",
+        errorCode: null,
+        rules: [],
+        evidenceIds: [],
+        achievements: [],
+      },
+    ]);
   });
 
   test("evidence whose built-in payload fails its schema is not counted", async () => {

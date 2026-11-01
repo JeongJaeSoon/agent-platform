@@ -468,6 +468,35 @@ function parentRevisionOf(session: SessionRow, attemptId: string) {
 
 const OUTPUT_ROWS_PER_INSERT = 5_000;
 
+/**
+ * Whether the out/ files differ from the parent revision's, which makes them
+ * changed evidence (achievement-rules.md §4). Compared by stored object key,
+ * so a file renamed with its content unchanged, or a second path with the
+ * same content as one already listed, is no change.
+ */
+async function outputsChanged(
+  tx: Database,
+  sessionId: string,
+  parentRevision: number | null,
+  outputs: readonly { key: string }[],
+): Promise<boolean> {
+  const parent =
+    parentRevision === null
+      ? []
+      : await tx
+          .select({ key: checkpointOutputs.objectKey })
+          .from(checkpointOutputs)
+          .where(
+            and(
+              eq(checkpointOutputs.sessionId, sessionId),
+              eq(checkpointOutputs.revision, parentRevision),
+            ),
+          );
+  const before = new Set(parent.map(({ key }) => key));
+  const now = new Set(outputs.map(({ key }) => key));
+  return before.size !== now.size || [...now].some((key) => !before.has(key));
+}
+
 export async function advanceCheckpointPointer(
   tx: Database,
   input: {
@@ -494,6 +523,8 @@ export async function advanceCheckpointPointer(
       currentRevision: input.session.checkpointRevision,
     };
   }
+  // The attempt committing ran on what its restore handed it.
+  const parentRevision = parentRevisionOf(input.session, input.fence.attemptId);
   await tx.insert(checkpoints).values({
     sessionId: input.fence.sessionId,
     revision: input.checkpoint.revision,
@@ -501,8 +532,7 @@ export async function advanceCheckpointPointer(
     manifestSha256: input.checkpoint.manifest_sha256,
     manifestVersion: input.checkpoint.manifest_version ?? null,
     versionsHeld: input.versionsHeld,
-    // The attempt committing ran on what its restore handed it.
-    parentRevision: parentRevisionOf(input.session, input.fence.attemptId),
+    parentRevision,
     turnId: input.turnRowId,
     committedAt: input.now,
     // The runtime fingerprint in the manifest was computed from the profile
@@ -532,8 +562,10 @@ export async function advanceCheckpointPointer(
         })),
     );
   }
-  // The out/ files a checkpoint lists are evidence (achievement-rules.md §4).
-  if (outputs.length > 0) {
+  if (
+    input.outputs !== undefined &&
+    (await outputsChanged(tx, input.fence.sessionId, parentRevision, outputs))
+  ) {
     await queueAchievementJudgment(tx, input.fence.sessionId);
   }
   if (input.transcriptBytes !== undefined) {

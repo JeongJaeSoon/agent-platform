@@ -39,6 +39,7 @@ const createApiApp = recordRouteErrors("routes/achievements.test.ts");
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const OTHER_WORKSPACE = "019a0000-0000-7000-8000-0000000000b1";
 const USER = "019a0000-0000-7000-8000-0000000000c1";
+const OTHER_USER = "019a0000-0000-7000-8000-0000000000c2";
 const ID = "019a0000-0000-7000-8000-0000000000d1";
 const AT = "2026-11-02T01:00:00.000Z";
 
@@ -826,5 +827,40 @@ describe("a session's achievements", () => {
     expect((await read(SESSION, "ach_none")).status).toBe(403);
     expect((await read(SESSION)).status).toBe(401);
     expect((await read(DOWN, "ach_reader")).status).toBe(503);
+  });
+
+  test("a member is not shown a session not shared with them, and the store is not read", async () => {
+    const unshared: string[] = [];
+    const members = createApiApp({
+      authMode: "api-key",
+      identity,
+      registerRoutes: (router) =>
+        registerSessionAchievementRoutes(
+          router,
+          createSessionAchievementService({
+            authorization: createAuthorizationPolicy({
+              sessions: {
+                visibleTo: async () => false,
+                originOf: async () => ({
+                  creatorUserId: OTHER_USER,
+                  creatorApiKeyId: null,
+                }),
+              },
+            }),
+            store: {
+              list: async (_owner, session) => {
+                unshared.push(session);
+                return listed;
+              },
+            },
+          }),
+        ),
+    });
+    const response = await members.request(
+      `/v1/sessions/${SESSION}/achievements`,
+      { headers: { Cookie: cookieFor("member") } },
+    );
+    expect(response.status).toBe(404);
+    expect(unshared).toEqual([]);
   });
 });

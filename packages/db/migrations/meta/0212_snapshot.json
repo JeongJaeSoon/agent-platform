@@ -1,5 +1,5 @@
 {
-  "id": "d2be100f-7671-448c-932a-8b5f4d28aceb",
+  "id": "e268d113-1290-48c2-b717-73f025b1e73e",
   "prevId": "b9a2aaaa-4876-4ffa-a272-e03214202c24",
   "version": "7",
   "dialect": "postgresql",
@@ -7199,6 +7199,12 @@
           "columns": [
             {
               "expression": "rule_family_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "session_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

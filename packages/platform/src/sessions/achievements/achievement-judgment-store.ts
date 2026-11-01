@@ -12,11 +12,16 @@ import type {
 /** Triggers within this of the last one merge into one judgment. */
 export const ACHIEVEMENT_JUDGMENT_QUIET_MS = 120_000;
 
+/** After a failed try, a judgment is tried again this long later, once each. */
+export const ACHIEVEMENT_JUDGMENT_RETRY_MS = [60_000, 300_000, 1_800_000];
+
 /** A judgment the judge holds the lease of. */
 export type ClaimedJudgment = {
   id: string;
   sessionId: string;
   leaseToken: string;
+  /** Tries so far, this one included. */
+  attempts: number;
 };
 
 /** A rule in use for the session, with its type. */
@@ -78,13 +83,16 @@ export type NewAchievement = {
 };
 
 export type JudgmentResult = {
-  status: "succeeded" | "skipped" | "failed";
   errorCode: AchievementJudgmentError | null;
   /** The rule versions and evidence ids paired. */
   rules: string[];
   evidenceIds: string[];
   achievements: NewAchievement[];
-};
+} & (
+  | { status: "succeeded" | "skipped" | "failed" }
+  /** Tried again after `retryInMs`. */
+  | { status: "queued"; retryInMs: number }
+);
 
 /** The judgments and achievements of sessions; the judge is the only writer. */
 export interface AchievementJudgmentStore {
@@ -97,8 +105,10 @@ export interface AchievementJudgmentStore {
   context(judgment: ClaimedJudgment): Promise<JudgmentContext>;
   /**
    * Writes the result and the achievements in one transaction under the
-   * lease; one a rule family already has for the evidence is kept. False
-   * when the lease was taken over meanwhile.
+   * lease; one a rule family already has for the evidence is kept. A retry
+   * goes back to queued, or, when the session has another queued judgment
+   * already, moves that one's wait instead and ends as `failed`. False when
+   * the lease was taken over meanwhile.
    */
   finish(judgment: ClaimedJudgment, result: JudgmentResult): Promise<boolean>;
   /** Null when the owner has no such session. */

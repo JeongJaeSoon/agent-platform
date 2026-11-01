@@ -31,6 +31,7 @@ import {
   insertBuiltinAchievementTypes,
 } from "./achievement-rules.ts";
 import { findPgError } from "./control-shared.ts";
+import { acquireFence } from "./fence.ts";
 import { createPostgresGitHubGateStore } from "./github-settings.ts";
 import {
   createPostgresPullRequests,
@@ -52,6 +53,7 @@ import {
 } from "./schema.ts";
 import { createPostgresSessionOutcomes } from "./session-outcomes.ts";
 import { commitCheckpoint } from "./testing/checkpoints.ts";
+import { advanceCheckpointPointer } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -348,7 +350,7 @@ integration("achievement judgments on PostgreSQL", () => {
     const merged = await judgmentsOf(sessionId);
     expect(merged).toHaveLength(1);
     expect(merged[0]?.id).toBe(opened?.id);
-    expect(merged[0]?.nextAttemptAt.getTime()).toBeGreaterThanOrEqual(
+    expect(merged[0]?.nextAttemptAt.getTime()).toBeGreaterThan(
       opened?.nextAttemptAt.getTime() ?? Number.POSITIVE_INFINITY,
     );
 
@@ -379,6 +381,88 @@ integration("achievement judgments on PostgreSQL", () => {
       }),
     ).rejects.toThrow("rolled back");
     expect(await judgmentsOf(other)).toEqual([]);
+  });
+
+  test("a merge never moves the wait back: not from a long transaction, not below a later deadline", async () => {
+    const { workspaceId } = await workspace();
+    const sessionId = await session(workspaceId);
+    const deadline = async () =>
+      (await judgmentsOf(sessionId))[0]?.nextAttemptAt.getTime() ?? 0;
+
+    // A transaction that began before another trigger queues after it.
+    let begun: () => void = () => {};
+    const started = new Promise<void>((resolve) => {
+      begun = resolve;
+    });
+    let proceed: () => void = () => {};
+    const go = new Promise<void>((resolve) => {
+      proceed = resolve;
+    });
+    const slow = db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT now()`);
+      begun();
+      await go;
+      await queueAchievementJudgment(tx, sessionId);
+    });
+    await started;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await queueAchievementJudgment(db, sessionId);
+    const meanwhile = await deadline();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    proceed();
+    await slow;
+    expect(await deadline()).toBeGreaterThan(meanwhile);
+
+    // A later deadline (a retry's) is kept.
+    await db
+      .update(achievementJudgments)
+      .set({ nextAttemptAt: sql`now() + interval '1 hour'` })
+      .where(eq(achievementJudgments.sessionId, sessionId));
+    const later = await deadline();
+    await queueAchievementJudgment(db, sessionId);
+    expect(await deadline()).toBe(later);
+  });
+
+  test("the session row is locked before the queued entry, so a checkpoint's fence and a refresher's queue do not deadlock", async () => {
+    const { workspaceId } = await workspace();
+    const sessionId = await session(workspaceId);
+    let fenced: () => void = () => {};
+    const locked = new Promise<void>((resolve) => {
+      fenced = resolve;
+    });
+    let proceed: () => void = () => {};
+    const go = new Promise<void>((resolve) => {
+      proceed = resolve;
+    });
+    // As a checkpoint commit: the fence locks the session, then it queues.
+    const checkpoint = db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT 1 FROM sessions WHERE id = ${sessionId} FOR UPDATE`,
+      );
+      fenced();
+      await go;
+      await queueAchievementJudgment(tx, sessionId);
+    });
+    await locked;
+    // As the refresher: queues with no lock of its own first.
+    const refresher = db.transaction((tx) =>
+      queueAchievementJudgment(tx, sessionId),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    proceed();
+    const results = await Promise.allSettled([checkpoint, refresher]);
+    expect(
+      results.map((result) =>
+        result.status === "rejected"
+          ? findPgError(result.reason, "40P01")
+            ? "deadlock"
+            : "error"
+          : "ok",
+      ),
+    ).toEqual(["ok", "ok"]);
+    expect((await judgmentsOf(sessionId)).map((row) => row.status)).toEqual([
+      "queued",
+    ]);
   });
 
   test("a refresher read that changes a pull request's state queues a judgment; one that does not, queues none", async () => {
@@ -439,7 +523,7 @@ integration("achievement judgments on PostgreSQL", () => {
     ]);
   });
 
-  test("a checkpoint listing out/ files queues a judgment; one listing none does not", async () => {
+  test("a checkpoint queues a judgment only when its out/ files differ from its parent's, in its own transaction", async () => {
     const { workspaceId } = await workspace();
     const sessionId = await session(workspaceId);
     const attemptId = `attempt-${randomUUID()}`;
@@ -453,41 +537,81 @@ integration("achievement judgments on PostgreSQL", () => {
       sessionId,
       state: "running",
     });
+    const fence = {
+      attemptId,
+      authRevision: 1,
+      executionGeneration: 1,
+      leaseEpoch: 1,
+      sessionId,
+    };
+    const checkpoint = (revision: number) => ({
+      revision,
+      manifest_ref: `sessions/${sessionId}/checkpoints/${revision}/${attemptId}/manifest.json`,
+      manifest_sha256: "a".repeat(64),
+    });
+    const output = (revision: number, digest: string) => ({
+      key: `sessions/${sessionId}/checkpoints/${revision}/${attemptId}/outputs/${digest.repeat(64)}`,
+      bytes: 42,
+    });
     const commit = (
       revision: number,
       outputs: { key: string; bytes: number }[],
     ) =>
       commitCheckpoint(db, {
-        checkpoint: {
-          revision,
-          manifest_ref: `sessions/${sessionId}/checkpoints/${revision}/${attemptId}/manifest.json`,
-          manifest_sha256: "a".repeat(64),
-        },
-        fence: {
-          attemptId,
-          authRevision: 1,
-          executionGeneration: 1,
-          leaseEpoch: 1,
-          sessionId,
-        },
+        checkpoint: checkpoint(revision),
+        fence,
         now: new Date(),
         sessionId,
         turnId: null,
         outputs,
       });
+    const queued = async () => {
+      const rows = await judgmentsOf(sessionId);
+      await db
+        .delete(achievementJudgments)
+        .where(eq(achievementJudgments.sessionId, sessionId));
+      return rows.map((row) => row.status);
+    };
+    const a = output(1, "a");
     expect(await commit(0, [])).toEqual({ outcome: "committed", revision: 0 });
-    expect(await judgmentsOf(sessionId)).toEqual([]);
-    expect(
-      await commit(1, [
-        {
-          key: `sessions/${sessionId}/checkpoints/1/${attemptId}/outputs/${"b".repeat(64)}`,
-          bytes: 42,
-        },
-      ]),
-    ).toEqual({ outcome: "committed", revision: 1 });
-    expect(await judgmentsOf(sessionId)).toMatchObject([
-      { trigger: "evidence", status: "queued" },
-    ]);
+    expect(await queued()).toEqual([]);
+    expect(await commit(1, [a])).toEqual({ outcome: "committed", revision: 1 });
+    expect(await queued()).toEqual(["queued"]);
+    // The same file inherited: no change.
+    expect(await commit(2, [a])).toEqual({ outcome: "committed", revision: 2 });
+    expect(await queued()).toEqual([]);
+    expect(await commit(3, [a, output(3, "b")])).toEqual({
+      outcome: "committed",
+      revision: 3,
+    });
+    expect(await queued()).toEqual(["queued"]);
+    // Removing one is a change too.
+    expect(await commit(4, [a])).toEqual({ outcome: "committed", revision: 4 });
+    expect(await queued()).toEqual(["queued"]);
+
+    await expect(
+      db.transaction(async (tx) => {
+        const fenced = await acquireFence(tx, fence);
+        if (fenced.outcome !== "ok") throw new Error(fenced.outcome);
+        const advanced = await advanceCheckpointPointer(tx, {
+          fence,
+          session: fenced.session,
+          checkpoint: checkpoint(5),
+          turnRowId: null,
+          now: new Date(),
+          versionsHeld: false,
+          outputs: [output(5, "c")],
+        });
+        expect(advanced.outcome).toBe("committed");
+        const inside = await tx
+          .select({ id: achievementJudgments.id })
+          .from(achievementJudgments)
+          .where(eq(achievementJudgments.sessionId, sessionId));
+        expect(inside).toHaveLength(1);
+        throw new Error("rolled back");
+      }),
+    ).rejects.toThrow("rolled back");
+    expect(await queued()).toEqual([]);
   });
 
   test("nothing is queued for a workspace that turned on_evidence off, or for a session without a workspace", async () => {
@@ -582,7 +706,7 @@ integration("achievement judgments on PostgreSQL", () => {
     expect(byKind.out_file).toMatchObject({
       title: "out/report.md",
       evidenceId: "out/report.md",
-      link: `/v1/sessions/${sessionId}/outputs/out%2Freport.md`,
+      link: `/sessions/${sessionId}`,
       payload: { path: "out/report.md", size: 42 },
       reviewState: "needs_review",
     });
@@ -649,6 +773,78 @@ integration("achievement judgments on PostgreSQL", () => {
     expect(findPgError(error, "23505")).toBeDefined();
   });
 
+  test("one out/ path counts once in its session and once in each other session", async () => {
+    const ws = await workspace();
+    await rule(ws, await typeId(ws.workspaceId, "document"));
+    const report = (sessionId: string) =>
+      outputsBySession.set(sessionId, {
+        status: "ready",
+        revision: 1,
+        outputs: [
+          {
+            path: "out/report.md",
+            bytes: 42,
+            sha256: "b".repeat(64),
+            key: `sessions/${sessionId}/outputs/${"b".repeat(64)}`,
+          },
+        ],
+      });
+    const a = await session(ws.workspaceId);
+    const b = await session(ws.workspaceId);
+    report(a);
+    report(b);
+    for (let trigger = 0; trigger < 2; trigger += 1) {
+      for (const sessionId of [a, b]) {
+        await queueAchievementJudgment(db, sessionId);
+        await quietPassed(sessionId);
+      }
+      await replica().runOnce();
+    }
+    for (const sessionId of [a, b]) {
+      expect(
+        (await achievementsOf(sessionId)).map((row) => row.evidenceId),
+      ).toEqual(["out/report.md"]);
+    }
+  });
+
+  test("an unavailable out/ list still counts the pull request, then retries 1 minute later until the retries run out", async () => {
+    const ws = await workspace();
+    await rule(ws, await typeId(ws.workspaceId, "pull_request"));
+    await rule(ws, await typeId(ws.workspaceId, "document"));
+    const sessionId = await session(ws.workspaceId);
+    const pr = await pullRequest(sessionId, ws.workspaceId);
+    outputsBySession.set(sessionId, {
+      status: "unavailable",
+      reason: "store down",
+    });
+    await quietPassed(sessionId);
+
+    const before = Date.now();
+    await replica().runOnce();
+    const [retrying] = await judgmentsOf(sessionId);
+    expect(retrying).toMatchObject({
+      status: "queued",
+      errorCode: "outputs_unavailable",
+      attempts: 1,
+    });
+    expect(retrying?.finishedAt).toBeNull();
+    const wait = (retrying?.nextAttemptAt.getTime() ?? 0) - before;
+    expect(wait).toBeGreaterThan(50_000);
+    expect(wait).toBeLessThan(70_000);
+    expect(
+      (await achievementsOf(sessionId)).map((row) => row.evidenceId),
+    ).toEqual([pr.id]);
+
+    for (let retry = 0; retry < 3; retry += 1) {
+      await quietPassed(sessionId);
+      await replica().runOnce();
+    }
+    expect(await judgmentsOf(sessionId)).toMatchObject([
+      { status: "failed", errorCode: "outputs_unavailable", attempts: 4 },
+    ]);
+    expect(await achievementsOf(sessionId)).toHaveLength(1);
+  });
+
   test("with only luna rules and no judge, the judgment is skipped and nothing is counted", async () => {
     const ws = await workspace();
     await rule(ws, await typeId(ws.workspaceId, "pull_request"), "luna");
@@ -669,9 +865,12 @@ integration("achievement judgments on PostgreSQL", () => {
 
   test("a claimed judgment is not claimed again within its lease; after a takeover the late finish writes nothing", async () => {
     const ws = await workspace();
-    await rule(ws, await typeId(ws.workspaceId, "pull_request"));
+    const counted = await rule(
+      ws,
+      await typeId(ws.workspaceId, "pull_request"),
+    );
     const sessionId = await session(ws.workspaceId);
-    await pullRequest(sessionId, ws.workspaceId);
+    const pr = await pullRequest(sessionId, ws.workspaceId);
     await quietPassed(sessionId);
     const ours = (claimed: ClaimedJudgment[]) =>
       claimed.filter((row) => row.sessionId === sessionId);
@@ -698,10 +897,26 @@ integration("achievement judgments on PostgreSQL", () => {
       status: "succeeded" as const,
       errorCode: null,
       rules: [],
-      evidenceIds: [],
-      achievements: [],
+      evidenceIds: [pr.id],
+      achievements: [
+        {
+          ruleId: counted.id,
+          ruleFamilyId: counted.family_id,
+          typeId: counted.type_id,
+          agentId: null,
+          agentReleaseId: null,
+          title: "late",
+          link: pr.url,
+          evidenceKind: "github_pull_request" as const,
+          evidenceId: pr.id,
+          payload: null,
+          judge: "always" as const,
+          reviewState: "auto" as const,
+        },
+      ],
     };
     expect(await judgments.finish(first, late)).toBe(false);
+    expect(await achievementsOf(sessionId)).toEqual([]);
     expect(await judgmentsOf(sessionId)).toMatchObject([
       { status: "running", attempts: 2 },
     ]);

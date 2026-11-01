@@ -1,15 +1,17 @@
 import {
+  type AchievementJudgmentError,
   type AchievementPayload,
   BUILTIN_ACHIEVEMENT_PAYLOAD_SCHEMAS,
 } from "@werft-ai/contracts";
 import type { SessionOutputSource } from "../output-service.ts";
-import type {
-  AchievementJudgmentStore,
-  ClaimedJudgment,
-  JudgedRule,
-  JudgmentContext,
-  JudgmentResult,
-  NewAchievement,
+import {
+  ACHIEVEMENT_JUDGMENT_RETRY_MS,
+  type AchievementJudgmentStore,
+  type ClaimedJudgment,
+  type JudgedRule,
+  type JudgmentContext,
+  type JudgmentResult,
+  type NewAchievement,
 } from "./achievement-judgment-store.ts";
 
 export const ACHIEVEMENT_JUDGE_INTERVAL_MS = 30_000;
@@ -87,7 +89,8 @@ function evidenceOf(
       kind: "out_file",
       id: file.path,
       title: file.path,
-      link: `/v1/sessions/${sessionId}/outputs/${encodeURIComponent(file.path)}`,
+      // The console addresses the session, not its outputs tab or a file.
+      link: `/sessions/${sessionId}`,
       payload: { path: file.path, size: file.bytes },
     });
   }
@@ -110,7 +113,8 @@ function evidenceOf(
  * leases its judgments, and the achievements and the result are written in
  * one transaction under that lease. An `always` rule counts each of its
  * evidence at no cost. No judge backend exists yet, so a `luna` rule's
- * pairs leave the judgment `skipped` (`judge_unavailable`).
+ * pairs leave the judgment `skipped` (`judge_unavailable`). A try that fails
+ * is tried again 1, 5 and 30 minutes later, then ends `failed`.
  */
 export function createAchievementJudge(deps: {
   store: AchievementJudgmentStore;
@@ -122,6 +126,19 @@ export function createAchievementJudge(deps: {
   const { store, outputs, logger } = deps;
   const claimMax = deps.claimMax ?? ACHIEVEMENT_JUDGMENT_CLAIM_MAX;
   const leaseMs = deps.leaseMs ?? ACHIEVEMENT_JUDGMENT_LEASE_MS;
+
+  /** The next retry of a failed try, or `failed` once the retries are spent. */
+  function again(
+    claimed: ClaimedJudgment,
+    errorCode: AchievementJudgmentError | null,
+  ):
+    | { status: "queued"; retryInMs: number; errorCode: typeof errorCode }
+    | { status: "failed"; errorCode: typeof errorCode } {
+    const retryInMs = ACHIEVEMENT_JUDGMENT_RETRY_MS[claimed.attempts - 1];
+    return retryInMs === undefined
+      ? { status: "failed", errorCode }
+      : { status: "queued", retryInMs, errorCode };
+  }
 
   function payloadOf(
     rule: JudgedRule,
@@ -144,17 +161,11 @@ export function createAchievementJudge(deps: {
   async function judge(claimed: ClaimedJudgment): Promise<JudgmentResult> {
     const context = await store.context(claimed);
     let files: { path: string; bytes: number }[] = [];
+    let outputsUnavailable = false;
     if (context.rules.some((rule) => rule.evidenceKind === "out_file")) {
       const listed = await outputs.readOutputs(claimed.sessionId);
-      if (listed.status === "unavailable") {
-        return {
-          status: "failed",
-          errorCode: "outputs_unavailable",
-          rules: [],
-          evidenceIds: [],
-          achievements: [],
-        };
-      }
+      // The pairs that need no out/ list are counted all the same.
+      if (listed.status === "unavailable") outputsUnavailable = true;
       if (listed.status === "ready") {
         files = listed.outputs.map(({ path, bytes }) => ({ path, bytes }));
       }
@@ -201,12 +212,18 @@ export function createAchievementJudge(deps: {
         });
       }
     }
-    return {
-      status: unjudged ? "skipped" : "succeeded",
-      errorCode: unjudged ? "judge_unavailable" : null,
+    const paired = {
       rules: [...rules],
       evidenceIds: [...evidenceIds],
       achievements,
+    };
+    if (outputsUnavailable) {
+      return { ...again(claimed, "outputs_unavailable"), ...paired };
+    }
+    return {
+      status: unjudged ? "skipped" : "succeeded",
+      errorCode: unjudged ? "judge_unavailable" : null,
+      ...paired,
     };
   }
 
@@ -215,8 +232,24 @@ export function createAchievementJudge(deps: {
     const claimed = await store.claim({ max: claimMax, leaseMs });
     let finished = 0;
     for (const judgment of claimed) {
+      const nothing = { rules: [], evidenceIds: [], achievements: [] };
+      let result: JudgmentResult;
+      if (judgment.attempts > ACHIEVEMENT_JUDGMENT_RETRY_MS.length + 1) {
+        // Replicas kept dying on it, so no try ever finished.
+        result = { status: "failed", errorCode: null, ...nothing };
+      } else {
+        try {
+          result = await judge(judgment);
+        } catch (error) {
+          logger.warn("Achievement judgment failed", {
+            judgment_id: judgment.id,
+            error: error instanceof Error ? error.name : String(error),
+          });
+          result = { ...again(judgment, null), ...nothing };
+        }
+      }
       try {
-        const kept = await store.finish(judgment, await judge(judgment));
+        const kept = await store.finish(judgment, result);
         if (kept) {
           finished += 1;
         } else {
@@ -226,7 +259,7 @@ export function createAchievementJudge(deps: {
         }
       } catch (error) {
         // The lease runs out and another pass claims it again.
-        logger.warn("Achievement judgment failed", {
+        logger.warn("Achievement judgment not recorded", {
           judgment_id: judgment.id,
           error: error instanceof Error ? error.name : String(error),
         });

@@ -71,6 +71,6 @@ ALTER TABLE "session_achievements" ADD CONSTRAINT "session_achievements_session_
 CREATE UNIQUE INDEX "achievement_judgments_queued_uniq" ON "achievement_judgments" USING btree ("session_id") WHERE "achievement_judgments"."status" = 'queued';--> statement-breakpoint
 CREATE INDEX "achievement_judgments_due_idx" ON "achievement_judgments" USING btree ("next_attempt_at") WHERE "achievement_judgments"."status" IN ('queued', 'running');--> statement-breakpoint
 CREATE INDEX "achievement_judgments_session_idx" ON "achievement_judgments" USING btree ("session_id","created_at");--> statement-breakpoint
-CREATE UNIQUE INDEX "session_achievements_evidence_uniq" ON "session_achievements" USING btree ("rule_family_id","evidence_id") WHERE "session_achievements"."evidence_id" IS NOT NULL AND "session_achievements"."superseded_at" IS NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "session_achievements_evidence_uniq" ON "session_achievements" USING btree ("rule_family_id","session_id","evidence_id") WHERE "session_achievements"."evidence_id" IS NOT NULL AND "session_achievements"."superseded_at" IS NULL;--> statement-breakpoint
 CREATE UNIQUE INDEX "session_achievements_conversation_uniq" ON "session_achievements" USING btree ("rule_family_id","session_id") WHERE "session_achievements"."evidence_id" IS NULL AND "session_achievements"."superseded_at" IS NULL;--> statement-breakpoint
 CREATE INDEX "session_achievements_session_idx" ON "session_achievements" USING btree ("session_id");

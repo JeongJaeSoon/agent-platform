@@ -3905,8 +3905,9 @@ export const sessionAchievements = pgTable(
       columns: [table.sessionId, table.ownerId, table.workspaceId],
       foreignColumns: [sessions.id, sessions.ownerId, sessions.workspaceId],
     }),
+    // An out/ path names a file of one session only.
     uniqueIndex("session_achievements_evidence_uniq")
-      .on(table.ruleFamilyId, table.evidenceId)
+      .on(table.ruleFamilyId, table.sessionId, table.evidenceId)
       .where(
         sql`${table.evidenceId} IS NOT NULL AND ${table.supersededAt} IS NULL`,
       ),
