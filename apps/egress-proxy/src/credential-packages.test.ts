@@ -52,9 +52,7 @@ describe("routeOf: packages", () => {
     expect(routeOf("GET", "/packages/go/_token/wek_a", "")).toBeNull();
     expect(routeOf("GET", "/packages/go/_token//x", "")).toBeNull();
     expect(routeOf("GET", "/packages/go/_token/a%2Fb/x", "")).toBeNull();
-    expect(routeOf("GET", "/packages/go/_token/t/_token/u/x", "")?.path).toBe(
-      "/_token/u/x",
-    );
+    expect(routeOf("GET", "/packages/go/_token/t/_token/u/x", "")).toBeNull();
     expect(routeOf("PUT", "/packages/go/_token/t/x", "")).toBeNull();
   });
 });

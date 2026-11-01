@@ -194,6 +194,7 @@ export function routeOf(
       return null;
     }
     const [, pathToken, path = full] = PACKAGES_TOKEN_SEGMENT.exec(full) ?? [];
+    if (pathToken !== undefined && path.startsWith("/_token/")) return null;
     // `//` would make the upstream target a protocol-relative URL.
     return PACKAGES_METHODS.has(method) && !path.includes("//") && !climbs(path)
       ? {
