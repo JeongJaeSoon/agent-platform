@@ -83,7 +83,12 @@ function harness(options: { authorApp?: boolean; secretsOn?: boolean } = {}) {
       review: 1,
     }),
     appPermissions: async () => ({
-      author: { permissions: { contents: "write", actions: "write" } },
+      author: {
+        connection_id: "app-row",
+        name: "werft-agent",
+        app_id: 1,
+        permissions: { contents: "write", actions: "write" },
+      },
       reviewer: null,
     }),
     putCeiling: async (input) => {
@@ -144,7 +149,12 @@ describe("GitHub settings service", () => {
         callback_url: CALLBACK,
       },
       apps: {
-        author: { permissions: { contents: "write", actions: "write" } },
+        author: {
+          connection_id: "app-row",
+          name: "werft-agent",
+          app_id: 1,
+          permissions: { contents: "write", actions: "write" },
+        },
         reviewer: null,
       },
     });

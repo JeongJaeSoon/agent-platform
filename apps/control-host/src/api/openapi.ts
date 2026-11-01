@@ -1634,6 +1634,9 @@ export const API_ROUTE_DECLARATIONS = [
         },
         apps: {
           author: {
+            connection_id: "019a0000-0000-7000-8000-0000000000b1",
+            name: "werft-agent",
+            app_id: 4242,
             permissions: {
               contents: "write",
               pull_requests: "write",
@@ -1693,7 +1696,15 @@ export const API_ROUTE_DECLARATIONS = [
           callback_url:
             "https://console.example.com/settings/linked-accounts/github",
         },
-        apps: { author: { permissions: null }, reviewer: null },
+        apps: {
+          author: {
+            connection_id: "019a0000-0000-7000-8000-0000000000b1",
+            name: "werft-agent",
+            app_id: 4242,
+            permissions: null,
+          },
+          reviewer: null,
+        },
       },
     },
     errors: [400, 401, 403, 404, 409, 413, 503],

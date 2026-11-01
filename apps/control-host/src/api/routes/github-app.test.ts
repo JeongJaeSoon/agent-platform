@@ -342,7 +342,10 @@ describe("the GitHub App API", () => {
 
     const read = await call("GET", { cookie: owner });
     expect(getGitHubAppResponseSchema.parse(read.json)).toMatchObject({
-      github_app: { app_id: APP_ID },
+      github_app: {
+        app_id: APP_ID,
+        owner: { login: "fake-owner", type: "Organization" },
+      },
       check: { state: "ok" },
       installations: [
         { id: 77, account: "acme", repository_selection: "selected" },

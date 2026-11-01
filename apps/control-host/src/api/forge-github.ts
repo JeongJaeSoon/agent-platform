@@ -830,6 +830,7 @@ export function createGitHubAppDirectory(
           name: data.name,
           htmlUrl: data.html_url,
           permissions: permissionsOf(data.permissions),
+          owner: ownerOf(data.owner),
           clientId:
             typeof data.client_id === "string" && data.client_id !== ""
               ? data.client_id
@@ -931,6 +932,15 @@ function permissionsOf(
         entry[1] === "read" || entry[1] === "write" || entry[1] === "admin",
     ),
   );
+}
+
+function ownerOf(
+  raw: unknown,
+): { login: string; type: "Organization" | "User" } | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const { login, type } = raw as { login?: unknown; type?: unknown };
+  if (typeof login !== "string" || login === "") return null;
+  return { login, type: type === "Organization" ? "Organization" : "User" };
 }
 
 /**

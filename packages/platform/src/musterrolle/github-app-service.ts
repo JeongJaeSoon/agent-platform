@@ -230,17 +230,20 @@ export function createGitHubAppService(deps: {
         );
       }
       return {
-        github_app: githubAppOf(
-          profile === null
-            ? record
-            : {
-                ...record,
-                permissions: profile.permissions,
-                permissionsCheckedAt: new Date(),
-                clientId: profile.clientId,
-              },
-          role,
-        ),
+        github_app: {
+          ...githubAppOf(
+            profile === null
+              ? record
+              : {
+                  ...record,
+                  permissions: profile.permissions,
+                  permissionsCheckedAt: new Date(),
+                  clientId: profile.clientId,
+                },
+            role,
+          ),
+          owner: profile?.owner ?? null,
+        },
         ...checked,
       };
     },

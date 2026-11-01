@@ -5005,11 +5005,17 @@ export interface components {
             };
             apps: {
                 author: {
+                    connection_id: string;
+                    name: string;
+                    app_id: number;
                     permissions: {
                         [key: string]: "read" | "write" | "admin";
                     } | null;
                 } | null;
                 reviewer: {
+                    connection_id: string;
+                    name: string;
+                    app_id: number;
                     permissions: {
                         [key: string]: "read" | "write" | "admin";
                     } | null;
@@ -5434,6 +5440,11 @@ export interface components {
                 name: string;
                 /** Format: uri */
                 html_url: string;
+                owner?: {
+                    login: string;
+                    /** @enum {string} */
+                    type: "Organization" | "User";
+                } | null;
                 private_key: {
                     /** Format: date-time */
                     updated_at: string;
@@ -5493,6 +5504,11 @@ export interface components {
                 name: string;
                 /** Format: uri */
                 html_url: string;
+                owner?: {
+                    login: string;
+                    /** @enum {string} */
+                    type: "Organization" | "User";
+                } | null;
                 private_key: {
                     /** Format: date-time */
                     updated_at: string;
@@ -9930,6 +9946,9 @@ export interface operations {
                      *       },
                      *       "apps": {
                      *         "author": {
+                     *           "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                     *           "name": "werft-agent",
+                     *           "app_id": 4242,
                      *           "permissions": {
                      *             "contents": "write",
                      *             "pull_requests": "write",
@@ -10069,6 +10088,9 @@ export interface operations {
                      *       },
                      *       "apps": {
                      *         "author": {
+                     *           "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                     *           "name": "werft-agent",
+                     *           "app_id": 4242,
                      *           "permissions": null
                      *         },
                      *         "reviewer": null

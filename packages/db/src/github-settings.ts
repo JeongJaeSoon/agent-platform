@@ -255,7 +255,13 @@ export function createPostgresGitHubSettingsStore(
 
     async appPermissions(workspaceId) {
       const rows = await db
-        .select({ role: githubApps.role, permissions: githubApps.permissions })
+        .select({
+          id: githubApps.id,
+          role: githubApps.role,
+          name: githubApps.name,
+          appId: githubApps.appId,
+          permissions: githubApps.permissions,
+        })
         .from(githubApps)
         .where(eq(githubApps.workspaceId, workspaceId));
       const of = (role: "author" | "reviewer") => {
@@ -263,6 +269,9 @@ export function createPostgresGitHubSettingsStore(
         return found === undefined
           ? null
           : {
+              connection_id: found.id,
+              name: found.name,
+              app_id: found.appId,
               permissions:
                 (found.permissions as Record<
                   string,

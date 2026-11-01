@@ -571,6 +571,7 @@ describe("createGitHubAppDirectory", () => {
       name: "Fake fake-app",
       htmlUrl: `${github.origin}/apps/fake-app`,
       clientId: "Iv23lifake-app",
+      owner: { login: "fake-owner", type: "Organization" },
       permissions: {
         contents: "write",
         metadata: "read",

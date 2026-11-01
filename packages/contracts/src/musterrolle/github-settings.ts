@@ -228,6 +228,19 @@ export const githubOAuthSchema = z.object({
   callback_url: z.url().nullable(),
 });
 
+/**
+ * What every member may read of a registered App: no key, installation or
+ * repository detail, which `GET …/github-apps/{role}` gives managers.
+ */
+const githubSettingsAppSchema = z.object({
+  /** The App's row id. */
+  connection_id: z.string().min(1),
+  name: z.string().min(1),
+  app_id: z.number().int().positive(),
+  /** As last read from GitHub; null before a read. */
+  permissions: githubAppPermissionsSchema.nullable(),
+});
+
 export const githubSettingsResponseSchema = z.object({
   ceiling: githubCeilingSchema,
   /** 0 until the ceiling is first saved. */
@@ -244,14 +257,10 @@ export const githubSettingsResponseSchema = z.object({
     review: z.number().int().nonnegative(),
   }),
   oauth: githubOAuthSchema,
-  /** The App's permissions as last read from GitHub; null before a read. */
+  /** Each role's App as stored; null when none is registered. */
   apps: z.object({
-    author: z
-      .object({ permissions: githubAppPermissionsSchema.nullable() })
-      .nullable(),
-    reviewer: z
-      .object({ permissions: githubAppPermissionsSchema.nullable() })
-      .nullable(),
+    author: githubSettingsAppSchema.nullable(),
+    reviewer: githubSettingsAppSchema.nullable(),
   }),
 });
 

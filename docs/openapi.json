@@ -8583,6 +8583,19 @@
                   {
                     "type": "object",
                     "properties": {
+                      "connection_id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "app_id": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
                       "permissions": {
                         "anyOf": [
                           {
@@ -8606,6 +8619,9 @@
                       }
                     },
                     "required": [
+                      "connection_id",
+                      "name",
+                      "app_id",
                       "permissions"
                     ],
                     "additionalProperties": false
@@ -8620,6 +8636,19 @@
                   {
                     "type": "object",
                     "properties": {
+                      "connection_id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "app_id": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
                       "permissions": {
                         "anyOf": [
                           {
@@ -8643,6 +8672,9 @@
                       }
                     },
                     "required": [
+                      "connection_id",
+                      "name",
+                      "app_id",
                       "permissions"
                     ],
                     "additionalProperties": false
@@ -11154,6 +11186,34 @@
                     "type": "string",
                     "format": "uri"
                   },
+                  "owner": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "login": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "Organization",
+                              "User"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "login",
+                          "type"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "private_key": {
                     "type": "object",
                     "properties": {
@@ -11479,6 +11539,34 @@
               "html_url": {
                 "type": "string",
                 "format": "uri"
+              },
+              "owner": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "login": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "Organization",
+                          "User"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "login",
+                      "type"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "private_key": {
                 "type": "object",
@@ -25899,6 +25987,9 @@
                   },
                   "apps": {
                     "author": {
+                      "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                      "name": "werft-agent",
+                      "app_id": 4242,
                       "permissions": {
                         "contents": "write",
                         "pull_requests": "write",
@@ -26152,6 +26243,9 @@
                   },
                   "apps": {
                     "author": {
+                      "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                      "name": "werft-agent",
+                      "app_id": 4242,
                       "permissions": null
                     },
                     "reviewer": null

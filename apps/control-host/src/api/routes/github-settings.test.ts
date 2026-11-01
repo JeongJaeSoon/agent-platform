@@ -84,7 +84,12 @@ function memoryStore() {
     },
     async appPermissions() {
       return {
-        author: { permissions: { contents: "write", actions: "write" } },
+        author: {
+          connection_id: "app-row",
+          name: "werft-agent",
+          app_id: 1,
+          permissions: { contents: "write", actions: "write" },
+        },
         reviewer: null,
       };
     },
@@ -198,7 +203,12 @@ describe("the GitHub settings API", () => {
       },
       oauth: { client_id: null, client_secret_set: false, callback_url: null },
       apps: {
-        author: { permissions: { contents: "write", actions: "write" } },
+        author: {
+          connection_id: "app-row",
+          name: "werft-agent",
+          app_id: 1,
+          permissions: { contents: "write", actions: "write" },
+        },
         reviewer: null,
       },
     });

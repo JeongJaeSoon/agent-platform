@@ -19,6 +19,12 @@ export type GitHubAppProfile = {
   clientId: string | null;
 };
 
+/** The account that owns the App on GitHub; its settings page hangs off it. */
+export type GitHubAppOwner = {
+  login: string;
+  type: "Organization" | "User";
+};
+
 /** The workspace's GitHub App as stored, without its private key. */
 export type GitHubAppRecord = Omit<GitHubAppProfile, "permissions"> & {
   /** Null on a row an earlier image wrote, until the next read. */
@@ -113,7 +119,7 @@ export type GitHubAppInstallationView = {
 export interface GitHubAppDirectory {
   describe(
     app: Pick<GitHubAppCredential, "appId" | "apiBase" | "privateKey">,
-  ): Promise<GitHubAppProfile>;
+  ): Promise<GitHubAppProfile & { owner?: GitHubAppOwner | null }>;
   installations(
     app: Pick<GitHubAppCredential, "appId" | "apiBase" | "privateKey">,
   ): Promise<GitHubAppInstallationView[]>;

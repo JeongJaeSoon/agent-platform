@@ -80,13 +80,18 @@ export interface GitHubSettingsStore {
   agentsUsing(
     workspaceId: string,
   ): Promise<Record<keyof GitHubFeatures, number>>;
-  /** The permissions each App's row last read, or null when none is registered. */
+  /** Each role's App row with the permissions it last read, or null when none is registered. */
   appPermissions(
     workspaceId: string,
   ): Promise<
     Record<
       GitHubAppRole,
-      { permissions: Record<string, "read" | "write" | "admin"> | null } | null
+      {
+        connection_id: string;
+        name: string;
+        app_id: number;
+        permissions: Record<string, "read" | "write" | "admin"> | null;
+      } | null
     >
   >;
   /** CAS on `revision`; writes `set_github_ceiling` with it. */

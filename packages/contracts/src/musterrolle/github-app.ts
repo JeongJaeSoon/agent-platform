@@ -121,6 +121,20 @@ export const githubAppSchema = z
     name: z.string().min(1),
     /** The App's page on GitHub; its `/installations/new` installs it. */
     html_url: z.string().url(),
+    /**
+     * The account that owns the App, as GitHub gave it on this read: an
+     * organization's App is set under `/organizations/{login}/settings/apps`,
+     * a user's under `/settings/apps`. Null when GitHub was not asked or did
+     * not answer; absent from a write's answer.
+     */
+    owner: z
+      .object({
+        login: z.string().min(1),
+        type: z.enum(["Organization", "User"]),
+      })
+      .strict()
+      .nullable()
+      .optional(),
     private_key: z
       .object({
         updated_at: timestampSchema,

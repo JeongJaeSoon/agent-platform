@@ -840,6 +840,7 @@ export async function startFakeGitHub(
         name: `Fake ${app.slug}`,
         html_url: `${origin()}/apps/${app.slug}`,
         client_id: `Iv23li${app.slug}`,
+        owner: { login: "fake-owner", type: "Organization" },
         permissions: app.permissions,
       });
     }

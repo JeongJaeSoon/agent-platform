@@ -14,6 +14,7 @@ import { createAgentGitHubService } from "./agent-github-service.ts";
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const AGENT = "019a0000-0000-7000-8000-0000000000c1";
 const PROFILE = "claude-coding-v1";
+const APP_ROW = { connection_id: "app-row", name: "werft-agent", app_id: 1 };
 
 const app = (extra: object = {}) => ({
   kind: "github_app" as const,
@@ -142,11 +143,17 @@ function serviceWith(input: {
           author:
             input.author === null
               ? null
-              : { permissions: input.author ?? { contents: "write" } },
+              : {
+                  ...APP_ROW,
+                  permissions: input.author ?? { contents: "write" },
+                },
           reviewer:
             input.reviewer === "none"
               ? null
-              : { permissions: input.reviewer ?? { pull_requests: "write" } },
+              : {
+                  ...APP_ROW,
+                  permissions: input.reviewer ?? { pull_requests: "write" },
+                },
         };
       },
     },

@@ -141,8 +141,20 @@ function appWith(
             },
             async appPermissions() {
               return {
-                author: { permissions: { contents: "write" } },
-                reviewer: options.reviewer ?? null,
+                author: {
+                  connection_id: "app-row",
+                  name: "werft-agent",
+                  app_id: 1,
+                  permissions: { contents: "write" },
+                },
+                reviewer: options.reviewer
+                  ? {
+                      connection_id: "reviewer-row",
+                      name: "werft-reviewer",
+                      app_id: 2,
+                      ...options.reviewer,
+                    }
+                  : null,
               };
             },
           },
