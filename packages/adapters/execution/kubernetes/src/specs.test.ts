@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { ENV as SHARED_ENV } from "@werft-ai/contracts/execution";
 import {
   ENV as DOCKER_ENV,
   workerEnvironmentFor as dockerEnvironmentFor,
@@ -201,7 +202,8 @@ describe("worker Pod", () => {
   });
 
   test("tells the worker exactly what the Docker backend tells it, under the same names", () => {
-    expect(ENV).toEqual(DOCKER_ENV);
+    expect(ENV).toBe(SHARED_ENV);
+    expect(DOCKER_ENV).toBe(SHARED_ENV);
     const docker = dockerEnvironmentFor(
       {
         apiVersion: "v1.44",
