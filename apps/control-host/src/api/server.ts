@@ -9,6 +9,7 @@ import {
   createPostgresAgentIdentityStore,
   createPostgresAgentStore,
   createPostgresAuditRetention,
+  createPostgresCatalogRepositoryStore,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresGitHubAppStore,
@@ -65,6 +66,7 @@ import {
   createGitHubAppService,
   createGitHubGate,
   createGitHubMcpServer,
+  createGitHubRepositoryService,
   createGitHubSettingsService,
   createGitHubWorkService,
   createInstallationProfileService,
@@ -113,6 +115,7 @@ import {
   SessionServiceError,
   unrunnableProfiles,
   WORKSPACE_PROFILE_REFRESH_MS,
+  withConsoleRepositories,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
@@ -165,7 +168,11 @@ import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
-import { SeedProfilesError, seedCatalogProfiles } from "./profile-import.ts";
+import {
+  SeedProfilesError,
+  seedCatalogProfiles,
+  seedCatalogRepositories,
+} from "./profile-import.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { createReadinessProbe } from "./readiness.ts";
 import { registerAgentGitHubRoutes } from "./routes/agent-github.ts";
@@ -177,6 +184,7 @@ import { registerCloseRoutes } from "./routes/close.ts";
 import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerGitHubAppRoutes } from "./routes/github-app.ts";
+import { registerGitHubRepositoryRoutes } from "./routes/github-repositories.ts";
 import { registerGitHubSettingsRoutes } from "./routes/github-settings.ts";
 import {
   registerGitHubWorkRoutes,
@@ -301,9 +309,11 @@ const pool = createApiPool(databaseUrl, logger);
 const db = drizzle(pool, { schema });
 const workspaceProfileStore = createPostgresWorkspaceProfileStore(db);
 const installationProfileStore = createPostgresInstallationProfileStore(db);
+const catalogRepositoryStore = createPostgresCatalogRepositoryStore(db);
 const workspaceProfileVersions = createProfileRegistry({
   workspaces: workspaceProfileStore,
   installations: installationProfileStore,
+  repositories: catalogRepositoryStore,
   sources: profileSources.sources,
 });
 const runtimeVersions = runtimeVersionsFromEnv(process.env);
@@ -315,6 +325,7 @@ const catalog = profileCatalog(
       : { runtime_versions: runtimeVersions }),
   },
   workspaceProfileVersions,
+  (rows) => withConsoleRepositories(profileSources.catalog.repositories, rows),
 );
 const logCatalog = (message: string): void => {
   logger.info(message, {
@@ -348,6 +359,13 @@ const importProfiles = (): void => {
     { dir: catalogSource.dir, config: profileSources.config },
     logger,
   )
+    .then(() =>
+      seedCatalogRepositories(
+        catalogRepositoryStore,
+        profileSources.catalog.repositories,
+        logger,
+      ),
+    )
     .then(() => workspaceProfileVersions.refresh())
     .then(
       () => {
@@ -721,10 +739,19 @@ const refreshRegisteredGitHub = (): Promise<void> =>
   });
 void refreshRegisteredGitHub();
 setInterval(refreshRegisteredGitHub, WORKSPACE_PROFILE_REFRESH_MS).unref();
+const githubAppDirectory = createGitHubAppDirectory({ logger });
+const githubRepositories = createGitHubRepositoryService({
+  authorization,
+  store: catalogRepositoryStore,
+  apps: githubAppStore,
+  directory: githubAppDirectory,
+  fileRepositories: profileSources.catalog.repositories,
+  changed: () => workspaceProfileVersions.refresh(),
+});
 const githubApps = createGitHubAppService({
   authorization,
   store: githubAppStore,
-  directory: createGitHubAppDirectory({ logger }),
+  directory: githubAppDirectory,
   apiBase: GITHUB_API_BASE,
   repositories: () =>
     Object.entries(catalog.repositories)
@@ -999,6 +1026,7 @@ const app = createApiApp({
     });
     registerSlackSecretRoutes(router, slackSecrets);
     registerGitHubAppRoutes(router, githubApps);
+    registerGitHubRepositoryRoutes(router, githubRepositories);
     registerGitHubSettingsRoutes(router, githubSettings);
     registerAgentGitHubRoutes(router, agentGitHub);
     registerSessionRoutes(router, sessions);
