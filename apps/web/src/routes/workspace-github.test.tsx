@@ -712,6 +712,11 @@ describe("워크스페이스 GitHub 연결 — 사용자 계정 연결", () => {
     });
     expect(within(dialog).getByText("werft test")).toBeDefined();
     await user.click(within(dialog).getByRole("button", { name: "교체" }));
+    // Then how the new App comes in: made from a manifest, or one that exists.
+    const danger = within(screen.getByRole("region", { name: "위험 구역" }));
+    const made = await danger.findByRole("button", { name: "새 App 만들기" });
+    await waitFor(() => expect(document.activeElement === made).toBe(true));
+    await user.click(danger.getByRole("button", { name: "이미 있는 App 추가" }));
     const input = await screen.findByLabelText("App ID");
     await waitFor(() => expect(document.activeElement === input).toBe(true));
     expect(

@@ -63,6 +63,7 @@ import {
   githubSettingsKey,
   useGitHubSettings,
 } from "./workspace-github-access.tsx";
+import { NewAppForm } from "./workspace-github-new-app.tsx";
 import { RepositoryCatalog } from "./workspace-github-repositories.tsx";
 import {
   GITHUB_USER_LINK_ANCHOR,
@@ -396,7 +397,10 @@ function GitHubApp({
   const role = useRole();
   const workspaceId = useMe()?.workspace?.id ?? "";
   const canManage = useHasPermission("workspace.manage");
-  const [editing, setEditing] = useState(false);
+  // "choose": a confirmed replace, before picking how the new App comes in.
+  const [mode, setMode] = useState<"new" | "existing" | "choose" | null>(null);
+  const editing = mode === "existing";
+  const setEditing = (on: boolean) => setMode(on ? "existing" : null);
   const [deleting, setDeleting] = useState(false);
   const [replacing, setReplacing] = useState(false);
   const [missing, setMissing] = useState<"appId" | "key" | null>(null);
@@ -411,12 +415,19 @@ function GitHubApp({
   const submitting = useRef(false);
   // The form replaces the button that opened it; focus follows each swap so
   // a keyboard user keeps their place.
+  const chooseRef = useRef<HTMLButtonElement>(null);
+  const open = mode !== null;
   useEffect(() => {
     if (editing) appIdRef.current?.focus();
-    else if (wasEditing.current && document.activeElement === document.body)
+    else if (mode === "choose") chooseRef.current?.focus();
+    else if (
+      !open &&
+      wasEditing.current &&
+      document.activeElement === document.body
+    )
       actionRef.current?.focus();
-    wasEditing.current = editing;
-  }, [editing]);
+    wasEditing.current = open;
+  }, [editing, open, mode]);
 
   const app = useGitHubAppQuery(appRole);
   // Either App can be deleted alone, so the zone stays while the reviewer's
@@ -597,7 +608,7 @@ function GitHubApp({
         badge={<AppBadge data={data} />}
         description={appLine(data, t, locale, appRole)}
         actions={
-          editing && !registered ? undefined : (
+          mode !== null && !registered ? undefined : (
             <>
               {installUrl ? (
                 <Link
@@ -613,7 +624,28 @@ function GitHubApp({
                 </Link>
               ) : null}
               {/* Replacing a registered App is in the danger zone. */}
-              {registered ? null : (
+              {registered ? null : author ? (
+                <>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className={ACTION}
+                    onClick={() => setEditing(true)}
+                  >
+                    {t("github.addExisting")}
+                  </Button>
+                  <Button
+                    ref={actionRef}
+                    type="button"
+                    size="sm"
+                    className={ACTION}
+                    onClick={() => setMode("new")}
+                  >
+                    {t("github.newApp")}
+                  </Button>
+                </>
+              ) : (
                 <Button
                   ref={actionRef}
                   type="button"
@@ -621,7 +653,7 @@ function GitHubApp({
                   className={ACTION}
                   onClick={() => setEditing(true)}
                 >
-                  {t(author ? "github.addExisting" : "github.register")}
+                  {t("github.register")}
                 </Button>
               )}
             </>
@@ -629,6 +661,7 @@ function GitHubApp({
         }
       />
       {editing && !registered ? appForm() : null}
+      {mode === "new" && !registered ? newAppForm() : null}
       {author && registered && data ? (
         <RowListItem className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
           <AppPermissionTable
@@ -640,6 +673,18 @@ function GitHubApp({
       ) : null}
     </>
   );
+
+  function newAppForm() {
+    return (
+      <NewAppForm
+        workspaceId={workspaceId}
+        replace={registered !== null}
+        blocked={Boolean(data?.manifest_blocked)}
+        onCancel={() => setMode(null)}
+        onOutcome={onOutcome}
+      />
+    );
+  }
 
   // Under the card's row for a first App, under the danger zone's row when it
   // replaces one. Hoisted: appRows above renders it.
@@ -769,7 +814,48 @@ function GitHubApp({
   const dangerRows =
     canManage && registered ? (
       <>
-        {editing ? (
+        {mode === "choose" ? (
+          <SettingRow
+            title={replaceRow}
+            description={t("github.replaceChoose")}
+            actions={
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setMode(null)}
+                >
+                  {t("common.cancel")}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setEditing(true)}
+                >
+                  {t("github.addExisting")}
+                </Button>
+                <Button
+                  ref={chooseRef}
+                  type="button"
+                  size="sm"
+                  onClick={() => setMode("new")}
+                >
+                  {t("github.newApp")}
+                </Button>
+              </>
+            }
+          />
+        ) : mode === "new" ? (
+          <>
+            <SettingRow
+              title={replaceRow}
+              description={t("github.replaceRowHint")}
+            />
+            {newAppForm()}
+          </>
+        ) : editing ? (
           <>
             <SettingRow
               title={replaceRow}
@@ -809,7 +895,8 @@ function GitHubApp({
           tone="danger"
           onConfirm={() => {
             setReplacing(false);
-            setEditing(true);
+            // Only the author App can come from a manifest.
+            setMode(author ? "choose" : "existing");
           }}
         />
         {confirm}

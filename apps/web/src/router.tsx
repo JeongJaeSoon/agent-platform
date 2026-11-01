@@ -73,6 +73,10 @@ import {
 } from "./routes/sessions.tsx";
 import { TeamDetailScreen, TeamsScreen } from "./routes/teams.tsx";
 import { WorkspaceGitHubScreen } from "./routes/workspace-github.tsx";
+import {
+  GitHubNewAppCallback,
+  gitHubNewAppSearch,
+} from "./routes/workspace-github-new-app.tsx";
 import { WorkspaceSettingsScreen } from "./routes/workspace-settings.tsx";
 import { WorkspaceSlackScreen } from "./routes/workspace-slack.tsx";
 import { SLACK_APPS_ANCHOR } from "./routes/workspace-slack-apps.tsx";
@@ -343,6 +347,14 @@ const workspaceGitHub = createRoute({
   component: WorkspaceGitHubScreen,
 });
 
+// GitHub sends the browser back here once a manifest's App is created.
+const workspaceGitHubNewApp = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/workspace/github/new-app",
+  validateSearch: gitHubNewAppSearch,
+  component: GitHubNewAppCallback,
+});
+
 const orgKeys = createRoute({
   getParentRoute: () => authed,
   path: "/settings/workspace/api-keys",
@@ -464,6 +476,7 @@ const routeTree = root.addChildren([
     workspaceSlack,
     oldWorkspaceSlackApps,
     workspaceGitHub,
+    workspaceGitHubNewApp,
     orgKeys,
     oldUsage,
     profiles,
