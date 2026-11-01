@@ -11,7 +11,7 @@ export function agentState(agent: AgentSummary): AgentState {
   return agent.active_release_id === null ? "draft" : agent.status;
 }
 
-export const STATE_VARIANT = {
+const STATE_VARIANT = {
   draft: "blue",
   active: "green",
   paused: "amber",

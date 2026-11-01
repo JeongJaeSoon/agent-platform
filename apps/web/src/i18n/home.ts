@@ -26,7 +26,7 @@ export const homeKo = {
   "home.overview.oldest": "가장 오래된 요청",
   "home.overview.sessionsNote": "내가 볼 수 있는 세션",
   "home.overview.agents": "에이전트",
-  "home.overview.agentsNote": "켜짐 {active} · 초안 {draft}",
+  "home.overview.agentsNote": "릴리스 {active} · 초안 {draft}",
   "home.overview.agentsWithheld": "전체 목록은 소유자와 관리자만 봅니다",
   "home.recent.title": "최근 세션",
   "home.glance.installation": "설치 전체 · 설치 운영자만 볼 수 있음",
@@ -135,7 +135,7 @@ export const homeEn: Record<keyof typeof homeKo, string> = {
   "home.overview.oldest": "Oldest request",
   "home.overview.sessionsNote": "Sessions you can see",
   "home.overview.agents": "Agents",
-  "home.overview.agentsNote": "{active} on · {draft} drafts",
+  "home.overview.agentsNote": "{active} released · {draft} drafts",
   "home.overview.agentsWithheld": "Only owners and admins see the full list",
   "home.recent.title": "Recent sessions",
   "home.glance.installation":
@@ -249,7 +249,7 @@ export const homeJa: Record<keyof typeof homeKo, string> = {
   "home.overview.oldest": "最も古いリクエスト",
   "home.overview.sessionsNote": "閲覧できるセッション",
   "home.overview.agents": "エージェント",
-  "home.overview.agentsNote": "有効 {active} · 下書き {draft}",
+  "home.overview.agentsNote": "リリース済み {active} · 下書き {draft}",
   "home.overview.agentsWithheld": "全件はオーナーと管理者のみ表示できます",
   "home.recent.title": "最近のセッション",
   "home.glance.installation":
