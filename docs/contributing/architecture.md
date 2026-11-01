@@ -4,9 +4,14 @@
 
 ## 한눈에
 
-이 저장소에서 동작하는 코드의 중심은 Werft의 Kiel 모듈(세션 런타임)이다. 모듈 구성과 개발 순서, 지금 무엇이 구현됐는지는 [README](../../README.md)의 모듈 구성 문단이 정본이고, 여기서는 코드가 어디 있는지를 적는다. 아래 control host·worker·egress proxy가 Kiel의 구성요소이고, 공개 `/v1` API도 Kiel이 서빙한다. Musterrolle 코드는 `packages/contracts`·`packages/platform`의 `musterrolle` 디렉터리에 일부 모였고, 나머지는 control host(인증 route `/v1/auth/*`, API 키), `packages/db`(사용자·워크스페이스·인증·권한 테이블과 그 쿼리), `packages/platform/src/ports/identity-store.ts`에 있다. Kiel의 계약과 port도 이 계약과 policy 타입을 import한다. `packages/platform/src/musterrolle`의 policy는 지금 모두 허용하는 기본값이고, 요청마다의 scope 검사(역할에서 나온 scope 포함)는 control host에 있다. 흩어진 코드는 Musterrolle 모듈로 옮겨 갈 대상이다. Kollegium의 선행 계약은 `packages/contracts/src/kollegium`(에이전트 정의·채널 연결·chat envelope)에 있고, 쓰는 앱이 없다. 에이전트 release의 `policy_pins.tools`는 도구별 권한 정책(`allow`·`ask`·`deny`, 기본값은 내장 도구 allow·MCP 도구 ask)을 release를 만들 때 고정한 값이다. 호출마다 평가하는 쪽은 지금도 worker의 `canUseTool` → `pending_requests` 경로이고, 이 값을 아직 읽지 않는다. 소속 모듈을 정하지 않은 코드는 웹 콘솔 화면 부품 `packages/ui`(쓰는 앱 없음)와 `packages/contracts/src/domain`(기억·digest. digest의 비용 형식은 `/v1` 사용량 응답이 쓴다)이다.
+Werft의 모듈과 각 모듈의 책임은 [README](../../README.md)의 모듈 구성 문단에 있고, 여기서는 모듈마다 코드가 어디 있는지를 적는다. 아래 control host·worker·egress proxy가 Kiel(세션 런타임)의 구성요소이고, 공개 `/v1` API는 control host의 api role이 서빙한다.
 
-- **control host**(`apps/control-host`)가 Kiel의 제어 영역이고, 먼저 들어온 Musterrolle 인증 코드도 여기서 돈다. 실행물 하나가 api·scheduler·reconciler 세 role을 인자로 받는다. api는 공개 `/v1` API(Musterrolle의 `/v1/auth/*` 포함)와 worker용 `/internal` Worker Gateway를, scheduler는 세션마다 worker 컨테이너(Docker)나 Pod(Kubernetes)를, reconciler는 lease가 만료된 세션의 회수를 맡는다.
+- **Musterrolle**: `packages/contracts/src/musterrolle`, `packages/platform/src/musterrolle`, control host의 인증 route(`/v1/auth/*`)와 API 키·멤버·팀 route, `packages/db`(사용자·워크스페이스·인증·권한 테이블과 그 쿼리), `packages/platform/src/ports/identity-store.ts`. Kiel의 계약과 port도 이 계약과 policy 타입을 import한다. 권한 판정은 `packages/platform/src/musterrolle/policy.ts`의 `createAuthorizationPolicy`가 맡는다. 요청 주체를 다시 읽은 뒤 action의 scope, 관리 action이면 역할, 세션이면 공유 범위와 에이전트 관리자 여부로 판정한다.
+- **Kollegium**: `packages/contracts/src/kollegium`(에이전트 정의·채널 연결 surface·chat envelope), `packages/platform/src/agents`, control host의 에이전트 route와 `slack` role(`apps/control-host/src/slack`). 에이전트 release의 `policy_pins.tools`는 도구별 권한 정책(`allow`·`ask`·`deny`, 기본값은 내장 도구 allow·MCP 도구 ask)을 release를 만들 때 고정한 값이다. remote MCP server 경로는 이 값에서 `allow`인 MCP 도구만 세션에 주고, egress proxy가 중계하는 교환마다 그 목록으로 검사한다(`packages/db/src/mcp-egress.ts`가 읽고 `packages/platform/src/workers/mcp-egress.ts`가 판정한다). worker의 `canUseTool` → `pending_requests` 경로는 이 값을 읽지 않는다.
+- **웹 콘솔**: `apps/web`이 `packages/client`·`packages/core`·`packages/react`·`packages/ui`를 조립한 SPA이고, control host의 api role이 빌드 결과(`WEB_DIST_DIR`)를 서빙한다.
+- 소속 모듈을 정하지 않은 코드는 `packages/contracts/src/domain`(기억·digest. digest의 비용 형식은 `/v1` 사용량 응답이 쓴다)이다.
+
+- **control host**(`apps/control-host`)가 Kiel의 제어 영역이고, Musterrolle 인증 코드와 Kollegium의 Slack 채널도 여기서 돈다. 실행물 하나가 api·metrics·scheduler·reconciler·slack 다섯 role 가운데 하나를 인자로 받는다. api는 공개 `/v1` API(Musterrolle의 `/v1/auth/*` 포함)와 worker용 `/internal` Worker Gateway, 웹 콘솔을, metrics는 scrape 때 DB에서 계산하는 `GET /metrics`를, scheduler는 세션마다 worker 컨테이너(Docker)나 Pod(Kubernetes)를, reconciler는 lease가 만료된 세션의 회수를, slack은 Slack에서 받은 이벤트 처리와 Slack으로 보내는 outbox를 맡는다.
 - **worker**(`apps/worker`)는 세션 하나당 컨테이너(Kubernetes에서는 Pod) 하나다. Gateway에서 세션을 claim하고 그 안에서 Claude Agent SDK와 번들된 Claude Code를 돌린다. DB driver와 Docker socket이 없고, object store는 `packages/storage`를 거쳐서만 부른다.
 - **egress proxy**(`apps/egress-proxy`)가 worker 네트워크에서 바깥으로 나가는 유일한 길이다. provider key와 저장소·object store 자격 증명은 worker에 가지 않는다([api-server.md § provider 키와 저장소 자격 증명](../operator/api-server.md#provider-키와-저장소-자격-증명은-worker에-가지-않는다)).
 - 상태는 PostgreSQL(세션·turn·lease·checkpoint pointer, Musterrolle의 사용자·워크스페이스·인증·권한 데이터)과 S3 호환 object store(transcript·workspace bundle·checkpoint manifest)에 있다. 저장소 원본은 Gitea(로컬)나 카탈로그에 등록한 git 서버(GitHub·GHES 포함)다.
@@ -17,7 +22,7 @@
 
 | 경로 | 무엇이 있는가 |
 |---|---|
-| `apps` | 배포 단위 셋(control-host·worker·egress-proxy). 앱마다 `Dockerfile`이 있고 이미지 하나가 된다. 앱끼리는 import하지 않는다 |
+| `apps` | 이미지가 되는 앱 셋(control-host·worker·egress-proxy, 앱마다 `Dockerfile` 하나)과 빌드 결과만 내는 앱 셋: 웹 콘솔 `web`(control-host 이미지에 들어간다), 개발자 문서 사이트 `docs`(GitHub Pages로 export), `packages/ui`의 `storybook`. 앱끼리는 import하지 않는다 |
 | `packages` | 앱이 조립하는 workspace 라이브러리. 아래 표에 패키지마다 한 줄씩 있다 |
 | `tests` | 패키지 하나로 닫히지 않는 테스트: 여러 앱·패키지를 엮는 흐름, 저장소·CI·`scripts`를 검사하는 테스트, 스택 전체 harness(`tests/e2e`, `tests/d2-gate`), `scripts/soak` 판정 함수의 단위 테스트(`tests/soak`) |
 | `scripts` | 운영자와 개발자가 직접 실행하는 도구: 백업·복원(`backup.sh`·`restore.sh`·`verify-restore.sh`), 로컬 스택(`local.sh`), test-ops(`test-ops.sh`), Kubernetes 설치의 운영자 CLI(`k8s-api.sh`), gate와 soak 실행기(`scripts/d2-gate`·`scripts/soak`), 공용 구현(`scripts/lib`), 개발용 fixture(`scripts/dev`), `THIRD_PARTY_NOTICES.md` 생성기(`third-party-notices.ts`), 수동 재현기(`scripts/bun-http-stall`), Agent SDK·LiteLLM 호환 harness([`scripts/agent-sdk-compat`](../../scripts/agent-sdk-compat/README.md)). 호환 harness는 workspace 밖의 독립 설치 단위로 자기 lockfile에 SDK를 고정하고, 실제 LiteLLM proxy를 거친 SDK 왕복은 여기서만 확인한다. CI `agent-sdk-compat` job이 main push와 수동 실행에서만 돌리고 run을 막지 않는다([ci.md](ci.md)) |
@@ -29,27 +34,36 @@
 
 ### 패키지와 앱
 
-| 경로 | 구현된 기반 |
+| 경로 | 맡는 일 |
 |---|---|
-| `packages/contracts` | 재사용 가능한 Zod payload 계약을 `api`(공개 REST·SSE)·`worker-protocol`(Gateway DTO)·`musterrolle`(auth·authorization·workspace)·`kollegium`(agent 정의, 채널 연결 surface, chat 표면 envelope 선행 계약)·`domain`(소속 미정인 기억·digest 계약)·`shared`(ID·error·canonical JSON·숫자 설정 parser)로 분리한다. HTTP method·path·인증·scope 같은 transport 메타데이터는 실행 어댑터인 `apps/control-host`가 소유한다 |
+| `packages/contracts` | 재사용 가능한 Zod payload 계약을 `api`(공개 REST·SSE)·`worker-protocol`(Gateway DTO)·`musterrolle`(auth·authorization·workspace)·`kollegium`(agent 정의, 채널 연결 surface, chat 표면 envelope)·`domain`(소속 미정인 기억·digest 계약)·`shared`(ID·error·canonical JSON·숫자 설정 parser)로 분리한다. HTTP method·path·인증·scope 같은 transport 메타데이터는 실행 어댑터인 `apps/control-host`가 소유한다 |
 | `packages/db` | Drizzle 스키마·migration·세션 claim 및 상태 쿼리 |
 | `packages/storage` | content-addressed checkpoint object store, 요청·body 읽기에 상한을 건 S3 client, worker가 egress proxy의 object route로 쓰는 client, scope 밖 key를 막는 object store, 자원 상한을 건 git 실행기, git workspace bundle 검증 |
-| `packages/observability` | 구조화 로거(`createLogger`, `LOG_LEVEL`)와 로그 redaction 규칙. 메트릭과 트레이싱은 없다. 세션 데이터가 `events` 표로 흐르는 길, 비밀값 마스킹, 예제 OTLP 수집기는 [observability.md](../operator/observability.md)에 있다 |
+| `packages/observability` | 구조화 로거(`createLogger`, `LOG_LEVEL`)와 로그 redaction 규칙. 메트릭은 이 패키지가 아니라 control host의 metrics role(`apps/control-host/src/metrics`)이 낸다. 세션 데이터가 `events` 표로 흐르는 길, 비밀값 마스킹, 예제 OTLP 수집기는 [observability.md](../operator/observability.md)에 있다 |
 | `packages/system` | 업무 의미가 없는 Bun·OS 도구: 캐시 없이 매번 묻는 DNS 조회(`lookupEveryTime`), 자원 상한을 건 git 실행(`gitCommand`)·process group 종료. db·storage·worker가 쓰고, 이 패키지는 아무것에도 의존하지 않는다 |
 | `packages/platform` | 저장소·실행 backend를 port로만 아는 도메인 층. `SessionService`(접수·조회·권한), `WorkerGateway`(epoch/lease fencing), `runScheduler`(슬롯·launch intent·orphan 회수), `CheckpointService`(manifest·pointer CAS·복원 계획), catalog. 권한 policy는 `src/musterrolle`에 있다 |
-| `apps/control-host` | 세션 런타임의 제어 영역 배포 단위. 실행물 하나(`src/main.ts <api\|scheduler\|reconciler>`)가 role을 인자로 받고 기본값은 없다. `src/api`는 `@hono/zod-openapi` route 선언에서 `/v1` handler와 OpenAPI를 함께 등록하고, `/internal` Worker Gateway·API 키·키 발급 CLI도 제공한다. `bun run --cwd apps/control-host openapi:generate`가 `docs/openapi.json`과 로컬 Scalar HTML을 함께 만들며 API는 인증 전 `GET /v1/openapi.json`과 읽기 전용 `GET /docs`를 제공한다. `/docs/scalar.js`는 외부 CDN 없이 같은 origin에서 서빙하고 두 문서 UI 경로는 OpenAPI operation에 넣지 않는다. `src/scheduler`는 launch intent를 커밋하고 `EXECUTION_BACKEND`가 고른 backend(기본 `local_docker`의 worker 컨테이너, `kubernetes`의 worker Pod)로 worker를 보장하는 pass, `src/reconciler`는 만료된 lease를 회수하는 pass다. Docker 전용 preflight(egress proxy 격리, workspace quota)는 `src/scheduler/backend.ts`가 Docker backend를 고를 때만 돈다. 두 backend 모두 scheduler role만 로드한다 |
+| `apps/control-host` | 세션 런타임의 제어 영역 배포 단위. 실행물 하나(`src/main.ts <api\|metrics\|scheduler\|reconciler\|slack>`)가 role을 인자로 받고 기본값은 없다. scheduler·reconciler·slack은 pass를 반복하는 loop(`src/pass-loop`)로 돈다. `src/metrics`는 Prometheus 형식 `GET /metrics`, `src/slack`은 Slack inbox·outbox pass다. `src/api`는 `@hono/zod-openapi` route 선언에서 `/v1` handler와 OpenAPI를 함께 등록하고, `/internal` Worker Gateway·API 키·키 발급 CLI도 제공한다. `bun run --cwd apps/control-host openapi:generate`가 `docs/openapi.json`과 로컬 Scalar HTML을 함께 만들며 API는 인증 전 `GET /v1/openapi.json`과 읽기 전용 `GET /docs`를 제공한다. `/docs/scalar.js`는 외부 CDN 없이 같은 origin에서 서빙하고 두 문서 UI 경로는 OpenAPI operation에 넣지 않는다. `src/scheduler`는 launch intent를 커밋하고 `EXECUTION_BACKEND`가 고른 backend(기본 `local_docker`의 worker 컨테이너, `kubernetes`의 worker Pod)로 worker를 보장하는 pass, `src/reconciler`는 만료된 lease를 회수하는 pass다. Docker 전용 preflight(egress proxy 격리, workspace quota)는 `src/scheduler/backend.ts`가 Docker backend를 고를 때만 돈다. 두 backend 모두 scheduler role만 로드한다 |
 | `packages/runtime-core` | 엔진 중립 실행 계약(`AgentRuntime.start(config, hooks)`, `AgentRun`, `RuntimeCapabilities`, checkpoint 준비 결과). `mode: "new" | "resume"`를 config가 들고 다니며 별도 open 진입점이 없다. worker와 control plane이 함께 지키는 checkpoint 상한(manifest 크기·object 수, bundle 크기·사슬 길이)도 여기 한 곳에서 export한다. worker가 쓰는 port(`WorkerGatewayClient`, workspace 준비 계획)도 여기 있다 |
 | `packages/adapters/runtimes/claude` | Claude Agent SDK 0.3.270 adapter(`ClaudeSdkRuntime`·`ClaudeSdkRun`), 승인 profile·최소 환경, native envelope·SSE projection, 제어 가능한 fake |
 | `packages/adapters/runtimes/claude-codec` | Claude checkpoint manifest codec(`claudeCheckpointCodec`)·transcript digest·pin된 SDK/CLI 버전 상수. SDK 의존이 없어 api 이미지와 운영 스크립트(`scripts/lib`)가 읽는다. `runtime-claude`는 worker와 테스트가 쓰는 codec·버전 상수만 이름으로 재수출한다 |
-| `apps/worker` | worker 컨테이너의 진입점(`src/main.ts`). scheduler가 넘긴 bootstrap identity로 세션 하나를 claim하고 WorkerHost 루프(Gateway claim → Claude adapter 실행 → 이벤트 발행 → pending 등록 → checkpoint publish·restore)를 돈다. SDK·DB driver·cloud SDK를 직접 의존하지 않는다(`tests/architecture.test.ts`가 검사) |
+| `apps/worker` | worker 컨테이너의 진입점(`src/main.ts`). scheduler가 넘긴 bootstrap identity로 세션 하나를 claim하고 WorkerHost 루프(Gateway claim → runtime 실행 → 이벤트 발행 → pending 등록 → checkpoint publish·restore)를 돈다. 이미지에 설치된 runtime은 `src/composition.ts`만 `runtime-registry`에서 고르고, 나머지는 `runtime-core` 계약으로만 runtime을 부른다. SDK·DB driver·cloud SDK를 직접 의존하지 않는다(`tests/architecture.test.ts`가 검사) |
+| `packages/adapters/runtimes/registry` | 이 이미지에 설치된 runtime 모듈 목록(`installedRuntimes`). worker의 composition root만 import한다 |
+| `packages/adapters/runtimes/codecs` | 설치된 runtime의 checkpoint·이벤트 codec과 descriptor. engine SDK에 닿지 않아 control host가 이것만 import한다 |
 | `packages/adapters/execution/local-docker` | `ExecutionBackend` port의 Docker Engine API 구현. 컨테이너 이름·label로 launch intent와 1:1, non-root·read-only rootfs·세션 전용 volume·자원 상한·전용 internal 네트워크 |
 | `packages/adapters/execution/kubernetes` | `ExecutionBackend` port의 Kubernetes core/v1 API 구현. launch intent 하나에 worker Pod 하나, Pod가 소유한 nonce Secret, 세션별 workspace PVC. ServiceAccount token을 mount하지 않는 non-root·read-only rootfs Pod이고, 삭제는 Pod UID precondition을 건다. worker의 바깥 연결을 egress proxy로 좁히는 NetworkPolicy와 Role은 Helm chart가 만든다. scheduler가 `EXECUTION_BACKEND=kubernetes`일 때 고른다 |
 | `apps/egress-proxy` | worker 네트워크에서 유일하게 바깥으로 나가는 forward proxy. CONNECT·absolute-form HTTP만 받고 목적지 allowlist를 DNS 해석 결과의 IP 대역까지 검사한다. runtime 의존이 없어(`dependencies` 없음, 테스트용 devDependency `testkit`뿐) `apps/egress-proxy/Dockerfile`이 install 없이 자기 `src`만 복사한 이미지로 기동한다 |
 | `packages/testkit` | 테스트 fixture: fake Messages API(`fake-anthropic`·`scripted-messages`), PostgreSQL·LocalStack opt-in 헬퍼(`postgres`·`localstack`), 격리 workspace(`workspace`), 메모리 checkpoint object store(`checkpoint-objects`), git bundle·HTTP 저장소 헬퍼(`git-bundle`·`git-http`), 최소 TLS ClientHello 생성기(`tls-client-hello`). 각 패키지가 devDependency로만 참조한다. `fake-messages-main.ts`는 로컬 compose의 `fake-messages` 서비스가 실행하는 진입점이다 |
-| `packages/ui` | 웹 콘솔 화면이 공유하는 표현 계층. 서버가 준 상태를 그리기만 한다([packages/ui/README.md](../../packages/ui/README.md)) |
-| `infra/compose.core.yml` | 모든 설치가 같이 쓰는 제품 서비스: Postgres·Gitea, one-shot migration, egress proxy(worker 네트워크는 scheduler가 execution마다 만든다). `apps` profile은 control-host 이미지 하나로 api·scheduler(루프)·reconciler(루프) role을 띄우고(Docker socket은 scheduler에만) worker 이미지를 smoke한다. 보안 설정은 이 파일에만 있다 |
+| `packages/ui` | 웹 콘솔 화면이 공유하는 표현 계층. 서버가 준 상태를 그리기만 하고 fetch하지 않는다. `apps/web`·`packages/react`·`apps/storybook`·`apps/docs`가 쓴다([packages/ui/README.md](../../packages/ui/README.md)) |
+| `packages/client` | 공개 HTTP API의 typed client(`openapi-fetch`), `ApiError`, 세션 이벤트 스트림. UI 프레임워크에 의존하지 않는다 |
+| `packages/core` | `packages/client` 위의 프레임워크 없는 상태 로직: `@tanstack/query-core` query key·option, contracts로 응답을 검사하는 `schemas` entry, 요청 schema로 만든 form 단계 |
+| `packages/react` | `packages/core`의 React adapter: client·locale·문구·링크를 주입하는 provider, query option을 감싼 hook, contracts 타입을 `packages/ui`로 그리는 컴포넌트 |
+| `packages/sdk` | 서버·스크립트용 TypeScript SDK(`@werft-ai/sdk`, 클래스 `Werft`). `packages/client` 위에서 API key로 세션·turn·이벤트·승인·push를 다룬다([packages/sdk/README.md](../../packages/sdk/README.md)) |
+| `apps/web` | 웹 콘솔 SPA. control host api role이 `WEB_DIST_DIR`에서 서빙하고, 의존성은 빌드 때만 쓴다 |
+| `apps/docs` | 개발자 문서 사이트(Fumadocs on Next.js). 정적 파일로 export해 GitHub Pages 루트에 올린다 |
+| `apps/storybook` | `packages/ui`의 컴포넌트와 화면 상태를 라이트·다크, 390px까지 보여 주는 Storybook |
+| `infra/compose.core.yml` | 모든 설치가 같이 쓰는 제품 서비스: Postgres·Gitea, one-shot migration, egress proxy(worker 네트워크는 scheduler가 execution마다 만든다). `apps` profile은 control-host 이미지 하나로 api·scheduler(루프)·reconciler(루프)·slack(루프) role을 띄우고(Docker socket은 scheduler에만. metrics role은 Helm chart만 띄운다) worker 이미지를 smoke한다. 보안 설정은 이 파일에만 있다 |
 | `infra/compose.yml` (+ 루트 `compose.yaml`) | 로컬 스택: core 위에 `infra/compose.local.yml`(named volume에 영속화하는 SeaweedFS S3, 샘플 저장소 생성, 앱 이미지 빌드, `fake-model` profile 뒤의 fake Messages API와 API 전용 Secrets Manager `secrets`)을 합친다. 기본은 실제 Messages API이고, `infra/compose.fake-model.yml`을 얹으면 fake Messages API·`secrets`와 `config/fake-model`로 돈다. 루트 `compose.yaml`이 이 파일을 include하므로 루트에서 `docker compose`를 그대로 쓴다. test-ops는 core 위에 `infra/compose.test-ops.yml`과 object store layer(기본 LocalStack, 또는 AWS S3)를 얹고 `scripts/test-ops.sh`로 운영한다([test-ops.md](../operator/test-ops.md)) |
-| `apps/*/Dockerfile` | control-host(api·scheduler·reconciler role)·worker·egress-proxy 이미지. base는 `oven/bun:1.3.14` digest pin, `bun install --frozen-lockfile --production` multi-stage(egress-proxy는 install 없는 한 단계). `.github/workflows/images.yml`이 빌드·smoke·digest artifact, tag push만 ghcr push |
+| `apps/*/Dockerfile` | control-host(모든 role과 웹 콘솔 빌드 결과)·worker·egress-proxy 이미지. base는 `oven/bun:1.3.14` digest pin, `bun install --frozen-lockfile --production` multi-stage(egress-proxy는 install 없는 한 단계). `.github/workflows/images.yml`이 빌드·smoke·digest artifact, tag push만 ghcr push |
 
 ## 경계
 
@@ -58,12 +72,14 @@
 - `@anthropic-ai/claude-agent-sdk`는 Claude adapter의 `runtime`·`run` 모듈만 import한다. 그 dependency를 선언하는 패키지도 adapter 하나다.
 - `packages/runtime-core`는 `packages/contracts`에만 의존한다. `packages/platform`은 contracts·runtime-core·zod에만 의존하고, driver·ORM·SDK를 import하지 않는다.
 - Claude adapter는 platform·db·storage에 닿지 않는다. Docker·Kubernetes backend는 platform·contracts에만 의존하고 db·pg·provider SDK(Docker SDK·Kubernetes client)에 닿지 않는다.
-- 앱끼리는 import하지 않는다. control host는 실행물 하나에 role 셋이고, Docker·Kubernetes backend에 닿는 것은 scheduler role뿐이다. worker 컨테이너에는 Docker socket도 host bind mount도 없고, worker Pod에는 hostPath·hostNetwork·hostPID·hostIPC가 없다.
-- worker는 runtime-core·Claude adapter·contracts·storage·system·observability만 import하고, storage는 worker의 object store 모듈 하나만 import한다.
+- 앱끼리는 import하지 않는다. control host는 실행물 하나이고 role마다 앱을 따로 두지 않는다. Docker·Kubernetes backend에 닿는 것은 scheduler role뿐이다. worker 컨테이너에는 Docker socket도 host bind mount도 없고, worker Pod에는 hostPath·hostNetwork·hostPID·hostIPC가 없다.
+- worker는 runtime-core·runtime-registry·contracts·storage·system·observability만 import한다. runtime-registry는 composition root(`src/composition.ts`) 하나만, storage는 object store 모듈 하나만 import하고, Claude driver의 타입은 쓰지 않는다.
+- engine 패키지 이름은 runtime adapter 밖에 나오지 않고(G1), runtime kind 값은 허용한 곳에서만 적으며(G2), engine 이벤트 모양은 adapter 밖에서 읽지 않는다(G3). control host는 codec과 descriptor를 `runtime-codecs`에서만 가져오고, `runtime-codecs`는 engine SDK에 닿지 않는다.
 - DNS 조회와 git 실행 도구는 `packages/system`에 있고 runtime-core에는 없다. checkpoint 상한은 worker와 platform이 따로 선언하지 않고 runtime-core에서 가져온다.
 - Claude adapter의 진입점은 export할 심볼을 이름으로 적는다(`export *` 없음). `scripts/lib`는 codec을 `runtime-claude-codec`에서 가져온다.
 - `/v1` route는 DB-backed 오류와 row를 platform port(`InvalidCursorError`, `IdentityStore`)로만 알고, db 구현을 직접 import하지 않는다.
-- `packages/testkit`은 devDependency로만 쓰고 runtime 코드가 import하지 않는다. 패키지 밖으로 나가는 상대 경로 import는 없다.
+- `packages/testkit`은 devDependency로만 쓰고 runtime 코드가 import하지 않는다. 패키지의 testing helper(`testing` entry)도 runtime 코드가 import하지 않는다. 패키지 밖으로 나가는 상대 경로 import는 없다.
+- 웹 콘솔: `apps/web`은 workspace에서 `packages/client`·`packages/core`·`packages/react`·`packages/ui`만 import하고 contracts는 타입으로만 import한다. `dependencies`가 비어 있어(devDependency만) 어느 이미지도 그 의존성을 설치하지 않는다. code split은 `lazyRouteComponent`로 하고 `React.lazy`는 쓰지 않는다. `packages/ui`·`packages/react`의 컴포넌트를 두고 자기 UI를 그리는 곳은 `tests/web-ui-allowlist.ts`에 적은 것뿐이다. 목록에 없는 새 위반도, 코드보다 큰 목록도 테스트가 실패시킨다. `packages/ui`는 fetch·WebSocket·EventSource를 부르지 않는다.
 
 ## 권한과 비활성
 
@@ -81,7 +97,7 @@ checkpoint 객체의 version 고정과 복원 뒤 재고정은 [backup-restore.m
 
 ## SDK와 LiteLLM 방향
 
-`@anthropic-ai/claude-agent-sdk`는 `packages/adapters/runtimes/claude/src/{runtime,run}.ts` 안에서만 직접 호출한다. provider는 Anthropic 직접 연결 또는 승인된 LiteLLM Anthropic Messages endpoint를 거쳐 **Claude 모델**로 연결하는 profile로 분리하며, endpoint와 model alias를 allowlist로 검증한다. LiteLLM은 M0 필수 서비스가 아니며 non-Claude 모델 호환은 지원 범위가 아니다. profile의 endpoint·model 설정은 [api-server.md § 운영자 카탈로그](../operator/api-server.md#운영자-카탈로그-agent-profile--repository)에 있다.
+`@anthropic-ai/claude-agent-sdk`는 `packages/adapters/runtimes/claude/src/{runtime,run}.ts` 안에서만 직접 호출한다. provider는 Anthropic 직접 연결 또는 승인된 LiteLLM Anthropic Messages endpoint를 거쳐 **Claude 모델**로 연결하는 profile로 분리하며, endpoint와 model alias를 allowlist로 검증한다. LiteLLM은 필수 서비스가 아니며 non-Claude 모델 호환은 지원 범위가 아니다. profile의 endpoint·model 설정은 [api-server.md § 운영자 카탈로그](../operator/api-server.md#운영자-카탈로그-agent-profile--repository)에 있다.
 
 검증은 adapter fake, 실제 SDK + local fake Messages API, 실제 LiteLLM proxy + local fake upstream, 별도 승인된 paid Claude smoke를 구분한다. 현재 제품 adapter의 direct-local suite는 SDK 0.3.270과 번들 Claude Code 2.1.270을 확인한다. 호환 harness(`scripts/agent-sdk-compat`)의 transport suite는 LiteLLM 1.100.1의 header·cache·error·timeout·cancel 전달을 별도로 확인한다. 제품 경로(빌드한 이미지의 worker·scheduler·API)는 `tests/e2e`가 확인한다. 각 명령은 [development.md](development.md)에 있다.
 
@@ -91,4 +107,4 @@ checkpoint 객체의 version 고정과 복원 뒤 재고정은 [backup-restore.m
 
 - SDK 버전: 채택 버전을 고정하는 방식, 운영 제약, 호환 harness가 지키는 계약은 [결정 기록](decisions/agent-sdk.md)에 있다.
 - 저장 backend 선택: SessionStore를 채택한 이유와 그 계약을 지키는 제품 테스트는 [결정 기록](decisions/session-store.md)에 있다.
-- 인터페이스·협업 트랙(웹 콘솔·Dispatch·Slack·기억·루틴): Kiel 실행 경로는 바꾸지 않고 그 위에 올린다.
+- 웹 콘솔과 Slack 채널은 Kiel 실행 경로를 바꾸지 않고, 같은 `/v1`·세션 서비스 위에서 세션을 다룬다.

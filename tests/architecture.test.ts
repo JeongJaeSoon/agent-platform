@@ -304,7 +304,7 @@ export async function forbiddenImports(
   return offenders.sort();
 }
 
-// What stays behind the platform ports (module-design.md): the business
+// What stays behind the platform ports (docs/contributing/architecture.md, 경계): the business
 // logic never sees a driver, an ORM, a cloud SDK or an agent SDK.
 const platformForbidden = [
   "@werft-ai/db",
@@ -1102,7 +1102,7 @@ describe("architecture", () => {
     expect(offenders).toEqual([]);
   });
 
-  test("the control host is one app with one executable and three roles", async () => {
+  test("the control host is one app with one executable, its roles no apps of their own", async () => {
     const host = join(root, "apps", "control-host", "src");
     const missing: string[] = [];
     for (const name of [
