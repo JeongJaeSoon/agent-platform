@@ -172,7 +172,12 @@ describe("the packages route", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ name: "left-pad" });
     expect(auth.asked).toEqual([
-      { token: PACKAGES_TOKEN, purpose: "packages", registry: "npm" },
+      {
+        token: PACKAGES_TOKEN,
+        purpose: "packages",
+        registry: "npm",
+        path: "/left-pad",
+      },
     ]);
     expect(new URL(registry.seen[0]?.url ?? "").pathname).toBe("/left-pad");
     expect(registry.seen[0]?.headers.authorization).toBeUndefined();
@@ -215,7 +220,13 @@ describe("the packages route", () => {
     expect(read.status).toBe(404);
     const body = await read.text();
     expect(auth.asked).toEqual([
-      { token: PACKAGES_TOKEN, purpose: "packages", registry: "go" },
+      {
+        token: PACKAGES_TOKEN,
+        purpose: "packages",
+        registry: "go",
+        // The token segment is cut before the authorizer sees the path.
+        path: "/golang.org/x/text/@v/v0.14.0.mod",
+      },
     ]);
     expect(new URL(registry.seen[0]?.url ?? "").pathname).toBe(
       "/golang.org/x/text/@v/v0.14.0.mod",
@@ -382,5 +393,32 @@ describe("the packages route", () => {
     );
     expect(response.status).toBe(502);
     expect(cdn.seen).toHaveLength(5);
+  });
+
+  test("a GitHub registry is asked with its path and query, and gets the granted credential alone", async () => {
+    const bot = "fake-bot-credential-for-tests";
+    const registry = upstream(
+      () => new Response(`index for ${bot}`, { status: 200 }),
+    );
+    const auth = authorizer(`http://registry.test:${registry.port}`, [
+      ["authorization", `Bearer ${bot}`],
+    ]);
+    const { server } = proxy(auth.url, registry.port);
+    const response = await fetch(
+      `http://127.0.0.1:${server.port}/packages/github-rubygems/acme/api/v1/dependencies?gems=acme-auth`,
+      { headers: { authorization: `Bearer ${PACKAGES_TOKEN}` } },
+    );
+    expect(auth.asked).toEqual([
+      {
+        token: PACKAGES_TOKEN,
+        purpose: "packages",
+        registry: "github-rubygems",
+        path: "/acme/api/v1/dependencies?gems=acme-auth",
+      },
+    ]);
+    expect(registry.seen[0]?.headers.authorization).toBe(`Bearer ${bot}`);
+    // A body that echoes the bot token is cut before it reaches the session.
+    const body = await response.text().catch(() => "");
+    expect(body).not.toContain(bot);
   });
 });

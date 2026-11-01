@@ -15,6 +15,7 @@ import {
   createPostgresGitHubGateStore,
   createPostgresGitHubMcpStore,
   createPostgresGitHubOAuthStore,
+  createPostgresGitHubPackagesStore,
   createPostgresGitHubSettingsStore,
   createPostgresInstallationProfileStore,
   createPostgresInviteStore,
@@ -65,6 +66,8 @@ import {
   createGitHubAppService,
   createGitHubGate,
   createGitHubMcpServer,
+  createGitHubPackagesService,
+  createGitHubPackagesTokenVerifier,
   createGitHubSettingsService,
   createGitHubWorkService,
   createInstallationProfileService,
@@ -161,6 +164,7 @@ import {
 } from "./forge-github.ts";
 import { createGitPusher } from "./git-push.ts";
 import { githubCallbackUrl } from "./github-link.ts";
+import { githubPackagesConfigFromEnv } from "./github-packages-config.ts";
 import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
@@ -177,6 +181,7 @@ import { registerCloseRoutes } from "./routes/close.ts";
 import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerGitHubAppRoutes } from "./routes/github-app.ts";
+import { registerGitHubPackagesRoutes } from "./routes/github-packages.ts";
 import { registerGitHubSettingsRoutes } from "./routes/github-settings.ts";
 import {
   registerGitHubWorkRoutes,
@@ -762,6 +767,16 @@ const githubSettings = createGitHubSettingsService({
   callbackUrl: githubCallback,
   secretsOn: secretKey !== null,
 });
+const githubPackagesConfig = githubPackagesConfigFromEnv(process.env);
+const githubPackagesStore = createPostgresGitHubPackagesStore(db, secretKey);
+const githubPackages = createGitHubPackagesService({
+  authorization,
+  store: githubPackagesStore,
+  verifier: createGitHubPackagesTokenVerifier({
+    apiBase: githubPackagesConfig.apiBase,
+  }),
+  secretsOn: secretKey !== null,
+});
 const sessionAttribution = createPostgresSessionAttributionStore(db);
 const agentGitHub = createAgentGitHubService({
   authorization,
@@ -878,6 +893,10 @@ const workers = createWorkerGateway({
   ...(githubMcpGrantKey === null
     ? {}
     : { githubMcp: { store: githubMcpStore, grantKey: githubMcpGrantKey } }),
+  githubPackages: {
+    store: githubPackagesStore,
+    upstreams: githubPackagesConfig.upstreams,
+  },
   ...(titleEgressUrl === null
     ? {}
     : {
@@ -1000,6 +1019,7 @@ const app = createApiApp({
     registerSlackSecretRoutes(router, slackSecrets);
     registerGitHubAppRoutes(router, githubApps);
     registerGitHubSettingsRoutes(router, githubSettings);
+    registerGitHubPackagesRoutes(router, githubPackages);
     registerAgentGitHubRoutes(router, agentGitHub);
     registerSessionRoutes(router, sessions);
     registerSessionOutputRoutes(router, sessionOutputs);

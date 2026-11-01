@@ -1382,7 +1382,7 @@ export function startCredentialProxy(
               ),
             }
           : route.purpose === "packages"
-            ? { registry: route.registry }
+            ? { registry: route.registry, path: `${route.path}${route.search}` }
             : {};
       // Decided before anything is awaited: Bun takes the body off the
       // socket meanwhile, and only a request answered now is never held.
@@ -1460,7 +1460,9 @@ export function startCredentialProxy(
           const again = await authorize(
             token,
             route.purpose,
-            route.purpose === "mcp" ? { ...question, regrant: true } : question,
+            route.purpose === "mcp" || route.purpose === "packages"
+              ? { ...question, regrant: true }
+              : question,
           );
           if (ended) return;
           if (again.kind === "granted") grantedAt = performance.now();
