@@ -1,11 +1,13 @@
 import {
-  deleteGitHubRepositoryResponseSchema,
+  agentIdParamsSchema,
+  githubRepositoryPageQuerySchema,
   githubRepositoryParamsSchema,
   githubRepositoryWriteResponseSchema,
+  listAgentGitHubRepositoriesResponseSchema,
   listGitHubRepositoriesResponseSchema,
-  listGitHubRepositoryCandidatesResponseSchema,
   patchGitHubRepositoryRequestSchema,
-  postGitHubRepositoryRequestSchema,
+  pickAgentGitHubRepositoryRequestSchema,
+  pickAgentGitHubRepositoryResponseSchema,
   workspaceParamsSchema,
 } from "@werft-ai/contracts";
 import type { GitHubRepositoryService } from "@werft-ai/platform";
@@ -15,7 +17,7 @@ import {
   jsonWithSchema,
   parseJsonBody,
 } from "../app.ts";
-import { mapped, requireParams } from "./errors.ts";
+import { mapped, requireParams, requireQuery } from "./errors.ts";
 
 export function registerGitHubRepositoryRoutes(
   router: ApiRouter,
@@ -23,40 +25,14 @@ export function registerGitHubRepositoryRoutes(
 ) {
   apiRoute(router, "listGitHubRepositories", async (context) => {
     const { id } = requireParams(context, workspaceParamsSchema);
+    const query = requireQuery(context, githubRepositoryPageQuerySchema);
     const listed = await mapped(() =>
-      service.list(context.get("caller"), id.toLowerCase()),
+      service.list(context.get("caller"), id.toLowerCase(), query),
     );
     return jsonWithSchema(
       context,
       listGitHubRepositoriesResponseSchema,
       listed,
-    );
-  });
-
-  apiRoute(router, "listGitHubRepositoryCandidates", async (context) => {
-    const { id } = requireParams(context, workspaceParamsSchema);
-    const listed = await mapped(() =>
-      service.candidates(context.get("caller"), id.toLowerCase()),
-    );
-    return jsonWithSchema(
-      context,
-      listGitHubRepositoryCandidatesResponseSchema,
-      listed,
-    );
-  });
-
-  apiRoute(router, "addGitHubRepository", async (context) => {
-    const { id } = requireParams(context, workspaceParamsSchema);
-    const added = await mapped(() =>
-      service.add(context.get("caller"), id.toLowerCase(), () =>
-        parseJsonBody(context, postGitHubRepositoryRequestSchema),
-      ),
-    );
-    return jsonWithSchema(
-      context,
-      githubRepositoryWriteResponseSchema,
-      added,
-      201,
     );
   });
 
@@ -76,18 +52,30 @@ export function registerGitHubRepositoryRoutes(
     return jsonWithSchema(context, githubRepositoryWriteResponseSchema, set);
   });
 
-  apiRoute(router, "deleteGitHubRepository", async (context) => {
-    const { id, repositoryId } = requireParams(
-      context,
-      githubRepositoryParamsSchema,
-    );
-    const removed = await mapped(() =>
-      service.remove(context.get("caller"), id.toLowerCase(), repositoryId),
+  apiRoute(router, "listAgentGitHubRepositories", async (context) => {
+    const { id } = requireParams(context, agentIdParamsSchema);
+    const query = requireQuery(context, githubRepositoryPageQuerySchema);
+    const listed = await mapped(() =>
+      service.agentPage(context.get("caller"), id, query),
     );
     return jsonWithSchema(
       context,
-      deleteGitHubRepositoryResponseSchema,
-      removed,
+      listAgentGitHubRepositoriesResponseSchema,
+      listed,
+    );
+  });
+
+  apiRoute(router, "pickAgentGitHubRepository", async (context) => {
+    const { id } = requireParams(context, agentIdParamsSchema);
+    const picked = await mapped(() =>
+      service.pick(context.get("caller"), id, () =>
+        parseJsonBody(context, pickAgentGitHubRepositoryRequestSchema),
+      ),
+    );
+    return jsonWithSchema(
+      context,
+      pickAgentGitHubRepositoryResponseSchema,
+      picked,
     );
   });
 }

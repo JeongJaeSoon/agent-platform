@@ -1,4 +1,7 @@
-import type { PermissionMode } from "@werft-ai/contracts";
+import type {
+  GitHubAppRepositories,
+  PermissionMode,
+} from "@werft-ai/contracts";
 import type { TeamActor } from "./team-store.ts";
 
 /**
@@ -22,6 +25,7 @@ export type InstallationProfileRecord = {
    * `profiles` arrays of repositories.yaml.
    */
   repository_ids: string[] | null;
+  github_app_repositories: GitHubAppRepositories;
   previous_id: string | null;
   created_by: string | null;
   created_at: Date;
@@ -60,6 +64,8 @@ export type CreateInstallationProfileInput = {
   permission_mode: PermissionMode;
   fingerprint: string;
   repository_ids: string[];
+  /** Null: `previousId`'s value, or `listed` without one. */
+  github_app_repositories: GitHubAppRepositories | null;
   /** Named in the receipt. */
   connectionId: string;
 };

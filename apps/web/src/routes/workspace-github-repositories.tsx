@@ -5,24 +5,17 @@ import {
   isApiError,
   unwrap,
 } from "@werft-ai/client";
-import type {
-  CatalogGitHubRepository,
-  GitHubRepositoryCandidate,
-} from "@werft-ai/contracts";
+import type { CatalogGitHubRepository } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   Badge,
   Button,
-  ConfirmDialog,
-  EmptyState,
   Field,
   FieldDescription,
   FieldError,
   FieldLabel,
   Input,
-  RowList,
   RowListItem,
-  SearchInput,
   SettingRow,
   Skeleton,
 } from "@werft-ai/ui";
@@ -39,22 +32,17 @@ import { scopedKey } from "../api/queries.ts";
 import { refusalText, useMe, useRole } from "../auth/guard.tsx";
 import { IconTile } from "../components/icon-tile.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { SEARCH_MAX } from "../components/search-term.ts";
 import { useI18n } from "../i18n/i18n.tsx";
+import {
+  INSTALLED_PER_PAGE,
+  InstalledRepositoryPage,
+} from "./installed-repositories.tsx";
 import { type OnOutcome, SettingsCard } from "./workspace-settings.tsx";
 
 const ACTION = "min-w-12";
 
 export const repositoriesKey = (client: ApiClient, workspaceId: string) =>
   scopedKey(client, "workspace", workspaceId, "github-repositories");
-const candidatesKey = (client: ApiClient, workspaceId: string) =>
-  scopedKey(
-    client,
-    "workspace",
-    workspaceId,
-    "github-repositories",
-    "candidates",
-  );
 
 const reasonOf = (error: ApiError): unknown =>
   (error.details as { reason_code?: unknown } | null)?.reason_code;
@@ -63,9 +51,10 @@ const accountOf = (repository: CatalogGitHubRepository) =>
   repository.full_name?.split("/")[0] ?? repository.id;
 
 /**
- * The catalog's GitHub repositories, by account: added from the author App's
- * installations, a branch changed or removed here; the operator file's
- * entries are listed read-only.
+ * The catalog's GitHub repositories, by account: rows agents' picks
+ * resolved (their branch changed here) and the operator file's entries,
+ * read-only; beside them, a page at a time, what the author App's
+ * installations reach.
  */
 export function RepositoryCatalog({
   id,
@@ -83,17 +72,34 @@ export function RepositoryCatalog({
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const workspaceId = useMe()?.workspace?.id ?? "";
-  const [picking, setPicking] = useState(false);
-  const pickerId = useId();
+  const [browsing, setBrowsing] = useState(false);
+  const [installation, setInstallation] = useState<number | undefined>();
+  const [page, setPage] = useState(1);
+  const browseId = useId();
+  const titleId = useId();
   const list = useQuery({
-    queryKey: repositoriesKey(client, workspaceId),
+    queryKey: [
+      ...repositoriesKey(client, workspaceId),
+      installation ?? null,
+      page,
+    ],
     queryFn: () =>
       unwrap(
         client.GET("/v1/workspaces/{id}/github-repositories", {
-          params: { path: { id: workspaceId } },
+          params: {
+            path: { id: workspaceId },
+            query: {
+              ...(installation === undefined
+                ? {}
+                : { installation_id: installation }),
+              page,
+              per_page: INSTALLED_PER_PAGE,
+            },
+          },
         }),
       ),
     enabled: workspaceId !== "",
+    placeholderData: (previous) => previous,
   });
   const queryClient = useQueryClient();
   const refresh = () =>
@@ -101,13 +107,10 @@ export function RepositoryCatalog({
       queryClient.invalidateQueries({
         queryKey: repositoriesKey(client, workspaceId),
       }),
-      queryClient.invalidateQueries({
-        queryKey: candidatesKey(client, workspaceId),
-      }),
       onChanged(),
     ]);
 
-  const repositories = list.data?.repositories ?? [];
+  const repositories = list.data?.catalog ?? [];
   const groups = new Map<string, CatalogGitHubRepository[]>();
   for (const repository of repositories) {
     const account = accountOf(repository);
@@ -157,15 +160,42 @@ export function RepositoryCatalog({
         <Button
           type="button"
           size="sm"
-          aria-expanded={picking}
-          aria-controls={picking ? pickerId : undefined}
-          onClick={() => setPicking(!picking)}
+          variant="outline"
+          aria-expanded={browsing}
+          aria-controls={browsing ? browseId : undefined}
+          onClick={() => setBrowsing(!browsing)}
         >
-          {t("github.repo.add")}
+          {t("github.repo.browse")}
         </Button>
       </div>
-      {picking ? (
-        <Picker id={pickerId} refresh={refresh} onOutcome={onOutcome} />
+      {browsing && list.data ? (
+        <section
+          id={browseId}
+          aria-labelledby={titleId}
+          className="flex flex-col gap-2 rounded-md border p-3"
+        >
+          <h3 id={titleId} className="m-0 font-medium text-control">
+            {t("github.repo.pickTitle")}
+          </h3>
+          <p className="m-0 text-caption text-subtle-foreground">
+            {t("github.repo.pickHint")}
+          </p>
+          <InstalledRepositoryPage
+            page={list.data}
+            onInstallation={(next) => {
+              setInstallation(next);
+              setPage(1);
+            }}
+            onPage={setPage}
+            meta={(repository) =>
+              repository.agent_count > 0
+                ? t("github.repo.agentCount", {
+                    count: repository.agent_count,
+                  })
+                : undefined
+            }
+          />
+        </section>
       ) : null}
     </SettingsCard>
   );
@@ -189,188 +219,6 @@ function AccountGroup({
   );
 }
 
-function Picker({
-  id,
-  refresh,
-  onOutcome,
-}: {
-  readonly id: string;
-  readonly refresh: () => Promise<unknown>;
-  readonly onOutcome: OnOutcome;
-}) {
-  const { t } = useI18n();
-  const { client } = useAgentPlatform();
-  const role = useRole();
-  const workspaceId = useMe()?.workspace?.id ?? "";
-  const titleId = useId();
-  const candidates = useQuery({
-    queryKey: candidatesKey(client, workspaceId),
-    queryFn: () =>
-      unwrap(
-        client.GET("/v1/workspaces/{id}/github-repositories/candidates", {
-          params: { path: { id: workspaceId } },
-        }),
-      ),
-    enabled: workspaceId !== "",
-  });
-  const add = useMutation<unknown, ApiError, GitHubRepositoryCandidate>({
-    mutationFn: (candidate) =>
-      unwrap(
-        client.POST("/v1/workspaces/{id}/github-repositories", {
-          params: { path: { id: workspaceId } },
-          body: { github_repository_id: candidate.github_repository_id },
-        }),
-      ),
-    onMutate: () => onOutcome(null),
-    onSuccess: async (_, candidate) => {
-      onOutcome({
-        kind: "notice",
-        text: t("github.repo.added", { name: candidate.full_name }),
-      });
-      await refresh();
-    },
-    onError: async (error) => {
-      const reason = reasonOf(error);
-      onOutcome({
-        kind: "error",
-        text:
-          reason === "already_added"
-            ? t("github.repo.alreadyAdded")
-            : reason === "no_author_app"
-              ? t("github.repo.pickNoApp")
-              : reason === "not_installed"
-                ? t("github.repo.pickHint")
-                : isApiError(error, "BACKEND_UNAVAILABLE")
-                  ? t("github.repo.pickUnreachable")
-                  : refusalText(t, error, "workspace.manage", role),
-      });
-      await refresh();
-    },
-  });
-
-  const data = candidates.data;
-  const [query, setQuery] = useState("");
-  const search = useRef<HTMLInputElement>(null);
-  const needle = query.trim().normalize("NFKC").toLowerCase();
-  const shown =
-    data?.candidates.filter((candidate) =>
-      candidate.full_name.toLowerCase().includes(needle),
-    ) ?? [];
-  return (
-    <section
-      id={id}
-      aria-labelledby={titleId}
-      className="flex flex-col gap-2 rounded-md border p-3"
-    >
-      <h3 id={titleId} className="m-0 font-medium text-control">
-        {t("github.repo.pickTitle")}
-      </h3>
-      <p className="m-0 text-caption text-subtle-foreground">
-        {t("github.repo.pickHint")}
-      </p>
-      {candidates.isPending ? (
-        <Skeleton className="h-5 w-48" />
-      ) : candidates.isError ? (
-        <LoadFailure
-          error={candidates.error}
-          onRetry={() => candidates.refetch()}
-        />
-      ) : data?.unavailable ? (
-        <p className="m-0 text-caption">
-          {t(
-            data.unavailable === "no_author_app"
-              ? "github.repo.pickNoApp"
-              : "github.repo.pickUnreachable",
-          )}
-        </p>
-      ) : data?.candidates.length ? (
-        <>
-          <div className="flex">
-            <SearchInput
-              ref={search}
-              type="search"
-              aria-label={t("github.repo.search")}
-              placeholder={t("github.repo.search")}
-              maxLength={SEARCH_MAX}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
-          {shown.length === 0 ? (
-            <EmptyState
-              className="w-full"
-              title={t("github.repo.searchEmpty")}
-              action={
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setQuery("");
-                    search.current?.focus();
-                  }}
-                >
-                  {t("members.clearSearch")}
-                </Button>
-              }
-            />
-          ) : (
-            // An App can sit on hundreds of repositories: the list scrolls
-            // inside the card instead of stretching the page. Focusable, so
-            // the keyboard can scroll it when no row holds a button.
-            <section
-              aria-label={t("github.repo.pickList")}
-              // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region must take focus
-              tabIndex={0}
-              className="max-h-96 overflow-y-auto"
-            >
-              <RowList variant="joined">
-                {shown.map((candidate) => (
-                  <SettingRow
-                    key={candidate.github_repository_id}
-                    title={candidate.full_name}
-                    badge={
-                      candidate.private ? (
-                        <Badge>{t("github.repo.private")}</Badge>
-                      ) : null
-                    }
-                    description={`${t("github.repo.branch")} ${candidate.default_branch}`}
-                    actions={
-                      candidate.catalog_id === null ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className={ACTION}
-                          aria-label={t("github.repo.addName", {
-                            name: candidate.full_name,
-                          })}
-                          aria-disabled={add.isPending || undefined}
-                          onClick={() => {
-                            if (!add.isPending) add.mutate(candidate);
-                          }}
-                        >
-                          {t("github.repo.addOne")}
-                        </Button>
-                      ) : (
-                        <span className="text-caption text-subtle-foreground">
-                          {t("github.repo.alreadyAdded")}
-                        </span>
-                      )
-                    }
-                  />
-                ))}
-              </RowList>
-            </section>
-          )}
-        </>
-      ) : (
-        <p className="m-0 text-caption">{t("github.repo.pickEmpty")}</p>
-      )}
-    </section>
-  );
-}
-
 function RepositoryRow({
   repository,
   badge,
@@ -387,7 +235,6 @@ function RepositoryRow({
   const role = useRole();
   const workspaceId = useMe()?.workspace?.id ?? "";
   const [editing, setEditing] = useState(false);
-  const [removing, setRemoving] = useState(false);
   const [invalid, setInvalid] = useState(false);
   const branchId = useId();
   const branchHint = useId();
@@ -400,35 +247,12 @@ function RepositoryRow({
     wasEditing.current = editing;
   }, [editing]);
   const name = repository.full_name ?? repository.id;
-  const path = {
-    params: { path: { id: workspaceId, repositoryId: repository.id } },
-  };
 
-  const failed = async (error: ApiError) => {
-    const details = error.details as {
-      installation_profiles?: string[];
-      agents?: string[];
-    } | null;
-    onOutcome({
-      kind: "error",
-      text: isApiError(error, "REVISION_CONFLICT")
-        ? t("github.repo.conflict")
-        : isApiError(error, "REPOSITORY_IN_USE")
-          ? t("github.repo.inUse", {
-              profiles:
-                details?.installation_profiles?.join(", ") ||
-                t("github.repo.none"),
-              agents: details?.agents?.join(", ") || t("github.repo.none"),
-            })
-          : refusalText(t, error, "workspace.manage", role),
-    });
-    await refresh();
-  };
   const save = useMutation<unknown, ApiError, string>({
     mutationFn: (branch) =>
       unwrap(
         client.PATCH("/v1/workspaces/{id}/github-repositories/{repositoryId}", {
-          ...path,
+          params: { path: { id: workspaceId, repositoryId: repository.id } },
           body: { branch, version: repository.version ?? 1 },
         }),
       ),
@@ -447,26 +271,13 @@ function RepositoryRow({
         branchRef.current?.focus();
         return;
       }
-      await failed(error);
-    },
-  });
-  const remove = useMutation<unknown, ApiError>({
-    mutationFn: () =>
-      unwrap(
-        client.DELETE(
-          "/v1/workspaces/{id}/github-repositories/{repositoryId}",
-          path,
-        ),
-      ),
-    onMutate: () => onOutcome(null),
-    onSuccess: async () => {
-      setRemoving(false);
-      onOutcome({ kind: "notice", text: t("github.repo.removed", { name }) });
+      onOutcome({
+        kind: "error",
+        text: isApiError(error, "REVISION_CONFLICT")
+          ? t("github.repo.conflict")
+          : refusalText(t, error, "workspace.manage", role),
+      });
       await refresh();
-    },
-    onError: async (error) => {
-      setRemoving(false);
-      await failed(error);
     },
   });
 
@@ -561,15 +372,6 @@ function RepositoryRow({
             <div className="flex flex-wrap items-center justify-end gap-2">
               <Button
                 type="button"
-                variant="danger"
-                className="mr-auto"
-                aria-label={t("github.repo.removeName", { name })}
-                onClick={() => setRemoving(true)}
-              >
-                {t("github.repo.remove")}
-              </Button>
-              <Button
-                type="button"
                 variant="ghost"
                 onClick={() => {
                   setInvalid(false);
@@ -585,20 +387,6 @@ function RepositoryRow({
           </form>
         </RowListItem>
       ) : null}
-      <ConfirmDialog
-        open={removing}
-        onOpenChange={setRemoving}
-        title={t("github.repo.removeTitle")}
-        consequence={t("github.repo.removeConsequence")}
-        target={name}
-        confirmLabel={t("github.repo.remove")}
-        cancelLabel={t("common.cancel")}
-        tone="danger"
-        busy={remove.isPending}
-        onConfirm={() => {
-          if (!remove.isPending) remove.mutate();
-        }}
-      />
     </>
   );
 }
