@@ -39,6 +39,8 @@ services:
       EXECUTION_WORKSPACE_QUOTA: ${EXECUTION_WORKSPACE_QUOTA:?EXECUTION_WORKSPACE_QUOTA must be set (on, with xfs prjquota)}
   reconciler:
     image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
+  maintenance:
+    image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
   slack:
     image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
     volumes:

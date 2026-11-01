@@ -183,6 +183,17 @@ services:
     environment:
       PLATFORM_ALLOW_UNATTENDED_PERMISSIONS: ${PLATFORM_ALLOW_UNATTENDED_PERMISSIONS:-false}
 
+  maintenance:
+    environment:
+      AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL:-http://localstack:4566}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
+    depends_on:
+      localstack:
+        condition: service_healthy
+      local-s3-init:
+        condition: service_completed_successfully
+
   worker:
     build:
       context: ..
