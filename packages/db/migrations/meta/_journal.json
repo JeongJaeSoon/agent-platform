@@ -778,6 +778,13 @@
       "when": 1793507107541,
       "tag": "0201_session_data_rollups",
       "breakpoints": true
+    },
+    {
+      "idx": 202,
+      "version": "7",
+      "when": 1793521192793,
+      "tag": "0202_session_event_archives",
+      "breakpoints": true
     }
   ]
 }

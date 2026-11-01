@@ -105,6 +105,7 @@ describe("database schema", () => {
       "queue_messages",
       "receipts",
       "secret_values",
+      "session_event_archives",
       "session_links",
       "session_model_usage",
       "session_outcomes",
