@@ -34,6 +34,7 @@ import { useRole } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
 import { AgentAdmins } from "../components/agent-admins.tsx";
 import { AgentAvatar } from "../components/agent-cards.tsx";
+import { agentState, STATE_VARIANT } from "../components/agent-state.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { RevisionDiff } from "../components/revision-diff.tsx";
@@ -548,13 +549,7 @@ function AgentView({
         </span>
       }
       titleAside={
-        <Badge
-          variant={
-            agent.active_release_id && agent.status === "active"
-              ? "green"
-              : "gray"
-          }
-        >
+        <Badge variant={STATE_VARIANT[agentState(agent)]}>
           {activeRelease?.label
             ? t("agent.headStatus", {
                 release: activeRelease.label,

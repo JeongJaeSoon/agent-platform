@@ -685,7 +685,8 @@ describe("에이전트 카드", () => {
       });
       const card = await cardFor("에이전트 13");
       expect(fact(card, "릴리스")).toBe("2026. 10. 11. 10:00");
-      expect(fact(await cardFor("에이전트 0"), "릴리스")).toBe("—");
+      // The dash is drawn; a screen reader hears the words.
+      expect(fact(await cardFor("에이전트 0"), "릴리스")).toBe("—릴리스 전");
       expect(fact(card, "실행 프로필")).toBe(PROFILE);
       expect(fact(card, "MCP")).toBe("linear");
       expect(fact(card, "자격 증명")).toBe("연결 필요 1개");

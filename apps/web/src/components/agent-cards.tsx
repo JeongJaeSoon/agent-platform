@@ -234,14 +234,18 @@ function AgentCard({
         <dl className="m-0 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-2 text-control">
           <Fact term={t("agents.cards.release")}>
             <Detail query={facts}>
-              {facts.data
-                ? facts.data.release_label
-                  ? formatTimestamp(
-                      releasedAt(facts.data.release_label),
-                      locale,
-                    )
-                  : "—"
-                : null}
+              {facts.data ? (
+                facts.data.release_label ? (
+                  formatTimestamp(releasedAt(facts.data.release_label), locale)
+                ) : (
+                  <>
+                    <span aria-hidden="true">—</span>
+                    <span className="sr-only">
+                      {t("agents.cards.notReleased")}
+                    </span>
+                  </>
+                )
+              ) : null}
             </Detail>
           </Fact>
           <Fact term={t("agents.cards.profile")}>
