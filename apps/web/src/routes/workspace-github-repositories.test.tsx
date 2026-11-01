@@ -125,6 +125,13 @@ describe("GitHub 연결 › 에이전트가 쓰는 저장소", () => {
       await screen.findByRole("region", { name: "App이 설치된 저장소" }),
     );
     expect(await picker.findByText("이미 추가됨")).toBeDefined();
+    // The search narrows the list by name.
+    await user.type(picker.getByRole("searchbox"), "WEB");
+    expect(picker.queryByRole("button", { name: "acme/api 추가" })).toBeNull();
+    await user.clear(picker.getByRole("searchbox"));
+    await user.type(picker.getByRole("searchbox"), "nothing");
+    expect(picker.getByText("맞는 저장소가 없습니다.")).toBeDefined();
+    await user.clear(picker.getByRole("searchbox"));
     await user.click(picker.getByRole("button", { name: "acme/api 추가" }));
     expect((await screen.findByRole("status")).textContent).toBe(
       "acme/api을(를) 추가했습니다.",

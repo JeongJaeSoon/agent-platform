@@ -21,6 +21,7 @@ import {
   Input,
   RowList,
   RowListItem,
+  SearchInput,
   SettingRow,
   Skeleton,
 } from "@werft-ai/ui";
@@ -37,6 +38,7 @@ import { scopedKey } from "../api/queries.ts";
 import { refusalText, useMe, useRole } from "../auth/guard.tsx";
 import { IconTile } from "../components/icon-tile.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { SEARCH_MAX } from "../components/search-term.ts";
 import { useI18n } from "../i18n/i18n.tsx";
 import { type OnOutcome, SettingsCard } from "./workspace-settings.tsx";
 
@@ -246,6 +248,12 @@ function Picker({
   });
 
   const data = candidates.data;
+  const [query, setQuery] = useState("");
+  const needle = query.trim().toLowerCase();
+  const shown =
+    data?.candidates.filter((candidate) =>
+      candidate.full_name.toLowerCase().includes(needle),
+    ) ?? [];
   return (
     <section
       id={id}
@@ -274,43 +282,63 @@ function Picker({
           )}
         </p>
       ) : data?.candidates.length ? (
-        <RowList variant="joined">
-          {data.candidates.map((candidate) => (
-            <SettingRow
-              key={candidate.github_repository_id}
-              title={candidate.full_name}
-              badge={
-                candidate.private ? (
-                  <Badge>{t("github.repo.private")}</Badge>
-                ) : null
-              }
-              description={`${t("github.repo.branch")} ${candidate.default_branch}`}
-              actions={
-                candidate.catalog_id === null ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className={ACTION}
-                    aria-label={t("github.repo.addName", {
-                      name: candidate.full_name,
-                    })}
-                    aria-disabled={add.isPending || undefined}
-                    onClick={() => {
-                      if (!add.isPending) add.mutate(candidate);
-                    }}
-                  >
-                    {t("github.repo.addOne")}
-                  </Button>
-                ) : (
-                  <span className="text-caption text-subtle-foreground">
-                    {t("github.repo.alreadyAdded")}
-                  </span>
-                )
-              }
+        <>
+          <div className="flex">
+            <SearchInput
+              type="search"
+              aria-label={t("github.repo.search")}
+              placeholder={t("github.repo.search")}
+              maxLength={SEARCH_MAX}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
             />
-          ))}
-        </RowList>
+          </div>
+          {shown.length === 0 ? (
+            <p className="m-0 text-caption">{t("github.repo.searchEmpty")}</p>
+          ) : (
+            // An App can sit on hundreds of repositories: the list scrolls
+            // inside the card instead of stretching the page.
+            <div className="max-h-96 overflow-y-auto">
+              <RowList variant="joined">
+                {shown.map((candidate) => (
+                  <SettingRow
+                    key={candidate.github_repository_id}
+                    title={candidate.full_name}
+                    badge={
+                      candidate.private ? (
+                        <Badge>{t("github.repo.private")}</Badge>
+                      ) : null
+                    }
+                    description={`${t("github.repo.branch")} ${candidate.default_branch}`}
+                    actions={
+                      candidate.catalog_id === null ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className={ACTION}
+                          aria-label={t("github.repo.addName", {
+                            name: candidate.full_name,
+                          })}
+                          aria-disabled={add.isPending || undefined}
+                          onClick={() => {
+                            if (!add.isPending) add.mutate(candidate);
+                          }}
+                        >
+                          {t("github.repo.addOne")}
+                        </Button>
+                      ) : (
+                        <span className="text-caption text-subtle-foreground">
+                          {t("github.repo.alreadyAdded")}
+                        </span>
+                      )
+                    }
+                  />
+                ))}
+              </RowList>
+            </div>
+          )}
+        </>
       ) : (
         <p className="m-0 text-caption">{t("github.repo.pickEmpty")}</p>
       )}
