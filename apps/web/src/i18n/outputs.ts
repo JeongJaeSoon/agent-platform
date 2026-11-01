@@ -8,7 +8,7 @@ export const outputsKo = {
     "결과물은 이 세션이 연 GitHub PR과 작업 공간의 out/ 폴더에 남긴 파일을 셉니다. 저장소 파일을 고친 내역은 진행 탭의 도구 호출에서 볼 수 있습니다.",
   "session.outcomes.title": "근거",
   "session.outcomes.description":
-    "플랫폼이 직접 본 사실입니다. GitHub 상태는 1분마다 다시 읽습니다.",
+    "플랫폼이 직접 본 사실입니다. GitHub 상태는 주기적으로 다시 읽습니다.",
   "session.outcomes.kind.pullRequest": "PR",
   "session.outcomes.kind.review": "리뷰",
   "session.outcomes.event.APPROVE": "승인",
@@ -51,7 +51,7 @@ export const outputsJa: Record<keyof typeof outputsKo, string> = {
     "成果物として数えるのは、このセッションが開いた GitHub PR と、作業スペースの out/ フォルダに残したファイルです。リポジトリのファイルを変更した内容は、経過タブのツール呼び出しで確認できます。",
   "session.outcomes.title": "根拠",
   "session.outcomes.description":
-    "プラットフォームが直接確認した事実です。GitHub の状態は 1 分ごとに読み直します。",
+    "プラットフォームが直接確認した事実です。GitHub の状態は定期的に読み直します。",
   "session.outcomes.kind.pullRequest": "PR",
   "session.outcomes.kind.review": "レビュー",
   "session.outcomes.event.APPROVE": "承認",
@@ -95,7 +95,7 @@ export const outputsEn: Record<keyof typeof outputsKo, string> = {
     "Outputs are the GitHub pull requests this session opened and the files left in the workspace's out/ folder. Changes to repository files show up as tool calls on the Timeline tab.",
   "session.outcomes.title": "Evidence",
   "session.outcomes.description":
-    "Facts the platform saw itself. GitHub states are read again every minute.",
+    "Facts the platform saw itself. GitHub states are read again periodically.",
   "session.outcomes.kind.pullRequest": "PR",
   "session.outcomes.kind.review": "review",
   "session.outcomes.event.APPROVE": "Approved",
