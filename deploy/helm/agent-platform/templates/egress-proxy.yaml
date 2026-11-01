@@ -47,6 +47,8 @@ spec:
               value: {{ .Values.config.egress.credentialAllowlist | quote }}
             - name: EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST
               value: {{ .Values.config.egress.credentialPrivateAllowlist | quote }}
+            - name: EGRESS_PACKAGES_REDIRECT_ALLOWLIST
+              value: {{ .Values.config.egress.packagesRedirectAllowlist | quote }}
             - name: LOG_LEVEL
               value: {{ .Values.config.logLevel | quote }}
             {{- include "ap.extraEnv" .Values.egressProxy.extraEnv | nindent 12 }}
