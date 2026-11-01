@@ -2623,7 +2623,8 @@ export const workerImageRefusals = pgTable(
 // worker's own calls, `provider` and `repository` the egress proxy's
 // credential routes, `object_store` its object store route, and `mcp` the
 // remote MCP route of a session whose agent release names a server (only
-// then is one issued). All of them are issued, extended and revoked
+// then is one issued), and `packages` its package registry route. All of
+// them are issued, extended and revoked
 // together, and a token only ever works for its own purpose.
 export const workerCredentials = pgTable(
   "worker_credentials",
@@ -2655,7 +2656,7 @@ export const workerCredentials = pgTable(
       .where(sql`${table.revokedAt} IS NULL`),
     check(
       "worker_credentials_purpose_check",
-      sql`${table.purpose} IN ('gateway', 'provider', 'repository', 'object_store', 'mcp')`,
+      sql`${table.purpose} IN ('gateway', 'provider', 'repository', 'object_store', 'mcp', 'packages')`,
     ),
     check(
       "worker_credentials_binding_check",

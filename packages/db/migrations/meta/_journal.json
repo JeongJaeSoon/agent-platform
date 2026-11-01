@@ -785,6 +785,13 @@
       "when": 1793521192793,
       "tag": "0202_session_event_archives",
       "breakpoints": true
+    },
+    {
+      "idx": 203,
+      "version": "7",
+      "when": 1793530539978,
+      "tag": "0203_worker_credentials_packages",
+      "breakpoints": true
     }
   ]
 }

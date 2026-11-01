@@ -144,13 +144,19 @@ export type ClaimInput = {
   now: Date;
 };
 
-export type EgressPurpose = "provider" | "repository" | "object_store" | "mcp";
+export type EgressPurpose =
+  | "provider"
+  | "repository"
+  | "object_store"
+  | "mcp"
+  | "packages";
 
 export type EgressIssue = {
   providerHash: Uint8Array;
   repositoryHash: Uint8Array;
   objectStoreHash: Uint8Array;
   mcpHash?: Uint8Array;
+  packagesHash?: Uint8Array;
   // `repository` is null for a session without one: no repository token is
   // issued, and `repositoryHash` goes unused.
   bindingsOf(session: {
@@ -170,6 +176,7 @@ export type EgressBindings = {
   repository: string | null;
   object_store: string;
   mcp?: string;
+  packages?: string;
 };
 
 // What an egress token stands for once the attempt it belongs to still owns

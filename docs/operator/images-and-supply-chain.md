@@ -36,6 +36,24 @@ worker 이미지는 git system 설정(`/etc/gitconfig`)에 `user.name=Werft`, `u
 
 system 설정은 git 설정 중 우선순위가 가장 낮아서, 세션 안에서 정한 값이 있으면 그쪽이 이긴다. 세션의 작성자를 바꾸려면 workspace 저장소에 `git config user.name`·`git config user.email`을 쓴다. `git commit --author`는 author만 바꾸고 committer는 그대로 둔다. `git config --global`은 tmpfs HOME에 쓰이므로 worker가 바뀌면 사라진다. 저장소 설정도 checkpoint에서 복원한 worker에서는 사라진다. 복원이 workspace를 비우고 저장소를 새로 만들기 때문이다. 그때부터는 다시 기본 작성자로 commit된다. 카탈로그나 설치 설정으로 기본값을 바꾸는 기능은 두지 않았다. 사용자별 작성자를 기본값으로 쓰려면 사용자 주소를 worker에 넘겨야 하므로 제품 결정이 먼저다. 이미지 smoke(`.github/scripts/image-smoke.sh`)가 빈 저장소에서 commit해 이 작성자를 확인하고, e2e(`tests/e2e/alpha-path.e2e.ts`)가 실제 Claude Code의 Bash 도구로 같은 것을 확인한다.
 
+### worker 안의 패키지 도구
+
+출하 worker 이미지에는 Bun(Node 호환 shim 포함)과 engine만 있다. npm·pnpm·yarn·Ruby·Bundler·Go는 없다. 세션에서 이 도구로 의존 패키지를 설치하려면 운영자가 `WORKER_IMAGE`를 이 이미지에서 파생한 이미지로 바꾼다. 파생 이미지는 `/workspace` 외의 `VOLUME`을 선언하지 않아야 하고(실행 기반 문서의 이미지 계약), engine·SDK·CLI 조합을 바꾸지 않아야 한다. 레지스트리 접근은 이미지와 상관없이 egress proxy의 `packages` route로만 된다([실행 기반 § egress](execution.md)). worker가 claim 때 HOME에 npm·Bundler·Go user 설정을 쓰므로 파생 이미지에 레지스트리 설정을 넣을 필요는 없다.
+
+worker가 쓰는 npm 설정은 user 수준이라, 저장소의 `.npmrc`가 `registry=`를 정하면 그쪽이 이긴다. 그 레지스트리 host에는 forward proxy로 닿지 않으므로 설치가 `403`으로 실패한다. 2026-11-01에 파생 이미지에서 `config get registry`로 잰 우선순위는 아래와 같다(저장소 `.npmrc`에 `registry=https://registry.npmjs.org/`, user 설정에 route).
+
+| 도구 | user 설정만 | `npm_config_registry` 환경 변수 | CLI `--registry` | 비고 |
+|---|---|---|---|---|
+| npm 10.9.9 | 저장소 값이 이김 | 환경 변수가 이김 | CLI가 이김 | 저장소 `.npmrc`가 없으면 user 설정(route)을 쓴다 |
+| pnpm 9.15.0 | 저장소 값이 이김 | 환경 변수가 이김 | `config get`은 옵션을 받지 않음 | npm과 같은 순서 |
+| yarn 1.22.22 | npm user 설정을 읽지 않음(`registry.yarnpkg.com`) | 읽지 않음 | CLI가 이김 | `YARN_REGISTRY`가 이김. `registry.yarnpkg.com`은 목록에 없다 |
+
+그래서 저장소가 registry를 고정했으면 세션에서 `npm ci --registry <route>/packages/npm/`처럼 CLI로 덮는다. worker는 engine 환경 변수를 정해진 목록만 넘기므로 `npm_config_registry`를 넣지 않는다. yarn 1은 `--registry` 또는 `YARN_REGISTRY`를 써야 한다.
+
+같은 날 실제 세션(npm 캐시를 비운 상태)에서 설치까지 돌린 결과도 같다. 저장소가 공개 registry를 고정한 프로젝트에서 `npm ci`는 `403 Forbidden - GET https://registry.npmjs.org/...`로 실패했다. `pnpm install`은 저장소 registry로 가면서 route 주소에만 걸린 token을 찾지 못해 `No authorization header was set for the request`로 실패했다. 고정하지 않은 프로젝트의 `npm ci`·`bundle install`은 route로 받았다.
+
+출하 이미지의 `bun install`은 user `.npmrc`의 registry와 token으로 metadata를 route에서 받는다. 하지만 tarball은 metadata의 `dist.tarball`에 적힌 `https://registry.npmjs.org/...` 주소로 직접 받으려 해서 forward proxy가 `403`으로 막는다(2026-11-01 실측). npm은 `replace-registry-host` 기본값(`npmjs`)으로 그 host를 설정한 registry로 바꿔 받는다. Bun에는 그런 설정이 없어 지금은 Bun으로 공개 npm 패키지를 설치할 수 없다.
+
 ### worker 이미지 업그레이드와 checkpoint 호환
 
 `scripts/test-ops.sh upgrade`에서 worker 이미지가 바뀌면 새 이미지의 engine·SDK·CLI·profile digest로 각 현재 checkpoint의 restore plan을 계산한다. 네 값이 모두 같아 호환되는 세션은 승인 없이 이어지고, `INCOMPATIBLE_CHECKPOINT`인 세션만 사용자에게 알리고 정확한 목록을 승인받는다. 검사를 끝까지 돌릴 수 없거나 다른 검증 실패가 섞이면 미수거 checkpoint가 있는 세션 전부를 영향 목록으로 삼는 fail-closed 동작을 하고 로그에 남긴다. writer를 멈춘 뒤에도 같은 검사를 다시 한다. 불호환 세션에 `start_fresh`를 선택하면 이전 checkpoint의 context를 버린다. Kubernetes(helm) 설치에서는 pre-upgrade hook이 같은 판정을 이미지를 실행하지 않고 포인터의 조합으로 한다([kubernetes-deployment.md § 업그레이드 전 검사](kubernetes-deployment.md#업그레이드-전-검사)).

@@ -67,6 +67,7 @@ describe("egressProxyConfigFromEnv", () => {
     ).toEqual({
       allow: [],
       allowPrivate: [],
+      packagesRedirect: [],
       authorizerToken: token,
       authorizerUrl: "http://api:3100/",
       port: 3129,
@@ -134,7 +135,7 @@ describe("forward and credential allowlists", () => {
         EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "gitea:3000,localstack:4566",
       }),
     ).toThrow(
-      "api.anthropic.com:443, gitea:3000, localstack:4566 must be on EGRESS_CREDENTIAL_(PRIVATE_)ALLOWLIST alone",
+      "api.anthropic.com:443, gitea:3000, localstack:4566 must be on EGRESS_CREDENTIAL_(PRIVATE_)ALLOWLIST or EGRESS_PACKAGES_REDIRECT_ALLOWLIST alone",
     );
     const split = egressProxyConfigFromEnv({
       ...routes,
@@ -148,5 +149,24 @@ describe("forward and credential allowlists", () => {
       egressProxyConfigFromEnv({ EGRESS_PRIVATE_ALLOWLIST: "gitea:3000" })
         .allowPrivate,
     ).toEqual([{ host: "gitea", port: 3000 }]);
+  });
+
+  // A host the packages route follows a redirect to would otherwise be
+  // reachable straight from a worker.
+  test("refuse a packages redirect host that is also forwarded", () => {
+    expect(() =>
+      egressProxyConfigFromEnv({
+        ...routes,
+        EGRESS_ALLOWLIST: "cdn.example.test:443",
+        EGRESS_PACKAGES_REDIRECT_ALLOWLIST: "cdn.example.test:443",
+      }),
+    ).toThrow("cdn.example.test:443 must be on");
+    expect(
+      egressProxyConfigFromEnv({
+        ...routes,
+        EGRESS_PRIVATE_ALLOWLIST: "api:3000",
+        EGRESS_PACKAGES_REDIRECT_ALLOWLIST: "cdn.example.test:443",
+      }).credential?.packagesRedirect,
+    ).toEqual([{ host: "cdn.example.test", port: 443 }]);
   });
 });
