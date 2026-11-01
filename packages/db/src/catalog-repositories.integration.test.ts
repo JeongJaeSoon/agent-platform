@@ -11,13 +11,7 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresCatalogRepositoryStore } from "./catalog-repositories.ts";
 import * as schema from "./schema.ts";
-import {
-  installationProfiles,
-  memberships,
-  receipts,
-  users,
-  workspaces,
-} from "./schema.ts";
+import { memberships, receipts, users, workspaces } from "./schema.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -37,15 +31,17 @@ integration("catalog repositories on PostgreSQL", () => {
     await database?.drop();
   });
 
-  async function person(workspaceId: string, role: WorkspaceRole) {
+  async function person(workspaceId: string, role: WorkspaceRole | null) {
     const userId = randomUUID();
     await db.insert(users).values({
       id: userId,
       email: `${userId}@example.test`,
       passwordHash: "x",
-      displayName: `${role} person`,
+      displayName: `${role ?? "outside"} person`,
     });
-    await db.insert(memberships).values({ workspaceId, userId, role });
+    if (role !== null) {
+      await db.insert(memberships).values({ workspaceId, userId, role });
+    }
     return {
       workspaceId,
       userId,
@@ -66,7 +62,7 @@ integration("catalog repositories on PostgreSQL", () => {
     branch: "main",
   });
 
-  test("seeds only an empty table, then adds, renames a branch and removes under the rules", async () => {
+  test("seeds only an empty table, then resolves picks to one row each and renames a branch", async () => {
     const store = createPostgresCatalogRepositoryStore(db);
     const seedEntry = {
       id: "seeded",
@@ -106,30 +102,34 @@ integration("catalog repositories on PostgreSQL", () => {
     });
     const owner = await person(workspaceId, "owner");
     const member = await person(workspaceId, "member");
+    const outsider = await person(workspaceId, null);
 
-    const refused = await store.add({
-      ...member,
-      receiptId: randomUUID(),
-      id: { base: "app1" },
-      reserved: new Set(),
-      ...repo(1),
-    });
-    expect(refused).toEqual({ outcome: "actor_inactive" });
+    expect(
+      await store.resolve({
+        ...outsider,
+        receiptId: randomUUID(),
+        base: "app1",
+        reserved: new Set(),
+        ...repo(1),
+      }),
+    ).toEqual({ outcome: "actor_inactive" });
 
+    // Any member may resolve: who may pick was the policy's call.
     const receiptId = randomUUID();
-    const added = await store.add({
-      ...owner,
+    const first = await store.resolve({
+      ...member,
       receiptId,
-      id: { base: "app1" },
+      base: "app1",
       reserved: new Set(),
       ...repo(1),
     });
-    expect(added).toMatchObject({
-      outcome: "stored",
+    expect(first).toMatchObject({
+      outcome: "resolved",
+      created: true,
       repository: {
         id: "app1",
         github_repository_id: 1001,
-        source: "console",
+        source: "selection",
         version: 1,
         profiles: null,
       },
@@ -139,7 +139,7 @@ integration("catalog repositories on PostgreSQL", () => {
       .from(receipts)
       .where(eq(receipts.id, receiptId));
     expect(receipt).toMatchObject({
-      operation: "add_repository",
+      operation: "resolve_repository",
       ownerId: workspaceId,
       result: {
         repository_id: "app1",
@@ -148,38 +148,83 @@ integration("catalog repositories on PostgreSQL", () => {
       },
     });
 
-    // The same GitHub repository by id, or by name in another case.
+    // The same GitHub repository by id, or by name in another case, is the
+    // same row, and leaves no receipt.
     for (const twin of [repo(1), { ...repo(9), owner: "acme", name: "app1" }]) {
-      expect(
-        await store.add({
+      const again = await store.resolve({
+        ...owner,
+        receiptId: randomUUID(),
+        base: "x",
+        reserved: new Set(),
+        ...twin,
+      });
+      expect(again).toMatchObject({
+        outcome: "resolved",
+        created: false,
+        repository: { id: "app1", github_repository_id: 1001 },
+      });
+    }
+    // A seeded row found by name gets its GitHub id filled in.
+    expect(
+      await store.resolve({
+        ...owner,
+        receiptId: randomUUID(),
+        base: "seeded",
+        reserved: new Set(),
+        githubRepositoryId: 5000,
+        owner: "ACME",
+        name: "Seeded",
+        url: "https://github.com/ACME/Seeded.git",
+        branch: "main",
+      }),
+    ).toMatchObject({
+      outcome: "resolved",
+      created: false,
+      repository: { id: "seeded", github_repository_id: 5000, branch: "trunk" },
+    });
+    // A reserved (file) id is numbered past.
+    expect(
+      await store.resolve({
+        ...owner,
+        receiptId: randomUUID(),
+        base: "tool",
+        reserved: new Set(["tool"]),
+        ...repo(2),
+      }),
+    ).toMatchObject({ outcome: "resolved", repository: { id: "tool-2" } });
+
+    // Two first picks at once: one row, one receipt.
+    const picks = await Promise.all(
+      [0, 1, 2].map(() =>
+        store.resolve({
           ...owner,
           receiptId: randomUUID(),
-          id: { base: "x" },
+          base: "app3",
           reserved: new Set(),
-          ...twin,
+          ...repo(3),
         }),
-      ).toEqual({ outcome: "already_added" });
-    }
-    // A reserved (file) id, asked for exactly or numbered past.
+      ),
+    );
     expect(
-      await store.add({
-        ...owner,
-        receiptId: randomUUID(),
-        id: { exact: "tool" },
-        reserved: new Set(["tool"]),
-        ...repo(2),
-      }),
-    ).toEqual({ outcome: "id_taken" });
+      new Set(
+        picks.map((pick) =>
+          pick.outcome === "resolved" ? pick.repository.id : null,
+        ),
+      ),
+    ).toEqual(new Set(["app3"]));
     expect(
-      await store.add({
-        ...owner,
-        receiptId: randomUUID(),
-        id: { base: "tool" },
-        reserved: new Set(["tool"]),
-        ...repo(2),
-      }),
-    ).toMatchObject({ outcome: "stored", repository: { id: "tool-2" } });
+      picks.filter((pick) => pick.outcome === "resolved" && pick.created),
+    ).toHaveLength(1);
 
+    expect(
+      await store.setBranch({
+        ...member,
+        receiptId: randomUUID(),
+        id: "app1",
+        branch: "develop",
+        version: 1,
+      }),
+    ).toEqual({ outcome: "actor_inactive" });
     expect(
       await store.setBranch({
         ...owner,
@@ -201,48 +246,13 @@ integration("catalog repositories on PostgreSQL", () => {
       outcome: "stored",
       repository: { branch: "develop", version: 2 },
     });
-
-    // A ceiling that names it holds it; a retired one does not.
-    await db.insert(installationProfiles).values({
-      id: "coding",
-      name: null,
-      version: 1,
-      origin: "catalog",
-      definition: {},
-      permissionMode: "default",
-      fingerprint: "f",
-      repositoryIds: ["app1"],
-    });
-    expect(
-      await store.remove({ ...owner, receiptId: randomUUID(), id: "app1" }),
-    ).toEqual({ outcome: "in_use", profiles: ["coding"], agents: [] });
-    await db
-      .update(installationProfiles)
-      .set({ retiredAt: new Date(), retiredBy: owner.userId })
-      .where(eq(installationProfiles.id, "coding"));
-    expect(
-      await store.remove({ ...owner, receiptId: randomUUID(), id: "app1" }),
-    ).toEqual({ outcome: "removed" });
-    expect(
-      await store.remove({ ...owner, receiptId: randomUUID(), id: "app1" }),
-    ).toEqual({ outcome: "not_found" });
     expect((await store.listActive()).map((row) => row.id)).toEqual([
+      "app1",
+      "app3",
       "seeded",
       "tool-2",
     ]);
-
-    // Removed, it can come back, under an id never handed out before.
-    expect(
-      await store.add({
-        ...owner,
-        receiptId: randomUUID(),
-        id: { base: "app1" },
-        reserved: new Set(),
-        ...repo(1),
-      }),
-    ).toMatchObject({ outcome: "stored", repository: { id: "app1-2" } });
-    // And a seed with a workspace present leaves its receipt; the table is
-    // filled, so nothing is seeded.
-    expect(await store.seed({ entries: async () => [seedEntry] })).toEqual([]);
+    // No agent has an active release here.
+    expect((await store.agentCounts()).size).toBe(0);
   });
 });

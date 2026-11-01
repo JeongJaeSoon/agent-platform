@@ -2,7 +2,8 @@ import type { ReceiptActor } from "@werft-ai/contracts";
 
 /**
  * A repository that uses the console's GitHub App, as the database holds it
- * (repository-catalog-db.md §1). Removed rows are never listed.
+ * (repository-catalog-db.md §1; settings-replace-file-catalog.md §1.1).
+ * Removed rows are never listed.
  */
 export interface CatalogRepositoryRow {
   id: string;
@@ -11,9 +12,9 @@ export interface CatalogRepositoryRow {
   name: string;
   url: string;
   branch: string;
-  /** A seeded row's yaml `profiles`; null for a console row. */
+  /** A seeded row's yaml `profiles`; null otherwise. */
   profiles: string[] | null;
-  source: "seed" | "console";
+  source: "seed" | "console" | "selection";
   version: number;
   created_at: string;
   updated_at: string;
@@ -50,10 +51,15 @@ export interface CatalogRepositoryStore {
    * never brings back what the console removed. Returns the ids inserted.
    */
   seed(input: { entries: () => Promise<SeedRepository[]> }): Promise<string[]>;
-  add(
+  /**
+   * The row of that GitHub repository: found by its id, else by
+   * owner/name (filling in a seeded row's id), else inserted as a
+   * `selection` row under `base`, numbered `-2`, `-3` past ids ever used or
+   * `reserved`. Only an insert leaves a receipt.
+   */
+  resolve(
     input: RepositoryWrite & {
-      /** The id asked for, or the base the store numbers from. */
-      id: { exact: string } | { base: string };
+      base: string;
       /** Ids the operator's file holds, which a row may not take. */
       reserved: ReadonlySet<string>;
       githubRepositoryId: number;
@@ -63,8 +69,13 @@ export interface CatalogRepositoryStore {
       branch: string;
     },
   ): Promise<
-    | { outcome: "stored"; repository: CatalogRepositoryRow }
-    | { outcome: "actor_inactive" | "already_added" | "id_taken" }
+    | {
+        outcome: "resolved";
+        repository: CatalogRepositoryRow;
+        /** False when an earlier row was found: no receipt was written. */
+        created: boolean;
+      }
+    | { outcome: "actor_inactive" }
   >;
   setBranch(
     input: RepositoryWrite & { id: string; branch: string; version: number },
@@ -72,14 +83,6 @@ export interface CatalogRepositoryStore {
     | { outcome: "stored"; repository: CatalogRepositoryRow }
     | { outcome: "actor_inactive" | "not_found" | "revision_conflict" }
   >;
-  remove(input: RepositoryWrite & { id: string }): Promise<
-    | { outcome: "removed" }
-    | { outcome: "actor_inactive" | "not_found" }
-    | {
-        outcome: "in_use";
-        /** Profile ceilings and agents whose active release names it. */
-        profiles: string[];
-        agents: string[];
-      }
-  >;
+  /** Per catalog id, how many agents' active releases name it. */
+  agentCounts(): Promise<ReadonlyMap<string, number>>;
 }

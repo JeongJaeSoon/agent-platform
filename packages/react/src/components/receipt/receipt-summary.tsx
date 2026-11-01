@@ -72,6 +72,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   mint_github_token: "GitHub 토큰 발급",
   set_github_ceiling: "에이전트 GitHub 권한 상한 변경",
   add_repository: "저장소 추가",
+  resolve_repository: "저장소 고르기",
   set_repository_branch: "저장소 기본 브랜치 변경",
   remove_repository: "저장소 제거",
   import_repository: "저장소 가져오기",

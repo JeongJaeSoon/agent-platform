@@ -231,6 +231,10 @@ export function createInstallationProfileService(deps: {
         permission_mode: definition.permission_mode,
         fingerprint: definitionFingerprint(request.name, definition),
         repository_ids: repositoryIds,
+        github_app_repositories:
+          definition.repository === "none"
+            ? "listed"
+            : (request.github_app_repositories ?? null),
         connectionId: request.connection_id,
       });
       switch (result.outcome) {

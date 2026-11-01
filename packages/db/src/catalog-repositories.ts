@@ -4,14 +4,13 @@ import type {
   CatalogRepositoryRow,
   CatalogRepositoryStore,
 } from "@werft-ai/platform";
-import { and, asc, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { lockedRole } from "./api-keys.ts";
 import type { Database } from "./queries.ts";
 import {
   agentReleases,
   agents,
   catalogRepositories,
-  installationProfiles,
   receipts,
   workspaces,
 } from "./schema.ts";
@@ -27,7 +26,10 @@ function rowOf(row: Row): CatalogRepositoryRow {
     url: row.url,
     branch: row.branch,
     profiles: row.profiles ?? null,
-    source: row.source === "seed" ? "seed" : "console",
+    source:
+      row.source === "seed" || row.source === "selection"
+        ? row.source
+        : "console",
     version: row.version,
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
@@ -56,9 +58,8 @@ async function receipt(
     requestId: string | null;
     receiptId?: string;
     operation:
-      | "add_repository"
+      | "resolve_repository"
       | "set_repository_branch"
-      | "remove_repository"
       | "import_repository";
     result: Record<string, unknown>;
   },
@@ -159,14 +160,17 @@ export function createPostgresCatalogRepositoryStore(
       });
     },
 
-    add(input) {
+    resolve(input) {
+      // Under the lock, so two first picks of one repository get one row
+      // and two repositories never take the same id.
       return db.transaction(async (tx) => {
         await lockWrites(tx);
-        if (!(await managerOf(tx, input.workspaceId, input.userId))) {
+        // Any member who still is one: who may pick was decided by policy.
+        if ((await lockedRole(tx, input.workspaceId, input.userId)) === null) {
           return { outcome: "actor_inactive" as const };
         }
         const [held] = await tx
-          .select({ id: catalogRepositories.id })
+          .select()
           .from(catalogRepositories)
           .where(
             and(
@@ -174,8 +178,31 @@ export function createPostgresCatalogRepositoryStore(
               sql`(${catalogRepositories.githubRepositoryId} = ${input.githubRepositoryId} OR (lower(${catalogRepositories.owner}) = lower(${input.owner}) AND lower(${catalogRepositories.name}) = lower(${input.name})))`,
             ),
           )
+          .orderBy(
+            sql`${catalogRepositories.githubRepositoryId} = ${input.githubRepositoryId} DESC NULLS LAST`,
+          )
           .limit(1);
-        if (held) return { outcome: "already_added" as const };
+        if (held) {
+          if (held.githubRepositoryId !== null) {
+            return {
+              outcome: "resolved" as const,
+              repository: rowOf(held),
+              created: false,
+            };
+          }
+          const [filled] = await tx
+            .update(catalogRepositories)
+            .set({ githubRepositoryId: input.githubRepositoryId })
+            .where(eq(catalogRepositories.id, held.id))
+            .returning();
+          if (!filled)
+            throw new Error("catalog repository update returned no row");
+          return {
+            outcome: "resolved" as const,
+            repository: rowOf(filled),
+            created: false,
+          };
+        }
         // Removed rows keep their id: none is ever handed out twice.
         const taken = new Set(
           (
@@ -184,19 +211,9 @@ export function createPostgresCatalogRepositoryStore(
               .from(catalogRepositories)
           ).map((row) => row.id),
         );
-        const free = (id: string) => !taken.has(id) && !input.reserved.has(id);
-        let id: string;
-        if ("exact" in input.id) {
-          if (!free(input.id.exact)) return { outcome: "id_taken" as const };
-          id = input.id.exact;
-        } else {
-          const { base } = input.id;
-          let n = 1;
-          id = base;
-          while (!free(id)) {
-            n += 1;
-            id = `${base}-${n}`;
-          }
+        let id = input.base;
+        for (let n = 2; taken.has(id) || input.reserved.has(id); n += 1) {
+          id = `${input.base}-${n}`;
         }
         const [row] = await tx
           .insert(catalogRepositories)
@@ -207,7 +224,7 @@ export function createPostgresCatalogRepositoryStore(
             name: input.name,
             url: input.url,
             branch: input.branch,
-            source: "console",
+            source: "selection",
             createdBy: input.userId,
             updatedBy: input.userId,
           })
@@ -219,11 +236,27 @@ export function createPostgresCatalogRepositoryStore(
           actor: input.actor,
           requestId: input.requestId,
           receiptId: input.receiptId,
-          operation: "add_repository",
+          operation: "resolve_repository",
           result: auditOf(repository),
         });
-        return { outcome: "stored" as const, repository };
+        return { outcome: "resolved" as const, repository, created: true };
       });
+    },
+
+    async agentCounts() {
+      const rows = await db
+        .select({
+          id: sql<string>`ids.id`,
+          count: sql<number>`count(DISTINCT ${agents.id})::int`,
+        })
+        .from(agents)
+        .innerJoin(agentReleases, eq(agentReleases.id, agents.activeReleaseId))
+        .innerJoin(
+          sql`jsonb_array_elements_text(coalesce(${agentReleases.policyPins} -> 'github' -> 'repositories', '[]'::jsonb)) AS ids(id)`,
+          sql`true`,
+        )
+        .groupBy(sql`ids.id`);
+      return new Map(rows.map((row) => [row.id, row.count]));
     },
 
     setBranch(input) {
@@ -271,70 +304,6 @@ export function createPostgresCatalogRepositoryStore(
           },
         });
         return { outcome: "stored" as const, repository };
-      });
-    },
-
-    remove(input) {
-      return db.transaction(async (tx) => {
-        await lockWrites(tx);
-        if (!(await managerOf(tx, input.workspaceId, input.userId))) {
-          return { outcome: "actor_inactive" as const };
-        }
-        const [held] = await tx
-          .select()
-          .from(catalogRepositories)
-          .where(
-            and(
-              eq(catalogRepositories.id, input.id),
-              isNull(catalogRepositories.removedAt),
-            ),
-          )
-          .limit(1);
-        if (!held) return { outcome: "not_found" as const };
-        const profiles = await tx
-          .select({ id: installationProfiles.id })
-          .from(installationProfiles)
-          .where(
-            and(
-              isNull(installationProfiles.retiredAt),
-              sql`${installationProfiles.repositoryIds} ? ${input.id}`,
-            ),
-          )
-          .orderBy(asc(installationProfiles.id));
-        const using = await tx
-          .select({ slug: agents.slug })
-          .from(agents)
-          .innerJoin(
-            agentReleases,
-            eq(agentReleases.id, agents.activeReleaseId),
-          )
-          .where(
-            and(
-              isNotNull(agents.activeReleaseId),
-              sql`(${agentReleases.repositoryId} = ${input.id} OR coalesce(${agentReleases.policyPins} -> 'github' -> 'repositories', '[]'::jsonb) ? ${input.id})`,
-            ),
-          )
-          .orderBy(asc(agents.slug));
-        if (profiles.length > 0 || using.length > 0) {
-          return {
-            outcome: "in_use" as const,
-            profiles: profiles.map((row) => row.id),
-            agents: using.map((row) => row.slug),
-          };
-        }
-        await tx
-          .update(catalogRepositories)
-          .set({ removedAt: sql`now()`, removedBy: input.userId })
-          .where(eq(catalogRepositories.id, input.id));
-        await receipt(tx, {
-          workspaceId: input.workspaceId,
-          actor: input.actor,
-          requestId: input.requestId,
-          receiptId: input.receiptId,
-          operation: "remove_repository",
-          result: auditOf(rowOf(held)),
-        });
-        return { outcome: "removed" as const };
       });
     },
   };

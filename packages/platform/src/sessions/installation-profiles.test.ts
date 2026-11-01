@@ -136,6 +136,10 @@ function memoryStore(rows: InstallationProfileRecord[]) {
         permission_mode: input.permission_mode,
         fingerprint: input.fingerprint,
         repository_ids: input.repository_ids,
+        github_app_repositories:
+          input.github_app_repositories ??
+          latest?.github_app_repositories ??
+          "listed",
         previous_id: input.previousId,
         created_by: input.actor.userId,
         created_at: new Date("2026-10-28T00:00:00Z"),
