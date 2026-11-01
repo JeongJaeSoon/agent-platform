@@ -551,7 +551,7 @@ export function createGitHubRepositoryService(deps: {
       if (result.changed) await reload();
       return {
         catalog_id: result.repository.id,
-        receipt_id: result.created ? receiptId : null,
+        receipt_id: result.changed ? receiptId : null,
       };
     },
   };

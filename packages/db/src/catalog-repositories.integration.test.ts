@@ -177,12 +177,13 @@ integration("catalog repositories on PostgreSQL", () => {
         ...newcomer,
       }),
     ).toEqual({ outcome: "name_held", id: "app1" });
-    // Picking the renamed one moves its row to the new name and URL, which
-    // frees the old name.
+    // Picking the renamed one moves its row to the new name and URL, with a
+    // receipt, which frees the old name.
+    const renameReceipt = randomUUID();
     expect(
       await store.resolve({
         ...owner,
-        receiptId: randomUUID(),
+        receiptId: renameReceipt,
         base: "x",
         reserved: new Set(),
         ...repo(1),
@@ -200,6 +201,32 @@ integration("catalog repositories on PostgreSQL", () => {
         version: 2,
       },
     });
+    const [renamed] = await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.id, renameReceipt));
+    expect(renamed).toMatchObject({
+      operation: "resolve_repository",
+      result: {
+        repository_id: "app1",
+        full_name: "Acme/App1-old",
+        previous_full_name: "Acme/App1",
+      },
+    });
+    // A seeded row with no GitHub id under the name a picked row was renamed
+    // to: neither row is taken for the other.
+    expect(
+      await store.resolve({
+        ...owner,
+        receiptId: randomUUID(),
+        base: "x",
+        reserved: new Set(),
+        ...repo(1),
+        name: "Seeded",
+        owner: "acme",
+        url: "https://github.com/acme/Seeded.git",
+      }),
+    ).toEqual({ outcome: "name_held", id: "seeded" });
     expect(
       await store.resolve({
         ...owner,

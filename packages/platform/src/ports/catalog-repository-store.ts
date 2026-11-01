@@ -56,8 +56,8 @@ export interface CatalogRepositoryStore {
    * owner/name and URL after a rename), else by owner/name on a row with no
    * GitHub id yet (filling it in), else inserted as a `selection` row under
    * `base`, numbered `-2`, `-3` past ids ever used or `reserved`. A row of
-   * another GitHub repository under that name is `name_held`. Only an
-   * insert leaves a receipt.
+   * another GitHub repository, or a second row with no GitHub id, under that
+   * name is `name_held`. An insert or a rename leaves a receipt.
    */
   resolve(
     input: RepositoryWrite & {
@@ -74,9 +74,9 @@ export interface CatalogRepositoryStore {
     | {
         outcome: "resolved";
         repository: CatalogRepositoryRow;
-        /** False when an earlier row was found: no receipt was written. */
+        /** False when an earlier row was found. */
         created: boolean;
-        /** Whether the catalog changed: an insert or a rename. */
+        /** Whether the catalog changed, an insert or a rename: a receipt was written. */
         changed: boolean;
       }
     | { outcome: "name_held"; id: string }

@@ -187,12 +187,14 @@ export function createPostgresCatalogRepositoryStore(
           .select()
           .from(catalogRepositories)
           .where(and(active, sameName));
-        // The name belongs to another GitHub repository's row: the one that
-        // had it was renamed or deleted and this one took the name since.
+        // Another row holds the name: one of another GitHub repository (the
+        // one that had it was renamed or deleted), or one never tied to an id
+        // beside this repository's own row.
         if (
           byName !== undefined &&
-          byName.githubRepositoryId !== null &&
-          byName.githubRepositoryId !== input.githubRepositoryId
+          (byId === undefined
+            ? byName.githubRepositoryId !== null
+            : byName.id !== byId.id)
         ) {
           return { outcome: "name_held" as const, id: byName.id };
         }
@@ -220,9 +222,21 @@ export function createPostgresCatalogRepositoryStore(
             .returning();
           if (!renamed)
             throw new Error("catalog repository update returned no row");
+          const repository = rowOf(renamed);
+          await receipt(tx, {
+            workspaceId: input.workspaceId,
+            actor: input.actor,
+            requestId: input.requestId,
+            receiptId: input.receiptId,
+            operation: "resolve_repository",
+            result: {
+              ...auditOf(repository),
+              previous_full_name: `${byId.owner}/${byId.name}`,
+            },
+          });
           return {
             outcome: "resolved" as const,
-            repository: rowOf(renamed),
+            repository,
             created: false,
             changed: true,
           };
