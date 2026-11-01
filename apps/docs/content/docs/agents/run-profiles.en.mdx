@@ -3,7 +3,7 @@ title: "Choose a run profile"
 description: The run profile that decides which model, tools, and permission mode a session runs with
 ---
 
-A run profile (profile) decides how a session runs: the runtime and its version, the model, the tool list, the permission mode, the model provider, and whether it uses a repository. Operator profiles (installation ceilings) live in the installation's database, and users choose one by id. Each profile's row also holds the repositories it can run against. A new installation fills them once, while the database is empty, from `config/profiles.yaml` and the `profiles` lists in `config/repositories.yaml`; editing those files later changes nothing. Model provider connections are in `config/connections.yaml`.
+A run profile (profile) decides how a session runs: the runtime and its version, the model, the tool list, the permission mode, the model provider, and whether it uses a repository. Operator profiles (installation profiles in the console) set the widest range every workspace on the installation can use. They live in the installation's database, and users choose one by id. Each profile's row also holds the repositories it can run against. A new installation fills them once, while the database is empty, from `config/profiles.yaml` and the `profiles` lists in `config/repositories.yaml`; editing those files later changes nothing. Model provider connections are in `config/connections.yaml`.
 
 ## List profiles
 

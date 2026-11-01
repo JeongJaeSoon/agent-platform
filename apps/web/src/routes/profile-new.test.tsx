@@ -378,7 +378,7 @@ describe("프로필 만들기 (워크스페이스)", () => {
   });
 });
 
-describe("프로필 만들기 (설치 상한)", () => {
+describe("프로필 만들기 (설치 프로필)", () => {
   test("an owner picks the kind, and the ceiling form reads its choices from options", async () => {
     const { history } = renderAt("/profiles/new", catalog().routes);
     const kinds = await screen.findByRole("radiogroup", { name: "종류" });
@@ -392,10 +392,10 @@ describe("프로필 만들기 (설치 상한)", () => {
         ]),
     ).toEqual([
       ["워크스페이스 프로필", "true"],
-      ["설치 상한", "false"],
+      ["설치 프로필", "false"],
     ]);
     const user = await setupUser();
-    await user.click(within(kinds).getByRole("radio", { name: "설치 상한" }));
+    await user.click(within(kinds).getByRole("radio", { name: "설치 프로필" }));
     await waitFor(() =>
       expect(history.location.search).toContain("kind=installation"),
     );
@@ -476,7 +476,10 @@ describe("프로필 만들기 (설치 상한)", () => {
       "/profiles/new?kind=installation",
       catalog().routes,
     );
-    await screen.findByRole("heading", { level: 1, name: "설치 상한 만들기" });
+    await screen.findByRole("heading", {
+      level: 1,
+      name: "설치 프로필 만들기",
+    });
     const user = await setupUser();
     await user.type(await screen.findByLabelText("이름"), "wide");
     expect(screen.getByText("wide v1으로 저장합니다.")).toBeDefined();
@@ -659,7 +662,7 @@ describe("프로필 만들기 (설치 상한)", () => {
         "unattended_not_allowed",
         { reason_code: "unattended_not_allowed", field: "permission_mode" },
         "권한 모드",
-        "이 설치는 PLATFORM_ALLOW_UNATTENDED_PERMISSIONS가 꺼져 있어 bypassPermissions 상한을 저장하지 않습니다.",
+        "이 설치는 PLATFORM_ALLOW_UNATTENDED_PERMISSIONS가 꺼져 있어 bypassPermissions 프로필을 저장하지 않습니다.",
       ],
       [
         "model_not_in_models",
@@ -771,7 +774,7 @@ describe("프로필 만들기 (설치 상한)", () => {
     await user.type(await screen.findByLabelText("이름"), "wide");
     await user.click(screen.getByRole("button", { name: "저장" }));
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "설치 상한은 워크스페이스 owner만 만들고 사용 중지할 수 있습니다.",
+      "설치 프로필은 워크스페이스 owner만 만들고 사용 중지할 수 있습니다.",
     );
   });
 

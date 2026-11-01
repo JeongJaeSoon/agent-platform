@@ -3,7 +3,7 @@ title: "실행 프로필 고르기"
 description: 세션이 어떤 모델·도구·권한 모드로 도는지 정하는 실행 프로필
 ---
 
-실행 프로필(profile)은 세션이 도는 방식을 정한다: runtime과 그 버전, 모델, 도구 목록, 권한 모드, 모델 provider, 저장소를 쓰는지. 운영자 프로필(설치 상한)은 설치의 DB에 있고 사용자는 id로 고른다. 프로필마다 돌 수 있는 저장소 목록도 그 DB 행에 있다. 새 설치는 DB가 비어 있을 때 한 번만 `config/profiles.yaml`과 `config/repositories.yaml`의 `profiles` 배열로 채워지고, 그 뒤로는 파일을 고쳐도 바뀌지 않는다. 모델 provider 연결은 `config/connections.yaml`에 있다.
+실행 프로필(profile)은 세션이 도는 방식을 정한다: runtime과 그 버전, 모델, 도구 목록, 권한 모드, 모델 provider, 저장소를 쓰는지. 운영자 프로필(콘솔의 설치 프로필)은 이 설치의 모든 워크스페이스가 쓸 수 있는 가장 넓은 범위를 정한다. 설치의 DB에 있고 사용자는 id로 고른다. 프로필마다 돌 수 있는 저장소 목록도 그 DB 행에 있다. 새 설치는 DB가 비어 있을 때 한 번만 `config/profiles.yaml`과 `config/repositories.yaml`의 `profiles` 배열로 채워지고, 그 뒤로는 파일을 고쳐도 바뀌지 않는다. 모델 provider 연결은 `config/connections.yaml`에 있다.
 
 ## 목록 보기
 
