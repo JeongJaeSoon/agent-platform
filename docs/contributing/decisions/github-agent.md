@@ -166,10 +166,11 @@ export type GitHubPurpose =
   | "outcome_refresh";
 
 export type GitHubWork = {
-  // The repository is never passed: the gate reads it off the session row
-  // and checks its catalog binding, as the clone path does today.
   sessionId: string;
   purpose: GitHubPurpose;
+  // Passed, but never trusted: the gate checks it again against the
+  // session row (its own repository, its attached list) and the release.
+  repositoryId?: string;
   /** dispatch only. */
   workflow?: { file: string; ref: string };
   /** rerun only. The gate finds its workflow and ref in github_workflow_dispatches. */
@@ -195,6 +196,7 @@ export interface GitHubGate {
 }
 ```
 
+- 원칙: 호출자는 저장소를 넘기되, 게이트가 세션 행(주 저장소와 부착 목록)과 릴리스로 다시 검증한다. 넘긴 값은 힌트일 뿐 허용 범위를 넓히지 않는다. 주 저장소가 아닌 저장소에는 `clone`·`push`·`pull_request`와 플랫폼의 `outcome_refresh`만 허용한다([session-multi-repository.md](session-multi-repository.md) 결정 1·5).
 - `grant`가 하는 일, 이 순서로:
   1. 세션 → 릴리스 → 에이전트를 읽는다. 릴리스가 없는 세션은 "기본 설정"을 쓴다. 기본 설정은 GitHub 켜짐, push 승인 켜짐, 선택 권한 없음, 프로필이 허용하는 모든 저장소다. 지금 동작과 같다.
   2. `agents.github_enabled`이 false면 `github_disabled`다.

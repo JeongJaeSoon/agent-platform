@@ -64,6 +64,7 @@ export function createPostgresGitHubGateStore(
           ownerId: sessions.ownerId,
           repositoryId: sessions.repositoryId,
           profileId: sessions.profileId,
+          attachedRepositoryIds: sessions.attachedRepositoryIds,
           repoUrl: sessions.repoUrl,
           branch: sessions.branch,
           // Turn 1's actor, else the creator: the session-shares rule.
@@ -95,6 +96,7 @@ export function createPostgresGitHubGateStore(
         sessionId,
         repositoryId: row.repositoryId,
         profileId: row.profileId,
+        attachedRepositoryIds: row.attachedRepositoryIds,
         repository:
           row.repoUrl === null || row.branch === null
             ? null

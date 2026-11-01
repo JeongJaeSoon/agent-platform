@@ -130,6 +130,7 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
         .select({
           repositoryId: sessions.repositoryId,
           profileId: sessions.profileId,
+          attached: sessions.attachedRepositoryIds,
           releaseId: agentReleases.id,
           // Only an explicit false: a release without GitHub settings, or
           // with a shape this image does not know, keeps a person deciding.
@@ -155,6 +156,7 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
       return {
         repositoryId: row.repositoryId,
         profileId: row.profileId,
+        attached: row.attached,
         github:
           github === null ? null : github.success ? github.data : "invalid",
         githubEnabled: row.githubEnabled ?? false,

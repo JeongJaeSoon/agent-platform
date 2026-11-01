@@ -145,6 +145,7 @@ function app(
         sessionId,
         repositoryId: "app",
         profileId: null,
+        attachedRepositoryIds: null,
         repository: { url: "https://github.com/acme/app.git", branch: "main" },
         startedBy: null,
         agent: null,

@@ -20,7 +20,10 @@ import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { migrate } from "./migrate.ts";
-import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
+import {
+  createPostgresSessionReader,
+  createPostgresSessionUnitOfWork,
+} from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import { sessions } from "./schema.ts";
 
@@ -214,5 +217,55 @@ integration("sessions.repository_mode", () => {
       .from(sessions)
       .where(eq(sessions.id, accepted.response.session_id));
     expect(row).toEqual({ repositoryMode: "repository" });
+  });
+
+  test("the attached list is written as given and read back, null when not given", async () => {
+    await migrate(db, { migrationsFolder: MIGRATIONS });
+    const inputs = createPostgresSessionUnitOfWork(db);
+    const reader = createPostgresSessionReader(db);
+    const ownerId = `owner-${randomUUID()}`;
+    const accept = (attachedRepositoryIds?: string[]) =>
+      inputs.acceptInputAtomic({
+        principal: { ownerId },
+        idempotencyKey: randomUUID(),
+        payloadHash: randomUUID(),
+        profileId: "general",
+        repository: {
+          id: "repo-a",
+          url: "https://example.invalid/a.git",
+          branch: "main",
+        },
+        ...(attachedRepositoryIds === undefined
+          ? {}
+          : { attachedRepositoryIds }),
+        message: "hello",
+        limits: LIMITS,
+      });
+    const read = async (attached?: string[]) => {
+      const accepted = await accept(attached);
+      if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
+      return (await reader.getSession(ownerId, accepted.response.session_id))
+        ?.attached_repository_ids;
+    };
+
+    expect(await read(["repo-b", "repo-c"])).toEqual(["repo-b", "repo-c"]);
+    expect(await read([])).toEqual([]);
+    expect(await read()).toBeNull();
+  });
+
+  test("the CHECK refuses an attached list on a session without a repository", async () => {
+    await migrate(db, { migrationsFolder: MIGRATIONS });
+    await expect(
+      pool.query(
+        `INSERT INTO sessions (id, owner_id, repository_mode, attached_repository_ids)
+         VALUES ($1, 'owner', 'none', '{}')`,
+        [randomUUID()],
+      ),
+    ).rejects.toThrow("sessions_attached_repositories_check");
+    await pool.query(
+      `INSERT INTO sessions (id, owner_id, repository_mode, attached_repository_ids)
+       VALUES ($1, 'owner', 'none', NULL)`,
+      [randomUUID()],
+    );
   });
 });

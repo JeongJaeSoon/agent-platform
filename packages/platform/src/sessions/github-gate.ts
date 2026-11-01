@@ -1,6 +1,7 @@
 import {
   GITHUB_AGENT_REF_PREFIX,
   GITHUB_CEILING_NONE,
+  type GitHubPurpose,
   type GitHubRefusal,
   githubAllowedBy,
   githubEffectiveFeatures,
@@ -27,6 +28,13 @@ import {
   additionalRepositoryAllowed,
 } from "./additional-repositories.ts";
 import type { SessionCatalog } from "./catalog.ts";
+
+const ANOTHER_REPOSITORY_PURPOSES: ReadonlySet<GitHubPurpose> = new Set([
+  "clone",
+  "push",
+  "pull_request",
+  "outcome_refresh",
+]);
 
 /**
  * The one place a GitHub credential is issued (design github-agent.md §3).
@@ -126,6 +134,11 @@ export function createGitHubGate(deps: {
       const listed = Object.hasOwn(catalog.repositories, repositoryId)
         ? catalog.repositories[repositoryId]
         : undefined;
+      // Another repository is fetched, pushed to and given pull requests;
+      // its workflows and reviews stay with the session's own (F1, 94S-1094).
+      if (!own && !ANOTHER_REPOSITORY_PURPOSES.has(work.purpose)) {
+        return await refuse("repository_not_allowed");
+      }
       let entry: SessionCatalog["repositories"][string];
       if (own) {
         if (
@@ -148,6 +161,7 @@ export function createGitHubGate(deps: {
           {
             repositoryId: context.repositoryId,
             profileId: context.profileId,
+            attached: context.attachedRepositoryIds,
             github: context.release?.github ?? null,
             githubEnabled: context.agent?.githubEnabled ?? false,
           },
@@ -305,6 +319,7 @@ export function createGitHubGate(deps: {
       return additionalRepositoriesOf(catalog, {
         repositoryId: context.repositoryId,
         profileId: context.profileId,
+        attached: context.attachedRepositoryIds,
         github: context.release?.github ?? null,
         githubEnabled: context.agent?.githubEnabled ?? false,
       })
