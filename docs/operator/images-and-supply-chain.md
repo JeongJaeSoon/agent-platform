@@ -52,7 +52,7 @@ worker가 쓰는 npm 설정은 user 수준이라, 저장소의 `.npmrc`가 `regi
 
 같은 날 실제 세션(npm 캐시를 비운 상태)에서 설치까지 돌린 결과도 같다. 저장소가 공개 registry를 고정한 프로젝트에서 `npm ci`는 `403 Forbidden - GET https://registry.npmjs.org/...`로 실패했다. `pnpm install`은 저장소 registry로 가면서 route 주소에만 걸린 token을 찾지 못해 `No authorization header was set for the request`로 실패했다. 고정하지 않은 프로젝트의 `npm ci`·`bundle install`은 route로 받았다.
 
-Go는 공식 릴리스 tarball을 checksum으로 고정해 파생 이미지의 `/usr/local/go`에 풀고 `PATH`에 더한다. `GOTOOLCHAIN=local`을 함께 둔다. 그러지 않으면 `go.mod`의 `go` 줄이 이미지보다 새로울 때 Go가 새 툴체인을 받으러 나간다. 사용자는 이미지의 원래 사용자(`USER 1000:1000`)로 되돌린다. local-docker 실행 기반에서는 worker의 `/tmp` tmpfs가 실행을 막아(Docker tmpfs의 기본값 `noexec`) `go run`이 `fork/exec … permission denied`로 실패한다. 실행 파일은 `go build -o`로 workspace에 만든다.
+Go는 공식 릴리스 tarball을 checksum으로 고정해 파생 이미지의 `/usr/local/go`에 풀고 `PATH`에 더한다. `GOTOOLCHAIN=local`을 함께 둔다. 그러지 않으면 `go.mod`의 `go` 줄이 이미지보다 새로울 때 Go가 새 툴체인을 받으러 나간다. 사용자는 이미지의 원래 사용자(`USER 1000:1000`)로 되돌린다. local-docker 실행 기반의 worker `/tmp`는 tmpfs 옵션에 `exec`가 없어 Docker가 `noexec`로 올린다. 그래서 `go run`과 `go test`가 `/tmp`에 만든 실행 파일을 띄우지 못하고 `fork/exec /tmp/go-build…: permission denied`로 실패한다(2026-11-02 실측). HOME도 같은 tmpfs라 `go install`이 `~/go/bin`에 둔 파일도 실행되지 않는다. `go test`는 `GOTMPDIR`를 workspace 안의 이미 있는 디렉터리로 지정하면 통과한다. `go run`은 실행 파일을 `GOCACHE`(기본값은 HOME 아래)에서 띄우므로 `GOCACHE`도 workspace로 옮겨야 한다(예: `mkdir -p .gotmp && export GOTMPDIR=$PWD/.gotmp GOCACHE=$PWD/.gotmp/cache`, 같은 날 실측). 실행 파일은 `go build -o`로 workspace에 만든다.
 
 ```dockerfile
 FROM <출하 worker 이미지>
