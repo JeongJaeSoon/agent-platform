@@ -1,7 +1,7 @@
-# 결정(초안): 세션은 저장소에 묶이지 않고, 저장소를 붙여 쓴다
+# 결정: 세션은 저장소에 묶이지 않고, 저장소를 붙여 쓴다
 
-- 상태: 초안. 오너 확인 대기. 구현은 확정 뒤 이 문서를 계약으로 쓴다.
-- 기준 커밋: `origin/main` `7ad7ff816`. 아래 `파일:줄`은 이 커밋 기준이다.
+- 상태: 확정. 오너 승인 2026-11-02(원문 "좋은거 같아"). 구현은 이 문서를 계약으로 쓴다.
+- 기준 커밋: `origin/main` `d90b26731`. 아래 `파일:줄`은 이 커밋 기준이다.
 - 오너 원문(2026-11-01): "세션에 저장소가 연결되어있다는 개념을 없애는건 좋지않으려나 … 여러 agents 들의 동작 방식을 조사해보고 검토해서 반영해올래? 필요하다면 세션 내에서 필요한 세션을 뭔가 바꿔서 clone 한다거나 그런게 필요할거 같기도하네".
 - 앞 결정: [session-multi-repository.md](session-multi-repository.md)(#986). 이 문서는 그 결정 1의 "세션이 다룰 수 있는 저장소"를 상한과 사용 범위로 나눈다. 결정 2~5(원격 여러 개, push 대상 선택, PR, 게이트의 저장소 인자)는 그대로 쓴다.
 
@@ -30,12 +30,12 @@
 ## 지금 구조
 
 - 프로필 `repository_mode`(required·optional·none, `packages/contracts/src/api/profiles.ts:15`)가 세션에 기본 저장소가 있는지를 정한다. 저장소 없는 세션은 `git init`한 빈 작업 디렉터리에서 시작하고 checkpoint도 지금처럼 된다(`apps/worker/src/workspace.ts:366-391`).
-- claim은 저장소 없는 실행 쌍을 이미 만든다(`packages/platform/src/workers/worker-gateway.ts:681-690`).
+- claim은 저장소 없는 실행 쌍을 이미 만든다(`packages/platform/src/workers/worker-gateway.ts:696-705`).
 - #986의 추가 저장소는 기본 저장소가 있어야 쓴다. 기본 저장소가 없으면 다음이 막는다.
   - 릴리스 `github` 설정: `packages/platform/src/agents/agent-service.ts:144` `repository_none`
   - push 요청: `packages/platform/src/sessions/push-request-service.ts:174` `no_repository`
-  - claim의 `additional_repositories`: `worker-gateway.ts:1250-1255`
-  - egress 인가: `worker-gateway.ts:1447`
+  - claim의 `additional_repositories`: `worker-gateway.ts:1278-1283`
+  - egress 인가: `worker-gateway.ts:1526`
   - worker의 원격 부착: `apps/worker/src/workspace.ts:274`
 - #986은 상한 안의 저장소를 claim마다 모두 fetch한다. 세션이 어느 저장소를 실제로 썼는지는 push·PR receipt로만 남는다.
 
@@ -50,13 +50,14 @@
 - **상한**은 #986 결정 1 그대로다. 오너가 릴리스에 고른 목록이고, 쓸 때마다 다시 읽는다. 새 승인 단위는 만들지 않는다.
 - **부착 목록**은 세션 행에 둔다(`attached_repository_ids`). 시작할 때 고른 저장소와 도중에 붙인 저장소가 들어간다. 기본 저장소는 들어가지 않는다.
 - egress `/repository/<id>`, push, PR, 성과물 조회는 모두 게이트에서 "부착 목록에 있고 지금도 상한 안인가"를 본다. 부착 도구만 검사하면 다른 경로로 우회할 수 있기 때문이다. 어기면 `repository_not_allowed`(403)와 receipt다.
-- 호환: 기존 행과, 생략해서 만든 세션은 NULL이다. NULL은 #986 동작(상한 전체를 붙인 것으로 본다)이다. 언제 이 기본값을 "처음엔 없음"으로 바꿀지는 [오너가 정할 것](#오너가-정할-것) 2.
+- 호환: 기존 행과, 생략해서 만든 세션은 NULL이다. NULL은 #986 동작(상한 전체를 붙인 것으로 본다)이다. `[]`는 처음엔 아무것도 붙이지 않은 것, `[a, b]`는 a·b만 붙인 것이다. 어느 쪽이든 도중 부착으로 늘어난다.
+- `attach_repository`가 들어간 뒤 생략의 의미를 "처음엔 없음"으로 바꾼다. 그 전까지는 NULL이 상한 전체를 미리 받아 온다([오너 결정](#오너-결정-2026-11-02) 2).
 
 ## 결정 3: 일하는 도중에 붙인다
 
 - 내장 MCP 도구 `attach_repository({ repository_id })`를 둔다. 순서: 게이트가 상한을 확인한다 → 부착 목록에 더한다 → worker가 #986 결정 2처럼 원격 `<id>`를 달고 기본 브랜치를 fetch한다. 에이전트는 토큰을 보지 않는다.
 - 같은 저장소를 다시 붙이면 아무것도 바꾸지 않고 성공한다(멱등). 끝난 attempt의 요청은 거절한다.
-- receipt: 요청한 attempt, 저장소, fetch한 commit, 거절 사유. 사람 승인은 받지 않는다([오너가 정할 것](#오너가-정할-것) 3). 쓰기는 지금처럼 push 요청 승인이 막는다.
+- receipt: 요청한 attempt, 저장소, fetch한 commit, 거절 사유. 사람 승인은 받지 않는다([오너 결정](#오너-결정-2026-11-02) 3). 쓰기는 지금처럼 push 요청 승인이 막는다.
 - restore 뒤에는 worker가 부착 목록으로 원격을 다시 단다.
 - 에이전트가 터미널에서 직접 `git clone`한 결과는 보존하지 않는다. egress가 토큰을 주지 않으므로 private 저장소는 받을 수 없고, 받은 것도 checkpoint가 중첩 저장소로 거절한다(`apps/worker/src/workspace-capture.ts:560-565`). 도구로 붙인 저장소만 세션의 저장소다.
 
@@ -88,7 +89,7 @@
 
 ## 순서
 
-1. 이 문서 확정.
+1. 이 문서 확정(2026-11-02).
 2. 부착 목록 저장과 모든 경로의 검사. `github-agent.md` `### GitHub 게이트`의 "The repository is never passed" 문장을 "저장소를 넘기되 게이트가 세션 행과 릴리스로 다시 검증한다"로 고친다.
 3. 기본 저장소 없는 `optional` 세션의 차단 제거.
 4. `attach_repository` 도구, worker 멱등 부착, restore 뒤 재부착, receipt.
@@ -96,11 +97,13 @@
 
 검증: verify 스택과 실제 GitHub에서 "저장소 없이 시작 → 부착 → 편집 → 볼륨 손실 → restore → 대상별 push·PR", 상한에서 뺀 뒤 거절, 부착 도중 crash 뒤 재시도.
 
-## 오너가 정할 것
+## 오너 결정 (2026-11-02)
 
-1. 이 방향. 추천: 승인.
-2. 생략한 세션의 기본 부착. ① 상한 전체(#986 지금 동작) ② 처음엔 없음, 필요할 때 붙임. 추천: `attach_repository`가 들어가면 ②, 그 전까지 ①. ②는 claim마다 하는 fetch를 줄이고 세션이 실제로 쓴 저장소를 남긴다.
-3. 도중 부착에 사람 승인을 받을지. 추천: 받지 않는다. 상한은 오너가 이미 고른 릴리스 목록이고 쓰기는 push 승인이 막는다.
+오너가 이 방향과 아래 추천을 함께 승인했다(원문 "좋은거 같아").
+
+1. 방향: 승인.
+2. 생략한 세션의 기본 부착: `attach_repository`가 들어가기 전까지는 ① 상한 전체를 미리 받는다(#986 지금 동작). 도구가 들어가면 ② 처음엔 없음, 필요할 때 붙임으로 바꾼다. ②는 claim마다 하는 fetch를 줄이고 세션이 실제로 쓴 저장소를 남긴다.
+3. 도중 부착에 사람 승인: 받지 않는다. 상한은 오너가 이미 고른 릴리스 목록이고 쓰기는 push 승인이 막는다.
 
 ## LATER
 

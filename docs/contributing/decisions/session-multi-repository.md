@@ -4,7 +4,7 @@
 - 기준 커밋: `origin/main` `971d2fe34`. 아래 `파일:줄`은 이 커밋 기준이다.
 - 오너 원문(2026-11-01): "한 세션에서 여러 repo, 여러 pr 도 대응가능하게 하고싶어. 특별히 갯수 제한도 두고 싶지 않아. 개선해줘".
 - 오너가 정한 남용 방지: 개수 제한은 두지 않는다. 기존 push 승인과 감사 기록(receipt)으로 막는다.
-- 후속(초안): [session-repository-attachment.md](session-repository-attachment.md)는 결정 1의 목록을 상한으로 두고, 세션이 쓰는 범위를 세션 행의 부착 목록으로 좁힌다.
+- 후속(오너 승인 2026-11-02): [session-repository-attachment.md](session-repository-attachment.md)는 결정 1의 목록을 상한으로 두고, 세션이 쓰는 범위를 세션 행의 부착 목록으로 좁힌다.
 
 ## 지금 구조
 
