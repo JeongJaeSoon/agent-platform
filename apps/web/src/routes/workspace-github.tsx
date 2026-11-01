@@ -692,6 +692,8 @@ function GitHubApp({
   // Under the card's row for a first App, under the danger zone's row when it
   // replaces one. Hoisted: appRows above renders it.
   function appForm() {
+    // A first author App: the reviewer and the replace forms skip the intro.
+    const adding = author && !registered;
     return (
       <RowListItem>
         <form
@@ -703,18 +705,22 @@ function GitHubApp({
               onOutcome({ kind: "error", text: t("github.invalidKey") });
             })
           }
-          aria-describedby={introId}
         >
-          <div id={introId} className="text-description text-muted-foreground">
-            {t("github.addExistingHint")}{" "}
-            <Link
-              href={PRIVATE_KEYS_DOC}
-              target="_blank"
-              newTabLabel={t("github.newTab")}
+          {adding ? (
+            <div
+              id={introId}
+              className="text-description text-muted-foreground"
             >
-              {t("github.privateKeysLink")}
-            </Link>
-          </div>
+              {t("github.addExistingHint")}{" "}
+              <Link
+                href={PRIVATE_KEYS_DOC}
+                target="_blank"
+                newTabLabel={t("github.newTab")}
+              >
+                {t("github.privateKeysLink")}
+              </Link>
+            </div>
+          ) : null}
           <Field>
             <FieldLabel htmlFor={appIdId}>{t("github.appId")}</FieldLabel>
             <Input
@@ -726,7 +732,8 @@ function GitHubApp({
               autoComplete="off"
               spellCheck={false}
               defaultValue={registered ? String(registered.app_id) : ""}
-              aria-describedby={appIdHint}
+              // Focus lands here, so the intro is read with the field.
+              aria-describedby={adding ? `${introId} ${appIdHint}` : appIdHint}
               aria-invalid={missing === "appId" || undefined}
             />
             <FieldDescription id={appIdHint}>
@@ -758,9 +765,9 @@ function GitHubApp({
             ) : null}
           </Field>
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {registered ? null : (
+            {adding ? (
               <div className={`${META} mr-auto`}>{t("github.connectNote")}</div>
-            )}
+            ) : null}
             <Button
               type="button"
               variant="ghost"

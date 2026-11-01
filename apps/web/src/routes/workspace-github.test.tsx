@@ -220,11 +220,13 @@ describe("워크스페이스 GitHub 연결", () => {
       }),
     );
     // The form says why an old .pem cannot be fetched again, and links the docs.
-    const form = screen.getByRole("button", { name: "연결" }).closest("form");
-    expect(form?.getAttribute("aria-describedby")).toBeTruthy();
-    expect(
-      screen.getByText(/예전에 받은 \.pem을 다시 내려받을 수 없습니다/),
-    ).toBeDefined();
+    const described = (
+      screen.getByLabelText("App ID").getAttribute("aria-describedby") ?? ""
+    )
+      .split(" ")
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" ");
+    expect(described).toContain("예전에 받은 .pem을 다시 내려받을 수 없습니다");
     expect(
       screen
         .getByRole("link", { name: /GitHub 문서: 개인 키 관리/ })
@@ -712,6 +714,8 @@ describe("워크스페이스 GitHub 연결 — 사용자 계정 연결", () => {
     expect(
       screen.getByRole("region", { name: "위험 구역" }).contains(input),
     ).toBe(true);
+    // Replacing is not adding an existing App: no intro, no connect note.
+    expect(screen.queryByText(/예전에 받은 \.pem/)).toBeNull();
     await user.type(input, "4243");
     await user.upload(screen.getByLabelText("Private key (.pem)"), keyFile());
     await user.click(screen.getByRole("button", { name: "확인하고 저장" }));
