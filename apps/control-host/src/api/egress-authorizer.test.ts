@@ -172,6 +172,46 @@ describe("egress authorizer", () => {
     });
   });
 
+  test("a packages token opens a public registry with no credential, and nothing else", async () => {
+    const claim = await claimed();
+    const packages = claim.packages?.access.token ?? "";
+    expect(packages.startsWith("wek_")).toBe(true);
+    const npm = await ask({
+      token: packages,
+      purpose: "packages",
+      registry: "npm",
+    });
+    expect(npm.status).toBe(200);
+    expect(await npm.json()).toEqual({
+      session_id: claim.session_id,
+      attempt_id: claim.attempt_id,
+      upstream: { url: "https://registry.npmjs.org", headers: [] },
+    });
+    const gosum = await ask({
+      token: packages,
+      purpose: "packages",
+      registry: "gosum",
+    });
+    expect((await gosum.json()).upstream.url).toBe("https://sum.golang.org");
+    // A registry the route never names, and a token for another route.
+    expect(
+      (await ask({ token: packages, purpose: "packages", registry: "pypi" }))
+        .status,
+    ).toBe(400);
+    expect(
+      (
+        await ask({
+          token: claim.object_store.access.token,
+          purpose: "packages",
+          registry: "npm",
+        })
+      ).status,
+    ).toBe(401);
+    expect((await ask({ token: packages, purpose: "provider" })).status).toBe(
+      401,
+    );
+  });
+
   test("answers nothing without its own bearer, whatever the token", async () => {
     const claim = await claimed();
     const body = {
@@ -601,6 +641,7 @@ describe("egress authorizer: remote MCP", () => {
       gateway: {
         authorizeEgress: refuse,
         authorizeObjectAccess: refuse,
+        authorizePackagesEgress: refuse,
         recordProviderUsage: refuse,
         authorizeMcpEgress: answer as never,
       },
@@ -680,6 +721,7 @@ describe("egress authorizer: remote MCP", () => {
           );
         },
         authorizeObjectAccess: refuse,
+        authorizePackagesEgress: refuse,
         recordProviderUsage: refuse,
         authorizeMcpEgress: refuse,
       },

@@ -129,6 +129,11 @@ import {
 } from "../sessions/session-titler.ts";
 import { createGitHubMcpEgress } from "./github-mcp-egress.ts";
 import { createMcpEgress, type McpEgressRequest } from "./mcp-egress.ts";
+import {
+  PACKAGES_BINDING,
+  type PackageRegistry,
+  PUBLIC_PACKAGE_REGISTRIES,
+} from "./package-registries.ts";
 
 const WORKSPACE_PROFILE_MAX_AGE_MS = 1000;
 
@@ -247,6 +252,7 @@ const EGRESS_TOKEN_PREFIXES: Record<EgressPurpose, string> = {
   repository: "wer",
   object_store: "weo",
   mcp: "wem",
+  packages: "wek",
 };
 
 function generateEgressToken(purpose: EgressPurpose): string {
@@ -860,7 +866,10 @@ export function createWorkerGateway(deps: {
     // One token serves both servers; it is held to the catalog server's
     // binding when there is one, as the remote route checks.
     const [first] = claimedMcp(session);
-    const mcpBinding = first === undefined ? {} : { mcp: first.binding };
+    const mcpBinding = {
+      ...(first === undefined ? {} : { mcp: first.binding }),
+      packages: PACKAGES_BINDING,
+    };
     if (session.repositoryMode === "none") {
       return { provider, repository: null, object_store, ...mcpBinding };
     }
@@ -1062,6 +1071,7 @@ export function createWorkerGateway(deps: {
       const repositoryToken = generateEgressToken("repository");
       const objectStoreToken = generateEgressToken("object_store");
       const mcpToken = generateEgressToken("mcp");
+      const packagesToken = generateEgressToken("packages");
       await refreshForClaim();
       const claimable = claimCatalog();
       const result = await work.claimAtomic({
@@ -1092,6 +1102,7 @@ export function createWorkerGateway(deps: {
           repositoryHash: hashWorkerToken(repositoryToken),
           objectStoreHash: hashWorkerToken(objectStoreToken),
           mcpHash: hashWorkerToken(mcpToken),
+          packagesHash: hashWorkerToken(packagesToken),
           bindingsOf: egressBindingsOf,
         },
         leaseTtlMs,
@@ -1198,6 +1209,9 @@ export function createWorkerGateway(deps: {
               mcp,
               mcpToken,
             ),
+            packages: {
+              access: { kind: "egress_token", token: packagesToken },
+            },
             workspace: {
               repository: binding.repository && {
                 ...binding.repository,
@@ -1288,6 +1302,27 @@ export function createWorkerGateway(deps: {
         session_id: result.sessionId,
         attempt_id: result.attemptId,
         upstream: decision.upstream,
+      };
+    },
+
+    // A public registry carries no credential, so the gateway's part is the
+    // fence: only a token whose attempt still owns its session reaches one.
+    async authorizePackagesEgress(request: {
+      token: string;
+      registry: PackageRegistry;
+    }): Promise<EgressGrant> {
+      const result = await authorizedEgress({
+        token: request.token,
+        purpose: "packages",
+      });
+      if (result.binding !== PACKAGES_BINDING) moved("package registry set");
+      return {
+        session_id: result.sessionId,
+        attempt_id: result.attemptId,
+        upstream: {
+          url: PUBLIC_PACKAGE_REGISTRIES[request.registry],
+          headers: [],
+        },
       };
     },
 

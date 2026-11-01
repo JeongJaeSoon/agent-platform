@@ -117,4 +117,5 @@ export * from "./sessions/session-titler.ts";
 export * from "./sessions/workspace-profiles.ts";
 export * from "./usage/usage-service.ts";
 export * from "./workers/github-mcp-egress.ts";
+export * from "./workers/package-registries.ts";
 export * from "./workers/worker-gateway.ts";

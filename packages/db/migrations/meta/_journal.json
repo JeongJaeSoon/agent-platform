@@ -789,8 +789,15 @@
     {
       "idx": 203,
       "version": "7",
-      "when": 1793538416506,
-      "tag": "0203_catalog_repositories",
+      "when": 1793530539978,
+      "tag": "0203_worker_credentials_packages",
+      "breakpoints": true
+    },
+    {
+      "idx": 204,
+      "version": "7",
+      "when": 1793543033201,
+      "tag": "0204_catalog_repositories",
       "breakpoints": true
     }
   ]
