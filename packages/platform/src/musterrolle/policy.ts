@@ -34,6 +34,7 @@ export type RecordedActor = {
   agentId?: string | null;
   /** Who issued the key in `apiKeyId`; null when its row names nobody. */
   apiKeyIssuerId?: string | null;
+  apiKeyKind?: DeciderKey["kind"] | null;
   /** The Slack link a person spoke through; a write re-reads it. */
   linkedAccount?: { id: string; revision: number };
 };
@@ -67,7 +68,7 @@ export function deciderKeyOf(principal: Principal): DeciderKey | null {
   const agent = (actor.agentId ?? null) !== null;
   return {
     id: actor.apiKeyId,
-    kind: agent ? "agent" : "personal",
+    kind: actor.apiKeyKind ?? (agent ? "agent" : "personal"),
     issued_by_user_id: actor.apiKeyIssuerId ?? (agent ? null : actor.userId),
   };
 }
@@ -94,6 +95,7 @@ export function callerFor(
     creatorId: string | null;
     agentId?: string | null;
     issuerId?: string | null;
+    kind?: DeciderKey["kind"];
   },
 ): Caller {
   const userId =
@@ -113,6 +115,8 @@ export function callerFor(
         principal.kind === "api_key" ? (storedKey?.agentId ?? null) : null,
       apiKeyIssuerId:
         principal.kind === "api_key" ? (storedKey?.issuerId ?? null) : null,
+      apiKeyKind:
+        principal.kind === "api_key" ? (storedKey?.kind ?? null) : null,
     },
     subject: {
       principal,
@@ -447,6 +451,10 @@ export function createAuthorizationPolicy(
     sessionId: string,
     approve: boolean,
   ): Promise<"ok" | "role" | "self_approval"> {
+    // A caller from before workspaces (an operator's key CLI key, a legacy
+    // key, AUTH_MODE=none) has no members beside it to answer for, nor
+    // another key to approve instead: the quickstart runs on one such key.
+    if (reading.principal.workspace_id === null) return "ok";
     const viewer = viewerOf(reading);
     const same = (a: string | null, b: string | null) =>
       a !== null && b !== null && a.toLowerCase() === b.toLowerCase();
@@ -457,16 +465,15 @@ export function createAuthorizationPolicy(
         return "self_approval";
       }
     }
-    // A caller from before workspaces (a legacy key, AUTH_MODE=none) has no
-    // members beside it to answer for.
-    if (reading.principal.workspace_id === null) return "ok";
     if (approve && reading.keyAgentId !== undefined) return "ok";
     const role =
       reading.principal.kind === "user"
         ? reading.principal.role
         : reading.keyCreator?.role;
     if (role !== undefined && WORKSPACE_MANAGERS.includes(role)) return "ok";
-    origin ??= await sessions.originOf(workspaceId, sessionId);
+    if (origin === undefined) {
+      origin = await sessions.originOf(workspaceId, sessionId);
+    }
     if (origin === null) return "role";
     if (
       origin.creatorUserId !== null

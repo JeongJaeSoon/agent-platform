@@ -466,7 +466,7 @@ describe("session.approve (94S-798)", () => {
     expect(decision.reason_code).toBe("ok");
   });
 
-  test("a key from before workspaces approves no session it started itself", async () => {
+  test("a key from before workspaces still approves a session it started itself, as the quickstart's one key does", async () => {
     const legacy = callerFor(
       {
         kind: "api_key",
@@ -496,7 +496,7 @@ describe("session.approve (94S-798)", () => {
       resource: { kind: "session", id: CREATORS_OPEN, owner_scope: WORKSPACE },
       request_id: "r",
     });
-    expect(decision.reason_code).toBe("self_approval");
+    expect(decision.reason_code).toBe("ok");
   });
 
   test("a session link is not resolved to its session yet, so only a manager answers through one", async () => {

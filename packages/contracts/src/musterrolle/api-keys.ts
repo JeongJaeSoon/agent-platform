@@ -38,7 +38,8 @@ export const apiKeyIdParamsSchema = z.object({ id: apiKeyIdSchema }).strict();
  */
 export const deciderKeySchema = z.object({
   id: apiKeyIdSchema,
-  kind: apiKeyKindSchema,
+  /** `operator`: a key CLI key, which no person issues through the API. */
+  kind: z.enum([...API_KEY_KIND_VALUES, "operator"]),
   /** Null on a key issued before keys recorded who issued them. */
   issued_by_user_id: userIdSchema.nullable(),
 });

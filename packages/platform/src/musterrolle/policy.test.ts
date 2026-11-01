@@ -838,6 +838,7 @@ describe("callerFor records who acts", () => {
       apiKeyId: null,
       agentId: null,
       apiKeyIssuerId: null,
+      apiKeyKind: null,
     });
   });
 
@@ -871,6 +872,7 @@ describe("callerFor records who acts", () => {
       apiKeyId: KEY,
       agentId: null,
       apiKeyIssuerId: null,
+      apiKeyKind: null,
     });
     const personal = callerFor(key, { kind: "api" }, "r", {
       creatorId: USER,
@@ -899,6 +901,16 @@ describe("callerFor records who acts", () => {
       id: KEY,
       kind: "personal",
       issued_by_user_id: USER,
+    });
+    const operator = callerFor(key, { kind: "api" }, "r", {
+      creatorId: null,
+      issuerId: null,
+      kind: "operator",
+    });
+    expect(deciderKeyOf(operator)).toEqual({
+      id: KEY,
+      kind: "operator",
+      issued_by_user_id: null,
     });
     expect(deciderKeyOf(callerFor(member, { kind: "web" }, "r"))).toBeNull();
   });

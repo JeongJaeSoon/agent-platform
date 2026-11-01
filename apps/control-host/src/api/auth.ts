@@ -469,6 +469,7 @@ type Authenticated = {
     creatorId: string | null;
     agentId: string | null;
     issuerId: string | null;
+    kind: ApiKeyRecord["kind"];
   };
 };
 
@@ -563,6 +564,7 @@ export function createAuthenticator(
             creatorId: key.kind === "personal" ? key.createdByUserId : null,
             agentId: key.kind === "agent" ? (key.agentId ?? null) : null,
             issuerId: key.createdByUserId,
+            kind: key.kind,
           },
           verified: true,
           // Nothing edits a key's scopes today, but a stream that outlives
