@@ -128,12 +128,12 @@ import {
   titleProfile,
 } from "../sessions/session-titler.ts";
 import { createGitHubMcpEgress } from "./github-mcp-egress.ts";
+import { createMcpEgress, type McpEgressRequest } from "./mcp-egress.ts";
 import {
   PACKAGES_BINDING,
   type PackageRegistry,
   PUBLIC_PACKAGE_REGISTRIES,
 } from "./package-registries.ts";
-import { createMcpEgress, type McpEgressRequest } from "./mcp-egress.ts";
 
 const WORKSPACE_PROFILE_MAX_AGE_MS = 1000;
 

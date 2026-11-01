@@ -1048,7 +1048,9 @@ export function startCredentialProxy(
           port: judged.port,
           error: error instanceof Error ? error.message : String(error),
         });
-        return { refused: reply(502, "upstream connection failed", "packages") };
+        return {
+          refused: reply(502, "upstream connection failed", "packages"),
+        };
       }
       at = next;
     }

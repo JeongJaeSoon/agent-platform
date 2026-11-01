@@ -751,6 +751,10 @@ describe("WorkerGateway", () => {
       hashWorkerToken(claimed.object_store.access.token),
     );
     expect(claimed.object_store.access.token).toMatch(/^weo_/);
+    expect(egress.packagesHash).toEqual(
+      hashWorkerToken(claimed.packages?.access.token ?? ""),
+    );
+    expect(claimed.packages?.access.token).toMatch(/^wek_/);
     expect(
       egress.bindingsOf({
         id: "s-1",
@@ -762,6 +766,7 @@ describe("WorkerGateway", () => {
       }),
     ).toEqual({
       object_store: "sessions/s-1/",
+      packages: "public",
       provider: profileFingerprint(profile),
       repository: repositoryBinding("sample-app", {
         url: "https://example.invalid/app.git",
@@ -1145,6 +1150,7 @@ describe("WorkerGateway", () => {
       provider: profileFingerprint(general),
       repository: null,
       object_store: "sessions/s-1/",
+      packages: "public",
     });
     const optionalClaim = await claimWith({
       ...binding,

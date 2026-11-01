@@ -45,9 +45,9 @@ describe("tokenOf: packages", () => {
 
   test("takes a bearer, or a Basic password from a URL's userinfo", () => {
     expect(tokenOf(h({ authorization: "Bearer t1" }), "packages")).toBe("t1");
-    expect(
-      tokenOf(h({ authorization: basic("werft:t2") }), "packages"),
-    ).toBe("t2");
+    expect(tokenOf(h({ authorization: basic("werft:t2") }), "packages")).toBe(
+      "t2",
+    );
     expect(tokenOf(h({ authorization: basic(":t3") }), "packages")).toBe("t3");
     expect(tokenOf(h({ authorization: basic("t4") }), "packages")).toBeNull();
     expect(tokenOf(h({ authorization: basic("u:") }), "packages")).toBeNull();

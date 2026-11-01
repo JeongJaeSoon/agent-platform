@@ -176,14 +176,22 @@ describe("egress authorizer", () => {
     const claim = await claimed();
     const packages = claim.packages?.access.token ?? "";
     expect(packages.startsWith("wek_")).toBe(true);
-    const npm = await ask({ token: packages, purpose: "packages", registry: "npm" });
+    const npm = await ask({
+      token: packages,
+      purpose: "packages",
+      registry: "npm",
+    });
     expect(npm.status).toBe(200);
     expect(await npm.json()).toEqual({
       session_id: claim.session_id,
       attempt_id: claim.attempt_id,
       upstream: { url: "https://registry.npmjs.org", headers: [] },
     });
-    const gosum = await ask({ token: packages, purpose: "packages", registry: "gosum" });
+    const gosum = await ask({
+      token: packages,
+      purpose: "packages",
+      registry: "gosum",
+    });
     expect((await gosum.json()).upstream.url).toBe("https://sum.golang.org");
     // A registry the route never names, and a token for another route.
     expect(
