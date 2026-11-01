@@ -22,7 +22,7 @@ FROM ${BUN_IMAGE} AS web
 WORKDIR /app
 COPY --from=manifests /app/ ./
 RUN bun install --frozen-lockfile --filter ./apps/web
-COPY apps ./apps
+COPY apps/web ./apps/web
 COPY packages ./packages
 RUN bun run --cwd apps/web build \
   && test -f apps/web/dist/index.html
