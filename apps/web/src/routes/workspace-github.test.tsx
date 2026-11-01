@@ -441,6 +441,25 @@ describe("워크스페이스 GitHub 연결", () => {
     expect((await authorCard()).getByText("werft test")).toBeDefined();
   });
 
+  test("작성용 App이 없어도 남은 리뷰용 App은 위험 구역에서 교체·삭제한다", async () => {
+    renderAt(PATH, {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${SETTINGS}`]: () => json(200, NO_CEILING),
+      [`GET ${APP}`]: () => json(200, UNSET),
+      [`GET ${REVIEWER}`]: () =>
+        json(200, {
+          ...REGISTERED,
+          github_app: { ...REGISTERED.github_app, name: "werft reviewer" },
+        }),
+    });
+    const zone = within(
+      await screen.findByRole("region", { name: "위험 구역" }),
+    );
+    expect(
+      zone.getAllByRole("button").map((b) => b.getAttribute("aria-label")),
+    ).toEqual(["리뷰용 App 교체", "리뷰용 App 삭제"]);
+  });
+
   test("리뷰용 App 등록이 역할 충돌로 거절되면 그 이유를 말한다", async () => {
     const cases = [
       [

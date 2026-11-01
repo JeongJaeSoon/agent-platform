@@ -252,7 +252,9 @@ describe("실행 프로필 상세", () => {
   test("retiring a version asks first, then shows it retired with who did it", async () => {
     const { api } = renderAt("/profiles/ws_acme_strict_v2", catalog());
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "사용 중지" }));
+    await user.click(
+      await screen.findByRole("button", { name: "이 버전 사용 중지" }),
+    );
     const dialog = await screen.findByRole("dialog", {
       name: "ws_acme_strict_v2 버전을 사용 중지할까요?",
     });
@@ -270,9 +272,9 @@ describe("실행 프로필 상세", () => {
         .filter((call) => call.method === "POST")
         .map((call) => call.path),
     ).toEqual(["/v1/workspace-profiles/ws_acme_strict_v2/retire"]);
-    expect(screen.queryAllByRole("button", { name: "사용 중지" }).length).toBe(
-      0,
-    );
+    expect(
+      screen.queryAllByRole("button", { name: "이 버전 사용 중지" }).length,
+    ).toBe(0);
   });
 
   test("a ceiling shows its definition, its record and the versions linked to it", async () => {
@@ -386,7 +388,9 @@ describe("실행 프로필 상세", () => {
       catalog([CODING, ceiling("wide", 1), ceiling("wide", 2)]),
     );
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "사용 중지" }));
+    await user.click(
+      await screen.findByRole("button", { name: "이 버전 사용 중지" }),
+    );
     const dialog = await screen.findByRole("dialog", {
       name: "op_wide_v2 버전을 사용 중지할까요?",
     });
@@ -412,7 +416,9 @@ describe("실행 프로필 상세", () => {
         apiError(403, "FORBIDDEN", "role"),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "사용 중지" }));
+    await user.click(
+      await screen.findByRole("button", { name: "이 버전 사용 중지" }),
+    );
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "사용 중지" }));
     expect(
@@ -428,7 +434,9 @@ describe("실행 프로필 상세", () => {
       catalog([CODING, ceiling("wide", 2)]),
     );
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "차단" }));
+    await user.click(
+      await screen.findByRole("button", { name: "이 설치 상한 차단" }),
+    );
     const dialog = await screen.findByRole("dialog", {
       name: "설치 상한 op_wide_v2을(를) 차단할까요?",
     });
@@ -439,13 +447,20 @@ describe("실행 프로필 상세", () => {
     await user.click(within(dialog).getByRole("button", { name: "차단" }));
     await screen.findByText("설치 상한 op_wide_v2을(를) 차단했습니다.");
     expect((await screen.findAllByText("차단됨")).length).toBeGreaterThan(0);
+    // The block button left with the refetch; focus goes to its undo.
+    const unblock = await screen.findByRole("button", { name: "차단 해제" });
+    await waitFor(() => expect(document.activeElement === unblock).toBe(true));
 
-    await user.click(screen.getByRole("button", { name: "차단 해제" }));
+    await user.click(unblock);
     const undo = await screen.findByRole("dialog", {
       name: "설치 상한 op_wide_v2의 차단을 해제할까요?",
     });
     await user.click(within(undo).getByRole("button", { name: "차단 해제" }));
     await screen.findByText("설치 상한 op_wide_v2의 차단을 해제했습니다.");
+    const again = await screen.findByRole("button", {
+      name: "이 설치 상한 차단",
+    });
+    await waitFor(() => expect(document.activeElement === again).toBe(true));
     expect(
       api.calls
         .filter((call) => call.method === "POST")
@@ -463,7 +478,9 @@ describe("실행 프로필 상세", () => {
         apiError(403, "FORBIDDEN", "role"),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "차단" }));
+    await user.click(
+      await screen.findByRole("button", { name: "이 설치 상한 차단" }),
+    );
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "차단" }));
     expect(

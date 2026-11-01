@@ -96,6 +96,23 @@ export function WorkspaceGitHubScreen() {
   );
 }
 
+function useGitHubAppQuery(appRole: GitHubAppRole) {
+  const { client } = useAgentPlatform();
+  const workspaceId = useMe()?.workspace?.id ?? "";
+  const canManage = useHasPermission("workspace.manage");
+  return useQuery({
+    queryKey: appKey(client, workspaceId, appRole),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/workspaces/{id}/github-apps/{role}", {
+          params: { path: { id: workspaceId, role: appRole } },
+        }),
+      ),
+    enabled: workspaceId !== "" && canManage,
+    retry: (failures, error) => !storeOff(error) && failures < 3,
+  });
+}
+
 /**
  * One role's App. The author's page holds the rest of the screen, with
  * `children` (the reviewer's card) right under its own card.
@@ -144,17 +161,10 @@ function GitHubApp({
     wasEditing.current = editing;
   }, [editing]);
 
-  const app = useQuery({
-    queryKey: appKey(client, workspaceId, appRole),
-    queryFn: () =>
-      unwrap(
-        client.GET("/v1/workspaces/{id}/github-apps/{role}", {
-          params: { path: { id: workspaceId, role: appRole } },
-        }),
-      ),
-    enabled: workspaceId !== "" && canManage,
-    retry: (failures, error) => !storeOff(error) && failures < 3,
-  });
+  const app = useGitHubAppQuery(appRole);
+  // Either App can be deleted alone, so the zone stays while the reviewer's
+  // rows have an App to act on.
+  const reviewerApp = useGitHubAppQuery("reviewer");
   // The settings carry the App's permissions and the user-linking client id
   // (whose secret goes with the App), so they are read again with it.
   const refresh = () =>
@@ -623,11 +633,13 @@ function GitHubApp({
             appReadAt={app.dataUpdatedAt}
             onOutcome={onOutcome}
           />
-          <DangerZone title={t("workspace.danger")}>
-            {dangerRows}
-            {danger}
-          </DangerZone>
         </>
+      ) : null}
+      {canManage && (registered || reviewerApp.data?.github_app) ? (
+        <DangerZone title={t("workspace.danger")}>
+          {dangerRows}
+          {danger}
+        </DangerZone>
       ) : null}
     </>
   );

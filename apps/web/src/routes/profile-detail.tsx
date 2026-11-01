@@ -38,7 +38,7 @@ import {
   Skeleton,
 } from "@werft-ai/ui";
 import { Lock } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import {
   agentsOnProfileQuery,
   profilesQuery,
@@ -156,6 +156,17 @@ export function ProfileDetailScreen() {
     readonly block: boolean;
   } | null>(null);
   const [blockError, setBlockError] = useState<string | null>(null);
+  // Block sits in the danger zone and unblock in the head, so the button
+  // that opened the dialog is gone once the list refetches; focus moves to
+  // the one that replaces it when it mounts.
+  const focusNext = useRef<"block" | "unblock" | null>(null);
+  const focusWhen =
+    (which: "block" | "unblock") => (button: HTMLButtonElement | null) => {
+      if (button && focusNext.current === which) {
+        focusNext.current = null;
+        button.focus();
+      }
+    };
   const block = useMutation<
     WorkspaceProfileChangeResponse,
     ApiError,
@@ -173,6 +184,7 @@ export function ProfileDetailScreen() {
       ),
     onMutate: () => setBlockError(null),
     onSuccess: async ({ profile: changed }, { block }) => {
+      focusNext.current = block ? "unblock" : "block";
       setBlocking(null);
       setNotice({
         on: changed.id,
@@ -311,6 +323,7 @@ export function ProfileDetailScreen() {
     actions.push(
       <Button
         key="unblock"
+        ref={focusWhen("unblock")}
         type="button"
         variant="outline"
         onClick={() => {
@@ -396,6 +409,8 @@ export function ProfileDetailScreen() {
               title={t("profiles.blockRow")}
               description={t("profiles.blockRowHint")}
               actionLabel={t("profiles.block")}
+              actionName={t("profiles.blockRow")}
+              actionRef={focusWhen("block")}
               onAction={() => {
                 setBlockError(null);
                 setBlocking({ id: profile.id, block: true });
@@ -407,6 +422,7 @@ export function ProfileDetailScreen() {
               title={t("profiles.retireRow")}
               description={t("profiles.retireRowHint")}
               actionLabel={t("profiles.retire")}
+              actionName={t("profiles.retireRow")}
               onAction={() => {
                 setRetireError(null);
                 setRetiring(profile.id);
