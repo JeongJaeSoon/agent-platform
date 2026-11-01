@@ -658,6 +658,7 @@ describe("agent list summary", () => {
     admins: ["Kim"],
     needs_input_count: 1,
     running_count: 2,
+    slack_action: "home_unset" as const,
   };
 
   test("is asked for, and a page without it is the agents as before", () => {

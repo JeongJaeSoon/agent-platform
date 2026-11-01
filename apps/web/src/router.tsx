@@ -34,6 +34,7 @@ import { HomeScreen } from "./routes/home.tsx";
 import { InviteScreen } from "./routes/invite.tsx";
 import { AuthedError, AuthedLayout, RootLayout } from "./routes/layout.tsx";
 import {
+  GitHubLinkCallbackScreen,
   LinkedAccountsScreen,
   SlackLinkCallbackScreen,
   type SlackLinkSearch,
@@ -74,6 +75,7 @@ import { TeamDetailScreen, TeamsScreen } from "./routes/teams.tsx";
 import { WorkspaceGitHubScreen } from "./routes/workspace-github.tsx";
 import { WorkspaceSettingsScreen } from "./routes/workspace-settings.tsx";
 import { WorkspaceSlackScreen } from "./routes/workspace-slack.tsx";
+import { SLACK_APPS_ANCHOR } from "./routes/workspace-slack-apps.tsx";
 import type { Services } from "./services.tsx";
 
 /*
@@ -262,6 +264,15 @@ const slackLink = createRoute({
   component: SlackLinkCallbackScreen,
 });
 
+// GitHub sends the browser back here (the author App's Callback URL).
+const githubLink = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/linked-accounts/github",
+  validateSearch: (search: Record<string, unknown>): SlackLinkSearch =>
+    slackLinkSearch(search),
+  component: GitHubLinkCallbackScreen,
+});
+
 const apiKeys = createRoute({
   getParentRoute: () => authed,
   path: "/settings/api-keys",
@@ -311,6 +322,19 @@ const workspaceSlack = createRoute({
   getParentRoute: () => authed,
   path: "/settings/workspace/slack",
   component: WorkspaceSlackScreen,
+});
+
+// Where the list of apps the console made lived before it joined the Slack page.
+const oldWorkspaceSlackApps = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/workspace/slack-apps",
+  beforeLoad: () => {
+    throw redirect({
+      to: "/settings/workspace/slack",
+      hash: SLACK_APPS_ANCHOR,
+      replace: true,
+    });
+  },
 });
 
 const workspaceGitHub = createRoute({
@@ -428,6 +452,7 @@ const routeTree = root.addChildren([
     session,
     linkedAccounts,
     slackLink,
+    githubLink,
     slackInstall,
     apiKeys,
     newApiKey,
@@ -437,6 +462,7 @@ const routeTree = root.addChildren([
     preferences,
     workspaceSettings,
     workspaceSlack,
+    oldWorkspaceSlackApps,
     workspaceGitHub,
     orgKeys,
     oldUsage,

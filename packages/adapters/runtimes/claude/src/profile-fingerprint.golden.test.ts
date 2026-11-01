@@ -2,7 +2,10 @@ import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { CLAUDE_RUNTIME_FINGERPRINT } from "@werft-ai/runtime-claude-codec";
 
-import { claudeProfileFingerprint } from "./profile-fingerprint.ts";
+import {
+  CLAUDE_PROFILE_DIGEST_SCHEME,
+  claudeProfileFingerprint,
+} from "./profile-fingerprint.ts";
 
 // The digests checkpoints are stamped with, pinned to the bytes main produced
 // before the runtime contract refactor (94S-827): a restore compares them, so
@@ -80,9 +83,23 @@ const profiles: Record<string, FingerprintInput> = {
   },
 };
 
+// The digest of `profiles.default` under each scheme there has been. An entry
+// is never edited: a change that moves the digest adds the next scheme here
+// and bumps CLAUDE_PROFILE_DIGEST_SCHEME, which UPDATE_GOLDEN does not do.
+const DEFAULT_DIGEST_BY_SCHEME: Readonly<Record<number, string>> = {
+  1: "574cab6e9d2c3df9ede2ef6ca103503eaf4fa2f391e444b742110816bcf771ce",
+};
+
+test("a digest moves only with the scheme", () => {
+  expect(DEFAULT_DIGEST_BY_SCHEME[CLAUDE_PROFILE_DIGEST_SCHEME]).toBe(
+    claudeProfileFingerprint(base),
+  );
+});
+
 test("checkpoint fingerprints match main (golden)", async () => {
   const actual = {
     runtime: CLAUDE_RUNTIME_FINGERPRINT,
+    profileDigestScheme: CLAUDE_PROFILE_DIGEST_SCHEME,
     profileSha256: Object.fromEntries(
       Object.entries(profiles).map(([name, input]) => [
         name,

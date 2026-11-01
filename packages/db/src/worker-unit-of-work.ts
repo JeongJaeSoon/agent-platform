@@ -51,6 +51,7 @@ import {
   type RestoreBaseResult,
   type RunnablePair,
   type SessionBudget,
+  sameCombination,
   storedPendingReasonHoldsWork,
   TRANSCRIPT_LIMITS,
   transcriptLimitReachedEvent,
@@ -77,6 +78,12 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import {
+  type RuntimeFingerprint,
+  runtimeColumns,
+  runtimeOfColumns,
+  sessionRuntimeOnce,
+} from "./checkpoint-runtime.ts";
 import { finishClose } from "./close-control.ts";
 import { contextCoverage, contextGap, raiseContextGap } from "./context-gap.ts";
 import {
@@ -108,7 +115,7 @@ import {
   type SessionRow,
 } from "./fence.ts";
 import { catalogMismatchCause, quarantineLaunch } from "./launch-quarantine.ts";
-import { sessionMcpOf } from "./mcp-egress.ts";
+import { sessionGitHubMcpOf, sessionMcpOf } from "./mcp-egress.ts";
 import {
   abandonUndeliveredParked,
   closeParkedGroup,
@@ -156,6 +163,7 @@ import {
   turns,
   unassignedSessions,
   workerCredentials,
+  workerImageRefusals,
   workerLaunches,
   workers,
   workspaceProfiles,
@@ -171,6 +179,8 @@ import {
   settleTurnInterrupts,
   turnInterruptPending,
 } from "./turn-interrupts.ts";
+
+type ImageRuntime = NonNullable<WorkerBinding["launchRuntime"]>;
 
 // Heartbeats travel over a network and can land out of order. The durable
 // state is the furthest phase the attempt has been reported to reach, so a
@@ -467,6 +477,7 @@ export async function advanceCheckpointPointer(
     now: Date;
     versionsHeld: boolean;
     transcriptBytes?: number;
+    runtime?: RuntimeFingerprint;
     // Absent when the verifier did not read the manifest's outputs; the row
     // then stays outputs_recorded = false and usage reports itself partial.
     outputs?: readonly { key: string; bytes: number }[];
@@ -499,6 +510,10 @@ export async function advanceCheckpointPointer(
     profileFingerprint: sql`(SELECT ${attempts.profileFingerprint} FROM ${attempts} WHERE ${attempts.id} = ${input.fence.attemptId})`,
     model: sql`(SELECT ${attempts.model} FROM ${attempts} WHERE ${attempts.id} = ${input.fence.attemptId})`,
     transcriptBytes: input.transcriptBytes ?? null,
+    ...runtimeColumns(input.runtime),
+    // The claim held the worker to its launch's combination, so the
+    // launch's scheme is the one the manifest's digest was computed under.
+    runtimeProfileScheme: sql`(SELECT ${workerLaunches.runtimeProfileScheme} FROM ${workerLaunches} WHERE ${workerLaunches.claimedAttemptId} = ${input.fence.attemptId})`,
     outputsRecorded: input.outputs !== undefined,
   });
   // A manifest may name up to DEFAULT_MAX_MANIFEST_OBJECTS objects; one
@@ -535,6 +550,7 @@ export async function advanceCheckpointPointer(
         checkpointFallbackRevision: null,
         checkpointRestoreAttemptId: null,
         updatedAt: input.now,
+        ...sessionRuntimeOnce(input.runtime),
         ...(resolvesPending
           ? { checkpointPendingReason: null, checkpointPendingAttemptId: null }
           : {}),
@@ -678,6 +694,7 @@ async function parkOnApprovalCheckpoint(
     executionGeneration: attempt.executionGeneration,
     authRevision: attempt.authRevision,
   };
+  const promotedRuntime = runtimeOfColumns(checkpoint);
   const advanced = await advanceCheckpointPointer(tx, {
     fence,
     session,
@@ -695,6 +712,7 @@ async function parkOnApprovalCheckpoint(
     ...(checkpoint.transcriptBytes === null
       ? {}
       : { transcriptBytes: checkpoint.transcriptBytes }),
+    ...(promotedRuntime === null ? {} : { runtime: promotedRuntime }),
   });
   if (advanced.outcome !== "committed") return false;
   await tx
@@ -1221,6 +1239,77 @@ async function drainRequested(
   return launch?.drainRequestedAt != null;
 }
 
+function launchRuntimeOf(
+  launch: typeof workerLaunches.$inferSelect,
+): ImageRuntime | undefined {
+  if (
+    launch.runtimeEngine === null ||
+    launch.runtimeSdkVersion === null ||
+    launch.runtimeCliVersion === null ||
+    launch.runtimeProfileScheme === null
+  ) {
+    return undefined;
+  }
+  return {
+    engine: launch.runtimeEngine,
+    sdkVersion: launch.runtimeSdkVersion,
+    cliVersion: launch.runtimeCliVersion,
+    profileDigestScheme: launch.runtimeProfileScheme,
+  };
+}
+
+function withLaunchRuntime(
+  binding: WorkerBinding,
+  launch: typeof workerLaunches.$inferSelect,
+): WorkerBinding {
+  const launchRuntime = launchRuntimeOf(launch);
+  return launchRuntime === undefined ? binding : { ...binding, launchRuntime };
+}
+
+/**
+ * Records the refusal and gives the launch's slot back the way a kill does:
+ * the bootstrap door shut and the execution asked to go. Its failure count
+ * is left alone, and so is the session, which stays waiting for a launch.
+ */
+async function refuseWorkerImage(
+  tx: Database,
+  launch: typeof workerLaunches.$inferSelect,
+  assumed: ImageRuntime,
+  claimed: ImageRuntime,
+): Promise<void> {
+  const image = launch.image ?? "(unpinned)";
+  await tx
+    .insert(workerImageRefusals)
+    .values({
+      image,
+      assumedEngine: assumed.engine,
+      assumedSdkVersion: assumed.sdkVersion,
+      assumedCliVersion: assumed.cliVersion,
+      assumedProfileScheme: assumed.profileDigestScheme,
+      claimed,
+      executionId: launch.executionId,
+    })
+    .onConflictDoNothing();
+  await tx
+    .update(workerLaunches)
+    .set({
+      nonceHash: null,
+      launchRetryAt: null,
+      replacementReason: null,
+      lastLaunchError: `worker image ${image} runs ${JSON.stringify(claimed)}, not the configured ${JSON.stringify(assumed)}`,
+    })
+    .where(eq(workerLaunches.executionId, launch.executionId));
+  await tx
+    .update(executions)
+    .set({ desiredState: "terminated" })
+    .where(
+      and(
+        eq(executions.id, launch.executionId),
+        eq(executions.generation, launch.generation),
+      ),
+    );
+}
+
 // `at` is a database instant read after the worker sent its request, which
 // is what lets the worker count the remainder from its own send time.
 async function bindingOf(
@@ -1252,6 +1341,7 @@ async function bindingOf(
     costUsd: session.costUsd,
     providerTokens: session.providerTokens,
     mcp: await sessionMcpOf(tx, session),
+    githubMcp: await sessionGitHubMcpOf(tx, session),
     grants: await unspentGrants(tx, session.id, attempt.id),
   };
 }
@@ -1398,6 +1488,7 @@ async function issueCredentials(
   const bindings = input.egress.bindingsOf({
     ...session,
     mcp: await sessionMcpOf(tx, session),
+    githubMcp: await sessionGitHubMcpOf(tx, session),
   });
   await tx.insert(workerCredentials).values([
     {
@@ -1439,6 +1530,18 @@ async function issueCredentials(
             attemptId,
             purpose: "mcp",
             binding: bindings.mcp,
+            expiresAt,
+          },
+        ]),
+    ...(bindings.packages === undefined ||
+    input.egress.packagesHash === undefined
+      ? []
+      : [
+          {
+            tokenHash: input.egress.packagesHash,
+            attemptId,
+            purpose: "packages",
+            binding: bindings.packages,
             expiresAt,
           },
         ]),
@@ -1517,6 +1620,18 @@ export function createPostgresWorkerUnitOfWork(
           launch.nonceExpiresAt.getTime() <= at.getTime()
         ) {
           return { outcome: "invalid_credential" };
+        }
+        // Before anything is bound, so the session is left as it was: a
+        // worker that is not what its launch assumed proves the image's
+        // configured runtime wrong, not the session.
+        const assumed = launchRuntimeOf(launch);
+        if (
+          assumed !== undefined &&
+          input.imageRuntime !== undefined &&
+          !sameCombination(assumed, input.imageRuntime)
+        ) {
+          await refuseWorkerImage(tx, launch, assumed, input.imageRuntime);
+          return { outcome: "image_mismatch", assumed };
         }
 
         // A retry of a claim whose response was lost gets the same binding
@@ -1606,7 +1721,10 @@ export function createPostgresWorkerUnitOfWork(
           if (!attempt) return { outcome: "invalid_credential" };
           return {
             outcome: "replayed",
-            binding: await bindingOf(tx, session, attempt, at),
+            binding: withLaunchRuntime(
+              await bindingOf(tx, session, attempt, at),
+              launch,
+            ),
           };
         }
         // Server-side selection: the worker never names a session. It is
@@ -1775,7 +1893,10 @@ export function createPostgresWorkerUnitOfWork(
           .where(eq(unassignedSessions.sessionId, session.id));
         return {
           outcome: "claimed",
-          binding: await bindingOf(tx, session, attempt, at, restore),
+          binding: withLaunchRuntime(
+            await bindingOf(tx, session, attempt, at, restore),
+            launch,
+          ),
         };
       });
     },
@@ -2478,6 +2599,9 @@ export function createPostgresWorkerUnitOfWork(
             ...(input.checkpointOutputs === undefined
               ? {}
               : { outputs: input.checkpointOutputs }),
+            ...(input.checkpointRuntime === undefined
+              ? {}
+              : { runtime: input.checkpointRuntime }),
           });
           if (advanced.outcome === "not_next") {
             // An interrupt has no second capture to wait for: its checkpoint

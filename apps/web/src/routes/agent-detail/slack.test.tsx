@@ -6,6 +6,7 @@ import {
   apiError,
   json,
   me,
+  memberMe,
   WORKSPACE_ID,
 } from "../../test-support/fake-api.ts";
 import { appHarness } from "../../test-support/render-app.tsx";
@@ -43,11 +44,13 @@ const APP: NonNullable<
 const appResponse = (
   app: typeof APP | null,
   warnings: components["schemas"]["GetSlackAppResponse"]["warnings"] = [],
+  configToken: components["schemas"]["GetSlackAppResponse"]["config_token"] = "active",
 ): components["schemas"]["GetSlackAppResponse"] => ({
   slack_app: app,
   event_url: null,
   events: { state: "pending", checked_at: null, url: null },
   warnings,
+  config_token: configToken,
 });
 const IDENTITY: components["schemas"]["ListAgentIdentitiesResponse"]["items"][number] =
   {
@@ -1173,6 +1176,66 @@ describe("Slack management", () => {
     expect(
       screen.getByRole("button", { name: "Slack 앱 만들고 설치" }),
     ).toBeDefined();
+  });
+
+  test("blocks creating the app without a config token and links an admin to the workspace Slack settings", async () => {
+    const { api } = renderAt(DETAIL, {
+      ...routes(),
+      [`GET ${PATH}/slack/app`]: () =>
+        json(200, appResponse(null, [], "unset")),
+    });
+    const create = await screen.findByRole("button", {
+      name: "Slack 앱 만들고 설치",
+    });
+    expect((create as HTMLButtonElement).disabled).toBe(true);
+    const reason = screen.getByText(
+      "워크스페이스에 Slack 앱 생성 설정(App Configuration Token)이 없어 앱을 만들 수 없습니다.",
+    );
+    expect(create.getAttribute("aria-describedby")).toContain(
+      reason.closest("[id]")?.id ?? "missing",
+    );
+    const link = screen.getByRole("link", {
+      name: "워크스페이스 Slack 설정으로",
+    });
+    expect(link.getAttribute("href")).toBe("/settings/workspace/slack");
+    expect(api.calls.some((call) => call.path.includes("config-token"))).toBe(
+      false,
+    );
+  });
+
+  test("asks a member to request the config token from an admin, with no settings link", async () => {
+    renderAt(DETAIL, {
+      ...routes(),
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      [`GET ${PATH}/slack/app`]: () =>
+        json(200, appResponse(null, [], "needs_reentry")),
+    });
+    const create = await screen.findByRole("button", {
+      name: "Slack 앱 만들고 설치",
+    });
+    expect((create as HTMLButtonElement).disabled).toBe(true);
+    const reason = screen.getByText(
+      "Slack이 워크스페이스의 App Configuration Token을 더 이상 받지 않아 앱을 만들 수 없습니다.",
+    ).parentElement;
+    expect(reason?.textContent).toContain(
+      "소유자나 관리자에게 설정을 요청하세요.",
+    );
+    expect(create.getAttribute("aria-describedby")).toBe(reason?.id ?? "");
+    expect(
+      screen.queryByRole("link", { name: "워크스페이스 Slack 설정으로" }),
+    ).toBeNull();
+  });
+
+  test("does not block installing an app that already exists when the token is unset", async () => {
+    renderAt(DETAIL, {
+      ...routes(),
+      [`GET ${PATH}/slack/app`]: () => json(200, appResponse(APP, [], "unset")),
+    });
+    const install = await screen.findByRole("button", {
+      name: "Slack 앱 설치",
+    });
+    expect((install as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByText(/App Configuration Token/)).toBeNull();
   });
 
   const subscribed = (

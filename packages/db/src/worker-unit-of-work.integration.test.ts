@@ -11,6 +11,7 @@ import {
   hashWorkerToken,
   type NeutralizeEvent,
   profileFingerprint,
+  recordedPointer,
   transcriptWarnBytes,
   type WorkerGateway,
   WorkerGatewayError,
@@ -25,6 +26,7 @@ import {
 import { and, count, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { readPointerRuntime } from "./checkpoint-runtime.ts";
 import { createPostgresCheckpointStore } from "./checkpoint-store.ts";
 import { fromDbNow } from "./db-clock.ts";
 import { createPostgresGitHubGateStore } from "./github-settings.ts";
@@ -34,18 +36,21 @@ import {
   createPostgresSessionUnitOfWork,
 } from "./postgres-unit-of-work.ts";
 import { reconcileOrphanedSessions } from "./queries.ts";
+import { createPostgresSchedulerStore } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
   attempts,
   checkpointOutputs,
   checkpoints,
   events,
+  executions,
   queueMessages,
   receipts,
   sessions,
   turns,
   unassignedSessions,
   workerCredentials,
+  workerImageRefusals,
   workerLaunches,
   workers,
 } from "./schema.ts";
@@ -79,6 +84,18 @@ function workerStream(sessionId: string) {
 
 const LEASE_TTL_MS = 2_000;
 const bootstrap: WorkerPrincipal = { kind: "bootstrap" };
+const VERIFIED_RUNTIME = {
+  cliVersion: "2.1.270",
+  engine: "claude-agent-sdk",
+  profileSha256: "b".repeat(64),
+  sdkVersion: "0.3.270",
+};
+const NEXT_RUNTIME = {
+  cliVersion: "2.1.280",
+  engine: "claude-agent-sdk-next",
+  profileSha256: "c".repeat(64),
+  sdkVersion: "0.3.280",
+};
 
 integration("worker gateway on PostgreSQL", () => {
   let database: TempDatabase;
@@ -146,6 +163,12 @@ integration("worker gateway on PostgreSQL", () => {
                 { key: "outputs/inherited", bytes: 11 },
               ],
             };
+          }
+          if (checkpoint.manifest_ref.startsWith("runtime/")) {
+            return { status: "verified", runtime: VERIFIED_RUNTIME };
+          }
+          if (checkpoint.manifest_ref.startsWith("runtime-next/")) {
+            return { status: "verified", runtime: NEXT_RUNTIME };
           }
           const sized = /\/bytes-(\d+)\//.exec(checkpoint.manifest_ref);
           return sized === null
@@ -559,7 +582,7 @@ integration("worker gateway on PostgreSQL", () => {
       });
     }
 
-    // A heartbeat extends all four together.
+    // A heartbeat extends all five together.
     await gateway.heartbeat(principalOf(retry), {
       ...scopeOf(retry),
       attempt_state: "draining",
@@ -571,6 +594,7 @@ integration("worker gateway on PostgreSQL", () => {
     expect(live.rows.map((row) => row.purpose)).toEqual([
       "gateway",
       "object_store",
+      "packages",
       "provider",
       "repository",
     ]);
@@ -1917,6 +1941,7 @@ integration("worker gateway on PostgreSQL", () => {
     expect(issued.map((row) => row.purpose).sort()).toEqual([
       "gateway",
       "object_store",
+      "packages",
       "provider",
     ]);
   });
@@ -3672,6 +3697,357 @@ integration("worker gateway on PostgreSQL", () => {
       { revision: 0, key: `${ref}/a`, bytes: 7 },
       { revision: 0, key: "outputs/inherited", bytes: 11 },
     ]);
+  });
+
+  test("finalize records the verified runtime on the pointer row, and a row without one reads as null", async () => {
+    const finalizeWith = async (manifestRef: string) => {
+      const { session, claimed, input } = await claimAndDeliver(
+        partitionFor(`checkpoint-runtime-${manifestRef.split("/")[0]}`),
+      );
+      expect(
+        await gateway.finalize(principalOf(claimed), {
+          ...scopeOf(claimed, input.turn_id),
+          turn_id: input.turn_id,
+          finalize_key: `fin-${input.turn_id}`,
+          final_source_sequence: 0,
+          terminal: {
+            status: "completed",
+            reason: null,
+            result: null,
+            usage: null,
+          },
+          checkpoint: {
+            revision: 0,
+            manifest_ref: `${manifestRef}/${session.session_id}/manifest.json`,
+            manifest_sha256: "a".repeat(64),
+          },
+        }),
+      ).toMatchObject({ status: "completed", checkpoint_revision: 0 });
+      return session.session_id;
+    };
+    const rowOf = async (sessionId: string) =>
+      (
+        await db
+          .select({
+            engine: checkpoints.runtimeEngine,
+            sdkVersion: checkpoints.runtimeSdkVersion,
+            cliVersion: checkpoints.runtimeCliVersion,
+            profileSha256: checkpoints.runtimeProfileSha256,
+          })
+          .from(checkpoints)
+          .where(eq(checkpoints.sessionId, sessionId))
+      )[0];
+
+    const recorded = await finalizeWith("runtime");
+    expect(await rowOf(recorded)).toEqual(VERIFIED_RUNTIME);
+    expect(await readPointerRuntime(db, recorded)).toEqual(VERIFIED_RUNTIME);
+
+    // What a row committed before the columns holds: all four null.
+    const unrecorded = await finalizeWith("plain");
+    expect(await rowOf(unrecorded)).toEqual({
+      engine: null,
+      sdkVersion: null,
+      cliVersion: null,
+      profileSha256: null,
+    });
+    expect(await readPointerRuntime(db, unrecorded)).toBeNull();
+
+    const { session: pointerless } = await claimAndDeliver(
+      partitionFor("checkpoint-runtime-none"),
+    );
+    expect(await readPointerRuntime(db, pointerless.session_id)).toBeNull();
+  });
+
+  const PREVIOUS_IMAGE_RUNTIME = {
+    engine: VERIFIED_RUNTIME.engine,
+    sdkVersion: "0.3.260",
+    cliVersion: "2.1.260",
+    // Not the first scheme, so a checkpoint that took the default would show.
+    profileDigestScheme: 2,
+  };
+
+  function claimAs(
+    l: Awaited<ReturnType<typeof launch>>,
+    runtime: typeof PREVIOUS_IMAGE_RUNTIME,
+  ) {
+    return gateway.bootstrapClaim(bootstrap, {
+      execution_id: l.executionId,
+      execution_generation: l.generation,
+      credential: { kind: "launch_nonce", nonce: l.nonce },
+      image_runtime: {
+        engine: runtime.engine,
+        sdk_version: runtime.sdkVersion,
+        cli_version: runtime.cliVersion,
+        profile_digest_scheme: runtime.profileDigestScheme,
+      },
+    });
+  }
+
+  test("a worker that is not the combination its launch assumed is refused before anything binds, and its image with it", async () => {
+    const session = await queuedSession(partitionFor("image-mismatch"));
+    const l = await launchSession(db, {
+      sessionId: session.session_id,
+      image: "sha256:worker-previous",
+      imageRuntime: PREVIOUS_IMAGE_RUNTIME,
+    });
+    const [reserved] = await db
+      .select({
+        engine: workerLaunches.runtimeEngine,
+        sdkVersion: workerLaunches.runtimeSdkVersion,
+        cliVersion: workerLaunches.runtimeCliVersion,
+        profileDigestScheme: workerLaunches.runtimeProfileScheme,
+      })
+      .from(workerLaunches)
+      .where(eq(workerLaunches.executionId, l.executionId));
+    expect(reserved).toEqual(PREVIOUS_IMAGE_RUNTIME);
+
+    let refused: unknown;
+    try {
+      await claimAs(l, { ...PREVIOUS_IMAGE_RUNTIME, sdkVersion: "0.3.270" });
+    } catch (error) {
+      refused = error;
+    }
+    expect(refused).toBeInstanceOf(WorkerGatewayError);
+    expect(refused).toMatchObject({
+      status: 409,
+      code: "LAUNCH_FAILED",
+      retryable: false,
+      reasonCode: "worker_image_mismatch",
+    });
+
+    const refusals = await db
+      .select()
+      .from(workerImageRefusals)
+      .where(eq(workerImageRefusals.executionId, l.executionId));
+    expect(refusals).toEqual([
+      expect.objectContaining({
+        image: "sha256:worker-previous",
+        assumedEngine: PREVIOUS_IMAGE_RUNTIME.engine,
+        assumedSdkVersion: "0.3.260",
+        assumedCliVersion: "2.1.260",
+        assumedProfileScheme: 2,
+        claimed: { ...PREVIOUS_IMAGE_RUNTIME, sdkVersion: "0.3.270" },
+      }),
+    ]);
+    const [launchRow] = await db
+      .select()
+      .from(workerLaunches)
+      .where(eq(workerLaunches.executionId, l.executionId));
+    expect(launchRow?.nonceHash).toBeNull();
+    expect(launchRow?.claimedAttemptId).toBeNull();
+    expect(launchRow?.lastLaunchError).toContain("sha256:worker-previous");
+    const [execution] = await db
+      .select({ desiredState: executions.desiredState })
+      .from(executions)
+      .where(eq(executions.id, l.executionId));
+    expect(execution?.desiredState).toBe("terminated");
+    // The session is not the image's fault: it still waits for a launch.
+    const [row] = await db
+      .select({
+        admissionState: sessions.admissionState,
+        podId: sessions.podId,
+        status: sessions.status,
+      })
+      .from(sessions)
+      .where(eq(sessions.id, session.session_id));
+    expect(row).toEqual({
+      admissionState: "active",
+      podId: null,
+      status: "queued",
+    });
+    const [waiting] = await db
+      .select({ value: count() })
+      .from(unassignedSessions)
+      .where(eq(unassignedSessions.sessionId, session.session_id));
+    expect(waiting?.value).toBe(1);
+    // The nonce is spent: the same worker cannot try again.
+    expect(await failure(claimAs(l, PREVIOUS_IMAGE_RUNTIME))).toMatchObject({
+      status: 401,
+    });
+  });
+
+  test("a launch on the previous image is told that image's SDK, and its checkpoint keeps the launch's digest scheme", async () => {
+    const session = await queuedSession(partitionFor("image-previous"));
+    const l = await launchSession(db, {
+      sessionId: session.session_id,
+      image: "sha256:worker-previous",
+      imageRuntime: PREVIOUS_IMAGE_RUNTIME,
+    });
+    expect((await claimAs(l, PREVIOUS_IMAGE_RUNTIME)).runtime).toEqual({
+      kind: "claude_agent_sdk",
+      version: "0.3.260",
+      profile_id: "claude-coding-v1",
+    });
+    // A worker too old to say what it is still gets the launch's SDK.
+    const claimed = await claim(l);
+    expect(claimed.runtime.version).toBe("0.3.260");
+
+    const next = await gateway.nextInput(
+      principalOf(claimed),
+      scopeOf(claimed),
+    );
+    if (!next.input) throw new Error("no input delivered");
+    await finalizeOn(claimed, next.input.turn_id, 0, "runtime");
+    const [checkpoint] = await db
+      .select({ scheme: checkpoints.runtimeProfileScheme })
+      .from(checkpoints)
+      .where(eq(checkpoints.sessionId, session.session_id));
+    expect(checkpoint?.scheme).toBe(2);
+    expect(
+      await createPostgresSchedulerStore(db, {
+        connectForLock: () => pool.connect(),
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+      }).pointerRuntimeOf(session.session_id),
+    ).toEqual({
+      pointer: recordedPointer(VERIFIED_RUNTIME, 2),
+      checkpointRevision: 0,
+    });
+
+    // A launch the scheduler reserved without a combination leaves the
+    // scheme unrecorded, which reads as the first one.
+    const {
+      session: legacy,
+      claimed: legacyClaim,
+      input,
+    } = await claimAndDeliver(partitionFor("image-legacy"));
+    await finalizeOn(legacyClaim, input.turn_id, 0, "runtime");
+    const [unrecorded] = await db
+      .select({ scheme: checkpoints.runtimeProfileScheme })
+      .from(checkpoints)
+      .where(eq(checkpoints.sessionId, legacy.session_id));
+    expect(unrecorded?.scheme).toBeNull();
+  });
+
+  async function sessionPin(sessionId: string) {
+    const [row] = await db
+      .select({
+        image: sessions.firstWorkerImage,
+        engine: sessions.runtimeEngine,
+        sdkVersion: sessions.runtimeSdkVersion,
+        cliVersion: sessions.runtimeCliVersion,
+        profileSha256: sessions.runtimeProfileSha256,
+      })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    if (!row) throw new Error("no session");
+    const { image, ...runtime } = row;
+    return { image, runtime };
+  }
+
+  function finalizeOn(
+    claimed: Awaited<ReturnType<typeof claim>>,
+    turnId: string,
+    revision: number,
+    manifestPrefix: string,
+  ) {
+    return gateway.finalize(principalOf(claimed), {
+      ...scopeOf(claimed, turnId),
+      turn_id: turnId,
+      finalize_key: `fin-${turnId}`,
+      final_source_sequence: 0,
+      terminal: {
+        status: "completed",
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: {
+        revision,
+        manifest_ref: `${manifestPrefix}/${claimed.session_id}/${revision}/manifest.json`,
+        manifest_sha256: "a".repeat(64),
+      },
+    });
+  }
+
+  test("the first committed checkpoint carrying a runtime writes it to the session, and no later one overwrites it", async () => {
+    const { session, claimed, input } = await claimAndDeliver(
+      partitionFor("session-runtime-once"),
+    );
+    const sessionId = session.session_id;
+    const [owner] = await db
+      .select({ ownerId: sessions.ownerId })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    const nextTurn = async (message: string) => {
+      await createPostgresSessionUnitOfWork(db).appendInputAtomic({
+        limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
+        principal: { ownerId: owner?.ownerId ?? "" },
+        sessionId,
+        idempotencyKey: crypto.randomUUID(),
+        payloadHash: crypto.randomUUID(),
+        message,
+      });
+      const next = await gateway.nextInput(
+        principalOf(claimed),
+        scopeOf(claimed),
+      );
+      if (!next.input) throw new Error("no input delivered");
+      return next.input.turn_id;
+    };
+    const unset = {
+      engine: null,
+      sdkVersion: null,
+      cliVersion: null,
+      profileSha256: null,
+    };
+
+    // A checkpoint whose manifest carried no runtime records none.
+    expect(await finalizeOn(claimed, input.turn_id, 0, "plain")).toMatchObject({
+      checkpoint_revision: 0,
+    });
+    expect((await sessionPin(sessionId)).runtime).toEqual(unset);
+
+    expect(
+      await finalizeOn(claimed, await nextTurn("second"), 1, "runtime"),
+    ).toMatchObject({ checkpoint_revision: 1 });
+    expect(await sessionPin(sessionId)).toEqual({
+      image: "sha256:worker",
+      runtime: VERIFIED_RUNTIME,
+    });
+
+    expect(
+      await finalizeOn(claimed, await nextTurn("third"), 2, "runtime-next"),
+    ).toMatchObject({ checkpoint_revision: 2 });
+    expect(await readPointerRuntime(db, sessionId)).toEqual(NEXT_RUNTIME);
+    expect((await sessionPin(sessionId)).runtime).toEqual(VERIFIED_RUNTIME);
+  });
+
+  test("a launch that ends before any checkpoint leaves the session's runtime to the launch that first commits one", async () => {
+    const session = await queuedSession(partitionFor("session-runtime-f4"));
+    const sessionId = session.session_id;
+    const first = await launchSession(db, {
+      sessionId,
+      image: "sha256:worker-a",
+    });
+    // Gone before it bound a worker, so its signal still stands.
+    await confirmExecutionGone(db, first.executionId);
+    expect(await sessionPin(sessionId)).toMatchObject({
+      image: "sha256:worker-a",
+      runtime: { engine: null },
+    });
+
+    const second = await launchSession(db, {
+      sessionId,
+      image: "sha256:worker-b",
+    });
+    const secondClaim = await claim(second);
+    const next = await gateway.nextInput(
+      principalOf(secondClaim),
+      scopeOf(secondClaim),
+    );
+    if (!next.input) throw new Error("no input delivered");
+    expect(
+      await finalizeOn(secondClaim, next.input.turn_id, 0, "runtime-next"),
+    ).toMatchObject({ checkpoint_revision: 0 });
+
+    // The image stays the first reservation's; the runtime is the one the
+    // committing launch's manifest names.
+    expect(await sessionPin(sessionId)).toEqual({
+      image: "sha256:worker-a",
+      runtime: NEXT_RUNTIME,
+    });
+    expect(await readPointerRuntime(db, sessionId)).toEqual(NEXT_RUNTIME);
   });
 
   test("a transcript past the limit keeps the turn that crossed it and the last checkpoint, and takes no new turn", async () => {

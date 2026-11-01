@@ -11,6 +11,7 @@ import {
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
 } from "@werft-ai/db";
+import { migrate } from "@werft-ai/db/migrate";
 import { commitCheckpoint } from "@werft-ai/db/testing/checkpoints";
 import { launchSession } from "@werft-ai/db/testing/launches";
 import {
@@ -51,7 +52,6 @@ import {
 } from "@werft-ai/testkit/postgres";
 import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
 import {
   assertCheckpointBucketProtection,

@@ -7,6 +7,7 @@ import {
   type SecretAudit,
   SecretKey,
 } from "@werft-ai/platform";
+import { fakeGitHubClientSecret } from "@werft-ai/platform/testing/github";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -16,6 +17,7 @@ import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresGitHubAppStore } from "./github-apps.ts";
+import { createPostgresGitHubOAuthStore } from "./github-oauth.ts";
 import * as schema from "./schema.ts";
 import {
   githubApps,
@@ -40,6 +42,7 @@ const profile = (appId: number) => ({
   slug: `app-${appId}`,
   name: `App ${appId}`,
   htmlUrl: `https://github.com/apps/app-${appId}`,
+  clientId: `Iv23li${appId}`,
   permissions: { contents: "write" as const, metadata: "read" as const },
   apiBase: "https://api.github.com",
 });
@@ -356,5 +359,117 @@ integration("the GitHub App on PostgreSQL", () => {
       .delete(secretValues)
       .where(eq(secretValues.ownerRef, `github_app:${stored.app.id}`));
     expect(await store.find(ws, "author")).toBeNull();
+  });
+
+  test("user linking reads the author App's client id; a reviewer App or none gives no client", async () => {
+    const store = createPostgresGitHubAppStore(db, key);
+    const oauth = createPostgresGitHubOAuthStore(db, key);
+    const ws = await workspace();
+    const owner = await person(ws, "owner");
+    expect(await oauth.status(ws)).toEqual({
+      authorApp: false,
+      clientId: null,
+      clientSecretSet: false,
+    });
+    await store.put(ws, "reviewer", profile(61), pemOf(), owner());
+    expect((await oauth.status(ws)).authorApp).toBe(false);
+    await store.put(ws, "author", profile(62), pemOf(), owner());
+    expect(await oauth.status(ws.toUpperCase())).toEqual({
+      authorApp: true,
+      clientId: "Iv23li62",
+      clientSecretSet: false,
+    });
+    // No secret is set, so there is no client to link with yet.
+    expect(await oauth.client(ws)).toBeNull();
+    expect(
+      await createPostgresGitHubOAuthStore(db, null).client(ws),
+    ).toBeNull();
+  });
+
+  test("a read of the App a replacement took out does not land on the new one", async () => {
+    const store = createPostgresGitHubAppStore(db, key);
+    const oauth = createPostgresGitHubOAuthStore(db, key);
+    const ws = await workspace();
+    const owner = await person(ws, "owner");
+    const first = await store.put(ws, "author", profile(71), pemOf(), owner());
+    if (first.outcome !== "stored") throw new Error(first.outcome);
+    const second = await store.put(ws, "author", profile(72), pemOf(), owner());
+    if (second.outcome !== "stored") throw new Error(second.outcome);
+    expect(second.app.id).toBe(first.app.id);
+
+    const read = { contents: "read" as const, metadata: "read" as const };
+    await store.recordPermissions(first.app.id, 71, read, "Iv23listale");
+    expect((await oauth.status(ws)).clientId).toBe("Iv23li72");
+    expect((await store.find(ws, "author"))?.permissions).toEqual(
+      profile(72).permissions,
+    );
+
+    await store.recordPermissions(first.app.id, 72, read, "Iv23linew");
+    expect((await oauth.status(ws)).clientId).toBe("Iv23linew");
+    expect((await store.find(ws, "author"))?.permissions).toEqual(read);
+  });
+
+  test("a client secret is sealed under the author App, kept across a new key, dropped with another App", async () => {
+    const store = createPostgresGitHubAppStore(db, key);
+    const oauth = createPostgresGitHubOAuthStore(db, key);
+    const ws = await workspace();
+    const owner = await person(ws, "owner");
+    await store.put(ws, "author", profile(91), pemOf(), owner());
+    const typed = fakeGitHubClientSecret();
+    const audit = owner();
+    expect(await oauth.putClientSecret(ws, typed, audit, "Iv23li91")).toEqual({
+      outcome: "stored",
+    });
+    expect((await oauth.status(ws)).clientSecretSet).toBe(true);
+    const client = await oauth.client(ws);
+    expect(client?.clientId).toBe("Iv23li91");
+    expect(client?.clientSecret === typed).toBe(true);
+
+    const sealed = await db
+      .select()
+      .from(secretValues)
+      .where(eq(secretValues.workspaceId, ws));
+    expect(sealed.length > 0).toBe(true);
+    expect(JSON.stringify(sealed).includes(typed)).toBe(false);
+    const [receipt] = await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.id, audit.receiptId));
+    const result = receipt?.result as { purpose?: string; last4?: string };
+    expect(result.purpose).toBe("oauth_client_secret");
+    expect(result.last4?.length === 4 && typed.endsWith(result.last4)).toBe(
+      true,
+    );
+    expect(JSON.stringify(receipt).includes(typed)).toBe(false);
+
+    await store.put(ws, "author", profile(91), pemOf(), owner());
+    expect((await oauth.client(ws))?.clientSecret === typed).toBe(true);
+
+    await store.put(ws, "author", profile(92), pemOf(), owner());
+    expect(await oauth.status(ws)).toEqual({
+      authorApp: true,
+      clientId: "Iv23li92",
+      clientSecretSet: false,
+    });
+    // A boolean: a client left behind would print its secret.
+    expect((await oauth.client(ws)) === null).toBe(true);
+  });
+
+  test("a client secret typed for an App a replacement took out is refused, nothing stored", async () => {
+    const store = createPostgresGitHubAppStore(db, key);
+    const oauth = createPostgresGitHubOAuthStore(db, key);
+    const ws = await workspace();
+    const owner = await person(ws, "owner");
+    await store.put(ws, "author", profile(81), pemOf(), owner());
+    await store.put(ws, "author", profile(82), pemOf(), owner());
+    const audit = owner();
+    // Refused under the lock before the value is sealed, so none is needed.
+    expect(await oauth.putClientSecret(ws, "", audit, "Iv23li81")).toEqual({
+      outcome: "client_changed",
+    });
+    expect((await oauth.status(ws)).clientSecretSet).toBe(false);
+    expect(
+      await db.select().from(receipts).where(eq(receipts.id, audit.receiptId)),
+    ).toEqual([]);
   });
 });

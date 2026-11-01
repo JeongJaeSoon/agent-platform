@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import {
   apiError,
+  GITHUB_SETTINGS,
+  githubSettings,
   json,
   me,
   memberMe,
@@ -25,9 +27,13 @@ const NO_CEILING = {
   },
   revision: 0,
   agents_using: { workflows: 0, actions: 0, checks: 0, issues: 0, review: 0 },
+  oauth: { client_id: null, client_secret_set: false, callback_url: null },
   apps: { author: null, reviewer: null },
 };
 const KEY_TEXT = "fake-pem-text";
+const settingsRead = {
+  [`GET ${GITHUB_SETTINGS}`]: () => json(200, githubSettings()),
+};
 const UNSET = {
   github_app: null,
   check: null,
@@ -94,12 +100,16 @@ const keyFile = () =>
 async function register(appId = "4242", card = "GitHub App") {
   const user = await setupUser();
   await screen.findByRole("region", { name: card });
-  await user.click(await cardOf(card).findByRole("button", { name: "등록" }));
+  // The reviewer App waits behind "Advanced".
+  const advanced = cardOf(card).queryByRole("button", { name: "설정 열기" });
+  if (advanced) await user.click(advanced);
+  const open = card === "GitHub App" ? "이미 있는 App 추가" : "등록";
+  await user.click(await cardOf(card).findByRole("button", { name: open }));
   const input = screen.getByLabelText("App ID");
   expect(document.activeElement === input).toBe(true);
   await user.type(input, appId);
   await user.upload(screen.getByLabelText("Private key (.pem)"), keyFile());
-  await user.click(screen.getByRole("button", { name: "확인하고 저장" }));
+  await user.click(screen.getByRole("button", { name: "연결" }));
   return user;
 }
 
@@ -108,7 +118,7 @@ describe("워크스페이스 GitHub 연결", () => {
     let saved = false;
     const { api, services } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
-      [`GET ${SETTINGS}`]: () => json(200, NO_CEILING),
+      ...settingsRead,
       [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
       [`GET ${APP}`]: () => json(200, saved ? REGISTERED : UNSET),
       [`PUT ${APP}`]: () => {
@@ -128,17 +138,31 @@ describe("워크스페이스 GitHub 연결", () => {
     expect(
       api.calls.filter((c) => c.method === "PUT").map((c) => c.body),
     ).toEqual([{ app_id: 4242, private_key: KEY_TEXT }]);
-    expect(await screen.findByText("연결됨")).toBeDefined();
-    expect(screen.getByText("werft test")).toBeDefined();
+    expect(await screen.findByText("키 확인됨")).toBeDefined();
+    expect((await authorCard()).getByText("werft test")).toBeDefined();
     expect(
       screen
-        .getByRole("link", { name: /GitHub에서 설치/ })
+        .getByRole("link", { name: /GitHub에서 저장소 관리/ })
         .getAttribute("href"),
     ).toBe("https://github.com/apps/werft-test/installations/new");
-    expect(screen.getByText("acme")).toBeDefined();
-    expect(screen.getByText("고른 저장소만")).toBeDefined();
-    expect(screen.getByText("설치됨")).toBeDefined();
-    expect(screen.getByText("설치 안 됨")).toBeDefined();
+    // The account the App is installed on, with its agent repositories.
+    const app = await authorCard();
+    expect(app.getByText("acme")).toBeDefined();
+    expect(app.getByText("고른 저장소만 · 에이전트 저장소 1개")).toBeDefined();
+    expect(app.getByText("권한 승인됨")).toBeDefined();
+    // Repositories under the account that holds them.
+    const repositories = cardOf("에이전트가 쓰는 저장소");
+    expect(repositories.getByText("acme")).toBeDefined();
+    expect(repositories.getByText("설치됨")).toBeDefined();
+    expect(repositories.getByText("설치 안 됨")).toBeDefined();
+    // The summary over the page counts what still needs a look.
+    const summary = within(
+      screen.getByRole("navigation", { name: "연결 요약" }),
+    );
+    expect(summary.getByText("1곳")).toBeDefined();
+    expect(summary.getByText("2개")).toBeDefined();
+    expect(summary.getByText("1개 확인 필요")).toBeDefined();
+    expect(summary.getByText("준비됨")).toBeDefined();
     expect(screen.getByRole("heading", { name: "위험 구역" })).toBeDefined();
     await waitFor(() =>
       expect(document.activeElement?.textContent).toBe("교체"),
@@ -155,24 +179,66 @@ describe("워크스페이스 GitHub 연결", () => {
     );
   });
 
+  test("App 링크는 설치가 없으면 설치를, 설치가 있으면 저장소 관리를 말한다", async () => {
+    renderAt(PATH, {
+      "GET /v1/auth/me": () => json(200, me()),
+      ...settingsRead,
+      [`GET ${APP}`]: () => json(200, { ...REGISTERED, installations: [] }),
+      [`GET ${REVIEWER}`]: () => json(200, REGISTERED),
+    });
+    const author = await authorCard();
+    const install = await author.findByRole("link", {
+      name: /GitHub에서 설치/,
+    });
+    expect(install.getAttribute("href")).toBe(
+      "https://github.com/apps/werft-test/installations/new",
+    );
+    expect(author.queryByRole("link", { name: /저장소 관리/ })).toBeNull();
+    // A registered reviewer App opens its "Advanced" block by itself.
+    const reviewer = cardOf("리뷰 승인용 App");
+    expect(
+      reviewer
+        .getByRole("link", { name: /GitHub에서 저장소 관리/ })
+        .getAttribute("href"),
+    ).toBe("https://github.com/apps/werft-test/installations/new");
+    expect(
+      reviewer.queryByRole("link", { name: /GitHub에서 설치/ }),
+    ).toBeNull();
+  });
+
   test("App ID나 파일이 없으면 서버에 묻지 않고 그 칸으로 간다", async () => {
     const { api } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
-      [`GET ${SETTINGS}`]: () => json(200, NO_CEILING),
+      ...settingsRead,
       [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
       [`GET ${APP}`]: () => json(200, UNSET),
     });
     const user = await setupUser();
     await user.click(
-      await (await authorCard()).findByRole("button", { name: "등록" }),
+      await (await authorCard()).findByRole("button", {
+        name: "이미 있는 App 추가",
+      }),
     );
-    await user.click(screen.getByRole("button", { name: "확인하고 저장" }));
+    // The form says why an old .pem cannot be fetched again, and links the docs.
+    const described = (
+      screen.getByLabelText("App ID").getAttribute("aria-describedby") ?? ""
+    )
+      .split(" ")
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" ");
+    expect(described).toContain("예전에 받은 .pem을 다시 내려받을 수 없습니다");
+    expect(
+      screen
+        .getByRole("link", { name: /GitHub 문서: 개인 키 관리/ })
+        .getAttribute("href"),
+    ).toContain("managing-private-keys-for-github-apps");
+    await user.click(screen.getByRole("button", { name: "연결" }));
     expect(screen.getByText("App ID를 숫자로 넣어 주세요.")).toBeDefined();
     expect(document.activeElement === screen.getByLabelText("App ID")).toBe(
       true,
     );
     await user.type(screen.getByLabelText("App ID"), "4242");
-    await user.click(screen.getByRole("button", { name: "확인하고 저장" }));
+    await user.click(screen.getByRole("button", { name: "연결" }));
     expect(screen.getByText(".pem 파일을 골라 주세요.")).toBeDefined();
     expect(
       document.activeElement === screen.getByLabelText("Private key (.pem)"),
@@ -202,7 +268,7 @@ describe("워크스페이스 GitHub 연결", () => {
     for (const [response, text] of cases) {
       renderAt(PATH, {
         "GET /v1/auth/me": () => json(200, me()),
-        [`GET ${SETTINGS}`]: () => json(200, NO_CEILING),
+        ...settingsRead,
         [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
         [`GET ${APP}`]: () => json(200, UNSET),
         [`PUT ${APP}`]: () => response.clone(),
@@ -218,7 +284,7 @@ describe("워크스페이스 GitHub 연결", () => {
   test("GitHub에 닿지 못한 읽기는 확인 실패와 설치 상태를 모른다고 보인다", async () => {
     renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
-      [`GET ${SETTINGS}`]: () => json(200, NO_CEILING),
+      ...settingsRead,
       [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
       [`GET ${APP}`]: () =>
         json(200, {
@@ -240,7 +306,7 @@ describe("워크스페이스 GitHub 연결", () => {
     let deleted = false;
     const { api } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
-      [`GET ${SETTINGS}`]: () => json(200, NO_CEILING),
+      ...settingsRead,
       [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
       [`GET ${APP}`]: () => json(200, deleted ? UNSET : REGISTERED),
       [`DELETE ${APP}`]: () => {
@@ -251,8 +317,13 @@ describe("워크스페이스 GitHub 연결", () => {
       },
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "삭제" }));
-    const dialog = await screen.findByRole("dialog");
+    await user.click(
+      await screen.findByRole("button", { name: "GitHub App 삭제" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "GitHub App을 삭제할까요?",
+    });
+    expect(within(dialog).getByText("werft test")).toBeDefined();
     await user.click(within(dialog).getByRole("button", { name: "삭제" }));
     expect((await screen.findByRole("status")).textContent).toBe(
       "GitHub App을 삭제했습니다.",
@@ -264,7 +335,7 @@ describe("워크스페이스 GitHub 연결", () => {
   test("저장을 두 번 눌러도 한 번만 보낸다", async () => {
     const { api } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
-      [`GET ${SETTINGS}`]: () => json(200, NO_CEILING),
+      ...settingsRead,
       [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
       [`GET ${APP}`]: () => json(200, UNSET),
       [`PUT ${APP}`]: () =>
@@ -275,14 +346,14 @@ describe("워크스페이스 GitHub 연결", () => {
     });
     const user = await setupUser();
     await user.click(
-      await (await authorCard()).findByRole("button", { name: "등록" }),
+      await (await authorCard()).findByRole("button", {
+        name: "이미 있는 App 추가",
+      }),
     );
     await user.type(screen.getByLabelText("App ID"), "4242");
     await user.upload(screen.getByLabelText("Private key (.pem)"), keyFile());
     // Two submits in one tick, before the first has read the file.
-    const form = screen
-      .getByRole("button", { name: "확인하고 저장" })
-      .closest("form");
+    const form = screen.getByRole("button", { name: "연결" }).closest("form");
     form?.requestSubmit();
     form?.requestSubmit();
     await screen.findByRole("status");
@@ -292,7 +363,7 @@ describe("워크스페이스 GitHub 연결", () => {
   test("키가 거절되면 확인 실패이고, 빈 설치 카드도 다시 등록하라고 말한다", async () => {
     renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, me()),
-      [`GET ${SETTINGS}`]: () => json(200, NO_CEILING),
+      ...settingsRead,
       [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
       [`GET ${APP}`]: () =>
         json(200, {
@@ -356,14 +427,23 @@ describe("워크스페이스 GitHub 연결", () => {
         });
       },
     });
-    const title = "리뷰용 App (선택)";
+    const title = "리뷰 승인용 App";
     await screen.findByRole("region", { name: title });
     const card = () => cardOf(title);
-    expect(await card().findByText("등록 안 됨")).toBeDefined();
+    // Behind "Advanced" by default: one App on the page.
+    expect(await card().findByText("고급 · 등록 안 됨")).toBeDefined();
+    expect(card().queryByText(/Pull requests 읽기·쓰기/)).toBeNull();
+    const user = await setupUser();
+    const toggle = card().getByRole("button", { name: "설정 열기" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    await user.click(toggle);
+    expect(card().getByText("등록 안 됨")).toBeDefined();
     expect(card().getByText(/Pull requests 읽기·쓰기/)).toBeDefined();
-    expect(card().getByText(/필수 리뷰어를 2명 이상으로/)).toBeDefined();
+    expect(card().getByText(/필수 리뷰어를 2명 이상 두거나/)).toBeDefined();
+    await user.click(card().getByRole("button", { name: "접기" }));
+    expect(card().queryByText(/Pull requests 읽기·쓰기/)).toBeNull();
 
-    const user = await register("4343", title);
+    await register("4343", title);
     expect((await screen.findByRole("status")).textContent).toBe(
       "리뷰용 App을 저장했습니다.",
     );
@@ -373,14 +453,26 @@ describe("워크스페이스 GitHub 연결", () => {
         .map((c) => [c.path, (c.body as { app_id: number }).app_id]),
     ).toEqual([[REVIEWER, 4343]]);
     expect(await card().findByText("werft reviewer")).toBeDefined();
-    expect(card().getByText("설치 승인 대기")).toBeDefined();
+    expect(card().getByText("권한 변경 승인 대기")).toBeDefined();
     expect(card().getByText("설치 안 됨")).toBeDefined();
     expect(card().queryByText(/Pull requests 읽기·쓰기/)).toBeNull();
 
-    await user.click(card().getByRole("button", { name: "삭제" }));
+    // Its replace and delete join the author App's in the one danger zone.
+    expect(card().queryByRole("button", { name: /삭제|교체/ })).toBeNull();
+    const zone = within(screen.getByRole("region", { name: "위험 구역" }));
+    expect(
+      zone.getAllByRole("button").map((b) => b.getAttribute("aria-label")),
+    ).toEqual([
+      "GitHub App 교체",
+      "GitHub App 삭제",
+      "리뷰용 App 교체",
+      "리뷰용 App 삭제",
+    ]);
+    await user.click(zone.getByRole("button", { name: "리뷰용 App 삭제" }));
     const dialog = await screen.findByRole("dialog", {
       name: "리뷰용 App을 삭제할까요?",
     });
+    expect(within(dialog).getByText("werft reviewer")).toBeDefined();
     await user.click(within(dialog).getByRole("button", { name: "삭제" }));
     expect((await screen.findByRole("status")).textContent).toBe(
       "리뷰용 App을 삭제했습니다.",
@@ -390,6 +482,25 @@ describe("워크스페이스 GitHub 연결", () => {
       api.calls.filter((c) => c.method === "DELETE").map((c) => c.path),
     ).toEqual([REVIEWER]);
     expect((await authorCard()).getByText("werft test")).toBeDefined();
+  });
+
+  test("작성용 App이 없어도 남은 리뷰용 App은 위험 구역에서 교체·삭제한다", async () => {
+    renderAt(PATH, {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${SETTINGS}`]: () => json(200, NO_CEILING),
+      [`GET ${APP}`]: () => json(200, UNSET),
+      [`GET ${REVIEWER}`]: () =>
+        json(200, {
+          ...REGISTERED,
+          github_app: { ...REGISTERED.github_app, name: "werft reviewer" },
+        }),
+    });
+    const zone = within(
+      await screen.findByRole("region", { name: "위험 구역" }),
+    );
+    expect(
+      zone.getAllByRole("button").map((b) => b.getAttribute("aria-label")),
+    ).toEqual(["리뷰용 App 교체", "리뷰용 App 삭제"]);
   });
 
   test("리뷰용 App 등록이 역할 충돌로 거절되면 그 이유를 말한다", async () => {
@@ -411,7 +522,7 @@ describe("워크스페이스 GitHub 연결", () => {
         [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
         [`PUT ${REVIEWER}`]: () => refusal(409, "GITHUB_APP_CONFLICT", reason),
       });
-      await register("4343", "리뷰용 App (선택)");
+      await register("4343", "리뷰 승인용 App");
       expect((await screen.findByRole("alert")).textContent).toBe(text);
       cleanup();
     }
@@ -420,12 +531,253 @@ describe("워크스페이스 GitHub 연결", () => {
   test("구성원은 이유만 읽고 서버에 묻지 않는다", async () => {
     const { api } = renderAt(PATH, {
       "GET /v1/auth/me": () => json(200, memberMe()),
+      ...settingsRead,
     });
     await waitFor(() =>
-      expect(screen.queryByRole("button", { name: "등록" })).toBeNull(),
+      expect(
+        screen.queryByRole("button", { name: "이미 있는 App 추가" }),
+      ).toBeNull(),
     );
     expect(api.calls.some((c) => c.path === APP || c.path === REVIEWER)).toBe(
       false,
+    );
+  });
+});
+
+describe("워크스페이스 GitHub 연결 — 사용자 계정 연결", () => {
+  const registered = (settings = githubSettings()) => ({
+    "GET /v1/auth/me": () => json(200, me()),
+    [`GET ${APP}`]: () => json(200, REGISTERED),
+    [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
+    [`GET ${GITHUB_SETTINGS}`]: () => json(200, settings),
+  });
+  const section = async () =>
+    within(await screen.findByRole("region", { name: "사용자 계정 연결" }));
+
+  test("Client ID와 콜백 URL을 보이고, 콜백 URL은 복사하면 화면의 알림 줄이 알린다", async () => {
+    renderAt(PATH, registered());
+    const card = await section();
+    expect(await card.findByText("Iv23lifake")).toBeDefined();
+    expect(
+      card.getByText("http://console.test/settings/linked-accounts/github"),
+    ).toBeDefined();
+    expect(card.getByText("입력됨")).toBeDefined();
+    expect(card.getByRole("button", { name: "교체" })).toBeDefined();
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    const written: string[] = [];
+    const user = await setupUser();
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (text: string) => void written.push(text) },
+    });
+    try {
+      await user.click(card.getByRole("button", { name: "콜백 URL 복사" }));
+      expect(written).toEqual([
+        "http://console.test/settings/linked-accounts/github",
+      ]);
+      expect((await screen.findByRole("status")).textContent).toBe("복사됨");
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
+  test("콘솔 주소와 client secret이 없으면 무엇이 빠졌는지 말한다", async () => {
+    const { api } = renderAt(
+      PATH,
+      registered(
+        githubSettings({
+          client_id: null,
+          callback_url: null,
+          client_secret_set: false,
+        }),
+      ),
+    );
+    const card = await section();
+    expect(
+      await card.findByText(/운영자에게 CONSOLE_ORIGIN 설정을 요청하세요/),
+    ).toBeDefined();
+    expect(
+      card.getByText(
+        "GitHub App을 등록하면 GitHub가 알려 주는 값이 여기에 보입니다.",
+      ),
+    ).toBeDefined();
+    expect(card.getByText("입력 안 됨")).toBeDefined();
+    expect(card.queryByRole("button", { name: "콜백 URL 복사" })).toBeNull();
+    // A secret is one App's: none can be typed before its client id is known.
+    expect(card.queryByRole("button", { name: "입력" })).toBeNull();
+    // Still none after the read the App read prompts: no more reads follow.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(
+      api.calls.filter((c) => c.method === "GET" && c.path === GITHUB_SETTINGS),
+    ).toHaveLength(2);
+  });
+
+  test("설정을 먼저 읽은 뒤 App 조회가 Client ID를 채우면, 사용자 연결은 다시 읽어 그 값을 보인다", async () => {
+    let reads = 0;
+    let firstRead = () => {};
+    const settingsAnswered = new Promise<void>((resolve) => {
+      firstRead = resolve;
+    });
+    renderAt(PATH, {
+      "GET /v1/auth/me": () => json(200, me()),
+      // An App registered before the client id column: reading it fills the column.
+      [`GET ${APP}`]: async () => {
+        await settingsAnswered;
+        return json(200, REGISTERED);
+      },
+      [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
+      [`GET ${GITHUB_SETTINGS}`]: () => {
+        reads += 1;
+        firstRead();
+        return json(
+          200,
+          githubSettings(
+            reads === 1
+              ? { client_id: null, client_secret_set: false }
+              : { client_id: "Iv23lifake", client_secret_set: false },
+          ),
+        );
+      },
+    });
+    const card = await section();
+    expect(await card.findByText("Iv23lifake")).toBeDefined();
+    expect(card.getByRole("button", { name: "입력" })).toBeDefined();
+  });
+
+  test("App 조회보다 먼저 떠난 설정 읽기가 늦게 비어 있는 값으로 오면, 그 뒤 다시 읽는다", async () => {
+    let reads = 0;
+    let appAnswered = () => {};
+    const app = new Promise<void>((resolve) => {
+      appAnswered = resolve;
+    });
+    renderAt(PATH, {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${APP}`]: () => {
+        appAnswered();
+        return json(200, REGISTERED);
+      },
+      [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
+      [`GET ${GITHUB_SETTINGS}`]: async () => {
+        reads += 1;
+        if (reads > 1) {
+          return json(200, githubSettings({ client_id: "Iv23lifake" }));
+        }
+        // Read before the App read filled the column, answered after it.
+        await app;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return json(
+          200,
+          githubSettings({ client_id: null, client_secret_set: false }),
+        );
+      },
+    });
+    const card = await section();
+    expect(await card.findByText("Iv23lifake")).toBeDefined();
+    expect(reads).toBe(2);
+  });
+
+  test("App을 교체하면 사용자 연결도 다시 읽어 새 App의 Client ID를 보인다", async () => {
+    let saved = false;
+    renderAt(PATH, {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${APP}`]: () => json(200, REGISTERED),
+      [`GET ${GITHUB_SETTINGS}`]: () =>
+        json(
+          200,
+          githubSettings(
+            saved
+              ? { client_id: "Iv23linew", client_secret_set: false }
+              : { client_id: "Iv23liold", client_secret_set: true },
+          ),
+        ),
+      [`PUT ${APP}`]: () => {
+        saved = true;
+        return json(200, {
+          github_app: REGISTERED.github_app,
+          receipt_id: "5f0c2c1e-8a4b-4c1d-9e2f-3a4b5c6d7e8f",
+        });
+      },
+    });
+    const card = await section();
+    expect(await card.findByText("Iv23liold")).toBeDefined();
+    const user = await setupUser();
+    // Replacing is in the danger zone and asks first, naming the App.
+    await user.click(screen.getByRole("button", { name: "GitHub App 교체" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "GitHub App을 교체할까요?",
+    });
+    expect(within(dialog).getByText("werft test")).toBeDefined();
+    await user.click(within(dialog).getByRole("button", { name: "교체" }));
+    const input = await screen.findByLabelText("App ID");
+    await waitFor(() => expect(document.activeElement === input).toBe(true));
+    expect(
+      screen.getByRole("region", { name: "위험 구역" }).contains(input),
+    ).toBe(true);
+    // Replacing is not adding an existing App: no intro, no connect note.
+    expect(screen.queryByText(/예전에 받은 \.pem/)).toBeNull();
+    await user.type(input, "4243");
+    await user.upload(screen.getByLabelText("Private key (.pem)"), keyFile());
+    await user.click(screen.getByRole("button", { name: "확인하고 저장" }));
+    expect(await card.findByText("Iv23linew")).toBeDefined();
+    expect(card.queryByText("Iv23liold")).toBeNull();
+    expect(card.getByText("입력 안 됨")).toBeDefined();
+  });
+
+  test("그 사이 App이 바뀌었다는 거절은 알리고 사용자 연결을 다시 읽는다", async () => {
+    let reads = 0;
+    const { api } = renderAt(PATH, {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${APP}`]: () => json(200, REGISTERED),
+      [`GET ${GITHUB_SETTINGS}`]: () => {
+        reads += 1;
+        return json(
+          200,
+          githubSettings({
+            client_id: reads === 1 ? "Iv23liold" : "Iv23linew",
+            client_secret_set: false,
+          }),
+        );
+      },
+      [`PUT ${GITHUB_SETTINGS}/oauth-client-secret`]: () =>
+        refusal(409, "REVISION_CONFLICT", "github_app_changed"),
+    });
+    const card = await section();
+    const user = await setupUser();
+    await user.click(await card.findByRole("button", { name: "입력" }));
+    await user.type(card.getByLabelText("Client secret"), "typed-value");
+    await user.click(card.getByRole("button", { name: "저장" }));
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "다른 곳에서 먼저 바꿨습니다 — 다시 불러온 뒤 시도하세요.",
+    );
+    expect(await card.findByText("Iv23linew")).toBeDefined();
+    const sent = api.calls.filter((c) => c.method === "PUT");
+    expect(
+      sent.map((c) => (c.body as { client_id: string }).client_id),
+    ).toEqual(["Iv23liold"]);
+  });
+
+  test("빈 client secret은 서버에 보내지 않고 그 칸으로 돌아간다", async () => {
+    const { api } = renderAt(
+      PATH,
+      registered(githubSettings({ client_secret_set: false })),
+    );
+    const card = await section();
+    const user = await setupUser();
+    await user.click(await card.findByRole("button", { name: "입력" }));
+    const input = card.getByLabelText("Client secret");
+    expect(document.activeElement === input).toBe(true);
+    expect(input.getAttribute("type")).toBe("password");
+    await user.click(card.getByRole("button", { name: "저장" }));
+    expect(await card.findByText("client secret을 넣어 주세요.")).toBeDefined();
+    expect(document.activeElement === input).toBe(true);
+    expect(api.calls.some((c) => c.method === "PUT")).toBe(false);
+    // Cancelling closes the form and hands focus back to its button.
+    await user.click(card.getByRole("button", { name: "취소" }));
+    await waitFor(() =>
+      expect(
+        document.activeElement === card.getByRole("button", { name: "입력" }),
+      ).toBe(true),
     );
   });
 });

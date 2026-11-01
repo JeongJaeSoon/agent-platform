@@ -218,6 +218,31 @@ describe("the object store route's signer", () => {
       request("GET", "/claude-sessions/sessions/s1/a%2F..%2F..%2Fs2%2Fx"),
     ],
     ["a malformed escape", request("GET", "/claude-sessions/sessions/s1/%zz")],
+    // Archived event chunks are read and written by the control plane only.
+    [
+      "its own session's archived events",
+      request(
+        "GET",
+        "/claude-sessions/session-archive/s1/events-1-2-0123456789abcdef.jsonl.gz",
+      ),
+    ],
+    [
+      "a write under the archive prefix",
+      request("PUT", "/claude-sessions/session-archive/s1/x?x-id=PutObject", [
+        ["content-length", "14"],
+        ["content-type", "application/octet-stream"],
+        ["if-none-match", "*"],
+        ["x-amz-sdk-checksum-algorithm", "CRC32"],
+        ["x-amz-checksum-crc32", "AAAAAA=="],
+      ]),
+    ],
+    [
+      "a list of the archive prefix",
+      request(
+        "GET",
+        "/claude-sessions?prefix=session-archive%2Fs1%2F&list-type=2",
+      ),
+    ],
     ["another bucket", request("GET", "/other-bucket/sessions/s1/x")],
     ["a delete", request("DELETE", "/claude-sessions/sessions/s1/x")],
     ["a post", request("POST", "/claude-sessions/sessions/s1/x?uploads")],

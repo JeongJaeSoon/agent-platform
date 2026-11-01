@@ -22,6 +22,7 @@ import {
   turns,
   unassignedSessions,
 } from "@werft-ai/db";
+import { migrate } from "@werft-ai/db/migrate";
 import { createLogger, MemoryLogSink } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
@@ -30,7 +31,6 @@ import {
 } from "@werft-ai/platform";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
 import { createApiApp } from "./app.ts";
 import { DatabaseApiKeyStore, issueApiKey } from "./keys.ts";

@@ -259,6 +259,12 @@ export function createPushRequestService(deps: {
       }
       await requireSession(actor, "session.approve", sessionId);
       const body = await input.readBody();
+      // Only consulted when the session checkpointed since the request; a
+      // store that cannot answer leaves the exact-revision rule in force.
+      const latest =
+        body.decision === "approve"
+          ? await source.readPushSource(sessionId).catch(() => null)
+          : null;
       return settled(
         await store.decide({
           ownerId: actor.ownerId,
@@ -270,6 +276,10 @@ export function createPushRequestService(deps: {
           reason: body.reason ?? null,
           idempotencyKey: input.idempotencyKey,
           payloadHash: payloadHash(body),
+          latest:
+            latest?.status === "ready"
+              ? { revision: latest.revision, gitCommit: latest.gitCommit }
+              : null,
         }),
       );
     },

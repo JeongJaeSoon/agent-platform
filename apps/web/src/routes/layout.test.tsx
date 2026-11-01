@@ -102,14 +102,41 @@ describe("app shell", () => {
     });
   }
 
+  test("a labelled sidebar group folds under its heading and opens again", async () => {
+    renderAt("/", { "GET /v1/auth/me": () => json(200, me()) });
+    const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
+    const heading = await within(nav).findByRole("button", {
+      name: "워크스페이스",
+    });
+    const group = within(nav).getByRole("group", { name: "워크스페이스" });
+    expect(heading.getAttribute("aria-expanded")).toBe("true");
+    expect(within(group).getAllByRole("link")).toHaveLength(4);
+    // Every page shows its own tile colour.
+    expect(
+      Array.from(nav.querySelectorAll("[data-slot=icon-tile]"), (tile) =>
+        tile.getAttribute("data-hue"),
+      ),
+    ).toEqual(["blue", "violet", "orange", "teal", "pink", "green", "slate"]);
+    const user = await setupUser();
+    await user.click(heading);
+    expect(heading.getAttribute("aria-expanded")).toBe("false");
+    expect(within(group).queryAllByRole("link")).toHaveLength(0);
+    await user.click(heading);
+    expect(within(group).getAllByRole("link")).toHaveLength(4);
+  });
+
   test("a member keeps their own settings in the account menu", async () => {
     renderAt("/", { "GET /v1/auth/me": () => json(200, memberMe()) });
     const region = await screen.findByRole("region", { name: "사용자 메뉴" });
     const user = await setupUser();
     await user.click(
-      within(region).getByRole("button", { name: "Owner · 구성원" }),
+      within(region).getByRole("button", {
+        name: "Owner owner@example.com · 구성원",
+      }),
     );
-    const menu = screen.getByRole("menu", { name: "Owner · 구성원" });
+    const menu = screen.getByRole("menu", {
+      name: "Owner owner@example.com · 구성원",
+    });
     expect(
       within(menu)
         .getAllByRole("menuitem")
@@ -354,7 +381,7 @@ describe("app shell", () => {
     renderAt("/", signedIn);
     const region = await screen.findByRole("region", { name: "사용자 메뉴" });
     const trigger = within(region).getByRole("button", {
-      name: "Owner · 소유자",
+      name: "Owner owner@example.com · 소유자",
     });
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByRole("menu")).toBeNull();
@@ -362,7 +389,9 @@ describe("app shell", () => {
 
     const user = await setupUser();
     await user.click(trigger);
-    const menu = screen.getByRole("menu", { name: "Owner · 소유자" });
+    const menu = screen.getByRole("menu", {
+      name: "Owner owner@example.com · 소유자",
+    });
     expect(within(menu).getByText("owner@example.com")).toBeDefined();
     expect(within(menu).getByText("소유자 · Acme")).toBeDefined();
     // Each submenu item shows its current value after the label.
@@ -557,7 +586,9 @@ describe("focus after a page change", () => {
     });
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "Owner · 소유자" }),
+      await screen.findByRole("button", {
+        name: "Owner owner@example.com · 소유자",
+      }),
     );
     await user.click(screen.getByRole("menuitem", { name: "로그아웃" }));
     const title = await screen.findByRole("heading", {
@@ -738,7 +769,7 @@ describe("who the cache belongs to", () => {
     await screen.findByRole("link", { name: "세션 답변 대기 1개" });
     who = "mate";
     await services.queryClient.refetchQueries({ queryKey: ["me"] });
-    await screen.findByRole("button", { name: /^Mate · / });
+    await screen.findByRole("button", { name: /^Mate mate@example\.com · / });
     await waitFor(() => {
       const cached = scopedKeys(services);
       expect(cached.length).toBeGreaterThan(0);
@@ -760,7 +791,7 @@ describe("who the cache belongs to", () => {
     await screen.findByRole("link", { name: `세션 열기: ${FIRST}` });
     who = "mate";
     await services.queryClient.refetchQueries({ queryKey: ["me"] });
-    await screen.findByRole("button", { name: /^Mate · / });
+    await screen.findByRole("button", { name: /^Mate mate@example\.com · / });
     expect(
       screen.queryByRole("link", { name: `세션 열기: ${FIRST}` }),
     ).toBeNull();
@@ -784,13 +815,15 @@ describe("who the cache belongs to", () => {
     });
     await screen.findByRole("link", { name: "세션 답변 대기 1개" });
     const user = await setupUser();
-    await user.click(screen.getByRole("button", { name: "Owner · 소유자" }));
+    await user.click(
+      screen.getByRole("button", { name: "Owner owner@example.com · 소유자" }),
+    );
     await user.click(screen.getByRole("menuitem", { name: "로그아웃" }));
     await screen.findByText("로그아웃했습니다.");
     // Mate signs in elsewhere in this browser; the cookie is theirs now.
     who = "mate";
     await history.push("/");
-    await screen.findByRole("button", { name: /^Mate · / });
+    await screen.findByRole("button", { name: /^Mate mate@example\.com · / });
     await screen.findByRole("heading", { name: "홈" });
     const waitingReads = api.calls.filter(
       (call) =>

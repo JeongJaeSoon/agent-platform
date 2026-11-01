@@ -3,6 +3,7 @@ import type {
   CreateSlackAppResponse,
   DeleteSlackAppResponse,
   GetSlackAppResponse,
+  ListWorkspaceSlackAppsResponse,
   SlackAgentWarning,
   SlackApp,
   SlackAppSettings,
@@ -317,7 +318,7 @@ export function createSlackAppService(deps: {
       agentId: string,
     ): Promise<GetSlackAppResponse> {
       await permitAgent(caller, agentId);
-      const { apps } = ready();
+      const { apps, tokens } = ready();
       const record = await apps.findForAgent(caller.ownerId, agentId);
       if (
         record === null &&
@@ -336,6 +337,7 @@ export function createSlackAppService(deps: {
           url: null,
         },
         warnings: await agentWarnings(caller.ownerId, agentId),
+        config_token: (await tokens.describe(caller.ownerId)).state,
       };
     },
 
@@ -382,6 +384,26 @@ export function createSlackAppService(deps: {
       if (result === "actor_inactive") throw ACTOR_INACTIVE();
       if (result === "outranked") throw OUTRANKED();
       return settings;
+    },
+
+    async listMadeApps(
+      caller: Caller,
+      workspaceId: string,
+    ): Promise<ListWorkspaceSlackAppsResponse> {
+      if (workspaceId !== caller.ownerId) throw NOT_FOUND();
+      await requirePermitted(authorization, caller, WORKSPACE_ACTION, {
+        kind: "workspace",
+        id: workspaceId,
+      });
+      requireConsole(caller);
+      const { apps } = ready();
+      const made = await apps.listMade(workspaceId);
+      return {
+        items: made.map(({ app, agent }) => ({
+          slack_app: slackAppView(app),
+          agent,
+        })),
+      };
     },
 
     async deleteApp(

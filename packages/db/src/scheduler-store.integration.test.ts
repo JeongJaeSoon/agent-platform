@@ -6,6 +6,7 @@ import { Pool } from "pg";
 import { createPostgresSchedulerStore } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import { sessions, unassignedSessions, workerLaunches } from "./schema.ts";
+import { confirmExecutionGone } from "./testing/launches.ts";
 
 /**
  * Real PostgreSQL only: PGlite has a single connection, so it cannot show
@@ -149,6 +150,39 @@ integration("PostgresSchedulerStore under concurrent reservations", () => {
     await store.issueBootstrapNonce(intent);
     return { intent, sessionId, store };
   }
+
+  test("the session keeps the image of its first reserved launch; later launches do not overwrite it", async () => {
+    const { intent, sessionId, store } = await reservedLaunch();
+    const firstImage = async () =>
+      (
+        await db
+          .select({ image: sessions.firstWorkerImage })
+          .from(sessions)
+          .where(eq(sessions.id, sessionId))
+      )[0]?.image;
+    expect(await firstImage()).toBe(SPEC.image);
+
+    // Gone before any worker bound: the session's signal still stands.
+    await confirmExecutionGone(db, intent.executionId);
+    const next = await store.reserveLaunch({
+      ...SPEC,
+      image: "sha256:worker-next",
+      backend: "local_docker",
+      now: new Date(),
+      sessionId,
+      slotLimit: 100,
+    });
+    if (!next) throw new Error("no second intent");
+    expect(
+      (
+        await db
+          .select({ image: workerLaunches.image })
+          .from(workerLaunches)
+          .where(eq(workerLaunches.executionId, next.executionId))
+      )[0]?.image,
+    ).toBe("sha256:worker-next");
+    expect(await firstImage()).toBe(SPEC.image);
+  });
 
   /** Resolves to "pending" if `promise` has not settled within `ms`. */
   function settledWithin<T>(promise: Promise<T>, ms: number) {

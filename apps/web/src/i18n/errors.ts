@@ -38,6 +38,8 @@ export const errorsKo = {
   "error.ALREADY_EXISTS": "같은 식별자(slug)가 이미 있습니다.",
   "error.SLACK_LINK_NOT_CONFIGURED":
     "Slack 계정 연결을 아직 쓸 수 없습니다 — 워크스페이스 관리자에게 Slack 연결 설정을 요청하세요.",
+  "error.GITHUB_LINK_NOT_CONFIGURED":
+    "GitHub 계정 연결을 아직 쓸 수 없습니다 — 워크스페이스 관리자에게 GitHub 연결의 사용자 연결 설정을 요청하세요.",
   "error.SLACK_APP_CREATING":
     "Slack 앱을 만드는 중입니다 — 잠시 뒤 다시 시도하세요.",
   // Only the read-only demo build answers this (src/demo/fetch.ts).
@@ -82,6 +84,8 @@ export const errorsEn: Record<keyof typeof errorsKo, string> = {
   "error.ALREADY_EXISTS": "That identifier (slug) is already taken.",
   "error.SLACK_LINK_NOT_CONFIGURED":
     "Slack account linking isn't available yet — ask a workspace admin to set up the Slack connection.",
+  "error.GITHUB_LINK_NOT_CONFIGURED":
+    "GitHub account linking isn't available yet — ask a workspace admin to set up user linking in the GitHub connection.",
   "error.SLACK_APP_CREATING":
     "The Slack app is being created — try again shortly.",
   "error.DEMO_READ_ONLY": "Changes are not saved in this demo.",
@@ -131,6 +135,8 @@ export const errorsJa: Record<keyof typeof errorsKo, string> = {
   "error.ALREADY_EXISTS": "この識別子（slug）はすでに使われています。",
   "error.SLACK_LINK_NOT_CONFIGURED":
     "Slack アカウント連携はまだ使えません。ワークスペースの管理者に Slack 連携の設定を依頼してください。",
+  "error.GITHUB_LINK_NOT_CONFIGURED":
+    "GitHub アカウント連携はまだ使えません。ワークスペースの管理者に GitHub 連携のユーザー連携の設定を依頼してください。",
   "error.SLACK_APP_CREATING":
     "Slack アプリを作成中です。しばらくしてから、もう一度お試しください。",
   "error.DEMO_READ_ONLY": "このデモでは変更は保存されません。",

@@ -1,6 +1,10 @@
 import * as schema from "@werft-ai/db";
 import { createPostgresSchedulerStore } from "@werft-ai/db";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
+import {
+  createEnforcedPool,
+  JOB_POOL_TIMEOUTS,
+  SEQUENTIAL_ROLE_POOL_MAX,
+} from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
 import { runScheduler, type SchedulerRunSummary } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -29,6 +33,7 @@ export async function main(
     logger,
     "scheduler",
     JOB_POOL_TIMEOUTS,
+    { max: SEQUENTIAL_ROLE_POOL_MAX },
   );
   try {
     const db = drizzle(pool, { schema });
@@ -60,6 +65,12 @@ export async function main(
       backend,
       drainDeadlineMs: config.drainDeadlineMs,
       image: config.image,
+      ...(config.imageRuntime === undefined
+        ? {}
+        : { imageRuntime: config.imageRuntime }),
+      ...(config.previousImage === undefined
+        ? {}
+        : { previousImage: config.previousImage }),
       logger,
       resources: config.resources,
       slotLimit: config.slotLimit,
@@ -95,6 +106,7 @@ export function exitCodeFor(summary: SchedulerRunSummary): number {
   if (
     summary.failedLaunches.length > 0 ||
     summary.imageUnresolved ||
+    summary.imagesRefused.length > 0 ||
     summary.killFailed.length > 0 ||
     // A network that could be neither removed nor repaired is a leaked
     // address pool or a worker without egress; both need someone to look.

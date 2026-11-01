@@ -216,6 +216,18 @@ const githubAppPermissionsSchema = z.record(
   z.enum(["read", "write", "admin"]),
 );
 
+/**
+ * Linking people's GitHub accounts, through the author App's user
+ * authorization. The client secret is never read back.
+ */
+export const githubOAuthSchema = z.object({
+  /** The author App's, as GitHub last gave it; null without an App or a read. */
+  client_id: z.string().nullable(),
+  client_secret_set: z.boolean(),
+  /** What the App's Callback URL must be; null when the console has no origin. */
+  callback_url: z.url().nullable(),
+});
+
 export const githubSettingsResponseSchema = z.object({
   ceiling: githubCeilingSchema,
   /** 0 until the ceiling is first saved. */
@@ -231,6 +243,7 @@ export const githubSettingsResponseSchema = z.object({
     issues: z.number().int().nonnegative(),
     review: z.number().int().nonnegative(),
   }),
+  oauth: githubOAuthSchema,
   /** The App's permissions as last read from GitHub; null before a read. */
   apps: z.object({
     author: z
@@ -250,6 +263,36 @@ export const putGitHubSettingsRequestSchema = z
   })
   .strict();
 
+// Printable ASCII without spaces, as GitHub hands it out; a pasted space or
+// newline is refused rather than kept. The same rule as the Slack secrets
+// (secretValueSchema), restated here to keep this file on zod alone.
+export const putGitHubOAuthClientSecretRequestSchema = z
+  .object({
+    /**
+     * The author App's client id the secret belongs to, as `oauth.client_id`
+     * showed it: another App's now is 409 REVISION_CONFLICT.
+     */
+    client_id: z.string().min(1).max(255),
+    client_secret: z
+      .string()
+      .min(8)
+      .max(4096)
+      .regex(/^[\x21-\x7e]+$/, "must be printable ASCII without spaces"),
+  })
+  .strict();
+
+export const putGitHubOAuthClientSecretResponseSchema = z.object({
+  receipt_id: z.uuid(),
+  oauth: githubOAuthSchema,
+});
+
+export type GitHubOAuth = z.infer<typeof githubOAuthSchema>;
+export type PutGitHubOAuthClientSecretRequest = z.infer<
+  typeof putGitHubOAuthClientSecretRequestSchema
+>;
+export type PutGitHubOAuthClientSecretResponse = z.infer<
+  typeof putGitHubOAuthClientSecretResponseSchema
+>;
 export type GitHubSettingsResponse = z.infer<
   typeof githubSettingsResponseSchema
 >;

@@ -253,4 +253,46 @@ describe("claimFingerprint", () => {
     }
     expect(OUT_DIRECTORY_PROMPT).toContain("`out/`");
   });
+
+  test("the built-in github server reaches the engine as a proxy route with the egress token, and no GitHub token", () => {
+    const runtimeConfig = {
+      ...shipped["claude-coding-local"],
+      tools: ["Read", "mcp__github__request_push"],
+      mcp_servers: [
+        {
+          name: "github",
+          endpoint: "https://builtin.invalid/mcp/github",
+          binding: `sha256:${"0".repeat(64)}`,
+          access: claimToken,
+        },
+      ],
+    };
+    const profile = runtimeProfile(
+      config,
+      claude,
+      {
+        principal,
+        runtimeConfig,
+        workspace: {
+          repository: {
+            id: "sandbox",
+            url: "https://github.com/acme/sandbox.git",
+            branch: "main",
+          },
+        },
+      },
+      () => null,
+    );
+    expect(profile.bundle.mcpServers).toEqual([
+      expect.objectContaining({
+        name: "github",
+        url: "http://egress-proxy:3129/mcp/github",
+        token: claimToken.token,
+        tools: ["Read", "mcp__github__request_push"],
+      }),
+    ]);
+    expect(JSON.stringify(profile)).not.toMatch(
+      /ghs_|ghp_|gho_|github_pat_|x-access-token/,
+    );
+  });
 });

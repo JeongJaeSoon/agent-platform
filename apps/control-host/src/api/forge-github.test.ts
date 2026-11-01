@@ -542,6 +542,7 @@ describe("createGitHubAppDirectory", () => {
       slug: "fake-app",
       name: "Fake fake-app",
       htmlUrl: `${github.origin}/apps/fake-app`,
+      clientId: "Iv23lifake-app",
       permissions: {
         contents: "write",
         metadata: "read",

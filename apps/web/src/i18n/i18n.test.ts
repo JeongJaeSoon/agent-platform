@@ -20,6 +20,11 @@ import { commonEn, commonJa, commonKo } from "./common.ts";
 import { en, slackEn } from "./en.ts";
 import { errorsEn, errorsJa, errorsKo } from "./errors.ts";
 import { githubEn, githubJa, githubKo } from "./github.ts";
+import {
+  githubUserLinkEn,
+  githubUserLinkJa,
+  githubUserLinkKo,
+} from "./github-user-link.ts";
 import { homeEn, homeJa, homeKo } from "./home.ts";
 import {
   errorKey,
@@ -128,6 +133,7 @@ describe("i18n", () => {
         apiKeysKo,
         workspaceKo,
         githubKo,
+        githubUserLinkKo,
         agentGitHubKo,
         usageKo,
         preferencesKo,
@@ -153,6 +159,7 @@ describe("i18n", () => {
         apiKeysJa,
         workspaceJa,
         githubJa,
+        githubUserLinkJa,
         agentGitHubJa,
         usageJa,
         preferencesJa,
@@ -178,6 +185,7 @@ describe("i18n", () => {
         apiKeysEn,
         workspaceEn,
         githubEn,
+        githubUserLinkEn,
         agentGitHubEn,
         usageEn,
         preferencesEn,

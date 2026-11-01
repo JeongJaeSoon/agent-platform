@@ -71,6 +71,9 @@ jobs:
           - part: licenses
           - part: "unit: packages"
             unit: packages
+          # PGlite migration fixtures otherwise exhaust the packages job's ceiling.
+          - part: "unit: db"
+            unit: packages-db
           # apps/worker/ and apps/web/ apart from the rest of apps/ and
           # tests/: as one part they ran about 5m of the 6m ceiling.
           - part: "unit: worker, web"
@@ -171,6 +174,7 @@ jobs:
             paths:
               - apps/control-host/src/api/
               - apps/control-host/src/main
+              - apps/control-host/src/metrics/
               - apps/control-host/src/pass-loop/
               - apps/control-host/src/reconciler/
               - tests/catalog-mismatch.

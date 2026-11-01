@@ -8,10 +8,10 @@
  */
 import { performance } from "node:perf_hooks";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { Pool } from "pg";
 import { createPostgresSessionReader } from "../src/index.ts";
+import { migrate } from "../src/migrate.ts";
 import * as schema from "../src/schema.ts";
 import { activityQuery, readSessionActivity } from "../src/session-activity.ts";
 

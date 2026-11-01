@@ -13,6 +13,8 @@
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 
+import { parseImageRuntime } from "../../packages/runtime-core/src/image-runtime.ts";
+
 const dir = import.meta.dir;
 const chart = join(dir, "agent-platform");
 const ciDigests = join(dir, "ci-digests.yaml");
@@ -20,7 +22,11 @@ const awsExample = join(chart, "values-aws.example.yaml");
 
 type Manifest = {
   kind: string;
-  metadata: { name: string; labels?: Record<string, string> };
+  metadata: {
+    name: string;
+    labels?: Record<string, string>;
+    annotations?: Record<string, string>;
+  };
   // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
   spec?: any;
   // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
@@ -266,7 +272,7 @@ const OBJECT_STORE_KEYS = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"];
 const IRSA_ROLE = "eks.amazonaws.com/role-arn";
 
 /**
- * Static S3 keys reach the api and the checkpoint GC exactly when `keys`, and
+ * Static S3 keys reach the api and its two object store jobs exactly when `keys`, and
  * no other workload ever. Without them the api's ServiceAccount must carry
  * an IRSA role, or nothing could sign the object store.
  */
@@ -276,7 +282,7 @@ function checkObjectStoreKeys(
   keys: boolean,
 ): string[] {
   const errors: string[] = [];
-  const holders = ["api", "checkpoint-gc"];
+  const holders = ["api", "checkpoint-gc", "session-archive"];
   for (const m of manifests) {
     const pod = podSpecOf(m);
     if (pod === undefined) continue;
@@ -415,6 +421,60 @@ function checkSlack(
   return errors;
 }
 
+const WORKER_IMAGE_ROLES = ["api", "slack", "scheduler"];
+
+/**
+ * The api and slack judge profile pins by the worker images' runtimes and the
+ * scheduler picks each session's image by them: all three get the same
+ * values, and only the scheduler, which launches on it, the previous image.
+ */
+function checkWorkerImages(
+  label: string,
+  manifests: Manifest[],
+  want: {
+    runtime?: string;
+    previousRuntime?: string;
+    previousImage?: string;
+  },
+): string[] {
+  const errors: string[] = [];
+  for (const role of WORKER_IMAGE_ROLES) {
+    const deployments = manifests.filter(
+      (m) =>
+        m.kind === "Deployment" &&
+        m.metadata.labels?.["app.kubernetes.io/component"] === role,
+    );
+    if (deployments.length !== 1) {
+      errors.push(`${label}: expected 1 ${role} Deployment`);
+      continue;
+    }
+    const [deployment] = deployments as [Manifest];
+    const env = new Map<string, string>(
+      podSpecOf(deployment)
+        // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
+        .containers.flatMap((c: any) => c.env ?? [])
+        // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
+        .map((v: any) => [v.name, v.value]),
+    );
+    const expected: [string, string | undefined][] = [
+      ["WORKER_IMAGE_RUNTIME", want.runtime],
+      ["WORKER_IMAGE_PREVIOUS_RUNTIME", want.previousRuntime],
+      [
+        "WORKER_IMAGE_PREVIOUS",
+        role === "scheduler" ? want.previousImage : undefined,
+      ],
+    ];
+    for (const [name, value] of expected) {
+      if (env.get(name) !== value) {
+        errors.push(
+          `${label}: ${role} ${name} is ${JSON.stringify(env.get(name))}, not ${JSON.stringify(value)}`,
+        );
+      }
+    }
+  }
+  return errors;
+}
+
 const PREVIEW_ENV = "PREVIEW_NAMESPACE";
 
 /**
@@ -514,7 +574,161 @@ function checkIngress(
   return errors;
 }
 
+/**
+ * The metrics workload renders only when enabled: one replica replaced with
+ * Recreate (a second would be a duplicate scrape target), a ClusterIP
+ * Service, DATABASE_URL its one Secret key, and a NetworkPolicy admitting
+ * the metrics port alone.
+ */
+function checkMetrics(
+  label: string,
+  manifests: Manifest[],
+  enabled: boolean,
+  networkPolicy: boolean,
+): string[] {
+  const errors: string[] = [];
+  const ofMetrics = (kind: string) =>
+    manifests.filter(
+      (m) =>
+        m.kind === kind &&
+        m.metadata.labels?.["app.kubernetes.io/component"] === "metrics",
+    );
+  const want = (kind: string) =>
+    !enabled ? 0 : kind === "NetworkPolicy" && !networkPolicy ? 0 : 1;
+  for (const kind of ["Deployment", "Service", "NetworkPolicy"]) {
+    const got = ofMetrics(kind).length;
+    if (got !== want(kind)) {
+      errors.push(
+        `${label}: expected ${want(kind)} metrics ${kind}, got ${got}`,
+      );
+    }
+  }
+  for (const m of ofMetrics("Deployment")) {
+    const where = `${label}: ${m.kind}/${m.metadata.name}`;
+    if (m.spec.replicas !== 1 || m.spec.strategy?.type !== "Recreate") {
+      errors.push(`${where}: not one replica replaced with Recreate`);
+    }
+    for (const c of podSpecOf(m).containers) {
+      const secrets = (c.env ?? [])
+        // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
+        .filter((v: any) => v.valueFrom?.secretKeyRef !== undefined)
+        // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
+        .map((v: any) => v.valueFrom.secretKeyRef.key as string);
+      if (JSON.stringify(secrets) !== '["DATABASE_URL"]') {
+        errors.push(
+          `${where}: container ${c.name} holds Secret keys ${JSON.stringify(secrets)}`,
+        );
+      }
+    }
+  }
+  for (const service of ofMetrics("Service")) {
+    if (service.spec.type !== "ClusterIP") {
+      errors.push(
+        `${label}: Service/${service.metadata.name} is not ClusterIP`,
+      );
+    }
+  }
+  for (const policy of ofMetrics("NetworkPolicy")) {
+    const ports = (policy.spec.ingress ?? []).flatMap(
+      // biome-ignore lint/suspicious/noExplicitAny: rendered NetworkPolicy
+      (rule: any) =>
+        // biome-ignore lint/suspicious/noExplicitAny: rendered NetworkPolicy
+        (rule.ports ?? [{}]).map((p: any) => `${p.protocol}/${p.port}`),
+    );
+    if (
+      JSON.stringify(policy.spec.policyTypes) !== '["Ingress"]' ||
+      JSON.stringify(ports) !== '["TCP/9464"]'
+    ) {
+      errors.push(
+        `${label}: NetworkPolicy/${policy.metadata.name}: ingress ${JSON.stringify(ports)} is not the metrics port alone`,
+      );
+    }
+  }
+  return errors;
+}
+
 // Renders that must fail, each with the message that says why.
+const componentOf = (m: Manifest) =>
+  m.metadata.labels?.["app.kubernetes.io/component"];
+
+// The upgrade check gates the migration, so it must run first, on upgrades
+// only, once, and see nothing but the database and the release's own values.
+function checkUpgradeHook(
+  label: string,
+  manifests: Manifest[],
+  scheduler: boolean,
+  approved: string[],
+): string[] {
+  const errors: string[] = [];
+  const checks = manifests.filter((m) => componentOf(m) === "upgrade-check");
+  if (!scheduler) {
+    if (checks.length > 0) {
+      errors.push(`${label}: the upgrade check renders with no scheduler`);
+    }
+    return errors;
+  }
+  const [job] = checks;
+  const migrate = manifests.find((m) => componentOf(m) === "migrate");
+  if (checks.length !== 1 || job?.kind !== "Job" || migrate === undefined) {
+    return [`${label}: expected one upgrade-check Job beside the migrate Job`];
+  }
+  const fail = (message: string) =>
+    errors.push(`${label}: Job/${job.metadata.name}: ${message}`);
+  const hook = job.metadata.annotations ?? {};
+  if (hook["helm.sh/hook"] !== "pre-upgrade") {
+    fail(`hook is ${hook["helm.sh/hook"]}, not pre-upgrade alone`);
+  }
+  const weight = Number(hook["helm.sh/hook-weight"]);
+  const migrateWeight = Number(
+    migrate.metadata.annotations?.["helm.sh/hook-weight"],
+  );
+  if (!(weight < migrateWeight)) {
+    fail(
+      `hook weight ${weight} does not run before migrate (${migrateWeight})`,
+    );
+  }
+  if (job.spec?.backoffLimit !== 0) fail("backoffLimit is not 0");
+  const env: { name: string; value?: string; valueFrom?: unknown }[] =
+    job.spec.template.spec.containers[0].env;
+  const secrets = env.filter((e) => e.valueFrom !== undefined);
+  if (secrets.map((e) => e.name).join() !== "DATABASE_URL") {
+    fail(`secret env ${secrets.map((e) => e.name).join()}, not DATABASE_URL`);
+  }
+  const value = (name: string) => env.find((e) => e.name === name)?.value;
+  // lookup reads nothing under `helm template`, which the CLI refuses.
+  if (value("UPGRADE_DEPLOYED_WORKER_IMAGE") !== "") {
+    fail("UPGRADE_DEPLOYED_WORKER_IMAGE is not empty without a cluster");
+  }
+  if (!DIGEST_REF.test(value("WORKER_IMAGE") ?? "")) {
+    fail("WORKER_IMAGE is not the target worker digest");
+  }
+  // It must judge the images the target scheduler will launch on.
+  const schedulerDeployment = manifests.find(
+    (m) => m.kind === "Deployment" && componentOf(m) === "scheduler",
+  );
+  const schedulerEnv: { name: string; value?: string }[] =
+    schedulerDeployment === undefined
+      ? []
+      : podSpecOf(schedulerDeployment).containers[0].env;
+  for (const name of [
+    "WORKER_IMAGE",
+    "WORKER_IMAGE_PREVIOUS",
+    "WORKER_IMAGE_RUNTIME",
+    "WORKER_IMAGE_PREVIOUS_RUNTIME",
+  ]) {
+    const want = schedulerEnv.find((e) => e.name === name)?.value;
+    if (value(name) !== want) {
+      fail(`${name} is ${value(name)}, the scheduler's is ${want}`);
+    }
+  }
+  if (value("UPGRADE_APPROVED_SESSIONS") !== JSON.stringify(approved)) {
+    fail(
+      `UPGRADE_APPROVED_SESSIONS is ${value("UPGRADE_APPROVED_SESSIONS")}, not ${JSON.stringify(approved)}`,
+    );
+  }
+  return errors;
+}
+
 const MUST_FAIL: [string, string[], RegExp][] = [
   ["default values (no digests)", [], /digest must be sha256/],
   [
@@ -532,10 +746,77 @@ const MUST_FAIL: [string, string[], RegExp][] = [
     ["-f", ciDigests, "--set", "images.egressProxy.digest=sha256:abc"],
     /digest must be sha256/,
   ],
+  ...["29", "3651", "45.5", "abc", "-30"].map(
+    (days): [string, string[], RegExp] => [
+      `sessionArchive.afterDays=${days}`,
+      ["-f", ciDigests, "--set", `sessionArchive.afterDays=${days}`],
+      /sessionArchive.afterDays must be 0 \(off\) or 30–3650/,
+    ],
+  ),
   [
     "an installation id that is no label value",
     ["-f", ciDigests, "--set", "installationId=not/a/label"],
     /installationId must be a Kubernetes label value/,
+  ],
+  [
+    "a previous worker image without its runtime",
+    [
+      "-f",
+      ciDigests,
+      "--set-json",
+      'images.worker.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.280","cliVersion":"2.1.280","profileDigestScheme":1}',
+      "--set",
+      `images.workerPrevious.digest=sha256:${"4".repeat(64)}`,
+    ],
+    /images\.workerPrevious\.runtime is required/,
+  ],
+  [
+    "a previous worker runtime without its image",
+    [
+      "-f",
+      ciDigests,
+      "--set-json",
+      'images.worker.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.280","cliVersion":"2.1.280","profileDigestScheme":1}',
+      "--set-json",
+      'images.workerPrevious.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.270","cliVersion":"2.1.270","profileDigestScheme":1}',
+    ],
+    /images\.workerPrevious\.digest is required/,
+  ],
+  [
+    "a previous worker image without the current one's runtime",
+    [
+      "-f",
+      ciDigests,
+      "--set",
+      `images.workerPrevious.digest=sha256:${"4".repeat(64)}`,
+      "--set-json",
+      'images.workerPrevious.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.270","cliVersion":"2.1.270","profileDigestScheme":1}',
+    ],
+    /images\.workerPrevious needs images\.worker\.runtime/,
+  ],
+  [
+    "a worker runtime missing its CLI version",
+    [
+      "-f",
+      ciDigests,
+      "--set-json",
+      'images.worker.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.280","profileDigestScheme":1}',
+    ],
+    /images\.worker\.runtime\.cliVersion must be a non-empty string/,
+  ],
+  [
+    "a previous worker runtime with a scheme of zero",
+    [
+      "-f",
+      ciDigests,
+      "--set-json",
+      'images.worker.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.280","cliVersion":"2.1.280","profileDigestScheme":1}',
+      "--set",
+      `images.workerPrevious.digest=sha256:${"4".repeat(64)}`,
+      "--set-json",
+      'images.workerPrevious.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.270","cliVersion":"2.1.270","profileDigestScheme":0}',
+    ],
+    /images\.workerPrevious\.runtime\.profileDigestScheme must be a positive integer/,
   ],
   ...[
     "api.extraEnv.PREVIEW_NAMESPACE=prod",
@@ -546,6 +827,17 @@ const MUST_FAIL: [string, string[], RegExp][] = [
     `PREVIEW_NAMESPACE through ${set.split(/[.=]/).slice(0, 2).join(".")}`,
     ["-f", ciDigests, "--set", set],
     /PREVIEW_NAMESPACE must not be set through/,
+  ]),
+  ...[
+    "scheduler.extraEnv.WORKER_IMAGE=reg/worker@sha256:x",
+    "api.extraEnv.WORKER_IMAGE_RUNTIME=x",
+    "config.limits.WORKER_IMAGE_PREVIOUS=reg/worker@sha256:x",
+    "secrets.catalogEnv={ANTHROPIC_API_KEY,WORKER_IMAGE_PREVIOUS_RUNTIME}",
+    "scheduler.enabled=false,api.extraEnv.WORKER_IMAGE_RUNTIME=x",
+  ].map((set): [string, string[], RegExp] => [
+    `a worker image variable through ${set.split(/[.=]/).slice(0, 2).join(".")}`,
+    ["-f", ciDigests, "--set", set],
+    /must not be set through extraEnv, config\.limits or secrets\.catalogEnv/,
   ]),
 ];
 
@@ -573,6 +865,24 @@ const errors = [
   ),
 ];
 errors.push(
+  ...checkUpgradeHook("default", render(["-f", ciDigests]), true, []),
+  ...checkUpgradeHook(
+    "approved sessions",
+    render([
+      "-f",
+      ciDigests,
+      "--set-json",
+      'upgrade.approvedSessions=["s-1","s-2"]',
+    ]),
+    true,
+    ["s-1", "s-2"],
+  ),
+  ...checkUpgradeHook(
+    "scheduler off",
+    render(["-f", ciDigests, "--set", "scheduler.enabled=false"]),
+    false,
+    [],
+  ),
   ...checkObjectStoreKeys("default", render(["-f", ciDigests]), true),
   ...checkObjectStoreKeys(
     "aws example",
@@ -649,10 +959,127 @@ const awsPreview = checkPreview(
 if (!awsPreview.some((error) => error.includes("preview.enabled is off"))) {
   errors.push("the aws example with preview.enabled on was not refused");
 }
+const metricsOn = render(["-f", ciDigests, "--set", "metrics.enabled=true"]);
+const metricsOnNoPolicy = render([
+  "-f",
+  ciDigests,
+  "--set",
+  "metrics.enabled=true",
+  "--set",
+  "networkPolicy.enabled=false",
+]);
+const metricsOnAws = render([
+  "-f",
+  ciDigests,
+  "-f",
+  awsExample,
+  "--set",
+  "metrics.enabled=true",
+]);
+errors.push(
+  ...check("metrics on", metricsOn, true),
+  ...check("aws example, metrics on", metricsOnAws, true),
+  ...checkObjectStoreKeys("metrics on", metricsOn, true),
+  ...checkSecretKey("metrics on", metricsOn, true),
+  ...checkMetrics("default", render(["-f", ciDigests]), false, true),
+  ...checkMetrics("metrics on", metricsOn, true, true),
+  ...checkMetrics(
+    "metrics on, no network policy",
+    metricsOnNoPolicy,
+    true,
+    false,
+  ),
+  ...checkMetrics("aws example, metrics on", metricsOnAws, true, true),
+);
+const CURRENT_RUNTIME = {
+  engine: "claude-agent-sdk",
+  sdkVersion: "0.3.280",
+  cliVersion: "2.1.280",
+  profileDigestScheme: 1,
+};
+const PREVIOUS_RUNTIME = {
+  ...CURRENT_RUNTIME,
+  sdkVersion: "0.3.270",
+  cliVersion: "2.1.270",
+};
+const PREVIOUS_DIGEST = `sha256:${"4".repeat(64)}`;
+const workerImages = [
+  "--set-json",
+  `images.worker.runtime=${JSON.stringify(CURRENT_RUNTIME)}`,
+  "--set-json",
+  `images.workerPrevious.runtime=${JSON.stringify(PREVIOUS_RUNTIME)}`,
+  "--set",
+  `images.workerPrevious.digest=${PREVIOUS_DIGEST}`,
+];
+// helm's toJson sorts keys; the processes parse the value, so order is free.
+const asRendered = (runtime: Record<string, unknown>) =>
+  JSON.stringify(Object.fromEntries(Object.entries(runtime).sort()));
+errors.push(
+  ...checkWorkerImages("default", render(["-f", ciDigests]), {}),
+  ...checkWorkerImages(
+    "current runtime only",
+    render([
+      "-f",
+      ciDigests,
+      "--set-json",
+      `images.worker.runtime=${JSON.stringify(CURRENT_RUNTIME)}`,
+    ]),
+    { runtime: asRendered(CURRENT_RUNTIME) },
+  ),
+  ...checkWorkerImages(
+    "two images",
+    render(["-f", ciDigests, ...workerImages]),
+    {
+      runtime: asRendered(CURRENT_RUNTIME),
+      previousRuntime: asRendered(PREVIOUS_RUNTIME),
+      previousImage: `ghcr.io/jeongjaesoon/agent-platform-worker@${PREVIOUS_DIGEST}`,
+    },
+  ),
+  ...checkUpgradeHook(
+    "two images",
+    render(["-f", ciDigests, ...workerImages]),
+    true,
+    [],
+  ),
+);
 for (const [label, args, message] of MUST_FAIL) {
   const { ok, out } = helmTemplate(args);
   if (ok || !message.test(out)) {
     errors.push(`${label}: expected the render to fail with ${message}`);
+  }
+}
+
+// The chart takes a runtime value exactly when the readers do: one it lets
+// through and they refuse stops api, slack and the scheduler at startup.
+const RUNTIME_EDGES = [
+  '{"engine":"e","sdkVersion":"s","cliVersion":"c"}',
+  '{"engine":"e","sdkVersion":"s","cliVersion":"c","profileDigestScheme":3}',
+  '{"engine":"e","sdkVersion":"s","cliVersion":"c","profileDigestScheme":1e21}',
+  '{"engine":"e","sdkVersion":"s","cliVersion":"c","profiles":{}}',
+  '{"engine":"e","sdkVersion":"s","cliVersion":"c","profileDigestScheme":"1"}',
+  '{"engine":"e","sdkVersion":"s","cliVersion":"c","profileDigestScheme":0}',
+  '{"engine":"e","sdkVersion":"s","cliVersion":"c","profileDigestScheme":1.5}',
+  '{"engine":"","sdkVersion":"s","cliVersion":"c"}',
+  '{"engine":"e","sdkVersion":"s"}',
+  '{"engine":"e","sdkVersion":"s","cliVersion":"c","typo":1}',
+];
+for (const runtime of RUNTIME_EDGES) {
+  let readers = true;
+  try {
+    parseImageRuntime(runtime);
+  } catch {
+    readers = false;
+  }
+  const chart = helmTemplate([
+    "-f",
+    ciDigests,
+    "--set-json",
+    `images.worker.runtime=${runtime}`,
+  ]).ok;
+  if (chart !== readers) {
+    errors.push(
+      `images.worker.runtime=${runtime}: the chart ${chart ? "takes" : "refuses"} it, the readers ${readers ? "take" : "refuse"} it`,
+    );
   }
 }
 
@@ -661,5 +1088,5 @@ if (errors.length > 0) {
   process.exit(1);
 }
 console.log(
-  `render-check: default and aws example renders pass, scheduler off and on, slack off, preview on; ${MUST_FAIL.length} bad inputs, an internet-facing ALB and a preview aws example refused`,
+  `render-check: default and aws example renders pass, scheduler off and on, slack off, preview on, metrics on, worker images (one, current runtime, two) alike on api, slack and scheduler, the upgrade check ahead of migrate; ${MUST_FAIL.length} bad inputs, an internet-facing ALB and a preview aws example refused`,
 );

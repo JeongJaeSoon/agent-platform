@@ -14,6 +14,8 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  DangerZone,
+  DangerZoneRow,
   ErrorState,
   Field,
   FieldDescription,
@@ -21,7 +23,6 @@ import {
   FieldLabel,
   formatTimestamp,
   Input,
-  RowList,
   RowListItem,
   SettingRow,
   Skeleton,
@@ -52,6 +53,7 @@ import {
   SlackGuest,
   WorkspacePage,
 } from "./workspace-settings.tsx";
+import { SlackApps } from "./workspace-slack-apps.tsx";
 
 // Row buttons share one width down the right edge.
 const ACTION = "min-w-12";
@@ -59,7 +61,7 @@ const ACTION = "min-w-12";
 const tokenKey = (client: ApiClient, workspaceId: string) =>
   scopedKey(client, "workspace", workspaceId, "slack-config-token");
 
-/** Workspace › Slack: who may use agents from Slack, and the app-making token. */
+/** Workspace › Slack: who may use agents from Slack, the app-making token, and the apps it made. */
 export function WorkspaceSlackScreen() {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   return (
@@ -72,7 +74,7 @@ export function WorkspaceSlackScreen() {
         )
       ) : null}
       <SlackGuest onOutcome={setOutcome} />
-      <ConfigToken onOutcome={setOutcome} />
+      <ConfigToken onOutcome={setOutcome} after={<SlackApps />} />
     </WorkspacePage>
   );
 }
@@ -81,7 +83,14 @@ export function WorkspaceSlackScreen() {
  * The token only reads as a state and who saved it when; the value never
  * comes back. Replacing it is the same PUT as setting it the first time.
  */
-function ConfigToken({ onOutcome }: { readonly onOutcome: OnOutcome }) {
+function ConfigToken({
+  onOutcome,
+  after,
+}: {
+  readonly onOutcome: OnOutcome;
+  /** Sections under the token card; its danger zone stays last on the page. */
+  readonly after?: ReactNode;
+}) {
   const { t, locale } = useI18n();
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
@@ -305,22 +314,15 @@ function ConfigToken({ onOutcome }: { readonly onOutcome: OnOutcome }) {
         description={t("workspace.tokenHint")}
         rows={rows}
       />
+      {after}
       {canManage && summary?.configured ? (
-        <DangerZone>
-          <SettingRow
+        <DangerZone title={t("workspace.danger")}>
+          <DangerZoneRow
             title={t("workspace.tokenDelete")}
             description={t("workspace.tokenDeleteHint")}
-            actions={
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className={`${ACTION} text-(color:--ap-tone-danger-fg)`}
-                onClick={() => setDeleting(true)}
-              >
-                {t("workspace.delete")}
-              </Button>
-            }
+            actionLabel={t("workspace.delete")}
+            actionName={t("workspace.tokenDelete")}
+            onAction={() => setDeleting(true)}
           />
         </DangerZone>
       ) : null}
@@ -329,6 +331,7 @@ function ConfigToken({ onOutcome }: { readonly onOutcome: OnOutcome }) {
         onOpenChange={setDeleting}
         title={t("workspace.tokenDeleteTitle")}
         consequence={t("workspace.tokenDeleteHint")}
+        target={summary?.last4 ? `••••${summary.last4}` : undefined}
         confirmLabel={t("workspace.delete")}
         cancelLabel={t("common.cancel")}
         tone="danger"
@@ -383,30 +386,3 @@ function tokenLine(
 // cannot help, an administrator has to configure the store.
 export const storeOff = (error: unknown) =>
   isApiError(error, "BACKEND_UNAVAILABLE") && error.retryable === false;
-
-export function DangerZone({
-  titleAs: Heading = "h2",
-  children,
-}: {
-  readonly titleAs?: "h2" | "h3";
-  readonly children: ReactNode;
-}) {
-  const { t } = useI18n();
-  const titleId = useId();
-  return (
-    <section aria-labelledby={titleId} className="flex flex-col gap-3">
-      <Heading
-        id={titleId}
-        className="m-0 border-b pb-2 font-semibold text-body leading-6"
-      >
-        {t("workspace.danger")}
-      </Heading>
-      <RowList
-        variant="joined"
-        style={{ borderColor: "var(--ap-tone-danger-border)" }}
-      >
-        {children}
-      </RowList>
-    </section>
-  );
-}

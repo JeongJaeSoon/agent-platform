@@ -40,7 +40,7 @@ export type McpEgressDecision =
 
 // The JSON-RPC methods a tool call takes. Resources, prompts, completions
 // and the rest would reach the service account's data past the tool pins.
-const ALLOWED_METHODS = new Set([
+export const ALLOWED_MCP_METHODS: ReadonlySet<string> = new Set([
   "initialize",
   "ping",
   "tools/list",
@@ -155,7 +155,7 @@ export function createMcpEgress(deps: {
     const { method, tool } = request.rpc;
     if (
       method !== null &&
-      !ALLOWED_METHODS.has(method) &&
+      !ALLOWED_MCP_METHODS.has(method) &&
       !method.startsWith("notifications/")
     ) {
       return forbidden(`JSON-RPC method ${method} is not routed`);

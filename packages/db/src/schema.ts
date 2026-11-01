@@ -4,14 +4,20 @@ import {
   AGENT_IDENTITY_STATUS_VALUES,
   AGENT_STATUS_VALUES,
   BINDING_MODE_VALUES,
+  GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES,
   type GitHubAppRole,
   type GitHubCeiling,
+  type GitHubPullRequestOutcomeState,
   MEMORY_WRITE_POLICY_VALUES,
   OPEN_PUSH_REQUEST_STATES,
   PERMISSION_MODE_VALUES,
   PUSH_REQUEST_STATE_VALUES,
   RECEIPT_STATUS_VALUES,
+  SESSION_OUTCOME_CHECK_ERROR_VALUES,
+  SESSION_OUTCOME_TYPE_VALUES,
   SESSION_STATUS_VALUES,
+  type SessionOutcomeCheckError,
+  type SessionOutcomeType,
   SLACK_APP_KIND_VALUES,
   SLACK_APP_STATE_VALUES,
   SLACK_INBOUND_DROP_REASON_VALUES,
@@ -341,6 +347,8 @@ export const webSessions = pgTable(
     index("web_sessions_user_live_idx")
       .on(table.userId)
       .where(sql`${table.revokedAt} IS NULL`),
+    // The reconciler deletes rows 30 days past expiry.
+    index("web_sessions_expires_at_idx").on(table.expiresAt),
   ],
 );
 
@@ -528,6 +536,8 @@ export const githubApps = pgTable(
     permissionsCheckedAt: timestamp("permissions_checked_at", {
       withTimezone: true,
     }),
+    /** `GET /app`'s `client_id`, for linking users; null until it is read. */
+    clientId: text("client_id"),
     /** No foreign key: the row outlives the account. */
     createdBy: uuid("created_by"),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -1005,6 +1015,16 @@ export const sessions = pgTable(
     checkpointCommittedAt: timestamp("checkpoint_committed_at", {
       withTimezone: true,
     }),
+    // Written once and never overwritten: the pinned image of the session's
+    // first reserved launch, and the RuntimeFingerprint of the first
+    // checkpoint committed with one. The fingerprint is not taken at
+    // reservation: a launch that dies before any checkpoint never ran the
+    // combination its image names. Null on rows from before them.
+    firstWorkerImage: text("first_worker_image"),
+    runtimeEngine: text("runtime_engine"),
+    runtimeSdkVersion: text("runtime_sdk_version"),
+    runtimeCliVersion: text("runtime_cli_version"),
+    runtimeProfileSha256: text("runtime_profile_sha256"),
     // A CheckpointBlockReason that outlives the turn that produced it
     // (durability.ts CHECKPOINT_REASONS); null once a checkpoint commits.
     checkpointPendingReason: text("checkpoint_pending_reason"),
@@ -1051,6 +1071,13 @@ export const sessions = pgTable(
     workspaceReclaimedAt: timestamp("workspace_reclaimed_at", {
       withTimezone: true,
     }),
+    // Set by a checkpoint collection pass that found the session closed for
+    // a day with no open push request: nothing it could collect again, so
+    // later passes leave it out (settleCollection).
+    checkpointCollectionSettledAt: timestamp(
+      "checkpoint_collection_settled_at",
+      { withTimezone: true },
+    ),
     podId: text("pod_id"),
     pinned: boolean().notNull().default(false),
     lastTurnAt: timestamp("last_turn_at", { withTimezone: true }),
@@ -1174,6 +1201,10 @@ export const sessions = pgTable(
     index("sessions_input_announced_idx")
       .on(table.id)
       .where(sql`${table.inputAnnounced}`),
+    // The sessions a checkpoint collection pass still visits.
+    index("sessions_collection_unsettled_idx")
+      .on(table.id)
+      .where(sql`${table.checkpointCollectionSettledAt} IS NULL`),
     // Lets a later table reference (session_id, owner_id, workspace_id) as
     // one FK. That only pins the row to its session's workspace when the
     // referencing side declares workspace_id NOT NULL (or MATCH FULL): with
@@ -1270,6 +1301,13 @@ export const turns = pgTable(
       table.sessionId,
       table.sequence,
     ),
+    // The few turns not yet settled, which the metrics and installation
+    // usage count by status; outcome_unknown waits on an operator.
+    index("turns_unsettled_status_idx")
+      .on(table.status)
+      .where(
+        sql`${table.status} IN ('queued', 'running', 'needs_input', 'outcome_unknown')`,
+      ),
     check(
       "turns_channel_check",
       sql`${table.channel} IN (${sql.raw(sqlList(SURFACE_KIND_VALUES))})`,
@@ -1298,6 +1336,87 @@ export const pullRequests = pgTable(
     uniqueIndex("pull_requests_push_request_idx").on(table.pushRequestId),
   ],
 );
+
+// What a session made (design github-agent.md §10). Written by the server
+// only; a pull request's row shares (session_id, url) and receipt_id with its
+// pull_requests row, without a foreign key, as the table will hold more types.
+export const sessionOutcomes = pgTable(
+  "session_outcomes",
+  {
+    id: uuid().primaryKey(),
+    ownerId: text("owner_id").notNull(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references((): AnyPgColumn => sessions.id),
+    agentReleaseId: text("agent_release_id"),
+    // Copied from the release when written, so a sum never joins releases.
+    agentId: uuid("agent_id"),
+    type: text().$type<SessionOutcomeType>().notNull(),
+    url: text().notNull(),
+    repositoryId: text("repository_id"),
+    externalId: text("external_id"),
+    state: text().$type<GitHubPullRequestOutcomeState>().notNull(),
+    stateChangedAt: timestamp("state_changed_at", {
+      withTimezone: true,
+    }).notNull(),
+    mergedAt: timestamp("merged_at", { withTimezone: true }),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    // When GitHub last answered; a claim leaves it alone.
+    stateCheckedAt: timestamp("state_checked_at", { withTimezone: true }),
+    leaseToken: uuid("lease_token"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    checkError: text("check_error").$type<SessionOutcomeCheckError>(),
+    metadata: jsonb()
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    receiptId: uuid("receipt_id").references((): AnyPgColumn => receipts.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("session_outcomes_session_type_url_key").on(
+      table.sessionId,
+      table.type,
+      table.url,
+    ),
+    index("session_outcomes_refresh_idx")
+      .on(table.stateCheckedAt)
+      .where(
+        sql`${table.type} = 'github_pull_request' AND ${table.state} <> 'merged'`,
+      ),
+    check(
+      "session_outcomes_type_check",
+      sql`${table.type} IN (${sql.raw(sqlList(SESSION_OUTCOME_TYPE_VALUES))})`,
+    ),
+    check(
+      "session_outcomes_pull_request_state_check",
+      sql`${table.type} <> 'github_pull_request' OR ${table.state} IN (${sql.raw(sqlList(GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES))})`,
+    ),
+    check(
+      "session_outcomes_check_error_check",
+      sql`${table.checkError} IS NULL OR ${table.checkError} IN (${sql.raw(sqlList(SESSION_OUTCOME_CHECK_ERROR_VALUES))})`,
+    ),
+    check(
+      "session_outcomes_lease_check",
+      sql`(${table.leaseToken} IS NULL) = (${table.leaseExpiresAt} IS NULL)`,
+    ),
+  ],
+);
+
+// One GitHub rate-limit unit the outcome refresher spends from, shared by
+// every API replica: an App installation, or the user behind a PAT.
+export const outcomeRefreshQuotas = pgTable("outcome_refresh_quotas", {
+  quotaKey: text("quota_key").primaryKey(),
+  // The last x-ratelimit-limit seen; null before the first.
+  rateLimit: integer("rate_limit"),
+  windowStart: timestamp("window_start", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  used: integer().notNull().default(0),
+  pausedUntil: timestamp("paused_until", { withTimezone: true }),
+});
 
 export const events = pgTable(
   "events",
@@ -1329,6 +1448,52 @@ export const events = pgTable(
 );
 
 /**
+ * One archived chunk of a session's events: the rows with ids from
+ * `from_id` through `through_id` now live only in the checkpoint bucket
+ * object at `object_key`, version `version_id`, held, as one JSON line per
+ * row with the events columns as stored (session-event-archives.ts). A
+ * session's chunks never overlap and every event row left for it is past
+ * the last one.
+ */
+export const sessionEventArchives = pgTable(
+  "session_event_archives",
+  {
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id),
+    fromId: bigint("from_id", { mode: "number" }).notNull(),
+    throughId: bigint("through_id", { mode: "number" }).notNull(),
+    objectKey: text("object_key").notNull(),
+    versionId: text("version_id").notNull(),
+    // Of the gzip object as stored.
+    sha256: text().notNull(),
+    eventCount: integer("event_count").notNull(),
+    bytes: bigint({ mode: "number" }).notNull(),
+    // The chunk's last row, for readers that took them from the newest event.
+    lastCreatedAt: timestamp("last_created_at", {
+      withTimezone: true,
+    }).notNull(),
+    lastOccurredAt: timestamp("last_occurred_at", {
+      withTimezone: true,
+    }).notNull(),
+    // The list card's activity over every event through activity_through,
+    // taken before they left; a later chunk of the same pass repeats it.
+    activity: jsonb().notNull(),
+    activityThrough: bigint("activity_through", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sessionId, table.fromId] }),
+    check(
+      "session_event_archives_range_check",
+      sql`${table.fromId} <= ${table.throughId} AND ${table.eventCount} > 0`,
+    ),
+  ],
+);
+
+/**
  * One row per tool call, projected from the tool_use and tool_result events
  * by the reconciler (`projectToolCalls`), paired as the run tree pairs them
  * (94S-923). A read of the usage API never parses events.
@@ -1336,7 +1501,8 @@ export const events = pgTable(
  * No foreign keys: a key on session_id would take KEY SHARE on the session
  * row, which a worker append holds FOR UPDATE, so each projection batch and
  * the appends of its sessions would wait on each other. Nothing deletes
- * sessions or events.
+ * sessions; event rows leave only once archived, their content kept in the
+ * object a `session_event_archives` row names.
  */
 export const toolCalls = pgTable(
   "tool_calls",
@@ -1368,8 +1534,10 @@ export const toolCalls = pgTable(
       sql`${table.outcome} IN ('ok', 'failed', 'unknown')`,
     ),
     check("tool_calls_ms_check", sql`${table.ms} >= 0`),
-    uniqueIndex("tool_calls_pair_uniq")
-      .on(table.sessionId, table.attemptKey, table.toolUseId)
+    // tool_use id before attempt, so a denied permission request, which may
+    // have been answered under another attempt, finds its call by the pair.
+    uniqueIndex("tool_calls_session_tool_use_uniq")
+      .on(table.sessionId, table.toolUseId, table.attemptKey)
       .where(sql`${table.toolUseId} IS NOT NULL`),
     index("tool_calls_recent_idx").on(
       table.name,
@@ -1492,6 +1660,25 @@ export const toolCallDays = pgTable(
       sql`array_length(${table.hist}, 1) = 161`,
     ),
   ],
+);
+
+/**
+ * tool_calls counted per name and stored outcome by its insert, update,
+ * delete and truncate triggers (migration session_data_rollups), so the
+ * platform metrics read a row per pair instead of every call. `first_at` is
+ * the earliest created_at that entered the row; the least over a name's rows
+ * is the name's first call. A denied call still counts under its stored
+ * outcome here: the metrics read moves it to `denied`.
+ */
+export const toolCallOutcomes = pgTable(
+  "tool_call_outcomes",
+  {
+    name: text().notNull(),
+    outcome: text().notNull(),
+    calls: bigint({ mode: "number" }).notNull(),
+    firstAt: timestamp("first_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.name, table.outcome] })],
 );
 
 export const queueMessages = pgTable(
@@ -1713,6 +1900,12 @@ export const pendingRequests = pgTable(
       .where(
         sql`${table.answeredAt} IS NOT NULL AND ${table.settledAt} IS NULL`,
       ),
+    // The calls the platform metrics count as denied.
+    index("pending_requests_denied_tool_use_idx")
+      .on(table.sessionId, table.toolUseId)
+      .where(
+        sql`${table.kind} = 'permission' AND (${table.answer} ->> 'decision') = 'deny' AND ${table.toolUseId} IS NOT NULL`,
+      ),
     check(
       "pending_requests_answer_surface_check",
       sql`${table.answerSurface} IN ('web', 'slack', 'api')`,
@@ -1739,6 +1932,11 @@ export const approvalCheckpoints = pgTable("approval_checkpoints", {
   manifestVersion: text("manifest_version"),
   versionsHeld: boolean("versions_held").notNull(),
   transcriptBytes: bigint("transcript_bytes", { mode: "number" }),
+  // Carried to checkpoints.runtime_* when promoted.
+  runtimeEngine: text("runtime_engine"),
+  runtimeSdkVersion: text("runtime_sdk_version"),
+  runtimeCliVersion: text("runtime_cli_version"),
+  runtimeProfileSha256: text("runtime_profile_sha256"),
   attemptId: text("attempt_id")
     .notNull()
     .references(() => attempts.id),
@@ -1968,12 +2166,32 @@ export const checkpoints = pgTable(
     profileFingerprint: text("profile_fingerprint"),
     // The attempt's model; null where the fingerprint names it (version 1).
     model: text(),
+    // The verified manifest's RuntimeFingerprint, so a launch can pick an
+    // image without reading the object store. Not profile_fingerprint above:
+    // that is the catalog profile's, this is the engine's own digest. All
+    // four null on rows from before the columns, read as the current image.
+    runtimeEngine: text("runtime_engine"),
+    runtimeSdkVersion: text("runtime_sdk_version"),
+    runtimeCliVersion: text("runtime_cli_version"),
+    runtimeProfileSha256: text("runtime_profile_sha256"),
+    // The profile digest scheme of the image the committing attempt was
+    // launched on; null when its launch assumed none, read as scheme 1.
+    runtimeProfileScheme: integer("runtime_profile_scheme"),
     // Whether checkpoint_outputs holds what this revision's manifest names
     // under outputs. False on rows committed before it was recorded, whose
     // outputs no figure counts.
     outputsRecorded: boolean("outputs_recorded").notNull().default(false),
   },
-  (table) => [primaryKey({ columns: [table.sessionId, table.revision] })],
+  (table) => [
+    primaryKey({ columns: [table.sessionId, table.revision] }),
+    // Revisions whose outputs no figure counts yet, which installation usage
+    // reports as incomplete.
+    index("checkpoints_outputs_unrecorded_idx")
+      .on(table.sessionId)
+      .where(
+        sql`${table.objectsPurgedAt} IS NULL AND NOT ${table.outputsRecorded}`,
+      ),
+  ],
 );
 
 // Every output object a committed revision's manifest names, the ones it
@@ -1997,6 +2215,45 @@ export const checkpointOutputs = pgTable(
       foreignColumns: [checkpoints.sessionId, checkpoints.revision],
     }),
     check("checkpoint_outputs_bytes_nonneg", sql`${table.bytes} >= 0`),
+  ],
+);
+
+/**
+ * checkpoint_outputs per object key, kept by the triggers on it and on
+ * checkpoints (migration session_data_rollups): `bytes` the largest size
+ * recorded, `live_refs` the revisions naming it whose objects are not purged
+ * yet (kept while above 0), `first_at` the first naming revision's commit,
+ * `released_at` the latest purge among them. Keys carry the session prefix.
+ */
+export const checkpointOutputObjects = pgTable(
+  "checkpoint_output_objects",
+  {
+    sessionId: uuid("session_id").notNull(),
+    objectKey: text("object_key").notNull(),
+    bytes: bigint({ mode: "number" }).notNull(),
+    liveRefs: integer("live_refs").notNull(),
+    firstAt: timestamp("first_at", { withTimezone: true }).notNull(),
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sessionId, table.objectKey] }),
+    index("checkpoint_output_objects_first_at_idx").on(table.firstAt),
+    index("checkpoint_output_objects_released_at_idx")
+      .on(table.releasedAt)
+      .where(sql`${table.liveRefs} = 0`),
+  ],
+);
+
+// The bytes of the kept keys above, in one row ('installation'), kept by the
+// same triggers.
+export const checkpointOutputTotals = pgTable(
+  "checkpoint_output_totals",
+  {
+    scope: text().primaryKey(),
+    keptBytes: bigint("kept_bytes", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    check("checkpoint_output_totals_kept_nonneg", sql`${table.keptBytes} >= 0`),
   ],
 );
 
@@ -2183,6 +2440,26 @@ export const sessionModelUsage = pgTable(
   ],
 );
 
+// provider_usage summed per model and pricing by its insert, delete and
+// truncate triggers (migration session_data_rollups), for the platform
+// metrics. Unbounded numerics: the sums of every call an installation ever
+// made, exactly as sum() over provider_usage gives them.
+export const providerUsageTotals = pgTable(
+  "provider_usage_totals",
+  {
+    model: text().notNull(),
+    pricedBy: text("priced_by").notNull(),
+    calls: bigint({ mode: "number" }).notNull(),
+    inputTokens: numeric("input_tokens").notNull(),
+    outputTokens: numeric("output_tokens").notNull(),
+    cacheReadInputTokens: numeric("cache_read_input_tokens").notNull(),
+    cacheCreationInputTokens: numeric("cache_creation_input_tokens").notNull(),
+    costUsd: numeric("cost_usd").notNull(),
+    firstAt: timestamp("first_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.model, table.pricedBy] })],
+);
+
 // The part of a session's cost_usd no metered call explains: the engine's
 // turn totals from before provider_usage. Written once by migration usage_breakdown_rollup;
 // a call adds to cost_usd and to its own sum alike, so the difference stays
@@ -2243,6 +2520,12 @@ export const workerLaunches = pgTable(
     // reserved before they were stored, which runs on current settings.
     image: text(),
     resources: jsonb(),
+    // The combination the scheduler was told `image` runs, which the claim
+    // is held to. All null on a launch reserved without one.
+    runtimeEngine: text("runtime_engine"),
+    runtimeSdkVersion: text("runtime_sdk_version"),
+    runtimeCliVersion: text("runtime_cli_version"),
+    runtimeProfileScheme: integer("runtime_profile_scheme"),
     // Launch attempts that failed before any worker bound: a create or start
     // the provider refused, or a resource that exited unclaimed. Never reset,
     // so a launch that keeps failing reaches the scheduler's limit and gives
@@ -2302,12 +2585,46 @@ export const workerLaunches = pgTable(
   ],
 );
 
+// A pinned worker image whose worker claimed under another combination than
+// its launch assumed: the configured runtime is wrong for it. The scheduler
+// launches nothing on the image under that assumption again; correcting
+// the configured runtime is the way out, so the key holds the assumption.
+export const workerImageRefusals = pgTable(
+  "worker_image_refusals",
+  {
+    image: text().notNull(),
+    assumedEngine: text("assumed_engine").notNull(),
+    assumedSdkVersion: text("assumed_sdk_version").notNull(),
+    assumedCliVersion: text("assumed_cli_version").notNull(),
+    assumedProfileScheme: integer("assumed_profile_scheme").notNull(),
+    // What the worker said it runs, as it said it; for the operator only.
+    claimed: jsonb().notNull(),
+    executionId: text("execution_id").notNull(),
+    refusedAt: timestamp("refused_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "worker_image_refusals_pkey",
+      columns: [
+        table.image,
+        table.assumedEngine,
+        table.assumedSdkVersion,
+        table.assumedCliVersion,
+        table.assumedProfileScheme,
+      ],
+    }),
+  ],
+);
+
 // Tokens handed out by bootstrapClaim; only their hashes are stored. Each
 // attempt holds one live token per purpose: `gateway` authenticates the
 // worker's own calls, `provider` and `repository` the egress proxy's
 // credential routes, `object_store` its object store route, and `mcp` the
 // remote MCP route of a session whose agent release names a server (only
-// then is one issued). All of them are issued, extended and revoked
+// then is one issued), and `packages` its package registry route. All of
+// them are issued, extended and revoked
 // together, and a token only ever works for its own purpose.
 export const workerCredentials = pgTable(
   "worker_credentials",
@@ -2339,7 +2656,7 @@ export const workerCredentials = pgTable(
       .where(sql`${table.revokedAt} IS NULL`),
     check(
       "worker_credentials_purpose_check",
-      sql`${table.purpose} IN ('gateway', 'provider', 'repository', 'object_store', 'mcp')`,
+      sql`${table.purpose} IN ('gateway', 'provider', 'repository', 'object_store', 'mcp', 'packages')`,
     ),
     check(
       "worker_credentials_binding_check",

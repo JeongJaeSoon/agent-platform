@@ -11,8 +11,8 @@ import {
 import { testCaller } from "@werft-ai/testkit/callers";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
+import { migrate } from "./migrate.ts";
 import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,

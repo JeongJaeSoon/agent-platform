@@ -35,7 +35,12 @@ import type {
   WorkerReadyResponse,
   WorkerScope,
 } from "@werft-ai/contracts";
-import { githubRefusalStatus, MAX_RESTORE_PROFILES } from "@werft-ai/contracts";
+import {
+  GITHUB_MCP_SERVER,
+  githubRefusalStatus,
+  MAX_RESTORE_PROFILES,
+} from "@werft-ai/contracts";
+import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
 import {
   type CheckpointRequestDecision,
   type RestoreFallback,
@@ -61,11 +66,13 @@ import {
   GitHubGateError,
   type GitHubGrant,
 } from "../ports/github-gate.ts";
+import type { GitHubMcpStore } from "../ports/github-mcp.ts";
 import type { McpEgressStore } from "../ports/mcp-egress.ts";
 import type {
   ApprovalCheckpointCommit,
   WorkerPendingStore,
 } from "../ports/pending-requests.ts";
+import type { SessionAttributionStore } from "../ports/session-attribution.ts";
 import type { SessionTitleStore } from "../ports/session-title-store.ts";
 import type {
   EgressBindings,
@@ -80,12 +87,16 @@ import type {
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
 import {
+  acceptedRuntimeVersions,
   allowedPair,
   type CatalogProfile,
   type CatalogRepository,
+  type ClaimedMcpServer,
   catalogProfile,
   catalogRevision,
   type EgressUpstream,
+  GITHUB_MCP_ENDPOINT,
+  githubMcpBinding,
   mcpBinding,
   type ProfilePin,
   profileAllowsRepository,
@@ -99,6 +110,7 @@ import {
   runtimeConfigOf,
   runtimeConfigWithMcp,
   type SessionCatalog,
+  type SessionGitHubMcp,
   type SessionMcp,
   sessionProfile,
   type WorkspaceProfiles,
@@ -108,13 +120,20 @@ import {
   type NeutralizeEvent,
   neutralFieldsOf,
 } from "../sessions/event-codecs.ts";
+import { claimGitOf } from "../sessions/git-attribution.ts";
 import {
   hashTitleToken,
   type SessionTitler,
   TITLE_TOKEN_PREFIX,
   titleProfile,
 } from "../sessions/session-titler.ts";
+import { createGitHubMcpEgress } from "./github-mcp-egress.ts";
 import { createMcpEgress, type McpEgressRequest } from "./mcp-egress.ts";
+import {
+  PACKAGES_BINDING,
+  type PackageRegistry,
+  PUBLIC_PACKAGE_REGISTRIES,
+} from "./package-registries.ts";
 
 const WORKSPACE_PROFILE_MAX_AGE_MS = 1000;
 
@@ -233,6 +252,7 @@ const EGRESS_TOKEN_PREFIXES: Record<EgressPurpose, string> = {
   repository: "wer",
   object_store: "weo",
   mcp: "wem",
+  packages: "wek",
 };
 
 function generateEgressToken(purpose: EgressPurpose): string {
@@ -453,10 +473,17 @@ export function createWorkerGateway(deps: {
   // agent's credential is still bound.
   mcp?: McpEgressStore;
   onMcpReceiptError?: (error: unknown) => void;
+  // Absent, the built-in `github` MCP route is refused.
+  githubMcp?: { store: GitHubMcpStore; grantKey: Uint8Array };
   // Absent, a session keeps the title cut from its first message.
   titles?: { store: SessionTitleStore; titler: SessionTitler };
   // Absent, events are stored without the engine-neutral fields beside them.
   neutralize?: NeutralizeEvent;
+  // Absent, a claim carries no `git` and the worker adds no commit trailer.
+  attribution?: {
+    store: SessionAttributionStore;
+    consoleOrigin: string | null;
+  };
   options: WorkerGatewayOptions;
 }) {
   const { work, catalog, checkpoints, pending, neutralize } = deps;
@@ -470,6 +497,8 @@ export function createWorkerGateway(deps: {
             ? {}
             : { onReceiptError: deps.onMcpReceiptError }),
         });
+  const decideGitHubMcp =
+    deps.githubMcp === undefined ? null : createGitHubMcpEgress(deps.githubMcp);
   const protocol = deps.checkpointProtocol;
   function requireProtocol(): CheckpointProtocol {
     if (protocol === undefined) {
@@ -514,6 +543,7 @@ export function createWorkerGateway(deps: {
       ...(verdict.transcriptBytes === undefined
         ? {}
         : { transcriptBytes: verdict.transcriptBytes }),
+      ...(verdict.runtime === undefined ? {} : { runtime: verdict.runtime }),
       answersThrough: answers_through,
     };
   }
@@ -546,7 +576,7 @@ export function createWorkerGateway(deps: {
       // A row from before the pin binds to the first pair that
       // matches it: the current fingerprint and the default model.
       return profile
-        ? profilePins(profile).map((pin) => ({
+        ? profilePins(profile, acceptedRuntimeVersions(catalog)).map((pin) => ({
             profileId,
             profileFingerprint: pin.fingerprint,
             model: pin.model,
@@ -569,12 +599,14 @@ export function createWorkerGateway(deps: {
       ...Object.entries(catalog.profiles).flatMap(([profileId, profile]) =>
         repositoryModeOf(profile) === "required"
           ? []
-          : profilePins(profile).map((pin) => ({
-              profileId,
-              profileFingerprint: pin.fingerprint,
-              model: pin.model,
-              repositoryId: null,
-            })),
+          : profilePins(profile, acceptedRuntimeVersions(catalog)).map(
+              (pin) => ({
+                profileId,
+                profileFingerprint: pin.fingerprint,
+                model: pin.model,
+                repositoryId: null,
+              }),
+            ),
       ),
     ];
   }
@@ -633,24 +665,28 @@ export function createWorkerGateway(deps: {
         ...Object.entries(catalog.repositories).flatMap(
           ([repositoryId, repository]) =>
             profileAllowsRepository(catalog, id, repositoryId)
-              ? profilePins(profile).map((pin) => ({
-                  profileId: id,
-                  profileFingerprint: pin.fingerprint,
-                  model: pin.model,
-                  repositoryId,
-                  url: repository.url,
-                  branch: repository.branch,
-                }))
+              ? profilePins(profile, acceptedRuntimeVersions(catalog)).map(
+                  (pin) => ({
+                    profileId: id,
+                    profileFingerprint: pin.fingerprint,
+                    model: pin.model,
+                    repositoryId,
+                    url: repository.url,
+                    branch: repository.branch,
+                  }),
+                )
               : [],
         ),
         ...(repositoryModeOf(profile) === "required"
           ? []
-          : profilePins(profile).map((pin) => ({
-              profileId: id,
-              profileFingerprint: pin.fingerprint,
-              model: pin.model,
-              repositoryId: null,
-            }))),
+          : profilePins(profile, acceptedRuntimeVersions(catalog)).map(
+              (pin) => ({
+                profileId: id,
+                profileFingerprint: pin.fingerprint,
+                model: pin.model,
+                repositoryId: null,
+              }),
+            )),
       ]),
     ];
   }
@@ -661,23 +697,44 @@ export function createWorkerGateway(deps: {
       .catch(() => undefined);
   }
 
-  function claimedMcp(mcp: SessionMcp | null | undefined) {
+  // The catalog server the release names, then the built-in `github` when
+  // the release carries GitHub settings.
+  function claimedMcp(session: {
+    mcp?: SessionMcp | null;
+    githubMcp?: SessionGitHubMcp | null;
+  }): ClaimedMcpServer[] {
+    const { mcp, githubMcp } = session;
     const server = mcp ? own(catalog.mcp_servers ?? {}, mcp.server) : undefined;
-    if (!mcp || !server) return null;
-    return {
-      name: mcp.server,
-      endpoint: server.url,
-      binding: mcpBinding(mcp.releaseId, mcp.server, server),
-      tools: mcp.tools,
-    };
+    return [
+      ...(mcp && server
+        ? [
+            {
+              name: mcp.server,
+              endpoint: server.url,
+              binding: mcpBinding(mcp.releaseId, mcp.server, server),
+              tools: mcp.tools,
+            },
+          ]
+        : []),
+      ...(githubMcp
+        ? [
+            {
+              name: GITHUB_MCP_SERVER,
+              endpoint: GITHUB_MCP_ENDPOINT,
+              binding: githubMcpBinding(githubMcp.releaseId),
+              tools: githubMcp.tools,
+            },
+          ]
+        : []),
+    ];
   }
 
   function withMcp(
     config: RuntimeConfig,
-    mcp: ReturnType<typeof claimedMcp>,
+    mcp: readonly ClaimedMcpServer[],
     mcpToken: string,
   ): RuntimeConfig {
-    return mcp === null ? config : runtimeConfigWithMcp(config, mcp, mcpToken);
+    return runtimeConfigWithMcp(config, mcp, mcpToken);
   }
 
   // Resolved at claim time, on purpose: the catalog is where an operator
@@ -700,7 +757,9 @@ export function createWorkerGateway(deps: {
     runtime_config: RuntimeConfig;
   } {
     const listed = profileId ? catalogProfile(catalog, profileId) : undefined;
-    const profile = listed ? sessionProfile(listed, pin) : null;
+    const profile = listed
+      ? sessionProfile(listed, pin, acceptedRuntimeVersions(catalog))
+      : null;
     if (!profile || !profileId) {
       throw new WorkerGatewayError(
         503,
@@ -734,11 +793,12 @@ export function createWorkerGateway(deps: {
       | "restoreProfiles"
       | "repository"
     >,
+    current: RuntimeConfig,
     providerToken: string,
-    mcp: ReturnType<typeof claimedMcp>,
+    mcp: readonly ClaimedMcpServer[],
     mcpToken: string,
   ): { restore_runtime_configs?: RuntimeConfig[] } {
-    const configs = binding.restoreProfiles.flatMap((made) => {
+    const alternates = binding.restoreProfiles.flatMap((made) => {
       if (
         made.profileId === binding.profileId &&
         made.profileFingerprint === binding.profileFingerprint &&
@@ -748,25 +808,28 @@ export function createWorkerGateway(deps: {
       }
       const listed = catalogProfile(catalog, made.profileId);
       const profile = listed
-        ? sessionProfile(listed, {
-            fingerprint: made.profileFingerprint,
-            model: made.model,
-          })
+        ? sessionProfile(
+            listed,
+            { fingerprint: made.profileFingerprint, model: made.model },
+            acceptedRuntimeVersions(catalog),
+          )
         : null;
       return profile
-        ? [
-            withMcp(
-              runtimeConfigOf(
-                profile,
-                providerToken,
-                binding.repository !== null,
-              ),
-              mcp,
-              mcpToken,
-            ),
-          ]
+        ? [runtimeConfigOf(profile, providerToken, binding.repository !== null)]
         : [];
     });
+    // Checkpoints made before the built-in `github` server was attached
+    // name only the catalog server; they resume into a run that has both.
+    // Newest first, as the profiles come, so the cap drops the oldest.
+    const legacy = mcp.filter((server) => server.name !== GITHUB_MCP_SERVER);
+    const attached = legacy.length !== mcp.length;
+    const configs = [
+      ...(attached ? [withMcp(current, legacy, mcpToken)] : []),
+      ...alternates.flatMap((config) => [
+        withMcp(config, mcp, mcpToken),
+        ...(attached ? [withMcp(config, legacy, mcpToken)] : []),
+      ]),
+    ];
     return configs.length === 0
       ? {}
       : { restore_runtime_configs: configs.slice(0, MAX_RESTORE_PROFILES) };
@@ -782,10 +845,11 @@ export function createWorkerGateway(deps: {
       ? catalogProfile(catalog, session.profileId)
       : undefined;
     const profile = listed
-      ? sessionProfile(listed, {
-          fingerprint: session.profileFingerprint,
-          model: session.model,
-        })
+      ? sessionProfile(
+          listed,
+          { fingerprint: session.profileFingerprint, model: session.model },
+          acceptedRuntimeVersions(catalog),
+        )
       : null;
     if (!profile) {
       throw new Error("A claimed session has no runnable profile");
@@ -795,8 +859,13 @@ export function createWorkerGateway(deps: {
     // that.
     const provider = session.profileFingerprint ?? profileFingerprint(profile);
     const object_store = sessionObjectPrefix(session.id);
-    const mcp = claimedMcp(session.mcp);
-    const mcpBinding = mcp === null ? {} : { mcp: mcp.binding };
+    // One token serves both servers; it is held to the catalog server's
+    // binding when there is one, as the remote route checks.
+    const [first] = claimedMcp(session);
+    const mcpBinding = {
+      ...(first === undefined ? {} : { mcp: first.binding }),
+      packages: PACKAGES_BINDING,
+    };
     if (session.repositoryMode === "none") {
       return { provider, repository: null, object_store, ...mcpBinding };
     }
@@ -998,6 +1067,7 @@ export function createWorkerGateway(deps: {
       const repositoryToken = generateEgressToken("repository");
       const objectStoreToken = generateEgressToken("object_store");
       const mcpToken = generateEgressToken("mcp");
+      const packagesToken = generateEgressToken("packages");
       await refreshForClaim();
       const claimable = claimCatalog();
       const result = await work.claimAtomic({
@@ -1009,6 +1079,17 @@ export function createWorkerGateway(deps: {
         nonceHash: hashWorkerToken(request.credential.nonce),
         executionId: request.execution_id,
         executionGeneration: request.execution_generation,
+        ...(request.image_runtime === undefined
+          ? {}
+          : {
+              imageRuntime: {
+                engine: request.image_runtime.engine,
+                sdkVersion: request.image_runtime.sdk_version,
+                cliVersion: request.image_runtime.cli_version,
+                profileDigestScheme:
+                  request.image_runtime.profile_digest_scheme,
+              },
+            }),
         attemptId: `att_${randomUUID()}`,
         credentialHash: hashWorkerToken(sessionToken),
         credentialTtlMs: sessionTokenTtlMs,
@@ -1017,6 +1098,7 @@ export function createWorkerGateway(deps: {
           repositoryHash: hashWorkerToken(repositoryToken),
           objectStoreHash: hashWorkerToken(objectStoreToken),
           mcpHash: hashWorkerToken(mcpToken),
+          packagesHash: hashWorkerToken(packagesToken),
           bindingsOf: egressBindingsOf,
         },
         leaseTtlMs,
@@ -1059,19 +1141,52 @@ export function createWorkerGateway(deps: {
             "CATALOG_MISMATCH",
             "The session this launch was reserved for runs as a profile and repository pair this host's catalog no longer allows; the session was failed",
           );
+        // Not retryable: this worker will never be the image it was launched
+        // as. The session waits for a launch on a correctly configured one.
+        case "image_mismatch":
+          throw new WorkerGatewayError(
+            409,
+            "LAUNCH_FAILED",
+            `This worker's image does not run the ${result.assumed.engine} sdk ${result.assumed.sdkVersion} cli ${result.assumed.cliVersion} digest scheme ${result.assumed.profileDigestScheme} its launch was configured for; the image is refused until its configured runtime is corrected`,
+            false,
+            undefined,
+            "worker_image_mismatch",
+          );
         default: {
           const binding = result.binding;
-          const mcp = claimedMcp(binding.mcp);
-          const profile = resolveProfile(
+          const mcp = claimedMcp(binding);
+          const resolvedProfile = resolveProfile(
             binding.profileId,
             { fingerprint: binding.profileFingerprint, model: binding.model },
             providerToken,
             binding.repository !== null,
           );
+          // A launch on the previous image runs that image's engine, which
+          // the worker checks the claim against; the catalog names the
+          // current one.
+          const profile =
+            binding.launchRuntime === undefined
+              ? resolvedProfile
+              : {
+                  ...resolvedProfile,
+                  runtime: {
+                    ...resolvedProfile.runtime,
+                    version: binding.launchRuntime.sdkVersion,
+                  },
+                };
           const resolved = {
             ...profile,
             runtime_config: withMcp(profile.runtime_config, mcp, mcpToken),
           };
+          const attribution = deps.attribution;
+          const git =
+            attribution === undefined
+              ? undefined
+              : claimGitOf(
+                  await attribution.store.attribution(binding.sessionId),
+                  attribution.consoleOrigin,
+                  binding.sessionId,
+                );
           return {
             session_id: binding.sessionId,
             turn_id: null,
@@ -1083,7 +1198,16 @@ export function createWorkerGateway(deps: {
             lease_expires_at: binding.leaseExpiresAt.toISOString(),
             lease_remaining_ms: binding.leaseRemainingMs,
             ...resolved,
-            ...restoreRuntimesOf(binding, providerToken, mcp, mcpToken),
+            ...restoreRuntimesOf(
+              binding,
+              profile.runtime_config,
+              providerToken,
+              mcp,
+              mcpToken,
+            ),
+            packages: {
+              access: { kind: "egress_token", token: packagesToken },
+            },
             workspace: {
               repository: binding.repository && {
                 ...binding.repository,
@@ -1106,6 +1230,7 @@ export function createWorkerGateway(deps: {
             ...(binding.grants === undefined || binding.grants.length === 0
               ? {}
               : { grants: [...binding.grants] }),
+            ...(git === undefined ? {} : { git }),
           };
         }
       }
@@ -1149,7 +1274,9 @@ export function createWorkerGateway(deps: {
         token: request.token,
         purpose: "mcp",
       });
-      if (decideMcp === null) {
+      const decide =
+        request.server === GITHUB_MCP_SERVER ? decideGitHubMcp : decideMcp;
+      if (decide === null) {
         throw new WorkerGatewayError(
           503,
           "BACKEND_UNAVAILABLE",
@@ -1157,7 +1284,7 @@ export function createWorkerGateway(deps: {
           true,
         );
       }
-      const decision = await decideMcp(result, request);
+      const decision = await decide(result, request);
       if (decision.kind === "refused") {
         throw new WorkerGatewayError(
           decision.status,
@@ -1171,6 +1298,27 @@ export function createWorkerGateway(deps: {
         session_id: result.sessionId,
         attempt_id: result.attemptId,
         upstream: decision.upstream,
+      };
+    },
+
+    // A public registry carries no credential, so the gateway's part is the
+    // fence: only a token whose attempt still owns its session reaches one.
+    async authorizePackagesEgress(request: {
+      token: string;
+      registry: PackageRegistry;
+    }): Promise<EgressGrant> {
+      const result = await authorizedEgress({
+        token: request.token,
+        purpose: "packages",
+      });
+      if (result.binding !== PACKAGES_BINDING) moved("package registry set");
+      return {
+        session_id: result.sessionId,
+        attempt_id: result.attemptId,
+        upstream: {
+          url: PUBLIC_PACKAGE_REGISTRIES[request.registry],
+          headers: [],
+        },
       };
     },
 
@@ -1215,10 +1363,11 @@ export function createWorkerGateway(deps: {
         // at the proxy's next regrant.
         if (
           !listed ||
-          !sessionProfile(listed, {
-            fingerprint: result.binding,
-            model: result.model,
-          })
+          !sessionProfile(
+            listed,
+            { fingerprint: result.binding, model: result.model },
+            acceptedRuntimeVersions(catalog),
+          )
         ) {
           moved("session's profile");
         }
@@ -1623,6 +1772,7 @@ export function createWorkerGateway(deps: {
       let checkpointVersionsHeld = false;
       let checkpointTranscriptBytes: number | undefined;
       let checkpointOutputs: readonly CheckpointOutputObject[] | undefined;
+      let checkpointRuntime: RuntimeFingerprint | undefined;
       if (request.checkpoint) {
         const checkpoint = request.checkpoint;
         const verdict = await checkpointInfrastructure(() =>
@@ -1654,6 +1804,7 @@ export function createWorkerGateway(deps: {
         checkpointVersionsHeld = verdict.versionsHeld === true;
         checkpointTranscriptBytes = verdict.transcriptBytes;
         checkpointOutputs = verdict.outputs;
+        checkpointRuntime = verdict.runtime;
       }
       // Verification is a network call that can outlast the lease, so the
       // fence is judged against the clock at commit time, not the one this
@@ -1665,6 +1816,7 @@ export function createWorkerGateway(deps: {
           ? {}
           : { checkpointTranscriptBytes }),
         ...(checkpointOutputs === undefined ? {} : { checkpointOutputs }),
+        ...(checkpointRuntime === undefined ? {} : { checkpointRuntime }),
         now: now(),
       });
       // Not awaited: naming the session must never hold up its turn.

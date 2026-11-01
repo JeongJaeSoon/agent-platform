@@ -139,6 +139,14 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "permission_wait_override",
     // 0178, arrives as 'user'
     "title_source",
+    // 0198
+    "first_worker_image",
+    "runtime_engine",
+    "runtime_sdk_version",
+    "runtime_cli_version",
+    "runtime_profile_sha256",
+    // 0201
+    "checkpoint_collection_settled_at",
   ],
   turns: [
     "actor_id",

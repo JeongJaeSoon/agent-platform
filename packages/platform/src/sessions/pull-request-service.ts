@@ -22,7 +22,13 @@ import {
   type PullRequestSource,
   type PullRequestStore,
 } from "../ports/pull-requests.ts";
+import type { SessionAttributionStore } from "../ports/session-attribution.ts";
 import { repositoryBinding, type SessionCatalog } from "./catalog.ts";
+import {
+  pullRequestTail,
+  sessionUrlOf,
+  withPullRequestTail,
+} from "./git-attribution.ts";
 import { cleanBody, cleanTitle } from "./pull-request-text.ts";
 import {
   mayDecidePush,
@@ -63,8 +69,28 @@ export function createPullRequestService(deps: {
   gate: GitHubGate;
   /** Applied to each line of caller text before the forge sees it. */
   redact: (line: string) => string;
+  /** Who the session's work is attributed to, for the body's tail. */
+  attribution: SessionAttributionStore;
+  consoleOrigin: string | null;
+  logger: {
+    warn(message: string, fields?: Readonly<Record<string, unknown>>): void;
+  };
 }) {
-  const { authorization, store, catalog, gate, redact } = deps;
+  const { authorization, store, catalog, gate, redact, logger } = deps;
+
+  async function tailFor(source: {
+    sessionId: string;
+    id: string;
+    gitCommit: string;
+  }): Promise<string> {
+    return pullRequestTail({
+      sessionId: source.sessionId,
+      sessionUrl: sessionUrlOf(deps.consoleOrigin, source.sessionId),
+      commit: source.gitCommit,
+      pushRequestId: source.id,
+      record: await deps.attribution.attribution(source.sessionId),
+    });
+  }
 
   async function begin(
     actor: PushActor,
@@ -247,14 +273,20 @@ export function createPullRequestService(deps: {
         return await refuse("not_pushed", fields);
       }
       const { forge, base } = await forgeFor(actor, source, refuse);
-      let opened: { number: number; url: string; base: string };
-      let created: boolean;
+      const tail = await tailFor(source);
+      let opened: {
+        number: number;
+        url: string;
+        base: string;
+        created: boolean;
+      };
       try {
         const found = await forge.findPullRequestForBranch(head);
-        created = found?.state !== "open";
+        // An open one found, or GitHub answering a racing one with 422, is
+        // a pull request the platform did not make: the outcome is adopted.
         opened =
           found?.state === "open"
-            ? found
+            ? { ...found, created: false }
             : await forge.createPullRequest({
                 head,
                 base,
@@ -262,13 +294,38 @@ export function createPullRequestService(deps: {
                   body.title ?? `Agent session ${source.sessionId}`,
                   redact,
                 ),
-                body: `${cleanBody(body.body ?? "", forge.maxBodyLength - 1_000, redact)}\n\n---\nOpened by agent-platform from session \`${source.sessionId}\`, commit \`${source.gitCommit}\`.`,
+                body: withPullRequestTail(
+                  cleanBody(
+                    body.body ?? "",
+                    forge.maxBodyLength - 2_000,
+                    redact,
+                  ),
+                  tail,
+                ),
               });
       } catch (error) {
         if (error instanceof ForgeCredentialError) {
           return await refuse("forge_failed", { ...fields, head, base });
         }
         throw error;
+      }
+      const { created } = opened;
+      // A later push request reuses the branch's open pull request; its tail
+      // names this push's commit from now on. The pull request is open
+      // whether or not this lands, so a failure is only logged.
+      if (!created) {
+        try {
+          await forge.updatePullRequestBody(opened.number, (current) =>
+            withPullRequestTail(current, tail),
+          );
+        } catch (error) {
+          logger.warn("Pull request tail not updated", {
+            session_id: source.sessionId,
+            push_request_id: source.id,
+            number: opened.number,
+            error: error instanceof Error ? error.name : "error",
+          });
+        }
       }
       const saved = await store.savePullRequest({
         ...receipt,

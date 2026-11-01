@@ -10,6 +10,7 @@ import {
   type GitHubGrant,
   type GitHubWork,
 } from "../ports/github-gate.ts";
+import type { SessionAttributionRecord } from "../ports/session-attribution.ts";
 import type {
   ClaimInput,
   EgressAuthorization,
@@ -685,7 +686,7 @@ describe("WorkerGateway", () => {
     // The claim may bind only what the catalog pairs, at the URL and branch
     // it registers now, with the profile's settings as hashed now
     // one entry per allowed pair, nothing else.
-    const [current, v1] = profilePins(profile);
+    const [current, v1] = profilePins(profile, []);
     expect(current).toEqual({
       fingerprint: profileFingerprint(profile),
       model: "claude-sonnet-5",
@@ -750,6 +751,10 @@ describe("WorkerGateway", () => {
       hashWorkerToken(claimed.object_store.access.token),
     );
     expect(claimed.object_store.access.token).toMatch(/^weo_/);
+    expect(egress.packagesHash).toEqual(
+      hashWorkerToken(claimed.packages?.access.token ?? ""),
+    );
+    expect(claimed.packages?.access.token).toMatch(/^wek_/);
     expect(
       egress.bindingsOf({
         id: "s-1",
@@ -761,6 +766,7 @@ describe("WorkerGateway", () => {
       }),
     ).toEqual({
       object_store: "sessions/s-1/",
+      packages: "public",
       provider: profileFingerprint(profile),
       repository: repositoryBinding("sample-app", {
         url: "https://example.invalid/app.git",
@@ -846,6 +852,166 @@ describe("WorkerGateway", () => {
     expect(bootstrapClaimResponseSchema.safeParse(spentClaim).success).toBe(
       true,
     );
+    expect("git" in spentClaim).toBe(false);
+
+    // The commit trailers: the linked starter as co-author, then a session
+    // no person started, which names only itself.
+    const asked: string[] = [];
+    let starter: SessionAttributionRecord["starter"] = {
+      userId: "user-1",
+      github: { id: "583231", login: "octocat" },
+    };
+    const attributed = createWorkerGateway({
+      work: work({
+        claimAtomic: async () => ({ outcome: "claimed", binding }),
+      }),
+      catalog: { profiles: { "claude-coding-v1": profile }, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      attribution: {
+        store: {
+          attribution: async (sessionId) => {
+            asked.push(sessionId);
+            return {
+              ownerId: "owner-a",
+              trigger: starter === null ? "agent_key" : "web",
+              agentId: null,
+              agentReleaseId: null,
+              starter,
+            };
+          },
+        },
+        consoleOrigin: "https://console.example.com",
+      },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
+    });
+    const sessionUrl = `https://console.example.com/sessions/${scope.session_id}`;
+    const linked = bootstrapClaimResponseSchema.parse(
+      await attributed.bootstrapClaim({ kind: "bootstrap" }, request),
+    );
+    expect(linked.git).toEqual({
+      co_author: {
+        name: "octocat",
+        email: "583231+octocat@users.noreply.github.com",
+      },
+      session_url: sessionUrl,
+    });
+    starter = null;
+    const agentKey = await attributed.bootstrapClaim(
+      { kind: "bootstrap" },
+      request,
+    );
+    expect(agentKey.git).toEqual({ co_author: null, session_url: sessionUrl });
+    expect(asked).toEqual([scope.session_id, scope.session_id]);
+  });
+
+  test("a session pinned before its profile's runtime moved to the next image is still claimed while the previous image is configured", async () => {
+    const before = {
+      runtime_kind: "claude_agent_sdk" as const,
+      runtime_version: "0.3.270",
+      model: "claude-sonnet-5",
+      tools: ["Read"],
+      permission_mode: "plan" as const,
+      repository: "none" as const,
+      provider: {
+        kind: "anthropic" as const,
+        endpoint: "https://api.anthropic.invalid",
+        auth: {
+          kind: "api_key" as const,
+          value: "provider-key",
+          ref: { value_env: "PROVIDER_KEY" },
+        },
+      },
+    };
+    const after = { ...before, runtime_version: "0.3.280" };
+    const pinned = profileFingerprint(before);
+    const binding = {
+      sessionId: scope.session_id,
+      attemptId: "att_1",
+      leaseEpoch: 1,
+      executionGeneration: 1,
+      authRevision: 0,
+      leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
+      leaseRemainingMs: 29_950,
+      profileId: "p",
+      profileFingerprint: pinned,
+      model: "claude-sonnet-5" as string | null,
+      unmetered: false,
+      ownerScope: "owner-a",
+      repository: null,
+      restore: null,
+      restoreProfiles: [],
+      costUsd: 0,
+      providerTokens: 0,
+    };
+    const runnable: ClaimInput["runnable"][] = [];
+    const issued: ClaimInput["egress"][] = [];
+    const gatewayWith = (accepted: string[]) =>
+      createWorkerGateway({
+        work: work({
+          claimAtomic: async (input) => {
+            runnable.push(input.runnable);
+            issued.push(input.egress);
+            return { outcome: "claimed", binding };
+          },
+        }),
+        catalog: {
+          ...withSeededInstallation({
+            profiles: { p: after },
+            repositories: {},
+          }),
+          runtime_versions: { accepted, current: ["0.3.280", "2.1.280"] },
+        },
+        checkpoints: acceptAllCheckpoints,
+        options: {
+          sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
+          leaseTtlMs: 30_000,
+        },
+      });
+    const request = {
+      execution_id: "e",
+      execution_generation: 1,
+      credential: { kind: "launch_nonce" as const, nonce: "n" },
+    };
+
+    const claimed = await gatewayWith([
+      "0.3.280",
+      "2.1.280",
+      "0.3.270",
+      "2.1.270",
+    ]).bootstrapClaim({ kind: "bootstrap" }, request);
+    expect(claimed.session_id).toBe(scope.session_id);
+    expect(runnable.at(-1)).toContainEqual({
+      profileId: "p",
+      profileFingerprint: pinned,
+      model: "claude-sonnet-5",
+      repositoryId: null,
+    });
+    expect(
+      issued.at(-1)?.bindingsOf({
+        id: "s-1",
+        profileId: "p",
+        profileFingerprint: pinned,
+        model: "claude-sonnet-5",
+        repositoryMode: "none",
+        repositoryId: null,
+      }).provider,
+    ).toBe(pinned);
+
+    // Once the previous image leaves the configuration, so does its pin.
+    await expect(
+      gatewayWith(["0.3.280", "2.1.280"]).bootstrapClaim(
+        { kind: "bootstrap" },
+        request,
+      ),
+    ).rejects.toMatchObject({ status: 503, code: "BACKEND_UNAVAILABLE" });
+    expect(
+      runnable.at(-1)?.some((pair) => pair.profileFingerprint === pinned),
+    ).toBe(false);
   });
 
   test("a session without a repository is claimed with no repository token and no CLAUDE.md", async () => {
@@ -951,13 +1117,13 @@ describe("WorkerGateway", () => {
           expect.objectContaining({ profileId, repositoryId: "app" }),
         ),
       ),
-      ...profilePins(optional).map((pin) => ({
+      ...profilePins(optional, []).map((pin) => ({
         profileId: "optional",
         profileFingerprint: pin.fingerprint,
         model: pin.model,
         repositoryId: null,
       })),
-      ...profilePins(general).map((pin) => ({
+      ...profilePins(general, []).map((pin) => ({
         profileId: "general",
         profileFingerprint: pin.fingerprint,
         model: pin.model,
@@ -984,6 +1150,7 @@ describe("WorkerGateway", () => {
       provider: profileFingerprint(general),
       repository: null,
       object_store: "sessions/s-1/",
+      packages: "public",
     });
     const optionalClaim = await claimWith({
       ...binding,
@@ -996,7 +1163,7 @@ describe("WorkerGateway", () => {
 
     const opus = await claimWith({ ...binding, model: "claude-opus-5-5" });
     expect(opus.runtime_config.model).toBe("claude-opus-5-5");
-    const v1Opus = profilePins(general)[3]?.fingerprint;
+    const v1Opus = profilePins(general, [])[3]?.fingerprint;
     if (!v1Opus) throw new Error("no version 1 pin for the second model");
     const legacy = await claimWith({
       ...binding,
@@ -1021,6 +1188,32 @@ describe("WorkerGateway", () => {
     await expect(
       claimWith({ ...binding, model: "claude-fable-5-1" }),
     ).rejects.toMatchObject({ status: 503, code: "BACKEND_UNAVAILABLE" });
+
+    // A checkpoint from before the built-in server, under the profile the
+    // session runs now, survives the cap however many others there are.
+    const withGitHub = {
+      ...binding,
+      githubMcp: { releaseId: "rel-1", tools: ["mcp__github__request_push"] },
+      restoreProfiles: Array.from({ length: 16 }, () => ({
+        profileId: "optional",
+        profileFingerprint: profileFingerprint(optional),
+        model: "claude-sonnet-5" as string | null,
+      })),
+    };
+    const restored = (await claimWith(withGitHub)).restore_runtime_configs;
+    expect(restored).toHaveLength(16);
+    expect(
+      restored
+        ?.slice(0, 3)
+        .map((config) => [
+          config.mcp_servers?.map((server) => server.name),
+          config.tools,
+        ]),
+    ).toEqual([
+      [undefined, ["Write"]],
+      [["github"], ["Read", "mcp__github__request_push"]],
+      [undefined, ["Read"]],
+    ]);
   });
 
   test("bootstrapClaim answers a launch whose session was failed for a catalog mismatch with a final 409", async () => {
@@ -2121,6 +2314,7 @@ describe("authorizeEgress through a forge", () => {
           permissions: { contents: "read" },
           gitCredential: issued,
           api: {} as GitHubGrant["api"],
+          unit: async () => "app:test:1",
           allowedBy: null,
           context: {
             ownerId: "owner",

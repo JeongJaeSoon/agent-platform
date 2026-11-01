@@ -6,6 +6,7 @@
  *   bun run scripts/lib/test-ops.ts check-render --store <localstack|s3> [--catalog-revision <rev>] < rendered.json
  *   bun run scripts/lib/test-ops.ts probe-store < rendered.json
  *   bun run scripts/lib/test-ops.ts upgrade-impact <verify-exit> <verify-output> <uncollected>
+ *   bun run scripts/lib/test-ops.ts upgrade-previous <uncollected> <target-exit> <target-output> <previous-exit> <previous-output>
  *   bun run scripts/lib/test-ops.ts upgrade-gate <from-worker> <to-worker> <affected> [<approved>]
  *
  * rendered.json is `docker compose config --format json` of the test-ops
@@ -456,6 +457,23 @@ export function upgradeImpact(input: {
 }
 
 /**
+ * After an upgrade the scheduler keeps the image it replaces as the previous
+ * one and resumes on it every session whose checkpoint it restores, so only
+ * a session neither image can restore is affected. When either check failed
+ * closed the target's list stays whole: a session the target cannot be shown
+ * to restore may still launch on it when both images share a combination.
+ */
+export function notResumableOnPrevious(input: {
+  readonly target: UpgradeImpact;
+  readonly previous: UpgradeImpact;
+}): string[] {
+  const target = [...new Set(input.target.affected)].sort();
+  if (input.target.failClosed || input.previous.failClosed) return target;
+  const previous = new Set(input.previous.affected);
+  return target.filter((id) => previous.has(id));
+}
+
+/**
  * The upgrade goes ahead only when no session is incompatible with the target
  * worker image, or when the operator approved exactly the sessions that are:
  * one more or one fewer means the list they read is not the one that would
@@ -569,6 +587,47 @@ async function main(argv: readonly string[]): Promise<number> {
       console.log(impact.affected.join("\n"));
       return 0;
     }
+    case "upgrade-previous": {
+      const [
+        uncollected,
+        targetExit,
+        targetOutput,
+        previousExit,
+        previousOutput,
+      ] = args;
+      if (
+        !uncollected ||
+        !targetExit ||
+        !targetOutput ||
+        !previousExit ||
+        !previousOutput ||
+        args.length !== 5
+      )
+        return usage();
+      const ids = await lines(uncollected);
+      const impactOf = async (exitText: string, output: string) => {
+        const exitCode = Number(exitText);
+        if (!Number.isSafeInteger(exitCode) || exitCode < 0) return null;
+        return upgradeImpact({
+          exitCode,
+          output: await readFile(output, "utf8"),
+          uncollected: ids,
+        });
+      };
+      const target = await impactOf(targetExit, targetOutput);
+      const previous = await impactOf(previousExit, previousOutput);
+      if (!target || !previous) return usage();
+      for (const [image, impact] of [
+        ["target", target],
+        ["previous", previous],
+      ] as const)
+        if (impact.failClosed)
+          console.error(
+            `upgrade previous: the ${image} image's check failed closed (${impact.reason}); the target's list stays whole`,
+          );
+      console.log(notResumableOnPrevious({ target, previous }).join("\n"));
+      return 0;
+    }
     case "upgrade-gate": {
       const [fromWorker, toWorker, affected, approved] = args;
       if (!fromWorker || !toWorker || !affected || args.length > 4)
@@ -593,7 +652,7 @@ async function main(argv: readonly string[]): Promise<number> {
 
 function usage(): number {
   console.error(
-    "usage: test-ops.ts manifest <file> | catalog-revision <dir> | check-render --store <localstack|s3> [--catalog-revision <rev>] | probe-store | upgrade-impact <verify-exit> <verify-output> <uncollected> | upgrade-gate <from-worker> <to-worker> <affected> [<approved>]",
+    "usage: test-ops.ts manifest <file> | catalog-revision <dir> | check-render --store <localstack|s3> [--catalog-revision <rev>] | probe-store | upgrade-impact <verify-exit> <verify-output> <uncollected> | upgrade-previous <uncollected> <target-exit> <target-output> <previous-exit> <previous-output> | upgrade-gate <from-worker> <to-worker> <affected> [<approved>]",
   );
   return 2;
 }

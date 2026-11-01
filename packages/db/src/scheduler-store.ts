@@ -17,7 +17,9 @@ import type {
   ReserveLaunchInput,
   SchedulerDemand,
   SchedulerStore,
+  SessionBudget,
   StoredLaunchIntent,
+  WorkerImageRefusal,
 } from "@werft-ai/platform";
 import {
   budgetExceeded,
@@ -40,8 +42,10 @@ import {
   notExists,
   notInArray,
   or,
+  type SQL,
   sql,
 } from "drizzle-orm";
+import { readPointerImageRuntime } from "./checkpoint-runtime.ts";
 import {
   LAUNCHABLE_ADMISSION_STATES,
   OPEN_TURN_STATUSES,
@@ -51,12 +55,16 @@ import { expireOverdueTerminations } from "./control-unit-of-work.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { launchFailedCause, quarantineLaunch } from "./launch-quarantine.ts";
 import type { Database } from "./queries.ts";
-import { restoreRetryDue } from "./restore-failures.ts";
+import {
+  holdIncompatibleBeforeLaunch,
+  restoreRetryDue,
+} from "./restore-failures.ts";
 import {
   executions,
   sessions,
   turns,
   unassignedSessions,
+  workerImageRefusals,
   workerLaunches,
 } from "./schema.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
@@ -131,6 +139,30 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  */
 function holdsSlot() {
   return isNull(workerLaunches.slotReleasedAt);
+}
+
+/**
+ * The launch queue: the `unassigned_sessions` ⋈ `sessions` rows a scheduler
+ * pass may launch, before its LIMIT. The platform metrics count the same
+ * rows, so their queue is the one the scheduler drains.
+ */
+export function awaitingLaunch(db: Database, budget: SessionBudget): SQL {
+  return and(
+    inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
+    isNull(sessions.executionRevokedAt),
+    isNull(sessions.takeoverRequiredAt),
+    // Before the LIMIT, so a backlog of spent sessions cannot crowd
+    // out the ones that can still run, nor sessions waiting out a
+    // restore backoff.
+    withinBudget(budget),
+    restoreRetryDue(),
+    notExists(
+      db
+        .select({ one: sql`1` })
+        .from(workerLaunches)
+        .where(and(eq(workerLaunches.sessionId, sessions.id), holdsSlot())),
+    ),
+  ) as SQL;
 }
 
 export function createPostgresSchedulerStore(
@@ -210,7 +242,7 @@ export function createPostgresSchedulerStore(
       };
     },
 
-    async inspectDemand({ limit }): Promise<SchedulerDemand> {
+    async inspectDemand({ limit, excluding = [] }): Promise<SchedulerDemand> {
       const [active] = await db
         .select({ count: sql<number>`count(*)::int` })
         .from(workerLaunches)
@@ -227,22 +259,10 @@ export function createPostgresSchedulerStore(
         .innerJoin(sessions, eq(sessions.id, unassignedSessions.sessionId))
         .where(
           and(
-            inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
-            isNull(sessions.executionRevokedAt),
-            isNull(sessions.takeoverRequiredAt),
-            // Before the LIMIT, so a backlog of spent sessions cannot crowd
-            // out the ones that can still run, nor sessions waiting out a
-            // restore backoff.
-            withinBudget(budget),
-            restoreRetryDue(),
-            notExists(
-              db
-                .select({ one: sql`1` })
-                .from(workerLaunches)
-                .where(
-                  and(eq(workerLaunches.sessionId, sessions.id), holdsSlot()),
-                ),
-            ),
+            awaitingLaunch(db, budget),
+            excluding.length === 0
+              ? undefined
+              : notInArray(unassignedSessions.sessionId, [...excluding]),
           ),
         )
         .orderBy(
@@ -350,14 +370,44 @@ export function createPostgresSchedulerStore(
           resources: intent.resources,
           sessionId: intent.sessionId,
           slotReservedAt: input.now,
+          ...(input.imageRuntime === undefined
+            ? {}
+            : {
+                runtimeEngine: input.imageRuntime.engine,
+                runtimeSdkVersion: input.imageRuntime.sdkVersion,
+                runtimeCliVersion: input.imageRuntime.cliVersion,
+                runtimeProfileScheme: input.imageRuntime.profileDigestScheme,
+              }),
         });
         await tx
           .update(sessions)
-          .set({ executionId: intent.executionId, updatedAt: input.now })
+          .set({
+            executionId: intent.executionId,
+            firstWorkerImage: sql`COALESCE(${sessions.firstWorkerImage}, ${intent.image})`,
+            updatedAt: input.now,
+          })
           .where(eq(sessions.id, input.sessionId));
         return intent;
       });
     },
+
+    pointerRuntimeOf: (sessionId) => readPointerImageRuntime(db, sessionId),
+
+    async workerImageRefusals(): Promise<WorkerImageRefusal[]> {
+      const rows = await db.select().from(workerImageRefusals);
+      return rows.map((row) => ({
+        image: row.image,
+        assumed: {
+          engine: row.assumedEngine,
+          sdkVersion: row.assumedSdkVersion,
+          cliVersion: row.assumedCliVersion,
+          profileDigestScheme: row.assumedProfileScheme,
+        },
+      }));
+    },
+
+    holdIncompatibleBeforeLaunch: (input) =>
+      holdIncompatibleBeforeLaunch(db, input),
 
     async issueBootstrapNonce(
       ref: ExecutionRef,

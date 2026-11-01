@@ -1,10 +1,19 @@
 import type { SessionAttention } from "@werft-ai/contracts";
 import { launchRetryDelayMs } from "@werft-ai/platform";
-import { eq, isNull, lte, or } from "drizzle-orm";
-import { hasRestorePoint, restoreBaseRevision } from "./control-shared.ts";
+import { and, eq, isNull, lte, or } from "drizzle-orm";
+import {
+  hasRestorePoint,
+  LAUNCHABLE_ADMISSION_STATES,
+  restoreBaseRevision,
+} from "./control-shared.ts";
 import { DB_NOW, fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
-import { attempts, sessions, unassignedSessions } from "./schema.ts";
+import {
+  attempts,
+  sessions,
+  unassignedSessions,
+  workerLaunches,
+} from "./schema.ts";
 import { recordEvent, recordStatus } from "./session-events.ts";
 
 type SessionRow = typeof sessions.$inferSelect;
@@ -151,6 +160,94 @@ export async function recordStartupFailure(
     now,
   });
   return "recovery_required";
+}
+
+/**
+ * What a restore refusing the checkpoint as incompatible records, before
+ * anything is launched: no configured worker image can resume it. Stale
+ * when the session left launchable admission, its pointer moved past
+ * `checkpointRevision`, or a launch holds a slot for it.
+ */
+export async function holdIncompatibleBeforeLaunch(
+  db: Database,
+  input: {
+    sessionId: string;
+    checkpointRevision: number;
+    detail: string;
+    now: Date;
+  },
+): Promise<"held" | "stale"> {
+  return db.transaction(async (tx) => {
+    const [session] = await tx
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, input.sessionId))
+      .limit(1)
+      .for("update");
+    if (
+      session === undefined ||
+      !LAUNCHABLE_ADMISSION_STATES.includes(session.admissionState) ||
+      // start_fresh keeps the revision and retires the checkpoint instead.
+      !hasRestorePoint(session) ||
+      session.checkpointRevision !== input.checkpointRevision
+    ) {
+      return "stale";
+    }
+    const [open] = await tx
+      .select({ executionId: workerLaunches.executionId })
+      .from(workerLaunches)
+      .where(
+        and(
+          eq(workerLaunches.sessionId, input.sessionId),
+          isNull(workerLaunches.slotReleasedAt),
+        ),
+      )
+      .limit(1);
+    if (open !== undefined) return "stale";
+    const failures = session.restoreFailureCount + 1;
+    await tx
+      .update(sessions)
+      .set({
+        restoreFailureCount: failures,
+        restoreFailureReason: INCOMPATIBLE_CHECKPOINT_REASON,
+        restoreRetryAt: null,
+        status: "failed",
+        admissionState: "recovery_required",
+        updatedAt: input.now,
+      })
+      .where(eq(sessions.id, input.sessionId));
+    await tx
+      .delete(unassignedSessions)
+      .where(eq(unassignedSessions.sessionId, input.sessionId));
+    await recordEvent(tx, {
+      sessionId: input.sessionId,
+      type: "system",
+      payload: {
+        type: "system",
+        subtype: "checkpoint_restore_failed",
+        checkpoint_revision: input.checkpointRevision,
+        detected_at: "launch",
+        detail: boundedReason(input.detail),
+        failures,
+        limit: RESTORE_FAILURE_LIMIT,
+        reason: INCOMPATIBLE_CHECKPOINT_REASON,
+        retry_at: null,
+      },
+      turnRowId: null,
+      now: input.now,
+    });
+    await recordStatus(tx, {
+      sessionId: input.sessionId,
+      phase: "failed",
+      extra: {
+        admission_state: "recovery_required",
+        reason: INCOMPATIBLE_CHECKPOINT_REASON,
+      },
+      turnRowId: null,
+      now: input.now,
+    });
+    return "held";
+  });
 }
 
 /**

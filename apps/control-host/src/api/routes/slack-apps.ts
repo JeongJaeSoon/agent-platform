@@ -5,11 +5,13 @@ import {
   deleteSlackAppResponseSchema,
   getSlackAppManifestResponseSchema,
   getSlackAppResponseSchema,
+  listWorkspaceSlackAppsResponseSchema,
   putSlackSecretRequestSchema,
   putSlackSecretResponseSchema,
   slackAppParamsSchema,
   slackAppSecretParamsSchema,
   slackAppSettingsSchema,
+  workspaceParamsSchema,
 } from "@werft-ai/contracts";
 import type { StructuredLogger } from "@werft-ai/observability";
 import type { SlackAppService, SlackSecretService } from "@werft-ai/platform";
@@ -93,6 +95,18 @@ export function registerSlackAppRoutes(
       created: created.created,
     });
     return jsonWithSchema(context, createSlackAppResponseSchema, created);
+  });
+
+  apiRoute(router, "listWorkspaceSlackApps", async (context) => {
+    const params = requireParams(context, workspaceParamsSchema);
+    const listed = await mapped(() =>
+      apps.listMadeApps(context.get("caller"), params.id.toLowerCase()),
+    );
+    return jsonWithSchema(
+      context,
+      listWorkspaceSlackAppsResponseSchema,
+      listed,
+    );
   });
 
   apiRoute(router, "deleteSlackApp", async (context) => {

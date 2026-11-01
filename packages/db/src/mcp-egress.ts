@@ -1,15 +1,23 @@
-import type { ReceiptActor } from "@werft-ai/contracts";
 import {
+  type AgentGitHub,
+  agentGitHubSchema,
+  githubMcpToolNames,
+  type ReceiptActor,
+} from "@werft-ai/contracts";
+import {
+  type GitHubMcpStore,
   type McpEgressStore,
   type McpRefusalRecord,
   type McpSessionState,
   pinnedMcpTools,
+  type SessionGitHubMcp,
   type SessionMcp,
 } from "@werft-ai/platform";
 import { and, eq, isNull } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import {
   agentReleases,
+  agents,
   agentVersions,
   credentialBindings,
   receipts,
@@ -76,6 +84,40 @@ export async function sessionMcpOf(
   };
 }
 
+async function releaseGitHubOf(
+  executor: Database,
+  releaseId: string,
+): Promise<{ agentId: string; github: AgentGitHub | null } | null> {
+  const [release] = await executor
+    .select({
+      agentId: agentReleases.agentId,
+      policyPins: agentReleases.policyPins,
+    })
+    .from(agentReleases)
+    .where(eq(agentReleases.id, releaseId))
+    .limit(1);
+  if (!release) return null;
+  const pinned = (release.policyPins as { github?: unknown }).github;
+  const parsed =
+    pinned === undefined ? null : agentGitHubSchema.safeParse(pinned);
+  // A pin this image cannot read exposes nothing rather than guessing.
+  return { agentId: release.agentId, github: parsed?.data ?? null };
+}
+
+/** The built-in `github` server a claimed session's release attaches. */
+export async function sessionGitHubMcpOf(
+  executor: Database,
+  session: { agentReleaseId: string | null },
+): Promise<SessionGitHubMcp | null> {
+  if (session.agentReleaseId === null) return null;
+  const release = await releaseGitHubOf(executor, session.agentReleaseId);
+  if (release?.github == null) return null;
+  return {
+    releaseId: session.agentReleaseId,
+    tools: githubMcpToolNames(release.github),
+  };
+}
+
 function creatorOf(
   session: { createdByUserId: string | null; createdByApiKeyId: string | null },
   agentId: string,
@@ -95,6 +137,40 @@ function creatorOf(
     };
   }
   return null;
+}
+
+/** What the built-in `github` server is judged on, read fresh per exchange. */
+export function createPostgresGitHubMcpStore(db: Database): GitHubMcpStore {
+  return {
+    async sessionState(sessionId) {
+      const [session] = await db
+        .select({
+          ownerId: sessions.ownerId,
+          agentReleaseId: sessions.agentReleaseId,
+          createdByUserId: sessions.createdByUserId,
+          createdByApiKeyId: sessions.createdByApiKeyId,
+        })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId))
+        .limit(1);
+      if (!session || session.agentReleaseId === null) return null;
+      const release = await releaseGitHubOf(db, session.agentReleaseId);
+      if (release === null) return null;
+      const [agent] = await db
+        .select({ enabled: agents.githubEnabled })
+        .from(agents)
+        .where(eq(agents.id, release.agentId))
+        .limit(1);
+      return {
+        ownerId: session.ownerId,
+        agentId: release.agentId,
+        releaseId: session.agentReleaseId,
+        github: release.github,
+        enabled: agent?.enabled ?? false,
+        actor: creatorOf(session, release.agentId),
+      };
+    },
+  };
 }
 
 export function createPostgresMcpEgressStore(db: Database): McpEgressStore {

@@ -1,0 +1,1 @@
+ALTER TABLE "github_apps" ADD COLUMN "client_id" text;

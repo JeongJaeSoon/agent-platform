@@ -10,3 +10,8 @@ services:
   scheduler:
     environment:
       S3_BUCKET: ${S3_BUCKET:?S3_BUCKET must name the installation's bucket}
+  maintenance:
+    environment:
+      S3_BUCKET: ${S3_BUCKET:?S3_BUCKET must name the installation's bucket}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID must be the API's S3 key}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY must be the API's S3 key}

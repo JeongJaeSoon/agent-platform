@@ -2,15 +2,22 @@ import {
   dispatchWorkflowRequestSchema,
   dispatchWorkflowResponseSchema,
   githubWorkflowRunSchema,
+  listSessionGitHubRefusalsResponseSchema,
+  listSessionOutcomesResponseSchema,
   pullRequestReviewParamsSchema,
   rerunWorkflowRequestSchema,
   rerunWorkflowResponseSchema,
+  sessionGitHubAttributionSchema,
   sessionIdParamsSchema,
   submitPullRequestReviewRequestSchema,
   submitPullRequestReviewResponseSchema,
   workflowRunParamsSchema,
 } from "@werft-ai/contracts";
-import type { GitHubWorkService } from "@werft-ai/platform";
+import type {
+  GitHubWorkService,
+  SessionAttributionService,
+  SessionOutcomeService,
+} from "@werft-ai/platform";
 import {
   type ApiRouter,
   apiRoute,
@@ -69,6 +76,44 @@ export function registerGitHubWorkRoutes(
       submitPullRequestReviewResponseSchema,
       review,
       201,
+    );
+  });
+}
+
+export function registerSessionAttributionRoutes(
+  router: ApiRouter,
+  service: SessionAttributionService,
+) {
+  apiRoute(router, "getSessionGitHubAttribution", async (context) => {
+    const params = requireParams(context, sessionIdParamsSchema);
+    const attribution = await mapped(() =>
+      service.get(context.get("caller"), params.id),
+    );
+    return jsonWithSchema(context, sessionGitHubAttributionSchema, attribution);
+  });
+}
+
+export function registerSessionOutcomeRoutes(
+  router: ApiRouter,
+  service: SessionOutcomeService,
+) {
+  apiRoute(router, "listSessionOutcomes", async (context) => {
+    const params = requireParams(context, sessionIdParamsSchema);
+    const listed = await mapped(() =>
+      service.list(context.get("caller"), params.id),
+    );
+    return jsonWithSchema(context, listSessionOutcomesResponseSchema, listed);
+  });
+
+  apiRoute(router, "listSessionGitHubRefusals", async (context) => {
+    const params = requireParams(context, sessionIdParamsSchema);
+    const listed = await mapped(() =>
+      service.refusals(context.get("caller"), params.id),
+    );
+    return jsonWithSchema(
+      context,
+      listSessionGitHubRefusalsResponseSchema,
+      listed,
     );
   });
 }

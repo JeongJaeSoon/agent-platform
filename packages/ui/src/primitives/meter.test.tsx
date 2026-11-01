@@ -47,13 +47,13 @@ describe("Meter", () => {
     expect(share(container)).toBe("0%");
   });
 
-  test("inline은 4px 회색, 기본은 8px 진한 막대, caution은 주의 색이다", () => {
+  test("inline은 4px, 기본은 8px 강조색 막대, caution은 주의 색이다", () => {
     const classesOf = (element: Element | null) =>
       (element?.className ?? "").split(" ");
     const base = render(<Meter value={1} max={2} label="a" />).container;
     expect(classesOf(base.querySelector("[data-slot=meter]"))).toContain("h-2");
     expect(classesOf(base.querySelector("[data-slot=meter-mark]"))).toContain(
-      "bg-chart-mark-active",
+      "bg-chart-mark",
     );
     const inline = render(
       <Meter value={1} max={2} label="b" size="inline" />,

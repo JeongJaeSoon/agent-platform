@@ -1,6 +1,14 @@
 import { expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
+import {
+  cpSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLogger, MemoryLogSink } from "@werft-ai/observability";
 import {
@@ -8,7 +16,8 @@ import {
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
 import { Pool } from "pg";
-import { migrateDatabase } from "./migrate.ts";
+import { migrateDatabase, NO_TRANSACTION_MARKER } from "./migrate.ts";
+import { MIGRATIONS_FOLDER } from "./migration-folder.ts";
 import { expectedMigrations } from "./migration-head.ts";
 
 const integrationTest = testDatabaseUrl() ? test : test.skip;
@@ -243,6 +252,169 @@ integrationTest(
       ]);
     } finally {
       await database.drop();
+    }
+  },
+  30_000,
+);
+
+const CONCURRENT_INDEX_MIGRATION = [
+  NO_TRANSACTION_MARKER,
+  'DROP INDEX CONCURRENTLY IF EXISTS "turns_status_test_idx";--> statement-breakpoint',
+  'CREATE INDEX CONCURRENTLY "turns_status_test_idx" ON "turns" ("status");',
+].join("\n");
+
+// The packaged folder plus one migration after its newest.
+function folderWithMigration(sql: string): string {
+  const folder = mkdtempSync(join(tmpdir(), "migrations-"));
+  cpSync(MIGRATIONS_FOLDER, folder, { recursive: true });
+  const journalPath = join(folder, "meta/_journal.json");
+  const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
+    entries: { idx: number; when: number; tag: string }[];
+  };
+  const last = journal.entries.at(-1);
+  if (!last) throw new Error("empty journal");
+  const tag = `${String(last.idx + 1).padStart(4, "0")}_concurrent_index`;
+  journal.entries.push({
+    ...last,
+    idx: last.idx + 1,
+    when: last.when + 1,
+    tag,
+  });
+  writeFileSync(journalPath, JSON.stringify(journal));
+  writeFileSync(join(folder, `${tag}.sql`), sql);
+  return folder;
+}
+
+async function indexValidity(url: string): Promise<boolean | undefined> {
+  const pool = new Pool({ connectionString: url, max: 1 });
+  try {
+    const { rows } = await pool.query<{ indisvalid: boolean }>(
+      `SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass('turns_status_test_idx')`,
+    );
+    return rows[0]?.indisvalid;
+  } finally {
+    await pool.end();
+  }
+}
+
+integrationTest(
+  "a no-transaction migration builds its index concurrently after the ones before it commit",
+  async () => {
+    const folder = folderWithMigration(CONCURRENT_INDEX_MIGRATION);
+    const database = await createTempDatabase({
+      migrate: false,
+      prefix: "concurrent",
+    });
+    try {
+      const options = {
+        logger: captureLogger().logger,
+        migrationsFolder: folder,
+      };
+      expect(await migrateDatabase(database.url, options)).toEqual({
+        adopted: 0,
+        applied: totalMigrations + 1,
+        total: totalMigrations + 1,
+      });
+      expect(await indexValidity(database.url)).toBe(true);
+      expect(await migrateDatabase(database.url, options)).toEqual({
+        adopted: 0,
+        applied: 0,
+        total: totalMigrations + 1,
+      });
+    } finally {
+      await database.drop();
+      rmSync(folder, { recursive: true, force: true });
+    }
+  },
+  30_000,
+);
+
+integrationTest(
+  "two migrators started together apply each migration once",
+  async () => {
+    const folder = folderWithMigration(CONCURRENT_INDEX_MIGRATION);
+    const database = await createTempDatabase({
+      migrate: false,
+      prefix: "concurrent_runners",
+    });
+    try {
+      const options = {
+        logger: captureLogger().logger,
+        migrationsFolder: folder,
+      };
+      const runs = await Promise.all([
+        migrateDatabase(database.url, options),
+        migrateDatabase(database.url, options),
+      ]);
+      expect(runs.map((run) => run.applied).sort()).toEqual([
+        0,
+        totalMigrations + 1,
+      ]);
+      const pool = new Pool({ connectionString: database.url, max: 1 });
+      try {
+        const { rows } = await pool.query<{ rows: string; hashes: string }>(
+          'SELECT count(*)::text AS rows, count(DISTINCT hash)::text AS hashes FROM "drizzle"."__drizzle_migrations"',
+        );
+        expect(rows[0]).toEqual({
+          rows: String(totalMigrations + 1),
+          hashes: String(totalMigrations + 1),
+        });
+      } finally {
+        await pool.end();
+      }
+      expect(await indexValidity(database.url)).toBe(true);
+    } finally {
+      await database.drop();
+      rmSync(folder, { recursive: true, force: true });
+    }
+  },
+  60_000,
+);
+
+integrationTest(
+  "a no-transaction migration that fails part way stays pending and applies on the next run",
+  async () => {
+    const failing = folderWithMigration(
+      `${CONCURRENT_INDEX_MIGRATION}--> statement-breakpoint\nSELECT 1 / 0;`,
+    );
+    const fixed = folderWithMigration(CONCURRENT_INDEX_MIGRATION);
+    const database = await createTempDatabase({
+      migrate: false,
+      prefix: "concurrent_retry",
+    });
+    try {
+      const logger = captureLogger().logger;
+      await expect(
+        migrateDatabase(database.url, { logger, migrationsFolder: failing }),
+      ).rejects.toThrow("division by zero");
+      // The ordinary migrations before it committed; the index statements
+      // that ran stay, without a journal row for their migration.
+      const pool = new Pool({ connectionString: database.url, max: 1 });
+      try {
+        const { rows } = await pool.query<{ count: string }>(
+          'SELECT count(*)::text AS count FROM "drizzle"."__drizzle_migrations"',
+        );
+        expect(Number(rows[0]?.count)).toBe(totalMigrations);
+      } finally {
+        await pool.end();
+      }
+      expect(await indexValidity(database.url)).toBe(true);
+
+      expect(
+        await migrateDatabase(database.url, {
+          logger,
+          migrationsFolder: fixed,
+        }),
+      ).toEqual({
+        adopted: 0,
+        applied: 1,
+        total: totalMigrations + 1,
+      });
+      expect(await indexValidity(database.url)).toBe(true);
+    } finally {
+      await database.drop();
+      rmSync(failing, { recursive: true, force: true });
+      rmSync(fixed, { recursive: true, force: true });
     }
   },
   30_000,

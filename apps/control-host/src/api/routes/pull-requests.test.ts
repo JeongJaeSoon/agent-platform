@@ -90,7 +90,13 @@ function app(
       state: "open",
       head: input.head,
       base: input.base,
+      mergedAt: null,
+      closedAt: null,
+      created: true,
     }),
+    getPullRequest: () => {
+      throw new Error("not used");
+    },
     upsertComment: async () => {
       fail("comment");
       comments += 1;
@@ -99,6 +105,9 @@ function app(
         url: "https://github.com/acme/app/pull/5#issuecomment-77",
         created: comments === 1,
       };
+    },
+    updatePullRequestBody: async () => {
+      throw new Error("not used");
     },
     dispatchWorkflow: async () => {
       throw new Error("not used");
@@ -117,6 +126,9 @@ function app(
     kind: "app",
     githubCom: true,
     appId: 101,
+    quotaKey: () => {
+      throw new Error("not used");
+    },
     installed: async () => true,
     credential: async () => ({
       credential: { username: "x-access-token", password: "fixture" },
@@ -150,6 +162,9 @@ function app(
     catalog: CATALOG,
     gate,
     redact: (line) => line,
+    attribution: { attribution: async () => null },
+    consoleOrigin: null,
+    logger: { warn: () => {} },
     store: {
       findSource: async (ownerId, sessionId, pushRequestId) =>
         ownerId === "owner-a" && sessionId === SESSION && pushRequestId === PUSH

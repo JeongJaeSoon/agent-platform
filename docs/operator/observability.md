@@ -63,7 +63,7 @@ worker의 `EventPublisher`(`apps/worker/src/event-publisher.ts`)가 이벤트에
 
 ## 보존 기간
 
-`events` 표는 trim하지 않는다([api-guide.md](../api-guide.md)의 410 `CURSOR_EXPIRED` 설명). 보존 기간 정책은 아직 없다.
+`events` 표는 trim하지 않는다([api-guide.md](../api-guide.md)의 410 `CURSOR_EXPIRED` 설명). 보존 기간 정책은 아직 없다. 이벤트 말고 플랫폼이 남기는 데이터 전체의 위치·보존 기간·삭제 조건과 세션 하나를 따라가는 확인 절차는 [data-retention.md](data-retention.md)에 있다.
 
 ## 예제 수집기 띄우기
 

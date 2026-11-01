@@ -60,6 +60,7 @@ import type {
   SessionReader,
 } from "../ports/session-unit-of-work.ts";
 import {
+  acceptedRuntimeVersions,
   allowedRun,
   catalogProfile,
   isUnmetered,
@@ -68,6 +69,7 @@ import {
   profileWithModel,
   refreshWorkspaceProfilesFor,
   repositoryModeOf,
+  runsOnCurrentImage,
   type SessionCatalogView,
   sessionProfile,
   workspaceProfileRefusal,
@@ -431,7 +433,11 @@ export function createSessionService(deps: {
       (run.repository === null ||
         (run.repository.url === record.repo_url &&
           run.repository.branch === record.branch)) &&
-      sessionProfile(run.profile, pinOf(record)) !== null
+      sessionProfile(
+        run.profile,
+        pinOf(record),
+        acceptedRuntimeVersions(catalog),
+      ) !== null
     );
   }
 
@@ -442,7 +448,9 @@ export function createSessionService(deps: {
   }): SessionRuntimeView | null {
     const profileId = record.profile_id;
     const listed = profileId ? catalogProfile(catalog, profileId) : undefined;
-    const profile = listed ? sessionProfile(listed, pinOf(record)) : null;
+    const profile = listed
+      ? sessionProfile(listed, pinOf(record), acceptedRuntimeVersions(catalog))
+      : null;
     if (!profile || !profileId) return null;
     return {
       kind: profile.runtime_kind,
@@ -656,7 +664,10 @@ export function createSessionService(deps: {
             input.body.model ?? releaseModel(release),
           )
         : null;
-      const pair = allowed && runs ? { ...allowed, profile: runs } : null;
+      const staleRuntime =
+        allowed !== null && !runsOnCurrentImage(catalog, allowed.profile);
+      const pair =
+        allowed && runs && !staleRuntime ? { ...allowed, profile: runs } : null;
       const result = await inputs.acceptInputAtomic({
         principal: actor,
         idempotencyKey: input.idempotencyKey,
@@ -719,9 +730,11 @@ export function createSessionService(deps: {
             profileBlockedError(profileId, workspaceRefusal) ??
             new SessionServiceError(
               "UNSUPPORTED_CAPABILITY",
-              allowed && !runs
-                ? `Profile ${profileId} does not offer model ${input.body.model}`
-                : (workspaceRefusal?.message ??
+              allowed && staleRuntime
+                ? `Profile ${profileId} runs ${allowed.profile.runtime_kind} ${allowed.profile.runtime_version}, which the current worker image does not ship; the operator updates the profile's runtime_version`
+                : allowed && !runs
+                  ? `Profile ${profileId} does not offer model ${input.body.model}`
+                  : (workspaceRefusal?.message ??
                     repositoryRefusal(profileId, repositoryId)),
             )
           );
@@ -984,7 +997,11 @@ export function createSessionService(deps: {
         ? catalogProfile(catalog, record.profile_id)
         : undefined;
       const current = found
-        ? (sessionProfile(found, pinOf(record)) ?? undefined)
+        ? (sessionProfile(
+            found,
+            pinOf(record),
+            acceptedRuntimeVersions(catalog),
+          ) ?? undefined)
         : undefined;
       // The next attempt restores checkpoints the current runtime took, so
       // the runtime has to stay; the model, tools and provider may change.

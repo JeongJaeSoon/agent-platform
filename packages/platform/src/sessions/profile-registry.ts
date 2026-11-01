@@ -19,6 +19,7 @@ import {
   type InstallationProfileEntry,
   type InstallationProfileState,
   profileFingerprint,
+  type RuntimeVersions,
   type SessionCatalogConfig,
   sessionCatalogView,
   type WorkspaceProfileRecord,
@@ -353,6 +354,7 @@ export function profileCatalog<
   base: {
     repositories: Record<string, R>;
     mcp_servers?: Record<string, CatalogMcpServer>;
+    runtime_versions?: RuntimeVersions;
   },
   registry: ProfileRegistry<P>,
 ): {
@@ -361,6 +363,7 @@ export function profileCatalog<
   mcp_servers?: Record<string, CatalogMcpServer>;
   readonly installation: ReadonlyMap<string, InstallationProfileEntry>;
   workspace_profiles: ProfileRegistry<P>;
+  runtime_versions?: RuntimeVersions;
 } {
   return {
     get profiles() {
@@ -373,6 +376,9 @@ export function profileCatalog<
     ...(base.mcp_servers === undefined
       ? {}
       : { mcp_servers: base.mcp_servers }),
+    ...(base.runtime_versions === undefined
+      ? {}
+      : { runtime_versions: base.runtime_versions }),
     workspace_profiles: registry,
   };
 }

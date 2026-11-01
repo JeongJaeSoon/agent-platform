@@ -7,6 +7,7 @@ import {
   type CheckpointObjectStore,
   RuntimeRegistry as InstalledRuntimes,
   type PlatformMcpServer,
+  parseImageRuntime,
   type RuntimeBindings,
   type RuntimeFingerprint,
   type RuntimeModule,
@@ -20,7 +21,9 @@ import type { WorkerConfig, WorkerTimeouts } from "./config.ts";
 import { consoleLogger } from "./console-logger.ts";
 import { EngineProcesses } from "./engine-processes.ts";
 import { HttpWorkerGatewayClient } from "./gateway-client.ts";
+import { writeGitTrailers } from "./git-trailers.ts";
 import { createWorkerObjectStore, ObjectStoreToken } from "./object-store.ts";
+import { writePackageManagerConfig } from "./package-managers.ts";
 import { scrubbingLogger } from "./secret-scrubber.ts";
 import { SessionCheckpoints } from "./session-checkpoints.ts";
 import {
@@ -103,6 +106,14 @@ export function createWorkerHost(
       id: config.executionId,
     },
     gateway,
+    gitTrailers: (git) => writeGitTrailers(config.runtime.home, git),
+    packageManagers: (token) =>
+      writePackageManagerConfig(
+        config.runtime.home,
+        config.egressCredentialUrl,
+        token,
+      ),
+    imageRuntime: parseImageRuntime(runtime.imageFingerprint()),
     logger,
     objectStoreAccess: objectToken,
     runtimes: overrides.runtimes ?? workerRuntimeRegistry(config, engines),

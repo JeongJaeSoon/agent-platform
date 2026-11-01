@@ -252,6 +252,7 @@ export function createGitHubGate(deps: {
         permissions: needs.permissions,
         gitCredential,
         api: connection.api(repo, gitCredential),
+        unit: () => connection.quotaKey(repo),
         allowedBy,
         context: {
           ownerId: context.ownerId,

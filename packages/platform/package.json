@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./testing": "./src/testing/execution-backend-contract.ts",
     "./testing/checkpoints": "./src/testing/checkpoints.ts",
+    "./testing/github": "./src/testing/github-fakes.ts",
     "./testing/slack": "./src/testing/slack-fakes.ts"
   },
   "scripts": {

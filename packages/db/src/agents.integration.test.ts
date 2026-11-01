@@ -39,6 +39,7 @@ import {
   agentActivationEvents,
   agentAdmins,
   agentAdminTeams,
+  agentIdentities,
   agentReleases,
   agents,
   agentVersions,
@@ -51,6 +52,9 @@ import {
   receipts,
   sessionShares,
   sessions,
+  slackApps,
+  slackInstallations,
+  surfaceBindings,
   turns,
   users,
   workspaces,
@@ -598,6 +602,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         admins: ["owner", "재무팀"],
         needs_input_count: 0,
         running_count: 0,
+        slack_action: null,
       },
       {
         version: {
@@ -613,6 +618,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         admins: ["owner"],
         needs_input_count: 0,
         running_count: 0,
+        slack_action: null,
       },
     ]);
     // By the active release's profile: the draft has none, so only v1's agent.
@@ -636,6 +642,156 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         .size,
     ).toBe(0);
     expect((await store.summaries(workspaceId, [], anyone)).size).toBe(0);
+  });
+
+  test("a summary names the Slack step its agent's tab asks for first, and none when nothing is left", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const agentsService = service();
+    const newId = async () => (await newAgent(agentsService, owner)).agent.id;
+
+    async function app(
+      agentId: string,
+      values: Partial<typeof slackApps.$inferInsert> = {},
+    ) {
+      const id = randomUUID();
+      await db.insert(slackApps).values({
+        id,
+        workspaceId,
+        kind: "agent",
+        agentId,
+        state: "created",
+        appId: `A${id.slice(0, 8).toUpperCase()}`,
+        clientId: `1.${id.slice(0, 8)}`,
+        redirectUrl: "https://example.invalid/slack/callback",
+        botTokenRef: `slack_app:${id}/slack_bot_token`,
+        eventsState: "verified",
+        eventsUrl: "https://example.invalid/slack/events",
+        ...values,
+      });
+      return id;
+    }
+    async function identity(
+      agentId: string,
+      status: "active" | "revoked" = "active",
+    ) {
+      const installationId = randomUUID();
+      await db.insert(slackInstallations).values({
+        id: installationId,
+        workspaceId,
+        appId: `A${installationId.slice(0, 8).toUpperCase()}`,
+        teamId: "T1",
+      });
+      await db.insert(agentIdentities).values({
+        id: randomUUID(),
+        workspaceId,
+        agentId,
+        provider: "slack_bot",
+        installationId,
+        externalPrincipalId: "U1",
+        credentialRef: `slack_app:${installationId}/slack_bot_token`,
+        status,
+        ...(status === "revoked" ? { revokedAt: new Date() } : {}),
+      });
+      return installationId;
+    }
+    async function home(
+      agentId: string,
+      installationId: string,
+      revokedAt: Date | null = null,
+    ) {
+      await db.insert(surfaceBindings).values({
+        id: randomUUID(),
+        workspaceId,
+        agentId,
+        surface: "slack",
+        installationId,
+        externalSurfaceId: `C${randomUUID().slice(0, 8)}`,
+        surfaceKind: "public_channel",
+        mode: "on",
+        ceilingActions: [],
+        ceilingDisclosure: "summary",
+        home: true,
+        ...(revokedAt ? { status: "revoked" as const, revokedAt } : {}),
+      });
+    }
+    async function installed(agentId: string) {
+      await home(agentId, await identity(agentId));
+    }
+
+    const none = await newId();
+    const fine = await newId();
+    await app(fine);
+    await installed(fine);
+    // Slack refused the Request URL, even with everything else in place.
+    const failed = await newId();
+    await app(failed, { eventsState: "failed" });
+    await installed(failed);
+    // Sent but not yet checked; before any was sent there is nothing to check.
+    const unverified = await newId();
+    await app(unverified, { eventsState: "pending" });
+    await installed(unverified);
+    const notSent = await newId();
+    await app(notSent, { eventsState: "pending", eventsUrl: null });
+    await installed(notSent);
+    // Created, never installed: no bot token and no identity.
+    const uninstalled = await newId();
+    await app(uninstalled, { botTokenRef: null, eventsUrl: null });
+    // A bot token whose identity was revoked (disconnected or uninstalled);
+    // the events state it had while installed no longer shows in the tab.
+    const reinstall = await newId();
+    await app(reinstall, { eventsState: "failed" });
+    await identity(reinstall, "revoked");
+    // The tab asks for a home before the failed events row in Advanced.
+    const failedHomeless = await newId();
+    await app(failedHomeless, { eventsState: "failed" });
+    await identity(failedHomeless);
+    // An unverified URL locks the channels, home step included.
+    const unverifiedHomeless = await newId();
+    await app(unverifiedHomeless, { eventsState: "pending" });
+    await identity(unverifiedHomeless);
+    // Installed, and its only home binding was revoked.
+    const homeless = await newId();
+    await app(homeless);
+    await home(homeless, await identity(homeless), new Date());
+    // A deleted app is not the agent's app any more.
+    const deleted = await newId();
+    await app(deleted, { state: "deleted", eventsState: "failed" });
+
+    const page = await agentsService.listAgents(owner, {
+      ...PAGE,
+      include: "summary",
+    });
+    const actions = new Map(
+      page.items.map((agent) => [agent.id, agent.summary?.slack_action]),
+    );
+    expect(
+      [
+        none,
+        fine,
+        failed,
+        unverified,
+        notSent,
+        uninstalled,
+        reinstall,
+        failedHomeless,
+        unverifiedHomeless,
+        homeless,
+        deleted,
+      ].map((id) => actions.get(id)),
+    ).toEqual([
+      null,
+      null,
+      "events_failed",
+      "events_unverified",
+      null,
+      "install",
+      "reinstall",
+      "home_unset",
+      "events_unverified",
+      "home_unset",
+      null,
+    ]);
   });
 
   test("a card counts the agent's waiting and working sessions the caller can list, in a fixed number of statements", async () => {

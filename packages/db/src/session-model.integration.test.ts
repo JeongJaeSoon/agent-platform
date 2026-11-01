@@ -26,8 +26,8 @@ import {
 } from "@werft-ai/testkit/postgres";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
+import { migrate } from "./migrate.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import { attempts, sessions, unassignedSessions } from "./schema.ts";
@@ -88,7 +88,7 @@ const catalog: SessionCatalog = withSeededInstallation({
     },
   },
 });
-const pins = profilePins(profile);
+const pins = profilePins(profile, []);
 const V1_SONNET = pins[2]?.fingerprint ?? "";
 const V1_OPUS = pins[3]?.fingerprint ?? "";
 const V2 = profileFingerprint(profile);

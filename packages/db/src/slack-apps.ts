@@ -5,7 +5,9 @@ import {
 } from "@werft-ai/contracts";
 import {
   type SecretKey,
+  type SecretOwner,
   type SecretSlot,
+  type SecretSummary,
   type SlackAppActor,
   type SlackAppAgent,
   type SlackAppRecord,
@@ -17,6 +19,7 @@ import { holdsRight, lockedRole } from "./api-keys.ts";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
+  agentIdentities,
   agentReleases,
   agents,
   agentVersions,
@@ -25,8 +28,9 @@ import {
 } from "./schema.ts";
 import {
   deleteSecretInTx,
-  describeSecret,
+  describeSecrets,
   readSecretInTx,
+  secretSummaryKey,
   writeSecretInTx,
 } from "./secret-values.ts";
 
@@ -53,11 +57,22 @@ function slackAppSecretRef(
 }
 
 async function recordOf(db: Database, row: Row): Promise<SlackAppRecord> {
-  const summaries = await Promise.all(
-    SLACK_APP_SECRET_PURPOSE_VALUES.map((purpose) =>
-      describeSecret(db, secretSlot(row, purpose)),
-    ),
+  return recordFrom(
+    row,
+    await describeSecrets(db, row.workspaceId, [appOwner(row)]),
   );
+}
+
+const appOwner = (row: Pick<Row, "id">): SecretOwner => ({
+  kind: "slack_app",
+  id: row.id,
+});
+
+function recordFrom(
+  row: Row,
+  summaries: ReadonlyMap<string, SecretSummary>,
+): SlackAppRecord {
+  const ownerRef = secretOwnerRef(appOwner(row));
   return {
     id: row.id,
     workspaceId: row.workspaceId,
@@ -77,9 +92,9 @@ async function recordOf(db: Database, row: Row): Promise<SlackAppRecord> {
       ...(row.eventsError === null ? {} : { error: row.eventsError }),
     },
     secrets: Object.fromEntries(
-      SLACK_APP_SECRET_PURPOSE_VALUES.map((purpose, index) => [
+      SLACK_APP_SECRET_PURPOSE_VALUES.map((purpose) => [
         purpose,
-        summaries[index] ?? null,
+        summaries.get(secretSummaryKey(ownerRef, purpose)) ?? null,
       ]),
     ) as SlackAppRecord["secrets"],
   };
@@ -551,6 +566,64 @@ export function createPostgresSlackAppStore(
           ),
         );
       return row ? recordOf(db, row) : null;
+    },
+
+    async listMade(workspaceId) {
+      if (!UUID.test(workspaceId)) return [];
+      const rows = await db
+        .select({
+          app: slackApps,
+          name: agents.name,
+          slug: agents.slug,
+          installed: sql<boolean>`exists (${db
+            .select({ one: sql`1` })
+            .from(agentIdentities)
+            .where(
+              and(
+                eq(agentIdentities.workspaceId, slackApps.workspaceId),
+                eq(agentIdentities.agentId, slackApps.agentId),
+                eq(agentIdentities.provider, "slack_bot"),
+                eq(agentIdentities.status, "active"),
+              ),
+            )})`,
+        })
+        .from(slackApps)
+        .leftJoin(
+          agents,
+          and(
+            eq(agents.workspaceId, slackApps.workspaceId),
+            eq(agents.id, slackApps.agentId),
+          ),
+        )
+        .where(
+          and(
+            eq(slackApps.workspaceId, workspaceId.toLowerCase()),
+            inArray(slackApps.kind, ["agent", "link"]),
+            inArray(slackApps.state, [...LIVE_STATES]),
+          ),
+        )
+        .orderBy(
+          sql`${slackApps.kind} = 'agent'`,
+          agents.name,
+          slackApps.createdAt,
+        );
+      const summaries = await describeSecrets(
+        db,
+        workspaceId,
+        rows.map((row) => appOwner(row.app)),
+      );
+      return rows.map((row) => ({
+        app: recordFrom(row.app, summaries),
+        agent:
+          row.app.agentId === null || row.name === null || row.slug === null
+            ? null
+            : {
+                id: row.app.agentId,
+                name: row.name,
+                slug: row.slug,
+                installed: row.installed,
+              },
+      }));
     },
 
     linkAppClient(workspaceId) {

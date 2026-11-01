@@ -5,6 +5,15 @@ import type { ClaudeRuntimeConfig } from "./config.ts";
 import { publicProfile } from "./profile.ts";
 
 /**
+ * Which way `claudeProfileFingerprint` hashes. Bump it with any change that
+ * moves a digest for the same configuration: an image with the same engine
+ * build but another scheme cannot resume a checkpoint this one sealed, and
+ * the scheduler tells the two apart only by this number. The golden test
+ * fails a digest change that keeps it.
+ */
+export const CLAUDE_PROFILE_DIGEST_SCHEME = 1;
+
+/**
  * Digest of everything about a run's configuration that changes how a stored
  * transcript replays, plus who the run acts for. The model credential is
  * excluded — `publicProfile` drops it — so rotating a key does not invalidate

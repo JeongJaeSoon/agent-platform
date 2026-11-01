@@ -32,11 +32,22 @@ images:
   worker:
     repository: ghcr.io/jeongjaesoon/agent-platform-worker
     digest: ""
+    # The `runtime` images.yml recorded with this digest, as given, e.g.
+    # {engine: claude-agent-sdk, sdkVersion: 0.3.280, cliVersion: 2.1.280,
+    # profileDigestScheme: 1}. Empty launches every session on this image.
+    runtime: {}
+  # The release before, so a session whose checkpoint the current image
+  # cannot restore resumes on it (WORKER_IMAGE_PREVIOUS). Its digest and
+  # runtime go together, and need images.worker.runtime set.
+  workerPrevious:
+    repository: ghcr.io/jeongjaesoon/agent-platform-worker
+    digest: ""
+    runtime: {}
 
 # The chart never holds a secret value. Each workload reads only the keys it
 # needs from this one Secret:
 #   DATABASE_URL            api, scheduler, reconciler, slack, migrate,
-#                           checkpoint GC
+#                           checkpoint GC, metrics (read only)
 #   EGRESS_AUTHORIZER_TOKEN api, egress-proxy (the same value on both sides)
 #   AWS_ACCESS_KEY_ID,
 #   AWS_SECRET_ACCESS_KEY   api, checkpoint GC (the checkpoint object store),
@@ -148,9 +159,11 @@ config:
     # Service's gateway port alone.
     privateAllowlist: ""
     # Upstreams only the credential routes reach: provider, repository,
-    # object store.
-    credentialAllowlist: "api.anthropic.com:443"
+    # object store, and the packages route's public registries.
+    credentialAllowlist: "api.anthropic.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443"
     credentialPrivateAllowlist: ""
+    # Public hosts the packages route follows a registry's redirect to.
+    packagesRedirectAllowlist: ""
 
 api:
   replicas: 2
@@ -254,11 +267,61 @@ migrate:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 1Gi}
 
+# The platform metrics (docs/operator/metrics.md): GET /metrics on port 9464
+# in the Prometheus text format, computed from the database at each scrape.
+# Off by default. One replica, replaced with Recreate: every replica would
+# report the same installation-wide totals, so a second one is a duplicate
+# scrape target. It gets the scheduler's config.limits, so its launch queue
+# is the one the scheduler drains.
+metrics:
+  enabled: false
+  port: 9464
+  # How the collector finds the Pod: Prometheus annotations, or a Datadog
+  # Agent openmetrics check under ad.datadoghq.com/metrics.checks
+  # (docs/operator/metrics.md). For example:
+  #   prometheus.io/scrape: "true"
+  #   prometheus.io/port: "9464"
+  podAnnotations: {}
+  terminationGracePeriodSeconds: 20
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  extraEnv: {}
+
+# The pre-upgrade check (templates/upgrade-check-job.yaml): an upgrade that
+# changes the worker image stops unless every session it would leave with no
+# image to resume on is listed here, exactly the list the check prints.
+upgrade:
+  approvedSessions: []
+  activeDeadlineSeconds: 300
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 512Mi}
+
 # Must not run while a backup is being taken (docs/operator/backup-restore.md).
 checkpointGc:
   enabled: true
   schedule: "0 4 * * 0"
   dryRun: false
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+  nodeSelector: {}
+  tolerations: []
+
+# Moves events of sessions idle longer than afterDays into held objects under
+# session-archive/ (docs/operator/data-retention.md). afterDays is 0 (off) or
+# 30–3650. Counts only until dryRun is false. Runs only with
+# CHECKPOINT_OBJECT_PROTECTION=locked. Must not run while a backup is being
+# taken (docs/operator/backup-restore.md).
+sessionArchive:
+  enabled: true
+  schedule: "0 5 * * 0"
+  afterDays: 180
+  dryRun: true
   resources:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 1Gi}
@@ -317,3 +380,9 @@ networkPolicy:
   slack:
     # The PostgreSQL port slack's egress may reach, on any address.
     databasePort: 5432
+  metrics:
+    # Peers allowed to scrape the metrics port (NetworkPolicy `from`
+    # entries), e.g. the collector's namespace. Empty allows any source, as
+    # api.ingressFrom does: collectors often run outside the namespace. The
+    # metrics carry counts and tool and model names, no ids or secrets.
+    ingressFrom: []

@@ -1,9 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   apiErrorResponseSchema,
+  githubLinkCallbackResponseSchema,
   LINK_MESSAGES,
   listLinkedAccountsResponseSchema,
+  REQUEST_BODY_MAX_BYTES,
   slackLinkCallbackResponseSchema,
+  startGitHubLinkResponseSchema,
   startSlackLinkResponseSchema,
   unlinkAccountResponseSchema,
 } from "@werft-ai/contracts";
@@ -21,6 +24,7 @@ import {
   type MockSlackOidc,
   startMockSlackOidc,
 } from "@werft-ai/testkit/mock-slack-oidc";
+import { GITHUB_LINK_COOKIE_NAME } from "../github-link.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { SLACK_LINK_COOKIE_NAME, type SlackOidcConfig } from "../slack-link.ts";
 import {
@@ -139,6 +143,7 @@ function app(
     person?: boolean;
     slack?: SlackOidcConfig | null;
     clients?: Partial<SlackLinkClients>;
+    github?: LinkedAccountRouteDeps["github"];
   } = {},
 ) {
   const config = options.slack === undefined ? slack : options.slack;
@@ -154,6 +159,8 @@ function app(
           beginSlackLink: (caller) => service.beginSlackLink(asPerson(caller)),
           linkSlackAccount: (caller, verified) =>
             service.linkSlackAccount(asPerson(caller), verified),
+          linkGitHubAccount: (caller, github) =>
+            service.linkGitHubAccount(asPerson(caller), github),
           listLinkedAccounts: (caller) =>
             service.listLinkedAccounts(asPerson(caller)),
           unlinkAccount: (caller, id) =>
@@ -164,6 +171,10 @@ function app(
     registerRoutes: (router) =>
       registerLinkedAccountRoutes(router, {
         service: routed,
+        github: options.github ?? {
+          oauth: { client: async () => null },
+          redirectUri: null,
+        },
         slack:
           config === null
             ? null
@@ -667,5 +678,333 @@ describe("DELETE /v1/linked-accounts/{id}", () => {
 
   test("maps a storage outage to 503", async () => {
     expect((await unlink(app(store({ unlink: outage })))).status).toBe(503);
+  });
+});
+
+// GitHub's side of the author App's user authorization: the code for a user
+// token, the token for `GET /user`. The token is made per run, never written.
+const githubAccount = { id: 583231, login: "octocat" };
+let githubServer: ReturnType<typeof Bun.serve>;
+let githubIssued = "";
+const githubExchanges: Array<Record<string, unknown>> = [];
+
+beforeAll(() => {
+  githubIssued = crypto.randomUUID();
+  githubServer = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    async fetch(request) {
+      const url = new URL(request.url);
+      if (url.pathname === "/login/oauth/access_token") {
+        const sent = (await request.json()) as Record<string, unknown>;
+        githubExchanges.push(sent);
+        if (sent.code === "down") return new Response("", { status: 502 });
+        return Response.json(
+          sent.code === "good"
+            ? { access_token: githubIssued, token_type: "bearer" }
+            : { error: "bad_verification_code" },
+        );
+      }
+      if (url.pathname === "/api/v3/user") {
+        return request.headers.get("authorization") === `Bearer ${githubIssued}`
+          ? Response.json(githubAccount)
+          : Response.json({ message: "Bad credentials" }, { status: 401 });
+      }
+      return new Response("not found", { status: 404 });
+    },
+  });
+});
+
+afterAll(() => {
+  githubServer.stop(true);
+});
+
+const GITHUB_REDIRECT =
+  "https://console.example/settings/linked-accounts/github";
+
+function githubDeps(): LinkedAccountRouteDeps["github"] {
+  const base = `http://127.0.0.1:${githubServer.port}`;
+  return {
+    oauth: {
+      client: async () => ({
+        clientId: "Iv23liTestClient",
+        // The fake does not check it.
+        clientSecret: "",
+        webBase: base,
+        apiBase: `${base}/api/v3`,
+      }),
+    },
+    redirectUri: GITHUB_REDIRECT,
+  };
+}
+
+const githubRecord: LinkedAccountRecord = {
+  ...record,
+  provider: "github",
+  externalTenant: "github.com",
+  externalUserId: "583231",
+  externalTenantName: "GitHub",
+  externalUserName: "octocat",
+};
+
+function githubApp(linkedStore: LinkedAccountStore = store()) {
+  return app(linkedStore, { github: githubDeps() });
+}
+
+const githubStart = (api: ReturnType<typeof app>, headers = owner) =>
+  api.request("/v1/linked-accounts/github/start", { method: "POST", headers });
+
+const githubCallback = (
+  api: ReturnType<typeof app>,
+  body: unknown,
+  headers: Record<string, string> = owner,
+) =>
+  api.request("/v1/linked-accounts/github/callback", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+
+function githubCookie(response: Response): string {
+  const header = response.headers.get("Set-Cookie") ?? "";
+  const match = new RegExp(`${GITHUB_LINK_COOKIE_NAME}=([^;]+)`).exec(header);
+  if (!match?.[1]) throw new Error("no state cookie");
+  return match[1];
+}
+
+async function githubStarted(api: ReturnType<typeof app>) {
+  const started = await githubStart(api);
+  expect(started.status).toBe(200);
+  const { authorize_url } = startGitHubLinkResponseSchema.parse(
+    await started.json(),
+  );
+  const state = new URL(authorize_url).searchParams.get("state") ?? "";
+  return { state, cookie: githubCookie(started), authorize_url };
+}
+
+describe("POST /v1/linked-accounts/github/start", () => {
+  test("sends the person to the author App's consent screen with a state cookie for the callback", async () => {
+    const { authorize_url, state, cookie } = await githubStarted(githubApp());
+    const url = new URL(authorize_url);
+    expect(`${url.origin}${url.pathname}`).toBe(
+      `http://127.0.0.1:${githubServer.port}/login/oauth/authorize`,
+    );
+    expect(url.searchParams.get("client_id")).toBe("Iv23liTestClient");
+    expect(url.searchParams.get("redirect_uri")).toBe(GITHUB_REDIRECT);
+    expect(url.searchParams.get("allow_signup")).toBe("false");
+    expect(url.searchParams.has("scope")).toBe(false);
+    expect(state.length).toBeGreaterThan(20);
+    expect(cookie.startsWith(`${state}.${PERSON}.`)).toBe(true);
+  });
+
+  test("not configured is a typed 409 before anything is sent", async () => {
+    for (const github of [
+      undefined,
+      { oauth: { client: async () => null }, redirectUri: GITHUB_REDIRECT },
+      { ...githubDeps(), redirectUri: null },
+    ]) {
+      const response = await githubStart(
+        app(store(), github === undefined ? {} : { github }),
+      );
+      expect(response.status).toBe(409);
+      expect(await errorOf(response)).toMatchObject({
+        code: "GITHUB_LINK_NOT_CONFIGURED",
+        message: LINK_MESSAGES.githubUnset,
+        details: { reason_code: "github_oauth_unset" },
+      });
+      expect(response.headers.get("Set-Cookie")).toBeNull();
+    }
+  });
+
+  test("an API key cannot link", async () => {
+    const response = await githubStart(
+      app(store(), {
+        authorization: createAuthorizationPolicy(),
+        person: false,
+        github: githubDeps(),
+      }),
+    );
+    expect(response.status).toBe(403);
+  });
+});
+
+describe("POST /v1/linked-accounts/github/callback", () => {
+  test("links the account GET /user names, keeping its id and login and no token", async () => {
+    const links: unknown[] = [];
+    const api = githubApp(
+      store({
+        link: async (input) => {
+          links.push(input);
+          return {
+            outcome: "linked",
+            account: githubRecord,
+            receiptId: RECEIPT,
+          };
+        },
+      }),
+    );
+    const { state, cookie } = await githubStarted(api);
+    const response = await githubCallback(
+      api,
+      { code: "good", state },
+      { ...owner, Cookie: `${GITHUB_LINK_COOKIE_NAME}=${cookie}` },
+    );
+    expect(response.status).toBe(201);
+    expect(
+      githubLinkCallbackResponseSchema.parse(await response.json()),
+    ).toMatchObject({
+      linked_account: {
+        provider: "github",
+        external_tenant: "github.com",
+        external_user_id: "583231",
+        external_user_name: "octocat",
+      },
+      receipt_id: RECEIPT,
+    });
+    expect(links).toEqual([
+      expect.objectContaining({
+        userId: PERSON,
+        account: {
+          provider: "github",
+          externalTenant: "github.com",
+          externalUserId: "583231",
+        },
+        names: { externalTenantName: "GitHub", externalUserName: "octocat" },
+      }),
+    ]);
+    expect(JSON.stringify(links)).not.toContain(githubIssued);
+    expect(githubExchanges.at(-1)).toMatchObject({
+      client_id: "Iv23liTestClient",
+      code: "good",
+      redirect_uri: GITHUB_REDIRECT,
+    });
+    expect(response.headers.get("Set-Cookie")).toContain(
+      `${GITHUB_LINK_COOKIE_NAME}=;`,
+    );
+  });
+
+  test("a state is spent by its first callback: reusing it is 400", async () => {
+    const api = githubApp();
+    const { state, cookie } = await githubStarted(api);
+    const headers = {
+      ...owner,
+      Cookie: `${GITHUB_LINK_COOKIE_NAME}=${cookie}`,
+    };
+    const first = await githubCallback(api, { code: "good", state }, headers);
+    expect(first.status).toBe(201);
+    // The browser drops the cookie on the answer; one that kept it is no
+    // better off once the cookie is replayed without the browser.
+    const replayed = await githubCallback(
+      api,
+      { code: "good", state },
+      {
+        ...owner,
+        Cookie: first.headers.get("Set-Cookie")?.split(";")[0] ?? "",
+      },
+    );
+    expect(replayed.status).toBe(400);
+    expect((await errorOf(replayed)).message).toBe(LINK_MESSAGES.expired);
+  });
+
+  test("an expired state is 400, even with its cookie still sent", async () => {
+    const api = githubApp();
+    const exchangesBefore = githubExchanges.length;
+    const { state, cookie } = await githubStarted(api);
+    const [value, user] = cookie.split(".");
+    const expired = `${value}.${user}.${Date.now() - 1}`;
+    const response = await githubCallback(
+      api,
+      { code: "good", state },
+      { ...owner, Cookie: `${GITHUB_LINK_COOKIE_NAME}=${expired}` },
+    );
+    expect(response.status).toBe(400);
+    expect((await errorOf(response)).message).toBe(LINK_MESSAGES.expired);
+    expect(githubExchanges.length).toBe(exchangesBefore);
+  });
+
+  test("another state, or another person's cookie, is 400 and GitHub is not asked", async () => {
+    const api = githubApp();
+    const exchangesBefore = githubExchanges.length;
+    const { state, cookie } = await githubStarted(api);
+    const [value, , expires] = cookie.split(".");
+    for (const [sentState, sentCookie] of [
+      ["other-state", cookie],
+      [state, `${value}.019a0000-0000-7000-8000-0000000000ff.${expires}`],
+      [state, undefined],
+    ] as const) {
+      const response = await githubCallback(
+        api,
+        { code: "good", state: sentState },
+        sentCookie === undefined
+          ? owner
+          : { ...owner, Cookie: `${GITHUB_LINK_COOKIE_NAME}=${sentCookie}` },
+      );
+      expect(response.status).toBe(400);
+    }
+    expect(githubExchanges.length).toBe(exchangesBefore);
+  });
+
+  test("an oversized body is 413", async () => {
+    const response = await githubCallback(githubApp(), {
+      code: "x".repeat(REQUEST_BODY_MAX_BYTES),
+      state: "s",
+    });
+    expect(response.status).toBe(413);
+  });
+
+  test("a code GitHub refuses is 400; GitHub down is 503", async () => {
+    const api = githubApp();
+    for (const [code, status] of [
+      ["bad", 400],
+      ["down", 503],
+    ] as const) {
+      const { state, cookie } = await githubStarted(api);
+      const response = await githubCallback(
+        api,
+        { code, state },
+        { ...owner, Cookie: `${GITHUB_LINK_COOKIE_NAME}=${cookie}` },
+      );
+      expect(response.status).toBe(status);
+    }
+  });
+
+  test("a GitHub account linked to someone else is 409 LINK_TAKEN; a second GitHub account is 409 LINK_EXISTS", async () => {
+    for (const [outcome, code, message] of [
+      ["taken", "LINK_TAKEN", LINK_MESSAGES.githubTaken],
+      ["exists", "LINK_EXISTS", LINK_MESSAGES.githubExists],
+    ] as const) {
+      const api = githubApp(store({ link: async () => ({ outcome }) }));
+      const { state, cookie } = await githubStarted(api);
+      const response = await githubCallback(
+        api,
+        { code: "good", state },
+        { ...owner, Cookie: `${GITHUB_LINK_COOKIE_NAME}=${cookie}` },
+      );
+      expect(response.status).toBe(409);
+      expect(await errorOf(response)).toMatchObject({ code, message });
+    }
+  });
+
+  test("set-up removed between start and callback is a typed 409", async () => {
+    let configured = true;
+    const deps = githubDeps();
+    const api = app(store(), {
+      github: {
+        ...deps,
+        oauth: {
+          client: async (workspaceId) =>
+            configured ? deps.oauth.client(workspaceId) : null,
+        },
+      },
+    });
+    const { state, cookie } = await githubStarted(api);
+    configured = false;
+    const response = await githubCallback(
+      api,
+      { code: "good", state },
+      { ...owner, Cookie: `${GITHUB_LINK_COOKIE_NAME}=${cookie}` },
+    );
+    expect(response.status).toBe(409);
+    expect((await errorOf(response)).code).toBe("GITHUB_LINK_NOT_CONFIGURED");
   });
 });

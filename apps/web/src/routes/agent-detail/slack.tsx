@@ -5,7 +5,11 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useLocation, useNavigate } from "@tanstack/react-router";
+import {
+  Link as RouterLink,
+  useLocation,
+  useNavigate,
+} from "@tanstack/react-router";
 import { type ApiClient, type components, unwrap } from "@werft-ai/client";
 import { queryKeysOf } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
@@ -16,6 +20,8 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  DangerZone,
+  DangerZoneRow,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -46,7 +52,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useMe } from "../../auth/guard.tsx";
+import { useHasPermission, useMe } from "../../auth/guard.tsx";
 import { copyText } from "../../components/copy.ts";
 import {
   errorKey,
@@ -463,6 +469,9 @@ export function SlackConnect({
   const { client } = useAgentPlatform();
   const cache = useQueryClient();
   const me = useMe();
+  // The workspace Slack screen is the workspace managers' (app-sidebar).
+  const manageWorkspace = useHasPermission("workspace.manage");
+  const tokenBlockId = useId();
   const { leave } = useAppServices();
   const { app, identities, key } = useSlackState(agentId);
   const [notice, setNotice] = useState("");
@@ -476,6 +485,9 @@ export function SlackConnect({
     (item) => item.provider === "slack_bot" && item.status === "active",
   );
   const record = app.data?.slack_app;
+  const appTarget = record?.app_id
+    ? `${t("slack.appId")} ${record.app_id}`
+    : undefined;
   // At most one: the server reports the first reason sessions would fail.
   const warning = app.data?.warnings[0];
   const refresh = () => cache.invalidateQueries({ queryKey: key });
@@ -567,6 +579,12 @@ export function SlackConnect({
   const events = app.data?.events;
   const pending = record?.state === "creating" || record?.state === "deleting";
   const status = slackState(error, identity, record);
+  // An older API sends no state; leave the create error to say why.
+  const configToken = app.data?.config_token;
+  const tokenBlock =
+    !record && (configToken === "unset" || configToken === "needs_reentry")
+      ? configToken
+      : null;
   return (
     <>
       <section
@@ -759,7 +777,8 @@ export function SlackConnect({
             {!app.error && !identities.error ? (
               <Button
                 type="button"
-                disabled={!active || busy}
+                disabled={!active || busy || tokenBlock !== null}
+                aria-describedby={tokenBlock ? tokenBlockId : undefined}
                 onClick={() => connect.mutate()}
               >
                 {connect.isPending
@@ -777,11 +796,26 @@ export function SlackConnect({
             </Button>
           </div>
         ) : null}
+        {tokenBlock ? (
+          <p id={tokenBlockId} className="m-0 text-muted-foreground">
+            <span>{t(`slack.configToken.${tokenBlock}`)}</span>{" "}
+            {manageWorkspace ? (
+              <Link asChild underline="always">
+                <RouterLink to="/settings/workspace/slack">
+                  {t("slack.configToken.settings")}
+                </RouterLink>
+              </Link>
+            ) : (
+              t("slack.configToken.askAdmin")
+            )}
+          </p>
+        ) : null}
         <ConfirmDialog
           open={deleting}
           onOpenChange={setDeleting}
           title={t("slack.delete")}
           consequence={t("slack.deleteWarning")}
+          target={appTarget}
           confirmLabel={t("slack.delete")}
           cancelLabel={t("common.cancel")}
           tone="danger"
@@ -797,6 +831,7 @@ export function SlackConnect({
           onOpenChange={setRevoking}
           title={t("slack.revoke")}
           consequence={t("slack.revokeWarning")}
+          target={appTarget}
           confirmLabel={t("slack.revoke")}
           cancelLabel={t("common.cancel")}
           tone="danger"
@@ -809,57 +844,32 @@ export function SlackConnect({
         </ConfirmDialog>
       </section>
       {manage && record ? (
-        <section
+        <DangerZone
           id={SECTION.danger}
           tabIndex={-1}
           className={SECTION_BOX}
-          aria-labelledby={`${SECTION.danger}-title`}
+          title={t("slack.danger")}
+          titleId={`${SECTION.danger}-title`}
         >
-          <h2 id={`${SECTION.danger}-title`} className={HEADING}>
-            {t("slack.danger")}
-          </h2>
-          <RowList
-            variant="joined"
-            className="border-(color:--ap-tone-danger-border)"
-          >
-            {identity ? (
-              <SettingRow
-                title={t("slack.revokeTitle")}
-                description={t("slack.revokeWarning")}
-                actions={
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => setRevoking(true)}
-                  >
-                    {t("slack.revoke")}
-                  </Button>
-                }
-              />
-            ) : null}
-            <SettingRow
-              title={t("slack.deleteTitle")}
-              description={t("slack.deleteWarning")}
-              actions={
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="sm"
-                  // A delete Slack refused leaves the app "deleting"; asking
-                  // again is how it finishes.
-                  disabled={
-                    busy || record?.state === "creating" || !me?.workspace
-                  }
-                  onClick={() => setDeleting(true)}
-                >
-                  {t("slack.delete")}
-                </Button>
-              }
+          {identity ? (
+            <DangerZoneRow
+              title={t("slack.revokeTitle")}
+              description={t("slack.revokeWarning")}
+              actionLabel={t("slack.revoke")}
+              disabled={busy}
+              onAction={() => setRevoking(true)}
             />
-          </RowList>
-        </section>
+          ) : null}
+          <DangerZoneRow
+            title={t("slack.deleteTitle")}
+            description={t("slack.deleteWarning")}
+            actionLabel={t("slack.delete")}
+            // A delete Slack refused leaves the app "deleting"; asking
+            // again is how it finishes.
+            disabled={busy || record?.state === "creating" || !me?.workspace}
+            onAction={() => setDeleting(true)}
+          />
+        </DangerZone>
       ) : null}
     </>
   );

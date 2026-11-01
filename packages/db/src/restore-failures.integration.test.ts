@@ -532,6 +532,117 @@ integration("startup failures before ready on PostgreSQL", () => {
     expect(await launchable(session)).toBe(true);
   });
 
+  test("holds a checkpoint no configured image can restore before anything launches, and retry_restore lets it back", async () => {
+    const fresh = await newSession("launch-hold-none");
+    expect(await scheduler().pointerRuntimeOf(fresh.sessionId)).toEqual({
+      pointer: { kind: "none" },
+      checkpointRevision: 0,
+    });
+    const session = await checkpointedSession("launch-hold");
+    // This gateway's verifier records no runtime, as a checkpoint committed
+    // before the columns existed would read.
+    expect(await scheduler().pointerRuntimeOf(session.sessionId)).toEqual({
+      pointer: { kind: "unrecorded" },
+      checkpointRevision: 0,
+    });
+    const hold = (checkpointRevision: number) =>
+      scheduler().holdIncompatibleBeforeLaunch({
+        sessionId: session.sessionId,
+        checkpointRevision,
+        detail: "no configured worker image runs sdkVersion 0.3.260",
+        now: new Date(),
+      });
+
+    // A pointer that moved since the pass read it is the pass's to reread.
+    expect(await hold(1)).toBe("stale");
+    expect((await sessionRow(session.sessionId)).admissionState).toBe("active");
+
+    expect(await hold(0)).toBe("held");
+    const held = await sessionRow(session.sessionId);
+    expect(held).toMatchObject({
+      admissionState: "recovery_required",
+      status: "failed",
+      restoreFailureCount: 1,
+      restoreFailureReason: INCOMPATIBLE_CHECKPOINT_REASON,
+      restoreRetryAt: null,
+    });
+    expect(await launchable(session)).toBe(false);
+    expect(await queuedTurns(session.sessionId)).toBe(1);
+    expect(
+      (await reader().getSession(session.ownerId, session.sessionId))
+        ?.attention,
+    ).toEqual({
+      code: "RESTORE_FAILED",
+      reason: INCOMPATIBLE_CHECKPOINT_REASON,
+      failures: 1,
+      retry_at: null,
+    });
+    expect(
+      await systemEvents(session.sessionId, "checkpoint_restore_failed"),
+    ).toEqual([
+      expect.objectContaining({
+        checkpoint_revision: 0,
+        detected_at: "launch",
+        detail: "no configured worker image runs sdkVersion 0.3.260",
+        failures: 1,
+        reason: INCOMPATIBLE_CHECKPOINT_REASON,
+      }),
+    ]);
+    // Held already: a second pass records nothing more.
+    expect(await hold(0)).toBe("stale");
+    expect((await sessionRow(session.sessionId)).restoreFailureCount).toBe(1);
+
+    expect(await decide(session, "retry_restore")).toMatchObject({
+      outcome: "accepted",
+    });
+    expect(await launchable(session)).toBe(true);
+  });
+
+  test("a checkpoint start_fresh retired holds no image and no session", async () => {
+    const session = await checkpointedSession("launch-hold-fresh");
+    const hold = () =>
+      scheduler().holdIncompatibleBeforeLaunch({
+        sessionId: session.sessionId,
+        checkpointRevision: 0,
+        detail: "no configured worker image runs it",
+        now: new Date(),
+      });
+    expect(await hold()).toBe("held");
+    expect(await decide(session, "start_fresh")).toMatchObject({
+      outcome: "accepted",
+    });
+    expect((await sessionRow(session.sessionId)).checkpointRevision).toBe(0);
+    expect(await scheduler().pointerRuntimeOf(session.sessionId)).toEqual({
+      pointer: { kind: "none" },
+      checkpointRevision: 0,
+    });
+    // A pass that read the pointer before the decision is refused too.
+    expect(await hold()).toBe("stale");
+    expect((await sessionRow(session.sessionId)).admissionState).toBe("active");
+    expect(await launchable(session)).toBe(true);
+  });
+
+  test("leaves a session with a launch in flight to that launch", async () => {
+    const session = await checkpointedSession("launch-hold-open");
+    const intent = await scheduler().reserveLaunch({
+      ...SPEC,
+      backend: "local_docker",
+      now: new Date(),
+      sessionId: session.sessionId,
+      slotLimit: 1_000,
+    });
+    if (!intent) throw new Error("no reservation");
+    expect(
+      await scheduler().holdIncompatibleBeforeLaunch({
+        sessionId: session.sessionId,
+        checkpointRevision: 0,
+        detail: "no configured worker image runs it",
+        now: new Date(),
+      }),
+    ).toBe("stale");
+    expect((await sessionRow(session.sessionId)).admissionState).toBe("active");
+  });
+
   test("retry_restore restores the same checkpoint again, with the count started over", async () => {
     const session = await checkpointedSession("retry");
     await failRestore(session);

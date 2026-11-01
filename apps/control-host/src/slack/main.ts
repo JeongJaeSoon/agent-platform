@@ -24,7 +24,11 @@ import {
   type Database,
   getSlackAppSettings,
 } from "@werft-ai/db";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
+import {
+  createEnforcedPool,
+  JOB_POOL_TIMEOUTS,
+  SEQUENTIAL_ROLE_POOL_MAX,
+} from "@werft-ai/db/pool";
 import {
   createLogger,
   logLevelFromEnv,
@@ -64,6 +68,7 @@ import {
   loadSecretKey,
   profileViewSources,
   readConnections,
+  runtimeVersionsFromEnv,
   SECRET_KEY_SETTING,
   type SecretReader,
   secretsManagerReader,
@@ -143,8 +148,14 @@ export function slackProfileCatalog(
   connections: Connections,
   environment: Environment,
 ) {
+  const runtimeVersions = runtimeVersionsFromEnv(environment);
   return profileCatalog(
-    sessionCatalogView(config),
+    {
+      ...sessionCatalogView(config),
+      ...(runtimeVersions === undefined
+        ? {}
+        : { runtime_versions: runtimeVersions }),
+    },
     createProfileRegistry({
       workspaces: createPostgresWorkspaceProfileStore(db),
       installations: createPostgresInstallationProfileStore(db),
@@ -289,6 +300,7 @@ export async function main(
     logger,
     "slack",
     JOB_POOL_TIMEOUTS,
+    { max: SEQUENTIAL_ROLE_POOL_MAX },
   );
   try {
     const db = drizzle(pool, { schema });

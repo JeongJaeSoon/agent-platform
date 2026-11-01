@@ -45,6 +45,20 @@ curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/pull-request/comments" \
 
 Titles, bodies, and comments are sanitized before they are sent to GitHub. Lines that look like secrets are masked, and `@mentions` and closing keywords such as `Closes #N` are rewritten so they trigger no notification or automatic close.
 
+The platform adds a tail to the end of the PR body: the session id and commit, the session's address, the agent and release, and who started the session and how. Push to the branch again and ask for the PR again, and only the tail changes to the new commit; the text a person wrote above it stays.
+
+## Link your GitHub account
+
+The GitHub App is always the commit author. Link your GitHub account and the commits of sessions you start also carry your name in a `Co-authored-by:` trailer, so GitHub shows the commit as your contribution too.
+
+1. An owner or admin opens "User account linking" under **Settings → Workspace → GitHub**, puts its callback URL in the App's Callback URL, and enters a client secret made in the App. Until then the link button is off.
+2. In the GitHub row of **Settings → Linked accounts**, choose "Link" and approve on GitHub's consent screen. The platform reads only the GitHub account's id and login and keeps no GitHub token.
+3. The linked row shows the line commits get (`Co-authored-by: <login> <<id>+<login>@users.noreply.github.com>`). After you unlink, sessions started from then on leave it out.
+
+Sessions started from the web console, a personal API key, or Slack follow the starter's link. A session started with an agent key or an operator key has no person who started it, so no co-author is added. Either way, where the operator has set the console's address, commits carry an `Agent-Session:` trailer with the session's address. The line above the Outputs tab in session details shows which case a session is.
+
+A GitHub account links to one person only. Linking an account someone else already linked is refused.
+
 ## On the local stack
 
 The local `sample-app` is a Gitea repository inside the stack, not GitHub, and it has no push credential. So an approved push ends as `failed` with `no_push_credential`, and a PR request returns 409 because the request was never pushed. Check this with a request that ended as `failed` in [Approve](/approvals/approve).

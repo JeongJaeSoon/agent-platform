@@ -32,6 +32,18 @@ export type ForgePullRequest = {
   state: "open" | "closed";
   head: string;
   base: string;
+  /** GitHub's own times, as it reports them; null while open or unmerged. */
+  mergedAt: string | null;
+  closedAt: string | null;
+};
+
+/** One pull request read by number, with the figures its list entry lacks. */
+export type ForgePullRequestDetail = ForgePullRequest & {
+  mergeCommitSha: string | null;
+  additions: number | null;
+  deletions: number | null;
+  changedFiles: number | null;
+  commits: number | null;
 };
 
 export type ForgeComment = {

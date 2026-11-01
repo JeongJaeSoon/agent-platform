@@ -381,7 +381,7 @@ describe("tokens.css", () => {
     expect(hover.filter((line) => !line.endsWith("ok"))).toEqual([]);
   });
 
-  test("링크·상태 점·채운 위험 버튼·켜진 Switch가 바탕에서 AA를 넘는다", () => {
+  test("링크·상태 점·주 버튼·아이콘 타일·채운 위험 버튼·켜진 Switch가 바탕에서 AA를 넘는다", () => {
     // Link text 4.5:1; a dot is a graphic, 3:1 (WCAG 1.4.11).
     const DOTS = ["wait", "run", "idle", "done", "failed"].map(
       (state) => `--ap-color-status-dot-${state}`,
@@ -401,6 +401,27 @@ describe("tokens.css", () => {
         4.5,
       ],
       ["--ap-color-focus-ring", "--ap-color-surface", 3],
+      // The primary button's label, at rest and under the pointer.
+      ["--ap-color-accent-foreground", "--ap-color-accent", 4.5],
+      ["--ap-color-accent-foreground", "--ap-color-accent-hover", 4.5],
+      // A chart's bars, in the accent, on the cards they sit on.
+      ["--ap-color-accent", "--ap-color-surface", 3],
+      ["--ap-color-accent", "--ap-color-surface-sunken", 3],
+      // An icon tile's glyph on its hue.
+      ...[
+        "blue",
+        "violet",
+        "orange",
+        "green",
+        "pink",
+        "teal",
+        "sky",
+        "slate",
+      ].map((hue): [string, string, number] => [
+        "--ap-color-tile-foreground",
+        `--ap-color-tile-${hue}`,
+        3,
+      ]),
       // A switch's track, on or off, on the page.
       ...[
         "--ap-color-surface",

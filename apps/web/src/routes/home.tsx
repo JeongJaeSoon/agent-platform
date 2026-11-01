@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { type ApiClient, isApiError, unwrap } from "@werft-ai/client";
 import type {
   Agent,
+  AgentListItem,
   ApiKeyView,
   InstallationLimitsResponse,
   ListSessionsResponse,
@@ -22,6 +23,7 @@ import { DetailLayout, OPERATIONS_MESSAGES } from "@werft-ai/react/components";
 import {
   Badge,
   Button,
+  buttonVariants,
   Card,
   cn,
   formatExactTime,
@@ -34,6 +36,9 @@ import {
   GridTableRowOpener,
   Page,
   RelativeTime,
+  RowLines,
+  RowList,
+  RowListItem,
   Skeleton,
   StatusDot,
   type StatusDotStatus,
@@ -43,11 +48,28 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@werft-ai/ui";
-import { ArrowRight, Folder, GitBranch, Inbox } from "lucide-react";
-import { type ReactNode, useEffect, useId, useState } from "react";
+import {
+  ArrowRight,
+  Bot,
+  ClipboardCheck,
+  Folder,
+  Gauge,
+  GitBranch,
+  Inbox,
+  Link as LinkIcon,
+  List,
+} from "lucide-react";
+import {
+  type ComponentProps,
+  type ReactNode,
+  useEffect,
+  useId,
+  useState,
+} from "react";
 import {
   administeredAgentsQuery,
   agentCountsQuery,
+  agentSlackActionsQuery,
   agentSummariesQuery,
   firstMembersQuery,
   invitesQuery,
@@ -58,6 +80,12 @@ import { useHasPermission, useMe, useRole } from "../auth/guard.tsx";
 import { AdministeredAgents } from "../components/agent-admins.tsx";
 import { CredentialNeed } from "../components/agent-cards.tsx";
 import { AgentStateBadge } from "../components/agent-state.tsx";
+import {
+  GitHubMark,
+  GoogleDriveMark,
+  SlackMark,
+} from "../components/brand-marks.tsx";
+import { IconTile } from "../components/icon-tile.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
@@ -180,6 +208,10 @@ export function HomeScreen() {
   });
   const agentCounts = useQuery({
     ...agentCountsQuery(client),
+    enabled: managesAgents,
+  });
+  const slackActions = useQuery({
+    ...agentSlackActionsQuery(client),
     enabled: managesAgents,
   });
   const sessions = useSessions();
@@ -338,6 +370,7 @@ export function HomeScreen() {
       invites,
       agentCounts,
       agents,
+      slackActions,
       sessions,
       waiting,
       keys,
@@ -370,6 +403,7 @@ export function HomeScreen() {
   const installCard = operator ? (
     <GlanceCard
       key="install"
+      tile={{ icon: Gauge, hue: "pink" }}
       eyebrow={t("home.glance.installation")}
       title={t("home.glance.installationTitle")}
       value={installSummary ? usd(installSummary.cost_usd) : unknown}
@@ -413,6 +447,7 @@ export function HomeScreen() {
   const oversightCard = (
     <GlanceCard
       key="oversight"
+      tile={{ icon: ClipboardCheck, hue: "slate" }}
       eyebrow={t("home.glance.workspace")}
       title={t("home.glance.workspaceTitle")}
       badge={<Badge>{t("shell.group.workspace")}</Badge>}
@@ -482,6 +517,7 @@ export function HomeScreen() {
   const mineCard = (
     <GlanceCard
       key="mine"
+      tile={{ icon: Gauge, hue: "pink" }}
       eyebrow={t("home.glance.mine")}
       title={t("home.glance.mineTitle")}
       value={mySummary ? usd(mySummary.cost_usd) : unknown}
@@ -528,6 +564,7 @@ export function HomeScreen() {
   const progressCard = (
     <GlanceCard
       key="progress"
+      tile={{ icon: List, hue: "violet" }}
       eyebrow={t("home.glance.progress")}
       title={t("home.glance.progressTitle")}
       badge={<Badge>{t("home.glance.now")}</Badge>}
@@ -556,35 +593,55 @@ export function HomeScreen() {
   );
   // Only an active account answers for the person (contracts: a stale one
   // is ignored until relinked), so only active counts as linked.
-  const slack = accounts.data
-    ? accounts.data.items.some((account) => account.status === "active")
+  const linkOf = (provider: "github" | "slack") => {
+    const items = accounts.data?.items.filter(
+      (account) => account.provider === provider,
+    );
+    if (!items) return undefined;
+    return items.some((account) => account.status === "active")
       ? "active"
-      : accounts.data.items.some((account) => account.status === "stale")
+      : items.some((account) => account.status === "stale")
         ? "stale"
-        : "none"
-    : undefined;
-  const slackLinked = slack === undefined ? undefined : slack === "active";
+        : "none";
+  };
+  const github = linkOf("github");
+  const slack = linkOf("slack");
   const accountsCard = (
     <GlanceCard
       key="accounts"
+      tile={{ icon: LinkIcon, hue: "sky" }}
       eyebrow={t("home.glance.accounts")}
       title={t("home.glance.accountsTitle")}
       badge={<Badge>{t("home.glance.myAccounts")}</Badge>}
-      // GitHub and Google cannot be linked yet, so only Slack can count.
+      // Google cannot be linked yet, so only GitHub and Slack can count.
       value={
-        slackLinked === undefined
+        github === undefined || slack === undefined
           ? t("home.overview.unknown")
-          : t("home.glance.ratio", { count: slackLinked ? 1 : 0, total: 3 })
+          : t("home.glance.ratio", {
+              count: [github, slack].filter((link) => link === "active").length,
+              total: 3,
+            })
       }
       note={t("home.glance.linkedNote")}
       rows={[
-        { label: "GitHub", dot: "idle", value: t("linked.soon") },
+        {
+          label: "GitHub",
+          mark: <GitHubMark />,
+          dot: github && LINK_DOT[github],
+          value: github ? t(LINK_LABEL[github]) : t("home.overview.unknown"),
+        },
         {
           label: "Slack",
-          dot: slack && SLACK_DOT[slack],
-          value: slack ? t(SLACK_LABEL[slack]) : t("home.overview.unknown"),
+          mark: <SlackMark />,
+          dot: slack && LINK_DOT[slack],
+          value: slack ? t(LINK_LABEL[slack]) : t("home.overview.unknown"),
         },
-        { label: "Google Workspace", dot: "idle", value: t("linked.soon") },
+        {
+          label: "Google Workspace",
+          mark: <GoogleDriveMark />,
+          dot: "idle",
+          value: t("linked.soon"),
+        },
       ]}
       footer={t("home.glance.accountsFooter")}
       link={
@@ -603,6 +660,7 @@ export function HomeScreen() {
     return (
       <GlanceCard
         key={agent.id}
+        tile={{ icon: Bot, hue: "orange" }}
         eyebrow={t("home.glance.agent")}
         title={agent.name}
         badge={<AgentStateBadge agent={agent} />}
@@ -683,6 +741,13 @@ export function HomeScreen() {
         {/* Mounted from the start, so each section's own read is the one
             already on its way rather than a second one asked when it shows. */}
         <div hidden={!settled} className="contents">
+          {/* A failed refetch keeps the old page, which may name fixed agents. */}
+          {slackActions.data && !slackActions.isError ? (
+            <SlackTodo
+              agents={slackActions.data.items}
+              more={slackActions.data.more}
+            />
+          ) : null}
           {checklistShown ? <Checklist steps={steps} /> : null}
           <ApprovalInbox
             layout="summary"
@@ -919,7 +984,11 @@ function ArrowLink({
   search,
   children,
 }: {
-  readonly to: "/sessions" | "/settings/linked-accounts" | "/members/teams";
+  readonly to:
+    | "/sessions"
+    | "/settings/linked-accounts"
+    | "/members/teams"
+    | "/agents";
   readonly search?: { readonly status: "needs_input" };
   readonly children: ReactNode;
 }) {
@@ -933,6 +1002,73 @@ function ArrowLink({
         <ArrowRight className="size-3.5" aria-hidden="true" />
       </Link>
     </TextLink>
+  );
+}
+
+const TODO_LIMIT = 3;
+
+/**
+ * What the agents' Slack tabs ask a person to do, each row opening that tab.
+ * Hidden when nothing is asked; the agents list shows every one.
+ */
+function SlackTodo({
+  agents,
+  more,
+}: {
+  readonly agents: readonly AgentListItem[];
+  /** The list went on past the page these came from. */
+  readonly more: boolean;
+}) {
+  const { t } = useI18n();
+  if (agents.length === 0) return null;
+  return (
+    <HomeSection
+      title={t("home.todo.title")}
+      action={
+        more || agents.length > TODO_LIMIT ? (
+          <ArrowLink to="/agents">
+            {t(more ? "home.todo.allMore" : "home.todo.all", {
+              count: agents.length,
+            })}
+          </ArrowLink>
+        ) : undefined
+      }
+    >
+      <RowList variant="joined">
+        {agents.slice(0, TODO_LIMIT).map((agent) => {
+          const action = agent.summary?.slack_action;
+          if (!action) return null;
+          const title = t("home.todo.slack", {
+            reason: t(`agents.slackAction.${action}`),
+          });
+          return (
+            <RowListItem key={agent.id}>
+              <RowLines>
+                <h3 className="m-0 font-medium text-control">{title}</h3>
+                <p className="m-0 text-caption text-muted-foreground [overflow-wrap:anywhere]">
+                  {t("home.todo.note", {
+                    agent: agent.name,
+                    effect: t(`home.todo.effect.${action}`),
+                  })}
+                </p>
+              </RowLines>
+              <Link
+                to="/agents/$id"
+                params={{ id: agent.id }}
+                search={{ tab: "slack" }}
+                className={buttonVariants({ variant: "outline", size: "sm" })}
+                aria-label={t("home.todo.ctaName", {
+                  action: t(`home.todo.cta.${action}`),
+                  agent: agent.name,
+                })}
+              >
+                {t(`home.todo.cta.${action}`)}
+              </Link>
+            </RowListItem>
+          );
+        })}
+      </RowList>
+    </HomeSection>
   );
 }
 
@@ -1022,18 +1158,20 @@ function KeyName({
 
 interface GlanceRow {
   readonly label: ReactNode;
+  /** A service's own mark before the label. */
+  readonly mark?: ReactNode;
   readonly value: ReactNode;
   /** A label from data (an agent's name) wraps; fixed labels stay on one line. */
   readonly wraps?: boolean;
   readonly dot?: StatusDotStatus | undefined;
 }
 
-const SLACK_DOT = { active: "done", stale: "wait", none: "idle" } as const;
-const SLACK_LABEL = {
+const LINK_DOT = { active: "done", stale: "wait", none: "idle" } as const;
+const LINK_LABEL = {
   active: "linked.connected",
   stale: "home.glance.relink",
   none: "linked.notLinked",
-} as const satisfies Record<keyof typeof SLACK_DOT, MessageKey>;
+} as const satisfies Record<keyof typeof LINK_DOT, MessageKey>;
 
 const SESSION_DOT = {
   queued: "idle",
@@ -1045,6 +1183,7 @@ const SESSION_DOT = {
 } as const satisfies Record<SessionSummary["status"], StatusDotStatus>;
 
 function GlanceCard({
+  tile,
   eyebrow,
   title,
   badge,
@@ -1054,6 +1193,8 @@ function GlanceCard({
   footer,
   link,
 }: {
+  /** The tile of the sidebar page the card is about. */
+  readonly tile: ComponentProps<typeof IconTile>;
   readonly eyebrow: string;
   readonly title: string;
   readonly badge?: ReactNode;
@@ -1068,8 +1209,9 @@ function GlanceCard({
   return (
     <li className="min-w-0">
       <Card className="h-full gap-3 p-4">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex min-w-0 flex-col gap-0.5">
+        <div className="flex items-center gap-3">
+          <IconTile {...tile} />
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <p className="m-0 text-caption text-muted-foreground">{eyebrow}</p>
             <h3 className="m-0 font-semibold text-body">{title}</h3>
           </div>
@@ -1094,8 +1236,10 @@ function GlanceCard({
                   row.wraps
                     ? "min-w-0 [overflow-wrap:anywhere]"
                     : "shrink-0 whitespace-nowrap",
+                  row.mark && "inline-flex items-center gap-2",
                 )}
               >
+                {row.mark}
                 {row.label}
               </dt>
               <dd

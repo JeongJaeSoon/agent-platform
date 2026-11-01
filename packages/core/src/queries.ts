@@ -165,6 +165,7 @@ export function queryKeysOf(client: ApiClient) {
     agentCounts: [s, "agents", { counts: true }] as const,
     agentSummaries: (ids: readonly string[]) =>
       [s, "agents", { ids: [...ids].sort() }] as const,
+    agentSlackActions: [s, "agents", { slackActions: true }] as const,
     agent: (id: string) => [s, "agents", id] as const,
     agentAdmins: (id: string) => [s, "agents", id, "admins"] as const,
     administeredAgents: [s, "administered-agents"] as const,
@@ -469,6 +470,30 @@ export function agentsOnProfileQuery(client: ApiClient, profileId: string) {
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.next_cursor,
     gcTime: 0,
+    retry: false,
+  });
+}
+
+/**
+ * The agents whose Slack tab asks a person for something, from the first
+ * page of the list; `more` says the list went on past it.
+ */
+export function agentSlackActionsQuery(client: ApiClient) {
+  return queryOptions({
+    queryKey: queryKeysOf(client).agentSlackActions,
+    queryFn: async () => {
+      const page = (await unwrap(
+        client.GET("/v1/agents", {
+          params: {
+            query: { include: "summary", limit: READ_ALL_PAGE_LIMIT },
+          },
+        }),
+      )) as ListAgentsResponse;
+      return {
+        items: page.items.filter((agent) => agent.summary?.slack_action),
+        more: page.next_cursor !== null,
+      };
+    },
     retry: false,
   });
 }

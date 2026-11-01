@@ -120,7 +120,7 @@ const switchNamed = (name: string) =>
   screen.getByRole("switch", { name }) as HTMLButtonElement;
 
 describe("에이전트 GitHub 탭", () => {
-  test("쓸 수 없는 저장소와 권한은 여섯 가지 이유를 그 행에 적고 스위치를 잠근다", async () => {
+  test("쓸 수 없는 저장소와 권한은 그 이유를 행에 적고 스위치를 잠근다", async () => {
     const { server } = await activeAgent();
     const reason = <R,>(r: R) => ({ available: false, reason: r });
     renderAt(
@@ -148,10 +148,11 @@ describe("에이전트 GitHub 탭", () => {
             },
           ],
           features: {
-            workflows: reason("app_permission_missing" as const),
-            actions: open,
-            checks: reason("over_workspace_ceiling" as const),
-            issues: reason("github_host_unsupported" as const),
+            workflows: reason("over_workspace_ceiling" as const),
+            actions: reason("github_host_unsupported" as const),
+            // Not offered on the tab; the contract still carries them.
+            checks: reason("app_permission_missing" as const),
+            issues: open,
             review: reason("no_reviewer_app" as const),
           },
         },
@@ -166,22 +167,23 @@ describe("에이전트 GitHub 탭", () => {
     };
     expectLocked("billing-api", /실행 프로필이 이 저장소를 허용하지 않습니다/);
     expectLocked("legacy-pat", /PAT로 연결된 저장소라/);
-    expectLocked("워크플로 파일 수정", /App에 이 권한이 없습니다/);
-    expectLocked("검사 결과 쓰기", /워크스페이스 상한 밖입니다/);
-    expectLocked("이슈 쓰기", /GitHub Enterprise에 있어/);
+    expectLocked("워크플로 파일 수정", /워크스페이스 상한 밖입니다/);
+    expectLocked("Actions 실행", /GitHub Enterprise에 있어/);
     expectLocked("리뷰 승인", /리뷰용 App이 없습니다/);
     // The release's repository stays; others with no reason may change.
     expect(switchNamed("werft-sandbox").disabled).toBe(true);
     expect(switchNamed("docs-site").disabled).toBe(false);
-    expect(switchNamed("Actions 실행").disabled).toBe(false);
+    // Checks and issues have no work behind them, so they are not offered.
+    expect(screen.queryByRole("switch", { name: "검사 결과 쓰기" })).toBeNull();
+    expect(screen.queryByRole("switch", { name: "이슈 쓰기" })).toBeNull();
     // A ceiling reason links to where it is lifted; the host one does not.
     expect(
-      within(rowOf("검사 결과 쓰기"))
+      within(rowOf("워크플로 파일 수정"))
         .getByRole("link", { name: "GitHub 연결 설정" })
         .getAttribute("href"),
     ).toBe("/settings/workspace/github");
     expect(
-      within(rowOf("이슈 쓰기")).queryByRole("link", {
+      within(rowOf("Actions 실행")).queryByRole("link", {
         name: "GitHub 연결 설정",
       }),
     ).toBeNull();

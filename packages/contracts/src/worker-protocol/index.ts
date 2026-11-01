@@ -70,6 +70,18 @@ export const bootstrapClaimRequestSchema = z
         job_uid: z.string().min(1),
       }),
     ]),
+    // The worker image's own combination (`imageFingerprint()`). The claim is
+    // refused when it is not the one the launch was reserved under. Absent
+    // from workers that predate it.
+    image_runtime: z
+      .object({
+        engine: z.string().min(1),
+        sdk_version: z.string().min(1),
+        cli_version: z.string().min(1),
+        profile_digest_scheme: z.number().int().positive(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 // Retrying bootstrapClaim issues a new credential and revokes the previous
@@ -193,7 +205,17 @@ export const runtimeConfigSchema = z
     permission_mode: permissionModeSchema,
     provider: runtimeProviderSchema,
     project_settings: projectSettingsSchema.optional(),
-    mcp_servers: z.array(runtimeMcpServerSchema).min(1).max(1).optional(),
+    // At most a catalog server and the built-in `github`.
+    mcp_servers: z
+      .array(runtimeMcpServerSchema)
+      .min(1)
+      .max(2)
+      .refine(
+        (servers) =>
+          new Set(servers.map((s) => s.name)).size === servers.length,
+        { message: "must not repeat a server" },
+      )
+      .optional(),
   })
   .strict();
 
@@ -239,6 +261,23 @@ export const permissionGrantSchema = z
   })
   .strict();
 
+// No CR, LF or NUL: each value becomes one trailer line.
+const trailerValueSchema = z
+  .string()
+  .min(1)
+  .max(2048)
+  .regex(/^[^\r\n\0]+$/);
+
+export const claimGitSchema = z
+  .object({
+    co_author: z
+      .object({ name: trailerValueSchema, email: trailerValueSchema })
+      .strict()
+      .nullable(),
+    session_url: trailerValueSchema.nullable(),
+  })
+  .strict();
+
 export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   session_credential: z.string().min(1),
   lease_expires_at: timestampSchema,
@@ -251,6 +290,10 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   // object store credential, only this token, which reaches its session's
   // prefix for as long as the attempt owns the session.
   object_store: z.object({ access: egressTokenAuthSchema }).strict(),
+  // The packages route's capability: public package registries, read
+  // through the egress proxy with no credential. Absent from an older API;
+  // a worker then points no package manager at the route.
+  packages: z.object({ access: egressTokenAuthSchema }).strict().optional(),
   principal: claimPrincipalSchema,
   restore: checkpointRefSchema.nullable(),
   // Present when the session's checkpoints up to `restore` were committed
@@ -275,6 +318,11 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   // Absent when there are none; a worker older than the field drops it and
   // asks again.
   grants: z.array(permissionGrantSchema).min(1).optional(),
+  // What the platform's commit-msg hook adds to each commit the session
+  // makes, read fresh at every claim: the starter's GitHub co-author when
+  // they linked one, and the session's console URL. Absent from an older
+  // API; a worker then adds no trailer.
+  git: claimGitSchema.optional(),
 });
 
 // The claim as a log line may carry it: an allowlist of identifiers, never
@@ -853,6 +901,7 @@ export type BootstrapClaimRequest = z.infer<typeof bootstrapClaimRequestSchema>;
 export type BootstrapClaimResponse = z.infer<
   typeof bootstrapClaimResponseSchema
 >;
+export type ClaimGit = z.infer<typeof claimGitSchema>;
 export type WorkspaceRepository = z.infer<typeof workspaceRepositorySchema>;
 export type WorkspaceDescriptor = z.infer<typeof workspaceDescriptorSchema>;
 export type ClaimPrincipal = z.infer<typeof claimPrincipalSchema>;

@@ -83,7 +83,7 @@ describe("sdk-release.yml", () => {
     });
     expect(build?.permissions).toBeUndefined();
     expect(runs(publish as Job).trim()).toBe(
-      "npm publish pkg/*.tgz --provenance --access public",
+      "npm publish ./pkg/*.tgz --provenance --access public",
     );
     expect(runs(build as Job)).not.toContain("npm publish");
     expect(text.match(/secrets\.[A-Z_]+/g)).toEqual(["secrets.NPM_TOKEN"]);

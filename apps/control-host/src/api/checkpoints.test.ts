@@ -11,6 +11,7 @@ import {
   receipts,
   sessions,
 } from "@werft-ai/db";
+import { migrate } from "@werft-ai/db/migrate";
 import {
   type CheckpointStore,
   manifestRefFor,
@@ -28,7 +29,6 @@ import {
 } from "@werft-ai/testkit/git-bundle";
 import { asc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import {
   type ApiCheckpointServiceDependencies,
   assertCheckpointBucketEncryption,

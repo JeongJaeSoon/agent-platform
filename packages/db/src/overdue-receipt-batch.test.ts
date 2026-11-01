@@ -3,8 +3,8 @@ import { PGlite } from "@electric-sql/pglite";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import { expireOverdueTerminations } from "./control-unit-of-work.ts";
+import { migrate } from "./migrate.ts";
 import {
   createPostgresSchedulerStore,
   OVERDUE_TERMINATION_SWEEP_LIMIT,

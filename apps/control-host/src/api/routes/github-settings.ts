@@ -1,5 +1,7 @@
 import {
   githubSettingsResponseSchema,
+  putGitHubOAuthClientSecretRequestSchema,
+  putGitHubOAuthClientSecretResponseSchema,
   putGitHubSettingsRequestSchema,
   workspaceParamsSchema,
 } from "@werft-ai/contracts";
@@ -36,5 +38,20 @@ export function registerGitHubSettingsRoutes(
       ),
     );
     return jsonWithSchema(context, githubSettingsResponseSchema, settings);
+  });
+
+  apiRoute(router, "putGitHubOAuthClientSecret", async (context) => {
+    const stored = await mapped(() =>
+      service.putOAuthClientSecret(
+        context.get("caller"),
+        lowercaseWorkspaceId(context),
+        () => parseJsonBody(context, putGitHubOAuthClientSecretRequestSchema),
+      ),
+    );
+    return jsonWithSchema(
+      context,
+      putGitHubOAuthClientSecretResponseSchema,
+      stored,
+    );
   });
 }

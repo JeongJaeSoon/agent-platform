@@ -71,6 +71,41 @@ export const rerunWorkflowResponseSchema = z.object({
   receipt_id: receiptIdSchema,
 });
 
+/** How the session was started, as the pull request's tail names it. */
+export const SESSION_TRIGGER_VALUES = [
+  "web",
+  "slack",
+  "personal_key",
+  "agent_key",
+  "operator_key",
+] as const;
+export const sessionTriggerSchema = z.enum(SESSION_TRIGGER_VALUES);
+
+/**
+ * Whose name the session's commits carry besides the App's. `co_author`:
+ * the person who started it linked GitHub. `unlinked`: they did not.
+ * `app_only`: no person started it (an agent or operator key).
+ */
+export const GITHUB_ATTRIBUTION_VALUES = [
+  "co_author",
+  "unlinked",
+  "app_only",
+] as const;
+
+export const sessionGitHubAttributionSchema = z
+  .object({
+    trigger: sessionTriggerSchema,
+    attribution: z.enum(GITHUB_ATTRIBUTION_VALUES),
+    /** The linked GitHub login; null unless `co_author`. */
+    login: z.string().min(1).max(39).nullable(),
+  })
+  .strict();
+
+export type SessionTrigger = z.infer<typeof sessionTriggerSchema>;
+export type SessionGitHubAttribution = z.infer<
+  typeof sessionGitHubAttributionSchema
+>;
+
 export const GITHUB_REVIEW_EVENT_VALUES = [
   "APPROVE",
   "REQUEST_CHANGES",

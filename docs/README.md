@@ -28,9 +28,12 @@ API로 세션을 만들고 쓰는 사람.
 | [이미지와 공급망](operator/images-and-supply-chain.md) | 이미지와 Compose `apps` profile, 업그레이드·롤백, 취약점 정책 |
 | [설정 레퍼런스](operator/configuration.md) | 설치 상한, API 설정, scheduler·worker·egress 설정 |
 | [백업과 복원](operator/backup-restore.md) | compose 설치의 백업·복원 |
+| [데이터베이스 연결과 느린 쿼리](operator/database.md) | 역할별 연결 수, 연결마다 거는 timeout, 느린 쿼리·잠금 대기 로그 켜고 보기 |
 | [용량 관리](operator/capacity.md) | transcript 상한, worker 메모리, 노드당 세션 수 |
 | [Datadog 감시 기준](operator/monitoring-datadog.md) | Datadog Agent와 monitor |
-| [세션 데이터가 흐르는 길](operator/observability.md) | `events` 표, 비밀값 마스킹, 보존 기간, 예제 OTLP 수집기 |
+| [플랫폼 지표 (Kubernetes)](operator/metrics.md) | `/metrics` 지표 이름·라벨·뜻, 켜는 법, 수집기가 읽는 법 |
+| [세션 데이터가 흐르는 길](operator/observability.md) | `events` 표, 비밀값 마스킹, 예제 OTLP 수집기 |
+| [플랫폼이 보존하는 데이터](operator/data-retention.md) | 데이터별 저장 위치·보존 기간·삭제 조건, 내용과 마스킹, 세션 하나 따라가기 |
 | [test-ops 운영 runbook](operator/test-ops.md) | test-ops 설치의 운영 절차 |
 
 ## 기여자
@@ -47,4 +50,5 @@ API로 세션을 만들고 쓰는 사람.
 | [결정: Agent SDK 버전](contributing/decisions/agent-sdk.md) | SDK·LiteLLM 버전 고정 방식, 운영 제약, 호환 harness가 지키는 계약과 실행 방법 |
 | [결정: GitHub Packages와 App token](contributing/decisions/github-packages-app-token.md) | App installation token으로 사설 npm·gem을 읽을 수 없다는 실측과 근거, 대신 고른 bot PAT 주입 방식과 나머지 대안 |
 | [결정: 실행 프로필 DB 단일 관리](contributing/decisions/profile-db.md) | 설치 상한·워크스페이스 프로필을 DB에서 관리하는 계약, YAML 이전, 3단계 롤백, PD-2~PD-5 계획 |
+| [결정(제안): worker Pod를 누가 만드나](contributing/decisions/k8s-pull-execution.md) | 플랫폼 직접 생성 + 권한 축소(추천)와 KEDA ScaledJob pull의 비교, 두 안의 설계, PoC 실측, Codex 의견 |
 | [실제 Claude로 확인하기](real-claude.md) | 실제 Claude로 스택 확인 |

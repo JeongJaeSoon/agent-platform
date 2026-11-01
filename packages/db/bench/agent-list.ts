@@ -8,11 +8,11 @@
 import { performance } from "node:perf_hooks";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import { createPostgresAgentAdminStore } from "../src/agent-admins.ts";
 import { createPostgresAgentStore } from "../src/agents.ts";
 import { createPostgresCredentialBindingStore } from "../src/credential-bindings.ts";
 import * as schema from "../src/index.ts";
+import { migrate } from "../src/migrate.ts";
 import type { Database } from "../src/queries.ts";
 
 const agentCount = Number(process.argv[2] ?? 50);

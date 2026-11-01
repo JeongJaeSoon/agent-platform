@@ -9,8 +9,9 @@ import type {
   WorkerEvent,
   WorkspaceRepository,
 } from "@werft-ai/contracts";
+import type { ImageRuntime, RuntimeFingerprint } from "@werft-ai/runtime-core";
 import type { PricedBy, ProviderUsage } from "../limits/model-prices.ts";
-import type { SessionMcp } from "../sessions/catalog.ts";
+import type { SessionGitHubMcp, SessionMcp } from "../sessions/catalog.ts";
 import type { CheckpointPointer } from "./checkpoint-store.ts";
 import type { CheckpointOutputObject } from "./checkpoint-verifier.ts";
 
@@ -64,9 +65,14 @@ export type WorkerBinding = {
   costUsd: number;
   providerTokens: number;
   mcp?: SessionMcp | null;
+  githubMcp?: SessionGitHubMcp | null;
   // The allows a parked turn's answers left for the turn carrying it on,
   // not yet spent.
   grants?: readonly PermissionGrant[];
+  // The combination the launch was reserved under; absent when it assumed
+  // none. The claim's engine version comes from it, not the catalog: a
+  // launch on the previous image runs that image's engine.
+  launchRuntime?: ImageRuntime;
 };
 
 // A profile and repository this host may run together, with the URL and
@@ -119,6 +125,11 @@ export type ClaimInput = {
   nonceHash: Uint8Array;
   executionId: string;
   executionGeneration: number;
+  /**
+   * What the worker's own image says it runs. Held to the combination its
+   * launch was reserved under; absent from a worker that predates it.
+   */
+  imageRuntime?: ImageRuntime;
   attemptId: string;
   credentialHash: Uint8Array;
   // The attempt's egress tokens, issued, extended and revoked with
@@ -133,13 +144,19 @@ export type ClaimInput = {
   now: Date;
 };
 
-export type EgressPurpose = "provider" | "repository" | "object_store" | "mcp";
+export type EgressPurpose =
+  | "provider"
+  | "repository"
+  | "object_store"
+  | "mcp"
+  | "packages";
 
 export type EgressIssue = {
   providerHash: Uint8Array;
   repositoryHash: Uint8Array;
   objectStoreHash: Uint8Array;
   mcpHash?: Uint8Array;
+  packagesHash?: Uint8Array;
   // `repository` is null for a session without one: no repository token is
   // issued, and `repositoryHash` goes unused.
   bindingsOf(session: {
@@ -150,6 +167,7 @@ export type EgressIssue = {
     repositoryMode: "repository" | "none";
     repositoryId: string | null;
     mcp?: SessionMcp | null;
+    githubMcp?: SessionGitHubMcp | null;
   }): EgressBindings;
 };
 
@@ -158,6 +176,7 @@ export type EgressBindings = {
   repository: string | null;
   object_store: string;
   mcp?: string;
+  packages?: string;
 };
 
 // What an egress token stands for once the attempt it belongs to still owns
@@ -228,6 +247,11 @@ export type ClaimResult =
   // in the same transaction: the session is `failed` with CATALOG_MISMATCH
   // and the launch is asked to go.
   | { outcome: "catalog_mismatch" }
+  // The worker runs another combination than its launch was reserved under:
+  // the image's configured runtime is wrong. Nothing was bound and the
+  // session is untouched; the launch was asked to go and the image refused
+  // under that assumption (`WorkerImageRefusal`).
+  | { outcome: "image_mismatch"; assumed: ImageRuntime }
   | { outcome: "no_session" };
 
 // The fence as it stood when the token was issued. A request body may not
@@ -332,6 +356,7 @@ export type FinalizeInput = {
   checkpointVersionsHeld?: boolean;
   checkpointTranscriptBytes?: number;
   checkpointOutputs?: readonly CheckpointOutputObject[];
+  checkpointRuntime?: RuntimeFingerprint;
 };
 export type FinalizeOutcome = {
   turnId: string;

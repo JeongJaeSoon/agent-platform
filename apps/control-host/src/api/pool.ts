@@ -34,11 +34,15 @@ export function createProbePool(
 ): Pool {
   return watchIdleErrors(
     new Pool({
-      ...enforcedConfig(connectionString, {
-        connectMs: timeoutMs,
-        statementMs: timeoutMs,
-        queryMs: timeoutMs * 2,
-      }),
+      ...enforcedConfig(
+        connectionString,
+        {
+          connectMs: timeoutMs,
+          statementMs: timeoutMs,
+          queryMs: timeoutMs * 2,
+        },
+        "probe",
+      ),
       max: 1,
     }),
     logger,

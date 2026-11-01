@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
+  GitHubPullRequestOutcomeMetadata,
   PullRequest,
   PullRequestReceiptResult,
   PushRequestState,
@@ -11,7 +12,14 @@ import {
 } from "@werft-ai/platform";
 import { and, desc, eq, isNotNull } from "drizzle-orm";
 import type { Database } from "./queries.ts";
-import { pullRequests, pushRequests, receipts, sessions } from "./schema.ts";
+import {
+  agentReleases,
+  pullRequests,
+  pushRequests,
+  receipts,
+  sessionOutcomes,
+  sessions,
+} from "./schema.ts";
 
 type Row = typeof pullRequests.$inferSelect;
 
@@ -62,6 +70,71 @@ async function insertReceipt(
     actor: input.actor,
   });
   return id;
+}
+
+/**
+ * The `github_pull_request` outcome of a recorded pull request, its agent
+ * copied from the session's release. Kept if the session already has one
+ * for the URL.
+ */
+export async function insertPullRequestOutcome(
+  tx: Database,
+  input: {
+    ownerId: string;
+    sessionId: string;
+    url: string;
+    repositoryId: string;
+    number: number;
+    head: string;
+    base: string;
+    adopted: boolean | null;
+    receiptId: string;
+    createdAt: Date;
+  },
+): Promise<void> {
+  const [release] = await tx
+    .select({
+      agentReleaseId: sessions.agentReleaseId,
+      agentId: agentReleases.agentId,
+    })
+    .from(sessions)
+    .leftJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
+    .where(eq(sessions.id, input.sessionId))
+    .limit(1);
+  await tx
+    .insert(sessionOutcomes)
+    .values({
+      id: randomUUID(),
+      ownerId: input.ownerId,
+      sessionId: input.sessionId,
+      agentReleaseId: release?.agentReleaseId ?? null,
+      agentId: release?.agentId ?? null,
+      type: "github_pull_request",
+      url: input.url,
+      repositoryId: input.repositoryId,
+      externalId: String(input.number),
+      state: "open",
+      stateChangedAt: input.createdAt,
+      metadata: {
+        head: input.head,
+        base: input.base,
+        adopted: input.adopted,
+        merge_commit_sha: null,
+        additions: null,
+        deletions: null,
+        changed_files: null,
+        commits: null,
+      } satisfies GitHubPullRequestOutcomeMetadata,
+      receiptId: input.receiptId,
+      createdAt: input.createdAt,
+    })
+    .onConflictDoNothing({
+      target: [
+        sessionOutcomes.sessionId,
+        sessionOutcomes.type,
+        sessionOutcomes.url,
+      ],
+    });
 }
 
 // Every push request of a session shares its branch, and so its pull request.
@@ -217,6 +290,18 @@ export function createPostgresPullRequests(db: Database): PullRequestStore {
                 )
                 .returning();
         if (!row) throw new Error("pull request insert returned no row");
+        await insertPullRequestOutcome(tx, {
+          ownerId: input.ownerId,
+          sessionId: input.sessionId,
+          url: input.url,
+          repositoryId: input.repositoryId,
+          number: input.number,
+          head: input.head,
+          base: input.base,
+          adopted: !input.created,
+          receiptId,
+          createdAt: row.createdAt ?? new Date(),
+        });
         return { pullRequest: publicPullRequest(row), created, receiptId };
       });
     },

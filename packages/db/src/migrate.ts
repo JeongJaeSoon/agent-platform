@@ -1,12 +1,22 @@
 import { join } from "node:path";
 import { createLogger, type StructuredLogger } from "@werft-ai/observability";
-import { readMigrationFiles } from "drizzle-orm/migrator";
-import { drizzle } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
-import type { Pool, PoolClient } from "pg";
+import { type MigrationMeta, readMigrationFiles } from "drizzle-orm/migrator";
+import { Pool, type PoolClient } from "pg";
 import { createEnforcedPool, type PoolTimeouts } from "./pool.ts";
 
-const migrationsFolder = join(import.meta.dir, "../migrations");
+const packagedMigrationsFolder = join(import.meta.dir, "../migrations");
+
+// Drizzle's migrator applies every pending migration in one transaction, where
+// CREATE INDEX CONCURRENTLY is refused. A migration whose first line is this
+// marker runs alone, each statement committing on its own, and its journal row
+// is written after the last one. A failure part way leaves the earlier
+// statements applied and the migration pending, so every statement in such a
+// file must be safe to run again (docs/contributing/development.md).
+export const NO_TRANSACTION_MARKER = "-- migrate:no-transaction";
+
+export function runsOutsideTransaction(statements: readonly string[]): boolean {
+  return statements[0]?.trimStart().startsWith(NO_TRANSACTION_MARKER) ?? false;
+}
 const expectedLegacyTables = [
   "api_keys",
   "events",
@@ -37,9 +47,12 @@ export const MIGRATION_POOL_TIMEOUTS: PoolTimeouts = {
   queryMs: 330_000,
 };
 
+const MIGRATION_LOCK_KEY = "db:migrate";
+
 export interface MigrateDatabaseOptions {
   readonly logger?: StructuredLogger;
   readonly timeouts?: PoolTimeouts;
+  readonly migrationsFolder?: string;
 }
 
 export async function migrateDatabase(
@@ -53,10 +66,27 @@ export async function migrateDatabase(
     "migrate",
     options.timeouts ?? MIGRATION_POOL_TIMEOUTS,
   );
+  const migrationsFolder = options.migrationsFolder ?? packagedMigrationsFolder;
+  // A second migrate (a manual run beside the Helm hook Job) waits here and
+  // then finds nothing pending; unlocked, its DROP INDEX CONCURRENTLY IF
+  // EXISTS could remove an index the first one already recorded as built.
+  const lock = await pool.connect().catch(async (error: unknown) => {
+    await pool.end();
+    throw error;
+  });
   try {
-    const adopted = await adoptLegacyM0Schema(pool);
+    await takeMigrationLock(lock);
+    const adopted = await adoptLegacyM0Schema(pool, migrationsFolder);
     const before = await countJournal(pool);
-    await migrate(drizzle(pool), { migrationsFolder });
+    const client = await pool.connect();
+    try {
+      await applyPendingMigrations(
+        client,
+        readMigrationFiles({ migrationsFolder }),
+      );
+    } finally {
+      client.release();
+    }
     const total = await countJournal(pool);
     const summary: MigrationSummary = {
       adopted,
@@ -68,7 +98,25 @@ export async function migrateDatabase(
     logger.info(`db.migrate.${outcome}`, { ...summary });
     return summary;
   } finally {
+    // Closing the session releases its lock.
+    lock.release(true);
     await pool.end();
+  }
+}
+
+// Polled rather than waited on: a blocking pg_advisory_lock is an open
+// transaction, and the holder's CREATE INDEX CONCURRENTLY waits for every
+// open transaction to end, so the two would wait on each other. No deadline
+// of its own: the holder's session ending frees the lock, and the caller's
+// (the Job's activeDeadlineSeconds) bounds the whole run.
+async function takeMigrationLock(client: PoolClient): Promise<void> {
+  for (;;) {
+    const { rows } = await client.query<{ locked: boolean }>(
+      "SELECT pg_try_advisory_lock(hashtext($1)) AS locked",
+      [MIGRATION_LOCK_KEY],
+    );
+    if (rows[0]?.locked) return;
+    await Bun.sleep(1_000);
   }
 }
 
@@ -85,7 +133,118 @@ async function countJournal(pool: Pool): Promise<number> {
   return Number(count.rows[0]?.count ?? 0);
 }
 
-async function adoptLegacyM0Schema(pool: Pool): Promise<number> {
+/** One connection: a pg client, or a PGlite database in tests. */
+interface SqlConnection {
+  query(text: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
+}
+
+/**
+ * Drizzle's `migrate` for a test or bench database, with this module's
+ * handling of no-transaction migrations, which Drizzle's own migrators run
+ * inside one transaction. Takes a drizzle database over a PGlite database or
+ * a pg pool, whose `$client` drizzle sets but types only for some callers.
+ */
+export async function migrate(
+  database: object,
+  config: { readonly migrationsFolder: string },
+): Promise<void> {
+  const db = database as { readonly $client?: SqlConnection | Pool };
+  if (db.$client === undefined) {
+    throw new Error("migrate needs a drizzle database with a $client");
+  }
+  const migrations = readMigrationFiles(config);
+  if (!(db.$client instanceof Pool)) {
+    // PGlite runs Postgres in single-user mode, where a concurrent index
+    // build fails ("tuple concurrently updated"); with one connection there
+    // is nothing for it to wait out.
+    await applyPendingMigrations(
+      db.$client,
+      migrations.map((migration) => ({
+        ...migration,
+        sql: migration.sql.map((statement) =>
+          statement.replaceAll(/\bINDEX CONCURRENTLY\b/g, "INDEX"),
+        ),
+      })),
+    );
+    return;
+  }
+  const client = await db.$client.connect();
+  try {
+    await applyPendingMigrations(client, migrations);
+  } finally {
+    client.release();
+  }
+}
+
+// Drizzle's rule for what is pending: everything newer than the newest
+// journal row. Runs of ordinary migrations still share one transaction.
+async function applyPendingMigrations(
+  client: SqlConnection,
+  migrations: readonly MigrationMeta[],
+): Promise<void> {
+  await createJournalTable(client);
+  const newest = await client.query(
+    'SELECT created_at FROM "drizzle"."__drizzle_migrations" ORDER BY created_at DESC LIMIT 1',
+  );
+  const [row] = newest.rows as { created_at: string | number }[];
+  const appliedThrough = row
+    ? Number(row.created_at)
+    : Number.NEGATIVE_INFINITY;
+  let batch: MigrationMeta[] = [];
+  for (const migration of migrations) {
+    if (migration.folderMillis <= appliedThrough) {
+      continue;
+    }
+    if (!runsOutsideTransaction(migration.sql)) {
+      batch.push(migration);
+      continue;
+    }
+    await applyInTransaction(client, batch);
+    batch = [];
+    for (const statement of migration.sql) {
+      await client.query(statement);
+    }
+    await recordAppliedMigrations(client, [
+      { hash: migration.hash, when: migration.folderMillis },
+    ]);
+  }
+  await applyInTransaction(client, batch);
+}
+
+async function applyInTransaction(
+  client: SqlConnection,
+  migrations: readonly MigrationMeta[],
+): Promise<void> {
+  if (migrations.length === 0) {
+    return;
+  }
+  await client.query("BEGIN");
+  try {
+    for (const migration of migrations) {
+      for (const statement of migration.sql) {
+        await client.query(statement);
+      }
+    }
+    await recordAppliedMigrations(
+      client,
+      migrations.map((migration) => ({
+        hash: migration.hash,
+        when: migration.folderMillis,
+      })),
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    // A ROLLBACK on a dead connection fails too; the statement's own error
+    // is the one to report.
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  }
+}
+
+async function adoptLegacyM0Schema(
+  pool: Pool,
+  migrationsFolder: string,
+): Promise<number> {
   const state = await pool.query<{
     claim_token: boolean;
     migration_journal: string | null;
@@ -171,9 +330,19 @@ async function adoptLegacyM0Schema(pool: Pool): Promise<number> {
  * by tests that need a database standing at one exact migration.
  */
 export async function recordAppliedMigrations(
-  client: Pick<PoolClient, "query">,
+  client: SqlConnection,
   migrations: readonly { hash: string; when: number }[],
 ): Promise<void> {
+  await createJournalTable(client);
+  for (const migration of migrations) {
+    await client.query(
+      'INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at) VALUES ($1, $2)',
+      [migration.hash, migration.when],
+    );
+  }
+}
+
+async function createJournalTable(client: SqlConnection): Promise<void> {
   await client.query('CREATE SCHEMA IF NOT EXISTS "drizzle"');
   await client.query(`
     CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations" (
@@ -182,12 +351,6 @@ export async function recordAppliedMigrations(
       created_at bigint
     )
   `);
-  for (const migration of migrations) {
-    await client.query(
-      'INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at) VALUES ($1, $2)',
-      [migration.hash, migration.when],
-    );
-  }
 }
 
 if (import.meta.main) {

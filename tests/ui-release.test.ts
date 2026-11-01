@@ -86,7 +86,7 @@ describe("ui-release.yml", () => {
       packages: "write",
     });
     expect(build?.permissions).toBeUndefined();
-    expect(runs(publish as Job)).toContain("npm publish");
+    expect(runs(publish as Job).trim()).toBe("npm publish ./pkg/*.tgz");
     expect(runs(build as Job)).not.toContain("npm publish");
   });
 

@@ -426,6 +426,14 @@ export const agentDetailSchema = z
   .strict();
 /** How much of a version's instructions a list summary carries. */
 export const AGENT_SUMMARY_INSTRUCTIONS_MAX = 300;
+export const AGENT_SLACK_ACTION_VALUES = [
+  "events_failed",
+  "events_unverified",
+  "install",
+  "reinstall",
+  "home_unset",
+] as const;
+export type AgentSlackAction = (typeof AGENT_SLACK_ACTION_VALUES)[number];
 
 /**
  * What a list shows of an agent beyond its row, read in one go for the page
@@ -459,6 +467,14 @@ export const agentSummarySchema = z
      */
     needs_input_count: z.number().int().nonnegative(),
     running_count: z.number().int().nonnegative(),
+    /**
+     * The first thing the agent's Slack tab asks a person to do, or null
+     * when it asks nothing (no app, or one that is set up). Not installed:
+     * the app was made but never installed, or its bot was disconnected or
+     * uninstalled. Installed, in order: Slack has not checked the events
+     * Request URL sent, the bot has no home channel, Slack refused the URL.
+     */
+    slack_action: z.enum(AGENT_SLACK_ACTION_VALUES).nullable(),
   })
   .strict();
 

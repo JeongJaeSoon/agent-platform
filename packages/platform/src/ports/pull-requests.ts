@@ -103,7 +103,10 @@ export interface PullRequestStore {
   /**
    * Records the pull request opened from the push request, with its
    * `open_pull_request` receipt. When one is already recorded (a racing
-   * call), keeps that one and the receipt says `created: false`.
+   * call), keeps that one and the receipt says `created: false`. The first
+   * write of a pull request writes its `github_pull_request` outcome in the
+   * same transaction; `created: false` (the forge answered one it did not
+   * make) marks that outcome adopted.
    */
   savePullRequest(
     input: Omit<PullRequestReceipt, "operation" | "result"> & {

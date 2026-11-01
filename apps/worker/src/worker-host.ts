@@ -3,6 +3,7 @@ import type {
   AttemptState,
   BootstrapClaimResponse,
   CheckpointRef,
+  ClaimGit,
   ClaimPrincipal,
   ControlIntent,
   NextInputResponse,
@@ -28,6 +29,7 @@ import {
   type ApprovalRequested,
   type CheckpointLease,
   type CheckpointPreparation,
+  type ImageRuntime,
   isOwnershipLost,
   isRetryable,
   type ParkedApproval,
@@ -147,6 +149,12 @@ export type WorkerHostOptions = {
   secrets?: readonly string[];
   /** Overrides APPROVAL_CHECKPOINT_MS; for tests. */
   approvalCheckpointMs?: number;
+  /** Hands the claim's commit trailers to the image's git hook. */
+  gitTrailers?: (git: ClaimGit | undefined) => Promise<void>;
+  /** Points the engine's package managers at the claim's packages route. */
+  packageManagers?: (token: string | undefined) => Promise<void>;
+  /** What this image runs, sent with the claim so a misconfigured image is refused. */
+  imageRuntime?: ImageRuntime;
 };
 
 /**
@@ -398,6 +406,20 @@ export class WorkerHost {
       attempt_id: claim.attempt_id,
       restore_revision: claim.restore?.revision ?? null,
     });
+    // Attribution, not a boundary: commits without it still go through.
+    await this.options.gitTrailers?.(claim.git).catch((error: unknown) =>
+      this.logger.warn("worker.git_trailers.not_written", {
+        reason: describe(error),
+      }),
+    );
+    // Not a boundary either: the proxy is. Without it an install fails.
+    await this.options
+      .packageManagers?.(claim.packages?.access.token)
+      .catch((error: unknown) =>
+        this.logger.warn("worker.package_managers.not_written", {
+          reason: describe(error),
+        }),
+      );
 
     // Everything this process holds that the engine's tools could print.
     this.scrubber = new SecretScrubber([
@@ -758,6 +780,17 @@ export class WorkerHost {
               kind: "launch_nonce",
               nonce: this.options.execution.bootstrapNonce,
             },
+            ...(this.options.imageRuntime === undefined
+              ? {}
+              : {
+                  image_runtime: {
+                    engine: this.options.imageRuntime.engine,
+                    sdk_version: this.options.imageRuntime.sdkVersion,
+                    cli_version: this.options.imageRuntime.cliVersion,
+                    profile_digest_scheme:
+                      this.options.imageRuntime.profileDigestScheme,
+                  },
+                }),
           }),
         );
         if (claimed === undefined) {

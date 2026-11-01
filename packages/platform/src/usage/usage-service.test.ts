@@ -112,6 +112,8 @@ function service(
         outputsUsedBytes: 0,
         outputsUpdatedAt: null,
         outputsComplete: true,
+        archivedEventsBytes: 2048,
+        archivedEventsUpdatedAt: readAt,
       }),
       agentExists: async (ownerId, agentId) =>
         ownerId === WORKSPACE && agentId === AGENT,
@@ -250,6 +252,9 @@ function service(
         };
       },
       usageToolDays: async () => [{ date: "2026-10-01", calls: 1 }],
+      usageOutcomes: async () => {
+        throw new Error("not read");
+      },
     },
   });
 }
@@ -333,6 +338,10 @@ describe("usage service", () => {
       provider_max_retries: 0,
     });
     expect(body.usage.storage.updated_at).toBeNull();
+    expect(body.usage.archived_events).toEqual({
+      used_bytes: 2048,
+      updated_at: readAt.toISOString(),
+    });
   });
 
   test("an open turn or an unreported one makes the cost incomplete", async () => {
@@ -594,6 +603,9 @@ describe("usage service", () => {
         usageToolDays: async () => {
           throw new Error("not read");
         },
+        usageOutcomes: async () => {
+          throw new Error("not read");
+        },
       },
     });
     const error = await bound
@@ -759,6 +771,9 @@ describe("usage service", () => {
           throw new Error("not read");
         },
         usageToolDays: async () => {
+          throw new Error("not read");
+        },
+        usageOutcomes: async () => {
           throw new Error("not read");
         },
       },

@@ -69,6 +69,9 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/sessions/{id}/github/workflow-dispatches",
     "GET /v1/sessions/{id}/github/workflow-runs/{run_id}",
     "POST /v1/sessions/{id}/github/workflow-runs/{run_id}/rerun",
+    "GET /v1/sessions/{id}/github/attribution",
+    "GET /v1/sessions/{id}/github/refusals",
+    "GET /v1/sessions/{id}/outcomes",
     "POST /v1/sessions/{id}/github/pull-requests/{number}/reviews",
   ],
   "routes/interrupt.test.ts": ["POST /v1/sessions/{id}/interrupt"],
@@ -79,6 +82,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/limits",
     "GET /v1/sessions/{id}/usage",
     "GET /v1/usage/summary",
+    "GET /v1/usage/outcomes",
     "GET /v1/usage/series",
     "GET /v1/usage/breakdown",
     "GET /v1/usage/tools",
@@ -112,6 +116,8 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "routes/linked-accounts.test.ts": [
     "POST /v1/linked-accounts/slack/start",
     "POST /v1/linked-accounts/slack/callback",
+    "POST /v1/linked-accounts/github/start",
+    "POST /v1/linked-accounts/github/callback",
     "GET /v1/linked-accounts",
     "DELETE /v1/linked-accounts/{id}",
   ],
@@ -141,6 +147,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "routes/github-settings.test.ts": [
     "GET /v1/workspaces/{id}/github-settings",
     "PUT /v1/workspaces/{id}/github-settings",
+    "PUT /v1/workspaces/{id}/github-settings/oauth-client-secret",
   ],
   "routes/slack-secrets.test.ts": [
     "GET /v1/workspaces/{id}/slack/config-token",
@@ -200,6 +207,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/agents/{id}/slack/app/settings",
     "PUT /v1/agents/{id}/slack/app/settings",
     "POST /v1/agents/{id}/slack/app",
+    "GET /v1/workspaces/{id}/slack/apps",
     "DELETE /v1/workspaces/{id}/slack/apps/{app_id}",
     "PUT /v1/workspaces/{id}/slack/apps/{app_id}/secrets/{purpose}",
   ],

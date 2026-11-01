@@ -1,4 +1,8 @@
-import type { Database, LostCheckpoints } from "@werft-ai/db";
+import type {
+  ArchivedEventSource,
+  Database,
+  LostCheckpoints,
+} from "@werft-ai/db";
 import { createPostgresCheckpointStore } from "@werft-ai/db";
 import {
   type CheckpointProtocol,
@@ -286,6 +290,18 @@ export function createApiCheckpoints(
     pushSource: service,
     outputs: service,
   };
+}
+
+/** Where the session reader finds events the archive job moved out. */
+export function archivedEventSource(
+  config: CheckpointStorageConfig | "disabled",
+): ArchivedEventSource | undefined {
+  if (config === "disabled") return undefined;
+  const objects = createCheckpointObjectStore({
+    bucket: config.bucket,
+    client: checkpointS3Client(config),
+  });
+  return { get: (key, version) => objects.get(key, version) };
 }
 
 function checkpointS3Client(config: CheckpointStorageConfig) {

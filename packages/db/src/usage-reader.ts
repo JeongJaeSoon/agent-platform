@@ -16,9 +16,12 @@ import type { Database } from "./queries.ts";
 import {
   agentReleases,
   agents,
-  checkpointOutputs,
+  checkpointOutputObjects,
+  checkpointOutputTotals,
   checkpoints,
+  sessionEventArchives,
   sessionModelUsage,
+  sessionOutcomes,
   sessionPreMeteringCost,
   sessions,
   storageUsage,
@@ -305,6 +308,25 @@ type SummaryGroupRow = {
   total_run_seconds: number | string;
 };
 
+type OutcomeRow = {
+  read_at: Date | string;
+  until: Date | string;
+  key: string | null;
+  name: string | null;
+  total: boolean;
+  session_count: number;
+  cost_usd: string;
+  token_count: number | string;
+  incomplete: number;
+  sessions_with_pr: number;
+  sessions_with_merged_pr: number;
+  pr_count: number;
+  merged_pr_count: number;
+  closed_pr_count: number;
+  cost_of_merged_sessions_usd: string;
+  cost_per_merged_pr_usd: string | null;
+};
+
 function figuresOf(row: BreakdownRow) {
   return {
     sessionCount: row.session_count,
@@ -315,14 +337,6 @@ function figuresOf(row: BreakdownRow) {
     costUsd: row.cost_usd,
   };
 }
-
-// One row per output object: an object stays in the store while any
-// checkpoint naming it is uncollected, and a later checkpoint names its
-// parent's objects again rather than uploading them. Object keys carry the
-// session prefix, so a key never spans sessions. A collected revision still
-// counts until a pass has deleted its objects (objects_purged_at). Scans
-// checkpoint_outputs on every read.
-const outputObjects = sql`(SELECT ${checkpointOutputs.objectKey}, max(${checkpointOutputs.bytes}) AS bytes, bool_or(${checkpoints.objectsPurgedAt} IS NULL) AS kept, min(${checkpoints.committedAt}) AS first_at, max(${checkpoints.objectsPurgedAt}) AS released_at FROM ${checkpointOutputs} JOIN ${checkpoints} ON ${checkpoints.sessionId} = ${checkpointOutputs.sessionId} AND ${checkpoints.revision} = ${checkpointOutputs.revision} GROUP BY ${checkpointOutputs.objectKey}) AS output_objects`;
 
 function counted(condition: SQL | undefined) {
   return sql<number>`count(${turns.id}) FILTER (WHERE ${condition})`.mapWith(
@@ -343,9 +357,7 @@ export function createPostgresUsageReader(db: Database): UsageReader {
             .from(workerLaunches)
             .where(isNull(workerLaunches.slotReleasedAt))})`.mapWith(Number),
           // Queued turns, not queue rows: a delivered input keeps its row
-          // until it settles. No index on turns.status, so this scans turns;
-          // add a partial index on status = 'queued' once that shows up in
-          // this route's latency.
+          // until it settles.
           queuedInputCount: sql<number>`(${db
             .select({ count: sql`count(*)` })
             .from(turns)
@@ -353,19 +365,32 @@ export function createPostgresUsageReader(db: Database): UsageReader {
           storageUsedBytes:
             sql<number>`coalesce(${storageUsage.bytes}, 0)`.mapWith(Number),
           storageUpdatedAt: storageUsage.updatedAt,
+          // An output object stays in the store while any checkpoint naming
+          // it is not purged; a later checkpoint names its parent's objects
+          // again rather than uploading them. Kept per key by triggers
+          // (checkpointOutputObjects).
           outputsUsedBytes:
-            sql<number>`(SELECT coalesce(sum(bytes) FILTER (WHERE kept), 0) FROM ${outputObjects})`.mapWith(
+            sql<number>`coalesce((SELECT ${checkpointOutputTotals.keptBytes} FROM ${checkpointOutputTotals} WHERE ${checkpointOutputTotals.scope} = 'installation'), 0)`.mapWith(
               Number,
             ),
           // A kept key's count moved when its first checkpoint committed; a
           // released key's when the last checkpoint naming it was purged.
           outputsUpdatedAt:
-            sql<Date | null>`(SELECT greatest(max(first_at), max(released_at) FILTER (WHERE NOT kept)) FROM ${outputObjects})`.mapWith(
+            sql<Date | null>`greatest((SELECT max(${checkpointOutputObjects.firstAt}) FROM ${checkpointOutputObjects}), (SELECT max(${checkpointOutputObjects.releasedAt}) FROM ${checkpointOutputObjects} WHERE ${checkpointOutputObjects.liveRefs} = 0))`.mapWith(
               (value) => new Date(value),
             ),
           // Rows collected before objects_purged_at existed are stamped by
           // the next collection pass that deletes cleanly.
           outputsComplete: sql<boolean>`NOT EXISTS (SELECT 1 FROM ${checkpoints} WHERE ${checkpoints.objectsPurgedAt} IS NULL AND NOT ${checkpoints.outputsRecorded})`,
+          // A row per chunk of up to a thousand events: small enough to sum.
+          archivedEventsBytes:
+            sql<number>`(SELECT coalesce(sum(${sessionEventArchives.bytes}), 0) FROM ${sessionEventArchives})`.mapWith(
+              Number,
+            ),
+          archivedEventsUpdatedAt:
+            sql<Date | null>`(SELECT max(${sessionEventArchives.createdAt}) FROM ${sessionEventArchives})`.mapWith(
+              (value) => new Date(value),
+            ),
         })
         .from(sql`(SELECT 1) AS one`)
         .leftJoin(
@@ -455,6 +480,90 @@ export function createPostgresUsageReader(db: Database): UsageReader {
         .from(picked);
       if (!row) throw new Error("usage summary read returned no row");
       return row;
+    },
+
+    async usageOutcomes(filter, period) {
+      const { since, until } = periodBounds(period);
+      // Outcomes are counted per session before the join, so a session's
+      // cost adds once however many pull requests it opened (§10).
+      const rows = await executeWithoutJit<OutcomeRow>(
+        db,
+        sql`
+        WITH s AS (
+          SELECT ${sessions.id} AS id, ${agentReleases.agentId} AS agent_id,
+                 ${sessions.costUsd} AS cost_usd, ${sessions.providerTokens} AS provider_tokens
+          FROM ${sessions}
+          LEFT JOIN ${agentReleases} ON ${agentReleases.id} = ${sessions.agentReleaseId}
+          WHERE ${sessions.createdAt} >= ${since} AND ${sessions.createdAt} < ${until}
+            AND ${startedBy(filter) ?? sql`TRUE`}
+        ),
+        o AS (
+          SELECT ${sessionOutcomes.sessionId} AS session_id, count(*) AS prs,
+                 count(*) FILTER (WHERE ${sessionOutcomes.state} = 'merged') AS merged,
+                 count(*) FILTER (WHERE ${sessionOutcomes.state} = 'closed') AS closed
+          FROM ${sessionOutcomes}
+          WHERE ${sessionOutcomes.type} = 'github_pull_request'
+            AND ${sessionOutcomes.sessionId} IN (SELECT id FROM s)
+          GROUP BY ${sessionOutcomes.sessionId}
+        ),
+        t AS (
+          SELECT ${turns.sessionId} AS session_id, count(*) AS incomplete
+          FROM ${turns}
+          WHERE ${turns.sessionId} IN (SELECT id FROM s) AND ${incomplete}
+          GROUP BY ${turns.sessionId}
+        ),
+        g AS (
+          SELECT s.agent_id, grouping(s.agent_id) = 1 AS total,
+                 count(s.id)::int AS session_count,
+                 coalesce(sum(s.cost_usd), 0) AS cost_usd,
+                 coalesce(sum(s.provider_tokens), 0)::bigint AS token_count,
+                 coalesce(sum(t.incomplete), 0)::int AS incomplete,
+                 (count(*) FILTER (WHERE o.prs > 0))::int AS sessions_with_pr,
+                 (count(*) FILTER (WHERE o.merged > 0))::int AS sessions_with_merged_pr,
+                 coalesce(sum(o.prs), 0)::int AS pr_count,
+                 coalesce(sum(o.merged), 0)::int AS merged_pr_count,
+                 coalesce(sum(o.closed), 0)::int AS closed_pr_count,
+                 coalesce(sum(s.cost_usd) FILTER (WHERE o.merged > 0), 0) AS cost_of_merged_sessions_usd
+          FROM s
+          LEFT JOIN o ON o.session_id = s.id
+          LEFT JOIN t ON t.session_id = s.id
+          GROUP BY GROUPING SETS ((s.agent_id), ())
+        )
+        SELECT now() AS read_at, ${until} AS until, g.agent_id::text AS key,
+               ${agents.name} AS name, g.total, g.session_count,
+               g.cost_usd::text AS cost_usd, g.token_count, g.incomplete,
+               g.sessions_with_pr, g.sessions_with_merged_pr, g.pr_count,
+               g.merged_pr_count, g.closed_pr_count,
+               g.cost_of_merged_sessions_usd::text AS cost_of_merged_sessions_usd,
+               CASE WHEN g.merged_pr_count > 0
+                 THEN round(g.cost_usd / g.merged_pr_count, 6)::text END AS cost_per_merged_pr_usd
+        FROM g
+        LEFT JOIN ${agents} ON ${agents.id} = g.agent_id
+        ORDER BY g.total DESC, g.cost_usd DESC, key NULLS LAST`,
+      );
+      const figures = (row: OutcomeRow) => ({
+        sessionCount: row.session_count,
+        costUsd: row.cost_usd,
+        providerTokens: Number(row.token_count),
+        incompleteTurnCount: row.incomplete,
+        sessionsWithPr: row.sessions_with_pr,
+        sessionsWithMergedPr: row.sessions_with_merged_pr,
+        prCount: row.pr_count,
+        mergedPrCount: row.merged_pr_count,
+        closedPrCount: row.closed_pr_count,
+        costOfMergedSessionsUsd: row.cost_of_merged_sessions_usd,
+        costPerMergedPrUsd: row.cost_per_merged_pr_usd,
+      });
+      const total = rows.find((row) => row.total);
+      if (!total) throw new Error("usage outcomes read returned no total");
+      return {
+        readAt: new Date(total.read_at),
+        until: new Date(total.until),
+        ...figures(total),
+        groups: rows
+          .filter((row) => !row.total)
+          .map((row) => ({ id: row.key, name: row.name, ...figures(row) })),
+      };
     },
 
     async usageSummaryGroups(filter, period, by) {

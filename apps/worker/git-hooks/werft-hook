@@ -1,0 +1,31 @@
+#!/bin/sh
+# Every client hook in the image's core.hooksPath is this one script
+# (design github-agent.md decision 5). It runs the repository's own hook of
+# the same name, then for commit-msg adds the session's trailers from
+# $HOME/.werft/git-trailers, one per line, each passed as an argv.
+name=$(basename "$0")
+hooks=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/hooks
+own="$hooks/$name"
+
+if [ "$name" != commit-msg ]; then
+  if [ -x "$own" ]; then exec "$own" "$@"; fi
+  exit 0
+fi
+
+if [ -x "$own" ]; then "$own" "$@" || exit $?; fi
+
+message=$1
+trailers=${HOME:-/nonexistent}/.werft/git-trailers
+[ -n "$message" ] && [ -f "$trailers" ] || exit 0
+
+cr=$(printf '\r')
+set --
+while IFS= read -r line || [ -n "$line" ]; do
+  case $line in
+    *"$cr"*) continue ;;
+    "Co-authored-by: "* | "Agent-Session: "*) set -- "$@" --trailer "$line" ;;
+  esac
+done <"$trailers"
+[ $# -gt 0 ] || exit 0
+
+exec git interpret-trailers --if-exists addIfDifferent --in-place "$@" "$message"

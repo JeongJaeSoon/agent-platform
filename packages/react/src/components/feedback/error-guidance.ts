@@ -112,6 +112,8 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   SLACK_APP_CREATING: "Slack 앱을 만드는 중이에요 — 잠시 뒤 다시 확인하세요.",
   SLACK_LINK_NOT_CONFIGURED:
     "Slack 계정 연결을 아직 쓸 수 없어요 — 워크스페이스 관리자에게 Slack 연결 설정을 요청하세요.",
+  GITHUB_LINK_NOT_CONFIGURED:
+    "GitHub 계정 연결을 아직 쓸 수 없어요 — 워크스페이스 관리자에게 GitHub 연결의 사용자 연결 설정을 요청하세요.",
   AGENT_NOT_ACTIVE:
     "활성 release가 없는 에이전트예요 — release를 활성화한 뒤 다시 시도하세요.",
   SLACK_INSTALL_STATE_INVALID:

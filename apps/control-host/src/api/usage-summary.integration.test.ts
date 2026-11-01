@@ -5,6 +5,8 @@ import {
   type Principal,
   scopesForRole,
   type UsageSummaryResponse,
+  usageOutcomesQuerySchema,
+  usageOutcomesResponseSchema,
   usageSummaryQuerySchema,
   usageSummaryResponseSchema,
   usageToolsResponseSchema,
@@ -497,6 +499,138 @@ integration("usage summary on PostgreSQL", () => {
     }
   });
 
+  test("GET /v1/usage/outcomes counts each session's cost once, those without a pull request included, and its total is the summary's", async () => {
+    const period = { since: "2007-01-01", until: "2007-02-01" };
+    const agent = key(agentKey, null);
+    const two = await session(
+      agent,
+      "2007-01-02T00:00:00Z",
+      1,
+      10,
+      agentReleaseId,
+    );
+    const one = await session(
+      user("alice", "member"),
+      "2007-01-03T00:00:00Z",
+      2,
+      20,
+      agentReleaseId,
+    );
+    await session(agent, "2007-01-04T00:00:00Z", 4, 40, agentReleaseId);
+    // Not the agent's.
+    const other = await session(
+      user("alice", "member"),
+      "2007-01-05T00:00:00Z",
+      8,
+      80,
+    );
+    let number = 0;
+    const outcome = (
+      sessionId: string,
+      state: "open" | "merged" | "closed",
+    ) => {
+      number += 1;
+      return db.insert(schema.sessionOutcomes).values({
+        id: crypto.randomUUID(),
+        ownerId: workspaceId,
+        sessionId,
+        type: "github_pull_request",
+        url: `https://github.com/acme/app/pull/${number}`,
+        repositoryId: "app",
+        externalId: String(number),
+        state,
+        stateChangedAt: new Date(),
+      });
+    };
+    await outcome(two, "merged");
+    await outcome(two, "open");
+    await outcome(one, "closed");
+    await outcome(other, "merged");
+
+    const query = { scope: "agent", agent_id: agentId, ...period };
+    const body = usageOutcomesResponseSchema.parse(
+      await service.getUsageOutcomes(
+        user("owner", "owner"),
+        usageOutcomesQuerySchema.parse(query),
+      ),
+    );
+    expect(body).toMatchObject({
+      scope: "agent",
+      session_count: 3,
+      cost_usd: "7.000000",
+      cost_complete: true,
+      token_count: 70,
+      sessions_with_pr: 2,
+      sessions_with_merged_pr: 1,
+      pr_count: 3,
+      merged_pr_count: 1,
+      closed_pr_count: 1,
+      cost_of_merged_sessions_usd: "1.000000",
+      cost_per_merged_pr_usd: "7.000000",
+    });
+    expect(body).not.toHaveProperty("groups");
+    const same = await summary(user("owner", "owner"), query);
+    expect([body.session_count, body.cost_usd]).toEqual([
+      same.session_count,
+      same.cost_usd,
+    ]);
+
+    const installation = { scope: "installation", ...period };
+    const grouped = usageOutcomesResponseSchema.parse(
+      await service.getUsageOutcomes(
+        user("owner", "owner"),
+        usageOutcomesQuerySchema.parse({ ...installation, group_by: "agent" }),
+      ),
+    );
+    const whole = await summary(user("owner", "owner"), installation);
+    expect([grouped.session_count, grouped.cost_usd]).toEqual([
+      whole.session_count,
+      whole.cost_usd,
+    ]);
+    expect(grouped).toMatchObject({
+      session_count: 4,
+      pr_count: 4,
+      merged_pr_count: 2,
+      cost_per_merged_pr_usd: "7.500000",
+    });
+    expect(grouped.groups).toEqual([
+      expect.objectContaining({
+        id: null,
+        name: null,
+        session_count: 1,
+        cost_usd: "8.000000",
+        merged_pr_count: 1,
+      }),
+      expect.objectContaining({
+        id: agentId,
+        name: "Bot",
+        session_count: 3,
+        cost_usd: "7.000000",
+        pr_count: 3,
+      }),
+    ]);
+
+    // Who reads which scope is the summary's: a member is refused the
+    // agent's figure, and an agent key reads none.
+    const outcomes = (caller: Caller, read: Record<string, string>) =>
+      service.getUsageOutcomes(caller, usageOutcomesQuerySchema.parse(read));
+    expect(await refusal(outcomes(user("alice", "member"), query))).toBe(
+      "FORBIDDEN",
+    );
+    expect(
+      await refusal(
+        outcomes(user("alice", "member"), {
+          scope: "installation",
+          ...period,
+        }),
+      ),
+    ).toBe("FORBIDDEN");
+    expect(await refusal(outcomes(agent, { scope: "me", ...period }))).toBe(
+      "FORBIDDEN",
+    );
+    expect(await refusal(outcomes(agent, query))).toBe("FORBIDDEN");
+  });
+
   test("cost_usd is the sum of the sessions' usage and is incomplete while one of them is", async () => {
     const period = { since: "2004-01-01", until: "2004-02-01" };
     const caller = user("bob", "member");
@@ -876,6 +1010,7 @@ integration("installation figures over HTTP on PostgreSQL", () => {
         "/v1/limits?scope=installation",
         installation,
         tools,
+        "/v1/usage/outcomes?scope=installation&since=2026-10-01",
       ]) {
         const response = await get(path, role);
         expect(response.status, `${role} ${path}`).toBe(status);

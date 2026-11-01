@@ -6,6 +6,7 @@ import { authEn } from "./auth.ts";
 import { commonEn } from "./common.ts";
 import { errorsEn } from "./errors.ts";
 import { githubEn } from "./github.ts";
+import { githubUserLinkEn } from "./github-user-link.ts";
 import { homeEn } from "./home.ts";
 import type { MessageKey } from "./ko.ts";
 import { linkedEn } from "./linked.ts";
@@ -78,6 +79,12 @@ export const slackEn = {
     "Until a release is activated, Slack mentions and DMs are refused and only a notice is left in the thread. Create and activate a release on the Release tab.",
   "slack.state.error": "Error",
   "slack.createInstall": "Create and install Slack app",
+  "slack.configToken.unset":
+    "The workspace has no Slack app setup (App Configuration Token), so the app cannot be created.",
+  "slack.configToken.needs_reentry":
+    "Slack no longer accepts the workspace's App Configuration Token, so the app cannot be created.",
+  "slack.configToken.settings": "Go to workspace Slack settings",
+  "slack.configToken.askAdmin": "Ask an owner or admin to set it up.",
   "slack.install": "Install Slack app",
   "slack.reinstall": "Reinstall",
   "slack.working": "Preparing…",
@@ -185,6 +192,7 @@ export const en: Record<MessageKey, string> = {
   ...apiKeysEn,
   ...workspaceEn,
   ...githubEn,
+  ...githubUserLinkEn,
   ...agentGitHubEn,
   ...usageEn,
   ...preferencesEn,

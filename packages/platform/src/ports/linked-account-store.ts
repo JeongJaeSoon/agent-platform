@@ -82,8 +82,8 @@ export interface LinkedAccountStore {
   installedSlackTeams(workspaceId: string): Promise<string[]>;
   /**
    * Links the account to the caller after checking, under the membership
-   * lock, that its team is installed for the workspace and that no one else
-   * holds it. The caller's own active or stale link to the same account is
+   * lock, that no one else holds it and, for Slack, that its team is
+   * installed for the workspace (a GitHub account has no team to check). The caller's own active or stale link to the same account is
    * re-verified and made active, its names replaced by these. Writes a
    * `link_account` receipt.
    */

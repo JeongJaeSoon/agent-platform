@@ -7,8 +7,13 @@ import {
   GITHUB_CEILING_NONE,
   type GitHubCeiling,
   githubWorkflowRunSchema,
+  listSessionGitHubRefusalsResponseSchema,
+  listSessionOutcomesResponseSchema,
   rerunWorkflowResponseSchema,
+  type SessionGitHubRefusal,
+  type SessionOutcome,
   type SessionScope,
+  sessionGitHubAttributionSchema,
   submitPullRequestReviewResponseSchema,
 } from "@werft-ai/contracts";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
@@ -16,16 +21,24 @@ import {
   createAuthorizationPolicy,
   createGitHubGate,
   createGitHubWorkService,
+  createSessionAttributionService,
+  createSessionOutcomeService,
   type GitHubConnection,
   type GitHubDispatchRecord,
   type GitHubGateReceipt,
+  type SessionAttributionRecord,
   type SessionCatalog,
+  type SessionOutcomeStore,
 } from "@werft-ai/platform";
 import { type FakeGitHub, startFakeGitHub } from "@werft-ai/testkit";
 import { createGitHubConnection } from "../forge-github.ts";
 import { hashApiKey } from "../keys.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
-import { registerGitHubWorkRoutes } from "./github-work.ts";
+import {
+  registerGitHubWorkRoutes,
+  registerSessionAttributionRoutes,
+  registerSessionOutcomeRoutes,
+} from "./github-work.ts";
 
 const createApiApp = recordRouteErrors("routes/github-work.test.ts");
 
@@ -84,6 +97,8 @@ beforeAll(async () => {
       title: "",
       body: "",
       state: "open",
+      merged_at: null,
+      closed_at: null,
       author_app_id: author,
       html_url: `${github.origin}/acme/app/pull/${number}`,
     });
@@ -647,6 +662,224 @@ describe("GitHub work routes", () => {
       ).status,
     ).toBe(413);
     expect(target.receipts).toEqual([]);
+  });
+});
+
+describe("GET /v1/sessions/{id}/github/attribution", () => {
+  const OTHER_OWNERS = "22222222-2222-4222-8222-222222222222";
+  const DOWN = "33333333-3333-4333-8333-333333333333";
+  const records: Record<string, SessionAttributionRecord> = {
+    [SESSION]: {
+      ownerId: "owner-a",
+      trigger: "personal_key",
+      agentId: AGENT,
+      agentReleaseId: RELEASE,
+      starter: { userId: "user-1", github: { id: "583231", login: "octocat" } },
+    },
+    [OTHER_OWNERS]: {
+      ownerId: "owner-b",
+      trigger: "web",
+      agentId: null,
+      agentReleaseId: null,
+      starter: null,
+    },
+  };
+  const api = createApiApp({
+    authMode: "api-key",
+    keyStore: {
+      async find(hash) {
+        const key = ["attr_reader", "attr_none"].find((candidate) =>
+          Buffer.from(hash).equals(Buffer.from(hashApiKey(candidate))),
+        );
+        return key
+          ? {
+              id: `key-${key}`,
+              ownerId: "owner-a",
+              workspaceId: null,
+              kind: "operator" as const,
+              createdByUserId: null,
+              creatorRole: null,
+              scopes: key === "attr_reader" ? ["sessions:read"] : [],
+            }
+          : null;
+      },
+    },
+    registerRoutes: (router) =>
+      registerSessionAttributionRoutes(
+        router,
+        createSessionAttributionService({
+          authorization: createAuthorizationPolicy(),
+          store: {
+            attribution: async (sessionId) => {
+              if (sessionId === DOWN) {
+                throw Object.assign(new Error("connection refused"), {
+                  code: "ECONNREFUSED",
+                });
+              }
+              return records[sessionId] ?? null;
+            },
+          },
+        }),
+      ),
+  });
+  const read = async (session: string, key?: string) => {
+    const response = await api.request(
+      `/v1/sessions/${session}/github/attribution`,
+      key === undefined ? {} : { headers: { Authorization: `Bearer ${key}` } },
+    );
+    const text = await response.text();
+    return { status: response.status, json: text ? JSON.parse(text) : null };
+  };
+
+  test("names the trigger and the linked starter's login", async () => {
+    const answer = await read(SESSION.toUpperCase(), "attr_reader");
+    expect(answer.status).toBe(200);
+    expect(sessionGitHubAttributionSchema.parse(answer.json)).toEqual({
+      trigger: "personal_key",
+      attribution: "co_author",
+      login: "octocat",
+    });
+  });
+
+  test("another owner's session or none is 404; no scope 403; no key 401; a store outage 503", async () => {
+    expect((await read(OTHER_OWNERS, "attr_reader")).status).toBe(404);
+    expect(
+      (await read("44444444-4444-4444-8444-444444444444", "attr_reader"))
+        .status,
+    ).toBe(404);
+    expect((await read(SESSION, "attr_none")).status).toBe(403);
+    expect((await read(SESSION)).status).toBe(401);
+    expect((await read(DOWN, "attr_reader")).status).toBe(503);
+  });
+});
+
+describe("GET /v1/sessions/{id}/outcomes and …/github/refusals", () => {
+  const DOWN = "33333333-3333-4333-8333-333333333333";
+  const outcome: SessionOutcome = {
+    id: "019a0000-0000-7000-8000-0000000000a1",
+    type: "github_pull_request",
+    url: "https://github.com/acme/app/pull/7",
+    repository_id: "app",
+    external_id: "7",
+    state: "merged",
+    state_changed_at: "2026-10-31T01:00:00.000Z",
+    merged_at: "2026-10-31T01:00:00.000Z",
+    closed_at: "2026-10-31T01:00:00.000Z",
+    state_checked_at: "2026-10-31T01:02:00.000Z",
+    check_error: null,
+    metadata: {
+      head: `agent/${SESSION}`,
+      base: "main",
+      adopted: false,
+      merge_commit_sha: "d".repeat(40),
+      additions: 2,
+      deletions: 1,
+      changed_files: 1,
+      commits: 1,
+    },
+    created_at: "2026-10-31T00:00:00.000Z",
+  };
+  const refusal: SessionGitHubRefusal = {
+    receipt_id: "019a0000-0000-7000-8000-0000000000b1",
+    operation: "mint_github_token",
+    purpose: "push",
+    reason_code: "github_disabled",
+    created_at: "2026-10-31T00:30:00.000Z",
+  };
+  const asked: Array<[string, string, number?]> = [];
+  const answer = <T>(owner: string, session: string, items: T[]) => {
+    if (session === DOWN) {
+      throw Object.assign(new Error("connection refused"), {
+        code: "ECONNREFUSED",
+      });
+    }
+    return owner === "owner-a" && session === SESSION ? items : null;
+  };
+  const api = createApiApp({
+    authMode: "api-key",
+    keyStore: {
+      async find(hash) {
+        const key = ["out_reader", "out_none"].find((candidate) =>
+          Buffer.from(hash).equals(Buffer.from(hashApiKey(candidate))),
+        );
+        return key
+          ? {
+              id: `key-${key}`,
+              ownerId: "owner-a",
+              workspaceId: null,
+              kind: "operator" as const,
+              createdByUserId: null,
+              creatorRole: null,
+              scopes: key === "out_reader" ? ["sessions:read"] : [],
+            }
+          : null;
+      },
+    },
+    registerRoutes: (router) =>
+      registerSessionOutcomeRoutes(
+        router,
+        createSessionOutcomeService({
+          authorization: createAuthorizationPolicy(),
+          store: {
+            list: async (owner, session) => {
+              asked.push([owner, session]);
+              return answer(owner, session, [outcome]);
+            },
+            refusals: async (owner, session, limit) => {
+              asked.push([owner, session, limit]);
+              return answer(owner, session, [refusal]);
+            },
+          } as SessionOutcomeStore,
+        }),
+      ),
+  });
+  const read = async (path: string, key?: string) => {
+    const response = await api.request(
+      path,
+      key === undefined ? {} : { headers: { Authorization: `Bearer ${key}` } },
+    );
+    const text = await response.text();
+    return { status: response.status, json: text ? JSON.parse(text) : null };
+  };
+
+  test("lists the session's outcomes and its latest ten refusals", async () => {
+    const outcomes = await read(
+      `/v1/sessions/${SESSION.toUpperCase()}/outcomes`,
+      "out_reader",
+    );
+    expect(outcomes.status).toBe(200);
+    expect(listSessionOutcomesResponseSchema.parse(outcomes.json)).toEqual({
+      items: [outcome],
+    });
+    const refusals = await read(
+      `/v1/sessions/${SESSION}/github/refusals`,
+      "out_reader",
+    );
+    expect(refusals.status).toBe(200);
+    expect(
+      listSessionGitHubRefusalsResponseSchema.parse(refusals.json),
+    ).toEqual({ items: [refusal] });
+    expect(asked.slice(-2)).toEqual([
+      ["owner-a", SESSION],
+      ["owner-a", SESSION, 10],
+    ]);
+  });
+
+  test("an unseen session is 404; no scope 403; no key 401; a store outage 503", async () => {
+    for (const path of ["outcomes", "github/refusals"]) {
+      const at = (session: string) => `/v1/sessions/${session}/${path}`;
+      expect(
+        (await read(at("44444444-4444-4444-8444-444444444444"), "out_reader"))
+          .status,
+        path,
+      ).toBe(404);
+      expect((await read(at("not-a-uuid"), "out_reader")).status, path).toBe(
+        404,
+      );
+      expect((await read(at(SESSION), "out_none")).status, path).toBe(403);
+      expect((await read(at(SESSION))).status, path).toBe(401);
+      expect((await read(at(DOWN), "out_reader")).status, path).toBe(503);
+    }
   });
 });
 

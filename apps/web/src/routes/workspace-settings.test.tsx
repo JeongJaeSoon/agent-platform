@@ -19,13 +19,15 @@ const PROFILES = {
     profile("claude-general", "claude-sonnet-5"),
   ],
 };
-// Every settings page reads the profile catalog for its model card.
+// Every settings page reads the profile catalog for its model card; the
+// Slack page also reads the token and the apps it made.
 const renderAt: typeof harness.renderAt = (path, routes, locale) =>
   harness.renderAt(
     path,
     {
       "GET /v1/profiles": () => json(200, PROFILES),
       [`GET ${TOKEN}`]: () => json(200, UNSET_TOKEN),
+      [`GET ${APPS}`]: () => json(200, { items: [] }),
       ...routes,
     },
     locale,
@@ -48,6 +50,7 @@ function profile(id: string, model: string) {
 
 const RETENTION = `/v1/workspaces/${WORKSPACE_ID}/audit-retention`;
 const GUEST = `/v1/workspaces/${WORKSPACE_ID}/slack-guest`;
+const APPS = `/v1/workspaces/${WORKSPACE_ID}/slack/apps`;
 const TOKEN = `/v1/workspaces/${WORKSPACE_ID}/slack/config-token`;
 const UNSET_TOKEN = {
   configured: false,
@@ -830,7 +833,11 @@ describe("워크스페이스 설정", () => {
         apiError(503, "BACKEND_UNAVAILABLE", "The secret store is off"),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "삭제" }));
+    await user.click(
+      await screen.findByRole("button", {
+        name: "App Configuration Token 삭제",
+      }),
+    );
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "삭제" }));
     expect((await screen.findByRole("alert")).textContent).toBe(
@@ -849,7 +856,11 @@ describe("워크스페이스 설정", () => {
       },
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "삭제" }));
+    await user.click(
+      await screen.findByRole("button", {
+        name: "App Configuration Token 삭제",
+      }),
+    );
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "삭제" }));
     expect((await screen.findByRole("status")).textContent).toBe(

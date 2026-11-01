@@ -170,6 +170,12 @@ export const createSlackAppResponseSchema = z
   })
   .strict();
 
+export const CONFIG_TOKEN_STATE_VALUES = [
+  "unset",
+  "active",
+  "needs_reentry",
+] as const;
+
 export const getSlackAppResponseSchema = z
   .object({
     slack_app: slackAppSchema.nullable(),
@@ -184,6 +190,11 @@ export const getSlackAppResponseSchema = z
       })
       .strict(),
     warnings: z.array(slackAgentWarningSchema),
+    /**
+     * The workspace's App Configuration Token, so a console can say why an
+     * app cannot be made before asking; only `active` can make one.
+     */
+    config_token: z.enum(CONFIG_TOKEN_STATE_VALUES),
   })
   .strict();
 
@@ -214,11 +225,32 @@ export const deleteSlackAppResponseSchema = z
   .object({ slack_app: slackAppSchema })
   .strict();
 
-export const CONFIG_TOKEN_STATE_VALUES = [
-  "unset",
-  "active",
-  "needs_reentry",
-] as const;
+/**
+ * The apps this console made in the workspace and still keeps: agent apps
+ * and the account-link app, not ones failed, abandoned or deleted.
+ */
+export const listWorkspaceSlackAppsResponseSchema = z
+  .object({
+    items: z.array(
+      z
+        .object({
+          slack_app: slackAppSchema,
+          /** Null for the account-link app. */
+          agent: z
+            .object({
+              id: agentIdSchema,
+              name: z.string(),
+              slug: z.string(),
+              /** Whether the agent's bot is installed in Slack now. */
+              installed: z.boolean(),
+            })
+            .strict()
+            .nullable(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
 
 /**
  * The config token as the console shows it. `needs_reentry`: Slack no
@@ -257,6 +289,9 @@ export type CreateSlackAppResponse = z.infer<
 export type GetSlackAppResponse = z.infer<typeof getSlackAppResponseSchema>;
 export type DeleteSlackAppResponse = z.infer<
   typeof deleteSlackAppResponseSchema
+>;
+export type ListWorkspaceSlackAppsResponse = z.infer<
+  typeof listWorkspaceSlackAppsResponseSchema
 >;
 export type SlackConfigTokenSummary = z.infer<
   typeof slackConfigTokenSummarySchema

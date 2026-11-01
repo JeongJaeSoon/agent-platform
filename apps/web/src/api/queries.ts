@@ -7,6 +7,7 @@ export {
   agentListsFilter,
   agentPagesQuery,
   agentQuery,
+  agentSlackActionsQuery,
   agentSummariesQuery,
   agentsOnProfileQuery,
   agentsQuery,

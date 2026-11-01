@@ -19,6 +19,8 @@ import {
   buttonVariants,
   ConfirmDialog,
   cn,
+  DangerZone,
+  DangerZoneRow,
   EmptyState,
   formatTimestamp,
   GridTable,
@@ -36,7 +38,7 @@ import {
   Skeleton,
 } from "@werft-ai/ui";
 import { Lock } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import {
   agentsOnProfileQuery,
   profilesQuery,
@@ -154,6 +156,17 @@ export function ProfileDetailScreen() {
     readonly block: boolean;
   } | null>(null);
   const [blockError, setBlockError] = useState<string | null>(null);
+  // Block sits in the danger zone and unblock in the head, so the button
+  // that opened the dialog is gone once the list refetches; focus moves to
+  // the one that replaces it when it mounts.
+  const focusNext = useRef<"block" | "unblock" | null>(null);
+  const focusWhen =
+    (which: "block" | "unblock") => (button: HTMLButtonElement | null) => {
+      if (button && focusNext.current === which) {
+        focusNext.current = null;
+        button.focus();
+      }
+    };
   const block = useMutation<
     WorkspaceProfileChangeResponse,
     ApiError,
@@ -171,6 +184,7 @@ export function ProfileDetailScreen() {
       ),
     onMutate: () => setBlockError(null),
     onSuccess: async ({ profile: changed }, { block }) => {
+      focusNext.current = block ? "unblock" : "block";
       setBlocking(null);
       setNotice({
         on: changed.id,
@@ -299,37 +313,27 @@ export function ProfileDetailScreen() {
       </Link>,
     );
   }
-  if (changes && state !== "retired")
-    actions.push(
-      <Button
-        key="retire"
-        type="button"
-        variant="outline"
-        onClick={() => {
-          setRetireError(null);
-          setRetiring(profile.id);
-        }}
-      >
-        {t("profiles.retire")}
-      </Button>,
-    );
+  const canRetire = changes && state !== "retired";
   // Only the owner blocks a ceiling; a retired one can be blocked too.
-  if (ceiling && operates) {
-    const blocked = state === "blocked";
+  // Unblocking undoes nothing, so it stays in the head; blocking is in the
+  // danger zone.
+  const blocked = state === "blocked";
+  const canBlock = ceiling && operates && !blocked;
+  if (ceiling && operates && blocked)
     actions.push(
       <Button
-        key="block"
+        key="unblock"
+        ref={focusWhen("unblock")}
         type="button"
         variant="outline"
         onClick={() => {
           setBlockError(null);
-          setBlocking({ id: profile.id, block: !blocked });
+          setBlocking({ id: profile.id, block: false });
         }}
       >
-        {t(blocked ? "profiles.unblock" : "profiles.block")}
+        {t("profiles.unblock")}
       </Button>,
     );
-  }
 
   // Losing the role closes the dialog; a request already sent still reports here.
   const retireOpen = retiring === profile.id && changes;
@@ -398,6 +402,35 @@ export function ProfileDetailScreen() {
       <History profile={profile} versions={lineOf(profile, items)} />
       {ceiling ? <Narrowings ceiling={profile} items={items} /> : null}
       <AgentsOn profile={profile} />
+      {canRetire || canBlock ? (
+        <DangerZone title={t("workspace.danger")}>
+          {canBlock ? (
+            <DangerZoneRow
+              title={t("profiles.blockRow")}
+              description={t("profiles.blockRowHint")}
+              actionLabel={t("profiles.block")}
+              actionName={t("profiles.blockRow")}
+              actionRef={focusWhen("block")}
+              onAction={() => {
+                setBlockError(null);
+                setBlocking({ id: profile.id, block: true });
+              }}
+            />
+          ) : null}
+          {canRetire ? (
+            <DangerZoneRow
+              title={t("profiles.retireRow")}
+              description={t("profiles.retireRowHint")}
+              actionLabel={t("profiles.retire")}
+              actionName={t("profiles.retireRow")}
+              onAction={() => {
+                setRetireError(null);
+                setRetiring(profile.id);
+              }}
+            />
+          ) : null}
+        </DangerZone>
+      ) : null}
       <ConfirmDialog
         open={retireOpen}
         onOpenChange={(next) => {

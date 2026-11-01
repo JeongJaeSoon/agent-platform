@@ -23,8 +23,8 @@
     color-scheme: light dark;
 
     /*
-     * Surfaces and accent follow shadcn/ui's neutral base colour (white
-     * surface, near-black primary). Where shadcn's value fails WCAG AA here,
+     * Surfaces follow shadcn/ui's neutral base colour (white surface); the
+     * accent is blue. Where shadcn's value fails WCAG AA here,
      * the value is darkened instead: muted-foreground (#737373 drops under
      * 4.5:1 on the tone backgrounds) and border-input (#e5e5e5 is under 3:1
      * on white). Mockup v4 (Console.dc.html) sets the other values.
@@ -60,10 +60,28 @@
     /* The faintest text (v35 text-3), still 4.5:1 on sidebar and surface. */
     --ap-color-subtle-foreground: #6b6b6b;
 
-    /* Used for the single primary action. */
-    --ap-color-accent: #171717;
-    --ap-color-accent-hover: #383838;
+    /*
+     * The single primary action, in the blue of links and checked controls,
+     * not near-black: the console read as black and grey (owner, 2026-10-31).
+     * White holds 4.5:1 on it and on its hover.
+     */
+    --ap-color-accent: #0060d1;
+    --ap-color-accent-hover: #0050b0;
     --ap-color-accent-foreground: #ffffff;
+    /*
+     * Icon tiles: a white glyph on a solid hue marks each sidebar page and
+     * the home card about it. A hue names a page, not a state (states keep
+     * the tones below); the glyph holds 3:1 on every hue (WCAG 1.4.11).
+     */
+    --ap-color-tile-foreground: #ffffff;
+    --ap-color-tile-blue: #2563eb;
+    --ap-color-tile-violet: #7c3aed;
+    --ap-color-tile-orange: #ea580c;
+    --ap-color-tile-green: #16a34a;
+    --ap-color-tile-pink: #db2777;
+    --ap-color-tile-teal: #0d9488;
+    --ap-color-tile-sky: #0284c7;
+    --ap-color-tile-slate: #475569;
     /* 4.6:1 on surface; the one focus outline every part draws. */
     --ap-color-focus-ring: #0070f3;
     --ap-color-link: #0060d1;
@@ -191,6 +209,9 @@
     --ap-radius-card: 0.5rem;
     --ap-radius-pill: 999px;
 
+    /* Every coloured icon tile in the console, sidebar and cards alike. */
+    --ap-size-icon-tile: 1.5rem;
+
     /* One shadow, for what floats (menus, dialogs, toasts). */
     --ap-shadow-pop:
       0 0 0 1px rgb(0 0 0 / 0.06), 0 8px 24px -6px rgb(0 0 0 / 0.12);
@@ -239,11 +260,11 @@
     --ap-leading-number: 2rem;
 
     /*
-     * Charts draw one series in greys, no category hues: aliases of existing
-     * colours, so they turn dark with them. A part a reader picks or points
-     * at takes mark-active.
+     * Charts draw one series in the accent, no category hues: aliases of
+     * existing colours, so they turn dark with them. A part a reader picks or
+     * points at takes mark-active.
      */
-    --ap-chart-mark: var(--ap-color-subtle-foreground);
+    --ap-chart-mark: var(--ap-color-accent);
     --ap-chart-mark-active: var(--ap-color-foreground);
     --ap-chart-track: var(--ap-color-sidebar-accent);
     --ap-chart-grid: var(--ap-color-border);
@@ -270,9 +291,18 @@
       --ap-color-muted-foreground: #a1a1a1;
       --ap-color-subtle-foreground: #8f8f8f;
 
-      --ap-color-accent: #ededed;
-      --ap-color-accent-hover: #cfcfcf;
-      --ap-color-accent-foreground: #0a0a0a;
+      --ap-color-accent: #0070f3;
+      --ap-color-accent-hover: #0060d1;
+      --ap-color-accent-foreground: #ffffff;
+      --ap-color-tile-foreground: #ffffff;
+      --ap-color-tile-blue: #2563eb;
+      --ap-color-tile-violet: #7c3aed;
+      --ap-color-tile-orange: #ea580c;
+      --ap-color-tile-green: #16a34a;
+      --ap-color-tile-pink: #db2777;
+      --ap-color-tile-teal: #0d9488;
+      --ap-color-tile-sky: #0284c7;
+      --ap-color-tile-slate: #475569;
       --ap-color-focus-ring: #3291ff;
       --ap-color-link: #52a8ff;
       --ap-color-control-checked: #3291ff;
@@ -354,9 +384,18 @@
     --ap-color-muted-foreground: #a1a1a1;
     --ap-color-subtle-foreground: #8f8f8f;
 
-    --ap-color-accent: #ededed;
-    --ap-color-accent-hover: #cfcfcf;
-    --ap-color-accent-foreground: #0a0a0a;
+    --ap-color-accent: #0070f3;
+    --ap-color-accent-hover: #0060d1;
+    --ap-color-accent-foreground: #ffffff;
+    --ap-color-tile-foreground: #ffffff;
+    --ap-color-tile-blue: #2563eb;
+    --ap-color-tile-violet: #7c3aed;
+    --ap-color-tile-orange: #ea580c;
+    --ap-color-tile-green: #16a34a;
+    --ap-color-tile-pink: #db2777;
+    --ap-color-tile-teal: #0d9488;
+    --ap-color-tile-sky: #0284c7;
+    --ap-color-tile-slate: #475569;
     --ap-color-focus-ring: #3291ff;
     --ap-color-link: #52a8ff;
     --ap-color-control-checked: #3291ff;

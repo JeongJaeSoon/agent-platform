@@ -45,7 +45,12 @@ export class PostgresSessionNotifier implements SessionEventWakeup {
     this.#reconnectDelayMs = options.reconnectDelayMs ?? 1_000;
     this.#connect =
       options.connect ??
-      (() => new Client({ connectionString, stream: lookupEveryTimeStream }));
+      (() =>
+        new Client({
+          connectionString,
+          stream: lookupEveryTimeStream,
+          application_name: "agent-platform:api-listen",
+        }));
   }
 
   get listening(): boolean {

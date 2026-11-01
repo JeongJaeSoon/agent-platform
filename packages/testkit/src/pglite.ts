@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
+import { migrate } from "@werft-ai/db/migrate";
 import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 
 const migrationsFolder = join(import.meta.dir, "..", "..", "db", "migrations");
 

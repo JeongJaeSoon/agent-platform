@@ -1,3 +1,4 @@
+import type { ImageRuntime } from "@werft-ai/runtime-core";
 import type {
   ExecutionBackend,
   ExecutionRef,
@@ -73,6 +74,14 @@ export type SchedulerOptions = {
   drainDeadlineMs?: number;
   /** The configured reference; each new launch is pinned to what it names. */
   image: string;
+  /**
+   * What `image` runs, from its build. Without it every launch takes `image`
+   * as before; with it each launch takes the image its checkpoint matches
+   * (`selectWorkerImage`), and one no image matches is stopped.
+   */
+  imageRuntime?: ImageRuntime;
+  /** The release before `image`, for sessions sealed on it. */
+  previousImage?: { image: string; runtime: ImageRuntime };
   /** Failed attempts per launch before it is given up on; see the default. */
   launchFailureLimit?: number;
   /** First backoff after a failed attempt; doubles per failure up to the cap. */
@@ -125,6 +134,13 @@ export type SchedulerRunSummary = {
    * admitted this pass. A fault: sessions wait on it until someone looks.
    */
   imageUnresolved: boolean;
+  /**
+   * Pinned images left out this pass because a worker on them claimed under
+   * another combination than configured. A fault, like `imageUnresolved`.
+   */
+  imagesRefused: string[];
+  /** Sessions stopped before launch: no configured image matches their checkpoint. */
+  heldIncompatible: string[];
   launched: ExecutionRef[];
   /**
    * Launches left alone this pass because their last failed attempt still

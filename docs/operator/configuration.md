@@ -80,6 +80,8 @@ terminate가 이미 사라진 execution에서 즉시 끝나거나 scheduler/reco
 
 worker도 기동 때 교차 검사를 한다. `WORKER_PROVIDER_MAX_RETRIES`가 없으면 기동하지 않는다. 코드 기본값이 없는 설치 상한이고, scheduler가 항상 넘긴다. `WORKER_NEXT_INPUT_WAIT_SEC`가 `WORKER_REQUEST_TIMEOUT_SEC` 이상이어도 기동하지 않는다. 그 설정에서는 모든 long poll이 요청 timeout에 잘린다. scheduler와 reconciler는 빈 `DATABASE_URL`을 설정하지 않은 것으로 보고 `QUEUE_DATABASE_URL`을 쓴다.
 
+API와 slack role은 `WORKER_IMAGE_RUNTIME`과 `WORKER_IMAGE_PREVIOUS_RUNTIME`으로 현재·직전 worker 이미지의 런타임 조합을 읽는다. 값은 손으로 적지 않고, images.yml이 남긴 worker digest JSON의 `runtime` 필드를 그대로 넣는다(`{"engine":…,"sdkVersion":…,"cliVersion":…,"profileDigestScheme":…}`). 둘 다 없으면 지금처럼 동작한다. `WORKER_IMAGE_PREVIOUS_RUNTIME`만 있거나 값을 읽을 수 없으면 기동하지 않는다. 설정하면 profile의 `runtime_version`을 다음 이미지 버전으로 올려도, 직전 이미지 버전으로 만들어진 열린 세션의 profile pin이 유지된다. 현재 이미지가 싣지 않은 `runtime_version`의 profile은 새 세션을 받지 않는다. 그래서 SDK를 올리는 릴리스는 `profiles.yaml`의 `runtime_version`도 함께 올린다.
+
 `WERFT_API_KEY`·`WERFT_BASE_URL`은 서버 설정이 아니다. TypeScript SDK(`packages/sdk`)를 쓰는 호출자 쪽 스크립트가 읽는 값이고, SDK 예제는 `WERFT_PROFILE_ID`·`WERFT_REPOSITORY_ID`도 읽는다([TypeScript SDK](../sdk.md)).
 
 ## scheduler·worker 컨테이너·egress 설정
@@ -87,6 +89,12 @@ worker도 기동 때 교차 검사를 한다. `WORKER_PROVIDER_MAX_RETRIES`가 �
 scheduler가 worker 컨테이너를 만들 때 읽는 값이다. 없으면 기본값을 쓰고, 형식이 틀리면 기동하지 않는다. user, HOME·workspace 경로, tmpfs 크기, credential 포트, stop timeout은 `agent-platform.isolation` 지문에 들어간다([실행 기반과 worker 격리](execution.md#reconcilerscheduler와-worker-격리)). 그래서 바꾸면 실행 중인 worker가 교체된다. CPU·메모리·PID 한도는 다음 launch부터 적용된다.
 
 `WORKER_MEMORY_MB`는 transcript 상한(`MAX_TRANSCRIPT_BYTES`)과 함께 정한 값이다. 둘의 관계, 실측, 노드당 세션 수, 바꾸는 방법은 [capacity.md](capacity.md)에 있다.
+
+scheduler는 `WORKER_IMAGE`와 `WORKER_IMAGE_RUNTIME`으로 현재 이미지를, `WORKER_IMAGE_PREVIOUS`와 `WORKER_IMAGE_PREVIOUS_RUNTIME`으로 직전 릴리스 이미지를 받는다. 런타임 값은 API와 같은 값이다(위 API 설정). 직전 이미지는 두 값을 함께 설정하고, 하나만 있으면 기동하지 않는다. `WORKER_IMAGE_RUNTIME`이 없으면 지금처럼 모든 launch가 `WORKER_IMAGE`로 뜬다. 설정하면 launch마다 세션의 checkpoint 포인터가 기록한 조합(engine·SDK·CLI·profile digest scheme)과 같은 이미지를 고르고, 둘 다 맞으면 현재 이미지를 쓴다. 새 세션, checkpoint가 없는 세션, 조합을 기록하지 않은 옛 checkpoint는 현재 이미지로 뜬다. 어느 이미지와도 맞지 않는 세션은 worker를 띄우지 않고 `recovery_required`(`incompatible_checkpoint`)로 멈추며, 세션 이벤트 `checkpoint_restore_failed`에 `detected_at: "launch"`가 남는다. `retry_restore`로 다시 시도할 수 있다.
+
+worker는 claim 때 자기 이미지가 실제로 싣는 조합을 보낸다. 설정한 조합과 다르면 API가 claim을 거절하고(`LAUNCH_FAILED`, `reason_code` `worker_image_mismatch`), 그 이미지를 그 설정값에 대해 거부한 것으로 기록한다. 이후 그 이미지로 뜰 세션은 launch되지 않고 기다리며, scheduler pass는 `images_refused`를 error 로그로 남기고 exit 1로 끝난다. 이미지 설정을 바로잡으면(값이 달라지면) 다음 pass부터 다시 launch한다. 세션 자체는 실패로 바뀌지 않는다.
+
+배포 순서: 새 worker는 claim에 `image_runtime`을 싣는다. 이 필드를 모르는 옛 API는 요청을 거절하므로, API를 먼저 올린 뒤 scheduler의 `WORKER_IMAGE`를 새 이미지로 바꾼다.
 
 | 변수 | 기본값 | 의미 |
 |---|---|---|

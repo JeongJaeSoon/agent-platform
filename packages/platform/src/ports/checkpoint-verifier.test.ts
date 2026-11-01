@@ -99,4 +99,31 @@ describe("serviceCheckpointVerifier", () => {
       transcriptBytes: 0,
     });
   });
+
+  test("carries the manifest's runtime fingerprint to the pointer row", async () => {
+    const runtime = {
+      cliVersion: "2.1.270",
+      engine: "claude-agent-sdk",
+      profileSha256: "a".repeat(64),
+      sdkVersion: "0.3.270",
+    };
+    const verifier = serviceCheckpointVerifier({
+      async verifyAttemptManifest() {
+        return {
+          status: "verified",
+          manifest: {
+            runtime,
+            transcripts: { root: { parts: [] }, subagents: {} },
+          } as unknown as CheckpointManifest,
+        };
+      },
+    });
+    const verdict = await verifier.verify({
+      fence,
+      turnId: "1",
+      checkpoint,
+      at: new Date("2026-10-31T00:00:00Z"),
+    });
+    expect(verdict).toMatchObject({ status: "verified", runtime });
+  });
 });

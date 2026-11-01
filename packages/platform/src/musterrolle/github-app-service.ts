@@ -211,24 +211,34 @@ export function createGitHubAppService(deps: {
           repositories: unchecked(),
         };
       }
-      const [checked, permissions] = await Promise.all([
+      const [checked, profile] = await Promise.all([
         check(credential),
         // An owner widens the App on GitHub; this read is how it shows here.
         directory
           .describe(credential)
           .then(
-            (profile) => profile.permissions,
+            (profile) => profile,
             () => null,
           ),
       ]);
-      if (permissions !== null) {
-        await store.recordPermissions(record.id, permissions);
+      if (profile !== null) {
+        await store.recordPermissions(
+          record.id,
+          credential.appId,
+          profile.permissions,
+          profile.clientId,
+        );
       }
       return {
         github_app: githubAppOf(
-          permissions === null
+          profile === null
             ? record
-            : { ...record, permissions, permissionsCheckedAt: new Date() },
+            : {
+                ...record,
+                permissions: profile.permissions,
+                permissionsCheckedAt: new Date(),
+                clientId: profile.clientId,
+              },
           role,
         ),
         ...checked,

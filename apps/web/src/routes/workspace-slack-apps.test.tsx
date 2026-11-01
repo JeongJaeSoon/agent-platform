@@ -1,0 +1,277 @@
+import { describe, expect, test } from "bun:test";
+import { json, me, memberMe, WORKSPACE_ID } from "../test-support/fake-api.ts";
+import { appHarness } from "../test-support/render-app.tsx";
+
+const harness = await appHarness();
+const { screen, waitFor, within } = harness;
+
+const APPS = `/v1/workspaces/${WORKSPACE_ID}/slack/apps`;
+const SLACK = "/settings/workspace/slack";
+const EMPTY = "이 콘솔이 만든 Slack 앱이 아직 없습니다.";
+// The token card above the list, settled so the page stops loading.
+const CONFIG = `/v1/workspaces/${WORKSPACE_ID}/slack/config-token`;
+const UNSET = {
+  configured: false,
+  last4: null,
+  updated_at: null,
+  updated_by: null,
+  state: "unset",
+  expires_at: null,
+  issuer: null,
+};
+const AGENT_ID = "019a0000-0000-7000-8000-0000000000c1";
+const NO_SECRET = {
+  configured: false,
+  last4: null,
+  updated_at: null,
+  updated_by: null,
+};
+
+function app(
+  kind: "agent" | "link",
+  state: "creating" | "created" | "deleting",
+  appId: string | null,
+  clientSecret = false,
+) {
+  const made = {
+    id: crypto.randomUUID(),
+    kind,
+    agent_id: kind === "agent" ? AGENT_ID : null,
+    state,
+    app_id: appId,
+    client_id: appId === null ? null : "1000.1",
+    redirect_url: "https://console.example.test/callback",
+    created_by_token_user: "U0ISSUER",
+    created_at: "2026-10-01T00:20:00.000Z",
+    updated_at: "2026-10-23T12:48:00.000Z",
+    secrets: {
+      slack_signing_secret: NO_SECRET,
+      slack_client_secret: NO_SECRET,
+      slack_bot_token: NO_SECRET,
+    },
+  };
+  const { secrets } = made;
+  return {
+    ...made,
+    secrets: {
+      ...secrets,
+      slack_client_secret: {
+        ...secrets.slack_client_secret,
+        configured: clientSecret,
+      },
+    },
+  };
+}
+const agent = (installed: boolean, name = "Release Notes") => ({
+  id: AGENT_ID,
+  name,
+  slug: "release-notes",
+  installed,
+});
+
+describe("Slack 연결 설정의 자동으로 만든 Slack 앱", () => {
+  test("소유자는 계정 연결 앱과 에이전트 앱을 상태와 함께 본다", async () => {
+    harness.renderAt(SLACK, {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${APPS}`]: () =>
+        json(200, {
+          items: [
+            {
+              slack_app: app("link", "created", "A07LINK000", true),
+              agent: null,
+            },
+            {
+              slack_app: app("agent", "created", "A07PLACEHLD"),
+              agent: agent(true),
+            },
+            {
+              slack_app: app("agent", "created", "A07SECOND1"),
+              agent: agent(false, "Draft"),
+            },
+            {
+              slack_app: app("agent", "creating", null),
+              agent: agent(false, "Pending"),
+            },
+          ],
+        }),
+    });
+
+    const table = await screen.findByRole("table");
+    const rows = within(table).getAllByRole("row").slice(1);
+    expect(rows).toHaveLength(4);
+    const section = screen
+      .getByRole("heading", { level: 2, name: "자동으로 만든 Slack 앱" })
+      .closest("section");
+    expect(section?.id).toBe("slack-apps");
+    expect(section?.contains(table)).toBe(true);
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Slack 연결 설정" }),
+    ).toBeTruthy();
+
+    const link = within(rows[0] as HTMLElement);
+    expect(link.getByText("계정 연결 앱")).toBeTruthy();
+    expect(link.getByText("A07LINK000")).toBeTruthy();
+    expect(link.getByText("연결됨")).toBeTruthy();
+    expect(link.getByText("Sign in with Slack")).toBeTruthy();
+    expect(link.queryByRole("link")).toBeNull();
+
+    const installed = within(rows[1] as HTMLElement);
+    expect(installed.getByText("Release Notes 앱")).toBeTruthy();
+    expect(installed.getByText("연결됨")).toBeTruthy();
+    expect(installed.getByText("@release-notes")).toBeTruthy();
+    expect(
+      installed
+        .getByRole("link", { name: "Release Notes" })
+        .getAttribute("href"),
+    ).toBe(`/agents/${AGENT_ID}`);
+    expect(
+      installed
+        .getByRole("link", { name: /^자세히\s?: Release Notes 앱$/ })
+        .getAttribute("href"),
+    ).toBe(`/agents/${AGENT_ID}?tab=slack`);
+
+    expect(within(rows[2] as HTMLElement).getByText("설치 전")).toBeTruthy();
+    const creating = within(rows[3] as HTMLElement);
+    expect(creating.getByText("만드는 중")).toBeTruthy();
+    expect(creating.getByText("앱 ID 없음")).toBeTruthy();
+  });
+
+  test("연결 앱은 client secret이 있어야, 에이전트 앱은 kind로 연결됨을 판단한다", async () => {
+    harness.renderAt(SLACK, {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${APPS}`]: () =>
+        json(200, {
+          items: [
+            { slack_app: app("link", "created", "A07LINK000"), agent: null },
+            { slack_app: app("agent", "created", "A07ORPHAN1"), agent: null },
+          ],
+        }),
+    });
+
+    const table = await screen.findByRole("table");
+    const [link, orphan] = within(table).getAllByRole("row").slice(1);
+    const linkRow = within(link as HTMLElement);
+    expect(linkRow.getByText("계정 연결 앱")).toBeTruthy();
+    expect(linkRow.getByText("비밀값 없음")).toBeTruthy();
+    expect(linkRow.queryByText("연결됨")).toBeNull();
+    const orphanRow = within(orphan as HTMLElement);
+    expect(orphanRow.queryByText("계정 연결 앱")).toBeNull();
+    expect(orphanRow.getByText("설치 전")).toBeTruthy();
+  });
+
+  test("만든 앱이 없으면 빈 상태를 보인다", async () => {
+    harness.renderAt(SLACK, {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${APPS}`]: () => json(200, { items: [] }),
+    });
+    expect(
+      await screen.findByText("이 콘솔이 만든 Slack 앱이 아직 없습니다."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  test("설정 메뉴에는 Slack·GitHub 연결 설정만 있고 앱 목록 항목은 없다", async () => {
+    harness.renderAt(SLACK, {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${APPS}`]: () => json(200, { items: [] }),
+    });
+    await screen.findByText("이 콘솔이 만든 Slack 앱이 아직 없습니다.");
+    expect(screen.getByRole("link", { name: "Slack 연결 설정" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "GitHub 연결 설정" })).toBeTruthy();
+    expect(
+      screen.queryByRole("link", { name: "자동으로 만든 Slack 앱" }),
+    ).toBeNull();
+  });
+
+  test("앱 목록 절은 토큰 카드 아래, 위험 구역 위에 온다", async () => {
+    harness.renderAt(SLACK, {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${CONFIG}`]: () =>
+        json(200, {
+          ...UNSET,
+          configured: true,
+          last4: "f76d",
+          updated_at: "2026-10-23T12:48:00.000Z",
+          state: "active",
+        }),
+      [`GET ${APPS}`]: () => json(200, { items: [] }),
+    });
+    await screen.findByText(EMPTY);
+    const danger = await screen.findByRole("heading", { name: "위험 구역" });
+    const headings = screen
+      .getAllByRole("heading", { level: 2 })
+      .map((heading) => heading.textContent);
+    expect(headings.indexOf("자동으로 만든 Slack 앱")).toBe(
+      headings.indexOf(danger.textContent) - 1,
+    );
+    expect(headings.at(-1)).toBe("위험 구역");
+  });
+
+  test("예전 주소는 Slack 연결 설정의 앱 목록 절로 보낸다", async () => {
+    const { history } = harness.renderAt("/settings/workspace/slack-apps", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${APPS}`]: () => json(200, { items: [] }),
+    });
+    await screen.findByText("이 콘솔이 만든 Slack 앱이 아직 없습니다.");
+    expect(history.location.pathname).toBe(SLACK);
+    expect(history.location.hash).toBe("#slack-apps");
+  });
+
+  test("앵커로 들어오면 목록이 그려진 뒤 그 절로 스크롤한다", async () => {
+    const scrolled: Element[] = [];
+    const original = Element.prototype.scrollIntoView;
+    // The router also scrolls on render, before the cards above have loaded.
+    Element.prototype.scrollIntoView = function (this: Element) {
+      if (this.textContent?.includes(EMPTY)) scrolled.push(this);
+    };
+    try {
+      harness.renderAt("/settings/workspace/slack-apps", {
+        "GET /v1/auth/me": () => json(200, me()),
+        [`GET ${CONFIG}`]: () => json(200, UNSET),
+        [`GET ${APPS}`]: () => json(200, { items: [] }),
+      });
+      await screen.findByText("이 콘솔이 만든 Slack 앱이 아직 없습니다.");
+      await waitFor(() => expect(scrolled).toHaveLength(1));
+      expect(scrolled[0]?.id).toBe("slack-apps");
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
+  test("앵커 없이 열면 스크롤하지 않는다", async () => {
+    const scrolled: Element[] = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this);
+    };
+    try {
+      harness.renderAt(SLACK, {
+        "GET /v1/auth/me": () => json(200, me()),
+        [`GET ${CONFIG}`]: () => json(200, UNSET),
+        [`GET ${APPS}`]: () => json(200, { items: [] }),
+      });
+      await screen.findByText("이 콘솔이 만든 Slack 앱이 아직 없습니다.");
+      expect(scrolled).toEqual([]);
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
+  test("구성원은 목록을 부르지 않는다", async () => {
+    const calls: string[] = [];
+    harness.renderAt(SLACK, {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      [`GET ${APPS}`]: () => {
+        calls.push(APPS);
+        return json(200, { items: [] });
+      },
+    });
+    expect(
+      (await screen.findAllByText(/워크스페이스 설정 변경/)).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("heading", { level: 2, name: "자동으로 만든 Slack 앱" }),
+    ).toBeTruthy();
+    expect(calls).toEqual([]);
+  });
+});

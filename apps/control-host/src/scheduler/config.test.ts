@@ -109,6 +109,51 @@ describe("schedulerConfigFromEnv", () => {
     expect(docker.egressProxyUrl).toBe(base.EXECUTION_EGRESS_PROXY_URL);
   });
 
+  test("takes the current image's runtime and, when both are given, the previous image and its runtime", () => {
+    const current = {
+      engine: "claude",
+      sdkVersion: "0.3.280",
+      cliVersion: "2.1.280",
+      profileDigestScheme: 1,
+    };
+    const previous = {
+      ...current,
+      sdkVersion: "0.3.270",
+      cliVersion: "2.1.270",
+    };
+    const withImages = {
+      ...base,
+      WORKER_IMAGE_RUNTIME: JSON.stringify(current),
+      WORKER_IMAGE_PREVIOUS: "agent-platform-worker:previous",
+      WORKER_IMAGE_PREVIOUS_RUNTIME: JSON.stringify(previous),
+    };
+    const config = schedulerConfigFromEnv(withImages);
+    expect(config.imageRuntime).toEqual(current);
+    expect(config.previousImage).toEqual({
+      image: "agent-platform-worker:previous",
+      runtime: previous,
+    });
+    // One image, as before: no previous, and without a runtime no selection.
+    const single = schedulerConfigFromEnv({
+      ...base,
+      WORKER_IMAGE_RUNTIME: JSON.stringify(current),
+    });
+    expect(single.imageRuntime).toEqual(current);
+    expect(single.previousImage).toBeUndefined();
+    expect(schedulerConfigFromEnv(base).imageRuntime).toBeUndefined();
+    for (const half of [
+      { ...withImages, WORKER_IMAGE_PREVIOUS: "" },
+      { ...withImages, WORKER_IMAGE_PREVIOUS_RUNTIME: "" },
+    ]) {
+      expect(() => schedulerConfigFromEnv(half)).toThrow(
+        "WORKER_IMAGE_PREVIOUS and WORKER_IMAGE_PREVIOUS_RUNTIME are set together",
+      );
+    }
+    expect(() =>
+      schedulerConfigFromEnv({ ...base, WORKER_IMAGE_RUNTIME: "0.3.280" }),
+    ).toThrow("WORKER_IMAGE_RUNTIME");
+  });
+
   test("falls back to QUEUE_DATABASE_URL and honours explicit limits", () => {
     const config = schedulerConfigFromEnv({
       ...base,

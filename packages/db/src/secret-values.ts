@@ -6,6 +6,7 @@ import {
   type SecretAadFields,
   type SecretAudit,
   type SecretKey,
+  type SecretOwner,
   type SecretOwnerRef,
   type SecretSlot,
   type SecretStore,
@@ -13,7 +14,7 @@ import {
   sealSecret,
   secretOwnerRef,
 } from "@werft-ai/platform";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { lockedRole } from "./api-keys.ts";
 import { receiptActorOf } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
@@ -105,22 +106,35 @@ export function secretReceiptRow(
   };
 }
 
+const summaryColumns = {
+  ownerRef: secretValues.ownerRef,
+  purpose: secretValues.purpose,
+  last4: secretValues.last4,
+  secretVersion: secretValues.secretVersion,
+  updatedAt: secretValues.updatedAt,
+  updatedBy: secretValues.updatedBy,
+  displayName: users.displayName,
+};
+
 async function summaryOf(
   db: Database,
   where: ReturnType<typeof bySlot>,
 ): Promise<SecretSummary | null> {
   const [row] = await db
-    .select({
-      last4: secretValues.last4,
-      secretVersion: secretValues.secretVersion,
-      updatedAt: secretValues.updatedAt,
-      updatedBy: secretValues.updatedBy,
-      displayName: users.displayName,
-    })
+    .select(summaryColumns)
     .from(secretValues)
     .leftJoin(users, eq(users.id, secretValues.updatedBy))
     .where(where);
-  if (!row) return null;
+  return row ? summaryFrom(row) : null;
+}
+
+function summaryFrom(row: {
+  last4: string;
+  secretVersion: number;
+  updatedAt: Date;
+  updatedBy: string | null;
+  displayName: string | null;
+}): SecretSummary {
   return {
     last4: row.last4,
     secretVersion: row.secretVersion,
@@ -194,6 +208,40 @@ export function describeSecret(
 ): Promise<SecretSummary | null> {
   return summaryOf(db, bySlot(canonical(slot)));
 }
+
+/**
+ * describeSecret for every purpose of many owners in one statement, keyed
+ * by secretSummaryKey. A slot with no secret has no entry.
+ */
+export async function describeSecrets(
+  db: Database,
+  workspaceId: string,
+  owners: readonly SecretOwner[],
+): Promise<Map<string, SecretSummary>> {
+  if (owners.length === 0) return new Map();
+  const rows = await db
+    .select(summaryColumns)
+    .from(secretValues)
+    .leftJoin(users, eq(users.id, secretValues.updatedBy))
+    .where(
+      and(
+        eq(secretValues.workspaceId, workspaceId.toLowerCase()),
+        inArray(
+          secretValues.ownerRef,
+          owners.map((owner) => secretOwnerRef(owner)),
+        ),
+      ),
+    );
+  return new Map(
+    rows.map((row) => [
+      secretSummaryKey(row.ownerRef, row.purpose),
+      summaryFrom(row),
+    ]),
+  );
+}
+
+export const secretSummaryKey = (ownerRef: string, purpose: string): string =>
+  `${ownerRef}/${purpose}`;
 
 async function write(
   tx: Database,

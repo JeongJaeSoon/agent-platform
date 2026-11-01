@@ -4,6 +4,7 @@
     "engine": "claude",
     "sdkVersion": "0.3.270"
   },
+  "profileDigestScheme": 1,
   "profileSha256": {
     "default": "574cab6e9d2c3df9ede2ef6ca103503eaf4fa2f391e444b742110816bcf771ce",
     "default-unset-fields": "9b78a36aae443ad0108e4621a867169a879a0abcfe1b0391ceb3d209ca4b723a",

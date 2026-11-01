@@ -56,6 +56,17 @@ RUN apt-get update --error-on=any \
 # runs still wins; the worker's own git reads no system config.
 RUN git config --system user.name Werft \
   && git config --system user.email noreply@werft.invalid
+# The session's commit trailers (Co-authored-by, Agent-Session): every client
+# hook is one dispatcher that runs the repository's own hook of that name
+# too, since core.hooksPath stops git looking in .git/hooks. System scope
+# again, so the worker's own git (GIT_CONFIG_NOSYSTEM) runs none of them.
+COPY --chmod=0755 apps/worker/git-hooks/werft-hook /usr/local/share/werft/git-hooks/werft-hook
+RUN cd /usr/local/share/werft/git-hooks \
+  && for hook in applypatch-msg pre-applypatch post-applypatch pre-commit \
+    pre-merge-commit prepare-commit-msg commit-msg post-commit pre-rebase \
+    post-checkout post-merge pre-push pre-auto-gc post-rewrite \
+    sendemail-validate post-index-change; do ln -s werft-hook "$hook"; done \
+  && git config --system core.hooksPath /usr/local/share/werft/git-hooks
 # uid/gid 1000 is what LocalDockerBackend runs the container as
 # (DEFAULT_WORKER_USER); the base image already owns it as user `bun`, so
 # the build asserts that instead of adding a second account. /workspace is

@@ -1,4 +1,6 @@
 import type { ExecutionBackend as ExecutionBackendKind } from "@werft-ai/contracts";
+import type { ImageRuntime } from "@werft-ai/runtime-core";
+import type { PointerRuntime } from "../scheduler/worker-images.ts";
 import type {
   ExecutionObservation,
   ExecutionRef,
@@ -32,6 +34,11 @@ export type ReserveLaunchInput = {
   backend: ExecutionBackendKind;
   /** Already pinned by `ExecutionBackend.resolveImage`. */
   image: string;
+  /**
+   * The combination the scheduler was told `image` runs. The worker's claim
+   * is held to it. Absent when no image runtime is configured.
+   */
+  imageRuntime?: ImageRuntime;
   now: Date;
   resources: ExecutionResources;
   sessionId: string;
@@ -40,6 +47,24 @@ export type ReserveLaunchInput = {
    * transaction so concurrent scheduler passes cannot both take the last slot.
    */
   slotLimit: number;
+};
+
+/**
+ * A pinned image whose worker claimed under another combination than the
+ * one its launches assumed: an install defect. The scheduler reserves no
+ * launch on it under that assumption again.
+ */
+export type WorkerImageRefusal = {
+  image: string;
+  assumed: ImageRuntime;
+};
+
+export type HoldIncompatibleInput = {
+  sessionId: string;
+  /** The pointer revision the image was chosen against. */
+  checkpointRevision: number;
+  detail: string;
+  now: Date;
 };
 
 /**
@@ -225,13 +250,32 @@ export interface SchedulerStore {
    * from different snapshots.
    */
   acquirePassLock(): Promise<PassLock | null>;
-  inspectDemand(input: { limit: number }): Promise<SchedulerDemand>;
+  /** `excluding` pages past sessions this pass already passed over. */
+  inspectDemand(input: {
+    limit: number;
+    excluding?: readonly string[];
+  }): Promise<SchedulerDemand>;
   /**
    * Commits the launch intent for a session that is still eligible and a slot
    * is free, or returns null when either no longer holds (raced by a claim,
    * another launch, or another scheduler pass).
    */
   reserveLaunch(input: ReserveLaunchInput): Promise<StoredLaunchIntent | null>;
+  /** The session's pointer runtime and the revision it was read at (0: none). */
+  pointerRuntimeOf(
+    sessionId: string,
+  ): Promise<{ pointer: PointerRuntime; checkpointRevision: number }>;
+  /** Every recorded image refusal (`WorkerImageRefusal`). */
+  workerImageRefusals(): Promise<WorkerImageRefusal[]>;
+  /**
+   * Stops a session no configured image can resume before anything is
+   * launched for it: `recovery_required` with `incompatible_checkpoint`, as
+   * a restore that refused its checkpoint would. `stale` when the session is
+   * no longer launchable or its pointer moved past `checkpointRevision`.
+   */
+  holdIncompatibleBeforeLaunch(
+    input: HoldIncompatibleInput,
+  ): Promise<"held" | "stale">;
   /**
    * Mints this launch's bootstrap nonce, stores only its hash, and returns
    * the plaintext. Refuses a launch that already bound a worker or gave its

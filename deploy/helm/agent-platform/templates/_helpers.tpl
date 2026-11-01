@@ -127,6 +127,23 @@ the only way to declare a preview install (demo-accounts.ts).
 {{- end -}}
 {{- end -}}
 
+{{/*
+Fails when a values-named variable is one of the worker image variables:
+the upgrade check reads them from images.* and would otherwise judge other
+images than the scheduler launches.
+*/}}
+{{- define "ap.workerEnvReserved" -}}
+{{- $names := concat (keys .Values.config.limits) .Values.secrets.catalogEnv -}}
+{{- range $key := list "api" "scheduler" "reconciler" "slack" "egressProxy" -}}
+{{- $names = concat $names (keys (index $.Values $key).extraEnv) -}}
+{{- end -}}
+{{- range $name := list "WORKER_IMAGE" "WORKER_IMAGE_PREVIOUS" "WORKER_IMAGE_RUNTIME" "WORKER_IMAGE_PREVIOUS_RUNTIME" -}}
+{{- if has $name $names -}}
+{{- fail (printf "%s must not be set through extraEnv, config.limits or secrets.catalogEnv; set images.worker and images.workerPrevious" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
 {{/* /tmp is the only writable path: the root filesystem is read-only. */}}
 {{- define "ap.tmpVolume" -}}
 - name: tmp
@@ -137,6 +154,61 @@ the only way to declare a preview install (demo-accounts.ts).
 {{- define "ap.tmpMount" -}}
 - name: tmp
   mountPath: /tmp
+{{- end -}}
+
+{{/*
+The worker images' runtime combinations. The api and slack judge profile
+pins against them and the scheduler picks each session's image by them, so
+all three render this one definition and cannot disagree.
+*/}}
+{{- define "ap.workerRuntimeEnv" -}}
+{{- $current := .Values.images.worker.runtime -}}
+{{- $previous := .Values.images.workerPrevious -}}
+{{- if and $previous.digest (not $previous.runtime) -}}
+{{- fail "images.workerPrevious.runtime is required with images.workerPrevious.digest: set the runtime images.yml recorded for it" -}}
+{{- end -}}
+{{- if and $previous.runtime (not $previous.digest) -}}
+{{- fail "images.workerPrevious.digest is required with images.workerPrevious.runtime" -}}
+{{- end -}}
+{{- if and $previous.digest (not $current) -}}
+{{- fail "images.workerPrevious needs images.worker.runtime beside it" -}}
+{{- end -}}
+{{- range $name, $runtime := dict "images.worker.runtime" $current "images.workerPrevious.runtime" $previous.runtime -}}
+{{- /* The same rules as parseImageRuntime, which every reader starts with. */ -}}
+{{- if $runtime -}}
+{{- with without (keys $runtime) "engine" "sdkVersion" "cliVersion" "profileDigestScheme" "profiles" -}}
+{{- fail (printf "%s has unknown field(s): %s" $name (join ", " (sortAlpha .))) -}}
+{{- end -}}
+{{- range $key := list "engine" "sdkVersion" "cliVersion" -}}
+{{- $value := index $runtime $key -}}
+{{- if not (and (kindIs "string" $value) $value) -}}
+{{- fail (printf "%s.%s must be a non-empty string: set the runtime images.yml recorded" $name $key) -}}
+{{- end -}}
+{{- end -}}
+{{- if hasKey $runtime "profileDigestScheme" -}}
+{{- $scheme := index $runtime "profileDigestScheme" -}}
+{{- if not (and (or (kindIs "float64" $scheme) (kindIs "int64" $scheme) (kindIs "int" $scheme)) (eq (float64 $scheme) (floor $scheme)) (ge (float64 $scheme) 1.0)) -}}
+{{- fail (printf "%s.profileDigestScheme must be a positive integer" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- with $current }}
+- name: WORKER_IMAGE_RUNTIME
+  value: {{ toJson . | quote }}
+{{- end }}
+{{- with $previous.runtime }}
+- name: WORKER_IMAGE_PREVIOUS_RUNTIME
+  value: {{ toJson . | quote }}
+{{- end }}
+{{- end -}}
+
+{{/* The previous worker image, for what launches on it: the scheduler. */}}
+{{- define "ap.workerPreviousImageEnv" -}}
+{{- if .Values.images.workerPrevious.digest }}
+- name: WORKER_IMAGE_PREVIOUS
+  value: {{ include "ap.image" (dict "root" . "name" "workerPrevious") | quote }}
+{{- end }}
 {{- end -}}
 
 {{- define "ap.apiHost" -}}{{ include "ap.fullname" . }}-api{{- end -}}

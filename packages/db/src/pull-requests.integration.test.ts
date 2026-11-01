@@ -10,13 +10,13 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresPullRequests } from "./pull-requests.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
-import { pullRequests, receipts, sessions } from "./schema.ts";
+import { pullRequests, receipts, sessionOutcomes, sessions } from "./schema.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -241,6 +241,123 @@ integration("postgres pull requests", () => {
     expect(await store.findPullRequest(OWNER, source.pushRequestId)).toEqual(
       saved.pullRequest,
     );
+  });
+
+  const outcomesOf = (sessionId: string) =>
+    db
+      .select()
+      .from(sessionOutcomes)
+      .where(eq(sessionOutcomes.sessionId, sessionId));
+
+  test("the outcome is written in the pull request's transaction, with its receipt", async () => {
+    const source = await pushed();
+    const saved = await save(source, 41);
+    const [row] = await db
+      .select()
+      .from(pullRequests)
+      .where(eq(pullRequests.sessionId, source.sessionId));
+    expect(await outcomesOf(source.sessionId)).toEqual([
+      expect.objectContaining({
+        ownerId: OWNER,
+        agentReleaseId: null,
+        agentId: null,
+        type: "github_pull_request",
+        url: "https://github.com/acme/app/pull/41",
+        repositoryId: "app",
+        externalId: "41",
+        state: "open",
+        stateChangedAt: row?.createdAt,
+        stateCheckedAt: null,
+        checkError: null,
+        receiptId: saved.receiptId,
+        createdAt: row?.createdAt,
+        metadata: {
+          head: `agent/${source.sessionId}`,
+          base: "main",
+          adopted: false,
+          merge_commit_sha: null,
+          additions: null,
+          deletions: null,
+          changed_files: null,
+          commits: null,
+        },
+      }),
+    ]);
+  });
+
+  test("a second open of the same URL writes no second outcome", async () => {
+    const first = await pushed();
+    const second = await pushed(first.sessionId);
+    await save(first, 42);
+    const again = await store.savePullRequest({
+      ownerId: OWNER,
+      sessionId: first.sessionId,
+      pushRequestId: second.pushRequestId,
+      actor: HUMAN,
+      repositoryId: "app",
+      number: 42,
+      url: "https://github.com/acme/app/pull/42",
+      head: `agent/${first.sessionId}`,
+      base: "main",
+      created: false,
+    });
+    const outcomes = await outcomesOf(first.sessionId);
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]?.receiptId).not.toBe(again.receiptId);
+    expect(outcomes[0]?.metadata).toMatchObject({ adopted: false });
+  });
+
+  test("a pull request the forge did not create is adopted", async () => {
+    const source = await pushed();
+    await store.savePullRequest({
+      ownerId: OWNER,
+      sessionId: source.sessionId,
+      pushRequestId: source.pushRequestId,
+      actor: HUMAN,
+      repositoryId: "app",
+      number: 43,
+      url: "https://github.com/acme/app/pull/43",
+      head: `agent/${source.sessionId}`,
+      base: "main",
+      created: false,
+    });
+    expect((await outcomesOf(source.sessionId))[0]?.metadata).toMatchObject({
+      adopted: true,
+    });
+  });
+
+  test("an outcome that cannot be written takes the pull request row and its receipt back with it", async () => {
+    const source = await pushed();
+    await db.execute(sql`
+      CREATE FUNCTION refuse_outcome_it() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'outcome refused'; END $$`);
+    await db.execute(sql`
+      CREATE TRIGGER refuse_outcome_it BEFORE INSERT ON session_outcomes
+      FOR EACH ROW WHEN (NEW.url LIKE '%/pull/666') EXECUTE FUNCTION refuse_outcome_it()`);
+    try {
+      await expect(save(source, 666)).rejects.toThrow();
+    } finally {
+      await db.execute(sql`DROP TRIGGER refuse_outcome_it ON session_outcomes`);
+      await db.execute(sql`DROP FUNCTION refuse_outcome_it()`);
+    }
+    expect(
+      await db
+        .select()
+        .from(pullRequests)
+        .where(eq(pullRequests.sessionId, source.sessionId)),
+    ).toEqual([]);
+    expect(
+      await db
+        .select()
+        .from(receipts)
+        .where(
+          and(
+            eq(receipts.operation, "open_pull_request"),
+            sql`${receipts.targetRef} ->> 'session_id' = ${source.sessionId}`,
+          ),
+        ),
+    ).toEqual([]);
+    expect(await outcomesOf(source.sessionId)).toEqual([]);
   });
 
   test("a refusal receipt is failed with the refusal's error", async () => {

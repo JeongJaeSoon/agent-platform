@@ -130,6 +130,7 @@ integration("the workspace's link app, made on the first Slack link", () => {
             authorization,
             store: createPostgresLinkedAccountStore(db),
           }),
+          github: { oauth: { client: async () => null }, redirectUri: null },
           slack: {
             issuer: idp.url,
             clients: createSlackLinkAppService({

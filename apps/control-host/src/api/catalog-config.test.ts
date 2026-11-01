@@ -25,6 +25,7 @@ import {
   readCatalogConfig,
   readConnections,
   readSeedProfiles,
+  runtimeVersionsFromEnv,
   type SecretReader,
   unattendedProfiles,
 } from "./catalog-config.ts";
@@ -416,6 +417,40 @@ describe("installed runtimes", () => {
     ).toBe("usable");
   });
 
+  test("configured worker images take no ceiling out of the catalog: open sessions keep their profile", async () => {
+    const dir = join(DEFAULT_CONFIG_DIR, "fake-model");
+    const config = await readCatalog(dir);
+    const connections = await readConnections(dir);
+    const image = (sdkVersion: string, cliVersion: string) =>
+      JSON.stringify({ cliVersion, engine: "claude", sdkVersion });
+    const states = (env: Record<string, string>) =>
+      new Set(
+        [
+          ...installationProfileSnapshot(
+            profileViewSources(connections, config.repositories, env),
+            catalogRows(config.profiles),
+          ).installation.values(),
+        ].map((entry) => entry.state),
+      );
+    expect(states({})).toEqual(new Set(["usable"]));
+    expect(
+      states({ WORKER_IMAGE_RUNTIME: image("0.3.270", "2.1.270") }),
+    ).toEqual(new Set(["usable"]));
+    expect(
+      states({
+        WORKER_IMAGE_RUNTIME: image("0.3.280", "2.1.280"),
+        WORKER_IMAGE_PREVIOUS_RUNTIME: image("0.3.270", "2.1.270"),
+      }),
+    ).toEqual(new Set(["usable"]));
+    expect(
+      states({ WORKER_IMAGE_RUNTIME: image("0.3.280", "2.1.280") }),
+    ).toEqual(new Set(["usable"]));
+    expect(runtimeVersionsFromEnv({})).toBeUndefined();
+    expect(() =>
+      runtimeVersionsFromEnv({ WORKER_IMAGE_RUNTIME: "0.3.280" }),
+    ).toThrow("WORKER_IMAGE_RUNTIME");
+  });
+
   test("a profile of a kind the image does not ship stops the seed's load", async () => {
     const dir = await dirWith({
       [PROFILES_FILE]: PROFILES.replace(
@@ -589,7 +624,7 @@ describe("readCatalogConfig", () => {
       });
       for (const [id, profile] of pinned) {
         expect(
-          profilePinned(profile, expected[id as keyof typeof expected]),
+          profilePinned(profile, expected[id as keyof typeof expected], []),
         ).toBe(true);
       }
       for (const [, profile] of pinned) {

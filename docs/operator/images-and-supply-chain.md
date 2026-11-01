@@ -36,9 +36,31 @@ worker 이미지는 git system 설정(`/etc/gitconfig`)에 `user.name=Werft`, `u
 
 system 설정은 git 설정 중 우선순위가 가장 낮아서, 세션 안에서 정한 값이 있으면 그쪽이 이긴다. 세션의 작성자를 바꾸려면 workspace 저장소에 `git config user.name`·`git config user.email`을 쓴다. `git commit --author`는 author만 바꾸고 committer는 그대로 둔다. `git config --global`은 tmpfs HOME에 쓰이므로 worker가 바뀌면 사라진다. 저장소 설정도 checkpoint에서 복원한 worker에서는 사라진다. 복원이 workspace를 비우고 저장소를 새로 만들기 때문이다. 그때부터는 다시 기본 작성자로 commit된다. 카탈로그나 설치 설정으로 기본값을 바꾸는 기능은 두지 않았다. 사용자별 작성자를 기본값으로 쓰려면 사용자 주소를 worker에 넘겨야 하므로 제품 결정이 먼저다. 이미지 smoke(`.github/scripts/image-smoke.sh`)가 빈 저장소에서 commit해 이 작성자를 확인하고, e2e(`tests/e2e/alpha-path.e2e.ts`)가 실제 Claude Code의 Bash 도구로 같은 것을 확인한다.
 
+### worker 안의 패키지 도구
+
+출하 worker 이미지에는 Bun(Node 호환 shim 포함)과 engine만 있다. npm·pnpm·yarn·Ruby·Bundler·Go는 없다. 세션에서 이 도구로 의존 패키지를 설치하려면 운영자가 `WORKER_IMAGE`를 이 이미지에서 파생한 이미지로 바꾼다. 파생 이미지는 `/workspace` 외의 `VOLUME`을 선언하지 않아야 하고(실행 기반 문서의 이미지 계약), engine·SDK·CLI 조합을 바꾸지 않아야 한다. 레지스트리 접근은 이미지와 상관없이 egress proxy의 `packages` route로만 된다([실행 기반 § egress](execution.md)). worker가 claim 때 HOME에 npm·Bundler·Go user 설정을 쓰므로 파생 이미지에 레지스트리 설정을 넣을 필요는 없다.
+
+worker가 쓰는 npm 설정은 user 수준이라, 저장소의 `.npmrc`가 `registry=`를 정하면 그쪽이 이긴다. 그 레지스트리 host에는 forward proxy로 닿지 않으므로 설치가 `403`으로 실패한다. 2026-11-01에 파생 이미지에서 `config get registry`로 잰 우선순위는 아래와 같다(저장소 `.npmrc`에 `registry=https://registry.npmjs.org/`, user 설정에 route).
+
+| 도구 | user 설정만 | `npm_config_registry` 환경 변수 | CLI `--registry` | 비고 |
+|---|---|---|---|---|
+| npm 10.9.9 | 저장소 값이 이김 | 환경 변수가 이김 | CLI가 이김 | 저장소 `.npmrc`가 없으면 user 설정(route)을 쓴다 |
+| pnpm 9.15.0 | 저장소 값이 이김 | 환경 변수가 이김 | `config get`은 옵션을 받지 않음 | npm과 같은 순서 |
+| yarn 1.22.22 | npm user 설정을 읽지 않음(`registry.yarnpkg.com`) | 읽지 않음 | CLI가 이김 | `YARN_REGISTRY`가 이김. `registry.yarnpkg.com`은 목록에 없다 |
+
+그래서 저장소가 registry를 고정했으면 세션에서 `npm ci --registry <route>/packages/npm/`처럼 CLI로 덮는다. worker는 engine 환경 변수를 정해진 목록만 넘기므로 `npm_config_registry`를 넣지 않는다. yarn 1은 `--registry` 또는 `YARN_REGISTRY`를 써야 한다.
+
+같은 날 실제 세션(npm 캐시를 비운 상태)에서 설치까지 돌린 결과도 같다. 저장소가 공개 registry를 고정한 프로젝트에서 `npm ci`는 `403 Forbidden - GET https://registry.npmjs.org/...`로 실패했다. `pnpm install`은 저장소 registry로 가면서 route 주소에만 걸린 token을 찾지 못해 `No authorization header was set for the request`로 실패했다. 고정하지 않은 프로젝트의 `npm ci`·`bundle install`은 route로 받았다.
+
+출하 이미지의 `bun install`은 user `.npmrc`의 registry와 token으로 metadata를 route에서 받는다. 하지만 tarball은 metadata의 `dist.tarball`에 적힌 `https://registry.npmjs.org/...` 주소로 직접 받으려 해서 forward proxy가 `403`으로 막는다(2026-11-01 실측). npm은 `replace-registry-host` 기본값(`npmjs`)으로 그 host를 설정한 registry로 바꿔 받는다. Bun에는 그런 설정이 없어 지금은 Bun으로 공개 npm 패키지를 설치할 수 없다.
+
 ### worker 이미지 업그레이드와 checkpoint 호환
 
-`scripts/test-ops.sh upgrade`에서 worker 이미지가 바뀌면 새 이미지의 engine·SDK·CLI·profile digest로 각 현재 checkpoint의 restore plan을 계산한다. 네 값이 모두 같아 호환되는 세션은 승인 없이 이어지고, `INCOMPATIBLE_CHECKPOINT`인 세션만 사용자에게 알리고 정확한 목록을 승인받는다. 검사를 끝까지 돌릴 수 없거나 다른 검증 실패가 섞이면 미수거 checkpoint가 있는 세션 전부를 영향 목록으로 삼는 fail-closed 동작을 하고 로그에 남긴다. writer를 멈춘 뒤에도 같은 검사를 다시 한다. 불호환 세션에 `start_fresh`를 선택하면 이전 checkpoint의 context를 버린다. 현재는 세션별 worker 이미지 고정이 없으며, 호환될 때만 새 이미지에서 이어진다.
+`scripts/test-ops.sh upgrade`에서 worker 이미지가 바뀌면 새 이미지의 engine·SDK·CLI·profile digest로 각 현재 checkpoint의 restore plan을 계산한다. 네 값이 모두 같아 호환되는 세션은 승인 없이 이어지고, `INCOMPATIBLE_CHECKPOINT`인 세션만 사용자에게 알리고 정확한 목록을 승인받는다. 검사를 끝까지 돌릴 수 없거나 다른 검증 실패가 섞이면 미수거 checkpoint가 있는 세션 전부를 영향 목록으로 삼는 fail-closed 동작을 하고 로그에 남긴다. writer를 멈춘 뒤에도 같은 검사를 다시 한다. 불호환 세션에 `start_fresh`를 선택하면 이전 checkpoint의 context를 버린다. Kubernetes(helm) 설치에서는 pre-upgrade hook이 같은 판정을 이미지를 실행하지 않고 포인터의 조합으로 한다([kubernetes-deployment.md § 업그레이드 전 검사](kubernetes-deployment.md#업그레이드-전-검사)).
+
+worker 이미지가 바뀌면 upgrade는 바뀌기 전 이미지를 직전 이미지로 남긴다(`$TEST_OPS_STATE_DIR/previous-worker`). scheduler는 세션마다 checkpoint 포인터의 조합(engine·SDK·CLI·profile digest scheme)과 같은 이미지를 현재·직전 중에서 고르고, 둘 다 맞으면 현재 이미지를 쓴다([configuration.md § scheduler·worker 컨테이너·egress 설정](configuration.md#schedulerworker-컨테이너egress-설정)). 그래서 게이트는 새 이미지로 복원할 수 없는 세션 가운데 직전 이미지로도 복원할 수 없는 세션만 영향 목록에 올린다. 새 이미지와 직전 이미지 가운데 어느 한쪽의 검사라도 fail-closed로 끝나면 새 이미지 기준 목록을 그대로 쓴다. 같은 조합으로 다시 빌드한 이미지라면 scheduler는 새 이미지로 띄우므로, 새 이미지로 복원된다고 확인하지 못한 세션은 직전 이미지가 복원하더라도 목록에서 빼지 않는다. 어느 한쪽이 자기 조합을 출력하지 못하는 옛 이미지면(`apps/worker/src/image-runtime.ts`가 없는 빌드) 직전 이미지를 쓰지 않고, 게이트도 새 이미지 기준 목록을 그대로 쓴다. 지원 창은 한 릴리스다. 한 번 더 업그레이드하면 그 전 이미지에 남은 세션이 다시 영향 목록에 오른다.
+
+SDK를 올리는 릴리스는 `profiles.yaml`의 `runtime_version`도 함께 올린다. 현재 이미지가 싣지 않은 `runtime_version`의 profile은 새 세션을 받지 않는다. Kubernetes(helm) 설치의 배포 순서와 변경별 세션 동작은 [kubernetes-deployment.md § 업그레이드와 롤백](kubernetes-deployment.md#업그레이드와-롤백)에 있다.
 
 ### worker·control-host 롤백과 incremental checkpoint
 
@@ -71,6 +93,20 @@ worker가 보내는 worker protocol 필드를 새로 더할 때도 API가 먼저
 | 필드 | 먼저 배포 | 옛 API를 만난 새 worker |
 |---|---|---|
 | pending-control 요청 `settled[].reason`·`settled[].answer_result` | API | `worker.pending.settlement_detail_refused` 경고를 한 번 남기고, 그 attempt가 끝날 때까지 `outcome`만 보낸다. receipt는 예전 규칙대로 정산되고 `pending_requests.settled_reason`·`settled_answer_result`는 비어 있다 |
+
+### DB 스키마를 바꾸는 순서
+
+migration은 rollout 전에 돈다. 그래서 새 스키마 위에서 옛 control-host가 잠시 돌고, 옛 worker 이미지는 지원 창 동안 계속 돈다. 옛 코드가 읽고 쓰는 열·테이블은 그 코드가 모두 사라질 때까지 남아 있어야 한다. 그래서 스키마 변경은 세 릴리스에 나눠 한다. 한 릴리스에서 더하기와 지우기를 같이 하지 않는다.
+
+| 단계 | 하는 일 | 옛 코드가 보는 것 |
+|---|---|---|
+| 1. 확장(expand) | 열·테이블을 더한다. 새 열은 null을 허용하거나 기본값을 둔다. 기본값을 두면 기존 행에서도 그 값이 읽히고, INSERT가 그 열을 빼면 기본값이 들어간다. 명시적 NULL에는 기본값이 적용되지 않아 null 허용 열이면 NULL로 저장되고 NOT NULL 열이면 INSERT가 실패한다. 그래서 기존 행에 맞는 값인지와 옛 코드의 INSERT가 그 열을 어떻게 쓰는지 보고 고른다 | 모르는 열이 생길 뿐이고, 옛 코드의 쓰기는 그 열을 빼고 들어간다 |
+| 2. 전환 | 새 코드가 새 열에도 쓰기 시작한다. 옛 코드가 옛 열에 쓰는 동안에는 옛 열이 기준이다. 새 코드는 두 열에 모두 쓰되 옛 열을 읽는다. 옛 코드의 쓰기를 새 열로 옮기는 장치(trigger 등)가 없으면, 옛 writer가 모두 사라진 뒤 기존 행을 마지막으로 backfill하고 나서 읽기를 새 열로 옮긴다 | 옛 열이 그대로 있어 읽기·쓰기가 계속된다 |
+| 3. 정리(contract) | 옛 열·테이블을 지우거나 NOT NULL·CHECK로 제약을 강화한다. 그 열을 쓰는 이미지가 지원 창 밖으로 나가고, 그 이미지의 worker와 control-host가 실제로 하나도 남지 않은 것을 확인한 다음 릴리스에서 한다. 제약을 강화하기 전에는 기존 행과 지금 도는 모든 writer가 새 제약을 만족하는지 본다 | 그 열을 쓰는 옛 코드가 더는 없다 |
+
+열 이름을 바꾸는 것도 옛 이름을 바로 없애므로 같은 순서를 따른다. 새 열을 더하고, 데이터를 옮기고 코드를 바꾼 뒤, 옛 열을 지운다. `WORKER_IDLE_TIMEOUT_SEC`는 마지막 turn 뒤의 유휴 시간이지 worker 수명의 상한이 아니다. 일하는 worker는 그보다 오래 남을 수 있으니 정리 시점은 시간이 아니라 실제로 남은 컨테이너로 판단한다.
+
+예: checkpoint 포인터의 런타임 조합 `checkpoints.runtime_*`(migration `0196_checkpoint_runtime`)는 1단계로, 기본값 없는 null 허용 열만 더했다. 그 전에 커밋된 행은 null로 남는다. `0199_worker_image_runtime`(launch의 조합, checkpoint의 digest scheme, `worker_image_refusals` 표)도 1단계다. scheme이 null인 checkpoint는 첫 scheme(1)으로 읽는다.
 
 ## 공급망 취약점 정책
 

@@ -6,6 +6,11 @@ export * from "./agents.ts";
 export * from "./api-keys.ts";
 export * from "./authz-decisions.ts";
 export * from "./catalog-authority.ts";
+export {
+  listUncollectedSessionPointers,
+  type RuntimeFingerprint,
+  readPointerRuntime,
+} from "./checkpoint-runtime.ts";
 export * from "./checkpoint-store.ts";
 export * from "./close-control.ts";
 export * from "./control-unit-of-work.ts";
@@ -15,6 +20,7 @@ export * from "./drain.ts";
 export * from "./enqueue.ts";
 export * from "./execution-revocation.ts";
 export * from "./github-apps.ts";
+export * from "./github-oauth.ts";
 export * from "./github-settings.ts";
 export * from "./identity.ts";
 export * from "./identity-reader.ts";
@@ -26,6 +32,7 @@ export * from "./linked-accounts.ts";
 export * from "./mcp-egress.ts";
 export * from "./member-teams.ts";
 export * from "./members.ts";
+export * from "./metrics-reader.ts";
 export * from "./migration-head.ts";
 export * from "./neutral-fields.ts";
 export { expireParkedGroups } from "./parked-group.ts";
@@ -39,9 +46,12 @@ export * from "./queries.ts";
 export * from "./scheduler-store.ts";
 export * from "./schema.ts";
 export * from "./secret-values.ts";
+export * from "./session-attribution.ts";
+export * from "./session-event-archives.ts";
 export * from "./session-events.ts";
 export * from "./session-links.ts";
 export * from "./session-model-backfill.ts";
+export * from "./session-outcomes.ts";
 export * from "./session-shares.ts";
 export * from "./session-titles.ts";
 export * from "./slack-apps.ts";

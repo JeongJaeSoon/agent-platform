@@ -51,6 +51,7 @@ const listed = (
     release_label: null,
     bound_credential_refs: [],
     admins: ["Owner"],
+    slack_action: null,
     ...counts,
   },
 });

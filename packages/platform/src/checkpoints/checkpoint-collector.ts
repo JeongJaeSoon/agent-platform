@@ -262,9 +262,10 @@ export function createCheckpointCollector(
     collectSession,
 
     /**
-     * Every session, `batchSize` at a time. A session that fails is reported
-     * and the rest still run: one unreadable bucket prefix must not keep
-     * every other session's garbage forever.
+     * Every session not settled, `batchSize` at a time. A session that fails
+     * is reported and the rest still run: one unreadable bucket prefix must
+     * not keep every other session's garbage forever. A session collected
+     * here may be settled, which later passes then skip.
      */
     async collect(options: {
       batchSize: number;
@@ -273,8 +274,13 @@ export function createCheckpointCollector(
         sessionId: string,
         result: SessionCollection | { error: unknown; status: "failed" },
       ) => void;
-    }): Promise<{ failed: number; purged: number; sessions: number }> {
-      const totals = { failed: 0, purged: 0, sessions: 0 };
+    }): Promise<{
+      failed: number;
+      purged: number;
+      sessions: number;
+      settled: number;
+    }> {
+      const totals = { failed: 0, purged: 0, sessions: 0, settled: 0 };
       let after: string | null = null;
       for (;;) {
         const ids = await store.listSessionIds({
@@ -285,7 +291,15 @@ export function createCheckpointCollector(
           totals.sessions += 1;
           try {
             const result = await collectSession(sessionId, options);
-            if (result.status === "collected") totals.purged += result.purged;
+            if (result.status === "collected") {
+              totals.purged += result.purged;
+              if (
+                !options.dryRun &&
+                (await store.settleCollection(sessionId))
+              ) {
+                totals.settled += 1;
+              }
+            }
             options.onSession?.(sessionId, result);
           } catch (error) {
             totals.failed += 1;

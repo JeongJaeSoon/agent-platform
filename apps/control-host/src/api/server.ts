@@ -13,6 +13,8 @@ import {
   createPostgresDecisionLog,
   createPostgresGitHubAppStore,
   createPostgresGitHubGateStore,
+  createPostgresGitHubMcpStore,
+  createPostgresGitHubOAuthStore,
   createPostgresGitHubSettingsStore,
   createPostgresInstallationProfileStore,
   createPostgresInviteStore,
@@ -23,7 +25,9 @@ import {
   createPostgresPullRequests,
   createPostgresPushRequests,
   createPostgresSecretStore,
+  createPostgresSessionAttributionStore,
   createPostgresSessionControl,
+  createPostgresSessionOutcomes,
   createPostgresSessionReader,
   createPostgresSessionShareStore,
   createPostgresSessionTitleStore,
@@ -60,6 +64,7 @@ import {
   createCredentialBindingService,
   createGitHubAppService,
   createGitHubGate,
+  createGitHubMcpServer,
   createGitHubSettingsService,
   createGitHubWorkService,
   createInstallationProfileService,
@@ -67,11 +72,14 @@ import {
   createInviteService,
   createLinkedAccountService,
   createMemberService,
+  createOutcomeRefresher,
   createPendingRequestService,
   createProfileRegistry,
   createPullRequestService,
   createPushExecutor,
   createPushRequestService,
+  createSessionAttributionService,
+  createSessionOutcomeService,
   createSessionOutputService,
   createSessionService,
   createSessionShareService,
@@ -125,11 +133,13 @@ import {
   installedRuntimes,
   loadProfileSources,
   loadSecretKey,
+  runtimeVersionsFromEnv,
   SECRET_KEY_SETTING,
   secretsManagerReader,
   unattendedProfiles,
 } from "./catalog-config.ts";
 import {
+  archivedEventSource,
   assertCheckpointBucketEncryption,
   assertCheckpointBucketProtection,
   assertCheckpointObjectsPresent,
@@ -141,6 +151,7 @@ import {
 import {
   createEgressAuthorizer,
   egressAuthorizerConfigFromEnv,
+  githubMcpGrantKeyOf,
   sessionTitleEgressUrlFromEnv,
 } from "./egress-authorizer.ts";
 import {
@@ -149,6 +160,7 @@ import {
   createRegisteredGitHubConnection,
 } from "./forge-github.ts";
 import { createGitPusher } from "./git-push.ts";
+import { githubCallbackUrl } from "./github-link.ts";
 import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
@@ -166,7 +178,11 @@ import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerGitHubAppRoutes } from "./routes/github-app.ts";
 import { registerGitHubSettingsRoutes } from "./routes/github-settings.ts";
-import { registerGitHubWorkRoutes } from "./routes/github-work.ts";
+import {
+  registerGitHubWorkRoutes,
+  registerSessionAttributionRoutes,
+  registerSessionOutcomeRoutes,
+} from "./routes/github-work.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
 import {
   registerInviteRoutes,
@@ -290,8 +306,14 @@ const workspaceProfileVersions = createProfileRegistry({
   installations: installationProfileStore,
   sources: profileSources.sources,
 });
+const runtimeVersions = runtimeVersionsFromEnv(process.env);
 const catalog = profileCatalog(
-  profileSources.catalog,
+  {
+    ...profileSources.catalog,
+    ...(runtimeVersions === undefined
+      ? {}
+      : { runtime_versions: runtimeVersions }),
+  },
   workspaceProfileVersions,
 );
 const logCatalog = (message: string): void => {
@@ -444,6 +466,7 @@ const agents = createAgentService({
   ...(slackWelcome === null ? {} : { welcome: slackWelcome }),
   keys: createPostgresWorkspaceKeyStore(db),
 });
+const archivedEvents = archivedEventSource(checkpointStorage);
 const sessions = createSessionService({
   authorization,
   inputs: createPostgresSessionUnitOfWork(db),
@@ -451,7 +474,11 @@ const sessions = createSessionService({
     connect: () => pool.connect(),
     logger,
   }),
-  reader: createPostgresSessionReader(db, { logger, neutralize }),
+  reader: createPostgresSessionReader(db, {
+    logger,
+    neutralize,
+    ...(archivedEvents === undefined ? {} : { archivedEvents }),
+  }),
   catalog,
   releases: agents,
   credentials: credentialBindings,
@@ -726,10 +753,16 @@ const githubWork = createGitHubWorkService({
   gate: github,
   store: githubGateStore,
 });
+const githubOAuth = createPostgresGitHubOAuthStore(db, secretKey);
+const githubCallback = githubCallbackUrl(consoleOrigin);
 const githubSettings = createGitHubSettingsService({
   authorization,
   store: githubSettingsStore,
+  oauth: githubOAuth,
+  callbackUrl: githubCallback,
+  secretsOn: secretKey !== null,
 });
+const sessionAttribution = createPostgresSessionAttributionStore(db);
 const agentGitHub = createAgentGitHubService({
   authorization,
   agents: agentStore,
@@ -745,12 +778,45 @@ const pushRequests = createPushRequestService({
   source: checkpoints.pushSource,
   catalog,
 });
+const pullRequestStore = createPostgresPullRequests(db);
 const pullRequests = createPullRequestService({
   authorization,
-  store: createPostgresPullRequests(db),
+  store: pullRequestStore,
   catalog,
   gate: github,
   redact: sanitizeText,
+  attribution: sessionAttribution,
+  consoleOrigin,
+  logger,
+});
+// The built-in `github` MCP server: the same services as the session API,
+// each made with the authorization of the one session a grant names.
+const githubMcpStore = createPostgresGitHubMcpStore(db);
+const githubMcp = createGitHubMcpServer({
+  store: githubMcpStore,
+  services: (bound) => ({
+    pushRequests: createPushRequestService({
+      authorization: bound,
+      store: pushStore,
+      source: checkpoints.pushSource,
+      catalog,
+    }),
+    pullRequests: createPullRequestService({
+      authorization: bound,
+      store: pullRequestStore,
+      catalog,
+      gate: github,
+      redact: sanitizeText,
+      attribution: sessionAttribution,
+      consoleOrigin,
+      logger,
+    }),
+    githubWork: createGitHubWorkService({
+      authorization: bound,
+      gate: github,
+      store: githubGateStore,
+    }),
+  }),
 });
 const pushExecutor = createPushExecutor({
   store: pushStore,
@@ -758,6 +824,16 @@ const pushExecutor = createPushExecutor({
   gate: github,
   bundles: checkpoints.pushSource,
   pusher: createGitPusher({ maxGitMemoryBytes: checkpointGitMemoryBytes }),
+  logger,
+}).start();
+// Each replica reads the state of the pull requests sessions opened; the
+// rate-limit budget is shared through the database (§10).
+const sessionOutcomes = createPostgresSessionOutcomes(db);
+const outcomeRefresher = createOutcomeRefresher({
+  store: sessionOutcomes,
+  gate: github,
+  catalog,
+  connections: githubConnections,
   logger,
 }).start();
 const interrupts = createInterruptService({
@@ -773,6 +849,13 @@ if (titleEgressUrl === null) {
     {},
   );
 }
+// The egress proxy's authorizer, on a port of its own that no
+// worker allowlist names. Read before anything listens, so a half-set pair
+// stops the process instead of starting an API whose workers cannot reach
+// their provider.
+const egressAuthorizer = egressAuthorizerConfigFromEnv(process.env);
+const githubMcpGrantKey =
+  egressAuthorizer === null ? null : githubMcpGrantKeyOf(egressAuthorizer);
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db, { logger }),
   catalog,
@@ -786,11 +869,15 @@ const workers = createWorkerGateway({
     : { checkpointProtocol: checkpoints.protocol }),
   pending: createPostgresWorkerPendingStore(db),
   github,
+  attribution: { store: sessionAttribution, consoleOrigin },
   mcp: createPostgresMcpEgressStore(db),
   onMcpReceiptError: (error) =>
     logger.error("MCP refusal receipt not recorded", {
       error: error instanceof Error ? error.name : "error",
     }),
+  ...(githubMcpGrantKey === null
+    ? {}
+    : { githubMcp: { store: githubMcpStore, grantKey: githubMcpGrantKey } }),
   ...(titleEgressUrl === null
     ? {}
     : {
@@ -821,11 +908,6 @@ const workers = createWorkerGateway({
     stopWaiting: shutdown.stopWaiting,
   },
 });
-// The egress proxy's authorizer, on a port of its own that no
-// worker allowlist names. Read before anything listens, so a half-set pair
-// stops the process instead of starting an API whose workers cannot reach
-// their provider.
-const egressAuthorizer = egressAuthorizerConfigFromEnv(process.env);
 const authorizerListener =
   egressAuthorizer === null
     ? undefined
@@ -835,6 +917,11 @@ const authorizerListener =
         fetch: createEgressAuthorizer({
           gateway: workers,
           logger,
+          ...(githubMcpGrantKey === null
+            ? {}
+            : {
+                githubMcp: { handle: githubMcp, grantKey: githubMcpGrantKey },
+              }),
           ...(checkpointStorage === "disabled"
             ? {}
             : { objectStore: checkpointObjectRouteSigner(checkpointStorage) }),
@@ -926,9 +1013,21 @@ const app = createApiApp({
     registerPushRequestRoutes(router, pushRequests);
     registerPullRequestRoutes(router, pullRequests);
     registerGitHubWorkRoutes(router, githubWork);
+    registerSessionAttributionRoutes(
+      router,
+      createSessionAttributionService({
+        authorization,
+        store: sessionAttribution,
+      }),
+    );
+    registerSessionOutcomeRoutes(
+      router,
+      createSessionOutcomeService({ authorization, store: sessionOutcomes }),
+    );
     registerInterruptRoutes(router, interrupts);
     registerLinkedAccountRoutes(router, {
       service: linkedAccounts,
+      github: { oauth: githubOAuth, redirectUri: githubCallback },
       slack:
         slackOidc === null
           ? null
@@ -1013,6 +1112,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
         : [server, authorizerListener],
       [
         { name: "push-executor", close: () => pushExecutor.stop() },
+        { name: "outcome-refresher", close: () => outcomeRefresher.stop() },
         { name: "event-listener", close: () => notifier.close() },
         { name: "pool", close: () => pool.end() },
         { name: "probe-pool", close: () => probePool.end() },

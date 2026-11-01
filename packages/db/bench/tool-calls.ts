@@ -19,10 +19,10 @@
 import { performance } from "node:perf_hooks";
 import type { UsageSummaryFilter } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
 import * as schema from "../src/index.ts";
 import { projectToolCalls, toolCallTotals } from "../src/index.ts";
+import { migrate } from "../src/migrate.ts";
 
 const url = process.argv[2];
 if (!url) throw new Error("usage: tool-calls.ts <postgres-url> ...");

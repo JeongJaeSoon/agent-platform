@@ -25,6 +25,7 @@ import {
   turns,
   unassignedSessions,
 } from "@werft-ai/db";
+import { migrate } from "@werft-ai/db/migrate";
 import { createLogger } from "@werft-ai/observability";
 import {
   type CatalogProfile,
@@ -35,7 +36,6 @@ import {
 } from "@werft-ai/platform";
 import { asc, count, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
 import { createApiApp, isStorageUnavailable } from "./app.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
