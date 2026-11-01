@@ -2819,7 +2819,11 @@ describe("egress and claim through the real GitHub gate", () => {
     auth: { kind: "github_app", registered: true },
   });
   const catalog = withSeededInstallation({
-    profiles: { p: profile },
+    // `scratch` runs without repositories: the catalog lets it reach none.
+    profiles: {
+      p: profile,
+      scratch: { ...profile, repository: "none" as const },
+    },
     repositories: {
       app: onGitHub("app"),
       docs: onGitHub("docs"),
@@ -2836,12 +2840,12 @@ describe("egress and claim through the real GitHub gate", () => {
     repository: { id: "app", url: onGitHub("app").url, branch: "main" },
   };
 
-  // `repositoryless`: started on the optional profile without a repository,
-  // attaching docs alone.
-  function wired({ repositoryless = false } = {}) {
+  // `repositoryless`: started without a repository, attaching docs alone, on
+  // the optional profile unless `profileId` names another.
+  function wired({ repositoryless = false, profileId = "p" } = {}) {
     const own = repositoryless
-      ? { repository: null }
-      : { repository: binding.repository };
+      ? { repository: null, profileId }
+      : { repository: binding.repository, profileId };
     const receipts: GitHubGateReceipt[] = [];
     const connection: GitHubConnection = {
       kind: "app",
@@ -2866,7 +2870,7 @@ describe("egress and claim through the real GitHub gate", () => {
           ownerId: "owner-a",
           sessionId,
           repositoryId: repositoryless ? null : "app",
-          profileId: "p",
+          profileId,
           attachedRepositoryIds: ["docs"],
           repository: repositoryless
             ? null
@@ -2903,7 +2907,7 @@ describe("egress and claim through the real GitHub gate", () => {
         claimAtomic: async (input) => {
           issued = input.egress.bindingsOf({
             id: scope.session_id,
-            profileId: "p",
+            profileId,
             profileFingerprint: null,
             model: null,
             repositoryMode: repositoryless ? "none" : "repository",
@@ -2947,7 +2951,11 @@ describe("egress and claim through the real GitHub gate", () => {
           credential: { kind: "launch_nonce", nonce: "n" },
         },
       );
-    return { gateway, receipts, claim };
+    // Stands for a repository token however it came to be held.
+    const hold = (held: string) => {
+      issued = held;
+    };
+    return { gateway, receipts, claim, hold };
   }
 
   test("a repository the release lists but the session did not attach is refused with its receipt", async () => {
@@ -3057,5 +3065,45 @@ describe("egress and claim through the real GitHub gate", () => {
     await expect(
       gateway.authorizeEgress({ token: "tok", purpose: "repository" }),
     ).rejects.toMatchObject({ status: 409, code: "CATALOG_MISMATCH" });
+  });
+
+  test("a none profile's session gets no repository token, and the gate refuses one it holds", async () => {
+    const { gateway, receipts, claim, hold } = wired({
+      repositoryless: true,
+      profileId: "scratch",
+    });
+    const claimed = await claim();
+    expect(claimed.workspace.additional_repositories).toBeUndefined();
+    await expect(
+      gateway.authorizeEgress({
+        token: "tok",
+        purpose: "repository",
+        repository_id: "docs",
+      }),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(receipts).toEqual([]);
+
+    hold("attached-only");
+    await expect(
+      gateway.authorizeEgress({
+        token: "tok",
+        purpose: "repository",
+        repository_id: "docs",
+      }),
+    ).rejects.toMatchObject({
+      status: 403,
+      code: "GITHUB_REFUSED",
+      reasonCode: "repository_not_allowed",
+    });
+    expect(receipts).toEqual([
+      expect.objectContaining({
+        operation: "mint_github_token",
+        status: "failed",
+        result: expect.objectContaining({
+          repository_id: "docs",
+          reason_code: "repository_not_allowed",
+        }),
+      }),
+    ]);
   });
 });
