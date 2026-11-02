@@ -216,7 +216,13 @@ function Installations({ manage }: { readonly manage: boolean }) {
             </GridTableColumnHeader>
           ) : null}
           <GridTableColumnHeader>상태</GridTableColumnHeader>
-          {manage ? <GridTableColumnHeader aria-label="메뉴" /> : null}
+          {manage ? (
+            <GridTableColumnHeader>
+              <Text as="span" className="sr-only">
+                메뉴
+              </Text>
+            </GridTableColumnHeader>
+          ) : null}
         </GridTableHeader>
         {INSTALLATIONS.map((row) => {
           const moved = manage

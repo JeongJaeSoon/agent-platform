@@ -1024,7 +1024,11 @@ function Installations({
             {t("github.table.status")}
           </GridTableColumnHeader>
           {canManage ? (
-            <GridTableColumnHeader aria-label={t("github.table.menu")} />
+            <GridTableColumnHeader>
+              <Text as="span" className="sr-only">
+                {t("github.table.menu")}
+              </Text>
+            </GridTableColumnHeader>
           ) : null}
         </GridTableHeader>
         {rows.map(({ connection, installation }) => {

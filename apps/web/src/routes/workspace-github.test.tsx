@@ -123,7 +123,7 @@ describe("GitHub 연결 › 카드와 설치 표", () => {
       within(rows[0] as HTMLElement)
         .getAllByRole("columnheader")
         .map((cell) => cell.textContent),
-    ).toEqual(["이름", "유형", "저장소", "App", "연결한 사람", "상태", ""]);
+    ).toEqual(["이름", "유형", "저장소", "App", "연결한 사람", "상태", "메뉴"]);
   });
 
   test("구성원에게는 저장소 칸·메뉴·관리 동작이 없다", async () => {

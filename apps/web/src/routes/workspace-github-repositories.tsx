@@ -314,9 +314,11 @@ export function RepositorySheet({
                     <GridTableColumnHeader align="end">
                       {t("github.sheet.col.agents")}
                     </GridTableColumnHeader>
-                    <GridTableColumnHeader
-                      aria-label={t("github.sheet.col.menu")}
-                    />
+                    <GridTableColumnHeader>
+                      <Text as="span" className="sr-only">
+                        {t("github.sheet.col.menu")}
+                      </Text>
+                    </GridTableColumnHeader>
                   </GridTableHeader>
                   {data.repositories.map((repository) => {
                     const row = catalogOf(repository.catalog_id);
@@ -418,9 +420,11 @@ export function RepositorySheet({
                     <GridTableColumnHeader align="end">
                       {t("github.sheet.col.agents")}
                     </GridTableColumnHeader>
-                    <GridTableColumnHeader
-                      aria-label={t("github.sheet.col.menu")}
-                    />
+                    <GridTableColumnHeader>
+                      <Text as="span" className="sr-only">
+                        {t("github.sheet.col.menu")}
+                      </Text>
+                    </GridTableColumnHeader>
                   </GridTableHeader>
                   {outside.map((row) => {
                     const name = row.full_name ?? row.id;
