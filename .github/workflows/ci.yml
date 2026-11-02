@@ -506,6 +506,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Static build
         run: bun run --cwd apps/storybook build
+      - name: Every file the pages and chunks reference, relative to /storybook/
+        run: scripts/storybook-pages.sh check apps/storybook/dist
       # Playwright drives the runner's installed Chrome (vitest.config.ts), so
       # nothing is downloaded here.
       - name: Every story, with the a11y check
@@ -617,6 +619,14 @@ jobs:
         with:
           name: storybook-dist
           path: _site/storybook
+      # A tab opened before this deploy still loads the chunks it was built
+      # with; scripts/storybook-pages.sh says why.
+      - name: Storybook chunks of the last hour's deploys
+        env:
+          LIVE: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/storybook
+        run: |
+          scripts/storybook-pages.sh keep _site/storybook "$LIVE"
+          scripts/storybook-pages.sh check _site/storybook
       - name: Pages site
         run: |
           mkdir -p _site/api
