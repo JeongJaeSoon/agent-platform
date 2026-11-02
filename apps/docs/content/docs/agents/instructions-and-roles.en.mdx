@@ -8,7 +8,7 @@ An agent has values people read and values a run uses, and they live in differen
 | Value | Where | When you change it | Does the model read it |
 | --- | --- | --- | --- |
 | Name (`name`) and description (`description`) | Agent row | Changes at once. No version or release is created | No |
-| Agent instructions (`agent_instructions`) and the other card fields | Card | Creates a new version. It is used only once a release of it is activated | The instructions, yes |
+| Agent instructions (`agent_instructions`) and the other card fields | Card | Creates a new version. Used by sessions started on a release of that version | The instructions, yes |
 
 Name and description help people recognise the agent in lists and on its page. They do not affect what the agent does. How the agent should work goes in the agent instructions.
 
@@ -19,7 +19,7 @@ Agent instructions are text added to the system prompt of every session of that 
 In the web console, open the "Settings" tab on the agent's page, press "Edit settings", write in "Agent instructions" under "Run settings", and save. The new-agent flow has no such field. Write them in Settings after creating the agent.
 
 - Saving creates a new version. The active release stays as it is.
-- Once you create a release from that version and activate it, sessions started after that get the text in their system prompt, after the platform's instructions and before the repository's `CLAUDE.md`.
+- Once you create a release from that version, sessions started on that release get the text in their system prompt, after the platform's instructions and before the repository's `CLAUDE.md`. Activating the release makes it the one that paths which pick no release themselves, such as Slack, use for new sessions.
 - A session is pinned to the release it started on. When the session's runtime comes back up (the next message after the runtime shut down because no input came for 30 minutes after the last turn, or a resume after a pause), the same release's instructions are added again, so changing the active release does not change the instructions of a session already running.
 - Clearing the field or leaving only spaces removes it from the card, and nothing is added to the prompt. Text you write is stored as is, including leading and trailing spaces.
 
@@ -29,7 +29,7 @@ Earlier cards had "Role" (`role`) and "Instructions" (`instructions`) fields. Bo
 
 - New cards do not send them. Values in versions already saved stay.
 - The role was copied once into the agent's description when this feature shipped. For an agent without a description, the screens show the card's role in its place.
-- Instructions are not moved automatically, because that would change existing agents' behaviour with text no one has checked. Settings shows them as "Earlier instructions (never applied)", and "Copy into agent instructions" on the edit screen puts that text into the agent instructions field. They are used in runs only after you save and activate a release.
+- Instructions are not moved automatically, because that would change existing agents' behaviour with text no one has checked. Settings shows them as "Earlier instructions (never applied)", and "Copy into agent instructions" on the edit screen puts that text into the agent instructions field. They are used in runs only after you save and start a session on a release of that version.
 
 ## Card fields
 

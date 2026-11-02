@@ -2669,6 +2669,74 @@ describe("편집 중 다른 곳의 저장", () => {
     expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
   });
 
+  test("저장 중 다른 곳에서 바꾼 이름은 손대지 않은 칸에 들어오고, 다음 저장이 되돌리지 않는다", async () => {
+    const server = agentServer();
+    const patch = server.routes[`PATCH /v1/agents/${AGENT_ID}`];
+    if (!patch) throw new Error("no PATCH route");
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held = true;
+    const { api } = renderAt(CARD_TAB, {
+      ...meOk,
+      ...server.routes,
+      [`PATCH /v1/agents/${AGENT_ID}`]: async (request: Request) => {
+        if (held) {
+          held = false;
+          await gate;
+        }
+        return patch(request);
+      },
+    });
+    const user = await setupUser();
+    await openCardEditor(user);
+    const instructions = await screen.findByLabelText("에이전트 지시문");
+    await user.type(instructions, "첫 저장.");
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await user.type(screen.getByLabelText("에이전트 지시문"), " 이어서 쓴 줄.");
+    // Another tab renames the agent while the save is in flight.
+    await patch(
+      new Request("http://test/", {
+        method: "PATCH",
+        body: JSON.stringify({ name: "다른 곳 이름" }),
+      }),
+    );
+    release();
+    await screen.findByText(/저장했습니다 — 버전 2/);
+    expect((screen.getByLabelText("이름") as HTMLInputElement).value).toBe(
+      "다른 곳 이름",
+    );
+    await user.click(await screen.findByRole("button", { name: "저장" }));
+    await screen.findByText(/저장했습니다 — 버전 3/);
+    const last = api.calls.filter((c) => c.method === "PATCH").at(-1);
+    expect(last?.body).not.toHaveProperty("name");
+  });
+
+  test("모델 목록을 못 불러와도 이름·설명만 고친 저장은 막지 않는다", async () => {
+    const server = agentServer();
+    const { api } = renderAt(CARD_TAB, {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/profiles": () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "The catalog cannot be read"),
+    });
+    const user = await setupUser();
+    await openCardEditor(user);
+    const save = screen.getByRole("button", {
+      name: "저장",
+    }) as HTMLButtonElement;
+    await user.type(screen.getByLabelText("설명"), DESCRIPTION);
+    expect(save.disabled).toBe(false);
+    await user.click(save);
+    await screen.findByText(
+      "이름과 설명을 저장했습니다. 바로 반영되고 새 버전은 생기지 않았습니다.",
+    );
+    expect(api.calls.find((c) => c.method === "PATCH")?.body).toEqual({
+      description: DESCRIPTION,
+    });
+  });
+
   test("다른 에이전트로 옮기면 이전 에이전트의 편집을 들고 가지 않는다", async () => {
     const server = agentServer();
     const OTHER = "9e0f1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b";

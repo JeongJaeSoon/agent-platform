@@ -160,8 +160,18 @@ export function CardEditor({
               ...current,
               baseId: now?.id ?? null,
               seenLatestId: latestVersion(updated)?.id ?? null,
+              // An untouched field follows the server, so a change made
+              // elsewhere is not sent back as the user's on the next save.
               baseName: updated.agent.name,
+              name:
+                current.name.trim() === current.baseName
+                  ? updated.agent.name
+                  : current.name,
               baseDescription: descriptionOf(updated),
+              description:
+                current.description.trim() === current.baseDescription
+                  ? descriptionOf(updated)
+                  : current.description,
             },
       );
       queryClient.setQueryData(
@@ -174,14 +184,15 @@ export function CardEditor({
       onOutcome({ kind: "error", text: agentRefusal(t, error, role) }),
   });
 
+  // A save with nothing changed still sends the card, which the server
+  // answers with the same version, as a request needs some field.
+  const sendsCard =
+    cardChanged(edit) ||
+    (edit.name.trim() === edit.baseName &&
+      edit.description.trim() === edit.baseDescription);
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    // A save with nothing changed still sends the card, which the server
-    // answers with the same version, as a request needs some field.
-    const rowChanged =
-      edit.name.trim() !== edit.baseName ||
-      edit.description.trim() !== edit.baseDescription;
-    save.mutate({ ...edit, sendsCard: cardChanged(edit) || !rowChanged });
+    save.mutate({ ...edit, sendsCard });
   };
 
   return (
@@ -253,7 +264,10 @@ export function CardEditor({
               type="submit"
               disabled={
                 save.isPending ||
+                // A save of the name or description alone sends no card,
+                // so the run settings' checks do not hold it back.
                 (draft !== null &&
+                  sendsCard &&
                   (!catalog.isSuccess ||
                     toolsBlocked(catalog.data.items, draft)))
               }
@@ -301,7 +315,6 @@ const sameEdit = (a: Edit, b: Edit) =>
   JSON.stringify(a.draft) === JSON.stringify(b.draft);
 
 const descriptionOf = (detail: AgentDetail) => detail.agent.description ?? "";
-
 function startEdit(detail: AgentDetail, from?: AgentVersion): Edit {
   const latest = latestVersion(detail);
   const base = from ?? latest;
