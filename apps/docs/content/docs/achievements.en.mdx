@@ -22,7 +22,7 @@ Evidence is a fact the platform saw itself; an achievement is evidence that matc
 
 Set them in the console under Settings → Achievement rules. Only workspace owners and admins can change them; other members can read them.
 
-- A **category** groups rules. Its name is 1 to 32 characters; renaming it shows past achievements under the new name. A category that still has rules cannot be archived.
+- A **category** groups rules. Its name is 1 to 32 characters; renaming it shows past achievements under the new name. A category that still has rules in use cannot be archived.
 - An **achievement type** is the kind of achievement. There are three built-in types (`pull_request`, `code_review`, `document`), and people can create more. A type people create has a name, a key and one evidence kind, and its achievements carry only a title, link, evidence kind and evidence id. The key and evidence kind cannot change after creation. A workspace can have up to 50 types that are not archived.
 - A **rule** is one line under a category with one title, one achievement type and one achievement definition. One achievement type serves only one rule in use; for another definition, create a new type. A workspace can have up to 30 rules in use.
 
@@ -45,7 +45,7 @@ Luna judging needs an `openai_decisions` connection added by the operator. Stori
 
 ### When to judge, and limits
 
-Set these in the judging card under Settings → Achievement rules. A session with no evidence is not judged.
+Set these in the judging card under Settings → Achievement rules. A session with no evidence is not judged. A judgment runs 2 minutes after its last trigger, and the judge picks up work every 30 seconds, so achievements show 2 to 3 minutes after the trigger.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
@@ -53,8 +53,8 @@ Set these in the judging card under Settings → Achievement rules. A session wi
 | Every N turns | Off | When on, every 5 to 100 turns. Matters only when a rule has a conversation type |
 | When the session stops | Off | Once on waiting, pause or close |
 | Send conversation | Last 20 turns | The conversation sent for conversation rules: none, or the last 20 turns (up to 16,000 tokens, without tool results) |
-| Daily budget | $1 | The workspace's daily judging cost cap. Past it, that day's judging waits until the next day (00:00 UTC) |
-| Per session | 20 | The cap on judgments for one session |
+| Daily budget | $1 | The workspace's daily Luna judging cost cap. Past it, that day's Luna judging waits until the next day (00:00 UTC). Count-at-once rules still count |
+| Per session | 20 | The cap on judgments that called Luna for one session. Count-at-once rules are not counted |
 
 A failed judgment (error, 10-second timeout, malformed answer) is retried up to three times, after 1, 5 and 30 minutes. If it still fails, the reason shows on the session detail. Owners and admins can judge a session again from its detail. Editing a rule does not judge past sessions again on its own.
 
@@ -96,7 +96,7 @@ Judging cost is counted apart from session cost. "Cost per achievement" on the A
 | Confirm or reject an achievement | Owners, admins, that agent's admins |
 | See judging cost and 30-day counts (settings screen) | Whoever can read the whole workspace's usage (owner) |
 
-The APIs that change rules and judging settings are management APIs: an API key cannot call them, only a web login cookie. Each change leaves a receipt, and the receipt does not carry the definition text.
+Changing rules and judging settings, confirming or rejecting an achievement, and judging a session again cannot be called with an API key, only with a person's web login cookie. Confirming, rejecting and judging again also need read access to that session. Each change leaves a receipt, and the receipt does not carry the definition text.
 
 ## Read achievements with the API
 

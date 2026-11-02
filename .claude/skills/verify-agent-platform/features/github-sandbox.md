@@ -110,12 +110,12 @@ printf 'PRID=%s\n' "$PRID" >> "$VERIFY_RUN/ids.sh"
 . "$VERIFY_RUN/ids.sh"; ap_as owner
 for i in $(seq 1 60); do n=$(ap_get "/v1/sessions/$SID/achievements" | head -1 | jq '.items | length'); [ "$n" -gt 0 ] && break; sleep 5; done
 ap_get "/v1/sessions/$SID/achievements" | head -1 | jq -c '.items[] | {title, judge, review_state, evidence_kind, probability, payload}' | tee "$EVIDENCE/gh-achievement.txt"
-ap_get "/v1/sessions/$SID/achievements" | head -1 | jq -c '{judgment: (.judgment | {trigger, status, backend}), judgment_count, judge_cost_usd}'
+ap_get "/v1/sessions/$SID/achievements" | head -1 | jq -c '{judgment: (.judgment | {trigger, status}), judgment_count, judge_cost_usd}'
 ap_get "/v1/usage/achievements?scope=me&since=$(date -u -v-1d +%FT%TZ)" | head -1 | jq -c '{achievement_count, needs_review_count, cost_usd, cost_per_achievement_usd, judge_cost_usd}'
 ap_compose exec -T postgres psql -U postgres -d sessions -c "select trigger, status, backend, calls, cost_usd, error_code from achievement_judgments where session_id = '$SID'"
 ```
 
-기대: PR 전 `items` 0, `judgment` null. PR 뒤 2~3분 안에 성과 하나: `title` `JeongJaeSoon/werft-sandbox#<n>`, `judge: "always"`, `review_state: "auto"`, `evidence_kind: "github_pull_request"`, `probability: null`, `payload.state: "open"`. 판정은 `trigger: "evidence"`, `status: "succeeded"`, `backend` 없음, `calls` 0, `cost_usd` 0. 사용량은 `achievement_count: 1`, `cost_per_achievement_usd`가 세션 비용과 같고 `judge_cost_usd`는 0.
+기대: PR 전 `items` 0, `judgment` null. PR 뒤 2~3분 안에 성과 하나: `title` `JeongJaeSoon/werft-sandbox#<n>`, `judge: "always"`, `review_state: "auto"`, `evidence_kind: "github_pull_request"`, `probability: null`, `payload.state: "open"`. 판정은 `trigger: "evidence"`, `status: "succeeded"`, `judge_cost_usd` 0. Luna를 부르지 않은 것은 DB 행의 `backend` 빈 값, `calls` 0, `cost_usd` 0으로 본다(API 판정에는 backend 칸이 없다). 사용량은 `achievement_count: 1`, `cost_per_achievement_usd`가 세션 비용과 같고 `judge_cost_usd`는 0.
 
 2026-11-03 run `20261103-012555-27905`(main `f3cd5ace`)에서 1–5와 3b·5b를 확인했다. PR [werft-sandbox#33](https://github.com/JeongJaeSoon/werft-sandbox/pull/33) 201 → 150초 뒤 성과 하나, 판정 `evidence` `succeeded` calls 0, 사용량 `achievement_count` 1·`cost_usd` 0.000105·`cost_per_achievement_usd` 0.000105·`judge_cost_usd` 0. 닫고 브랜치 삭제.
 
