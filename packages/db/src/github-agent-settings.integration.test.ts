@@ -159,7 +159,7 @@ integration("GitHub agent settings, expand", () => {
 
   test("the author App a workspace had becomes the one people link with; a saved ceiling stays", async () => {
     await rm(before, { recursive: true, force: true });
-    before = await migrationsThrough("0217_achievement_judge_errors");
+    before = await migrationsThrough("0218_achievement_judgment_threshold");
     await migrate(db, { migrationsFolder: before });
     const workspace = async () => {
       const id = randomUUID();
