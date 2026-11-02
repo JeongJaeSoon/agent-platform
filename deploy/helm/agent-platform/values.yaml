@@ -107,7 +107,7 @@ catalog:
       runtime_version: "0.3.270"
       model: claude-sonnet-5
       tools: [Read, Edit, Write, Glob, Grep, Bash, AskUserQuestion]
-      permission_mode: default
+      permission_mode: auto
       provider:
         kind: anthropic
         endpoint: https://api.anthropic.com
