@@ -862,6 +862,91 @@ describe("성과 규칙", () => {
     ).toBeTruthy();
   });
 
+  test("대화상자가 닫히면 연 버튼으로, 규칙 편집에서 열었으면 type 칸으로 초점이 돌아간다", async () => {
+    const created = type(
+      "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+      "hotfix_pr",
+      "긴급 수정 PR",
+      "github_pull_request",
+      false,
+    );
+    const types = [...TYPES];
+    await opened({
+      [`PATCH /v1/achievement-categories/${REVIEW}`]: () =>
+        json(200, {
+          category: category(REVIEW, "리뷰", 1),
+          receipt_id: RECEIPT_ID,
+        }),
+      "GET /v1/achievement-types": () => json(200, { items: types }),
+      "POST /v1/achievement-types": () => {
+        types.push(created);
+        return json(201, { type: created, receipt_id: RECEIPT_ID });
+      },
+    });
+    const user = await setupUser();
+    const closed = () =>
+      waitFor(() => expect(screen.queryByRole("dialog") === null).toBe(true));
+    const focused = (element: HTMLElement) =>
+      waitFor(() => expect(document.activeElement === element).toBe(true));
+
+    const add = screen.getByRole("button", { name: "구분 추가" });
+    await user.click(add);
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "취소",
+      }),
+    );
+    await closed();
+    await focused(add);
+
+    await user.click(add);
+    await screen.findByRole("dialog");
+    await user.keyboard("{Escape}");
+    await closed();
+    await focused(add);
+
+    const rename = screen.getByRole("button", { name: "리뷰 이름 바꾸기" });
+    await user.click(rename);
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "저장",
+      }),
+    );
+    await closed();
+    await focused(rename);
+
+    await user.click(screen.getByRole("button", { name: "버그 수정 PR" }));
+    const editor = (
+      await screen.findByRole("heading", {
+        level: 2,
+        name: "규칙 편집 — 버그 수정 PR",
+      })
+    ).closest("section") as HTMLElement;
+    const typeSelect = within(editor).getByRole("combobox", {
+      name: "성과 type",
+    });
+    await user.selectOptions(typeSelect, "새 type 만들기…");
+    const dialog = await screen.findByRole("dialog");
+    await user.type(
+      within(dialog).getByRole("textbox", { name: "이름" }),
+      "긴급 수정 PR",
+    );
+    await user.type(
+      within(dialog).getByRole("textbox", { name: "key" }),
+      "hotfix_pr",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    await closed();
+    await focused(typeSelect);
+
+    const addType = screen.getByRole("button", { name: "type 추가" });
+    await user.click(addType);
+    await screen.findByRole("dialog");
+    await user.keyboard("{Escape}");
+    await closed();
+    await focused(addType);
+  });
+
   test("member: 읽기만 한다", async () => {
     const { api } = await opened({}, memberMe());
     const user = await setupUser();

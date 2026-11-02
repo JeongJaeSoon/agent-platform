@@ -746,6 +746,19 @@ function useChange<V, R>(
   };
 }
 
+/**
+ * Hands focus back to what opened a dialog once it closes; the dialogs here
+ * have no Radix trigger to return to.
+ */
+function returnFocusTo(target: () => HTMLElement | null) {
+  return (event: Event) => {
+    const element = target();
+    if (!element) return;
+    event.preventDefault();
+    element.focus();
+  };
+}
+
 function DialogError({ error }: { readonly error: string | null }) {
   return error === null ? null : (
     <Alert variant="red" role="alert">
@@ -768,6 +781,14 @@ function CategoriesCard({
   const [dialog, setDialog] = useState<AchievementCategory | "new" | null>(
     null,
   );
+  const opener = useRef<HTMLElement | null>(null);
+  const open = (
+    target: AchievementCategory | "new",
+    event: { readonly currentTarget: HTMLElement },
+  ) => {
+    opener.current = event.currentTarget;
+    setDialog(target);
+  };
   const shown = categories.filter((category) => category.archived_at === null);
   return (
     <RulesSection
@@ -800,7 +821,7 @@ function CategoriesCard({
                 aria-label={t("achievementRules.category.renameOf", {
                   name: category.name,
                 })}
-                onClick={() => setDialog(category)}
+                onClick={(event) => open(category, event)}
               >
                 {t("achievementRules.category.rename")}
               </ReasonButton>
@@ -810,7 +831,7 @@ function CategoriesCard({
         <ReasonButton
           className={SMALL_BUTTON}
           reason={reason}
-          onClick={() => setDialog("new")}
+          onClick={(event) => open("new", event)}
         >
           {t("achievementRules.category.add")}
         </ReasonButton>
@@ -823,7 +844,7 @@ function CategoriesCard({
             if (!next) setDialog(null);
           }}
         >
-          <DialogContent>
+          <DialogContent onCloseAutoFocus={returnFocusTo(() => opener.current)}>
             <CategoryForm
               category={dialog === "new" ? undefined : dialog}
               inUse={
@@ -955,6 +976,14 @@ function TypesCard({
 }) {
   const { t } = useI18n();
   const [dialog, setDialog] = useState<AchievementType | "new" | null>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  const open = (
+    target: AchievementType | "new",
+    event: { readonly currentTarget: HTMLElement },
+  ) => {
+    opener.current = event.currentTarget;
+    setDialog(target);
+  };
   const shown = types.filter((type) => type.archived_at === null);
   const k = {
     name: t("achievementRules.type.name"),
@@ -976,7 +1005,7 @@ function TypesCard({
           <ReasonButton
             className={SMALL_BUTTON}
             reason={reason}
-            onClick={() => setDialog("new")}
+            onClick={(event) => open("new", event)}
           >
             {t("achievementRules.type.add")}
           </ReasonButton>
@@ -1040,7 +1069,7 @@ function TypesCard({
                       aria-label={t("achievementRules.type.renameOf", {
                         name: type.name,
                       })}
-                      onClick={() => setDialog(type)}
+                      onClick={(event) => open(type, event)}
                     >
                       {t("achievementRules.type.rename")}
                     </ReasonButton>
@@ -1055,6 +1084,7 @@ function TypesCard({
         open={dialog !== null}
         type={dialog === "new" || dialog === null ? undefined : dialog}
         onClose={() => setDialog(null)}
+        returnFocus={() => opener.current}
       />
     </RulesSection>
   );
@@ -1065,11 +1095,13 @@ function TypeDialog({
   type,
   onClose,
   onCreated,
+  returnFocus,
 }: {
   readonly open: boolean;
   readonly type: AchievementType | undefined;
   readonly onClose: () => void;
   readonly onCreated?: (type: AchievementType) => void;
+  readonly returnFocus: () => HTMLElement | null;
 }) {
   if (!open) return null;
   return (
@@ -1079,7 +1111,7 @@ function TypeDialog({
         if (!next) onClose();
       }}
     >
-      <DialogContent>
+      <DialogContent onCloseAutoFocus={returnFocusTo(returnFocus)}>
         <TypeForm type={type} onClose={onClose} onCreated={onCreated} />
       </DialogContent>
     </Dialog>
@@ -1557,6 +1589,7 @@ function RuleEditor({
       type={undefined}
       onClose={() => setMakingType(false)}
       onCreated={(created) => set({ type_id: created.id })}
+      returnFocus={() => document.getElementById(ids.type)}
     />
   );
 
