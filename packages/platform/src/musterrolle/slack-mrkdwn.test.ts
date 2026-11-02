@@ -8,8 +8,8 @@ describe("markdownToSlackMrkdwn", () => {
     expect(markdownToSlackMrkdwn("a **bold** b ~~gone~~ c")).toBe(
       "a *bold* b ~gone~ c",
     );
-    expect(markdownToSlackMrkdwn("# Title\n### **Sub** ##")).toBe(
-      "*Title*\n*Sub*",
+    expect(markdownToSlackMrkdwn("# Title\n### **Sub** ##\n## C#")).toBe(
+      "*Title*\n*Sub*\n*C#*",
     );
   });
 
@@ -185,6 +185,21 @@ describe("markdownToSlackMrkdwn", () => {
         "• *브랜치:* `e2e-branch`",
       ].join("\n"),
     );
+  });
+
+  test("unclosed markers stay linear on a long line", () => {
+    const started = performance.now();
+    const spaces = " ".repeat(50_000);
+    markdownToSlackMrkdwn(
+      [
+        "**a ".repeat(25_000),
+        "~~a ".repeat(25_000),
+        `# a${spaces}x`,
+        "| a |",
+        `|-${spaces}x`,
+      ].join("\n"),
+    );
+    expect(performance.now() - started).toBeLessThan(1_000);
   });
 
   test("leaves text holding the placeholder characters untouched", () => {

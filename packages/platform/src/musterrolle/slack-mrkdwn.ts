@@ -41,14 +41,16 @@ function wrap(text: string, pattern: RegExp, marker: string): string {
 
 function convertInline(text: string): string {
   const linked = convertLinks(text, true);
-  const bold = wrap(linked, /\*\*(?!\s)([^\n]+?)(?<!\s)\*\*/g, "*");
-  return wrap(bold, /~~(?!\s)([^\n]+?)(?<!\s)~~/g, "~");
+  // The inner text may not hold its own marker, so a search for the close
+  // stops at the next marker instead of running to the end of the line.
+  const bold = wrap(linked, /\*\*(?![\s*])([^*\n]*[^\s*])\*\*/g, "*");
+  return wrap(bold, /~~(?![\s~])([^~\n]*[^\s~])~~/g, "~");
 }
 
 function plainCell(cell: string, codes: readonly string[]): string {
   const text = convertLinks(cell, false)
-    .replace(/\*\*([^\n]+?)\*\*/g, "$1")
-    .replace(/~~([^\n]+?)~~/g, "$1");
+    .replace(/\*\*([^*\n]+)\*\*/g, "$1")
+    .replace(/~~([^~\n]+)~~/g, "$1");
   return text
     .replace(TOKEN, (_whole, index: string) => codes[Number(index)] ?? "")
     .replace(/`/g, "")
@@ -84,8 +86,6 @@ function splitRow(line: string): string[] {
   return trimmed.split(/(?<!\\)\|/).map((cell) => cell.replace(/\\\|/g, "|"));
 }
 
-const TABLE_RULE = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
-
 function isTableStart(lines: readonly string[], index: number): boolean {
   const header = lines[index];
   const rule = lines[index + 1];
@@ -94,7 +94,7 @@ function isTableStart(lines: readonly string[], index: number): boolean {
     rule !== undefined &&
     header.includes("|") &&
     rule.includes("|") &&
-    TABLE_RULE.test(rule) &&
+    splitRow(rule).every((cell) => /^:?-+:?$/.test(cell.trim())) &&
     splitRow(header).length === splitRow(rule).length
   );
 }
@@ -115,6 +115,16 @@ function renderTable(rows: string[][]): string {
   const [header = [], ...body] = rows;
   const rule = widths.map((columnWidth) => "-".repeat(columnWidth)).join("-+-");
   return ["```", line(header), rule, ...body.map(line), "```"].join("\n");
+}
+
+/** Drops a closing `##` run; a scan, since a regex backtracks on long spaces. */
+function headingTitle(rest: string): string {
+  const title = rest.trimEnd();
+  let end = title.length;
+  while (end > 0 && title[end - 1] === "#") end -= 1;
+  const closing =
+    end < title.length && (end === 0 || /\s/.test(title[end - 1] ?? ""));
+  return closing ? title.slice(0, end).trimEnd() : title;
 }
 
 const LIST_ITEM = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/;
@@ -144,9 +154,12 @@ function convertLines(text: string, codes: string[]): string {
       continue;
     }
 
-    const heading = /^ {0,3}#{1,6}\s+(.+?)(?:\s+#+)?\s*$/.exec(line);
-    if (heading?.[1] !== undefined) {
-      const title = heading[1].replace(/\*\*([^\n]+?)\*\*/g, "$1");
+    const heading = /^ {0,3}#{1,6}[ \t]+(.*)$/.exec(line);
+    if (heading?.[1] !== undefined && heading[1].trim() !== "") {
+      const title = headingTitle(heading[1]).replace(
+        /\*\*([^*\n]+)\*\*/g,
+        "$1",
+      );
       output.push(`*${convertInline(title)}*`);
       indents = [];
       continue;
