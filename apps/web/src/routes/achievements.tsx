@@ -358,7 +358,9 @@ export function AchievementsScreen() {
                   <EmptyState title={t("achievements.empty")} />
                 ) : (
                   <TableContainer label={t("achievements.recent")}>
-                    <Table>
+                    {/* Below this the evidence and session would wrap a
+                        letter a line; the frame scrolls instead. */}
+                    <Table className="min-w-[44rem]">
                       <TableHeader>
                         <TableRow>
                           <TableHead scope="col">
@@ -423,7 +425,7 @@ function RecentRow({ row }: { readonly row: Recent }) {
         )}
       </TableCell>
       <TableCell>{row.rule_title}</TableCell>
-      <TableCell className="[overflow-wrap:anywhere]">
+      <TableCell>
         {github ? (
           <Link
             href={row.link}
