@@ -8,23 +8,22 @@ import {
 const base = { request_id: "perm_01", kind: "permission" } as const;
 
 describe("a permission answer from the API", () => {
-  test("action, or the deprecated decision, is stored as decision", () => {
-    for (const body of [
-      { ...base, action: "deny", reason: "no" },
-      { ...base, decision: "deny", reason: "no" },
-    ]) {
-      expect(storedAnswer(postSessionAnswerInputSchema.parse(body))).toEqual({
-        ...base,
-        decision: "deny",
-        reason: "no",
-      });
-    }
+  test("action is stored as decision", () => {
+    expect(
+      storedAnswer(
+        postSessionAnswerInputSchema.parse({
+          ...base,
+          action: "deny",
+          reason: "no",
+        }),
+      ),
+    ).toEqual({ ...base, decision: "deny", reason: "no" });
   });
 
-  test("both names, or neither, is refused", () => {
+  test("the old decision name, both names, or neither is refused", () => {
     for (const body of [
+      { ...base, decision: "allow" },
       { ...base, action: "allow", decision: "allow" },
-      { ...base, action: "allow", decision: "deny" },
       base,
     ]) {
       expect(postSessionAnswerInputSchema.safeParse(body).success).toBe(false);

@@ -414,7 +414,7 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
     if (created.outcome !== "written") throw new Error("not written");
     expect(created.request).toMatchObject({ state: "approved" });
     const { rows } = await pool.query(
-      "SELECT actor, status FROM receipts WHERE operation = 'decide_push' AND owner_id = $1",
+      "SELECT actor, status FROM receipts WHERE operation = 'resolve_push' AND owner_id = $1",
       [workspaceId],
     );
     expect(rows).toEqual([{ actor: null, status: "succeeded" }]);

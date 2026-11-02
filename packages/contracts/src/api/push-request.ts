@@ -106,30 +106,15 @@ export const pushRequestSchema = z.object({
   state: pushRequestStateSchema,
   requested_by: receiptActorSchema,
   requested_at: timestampSchema,
-  // Optional only while servers without them may still answer.
-  resolved_by: pushDeciderSchema.nullable().optional(),
-  resolved_at: timestampSchema.nullable().optional(),
-  resolution_reason: z.string().nullable().optional(),
+  resolved_by: pushDeciderSchema.nullable(),
+  resolved_at: timestampSchema.nullable(),
+  resolution_reason: z.string().nullable(),
   request_receipt_id: receiptIdSchema,
-  resolution_receipt_id: receiptIdSchema.nullable().optional(),
+  resolution_receipt_id: receiptIdSchema.nullable(),
   // Set once the platform's push ended, pushed or failed; its receipt says
   // where the commit went or why it did not.
   finished_at: timestampSchema.nullable(),
   push_receipt_id: receiptIdSchema.nullable(),
-  // The old names of the four resolution fields, sent until callers move.
-  decided_by: pushDeciderSchema
-    .nullable()
-    .meta({ deprecated: true, description: "Use `resolved_by`." }),
-  decided_at: timestampSchema
-    .nullable()
-    .meta({ deprecated: true, description: "Use `resolved_at`." }),
-  decision_reason: z
-    .string()
-    .nullable()
-    .meta({ deprecated: true, description: "Use `resolution_reason`." }),
-  decision_receipt_id: receiptIdSchema
-    .nullable()
-    .meta({ deprecated: true, description: "Use `resolution_receipt_id`." }),
 });
 
 export const createPushRequestRequestSchema = z
@@ -151,10 +136,6 @@ export const resolvePushRequestRequestSchema = z
     reason: z.string().min(1).max(1000).optional(),
   })
   .strict();
-/** @deprecated The body of the old `/decision` path; use `/approve` or `/reject`. */
-export const decidePushRequestRequestSchema = resolvePushRequestRequestSchema
-  .extend({ decision: pushDecisionSchema })
-  .strict();
 
 export const listPushRequestsResponseSchema = z.object({
   items: z.array(pushRequestSchema),
@@ -169,9 +150,9 @@ export const PUSH_REFUSAL_VALUES = [
   "no_checkpoint",
   "checkpoint_unavailable",
   "request_open",
-  "already_decided",
-  // The new name of `already_decided`, readable before it is written.
   "already_resolved",
+  // `already_resolved` in receipts written before the rename.
+  "already_decided",
   "checkpoint_moved",
   "commit_mismatch",
   "catalog_changed",
@@ -204,14 +185,14 @@ export const pushReasonCodeSchema = z.union([
 ]);
 
 /**
- * `result` of a `request_push`, `decide_push` or `push` receipt. Fields the
+ * `result` of a `request_push`, `resolve_push` or `push` receipt. Fields the
  * refused attempt never learned (a scope refusal reads no row) are null.
  */
 export const pushReceiptResultSchema = z.object({
   push_request_id: pushRequestIdSchema.nullable(),
-  decision: pushDecisionSchema.nullable().optional(),
-  // The new name of `decision`, readable before it is written.
   action: pushDecisionSchema.nullable().optional(),
+  // `action` in receipts written before the rename.
+  decision: pushDecisionSchema.nullable().optional(),
   verdict: z.enum(["allow", "refuse"]),
   refusal: pushRefusalSchema.nullable(),
   repository_id: z.string().nullable(),
@@ -225,7 +206,7 @@ export const pushReceiptResultSchema = z.object({
   previous_commit: gitCommitShaSchema.nullable().optional(),
   approved_by: pushDeciderSchema.nullable().optional(),
   reason_code: pushReasonCodeSchema.nullable().optional(),
-  // A `decide_push` receipt only: the API key that decided, or null for a
+  // A `resolve_push` receipt only: the API key that decided, or null for a
   // person or the policy.
   decider_key: deciderKeySchema.nullable().optional(),
 });
@@ -237,9 +218,10 @@ export type PushDecider = z.infer<typeof pushDeciderSchema>;
 export type CreatePushRequestRequest = z.infer<
   typeof createPushRequestRequestSchema
 >;
-export type DecidePushRequestRequest = z.infer<
-  typeof decidePushRequestRequestSchema
->;
+/** What the service resolves: the path's action joined to the body. */
+export type PushResolution = ResolvePushRequestRequest & {
+  decision: PushDecision;
+};
 export type ResolvePushRequestRequest = z.infer<
   typeof resolvePushRequestRequestSchema
 >;

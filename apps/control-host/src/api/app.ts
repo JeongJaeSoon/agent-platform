@@ -45,7 +45,6 @@ import {
   type ApiOperationId,
   apiRouteConfig,
   buildOpenApiDocument,
-  DEPRECATED_ROUTES,
 } from "./openapi.ts";
 import type { ReadinessProbe } from "./readiness.ts";
 import { actionForScope, missingScope } from "./scope-policy.ts";
@@ -465,15 +464,6 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
   const logger = options.logger ?? createLogger();
   const app = new OpenAPIHono<ApiEnvironment>({ strict: false });
   const v1 = new OpenAPIHono<ApiEnvironment>({ strict: false });
-  // Ahead of auth and body checks, so refusals carry the header too.
-  for (const route of DEPRECATED_ROUTES) {
-    app.use(route.path, async (context, next) => {
-      await next();
-      if (context.req.method === route.method) {
-        context.res.headers.set("Deprecation", "true");
-      }
-    });
-  }
   app.use("*", async (context, next) => {
     const requestId = crypto.randomUUID();
     const startedAt = performance.now();

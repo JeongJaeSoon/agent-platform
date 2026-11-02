@@ -11,7 +11,6 @@ import type {
   AnswerBody,
   PendingRequest,
   PermissionAnswer,
-  PermissionDecision,
   PermissionRequest,
   PushRequest,
   PushRequestId,
@@ -36,7 +35,7 @@ export interface PendingRequestHandlers {
   permission?(
     request: PermissionRequest,
     context: { signal: AbortSignal },
-  ): Maybe<PermissionAnswer | PermissionDecision>;
+  ): Maybe<PermissionAnswer>;
   question?(
     request: QuestionRequest,
     context: { signal: AbortSignal },
@@ -95,7 +94,7 @@ async function decide(
       signal,
     });
     if (!answer) return undefined;
-    const action = "action" in answer ? answer.action : answer.decision;
+    const { action } = answer;
     if (action === "deny" && !answer.reason?.trim())
       throw new TypeError("a denial needs a reason the model can act on");
     return {

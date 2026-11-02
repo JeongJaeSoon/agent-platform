@@ -28,16 +28,10 @@ const permissionAnswerFields = {
   reason: z.string().min(1).optional(),
 };
 
-/** A permission answer from the API: `action`, never with `decision`. */
+/** A permission answer from the API. */
 export const permissionAnswerInputSchema = z
   .object({ ...permissionAnswerFields, action: permissionActionSchema })
   .strict();
-
-/** @deprecated The old name of `action`, taken until callers move. */
-export const deprecatedPermissionAnswerInputSchema = z
-  .object({ ...permissionAnswerFields, decision: permissionActionSchema })
-  .strict()
-  .meta({ deprecated: true, description: "Use `action`." });
 
 export const questionAnswerSchema = z
   .object({
@@ -124,10 +118,8 @@ export const postSessionAnswerRequestSchema = z.discriminatedUnion("kind", [
   questionsAnswerSchema,
 ]);
 /** The body of `POST /v1/sessions/{id}/answers`. */
-// Strict members: a body with both names, or neither, matches none of them.
-export const postSessionAnswerInputSchema = z.union([
+export const postSessionAnswerInputSchema = z.discriminatedUnion("kind", [
   permissionAnswerInputSchema,
-  deprecatedPermissionAnswerInputSchema,
   questionsAnswerSchema,
 ]);
 
@@ -135,7 +127,7 @@ export const postSessionAnswerInputSchema = z.union([
 export function storedAnswer(
   input: PostSessionAnswerInput,
 ): PostSessionAnswerRequest {
-  if (!("action" in input)) return input;
+  if (input.kind !== "permission") return input;
   const { action, ...rest } = input;
   return { ...rest, decision: action };
 }

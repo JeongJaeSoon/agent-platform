@@ -15,7 +15,6 @@ import type {
   ChangeProfileParams,
   CommentPullRequestParams,
   CreateSessionParams,
-  DecidePushParams,
   InterruptParams,
   ListSessionsParams,
   ListTurnsParams,
@@ -142,13 +141,6 @@ export interface Sessions {
       id: SessionId,
       pushRequestId: PushRequestId,
       params: ResolvePushParams,
-      options?: MutationOptions,
-    ): Promise<PushRequest>;
-    /** @deprecated Use `approve()` or `reject()`. */
-    decide(
-      id: SessionId,
-      pushRequestId: PushRequestId,
-      params: DecidePushParams,
       options?: MutationOptions,
     ): Promise<PushRequest>;
     /** No Idempotency-Key in the API: retried on a retryable answer, never after a lost one. */
@@ -485,13 +477,6 @@ export function sessions(context: Context): Sessions {
         ),
       approve,
       reject,
-      decide: (id, pushRequestId, { decision, ...params }, options) =>
-        (decision === "approve" ? approve : reject)(
-          id,
-          pushRequestId,
-          params,
-          options,
-        ),
       openPullRequest: (id, pushRequestId, params, options) =>
         call(
           policy,

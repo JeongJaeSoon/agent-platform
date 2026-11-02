@@ -1,7 +1,5 @@
 import {
   createPushRequestRequestSchema,
-  type DecidePushRequestRequest,
-  decidePushRequestRequestSchema,
   listPushRequestsResponseSchema,
   type PushDecision,
   pushRequestParamsSchema,
@@ -60,38 +58,24 @@ export function registerPushRequestRoutes(
     return jsonWithSchema(context, pushRequestSchema, request);
   });
 
-  // `/approve`, `/reject` and the old `/decision` share one idempotency
-  // scope and hash the same body, so a key replays across them.
+  // `/approve` and `/reject` share one idempotency scope: the path names
+  // the action, which joins the body before it is hashed.
   const resolve =
-    (
-      readBody: (
-        context: Context<ApiEnvironment>,
-      ) => Promise<DecidePushRequestRequest>,
-    ) =>
-    async (context: Context<ApiEnvironment>) => {
+    (decision: PushDecision) => async (context: Context<ApiEnvironment>) => {
       const params = requireParams(context, pushRequestParamsSchema);
       const key = requireIdempotencyKey(context);
       const resolved = await mapped(() =>
         service.decide(actorOf(context), params.id, params.push_request_id, {
           idempotencyKey: key,
-          readBody: () => readBody(context),
+          readBody: async () => ({
+            decision,
+            ...(await parseJsonBody(context, resolvePushRequestRequestSchema)),
+          }),
         }),
       );
       return jsonWithSchema(context, pushRequestSchema, resolved);
     };
-  const withAction = (decision: PushDecision) =>
-    resolve(async (context) => ({
-      decision,
-      ...(await parseJsonBody(context, resolvePushRequestRequestSchema)),
-    }));
 
-  apiRoute(router, "approvePushRequest", withAction("approve"));
-  apiRoute(router, "rejectPushRequest", withAction("reject"));
-  apiRoute(
-    router,
-    "decidePushRequest",
-    resolve((context) =>
-      parseJsonBody(context, decidePushRequestRequestSchema),
-    ),
-  );
+  apiRoute(router, "approvePushRequest", resolve("approve"));
+  apiRoute(router, "rejectPushRequest", resolve("reject"));
 }

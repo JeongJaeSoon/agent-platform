@@ -27,18 +27,25 @@ const OLD_SERVER = {
   push_receipt_id: null,
 };
 
-describe("push request names during the rename", () => {
-  test("a response from a server without the resolution fields still parses", () => {
-    expect(pushRequestSchema.safeParse(OLD_SERVER).success).toBe(true);
-    expect(
-      pushRequestSchema.safeParse({
-        ...OLD_SERVER,
-        resolved_by: ACTOR,
-        resolved_at: OLD_SERVER.decided_at,
-        resolution_reason: null,
-        resolution_receipt_id: OLD_SERVER.decision_receipt_id,
-      }).success,
-    ).toBe(true);
+describe("push request names after the rename", () => {
+  test("a response names the resolution resolved_*, with no decided_* copy", () => {
+    const resolved = {
+      ...OLD_SERVER,
+      resolved_by: ACTOR,
+      resolved_at: OLD_SERVER.decided_at,
+      resolution_reason: null,
+      resolution_receipt_id: OLD_SERVER.decision_receipt_id,
+    };
+    const {
+      decided_by: _by,
+      decided_at: _at,
+      decision_reason: _reason,
+      decision_receipt_id: _receipt,
+      ...current
+    } = resolved;
+    expect(pushRequestSchema.safeParse(current).success).toBe(true);
+    expect(pushRequestSchema.parse(resolved)).not.toHaveProperty("decided_by");
+    expect(pushRequestSchema.safeParse(OLD_SERVER).success).toBe(false);
   });
 
   test("a receipt result with the old or the new names parses", () => {

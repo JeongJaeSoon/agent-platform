@@ -48,13 +48,14 @@ export const PUSH_REFUSAL_ERRORS: Record<
     message:
       "The session already has an open push request to this repository and branch",
   },
-  already_decided: {
-    code: "PUSH_REQUEST_DECIDED",
-    message: "The push request was already decided",
-  },
   already_resolved: {
     code: "PUSH_REQUEST_RESOLVED",
-    message: "The push request was already decided",
+    message: "The push request was already approved or rejected",
+  },
+  // Only in older receipts; nothing refuses with it now.
+  already_decided: {
+    code: "PUSH_REQUEST_RESOLVED",
+    message: "The push request was already approved or rejected",
   },
   checkpoint_moved: {
     code: "CHECKPOINT_MOVED",
@@ -112,7 +113,7 @@ export const PUSH_REFUSAL_ERRORS: Record<
   },
 };
 
-export type PushOperation = "request_push" | "decide_push";
+export type PushOperation = "request_push" | "resolve_push";
 
 export type PushRefusalRecord = {
   ownerId: string;

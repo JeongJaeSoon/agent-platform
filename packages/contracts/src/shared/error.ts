@@ -113,9 +113,9 @@ export const API_ERROR_CODE_VALUES = [
   // session checkpointed again after the request pinned its commit.
   "PUSH_SOURCE_MISSING",
   "PUSH_REQUEST_OPEN",
-  "PUSH_REQUEST_DECIDED",
-  // The new name of PUSH_REQUEST_DECIDED, readable in receipts first.
   "PUSH_REQUEST_RESOLVED",
+  // PUSH_REQUEST_RESOLVED in receipts written before the rename.
+  "PUSH_REQUEST_DECIDED",
   "CHECKPOINT_MOVED",
   // Pull requests: the push request has not reached `pushed`, or no pull
   // request was opened from it yet.

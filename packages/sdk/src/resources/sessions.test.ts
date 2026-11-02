@@ -68,10 +68,6 @@ describe("requests carry the generated shape", () => {
       git_commit: "abc",
       reason: "no",
     });
-    await client.sessions.pushRequests.decide("s1", "pr1", {
-      decision: "reject",
-      git_commit: "abc",
-    });
     await client.sessions.pushRequests.openPullRequest("s1", "pr1");
     const sent = api.seen.map((r) => [
       r.path,
@@ -88,14 +84,11 @@ describe("requests carry the generated shape", () => {
       ["/v1/sessions/s1/push-requests", true],
       ["/v1/sessions/s1/push-requests/pr1/approve", true],
       ["/v1/sessions/s1/push-requests/pr1/reject", true],
-      // The deprecated decide() goes to the path its decision names.
-      ["/v1/sessions/s1/push-requests/pr1/reject", true],
       ["/v1/sessions/s1/push-requests/pr1/pull-request", false],
     ]);
     expect(api.seen[3]?.body).toEqual({ expected_revision: 1 });
     expect(api.seen[7]?.body).toEqual({});
     expect(api.seen[9]?.body).toEqual({ git_commit: "abc", reason: "no" });
-    expect(api.seen[10]?.body).toEqual({ git_commit: "abc" });
   });
 
   test("openPullRequest is not retried after a lost response", async () => {
