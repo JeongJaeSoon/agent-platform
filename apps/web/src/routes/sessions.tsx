@@ -26,11 +26,7 @@ import {
   SessionDetail,
   usePendingRail,
 } from "@werft-ai/react/blocks";
-import {
-  DetailLayout,
-  ListToolbar,
-  LoadMoreButton,
-} from "@werft-ai/react/components";
+import { DetailLayout, ListToolbar } from "@werft-ai/react/components";
 import {
   Button,
   buttonVariants,
@@ -45,6 +41,7 @@ import { ArrowLeft } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useCan } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
@@ -363,25 +360,8 @@ function SessionsView({
       className="flex flex-col items-start gap-4 transition-opacity data-[busy=true]:opacity-60 data-[busy=true]:delay-150"
     >
       <SessionsOverview sessions={items} />
-      {sessions.error
-        ? loadError(
-            sessions.error,
-            () =>
-              void (sessions.isFetchNextPageError
-                ? sessions.fetchNextPage()
-                : sessions.refetch()),
-          )
-        : null}
-      <LoadMoreButton
-        // A next page of the last filter's rows would land under the new one.
-        hasMore={sessions.hasNextPage && !busy}
-        loading={sessions.isFetchingNextPage}
-        onLoadMore={() => void sessions.fetchNextPage({ cancelRefetch: false })}
-        messages={{
-          more: t("sessions.more"),
-          loading: t("sessions.loadingMore"),
-        }}
-      />
+      {/* A next page of the last filter's rows would land under the new one. */}
+      <PagedListFooter list={sessions} stale={busy} />
       <Text variant="meta">
         {t("sessionList.shown", { count: items.length })}
       </Text>

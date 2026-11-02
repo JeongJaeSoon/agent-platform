@@ -7,7 +7,6 @@ import type {
   ApiKeyView,
   InstallationLimitsResponse,
   ListSessionsResponse,
-  SessionSummary,
   UsageSummaryResponse,
 } from "@werft-ai/contracts";
 import {
@@ -22,6 +21,8 @@ import { ApprovalInbox, usePendingRail } from "@werft-ai/react/blocks";
 import {
   DetailLayout,
   OPERATIONS_MESSAGES,
+  SessionOverviewRow,
+  SessionOverviewTable,
   useMinute,
 } from "@werft-ai/react/components";
 import {
@@ -29,16 +30,11 @@ import {
   Button,
   buttonVariants,
   Card,
-  Code,
   cn,
+  formatElapsed,
   formatExactTime,
+  formatRelativeTime,
   formatTimestamp,
-  GridTable,
-  GridTableCell,
-  GridTableColumnHeader,
-  GridTableHeader,
-  GridTableRow,
-  GridTableRowOpener,
   Heading,
   IconTile,
   MoreLink,
@@ -60,9 +56,7 @@ import {
 import {
   Bot,
   ClipboardCheck,
-  Folder,
   Gauge,
-  GitBranch,
   Inbox,
   Link as LinkIcon,
   List,
@@ -90,18 +84,18 @@ import {
 import { LoadFailure } from "../components/load-failure.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
-import {
-  errorKey,
-  type Locale,
-  type MessageKey,
-  useI18n,
-} from "../i18n/i18n.tsx";
+import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import { expiryState } from "./api-keys.tsx";
 
 // GET /v1/agents' cap on `ids` (contracts AGENT_IDS_MAX); this app imports
 // no contracts values.
 const NAMED_AGENTS_MAX = 100;
 
+import {
+  sessionLink,
+  useSessionOverviewHead,
+  useSessionOverviewRowMessages,
+} from "./session-overview.tsx";
 import { loadError, useUnavailable } from "./sessions.tsx";
 import { duration, usageSummaryQuery } from "./usage.tsx";
 
@@ -132,10 +126,6 @@ const STEP_ACTION = {
 } as const satisfies Record<NonNullable<Step["to"]>, MessageKey>;
 
 const RECENT_LIMIT = 5;
-const RECENT_COLUMNS =
-  "minmax(0,2.2fr) 120px minmax(0,1.2fr) minmax(0,1.2fr) 72px";
-// Without the agent and repository columns: the title needs the width at 390px.
-const RECENT_NARROW_COLUMNS = "minmax(0,1fr) 116px 64px";
 const STALE_WAIT_MS = 30 * 60 * 1000;
 // Lines the home inbox draws before the rest go to the sessions screen.
 const HOME_REQUESTS_LIMIT = 5;
@@ -482,7 +472,9 @@ export function HomeScreen() {
           ),
           dot: "wait" as const,
           value: t("home.glance.keyExpires", {
-            when: relativeTime(key.expires_at ?? "", locale, now),
+            when: formatRelativeTime(key.expires_at ?? "", locale, now, {
+              future: true,
+            }),
           }),
         })),
         {
@@ -894,46 +886,6 @@ function count(items: number, more: boolean) {
   return more ? `${items}+` : String(items);
 }
 
-const RELATIVE_UNITS = [
-  ["day", 24 * 60 * 60 * 1000],
-  ["hour", 60 * 60 * 1000],
-  ["minute", 60 * 1000],
-] as const;
-
-/** "3 days ago", "in 2 hours"; under a minute reads as now. */
-export function relativeTime(
-  iso: string,
-  locale: Locale,
-  now: number = Date.now(),
-): string {
-  const delta = new Date(iso).getTime() - now;
-  if (Number.isNaN(delta)) return iso;
-  const format = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
-  for (const [unit, ms] of RELATIVE_UNITS)
-    if (Math.abs(delta) >= ms)
-      return format.format(Math.trunc(delta / ms), unit);
-  return format.format(0, "second");
-}
-
-/** How long since `iso`, in its largest whole unit: "12분", "2 hr". */
-export function waitedFor(
-  iso: string,
-  locale: Locale,
-  now: number = Date.now(),
-): string {
-  const elapsed = Math.max(0, now - new Date(iso).getTime());
-  if (Number.isNaN(elapsed)) return iso;
-  const [unit, ms] = RELATIVE_UNITS.find(([, size]) => elapsed >= size) ?? [
-    "minute",
-    60 * 1000,
-  ];
-  return new Intl.NumberFormat(locale, {
-    style: "unit",
-    unit,
-    unitDisplay: "short",
-  }).format(Math.trunc(elapsed / ms));
-}
-
 function HomeSection({
   title,
   action,
@@ -1150,15 +1102,6 @@ const LINK_LABEL = {
   none: "linked.notLinked",
 } as const satisfies Record<keyof typeof LINK_DOT, MessageKey>;
 
-const SESSION_DOT = {
-  queued: "idle",
-  running: "run",
-  needs_input: "wait",
-  idle: "idle",
-  failed: "failed",
-  stopped: "idle",
-} as const satisfies Record<SessionSummary["status"], StatusDotStatus>;
-
 function GlanceCard({
   tile,
   eyebrow,
@@ -1255,7 +1198,7 @@ function GlanceCard({
   );
 }
 
-/** The newest of the viewer's sessions, in the design's columns. */
+/** The newest of the viewer's sessions, in the session list's own table. */
 function RecentSessionTable({
   waitingSince,
   now,
@@ -1267,6 +1210,9 @@ function RecentSessionTable({
   const { t, locale } = useI18n();
   const sessions = useSessions();
   const items = sessions.data?.pages[0]?.items ?? [];
+  // Home has no room for who started each session; they are all the viewer's.
+  const { startedBy: _startedBy, ...head } = useSessionOverviewHead();
+  const messages = useSessionOverviewRowMessages();
 
   if (sessions.isPending) return <StatusScreen kind="loading" />;
   if (sessions.error)
@@ -1286,167 +1232,44 @@ function RecentSessionTable({
         {t("sessions.empty")}
       </Text>
     );
-  // The row opener's focus ring sits outside the row: no overflow clipping.
   return (
-    <div className="rounded-card border bg-card">
-      <GridTable
-        aria-label={t("home.recent.title")}
-        columns={RECENT_COLUMNS}
-        narrowAt={820}
-        narrowColumns={RECENT_NARROW_COLUMNS}
-      >
-        <GridTableHeader>
-          <GridTableColumnHeader>
-            {t("sessions.column.id")}
-          </GridTableColumnHeader>
-          <GridTableColumnHeader>
-            {t("sessions.column.status")}
-          </GridTableColumnHeader>
-          <GridTableColumnHeader hideNarrow={true}>
-            {t("home.recent.agent")}
-          </GridTableColumnHeader>
-          <GridTableColumnHeader hideNarrow={true}>
-            {t("home.recent.repository")}
-          </GridTableColumnHeader>
-          <GridTableColumnHeader align="end" className="text-right">
-            {t("home.recent.activity")}
-          </GridTableColumnHeader>
-        </GridTableHeader>
-        {items.slice(0, RECENT_LIMIT).map((session) => (
-          <RecentRow
+    <SessionOverviewTable label={t("home.recent.title")} messages={head}>
+      {items.slice(0, RECENT_LIMIT).map((session) => {
+        const since =
+          session.status === "needs_input"
+            ? waitingSince?.[session.id]
+            : undefined;
+        return (
+          <SessionOverviewRow
             key={session.id}
             session={session}
             locale={locale}
-            waitingSince={waitingSince?.[session.id]}
             now={now}
-          />
-        ))}
-      </GridTable>
-    </div>
-  );
-}
-
-function RecentRow({
-  session,
-  locale,
-  waitingSince,
-  now,
-}: {
-  readonly session: SessionSummary;
-  readonly locale: Locale;
-  readonly waitingSince: string | undefined;
-  readonly now: number;
-}) {
-  const { t } = useI18n();
-  const at = session.last_event_at ?? session.created_at;
-  return (
-    <GridTableRow data-status={session.status}>
-      <GridTableCell lines={true}>
-        <GridTableRowOpener
-          asChild
-          aria-label={t("home.recent.open", {
-            title: session.title ?? session.id.slice(0, 8),
-          })}
-        >
-          <Link to="/sessions/$id" params={{ id: session.id }} />
-        </GridTableRowOpener>
-        {session.title ? (
-          <>
-            <span
-              className="max-w-full truncate font-medium text-link"
-              title={session.title}
-            >
-              {session.title}
-            </span>
-            <Code className="text-muted-foreground" title={session.id}>
-              {session.id.slice(0, 8)}
-            </Code>
-          </>
-        ) : (
-          <Code
-            className="font-medium text-control text-link"
-            title={session.id}
-          >
-            {session.id.slice(0, 8)}
-          </Code>
-        )}
-      </GridTableCell>
-      {/* Raised: the wait's exact time opens on its own hover and focus. */}
-      <GridTableCell raised={true}>
-        <div
-          className="flex min-w-0 items-center gap-2 text-control"
-          data-state={session.status}
-        >
-          <StatusDot status={SESSION_DOT[session.status]} />
-          <span>
-            <span className="sr-only">{t("home.recent.statusAxis")} </span>
-            {t(`sessions.status.${session.status}`)}
-            {session.status === "needs_input" && waitingSince ? (
-              <>
-                {" · "}
+            messages={messages}
+            renderLink={sessionLink(session.id)}
+            statusDetail={
+              since ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <time
-                      dateTime={waitingSince}
+                      dateTime={since}
                       // biome-ignore lint/a11y/noNoninteractiveTabindex: keyboard users reach the exact time only through focus
                       tabIndex={0}
                       className="rounded-sm focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
                     >
-                      {waitedFor(waitingSince, locale, now)}
+                      {formatElapsed(since, locale, now)}
                     </time>
                   </TooltipTrigger>
                   <TooltipContent>
-                    {formatExactTime(waitingSince, locale)}
+                    {formatExactTime(since, locale)}
                   </TooltipContent>
                 </Tooltip>
-              </>
-            ) : null}
-          </span>
-        </div>
-      </GridTableCell>
-      <GridTableCell hideNarrow={true}>
-        {session.agent ? (
-          <span className="min-w-0 truncate">{session.agent.name}</span>
-        ) : (
-          <span className="text-muted-foreground">
-            {t("home.overview.unknown")}
-          </span>
-        )}
-      </GridTableCell>
-      <GridTableCell hideNarrow={true}>
-        <span className="flex min-w-0 items-center gap-2">
-          {session.repository_id ? (
-            <>
-              <GitBranch
-                className="size-3.5 shrink-0 text-muted-foreground"
-                aria-hidden="true"
-              />
-              <Code className="truncate" title={session.repository_id}>
-                {session.repository_id}
-              </Code>
-            </>
-          ) : (
-            <>
-              <Folder
-                className="size-3.5 shrink-0 text-muted-foreground"
-                aria-hidden="true"
-              />
-              <Text as="span" variant="meta" className="truncate">
-                {t("home.recent.noRepository")}
-              </Text>
-            </>
-          )}
-        </span>
-      </GridTableCell>
-      {/* Raised for the exact time's tooltip, as the status cell. */}
-      <GridTableCell
-        align="end"
-        raised={true}
-        className="text-right text-muted-foreground"
-      >
-        <RelativeTime value={at} locale={locale} now={now} />
-      </GridTableCell>
-    </GridTableRow>
+              ) : undefined
+            }
+          />
+        );
+      })}
+    </SessionOverviewTable>
   );
 }
 

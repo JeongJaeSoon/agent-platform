@@ -487,6 +487,48 @@ describe("sessions list", () => {
     expect(nextCalls).toBe(2);
   });
 
+  test("a failed next page keeps the rows, and retry pressed again while asking asks once", async () => {
+    const user = await setupUser();
+    let release = () => {};
+    let nextCalls = 0;
+    const { api } = renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/sessions": async (request) => {
+        if (new URL(request.url).searchParams.get("cursor") !== "next-1") {
+          return json(200, {
+            items: [summary(SESSION_ID, { status: "idle" })],
+            next_cursor: "next-1",
+          });
+        }
+        if (++nextCalls === 1) {
+          return apiError(503, "BACKEND_UNAVAILABLE", "down");
+        }
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return json(200, { items: [summary(OTHER_ID)], next_cursor: null });
+      },
+    });
+
+    await user.click(await screen.findByRole("button", { name: "더 보기" }));
+    const alert = await screen.findByRole("alert");
+    // The rows already read stay above the failure.
+    expect(screen.getByRole("link", { name: opener(SESSION_ID) })).toBeTruthy();
+    const retry = within(alert).getByRole("button", { name: "다시 시도" });
+    await user.click(retry);
+    await waitFor(() =>
+      expect(retry.getAttribute("aria-disabled")).toBe("true"),
+    );
+    await user.click(retry);
+    await user.click(retry);
+    release();
+    await screen.findByRole("link", { name: opener(OTHER_ID) });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(
+      api.calls.filter((call) => call.search === "?cursor=next-1"),
+    ).toHaveLength(2);
+  });
+
   test("from the keyboard 더 보기 keeps the focus, asks once, and hands it to the new row at the end", async () => {
     const user = await setupUser();
     let release = () => {};
@@ -1041,6 +1083,45 @@ describe("sessions list", () => {
     const table = await screen.findByRole("table", { name: "세션 표" });
     await waitFor(() =>
       expect(table.textContent).toContain("작업 상태: 답변 대기 · 12분"),
+    );
+  });
+
+  test("a wait of an hour or more reads in hours, as on home", async () => {
+    const asked = new Date(Date.now() - 120 * 60_000 - 5_000).toISOString();
+    renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": () =>
+        json(200, {
+          items: [summary(SESSION_ID, { status: "needs_input" })],
+          next_cursor: null,
+        }),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, {
+          items: [
+            {
+              kind: "question",
+              request_id: "req-1",
+              turn_id: "1",
+              attempt_id: "1",
+              created_at: asked,
+              expires_at: LATER,
+              questions: [
+                {
+                  question_id: "q1",
+                  prompt: "어느 쪽?",
+                  options: [],
+                  multi_select: false,
+                  allow_free_text: true,
+                },
+              ],
+            },
+          ],
+          answerable: true,
+        } satisfies ListPendingRequestsResponse),
+    });
+    const table = await screen.findByRole("table", { name: "세션 표" });
+    await waitFor(() =>
+      expect(table.textContent).toContain("작업 상태: 답변 대기 · 2시간"),
     );
   });
 
