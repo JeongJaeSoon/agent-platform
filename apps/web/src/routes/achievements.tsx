@@ -10,6 +10,7 @@ import { useAgentPlatform } from "@werft-ai/react";
 import { OPERATIONS_MESSAGES } from "@werft-ai/react/components";
 import {
   Badge,
+  Button,
   Card,
   Code,
   EmptyState,
@@ -146,6 +147,13 @@ export function AchievementsScreen() {
     <Page
       title={t("achievements.title")}
       description={t("achievements.description")}
+      actions={
+        <Button asChild variant="outline">
+          <RouterLink to="/settings/workspace/achievement-rules">
+            {t("achievementRules.nav")}
+          </RouterLink>
+        </Button>
+      }
     >
       <div className="flex flex-wrap gap-2">
         <Filter
