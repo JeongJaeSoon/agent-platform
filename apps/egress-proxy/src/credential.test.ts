@@ -2140,22 +2140,75 @@ describe("startCredentialProxy", () => {
       expect(auth.reported).toEqual([]);
     });
 
-    test("the judge's refusal is relayed and never logged", async () => {
-      const up = upstream(
-        () => new Response("Incorrect API key ...-key", { status: 401 }),
+    test("the judge's error answers are relayed and their bodies, which name the key's last characters, never logged", async () => {
+      // ASSUMPTION (decisions-api.fixture.ts): OpenAI's usual error envelope.
+      const suffix = JUDGE_KEY.slice(-4);
+      for (const status of [401, 403, 429, 500]) {
+        const up = upstream(() =>
+          Response.json(
+            {
+              error: {
+                message: `Incorrect API key provided: sk-...${suffix}.`,
+                type: "invalid_request_error",
+                code: "invalid_api_key",
+              },
+            },
+            { status },
+          ),
+        );
+        const auth = authorizer(() =>
+          judgmentGrant(`http://upstream.test:${up.port}`),
+        );
+        const lines: string[] = [];
+        const server = proxy(auth.url, up.port, {
+          logger: createProxyLogger("debug", (line) => lines.push(line)),
+        });
+        const response = await decide(server.port, JUDGMENT_TOKEN);
+        expect(response.status).toBe(status);
+        await response.text();
+        expect(lines.length).toBeGreaterThan(0);
+        const logged = lines.join("\n");
+        expect(logged).not.toContain(suffix);
+        expect(logged).not.toContain("Incorrect API key");
+        expect(auth.reported).toEqual([]);
+      }
+    });
+
+    test("a documented Decisions answer, which names no model, is charged at the request's model as read", async () => {
+      const up = upstream(() =>
+        Response.json({
+          answers: [
+            {
+              type: "choice",
+              name: "achievement",
+              choice: "yes",
+              probabilities: [
+                { value: "yes", probability: 0.94 },
+                { value: "no", probability: 0.06 },
+              ],
+              confidence: 0.94,
+            },
+          ],
+          usage: {
+            input_tokens: 612,
+            input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+          },
+        }),
       );
       const auth = authorizer(() =>
         judgmentGrant(`http://upstream.test:${up.port}`),
       );
-      const lines: string[] = [];
-      const server = proxy(auth.url, up.port, {
-        logger: createProxyLogger("debug", (line) => lines.push(line)),
-      });
+      const server = proxy(auth.url, up.port);
       const response = await decide(server.port, JUDGMENT_TOKEN);
-      expect(response.status).toBe(401);
-      await response.text();
-      expect(lines.join("\n")).not.toContain("Incorrect API key");
-      expect(auth.reported).toEqual([]);
+      expect(response.status).toBe(200);
+      await response.json();
+      await until(() => auth.reported.length === 1);
+      expect(auth.reported[0]?.usage).toMatchObject({
+        model: "gpt-6-luna",
+        input_tokens: 612,
+        output_tokens: 0,
+        estimated: false,
+      });
     });
   });
 

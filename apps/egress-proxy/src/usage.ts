@@ -195,7 +195,15 @@ export type UsageMeter = {
   result(request: Uint8Array | null): MessagesUsage;
 };
 
-export function usageMeter(contentType: string | null): UsageMeter {
+/**
+ * `answerNamesModel: false` is for the Decisions API, whose answer carries
+ * `usage` but no `model`: the request's model is the one charged.
+ */
+export function usageMeter(
+  contentType: string | null,
+  options: { answerNamesModel?: boolean } = {},
+): UsageMeter {
+  const answerNamesModel = options.answerNamesModel ?? true;
   const decoder = new TextDecoder();
   if ((contentType ?? "").toLowerCase().startsWith("text/event-stream")) {
     let model: string | undefined;
@@ -312,12 +320,18 @@ export function usageMeter(contentType: string | null): UsageMeter {
       if (total <= MAX_JSON_BYTES) {
         try {
           const body = JSON.parse(decoder.decode(Buffer.concat(chunks)));
+          const model =
+            typeof body?.model === "string"
+              ? body.model
+              : answerNamesModel
+                ? undefined
+                : requested(request).model;
           if (
-            typeof body?.model === "string" &&
+            model !== undefined &&
             typeof body.usage === "object" &&
             body.usage !== null
           ) {
-            return usageOf(body.model, countsOf(body.usage), false, request);
+            return usageOf(model, countsOf(body.usage), false, request);
           }
         } catch {}
       }

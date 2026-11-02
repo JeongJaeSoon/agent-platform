@@ -134,3 +134,5 @@ export * from "./sessions/achievements/achievement-rules.ts";
 export * from "./sessions/achievements/achievement-store.ts";
 export * from "./sessions/achievements/session-achievement-service.ts";
 export * from "./sessions/achievements/judgment-token.ts";
+export * from "./sessions/achievements/decisions-client.ts";
+export * from "./sessions/achievements/judge-connections.ts";

@@ -14,6 +14,7 @@ import {
   checkpointOutputObjects,
   checkpointOutputsDigest,
   createAchievementJudge,
+  type DecisionsRequest,
   type SessionOutputsResult,
   type TeamActor,
 } from "@werft-ai/platform";
@@ -55,6 +56,7 @@ import {
   sessionAchievements,
   sessionOutcomes,
   sessions,
+  turns,
   users,
   workspaces,
 } from "./schema.ts";
@@ -298,6 +300,7 @@ integration("achievement judgments on PostgreSQL", () => {
       outputs: {
         readOutputs: async (sessionId) =>
           outputsBySession.get(sessionId) ?? { status: "none" },
+        openOutput: async () => ({ status: "missing" }),
       },
       logger: { info() {}, warn() {} },
       ...(claimMax === undefined ? {} : { claimMax }),
@@ -506,6 +509,7 @@ integration("achievement judgments on PostgreSQL", () => {
           evidenceId: pr.id,
           payload: null,
           judge: "always" as const,
+          probability: null,
           reviewState: "auto" as const,
         },
       ],
@@ -1137,6 +1141,7 @@ integration("achievement judgments on PostgreSQL", () => {
           evidenceId: pr.id,
           payload: null,
           judge: "always" as const,
+          probability: null,
           reviewState: "auto" as const,
         },
       ],
@@ -1356,6 +1361,9 @@ integration("achievement judgments on PostgreSQL", () => {
       spentUsd: 0.16,
       budgetResetsAt: new Date(midnight.rows[0]?.at ?? ""),
       sessionJudgments: 1,
+      threshold: 0.9,
+      transcript: "recent",
+      lastInputDigest: null,
     });
   });
 
@@ -1799,5 +1807,172 @@ integration("achievement judgments on PostgreSQL", () => {
     expect(await judgmentsOf(sessionId)).toMatchObject([
       { id: pending.id, trigger: "manual", status: "queued" },
     ]);
+  });
+
+  describe("Luna pairs", () => {
+    function lunaReplica(probability: () => number) {
+      const sent: DecisionsRequest[] = [];
+      const judge = createAchievementJudge({
+        store: judgments,
+        outputs: {
+          readOutputs: async () => ({ status: "none" }),
+          openOutput: async () => ({ status: "missing" }),
+        },
+        logger: { info() {}, warn() {} },
+        luna: {
+          connections: {
+            upstream: async () => ({
+              url: "https://api.openai.com",
+              headers: [],
+            }),
+          },
+          tokens: createPostgresJudgmentEgress(db),
+          decisions: {
+            decide: async (_token, request) => {
+              sent.push(request);
+              const yes = probability();
+              return {
+                answers: [
+                  {
+                    type: "choice",
+                    name: "achievement",
+                    choice: yes >= 0.5 ? "yes" : "no",
+                    probabilities: [
+                      { value: "yes", probability: yes },
+                      { value: "no", probability: 1 - yes },
+                    ],
+                  },
+                ],
+              };
+            },
+          },
+        },
+      });
+      return { judge, sent };
+    }
+
+    async function judgedOnce(
+      sessionId: string,
+      replica: ReturnType<typeof lunaReplica>,
+    ) {
+      await queueAchievementJudgment(db, sessionId);
+      await quietPassed(sessionId);
+      await replica.judge.runOnce();
+    }
+
+    test("a yes keeps its probability and the judgment its digest; the same input is not sent again, a merge is, and a no takes down the row unless a person reviewed it", async () => {
+      const ws = await workspace();
+      await judgeSettings(ws.workspaceId, { connection_id: "conn-1" });
+      const judged = await rule(
+        ws,
+        await typeId(ws.workspaceId, "pull_request"),
+        "luna",
+      );
+      const sessionId = await session(ws.workspaceId);
+      const pr = await pullRequest(sessionId, ws.workspaceId);
+      let yes = 0.95;
+      const replica = lunaReplica(() => yes);
+
+      await quietPassed(sessionId);
+      await replica.judge.runOnce();
+      expect(replica.sent).toHaveLength(1);
+      expect(replica.sent[0]?.input).toContain(
+        "title: <untrusted>Retry failed payments</untrusted>",
+      );
+      expect(replica.sent[0]?.input).toContain(
+        "<definition>Counts as it appears.</definition>",
+      );
+      const [first] = await judgmentsOf(sessionId);
+      expect(first).toMatchObject({
+        status: "succeeded",
+        backend: "luna",
+        connectionId: "conn-1",
+      });
+      expect(first?.inputDigest).toMatch(/^[0-9a-f]{64}$/);
+      expect(
+        (await achievementsOf(sessionId)).map((row) => [
+          row.ruleId,
+          row.evidenceId,
+          row.judge,
+          row.probability,
+          row.reviewState,
+          row.supersededAt,
+        ]),
+      ).toEqual([[judged.id, pr.id, "luna", 0.95, "auto", null]]);
+
+      await judgedOnce(sessionId, replica);
+      expect(replica.sent).toHaveLength(1);
+      const unchanged = (await judgmentsOf(sessionId)).at(-1);
+      expect(unchanged).toMatchObject({
+        status: "succeeded",
+        inputDigest: first?.inputDigest,
+        calls: 0,
+      });
+
+      await db
+        .update(sessionOutcomes)
+        .set({ state: "merged", mergedAt: new Date() })
+        .where(eq(sessionOutcomes.id, pr.id));
+      yes = 0.2;
+      await judgedOnce(sessionId, replica);
+      expect(replica.sent).toHaveLength(2);
+      expect(replica.sent[1]?.input).toContain("state: merged");
+      const flipped = (await judgmentsOf(sessionId)).at(-1);
+      expect(flipped?.inputDigest).not.toBe(first?.inputDigest);
+      const [down] = await achievementsOf(sessionId);
+      expect(down?.supersededAt).not.toBeNull();
+      expect(down?.supersededBy).toBe(flipped?.id ?? "");
+
+      // A yes again counts anew; a person's confirmation then stands
+      // against the next no.
+      yes = 0.97;
+      await db
+        .update(sessionOutcomes)
+        .set({ state: "closed" })
+        .where(eq(sessionOutcomes.id, pr.id));
+      await judgedOnce(sessionId, replica);
+      const live = (await achievementsOf(sessionId)).filter(
+        (row) => row.supersededAt === null,
+      );
+      expect(live.map((row) => row.probability)).toEqual([0.97]);
+      await db
+        .update(sessionAchievements)
+        .set({ reviewState: "confirmed" })
+        .where(eq(sessionAchievements.id, live[0]?.id ?? ""));
+      yes = 0.1;
+      await db
+        .update(sessionOutcomes)
+        .set({ state: "open", mergedAt: null })
+        .where(eq(sessionOutcomes.id, pr.id));
+      await judgedOnce(sessionId, replica);
+      expect(replica.sent).toHaveLength(4);
+      const kept = (await achievementsOf(sessionId)).filter(
+        (row) => row.supersededAt === null,
+      );
+      expect(kept.map((row) => [row.reviewState, row.probability])).toEqual([
+        ["confirmed", 0.97],
+      ]);
+    });
+
+    test("the transcript is the last ended turns' messages and final answers, oldest first", async () => {
+      const ws = await workspace();
+      const sessionId = await session(ws.workspaceId, "Talk");
+      await db.insert(turns).values([
+        ...Array.from({ length: 4 }, (_, index) => ({
+          sessionId,
+          sequence: index + 1,
+          message: `ask ${index + 1}`,
+          status: "completed",
+          endedAt: new Date(),
+          resultJson: { result: `answer ${index + 1}`, tool_result: "x" },
+        })),
+        { sessionId, sequence: 5, message: "running", status: "running" },
+      ]);
+      expect(await judgments.transcript(sessionId, 3)).toEqual([
+        { sequence: 2, message: "ask 2", result: "answer 2" },
+        { sequence: 3, message: "ask 3", result: "answer 3" },
+        { sequence: 4, message: "ask 4", result: "answer 4" },
+      ]);
+    });
   });
 });

@@ -34,6 +34,7 @@ export type JudgedRule = {
   builtin: boolean;
   evidenceKind: AchievementEvidenceKind;
   judge: AchievementRuleJudge;
+  definition: string;
 };
 
 /** A session_outcomes row, as evidence. */
@@ -47,6 +48,8 @@ export type OutcomeEvidence =
       mergedAt: Date | null;
       additions: number | null;
       deletions: number | null;
+      /** Cut to 200 characters; null on rows from before titles were kept. */
+      title: string | null;
     }
   | {
       kind: "github_review";
@@ -69,6 +72,18 @@ export type JudgeInForce = {
   budgetResetsAt: Date;
   /** The session's other judgments that called the judge. */
   sessionJudgments: number;
+  /** A `luna` pair counts when its "yes" is at least this likely. */
+  threshold: number;
+  transcript: "none" | "recent";
+  /** The input digest of the session's last judgment that succeeded. */
+  lastInputDigest: string | null;
+};
+
+/** One ended turn: what the person said and the engine's final answer. */
+export type TranscriptTurn = {
+  sequence: number;
+  message: string;
+  result: string | null;
 };
 
 export type JudgmentContext = {
@@ -95,6 +110,8 @@ export type NewAchievement = {
   evidenceId: string | null;
   payload: AchievementPayload | null;
   judge: AchievementRuleJudge;
+  /** Luna's "yes" probability; null for an `always` rule. */
+  probability: number | null;
   reviewState: AchievementReviewState;
 };
 
@@ -104,6 +121,17 @@ export type JudgmentResult = {
   rules: string[];
   evidenceIds: string[];
   achievements: NewAchievement[];
+  /** Set when the `luna` pairs were judged, with or without a call. */
+  luna?: {
+    connectionId: string;
+    /** Of every pair's request; the same digest again is not sent. */
+    inputDigest: string;
+    /**
+     * Pairs answered "no": the family's achievement for that evidence is
+     * superseded, unless a person confirmed or rejected it.
+     */
+    declined: { ruleFamilyId: string; evidenceId: string | null }[];
+  };
 } & (
   | { status: "succeeded" | "skipped" | "failed" }
   /** Tried again after `retryInMs`. */
@@ -124,6 +152,8 @@ export interface AchievementJudgmentStore {
    * and the workspace's judge with its spend since UTC midnight.
    */
   context(judgment: ClaimedJudgment): Promise<JudgmentContext>;
+  /** The session's last `turns` ended turns, oldest first. */
+  transcript(sessionId: string, turns: number): Promise<TranscriptTurn[]>;
   /**
    * Writes the result and the achievements in one transaction under the
    * lease; one a rule family already has for the evidence is kept. A retry

@@ -1562,7 +1562,9 @@ export function startCredentialProxy(
     ) {
       return new Response(guarded, { status: response.status, headers });
     }
-    const meter = usageMeter(response.headers.get("content-type"));
+    const meter = usageMeter(response.headers.get("content-type"), {
+      answerNamesModel: route.purpose !== "judgment",
+    });
     const exchangeId = crypto.randomUUID();
     return new Response(
       metered(guarded, meter, signal, () => {

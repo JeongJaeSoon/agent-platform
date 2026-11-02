@@ -1,6 +1,7 @@
 import {
   type AchievementJudgmentError,
   type AchievementPayload,
+  type AchievementReviewState,
   BUILTIN_ACHIEVEMENT_PAYLOAD_SCHEMAS,
 } from "@werft-ai/contracts";
 import type { SessionOutputSource } from "../output-service.ts";
@@ -10,9 +11,26 @@ import {
   type ClaimedJudgment,
   type JudgedRule,
   type JudgmentContext,
+  type JudgmentEgressStore,
   type JudgmentResult,
   type NewAchievement,
 } from "./achievement-judgment-store.ts";
+import {
+  DecisionsCallError,
+  type DecisionsClient,
+  type DecisionsRequest,
+} from "./decisions-client.ts";
+import type { JudgeConnections } from "./judge-connections.ts";
+import { issueJudgmentToken } from "./judgment-token.ts";
+import {
+  fileExcerpt,
+  inputDigestOf,
+  pairAnswerOf,
+  questionOf,
+  TRANSCRIPT_TURNS,
+  transcriptExcerpt,
+  untrusted,
+} from "./luna-question.ts";
 
 export const ACHIEVEMENT_JUDGE_INTERVAL_MS = 30_000;
 /** A judgment a dead replica held is claimed again after this. */
@@ -31,6 +49,8 @@ type Evidence = {
   link: string;
   /** What a built-in type's payload copies. */
   payload: Record<string, unknown>;
+  /** The facts Luna is shown, apart from any file or conversation text. */
+  facts: string[];
 };
 
 /** `owner/repo` of a GitHub pull request or review URL. */
@@ -58,31 +78,48 @@ function evidenceOf(
       title: `${repository}#${outcome.number}`,
       link: outcome.url,
     };
-    evidence.push(
-      outcome.kind === "github_pull_request"
-        ? {
-            ...base,
-            payload: {
-              repository,
-              number: outcome.number,
-              url: outcome.url,
-              state: outcome.state,
-              merged_at: outcome.mergedAt?.toISOString() ?? null,
-              additions: outcome.additions,
-              deletions: outcome.deletions,
-            },
-          }
-        : {
-            ...base,
-            payload: {
-              repository,
-              number: outcome.number,
-              url: outcome.url,
-              event: outcome.event,
-              commit_id: outcome.commitId,
-            },
-          },
-    );
+    if (outcome.kind === "github_pull_request") {
+      const mergedAt = outcome.mergedAt?.toISOString() ?? null;
+      evidence.push({
+        ...base,
+        payload: {
+          repository,
+          number: outcome.number,
+          url: outcome.url,
+          state: outcome.state,
+          merged_at: mergedAt,
+          additions: outcome.additions,
+          deletions: outcome.deletions,
+        },
+        facts: [
+          `repository: ${repository}`,
+          `number: ${outcome.number}`,
+          `state: ${outcome.state}`,
+          `merged_at: ${mergedAt ?? "none"}`,
+          `additions: ${outcome.additions ?? "unknown"}`,
+          `deletions: ${outcome.deletions ?? "unknown"}`,
+          ...(outcome.title === null
+            ? []
+            : [`title: ${untrusted(outcome.title)}`]),
+        ],
+      });
+    } else {
+      evidence.push({
+        ...base,
+        payload: {
+          repository,
+          number: outcome.number,
+          url: outcome.url,
+          event: outcome.event,
+          commit_id: outcome.commitId,
+        },
+        facts: [
+          `repository: ${repository}`,
+          `number: ${outcome.number}`,
+          `event: ${outcome.event}`,
+        ],
+      });
+    }
   }
   for (const file of files) {
     evidence.push({
@@ -92,6 +129,7 @@ function evidenceOf(
       // The console addresses the session, not its outputs tab or a file.
       link: `/sessions/${sessionId}`,
       payload: { path: file.path, size: file.bytes },
+      facts: [`path: ${file.path}`, `size: ${file.bytes}`],
     });
   }
   // A session has a conversation once its first message gave it a title.
@@ -102,10 +140,20 @@ function evidenceOf(
       title: context.session.title,
       link: `/sessions/${sessionId}`,
       payload: {},
+      facts: [],
     });
   }
   return evidence;
 }
+
+/** Agent-written evidence never counts before a person confirms it. */
+function reviewStateOf(kind: Evidence["kind"]): AchievementReviewState {
+  return kind === "github_pull_request" || kind === "github_review"
+    ? "auto"
+    : "needs_review";
+}
+
+class OutputsUnavailable extends Error {}
 
 /**
  * Judges each claimed judgment's session against the workspace's rules in
@@ -114,15 +162,25 @@ function evidenceOf(
  * one transaction under that lease. An `always` rule counts each of its
  * evidence at no cost. A `luna` rule's pairs wait for the next UTC day once
  * the workspace's judgments have spent the day's budget, and are skipped
- * for a session at its cap (`session_limit`); no judge backend exists yet,
- * so otherwise they leave the judgment `skipped` (`judge_unavailable`). A
- * try that fails is tried again 1, 5 and 30 minutes later, then ends
- * `failed`.
+ * for a session at its cap (`session_limit`) or without a judge it can
+ * reach (`judge_unavailable`). Otherwise each pair is one choice question
+ * to Luna through the egress proxy, unless the same rule versions and
+ * inputs were judged last time. A try that fails is tried again 1, 5 and
+ * 30 minutes later, then ends `failed`.
  */
 export function createAchievementJudge(deps: {
-  store: Pick<AchievementJudgmentStore, "claim" | "context" | "finish">;
-  outputs: Pick<SessionOutputSource, "readOutputs">;
+  store: Pick<
+    AchievementJudgmentStore,
+    "claim" | "context" | "finish" | "transcript"
+  >;
+  outputs: Pick<SessionOutputSource, "readOutputs" | "openOutput">;
   logger: Logger;
+  /** Absent, `luna` pairs are skipped as `judge_unavailable`. */
+  luna?: {
+    connections: JudgeConnections;
+    tokens: Pick<JudgmentEgressStore, "issueToken">;
+    decisions: DecisionsClient;
+  };
   claimMax?: number;
   leaseMs?: number;
 }) {
@@ -161,6 +219,69 @@ export function createAchievementJudge(deps: {
     return parsed.success ? { ok: true, payload: parsed.data } : { ok: false };
   }
 
+  function achievementOf(
+    claimed: ClaimedJudgment,
+    context: JudgmentContext,
+    rule: JudgedRule,
+    item: Evidence,
+    probability: number | null,
+  ): NewAchievement | null {
+    const payload = payloadOf(rule, item);
+    if (!payload.ok) {
+      logger.warn("Achievement payload failed its schema; not counted", {
+        judgment_id: claimed.id,
+        rule_id: rule.id,
+        evidence_kind: item.kind,
+      });
+      return null;
+    }
+    return {
+      ruleId: rule.id,
+      ruleFamilyId: rule.familyId,
+      typeId: rule.typeId,
+      agentId: context.session.agentId,
+      agentReleaseId: context.session.agentReleaseId,
+      title: item.title,
+      link: item.link,
+      evidenceKind: item.kind,
+      evidenceId: item.id,
+      payload: payload.payload,
+      judge: probability === null ? "always" : "luna",
+      probability,
+      reviewState: reviewStateOf(item.kind),
+    };
+  }
+
+  /** The pair's question, or null when nothing of it may be sent. */
+  async function questionFor(
+    claimed: ClaimedJudgment,
+    context: JudgmentContext,
+    rule: JudgedRule,
+    item: Evidence,
+  ): Promise<DecisionsRequest | null> {
+    if (item.kind === "conversation") {
+      if (context.judge.transcript === "none") return null;
+      const turns = await store.transcript(claimed.sessionId, TRANSCRIPT_TURNS);
+      return questionOf(rule.definition, item.kind, [
+        `turns: ${transcriptExcerpt(turns)}`,
+      ]);
+    }
+    if (item.kind !== "out_file" || item.id === null) {
+      return questionOf(rule.definition, item.kind, item.facts);
+    }
+    const opened = await outputs.openOutput(claimed.sessionId, item.id);
+    if (opened.status === "unavailable") throw new OutputsUnavailable();
+    // An output listed without its bytes is judged on its path and size.
+    if (opened.status === "missing") {
+      return questionOf(rule.definition, item.kind, item.facts);
+    }
+    const content = await fileExcerpt(opened.body);
+    return questionOf(rule.definition, item.kind, [
+      ...item.facts,
+      `content: ${untrusted(content)}`,
+    ]);
+  }
+
   async function judge(claimed: ClaimedJudgment): Promise<JudgmentResult> {
     const context = await store.context(claimed);
     let files: { path: string; bytes: number }[] = [];
@@ -185,42 +306,18 @@ export function createAchievementJudge(deps: {
     const rules = new Set<string>();
     const evidenceIds = new Set<string>();
     const achievements: NewAchievement[] = [];
-    let unjudged = false;
+    const lunaPairs: { rule: JudgedRule; item: Evidence }[] = [];
     for (const rule of context.rules) {
       for (const item of evidence) {
         if (item.kind !== rule.evidenceKind) continue;
         rules.add(rule.id);
         if (item.id !== null) evidenceIds.add(item.id);
         if (rule.judge !== "always") {
-          unjudged = true;
+          lunaPairs.push({ rule, item });
           continue;
         }
-        const payload = payloadOf(rule, item);
-        if (!payload.ok) {
-          logger.warn("Achievement payload failed its schema; not counted", {
-            judgment_id: claimed.id,
-            rule_id: rule.id,
-            evidence_kind: item.kind,
-          });
-          continue;
-        }
-        achievements.push({
-          ruleId: rule.id,
-          ruleFamilyId: rule.familyId,
-          typeId: rule.typeId,
-          agentId: context.session.agentId,
-          agentReleaseId: context.session.agentReleaseId,
-          title: item.title,
-          link: item.link,
-          evidenceKind: item.kind,
-          evidenceId: item.id,
-          payload: payload.payload,
-          judge: "always",
-          reviewState:
-            item.kind === "github_pull_request" || item.kind === "github_review"
-              ? "auto"
-              : "needs_review",
-        });
+        const achievement = achievementOf(claimed, context, rule, item, null);
+        if (achievement !== null) achievements.push(achievement);
       }
     }
     const paired = {
@@ -231,9 +328,14 @@ export function createAchievementJudge(deps: {
     if (outputsUnavailable) {
       return { ...again(claimed, "outputs_unavailable"), ...paired };
     }
-    if (!unjudged) return { status: "succeeded", errorCode: null, ...paired };
+    if (lunaPairs.length === 0) {
+      return { status: "succeeded", errorCode: null, ...paired };
+    }
     const { judge } = context;
-    if (judge.connectionId !== null && judge.spentUsd >= judge.dailyBudgetUsd) {
+    if (judge.connectionId === null) {
+      return { status: "skipped", errorCode: "judge_unavailable", ...paired };
+    }
+    if (judge.spentUsd >= judge.dailyBudgetUsd) {
       return {
         status: "deferred",
         until: judge.budgetResetsAt,
@@ -241,13 +343,91 @@ export function createAchievementJudge(deps: {
         ...paired,
       };
     }
-    if (
-      judge.connectionId !== null &&
-      judge.sessionJudgments >= judge.maxPerSession
-    ) {
+    if (judge.sessionJudgments >= judge.maxPerSession) {
       return { status: "skipped", errorCode: "session_limit", ...paired };
     }
-    return { status: "skipped", errorCode: "judge_unavailable", ...paired };
+    const luna = deps.luna;
+    if (
+      luna === undefined ||
+      (await luna.connections.upstream(judge.connectionId)) === null
+    ) {
+      return { status: "skipped", errorCode: "judge_unavailable", ...paired };
+    }
+
+    const asked: {
+      rule: JudgedRule;
+      item: Evidence;
+      request: DecisionsRequest;
+    }[] = [];
+    try {
+      for (const { rule, item } of lunaPairs) {
+        const request = await questionFor(claimed, context, rule, item);
+        if (request !== null) asked.push({ rule, item, request });
+      }
+    } catch (error) {
+      if (!(error instanceof OutputsUnavailable)) throw error;
+      return { ...again(claimed, "outputs_unavailable"), ...paired };
+    }
+    const inputDigest = inputDigestOf(
+      asked.map(({ rule, request }) => ({ ruleId: rule.id, request })),
+    );
+    const unchanged = {
+      connectionId: judge.connectionId,
+      inputDigest,
+      declined: [],
+    };
+    if (asked.length === 0 || inputDigest === judge.lastInputDigest) {
+      return {
+        status: "succeeded",
+        errorCode: null,
+        ...paired,
+        luna: unchanged,
+      };
+    }
+    const token = await issueJudgmentToken(luna.tokens, claimed);
+    // The lease was taken over: whoever holds it now judges.
+    if (token === null) return { ...again(claimed, null), ...paired };
+
+    const declined: { ruleFamilyId: string; evidenceId: string | null }[] = [];
+    let refused = false;
+    for (const { rule, item, request } of asked) {
+      let answer: ReturnType<typeof pairAnswerOf>;
+      try {
+        answer = pairAnswerOf(
+          await luna.decisions.decide(token, request),
+          judge.threshold,
+        );
+      } catch (error) {
+        // Never the upstream's body: it may name the key.
+        logger.warn("Achievement judge call failed", {
+          judgment_id: claimed.id,
+          rule_id: rule.id,
+          reason:
+            error instanceof DecisionsCallError ? error.reason : "unexpected",
+          status: error instanceof DecisionsCallError ? error.status : null,
+        });
+        return { ...again(claimed, null), ...paired };
+      }
+      if (answer.achieved) {
+        const achievement = achievementOf(
+          claimed,
+          context,
+          rule,
+          item,
+          answer.probability,
+        );
+        if (achievement !== null) achievements.push(achievement);
+      } else {
+        if (answer.refused) refused = true;
+        declined.push({ ruleFamilyId: rule.familyId, evidenceId: item.id });
+      }
+    }
+    return {
+      status: "succeeded",
+      errorCode: refused ? "judge_refused" : null,
+      ...paired,
+      luna: { ...unchanged, declined },
+    };
   }
 
   /** One pass. Returns how many judgments it finished. */

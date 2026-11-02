@@ -268,6 +268,8 @@ export const ACHIEVEMENT_JUDGMENT_ERROR_VALUES = [
   "judge_unavailable",
   "outputs_unavailable",
   "session_limit",
+  /** The judge refused a pair; it is not an achievement and is not asked again. */
+  "judge_refused",
 ] as const;
 
 /** `auto` counts at once; `needs_review` counts once a person confirms it. */
