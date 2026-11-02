@@ -781,7 +781,8 @@ describe("팀 화면", () => {
     const server = teamServer({
       refuse: {
         [MATE_ID]: () => apiError(403, "FORBIDDEN", "Not permitted"),
-        [USER_ID]: () => apiError(409, "CONFLICT", "Changed meanwhile"),
+        [USER_ID]: () =>
+          apiError(409, "REVISION_CONFLICT", "Changed meanwhile"),
       },
     });
     renderAt(`/members/teams/${TEAM_ID}`, server.routes);
@@ -791,9 +792,13 @@ describe("팀 화면", () => {
     await user.click(within(dialog).getByRole("button", { name: "2명 추가" }));
     const text = (await within(dialog).findByRole("alert")).textContent ?? "";
     expect(text.match(/추가하지 못했습니다/g)).toHaveLength(2);
-    expect(text).toStartWith("Mate님을 추가하지 못했습니다.");
-    expect(text).toContain(" Owner님을 추가하지 못했습니다.");
     expect(text).not.toContain("Mate, Owner");
+    const [mate = "", owner = ""] = text.split(" Owner님을");
+    expect(mate).toStartWith("Mate님을 추가하지 못했습니다.");
+    expect(mate).not.toContain("다른 곳에서 먼저 바꿨습니다");
+    expect(owner).toStartWith(
+      " 추가하지 못했습니다. 다른 곳에서 먼저 바꿨습니다",
+    );
   });
 
   test("추가하는 동안 새로 고른 사람은 끝난 뒤에도 고른 채로 남는다", async () => {

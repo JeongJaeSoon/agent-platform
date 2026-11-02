@@ -774,7 +774,8 @@ function AddMembersDialog({
           {t("teams.addOpen")}
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      {/* Many picks or a long refusal must not push the buttons off screen. */}
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
         <AddMembersForm
           team={team}
           picked={picked}

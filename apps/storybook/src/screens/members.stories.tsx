@@ -1294,7 +1294,7 @@ function AddMembers({
           구성원 추가
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
         <form
           className="flex flex-col gap-4"
           onSubmit={(event) => {
@@ -1352,11 +1352,12 @@ function AddMembers({
                     type="button"
                     className="inline-grid size-5 cursor-pointer place-items-center rounded-full text-muted-foreground hover:bg-hover hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus-ring disabled:cursor-default disabled:opacity-50"
                     aria-label={`${member.display_name}님을 추가할 사람에서 빼기`}
-                    onClick={() =>
+                    onClick={() => {
                       setPicked((list) =>
                         list.filter((m) => m.user_id !== member.user_id),
-                      )
-                    }
+                      );
+                      document.getElementById(pickerId)?.focus();
+                    }}
                   >
                     <X aria-hidden="true" className="size-3" strokeWidth={2} />
                   </button>
