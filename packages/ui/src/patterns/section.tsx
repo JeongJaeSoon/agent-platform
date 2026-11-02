@@ -14,7 +14,7 @@ export type SectionProps = Omit<ComponentProps<"section">, "title"> & {
   readonly actions?: ReactNode | undefined;
   /** Passed to the heading, e.g. a ref and `tabIndex={-1}` to move focus there. */
   readonly titleProps?:
-    | Omit<ComponentProps<"h2">, "id" | "children">
+    | Omit<ComponentProps<"h2">, "id" | "children" | "dangerouslySetInnerHTML">
     | undefined;
 };
 

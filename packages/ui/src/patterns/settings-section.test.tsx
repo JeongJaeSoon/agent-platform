@@ -33,23 +33,32 @@ describe("SettingsSection", () => {
   });
 
   test("onSubmit이 있으면 본문·행·하단을 검증 없는 form으로 감싼다", () => {
-    let submitted = 0;
+    const sent: string[] = [];
     const { getByRole } = render(
       <SettingsSection
         title="보존 기간"
         onSubmit={(event) => {
           event.preventDefault();
-          submitted += 1;
+          const data = new FormData(event.currentTarget as HTMLFormElement);
+          sent.push(`${data.get("days")}/${data.get("notify")}`);
         }}
+        rows={
+          <SettingRow
+            title="알림"
+            control={<input name="notify" defaultValue="on" />}
+          />
+        }
         foot={<button type="submit">저장</button>}
-      />,
+      >
+        <input name="days" defaultValue="90" />
+      </SettingsSection>,
     );
     const form = getByRole("region", { name: "보존 기간" }).querySelector(
       "form",
     );
     expect(form?.noValidate).toBe(true);
     getByRole("button", { name: "저장" }).click();
-    expect(submitted).toBe(1);
+    expect(sent).toEqual(["90/on"]);
   });
 });
 
@@ -81,5 +90,17 @@ describe("Card inset", () => {
     expect(card?.className).toContain("p-3");
     expect(card?.className).not.toContain("bg-card");
     expect(card?.className).not.toContain("py-4");
+  });
+
+  test("flush는 inset의 안쪽 여백도 모두 없앤다", () => {
+    const { container } = render(
+      <Card variant="inset" flush>
+        안
+      </Card>,
+    );
+    const classes =
+      container.querySelector("[data-slot=card]")?.className.split(" ") ?? [];
+    expect(classes).toContain("p-0");
+    expect(classes).not.toContain("p-3");
   });
 });

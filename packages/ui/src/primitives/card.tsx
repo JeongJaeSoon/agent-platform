@@ -8,7 +8,11 @@ export type CardProps = ComponentProps<"div"> & {
    * `CardFooter variant="form"` runs edge to edge.
    */
   readonly flush?: boolean | undefined;
-  /** `inset` is a muted panel inside a page or another card. */
+  /**
+   * `inset` is a muted panel inside a page or another card. Put CardTitle,
+   * CardDescription and content in it directly: CardHeader and CardContent
+   * add their own side padding.
+   */
   readonly variant?: "default" | "inset" | undefined;
 };
 
@@ -24,7 +28,7 @@ export function Card({
       className={cn(
         "flex flex-col gap-3 rounded-card border bg-card py-4 text-card-foreground",
         variant === "inset" && "gap-2 bg-muted/40 p-3",
-        flush && "gap-0 py-0",
+        flush && "gap-0 p-0",
         className,
       )}
       {...props}

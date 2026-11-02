@@ -54,10 +54,11 @@ const meta = {
   title: "Patterns/SettingsSection",
   component: SettingsSection,
   args: { title: COPY.ko.title },
-  render: (_args, context) => {
+  render: (args, context) => {
     const copy = copyFor(context);
     return (
       <SettingsSection
+        {...args}
         title={copy.title}
         badge={<Badge variant="gray">{copy.count}</Badge>}
         description={copy.description}
