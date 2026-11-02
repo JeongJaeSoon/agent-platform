@@ -578,8 +578,10 @@ function KeyList({
     },
   });
 
-  // The key whose ID last failed to copy; its row says so under the meta line.
-  const [copyFailed, setCopyFailed] = useState<string | null>(null);
+  // Keys whose latest ID copy failed; each row says so under its meta line.
+  const [copyFailed, setCopyFailed] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
 
   if (items.length === 0) {
     return <EmptyState title={empty} />;
@@ -638,9 +640,12 @@ function KeyList({
                   <KeyIdMeta
                     id={key.id}
                     onCopied={(ok) =>
-                      setCopyFailed((current) =>
-                        ok ? (current === key.id ? null : current) : key.id,
-                      )
+                      setCopyFailed((current) => {
+                        const next = new Set(current);
+                        if (ok) next.delete(key.id);
+                        else next.add(key.id);
+                        return next;
+                      })
                     }
                   />
                   <MetaDot />
@@ -655,7 +660,7 @@ function KeyList({
                     revokedAt={key.revoked_at}
                   />
                 </Text>
-                {copyFailed === key.id ? (
+                {copyFailed.has(key.id) ? (
                   <FormError>{t("apiKeys.copyIdFailed")}</FormError>
                 ) : null}
                 {key.kind === "agent" ? (

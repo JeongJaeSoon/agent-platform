@@ -388,6 +388,7 @@ describe("API key", () => {
       expect(button.textContent).toBe("복사");
       const status = within(rows()[0] as HTMLElement).getByRole("status");
       expect(status.textContent).toBe("복사했습니다");
+      expect(status.className.split(" ")).toContain("sr-only");
     } finally {
       if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
       else Reflect.deleteProperty(navigator, "clipboard");
@@ -418,6 +419,43 @@ describe("API key", () => {
       );
       expect(button.textContent).toBe("복사");
       expect(within(row).getByRole("status").textContent).toBe("");
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
+  test("두 행의 key ID 복사가 실패하면 두 행 모두 알리고, 다시 복사한 행만 알림을 지운다", async () => {
+    const OTHER_ID = "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e";
+    renderAt(AGENTS, {
+      ...ownerOk,
+      ...keysServer([key(), key({ id: OTHER_ID })]),
+    });
+    expect(await screen.findByText(OTHER_ID)).toBeDefined();
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    let refuse = true;
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async () => {
+          if (refuse) throw new Error("denied");
+        },
+      },
+    });
+    const copyIn = (id: string) =>
+      screen.getByRole("button", { name: "복사", description: `ID ${id}` });
+    const alerts = () =>
+      rows().map((row) => within(row).queryAllByRole("alert").length);
+    try {
+      await act(async () => copyIn(KEY_ID).click());
+      await act(async () => copyIn(OTHER_ID).click());
+      expect(alerts()).toEqual([1, 1]);
+      refuse = false;
+      await act(async () => copyIn(OTHER_ID).click());
+      const first = rows().findIndex((row) =>
+        row.textContent?.includes(KEY_ID),
+      );
+      expect(alerts()).toEqual(first === 0 ? [1, 0] : [0, 1]);
     } finally {
       if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
       else Reflect.deleteProperty(navigator, "clipboard");
