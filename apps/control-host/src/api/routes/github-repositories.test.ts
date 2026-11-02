@@ -650,8 +650,10 @@ describe("the GitHub repository API", () => {
         expect(page.json).toMatchObject({
           installations: [],
           unavailable: reason,
-          catalog: expect.any(Array),
         });
+        expect(
+          (page.json as { catalog: unknown[] }).catalog.length,
+        ).toBeGreaterThan(0);
         for (const [method, path] of reads) {
           const failed = await call(method, path, {
             cookie: owner,
@@ -677,6 +679,11 @@ describe("the GitHub repository API", () => {
           unavailable: "installation_suspended",
           installations: [expect.objectContaining({ id: INSTALLATION })],
         });
+        if (path === workspacePath()) {
+          expect(
+            (page.json as { catalog: unknown[] }).catalog.length,
+          ).toBeGreaterThan(0);
+        }
         const suspended = await call(
           "GET",
           `${path}?installation_id=${INSTALLATION}`,

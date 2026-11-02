@@ -80,7 +80,7 @@ export function InstalledRepositoryPage<R extends InstalledRepository>({
         >
           {page.installation_id === null ? (
             <NativeSelectOption value="" disabled>
-              —
+              {t("github.repo.installationChoose")}
             </NativeSelectOption>
           ) : null}
           {page.installations.map((installation) => (

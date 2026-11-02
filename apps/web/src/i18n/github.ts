@@ -119,6 +119,7 @@ export const githubKo = {
   "github.repo.pickNoInstallation":
     "App이 아직 어디에도 설치되지 않았습니다. GitHub에서 App을 설치하세요.",
   "github.repo.installationReviewer": "{account} (리뷰용 App)",
+  "github.repo.installationChoose": "설치를 고르세요",
   "github.repo.installation": "설치",
   "github.repo.pageOf": "{total}개 중 {from}–{to}",
   "github.repo.previousPage": "이전",
@@ -394,6 +395,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.repo.pickNoInstallation":
     "The App is not installed anywhere yet. Install it on GitHub.",
   "github.repo.installationReviewer": "{account} (reviewer App)",
+  "github.repo.installationChoose": "Choose an installation",
   "github.repo.installation": "Installation",
   "github.repo.pageOf": "{from}–{to} of {total}",
   "github.repo.previousPage": "Previous",
@@ -669,6 +671,7 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.repo.pickNoInstallation":
     "App はまだどこにもインストールされていません。GitHub で App をインストールしてください。",
   "github.repo.installationReviewer": "{account}(レビュー用 App)",
+  "github.repo.installationChoose": "インストール先を選んでください",
   "github.repo.installation": "インストール先",
   "github.repo.pageOf": "{total} 件中 {from}–{to}",
   "github.repo.previousPage": "前へ",
