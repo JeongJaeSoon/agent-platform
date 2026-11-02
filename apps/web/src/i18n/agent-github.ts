@@ -87,7 +87,7 @@ export const agentGitHubKo = {
   "agentGitHub.baseState": "항상 켜짐",
   "agentGitHub.feature.review": "리뷰 승인",
   "agentGitHub.feature.reviewHint":
-    "리뷰용 App으로 PR에 승인 리뷰를 남깁니다. 필수 리뷰·CODEOWNERS는 저장소의 GitHub 설정을 따릅니다. 필요한 권한: 리뷰용 App의 pull requests 쓰기",
+    "리뷰용 App으로 PR에 승인 리뷰를 남깁니다. 권장 권한이면 GitHub는 이 승인을 필수 리뷰로 세지 않으므로, 브랜치 규칙이 리뷰를 요구하면 사람의 승인도 필요합니다. 필요한 권한: 리뷰용 App의 pull requests 쓰기",
   "agentGitHub.feature.actions": "Actions 실행",
   "agentGitHub.feature.actionsHint":
     "허용 목록의 워크플로만 실행(workflow_dispatch)하거나 다시 실행합니다. 필요한 권한: actions 쓰기",
@@ -268,7 +268,7 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.baseState": "Always on",
   "agentGitHub.feature.review": "Approve reviews",
   "agentGitHub.feature.reviewHint":
-    "Leaves approving reviews with the reviewer App. Required reviews and CODEOWNERS follow the repository's GitHub settings. Needs: the reviewer App's pull requests write",
+    "Leaves approving reviews with the reviewer App. With the recommended permissions GitHub does not count them toward required reviews, so where a branch rule requires a review, a person's approval is still needed. Needs: the reviewer App's pull requests write",
   "agentGitHub.feature.actions": "Run Actions",
   "agentGitHub.feature.actionsHint":
     "Runs (workflow_dispatch) or reruns only workflows on the allow list. Needs: actions write",
@@ -453,7 +453,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.baseState": "常にオン",
   "agentGitHub.feature.review": "レビュー承認",
   "agentGitHub.feature.reviewHint":
-    "レビュー用 App で PR に承認レビューを残します。必須レビュー・CODEOWNERS はリポジトリの GitHub 設定に従います。必要な権限: レビュー用 App の pull requests の書き込み",
+    "レビュー用 App で PR に承認レビューを残します。推奨する権限では GitHub はこの承認を必須レビューに数えないため、ブランチのルールがレビューを求める場合は人の承認も必要です。必要な権限:レビュー用 App の pull requests の書き込み",
   "agentGitHub.feature.actions": "Actions の実行",
   "agentGitHub.feature.actionsHint":
     "許可リストのワークフローだけを実行(workflow_dispatch)または再実行します。必要な権限: actions の書き込み",

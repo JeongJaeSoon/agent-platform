@@ -253,7 +253,7 @@ export const githubKo = {
     "Contents 읽기, Pull requests 읽기·쓰기, Metadata 읽기. 리뷰할 저장소에 설치하세요.",
   "github.reviewer.riskTitle": "같은 에이전트의 작성과 승인",
   "github.reviewer.risk":
-    "같은 에이전트가 작성용 App으로 연 PR을 이 App으로 승인할 수 있고, 플랫폼은 이를 막지 않습니다. 필수 리뷰가 1명인 저장소라면 그 승인만으로 병합 조건이 채워질 수 있습니다. 사람 리뷰가 꼭 필요하면 GitHub에서 필수 리뷰어를 2명 이상 두거나 CODEOWNERS로 사람 리뷰를 요구하세요.",
+    "같은 에이전트가 작성용 App으로 연 PR을 이 App으로 승인할 수 있고, 플랫폼은 이를 막지 않습니다. 승인은 PR에 보이지만, 권장 권한(Contents 읽기)인 App의 승인은 GitHub가 필수 리뷰로 세지 않습니다. 그래서 브랜치 규칙이 리뷰를 요구하면 병합에는 사람의 승인이 필요합니다. 그런 규칙이 없는 저장소는 승인 없이도 병합할 수 있으니, 사람 리뷰가 꼭 필요하면 GitHub에서 필수 리뷰를 요구하세요.",
   "github.reviewer.saved": "리뷰용 App을 저장했습니다.",
   "github.reviewer.sameApp":
     "작성용 App과 같은 App은 리뷰용으로 등록할 수 없습니다. 리뷰용 App을 따로 만들어 등록하세요.",
@@ -529,7 +529,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
     "Contents read, Pull requests read & write, Metadata read. Install it on the repositories it reviews.",
   "github.reviewer.riskTitle": "One agent opening and approving",
   "github.reviewer.risk":
-    "An agent can approve, with this App, a pull request it opened with the author App; the platform does not stop it. Where one review is required, that approval alone can meet the rule. If a person's review must be required, require two or more reviewers on GitHub, or a person's review through CODEOWNERS.",
+    "An agent can approve, with this App, a pull request it opened with the author App; the platform does not stop it. The approval shows on the pull request, but GitHub does not count an approval from an App with the recommended permission (Contents read) toward required reviews. So where a branch rule requires a review, merging still needs a person's approval. A repository with no such rule can merge without any approval; if a person's review must be required, require reviews on GitHub.",
   "github.reviewer.saved": "Saved the reviewer App.",
   "github.reviewer.sameApp":
     "The author App cannot also be the reviewer App. Create a separate reviewer App and register it.",
@@ -806,7 +806,7 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
     "Contents 読み取り、Pull requests 読み取り・書き込み、Metadata 読み取り。レビューするリポジトリにインストールしてください。",
   "github.reviewer.riskTitle": "同じエージェントによる作成と承認",
   "github.reviewer.risk":
-    "同じエージェントが作成用 App で開いた PR を、この App で承認できます。プラットフォームはこれを止めません。必須レビューが 1 人のリポジトリでは、その承認だけでマージ条件が満たされることがあります。人のレビューが必ず必要なら、GitHub で必須レビュアーを 2 人以上にするか、CODEOWNERS で人のレビューを求めてください。",
+    "同じエージェントが作成用 App で開いた PR を、この App で承認できます。プラットフォームはこれを止めません。承認は PR に表示されますが、推奨する権限(Contents 読み取り)の App による承認を GitHub は必須レビューに数えません。そのため、ブランチのルールがレビューを求める場合、マージには人の承認が必要です。そのようなルールがないリポジトリは承認なしでもマージできるため、人のレビューが必ず必要なら GitHub で必須レビューを求めてください。",
   "github.reviewer.saved": "レビュー用 App を保存しました。",
   "github.reviewer.sameApp":
     "作成用 App と同じ App はレビュー用に登録できません。レビュー用 App を別に作って登録してください。",

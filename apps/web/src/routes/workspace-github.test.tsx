@@ -442,7 +442,9 @@ describe("워크스페이스 GitHub 연결", () => {
     await user.click(toggle);
     expect(card().getByText("등록 안 됨")).toBeDefined();
     expect(card().getByText(/Pull requests 읽기·쓰기/)).toBeDefined();
-    expect(card().getByText(/필수 리뷰어를 2명 이상 두거나/)).toBeDefined();
+    expect(
+      card().getByText(/GitHub가 필수 리뷰로 세지 않습니다/),
+    ).toBeDefined();
     await user.click(card().getByRole("button", { name: "접기" }));
     expect(card().queryByText(/Pull requests 읽기·쓰기/)).toBeNull();
 
