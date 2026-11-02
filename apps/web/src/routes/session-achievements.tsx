@@ -50,7 +50,7 @@ const JUDGE_USD = new Intl.NumberFormat("en-US", {
 });
 const RATIO = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 
-function useSessionAchievements(session: SessionDetail) {
+export function useSessionAchievements(session: SessionDetail) {
   const { client } = useAgentPlatform();
   return useQuery({
     queryKey: [...queryKeysOf(client).session(session.id), "achievements"],

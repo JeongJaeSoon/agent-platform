@@ -33,7 +33,11 @@ import { useId } from "react";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import { OUT_FILES_ID, SessionAchievements } from "./session-achievements.tsx";
+import {
+  OUT_FILES_ID,
+  SessionAchievements,
+  useSessionAchievements,
+} from "./session-achievements.tsx";
 
 const UNITS = ["byte", "kilobyte", "megabyte", "gigabyte"] as const;
 
@@ -95,7 +99,7 @@ function useSessionOutcomes(session: SessionDetail) {
   });
 }
 
-/** Pull requests and files, once both are read: the outputs tab's count. */
+/** Achievements, evidence and files, once all are read: the outputs tab's count. */
 export function SessionOutputsCount({
   session,
 }: {
@@ -103,6 +107,7 @@ export function SessionOutputsCount({
 }) {
   const outputs = useSessionOutputs(session);
   const outcomes = useSessionOutcomes(session);
+  const achievements = useSessionAchievements(session);
   const files =
     session.checkpoint_revision === null
       ? 0
@@ -110,7 +115,11 @@ export function SessionOutputsCount({
   const pulls = hasRepository(session)
     ? (outcomes.data?.items.length ?? (outcomes.error ? 0 : null))
     : 0;
-  return files === null || pulls === null ? null : files + pulls;
+  const achieved =
+    achievements.data?.items.length ?? (achievements.error ? 0 : null);
+  return files === null || pulls === null || achieved === null
+    ? null
+    : files + pulls + achieved;
 }
 
 type PullRequestOutcome = Extract<

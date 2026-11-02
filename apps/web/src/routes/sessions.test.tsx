@@ -2462,11 +2462,13 @@ describe("세션 상세 레이아웃", () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
     const user = await setupUser();
     const list = await screen.findByRole("tablist", { name: "세션 상세" });
-    expect(
-      within(list)
-        .getAllByRole("tab")
-        .map((tab) => tab.textContent),
-    ).toEqual(["진행", "결과물0", "정보"]);
+    await waitFor(() =>
+      expect(
+        within(list)
+          .getAllByRole("tab")
+          .map((tab) => tab.textContent),
+      ).toEqual(["진행", "결과물0", "정보"]),
+    );
     await user.click(screen.getByRole("tab", { name: "진행" }));
     // The list wraps, so the last tab is one step left of the first.
     await user.keyboard("{ArrowLeft}");
