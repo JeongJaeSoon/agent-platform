@@ -19,7 +19,6 @@ import {
   Code,
   CodeBlock,
   CopyButton,
-  cn,
   GridTable,
   GridTableCell,
   GridTableColumnHeader,
@@ -32,9 +31,9 @@ import {
   Section,
   Skeleton,
   StatCard,
+  Steps,
   Text,
 } from "@werft-ai/ui";
-import { Check } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { useHasPermission } from "../../auth/guard.tsx";
 import { LoadFailure } from "../../components/load-failure.tsx";
@@ -179,7 +178,7 @@ function Figure({
   );
 }
 
-type StepState = "done" | "todo";
+type StepState = "done" | "todo" | "pending" | "unknown";
 
 /**
  * What stands between the agent and new sessions: credentials, a release,
@@ -214,19 +213,16 @@ export function AgentReadiness({
   );
   const missing = refs.filter((ref) => !bound.has(ref));
 
-  const credentials: {
-    state: StepState | "unknown";
-    desc: ReactNode;
-  } =
+  const credentials: { state: StepState; desc: ReactNode } =
     refs.length === 0
       ? { state: "done", desc: t("agent.ready.credentialsNone") }
       : bindings.isPending
         ? {
-            state: "unknown",
+            state: "pending",
             desc: <Skeleton lines={1} label={t("status.loading.title")} />,
           }
         : bindings.error
-          ? { state: "unknown", desc: t("agent.ready.credentialsUnknown") }
+          ? { state: "unknown", desc: null }
           : missing.length === 0
             ? {
                 state: "done",
@@ -249,7 +245,12 @@ export function AgentReadiness({
   // A paused or archived agent starts no session whatever its release, and
   // no screen changes the status, so its step offers nothing to press.
   const runnable = agent.status === "active";
-  const steps = [
+  const steps: readonly {
+    key: string;
+    title: string;
+    state: StepState;
+    desc: ReactNode;
+  }[] = [
     {
       key: "credentials",
       title: t("agent.ready.credentials"),
@@ -281,7 +282,7 @@ export function AgentReadiness({
               })
             : t("agent.overview.upToDate"),
     },
-  ] as const;
+  ];
   const firstOpen = steps.findIndex((step) => step.state === "todo");
   const ready = firstOpen === -1 && credentials.state === "done";
 
@@ -296,50 +297,23 @@ export function AgentReadiness({
       }
     >
       <Card className="gap-0 p-4">
-        <ol className="m-0 flex list-none flex-col p-0">
-          {steps.map((step, index) => (
-            <li
-              key={step.key}
-              data-state={step.state}
-              className="flex min-w-0 items-center gap-3 border-t py-3 first:border-t-0 first:pt-0 last:pb-0"
-            >
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "grid size-6 flex-none place-items-center rounded-full border font-semibold text-caption",
-                  step.state === "done"
-                    ? "border-[var(--ap-tone-success-border)] bg-[var(--ap-tone-success-bg)] text-[var(--ap-tone-success-fg)]"
-                    : "border-[var(--ap-color-border-strong)] text-muted-foreground",
-                )}
-              >
-                {step.state === "done" ? (
-                  <Check className="size-3.5" />
-                ) : (
-                  index + 1
-                )}
-              </span>
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <Text as="span" weight="medium">
-                  {step.title}
-                  <span className="sr-only">
-                    {" "}
-                    {step.state === "done"
-                      ? t("agent.ready.stepDone")
-                      : step.state === "todo"
-                        ? t("agent.ready.stepTodo")
-                        : ""}
-                  </span>
-                </Text>
-                <Text as="span" variant="meta">
-                  {step.desc}
-                </Text>
-              </div>
-              {index === firstOpen && (step.key !== "activate" || runnable)
+        <Steps
+          completedLabel={t("agent.ready.stepDone")}
+          todoLabel={t("agent.ready.stepTodo")}
+          // Only the credentials step can be unreadable; its reason is the label.
+          unknownLabel={t("agent.ready.credentialsUnknown")}
+          items={steps.map((step, index) => ({
+            id: step.key,
+            title: step.title,
+            // Still loading is not unreadable: the step waits as an open one.
+            state: step.state === "pending" ? "todo" : step.state,
+            description: step.state === "unknown" ? undefined : step.desc,
+            action:
+              index === firstOpen && (step.key !== "activate" || runnable)
                 ? toRelease
-                : null}
-            </li>
-          ))}
-        </ol>
+                : undefined,
+          }))}
+        />
       </Card>
     </Section>
   );

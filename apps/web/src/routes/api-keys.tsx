@@ -186,9 +186,9 @@ function KeyKindGuide({ kind }: { readonly kind: KeyKind }) {
     <Alert asChild aria-labelledby={titleId}>
       <section>
         <AlertTitle asChild>
-          <h2 id={titleId} className="m-0">
+          <Heading id={titleId} className="m-0">
             {t("apiKeys.guideTitle")}
-          </h2>
+          </Heading>
         </AlertTitle>
         <AlertDescription className="mt-2 flex flex-col gap-3">
           <div
@@ -202,7 +202,7 @@ function KeyKindGuide({ kind }: { readonly kind: KeyKind }) {
               ))}
             </ul>
           </div>
-          <p className="m-0">
+          <div>
             {t("apiKeys.docs")}{" "}
             {/* Served by the API itself, outside the console's router. */}
             <TextLink
@@ -212,7 +212,7 @@ function KeyKindGuide({ kind }: { readonly kind: KeyKind }) {
             >
               {t("apiKeys.docsLink")}
             </TextLink>
-          </p>
+          </div>
         </AlertDescription>
       </section>
     </Alert>
@@ -443,12 +443,23 @@ export function OrgKeysScreen() {
   );
 }
 
-function KeyIdMeta({ id }: { readonly id: string }) {
+function KeyIdMeta({
+  id,
+  onCopied,
+}: {
+  readonly id: string;
+  readonly onCopied: (copied: boolean) => void;
+}) {
   const { t } = useI18n();
-  const [failed, setFailed] = useState(false);
   return (
-    <span className="inline-flex min-w-0 items-center gap-1">
-      <span>{t("apiKeys.idLabel")}</span>
+    <Text
+      as="span"
+      variant="meta"
+      className="inline-flex min-w-0 items-center gap-1"
+    >
+      <Text as="span" variant="meta">
+        {t("apiKeys.idLabel")}
+      </Text>
       <Code className="min-w-0 text-foreground [overflow-wrap:anywhere]">
         {id}
       </Code>
@@ -457,23 +468,22 @@ function KeyIdMeta({ id }: { readonly id: string }) {
         variant="ghost"
         size="sm"
         className={KEY_COPY}
-        aria-label={t("apiKeys.copyIdFor", { id })}
-        copiedLabel={t("apiKeys.copied")}
+        label={t("apiKeys.copy")}
+        description={t("apiKeys.keyId", { id })}
         copiedMessage={t("apiKeys.copied")}
         iconClassName={ICON}
-        onResult={(ok) => setFailed(!ok)}
+        onResult={(ok) => onCopied(ok)}
       />
-      {failed ? (
-        <span className="text-destructive" role="alert">
-          {t("apiKeys.copyIdFailed")}
-        </span>
-      ) : null}
-    </span>
+    </Text>
   );
 }
 
 function MetaDot() {
-  return <span aria-hidden="true">·</span>;
+  return (
+    <Text as="span" variant="meta" aria-hidden="true">
+      ·
+    </Text>
+  );
 }
 
 /** Expiry, or revocation, in the state tokens: a key that never ends warns. */
@@ -488,9 +498,9 @@ function ExpiryMeta({
   const state = revokedAt ? "revoked" : expiryState(expiresAt);
   if (state === "later" && expiresAt)
     return (
-      <span>
+      <Text as="span" variant="meta">
         {t("apiKeys.expiresAt", { at: formatTimestamp(expiresAt, locale) })}
-      </span>
+      </Text>
     );
   const danger = state === "expired" || state === "revoked";
   const text =
@@ -502,7 +512,9 @@ function ExpiryMeta({
             at: formatTimestamp(expiresAt, locale),
           });
   return (
-    <span
+    <Text
+      as="span"
+      variant="meta"
       data-tone={danger ? "danger" : "caution"}
       data-expiry={state}
       className="inline-flex items-center gap-1 font-medium text-[var(--ap-tone-fg)]"
@@ -515,7 +527,7 @@ function ExpiryMeta({
         <Clock aria-hidden="true" className={ICON} />
       )}
       {text}
-    </span>
+    </Text>
   );
 }
 
@@ -565,6 +577,11 @@ function KeyList({
       });
     },
   });
+
+  // Keys whose latest ID copy failed; each row says so under its meta line.
+  const [copyFailed, setCopyFailed] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
 
   if (items.length === 0) {
     return <EmptyState title={empty} />;
@@ -620,19 +637,32 @@ function KeyList({
                   variant="meta"
                   className="flex flex-wrap items-center gap-x-2 gap-y-1"
                 >
-                  <KeyIdMeta id={key.id} />
+                  <KeyIdMeta
+                    id={key.id}
+                    onCopied={(ok) =>
+                      setCopyFailed((current) => {
+                        const next = new Set(current);
+                        if (ok) next.delete(key.id);
+                        else next.add(key.id);
+                        return next;
+                      })
+                    }
+                  />
                   <MetaDot />
-                  <span>
+                  <Text as="span" variant="meta">
                     {t("apiKeys.createdAt", {
                       at: formatTimestamp(key.created_at, locale),
                     })}
-                  </span>
+                  </Text>
                   <MetaDot />
                   <ExpiryMeta
                     expiresAt={key.expires_at}
                     revokedAt={key.revoked_at}
                   />
                 </Text>
+                {copyFailed.has(key.id) ? (
+                  <FormError>{t("apiKeys.copyIdFailed")}</FormError>
+                ) : null}
                 {key.kind === "agent" ? (
                   <Text as="span" variant="meta">
                     {t("apiKeys.survivesIssuerShort")}
