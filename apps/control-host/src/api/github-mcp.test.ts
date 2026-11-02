@@ -203,7 +203,7 @@ async function seeded(
     cardSha256: "0".repeat(64),
     runtimeProfileId: "coding",
     profileDigest: "digest",
-    runtimeConfigSnapshot: {},
+    runtimeConfigSnapshot: { tools: ["Read"] },
     effectiveTools: { tools: ["Read"], mcp: [] },
     policyPins: {
       tools: {
