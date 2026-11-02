@@ -3,6 +3,7 @@ import type { ApiClient } from "@werft-ai/client";
 import type { MemberView } from "@werft-ai/contracts";
 import { waitingSessionsQuery, withQueryScope } from "@werft-ai/core";
 import { useMinute } from "@werft-ai/react/components";
+import { formatElapsed } from "@werft-ai/ui";
 import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
 import {
   apiError,
@@ -16,7 +17,7 @@ import {
   WORKSPACE_ID,
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
-import { statusPageQuery, waitedFor } from "./home.tsx";
+import { statusPageQuery } from "./home.tsx";
 
 // Text a sighted user reads: a Tooltip keeps a hidden copy of its note.
 function shownText(element: Element): string {
@@ -313,14 +314,18 @@ describe("최근 세션 표", () => {
     const table = await screen.findByRole("table", { name: "최근 세션" });
     const at = within(table)
       .getAllByRole("columnheader")
-      .findIndex((header) => header.textContent === "에이전트");
+      .findIndex((header) => header.textContent === "에이전트 · 모델");
     const agents = within(table)
       .getAllByRole("row")
       .slice(1)
-      .map((row) => within(row).getAllByRole("cell")[at]?.textContent);
+      .map(
+        (row) =>
+          within(row).getAllByRole("cell")[at]?.querySelector("span")
+            ?.textContent,
+      );
     expect(agents).toEqual(["배포 도우미", "—"]);
   });
-  test("좁은 표(820px 이하)에서는 에이전트·저장소 열이 머리와 칸이 함께 빠지고 남는 세 열이 좁은 열 틀과 맞는다", async () => {
+  test("좁은 표(820px 이하)에서는 저장소 열이 머리와 칸이 함께 빠지고 남는 네 열이 좁은 열 틀과 맞는다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
@@ -340,16 +345,15 @@ describe("최근 세션 표", () => {
       .getPropertyValue("--grid-table-narrow-columns")
       .trim()
       .split(/\s+(?![^(]*\))/);
-    expect(narrowTracks).toHaveLength(3);
+    expect(narrowTracks).toHaveLength(4);
     const hidden = (cell: Element) =>
       cell.getAttribute("data-hide-narrow") === "true" &&
       cell.className
         .split(/\s+/)
         .includes("[@container(max-width:820px)]:hidden");
     const headers = within(table).getAllByRole("columnheader");
-    expect(headers.map(hidden)).toEqual([false, false, true, true, false]);
+    expect(headers.map(hidden)).toEqual([false, false, false, true, false]);
     expect(headers.filter(hidden).map((header) => header.textContent)).toEqual([
-      "에이전트",
       "저장소",
     ]);
     const kept = headers.filter((header) => !hidden(header));
@@ -822,7 +826,11 @@ describe("홈 요약", () => {
           rows: [
             ["30분 넘게 대기", "1개 세션"],
             ["가장 오래된 요청", expect.stringContaining("1a2b3c4d · ")],
-            ["결제 담당", "3일 후 만료"],
+            // Past tomorrow an expiry reads as its calendar date.
+            [
+              "결제 담당",
+              expect.stringMatching(/^(\d{4}\/)?\d{1,2}\/\d{1,2} 만료$/),
+            ],
             ["에이전트", "릴리스 1 · 초안 1"],
           ],
         },
@@ -864,20 +872,21 @@ describe("홈 요약", () => {
         .getAllByRole("row")
         .map((row) => [...row.children].map((cell) => shownText(cell))),
     ).toEqual([
-      ["세션", "작업 상태", "에이전트", "저장소", "최근 활동"],
+      // The session list's own columns, home without the starter.
+      ["세션", "상태", "에이전트 · 모델", "저장소", "최근"],
       [
         `${waitingSession.title}${waitingSession.id.slice(0, 8)}`,
-        expect.stringMatching(/^작업: 답변 대기 · \d+(분|시간|일)$/),
-        "—",
+        expect.stringMatching(/^작업 상태: 답변 대기 · \d+(분|시간|일)$/),
+        expect.stringMatching(/^—/),
         "demo",
-        expect.any(String),
+        expect.stringMatching(/^최근 /),
       ],
       [
         oneSession.id.slice(0, 8),
-        "작업: 쉬는 중",
-        "—",
+        "작업 상태: 쉬는 중",
+        expect.stringMatching(/^—/),
         "demo",
-        expect.any(String),
+        expect.stringMatching(/^최근 /),
       ],
     ]);
     expect(
@@ -895,14 +904,14 @@ describe("홈 요약", () => {
       ),
     );
     // Each row opens from one link named for the session: a titled one by
-    // its title, one without a title by its short id.
+    // its title, one without a title by its whole id.
     expect(
       within(recent)
         .getAllByRole("link")
         .map((l) => l.getAttribute("aria-label")),
     ).toEqual([
       `세션 열기: ${waitingSession.title}`,
-      `세션 열기: ${oneSession.id.slice(0, 8)}`,
+      `세션 열기: ${oneSession.id}`,
     ]);
   });
 
@@ -1567,26 +1576,15 @@ describe("statusPageQuery", () => {
   });
 });
 
-describe("waitedFor", () => {
-  const at = "2026-10-23T09:00:00.000Z";
-  const after = (ms: number) => new Date(at).getTime() + ms;
-  test("가장 큰 단위의 정수로 적는다", () => {
-    expect(waitedFor(at, "ko", after(12 * 60_000 + 59_000))).toBe("12분");
-    expect(waitedFor(at, "ko", after(2 * 3_600_000 + 5 * 60_000))).toBe(
-      "2시간",
-    );
-    expect(waitedFor(at, "en", after(30_000))).toBe("0 min");
-  });
-  test("시계가 어긋나 미래 시각이어도 음수로 적지 않는다", () => {
-    expect(waitedFor(at, "ko", after(-60_000))).toBe("0분");
-  });
-  test("홈의 시각은 응답이 그대로여도 분마다 움직인다", () => {
+describe("홈의 대기 시간", () => {
+  test("응답이 그대로여도 분마다 움직인다", () => {
+    const at = "2026-10-23T09:00:00.000Z";
     jest.useFakeTimers({ now: new Date(at) });
     try {
       const { result, unmount } = renderHook(() => useMinute(true));
-      expect(waitedFor(at, "ko", result.current)).toBe("0분");
+      expect(formatElapsed(at, "ko", result.current)).toBe("0분");
       act(() => jest.advanceTimersByTime(12 * 60_000));
-      expect(waitedFor(at, "ko", result.current)).toBe("12분");
+      expect(formatElapsed(at, "ko", result.current)).toBe("12분");
       unmount();
     } finally {
       jest.useRealTimers();

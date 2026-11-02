@@ -24,7 +24,6 @@ export const sessionListKo = {
   "sessionList.column.recent": "최근",
   "sessionList.unknown": "—",
   "sessionList.noRepository": "저장소 없음",
-  "sessionList.waitedMinutes": "{minutes}분",
   "sessionList.map": "에이전트 지도",
 };
 
@@ -54,7 +53,6 @@ export const sessionListEn: Record<keyof typeof sessionListKo, string> = {
   "sessionList.column.recent": "Recent",
   "sessionList.unknown": "—",
   "sessionList.noRepository": "No repository",
-  "sessionList.waitedMinutes": "{minutes} min",
   "sessionList.map": "Agent map",
 };
 
@@ -84,6 +82,5 @@ export const sessionListJa: Record<keyof typeof sessionListKo, string> = {
   "sessionList.column.recent": "最近",
   "sessionList.unknown": "—",
   "sessionList.noRepository": "リポジトリなし",
-  "sessionList.waitedMinutes": "{minutes}分",
   "sessionList.map": "エージェントマップ",
 };
