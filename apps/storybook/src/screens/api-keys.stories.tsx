@@ -274,8 +274,8 @@ function KeyIdMeta({ id }: { readonly id: string }) {
         variant="ghost"
         size="sm"
         className={KEY_COPY}
-        aria-label={`ID ${id} 복사`}
-        copiedLabel="복사했습니다"
+        label="복사"
+        description={`ID ${id}`}
         copiedMessage="복사했습니다"
         iconClassName={ICON}
       />

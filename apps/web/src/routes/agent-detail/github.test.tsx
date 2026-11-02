@@ -381,6 +381,32 @@ describe("에이전트 GitHub 탭", () => {
     expect(switchNamed("리뷰 승인").disabled).toBe(false);
   });
 
+  test("구역 목차의 링크는 같은 id의 구역으로 포커스를 옮기고, 구역 이름은 제목이다", async () => {
+    const { server } = await activeAgent();
+    renderAt(DETAIL, routesFor(server, TAB));
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "저장소" });
+    Element.prototype.scrollIntoView ??= () => {};
+
+    const nav = screen.getAllByRole("navigation", { name: "GitHub 구역" })[0];
+    if (!nav) throw new Error("no section nav");
+    for (const [name, id] of [
+      ["사용", "github-use"],
+      ["저장소", "github-repositories"],
+      ["권한", "github-permissions"],
+      ["Actions 허용 목록", "github-allowlist"],
+      ["push 승인", "github-push"],
+      ["최근 기록", "github-activity"],
+    ] as const) {
+      await user.click(within(nav).getByRole("link", { name }));
+      const section = screen.getByRole("region", { name });
+      expect(section.id).toBe(id);
+      // The DOM shim focuses any element and reports tabIndex -1 by default; only the attribute shows the section is focusable.
+      expect(section.getAttribute("tabindex")).toBe("-1");
+      expect(document.activeElement === section).toBe(true);
+    }
+  });
+
   test("바꾼 것은 저장 전 상자에 세고, 되돌리면 상자가 사라진다", async () => {
     const { server } = await activeAgent();
     renderAt(DETAIL, routesFor(server, TAB));
@@ -406,6 +432,27 @@ describe("에이전트 GitHub 탭", () => {
     );
     expect(screen.queryByText("deploy.yml")).toBeNull();
     expect(switchNamed("docs-site").getAttribute("aria-checked")).toBe("false");
+  });
+
+  test("설정이 없는 릴리스는 첫 저장을 push 승인 꺼짐에서 시작해도 지금은 승인이 켜졌다고 보인다", async () => {
+    const { server, release } = await activeAgent();
+    release.policy_pins = {};
+    renderAt(
+      DETAIL,
+      routesFor(server, {
+        ...TAB,
+        github: null,
+        legacy_defaults: { ...SETTINGS, push_approval: false },
+      }),
+    );
+    await screen.findByRole("heading", { name: "권한" });
+    expect(switchNamed("push 전 사람 승인").getAttribute("aria-checked")).toBe(
+      "false",
+    );
+    const status = screen.getByText("push 전 승인")
+      .parentElement as HTMLElement;
+    expect(within(status).getByText("켜짐")).toBeTruthy();
+    expect(within(status).queryByText("꺼짐")).toBeNull();
   });
 
   test("허용 목록은 agent/ 브랜치와 경로·중복을 받지 않는다", async () => {

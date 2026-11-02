@@ -416,10 +416,7 @@ export const listSessionAchievementsResponseSchema = z
   })
   .strict();
 
-export const ACHIEVEMENT_REVIEW_DECISION_VALUES = [
-  "confirm",
-  "reject",
-] as const;
+export const ACHIEVEMENT_REVIEW_ACTION_VALUES = ["confirm", "reject"] as const;
 export const ACHIEVEMENT_REVIEW_NOTE_MAX = 500;
 
 export const achievementParamsSchema = z.object({ id: z.uuid() }).strict();
@@ -427,7 +424,7 @@ export const achievementParamsSchema = z.object({ id: z.uuid() }).strict();
 /** `confirm` counts a `needs_review` achievement; `reject` drops one not yet decided. */
 export const reviewAchievementRequestSchema = z
   .object({
-    decision: z.enum(ACHIEVEMENT_REVIEW_DECISION_VALUES),
+    action: z.enum(ACHIEVEMENT_REVIEW_ACTION_VALUES),
     note: z.string().min(1).max(ACHIEVEMENT_REVIEW_NOTE_MAX).optional(),
   })
   .strict();

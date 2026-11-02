@@ -4,19 +4,18 @@ import { isApiError } from "@werft-ai/client";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   EmptyState,
-  Heading,
   RowList,
   RowListItem,
+  Section,
   Text,
   Link as TextLink,
 } from "@werft-ai/ui";
-import { type ReactNode, useId } from "react";
+import type { ReactNode } from "react";
 import { myTeamsQuery } from "../api/queries.ts";
 import { useI18n } from "../i18n/i18n.tsx";
 import { LoadFailure } from "./load-failure.tsx";
 import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
-
-export const SECTION = "flex flex-col gap-[var(--ap-space-block)]";
+import { SECTION_BODY } from "./section-body.ts";
 
 /**
  * The teams the viewer is in, each linking to its page: a team's members
@@ -34,50 +33,45 @@ export function MyTeams({
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const teams = useQuery(myTeamsQuery(client));
-  const titleId = useId();
   if (teams.isPending) return null;
   // An API key session belongs to no team; that is not an error to show.
   if (isApiError(teams.error, "FORBIDDEN")) return null;
   const items = teams.data?.items ?? [];
   if (!teams.error && items.length === 0 && !showEmpty) return null;
 
-  const title = <Heading id={titleId}>{t("teams.mine.title")}</Heading>;
   return (
-    <section className={SECTION} aria-labelledby={titleId}>
-      {action ? (
-        <div className="flex min-h-7 items-center justify-between gap-3">
-          {title}
-          {action}
-        </div>
-      ) : (
-        title
-      )}
-      {teams.error ? (
-        <LoadFailure error={teams.error} onRetry={() => void teams.refetch()} />
-      ) : items.length === 0 ? (
-        <EmptyState title={t("teams.mine.empty")} />
-      ) : (
-        <>
-          <Text variant="sub">{t("teams.mine.intro")}</Text>
-          <RowList>
-            {items.map((team) => (
-              <RowListItem key={team.id} className={OPENS_ROW}>
-                <TextLink
-                  asChild
-                  className={`${ROW_LINK} [overflow-wrap:anywhere]`}
-                >
-                  <Link
-                    to="/members/teams/$teamId"
-                    params={{ teamId: team.id }}
+    <Section title={t("teams.mine.title")} actions={action}>
+      <div className={SECTION_BODY}>
+        {teams.error ? (
+          <LoadFailure
+            error={teams.error}
+            onRetry={() => void teams.refetch()}
+          />
+        ) : items.length === 0 ? (
+          <EmptyState title={t("teams.mine.empty")} />
+        ) : (
+          <>
+            <Text variant="sub">{t("teams.mine.intro")}</Text>
+            <RowList>
+              {items.map((team) => (
+                <RowListItem key={team.id} className={OPENS_ROW}>
+                  <TextLink
+                    asChild
+                    className={`${ROW_LINK} [overflow-wrap:anywhere]`}
                   >
-                    {team.name}
-                  </Link>
-                </TextLink>
-              </RowListItem>
-            ))}
-          </RowList>
-        </>
-      )}
-    </section>
+                    <Link
+                      to="/members/teams/$teamId"
+                      params={{ teamId: team.id }}
+                    >
+                      {team.name}
+                    </Link>
+                  </TextLink>
+                </RowListItem>
+              ))}
+            </RowList>
+          </>
+        )}
+      </div>
+    </Section>
   );
 }

@@ -45,6 +45,8 @@ import {
   commentPullRequestResponseSchema,
   completeGitHubAppManifestRequestSchema,
   completeGitHubAppManifestResponseSchema,
+  completeGitHubInstallationRequestSchema,
+  completeGitHubInstallationResponseSchema,
   completeSlackInstallRequestSchema,
   completeSlackInstallResponseSchema,
   countAgentsResponseSchema,
@@ -78,6 +80,7 @@ import {
   dispatchWorkflowRequestSchema,
   dispatchWorkflowResponseSchema,
   GITHUB_APP_MANIFEST_STATE_TTL_SECONDS,
+  GITHUB_INSTALLATION_STATE_TTL_SECONDS,
   getGitHubAppResponseSchema,
   getGitHubRepositoryAppPinsResponseSchema,
   getReceiptResponseSchema,
@@ -86,6 +89,7 @@ import {
   getSlackAppResponseSchema,
   getTurnResponseSchema,
   githubAppRoleParamsSchema,
+  githubConnectionParamsSchema,
   githubLinkCallbackRequestSchema,
   githubLinkCallbackResponseSchema,
   githubPackagesSettingsResponseSchema,
@@ -236,6 +240,7 @@ import {
   sseEventSchema,
   startGitHubAppManifestRequestSchema,
   startGitHubAppManifestResponseSchema,
+  startGitHubInstallationResponseSchema,
   startGitHubLinkResponseSchema,
   startGoogleLoginResponseSchema,
   startSlackInstallResponseSchema,
@@ -368,6 +373,7 @@ const requestComponents = {
   PutGitHubRepositoryAppPinRequest: putGitHubRepositoryAppPinRequestSchema,
   StartGitHubAppManifestRequest: startGitHubAppManifestRequestSchema,
   CompleteGitHubAppManifestRequest: completeGitHubAppManifestRequestSchema,
+  CompleteGitHubInstallationRequest: completeGitHubInstallationRequestSchema,
   GitHubRepositoryPageQuery: githubRepositoryPageQuerySchema,
   PatchGitHubRepositoryRequest: patchGitHubRepositoryRequestSchema,
   PickAgentGitHubRepositoryRequest: pickAgentGitHubRepositoryRequestSchema,
@@ -466,6 +472,8 @@ const responseComponents = {
   GetGitHubAppResponse: getGitHubAppResponseSchema,
   StartGitHubAppManifestResponse: startGitHubAppManifestResponseSchema,
   CompleteGitHubAppManifestResponse: completeGitHubAppManifestResponseSchema,
+  StartGitHubInstallationResponse: startGitHubInstallationResponseSchema,
+  CompleteGitHubInstallationResponse: completeGitHubInstallationResponseSchema,
   PutGitHubAppResponse: putGitHubAppResponseSchema,
   DeleteGitHubAppResponse: deleteGitHubAppResponseSchema,
   ListGitHubAppsResponse: listGitHubAppsResponseSchema,
@@ -1778,6 +1786,66 @@ export const API_ROUTE_DECLARATIONS = [
     idempotent: false,
   },
   {
+    method: "post",
+    path: "/v1/workspaces/{id}/github-apps/{connectionId}/installations/start",
+    operationId: "startGitHubInstallation",
+    tag: "Workspace settings",
+    summary:
+      "Start installing a connection's GitHub App on an account (owner or admin)",
+    description: `Returns the App's \`/installations/new\` page with a new single-use \`state\`, valid ${GITHUB_INSTALLATION_STATE_TTL_SECONDS / 60} minutes and bound to the caller, the workspace and the connection; only its SHA-256 is stored. GitHub sends the browser back to the App's setup URL with \`installation_id\` and the state, and \`POST …/github-apps/installations/complete\` records who connected it. 404 for a connection not the workspace's. API keys are refused.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "StartGitHubInstallationResponse",
+      description:
+        "Where the browser installs the App, and when the state expires.",
+      example: {
+        install_url:
+          "https://github.com/apps/werft-acme-1a2b/installations/new?state=<single-use>",
+        expires_at: "2026-11-02T10:00:00Z",
+      },
+    },
+    errors: [401, 403, 404, 503],
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/workspaces/{id}/github-apps/installations/complete",
+    operationId: "completeGitHubInstallation",
+    tag: "Workspace settings",
+    summary: "Record who connected a GitHub App installation from the console",
+    description:
+      "The console's setup page sends the `state` and `installation_id` GitHub's setup URL redirect carried. The state is spent first: unknown, spent, expired, issued to another caller or workspace, or for a connection that was removed or now holds another App answers 400 `BAD_REQUEST` `state_invalid`. The installation is read with the state's App's JWT (`GET /app/installations/{id}`): one that App does not have is 404 `installation_not_found`, and GitHub not answering is 502 `GITHUB_UNAVAILABLE` (`github_unavailable` or `github_app_auth_failed`). The caller and the time are recorded only when GitHub made the installation after the state, and only once: an installation that existed before, or already has someone recorded, answers `recorded: false` and keeps what it has. The setup URL's values can be forged, so the record is what `GET …/github-settings` shows as `detail.connected` and decides no access. Every answer carries `Referrer-Policy: no-referrer`. API keys are refused.",
+    auth: "session",
+    body: "CompleteGitHubInstallationRequest",
+    requestExample: {
+      state: "state-from-the-redirect",
+      installation_id: 176243287,
+    },
+    success: {
+      status: 200,
+      schema: "CompleteGitHubInstallationResponse",
+      description:
+        "The installation's connection, and whether it was recorded now.",
+      example: {
+        connection_id: "6f1b8c1e-3a4d-4f0a-9c7e-2b5d8e9f0a1b",
+        installation_id: 176243287,
+        recorded: true,
+      },
+    },
+    errors: [400, 401, 403, 404, 502, 503],
+    errorCodes: { 502: ["GITHUB_UNAVAILABLE"] },
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
+    idempotent: false,
+  },
+  {
     method: "delete",
     path: "/v1/workspaces/{id}/github-apps/{role}",
     operationId: "deleteWorkspaceGitHubApp",
@@ -2036,7 +2104,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Workspace settings",
     summary: "The workspace's GitHub ceiling (members)",
     description:
-      "What the workspace lets its agents turn on beyond writing a pull request: `workflows`, `actions`, `checks`, `issues`, `review`, all false until an owner or admin saves the ceiling (`revision` 0 until then). An agent's release may turn a feature on only under the ceiling, and every GitHub token is cut to the ceiling again when it is issued. `agents_using` counts, per feature, agents with GitHub on whose active release turns it on; sessions still running an earlier release are not counted. `connections` lists every registered App (author ones first; a role may have several) with its `name`, `app_id`, the `owner` account GitHub names, the `permissions` it asks for, `key_status`, and where it is installed: each installation's `account`, `account_type` and `status` (`suspended`, `approval_pending` when the account has not approved every permission the App asks for, `unknown` before the App's permissions were read, else `active`). Installations are read from GitHub with each App's own key on every request, so one App failing does not hide another's: its `check` is `failed` with `reason_code` (`github_unavailable` or `github_app_auth_failed`) and its `installations` is empty, and `installations_read_at` says when the list was read (null when it was not). An installation's `detail` (connection, account id, approved permissions, `approval`, `repository_count` for the first 20, `repository_selection`, its settings page, `created_at`, `suspended_at`) is given to owners and admins only; a member reads null. `apps` has each role's App permissions as last read from GitHub; it reads null for a role with several Apps, so read `connections`. Any member signed in to the console reads it; API keys are refused.",
+      "What the workspace lets its agents turn on beyond writing a pull request: `workflows`, `actions`, `checks`, `issues`, `review`, all false until an owner or admin saves the ceiling (`revision` 0 until then). An agent's release may turn a feature on only under the ceiling, and every GitHub token is cut to the ceiling again when it is issued. `agents_using` counts, per feature, agents with GitHub on whose active release turns it on; sessions still running an earlier release are not counted. `connections` lists every registered App (author ones first; a role may have several) with its `name`, `app_id`, the `owner` account GitHub names, the `permissions` it asks for, `key_status`, and where it is installed: each installation's `account`, `account_type` and `status` (`suspended`, `approval_pending` when the account has not approved every permission the App asks for, `unknown` before the App's permissions were read or when the list could not be read now, else `active`). Installations are read from GitHub with each App's own key on every request, so one App failing does not hide another's: its `check` is `failed` with `reason_code` (`github_unavailable` or `github_app_auth_failed`), its `installations` is the last list read for that App with each `status` `unknown` (empty when none was ever read), and `installations_read_at` says when that list was read (null when never). An installation's `detail` (connection, account id, approved permissions, `approval`, `repository_count` for the first 20 when read now, `repository_selection`, its settings page, `created_at`, `suspended_at`, and `connected`: who finished installing it from the console and when, null when not recorded) is given to owners and admins only; a member reads null. `apps` has each role's App permissions as last read from GitHub; it reads null for a role with several Apps, so read `connections`. Any member signed in to the console reads it; API keys are refused.",
     auth: "session",
     success: {
       status: 200,
@@ -3745,10 +3813,10 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Sessions",
     summary: "Confirm or reject one of a session's achievements",
     description:
-      "Owners, admins and the admins of the achievement's agent (`achievement.review`), signed in, who can also read its session; API keys are refused. `confirm` counts a `needs_review` achievement (`review_state: confirmed`); `reject` drops an `auto` or `needs_review` one from the count (`rejected`). A decision is final: a later judgment never changes it, and a second review, or confirming an `auto` one, is 409 REVISION_CONFLICT with `details.reason_code: not_reviewable`. `note` is kept on the achievement as `review_note`, not in the receipt. Writes a `review_achievement` receipt naming the achievement and its new state. An achievement of another owner, or one a later judgment replaced, is 404.",
+      "Owners, admins and the admins of the achievement's agent (`achievement.review`), signed in, who can also read its session; API keys are refused. `confirm` counts a `needs_review` achievement (`review_state: confirmed`); `reject` drops an `auto` or `needs_review` one from the count (`rejected`). A review is final: a later judgment never changes it, and a second review, or confirming an `auto` one, is 409 REVISION_CONFLICT with `details.reason_code: not_reviewable`. `note` is kept on the achievement as `review_note`, not in the receipt. Writes a `review_achievement` receipt naming the achievement and its new state. An achievement of another owner, or one a later judgment replaced, is 404.",
     auth: "session",
     body: "ReviewAchievementRequest",
-    requestExample: { decision: "confirm" },
+    requestExample: { action: "confirm" },
     success: {
       status: 200,
       schema: "ReviewAchievementResponse",
@@ -4801,7 +4869,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The agent's GitHub switch, settings and what may be turned on",
     description:
-      "`enabled` is the switch that applies at once (`PUT …/github/enabled`). `github` is the active release's GitHub settings; null before one is saved, when `legacy_defaults` is what a first save starts from (the release's repository, push approval on, nothing optional) and the release meanwhile runs on every repository its profile allows. Settings are saved as a new release (`POST /v1/agents/{id}/releases` with `github`). `unsavable` says why none can be: `no_active_release`, `repository_none` (the release names no repository) or `app_required` (its repository is a PAT one). `options.repositories` lists the catalog's GitHub repositories with why one cannot be picked (`repository_not_allowed` by the release's profile, `app_required` for a PAT one), and `installed`: whether the author and the reviewer App are installed on each, as GitHub answers now (null when there is no such App, a PAT, or no answer). `options.features` says, per optional permission, why it cannot be turned on: `github_host_unsupported` (every chosen repository is on a GitHub Enterprise host), `over_workspace_ceiling`, `no_reviewer_app`, or `app_permission_missing` (the App's permissions as last read lack it; the token request decides). Whoever manages the agent reads it.",
+      "`enabled` is the switch that applies at once (`PUT …/github/enabled`). `github` is the active release's GitHub settings; null before one is saved, when `legacy_defaults` is what a first save starts from (the release's repository, push approval off, nothing optional; the release itself keeps asking a person before each push until settings are saved) and the release meanwhile runs on every repository its profile allows. Settings are saved as a new release (`POST /v1/agents/{id}/releases` with `github`). `unsavable` says why none can be: `no_active_release`, `repository_none` (the release names no repository) or `app_required` (its repository is a PAT one). `options.repositories` lists the catalog's GitHub repositories with why one cannot be picked (`repository_not_allowed` by the release's profile, `app_required` for a PAT one), and `installed`: whether the author and the reviewer App are installed on each, as GitHub answers now (null when there is no such App, a PAT, or no answer). `options.features` says, per optional permission, why it cannot be turned on: `github_host_unsupported` (every chosen repository is on a GitHub Enterprise host), `over_workspace_ceiling`, `no_reviewer_app`, or `app_permission_missing` (the App's permissions as last read lack it; the token request decides). Whoever manages the agent reads it.",
     auth: "session",
     success: {
       status: 200,
@@ -6723,6 +6791,12 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path.startsWith("/v1/users/{user_id}")) return memberUserParamsSchema;
   if (path === "/v1/workspaces/{id}/github-apps/{role}") {
     return githubAppRoleParamsSchema;
+  }
+  if (
+    path ===
+    "/v1/workspaces/{id}/github-apps/{connectionId}/installations/start"
+  ) {
+    return githubConnectionParamsSchema;
   }
   if (
     path === "/v1/workspaces/{id}/github-repositories/{repositoryId}" ||

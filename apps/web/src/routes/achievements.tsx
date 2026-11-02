@@ -10,6 +10,7 @@ import { useAgentPlatform } from "@werft-ai/react";
 import { OPERATIONS_MESSAGES } from "@werft-ai/react/components";
 import {
   Badge,
+  Button,
   Card,
   Code,
   EmptyState,
@@ -44,7 +45,7 @@ export type AchievementPeriod = (typeof ACHIEVEMENT_PERIODS)[number];
 // Cut at the next UTC midnight, as the usage screens are, so the query key
 // stays the same all day.
 export function achievementPeriod(
-  period: AchievementPeriod,
+  period: AchievementPeriod | "1",
   now = new Date(),
 ): { readonly since: string; readonly until: string } {
   const until = Date.UTC(
@@ -146,6 +147,13 @@ export function AchievementsScreen() {
     <Page
       title={t("achievements.title")}
       description={t("achievements.description")}
+      actions={
+        <Button asChild variant="outline">
+          <RouterLink to="/settings/workspace/achievement-rules">
+            {t("achievementRules.nav")}
+          </RouterLink>
+        </Button>
+      }
     >
       <div className="flex flex-wrap gap-2">
         <Filter

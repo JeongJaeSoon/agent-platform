@@ -785,7 +785,7 @@ export function createPostgresAchievementJudgments(
       return found ?? null;
     },
 
-    review({ actor, achievementId, decision, note, receiptId }) {
+    review({ actor, achievementId, action, note, receiptId }) {
       return db.transaction(async (tx) => {
         const [me] = await lockPeople(tx, actor.workspaceId, [actor.userId]);
         if (me?.live !== true) return { outcome: "actor_inactive" as const };
@@ -851,11 +851,11 @@ export function createPostgresAchievementJudgments(
           .for("update");
         if (!found) return { outcome: "not_found" as const };
         const from =
-          decision === "confirm" ? ["needs_review"] : ["auto", "needs_review"];
+          action === "confirm" ? ["needs_review"] : ["auto", "needs_review"];
         if (!from.includes(found.reviewState)) {
           return { outcome: "not_reviewable" as const };
         }
-        const reviewState = decision === "confirm" ? "confirmed" : "rejected";
+        const reviewState = action === "confirm" ? "confirmed" : "rejected";
         await tx
           .update(sessionAchievements)
           .set({
@@ -865,7 +865,7 @@ export function createPostgresAchievementJudgments(
             reviewNote: note,
           })
           .where(eq(sessionAchievements.id, found.id));
-        // The note is the reviewer's words; the receipt names the decision.
+        // The note is the reviewer's words; the receipt names the resulting state.
         await tx.insert(receipts).values({
           id: receiptId,
           ownerId: actor.principal.ownerId,

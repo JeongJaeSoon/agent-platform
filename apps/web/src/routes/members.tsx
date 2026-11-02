@@ -40,7 +40,6 @@ import {
   GridTableHeader,
   GridTableRow,
   GridTableRowOpener,
-  Heading,
   LinkTab,
   LinkTabs,
   Page,
@@ -50,6 +49,7 @@ import {
   RowLines,
   RowList,
   RowListItem,
+  Section,
   Text,
 } from "@werft-ai/ui";
 import { useEffect, useId, useRef, useState } from "react";
@@ -75,6 +75,7 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
+import { SECTION_BODY } from "../components/section-body.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import {
   errorKey,
@@ -84,8 +85,6 @@ import {
 } from "../i18n/i18n.tsx";
 import { InviteDialog } from "./invite-dialog.tsx";
 import { TeamCreateDialog } from "./team-create-dialog.tsx";
-
-const SECTION = "flex flex-col gap-[var(--ap-space-block)]";
 
 // Role and actions keep one width on every row, so badges and buttons line
 // up under their headers; the actions track never drops below its button.
@@ -515,8 +514,10 @@ function MemberTable({
                       blue stays for links that move (→). */}
                   {/* Below md the "you" badge drops to its own line under
                       the name, so the name gets the whole column (QA L-17). */}
-                  <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--ap-row-line-gap)] font-medium text-foreground @max-md:grid-cols-[minmax(0,auto)]">
-                    <span className="truncate">{member.display_name}</span>
+                  <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--ap-row-line-gap)] @max-md:grid-cols-[minmax(0,auto)]">
+                    <Text as="span" weight="medium" truncate>
+                      {member.display_name}
+                    </Text>
                     {disabled ? (
                       <span className="sr-only">
                         {` (${t("members.state.disabled")})`}
@@ -749,7 +750,6 @@ function InviteList({
   const role = useRole();
   const invites = useQuery(invitesQuery(client));
   const [revoking, setRevoking] = useState<Invite | null>(null);
-  const titleId = useId();
 
   const revoke = useMutation<unknown, ApiError, Invite>({
     mutationFn: (invite) =>
@@ -777,72 +777,73 @@ function InviteList({
     invites.data?.items.filter((invite) => invite.status === "pending") ?? [];
 
   return (
-    <section className={SECTION} aria-labelledby={titleId}>
-      <Heading id={titleId}>{t("members.invites.title")}</Heading>
-      {invites.isPending ? (
-        <StatusScreen kind="loading" />
-      ) : invites.error ? (
-        isApiError(invites.error, "FORBIDDEN") ? (
-          <FormError>{refusal(t, invites.error, role)}</FormError>
+    <Section title={t("members.invites.title")}>
+      <div className={SECTION_BODY}>
+        {invites.isPending ? (
+          <StatusScreen kind="loading" />
+        ) : invites.error ? (
+          isApiError(invites.error, "FORBIDDEN") ? (
+            <FormError>{refusal(t, invites.error, role)}</FormError>
+          ) : (
+            <LoadFailure
+              error={invites.error}
+              onRetry={() => void invites.refetch()}
+            />
+          )
+        ) : pending.length === 0 ? (
+          <EmptyState title={t("members.invites.empty")} />
         ) : (
-          <LoadFailure
-            error={invites.error}
-            onRetry={() => void invites.refetch()}
-          />
-        )
-      ) : pending.length === 0 ? (
-        <EmptyState title={t("members.invites.empty")} />
-      ) : (
-        <RowList>
-          {pending.map((invite) => (
-            <RowListItem key={invite.id}>
-              <RowLines>
-                <Text as="span" weight="medium" className="block break-words">
-                  {invite.email}
-                </Text>
-                <Text
-                  as="span"
-                  variant="meta"
-                  className="block [overflow-wrap:anywhere]"
-                >
-                  {roleLabel(t, invite.role)} ·{" "}
-                  {t("members.invites.expires", {
-                    expires: formatTimestamp(invite.expires_at, locale),
+          <RowList>
+            {pending.map((invite) => (
+              <RowListItem key={invite.id}>
+                <RowLines>
+                  <Text as="span" weight="medium" className="block break-words">
+                    {invite.email}
+                  </Text>
+                  <Text
+                    as="span"
+                    variant="meta"
+                    className="block [overflow-wrap:anywhere]"
+                  >
+                    {roleLabel(t, invite.role)} ·{" "}
+                    {t("members.invites.expires", {
+                      expires: formatTimestamp(invite.expires_at, locale),
+                    })}
+                  </Text>
+                </RowLines>
+                <RowAction
+                  variant="danger"
+                  className="ml-auto"
+                  disabled={revoke.isPending}
+                  aria-label={t("members.invites.revokeFor", {
+                    email: invite.email,
                   })}
-                </Text>
-              </RowLines>
-              <RowAction
-                variant="danger"
-                className="ml-auto"
-                disabled={revoke.isPending}
-                aria-label={t("members.invites.revokeFor", {
-                  email: invite.email,
-                })}
-                onClick={() => setRevoking(invite)}
-              >
-                {t("members.invites.revoke")}
-              </RowAction>
-            </RowListItem>
-          ))}
-        </RowList>
-      )}
-      <ConfirmDialog
-        open={revoking !== null}
-        onOpenChange={(open) => {
-          if (!open) setRevoking(null);
-        }}
-        title={t("members.invites.revokeTitle", {
-          email: revoking?.email ?? "",
-        })}
-        consequence={t("members.invites.revokeConsequence")}
-        confirmLabel={t("members.invites.revoke")}
-        cancelLabel={t("common.cancel")}
-        tone="danger"
-        busy={revoke.isPending}
-        onConfirm={() => {
-          if (revoking) revoke.mutate(revoking);
-        }}
-      />
-    </section>
+                  onClick={() => setRevoking(invite)}
+                >
+                  {t("members.invites.revoke")}
+                </RowAction>
+              </RowListItem>
+            ))}
+          </RowList>
+        )}
+        <ConfirmDialog
+          open={revoking !== null}
+          onOpenChange={(open) => {
+            if (!open) setRevoking(null);
+          }}
+          title={t("members.invites.revokeTitle", {
+            email: revoking?.email ?? "",
+          })}
+          consequence={t("members.invites.revokeConsequence")}
+          confirmLabel={t("members.invites.revoke")}
+          cancelLabel={t("common.cancel")}
+          tone="danger"
+          busy={revoke.isPending}
+          onConfirm={() => {
+            if (revoking) revoke.mutate(revoking);
+          }}
+        />
+      </div>
+    </Section>
   );
 }

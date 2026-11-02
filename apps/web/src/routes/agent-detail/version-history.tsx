@@ -11,7 +11,6 @@ import { ChevronRight } from "lucide-react";
 import { useId, useState } from "react";
 import { RevisionDiff } from "../../components/revision-diff.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
-import { FORM_INLINE, SECTION } from "./classes.ts";
 import { VersionSelect } from "./versions.tsx";
 
 export function VersionHistory({ detail }: { readonly detail: AgentDetail }) {
@@ -34,7 +33,10 @@ export function VersionHistory({ detail }: { readonly detail: AgentDetail }) {
 
   return (
     // Folded: the card tab leads with the card, not its past.
-    <details className={`group ${SECTION}`} aria-labelledby={titleId}>
+    <details
+      className="group flex flex-col gap-[var(--ap-space-block)]"
+      aria-labelledby={titleId}
+    >
       <summary className="flex min-h-7 cursor-pointer list-none items-center gap-2 rounded-control [&::-webkit-details-marker]:hidden">
         <ChevronRight
           aria-hidden="true"
@@ -68,7 +70,7 @@ export function VersionHistory({ detail }: { readonly detail: AgentDetail }) {
       </RowList>
       {ordered.length > 1 ? (
         <>
-          <div className={FORM_INLINE}>
+          <div className="flex flex-wrap items-start gap-3">
             <VersionSelect
               label={t("agent.versions.before")}
               versions={ordered}

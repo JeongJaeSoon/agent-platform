@@ -143,6 +143,8 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "DELETE /v1/workspaces/{id}/github-apps/{role}",
     "GET /v1/workspaces/{id}/github-apps",
     "POST /v1/workspaces/{id}/github-apps",
+    "POST /v1/workspaces/{id}/github-apps/{connectionId}/installations/start",
+    "POST /v1/workspaces/{id}/github-apps/installations/complete",
   ],
   "routes/github-app-manifest.test.ts": [
     "POST /v1/workspaces/{id}/github-apps/author/manifest",

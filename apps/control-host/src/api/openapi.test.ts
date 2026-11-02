@@ -370,6 +370,8 @@ describe("OpenAPI document", () => {
         "/v1/workspaces/{id}/github-app",
         "/v1/workspaces/{id}/github-apps",
         "/v1/workspaces/{id}/github-apps/{role}",
+        "/v1/workspaces/{id}/github-apps/{connectionId}/installations/start",
+        "/v1/workspaces/{id}/github-apps/installations/complete",
         "/v1/workspaces/{id}/github-apps/author/manifest",
         "/v1/workspaces/{id}/github-apps/author/manifest/complete",
         "/v1/workspaces/{id}/github-repositories",

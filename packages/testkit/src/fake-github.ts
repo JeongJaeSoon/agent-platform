@@ -1,4 +1,9 @@
-import { createPublicKey, randomBytes, verify } from "node:crypto";
+import {
+  createPublicKey,
+  type KeyObject,
+  randomBytes,
+  verify,
+} from "node:crypto";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -173,6 +178,10 @@ export type FakeGitHub = {
   failApp(appId: number, status: number | undefined): void;
   /** While on, `GET /app/installations` lists every installation suspended. */
   suspendInstallations(on: boolean): void;
+  /** What every installation says as its `created_at` from now on. */
+  setInstallationCreatedAt(at: Date): void;
+  /** Another private key GitHub takes for the first App, as a new key is. */
+  addAppKey(publicKey: string): void;
   /** `GET /user` with this PAT (`token <pat>`) names this user id. */
   addUser(pat: string, id: number): void;
   /** While on, `GET /user` answers 500. */
@@ -268,6 +277,8 @@ export async function startFakeGitHub(
   const publicKey = createPublicKey(options.publicKey);
   const second = options.secondApp;
   const secondKey = second ? createPublicKey(second.publicKey) : undefined;
+  const extraKeys: KeyObject[] = [];
+  let installationCreatedAt = "2026-10-01T09:00:00Z";
   const now = options.now ?? (() => new Date());
   const ttlMs = (options.tokenTtlSeconds ?? 3600) * 1000;
   const tokenRequests: FakeGitHubTokenRequest[] = [];
@@ -283,18 +294,21 @@ export async function startFakeGitHub(
     const jwt = /^Bearer (.+)$/i.exec(authorization ?? "")?.[1];
     const [head, body, signature] = jwt?.split(".") ?? [];
     if (!head || !body || !signature) return undefined;
-    const signedBy = [publicKey, secondKey].findIndex(
-      (key) =>
-        key !== undefined &&
-        verify(
-          "RSA-SHA256",
-          Buffer.from(`${head}.${body}`),
-          key,
-          Buffer.from(signature, "base64url"),
-        ),
-    );
-    if (signedBy === -1) return undefined;
-    const appId = signedBy === 0 ? options.appId : second?.appId;
+    const signs = (key: KeyObject | undefined) =>
+      key !== undefined &&
+      verify(
+        "RSA-SHA256",
+        Buffer.from(`${head}.${body}`),
+        key,
+        Buffer.from(signature, "base64url"),
+      );
+    const appId =
+      signs(publicKey) || extraKeys.some(signs)
+        ? options.appId
+        : signs(secondKey)
+          ? second?.appId
+          : undefined;
+    if (appId === undefined) return undefined;
     const claims = JSON.parse(Buffer.from(body, "base64url").toString());
     const seconds = Math.floor(now().getTime() / 1000);
     if (
@@ -803,9 +817,10 @@ export async function startFakeGitHub(
   const slug = options.slug ?? "fake-app";
   function appCall(request: Request, path: string): Response | undefined {
     const repository = /^\/repos\/([^/]+)\/([^/]+)\/installation$/.exec(path);
+    const one = /^\/app\/installations\/(\d+)$/.exec(path);
     if (
       request.method !== "GET" ||
-      (path !== "/app" && path !== "/app/installations" && !repository)
+      (path !== "/app" && path !== "/app/installations" && !repository && !one)
     ) {
       return undefined;
     }
@@ -856,22 +871,26 @@ export async function startFakeGitHub(
         : Response.json({ message: "Not Found" }, { status: 404 });
     }
     const [owner = "fake"] = [...served.keys()].map((key) => key.split("/")[0]);
-    return Response.json([
-      {
-        id: app.installation,
-        app_id: app.id,
-        account: {
-          login: owner,
-          id: 9000 + app.installation,
-          type: "Organization",
-        },
-        repository_selection: "selected",
-        html_url: `${origin()}/organizations/${owner}/settings/installations/${app.installation}`,
-        permissions: app.permissions,
-        created_at: "2026-10-01T09:00:00Z",
-        suspended_at: suspended ? "2026-11-01T00:00:00Z" : null,
+    const installation = {
+      id: app.installation,
+      app_id: app.id,
+      account: {
+        login: owner,
+        id: 9000 + app.installation,
+        type: "Organization",
       },
-    ]);
+      repository_selection: "selected",
+      html_url: `${origin()}/organizations/${owner}/settings/installations/${app.installation}`,
+      permissions: app.permissions,
+      created_at: installationCreatedAt,
+      suspended_at: suspended ? "2026-11-01T00:00:00Z" : null,
+    };
+    if (one) {
+      return Number(one[1]) === app.installation
+        ? Response.json(installation)
+        : Response.json({ message: "Not Found" }, { status: 404 });
+    }
+    return Response.json([installation]);
   }
 
   const server = Bun.serve({
@@ -1091,6 +1110,12 @@ export async function startFakeGitHub(
     },
     suspendInstallations(on) {
       suspended = on;
+    },
+    setInstallationCreatedAt(at) {
+      installationCreatedAt = at.toISOString();
+    },
+    addAppKey(key) {
+      extraKeys.push(createPublicKey(key));
     },
     failNext(count, status) {
       failures = { count, status };

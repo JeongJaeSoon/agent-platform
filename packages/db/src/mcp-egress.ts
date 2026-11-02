@@ -14,6 +14,7 @@ import {
   type SessionMcp,
 } from "@werft-ai/platform";
 import { and, eq, isNull } from "drizzle-orm";
+import { markPushContinuation, runningTurnOf } from "./push-continuations.ts";
 import type { Database } from "./queries.ts";
 import {
   agentReleases,
@@ -169,6 +170,14 @@ export function createPostgresGitHubMcpStore(db: Database): GitHubMcpStore {
         enabled: agent?.enabled ?? false,
         actor: creatorOf(session, release.agentId),
       };
+    },
+
+    runningTurn(input) {
+      return runningTurnOf(db, input);
+    },
+
+    markPushContinuation(input) {
+      return markPushContinuation(db, input);
     },
   };
 }
