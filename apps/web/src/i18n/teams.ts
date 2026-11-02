@@ -32,6 +32,8 @@ export const teamsKo = {
   "teams.memberTotal": "{count}명",
   "teams.addHint":
     "여러 명을 골라 한 번에 추가할 수 있습니다. 추가하면 수락 없이 바로 구성원이 됩니다.",
+  "teams.addOpen": "구성원 추가",
+  "teams.addTitle": "{team}에 구성원 추가",
   "teams.pickMember": "추가할 사람",
   "teams.pickPlaceholder": "이름이나 이메일로 찾기",
   "teams.pickLoading": "구성원을 불러오는 중…",
@@ -39,7 +41,6 @@ export const teamsKo = {
   "teams.pickCount": "{count}명이 있습니다.",
   "teams.picked": "추가할 사람",
   "teams.unpick": "{name}님을 추가할 사람에서 빼기",
-  "teams.addMember": "추가",
   "teams.addMembers": "{count}명 추가",
   "teams.noCandidates": "추가할 수 있는 활성 구성원이 없습니다.",
   "teams.memberAdded": "{name}님을 팀에 추가했습니다.",
@@ -53,7 +54,7 @@ export const teamsKo = {
   "teams.column.addedAt": "추가한 날",
   "teams.removeMember": "빼기",
   "teams.removeMemberFor": "{name}님을 팀에서 빼기",
-  "teams.removeMemberTitle": "{name}님을 {team} 팀에서 뺄까요?",
+  "teams.removeMemberTitle": "{name}님을 {team}에서 뺄까요?",
   "teams.removeMemberConsequence":
     "워크스페이스에는 그대로 남지만, 이 팀을 통해 관리하던 에이전트는 더 관리하지 못합니다. 다시 추가하면 돌아옵니다.",
 };
@@ -93,6 +94,8 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.memberTotal": "{count}",
   "teams.addHint":
     "Pick several people and add them at once. They join the team right away, without having to accept.",
+  "teams.addOpen": "Add members",
+  "teams.addTitle": "Add members to {team}",
   "teams.pickMember": "People to add",
   "teams.pickPlaceholder": "Search by name or email",
   "teams.pickLoading": "Loading members…",
@@ -100,7 +103,6 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.pickCount": "{count} people found.",
   "teams.picked": "People to add",
   "teams.unpick": "Remove {name} from the selection",
-  "teams.addMember": "Add",
   "teams.addMembers": "Add {count}",
   "teams.noCandidates": "There are no more active members to add.",
   "teams.memberAdded": "Added {name} to the team.",
@@ -154,6 +156,8 @@ export const teamsJa: Record<keyof typeof teamsKo, string> = {
   "teams.memberTotal": "{count}人",
   "teams.addHint":
     "複数の人を選んで一度に追加できます。追加すると、承諾なしですぐにメンバーになります。",
+  "teams.addOpen": "メンバーを追加",
+  "teams.addTitle": "「{team}」にメンバーを追加",
   "teams.pickMember": "追加する人",
   "teams.pickPlaceholder": "名前またはメールで検索",
   "teams.pickLoading": "メンバーを読み込み中…",
@@ -161,7 +165,6 @@ export const teamsJa: Record<keyof typeof teamsKo, string> = {
   "teams.pickCount": "{count}人見つかりました。",
   "teams.picked": "追加する人",
   "teams.unpick": "{name}さんを追加する人から外す",
-  "teams.addMember": "追加",
   "teams.addMembers": "{count}人を追加",
   "teams.noCandidates": "追加できる有効なメンバーがいません。",
   "teams.memberAdded": "{name}さんをチームに追加しました。",
