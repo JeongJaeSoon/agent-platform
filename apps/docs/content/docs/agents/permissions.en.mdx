@@ -46,7 +46,7 @@ The profile's `permission_mode` decides whether a person is asked before a tool 
 | --- | --- |
 | `default` | Tools that change files (Write, Edit, Bash commands that write files, and so on) create a permission request before running. Read commands do not ask. This is the local profile's mode |
 | `acceptEdits`, `dontAsk`, `plan` | Runs in the Claude Code mode of the same name |
-| `auto` | A model classifier allows or denies each call in place of a person, and denies it when the classifier cannot be reached. Needs no installation setting |
+| `auto` | A model classifier allows or denies each call in place of a person, and denies it when the classifier cannot be reached. Needs no installation setting. The platform adds one rule to the classifier: committing in the session, asking the built-in `github` tools to push to the session's own branch (`agent/<session-id>`), opening that pull request, editing its title and body, commenting on it, and listing and attaching repositories go ahead without asking. Pushing to the default branch, force pushes, merging or approving, and pushing to another repository are outside that rule |
 | `bypassPermissions` | Runs every call with nothing judging it. If the catalog has a profile with this mode, the API does not start without `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true`, and only an owner or admin can pick it for a workspace profile |
 
 The mode exists only in the catalog and cannot be changed by a session request.
