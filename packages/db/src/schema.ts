@@ -1,5 +1,10 @@
 import {
   ACHIEVEMENT_EVIDENCE_KIND_VALUES,
+  ACHIEVEMENT_JUDGE_BACKEND_VALUES,
+  ACHIEVEMENT_JUDGMENT_ERROR_VALUES,
+  ACHIEVEMENT_JUDGMENT_STATUS_VALUES,
+  ACHIEVEMENT_JUDGMENT_TRIGGER_VALUES,
+  ACHIEVEMENT_REVIEW_STATE_VALUES,
   ACHIEVEMENT_RULE_JUDGE_VALUES,
   ADMISSION_STATE_VALUES,
   AGENT_IDENTITY_PROVIDER_VALUES,
@@ -57,6 +62,7 @@ import {
   check,
   customType,
   date,
+  doublePrecision,
   foreignKey,
   index,
   integer,
@@ -2242,6 +2248,9 @@ export const checkpoints = pgTable(
     // under outputs. False on rows committed before it was recorded, whose
     // outputs no figure counts.
     outputsRecorded: boolean("outputs_recorded").notNull().default(false),
+    // checkpointOutputsDigest of the manifest's out/ list, recorded with
+    // outputs_recorded; null when it names no file or was not recorded.
+    outputsDigest: text("outputs_digest"),
   },
   (table) => [
     primaryKey({ columns: [table.sessionId, table.revision] }),
@@ -3766,6 +3775,175 @@ export const achievementRules = pgTable(
     check(
       "achievement_rules_disabled_check",
       sql`(${table.disabledAt} IS NULL) = (${table.disabledBy} IS NULL)`,
+    ),
+  ],
+);
+
+// One judgment of a session's evidence against the workspace's rules
+// (achievement-rules.md §3, §4). A session has at most one queued; another
+// trigger moves its `next_attempt_at`, so the judge picks it once triggers
+// have stopped for a while.
+export const achievementJudgments = pgTable(
+  "achievement_judgments",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    ownerId: text("owner_id").notNull(),
+    sessionId: uuid("session_id").notNull(),
+    trigger: text().notNull(),
+    status: text().notNull(),
+    rules: jsonb().$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    evidenceIds: text("evidence_ids").array().notNull().default(sql`'{}'`),
+    inputDigest: text("input_digest"),
+    backend: text(),
+    connectionId: text("connection_id"),
+    calls: integer().notNull().default(0),
+    inputTokens: bigint("input_tokens", { mode: "number" })
+      .notNull()
+      .default(0),
+    costUsd: numeric("cost_usd", { precision: 14, scale: 6, mode: "number" })
+      .notNull()
+      .default(0),
+    errorCode: text("error_code"),
+    attempts: integer().notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", {
+      withTimezone: true,
+    }).notNull(),
+    leaseToken: uuid("lease_token"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      name: "achievement_judgments_session_fk",
+      columns: [table.sessionId, table.ownerId, table.workspaceId],
+      foreignColumns: [sessions.id, sessions.ownerId, sessions.workspaceId],
+    }),
+    uniqueIndex("achievement_judgments_queued_uniq")
+      .on(table.sessionId)
+      .where(sql`${table.status} = 'queued'`),
+    index("achievement_judgments_due_idx")
+      .on(table.nextAttemptAt)
+      .where(sql`${table.status} IN ('queued', 'running')`),
+    index("achievement_judgments_session_idx").on(
+      table.sessionId,
+      table.createdAt,
+    ),
+    check(
+      "achievement_judgments_trigger_check",
+      sql`${table.trigger} IN (${sql.raw(sqlList(ACHIEVEMENT_JUDGMENT_TRIGGER_VALUES))})`,
+    ),
+    check(
+      "achievement_judgments_status_check",
+      sql`${table.status} IN (${sql.raw(sqlList(ACHIEVEMENT_JUDGMENT_STATUS_VALUES))})`,
+    ),
+    check(
+      "achievement_judgments_backend_check",
+      sql`${table.backend} IS NULL OR ${table.backend} IN (${sql.raw(sqlList(ACHIEVEMENT_JUDGE_BACKEND_VALUES))})`,
+    ),
+    check(
+      "achievement_judgments_error_code_check",
+      sql`${table.errorCode} IS NULL OR ${table.errorCode} IN (${sql.raw(sqlList(ACHIEVEMENT_JUDGMENT_ERROR_VALUES))})`,
+    ),
+    check(
+      "achievement_judgments_cost_check",
+      sql`${table.calls} >= 0 AND ${table.inputTokens} >= 0 AND ${table.costUsd} >= 0 AND ${table.attempts} >= 0`,
+    ),
+    check(
+      "achievement_judgments_lease_check",
+      sql`(${table.leaseToken} IS NULL) = (${table.leaseExpiresAt} IS NULL)`,
+    ),
+  ],
+);
+
+// What a rule counted. Only the judge writes a row; a person only confirms
+// or rejects one, and a row a person decided is never judged again.
+export const sessionAchievements = pgTable(
+  "session_achievements",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    ownerId: text("owner_id").notNull(),
+    sessionId: uuid("session_id").notNull(),
+    agentId: uuid("agent_id"),
+    agentReleaseId: text("agent_release_id"),
+    ruleId: uuid("rule_id")
+      .notNull()
+      .references(() => achievementRules.id),
+    ruleFamilyId: uuid("rule_family_id").notNull(),
+    typeId: uuid("type_id")
+      .notNull()
+      .references(() => achievementTypes.id),
+    title: text().notNull(),
+    link: text().notNull(),
+    evidenceKind: text("evidence_kind").notNull(),
+    // A session_outcomes id, or an out/ path; null for the conversation.
+    evidenceId: text("evidence_id"),
+    payload: jsonb().$type<Record<string, unknown>>(),
+    judge: text().notNull(),
+    probability: doublePrecision(),
+    judgmentId: uuid("judgment_id")
+      .notNull()
+      .references(() => achievementJudgments.id),
+    reviewState: text("review_state").notNull(),
+    reviewedBy: uuid("reviewed_by").references(() => users.id),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewNote: text("review_note"),
+    supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    supersededBy: uuid("superseded_by"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "session_achievements_session_fk",
+      columns: [table.sessionId, table.ownerId, table.workspaceId],
+      foreignColumns: [sessions.id, sessions.ownerId, sessions.workspaceId],
+    }),
+    // An out/ path names a file of one session only.
+    uniqueIndex("session_achievements_evidence_uniq")
+      .on(table.ruleFamilyId, table.sessionId, table.evidenceId)
+      .where(
+        sql`${table.evidenceId} IS NOT NULL AND ${table.supersededAt} IS NULL`,
+      ),
+    uniqueIndex("session_achievements_conversation_uniq")
+      .on(table.ruleFamilyId, table.sessionId)
+      .where(
+        sql`${table.evidenceId} IS NULL AND ${table.supersededAt} IS NULL`,
+      ),
+    index("session_achievements_session_idx").on(table.sessionId),
+    check(
+      "session_achievements_evidence_kind_check",
+      sql`${table.evidenceKind} IN (${sql.raw(sqlList(ACHIEVEMENT_EVIDENCE_KIND_VALUES))})`,
+    ),
+    check(
+      "session_achievements_evidence_id_check",
+      sql`(${table.evidenceId} IS NULL) = (${table.evidenceKind} = 'conversation')`,
+    ),
+    check(
+      "session_achievements_judge_check",
+      sql`${table.judge} IN (${sql.raw(sqlList(ACHIEVEMENT_RULE_JUDGE_VALUES))})`,
+    ),
+    check(
+      "session_achievements_probability_check",
+      sql`(${table.probability} IS NULL) = (${table.judge} = 'always') AND (${table.probability} IS NULL OR ${table.probability} BETWEEN 0 AND 1)`,
+    ),
+    check(
+      "session_achievements_review_state_check",
+      sql`${table.reviewState} IN (${sql.raw(sqlList(ACHIEVEMENT_REVIEW_STATE_VALUES))})`,
+    ),
+    // Evidence an agent wrote counts only once a person confirms it.
+    check(
+      "session_achievements_auto_check",
+      sql`${table.reviewState} <> 'auto' OR ${table.evidenceKind} IN ('github_pull_request', 'github_review')`,
+    ),
+    check(
+      "session_achievements_reviewed_check",
+      sql`(${table.reviewedBy} IS NULL) = (${table.reviewedAt} IS NULL)`,
     ),
   ],
 );

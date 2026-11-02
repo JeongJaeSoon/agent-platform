@@ -1380,6 +1380,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sessions/{id}/achievements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the workspace's achievement rules counted in the session
+         * @description The session's achievements in force, oldest first, and its latest judgment. Only the platform's judge writes achievements: when the session's evidence appears or changes (a pull request opened, merged or closed, a review submitted, a checkpoint whose `out/` files differ from its parent's) a judgment is queued in the same transaction, one queued per session, and the judge takes it once two minutes have passed since the last such change. It pairs each rule in use with the session's evidence of its type's `evidence_kind`. An `always` rule counts every pair at no cost; one rule family counts a piece of evidence of a session once (`evidence_id`: the outcome id, the `out/` path, or null for the conversation). `title` and `link` are the pull request or review as `owner/repo#number` and its URL, the file's path and the session's console path, or the session's title and console path. `payload` is set only for the built-in types (`pull_request`, `code_review`, `document`). `review_state` is `auto` for pull request and review evidence, counted at once, and `needs_review` for `out/` files and the conversation, counted once a person confirms them.
+         *
+         *     `judgment` is null before the session's first. Its `status` is `queued`, `running`, `succeeded`, `failed` or `skipped` (`error_code: judge_unavailable`: a `luna` rule had evidence and no judge answers it yet). A try that fails is queued again 1, 5 and 30 minutes later, then ends `failed`; `error_code: outputs_unavailable` says the checkpoint's `out/` list could not be read, and the achievements that need no `out/` list are written all the same. Reading changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
+         */
+        get: operations["listSessionAchievements"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{id}/github/pull-requests/{number}/reviews": {
         parameters: {
             query?: never;
@@ -5584,6 +5608,73 @@ export interface components {
                     opened_by_session_id: string | null;
                 };
             })[];
+        };
+        ListSessionAchievementsResponse: {
+            items: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                session_id: string;
+                agent_id: string | null;
+                agent_release_id: string | null;
+                /** Format: uuid */
+                rule_id: string;
+                /** Format: uuid */
+                rule_family_id: string;
+                /** Format: uuid */
+                type_id: string;
+                title: string;
+                link: string;
+                /** @enum {string} */
+                evidence_kind: "github_pull_request" | "github_review" | "out_file" | "conversation";
+                evidence_id: string | null;
+                payload: ({
+                    repository: string;
+                    number: number;
+                    /** Format: uri */
+                    url: string;
+                    /** @enum {string} */
+                    state: "open" | "merged" | "closed";
+                    merged_at: string | null;
+                    additions: number | null;
+                    deletions: number | null;
+                } | {
+                    repository: string;
+                    number: number;
+                    /** Format: uri */
+                    url: string;
+                    /** @enum {string} */
+                    event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
+                    commit_id: string;
+                } | {
+                    path: string;
+                    size: number;
+                }) | null;
+                /** @enum {string} */
+                judge: "always" | "luna";
+                probability: number | null;
+                /** Format: uuid */
+                judgment_id: string;
+                /** @enum {string} */
+                review_state: "auto" | "needs_review" | "confirmed" | "rejected";
+                reviewed_by: string | null;
+                reviewed_at: string | null;
+                review_note: string | null;
+                /** Format: date-time */
+                created_at: string;
+            }[];
+            judgment: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                trigger: "evidence" | "turns" | "idle" | "manual";
+                /** @enum {string} */
+                status: "queued" | "running" | "succeeded" | "failed" | "deferred" | "skipped";
+                error_code: ("judge_unavailable" | "outputs_unavailable") | null;
+                /** Format: date-time */
+                created_at: string;
+                finished_at: string | null;
+            } | null;
         };
         AgentGitHubResponse: {
             enabled: boolean;
@@ -17268,6 +17359,135 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["ListSessionOutcomesResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    listSessionAchievements: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The achievements, oldest first, and the latest judgment. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "0b1c2d3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+                     *           "session_id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+                     *           "agent_id": null,
+                     *           "agent_release_id": null,
+                     *           "rule_id": "7d3a4e5f-6b7c-4d8e-8f9a-1b2c3d4e5f60",
+                     *           "rule_family_id": "8e4b5f6a-7c8d-4e9f-9a0b-2c3d4e5f6a71",
+                     *           "type_id": "9f5c6a7b-8d9e-4f0a-8b1c-3d4e5f6a7b82",
+                     *           "title": "acme/sample-app#12",
+                     *           "link": "https://github.com/acme/sample-app/pull/12",
+                     *           "evidence_kind": "github_pull_request",
+                     *           "evidence_id": "6c1f5b0e-2d7a-4e8b-9f3c-1a2b3c4d5e6f",
+                     *           "payload": {
+                     *             "repository": "acme/sample-app",
+                     *             "number": 12,
+                     *             "url": "https://github.com/acme/sample-app/pull/12",
+                     *             "state": "open",
+                     *             "merged_at": null,
+                     *             "additions": 42,
+                     *             "deletions": 7
+                     *           },
+                     *           "judge": "always",
+                     *           "probability": null,
+                     *           "judgment_id": "1c2d3e4f-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
+                     *           "review_state": "auto",
+                     *           "reviewed_by": null,
+                     *           "reviewed_at": null,
+                     *           "review_note": null,
+                     *           "created_at": "2026-10-30T09:42:10.000Z"
+                     *         }
+                     *       ],
+                     *       "judgment": {
+                     *         "id": "1c2d3e4f-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
+                     *         "trigger": "evidence",
+                     *         "status": "succeeded",
+                     *         "error_code": null,
+                     *         "created_at": "2026-10-30T09:40:03.000Z",
+                     *         "finished_at": "2026-10-30T09:42:10.000Z"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ListSessionAchievementsResponse"];
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */

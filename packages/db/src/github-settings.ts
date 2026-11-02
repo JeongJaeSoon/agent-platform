@@ -12,6 +12,7 @@ import type {
   GitHubWorkStore,
 } from "@werft-ai/platform";
 import { and, desc, eq, sql } from "drizzle-orm";
+import { queueAchievementJudgment } from "./achievement-judgments.ts";
 import { lockedRole } from "./api-keys.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -205,7 +206,7 @@ export function createPostgresGitHubGateStore(
           actor: input.actor,
         });
         const now = new Date();
-        await tx
+        const inserted = await tx
           .insert(sessionOutcomes)
           .values({
             id: randomUUID(),
@@ -229,7 +230,11 @@ export function createPostgresGitHubGateStore(
               sessionOutcomes.type,
               sessionOutcomes.url,
             ],
-          });
+          })
+          .returning({ id: sessionOutcomes.id });
+        if (inserted.length > 0) {
+          await queueAchievementJudgment(tx, input.context.sessionId);
+        }
         return id;
       });
     },

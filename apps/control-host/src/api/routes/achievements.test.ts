@@ -10,7 +10,9 @@ import {
   apiErrorResponseSchema,
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
+  type ListSessionAchievementsResponse,
   listAchievementTypesResponseSchema,
+  listSessionAchievementsResponseSchema,
   REQUEST_BODY_MAX_BYTES,
   WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
@@ -18,6 +20,7 @@ import {
   type AchievementRuleStore,
   createAchievementRuleService,
   createAuthorizationPolicy,
+  createSessionAchievementService,
   type DecisionLog,
   type IdentityStore,
   type MembershipRole,
@@ -26,13 +29,17 @@ import {
 import { generateWebSessionToken, hashWebSessionToken } from "../auth.ts";
 import { hashApiKey } from "../keys.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
-import { registerAchievementRoutes } from "./achievements.ts";
+import {
+  registerAchievementRoutes,
+  registerSessionAchievementRoutes,
+} from "./achievements.ts";
 
 const createApiApp = recordRouteErrors("routes/achievements.test.ts");
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const OTHER_WORKSPACE = "019a0000-0000-7000-8000-0000000000b1";
 const USER = "019a0000-0000-7000-8000-0000000000c1";
+const OTHER_USER = "019a0000-0000-7000-8000-0000000000c2";
 const ID = "019a0000-0000-7000-8000-0000000000d1";
 const AT = "2026-11-02T01:00:00.000Z";
 
@@ -704,5 +711,156 @@ describe("achievement rule management", () => {
     expect((await call("GET", READS[0] ?? "", "owner")).status).toBe(503);
     const [method, path, body] = WRITES[0] as [string, string, unknown];
     expect((await call(method, path, "owner", body)).status).toBe(503);
+  });
+});
+
+describe("a session's achievements", () => {
+  const SESSION = "11111111-1111-4111-8111-111111111111";
+  const DOWN = "22222222-2222-4222-8222-222222222222";
+  const listed: ListSessionAchievementsResponse = {
+    items: [
+      {
+        id: ID,
+        session_id: SESSION,
+        agent_id: null,
+        agent_release_id: null,
+        rule_id: ID,
+        rule_family_id: ID,
+        type_id: ID,
+        title: "acme/app#12",
+        link: "https://github.com/acme/app/pull/12",
+        evidence_kind: "github_pull_request",
+        evidence_id: ID,
+        payload: {
+          repository: "acme/app",
+          number: 12,
+          url: "https://github.com/acme/app/pull/12",
+          state: "open",
+          merged_at: null,
+          additions: 3,
+          deletions: 1,
+        },
+        judge: "always",
+        probability: null,
+        judgment_id: ID,
+        review_state: "auto",
+        reviewed_by: null,
+        reviewed_at: null,
+        review_note: null,
+        created_at: AT,
+      },
+    ],
+    judgment: {
+      id: ID,
+      trigger: "evidence",
+      status: "skipped",
+      error_code: "judge_unavailable",
+      created_at: AT,
+      finished_at: AT,
+    },
+  };
+  const asked: Array<[string, string]> = [];
+  const api = createApiApp({
+    authMode: "api-key",
+    keyStore: {
+      async find(hash) {
+        const found = ["ach_reader", "ach_none"].find((candidate) =>
+          Buffer.from(hash).equals(Buffer.from(hashApiKey(candidate))),
+        );
+        return found
+          ? {
+              id: `key-${found}`,
+              ownerId: "owner-a",
+              workspaceId: null,
+              kind: "operator" as const,
+              createdByUserId: null,
+              creatorRole: null,
+              scopes: found === "ach_reader" ? ["sessions:read"] : [],
+            }
+          : null;
+      },
+    },
+    registerRoutes: (router) =>
+      registerSessionAchievementRoutes(
+        router,
+        createSessionAchievementService({
+          authorization: createAuthorizationPolicy(),
+          store: {
+            list: async (owner, session) => {
+              asked.push([owner, session]);
+              if (session === DOWN) {
+                throw Object.assign(new Error("connection refused"), {
+                  code: "ECONNREFUSED",
+                });
+              }
+              return owner === "owner-a" && session === SESSION ? listed : null;
+            },
+          },
+        }),
+      ),
+  });
+  const read = async (session: string, auth?: string) => {
+    const response = await api.request(
+      `/v1/sessions/${session}/achievements`,
+      auth === undefined
+        ? {}
+        : { headers: { Authorization: `Bearer ${auth}` } },
+    );
+    const text = await response.text();
+    return { status: response.status, json: text ? JSON.parse(text) : null };
+  };
+
+  test("gives the achievements and the latest judgment of a readable session", async () => {
+    const answered = await read(SESSION.toUpperCase(), "ach_reader");
+    expect(answered.status).toBe(200);
+    expect(listSessionAchievementsResponseSchema.parse(answered.json)).toEqual(
+      listed,
+    );
+    expect(asked.at(-1)).toEqual(["owner-a", SESSION]);
+  });
+
+  test("an unseen session is 404; no scope 403; no key 401; a store outage 503", async () => {
+    expect(
+      (await read("44444444-4444-4444-8444-444444444444", "ach_reader")).status,
+    ).toBe(404);
+    expect((await read("not-a-uuid", "ach_reader")).status).toBe(404);
+    expect((await read(SESSION, "ach_none")).status).toBe(403);
+    expect((await read(SESSION)).status).toBe(401);
+    expect((await read(DOWN, "ach_reader")).status).toBe(503);
+  });
+
+  test("a member is not shown a session not shared with them, and the store is not read", async () => {
+    const unshared: string[] = [];
+    const members = createApiApp({
+      authMode: "api-key",
+      identity,
+      registerRoutes: (router) =>
+        registerSessionAchievementRoutes(
+          router,
+          createSessionAchievementService({
+            authorization: createAuthorizationPolicy({
+              sessions: {
+                visibleTo: async () => false,
+                originOf: async () => ({
+                  creatorUserId: OTHER_USER,
+                  creatorApiKeyId: null,
+                }),
+              },
+            }),
+            store: {
+              list: async (_owner, session) => {
+                unshared.push(session);
+                return listed;
+              },
+            },
+          }),
+        ),
+    });
+    const response = await members.request(
+      `/v1/sessions/${SESSION}/achievements`,
+      { headers: { Cookie: cookieFor("member") } },
+    );
+    expect(response.status).toBe(404);
+    expect(unshared).toEqual([]);
   });
 });

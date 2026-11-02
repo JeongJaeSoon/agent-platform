@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   achievementCategorySchema,
   achievementRuleRequestSchema,
+  BUILTIN_ACHIEVEMENT_PAYLOAD_SCHEMAS,
+  BUILTIN_ACHIEVEMENT_TYPES,
   createAchievementCategoryRequestSchema,
   createAchievementTypeRequestSchema,
   updateAchievementCategoryRequestSchema,
@@ -109,5 +111,56 @@ describe("achievement requests", () => {
     expect(rule({ definition: "a".repeat(2_000) }).success).toBe(true);
     expect(rule({ definition: "a".repeat(2_001) }).success).toBe(false);
     expect(rule({ definition: "" }).success).toBe(false);
+  });
+});
+
+describe("built-in achievement payloads", () => {
+  const pr = {
+    repository: "acme/app",
+    number: 12,
+    url: "https://github.com/acme/app/pull/12",
+    state: "merged",
+    merged_at: "2026-11-02T00:00:00.000Z",
+    additions: 3,
+    deletions: 1,
+  };
+
+  test("every built-in type has a payload schema", () => {
+    expect(Object.keys(BUILTIN_ACHIEVEMENT_PAYLOAD_SCHEMAS).sort()).toEqual(
+      BUILTIN_ACHIEVEMENT_TYPES.map(({ key }) => key).sort(),
+    );
+  });
+
+  test("a pull request payload has the design's fields and nothing else", () => {
+    const parse = ok(BUILTIN_ACHIEVEMENT_PAYLOAD_SCHEMAS.pull_request);
+    expect(parse(pr)).toBe(true);
+    expect(
+      parse({ ...pr, additions: null, deletions: null, merged_at: null }),
+    ).toBe(true);
+    expect(parse({ ...pr, title: "Fix" })).toBe(false);
+    expect(parse({ ...pr, state: "submitted" })).toBe(false);
+    expect(parse({ ...pr, repository: "app" })).toBe(false);
+    expect(parse({ ...pr, number: 0 })).toBe(false);
+  });
+
+  test("a review payload names the event and the commit", () => {
+    const parse = ok(BUILTIN_ACHIEVEMENT_PAYLOAD_SCHEMAS.code_review);
+    const review = {
+      repository: "acme/app",
+      number: 9,
+      url: "https://github.com/acme/app/pull/9#pullrequestreview-1",
+      event: "APPROVE",
+      commit_id: "c".repeat(40),
+    };
+    expect(parse(review)).toBe(true);
+    expect(parse({ ...review, event: "MERGE" })).toBe(false);
+    expect(parse({ ...review, body: "LGTM" })).toBe(false);
+  });
+
+  test("a document payload is the path and its size", () => {
+    const parse = ok(BUILTIN_ACHIEVEMENT_PAYLOAD_SCHEMAS.document);
+    expect(parse({ path: "out/report.md", size: 10 })).toBe(true);
+    expect(parse({ path: "out/report.md", size: -1 })).toBe(false);
+    expect(parse({ path: "", size: 1 })).toBe(false);
   });
 });

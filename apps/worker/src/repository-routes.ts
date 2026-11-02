@@ -113,13 +113,13 @@ export function goPrivateModules(workspace: WorkspaceDescriptor): string[] {
 /**
  * Writes this claim's repository routes for the engine, or removes them when
  * the claim gives no repository token: routes left from an earlier claim
- * would carry a token that no longer stands.
+ * would carry a token that no longer stands. True when routes were written.
  */
 export async function writeRepositoryRoutes(
   home: string,
   credentialUrl: string,
   workspace: WorkspaceDescriptor,
-): Promise<void> {
+): Promise<boolean> {
   const path = join(home, REPOSITORY_ROUTES_FILE);
   // One token per attempt stands for every repository the claim routes; a
   // session without a repository of its own may still attach some.
@@ -133,7 +133,7 @@ export async function writeRepositoryRoutes(
       : repositoryRoutesConfig(credentialUrl, token, workspace);
   if (content === null) {
     await rm(path, { force: true });
-    return;
+    return false;
   }
   await mkdir(dirname(path), { recursive: true });
   // Appending nothing creates it when missing and leaves it alone otherwise.
@@ -142,4 +142,5 @@ export async function writeRepositoryRoutes(
   // The token is attempt-scoped, but still nobody else's to read.
   await writeFile(staged, content, { mode: 0o600 });
   await rename(staged, path);
+  return true;
 }
