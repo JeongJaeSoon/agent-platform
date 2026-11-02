@@ -1,7 +1,8 @@
 import { isSafeUrl, mapCodeAndText } from "./slack-presentation.ts";
 
-// Code is swapped for these tokens while the rest is rewritten, so no rule can
-// reach into it and a table can be read whole even when a cell holds code.
+// Code, links and URLs are swapped for these tokens while the rest is
+// rewritten, so no rule reaches into them and a table can be read whole even
+// when a cell holds code.
 const OPEN = "\uE000";
 const CLOSE = "\uE001";
 const TOKEN = /\uE000(\d+)\uE001/g;
@@ -14,24 +15,102 @@ const WORD = /[\p{L}\p{N}]/u;
 const BULLETS = ["•", "◦", "▪"];
 const INDENT = "    ";
 
+type Kept = {
+  keep(text: string): string;
+  get(token: string): string | undefined;
+  restore(text: string): string;
+};
+
+function keeper(): Kept {
+  const items: string[] = [];
+  const restore = (text: string): string => {
+    let output = text;
+    // A kept item can hold tokens of its own, a link label with code in it.
+    while (output.includes(OPEN)) {
+      output = output.replace(
+        TOKEN,
+        (_whole, index: string) => items[Number(index)] ?? "",
+      );
+    }
+    return output;
+  };
+  return {
+    keep(text) {
+      items.push(text);
+      return `${OPEN}${items.length - 1}${CLOSE}`;
+    },
+    get(token) {
+      const index = /^\uE000(\d+)\uE001$/.exec(token)?.[1];
+      return index === undefined ? undefined : items[Number(index)];
+    },
+    restore,
+  };
+}
+
+/** GitHub's `` spans; Slack would read them as empty code pairs. */
+function keepDoubleBacktickSpans(text: string, kept: Kept): string {
+  // The inner text cannot cross another `` run, so each search stops there.
+  return text.replace(/(?<!`)``(?!`)(?:[^`\n]|`(?!`))+?``(?!`)/g, (span) =>
+    kept.keep(span),
+  );
+}
+
+/** A `~~~` fence becomes a ``` fence; Slack knows only that one. */
+function keepTildeFences(text: string, kept: Kept): string {
+  const lines = text.split("\n");
+  const output: string[] = [];
+  // No closing fence this long remains below, so a longer opener need not look.
+  let unclosed = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    const open = /^ {0,3}(~{3,})/.exec(line)?.[1];
+    let close = -1;
+    if (open !== undefined && open.length < unclosed) {
+      for (let next = index + 1; next < lines.length; next += 1) {
+        const fence = /^ {0,3}(~{3,})\s*$/.exec(lines[next] ?? "")?.[1];
+        if (fence !== undefined && fence.length >= open.length) {
+          close = next;
+          break;
+        }
+      }
+      if (close === -1) unclosed = open.length;
+    }
+    const body = close === -1 ? "" : lines.slice(index + 1, close).join("\n");
+    if (close === -1 || kept.restore(body).includes("```")) {
+      output.push(line);
+      continue;
+    }
+    output.push(kept.keep(`\`\`\`\n${body}\n\`\`\``));
+    index = close;
+  }
+  return output.join("\n");
+}
+
 const LINK =
   /!?\[([^[\]\n]+)\]\(((?:[^()\s]|\([^()\s]*\))+)(?:\s+"[^"\n]*")?\)/g;
+const CONTROL = /<[^<>\n]+>/g;
+const BARE_URL = /\bhttps?:\/\/[^\s<>]+/g;
 
-function convertLinks(text: string, slackLinks: boolean): string {
-  return text.replace(LINK, (_whole, label: string, url: string) => {
-    if (!slackLinks || !isSafeUrl(url) || /[<>|]/.test(label)) {
-      return label === url ? url : `${label} (${url})`;
-    }
-    return label === url ? `<${url}>` : `<${url}|${label}>`;
-  });
+/** Trailing punctuation belongs to the sentence, a `)` only when unbalanced. */
+function urlEnd(url: string): number {
+  let unbalanced = url.split(")").length - url.split("(").length;
+  let end = url.length;
+  for (;;) {
+    const last = url[end - 1] ?? "";
+    if (last === ")" && unbalanced > 0) unbalanced -= 1;
+    else if (!/[*~_.,;:!?'"]/.test(last) || end === 0) return end;
+    end -= 1;
+  }
 }
+
+type Inline = { links: "slack" | "plain"; marks: "convert" | "strip" };
 
 function wrap(text: string, pattern: RegExp, marker: string): string {
   return text.replace(
     pattern,
-    (_whole, inner: string, offset: number, all: string) => {
+    (whole, inner: string, offset: number, all: string) => {
       const before = all[offset - 1];
-      const after = all[offset + _whole.length];
+      const after = all[offset + whole.length];
       const lead = before !== undefined && WORD.test(before) ? ZWSP : "";
       const trail = after !== undefined && WORD.test(after) ? ZWSP : "";
       return `${lead}${marker}${inner}${marker}${trail}`;
@@ -39,23 +118,41 @@ function wrap(text: string, pattern: RegExp, marker: string): string {
   );
 }
 
-function convertInline(text: string): string {
-  const linked = convertLinks(text, true);
-  // The inner text may not hold its own marker, so a search for the close
-  // stops at the next marker instead of running to the end of the line.
-  const bold = wrap(linked, /\*\*(?![\s*])([^*\n]*[^\s*])\*\*/g, "*");
-  return wrap(bold, /~~(?![\s~])([^~\n]*[^\s~])~~/g, "~");
+// The inner text may not hold its own marker, so a search for the close stops
+// at the next marker instead of running to the end of the line.
+const BOLD = /\*\*(?![\s*])([^*\n]*[^\s*])\*\*/g;
+const STRIKE = /~~(?![\s~])([^~\n]*[^\s~])~~/g;
+
+function marks(text: string, mode: Inline["marks"]): string {
+  if (mode === "strip") return text.replace(BOLD, "$1").replace(STRIKE, "$1");
+  return wrap(wrap(text, BOLD, "*"), STRIKE, "~");
 }
 
-function plainCell(cell: string, codes: readonly string[]): string {
-  const text = convertLinks(cell, false)
-    .replace(/\*\*([^*\n]+)\*\*/g, "$1")
-    .replace(/~~([^~\n]+)~~/g, "$1");
-  return text
-    .replace(TOKEN, (_whole, index: string) => codes[Number(index)] ?? "")
-    .replace(/`/g, "")
-    .trim();
+function inline(text: string, kept: Kept, mode: Inline): string {
+  const linked = text
+    .replace(LINK, (_whole, label: string, url: string) => {
+      const shown = marks(label, mode.marks);
+      // Slack refuses a link whose label holds a control or code.
+      if (
+        mode.links === "plain" ||
+        !isSafeUrl(url) ||
+        /[<>|\uE000]/.test(label)
+      ) {
+        return kept.keep(label === url ? url : `${shown} (${url})`);
+      }
+      return kept.keep(label === url ? `<${url}>` : `<${url}|${shown}>`);
+    })
+    .replace(CONTROL, (control) => kept.keep(control))
+    .replace(BARE_URL, (url) => {
+      const end = urlEnd(url);
+      return kept.keep(url.slice(0, end)) + url.slice(end);
+    });
+  return marks(linked, mode.marks);
 }
+
+const BODY: Inline = { links: "slack", marks: "convert" };
+const HEADING: Inline = { links: "slack", marks: "strip" };
+const CELL: Inline = { links: "plain", marks: "strip" };
 
 /** Columns a monospace font gives the text: wide East Asian characters take two. */
 function width(text: string): number {
@@ -99,6 +196,21 @@ function isTableStart(lines: readonly string[], index: number): boolean {
   );
 }
 
+function isTableRow(line: string): boolean {
+  return line.includes("|") && !/^\s*(>|#{1,6}\s)/.test(line);
+}
+
+/** A cell goes into a code block, so its code shows without the backticks. */
+function cellText(cell: string, kept: Kept): string {
+  const text = inline(cell, kept, CELL).replace(/\uE000\d+\uE001/g, (token) => {
+    const code = kept.get(token) ?? token;
+    return /^`[^`]|^``/.test(code)
+      ? kept.restore(code).replace(/^(`+) ?([\s\S]*?) ?\1$/, "$2")
+      : token;
+  });
+  return kept.restore(text).trim();
+}
+
 function renderTable(rows: string[][]): string {
   const columns = Math.max(...rows.map((row) => row.length));
   const widths = Array.from({ length: columns }, (_, column) =>
@@ -129,7 +241,7 @@ function headingTitle(rest: string): string {
 
 const LIST_ITEM = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/;
 
-function convertLines(text: string, codes: string[]): string {
+function convertLines(text: string, kept: Kept): string {
   const lines = text.split("\n");
   const output: string[] = [];
   let indents: number[] = [];
@@ -140,14 +252,16 @@ function convertLines(text: string, codes: string[]): string {
     if (isTableStart(lines, index)) {
       const rows = [splitRow(line)];
       index += 2;
-      while (index < lines.length && (lines[index] ?? "").includes("|")) {
+      while (index < lines.length && isTableRow(lines[index] ?? "")) {
         rows.push(splitRow(lines[index] ?? ""));
         index += 1;
       }
       index -= 1;
       output.push(
-        renderTable(
-          rows.map((row) => row.map((cell) => plainCell(cell, codes))),
+        kept.keep(
+          renderTable(
+            rows.map((row) => row.map((cell) => cellText(cell, kept))),
+          ),
         ),
       );
       indents = [];
@@ -156,11 +270,7 @@ function convertLines(text: string, codes: string[]): string {
 
     const heading = /^ {0,3}#{1,6}[ \t]+(.*)$/.exec(line);
     if (heading?.[1] !== undefined && heading[1].trim() !== "") {
-      const title = headingTitle(heading[1]).replace(
-        /\*\*([^*\n]+)\*\*/g,
-        "$1",
-      );
-      output.push(`*${convertInline(title)}*`);
+      output.push(`*${inline(headingTitle(heading[1]), kept, HEADING)}*`);
       indents = [];
       continue;
     }
@@ -184,12 +294,15 @@ function convertLines(text: string, codes: string[]): string {
         bullet += task[1] === " " ? " ☐" : " ☑";
         rest = rest.slice(task[0].length);
       }
-      output.push(`${INDENT.repeat(level)}${bullet} ${convertInline(rest)}`);
+      output.push(
+        `${INDENT.repeat(level)}${bullet} ${inline(rest, kept, BODY)}`,
+      );
       continue;
     }
 
-    if (line.trim() === "") indents = [];
-    output.push(convertInline(line));
+    // Blank and indented lines stay inside a list; text at the margin ends it.
+    if (/^\S/.test(line)) indents = [];
+    output.push(inline(line, kept, BODY));
   }
   return output.join("\n");
 }
@@ -202,17 +315,12 @@ function convertLines(text: string, codes: string[]): string {
  */
 export function markdownToSlackMrkdwn(markdown: string): string {
   if (markdown.includes(OPEN) || markdown.includes(CLOSE)) return markdown;
-  const codes: string[] = [];
+  const kept = keeper();
+  const spans = keepDoubleBacktickSpans(markdown, kept);
   const masked = mapCodeAndText(
-    markdown,
+    spans,
     (text) => text,
-    (code) => {
-      codes.push(code);
-      return `${OPEN}${codes.length - 1}${CLOSE}`;
-    },
+    (code) => kept.keep(code.replace(/^```[\w+#.-]+\n/, "```\n")),
   );
-  return convertLines(masked, codes).replace(TOKEN, (_whole, index: string) => {
-    const code = codes[Number(index)] ?? "";
-    return code.replace(/^```[\w+#.-]+\n/, "```\n");
-  });
+  return kept.restore(convertLines(keepTildeFences(masked, kept), kept));
 }

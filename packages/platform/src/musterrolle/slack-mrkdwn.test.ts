@@ -187,6 +187,47 @@ describe("markdownToSlackMrkdwn", () => {
     );
   });
 
+  test("link destinations and bare URLs keep their characters", () => {
+    expect(
+      markdownToSlackMrkdwn(
+        "[**Open**](https://a.test/a**b**c) https://a.test/x~~y~~z <https://a.test/**k**>",
+      ),
+    ).toBe(
+      "<https://a.test/a**b**c|*Open*> https://a.test/x~~y~~z <https://a.test/**k**>",
+    );
+    expect(markdownToSlackMrkdwn("# see https://a.test/**x**")).toBe(
+      "*see https://a.test/**x***",
+    );
+  });
+
+  test("double-backtick spans and tilde fences are code too", () => {
+    expect(markdownToSlackMrkdwn("`` a **b** `` and ``x`y``")).toBe(
+      "`` a **b** `` and ``x`y``",
+    );
+    expect(markdownToSlackMrkdwn("~~~ts\n**literal**\n~~~\n**after**")).toBe(
+      "```\n**literal**\n```\n*after*",
+    );
+  });
+
+  test("fences inside a fence stay as written", () => {
+    const nested = "```md\n~~~\n**x** ``y``\n~~~\n```";
+    expect(markdownToSlackMrkdwn(nested)).toBe(
+      "```\n~~~\n**x** ``y``\n~~~\n```",
+    );
+  });
+
+  test("a table keeps backticks inside its code and ends before a quote", () => {
+    expect(markdownToSlackMrkdwn("| x |\n| --- |\n| ``a`b`` |\n> q | z")).toBe(
+      "```\nx\n---\na`b\n```\n> q | z",
+    );
+  });
+
+  test("a blank line inside a list keeps the nesting", () => {
+    expect(
+      markdownToSlackMrkdwn("- a\n\n  - b\n\n  text\n- c\nplain\n  - d"),
+    ).toBe("• a\n\n    ◦ b\n\n  text\n• c\nplain\n• d");
+  });
+
   test("unclosed markers stay linear on a long line", () => {
     const started = performance.now();
     const spaces = " ".repeat(50_000);
@@ -197,6 +238,10 @@ describe("markdownToSlackMrkdwn", () => {
         `# a${spaces}x`,
         "| a |",
         `|-${spaces}x`,
+        "a|b",
+        `${spaces}|x`,
+        "``x```".repeat(10_000),
+        "~~~x\n".repeat(10_000),
       ].join("\n"),
     );
     expect(performance.now() - started).toBeLessThan(1_000);
