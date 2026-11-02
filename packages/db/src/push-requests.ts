@@ -35,8 +35,6 @@ import {
 type Row = typeof pushRequests.$inferSelect;
 
 function publicPushRequest(row: Row): PushRequest {
-  const resolvedBy = (row.decidedBy as PushDecider | null) ?? null;
-  const resolvedAt = row.decidedAt?.toISOString() ?? null;
   return {
     id: row.id,
     session_id: row.sessionId,
@@ -47,17 +45,13 @@ function publicPushRequest(row: Row): PushRequest {
     state: row.state as PushRequestState,
     requested_by: row.requestedBy as ReceiptActor,
     requested_at: row.createdAt.toISOString(),
-    resolved_by: resolvedBy,
-    resolved_at: resolvedAt,
+    resolved_by: (row.decidedBy as PushDecider | null) ?? null,
+    resolved_at: row.decidedAt?.toISOString() ?? null,
     resolution_reason: row.decisionReason,
     request_receipt_id: row.requestReceiptId,
     resolution_receipt_id: row.decisionReceiptId,
     finished_at: row.finishedAt?.toISOString() ?? null,
     push_receipt_id: row.pushReceiptId,
-    decided_by: resolvedBy,
-    decided_at: resolvedAt,
-    decision_reason: row.decisionReason,
-    decision_receipt_id: row.decisionReceiptId,
   };
 }
 
@@ -65,7 +59,7 @@ function resultOf(
   row: Row | null,
   fields: Pick<
     PushReceiptResult,
-    "decision" | "verdict" | "refusal" | "decider_key"
+    "action" | "verdict" | "refusal" | "decider_key"
   >,
 ): PushReceiptResult {
   return {
@@ -204,7 +198,7 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
           operation: "request_push",
           refusal,
           result: resultOf(row, {
-            decision: null,
+            action: null,
             verdict: "refuse",
             refusal,
           }),
@@ -252,7 +246,7 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
           status: "succeeded",
           result: {
             push_request_id: id,
-            decision: null,
+            action: null,
             verdict: "allow",
             refusal: null,
             repository_id: input.repositoryId,
@@ -284,12 +278,12 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
           await tx.insert(receipts).values({
             id: policy.receiptId,
             ownerId: input.ownerId,
-            operation: "decide_push",
+            operation: "resolve_push",
             targetRef: { session_id: sessionId, turn_id: null, request_id: id },
             status: "succeeded",
             result: {
               push_request_id: id,
-              decision: "approve",
+              action: "approve",
               verdict: "allow",
               refusal: null,
               repository_id: input.repositoryId,
@@ -366,6 +360,7 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
       const pushRequestId = input.pushRequestId.toLowerCase();
       const scope: IdempotencyScope = {
         principal: input.ownerId,
+        // The name before the receipt rename, so a retry across it replays.
         operation: "decide_push",
         resource: pushRequestId,
         key: input.idempotencyKey,
@@ -376,7 +371,7 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
         const refuse = async (
           refusal:
             | "not_found"
-            | "already_decided"
+            | "already_resolved"
             | "checkpoint_moved"
             | "commit_mismatch",
           row: Row | null,
@@ -387,10 +382,10 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
             ownerId: input.ownerId,
             sessionId,
             actor: input.actor,
-            operation: "decide_push",
+            operation: "resolve_push",
             refusal,
             result: resultOf(row, {
-              decision: input.decision,
+              action: input.decision,
               verdict: "refuse",
               refusal,
               decider_key: input.deciderKey ?? null,
@@ -443,7 +438,7 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
           .limit(1)
           .for("update");
         if (!row) return refuse("not_found", null);
-        if (row.state !== "requested") return refuse("already_decided", row);
+        if (row.state !== "requested") return refuse("already_resolved", row);
         if (input.decision === "approve") {
           if (input.gitCommit !== row.gitCommit) {
             return refuse("commit_mismatch", row);
@@ -464,7 +459,7 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
         await tx.insert(receipts).values({
           id: receiptId,
           ownerId: input.ownerId,
-          operation: "decide_push",
+          operation: "resolve_push",
           targetRef: {
             session_id: sessionId,
             turn_id: null,
@@ -472,7 +467,7 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
           },
           status: "succeeded",
           result: resultOf(row, {
-            decision: input.decision,
+            action: input.decision,
             verdict: "allow",
             refusal: null,
             decider_key: input.deciderKey ?? null,
@@ -560,7 +555,7 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
           status: pushed ? "succeeded" : "failed",
           result: {
             ...resultOf(row, {
-              decision: null,
+              action: null,
               verdict: pushed ? "allow" : "refuse",
               refusal: pushed ? null : outcome.refusal,
             }),

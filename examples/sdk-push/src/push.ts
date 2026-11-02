@@ -85,13 +85,11 @@ async function run(): Promise<void> {
     },
     { signal },
   );
-  console.log(
-    `${show(rejected)}, reason "${rejected.resolution_reason ?? rejected.decision_reason}"`,
-  );
+  console.log(`${show(rejected)}, reason "${rejected.resolution_reason}"`);
   const late = await approver.sessions.pushRequests
     .approve(sessionId, first.id, { git_commit: first.git_commit }, { signal })
     .catch((error: unknown) => error);
-  if (!isApiError(late, "PUSH_REQUEST_DECIDED")) throw late;
+  if (!isApiError(late, "PUSH_REQUEST_RESOLVED")) throw late;
   console.log(`approve after the reject: ${late.status} ${late.code}`);
 
   // A new request for the same commit; approve only the commit reviewed.

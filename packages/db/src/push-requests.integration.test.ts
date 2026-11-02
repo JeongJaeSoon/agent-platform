@@ -126,7 +126,7 @@ integration("postgres push requests", () => {
       target_branch: `agent/${sessionId}`,
       state: "requested",
       requested_by: REQUESTER,
-      decided_by: null,
+      resolved_by: null,
     });
     const row = await receipt(request.request_receipt_id);
     expect(row).toMatchObject({
@@ -203,18 +203,15 @@ integration("postgres push requests", () => {
       state: "approved",
       resolved_by: APPROVER,
       resolution_reason: "reviewed",
-      decided_by: APPROVER,
-      decision_reason: "reviewed",
     });
+    expect(approved).not.toHaveProperty("decided_by");
     expect(approved.resolved_at).not.toBeNull();
-    expect(approved.resolved_at).toBe(approved.decided_at);
-    expect(approved.resolution_receipt_id).toBe(approved.decision_receipt_id);
     expect(await receipt(approved.resolution_receipt_id ?? "")).toMatchObject({
-      operation: "decide_push",
+      operation: "resolve_push",
       status: "succeeded",
       actor: APPROVER,
       result: {
-        decision: "approve",
+        action: "approve",
         verdict: "allow",
         git_commit: COMMIT,
         checkpoint_revision: 2,
@@ -232,13 +229,13 @@ integration("postgres push requests", () => {
     });
     expect(again).toMatchObject({
       outcome: "refused",
-      refusal: "already_decided",
+      refusal: "already_resolved",
     });
     if (again.outcome !== "refused") throw new Error("unreachable");
     expect(await receipt(again.receiptId)).toMatchObject({
       status: "failed",
-      error: { code: "PUSH_REQUEST_DECIDED" },
-      result: { decision: "reject", verdict: "refuse", git_commit: COMMIT },
+      error: { code: "PUSH_REQUEST_RESOLVED" },
+      result: { action: "reject", verdict: "refuse", git_commit: COMMIT },
     });
     expect((await store.get(OWNER, sessionId, request.id))?.state).toBe(
       "approved",

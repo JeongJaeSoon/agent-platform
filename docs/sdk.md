@@ -41,7 +41,7 @@ API key scope가 `sessions:*`인 operation을 모두 감싼다. 요청·응답 �
 | `sessions.requests.list` · `answer` | `GET …/pending-requests`, `POST …/answers` |
 | `sessions.interrupt` · `pause` · `resume` · `terminate` · `close` · `changeProfile` | `POST …/interrupt`, `…/pause`, `…/resume`, `…/terminate`, `…/close`, `…/profile` |
 | `sessions.recoveryDecisions.create` | `POST …/recovery-decisions` |
-| `sessions.pushRequests.create` · `list` · `get` · `decide` · `openPullRequest` · `commentPullRequest` | `…/push-requests/**` |
+| `sessions.pushRequests.create` · `list` · `get` · `approve` · `reject` · `openPullRequest` · `commentPullRequest` | `…/push-requests/**` |
 | `receipts.get`, `auth.me`, `limits.get`, `profiles.list`, `root.get` | `GET /v1/receipts/{id}`, `/v1/auth/me`, `/v1/limits`, `/v1/profiles`, `/v1` |
 
 - `limits.get`(`GET /v1/limits`)은 로그인한 workspace owner만 읽는다. API key로 부르면 403이다.

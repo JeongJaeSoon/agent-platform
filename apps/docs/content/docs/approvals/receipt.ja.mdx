@@ -24,14 +24,14 @@ const pr = await werft.sessions.pushRequests.get(sessionId, second.id);
 for (const id of [pr.request_receipt_id, pr.resolution_receipt_id]) {
   if (!id) continue;
   const receipt = await werft.receipts.get(id);
-  const result = receipt.result as { decision?: string | null } | null;
-  console.log(receipt.operation, receipt.status, result?.decision);
+  const result = receipt.result as { action?: string | null } | null;
+  console.log(receipt.operation, receipt.status, result?.action);
 }
 ```
 
 ```text
 request_push succeeded null
-decide_push succeeded reject
+resolve_push succeeded reject
 ```
 
 </Tab>
@@ -41,13 +41,13 @@ decide_push succeeded reject
 pr=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID" -H "Authorization: Bearer $KEY")
 for id in $(echo "$pr" | jq -r '.request_receipt_id, .resolution_receipt_id'); do
   curl -sS "$API/v1/receipts/$id" -H "Authorization: Bearer $KEY" \
-    | jq -c '{operation, status, actor: .actor.principal.kind, decision: .result.decision}'
+    | jq -c '{operation, status, actor: .actor.principal.kind, action: .result.action}'
 done
 ```
 
 ```text
-{"operation":"request_push","status":"succeeded","actor":"api_key","decision":null}
-{"operation":"decide_push","status":"succeeded","actor":"api_key","decision":"reject"}
+{"operation":"request_push","status":"succeeded","actor":"api_key","action":null}
+{"operation":"resolve_push","status":"succeeded","actor":"api_key","action":"reject"}
 ```
 
 リファレンス: [`GET /v1/receipts/{id}`](/reference/http-api/limits-and-receipts/getReceipt)
@@ -56,6 +56,8 @@ done
 </Tabs>
 
 拒否されたリクエストは、エラー本文の `error.details.receipt_id` がその receipt を指す。拒否にも記録が残るということである。
+
+名前を変える前のバージョンのサーバーが残した承認・拒否の receipt は、operation が `decide_push` で、値は `result.decision` にある。再び判断した試行の refusal は `already_decided` である。過去の receipt はそのまま読める。
 
 ## 終わるまで待つ
 

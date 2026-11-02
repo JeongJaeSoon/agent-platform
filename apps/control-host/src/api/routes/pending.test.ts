@@ -197,26 +197,16 @@ describe("pending-request routes", () => {
     expect(oversized.seen).toHaveLength(0);
   });
 
-  test("POST takes the deprecated decision in place of action and stores both alike; both or neither is 400", async () => {
+  test("POST refuses the old decision name, both names, or neither, with 400", async () => {
     const accepted: AnswerRequestResult = { outcome: "not_found" };
     const base = {
       request_id: "req_1",
       kind: "permission" as const,
       reason: "no",
     };
-    const current = answer(accepted, { ...base, action: "deny" });
-    const old = answer(accepted, { ...base, decision: "deny" });
-    await Promise.all([current.response, old.response]);
-    const stored = ({ answer, payloadHash }: AnswerRequestInput) => ({
-      answer,
-      payloadHash,
-    });
-    expect(current.seen).toHaveLength(1);
-    expect(old.seen.map(stored)).toEqual(current.seen.map(stored));
-    expect(current.seen[0]?.answer).toEqual({ ...base, decision: "deny" });
     for (const body of [
+      { ...base, decision: "deny" },
       { ...base, action: "deny", decision: "deny" },
-      { ...base, action: "allow", decision: "deny" },
       base,
     ]) {
       const refused = answer(accepted, body);

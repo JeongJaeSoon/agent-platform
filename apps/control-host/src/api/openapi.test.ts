@@ -352,7 +352,6 @@ describe("OpenAPI document", () => {
         "/v1/sessions/{id}/push-requests",
         "/v1/sessions/{id}/push-requests/{push_request_id}",
         "/v1/sessions/{id}/push-requests/{push_request_id}/approve",
-        "/v1/sessions/{id}/push-requests/{push_request_id}/decision",
         "/v1/sessions/{id}/push-requests/{push_request_id}/pull-request",
         "/v1/sessions/{id}/push-requests/{push_request_id}/pull-request/comments",
         "/v1/sessions/{id}/push-requests/{push_request_id}/reject",

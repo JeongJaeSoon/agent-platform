@@ -98,7 +98,7 @@ describe("push request decisions", () => {
     });
     expect(refusals).toMatchObject([
       {
-        operation: "decide_push",
+        operation: "resolve_push",
         refusal: "unverified_principal",
         actor: {
           principal: { kind: "installation", id: "inst-1" },
@@ -300,7 +300,7 @@ describe("push request decisions", () => {
     });
     expect(refusals).toMatchObject([
       {
-        operation: "decide_push",
+        operation: "resolve_push",
         refusal: "self_approval",
         actor: {
           principal: { kind: "api_key", id: starter },
@@ -570,10 +570,6 @@ describe("a release with push_approval off", () => {
             request_receipt_id: "019a0000-0000-7000-8000-0000000000e1",
             finished_at: null,
             push_receipt_id: null,
-            decided_by: resolution.resolved_by,
-            decided_at: resolution.resolved_at,
-            decision_reason: null,
-            decision_receipt_id: resolution.resolution_receipt_id,
           };
           return { outcome: "written", request };
         },
@@ -609,7 +605,6 @@ describe("a release with push_approval off", () => {
     expect(request).toMatchObject({
       state: "approved",
       resolved_by: { kind: "policy", agent_release_id: RELEASE },
-      decided_by: { kind: "policy", agent_release_id: RELEASE },
     });
   });
 
