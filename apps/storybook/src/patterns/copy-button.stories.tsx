@@ -9,18 +9,21 @@ const COPY = {
     label: "복사",
     copiedLabel: "복사됨",
     iconName: "키 ID 복사",
+    target: "키 ID",
     failed: "복사하지 못했습니다. 값을 선택해 직접 복사하세요.",
   },
   ja: {
     label: "コピー",
     copiedLabel: "コピー済み",
     iconName: "キー ID をコピー",
+    target: "キー ID",
     failed: "コピーできませんでした。値を選択して手動でコピーしてください。",
   },
   en: {
     label: "Copy",
     copiedLabel: "Copied",
     iconName: "Copy key ID",
+    target: "Key ID",
     failed: "Could not copy. Select the value and copy it yourself.",
   },
 } as const;
@@ -71,6 +74,15 @@ function WithOutcome({
 const meta = {
   title: "Patterns/CopyButton",
   component: CopyButton,
+  // WCAG 2.5.3: axe keeps this rule off by default; every state here must
+  // keep the text inside the button in its name.
+  parameters: {
+    a11y: {
+      options: {
+        rules: { "label-content-name-mismatch": { enabled: true } },
+      },
+    },
+  },
   args: { value: KEY_ID, variant: "outline", size: "sm" },
   render: (args, context) => {
     const copy = copyFor(context);
@@ -174,4 +186,81 @@ export const IconOnlyCopiedMobile: Story = {
     locale: "ja",
     viewport: { value: "mobile390", isRotated: false },
   },
+};
+
+/**
+ * The name is the visible "Copy"; what it copies is the description. The
+ * copied text replaces the label, so name and text stay one.
+ */
+export const DescribedCopied: Story = {
+  name: "Named by its text, described",
+  render: (args, context) => {
+    const copy = copyFor(context);
+    return (
+      <span className="inline-flex items-center gap-1 text-caption text-subtle-foreground">
+        <span className="font-mono">{KEY_ID}</span>
+        <CopyButton
+          {...args}
+          variant="ghost"
+          label={copy.label}
+          copiedLabel={copy.copiedLabel}
+          description={`${copy.target} ${KEY_ID}`}
+        />
+      </span>
+    );
+  },
+  beforeEach: accept,
+  play: async ({ canvasElement, globals }) => {
+    const canvas = within(canvasElement);
+    const copy = copyFor({ globals });
+    const button = canvas.getByRole("button", { name: copy.label });
+    await expect(button).toHaveAccessibleDescription(
+      `${copy.target} ${KEY_ID}`,
+    );
+    await userEvent.click(button);
+    await expect(
+      await canvas.findByRole("button", { name: copy.copiedLabel }),
+    ).toHaveAttribute("data-copied");
+  },
+};
+
+/**
+ * A fixed `aria-label` with a copied text: the text shows beside the button,
+ * in the live status, not inside it, so the name still holds what the
+ * button shows.
+ */
+export const FixedNameCopied: Story = {
+  name: "Fixed name, copied",
+  args: { variant: "ghost", size: "sm" },
+  render: (args, context) => {
+    const copy = copyFor(context);
+    return (
+      <span className="inline-flex items-center gap-1 text-caption text-subtle-foreground">
+        <span className="font-mono">{KEY_ID}</span>
+        <CopyButton
+          {...args}
+          aria-label={copy.iconName}
+          copiedLabel={copy.copiedLabel}
+          copiedMessage={copy.copiedLabel}
+        />
+      </span>
+    );
+  },
+  beforeEach: accept,
+  play: async ({ canvasElement, globals }) => {
+    const canvas = within(canvasElement);
+    const copy = copyFor({ globals });
+    const button = canvas.getByRole("button", { name: copy.iconName });
+    await userEvent.click(button);
+    await expect(await canvas.findByRole("status")).toHaveTextContent(
+      copy.copiedLabel,
+    );
+    await expect(button.textContent).toBe("");
+  },
+};
+
+export const FixedNameCopiedDark: Story = {
+  ...FixedNameCopied,
+  name: "Fixed name, copied (dark)",
+  globals: { theme: "dark" },
 };

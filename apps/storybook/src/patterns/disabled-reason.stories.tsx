@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Button, DisabledReason } from "@werft-ai/ui";
+import { Button, DisabledReason, type DisabledReasonProps } from "@werft-ai/ui";
 
 // The kit has no messages of its own; these stand in for apps/web's.
 const COPY: Record<string, { disable: string; reason: string }> = {
@@ -33,7 +33,8 @@ const meta = {
       </div>
     );
   },
-} satisfies Meta<typeof DisabledReason>;
+  // The box branch of the props union; each render picks its own mode.
+} satisfies Meta<Extract<DisabledReasonProps, { label: string }>>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -58,4 +59,48 @@ export const Mobile390: Story = {
   ...Open,
   name: "Open (390px)",
   globals: { viewport: { value: "mobile390", isRotated: false } },
+};
+
+/**
+ * `mode="control"`: the button itself keeps focus and the pointer and says
+ * why, so a reason that clears (a permission answering) leaves the same
+ * button under the focus. Enter, Space and a press do nothing meanwhile.
+ */
+export const KeptControl: Story = {
+  name: "Kept control",
+  render: (_, { globals }) => {
+    const copy = COPY[globals.locale] ?? COPY.ko;
+    return (
+      <div className="flex flex-col items-end gap-2 pt-16">
+        <Button type="button" variant="outline" size="sm">
+          {copy?.disable}
+        </Button>
+        <DisabledReason mode="control" reason={copy?.reason}>
+          <Button type="button" variant="outline" size="sm">
+            {copy?.disable}
+          </Button>
+        </DisabledReason>
+      </div>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    canvasElement
+      .querySelector<HTMLElement>("button[aria-disabled=true]")
+      ?.focus();
+  },
+};
+
+export const KeptControlDark: Story = {
+  ...KeptControl,
+  name: "Kept control (dark)",
+  globals: { theme: "dark" },
+};
+
+export const KeptControlMobile390: Story = {
+  ...KeptControl,
+  name: "Kept control (390px)",
+  globals: {
+    locale: "ja",
+    viewport: { value: "mobile390", isRotated: false },
+  },
 };
