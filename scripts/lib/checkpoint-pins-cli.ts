@@ -281,6 +281,7 @@ async function plans(
     store: createPostgresCheckpointStore(drizzle(pool, { schema })),
   });
   const { rows: pointers } = await pool.query<{
+    agent_instructions: unknown;
     branch: string | null;
     id: string;
     manifest_ref: string | null;
@@ -300,10 +301,12 @@ async function plans(
     `SELECT s.id, s.checkpoint_revision AS revision, c.manifest_ref, c.manifest_version,
             s.owner_id, s.profile_id, s.profile_fingerprint, s.model, s.repository_id, s.repository_mode, s.repo_url, s.branch,
             s.agent_release_id AS release_id, r.runtime_config_snapshot->'tools' AS release_tools,
-            r.policy_pins ? 'github' AS release_github
+            r.policy_pins ? 'github' AS release_github,
+            v.card->'agent_instructions' AS agent_instructions
      FROM sessions s LEFT JOIN checkpoints c
        ON c.session_id = s.id AND c.revision = s.checkpoint_revision
      LEFT JOIN agent_releases r ON r.id = s.agent_release_id
+     LEFT JOIN agent_versions v ON v.id = r.version_id
      WHERE s.checkpoint_revision IS NOT NULL ORDER BY s.id`,
   );
   // As the claim's binding reads them (worker-unit-of-work.ts releaseToolsOf).
@@ -364,6 +367,10 @@ async function plans(
         repoUrl: pointer.repo_url,
         repositoryId: pointer.repository_id,
         repositoryMode: pointer.repository_mode,
+        agentInstructions:
+          typeof pointer.agent_instructions === "string"
+            ? pointer.agent_instructions
+            : null,
       };
       try {
         claims[pointer.id] = sessionClaim(session, catalog);

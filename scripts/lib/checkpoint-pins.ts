@@ -172,9 +172,8 @@ export function sessionClaim(
   const profile = runnableProfile(session, catalog);
   const lists = claimToolLists(profile, session.releaseTools);
   return claimOf(
-    session.ownerId,
+    session,
     profile,
-    session.repositoryMode === "repository",
     (lists.runs === "release" ? lists.release : null) ?? lists.profile,
   );
 }
@@ -223,11 +222,9 @@ type ListedProfile = {
 // a claim is offered only when all of its configs fit, so the count errs
 // towards a FAIL rather than a PASS the claim would not back.
 function listClaims(
-  session: {
+  session: ClaimOwner & {
     readonly githubAttached: boolean;
-    readonly ownerId: string;
     readonly releaseTools: readonly string[] | null;
-    readonly repositoryMode: "repository" | "none";
   },
   profiles: readonly ListedProfile[],
 ): [key: string, claim: SessionClaim][] {
@@ -243,31 +240,30 @@ function listClaims(
       used += running ? perList - 1 : perList;
       if (used > MAX_RESTORE_PROFILES) return claims;
       if (running) continue;
-      claims.push([
-        key(list),
-        claimOf(
-          session.ownerId,
-          profile,
-          session.repositoryMode === "repository",
-          tools,
-        ),
-      ]);
+      claims.push([key(list), claimOf(session, profile, tools)]);
     }
   }
   return claims;
 }
 
-export type ClaimedSession = {
+export type ClaimedSession = ClaimOwner & {
   readonly branch: string | null;
   readonly model: string | null;
-  readonly ownerId: string;
   readonly profileFingerprint: string | null;
   readonly profileId: string | null;
   // The release's runtime_config_snapshot.tools; null without a release.
   readonly releaseTools: readonly string[] | null;
   readonly repoUrl: string | null;
   readonly repositoryId: string | null;
+};
+
+/** What every claim of a session carries whichever profile it is made for. */
+type ClaimOwner = {
+  readonly ownerId: string;
   readonly repositoryMode: "repository" | "none";
+  // The release card's agent_instructions; null without a release or when
+  // the card has none.
+  readonly agentInstructions: string | null;
 };
 
 function runnableProfile(
@@ -315,20 +311,28 @@ export type SessionClaim = {
   workspace?: { repository: null };
 };
 
+// The instructions ride on every claim of the session, as the worker
+// protocol has them on runtime_config and each restore config, and only
+// when there are some: a claim without them keeps the digest it had before
+// the field.
 function claimOf(
-  ownerId: string,
+  session: ClaimOwner,
   profile: CatalogProfile,
-  hasRepository: boolean,
   tools: readonly string[],
 ): SessionClaim {
+  const hasRepository = session.repositoryMode === "repository";
+  const runtimeConfig = runtimeConfigOf(
+    profile,
+    "verify-restore-stand-in",
+    hasRepository,
+    tools,
+  );
   return {
-    principal: { owner_scope: ownerId },
-    runtime_config: runtimeConfigOf(
-      profile,
-      "verify-restore-stand-in",
-      hasRepository,
-      tools,
-    ),
+    principal: { owner_scope: session.ownerId },
+    runtime_config:
+      session.agentInstructions === null || session.agentInstructions === ""
+        ? runtimeConfig
+        : { ...runtimeConfig, agent_instructions: session.agentInstructions },
     ...(hasRepository ? {} : { workspace: { repository: null } }),
   };
 }
@@ -359,11 +363,9 @@ export function ownToolsKey(sessionId: string, list: ToolList) {
  * list, and no more than MAX_RESTORE_PROFILES are offered.
  */
 export function earlierProfileClaims(
-  session: {
+  session: ClaimOwner & {
     readonly id: string;
-    readonly ownerId: string;
     readonly releaseTools: readonly string[] | null;
-    readonly repositoryMode: "repository" | "none";
   },
   earlier: readonly EarlierProfile[],
   catalog: SessionCatalog,
