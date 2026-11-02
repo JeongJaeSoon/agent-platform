@@ -61415,7 +61415,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The team is gone; `receipt_id` names its `delete_team` receipt.",
+            "description": "The team is archived: from now on it answers 404 and lists leave it out. `receipt_id` names its `delete_team` receipt.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -61658,7 +61658,7 @@
           "content": {
             "application/json": {
               "example": {
-                "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                "user_id": "5b9e2d7c-1a4f-4c3b-9e8d-7f6a5b4c3d21"
               },
               "schema": {
                 "$ref": "#/components/schemas/AddTeamMemberRequest"
@@ -62009,11 +62009,11 @@
                   "team": {
                     "id": "019a0000-0000-7000-8000-00000000b0a1",
                     "workspace_id": "9d2c4e61-8a3b-4f70-b1e5-6c0a7d3f2b98",
-                    "name": "research admins",
+                    "name": "research leads",
                     "member_count": 1,
                     "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
                     "created_at": "2026-10-23T09:00:00Z",
-                    "revision": 4
+                    "revision": 5
                   },
                   "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
                 },
@@ -62248,7 +62248,7 @@
                       "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
                       "email": "ada@example.com",
                       "display_name": "Ada Owner",
-                      "created_by": null,
+                      "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
                       "created_at": "2026-10-23T09:00:00Z"
                     }
                   ],
@@ -62481,7 +62481,7 @@
                         "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
                         "email": "ada@example.com",
                         "display_name": "Ada Owner",
-                        "created_by": null,
+                        "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
                         "created_at": "2026-10-23T09:00:00Z"
                       }
                     ],
@@ -62832,7 +62832,7 @@
                         "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
                         "email": "ada@example.com",
                         "display_name": "Ada Owner",
-                        "created_by": null,
+                        "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
                         "created_at": "2026-10-23T09:00:00Z"
                       }
                     ],

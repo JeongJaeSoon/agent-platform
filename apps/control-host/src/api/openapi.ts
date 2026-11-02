@@ -772,6 +772,7 @@ const ALL_SCOPES = [
   "sessions:recover",
 ];
 const EXAMPLE_TEAM_ID = "019a0000-0000-7000-8000-00000000b0a1";
+const EXAMPLE_TEAM_MEMBER_ID = "5b9e2d7c-1a4f-4c3b-9e8d-7f6a5b4c3d21";
 const EXAMPLE_TEAM = {
   id: EXAMPLE_TEAM_ID,
   workspace_id: EXAMPLE_WORKSPACE.id,
@@ -781,17 +782,13 @@ const EXAMPLE_TEAM = {
   created_at: "2026-10-23T09:00:00Z",
   revision: 3,
 };
-const EXAMPLE_TEAM_CHANGE = {
-  team: EXAMPLE_TEAM,
-  receipt_id: EXAMPLE_RECEIPT_ID,
-};
 const EXAMPLE_AGENT_ADMINS = {
   users: [
     {
       user_id: EXAMPLE_USER_ID,
       email: "ada@example.com",
       display_name: "Ada Owner",
-      created_by: null,
+      created_by: EXAMPLE_USER_ID,
       created_at: "2026-10-23T09:00:00Z",
     },
   ],
@@ -4892,7 +4889,7 @@ export const API_ROUTE_DECLARATIONS = [
             added_at: "2026-10-23T09:00:00Z",
           },
           {
-            user_id: "5b9e2d7c-1a4f-4c3b-9e8d-7f6a5b4c3d21",
+            user_id: EXAMPLE_TEAM_MEMBER_ID,
             email: "grace@example.com",
             display_name: null,
             added_by: EXAMPLE_USER_ID,
@@ -4940,7 +4937,7 @@ export const API_ROUTE_DECLARATIONS = [
       status: 200,
       schema: "DeleteTeamResponse",
       description:
-        "The team is gone; `receipt_id` names its `delete_team` receipt.",
+        "The team is archived: from now on it answers 404 and lists leave it out. `receipt_id` names its `delete_team` receipt.",
       example: { receipt_id: EXAMPLE_RECEIPT_ID },
     },
     errors: [401, 403, 404, 503],
@@ -4956,12 +4953,12 @@ export const API_ROUTE_DECLARATIONS = [
       "No invite and no acceptance: the person is a member of the team at once. A disabled member is not found. Writes an `add_team_member` receipt naming the person, unless they already were in (`receipt_id` null).",
     auth: "session",
     body: "AddTeamMemberRequest",
-    requestExample: { user_id: EXAMPLE_USER_ID },
+    requestExample: { user_id: EXAMPLE_TEAM_MEMBER_ID },
     success: {
       status: 200,
       schema: "TeamChangeResponse",
       description: "The team with the person in it.",
-      example: EXAMPLE_TEAM_CHANGE,
+      example: { team: EXAMPLE_TEAM, receipt_id: EXAMPLE_RECEIPT_ID },
     },
     errors: [400, 401, 403, 404, 413, 503],
     idempotent: false,
@@ -4980,7 +4977,12 @@ export const API_ROUTE_DECLARATIONS = [
       schema: "TeamChangeResponse",
       description: "The team without the person.",
       example: {
-        team: { ...EXAMPLE_TEAM, member_count: 1, revision: 4 },
+        team: {
+          ...EXAMPLE_TEAM,
+          name: "research leads",
+          member_count: 1,
+          revision: 5,
+        },
         receipt_id: EXAMPLE_RECEIPT_ID,
       },
     },
