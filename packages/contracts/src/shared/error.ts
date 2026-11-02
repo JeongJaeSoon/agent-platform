@@ -125,6 +125,11 @@ export const API_ERROR_CODE_VALUES = [
   // A GitHub App registration that would clash with the workspace's other
   // App; `details.reason_code` is one of GITHUB_APP_CONFLICT_VALUES.
   "GITHUB_APP_CONFLICT",
+  // GitHub did not give an App's installations or repositories;
+  // `details.reason_code` is one of GITHUB_UNAVAILABLE_VALUES.
+  "GITHUB_UNAVAILABLE",
+  // GitHub has suspended the App installation a request named.
+  "INSTALLATION_SUSPENDED",
   // A resume of a session parked on its requests while one of them is
   // neither answered nor expired.
   "PENDING_REQUESTS_OPEN",

@@ -169,6 +169,10 @@ export type FakeGitHub = {
   ): void;
   /** The next `count` REST calls (not token issues) answer `status`. */
   failNext(count: number, status: number): void;
+  /** Until unset, every call signed with App `appId`'s JWT answers `status`. */
+  failApp(appId: number, status: number | undefined): void;
+  /** While on, `GET /app/installations` lists every installation suspended. */
+  suspendInstallations(on: boolean): void;
   /** `GET /user` with this PAT (`token <pat>`) names this user id. */
   addUser(pat: string, id: number): void;
   /** While on, `GET /user` answers 500. */
@@ -450,6 +454,8 @@ export async function startFakeGitHub(
   let failures = { count: 0, status: 500 };
   const users = new Map<string, number>();
   let failingUser = false;
+  const appFailures = new Map<number, number>();
+  let suspended = false;
   let nextCommentId = 5000;
   let nextReviewId = 8000;
   function commentOn(
@@ -811,6 +817,10 @@ export async function startFakeGitHub(
       );
     }
     const isSecond = second !== undefined && Number(jwt.iss) === second.appId;
+    const failure = appFailures.get(Number(jwt.iss));
+    if (failure !== undefined) {
+      return Response.json({ message: "Server Error" }, { status: failure });
+    }
     const app = isSecond
       ? {
           id: second.appId,
@@ -832,6 +842,7 @@ export async function startFakeGitHub(
         html_url: `${origin()}/apps/${app.slug}`,
         client_id: `Iv23li${app.slug}`,
         permissions: app.permissions,
+        owner: { login: "fake-owner", type: "Organization" },
       });
     }
     if (repository) {
@@ -849,9 +860,16 @@ export async function startFakeGitHub(
       {
         id: app.installation,
         app_id: app.id,
-        account: { login: owner, type: "Organization" },
+        account: {
+          login: owner,
+          id: 9000 + app.installation,
+          type: "Organization",
+        },
         repository_selection: "selected",
         html_url: `${origin()}/organizations/${owner}/settings/installations/${app.installation}`,
+        permissions: app.permissions,
+        created_at: "2026-10-01T09:00:00Z",
+        suspended_at: suspended ? "2026-11-01T00:00:00Z" : null,
       },
     ]);
   }
@@ -1066,6 +1084,13 @@ export async function startFakeGitHub(
               "x-ratelimit-remaining": String(headers.remaining),
               "x-ratelimit-reset": String(headers.reset),
             };
+    },
+    failApp(appId, status) {
+      if (status === undefined) appFailures.delete(appId);
+      else appFailures.set(appId, status);
+    },
+    suspendInstallations(on) {
+      suspended = on;
     },
     failNext(count, status) {
       failures = { count, status };

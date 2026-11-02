@@ -105,6 +105,10 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
     "플랫폼이 이 GitHub 작업을 막았습니다 — 에이전트의 GitHub 설정을 확인하세요.",
   GITHUB_APP_CONFLICT:
     "다른 역할의 GitHub App과 겹칩니다 — 작성용 App을 먼저 등록하고, 리뷰용 App은 다른 App으로 고르세요.",
+  GITHUB_UNAVAILABLE:
+    "GitHub에서 App의 설치나 저장소를 받지 못했습니다 — 잠시 뒤 다시 시도하세요. 계속되면 App 키를 확인하세요.",
+  INSTALLATION_SUSPENDED:
+    "이 설치가 GitHub에서 중지됐습니다 — 그 계정의 GitHub 설치 설정에서 다시 켜세요.",
   PENDING_REQUESTS_OPEN:
     "아직 답하지 않은 승인·질문이 있습니다 — 모두 답하거나 만료된 뒤 재개하세요.",
   PERMISSION_WAIT_ABOVE_PROFILE:

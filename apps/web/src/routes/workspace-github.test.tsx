@@ -28,6 +28,7 @@ const NO_CEILING = {
   revision: 0,
   agents_using: { workflows: 0, actions: 0, checks: 0, issues: 0, review: 0 },
   oauth: { client_id: null, client_secret_set: false, callback_url: null },
+  connections: [],
   apps: { author: null, reviewer: null },
 };
 const KEY_TEXT = "fake-pem-text";

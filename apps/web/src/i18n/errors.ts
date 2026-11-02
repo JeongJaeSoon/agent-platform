@@ -42,6 +42,10 @@ export const errorsKo = {
     "GitHub 계정 연결을 아직 쓸 수 없습니다 — 워크스페이스 관리자에게 GitHub 연결의 사용자 연결 설정을 요청하세요.",
   "error.SLACK_APP_CREATING":
     "Slack 앱을 만드는 중입니다 — 잠시 뒤 다시 시도하세요.",
+  "error.GITHUB_UNAVAILABLE":
+    "GitHub에서 App의 설치나 저장소를 받지 못했습니다 — 잠시 뒤 다시 시도하세요. 계속되면 App 키를 확인하세요.",
+  "error.INSTALLATION_SUSPENDED":
+    "이 설치가 GitHub에서 중지됐습니다 — 그 계정의 GitHub 설치 설정에서 다시 켜세요.",
   // Only the read-only demo build answers this (src/demo/fetch.ts).
   "error.DEMO_READ_ONLY": "데모에서는 저장되지 않습니다.",
 };
@@ -88,6 +92,10 @@ export const errorsEn: Record<keyof typeof errorsKo, string> = {
     "GitHub account linking isn't available yet — ask a workspace admin to set up user linking in the GitHub connection.",
   "error.SLACK_APP_CREATING":
     "The Slack app is being created — try again shortly.",
+  "error.GITHUB_UNAVAILABLE":
+    "GitHub did not return the App's installations or repositories — try again shortly. If it keeps failing, check the App's key.",
+  "error.INSTALLATION_SUSPENDED":
+    "This installation is suspended on GitHub — resume it in that account's GitHub installation settings.",
   "error.DEMO_READ_ONLY": "Changes are not saved in this demo.",
 };
 
@@ -139,5 +147,9 @@ export const errorsJa: Record<keyof typeof errorsKo, string> = {
     "GitHub アカウント連携はまだ使えません。ワークスペースの管理者に GitHub 連携のユーザー連携の設定を依頼してください。",
   "error.SLACK_APP_CREATING":
     "Slack アプリを作成中です。しばらくしてから、もう一度お試しください。",
+  "error.GITHUB_UNAVAILABLE":
+    "GitHub から App のインストールやリポジトリを受け取れませんでした。しばらくしてから、もう一度お試しください。続く場合は App のキーを確認してください。",
+  "error.INSTALLATION_SUSPENDED":
+    "このインストールは GitHub で停止されています。そのアカウントの GitHub インストール設定で再開してください。",
   "error.DEMO_READ_ONLY": "このデモでは変更は保存されません。",
 };

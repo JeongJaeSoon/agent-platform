@@ -1,6 +1,11 @@
 import { z } from "zod";
 
 import { receiptIdSchema, timestampSchema } from "../shared/index.ts";
+import { githubAppPermissionsSchema } from "./github-app.ts";
+import {
+  GITHUB_UNAVAILABLE_VALUES,
+  githubAppRoleSchema,
+} from "./github-settings.ts";
 import { workspaceParamsSchema } from "./workspaces.ts";
 
 // GitHub App repositories are read from the author App's installations, a
@@ -82,6 +87,13 @@ export const githubAppInstallationSummarySchema = z
     id: z.number().int().positive(),
     /** The organization or user it is installed on. */
     account: z.string().min(1),
+    /** The registered App's row id. */
+    connection_id: z.string().min(1),
+    role: githubAppRoleSchema,
+    /** What the account approved for this installation. */
+    permissions: githubAppPermissionsSchema,
+    /** GitHub's count; null when it was not read. */
+    repository_count: z.number().int().min(0).nullable(),
   })
   .strict();
 
@@ -96,13 +108,20 @@ export const installedGitHubRepositorySchema = z
   })
   .strict();
 
+/**
+ * Why there is no page to show. For the default page GitHub failing is one
+ * of GITHUB_UNAVAILABLE_VALUES and every installation suspended is
+ * `installation_suspended`, so the catalog and the installations read still
+ * come back; for a named installation they are 502 GITHUB_UNAVAILABLE with
+ * that `reason_code` and 409 INSTALLATION_SUSPENDED.
+ */
 export const GITHUB_REPOSITORIES_UNAVAILABLE_VALUES = [
   // No author App is registered.
   "no_author_app",
-  // The author App is installed nowhere.
+  // No registered App is installed anywhere.
   "no_installation",
-  "github_unreachable",
-  "github_rejected",
+  "installation_suspended",
+  ...GITHUB_UNAVAILABLE_VALUES,
 ] as const;
 
 const installationPageFields = {
@@ -131,7 +150,14 @@ export const listGitHubRepositoriesResponseSchema = z
      * The catalog's GitHub repositories: rows picks resolved (any branch is
      * changed here), and the operator file's entries, read-only.
      */
-    catalog: z.array(catalogGitHubRepositorySchema),
+    catalog: z.array(
+      catalogGitHubRepositorySchema
+        .extend({
+          /** Agents whose active release names it. */
+          agent_count: z.number().int().min(0),
+        })
+        .strict(),
+    ),
   })
   .strict();
 

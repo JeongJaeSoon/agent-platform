@@ -228,6 +228,114 @@ export const githubOAuthSchema = z.object({
   callback_url: z.url().nullable(),
 });
 
+/**
+ * An installation's state, in this order: `suspended` whatever it approved;
+ * `approval_pending` when it has not approved every permission the App asks
+ * for; `unknown` when the App's permissions were never read to compare.
+ */
+export const GITHUB_INSTALLATION_STATUS_VALUES = [
+  "active",
+  "approval_pending",
+  "suspended",
+  "unknown",
+] as const;
+
+/** What only owners and admins read of an installation. */
+export const githubInstallationDetailSchema = z
+  .object({
+    connection_id: z.string().min(1),
+    role: githubAppRoleSchema,
+    /** GitHub's id of the account; its login can change. Null when GitHub gave none. */
+    account_id: z.number().int().positive().nullable(),
+    /** What the account approved for this installation. */
+    permissions: githubAppPermissionsSchema,
+    /** Against what the App asks for; `unknown` before the App is read. */
+    approval: z.enum(["approved", "pending", "unknown"]),
+    /** GitHub's count; null when it was not read. */
+    repository_count: z.number().int().min(0).nullable(),
+    repository_selection: z.enum(["all", "selected"]),
+    /** The installation's settings page on GitHub. */
+    html_url: z.string().url().nullable(),
+    created_at: z.iso.datetime().nullable(),
+    suspended_at: z.iso.datetime().nullable(),
+  })
+  .strict();
+
+/** An installation of a connection's App, as every member reads it. */
+export const githubSettingsInstallationSchema = z
+  .object({
+    id: z.number().int().positive(),
+    /** The organization or user login it is installed on. */
+    account: z.string().min(1),
+    account_type: z.enum(["organization", "user"]),
+    status: z.enum(GITHUB_INSTALLATION_STATUS_VALUES),
+    /** Null for a member who does not manage the workspace. */
+    detail: githubInstallationDetailSchema.nullable(),
+  })
+  .strict();
+
+/**
+ * Why GitHub gave no answer for an App: `github_unavailable` is no answer,
+ * a server error or a rate limit; `github_app_auth_failed` is GitHub
+ * refusing the App's JWT (a revoked key or a deleted App).
+ */
+export const GITHUB_UNAVAILABLE_VALUES = [
+  "github_unavailable",
+  "github_app_auth_failed",
+] as const;
+
+/** This request's read of one connection's installations. */
+export const githubConnectionCheckSchema = z.discriminatedUnion("state", [
+  z
+    .object({
+      state: z.literal("ok"),
+      checked_at: z.iso.datetime(),
+    })
+    .strict(),
+  z
+    .object({
+      state: z.literal("failed"),
+      reason_code: z.enum(GITHUB_UNAVAILABLE_VALUES),
+      checked_at: z.iso.datetime(),
+    })
+    .strict(),
+]);
+
+/** One registered App (a `github_apps` row) and where it is installed. */
+export const githubSettingsConnectionSchema = z
+  .object({
+    connection_id: z.string().min(1),
+    role: githubAppRoleSchema,
+    name: z.string().min(1),
+    app_id: z.number().int().positive(),
+    /** The App's page on GitHub; its `/installations/new` installs it. */
+    html_url: z.string().url(),
+    /**
+     * The account that owns the App, as GitHub gave it on this read; null
+     * when GitHub did not answer. Its permissions are set under that account.
+     */
+    owner: z
+      .object({
+        login: z.string().min(1),
+        type: z.enum(["organization", "user"]),
+      })
+      .strict()
+      .nullable(),
+    /** What the App asks for, as last read; null before a read. */
+    permissions: githubAppPermissionsSchema.nullable(),
+    /**
+     * `ok` when GitHub took the App's key on this read, `rejected` when it
+     * refused it, `unknown` when GitHub did not answer.
+     */
+    key_status: z.enum(["ok", "rejected", "unknown"]),
+    /** Where the App is installed, as of `installations_read_at`. */
+    installations: z.array(githubSettingsInstallationSchema),
+    /** When `installations` was read from GitHub; null when it never was. */
+    installations_read_at: z.iso.datetime().nullable(),
+    check: githubConnectionCheckSchema,
+  })
+  .strict();
+
 export const githubSettingsResponseSchema = z.object({
   ceiling: githubCeilingSchema,
   /** 0 until the ceiling is first saved. */
@@ -244,7 +352,12 @@ export const githubSettingsResponseSchema = z.object({
     review: z.number().int().nonnegative(),
   }),
   oauth: githubOAuthSchema,
-  /** The App's permissions as last read from GitHub; null before a read. */
+  /** Every registered App, author ones first; several may share a role. */
+  connections: z.array(githubSettingsConnectionSchema),
+  /**
+   * The App's permissions as last read from GitHub; null before a read.
+   * A role with several connections reads null: use `connections`.
+   */
   apps: z.object({
     author: z
       .object({ permissions: githubAppPermissionsSchema.nullable() })
@@ -293,6 +406,17 @@ export type PutGitHubOAuthClientSecretRequest = z.infer<
 export type PutGitHubOAuthClientSecretResponse = z.infer<
   typeof putGitHubOAuthClientSecretResponseSchema
 >;
+export type GitHubSettingsConnection = z.infer<
+  typeof githubSettingsConnectionSchema
+>;
+export type GitHubSettingsInstallation = z.infer<
+  typeof githubSettingsInstallationSchema
+>;
+export type GitHubInstallationDetail = z.infer<
+  typeof githubInstallationDetailSchema
+>;
+export type GitHubConnectionCheck = z.infer<typeof githubConnectionCheckSchema>;
+export type GitHubUnavailable = (typeof GITHUB_UNAVAILABLE_VALUES)[number];
 export type GitHubSettingsResponse = z.infer<
   typeof githubSettingsResponseSchema
 >;

@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentDetail } from "@werft-ai/contracts";
 import type { CatalogRepositoryStore } from "../ports/catalog-repository-store.ts";
-import type {
-  GitHubAppDirectory,
-  GitHubAppInstallationView,
-  GitHubAppStore,
-  GitHubInstallationRepository,
+import {
+  GitHubAppCheckError,
+  type GitHubAppDirectory,
+  type GitHubAppInstallationView,
+  type GitHubAppStore,
+  type GitHubInstallationRepository,
 } from "../ports/github-app-store.ts";
 import {
   ceilingAppRepositories,
@@ -43,11 +44,19 @@ const repository = (
   private: false,
 });
 
-const installation = (id: number): GitHubAppInstallationView => ({
+const installation = (
+  id: number,
+  account = "acme",
+): GitHubAppInstallationView => ({
   id,
-  account: "acme",
+  account,
+  accountType: "organization",
+  accountId: 9000 + id,
   repositorySelection: "all",
   htmlUrl: null,
+  permissions: { contents: "write" },
+  createdAt: null,
+  suspendedAt: null,
 });
 
 const apps = {
@@ -68,11 +77,17 @@ const apps = {
   },
 } as unknown as GitHubAppStore;
 
-function serviceWith(directory: Partial<GitHubAppDirectory>) {
+function serviceWith(
+  directory: Partial<GitHubAppDirectory>,
+  registered: GitHubAppStore = apps,
+) {
   const resolved: string[] = [];
   const store = {
     async listActive() {
       return [];
+    },
+    async agentCounts() {
+      return new Map();
     },
     async resolve(input) {
       resolved.push(`${input.owner}/${input.name}`);
@@ -99,7 +114,7 @@ function serviceWith(directory: Partial<GitHubAppDirectory>) {
   const service = createGitHubRepositoryService({
     authorization: createAuthorizationPolicy({}),
     store,
-    apps,
+    apps: registered,
     directory: {
       async installations() {
         return [installation(INSTALLATION)];
@@ -136,8 +151,258 @@ function serviceWith(directory: Partial<GitHubAppDirectory>) {
       installation_id: INSTALLATION,
       github_repository_id: githubRepositoryId,
     }));
-  return { pick, resolved };
+  const list = (installationId?: number) =>
+    service.list(caller, WORKSPACE, {
+      installation_id: installationId,
+      page: 1,
+      per_page: 30,
+    });
+  const agentPage = () =>
+    service.agentPage(caller, AGENT, { page: 1, per_page: 30 });
+  return { pick, list, agentPage, resolved };
 }
+
+const credentialOf = (id: string, appId: number) => ({
+  id,
+  workspaceId: WORKSPACE,
+  appId,
+  apiBase: "https://api.github.com",
+  privateKey: "pem",
+  updatedAt: new Date(),
+});
+
+const twoApps = {
+  async find(_workspaceId: string, role: string) {
+    return { id: role === "author" ? "author-row" : "reviewer-row" };
+  },
+  async credentials(role: string) {
+    return [
+      role === "author"
+        ? credentialOf("author-row", 1)
+        : credentialOf("reviewer-row", 2),
+    ];
+  },
+} as unknown as GitHubAppStore;
+
+const failed = (promise: Promise<unknown>) =>
+  promise.then(
+    () => {
+      throw new Error("expected a refusal");
+    },
+    (error: unknown) => {
+      if (!(error instanceof SessionServiceError)) throw error;
+      return { code: error.code, details: error.details };
+    },
+  );
+
+describe("the workspace's page of App installations", () => {
+  test("lists the author App's installations, then the reviewer App's, with role, approval and count", async () => {
+    const { list } = serviceWith(
+      {
+        async installations(app) {
+          return app.appId === 1
+            ? [installation(12, "zeta"), installation(11, "acme")]
+            : [installation(21, "acme")];
+        },
+        async installationRepositoriesPage(_app, installationId) {
+          return { repositories: [], totalCount: installationId };
+        },
+      },
+      twoApps,
+    );
+    const page = await list();
+    expect(page.installation_id).toBe(11);
+    expect(page.installations).toEqual([
+      {
+        id: 11,
+        account: "acme",
+        connection_id: "author-row",
+        role: "author",
+        permissions: { contents: "write" },
+        repository_count: 11,
+      },
+      expect.objectContaining({ id: 12, account: "zeta", role: "author" }),
+      expect.objectContaining({
+        id: 21,
+        connection_id: "reviewer-row",
+        role: "reviewer",
+        repository_count: 21,
+      }),
+    ]);
+  });
+
+  test("an App GitHub fails for leaves the other App's installations", async () => {
+    const { list } = serviceWith(
+      {
+        async installations(app) {
+          if (app.appId === 2) throw new GitHubAppCheckError("github_rejected");
+          return [installation(11, "acme")];
+        },
+        async installationRepositoriesPage() {
+          return { repositories: [], totalCount: 1 };
+        },
+      },
+      twoApps,
+    );
+    expect((await list()).installations.map(({ id }) => id)).toEqual([11]);
+    expect(await failed(list(21))).toEqual({
+      code: "GITHUB_UNAVAILABLE",
+      details: { reason_code: "github_app_auth_failed" },
+    });
+  });
+
+  test("an agent's picker reads the author App's installations only, since a pick resolves through it", async () => {
+    const { agentPage } = serviceWith(
+      {
+        async installations(app) {
+          return app.appId === 1
+            ? [installation(11, "acme")]
+            : [installation(21, "other")];
+        },
+        async installationRepositoriesPage() {
+          return { repositories: [], totalCount: 0 };
+        },
+      },
+      twoApps,
+    );
+    const page = await agentPage();
+    expect(page.installations.map(({ id, role }) => [id, role])).toEqual([
+      [11, "author"],
+    ]);
+  });
+
+  test("an installation no App has is 404; a suspended one is 409", async () => {
+    const { list } = serviceWith({
+      async installations() {
+        return [
+          installation(11, "acme"),
+          { ...installation(12, "zeta"), suspendedAt: new Date() },
+        ];
+      },
+    });
+    expect(await failed(list(99))).toEqual({
+      code: "NOT_FOUND",
+      details: { reason_code: "installation_not_found" },
+    });
+    expect(await failed(list(12))).toEqual({
+      code: "INSTALLATION_SUSPENDED",
+      details: { reason_code: "installation_suspended" },
+    });
+  });
+
+  test("GitHub failing for the default page answers the cause, not an error", async () => {
+    const { list } = serviceWith({
+      async installations() {
+        throw new GitHubAppCheckError("github_rejected", 401);
+      },
+    });
+    const page = await list();
+    expect([page.installations, page.unavailable]).toEqual([
+      [],
+      "github_app_auth_failed",
+    ]);
+    const paging = serviceWith({
+      async installations() {
+        return [installation(11)];
+      },
+      async installationRepositoriesPage() {
+        throw new Error("socket hang up");
+      },
+    });
+    expect((await paging.list()).unavailable).toBe("github_unavailable");
+    expect(await failed(paging.list(11))).toEqual({
+      code: "GITHUB_UNAVAILABLE",
+      details: { reason_code: "github_unavailable" },
+    });
+    // The author App failing is not hidden behind the reviewer App's page.
+    const authorDown = serviceWith(
+      {
+        async installations(app) {
+          if (app.appId === 1) throw new Error("socket hang up");
+          return [installation(21, "acme")];
+        },
+        async installationRepositoriesPage() {
+          return { repositories: [], totalCount: 0 };
+        },
+      },
+      twoApps,
+    );
+    const down = await authorDown.list();
+    expect(down.unavailable).toBe("github_unavailable");
+    // The reviewer App's installations stay listed, to be named.
+    expect(down.installations.map(({ id }) => id)).toEqual([21]);
+    expect((await authorDown.list(21)).installation_id).toBe(21);
+    // An installation dropped after the list was read is that, not a key fault.
+    const dropped = serviceWith({
+      async installations() {
+        return [installation(11)];
+      },
+      async installationRepositoriesPage() {
+        throw new GitHubAppCheckError("github_rejected", 404);
+      },
+    });
+    expect(await failed(dropped.list())).toEqual({
+      code: "NOT_FOUND",
+      details: { reason_code: "installation_not_found" },
+    });
+  });
+
+  test("with none named and every installation suspended, the page says so and lists them", async () => {
+    const { list } = serviceWith({
+      async installations() {
+        return [{ ...installation(11, "acme"), suspendedAt: new Date() }];
+      },
+    });
+    const page = await list();
+    // The default fake answers the same App for both roles.
+    expect([
+      page.unavailable,
+      page.installations.map(({ id }) => id).slice(0, 1),
+    ]).toEqual(["installation_suspended", [11]]);
+    expect(await failed(list(11))).toEqual({
+      code: "INSTALLATION_SUSPENDED",
+      details: { reason_code: "installation_suspended" },
+    });
+  });
+
+  test("with none named, the first installation not suspended is read", async () => {
+    const { list } = serviceWith({
+      async installations() {
+        return [
+          { ...installation(11, "acme"), suspendedAt: new Date() },
+          installation(12, "zeta"),
+        ];
+      },
+      async installationRepositoriesPage() {
+        return { repositories: [], totalCount: 0 };
+      },
+    });
+    expect((await list()).installation_id).toBe(12);
+  });
+
+  test("a reviewer App left without an author App still lists its installations; the picker has none", async () => {
+    const reviewerOnly = {
+      ...twoApps,
+      async credentials(role: string) {
+        return role === "reviewer" ? [credentialOf("reviewer-row", 2)] : [];
+      },
+    } as unknown as GitHubAppStore;
+    const { list, agentPage } = serviceWith(
+      {
+        async installations() {
+          return [installation(21, "acme")];
+        },
+        async installationRepositoriesPage() {
+          return { repositories: [], totalCount: 0 };
+        },
+      },
+      reviewerOnly,
+    );
+    const page = await list();
+    expect([page.installation_id, page.unavailable]).toEqual([21, null]);
+    expect((await agentPage()).unavailable).toBe("no_author_app");
+  });
+});
 
 const reasonOf = async (promise: Promise<unknown>) => {
   try {
@@ -243,14 +508,47 @@ describe("picking a GitHub App repository for an agent", () => {
     expect(resolved).toEqual(["acme/new-name"]);
   });
 
-  test("GitHub not answering is a 503, not a refusal", async () => {
+  test("GitHub failing is GITHUB_UNAVAILABLE by cause, or a vanished installation", async () => {
+    for (const [thrown, code, reason] of [
+      [new Error("socket hang up"), "GITHUB_UNAVAILABLE", "github_unavailable"],
+      [
+        new GitHubAppCheckError("github_unreachable", 502),
+        "GITHUB_UNAVAILABLE",
+        "github_unavailable",
+      ],
+      [
+        new GitHubAppCheckError("github_rejected", 401),
+        "GITHUB_UNAVAILABLE",
+        "github_app_auth_failed",
+      ],
+      [
+        new GitHubAppCheckError("github_rejected", 404),
+        "NOT_FOUND",
+        "installation_not_found",
+      ],
+    ] as const) {
+      const { pick, resolved } = serviceWith({
+        async repositoryById() {
+          throw thrown;
+        },
+      });
+      expect(await failed(pick(7))).toEqual({
+        code,
+        details: { reason_code: reason },
+      });
+      expect(resolved).toEqual([]);
+    }
+  });
+
+  test("a refused App key is told apart from the App's installation list", async () => {
     const { pick } = serviceWith({
-      async repositoryById() {
-        throw new Error("socket hang up");
+      async installations() {
+        throw new GitHubAppCheckError("github_rejected", 404);
       },
     });
-    const failed = await pick(7).catch((error: unknown) => error);
-    expect(failed).toBeInstanceOf(SessionServiceError);
-    expect((failed as SessionServiceError).code).toBe("BACKEND_UNAVAILABLE");
+    expect(await failed(pick(7))).toEqual({
+      code: "GITHUB_UNAVAILABLE",
+      details: { reason_code: "github_app_auth_failed" },
+    });
   });
 });

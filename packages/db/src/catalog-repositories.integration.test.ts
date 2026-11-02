@@ -11,7 +11,15 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresCatalogRepositoryStore } from "./catalog-repositories.ts";
 import * as schema from "./schema.ts";
-import { memberships, receipts, users, workspaces } from "./schema.ts";
+import {
+  agentReleases,
+  agents,
+  agentVersions,
+  memberships,
+  receipts,
+  users,
+  workspaces,
+} from "./schema.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -331,5 +339,62 @@ integration("catalog repositories on PostgreSQL", () => {
     ]);
     // No agent has an active release here.
     expect((await store.agentCounts()).size).toBe(0);
+  });
+
+  test("counts agents by the repositories their active release names, reviewers apart", async () => {
+    const store = createPostgresCatalogRepositoryStore(db);
+    const workspaceId = randomUUID();
+    await db.insert(workspaces).values({
+      id: workspaceId,
+      slug: `ws-${workspaceId.slice(0, 8)}`,
+      name: "Acme",
+    });
+    const agent = async (pins: unknown, repositoryId: string | null) => {
+      const agentId = randomUUID();
+      await db.insert(agents).values({
+        id: agentId,
+        workspaceId,
+        slug: `a-${agentId.slice(0, 8)}`,
+        name: "Agent",
+      });
+      const versionId = randomUUID();
+      await db.insert(agentVersions).values({
+        id: versionId,
+        agentId,
+        versionNo: 1,
+        card: {},
+        contentSha256: "0".repeat(64),
+      });
+      const releaseId = `rel-${agentId}`;
+      await db.insert(agentReleases).values({
+        id: releaseId,
+        agentId,
+        versionId,
+        cardSha256: "sha",
+        runtimeProfileId: "coding",
+        profileDigest: "digest",
+        runtimeConfigSnapshot: {},
+        effectiveTools: [],
+        policyPins: pins,
+        repositoryId,
+      });
+      await db
+        .update(agents)
+        .set({ activeReleaseId: releaseId, activationRevision: 0 })
+        .where(eq(agents.id, agentId));
+    };
+    await agent({ github: { repositories: ["count-a", "count-b"] } }, null);
+    await agent(
+      {
+        github: { repositories: ["count-a"], features: { review: true } },
+      },
+      "count-a",
+    );
+    await agent({ github: { features: { review: false } } }, "count-c");
+
+    const counts = await store.agentCounts();
+    expect(counts.get("count-a")).toEqual({ author: 2, reviewer: 1 });
+    expect(counts.get("count-b")).toEqual({ author: 1, reviewer: 0 });
+    expect(counts.get("count-c")).toEqual({ author: 1, reviewer: 0 });
   });
 });

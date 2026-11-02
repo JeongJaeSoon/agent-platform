@@ -700,6 +700,58 @@ const COMMON_ERROR_CODES: Partial<Record<number, readonly ApiErrorCode[]>> = {
 // session's story.
 const EXAMPLE_SESSION_ID = "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01";
 const EXAMPLE_RECEIPT_ID = "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c";
+
+const EXAMPLE_GITHUB_INSTALLATION_SUMMARY = {
+  id: 4242,
+  account: "acme",
+  connection_id: "019a0000-0000-7000-8000-0000000000b1",
+  role: "author",
+  permissions: { contents: "write", pull_requests: "write", metadata: "read" },
+  repository_count: 1,
+};
+
+const EXAMPLE_GITHUB_CONNECTION = {
+  connection_id: "019a0000-0000-7000-8000-0000000000b1",
+  role: "author",
+  name: "werft-agent",
+  app_id: 123456,
+  html_url: "https://github.com/apps/werft-agent",
+  owner: { login: "acme", type: "organization" },
+  permissions: {
+    contents: "write",
+    pull_requests: "write",
+    actions: "write",
+    metadata: "read",
+  },
+  key_status: "ok",
+  installations: [
+    {
+      id: 4242,
+      account: "acme",
+      account_type: "organization",
+      status: "approval_pending",
+      detail: {
+        connection_id: "019a0000-0000-7000-8000-0000000000b1",
+        role: "author",
+        account_id: 9919,
+        permissions: {
+          contents: "write",
+          pull_requests: "write",
+          metadata: "read",
+        },
+        approval: "pending",
+        repository_count: 37,
+        repository_selection: "selected",
+        html_url:
+          "https://github.com/organizations/acme/settings/installations/4242",
+        created_at: "2026-10-01T09:00:00.000Z",
+        suspended_at: null,
+      },
+    },
+  ],
+  installations_read_at: "2026-11-02T09:00:00.000Z",
+  check: { state: "ok", checked_at: "2026-11-02T09:00:00.000Z" },
+};
 const EXAMPLE_USER_ID = "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35";
 const EXAMPLE_AGENT_ID = "8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d";
 const EXAMPLE_SLACK_APP_REDIRECT = `https://console.example.ts.net/agents/${EXAMPLE_AGENT_ID}/slack/callback`;
@@ -1721,9 +1773,9 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "listGitHubRepositories",
     tag: "Workspace settings",
     summary:
-      "A page of the author App's repositories, and the catalog's (owner or admin)",
+      "A page of the GitHub Apps' repositories, and the catalog's (owner or admin)",
     description:
-      "The repositories one installation of the author App reaches, a page at a time as GitHub pages them (`GET /installation/repositories`): `installation_id` picks the installation (absent: the first in `installations`, by account), `page` and `per_page` (at most 100) the page, and `total_count` is GitHub's count. Nothing is registered: a repository becomes a catalog row when an agent's manager picks it (`POST /v1/agents/{id}/github/repositories`), and `catalog_id` then names it; `agent_count` counts agents whose active release names it. `unavailable` says why the page is empty: `no_author_app`, `no_installation`, `github_rejected` or `github_unreachable`. `catalog` lists the rows picks resolved or repositories.yaml seeded (`source` `selection`, `console` or `seed`; their branch is changed with PATCH) and the operator file's entries that carry their own credentials (`source: file`, read-only); `installed` says whether an installation of the App covers a row now (asked for the first 100 rows; null past them, or when GitHub could not answer). An installation id the App does not have is 400 `not_installed`. API keys are refused.",
+      "The repositories one installation of the workspace's GitHub Apps reaches, a page at a time as GitHub pages them (`GET /installation/repositories`): `installation_id` picks the installation (absent: the first not suspended, the author App's before the reviewer App's, by account), `page` and `per_page` (at most 100) the page, and `total_count` is GitHub's count. `installations` lists the author App's installations, then the reviewer App's, each with its App's `connection_id` and `role`, the `permissions` the account approved, and `repository_count` (GitHub's count, asked for the first 20 installations; null past them or when GitHub did not give it). An App GitHub does not answer for leaves its installations out. Nothing is registered: a repository becomes a catalog row when an agent's manager picks it (`POST /v1/agents/{id}/github/repositories`), and `catalog_id` then names it; `agent_count` counts agents whose active release names it, and on a reviewer App's page only those that turn review on. `unavailable` says why the page is empty: `no_author_app`, `no_installation`, or, with no `installation_id` named, GitHub not answering (`github_unavailable` or `github_app_auth_failed`, the author App's cause first) or every installation suspended (`installation_suspended`); then `catalog` and the installations that were read still come back, to name one. `catalog` lists the rows picks resolved or repositories.yaml seeded (`source` `selection`, `console` or `seed`; their branch is changed with PATCH) and the operator file's entries that carry their own credentials (`source: file`, read-only), each with its `agent_count`; `installed` says whether an installation of the author App covers a row now (asked for the first 100 rows; null past them, or when GitHub could not answer). An installation id no registered App has, or one GitHub no longer has, is 404 `installation_not_found`; a suspended one is 409 `INSTALLATION_SUSPENDED`; GitHub not answering for the App that may hold a named installation is 502 `GITHUB_UNAVAILABLE` (`github_unavailable` is worth retrying, `github_app_auth_failed` is not). API keys are refused.",
     auth: "session",
     query: "GitHubRepositoryPageQuery",
     success: {
@@ -1731,7 +1783,7 @@ export const API_ROUTE_DECLARATIONS = [
       schema: "ListGitHubRepositoriesResponse",
       description: "The page and the catalog's repositories.",
       example: {
-        installations: [{ id: 4242, account: "acme" }],
+        installations: [EXAMPLE_GITHUB_INSTALLATION_SUMMARY],
         installation_id: 4242,
         page: 1,
         per_page: 30,
@@ -1759,11 +1811,16 @@ export const API_ROUTE_DECLARATIONS = [
             version: 1,
             installed: true,
             updated_at: "2026-11-01T09:00:00Z",
+            agent_count: 2,
           },
         ],
       },
     },
-    errors: [400, 401, 403, 404],
+    errors: [400, 401, 403, 404, 409, 502],
+    errorCodes: {
+      409: ["INSTALLATION_SUSPENDED"],
+      502: ["GITHUB_UNAVAILABLE"],
+    },
   },
   {
     method: "patch",
@@ -1807,7 +1864,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Workspace settings",
     summary: "The workspace's GitHub ceiling (members)",
     description:
-      "What the workspace lets its agents turn on beyond writing a pull request: `workflows`, `actions`, `checks`, `issues`, `review`, all false until an owner or admin saves the ceiling (`revision` 0 until then). An agent's release may turn a feature on only under the ceiling, and every GitHub token is cut to the ceiling again when it is issued. `agents_using` counts, per feature, agents with GitHub on whose active release turns it on; sessions still running an earlier release are not counted. `apps` has each registered App's permissions as last read from GitHub. Any member signed in to the console reads it; API keys are refused.",
+      "What the workspace lets its agents turn on beyond writing a pull request: `workflows`, `actions`, `checks`, `issues`, `review`, all false until an owner or admin saves the ceiling (`revision` 0 until then). An agent's release may turn a feature on only under the ceiling, and every GitHub token is cut to the ceiling again when it is issued. `agents_using` counts, per feature, agents with GitHub on whose active release turns it on; sessions still running an earlier release are not counted. `connections` lists every registered App (author ones first; a role may have several) with its `name`, `app_id`, the `owner` account GitHub names, the `permissions` it asks for, `key_status`, and where it is installed: each installation's `account`, `account_type` and `status` (`suspended`, `approval_pending` when the account has not approved every permission the App asks for, `unknown` before the App's permissions were read, else `active`). Installations are read from GitHub with each App's own key on every request, so one App failing does not hide another's: its `check` is `failed` with `reason_code` (`github_unavailable` or `github_app_auth_failed`) and its `installations` is empty, and `installations_read_at` says when the list was read (null when it was not). An installation's `detail` (connection, account id, approved permissions, `approval`, `repository_count` for the first 20, `repository_selection`, its settings page, `created_at`, `suspended_at`) is given to owners and admins only; a member reads null. `apps` has each role's App permissions as last read from GitHub; it reads null for a role with several Apps, so read `connections`. Any member signed in to the console reads it; API keys are refused.",
     auth: "session",
     success: {
       status: 200,
@@ -1835,6 +1892,7 @@ export const API_ROUTE_DECLARATIONS = [
           callback_url:
             "https://console.example.com/settings/linked-accounts/github",
         },
+        connections: [EXAMPLE_GITHUB_CONNECTION],
         apps: {
           author: {
             permissions: {
@@ -1896,6 +1954,7 @@ export const API_ROUTE_DECLARATIONS = [
           callback_url:
             "https://console.example.com/settings/linked-accounts/github",
         },
+        connections: [EXAMPLE_GITHUB_CONNECTION],
         apps: { author: { permissions: null }, reviewer: null },
       },
     },
@@ -4443,7 +4502,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "A page of the author App's repositories, to pick for the agent",
     description:
-      "The repositories one installation of the author App reaches, a page at a time, as `GET /v1/workspaces/{id}/github-repositories` pages them, with `catalog_id` set on those a pick resolved already. Only when the active release's installation profile ceiling runs on every App repository (`github_app_repositories: installed`); otherwise `unavailable` is `ceiling_listed` (pick among `options.repositories` of `GET /v1/agents/{id}/github`) or `no_active_release`, and the page is empty. Whoever manages the agent reads it.",
+      "The repositories one installation of the author App reaches, a page at a time, as `GET /v1/workspaces/{id}/github-repositories` pages them (its failures too), with `catalog_id` set on those a pick resolved already; `installations` lists only the author App's. Only when the active release's installation profile ceiling runs on every App repository (`github_app_repositories: installed`); otherwise `unavailable` is `ceiling_listed` (pick among `options.repositories` of `GET /v1/agents/{id}/github`) or `no_active_release`, and the page is empty. Whoever manages the agent reads it.",
     auth: "session",
     query: "GitHubRepositoryPageQuery",
     success: {
@@ -4451,7 +4510,7 @@ export const API_ROUTE_DECLARATIONS = [
       schema: "ListAgentGitHubRepositoriesResponse",
       description: "The page.",
       example: {
-        installations: [{ id: 4242, account: "acme" }],
+        installations: [EXAMPLE_GITHUB_INSTALLATION_SUMMARY],
         installation_id: 4242,
         page: 1,
         per_page: 30,
@@ -4468,7 +4527,11 @@ export const API_ROUTE_DECLARATIONS = [
         unavailable: null,
       },
     },
-    errors: [400, 401, 403, 404],
+    errors: [400, 401, 403, 404, 409, 502],
+    errorCodes: {
+      409: ["INSTALLATION_SUSPENDED"],
+      502: ["GITHUB_UNAVAILABLE"],
+    },
   },
   {
     method: "post",
@@ -4477,7 +4540,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Resolve an App repository to the catalog id a release names",
     description:
-      "Takes a repository from `GET …/github/repositories` and returns the catalog id to put in `github.repositories` of the next release (`POST /v1/agents/{id}/releases`); the release itself is unchanged. The server reads the repository by its GitHub id and checks that the named installation covers it, then takes its URL and default branch from GitHub. The same repository always resolves to the same id, by its GitHub id: the first pick writes a `resolve_repository` receipt (`receipt_id`), and so does a pick after a rename on GitHub, which moves the row to the new name and URL; other picks return null. 400 `details.reason_code`: `repository_not_allowed` (the active release's ceiling does not run on App repositories, or there is no active release), `no_author_app`, `not_installed`, `file_repository` (the operator file holds that repository with its own credential), or `name_held` (another row has that name: another GitHub repository's, whose pick after its rename frees the name, or one not yet tied to a GitHub id). A signed-in manager of the agent; API keys are refused.",
+      "Takes a repository from `GET …/github/repositories` and returns the catalog id to put in `github.repositories` of the next release (`POST /v1/agents/{id}/releases`); the release itself is unchanged. The server reads the repository by its GitHub id and checks that the named installation covers it, then takes its URL and default branch from GitHub. The same repository always resolves to the same id, by its GitHub id: the first pick writes a `resolve_repository` receipt (`receipt_id`), and so does a pick after a rename on GitHub, which moves the row to the new name and URL; other picks return null. 400 `details.reason_code`: `repository_not_allowed` (the active release's ceiling does not run on App repositories, or there is no active release), `no_author_app`, `not_installed` (the author App has no such installation, or it does not cover the repository), `file_repository` (the operator file holds that repository with its own credential), or `name_held` (another row has that name: another GitHub repository's, whose pick after its rename frees the name, or one not yet tied to a GitHub id). GitHub not answering is 502 `GITHUB_UNAVAILABLE`, and an installation GitHub dropped while it was read is 404 `installation_not_found`; nothing stored changed. A signed-in manager of the agent; API keys are refused.",
     auth: "session",
     body: "PickAgentGitHubRepositoryRequest",
     requestExample: { installation_id: 4242, github_repository_id: 123456789 },
@@ -4488,11 +4551,8 @@ export const API_ROUTE_DECLARATIONS = [
         "The catalog id, and the receipt when this pick added or renamed its row.",
       example: { catalog_id: "app", receipt_id: EXAMPLE_RECEIPT_ID },
     },
-    errors: [400, 401, 403, 404, 413, 503],
-    errorNotes: {
-      BACKEND_UNAVAILABLE:
-        "GitHub could not be reached to read the repository; nothing stored changed.",
-    },
+    errors: [400, 401, 403, 404, 413, 502, 503],
+    errorCodes: { 502: ["GITHUB_UNAVAILABLE"] },
     idempotent: false,
   },
   {
