@@ -126,7 +126,6 @@ describe("GitHub pull requests", () => {
       title: "Retitled",
       body: "What the session did.\n\ntail",
     });
-    // A title alone carries no body, so it cannot write back a stale one.
     expect(
       github.apiRequests.filter((request) => request.method === "PATCH").at(-1)
         ?.body,

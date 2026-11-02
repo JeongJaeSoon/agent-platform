@@ -461,7 +461,6 @@ async function run(
       >;
       return services.githubWork.review(actor, sessionId, number, body);
     }
-    // `call` answers these: attach needs the grant's attempt.
     case "list_repositories":
     case "attach_repository":
       throw new Error(`${tool} is not run here`);

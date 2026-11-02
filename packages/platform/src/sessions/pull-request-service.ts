@@ -227,9 +227,6 @@ export function createPullRequestService(deps: {
     return { forge: grant.api, base: entry.branch };
   }
 
-  // A later push request of the session to the same repository and branch
-  // updates that branch, so it acts on the pull request an earlier one
-  // opened.
   async function pullRequestOf(ownerId: string, source: PullRequestSource) {
     const pullRequest =
       (await store.findPullRequest(ownerId, source.id)) ??
@@ -377,11 +374,6 @@ export function createPullRequestService(deps: {
       };
     },
 
-    /**
-     * The title and the person's part of the body of the pull request the
-     * push request's branch has open; the body keeps the platform's tail,
-     * naming this push request's commit.
-     */
     async update(
       actor: PushActor,
       rawSessionId: string,
@@ -413,8 +405,6 @@ export function createPullRequestService(deps: {
       const { forge } = await forgeFor(actor, source, (refusal, extra) =>
         refuse(refusal, { ...fields, ...extra }),
       );
-      // The recorded number may name one a person has closed since; only the
-      // branch's open pull request, and only the one recorded, is edited.
       let open: Awaited<ReturnType<typeof forge.findPullRequestForBranch>>;
       try {
         open = await forge.findPullRequestForBranch(pullRequest.head);

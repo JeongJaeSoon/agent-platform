@@ -98,11 +98,6 @@ export function createRepositoryAttachmentService(deps: {
   }
 
   return {
-    /**
-     * `list_repositories`: the session's own repository and, from the cap
-     * alone, every other one the release allows, each with where it stands.
-     * Ids, URL paths and branches only; no catalog entry leaves this.
-     */
     async list(rawSessionId: string): Promise<ListRepositoriesResponse> {
       const sessionId = rawSessionId.toLowerCase();
       const context = await deps.context.context(sessionId);
@@ -120,8 +115,7 @@ export function createRepositoryAttachmentService(deps: {
           status: "primary",
         });
       }
-      // The cap with the attached list left out, as attach judges it: the
-      // list would hide what is not attached yet.
+      // Without `attached: null` the cap drops what is not attached yet.
       const allowed = additionalRepositoriesOf(catalog, {
         repositoryId: context.repositoryId,
         profileId: context.profileId,

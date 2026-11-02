@@ -384,8 +384,6 @@ export function createGitHubConnection(
             { ...target, pull_number: number, headers },
           );
           const body = edit(data.body ?? "");
-          // Only what changes is sent, so a title alone never writes back a
-          // body someone edited since the read.
           const rebodied = body !== (data.body ?? "");
           const retitled = title !== undefined && title !== data.title;
           if (!rebodied && !retitled) return;
