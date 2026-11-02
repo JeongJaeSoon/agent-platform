@@ -1,15 +1,20 @@
 import { randomUUID } from "node:crypto";
-import type {
-  CatalogGitHubRepository,
-  GitHubAppRole,
-  GitHubRepositoryPageQuery,
-  GitHubRepositoryWriteResponse,
-  InstalledGitHubRepository,
-  ListAgentGitHubRepositoriesResponse,
-  ListGitHubRepositoriesResponse,
-  PatchGitHubRepositoryRequest,
-  PickAgentGitHubRepositoryRequest,
-  PickAgentGitHubRepositoryResponse,
+import {
+  type CatalogGitHubRepository,
+  type GetGitHubRepositoryAppPinsResponse,
+  GITHUB_APP_ROLE_VALUES,
+  type GitHubAppRole,
+  type GitHubRepositoryPageQuery,
+  type GitHubRepositoryPins,
+  type GitHubRepositoryWriteResponse,
+  type InstalledGitHubRepository,
+  type ListAgentGitHubRepositoriesResponse,
+  type ListGitHubRepositoriesResponse,
+  type PatchGitHubRepositoryRequest,
+  type PickAgentGitHubRepositoryRequest,
+  type PickAgentGitHubRepositoryResponse,
+  type PutGitHubRepositoryAppPinRequest,
+  type PutGitHubRepositoryAppPinResponse,
 } from "@werft-ai/contracts";
 import type { AgentStore } from "../ports/agent-store.ts";
 import type {
@@ -23,6 +28,7 @@ import {
   type GitHubAppInstallationView,
   type GitHubAppStore,
   type GitHubInstallationRepository,
+  type GitHubPinStore,
   githubUnavailableOf,
 } from "../ports/github-app-store.ts";
 import {
@@ -134,6 +140,8 @@ export function createGitHubRepositoryService(deps: {
   store: CatalogRepositoryStore;
   /** Null when the API runs without a master key. */
   apps: GitHubAppStore | null;
+  /** Null when the API runs without a master key: no App, so no pin. */
+  pins: GitHubPinStore | null;
   directory: GitHubAppDirectory;
   agents: Pick<AgentStore, "get">;
   /** For the ceiling of an agent's active release. */
@@ -212,16 +220,11 @@ export function createGitHubRepositoryService(deps: {
   // the periodic one catches up.
   const reload = () => deps.changed().catch(() => undefined);
 
-  async function credential(workspaceId: string): Promise<Credential | null> {
-    if (deps.apps === null) return null;
-    const record = await deps.apps.find(workspaceId, "author");
-    if (record === null) return null;
-    return (
-      (await deps.apps.credentials("author", workspaceId)).find(
-        (held) => held.id === record.id,
-      ) ?? null
-    );
-  }
+  const credentials = async (
+    workspaceId: string,
+    role: GitHubAppRole = "author",
+  ): Promise<Credential[]> =>
+    deps.apps === null ? [] : await deps.apps.credentials(role, workspaceId);
 
   const repositoryCount = (
     app: Credential,
@@ -260,6 +263,16 @@ export function createGitHubRepositoryService(deps: {
             )
           ).flat();
     if (apps.length === 0) return emptyPage(query, "no_author_app");
+    const defaultRole = apps[0]?.role;
+    if (
+      query.installation_id === undefined &&
+      apps.filter(({ role }) => role === defaultRole).length > 1
+    ) {
+      throw refused(
+        "installation_required",
+        "Several GitHub Apps of the role are registered; name the installation to read",
+      );
+    }
     const failures: { role: GitHubAppRole; error: unknown }[] = [];
     const held = (
       await Promise.all(
@@ -431,10 +444,9 @@ export function createGitHubRepositoryService(deps: {
 
   /** Whether an installation of the App covers the row; null when unknown. */
   async function installedNow(
-    app: Credential | null,
-    row: CatalogRepositoryRow,
+    app: Credential,
+    row: { owner: string; name: string },
   ): Promise<boolean | null> {
-    if (app === null) return null;
     try {
       return (
         (await directory.installationFor(app, {
@@ -447,21 +459,83 @@ export function createGitHubRepositoryService(deps: {
     }
   }
 
+  async function reaches(
+    app: Credential,
+    row: { owner: string; name: string },
+  ): Promise<boolean> {
+    const found = await directory.installationFor(app, {
+      owner: row.owner,
+      name: row.name,
+    });
+    if (found === null) return false;
+    const installation = (await directory.installations(app)).find(
+      ({ id }) => id === found.id,
+    );
+    return installation !== undefined && installation.suspendedAt === null;
+  }
+
+  async function installedByAny(
+    apps: readonly Credential[],
+    row: CatalogRepositoryRow,
+  ): Promise<boolean | null> {
+    if (apps.length === 0) return null;
+    const answers = await Promise.all(
+      apps.map((app) => installedNow(app, row)),
+    );
+    if (answers.includes(true)) return true;
+    return answers.includes(null) ? null : false;
+  }
+
+  async function pinsOf(repositoryId: string): Promise<GitHubRepositoryPins> {
+    const [author, reviewer] = await Promise.all([
+      deps.pins?.get(repositoryId, "author"),
+      deps.pins?.get(repositoryId, "reviewer"),
+    ]);
+    return {
+      author: author?.connectionId ?? null,
+      reviewer: reviewer?.connectionId ?? null,
+    };
+  }
+
   async function rowViews(
     workspaceId: string,
     rows: readonly CatalogRepositoryRow[],
   ): Promise<CatalogGitHubRepository[]> {
-    const app = await credential(workspaceId);
+    const apps = await credentials(workspaceId);
     return Promise.all(
       rows.map(async (row, index) =>
         rowView(
           row,
           index < CATALOG_INSTALLED_CHECK_MAX
-            ? await installedNow(app, row)
+            ? await installedByAny(apps, row)
             : null,
         ),
       ),
     );
+  }
+
+  async function ownRow(repositoryId: string): Promise<CatalogRepositoryRow> {
+    if (reserved.has(repositoryId)) {
+      throw refused(
+        "file_repository",
+        "The operator's file holds this repository; change it there",
+      );
+    }
+    const row = (await store.listActive()).find(
+      (held) => held.id === repositoryId,
+    );
+    if (row === undefined) throw NOT_FOUND();
+    return row;
+  }
+
+  async function pinTable() {
+    const pins = (await deps.pins?.list()) ?? [];
+    return (id: string): GitHubRepositoryPins => {
+      const of = (role: GitHubAppRole) =>
+        pins.find((pin) => pin.repositoryId === id && pin.role === role)
+          ?.connectionId ?? null;
+      return { author: of("author"), reviewer: of("reviewer") };
+    };
   }
 
   /** The active release's repositories may be picked among the App's. */
@@ -514,12 +588,16 @@ export function createGitHubRepositoryService(deps: {
       query: GitHubRepositoryPageQuery,
     ): Promise<ListGitHubRepositoriesResponse> {
       await managed(caller, workspaceId);
-      const [{ role, ...page }, rows, counts] = await Promise.all([
+      const [{ role, ...page }, rows, counts, pinsOf] = await Promise.all([
         installationPage(workspaceId, query, ["author", "reviewer"]),
         store.listActive(),
         store.agentCounts(),
+        pinTable(),
       ]);
       const own = rows.filter((row) => !reserved.has(row.id));
+      const ownViews = (await rowViews(workspaceId, own)).map((row) =>
+        deps.pins === null ? row : { ...row, pins: pinsOf(row.id) },
+      );
       return {
         ...page,
         repositories: page.repositories.map((repository) => {
@@ -532,10 +610,7 @@ export function createGitHubRepositoryService(deps: {
               catalogId === null ? 0 : (counts.get(catalogId)?.[role] ?? 0),
           };
         }),
-        catalog: [
-          ...(await rowViews(workspaceId, own)),
-          ...fileEntries.map(fileView),
-        ].map((row) => ({
+        catalog: [...ownViews, ...fileEntries.map(fileView)].map((row) => ({
           ...row,
           agent_count: counts.get(row.id)?.author ?? 0,
         })),
@@ -626,29 +701,43 @@ export function createGitHubRepositoryService(deps: {
           "The active release's ceiling does not run on the App's repositories",
         );
       }
-      const app = await credential(write.workspaceId);
-      if (app === null) {
+      const apps = await credentials(write.workspaceId);
+      if (apps.length === 0) {
         throw refused(
           "no_author_app",
           "Register the author GitHub App before choosing repositories",
         );
       }
-      let picked: GitHubInstallationRepository | null;
-      try {
-        // A rename between the two reads makes the name miss once.
-        picked =
-          (await coveredRepository(
-            app,
-            body.installation_id,
-            body.github_repository_id,
-          )) ??
-          (await coveredRepository(
-            app,
-            body.installation_id,
-            body.github_repository_id,
-          ));
-      } catch (error) {
-        throw githubFailure(error, "installation");
+      // The installation belongs to one App; the others answer null.
+      let picked: {
+        repository: GitHubInstallationRepository;
+        app: Credential;
+      } | null = null;
+      let failure: unknown = null;
+      for (const app of apps) {
+        try {
+          // A rename between the two reads makes the name miss once.
+          const repository =
+            (await coveredRepository(
+              app,
+              body.installation_id,
+              body.github_repository_id,
+            )) ??
+            (await coveredRepository(
+              app,
+              body.installation_id,
+              body.github_repository_id,
+            ));
+          if (repository !== null) {
+            picked = { repository, app };
+            break;
+          }
+        } catch (error) {
+          failure = error;
+        }
+      }
+      if (picked === null && failure !== null) {
+        throw githubFailure(failure, "installation");
       }
       if (picked === null) {
         throw refused(
@@ -656,7 +745,8 @@ export function createGitHubRepositoryService(deps: {
           "That installation of the author App does not cover the repository",
         );
       }
-      if (fileHolder(picked) !== undefined) {
+      const { repository, app } = picked;
+      if (fileHolder(repository) !== undefined) {
         throw refused(
           "file_repository",
           "The operator's file holds that repository with its own credential",
@@ -667,13 +757,13 @@ export function createGitHubRepositoryService(deps: {
       const result = await store.resolve({
         ...write,
         receiptId,
-        base: repositoryIdBase(picked.name),
+        base: repositoryIdBase(repository.name),
         reserved,
-        githubRepositoryId: picked.id,
-        owner: picked.owner,
-        name: picked.name,
-        url: `https://github.com/${picked.owner}/${picked.name}.git`,
-        branch: picked.defaultBranch,
+        githubRepositoryId: repository.id,
+        owner: repository.owner,
+        name: repository.name,
+        url: `https://github.com/${repository.owner}/${repository.name}.git`,
+        branch: repository.defaultBranch,
       });
       if (result.outcome === "name_held") {
         throw refused(
@@ -683,10 +773,134 @@ export function createGitHubRepositoryService(deps: {
       }
       if (result.outcome !== "resolved") throw ACTOR_INACTIVE();
       if (result.changed) await reload();
+      const pinned = await deps.pins?.pinFirst({
+        repositoryId: result.repository.id,
+        role: "author",
+        connectionId: app.id,
+        appId: app.appId,
+        pinnedBy: "selection",
+        audit: {
+          ownerId: write.workspaceId,
+          actor: write.actor,
+          receiptId: newId(),
+        },
+      });
+      const connectionId = pinned?.pin?.connectionId;
       return {
         catalog_id: result.repository.id,
         receipt_id: result.changed ? receiptId : null,
+        ...(connectionId == null ? {} : { connection_id: connectionId }),
       };
+    },
+
+    async pinCandidates(
+      caller: Caller,
+      workspaceId: string,
+      repositoryId: string,
+    ): Promise<GetGitHubRepositoryAppPinsResponse> {
+      await managed(caller, workspaceId);
+      const row = await ownRow(repositoryId);
+      const records =
+        deps.apps === null ? [] : await deps.apps.list(workspaceId);
+      const keys = new Map(
+        (
+          await Promise.all(
+            GITHUB_APP_ROLE_VALUES.map((role) =>
+              credentials(workspaceId, role),
+            ),
+          )
+        )
+          .flat()
+          .map((app) => [app.id, app]),
+      );
+      const candidates = await Promise.all(
+        records.map(async (record) => {
+          const app = keys.get(record.id);
+          return {
+            connection_id: record.id,
+            role: record.role,
+            name: record.name,
+            app_id: record.appId,
+            installed:
+              app === undefined
+                ? null
+                : await reaches(app, row).catch(() => null),
+          };
+        }),
+      );
+      return {
+        catalog_id: row.id,
+        pins: await pinsOf(row.id),
+        candidates,
+      };
+    },
+
+    async setPin(
+      caller: Caller,
+      workspaceId: string,
+      repositoryId: string,
+      role: GitHubAppRole,
+      readBody: () => Promise<PutGitHubRepositoryAppPinRequest>,
+    ): Promise<PutGitHubRepositoryAppPinResponse> {
+      const write = await managed(caller, workspaceId);
+      const row = await ownRow(repositoryId);
+      const body = await readBody();
+      if (deps.pins === null || deps.apps === null) {
+        throw new SessionServiceError(
+          "BACKEND_UNAVAILABLE",
+          "The secret store is off: the API was started without PLATFORM_SECRET_KEY",
+        );
+      }
+      const connectionId = body.connection_id.toLowerCase();
+      const app = (await credentials(workspaceId, role)).find(
+        (held) => held.id === connectionId,
+      );
+      if (app === undefined) {
+        if ((await deps.apps.get(workspaceId, connectionId)) === null) {
+          throw NOT_FOUND();
+        }
+        throw refused(
+          "role_mismatch",
+          `That connection is not a ${role} GitHub App`,
+        );
+      }
+      let reached: boolean;
+      try {
+        reached = await reaches(app, row);
+      } catch (error) {
+        throw githubFailure(error, "app");
+      }
+      if (!reached) {
+        throw refused(
+          "not_installed",
+          "No installation of that App, not suspended, covers the repository",
+        );
+      }
+      const receiptId = newId();
+      const result = await deps.pins.set({
+        workspaceId,
+        repositoryId: row.id,
+        role,
+        connectionId,
+        actor: write.actor,
+        receiptId,
+      });
+      switch (result.outcome) {
+        case "stored":
+          return {
+            catalog_id: row.id,
+            role,
+            connection_id: connectionId,
+            receipt_id: result.changed ? receiptId : null,
+          };
+        case "role_mismatch":
+          throw refused(
+            "role_mismatch",
+            `That connection is not a ${role} GitHub App`,
+          );
+        default:
+          throw NOT_FOUND();
+      }
     },
   };
 }

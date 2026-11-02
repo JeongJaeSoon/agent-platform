@@ -185,7 +185,12 @@ export function registerLinkedAccountRoutes(
     const userId = await mapped(() => deps.service.personFor(caller));
     const { client, redirectUri } = await githubClientFor(caller.ownerId);
     const expiresAt = new Date(Date.now() + GITHUB_LINK_TTL_MS);
-    const state = issueGitHubLinkState(context, userId, expiresAt);
+    const state = issueGitHubLinkState(
+      context,
+      userId,
+      client.connectionId,
+      expiresAt,
+    );
     return jsonWithSchema(context, startGitHubLinkResponseSchema, {
       authorize_url: githubAuthorizeUrl(client, redirectUri, state),
       expires_at: expiresAt.toISOString(),
@@ -196,10 +201,15 @@ export function registerLinkedAccountRoutes(
     const caller = context.get("caller");
     const body = await parseJsonBody(context, githubLinkCallbackRequestSchema);
     const userId = await mapped(() => deps.service.personFor(caller));
-    if (!consumeGitHubLinkState(context, body.state, userId)) {
+    const issuedFor = consumeGitHubLinkState(context, body.state, userId);
+    if (issuedFor === null) {
       throw new ApiHttpError(400, "BAD_REQUEST", LINK_MESSAGES.expired);
     }
     const { client, redirectUri } = await githubClientFor(caller.ownerId);
+    // Started with another connection's client: its code is not this one's.
+    if (client.connectionId !== issuedFor) {
+      throw new ApiHttpError(400, "BAD_REQUEST", LINK_MESSAGES.expired);
+    }
     let verified: Awaited<ReturnType<typeof exchangeGitHubCode>>;
     try {
       verified = await exchangeGitHubCode(client, body.code, redirectUri);

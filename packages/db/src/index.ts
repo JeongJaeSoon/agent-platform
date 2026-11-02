@@ -26,6 +26,7 @@ export * from "./github-app-manifest-states.ts";
 export * from "./github-apps.ts";
 export * from "./github-oauth.ts";
 export * from "./github-packages.ts";
+export * from "./github-pins.ts";
 export * from "./github-settings.ts";
 export * from "./identity.ts";
 export * from "./identity-reader.ts";
