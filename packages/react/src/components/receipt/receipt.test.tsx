@@ -100,6 +100,34 @@ describe("ReceiptSummary", () => {
     expect(getByText("실패")).toBeDefined();
   });
 
+  test("en·ja 안내에는 한국어가 나오지 않는다", () => {
+    for (const [locale, expected] of [
+      ["en", "The session is paused — resume it, then send."],
+      ["ja", "セッションは一時停止中です — 再開してから送ってください。"],
+    ] as const) {
+      for (const code of ["SESSION_PAUSED", "NOT_A_REAL_CODE"]) {
+        const { container, unmount } = render(
+          <ReceiptSummary
+            operation="answer"
+            status="failed"
+            target={TARGET}
+            timestamps={TIMES}
+            error={{
+              code: code as "SESSION_PAUSED",
+              message: "session is paused",
+            }}
+            locale={locale}
+          />,
+        );
+        const guidance = container.querySelector(".ap-receipt__guidance")
+          ?.textContent as string;
+        if (code === "SESSION_PAUSED") expect(guidance).toBe(expected);
+        expect(guidance).not.toMatch(/[가-힣]/);
+        unmount();
+      }
+    }
+  });
+
   test("없는 대상 필드는 빈 값으로 그리지 않는다", () => {
     const { container } = render(
       <ReceiptSummary

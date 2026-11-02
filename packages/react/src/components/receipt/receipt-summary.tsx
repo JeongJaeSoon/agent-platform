@@ -7,6 +7,7 @@ import type {
 import { cn, formatTimestamp } from "@werft-ai/ui";
 import type { JSX, ReactNode } from "react";
 
+import type { Locale } from "../../messages/index.ts";
 import { guidanceFor } from "../feedback/error-guidance.ts";
 import { StatusLabel } from "../status/status-label.tsx";
 
@@ -113,6 +114,8 @@ export interface ReceiptSummaryProps {
   /** Trailing slot: `ReceiptLink`, a retry button, whatever the screen owns. */
   readonly action?: ReactNode | undefined;
   readonly className?: string | undefined;
+  /** The language of the error guidance. */
+  readonly locale?: Locale | undefined;
 }
 
 /**
@@ -127,8 +130,9 @@ export function ReceiptSummary({
   error,
   action,
   className,
+  locale = "ko",
 }: ReceiptSummaryProps): JSX.Element {
-  const guidance = guidanceFor(error?.code);
+  const guidance = guidanceFor(error?.code, locale);
 
   return (
     <div className={cn("ap-receipt", className)} data-status={status}>

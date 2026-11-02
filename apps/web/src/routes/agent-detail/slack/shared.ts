@@ -57,7 +57,8 @@ export const EVENTS_BADGE = {
   failed: "red",
 } as const;
 
-export function slackFailure(error: unknown, t: Translate): string {
+/** Slack's own words for a failure, where the generic ones say too little. */
+export function slackReason(error: unknown, t: Translate): string | undefined {
   const code = (error as { code?: string } | null)?.code ?? "INTERNAL_ERROR";
   if (code === "CONFIG_TOKEN_INVALID" || code === "SLACK_LINK_NOT_CONFIGURED")
     return t("slack.error.config");
@@ -70,7 +71,12 @@ export function slackFailure(error: unknown, t: Translate): string {
     return t("slack.error.rejected");
   if (code === "CURSOR_EXPIRED") return t("slack.error.cursor");
   if (storeOff(error)) return t("workspace.tokenStoreUnavailable");
-  return t(errorKey(code));
+  return undefined;
+}
+
+export function slackFailure(error: unknown, t: Translate): string {
+  const code = (error as { code?: string } | null)?.code ?? "INTERNAL_ERROR";
+  return slackReason(error, t) ?? t(errorKey(code));
 }
 
 export function slackState(
