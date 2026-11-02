@@ -784,14 +784,14 @@ export function CeilingForm({
         <div className="flex gap-2">
           {cancelTo === undefined ? (
             <Link
-              className={buttonVariants({ variant: "outline" })}
+              className={buttonVariants({ variant: "ghost" })}
               to="/profiles"
             >
               {t("common.cancel")}
             </Link>
           ) : (
             <Link
-              className={buttonVariants({ variant: "outline" })}
+              className={buttonVariants({ variant: "ghost" })}
               to="/profiles/$profileId"
               params={{ profileId: cancelTo }}
             >
