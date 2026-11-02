@@ -66,6 +66,10 @@ export type WorkerBinding = {
   providerTokens: number;
   mcp?: SessionMcp | null;
   githubMcp?: SessionGitHubMcp | null;
+  // The built-in tools the session's release resolved from its card
+  // (runtime_config_snapshot.tools); `[]` is a release that allows none.
+  // Null, or absent, for a session without a release.
+  releaseTools?: readonly string[] | null;
   // The allows a parked turn's answers left for the turn carrying it on,
   // not yet spent.
   grants?: readonly PermissionGrant[];
