@@ -12,6 +12,7 @@ import type {
   TeamDetail,
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
+import { ListToolbar } from "@werft-ai/react/components";
 import {
   Avatar,
   avatarInitials,
@@ -32,12 +33,11 @@ import {
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
-  Heading,
   Input,
   RowAction,
   RowList,
   RowListItem,
-  SearchInput,
+  Section,
   SettingsSection,
   Text,
   Link as TextLink,
@@ -136,7 +136,6 @@ export function TeamsScreen() {
     setQuery("");
     search.current?.focus();
   };
-  const titleId = useId();
 
   if (!manages) {
     return (
@@ -149,71 +148,81 @@ export function TeamsScreen() {
   // Creating a team is the page head's button (TeamCreateDialog).
   return (
     <TeamsTab>
-      <section className={SECTION_BODY} aria-labelledby={titleId}>
-        <Heading id={titleId}>{t("teams.listTitle")}</Heading>
-        {isApiError(teams.error, "FORBIDDEN") ? null : (
-          <div className="flex">
-            <SearchInput
-              ref={search}
-              type="search"
-              aria-label={t("teams.listSearch")}
-              placeholder={t("teams.listSearch")}
-              maxLength={SEARCH_MAX}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
+      <Section title={t("teams.listTitle")}>
+        <div className={SECTION_BODY}>
+          {isApiError(teams.error, "FORBIDDEN") ? null : (
+            <ListToolbar
+              filter={null}
+              search={{
+                ref: search,
+                type: "search",
+                "aria-label": t("teams.listSearch"),
+                placeholder: t("teams.listSearch"),
+                maxLength: SEARCH_MAX,
+                value: query,
+                onChange: (event) => setQuery(event.target.value),
+              }}
             />
-          </div>
-        )}
-        {teams.isPending ? (
-          <StatusScreen kind="loading" />
-        ) : teams.error && items.length === 0 ? (
-          <ListError error={teams.error} onRetry={() => void teams.refetch()} />
-        ) : items.length === 0 && q !== undefined ? (
-          <EmptyState
-            title={t("teams.listNoMatch")}
-            action={
-              <Button type="button" variant="outline" size="sm" onClick={clear}>
-                {t("members.clearSearch")}
-              </Button>
-            }
-          />
-        ) : items.length === 0 ? (
-          <EmptyState title={t("teams.empty")} />
-        ) : (
-          <>
-            <RowList>
-              {items.map((team) => (
-                <RowListItem key={team.id} className={OPENS_ROW}>
-                  <TextLink
-                    asChild
-                    className={`${ROW_LINK} [overflow-wrap:anywhere]`}
-                  >
-                    <Link
-                      to="/members/teams/$teamId"
-                      params={{ teamId: team.id }}
+          )}
+          {teams.isPending ? (
+            <StatusScreen kind="loading" />
+          ) : teams.error && items.length === 0 ? (
+            <ListError
+              error={teams.error}
+              onRetry={() => void teams.refetch()}
+            />
+          ) : items.length === 0 && q !== undefined ? (
+            <EmptyState
+              title={t("teams.listNoMatch")}
+              action={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={clear}
+                >
+                  {t("members.clearSearch")}
+                </Button>
+              }
+            />
+          ) : items.length === 0 ? (
+            <EmptyState title={t("teams.empty")} />
+          ) : (
+            <>
+              <RowList>
+                {items.map((team) => (
+                  <RowListItem key={team.id} className={OPENS_ROW}>
+                    <TextLink
+                      asChild
+                      className={`${ROW_LINK} [overflow-wrap:anywhere]`}
                     >
-                      {team.name}
-                    </Link>
-                  </TextLink>
-                  <Text
-                    as="span"
-                    variant="meta"
-                    numeric
-                    className="ml-auto [overflow-wrap:anywhere]"
-                  >
-                    {t("teams.memberCount", { count: team.member_count })}
-                  </Text>
-                  <ChevronRight
-                    aria-hidden="true"
-                    className="size-4 shrink-0 text-subtle-foreground"
-                  />
-                </RowListItem>
-              ))}
-            </RowList>
-            <PagedListFooter list={teams} />
-          </>
-        )}
-      </section>
+                      <Link
+                        to="/members/teams/$teamId"
+                        params={{ teamId: team.id }}
+                      >
+                        {team.name}
+                      </Link>
+                    </TextLink>
+                    <Text
+                      as="span"
+                      variant="meta"
+                      numeric
+                      className="ml-auto [overflow-wrap:anywhere]"
+                    >
+                      {t("teams.memberCount", { count: team.member_count })}
+                    </Text>
+                    <ChevronRight
+                      aria-hidden="true"
+                      className="size-4 shrink-0 text-subtle-foreground"
+                    />
+                  </RowListItem>
+                ))}
+              </RowList>
+              <PagedListFooter list={teams} />
+            </>
+          )}
+        </div>
+      </Section>
       {isApiError(teams.error, "FORBIDDEN") ? <MyTeams showEmpty /> : null}
     </TeamsTab>
   );
@@ -256,17 +265,15 @@ function TeamPage({ id }: { readonly id: string }) {
   // Inside the 팀 tab (v3 M-03): the page head stays 구성원, the team's name
   // heads the tab with the way back beside it.
   return (
-    <div className="flex flex-col gap-[var(--ap-space-section)]">
-      <div className="flex items-start justify-between gap-4">
-        <Heading className="min-w-0 [overflow-wrap:anywhere]">
-          {team.error ? t("teams.title") : team.data.name}
-        </Heading>
-        {back}
-      </div>
+    <Section
+      title={team.error ? t("teams.title") : team.data.name}
+      titleProps={{ className: "[overflow-wrap:anywhere]" }}
+      actions={back}
+    >
       {team.error ? (
         <ListError error={team.error} onRetry={() => void team.refetch()} />
       ) : (
-        <>
+        <div className="flex flex-col gap-[var(--ap-space-section)]">
           <OutcomeLine outcome={outcome} />
           {manages && <TeamSettings team={team.data} onOutcome={setOutcome} />}
           <TeamMembers
@@ -277,9 +284,9 @@ function TeamPage({ id }: { readonly id: string }) {
           {manages && (
             <TeamDangerZone team={team.data} onOutcome={setOutcome} />
           )}
-        </>
+        </div>
       )}
-    </div>
+    </Section>
   );
 }
 
@@ -512,18 +519,18 @@ function TeamMembers({
         <EmptyState title={t("teams.noMembers")} />
       ) : (
         <div className="flex flex-col gap-3">
-          {/* SearchInput sizes itself as an item of a toolbar row. */}
-          <div className="flex">
-            <SearchInput
-              ref={search}
-              type="search"
-              aria-label={t("teams.search")}
-              placeholder={t("teams.search")}
-              maxLength={SEARCH_MAX}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
+          <ListToolbar
+            filter={null}
+            search={{
+              ref: search,
+              type: "search",
+              "aria-label": t("teams.search"),
+              placeholder: t("teams.search"),
+              maxLength: SEARCH_MAX,
+              value: query,
+              onChange: (event) => setQuery(event.target.value),
+            }}
+          />
           {shown.length === 0 ? (
             <EmptyState
               className="w-full"
