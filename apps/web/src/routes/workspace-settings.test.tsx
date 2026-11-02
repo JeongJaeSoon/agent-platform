@@ -1095,6 +1095,24 @@ describe("워크스페이스 설정", () => {
     expect(screen.queryByRole("heading", { name: "위험 구역" })).toBeNull();
   });
 
+  test("등록 요청이 도는 동안 다시 붙여 넣은 값은 보내지도 지우지도 않는다", async () => {
+    const { api } = renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${TOKEN}`]: () => json(200, UNSET_TOKEN),
+      [`PUT ${TOKEN}`]: () => new Promise<Response>(() => {}),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "토큰 등록" }));
+    const input = screen.getByLabelText("Refresh Token") as HTMLInputElement;
+    await user.type(input, "fake-config-first");
+    await user.click(screen.getByRole("button", { name: "등록" }));
+    expect(input.value).toBe("");
+    await user.type(input, "fake-config-second");
+    await user.click(screen.getByRole("button", { name: "등록" }));
+    expect(input.value).toBe("fake-config-second");
+    expect(api.calls.filter((c) => c.method === "PUT")).toHaveLength(1);
+  });
+
   test("앱 목록을 읽지 못하면 처음이라고 단정하지 않는다", async () => {
     renderAt("/settings/workspace/slack", {
       "GET /v1/auth/me": () => json(200, me()),

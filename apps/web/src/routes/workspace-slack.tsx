@@ -157,7 +157,7 @@ function ConfigToken({
   const actionRef = useRef<HTMLButtonElement>(null);
   const wasEditing = useRef(false);
   // Saving or deleting can swap the button that held the focus for another.
-  const focusOnState = useRef(false);
+  const focusOnState = useRef<"save" | "delete" | null>(null);
   const token = useConfigToken();
   const summary = token.data;
   // The form replaces the button that opened it; focus returns to that
@@ -172,8 +172,9 @@ function ConfigToken({
     wasEditing.current = editing;
   }, [editing]);
   useEffect(() => {
-    if (summary?.state && focusOnState.current) {
-      focusOnState.current = false;
+    const after = focusOnState.current;
+    if (summary?.state && after) {
+      focusOnState.current = null;
       // Only when the focus went with what was swapped out (or sits in the
       // closing delete dialog), not when the user moved elsewhere.
       const at = document.activeElement;
@@ -181,7 +182,8 @@ function ConfigToken({
         !at ||
         at === document.body ||
         !at.isConnected ||
-        at.closest('[role="dialog"], [role="alertdialog"]')
+        (after === "delete" &&
+          at.closest('[role="dialog"], [role="alertdialog"]'))
       )
         actionRef.current?.focus();
     }
@@ -211,7 +213,7 @@ function ConfigToken({
       setFormError(null);
     },
     onSuccess: async (stored) => {
-      if (summary?.state !== "active") focusOnState.current = true;
+      if (summary?.state !== "active") focusOnState.current = "save";
       // The answer is the new summary; show it before the re-read lands.
       const { receipt_id: _receipt, warnings: _warnings, ...next } = stored;
       queryClient.setQueryData<SlackConfigTokenSummary>(
@@ -246,7 +248,7 @@ function ConfigToken({
     onMutate: () => onOutcome(null),
     onSuccess: async () => {
       setDeleting(false);
-      focusOnState.current = true;
+      focusOnState.current = "delete";
       onOutcome({ kind: "notice", text: t("workspace.tokenDeleted") });
       await refresh();
     },
@@ -256,7 +258,7 @@ function ConfigToken({
       if (isApiError(error, "NOT_FOUND")) {
         const again = await token.refetch();
         if (again.data?.state === "unset") {
-          focusOnState.current = true;
+          focusOnState.current = "delete";
           onOutcome({ kind: "notice", text: t("workspace.tokenDeleted") });
           return;
         }
@@ -414,6 +416,8 @@ function TokenForm({
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    // A second paste while the first is out stays in the field.
+    if (pending) return;
     const input = event.currentTarget.elements.namedItem("token");
     const value = input instanceof HTMLInputElement ? input.value.trim() : "";
     if (!value) {
