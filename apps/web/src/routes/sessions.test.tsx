@@ -358,7 +358,7 @@ describe("approval inbox", () => {
     expect(api.calls.find((call) => call.method === "POST")?.body).toEqual({
       request_id: "req_1",
       kind: "permission",
-      decision: "allow",
+      action: "allow",
     });
     await waitFor(() => expect(waitingReads()).toBeGreaterThan(before));
   });
@@ -1770,7 +1770,7 @@ describe("session profile", () => {
     expect(post?.body).toEqual({
       request_id: "req_1",
       kind: "permission",
-      decision: "allow",
+      action: "allow",
     });
     expect(post?.headers.get("idempotency-key")).toMatch(/^[0-9a-f-]{36}$/);
     expect(
@@ -2000,7 +2000,7 @@ describe("session profile", () => {
     expect(api.calls.find((call) => call.method === "POST")?.body).toEqual({
       request_id: "req_1",
       kind: "permission",
-      decision: "deny",
+      action: "deny",
       reason: "not now",
     });
   });

@@ -113,8 +113,8 @@ import { type PendingRequestHandlers, waitForTurn } from "@werft-ai/sdk";
 const approvals: PendingRequestHandlers = {
   permission(request) {
     const command = (request.input as { command?: unknown } | null)?.command;
-    if (request.tool === "Bash" && command === "git status") return { decision: "allow" };
-    return { decision: "deny", reason: "This script only allows: git status" };
+    if (request.tool === "Bash" && command === "git status") return { action: "allow" };
+    return { action: "deny", reason: "This script only allows: git status" };
   },
 };
 

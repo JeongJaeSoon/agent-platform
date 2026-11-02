@@ -453,7 +453,7 @@ integration(
       const answered = await answer(parked.sessionId, {
         request_id: parked.requestId,
         kind: "permission",
-        decision: "allow",
+        action: "allow",
       });
       expect(answered).toMatchObject({ resumed: true, waiting_for: 0 });
       const { turn } = await continuing(
@@ -517,7 +517,7 @@ integration(
       const answered = await answer(parked.sessionId, {
         request_id: parked.requestId,
         kind: "permission",
-        decision: "deny",
+        action: "deny",
         reason: "not on a Friday",
       });
       expect(answered).toMatchObject({ resumed: true, waiting_for: 0 });
@@ -563,7 +563,7 @@ integration(
           await answer(parked.sessionId, {
             request_id: again.requestId,
             kind: "permission",
-            decision: "deny",
+            action: "deny",
           });
         },
       );

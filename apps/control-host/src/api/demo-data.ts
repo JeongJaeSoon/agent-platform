@@ -535,7 +535,7 @@ async function drive(
             {
               request_id: request.request_id,
               kind: "permission",
-              decision: "allow",
+              action: "allow",
             },
             crypto.randomUUID(),
           );

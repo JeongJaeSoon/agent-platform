@@ -433,7 +433,7 @@ node "$B" "$RUN" open /
 node "$B" "$RUN" shot home-request
 REQ=$(ap_get "/v1/sessions/$QSID/pending-requests" | head -1 | jq -r '.items[0].request_id')
 printf 'REQ=%s\n' "$REQ" >> "$VERIFY_RUN/ids.sh"
-ap_post "/v1/sessions/$QSID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r,kind:"permission",decision:"allow"}')"
+ap_post "/v1/sessions/$QSID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r,kind:"permission",action:"allow"}')"
 ap_curl key -N --max-time 5 "$API/v1/sessions/$QSID/events" > "$EVIDENCE/pending-events.txt" || test "$?" = 28
 ```
 

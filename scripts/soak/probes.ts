@@ -118,7 +118,7 @@ export class Api {
       await this.call("POST", `/v1/sessions/${sessionId}/answers`, {
         request_id: request.request_id,
         kind: "permission",
-        decision: "allow",
+        action: "allow",
       });
     }
   }

@@ -60,7 +60,7 @@ test.each(["success", "turn-failed", "close-failed"])(
           expect(await request.json()).toMatchObject({
             request_id: "sample-request",
             kind: "permission",
-            decision: "allow",
+            action: "allow",
           });
           answered = true;
           return json(

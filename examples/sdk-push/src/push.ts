@@ -34,10 +34,10 @@ const approvals: PendingRequestHandlers = {
     const command = (request.input as { command?: unknown } | null)?.command;
     if (request.tool === "Bash" && COMMANDS.includes(command as string)) {
       console.log(`permission ${request.request_id}: allow "${command}"`);
-      return { decision: "allow" };
+      return { action: "allow" };
     }
     return {
-      decision: "deny",
+      action: "deny",
       reason: "This script only writes and commits one file",
     };
   },

@@ -168,7 +168,7 @@ import {
   pickAgentGitHubRepositoryRequestSchema,
   pickAgentGitHubRepositoryResponseSchema,
   postGitHubAppRequestSchema,
-  postSessionAnswerRequestSchema,
+  postSessionAnswerInputSchema,
   postSessionAnswerResponseSchema,
   postSessionMessageRequestSchema,
   postSessionMessageResponseSchema,
@@ -323,7 +323,7 @@ const requestComponents = {
   ListTurnsQuery: listTurnsQuerySchema,
   SearchSlackChannelsQuery: searchSlackChannelsQuerySchema,
   LookupSlackChannelsQuery: lookupSlackChannelsQuerySchema,
-  PostSessionAnswerRequest: postSessionAnswerRequestSchema,
+  PostSessionAnswerRequest: postSessionAnswerInputSchema,
   PostSessionAnswerResponse: postSessionAnswerResponseSchema,
   InterruptSessionRequest: interruptSessionRequestSchema,
   PauseSessionRequest: pauseSessionRequestSchema,
@@ -3169,13 +3169,13 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Pending requests",
     summary: "Answer a pending permission or question request",
     description:
-      "Answers one pending request by `request_id`: a permission with `allow` or `deny` (a denial needs a `reason` the model can act on), a question with one answer per question, by option ids or free text where the question allows it. The answer is stored and the request closes at once: the pending list drops it and a `status` event ends the wait. The worker then hands the answer to the engine, and the receipt settles when it reports: `succeeded` once delivered, `failed` if the request expired (`REQUEST_EXPIRED`) or was cancelled (`REQUEST_STALE`, with why in its message: an interrupt, a park, a shutdown, the worker refusing the answer, or the engine having closed the request already) first, `unknown` if the execution ended before it reported or the engine no longer knew the request, so it may or may not have acted on the answer.\n\nA parked request (`state: parked`) is answered the same way, whichever worker asked. The answer is kept until every request of its `group` is answered or expired; the one that closes the group resumes the session (`resumed: true`), and the receipt settles once the turn that resumes it has the answer. `waiting_for` counts the group's requests still open. A session paused by a person rather than by its park keeps the answer and stays paused.\n\nSeeing a session is not answering for it: only its creator, its agent's admins, the workspace's owners and admins, and the keys of its agent that hold `sessions:approve` answer. Anyone else the session is visible to gets 403 (`reason_code: role`) and the request stays open; anyone it is not visible to, 404. No workspace key (personal or agent) answers a session that key started: 403 (`reason_code: self_approval`) with a failed `answer` receipt named by `error.details.receipt_id`, and the request stays open for another key or a person.",
+      "Answers one pending request by `request_id`: a permission with `action` `allow` or `deny` (a denial needs a `reason` the model can act on; the deprecated `decision` is still taken in place of `action`, and giving both is 400), a question with one answer per question, by option ids or free text where the question allows it. The answer is stored and the request closes at once: the pending list drops it and a `status` event ends the wait. The worker then hands the answer to the engine, and the receipt settles when it reports: `succeeded` once delivered, `failed` if the request expired (`REQUEST_EXPIRED`) or was cancelled (`REQUEST_STALE`, with why in its message: an interrupt, a park, a shutdown, the worker refusing the answer, or the engine having closed the request already) first, `unknown` if the execution ended before it reported or the engine no longer knew the request, so it may or may not have acted on the answer.\n\nA parked request (`state: parked`) is answered the same way, whichever worker asked. The answer is kept until every request of its `group` is answered or expired; the one that closes the group resumes the session (`resumed: true`), and the receipt settles once the turn that resumes it has the answer. `waiting_for` counts the group's requests still open. A session paused by a person rather than by its park keeps the answer and stays paused.\n\nSeeing a session is not answering for it: only its creator, its agent's admins, the workspace's owners and admins, and the keys of its agent that hold `sessions:approve` answer. Anyone else the session is visible to gets 403 (`reason_code: role`) and the request stays open; anyone it is not visible to, 404. No workspace key (personal or agent) answers a session that key started: 403 (`reason_code: self_approval`) with a failed `answer` receipt named by `error.details.receipt_id`, and the request stays open for another key or a person.",
     scope: "approve",
     body: "PostSessionAnswerRequest",
     requestExample: {
       request_id: "req_7f3a",
       kind: "permission",
-      decision: "allow",
+      action: "allow",
     },
     success: {
       status: 202,

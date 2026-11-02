@@ -140,10 +140,10 @@ test("answers a question, denies one write, allows the next once", async () => {
     "req-2": {
       request_id: "req-2",
       kind: "permission",
-      decision: "deny",
+      action: "deny",
       reason: "This run only reads; do not write files",
     },
-    "req-3": { request_id: "req-3", kind: "permission", decision: "allow" },
+    "req-3": { request_id: "req-3", kind: "permission", action: "allow" },
   });
 });
 
