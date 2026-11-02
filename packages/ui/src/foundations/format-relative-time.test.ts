@@ -191,6 +191,7 @@ describe("formatRelativeTime", () => {
     expect(formatRelativeTime(new Date(NOW + 10_000), "en", NOW, options)).toBe(
       "just now",
     );
+    expect(formatRelativeTime("UNKNOWN", "en", NOW, options)).toBe("UNKNOWN");
     expect(formatRelativeTime(at, "ko", NOW, options)).toBe("내일 15:14");
     expect(formatRelativeTime(at, "ja", NOW, options)).toBe("明日 15:14");
   });

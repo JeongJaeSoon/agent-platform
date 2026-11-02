@@ -151,7 +151,8 @@ export function formatRelativeTime(
   } = {},
 ): string {
   const phrase = relativePhrase(value, locale, now, options.future);
-  return options.inSentence && locale === "en"
+  const parsed = !Number.isNaN(toDate(value).getTime());
+  return options.inSentence && locale === "en" && parsed
     ? phrase.charAt(0).toLowerCase() + phrase.slice(1)
     : phrase;
 }

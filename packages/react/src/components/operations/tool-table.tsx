@@ -133,7 +133,9 @@ export function ToolTable({
                       aria-pressed={pressed}
                       onClick={() => onSelect?.(tool.name)}
                     />
-                    <Code size="inherit">{tool.name}</Code>
+                    <Text as="span" weight="medium">
+                      <Code size="inherit">{tool.name}</Code>
+                    </Text>
                     {note ? (
                       <Text
                         as="span"

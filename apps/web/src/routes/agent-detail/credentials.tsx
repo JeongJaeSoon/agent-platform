@@ -24,6 +24,7 @@ import {
   AlertDescription,
   AlertTitle,
   Button,
+  Code,
   ConfirmDialog,
   cn,
   EmptyState,
@@ -201,7 +202,7 @@ export function Credentials({
                       weight="medium"
                       className="block break-words"
                     >
-                      {ref}
+                      <Code size="inherit">{ref}</Code>
                     </Text>
                     <Text
                       as="span"
@@ -245,7 +246,7 @@ export function Credentials({
                       weight="medium"
                       className="block break-words"
                     >
-                      {binding.credential_ref}
+                      <Code size="inherit">{binding.credential_ref}</Code>
                     </Text>
                     <Text
                       as="span"
