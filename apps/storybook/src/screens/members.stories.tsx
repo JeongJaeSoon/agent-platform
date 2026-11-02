@@ -1411,7 +1411,7 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
         initialOpen={screen === "invite" || screen === "invite-admin"}
       />
     );
-  } else if (manager && !onTeamPage) {
+  } else if (manager && tab === "teams" && !onTeamPage) {
     action = (
       <TeamCreateAction
         initialOpen={screen.startsWith("team-create")}

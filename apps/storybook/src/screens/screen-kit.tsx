@@ -81,8 +81,8 @@ const WORKSPACE_NAV: readonly NavEntry[] = [
 /** The signed-in person every screen story shares, as `/v1/auth/me` names them. */
 export const VIEWER = {
   id: "0b5f8a52-6f0e-4b1a-9d0e-2c1e7c3f4a11",
-  name: "Verify Owner",
-  email: "owner@example.test",
+  name: "Verify Viewer",
+  email: "viewer@example.test",
 } as const;
 
 const ROLE_LABEL: Record<Role, string> = {

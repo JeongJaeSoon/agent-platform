@@ -53,7 +53,7 @@ import {
   TooltipTrigger,
 } from "@werft-ai/ui";
 import { ArrowLeft, Check, ChevronRight } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { VIEWER } from "./screen-kit.tsx";
 
 /*
@@ -912,10 +912,12 @@ export function VersionHistory({ detail }: { readonly detail: DetailFixture }) {
     (a, b) => b.version_no - a.version_no,
   );
   const activeId = detail.active_release?.version_id;
-  const beforeId =
-    (activeId && activeId !== ordered[0]?.id ? activeId : ordered[1]?.id) ?? "";
+  const [beforeId, setBeforeId] = useState(
+    (activeId && activeId !== ordered[0]?.id ? activeId : ordered[1]?.id) ?? "",
+  );
+  const [afterId, setAfterId] = useState(ordered[0]?.id ?? "");
   const before = ordered.find((version) => version.id === beforeId);
-  const after = ordered[0];
+  const after = ordered.find((version) => version.id === afterId);
   return (
     <details
       className="group flex flex-col gap-[var(--ap-space-block)]"
@@ -957,13 +959,16 @@ export function VersionHistory({ detail }: { readonly detail: DetailFixture }) {
         <div className="flex flex-wrap items-start gap-3">
           {(
             [
-              ["비교 기준", beforeId],
-              ["비교 대상", ordered[0]?.id ?? ""],
+              ["비교 기준", beforeId, setBeforeId],
+              ["비교 대상", afterId, setAfterId],
             ] as const
-          ).map(([label, value]) => (
+          ).map(([label, value, setValue]) => (
             <Field key={label} className="w-auto">
               <FieldLabel>{label}</FieldLabel>
-              <NativeSelect defaultValue={value}>
+              <NativeSelect
+                value={value}
+                onChange={(event) => setValue(event.target.value)}
+              >
                 {ordered.map((version) => (
                   <NativeSelectOption key={version.id} value={version.id}>
                     버전 {version.version_no}
