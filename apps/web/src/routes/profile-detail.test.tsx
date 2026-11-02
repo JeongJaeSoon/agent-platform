@@ -33,6 +33,7 @@ function agent(
     slug: `agent-${n}`,
     name,
     description: null,
+    managing_team_id: null,
     status: "active",
     active_release_id: release,
     activation_revision: release === null ? -1 : 0,

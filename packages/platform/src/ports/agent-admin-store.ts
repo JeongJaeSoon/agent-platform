@@ -25,7 +25,28 @@ export type AgentAdmins = {
  */
 export type AgentAdminChangeResult =
   | { outcome: "added" | "removed" | "unchanged"; admins: AgentAdmins }
-  | { outcome: "not_found" | "subject_not_found" | "actor_inactive" };
+  | {
+      outcome:
+        | "not_found"
+        | "subject_not_found"
+        | "actor_inactive"
+        /** A team to add that the actor, not an owner or admin, does not lead. */
+        | "team_not_allowed";
+    };
+
+/**
+ * `team_not_found`: no live team by that id (for an owner or admin).
+ * `team_not_allowed`: anyone else naming a team they are not in.
+ */
+export type SetManagingTeamResult =
+  | { outcome: "set" | "unchanged"; agent: Agent }
+  | {
+      outcome:
+        | "not_found"
+        | "team_not_found"
+        | "team_not_allowed"
+        | "actor_inactive";
+    };
 
 export interface AgentAdminStore {
   list(workspaceId: string, agentId: string): Promise<AgentAdmins | null>;
@@ -47,6 +68,14 @@ export interface AgentAdminStore {
     subject: AgentAdminSubject;
     managerRoles: readonly WorkspaceRole[];
   }): Promise<AgentAdminChangeResult>;
+  /** Never to null: a managing team is replaced, not cleared. */
+  setManagingTeam(input: {
+    actor: TeamActor;
+    receiptId: string;
+    agentId: string;
+    teamId: string;
+    managerRoles: readonly WorkspaceRole[];
+  }): Promise<SetManagingTeamResult>;
   /** The agents this person administers, directly or through a team. */
   listAdministered(
     workspaceId: string,

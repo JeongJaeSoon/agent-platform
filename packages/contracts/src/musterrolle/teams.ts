@@ -19,6 +19,13 @@ import {
 export const TEAM_LIST_LIMIT = 200;
 
 export const teamIdSchema = z.uuid();
+
+/**
+ * A `lead` administers every agent the team manages; a `member` does not.
+ * Only owners and admins set it (`team.manage`).
+ */
+export const TEAM_MEMBER_ROLE_VALUES = ["lead", "member"] as const;
+export const teamMemberRoleSchema = z.enum(TEAM_MEMBER_ROLE_VALUES);
 export const TEAM_NAME_MAX = 100;
 export const teamNameSchema = z.string().trim().min(1).max(TEAM_NAME_MAX);
 
@@ -44,6 +51,7 @@ export const teamMemberViewSchema = z
     user_id: userIdSchema,
     email: z.string(),
     display_name: z.string().nullable(),
+    role: teamMemberRoleSchema,
     added_by: userIdSchema.nullable(),
     added_at: timestampSchema,
   })
@@ -59,6 +67,9 @@ export const createTeamRequestSchema = z
 export const updateTeamRequestSchema = createTeamRequestSchema;
 export const addTeamMemberRequestSchema = z
   .object({ user_id: userIdSchema })
+  .strict();
+export const setTeamMemberRoleRequestSchema = z
+  .object({ role: teamMemberRoleSchema })
   .strict();
 
 export const teamChangeResponseSchema = z
@@ -152,12 +163,33 @@ export const listAdministeredAgentsResponseSchema = z
   .strict();
 
 /**
- * The teams the caller belongs to now. Names only: who else is in a team is
- * for the people who manage teams (D23).
+ * The agent's managing team. Null is refused: an agent from before managing
+ * teams is given one, never had one taken.
+ */
+export const setAgentManagingTeamRequestSchema = z
+  .object({ team_id: teamIdSchema })
+  .strict();
+export const setAgentManagingTeamResponseSchema = z
+  .object({
+    agent: agentSchema,
+    /** Null when the agent already had that team. */
+    receipt_id: receiptIdSchema.nullable(),
+  })
+  .strict();
+
+/**
+ * The teams the caller belongs to now, with the caller's role in each. Names
+ * only: who else is in a team is for the people who manage teams (D23).
  */
 export const listMyTeamsQuerySchema = paginationQuerySchema;
 export const listMyTeamsResponseSchema = pageSchema(
-  z.object({ id: teamIdSchema, name: teamNameSchema }).strict(),
+  z
+    .object({
+      id: teamIdSchema,
+      name: teamNameSchema,
+      role: teamMemberRoleSchema,
+    })
+    .strict(),
 );
 
 export type TeamView = z.infer<typeof teamViewSchema>;
@@ -178,6 +210,16 @@ export type AgentAdminChangeResponse = z.infer<
 >;
 export type ListAdministeredAgentsResponse = z.infer<
   typeof listAdministeredAgentsResponseSchema
+>;
+export type TeamMemberRole = z.infer<typeof teamMemberRoleSchema>;
+export type SetTeamMemberRoleRequest = z.infer<
+  typeof setTeamMemberRoleRequestSchema
+>;
+export type SetAgentManagingTeamRequest = z.infer<
+  typeof setAgentManagingTeamRequestSchema
+>;
+export type SetAgentManagingTeamResponse = z.infer<
+  typeof setAgentManagingTeamResponseSchema
 >;
 export type ListMyTeamsQuery = z.infer<typeof listMyTeamsQuerySchema>;
 export type ListMyTeamsResponse = z.infer<typeof listMyTeamsResponseSchema>;

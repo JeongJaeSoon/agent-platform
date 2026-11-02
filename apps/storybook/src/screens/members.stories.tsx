@@ -248,6 +248,7 @@ const TEAM: TeamDetailView = {
       user_id: ID.dana,
       email: "dana@example.test",
       display_name: "Verify Dana",
+      role: "lead",
       added_by: ID.owner,
       added_at: "2026-10-16T01:00:00Z",
     },
@@ -255,6 +256,7 @@ const TEAM: TeamDetailView = {
       user_id: ID.minji,
       email: "minji@example.test",
       display_name: "Verify Minji",
+      role: "member",
       added_by: ID.owner,
       added_at: "2026-10-17T02:30:00Z",
     },
@@ -267,7 +269,7 @@ const EMPTY_TEAM: TeamDetailView = {
 };
 
 const MY_TEAMS: ListMyTeamsResponse["items"] = [
-  { id: PLATFORM.id, name: PLATFORM.name },
+  { id: PLATFORM.id, name: PLATFORM.name, role: "member" },
 ];
 
 const INVITES: readonly InviteRow[] = [

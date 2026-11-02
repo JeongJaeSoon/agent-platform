@@ -7,6 +7,7 @@ import type {
   CountAgentsResponse,
   ListAgentsQuery,
   ListAgentsResponse,
+  WorkspaceRole,
 } from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 import type { SessionViewer } from "./session-share-store.ts";
@@ -25,22 +26,31 @@ export type NewAgentRelease = Omit<
 
 // Every write re-checks the acting person's membership under a share lock in
 // its own transaction; `actor_inactive` is an offboarding that won that race.
+// A change to an existing agent also re-checks, under the agent row's lock,
+// the right to make it: `outranked` is a demotion or a managing-team change
+// that won it.
 type Inactive = { outcome: "actor_inactive" };
+type Outranked = { outcome: "outranked" };
+
+/** Roles holding the right outright; anyone else must administer the agent. */
+type ManagerRoles = { managerRoles: readonly WorkspaceRole[] };
 
 export type CreateAgentResult =
   | { outcome: "created"; detail: AgentDetail }
-  | { outcome: "slug_taken" }
+  | { outcome: "slug_taken" | "team_not_found" | "team_not_allowed" }
   | Inactive;
 
 export type UpdateAgentResult =
   | { outcome: "updated"; detail: AgentDetail }
   | { outcome: "not_found" }
-  | Inactive;
+  | Inactive
+  | Outranked;
 
 export type InsertReleaseResult =
   | { outcome: "created" | "exists"; release: AgentRelease }
   | { outcome: "not_found" }
-  | Inactive;
+  | Inactive
+  | Outranked;
 
 export type ActivateResult =
   | {
@@ -52,7 +62,8 @@ export type ActivateResult =
   | { outcome: "unchanged"; revision: number; previousReleaseId: null }
   | { outcome: "conflict"; activeReleaseId: string | null; revision: number }
   | { outcome: "not_found" }
-  | Inactive;
+  | Inactive
+  | Outranked;
 
 export interface AgentStore {
   /**
@@ -103,6 +114,11 @@ export interface AgentStore {
     slug: string;
     name: string;
     description?: string;
+    /**
+     * `managerRoles` name any live team; anyone else only a team they are
+     * in, re-read under share locks.
+     */
+    managingTeam?: { id: string } & ManagerRoles;
     card: AgentCard;
     contentSha256: string;
     createdBy: string;
@@ -111,36 +127,42 @@ export interface AgentStore {
    * Renames, describes and/or adds a version. A card whose hash matches an
    * existing version of the agent adds nothing.
    */
-  update(input: {
-    principal: Principal;
-    workspaceId: string;
-    agentId: string;
-    name?: string;
-    /** `null` clears it. */
-    description?: string | null;
-    card?: { card: AgentCard; contentSha256: string };
-    updatedBy: string;
-  }): Promise<UpdateAgentResult>;
+  update(
+    input: ManagerRoles & {
+      principal: Principal;
+      workspaceId: string;
+      agentId: string;
+      name?: string;
+      /** `null` clears it. */
+      description?: string | null;
+      card?: { card: AgentCard; contentSha256: string };
+      updatedBy: string;
+    },
+  ): Promise<UpdateAgentResult>;
   /**
    * Inserts the release, a `release_created` event and a receipt in one
    * transaction, or returns the row already stored under that id.
    * `not_found` when the version is not the agent's.
    */
-  insertRelease(input: {
-    principal: Principal;
-    workspaceId: string;
-    release: NewAgentRelease;
-  }): Promise<InsertReleaseResult>;
+  insertRelease(
+    input: ManagerRoles & {
+      principal: Principal;
+      workspaceId: string;
+      release: NewAgentRelease;
+    },
+  ): Promise<InsertReleaseResult>;
   /**
    * `UPDATE agents … WHERE activation_revision = expected`, the release's
    * first approval, an `activated` event and a receipt in one transaction.
    */
-  activate(input: {
-    principal: Principal;
-    workspaceId: string;
-    agentId: string;
-    releaseId: string;
-    expectedRevision: number;
-    approvedBy: string;
-  }): Promise<ActivateResult>;
+  activate(
+    input: ManagerRoles & {
+      principal: Principal;
+      workspaceId: string;
+      agentId: string;
+      releaseId: string;
+      expectedRevision: number;
+      approvedBy: string;
+    },
+  ): Promise<ActivateResult>;
 }

@@ -281,6 +281,135 @@ describe("DELETE /v1/teams/{team_id}", () => {
         (await call(app({ deleteTeam: fail }), "DELETE", path)).status,
       ).toBe(status);
     }
+    const managing = await call(
+      app({
+        deleteTeam: async () => {
+          throw new SessionServiceError(
+            "TEAM_MANAGES_AGENTS",
+            "manages",
+            undefined,
+            { agent_ids: [AGENT] },
+          );
+        },
+      }),
+      "DELETE",
+      path,
+    );
+    expect(managing.status).toBe(409);
+    expect(await errorOf(managing)).toMatchObject({
+      code: "TEAM_MANAGES_AGENTS",
+      details: { agent_ids: [AGENT] },
+    });
+  });
+});
+
+describe("PATCH /v1/teams/{team_id}/members/{user_id}", () => {
+  test("sets the role, refuses and fails closed", async () => {
+    const path = `/v1/teams/${TEAM}/members/${USER}`;
+    let asked: unknown;
+    const changed = await call(
+      app({
+        setTeamMemberRole: async (_caller, teamId, userId, request) => {
+          asked = [teamId, userId, request];
+          return { team: TEAM_VIEW, receipt_id: RECEIPT };
+        },
+      }),
+      "PATCH",
+      path,
+      { role: "lead" },
+    );
+    expect(changed.status).toBe(200);
+    expect(asked).toEqual([TEAM, USER, { role: "lead" }]);
+    expect((await call(app({}), "PATCH", path, { role: "owner" })).status).toBe(
+      400,
+    );
+    expect(
+      (await call(app({}), "PATCH", path, { role: "lead", pad: PAD })).status,
+    ).toBe(413);
+    for (const [fail, status] of [
+      [forbidden, 403],
+      [notFound, 404],
+      [outage, 503],
+    ] as const) {
+      expect(
+        (
+          await call(app({ setTeamMemberRole: fail }), "PATCH", path, {
+            role: "member",
+          })
+        ).status,
+      ).toBe(status);
+    }
+  });
+});
+
+describe("PUT /v1/agents/{id}/managing-team", () => {
+  test("sets the team, never null, refuses and fails closed", async () => {
+    const path = `/v1/agents/${AGENT}/managing-team`;
+    let asked: unknown;
+    const agent = {
+      id: AGENT,
+      workspace_id: WORKSPACE,
+      slug: "finance",
+      name: "Finance",
+      description: null,
+      managing_team_id: TEAM,
+      status: "active" as const,
+      active_release_id: null,
+      activation_revision: -1,
+      created_by: USER,
+      created_at: "2026-10-11T00:00:00.000Z",
+      updated_at: "2026-10-11T00:00:00.000Z",
+    };
+    const set = await call(
+      app(
+        {},
+        {
+          setManagingTeam: async (_caller, agentId, teamId) => {
+            asked = [agentId, teamId];
+            return { agent, receipt_id: RECEIPT };
+          },
+        },
+      ),
+      "PUT",
+      path,
+      { team_id: TEAM },
+    );
+    expect(set.status).toBe(200);
+    expect(asked).toEqual([AGENT, TEAM]);
+    expect(await set.json()).toEqual({ agent, receipt_id: RECEIPT });
+    expect((await call(app({}), "PUT", path, { team_id: null })).status).toBe(
+      400,
+    );
+    expect(
+      (await call(app({}), "PUT", path, { team_id: TEAM, pad: PAD })).status,
+    ).toBe(413);
+    const notAllowed = async () => {
+      throw new SessionServiceError("FORBIDDEN", "no", undefined, {
+        reason_code: "team_not_allowed",
+      });
+    };
+    const refused = await call(
+      app({}, { setManagingTeam: notAllowed }),
+      "PUT",
+      path,
+      { team_id: TEAM },
+    );
+    expect(refused.status).toBe(403);
+    expect((await errorOf(refused)).details).toEqual({
+      reason_code: "team_not_allowed",
+    });
+    for (const [fail, status] of [
+      [notFound, 404],
+      [outage, 503],
+    ] as const) {
+      expect(
+        (
+          await call(app({}, { setManagingTeam: fail }), "PUT", path, {
+            team_id: TEAM,
+          })
+        ).status,
+      ).toBe(status);
+    }
   });
 });
 
@@ -509,7 +638,7 @@ describe("GET /v1/my-teams", () => {
     const listed = await call(
       app({
         listMyTeams: async () => ({
-          items: [{ id: TEAM, name: "research" }],
+          items: [{ id: TEAM, name: "research", role: "member" }],
           next_cursor: null,
         }),
       }),
@@ -518,7 +647,7 @@ describe("GET /v1/my-teams", () => {
     );
     expect(listed.status).toBe(200);
     expect(await listed.json()).toEqual({
-      items: [{ id: TEAM, name: "research" }],
+      items: [{ id: TEAM, name: "research", role: "member" }],
       next_cursor: null,
     });
     for (const [fail, status] of [

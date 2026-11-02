@@ -267,7 +267,7 @@ integration("teams as agent admins over HTTP on PostgreSQL", () => {
     );
     expect(detail.members.map((m) => m.user_id)).toEqual([memberId]);
     expect(await myTeams(member)).toEqual([
-      { id: teamId, name: "research admins" },
+      { id: teamId, name: "research admins", role: "member" },
     ]);
     expect(await myTeams(admin)).toEqual([]);
     // The member reads their own team, read only (94S-719), and no other.

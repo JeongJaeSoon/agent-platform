@@ -1,13 +1,16 @@
+import type { TeamMemberRole } from "@werft-ai/contracts";
 import type {
   AgentAdminChangeResult,
   AgentAdminStore,
   AgentAdmins,
+  SetManagingTeamResult,
   TeamActor,
 } from "@werft-ai/platform";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { administers, liveMember } from "./administers.ts";
 import { agentOf } from "./agents.ts";
 import { lockPeople, receiptActorOf } from "./control-shared.ts";
+import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
   agentAdmins,
@@ -24,6 +27,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /**
  * `administers`, inside a write: the rows that make it true are share-locked
  * so removing them waits for this transaction, or is seen by it.
+ *
+ * The agent row first, FOR NO KEY UPDATE, as admin and managing-team changes
+ * take it before their rows: those changes queue behind this write instead
+ * of crossing it, and a caller that then updates the agent already holds it.
+ * Callers lock the acting person (lockedRole, lockPeople) before calling.
  */
 export async function lockedAdministers(
   tx: Database,
@@ -31,6 +39,12 @@ export async function lockedAdministers(
   agentId: string,
   userId: string,
 ): Promise<boolean> {
+  const [agent] = await tx
+    .select({ managingTeamId: agents.managingTeamId })
+    .from(agents)
+    .where(and(eq(agents.workspaceId, workspaceId), eq(agents.id, agentId)))
+    .for("no key update");
+  if (!agent) return false;
   const direct = await tx
     .select({ agentId: agentAdmins.agentId })
     .from(agentAdmins)
@@ -73,11 +87,143 @@ export async function lockedAdministers(
   // before its other rows, and one statement locks its rows in no set order
   // whatever FOR SHARE OF lists.
   const teams = await viaTeam().for("share", { of: memberTeams });
-  if (teams.length === 0) return false;
-  const held = await viaTeam()
+  if (teams.length > 0) {
+    const held = await viaTeam()
+      .limit(1)
+      .for("share", { of: [memberTeams, agentAdminTeams, memberTeamMembers] });
+    if (held.length > 0) return true;
+  }
+  return (
+    agent.managingTeamId !== null &&
+    lockedTeamRow(tx, agent.managingTeamId, userId, ["lead"])
+  );
+}
+
+/**
+ * Whether `userId` is in the live team `teamId` with one of `roles`, both
+ * rows share-locked: an archive, a removal or a role change waits for this
+ * write or is seen by it. Team before member row, as team writers lock them.
+ */
+export async function lockedTeamRow(
+  tx: Database,
+  teamId: string,
+  userId: string,
+  roles: readonly TeamMemberRole[],
+): Promise<boolean> {
+  const [team] = await tx
+    .select({ id: memberTeams.id })
+    .from(memberTeams)
+    .where(and(eq(memberTeams.id, teamId), isNull(memberTeams.archivedAt)))
+    .for("share");
+  if (!team) return false;
+  const row = await tx
+    .select({ id: memberTeamMembers.id })
+    .from(memberTeamMembers)
+    .where(
+      and(
+        eq(memberTeamMembers.teamId, team.id),
+        eq(memberTeamMembers.userId, userId),
+        isNull(memberTeamMembers.removedAt),
+        inArray(memberTeamMembers.role, [...roles]),
+      ),
+    )
     .limit(1)
-    .for("share", { of: [memberTeams, agentAdminTeams, memberTeamMembers] });
-  return held.length > 0;
+    .for("share");
+  return row.length > 0;
+}
+
+/**
+ * Whether `teamId` may become an agent's managing team for this actor: any
+ * live team of the workspace for an owner or admin, else only one the actor
+ * is in (agent-rbac design (d)). Locks what it read, as `lockedTeamRow`.
+ */
+export async function managingTeamAllowed(
+  tx: Database,
+  workspaceId: string,
+  teamId: string,
+  actor: { userId: string; manager: boolean },
+): Promise<"ok" | "team_not_found" | "team_not_allowed"> {
+  if (!UUID.test(teamId)) return "team_not_found";
+  const id = teamId.toLowerCase();
+  if (!actor.manager) {
+    return (await lockedTeamRow(tx, id, actor.userId, ["lead", "member"]))
+      ? "ok"
+      : "team_not_allowed";
+  }
+  const [team] = await tx
+    .select({ id: memberTeams.id })
+    .from(memberTeams)
+    .where(
+      and(
+        eq(memberTeams.workspaceId, workspaceId),
+        eq(memberTeams.id, id),
+        isNull(memberTeams.archivedAt),
+      ),
+    )
+    .for("share");
+  return team ? "ok" : "team_not_found";
+}
+
+async function setManagingTeam(
+  db: Database,
+  input: Parameters<AgentAdminStore["setManagingTeam"]>[0],
+): Promise<SetManagingTeamResult> {
+  const { actor } = input;
+  if (!UUID.test(input.agentId)) return { outcome: "not_found" };
+  const agentId = input.agentId.toLowerCase();
+  const workspaceId = actor.workspaceId;
+  return db.transaction(async (tx) => {
+    const people = await lockPeople(tx, workspaceId, [actor.userId]);
+    const may = await actorMayManage(
+      tx,
+      actor,
+      people,
+      agentId,
+      input.managerRoles,
+    );
+    if (may === "no") return { outcome: "actor_inactive" };
+    if (may === "no_agent") return { outcome: "not_found" };
+    const manager = (input.managerRoles as readonly string[]).includes(
+      people[0]?.role ?? "",
+    );
+    const allowed = await managingTeamAllowed(tx, workspaceId, input.teamId, {
+      userId: actor.userId,
+      manager,
+    });
+    if (allowed !== "ok") return { outcome: allowed };
+    const teamId = input.teamId.toLowerCase();
+    const [before] = await tx
+      .select({ teamId: agents.managingTeamId })
+      .from(agents)
+      .where(eq(agents.id, agentId));
+    if (before?.teamId === teamId) {
+      return { outcome: "unchanged", agent: await agentRow(tx, agentId) };
+    }
+    await tx
+      .update(agents)
+      .set({ managingTeamId: teamId, updatedAt: DB_NOW })
+      .where(eq(agents.id, agentId));
+    await tx.insert(receipts).values({
+      id: input.receiptId,
+      ownerId: actor.principal.ownerId,
+      actor: receiptActorOf(actor.principal),
+      operation: "set_agent_managing_team",
+      targetRef: {
+        resource: { kind: "agent", id: agentId },
+        workspace_id: workspaceId,
+      },
+      result: { from: before?.teamId ?? null, to: teamId },
+      status: "succeeded",
+      requestId: actor.principal.requestId ?? null,
+    });
+    return { outcome: "set", agent: await agentRow(tx, agentId) };
+  });
+}
+
+async function agentRow(tx: Database, agentId: string) {
+  const [row] = await tx.select().from(agents).where(eq(agents.id, agentId));
+  if (!row) throw new Error(`agent ${agentId} vanished under its lock`);
+  return agentOf(row);
 }
 
 async function listAdmins(
@@ -218,6 +364,17 @@ async function change(
         )
         .for("share");
       if (!team) return { outcome: "subject_not_found" };
+      // An admin team makes all its members admins, so anyone but an owner
+      // or admin may lend only a team they lead. Rows already there stay.
+      const manager = (input.managerRoles as readonly string[]).includes(
+        people.find((p) => p.userId === actor.userId)?.role ?? "",
+      );
+      if (
+        !manager &&
+        !(await lockedTeamRow(tx, subjectId, actor.userId, ["lead"]))
+      ) {
+        return { outcome: "team_not_allowed" };
+      }
       const inserted = await tx
         .insert(agentAdminTeams)
         .values({
@@ -279,6 +436,7 @@ export function createPostgresAgentAdminStore(db: Database): AgentAdminStore {
     },
     add: (input) => change(db, input, true),
     remove: (input) => change(db, input, false),
+    setManagingTeam: (input) => setManagingTeam(db, input),
     async listAdministered(workspaceId, userId, limit) {
       if (!UUID.test(workspaceId) || !UUID.test(userId)) return [];
       const rows = await db

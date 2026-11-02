@@ -1,3 +1,4 @@
+import type { TeamMemberRole } from "@werft-ai/contracts";
 import type {
   Team,
   TeamActor,
@@ -13,6 +14,7 @@ import {
   eq,
   exists,
   isNull,
+  ne,
   type SQL,
   sql,
 } from "drizzle-orm";
@@ -30,6 +32,7 @@ import {
 import type { Database } from "./queries.ts";
 import {
   agentAdminTeams,
+  agents,
   memberships,
   memberTeamMembers,
   memberTeams,
@@ -75,7 +78,11 @@ function joinedTeams(
 ) {
   const user = userId.toLowerCase();
   return db
-    .select({ id: memberTeams.id, name: memberTeams.name })
+    .select({
+      id: memberTeams.id,
+      name: memberTeams.name,
+      role: sql<TeamMemberRole>`${memberTeamMembers.role}`,
+    })
     .from(memberTeams)
     .innerJoin(
       memberTeamMembers,
@@ -117,7 +124,8 @@ type TeamOperation =
   | "rename_team"
   | "delete_team"
   | "add_team_member"
-  | "remove_team_member";
+  | "remove_team_member"
+  | "set_team_member_role";
 
 async function actorManagesTeams(
   tx: Database,
@@ -304,6 +312,25 @@ export function createPostgresTeamStore(db: Database): TeamStore {
         }
         const team = await lockLiveTeam(tx, actor.workspaceId, input.teamId);
         if (!team) return { outcome: "not_found" };
+        // Not locked: naming a managing team share-locks this team row, so a
+        // naming in flight committed before the lock above or reads the
+        // archive after it.
+        const managed = await tx
+          .select({ id: agents.id })
+          .from(agents)
+          .where(
+            and(
+              eq(agents.managingTeamId, team.id),
+              ne(agents.status, "archived"),
+            ),
+          )
+          .orderBy(asc(agents.id));
+        if (managed.length > 0) {
+          return {
+            outcome: "manages_agents",
+            agentIds: managed.map((row) => row.id),
+          };
+        }
         // The authority a team lent ends with it; the member rows stay as
         // history behind an archived team that no decision reads.
         const dropped = await tx
@@ -336,6 +363,57 @@ export function createPostgresTeamStore(db: Database): TeamStore {
 
     removeMember(input) {
       return changeMember(db, input, false);
+    },
+
+    setMemberRole(input) {
+      const { actor } = input;
+      if (!UUID.test(input.userId))
+        return Promise.resolve({ outcome: "not_found" });
+      const userId = input.userId.toLowerCase();
+      return db.transaction(async (tx) => {
+        if (!(await actorManagesTeams(tx, actor, [userId]))) {
+          return { outcome: "actor_inactive" };
+        }
+        const team = await lockLiveTeam(tx, actor.workspaceId, input.teamId);
+        if (!team) return { outcome: "not_found" };
+        const [current] = await tx
+          .select({ id: memberTeamMembers.id, role: memberTeamMembers.role })
+          .from(memberTeamMembers)
+          .where(
+            and(
+              eq(memberTeamMembers.teamId, team.id),
+              eq(memberTeamMembers.userId, userId),
+              isNull(memberTeamMembers.removedAt),
+            ),
+          )
+          .for("update");
+        if (!current) return { outcome: "not_found" };
+        if (current.role === input.role) {
+          return { outcome: "unchanged", team: await teamOf(tx, team) };
+        }
+        await tx
+          .update(memberTeamMembers)
+          .set({ role: input.role })
+          .where(eq(memberTeamMembers.id, current.id));
+        await bumpRevision(tx, team.id);
+        await writeReceipt(tx, actor, {
+          id: input.receiptId,
+          operation: "set_team_member_role",
+          targetRef: { user_id: userId, workspace_id: actor.workspaceId },
+          result: {
+            team_id: team.id,
+            team_name: team.name,
+            from: current.role,
+            to: input.role,
+          },
+        });
+        const [after] = await tx
+          .select()
+          .from(memberTeams)
+          .where(eq(memberTeams.id, team.id));
+        if (!after) throw new Error(`team ${team.id} vanished under its lock`);
+        return { outcome: "changed", team: await teamOf(tx, after) };
+      });
     },
 
     async list(workspaceId, query) {
@@ -424,6 +502,7 @@ export function createPostgresTeamStore(db: Database): TeamStore {
               userId: memberTeamMembers.userId,
               email: users.email,
               displayName: users.displayName,
+              role: sql<TeamMemberRole>`${memberTeamMembers.role}`,
               addedBy: memberTeamMembers.addedBy,
               addedAt: memberTeamMembers.addedAt,
             })

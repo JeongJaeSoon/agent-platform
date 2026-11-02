@@ -8,6 +8,7 @@ import {
   type ListAgentsResponse,
   type ReceiptOperation,
   storedAgentCardSchema,
+  type WorkspaceRole,
 } from "@werft-ai/contracts";
 import type { ActivateResult, AgentStore, Principal } from "@werft-ai/platform";
 import {
@@ -24,7 +25,9 @@ import {
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { administers, liveMember } from "./administers.ts";
+import { managingTeamAllowed } from "./agent-admins.ts";
 import { agentSummaries } from "./agent-summaries.ts";
+import { holdsRight, lockedRole } from "./api-keys.ts";
 import {
   actorStillMember,
   containsPattern,
@@ -92,6 +95,7 @@ export function agentOf(row: AgentRow): Agent {
     slug: row.slug,
     name: row.name,
     description: row.description,
+    managing_team_id: row.managingTeamId,
     status: row.status as Agent["status"],
     active_release_id: row.activeReleaseId,
     activation_revision: row.activationRevision,
@@ -285,6 +289,45 @@ async function lockAgent(tx: Database, workspaceId: string, agentId: string) {
   return agent;
 }
 
+/**
+ * The agent row for a change to its settings, with the acting person's right
+ * to make it read again under locks: their membership first, then the agent,
+ * then what `holdsRight` rests on (agent-rbac R1). A managing-team change or
+ * a lead's demotion committed after the policy's decision is seen here, or
+ * waits for this write.
+ */
+export async function lockAgentToChange(
+  tx: Database,
+  input: {
+    principal: Principal;
+    workspaceId: string;
+    managerRoles: readonly WorkspaceRole[];
+  },
+  agentId: string,
+): Promise<
+  | { agent: NonNullable<Awaited<ReturnType<typeof lockAgent>>> }
+  | { outcome: "actor_inactive" | "outranked" | "not_found" }
+> {
+  const userId = input.principal.actor?.userId;
+  // No person behind the principal: nothing to re-read, as actorStillMember.
+  const role = userId ? await lockedRole(tx, input.workspaceId, userId) : null;
+  if (userId && role === null) return { outcome: "actor_inactive" };
+  const agent = await lockAgent(tx, input.workspaceId, agentId);
+  if (!agent) return { outcome: "not_found" };
+  if (
+    userId &&
+    role !== null &&
+    !(await holdsRight(tx, input.workspaceId, userId, {
+      role,
+      roles: input.managerRoles,
+      agentId: agent.id,
+    }))
+  ) {
+    return { outcome: "outranked" };
+  }
+  return { agent };
+}
+
 export function createPostgresAgentStore(db: Database): AgentStore {
   return {
     async list(workspaceId, query): Promise<ListAgentsResponse> {
@@ -397,6 +440,20 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         if (!(await actorStillMember(tx, input.principal))) {
           return { outcome: "actor_inactive" };
         }
+        if (input.managingTeam !== undefined) {
+          const role = await lockedRole(tx, input.workspaceId, input.createdBy);
+          if (role === null) return { outcome: "actor_inactive" };
+          const allowed = await managingTeamAllowed(
+            tx,
+            input.workspaceId,
+            input.managingTeam.id,
+            {
+              userId: input.createdBy,
+              manager: input.managingTeam.managerRoles.includes(role),
+            },
+          );
+          if (allowed !== "ok") return { outcome: allowed };
+        }
         const agentId = randomUUID();
         const inserted = await tx
           .insert(agents)
@@ -406,6 +463,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
             slug: input.slug,
             name: input.name,
             description: input.description ?? null,
+            managingTeamId: input.managingTeam?.id.toLowerCase() ?? null,
             createdBy: input.createdBy,
           })
           .onConflictDoNothing({
@@ -432,6 +490,13 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           operation: "create_agent",
           workspaceId: input.workspaceId,
           agentId,
+          ...(input.managingTeam === undefined
+            ? {}
+            : {
+                result: {
+                  managing_team_id: input.managingTeam.id.toLowerCase(),
+                },
+              }),
         });
         const detail = await detailOf(tx, input.workspaceId, agentId);
         if (!detail) throw new Error(`agent ${agentId} vanished in its tx`);
@@ -441,11 +506,9 @@ export function createPostgresAgentStore(db: Database): AgentStore {
 
     update(input) {
       return db.transaction(async (tx) => {
-        if (!(await actorStillMember(tx, input.principal))) {
-          return { outcome: "actor_inactive" };
-        }
-        const agent = await lockAgent(tx, input.workspaceId, input.agentId);
-        if (!agent) return { outcome: "not_found" };
+        const locked = await lockAgentToChange(tx, input, input.agentId);
+        if ("outcome" in locked) return locked;
+        const { agent } = locked;
         let changed = false;
         if (input.name !== undefined) {
           const renamed = await tx
@@ -516,9 +579,12 @@ export function createPostgresAgentStore(db: Database): AgentStore {
     insertRelease(input) {
       const { release } = input;
       return db.transaction(async (tx) => {
-        if (!(await actorStillMember(tx, input.principal))) {
-          return { outcome: "actor_inactive" };
-        }
+        // A release's label counts the agent's earlier releases in the same
+        // second, so releases are made one at a time per agent and stamped
+        // after the lock: the label they answer with is the one they keep.
+        const held = await lockAgentToChange(tx, input, release.agent_id);
+        if ("outcome" in held) return held;
+        const locked = held.agent;
         const [owned] = await tx
           .select({ id: agentVersions.id })
           .from(agentVersions)
@@ -532,10 +598,6 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           )
           .limit(1);
         if (!owned) return { outcome: "not_found" };
-        // A release's label counts the agent's earlier releases in the same
-        // second, so releases are made one at a time per agent and stamped
-        // after the lock: the label they answer with is the one they keep.
-        const locked = await lockAgent(tx, input.workspaceId, release.agent_id);
         const [inserted] = await tx
           .insert(agentReleases)
           .values({
@@ -590,13 +652,11 @@ export function createPostgresAgentStore(db: Database): AgentStore {
 
     activate(input): Promise<ActivateResult> {
       return db.transaction(async (tx) => {
-        if (!(await actorStillMember(tx, input.principal))) {
-          return { outcome: "actor_inactive" };
-        }
         // The lock queues concurrent activations; the UPDATE below is the
         // compare-and-swap each of them is then judged by.
-        const agent = await lockAgent(tx, input.workspaceId, input.agentId);
-        if (!agent) return { outcome: "not_found" };
+        const locked = await lockAgentToChange(tx, input, input.agentId);
+        if ("outcome" in locked) return locked;
+        const { agent } = locked;
         const current = agent.activationRevision;
         // expected + 1: a retry of a request whose first attempt already swapped.
         if (

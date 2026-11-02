@@ -203,6 +203,11 @@ export const agentSchema = z
     name: z.string().min(1).max(120),
     /** What the agent is for, to people only: no run reads it. */
     description: agentDescriptionSchema.nullable(),
+    /**
+     * The team whose leads administer the agent and whose members work with
+     * it. Null only on agents made before managing teams.
+     */
+    managing_team_id: z.uuid().nullable(),
     status: agentStatusSchema,
     active_release_id: agentReleaseIdSchema.nullable(),
     activation_revision: activationRevisionSchema,
@@ -583,6 +588,11 @@ export const createAgentRequestSchema = z
     slug: agentSlugSchema,
     name: z.string().min(1).max(120),
     description: agentDescriptionSchema.optional(),
+    /**
+     * Owners and admins name any live team; anyone else only a team they are
+     * in. Optional for now; a later release requires it.
+     */
+    managing_team_id: z.uuid().optional(),
     card: agentCardRequestSchema,
   })
   .strict();

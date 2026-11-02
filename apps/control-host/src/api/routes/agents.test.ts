@@ -69,6 +69,7 @@ const detail: AgentDetail = {
     slug: "finance",
     name: "재무 분석가",
     description: null,
+    managing_team_id: null,
     status: "active",
     active_release_id: null,
     activation_revision: -1,
@@ -531,6 +532,48 @@ describe("POST /v1/agents", () => {
     );
     expect(response.status).toBe(409);
     expect(await codeOf(response)).toBe("ALREADY_EXISTS");
+  });
+
+  test("passes the managing team, and its refusals map to 404 and 403", async () => {
+    const TEAM = "019a0000-0000-7000-8000-0000000000c9";
+    let asked: unknown;
+    const created = await send(
+      app(
+        store({
+          create: async (input) => {
+            asked = input.managingTeam;
+            return { outcome: "created", detail };
+          },
+        }),
+      ),
+      "POST",
+      "/v1/agents",
+      { ...body, managing_team_id: TEAM },
+    );
+    expect(created.status).toBe(201);
+    expect(asked).toEqual({ id: TEAM, managerRoles: ["owner", "admin"] });
+    const missing = await send(
+      app(store({ create: async () => ({ outcome: "team_not_found" }) })),
+      "POST",
+      "/v1/agents",
+      { ...body, managing_team_id: TEAM },
+    );
+    expect(missing.status).toBe(404);
+    const refused = await send(
+      app(store({ create: async () => ({ outcome: "team_not_allowed" }) })),
+      "POST",
+      "/v1/agents",
+      { ...body, managing_team_id: TEAM },
+    );
+    expect(refused.status).toBe(403);
+    expect(
+      (
+        await send(app(), "POST", "/v1/agents", {
+          ...body,
+          managing_team_id: null,
+        })
+      ).status,
+    ).toBe(400);
   });
 
   test("refuses an API key and an oversized body", async () => {

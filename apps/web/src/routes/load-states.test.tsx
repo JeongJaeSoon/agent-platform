@@ -142,7 +142,13 @@ const RETRY_CASES: ReadonlyArray<{
     failingKey: "GET /v1/my-teams",
     answer: () =>
       json(200, {
-        items: [{ id: "7c1e2d3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f", name: "결제팀" }],
+        items: [
+          {
+            id: "7c1e2d3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f",
+            name: "결제팀",
+            role: "member",
+          },
+        ],
         next_cursor: null,
       }),
     after: /^결제팀$/,

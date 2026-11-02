@@ -18,8 +18,18 @@ import {
   type GitHubRefusal,
   githubFeaturesOverCeiling,
 } from "@werft-ai/contracts";
-import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
-import { ACTOR_INACTIVE, NOT_FOUND } from "../musterrolle/service-errors.ts";
+import {
+  type AuthorizationPolicy,
+  type Caller,
+  MANAGEMENT_ROLES,
+} from "../musterrolle/policy.ts";
+import {
+  ACTOR_INACTIVE,
+  NOT_FOUND,
+  OUTRANKED,
+  TEAM_NOT_ALLOWED,
+  TEAM_NOT_FOUND,
+} from "../musterrolle/service-errors.ts";
 import type { SlackWelcome } from "../musterrolle/slack-welcome.ts";
 import type { AgentStore } from "../ports/agent-store.ts";
 import type { WorkspaceKeyStore } from "../ports/api-key-store.ts";
@@ -119,6 +129,9 @@ export function createAgentService(deps: {
   githubSettings?: Pick<GitHubSettingsStore, "get">;
 }) {
   const { authorization, store, catalog, credentials } = deps;
+  const AGENT_MANAGERS = MANAGEMENT_ROLES["agent.manage"] ?? [];
+  // Who names any live team as an agent's managing team, as setManagingTeam.
+  const TEAM_ASSIGNERS = MANAGEMENT_ROLES["agent.admin.manage"] ?? [];
 
   const githubInvalid = (
     field: string,
@@ -319,6 +332,14 @@ export function createAgentService(deps: {
         ...(request.description === undefined
           ? {}
           : { description: request.description }),
+        ...(request.managing_team_id === undefined
+          ? {}
+          : {
+              managingTeam: {
+                id: request.managing_team_id,
+                managerRoles: TEAM_ASSIGNERS,
+              },
+            }),
         card: request.card,
         contentSha256: cardContentSha256(request.card),
         createdBy: userId,
@@ -329,6 +350,10 @@ export function createAgentService(deps: {
             "ALREADY_EXISTS",
             `An agent with slug ${request.slug} already exists`,
           );
+        case "team_not_found":
+          throw TEAM_NOT_FOUND();
+        case "team_not_allowed":
+          throw TEAM_NOT_ALLOWED();
         case "actor_inactive":
           throw ACTOR_INACTIVE();
         default:
@@ -359,12 +384,15 @@ export function createAgentService(deps: {
               },
             }),
         updatedBy: userId,
+        managerRoles: AGENT_MANAGERS,
       });
       switch (result.outcome) {
         case "not_found":
           throw NOT_FOUND();
         case "actor_inactive":
           throw ACTOR_INACTIVE();
+        case "outranked":
+          throw OUTRANKED();
         default:
           return result.detail;
       }
@@ -464,6 +492,7 @@ export function createAgentService(deps: {
       const result = await store.insertRelease({
         principal: caller,
         workspaceId: caller.ownerId,
+        managerRoles: AGENT_MANAGERS,
         release: {
           id: deriveReleaseId(identity),
           version_id: version.id,
@@ -477,6 +506,8 @@ export function createAgentService(deps: {
           throw NOT_FOUND();
         case "actor_inactive":
           throw ACTOR_INACTIVE();
+        case "outranked":
+          throw OUTRANKED();
         default:
           assertReleaseIdentity(result.release);
           return {
@@ -516,12 +547,15 @@ export function createAgentService(deps: {
         releaseId: release.id,
         expectedRevision: request.expected_revision,
         approvedBy: userId,
+        managerRoles: AGENT_MANAGERS,
       });
       switch (result.outcome) {
         case "not_found":
           throw NOT_FOUND();
         case "actor_inactive":
           throw ACTOR_INACTIVE();
+        case "outranked":
+          throw OUTRANKED();
         case "conflict":
           throw new SessionServiceError(
             "REVISION_CONFLICT",

@@ -312,8 +312,12 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
 
     const joined = async (caller: Caller) =>
       (await teams().listJoined(workspaceId, idOf(caller), PAGE)).items;
-    expect(await joined(mine)).toEqual([{ id: kept.id, name: "b-kept" }]);
-    expect(await joined(other)).toEqual([{ id: theirs.id, name: "d-theirs" }]);
+    expect(await joined(mine)).toEqual([
+      { id: kept.id, name: "b-kept", role: "member" },
+    ]);
+    expect(await joined(other)).toEqual([
+      { id: theirs.id, name: "d-theirs", role: "member" },
+    ]);
     expect(
       await teams().listJoined(await workspace(), idOf(mine), PAGE),
     ).toEqual({ items: [], nextCursor: null });

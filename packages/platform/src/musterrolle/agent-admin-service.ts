@@ -3,6 +3,7 @@ import {
   type AgentAdminKind,
   type AgentAdminsView,
   type ListAdministeredAgentsResponse,
+  type SetAgentManagingTeamResponse,
   TEAM_LIST_LIMIT,
 } from "@werft-ai/contracts";
 import type {
@@ -18,7 +19,19 @@ import {
   type Caller,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
-import { NOT_FOUND } from "./service-errors.ts";
+import {
+  NOT_FOUND,
+  TEAM_NOT_ALLOWED,
+  TEAM_NOT_FOUND,
+} from "./service-errors.ts";
+
+const NO_LONGER_ADMIN = () =>
+  new SessionServiceError(
+    "FORBIDDEN",
+    "The caller no longer holds agent.admin.manage",
+    undefined,
+    { reason_code: "role" },
+  );
 
 // Who administers an agent (design 4.1): people and teams, named by an owner,
 // an admin or one of the agent's admins (`agent.admin.manage`).
@@ -99,12 +112,9 @@ export function createAgentAdminService(deps: {
             : "No team in this workspace has that id",
         );
       case "actor_inactive":
-        throw new SessionServiceError(
-          "FORBIDDEN",
-          "The caller no longer holds agent.admin.manage",
-          undefined,
-          { reason_code: "role" },
-        );
+        throw NO_LONGER_ADMIN();
+      case "team_not_allowed":
+        throw TEAM_NOT_ALLOWED();
       case "unchanged":
         return { admins: adminsView(result.admins), receipt_id: null };
       default:
@@ -121,6 +131,41 @@ export function createAgentAdminService(deps: {
       const admins = await store.list(caller.ownerId, agentId);
       if (!admins) throw NOT_FOUND();
       return adminsView(admins);
+    },
+
+    /**
+     * Replaces the agent's managing team. Owners and admins name any live
+     * team; anyone else who administers the agent only a team they are in.
+     */
+    async setManagingTeam(
+      caller: Caller,
+      agentId: string,
+      teamId: string,
+    ): Promise<SetAgentManagingTeamResponse> {
+      await onAgent(caller, agentId);
+      const { userId, workspaceId } = personOf(caller);
+      const receiptId = newId();
+      const result = await store.setManagingTeam({
+        actor: { principal: caller, workspaceId, userId },
+        receiptId,
+        agentId,
+        teamId,
+        managerRoles,
+      });
+      switch (result.outcome) {
+        case "not_found":
+          throw NOT_FOUND();
+        case "team_not_found":
+          throw TEAM_NOT_FOUND();
+        case "team_not_allowed":
+          throw TEAM_NOT_ALLOWED();
+        case "actor_inactive":
+          throw NO_LONGER_ADMIN();
+        case "unchanged":
+          return { agent: result.agent, receipt_id: null };
+        default:
+          return { agent: result.agent, receipt_id: receiptId };
+      }
     },
 
     addAgentAdmin: (

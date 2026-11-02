@@ -5,6 +5,7 @@ import type {
   ListMyTeamsResponse,
   ListTeamsQuery,
   ListTeamsResponse,
+  SetTeamMemberRoleRequest,
   TeamChangeResponse,
   TeamDetail as TeamDetailView,
   TeamView,
@@ -60,6 +61,7 @@ function detailView(team: TeamDetail): TeamDetailView {
       user_id: member.userId,
       email: member.email,
       display_name: member.displayName,
+      role: member.role,
       added_by: member.addedBy,
       added_at: member.addedAt.toISOString(),
     })),
@@ -154,7 +156,7 @@ export function createTeamService(deps: {
       }
       const page = await store.listJoined(workspaceId, userId, query);
       return {
-        items: page.items.map(({ id, name }) => ({ id, name })),
+        items: page.items.map(({ id, name, role }) => ({ id, name, role })),
         next_cursor: page.nextCursor,
       };
     },
@@ -236,8 +238,43 @@ export function createTeamService(deps: {
           throw NOT_FOUND();
         case "actor_inactive":
           throw OUTRANKED();
+        case "manages_agents":
+          throw new SessionServiceError(
+            "TEAM_MANAGES_AGENTS",
+            "The team manages agents; give them another managing team first",
+            undefined,
+            { agent_ids: result.agentIds },
+          );
         default:
           return { receipt_id: receiptId };
+      }
+    },
+
+    async setTeamMemberRole(
+      caller: Caller,
+      teamId: string,
+      userId: string,
+      request: SetTeamMemberRoleRequest,
+    ): Promise<TeamChangeResponse> {
+      const actor = await manager(caller);
+      const receiptId = newId();
+      const result = await store.setMemberRole({
+        actor,
+        receiptId,
+        teamId,
+        userId,
+        role: request.role,
+      });
+      switch (result.outcome) {
+        case "not_found":
+        case "not_member":
+          throw NOT_FOUND();
+        case "actor_inactive":
+          throw OUTRANKED();
+        case "unchanged":
+          return { team: teamView(result.team), receipt_id: null };
+        default:
+          return { team: teamView(result.team), receipt_id: receiptId };
       }
     },
 

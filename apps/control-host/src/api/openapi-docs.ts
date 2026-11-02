@@ -247,6 +247,8 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
     "A request the parked turn waits on is neither answered nor expired yet.",
   PERMISSION_WAIT_ABOVE_PROFILE:
     "A requested wait is longer than the profile allows.",
+  TEAM_MANAGES_AGENTS:
+    "The team is still the managing team of live agents, named in `error.details.agent_ids`; give each another managing team first.",
   CONFIG_TOKEN_INVALID:
     "The workspace's Slack App Configuration Token cannot be used. `error.details.reason_code` is `not_set` (none stored), `rejected` (Slack refused it; paste another) or `needs_reentry` (Slack no longer takes the stored token, or a rotation's answer was lost; an owner or admin pastes a new one).",
   SLACK_APP_CREATING:

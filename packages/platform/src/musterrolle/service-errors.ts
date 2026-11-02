@@ -9,6 +9,21 @@ export const ACTOR_INACTIVE = () =>
     "This principal is no longer a member of the workspace",
   );
 
+export const TEAM_NOT_FOUND = () =>
+  new SessionServiceError("NOT_FOUND", "No team in this workspace has that id");
+
+/**
+ * Anyone but an owner or admin names, as a managing team, only a team they
+ * are in, and as an admin team only one they lead (agent-rbac design (b)).
+ */
+export const TEAM_NOT_ALLOWED = () =>
+  new SessionServiceError(
+    "FORBIDDEN",
+    "The caller may not name that team here",
+    undefined,
+    { reason_code: "team_not_allowed" },
+  );
+
 export const OUTRANKED = () =>
   new SessionServiceError(
     "FORBIDDEN",

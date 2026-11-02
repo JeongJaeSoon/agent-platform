@@ -114,6 +114,10 @@ function recordingStore() {
       calls.push(`remove:${input.userId}`);
       return { outcome: "removed", team: TEAM_ROW };
     },
+    async setMemberRole(input) {
+      calls.push(`role:${input.userId}:${input.role}`);
+      return { outcome: "changed", team: TEAM_ROW };
+    },
     async list(_workspaceId, query) {
       calls.push(`list:${JSON.stringify(query)}`);
       return { items: [TEAM_ROW], nextCursor: "next" };
@@ -123,7 +127,7 @@ function recordingStore() {
     },
     async listJoined(workspaceId, userId, query) {
       calls.push(`joined:${workspaceId}:${userId}:${JSON.stringify(query)}`);
-      return { items: [TEAM_ROW], nextCursor: null };
+      return { items: [{ ...TEAM_ROW, role: "lead" }], nextCursor: null };
     },
     async isMember(workspaceId, teamId, userId) {
       return (
@@ -291,6 +295,9 @@ describe("agent.admin.manage by role (design 4.1)", () => {
         changed.push(input.subject);
         return { outcome: "removed", admins: { users: [], teams: [] } };
       },
+      async setManagingTeam() {
+        return { outcome: "not_found" };
+      },
       async listAdministered() {
         return [];
       },
@@ -378,7 +385,7 @@ describe("one's own teams", () => {
   test("any signed-in person reads their own, names only, asking no policy", async () => {
     const s = services();
     expect(await s.teams.listMyTeams(caller("member"), PAGE)).toEqual({
-      items: [{ id: TEAM_ROW.id, name: TEAM_ROW.name }],
+      items: [{ id: TEAM_ROW.id, name: TEAM_ROW.name, role: "lead" }],
       next_cursor: null,
     });
     expect(s.calls).toEqual([
