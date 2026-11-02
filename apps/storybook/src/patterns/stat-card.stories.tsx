@@ -85,7 +85,7 @@ export const DefaultDark: Story = {
 };
 
 /**
- * An agent's overview (mockup v4 L714): three cards on `grid-3`, 16px apart.
+ * An agent's overview: three cards in a row, 16px apart.
  * The last figure is not counted yet, so it is muted.
  */
 export const Grid3: Story = {
