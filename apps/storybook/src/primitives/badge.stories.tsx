@@ -29,7 +29,7 @@ export const Default: Story = {
   ),
 };
 
-/** Console v35's five badge tones. */
+/** The console's five badge tones. */
 export const Tones: Story = {
   render: () => (
     <div className="story-row">
@@ -48,7 +48,21 @@ export const TonesDark: Story = {
   globals: { theme: "dark" },
 };
 
-/** Identifiers such as model names, as a chip list (mockup v4). */
+/** `asChild`: the badge is its one child, here a link to what it reports. */
+export const AsLink: Story = {
+  render: () => (
+    <div className="story-row">
+      <Badge asChild variant="green">
+        <a href="#connected">연결됨</a>
+      </Badge>
+      <Badge asChild variant="red">
+        <a href="#failed">실패</a>
+      </Badge>
+    </div>
+  ),
+};
+
+/** Identifiers such as model names, as a chip list. */
 export const Mono: Story = {
   render: () => (
     <ul className="m-0 flex list-none flex-wrap gap-1 p-0">

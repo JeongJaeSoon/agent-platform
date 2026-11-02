@@ -161,7 +161,7 @@ function ModelList({ models }: { readonly models: Models }) {
 }
 
 /*
- * Slack console v3 (mockups/v3-ia.md §3.1): a sub-nav of 일반 / Slack 연결
+ * The Slack pages: a sub-nav of 일반 / Slack 연결
  * 설정 / 자동으로 만든 앱; Slack 게스트 moves from 일반 to a Switch row
  * beside the App Configuration Token row. The token row shows only what
  * GET .../slack/config-token returns (state, updated_at, updated_by), never
@@ -469,7 +469,7 @@ function SlackAppsPage() {
                     <Button asChild variant="link" size="sm">
                       <a
                         href={storyHref(
-                          "screens-agent-detail-v3--agent-detail-slack-settings",
+                          "screens-agent-detail-v4--agent-detail",
                         )}
                         aria-label={`${app.name} 자세히`}
                       >
