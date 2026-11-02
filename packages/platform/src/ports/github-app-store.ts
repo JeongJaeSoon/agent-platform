@@ -3,6 +3,7 @@ import type {
   GitHubAppConflict,
   GitHubAppPermissions,
   GitHubAppRole,
+  GitHubUnavailable,
 } from "@werft-ai/contracts";
 import type { RepoRef } from "./forge.ts";
 import type { SecretAudit } from "./secret-store.ts";
@@ -17,6 +18,12 @@ export type GitHubAppProfile = {
   permissions: GitHubAppPermissions;
   /** The client for the App's user authorization; null when GitHub sent none. */
   clientId: string | null;
+};
+
+/** The account that owns the App on GitHub; its settings page hangs off it. */
+export type GitHubAppOwner = {
+  login: string;
+  type: "organization" | "user";
 };
 
 /** The workspace's GitHub App as stored, without its private key. */
@@ -134,6 +141,10 @@ export interface GitHubAppStore {
     /** Left out: the row keeps the client id it has. */
     clientId?: string | null,
   ): Promise<void>;
+  /** The workspace's registered Apps of every role. */
+  list(
+    workspaceId: string,
+  ): Promise<Array<GitHubAppRecord & { role: GitHubAppRole }>>;
   /** Every registered App of `role` with its key, or one workspace's. */
   credentials(
     role: GitHubAppRole,
@@ -144,15 +155,22 @@ export interface GitHubAppStore {
 export type GitHubAppInstallationView = {
   id: number;
   account: string;
+  accountType: "organization" | "user";
+  accountId: number | null;
   repositorySelection: "all" | "selected";
   htmlUrl: string | null;
+  /** What the account approved for this installation. */
+  permissions: GitHubAppPermissions;
+  createdAt: Date | null;
+  suspendedAt: Date | null;
 };
 
 /** GitHub's side of a registered App, asked with the App's JWT. */
 export interface GitHubAppDirectory {
+  /** `owner` is null when GitHub named none. */
   describe(
     app: Pick<GitHubAppCredential, "appId" | "apiBase" | "privateKey">,
-  ): Promise<GitHubAppProfile>;
+  ): Promise<GitHubAppProfile & { owner?: GitHubAppOwner | null }>;
   installations(
     app: Pick<GitHubAppCredential, "appId" | "apiBase" | "privateKey">,
   ): Promise<GitHubAppInstallationView[]>;
@@ -194,10 +212,20 @@ export type GitHubInstallationRepository = {
   private: boolean;
 };
 
+/** A failed App call as the newer API answers it (GITHUB_UNAVAILABLE_VALUES). */
+export const githubUnavailableOf = (error: unknown): GitHubUnavailable =>
+  error instanceof GitHubAppCheckError && error.reason === "github_rejected"
+    ? "github_app_auth_failed"
+    : "github_unavailable";
+
 /** A GitHub answer that says nothing about the request's own values. */
 export class GitHubAppCheckError extends Error {
   override readonly name = "GitHubAppCheckError";
-  constructor(readonly reason: GitHubAppCheckFailure) {
+  constructor(
+    readonly reason: GitHubAppCheckFailure,
+    /** GitHub's HTTP status; absent when it did not answer. */
+    readonly status?: number,
+  ) {
     super(`GitHub App check failed: ${reason}`);
   }
 }

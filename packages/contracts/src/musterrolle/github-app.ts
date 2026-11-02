@@ -67,6 +67,20 @@ const RANK: Record<GitHubAppPermissionLevel, number> = {
   admin: 3,
 };
 
+/** The permissions `asked` names that `granted` does not hold at that level. */
+export function githubPermissionsMissing(
+  granted: GitHubAppPermissions,
+  asked: GitHubAppPermissions,
+): string[] {
+  return Object.entries(asked)
+    .filter(([name, level]) => {
+      const held = granted[name];
+      return held === undefined || RANK[held] < RANK[level];
+    })
+    .map(([name]) => name)
+    .sort();
+}
+
 /**
  * The most each role's App is told to hold (design github-agent.md §1):
  * the author's defaults plus its optional features, the reviewer's three.

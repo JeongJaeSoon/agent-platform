@@ -16,6 +16,7 @@ import {
   type GitHubAppDirectory,
   type GitHubAppInstallationView,
   type GitHubAppManifestConversion,
+  type GitHubAppOwner,
   type GitHubAppStore,
   GitHubCallError,
   type GitHubConnection,
@@ -815,6 +816,7 @@ export function createGitHubAppDirectory(
         status === 401 || status === 404
           ? "github_rejected"
           : "github_unreachable",
+        status,
       );
     }
   }
@@ -831,6 +833,7 @@ export function createGitHubAppDirectory(
           name: data.name,
           htmlUrl: data.html_url,
           permissions: permissionsOf(data.permissions),
+          owner: ownerOf(data.owner),
           clientId:
             typeof data.client_id === "string" && data.client_id !== ""
               ? data.client_id
@@ -856,8 +859,12 @@ export function createGitHubAppDirectory(
               id: Number(installation.id),
               account:
                 account?.login ?? account?.slug ?? String(installation.id),
+              ...accountOf(installation.account),
               repositorySelection: installation.repository_selection,
               htmlUrl: installation.html_url ?? null,
+              permissions: permissionsOf(installation.permissions),
+              createdAt: dateOf(installation.created_at),
+              suspendedAt: dateOf(installation.suspended_at),
             });
           }
           if (data.length < INSTALLATIONS_PER_PAGE) break;
@@ -1056,6 +1063,32 @@ function permissionsOf(
         entry[1] === "read" || entry[1] === "write" || entry[1] === "admin",
     ),
   );
+}
+
+function ownerOf(raw: unknown): GitHubAppOwner | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const { login, type } = raw as { login?: unknown; type?: unknown };
+  if (typeof login !== "string" || login === "") return null;
+  return { login, type: type === "Organization" ? "organization" : "user" };
+}
+
+// An enterprise account has no type GitHub names; it reads as an organization.
+function accountOf(raw: unknown): {
+  accountType: "organization" | "user";
+  accountId: number | null;
+} {
+  const { type, id } = (raw ?? {}) as { type?: unknown; id?: unknown };
+  return {
+    accountType: type === "User" ? "user" : "organization",
+    accountId:
+      typeof id === "number" && Number.isSafeInteger(id) && id > 0 ? id : null,
+  };
+}
+
+function dateOf(raw: unknown): Date | null {
+  if (typeof raw !== "string") return null;
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 /**

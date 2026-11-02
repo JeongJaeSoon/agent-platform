@@ -823,6 +823,8 @@ const githubSettings = createGitHubSettingsService({
   oauth: githubOAuth,
   callbackUrl: githubCallback,
   secretsOn: secretKey !== null,
+  apps: githubAppStore,
+  directory: githubAppDirectory,
 });
 const githubPackagesConfig = githubPackagesConfigFromEnv(process.env);
 const githubPackagesStore = createPostgresGitHubPackagesStore(db, secretKey);

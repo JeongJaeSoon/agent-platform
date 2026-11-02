@@ -107,21 +107,14 @@ export const installedGitHubRepositorySchema = z
 
 /**
  * Why there is no page to show. GitHub failing to answer is an error, not
- * one of these: 502 GITHUB_UNAVAILABLE.
+ * one of these: 502 GITHUB_UNAVAILABLE, `details.reason_code` one of
+ * GITHUB_UNAVAILABLE_VALUES.
  */
 export const GITHUB_REPOSITORIES_UNAVAILABLE_VALUES = [
   // No author App is registered.
   "no_author_app",
   // No registered App is installed anywhere.
   "no_installation",
-] as const;
-
-/** `details.reason_code` of a 502 GITHUB_UNAVAILABLE. */
-export const GITHUB_UNAVAILABLE_VALUES = [
-  // GitHub did not answer, answered 5xx, or rate-limited the App.
-  "github_unavailable",
-  // GitHub refused the App's key.
-  "github_app_auth_failed",
 ] as const;
 
 const installationPageFields = {

@@ -167,6 +167,21 @@ export function createPostgresGitHubAppStore(
       return row ? recordOf(db, row) : null;
     },
 
+    async list(workspaceId) {
+      const rows = await db
+        .select()
+        .from(githubApps)
+        .where(eq(githubApps.workspaceId, workspaceId.toLowerCase()))
+        .orderBy(githubApps.role, githubApps.createdAt, githubApps.id);
+      const records = await Promise.all(
+        rows.map(async (row) => {
+          const record = await recordOf(db, row);
+          return record === null ? [] : [{ ...record, role: row.role }];
+        }),
+      );
+      return records.flat();
+    },
+
     put(named, role, app, privateKey, audit, manifest) {
       const workspaceId = named.toLowerCase();
       return db.transaction(async (tx) => {

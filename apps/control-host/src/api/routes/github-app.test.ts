@@ -117,6 +117,12 @@ function memoryStore() {
       : null;
   };
   const store: GitHubAppStore = {
+    async list(workspaceId) {
+      return (["author", "reviewer"] as const).flatMap((role) => {
+        const row = mine(workspaceId, role);
+        return row === null ? [] : [{ ...row.record, role }];
+      });
+    },
     async find(workspaceId, role) {
       return mine(workspaceId, role)?.record ?? null;
     },

@@ -114,6 +114,9 @@ function memoryStore() {
     };
   };
   const store: GitHubAppStore = {
+    async list() {
+      return [...held].map(([role, record]) => ({ ...record, role }));
+    },
     async find(_workspaceId, role) {
       return held.get(role) ?? null;
     },

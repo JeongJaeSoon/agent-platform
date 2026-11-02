@@ -137,7 +137,7 @@ function memoryRepositories() {
   const rows = new Map<string, CatalogRepositoryRow>();
   const receipts: Array<{ operation: string; id: string; receipt: string }> =
     [];
-  const counts = new Map<string, number>();
+  const counts = new Map<string, { author: number; reviewer: number }>();
   const store: CatalogRepositoryStore = {
     async listActive() {
       return [...rows.values()];
@@ -371,7 +371,15 @@ describe("the GitHub repository API", () => {
       (await call("GET", workspacePath("?per_page=2"), { cookie: owner })).json,
     );
     expect(first).toMatchObject({
-      installations: [{ id: INSTALLATION, account: "acme" }],
+      installations: [
+        {
+          id: INSTALLATION,
+          account: "acme",
+          connection_id: "app-row",
+          role: "author",
+          repository_count: 3,
+        },
+      ],
       installation_id: INSTALLATION,
       page: 1,
       per_page: 2,
@@ -407,9 +415,18 @@ describe("the GitHub repository API", () => {
     const elsewhere = await call("GET", workspacePath("?installation_id=5"), {
       cookie: owner,
     });
-    expect(elsewhere.status).toBe(400);
+    expect(elsewhere.status).toBe(404);
     expect(code(elsewhere.json).details).toEqual({
-      reason_code: "not_installed",
+      reason_code: "installation_not_found",
+    });
+    const elsewhereForAgent = await call(
+      "GET",
+      agentPath(AGENT, "?installation_id=5"),
+      { cookie: owner },
+    );
+    expect(elsewhereForAgent.status).toBe(404);
+    expect(code(elsewhereForAgent.json).details).toEqual({
+      reason_code: "installation_not_found",
     });
     for (const bad of ["?per_page=101", "?page=0", "?installation_id=x"]) {
       expect(
@@ -454,7 +471,7 @@ describe("the GitHub repository API", () => {
     );
     expect(again).toEqual({ catalog_id: "app", receipt_id: null });
 
-    memory.counts.set("app", 2);
+    memory.counts.set("app", { author: 2, reviewer: 1 });
     const listed = listGitHubRepositoriesResponseSchema.parse(
       (await call("GET", workspacePath(), { cookie: owner })).json,
     );
@@ -608,6 +625,54 @@ describe("the GitHub repository API", () => {
       expect(code(pick.json).details).toEqual({ reason_code: "no_author_app" });
     } finally {
       appRegistered = true;
+    }
+  });
+
+  test("GitHub failing is an error by cause, never an empty page", async () => {
+    const owner = cookieFor("owner");
+    const pickBody = {
+      installation_id: INSTALLATION,
+      github_repository_id: idOf("acme/other"),
+    };
+    const reads = [
+      ["GET", workspacePath()],
+      ["GET", agentPath()],
+      ["POST", agentPath()],
+    ] as const;
+    for (const [status, reason] of [
+      [401, "github_app_auth_failed"],
+      [500, "github_unavailable"],
+    ] as const) {
+      github.failApp(APP_ID, status);
+      try {
+        for (const [method, path] of reads) {
+          const failed = await call(method, path, {
+            cookie: owner,
+            ...(method === "POST" ? { body: pickBody } : {}),
+          });
+          expect(failed.status, `${method} ${path} ${status}`).toBe(502);
+          expect(code(failed.json)).toMatchObject({
+            code: "GITHUB_UNAVAILABLE",
+            details: { reason_code: reason },
+          });
+        }
+      } finally {
+        github.failApp(APP_ID, undefined);
+      }
+    }
+
+    github.suspendInstallations(true);
+    try {
+      for (const path of [workspacePath(), agentPath()]) {
+        const suspended = await call("GET", path, { cookie: owner });
+        expect(suspended.status, path).toBe(409);
+        expect(code(suspended.json)).toMatchObject({
+          code: "INSTALLATION_SUSPENDED",
+          details: { reason_code: "installation_suspended" },
+        });
+      }
+    } finally {
+      github.suspendInstallations(false);
     }
   });
 

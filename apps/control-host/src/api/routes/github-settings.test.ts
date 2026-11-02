@@ -12,6 +12,9 @@ import {
 import {
   createAuthorizationPolicy,
   createGitHubSettingsService,
+  GitHubAppCheckError,
+  type GitHubAppDirectory,
+  type GitHubAppStore,
   type GitHubSettingsStore,
   type IdentityStore,
   type MembershipRole,
@@ -109,6 +112,8 @@ function appWith(
     secretsOn?: boolean;
     /** Given, the author App accepts a secret and keeps it here. */
     stored?: string[];
+    apps?: GitHubAppStore;
+    directory?: GitHubAppDirectory;
   } = {},
 ) {
   const stored = options.stored;
@@ -141,6 +146,8 @@ function appWith(
           },
           callbackUrl: null,
           secretsOn: options.secretsOn ?? true,
+          apps: options.apps ?? null,
+          directory: options.directory ?? ({} as GitHubAppDirectory),
         }),
       ),
   });
@@ -180,7 +187,136 @@ function appWith(
 const ACTIONS_ON = { ...GITHUB_CEILING_NONE, actions: true };
 const code = (json: unknown) => apiErrorResponseSchema.parse(json).error;
 
+// Two author Apps and a reviewer App, as the store will hold them once a
+// role takes several; GitHub answers for App 11 and 13 and fails App 12.
+function threeApps() {
+  const at = new Date("2026-11-02T09:00:00.000Z");
+  const rows = [
+    { id: "conn-a", role: "author" as const, appId: 11 },
+    { id: "conn-b", role: "author" as const, appId: 12 },
+    { id: "conn-r", role: "reviewer" as const, appId: 13 },
+  ];
+  const apps = {
+    list: async () =>
+      rows.map((row) => ({
+        id: row.id,
+        role: row.role,
+        workspaceId: WORKSPACE,
+        appId: row.appId,
+        slug: `app-${row.appId}`,
+        name: `app-${row.appId}`,
+        htmlUrl: `https://github.com/apps/app-${row.appId}`,
+        permissions: { contents: "write" },
+        permissionsCheckedAt: at,
+        clientId: null,
+        apiBase: "https://api.github.com",
+        createdAt: at,
+        updatedAt: at,
+        privateKey: { updatedAt: at, updatedBy: null },
+      })),
+    credentials: async (role: string) =>
+      rows
+        .filter((row) => row.role === role)
+        .map((row) => ({
+          id: row.id,
+          workspaceId: WORKSPACE,
+          appId: row.appId,
+          apiBase: "https://api.github.com",
+          privateKey: "pem",
+          updatedAt: at,
+        })),
+    recordPermissions: async () => {},
+  } as unknown as GitHubAppStore;
+  const answer = (appId: number) => {
+    if (appId === 12) throw new GitHubAppCheckError("github_unreachable", 502);
+  };
+  const directory = {
+    describe: async ({ appId }: { appId: number }) => {
+      answer(appId);
+      return {
+        appId,
+        slug: `app-${appId}`,
+        name: `app-${appId}`,
+        htmlUrl: `https://github.com/apps/app-${appId}`,
+        permissions: { contents: "write" },
+        clientId: null,
+        owner: { login: "acme", type: "organization" },
+      };
+    },
+    installations: async ({ appId }: { appId: number }) => {
+      answer(appId);
+      return [
+        {
+          id: appId * 10,
+          account: "acme",
+          accountType: "organization",
+          accountId: 99,
+          repositorySelection: "all",
+          htmlUrl: `https://github.com/organizations/acme/settings/installations/${appId * 10}`,
+          permissions: { contents: "write" },
+          createdAt: at,
+          suspendedAt: null,
+        },
+      ];
+    },
+    installationRepositoriesPage: async () => ({
+      repositories: [],
+      totalCount: 4,
+    }),
+  } as unknown as GitHubAppDirectory;
+  return { apps, directory };
+}
+
 describe("the GitHub settings API", () => {
+  test("connections: every App, two of one role too; a failed one beside the rest; members read no detail", async () => {
+    const { call } = appWith(threeApps());
+    const asOwner = githubSettingsResponseSchema.parse(
+      (await call("GET", { cookie: cookieFor("owner") })).json,
+    );
+    expect(
+      asOwner.connections.map((each) => [
+        each.connection_id,
+        each.role,
+        each.check.state,
+        each.installations.length,
+      ]),
+    ).toEqual([
+      ["conn-a", "author", "ok", 1],
+      ["conn-b", "author", "failed", 0],
+      ["conn-r", "reviewer", "ok", 1],
+    ]);
+    expect(asOwner.connections[1]?.check).toEqual({
+      state: "failed",
+      reason_code: "github_unavailable",
+      checked_at: expect.any(String),
+    });
+    expect(asOwner.connections[0]?.installations[0]?.detail).toMatchObject({
+      connection_id: "conn-a",
+      role: "author",
+      account_id: 99,
+      approval: "approved",
+      repository_count: 4,
+      repository_selection: "all",
+      html_url:
+        "https://github.com/organizations/acme/settings/installations/110",
+      created_at: "2026-11-02T09:00:00.000Z",
+      suspended_at: null,
+    });
+
+    const asMember = await call("GET", { cookie: cookieFor("member") });
+    expect(asMember.status).toBe(200);
+    const member = githubSettingsResponseSchema.parse(asMember.json);
+    expect(member.connections[0]?.installations).toEqual([
+      {
+        id: 110,
+        account: "acme",
+        account_type: "organization",
+        status: "active",
+        detail: null,
+      },
+    ]);
+  });
+
   test("an owner reads the ceiling and raises it at the revision read", async () => {
     const { call, memory } = appWith();
     const owner = cookieFor("owner");
@@ -197,6 +333,7 @@ describe("the GitHub settings API", () => {
         review: 0,
       },
       oauth: { client_id: null, client_secret_set: false, callback_url: null },
+      connections: [],
       apps: {
         author: { permissions: { contents: "write", actions: "write" } },
         reviewer: null,
