@@ -1,5 +1,6 @@
 import {
   Card,
+  Code,
   cn,
   EmptyState,
   GridTable,
@@ -10,6 +11,7 @@ import {
   GridTableRowOpener,
   Meter,
   Skeleton,
+  Text,
 } from "@werft-ai/ui";
 import type { JSX } from "react";
 
@@ -131,19 +133,16 @@ export function ToolTable({
                       aria-pressed={pressed}
                       onClick={() => onSelect?.(tool.name)}
                     />
-                    <span className="font-mono">{tool.name}</span>
+                    <Code size="inherit">{tool.name}</Code>
                     {note ? (
-                      <span
-                        className={cn(
-                          "text-caption",
-                          // subtle-foreground falls under AA on bg-active.
-                          pressed
-                            ? "text-muted-foreground"
-                            : "text-subtle-foreground",
-                        )}
+                      <Text
+                        as="span"
+                        variant="meta"
+                        // subtle-foreground falls under AA on bg-active.
+                        className={cn(pressed && "text-muted-foreground")}
                       >
                         {note}
-                      </span>
+                      </Text>
                     ) : null}
                     <Meter
                       size="inline"

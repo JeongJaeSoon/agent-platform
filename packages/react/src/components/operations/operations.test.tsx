@@ -362,7 +362,9 @@ describe("ToolsSummary", () => {
     const clean = summary(TOOLS.map((tool) => ({ ...tool, failed: 0 })));
     expect(clean?.querySelector("[class*=tone-danger]")).toBeNull();
     expect(
-      [...(clean?.querySelectorAll("b") ?? [])].map((b) => b.textContent),
+      [...(clean?.querySelectorAll("[data-slot=text]") ?? [])].map(
+        (part) => part.textContent,
+      ),
     ).toContain("0번 실패");
   });
 });

@@ -596,12 +596,14 @@ function KeyList({
             >
               <div className="flex min-w-0 flex-1 flex-col gap-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span
-                    className="min-w-0 font-semibold text-sm leading-5 [overflow-wrap:anywhere]"
+                  <Text
+                    as="span"
+                    weight="medium"
+                    className="min-w-0 [overflow-wrap:anywhere]"
                     data-unnamed={key.name === null}
                   >
                     {title}
-                  </span>
+                  </Text>
                   <KindBadge kind={key.kind} />
                   <Badge
                     variant={approves ? "green" : "gray"}

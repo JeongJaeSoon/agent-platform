@@ -1,6 +1,7 @@
 import {
   Badge,
   Button,
+  CodeBlock,
   cn,
   Field,
   FieldError,
@@ -242,12 +243,9 @@ export function ApprovalRow({
         )}
       </div>
       {inputOpen ? (
-        <pre
-          id={inputId}
-          className="m-0 max-h-60 overflow-auto rounded-control bg-card p-2 font-mono text-caption"
-        >
+        <CodeBlock id={inputId} className="max-h-60 overflow-y-auto">
           {inputText(request.input)}
-        </pre>
+        </CodeBlock>
       ) : null}
       <FieldError>{error}</FieldError>
       {expired || !denying ? null : (
