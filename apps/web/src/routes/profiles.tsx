@@ -22,7 +22,6 @@ import {
   GridTableRow,
   GridTableRowOpener,
   Page,
-  RowLines,
   SegmentedControl,
   SegmentedControlItem,
   Skeleton,
@@ -440,22 +439,22 @@ function Stack({
   readonly narrow: string;
 }) {
   return (
-    <RowLines>
-      <span className="wrap-anywhere">{first}</span>
+    <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+      <span className="wrap-anywhere leading-5">{first}</span>
       {second === null ? null : (
-        <span className={cn("wrap-anywhere", META, secondClassName)}>
+        <span className={cn("wrap-anywhere leading-4", META, secondClassName)}>
           {second}
         </span>
       )}
       {/* GridTable's narrowAt={860} breakpoint, the width the columns drop at. */}
       <span
         className={cn(
-          "hidden wrap-anywhere [@container(max-width:860px)]:block",
+          "hidden wrap-anywhere leading-4 [@container(max-width:860px)]:block",
           META,
         )}
       >
         {narrow}
       </span>
-    </RowLines>
+    </div>
   );
 }

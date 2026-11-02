@@ -35,7 +35,6 @@ import {
   PageBreadcrumb,
   PageBreadcrumbCurrent,
   PageBreadcrumbLink,
-  RowLines,
   Section,
   Skeleton,
 } from "@werft-ai/ui";
@@ -783,8 +782,8 @@ function History({
                     params={{ profileId: item.id }}
                   />
                 </GridTableRowOpener>
-                <RowLines>
-                  <span>
+                <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+                  <span className="leading-5">
                     <span className="font-medium text-foreground">
                       {item.workspace
                         ? t("profiles.versionTag", {
@@ -802,10 +801,12 @@ function History({
                       </span>
                     ) : null}
                   </span>
-                  <span className={cn("font-mono wrap-anywhere", META)}>
+                  <span
+                    className={cn("font-mono leading-4 wrap-anywhere", META)}
+                  >
                     {item.id}
                   </span>
-                </RowLines>
+                </div>
               </GridTableCell>
               <GridTableCell>
                 <Badge variant={STATE_BADGE[state]}>
@@ -884,17 +885,19 @@ function Narrowings({
                       params={{ profileId: item.id }}
                     />
                   </GridTableRowOpener>
-                  <RowLines>
-                    <span className="font-medium text-foreground wrap-anywhere">
+                  <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+                    <span className="font-medium text-foreground leading-5 wrap-anywhere">
                       {t("profiles.detail.history.named", {
                         name: profileName(item),
                         version: versionOf(item),
                       })}
                     </span>
-                    <span className={cn("font-mono wrap-anywhere", META)}>
+                    <span
+                      className={cn("font-mono leading-4 wrap-anywhere", META)}
+                    >
                       {item.id}
                     </span>
-                  </RowLines>
+                  </div>
                 </GridTableCell>
                 <GridTableCell>
                   <Badge variant={STATE_BADGE[state]}>
