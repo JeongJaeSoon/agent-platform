@@ -17,6 +17,7 @@ import {
   formatTimestamp,
   Page,
   RowLines,
+  RowList,
   RowListItem,
   Link as TextLink,
 } from "@werft-ai/ui";
@@ -46,8 +47,6 @@ import {
 } from "./workspace-github-user-link.tsx";
 
 // One row per service (console v35): 64px tall, its button as wide as a row action.
-const SERVICES =
-  "m-0 flex list-none flex-col overflow-hidden rounded-card border bg-card p-0 [&>li+li]:border-t";
 const SERVICE_ROW =
   "flex min-h-16 flex-wrap items-center gap-x-3 gap-y-2 px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]";
 const SERVICE_NAME = "m-0 font-semibold text-body";
@@ -232,7 +231,7 @@ export function LinkedAccountsScreen() {
       {/* Always mounted, so a screen reader hears the notice when it
           changes. */}
       <Notice>{notice}</Notice>
-      <ul ref={listRef} className={SERVICES}>
+      <RowList ref={listRef} variant="joined">
         <GitHubService
           accounts={accounts.isSuccess ? githubLive : undefined}
           unlinking={unlink.isPending ? unlink.variables?.id : undefined}
@@ -309,7 +308,7 @@ export function LinkedAccountsScreen() {
           name="Google Workspace"
           use={t("linked.use.google")}
         />
-      </ul>
+      </RowList>
       <ConfirmDialog
         open={confirming !== null}
         onOpenChange={(open) => {
@@ -439,7 +438,7 @@ function GitHubService({
         ) : null}
       </div>
       {linked ? (
-        <ul className="m-0 list-none border-t p-0 [&>li+li]:border-t">
+        <RowList variant="joined" framed={false} className="border-t">
           {accounts.map((account) => (
             <RowListItem
               key={account.id}
@@ -480,7 +479,7 @@ function GitHubService({
               </Button>
             </RowListItem>
           ))}
-        </ul>
+        </RowList>
       ) : null}
     </li>
   );
@@ -527,7 +526,7 @@ function SlackAccounts({
   // Nothing linked reads from the row's badge; no second empty line.
   if (accounts.length === 0) return null;
   return (
-    <ul className="m-0 list-none border-t p-0 [&>li+li]:border-t">
+    <RowList variant="joined" framed={false} className="border-t">
       {accounts.map((account) => (
         <RowListItem
           key={account.id}
@@ -563,7 +562,7 @@ function SlackAccounts({
           </Button>
         </RowListItem>
       ))}
-    </ul>
+    </RowList>
   );
 }
 

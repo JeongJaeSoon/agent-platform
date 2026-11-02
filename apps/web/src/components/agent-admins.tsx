@@ -54,6 +54,7 @@ import { StatusScreen } from "./status-screen.tsx";
 const ADMIN_ROW = "gap-y-[var(--ap-row-line-gap)]";
 const PRIMARY = "font-semibold [overflow-wrap:anywhere]";
 const SECONDARY = "text-caption text-muted-foreground [overflow-wrap:anywhere]";
+const HINT = "text-caption text-muted-foreground";
 
 // Month/day in the product's zone, the way the console shows a short date.
 const DAY = new Intl.DateTimeFormat("en-US", {
@@ -121,7 +122,7 @@ export function AgentAdmins({
           onRetry={() => void administered.refetch()}
         />
       ) : (
-        <p className="web-guarded__reason">
+        <p className={HINT}>
           {permissionReason(t, "agent.admin.manage", role)}
         </p>
       )}
@@ -230,7 +231,7 @@ function AdminList({
   if (admins.isPending) return <StatusScreen kind="loading" />;
   if (admins.error) {
     return isApiError(admins.error, "FORBIDDEN") ? (
-      <p className="web-guarded__reason">{reason}</p>
+      <p className={HINT}>{reason}</p>
     ) : (
       <LoadFailure error={admins.error} onRetry={() => void admins.refetch()} />
     );
@@ -333,7 +334,7 @@ function AdminList({
       {admins.data.users.length + admins.data.teams.length === 0 ? (
         <EmptyState title={t("agentAdmins.empty")} />
       ) : (
-        <RowList variant="joined" className="rounded-none border-0">
+        <RowList variant="joined" framed={false}>
           {admins.data.users.map((user) => {
             const name = user.display_name ?? user.email;
             return (
@@ -487,8 +488,10 @@ export function AdministeredAgents({
   if (!administered.error && items.length === 0 && !showEmpty) return null;
 
   return (
-    <section className="web-section" aria-labelledby={titleId}>
-      <h2 id={titleId}>{t("agentAdmins.mine.title")}</h2>
+    <section className={SECTION} aria-labelledby={titleId}>
+      <h2 id={titleId} className="m-0 text-body">
+        {t("agentAdmins.mine.title")}
+      </h2>
       {administered.error ? (
         <LoadFailure
           error={administered.error}
@@ -498,7 +501,7 @@ export function AdministeredAgents({
         <EmptyState title={t("agentAdmins.mine.empty")} />
       ) : (
         <>
-          <p className="web-field__hint">{t("agentAdmins.mine.intro")}</p>
+          <p className={HINT}>{t("agentAdmins.mine.intro")}</p>
           <RowList>
             {items.map((agent) => (
               <RowListItem
@@ -515,7 +518,7 @@ export function AdministeredAgents({
             ))}
           </RowList>
           {items.length >= ADMINISTERED_LIST_LIMIT ? (
-            <p className="web-field__hint">
+            <p className={HINT}>
               {t("agentAdmins.mine.truncated", {
                 count: ADMINISTERED_LIST_LIMIT,
               })}

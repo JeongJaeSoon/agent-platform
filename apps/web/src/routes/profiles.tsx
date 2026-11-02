@@ -22,6 +22,7 @@ import {
   GridTableRow,
   GridTableRowOpener,
   Page,
+  RowLines,
   SegmentedControl,
   SegmentedControlItem,
   Skeleton,
@@ -268,57 +269,56 @@ export function ProfilesScreen() {
               }
             />
           ) : (
-            <div className="rounded-card border bg-card">
-              <GridTable
-                aria-label={t("profiles.title")}
-                columns={COLUMNS[0]}
-                narrowAt={860}
-                narrowColumns={COLUMNS[1]}
-              >
-                <GridTableHeader>
-                  <GridTableColumnHeader>
-                    {t("profiles.column.name")}
-                  </GridTableColumnHeader>
-                  <GridTableColumnHeader hideNarrow>
-                    {t("profiles.column.version")}
-                  </GridTableColumnHeader>
-                  <GridTableColumnHeader hideNarrow>
-                    {t("profiles.column.kind")}
-                  </GridTableColumnHeader>
-                  <GridTableColumnHeader hideNarrow>
-                    {t("profiles.column.base")}
-                  </GridTableColumnHeader>
-                  <GridTableColumnHeader hideNarrow>
-                    {t("profiles.column.model")}
-                  </GridTableColumnHeader>
-                  <GridTableColumnHeader hideNarrow>
-                    {t("profiles.editor.permissionMode")}
-                  </GridTableColumnHeader>
-                  <GridTableColumnHeader>
-                    {t("profiles.column.state")}
-                  </GridTableColumnHeader>
-                </GridTableHeader>
-                {groups.flatMap(([latest, ...older]) => {
-                  if (latest === undefined) return [];
-                  const open = expanded.has(latest.id);
-                  return [latest, ...(open ? older : [])].map((item) => (
-                    <ProfileRow
-                      key={item.id}
-                      profile={item}
-                      older={
-                        item === latest && older.length > 0
-                          ? {
-                              count: older.length,
-                              expanded: open,
-                              onToggle: () => toggle(latest.id),
-                            }
-                          : undefined
-                      }
-                    />
-                  ));
-                })}
-              </GridTable>
-            </div>
+            <GridTable
+              aria-label={t("profiles.title")}
+              columns={COLUMNS[0]}
+              narrowAt={860}
+              narrowColumns={COLUMNS[1]}
+              framed={true}
+            >
+              <GridTableHeader>
+                <GridTableColumnHeader>
+                  {t("profiles.column.name")}
+                </GridTableColumnHeader>
+                <GridTableColumnHeader hideNarrow>
+                  {t("profiles.column.version")}
+                </GridTableColumnHeader>
+                <GridTableColumnHeader hideNarrow>
+                  {t("profiles.column.kind")}
+                </GridTableColumnHeader>
+                <GridTableColumnHeader hideNarrow>
+                  {t("profiles.column.base")}
+                </GridTableColumnHeader>
+                <GridTableColumnHeader hideNarrow>
+                  {t("profiles.column.model")}
+                </GridTableColumnHeader>
+                <GridTableColumnHeader hideNarrow>
+                  {t("profiles.editor.permissionMode")}
+                </GridTableColumnHeader>
+                <GridTableColumnHeader>
+                  {t("profiles.column.state")}
+                </GridTableColumnHeader>
+              </GridTableHeader>
+              {groups.flatMap(([latest, ...older]) => {
+                if (latest === undefined) return [];
+                const open = expanded.has(latest.id);
+                return [latest, ...(open ? older : [])].map((item) => (
+                  <ProfileRow
+                    key={item.id}
+                    profile={item}
+                    older={
+                      item === latest && older.length > 0
+                        ? {
+                            count: older.length,
+                            expanded: open,
+                            onToggle: () => toggle(latest.id),
+                          }
+                        : undefined
+                    }
+                  />
+                ));
+              })}
+            </GridTable>
           )}
         </div>
       )}
@@ -440,22 +440,22 @@ function Stack({
   readonly narrow: string;
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
-      <span className="wrap-anywhere leading-5">{first}</span>
+    <RowLines>
+      <span className="wrap-anywhere">{first}</span>
       {second === null ? null : (
-        <span className={cn("wrap-anywhere leading-4", META, secondClassName)}>
+        <span className={cn("wrap-anywhere", META, secondClassName)}>
           {second}
         </span>
       )}
       {/* GridTable's narrowAt={860} breakpoint, the width the columns drop at. */}
       <span
         className={cn(
-          "hidden wrap-anywhere leading-4 [@container(max-width:860px)]:block",
+          "hidden wrap-anywhere [@container(max-width:860px)]:block",
           META,
         )}
       >
         {narrow}
       </span>
-    </div>
+    </RowLines>
   );
 }
