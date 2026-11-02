@@ -270,10 +270,15 @@ function SettingsLayout({
     ["워크스페이스", role === "member" ? [] : WORKSPACE_SETTINGS],
     ["내 설정", PERSONAL_SETTINGS],
   ];
+  // A page the reader has no item for (a member on 일반) marks none.
+  const listed = groups.some(([, keys]) => keys.includes(current));
   return (
     <SideNavLayout
       nav={
-        <SideNav aria-label="설정" current={SETTINGS_LABEL[current]}>
+        <SideNav
+          aria-label="설정"
+          current={listed ? SETTINGS_LABEL[current] : undefined}
+        >
           {groups
             .filter(([, keys]) => keys.length > 0)
             .map(([label, keys]) => (

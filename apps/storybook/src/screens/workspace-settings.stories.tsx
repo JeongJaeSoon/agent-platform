@@ -1,27 +1,40 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import type {
+  ListWorkspaceSlackAppsResponse,
+  SlackConfigTokenSummary,
+  SlackSecretSummary,
+  Workspace,
+  WorkspaceSettings as WorkspaceSettingsValues,
+} from "@werft-ai/contracts";
 import {
+  Alert,
   Badge,
   Button,
-  Card,
-  CardDescription,
-  CardFooter,
-  CardTitle,
+  buttonVariants,
+  Code,
   ConfirmDialog,
+  cn,
+  DangerZone,
+  DangerZoneRow,
+  EmptyState,
   ErrorState,
   Field,
   FieldDescription,
   FieldError,
   FieldLabel,
   FormActions,
+  formatTimestamp,
   Input,
-  LinkTab,
-  LinkTabs,
+  Link,
+  linkVariants,
   Page,
-  RowList,
+  RowLines,
   RowListItem,
   SecretField,
   SettingRow,
+  SettingsSection,
   Skeleton,
+  Steps,
   Switch,
   Table,
   TableBody,
@@ -29,668 +42,959 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  Text,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@werft-ai/ui";
 import { Lock } from "lucide-react";
-import { type ReactNode, useId, useState } from "react";
-
-import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 import {
-  Heading,
-  MUTED_TEXT,
-  OutcomeStandIn,
-  storyHref,
-} from "./slack-kit.tsx";
+  type ButtonHTMLAttributes,
+  type FormEvent,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
+
+import { MOBILE, type Role, ScreenShell } from "./screen-kit.tsx";
 
 /*
- * v4 workspace settings (Console.dc.html L853-867), as apps/web draws it:
- * `card flush` cards 16px apart, a 16px body with 12px gaps, and a
- * `form-foot` strip. The name and model cards only read (no API changes
- * them); the retention card is the audit retention the API has, not the
- * mockup's output retention, which has no API. Both gaps are 94S-817.
+ * apps/web routes/workspace-settings.tsx (설정 › 일반) and
+ * routes/workspace-slack.tsx with workspace-slack-apps.tsx (설정 › Slack 연결
+ * 설정). Owners hold workspace.manage and audit_retention.manage, admins only
+ * workspace.manage, members neither (packages/platform musterrolle/policy.ts).
  */
 
-type Viewer = "owner" | "admin" | "member";
 type Models = "ready" | "loading" | "empty" | "error";
+type TokenRead = SlackConfigTokenSummary["state"] | "loading" | "storeOff";
+type MadeApp = ListWorkspaceSlackAppsResponse["items"][number];
+type Outcome = { readonly kind: "notice" | "error"; readonly text: string };
 
-// Values GET /v1/auth/me and GET /v1/profiles return.
-const WORKSPACE = {
+const WORKSPACE: Pick<Workspace, "id" | "name"> = {
   id: "6d4c1f5e-4c39-4d7a-9a51-0f4f3c7a2b10",
   name: "Acme",
-  audit_retention_days: 90,
-  slack_guest_enabled: false,
 };
+const SETTINGS: Pick<
+  WorkspaceSettingsValues,
+  "audit_retention_days" | "slack_guest_enabled"
+> = { audit_retention_days: 90, slack_guest_enabled: false };
+// The distinct `model` of GET /v1/profiles items.
 const MODELS = ["claude-haiku-5", "claude-sonnet-5"];
 
-const CARD_BODY = "flex flex-col gap-3 p-4";
-const META = "text-caption text-subtle-foreground";
-const ICON = "size-3.5 shrink-0";
-const STATUS = `${META} min-w-6 text-right`;
-// The card draws the box; the rows only keep the rule under the body.
-const ROWS = "rounded-none border-x-0 border-b-0 bg-transparent";
+const OWNER = {
+  user_id: "0b5f8a52-6f0e-4b1a-9d0e-2c1e7c3f4a11",
+  display_name: "Verify Owner",
+};
+const ISSUER = { user_id: "U07QF3K2M1A", team_id: "T07QF3J8Z4B" };
+const CHECKED_AT = "2026-10-23T04:58:00Z";
 
-function SettingsCard({
-  title,
-  description,
-  descriptionId,
-  rows,
-  foot,
+// GET /v1/workspaces/{id}/slack/config-token.
+const TOKEN: Record<SlackConfigTokenSummary["state"], SlackConfigTokenSummary> =
+  {
+    active: {
+      state: "active",
+      configured: true,
+      last4: "a9Qe",
+      updated_at: CHECKED_AT,
+      updated_by: OWNER,
+      expires_at: "2026-10-23T16:58:00Z",
+      issuer: ISSUER,
+    },
+    needs_reentry: {
+      state: "needs_reentry",
+      configured: true,
+      last4: "a9Qe",
+      updated_at: CHECKED_AT,
+      updated_by: OWNER,
+      expires_at: "2026-10-23T16:58:00Z",
+      issuer: ISSUER,
+    },
+    unset: {
+      state: "unset",
+      configured: false,
+      last4: null,
+      updated_at: null,
+      updated_by: null,
+      expires_at: null,
+      issuer: null,
+    },
+  };
+
+const STORED: SlackSecretSummary = {
+  configured: true,
+  last4: null,
+  updated_at: "2026-10-01T00:20:00Z",
+  updated_by: null,
+};
+const NONE: SlackSecretSummary = {
+  configured: false,
+  last4: null,
+  updated_at: null,
+  updated_by: null,
+};
+
+function madeApp(
+  id: string,
+  kind: "agent" | "link",
+  appId: string,
+  updatedAt: string,
+  agent: MadeApp["agent"],
+): MadeApp {
+  return {
+    slack_app: {
+      id,
+      kind,
+      agent_id: agent?.id ?? null,
+      state: "created",
+      app_id: appId,
+      client_id: `7712${appId.slice(1)}.1`,
+      redirect_url: "https://console.example.com/v1/slack/oauth/callback",
+      created_by_token_user: ISSUER.user_id,
+      created_at: "2026-10-01T00:20:00Z",
+      updated_at: updatedAt,
+      secrets: {
+        slack_signing_secret: STORED,
+        slack_client_secret: STORED,
+        slack_bot_token: kind === "agent" && agent?.installed ? STORED : NONE,
+      },
+    },
+    agent,
+  };
+}
+
+// GET /v1/workspaces/{id}/slack/apps.
+const SLACK_APPS: readonly MadeApp[] = [
+  madeApp(
+    "3c1d9e2a-0f4b-4a6c-8e1d-5b7a9c2e4f60",
+    "link",
+    "A07LINK0001",
+    "2026-10-01T00:20:00Z",
+    null,
+  ),
+  madeApp(
+    "8e2f4a6c-1b3d-4e5f-9a7b-0c2d4e6f8a10",
+    "agent",
+    "A07RNOTES01",
+    "2026-10-23T12:48:00Z",
+    {
+      id: "5a7c9e1b-3d5f-4a7b-8c9d-1e3f5a7b9c20",
+      name: "Release Notes",
+      slug: "release-notes",
+      installed: true,
+    },
+  ),
+  madeApp(
+    "1f3e5d7c-9b2a-4c6e-8f0a-2b4d6f8a0c30",
+    "agent",
+    "A07TRIAGE01",
+    "2026-10-24T02:05:00Z",
+    {
+      id: "7b9d1f3a-5c7e-4b9d-0f1a-3c5e7a9b1d40",
+      name: "Triage",
+      slug: "triage",
+      installed: false,
+    },
+  ),
+];
+
+const SECTIONS = "flex flex-col gap-10";
+const ICON = "size-3.5 shrink-0";
+const ACTION = "min-w-12";
+const FIT = "w-px whitespace-nowrap";
+const WIDE = "hidden @[560px]:table-cell";
+const SLACK_APPS_URL = "https://api.slack.com/apps";
+// The page's link target for the app list (workspace-slack-apps.tsx).
+const SLACK_APPS_ANCHOR = "slack-apps";
+const ROLE_LABEL: Record<Role, string> = {
+  owner: "소유자",
+  admin: "관리자",
+  member: "구성원",
+};
+
+const manageReason = (viewer: Role) =>
+  `워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: ${ROLE_LABEL[viewer]}.`;
+const retentionReason = (viewer: Role) =>
+  `감사 기록 보존 기간 변경 권한이 있어야 할 수 있습니다. 지금 역할: ${ROLE_LABEL[viewer]}.`;
+
+/** components/auth-page.tsx Notice and FormError. */
+function OutcomeLine({ outcome }: { readonly outcome: Outcome | null }) {
+  if (!outcome) return null;
+  return outcome.kind === "error" ? (
+    <Text className="text-destructive" role="alert">
+      {outcome.text}
+    </Text>
+  ) : (
+    <Alert asChild variant="blue">
+      <output>{outcome.text}</output>
+    </Alert>
+  );
+}
+
+/** auth/reason-button.tsx: kept in place, inert, saying why on a tooltip. */
+function ReasonButton({
+  reason,
+  disabled,
+  className,
   children,
-}: {
-  readonly title: string;
-  readonly description: string;
-  readonly descriptionId?: string;
-  readonly rows?: ReactNode;
-  readonly foot?: ReactNode;
-  readonly children?: ReactNode;
+  ...rest
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  readonly reason: string | undefined;
 }) {
-  const titleId = useId();
+  const withheld = reason !== undefined;
   return (
-    <Card flush role="region" aria-labelledby={titleId}>
-      <div className={CARD_BODY}>
-        <CardTitle id={titleId} role="heading" aria-level={2}>
-          {title}
-        </CardTitle>
-        <CardDescription id={descriptionId} className="text-description">
-          {description}
-        </CardDescription>
-        {children}
-      </div>
-      {rows ? (
-        <RowList variant="joined" className={ROWS}>
-          {rows}
-        </RowList>
-      ) : null}
-      {foot ? <CardFooter variant="form">{foot}</CardFooter> : null}
-    </Card>
+    <Tooltip {...(!withheld && { open: false })}>
+      <TooltipTrigger asChild={true}>
+        <button
+          type="button"
+          {...rest}
+          {...(withheld && { "aria-disabled": true })}
+          className={cn(className, "aria-disabled:cursor-not-allowed")}
+          disabled={withheld ? undefined : disabled}
+          onClick={(event) => {
+            if (withheld && event.currentTarget.type === "submit")
+              event.preventDefault();
+          }}
+        >
+          {children}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top">{reason}</TooltipContent>
+    </Tooltip>
   );
 }
 
 function ReadOnlyMark() {
   return (
-    <div className="inline-flex shrink-0 items-center gap-1 text-caption text-subtle-foreground">
+    <Text
+      as="div"
+      variant="meta"
+      className="inline-flex shrink-0 items-center gap-1"
+    >
       <Lock aria-hidden="true" className={ICON} strokeWidth={1.5} />
       읽기 전용
-    </div>
+    </Text>
   );
 }
 
-function SaveButton({ reason }: { readonly reason?: string | undefined }) {
-  const reasonId = useId();
+function Basics() {
+  const inputId = useId();
   return (
-    <div className="inline-flex flex-col gap-1">
-      <Button
-        type="submit"
-        size="sm"
-        disabled={reason !== undefined}
-        aria-describedby={reason === undefined ? undefined : reasonId}
-      >
-        저장
-      </Button>
-      {reason === undefined ? null : (
-        <div id={reasonId} className="text-caption text-muted-foreground">
-          {reason}
-        </div>
-      )}
-    </div>
+    <SettingsSection title="기본 정보" foot={<ReadOnlyMark />}>
+      <Field>
+        <FieldLabel htmlFor={inputId}>워크스페이스 이름</FieldLabel>
+        <Input
+          id={inputId}
+          className="max-w-80"
+          value={WORKSPACE.name}
+          readOnly
+        />
+        <FieldDescription>
+          콘솔과 알림에 보이는 이름입니다. 콘솔에서는 아직 바꿀 수 없습니다.
+        </FieldDescription>
+      </Field>
+      <Field>
+        <Text weight="medium" className="text-sm leading-snug">
+          워크스페이스 ID
+        </Text>
+        <SecretField
+          className="max-w-105"
+          value={WORKSPACE.id}
+          copyLabel="복사"
+          copiedMessage="워크스페이스 ID를 복사했습니다."
+          copyFailedMessage="복사하지 못했습니다. ID를 직접 선택해 복사하세요."
+        />
+        <FieldDescription>
+          API와 CLI에서 이 워크스페이스를 가리킬 때 씁니다.
+        </FieldDescription>
+      </Field>
+    </SettingsSection>
   );
 }
 
-function ModelList({ models }: { readonly models: Models }) {
-  if (models === "loading") return <Skeleton width="50%" />;
-  if (models === "error") {
-    return (
-      <ErrorState
-        title="불러오지 못했습니다"
-        message="처리하지 못했습니다 — 잠시 뒤 다시 시도하세요."
-        retry={() => {}}
-        retryLabel="다시 시도"
-      />
-    );
-  }
-  if (models === "empty") {
-    return <div className={META}>이 설치에 등록된 모델이 없습니다.</div>;
-  }
+function AllowedModels({ models }: { readonly models: Models }) {
   return (
-    <ul className="m-0 flex list-none flex-wrap gap-1 p-0">
-      {MODELS.map((model) => (
-        <li key={model}>
-          <Badge variant="mono">{model}</Badge>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/*
- * The Slack pages: a sub-nav of 일반 / Slack 연결
- * 설정 / 자동으로 만든 앱; Slack 게스트 moves from 일반 to a Switch row
- * beside the App Configuration Token row. The token row shows only what
- * GET .../slack/config-token returns (state, updated_at, updated_by), never
- * a value.
- */
-
-type SlackPage = "general" | "slack" | "apps";
-type ConfigToken = "active" | "unset" | "needs_reentry";
-
-const SLACK_PAGES: readonly (readonly [SlackPage, string])[] = [
-  ["general", "일반"],
-  ["slack", "Slack 연결 설정"],
-  ["apps", "자동으로 만든 앱"],
-];
-const SLACK_STORY = "screens-workspace-settings-v4--workspace-settings-slack";
-const TOKEN = {
-  saved_at: "2026. 10. 23. 13:58",
-  saved_by: "Verify Owner",
-};
-// Demo rows: there is no workspace-wide Slack app list API yet, only
-// GET /v1/agents/{id}/slack/app per agent.
-const SLACK_APPS = [
-  {
-    name: "계정 연결 앱",
-    app_id: "A07LINK000",
-    agent: null,
-    note: "Sign in with Slack",
-    updated_at: "2026. 10. 01. 09:20",
-  },
-  {
-    name: "Release Notes 앱",
-    app_id: "A07PLACEHLD",
-    agent: "Release Notes",
-    note: "@release-notes",
-    updated_at: "2026. 10. 23. 21:48",
-  },
-];
-const FIT = "w-px whitespace-nowrap";
-const WIDE = "hidden @[480px]:table-cell";
-
-function SlackSection({
-  title,
-  hint,
-  children,
-}: {
-  readonly title: string;
-  readonly hint: string;
-  readonly children: ReactNode;
-}) {
-  const titleId = useId();
-  return (
-    <section
-      aria-labelledby={titleId}
-      className="flex flex-col gap-[var(--ap-space-block)]"
+    <SettingsSection
+      title="모델 허용 목록"
+      description="세션에서 고를 수 있는 모델의 상한입니다. 에이전트 제한과 프로필이 여기서 더 좁힙니다."
+      foot={
+        <>
+          <Text as="div" variant="meta">
+            설치 설정에서 관리합니다 · 콘솔에서는 읽기 전용
+          </Text>
+          <ReadOnlyMark />
+        </>
+      }
     >
-      <Heading id={titleId}>{title}</Heading>
-      <div className={MUTED_TEXT}>{hint}</div>
-      {children}
-    </section>
+      {models === "loading" ? (
+        <Skeleton width="50%" />
+      ) : models === "error" ? (
+        <ErrorState
+          title="불러오지 못했습니다"
+          message="처리하지 못했습니다 — 잠시 뒤 다시 시도하세요."
+          retry={() => {}}
+          retryLabel="다시 시도"
+        />
+      ) : models === "empty" ? (
+        <Text as="div" variant="meta">
+          이 설치에 등록된 모델이 없습니다.
+        </Text>
+      ) : (
+        <ul className="m-0 flex list-none flex-wrap gap-1 p-0">
+          {MODELS.map((model) => (
+            <li key={model}>
+              <Badge variant="mono">{model}</Badge>
+            </li>
+          ))}
+        </ul>
+      )}
+    </SettingsSection>
   );
 }
 
-function SlackConnectionPage({
-  viewer,
-  token: initialToken,
-  editing: initialEditing,
-}: {
-  readonly viewer: Viewer;
-  readonly token: ConfigToken;
-  readonly editing: boolean;
-}) {
-  const readOnly = viewer === "member";
-  const [guest, setGuest] = useState(WORKSPACE.slack_guest_enabled);
-  const [token, setToken] = useState(initialToken);
-  const [editing, setEditing] = useState(initialEditing && !readOnly);
-  const [deleting, setDeleting] = useState(false);
-  const [missing, setMissing] = useState(false);
-  const [outcome, setOutcome] = useState<string | null>(null);
-  const status = {
-    unset: [
-      <Badge key="b">설정 안 됨</Badge>,
-      "에이전트마다 Slack 앱을 이 콘솔이 만들 때 씁니다. api.slack.com/apps의 Your App Configuration Tokens에서 만든 Refresh Token을 넣습니다.",
-    ],
-    active: [
-      <Badge key="b" variant="green">
-        설정됨
-      </Badge>,
-      readOnly
-        ? `${TOKEN.saved_at} 저장`
-        : `${TOKEN.saved_at} 저장 · 저장한 사람 ${TOKEN.saved_by}`,
-    ],
-    needs_reentry: [
-      <Badge key="b" variant="red">
-        오류
-      </Badge>,
-      "Slack이 저장된 token을 더 받지 않습니다. 새 token을 저장할 때까지 새 Slack 앱을 만들 수 없습니다. 이미 연결된 에이전트는 그대로 동작합니다.",
-    ],
-  }[token];
+function ReadOnlySettings() {
   return (
     <>
-      {outcome ? (
-        <OutcomeStandIn key={outcome}>{outcome}</OutcomeStandIn>
-      ) : null}
-      <SlackSection
-        title="Slack 연결 설정"
-        hint={
-          readOnly
-            ? "지금 설정입니다. 바꾸려면 워크스페이스 소유자나 관리자에게 요청하세요."
-            : "소유자와 관리자만 바꿀 수 있습니다."
-        }
+      <SettingsSection
+        title="감사 기록 보존 기간"
+        description="허용·거절한 요청 기록을 이 기간 동안 보관합니다."
       >
-        <RowList variant="joined">
-          <SettingRow
-            title="Slack 게스트도 에이전트를 쓸 수 있게 하기"
-            description="켜도 게스트는 먼저 웹에서 자기 Slack 계정을 연결해야 합니다. Slack Connect로 들어온 다른 조직 사람은 켜져 있어도 에이전트를 쓸 수 없습니다."
-            control={
-              <Switch
-                checked={guest}
-                disabled={readOnly}
-                onCheckedChange={(next) => {
-                  setGuest(next);
-                  setOutcome(
-                    next
-                      ? "Slack 게스트도 에이전트를 쓸 수 있게 했습니다."
-                      : "Slack 게스트는 이제 에이전트를 쓸 수 없습니다.",
-                  );
-                }}
-              />
-            }
-          />
-          <SettingRow
-            title="App Configuration Token"
-            badge={status[0]}
-            description={status[1]}
-            actions={
-              readOnly || editing ? undefined : token === "unset" ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setEditing(true)}
-                >
-                  token 넣기
-                </Button>
-              ) : (
-                <>
-                  <Button
-                    type="button"
-                    variant={token === "needs_reentry" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setEditing(true)}
-                  >
-                    교체
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setDeleting(true)}
-                  >
-                    삭제
-                  </Button>
-                </>
-              )
-            }
-          />
-          {editing ? (
-            <RowListItem>
-              <form
-                className="flex w-full flex-col gap-4"
-                noValidate
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const input = event.currentTarget.elements.namedItem("token");
-                  if (
-                    input instanceof HTMLInputElement &&
-                    !input.value.trim()
-                  ) {
-                    setMissing(true);
-                    input.focus();
-                    return;
-                  }
-                  setMissing(false);
-                  setEditing(false);
-                  setToken("active");
-                  setOutcome("App Configuration Token을 저장했습니다.");
-                }}
-              >
-                <Field>
-                  <FieldLabel>새 App Configuration Token</FieldLabel>
-                  <Input
-                    name="token"
-                    type="password"
-                    autoComplete="off"
-                    spellCheck={false}
-                    required
-                    onChange={(event) => {
-                      if (event.target.value.trim()) setMissing(false);
-                    }}
-                  />
-                  <FieldDescription>
-                    값은 암호화해 저장하고, 저장한 뒤에는 다시 보여 주지
-                    않습니다. 이 token을 만든 사람이 자동으로 만드는 앱의
-                    협업자가 됩니다. 12시간마다 자동으로 갱신합니다.
-                  </FieldDescription>
-                  {missing ? (
-                    <FieldError>저장하려면 새 token을 넣어 주세요.</FieldError>
-                  ) : null}
-                </Field>
-                <FormActions>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => {
-                      setMissing(false);
-                      setEditing(false);
-                    }}
-                  >
-                    취소
-                  </Button>
-                  <Button type="submit">저장</Button>
-                </FormActions>
-              </form>
-            </RowListItem>
-          ) : null}
-        </RowList>
-      </SlackSection>
-      <ConfirmDialog
-        open={deleting}
-        onOpenChange={setDeleting}
-        title="App Configuration Token을 삭제할까요?"
-        consequence="저장된 값을 지웁니다. 새 token을 저장할 때까지 새 Slack 앱을 만들 수 없습니다. 이미 연결된 에이전트는 그대로 동작합니다."
-        confirmLabel="삭제"
-        tone="danger"
-        onConfirm={() => {
-          setDeleting(false);
-          setToken("unset");
-          setOutcome("App Configuration Token을 삭제했습니다.");
-        }}
-      />
+        <div>감사 기록을 {SETTINGS.audit_retention_days}일 보존합니다.</div>
+      </SettingsSection>
+      <SettingsSection
+        title="Slack 게스트"
+        description="켜도 게스트는 먼저 웹에서 자기 Slack 계정을 연결해야 합니다. Slack Connect로 들어온 다른 조직 사람은 켜져 있어도 에이전트를 쓸 수 없습니다. 소유자나 관리자가 바꿀 수 있습니다."
+      >
+        <div>
+          {SETTINGS.slack_guest_enabled
+            ? "Slack 게스트도 에이전트를 쓸 수 있습니다."
+            : "Slack 게스트는 에이전트를 쓸 수 없습니다."}
+        </div>
+      </SettingsSection>
     </>
   );
 }
 
-function SlackAppsPage() {
+function AuditRetention({
+  viewer,
+  onOutcome,
+}: {
+  readonly viewer: Role;
+  readonly onOutcome: (outcome: Outcome | null) => void;
+}) {
+  const [days, setDays] = useState(`${SETTINGS.audit_retention_days}`);
+  const inputId = useId();
+  const reason = viewer === "owner" ? undefined : retentionReason(viewer);
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    const value = Number(days);
+    onOutcome(
+      value < 30
+        ? {
+            kind: "error",
+            text: "감사 기록은 30일보다 짧게 보존할 수 없습니다. 30일 이상(최대 3650일)으로 정하세요.",
+          }
+        : { kind: "notice", text: `감사 기록을 ${value}일 보존합니다.` },
+    );
+  };
   return (
-    <SlackSection
-      title="자동으로 만든 앱"
-      hint="앱의 비밀값은 Slack이 앱을 만들 때 서버가 바로 저장합니다. 여기서는 상태만 보고, 켜고 끄기는 에이전트의 Slack 탭에서 합니다."
+    <SettingsSection
+      title="감사 기록 보존 기간"
+      onSubmit={submit}
+      foot={
+        <ReasonButton
+          type="submit"
+          className={buttonVariants({ size: "sm" })}
+          reason={reason}
+          disabled={days.trim() === ""}
+        >
+          저장
+        </ReasonButton>
+      }
     >
-      <div className="@container overflow-hidden rounded-card border bg-card">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead scope="col">앱</TableHead>
-              <TableHead scope="col" className={WIDE}>
-                에이전트
-              </TableHead>
-              <TableHead scope="col" className={FIT}>
-                상태
-              </TableHead>
-              <TableHead scope="col" className={`${FIT} ${WIDE} text-right`}>
-                갱신
-              </TableHead>
-              <TableHead scope="col" className={FIT}>
-                <div className="sr-only">자세히</div>
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {SLACK_APPS.map((app) => (
-              <TableRow key={app.app_id}>
-                <TableCell>
-                  <div className="flex flex-col gap-[var(--ap-row-line-gap)]">
-                    <div className="font-semibold leading-5">{app.name}</div>
-                    <div className="font-mono text-caption text-muted-foreground">
-                      {app.app_id}
-                    </div>
-                    <div className="text-caption text-muted-foreground @[480px]:hidden">
-                      {app.agent ? `${app.agent} · ` : ""}
-                      {app.updated_at} 갱신
-                    </div>
-                  </div>
-                </TableCell>
-                <TableCell className={WIDE}>
-                  {app.agent ?? (
-                    <div className="text-muted-foreground">없음</div>
-                  )}
-                </TableCell>
-                <TableCell className={FIT}>
-                  <div className="flex flex-col gap-[var(--ap-row-line-gap)]">
-                    <Badge variant="green">연결됨</Badge>
-                    <div className="text-caption text-muted-foreground">
-                      {app.note}
-                    </div>
-                  </div>
-                </TableCell>
-                <TableCell
-                  className={`${FIT} ${WIDE} text-right text-caption text-muted-foreground`}
-                >
-                  <time>{app.updated_at}</time>
-                </TableCell>
-                <TableCell className={`${FIT} text-right`}>
-                  {app.agent ? (
-                    <Button asChild variant="link" size="sm">
-                      <a
-                        href={storyHref(
-                          "screens-agent-detail-v4--agent-detail",
-                        )}
-                        aria-label={`${app.name} 자세히`}
-                      >
-                        자세히
-                      </a>
-                    </Button>
-                  ) : null}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-    </SlackSection>
+      <Field>
+        <FieldLabel htmlFor={inputId}>보존 기간(일)</FieldLabel>
+        <div className="flex items-center gap-2">
+          <Input
+            id={inputId}
+            className="max-w-50"
+            type="number"
+            inputMode="numeric"
+            step={1}
+            value={days}
+            disabled={reason !== undefined}
+            onChange={(event) => setDays(event.target.value)}
+          />
+          <Text as="span" variant="sub" aria-hidden="true">
+            일
+          </Text>
+        </div>
+        <FieldDescription>
+          허용·거절한 요청 기록을 이 기간 동안 보관합니다.
+        </FieldDescription>
+        <FieldDescription>
+          30일보다 짧게 할 수 없고, 소유자만 바꿀 수 있습니다.
+        </FieldDescription>
+      </Field>
+    </SettingsSection>
   );
 }
 
-function GuestRow({
-  hintId,
-  saving,
+function GeneralPage({
+  viewer,
+  models,
 }: {
-  readonly hintId: string;
-  readonly saving: boolean;
+  readonly viewer: Role;
+  readonly models: Models;
 }) {
-  const [enabled, setEnabled] = useState(WORKSPACE.slack_guest_enabled);
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const editable = viewer !== "member";
   return (
-    <SettingRow
-      title="Slack 게스트도 에이전트를 쓸 수 있게 하기"
-      status={
-        <div aria-hidden="true" className={STATUS}>
-          {enabled ? "켜짐" : "꺼짐"}
-        </div>
+    <Page
+      title="일반"
+      description={
+        editable
+          ? "워크스페이스 전체에 적용되는 설정입니다."
+          : "지금 설정입니다. 바꾸려면 워크스페이스 소유자나 관리자에게 요청하세요."
       }
-      control={
-        <Switch
-          checked={enabled}
-          aria-describedby={hintId}
-          aria-disabled={saving || undefined}
-          onCheckedChange={setEnabled}
+    >
+      <div className={SECTIONS}>
+        <OutcomeLine outcome={outcome} />
+        <Basics />
+        <AllowedModels models={models} />
+        {editable ? (
+          <AuditRetention viewer={viewer} onOutcome={setOutcome} />
+        ) : (
+          <ReadOnlySettings />
+        )}
+      </div>
+    </Page>
+  );
+}
+
+function SlackGuest({
+  viewer,
+  saving,
+  onOutcome,
+}: {
+  readonly viewer: Role;
+  readonly saving: boolean;
+  readonly onOutcome: (outcome: Outcome | null) => void;
+}) {
+  const [enabled, setEnabled] = useState(SETTINGS.slack_guest_enabled);
+  const hintId = useId();
+  const reasonId = useId();
+  const reason = viewer === "member" ? manageReason(viewer) : undefined;
+  return (
+    <SettingsSection
+      title="Slack 게스트"
+      description="켜도 게스트는 먼저 웹에서 자기 Slack 계정을 연결해야 합니다. Slack Connect로 들어온 다른 조직 사람은 켜져 있어도 에이전트를 쓸 수 없습니다. 소유자나 관리자가 바꿀 수 있습니다."
+      descriptionId={hintId}
+      rows={
+        <SettingRow
+          title="Slack 게스트도 에이전트를 쓸 수 있게 하기"
+          meta={
+            reason === undefined ? null : (
+              <Text as="div" variant="meta" id={reasonId}>
+                {reason}
+              </Text>
+            )
+          }
+          status={
+            <Text
+              as="div"
+              variant="meta"
+              aria-hidden="true"
+              className="min-w-6 text-right"
+            >
+              {enabled ? "켜짐" : "꺼짐"}
+            </Text>
+          }
+          control={
+            <Switch
+              checked={enabled}
+              aria-describedby={reason === undefined ? hintId : reasonId}
+              aria-disabled={saving || undefined}
+              disabled={reason !== undefined}
+              onCheckedChange={(next) => {
+                if (saving) return;
+                setEnabled(next);
+                onOutcome({
+                  kind: "notice",
+                  text: next
+                    ? "이제 Slack 게스트도 에이전트를 쓸 수 있습니다."
+                    : "이제 Slack 게스트는 에이전트를 쓸 수 없습니다.",
+                });
+              }}
+            />
+          }
         />
       }
     />
   );
 }
 
-function WorkspaceSettingsScreen({
-  viewer,
-  models,
-  saving = false,
-  slack: initialPage,
-  token = "active",
-  editing = false,
+function TokenForm({
+  onCancel,
+  onSubmit,
 }: {
-  readonly viewer: Viewer;
-  readonly models: Models;
-  /** Set for the v3 Slack pages; unset draws main's single page. */
-  readonly slack?: SlackPage | undefined;
-  readonly token?: ConfigToken | undefined;
-  readonly editing?: boolean | undefined;
-  readonly saving?: boolean | undefined;
+  readonly onCancel: () => void;
+  readonly onSubmit: () => void;
 }) {
-  const nameId = useId();
-  const daysId = useId();
-  const guestHintId = useId();
-  const [page, setPage] = useState(initialPage);
-  const editable = viewer !== "member";
-  const retentionReason =
-    viewer === "admin"
-      ? "감사 기록 보존 기간 변경 권한이 있어야 할 수 있습니다. 지금 역할: 관리자."
+  const [missing, setMissing] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const input = event.currentTarget.elements.namedItem("token");
+    const value = input instanceof HTMLInputElement ? input.value.trim() : "";
+    if (!value) {
+      setMissing(true);
+      if (input instanceof HTMLInputElement) input.focus();
+      return;
+    }
+    setMissing(false);
+    if (input instanceof HTMLInputElement) input.value = "";
+    onSubmit();
+  };
+  return (
+    <form className="flex w-full flex-col gap-4" noValidate onSubmit={submit}>
+      <Steps
+        items={[
+          {
+            id: "open",
+            title: (
+              <Link
+                href={SLACK_APPS_URL}
+                target="_blank"
+                newTabLabel="(새 탭에서 열림)"
+              >
+                api.slack.com/apps를 엽니다.
+              </Link>
+            ),
+          },
+          {
+            id: "generate",
+            title:
+              "Your App Configuration Tokens에서 이 Slack 워크스페이스의 Generate Token을 누릅니다.",
+          },
+          {
+            id: "paste",
+            title:
+              "만들어진 두 값 중 Refresh Token(xoxe-1-로 시작)을 복사해 아래에 붙여 넣습니다. Access Token이 아닙니다.",
+          },
+        ]}
+      />
+      <Field>
+        <FieldLabel>Refresh Token</FieldLabel>
+        <Input
+          ref={inputRef}
+          className="max-w-105"
+          name="token"
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          onChange={(event) => {
+            if (event.target.value.trim()) setMissing(false);
+          }}
+        />
+        <FieldDescription>
+          등록하면 Slack에서 바로 새 토큰으로 바꾸므로 붙여 넣은 값은 다시 쓸 수
+          없습니다. 값은 암호화해 저장하고 다시 보여 주지 않습니다. 이 토큰을
+          만든 Slack 사용자가 이 콘솔이 만드는 앱의 협업자가 됩니다.
+        </FieldDescription>
+        <FieldError>
+          {missing ? "등록하려면 Refresh Token을 붙여 넣어 주세요." : null}
+        </FieldError>
+      </Field>
+      <FormActions>
+        <Button type="button" variant="ghost" onClick={onCancel}>
+          취소
+        </Button>
+        <Button type="submit">등록</Button>
+      </FormActions>
+    </form>
+  );
+}
+
+function TokenBadge({
+  summary,
+}: {
+  readonly summary: SlackConfigTokenSummary;
+}) {
+  if (summary.state === "active") {
+    return <Badge variant="green">토큰 확인됨</Badge>;
+  }
+  if (summary.state === "needs_reentry") {
+    return <Badge variant="red">재등록 필요</Badge>;
+  }
+  return <Badge>등록 안 됨</Badge>;
+}
+
+/** routes/workspace-slack.tsx tokenLine, in the ko catalog's words. */
+function tokenLine(summary: SlackConfigTokenSummary): string | undefined {
+  if (summary.state === "needs_reentry") {
+    return "저장된 토큰을 사용할 수 없습니다. 새 토큰을 등록해 주세요. 등록할 때까지 새 Slack 앱을 만들 수 없습니다. 이미 만든 앱은 계속 동작합니다.";
+  }
+  if (summary.state === "unset") {
+    return "이미 만든 앱은 계속 동작합니다. 새 앱을 만들려면 토큰을 등록하세요.";
+  }
+  if (!summary.updated_at) return undefined;
+  return [
+    summary.last4 ? `••••${summary.last4}` : null,
+    summary.issuer ? `팀 ${summary.issuer.team_id}` : null,
+    summary.issuer ? `발급자 ${summary.issuer.user_id}` : null,
+    `마지막 토큰 확인 ${formatTimestamp(summary.updated_at, "ko")}`,
+    summary.updated_by
+      ? `마지막 등록자 ${summary.updated_by.display_name}`
+      : null,
+  ]
+    .filter((part) => part !== null)
+    .join(" · ");
+}
+
+function AppState({ item }: { readonly item: MadeApp }) {
+  const { kind, secrets } = item.slack_app;
+  const link = kind === "link";
+  const connected = link
+    ? secrets.slack_client_secret.configured
+    : !!item.agent?.installed;
+  return (
+    <RowLines>
+      {connected ? (
+        <Badge variant="green">연결됨</Badge>
+      ) : link ? (
+        <Badge>비밀값 없음</Badge>
+      ) : (
+        <Badge>설치 전</Badge>
+      )}
+      {connected ? (
+        <Text as="span" variant="meta">
+          {link ? "Sign in with Slack" : `@${item.agent?.slug}`}
+        </Text>
+      ) : null}
+    </RowLines>
+  );
+}
+
+function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
+  return (
+    <div className="@container overflow-hidden rounded-card border bg-card">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead scope="col">앱</TableHead>
+            <TableHead scope="col" className={WIDE}>
+              에이전트
+            </TableHead>
+            <TableHead scope="col" className={FIT}>
+              상태
+            </TableHead>
+            <TableHead scope="col" className={cn(FIT, WIDE, "text-right")}>
+              갱신
+            </TableHead>
+            <TableHead scope="col" className={FIT}>
+              <Text as="span" className="sr-only">
+                자세히
+              </Text>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {items.map((item) => {
+            const name =
+              item.slack_app.kind === "link"
+                ? "계정 연결 앱"
+                : `${item.agent?.name ?? "없음"} 앱`;
+            const updated = formatTimestamp(item.slack_app.updated_at, "ko");
+            return (
+              <TableRow key={item.slack_app.id}>
+                <TableCell>
+                  <RowLines>
+                    <Text
+                      as="span"
+                      weight="medium"
+                      className="[overflow-wrap:anywhere]"
+                    >
+                      {name}
+                    </Text>
+                    <Code className="text-muted-foreground">
+                      {item.slack_app.app_id ?? "앱 ID 없음"}
+                    </Code>
+                    <Text as="span" variant="meta" className="@[560px]:hidden">
+                      {item.agent?.name ?? "없음"}
+                      {" · "}
+                      {updated}
+                    </Text>
+                  </RowLines>
+                </TableCell>
+                <TableCell className={cn(WIDE, "text-muted-foreground")}>
+                  {item.agent ? (
+                    <a href="#nav" className={linkVariants()}>
+                      {item.agent.name}
+                    </a>
+                  ) : (
+                    "없음"
+                  )}
+                </TableCell>
+                <TableCell className={FIT}>
+                  <AppState item={item} />
+                </TableCell>
+                <TableCell
+                  className={cn(
+                    FIT,
+                    WIDE,
+                    "text-right text-caption text-muted-foreground",
+                  )}
+                >
+                  <time dateTime={item.slack_app.updated_at}>{updated}</time>
+                </TableCell>
+                <TableCell className={FIT}>
+                  {item.agent ? (
+                    <a href="#nav" className={linkVariants()}>
+                      자세히
+                      <Text as="span" className="sr-only">
+                        : {name}
+                      </Text>
+                    </a>
+                  ) : null}
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+function SlackApps({
+  viewer,
+  apps,
+}: {
+  readonly viewer: Role;
+  readonly apps: readonly MadeApp[];
+}) {
+  const canManage = viewer !== "member";
+  return (
+    <SettingsSection
+      id={SLACK_APPS_ANCHOR}
+      title="자동으로 만든 Slack 앱"
+      description="여기서는 앱의 상태만 봅니다. 에이전트 앱의 설치, 연결 해제, 삭제는 그 에이전트의 Slack 탭에서 합니다."
+      rows={
+        canManage ? undefined : (
+          <SettingRow title="앱 목록" description={manageReason(viewer)} />
+        )
+      }
+    >
+      {!canManage ? null : apps.length === 0 ? (
+        <EmptyState
+          size="sm"
+          title="이 콘솔이 만든 Slack 앱이 아직 없습니다."
+        />
+      ) : (
+        <AppTable items={apps} />
+      )}
+    </SettingsSection>
+  );
+}
+
+function SlackPage({
+  viewer,
+  token: initialToken,
+  appsEmpty,
+  editing: initialEditing,
+  guestSaving,
+}: {
+  readonly viewer: Role;
+  readonly token: TokenRead;
+  readonly appsEmpty: boolean;
+  readonly editing: boolean;
+  readonly guestSaving: boolean;
+}) {
+  const canManage = viewer !== "member";
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const [read, setRead] = useState<TokenRead>(initialToken);
+  const [editing, setEditing] = useState(initialEditing && canManage);
+  const [deleting, setDeleting] = useState(false);
+  const apps = appsEmpty ? [] : SLACK_APPS;
+  // Members' token read never runs, so it stays pending (useConfigToken).
+  const summary =
+    canManage && read !== "loading" && read !== "storeOff"
+      ? TOKEN[read]
       : undefined;
+  const unready = summary !== undefined && summary.state !== "active";
+  const tokenOnly = unready && apps.length === 0;
+  const start = tokenOnly && summary?.state === "unset";
+  const guest = (
+    <SlackGuest viewer={viewer} saving={guestSaving} onOutcome={setOutcome} />
+  );
+  const form = editing ? (
+    <TokenForm
+      onCancel={() => setEditing(false)}
+      onSubmit={() => {
+        setEditing(false);
+        setRead("active");
+        setOutcome({
+          kind: "notice",
+          text: `Slack이 토큰을 확인했습니다. 팀 ${ISSUER.team_id}, 발급자 ${ISSUER.user_id}.`,
+        });
+      }}
+    />
+  ) : null;
+
+  const rows = !canManage ? (
+    <SettingRow
+      title="App Configuration Token"
+      description={manageReason(viewer)}
+    />
+  ) : read === "loading" ? (
+    <RowListItem>
+      <Skeleton width="50%" />
+    </RowListItem>
+  ) : read === "storeOff" || summary === undefined ? (
+    <RowListItem>
+      <ErrorState
+        title="불러오지 못했습니다"
+        message="비밀 저장소를 사용할 수 없습니다. 관리자에게 저장소 설정을 확인해 달라고 요청하세요."
+      />
+    </RowListItem>
+  ) : (
+    <>
+      <SettingRow
+        title="App Configuration Token"
+        badge={<TokenBadge summary={summary} />}
+        description={tokenLine(summary)}
+        actions={
+          editing ? undefined : (
+            <Button
+              type="button"
+              size="sm"
+              variant={summary.state === "active" ? "outline" : "default"}
+              className={ACTION}
+              onClick={() => setEditing(true)}
+            >
+              {summary.state === "active"
+                ? "토큰 교체"
+                : summary.state === "needs_reentry"
+                  ? "토큰 재등록"
+                  : "토큰 등록"}
+            </Button>
+          )
+        }
+      />
+      {form ? <RowListItem>{form}</RowListItem> : null}
+    </>
+  );
+  const after = tokenOnly ? null : (
+    <>
+      {canManage ? guest : null}
+      <SlackApps viewer={viewer} apps={apps} />
+    </>
+  );
+
+  return (
+    <Page
+      title="Slack 연결 설정"
+      description="소유자와 관리자만 바꿀 수 있습니다."
+    >
+      <div className={SECTIONS}>
+        <OutcomeLine outcome={outcome} />
+        {canManage ? null : guest}
+        {start ? (
+          <SettingsSection
+            title="Slack 연결하기"
+            description="에이전트를 Slack에서 쓰려면 먼저 Slack의 App Configuration Token을 등록하세요. 등록하면 이 콘솔이 계정 연결 앱과 에이전트마다 쓸 Slack 앱을 만듭니다."
+            rows={form ? <RowListItem>{form}</RowListItem> : undefined}
+            foot={
+              form ? undefined : (
+                <Button type="button" onClick={() => setEditing(true)}>
+                  토큰 등록
+                </Button>
+              )
+            }
+          />
+        ) : (
+          <>
+            <SettingsSection
+              title="Slack 앱 생성"
+              description="이 콘솔이 계정 연결 앱과 에이전트마다 쓸 Slack 앱을 만들 때 쓰는 토큰입니다. 마지막 토큰 확인은 등록이나 자동 갱신 때 Slack이 토큰을 받은 시각입니다."
+              rows={rows}
+            />
+            {after}
+            {canManage && summary?.configured && after ? (
+              <DangerZone title="위험 구역">
+                <DangerZoneRow
+                  title="App Configuration Token 삭제"
+                  description="새 Slack 앱을 만들 수 없게 됩니다. 이미 만든 앱과 설치, 게스트 설정은 그대로입니다."
+                  actionLabel="삭제"
+                  actionName="App Configuration Token 삭제"
+                  onAction={() => setDeleting(true)}
+                />
+              </DangerZone>
+            ) : null}
+          </>
+        )}
+        <ConfirmDialog
+          open={deleting}
+          onOpenChange={setDeleting}
+          title="App Configuration Token을 삭제할까요?"
+          consequence="새 Slack 앱을 만들 수 없게 됩니다. 이미 만든 앱과 설치, 게스트 설정은 그대로입니다."
+          target={summary?.last4 ? `••••${summary.last4}` : undefined}
+          confirmLabel="삭제"
+          cancelLabel="취소"
+          tone="danger"
+          onConfirm={() => {
+            setDeleting(false);
+            setRead("unset");
+            setOutcome({
+              kind: "notice",
+              text: "App Configuration Token을 삭제했습니다.",
+            });
+          }}
+        />
+      </div>
+    </Page>
+  );
+}
+
+function WorkspaceSettingsScreen({
+  page,
+  viewer,
+  models = "ready",
+  token = "active",
+  appsEmpty = false,
+  editing = false,
+  guestSaving = false,
+}: {
+  readonly page: "general" | "slack";
+  readonly viewer: Role;
+  readonly models?: Models | undefined;
+  readonly token?: TokenRead | undefined;
+  readonly appsEmpty?: boolean | undefined;
+  readonly editing?: boolean | undefined;
+  readonly guestSaving?: boolean | undefined;
+}) {
   return (
     <ScreenShell
       current="settings"
-      crumb={["워크스페이스", "워크스페이스 설정"]}
+      crumb={[page === "general" ? "일반" : "Slack 연결 설정"]}
       role={viewer}
+      settings={page}
     >
-      <Page
-        title="워크스페이스 설정"
-        description={
-          editable
-            ? "워크스페이스 전체에 적용되는 설정입니다."
-            : "지금 설정입니다. 바꾸려면 워크스페이스 소유자나 관리자에게 요청하세요."
-        }
-      >
-        {/* One block, so the sub-nav mockup keeps its own margins. */}
-        <div>
-          {page ? (
-            <LinkTabs aria-label="워크스페이스 설정 메뉴" className="mb-6">
-              {SLACK_PAGES.map(([key, label]) => (
-                <LinkTab
-                  key={key}
-                  current={key === page}
-                  href={storyHref(`${SLACK_STORY}-${key}`)}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    setPage(key);
-                  }}
-                >
-                  {label}
-                </LinkTab>
-              ))}
-            </LinkTabs>
-          ) : null}
-          {/* Stays mounted while hidden so its saved state survives sub-nav moves. */}
-          {page ? (
-            <div hidden={page !== "slack"} className="flex flex-col gap-4">
-              <SlackConnectionPage
-                viewer={viewer}
-                token={token}
-                editing={editing}
-              />
-            </div>
-          ) : null}
-          {page === "apps" ? <SlackAppsPage /> : null}
-          {page && page !== "general" ? null : (
-            <div className="flex flex-col gap-4">
-              <SettingsCard
-                title="워크스페이스 이름"
-                description="콘솔과 알림에 보이는 이름입니다."
-                foot={
-                  <>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className={META}>
-                        콘솔에서는 아직 바꿀 수 없습니다.
-                      </div>
-                      <Badge variant="red">API 변경 필요: 94S-817</Badge>
-                    </div>
-                    <ReadOnlyMark />
-                  </>
-                }
-              >
-                <label className="sr-only" htmlFor={nameId}>
-                  워크스페이스 이름
-                </label>
-                <Input
-                  id={nameId}
-                  className="max-w-80"
-                  value={WORKSPACE.name}
-                  readOnly
-                />
-              </SettingsCard>
-              <SettingsCard
-                title="워크스페이스 ID"
-                description="API와 CLI에서 이 워크스페이스를 가리킬 때 씁니다."
-              >
-                <SecretField
-                  className="max-w-105"
-                  value={WORKSPACE.id}
-                  copyLabel="복사"
-                  copiedMessage="워크스페이스 ID를 복사했습니다."
-                  copyFailedMessage="복사하지 못했습니다. ID를 직접 선택해 복사하세요."
-                />
-              </SettingsCard>
-              <SettingsCard
-                title="모델 허용 목록"
-                description="세션에서 고를 수 있는 모델의 상한입니다. 에이전트 제한과 프로필이 여기서 더 좁힙니다."
-                foot={
-                  <>
-                    <div className={META}>
-                      설치 설정에서 관리합니다 · 콘솔에서는 읽기 전용
-                    </div>
-                    <ReadOnlyMark />
-                  </>
-                }
-              >
-                <ModelList models={models} />
-              </SettingsCard>
-              <SettingsCard
-                title="감사 기록 보존 기간"
-                description="허용·거절한 요청 기록을 이 기간 동안 보관합니다."
-                foot={
-                  editable ? (
-                    <>
-                      <div className={META}>
-                        30일보다 짧게 할 수 없고, 소유자만 바꿀 수 있습니다.
-                      </div>
-                      <SaveButton reason={retentionReason} />
-                    </>
-                  ) : undefined
-                }
-              >
-                {editable ? (
-                  <>
-                    <label className="sr-only" htmlFor={daysId}>
-                      보존 기간(일)
-                    </label>
-                    <Input
-                      id={daysId}
-                      className="max-w-50"
-                      type="number"
-                      defaultValue={WORKSPACE.audit_retention_days}
-                      disabled={retentionReason !== undefined}
-                    />
-                  </>
-                ) : (
-                  <div>
-                    감사 기록을 {WORKSPACE.audit_retention_days}일 보존합니다.
-                  </div>
-                )}
-              </SettingsCard>
-              {page ? null : (
-                <SettingsCard
-                  title="Slack 게스트"
-                  description="켜도 게스트는 먼저 웹에서 자기 Slack 계정을 연결해야 합니다. Slack Connect로 들어온 다른 조직 사람은 켜져 있어도 에이전트를 쓸 수 없습니다. 소유자나 관리자가 바꿀 수 있습니다."
-                  descriptionId={guestHintId}
-                  rows={
-                    editable ? (
-                      <GuestRow hintId={guestHintId} saving={saving} />
-                    ) : undefined
-                  }
-                >
-                  {editable ? null : (
-                    <div>Slack 게스트는 에이전트를 쓸 수 없습니다.</div>
-                  )}
-                </SettingsCard>
-              )}
-            </div>
-          )}
-        </div>
-      </Page>
+      {page === "general" ? (
+        <GeneralPage viewer={viewer} models={models} />
+      ) : (
+        <SlackPage
+          viewer={viewer}
+          token={token}
+          appsEmpty={appsEmpty}
+          editing={editing}
+          guestSaving={guestSaving}
+        />
+      )}
     </ScreenShell>
   );
 }
@@ -699,12 +1003,17 @@ const meta = {
   title: "Screens/Workspace settings (v4)",
   component: WorkspaceSettingsScreen,
   parameters: { layout: "fullscreen" },
-  args: { viewer: "owner", models: "ready", saving: false },
+  args: { page: "general", viewer: "owner", models: "ready" },
   argTypes: {
+    page: { control: "inline-radio", options: ["general", "slack"] },
     viewer: { control: "inline-radio", options: ["owner", "admin", "member"] },
     models: {
       control: "inline-radio",
       options: ["ready", "loading", "empty", "error"],
+    },
+    token: {
+      control: "inline-radio",
+      options: ["active", "needs_reentry", "unset", "loading", "storeOff"],
     },
   },
 } satisfies Meta<typeof WorkspaceSettingsScreen>;
@@ -712,133 +1021,118 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const WorkspaceSettings: Story = { name: "Owner" };
+const DARK = { theme: "dark" };
+
+export const WorkspaceSettings: Story = { name: "일반 › 소유자" };
 export const WorkspaceSettingsAdmin: Story = {
-  name: "Admin (retention locked)",
+  name: "일반 › 관리자 (보존 기간 변경 권한 없음)",
   args: { viewer: "admin" },
 };
 export const WorkspaceSettingsMember: Story = {
-  name: "Member (read-only)",
+  name: "일반 › 구성원 (읽기 전용)",
   args: { viewer: "member" },
 };
-/** The guest switch while its save is in flight: focusable, but refuses. */
-export const WorkspaceSettingsGuestSaving: Story = {
-  name: "Guest switch saving",
-  args: { saving: true },
-};
 export const WorkspaceSettingsModelsLoading: Story = {
-  name: "Models loading",
+  name: "일반 › 모델 불러오는 중",
   args: { models: "loading" },
 };
 export const WorkspaceSettingsModelsEmpty: Story = {
-  name: "Models empty",
+  name: "일반 › 모델 없음",
   args: { models: "empty" },
 };
 export const WorkspaceSettingsModelsError: Story = {
-  name: "Models error",
+  name: "일반 › 모델 읽기 실패",
   args: { models: "error" },
 };
 export const WorkspaceSettingsDark: Story = {
-  name: "Owner (dark)",
-  globals: { theme: "dark" },
+  name: "일반 › 소유자 (dark)",
+  globals: DARK,
 };
 export const WorkspaceSettingsMobile: Story = {
-  name: "Owner (390px)",
+  name: "일반 › 소유자 (390px)",
   globals: MOBILE,
 };
 export const WorkspaceSettingsMobileDark: Story = {
-  name: "Owner (390px, dark)",
-  globals: { ...MOBILE, theme: "dark" },
-};
-
-const DARK = { theme: "dark" };
-
-export const WorkspaceSettingsSlackGeneral: Story = {
-  name: "Slack v3 › 일반",
-  args: { slack: "general" },
-};
-export const WorkspaceSettingsSlackGeneralDark: Story = {
-  ...WorkspaceSettingsSlackGeneral,
-  name: "Slack v3 › 일반 (dark)",
-  globals: DARK,
-};
-export const WorkspaceSettingsSlackGeneralMobile: Story = {
-  ...WorkspaceSettingsSlackGeneral,
-  name: "Slack v3 › 일반 (390px)",
-  globals: MOBILE,
+  name: "일반 › 소유자 (390px, dark)",
+  globals: { ...MOBILE, ...DARK },
 };
 
 export const WorkspaceSettingsSlackSlack: Story = {
-  name: "Slack v3 › 연결 설정: token 설정됨",
-  args: { slack: "slack" },
+  name: "Slack › 토큰 확인됨",
+  args: { page: "slack" },
 };
 export const WorkspaceSettingsSlackSlackDark: Story = {
   ...WorkspaceSettingsSlackSlack,
-  name: "Slack v3 › 연결 설정: token 설정됨 (dark)",
+  name: "Slack › 토큰 확인됨 (dark)",
   globals: DARK,
 };
 export const WorkspaceSettingsSlackSlackMobile: Story = {
   ...WorkspaceSettingsSlackSlack,
-  name: "Slack v3 › 연결 설정: token 설정됨 (390px)",
+  name: "Slack › 토큰 확인됨 (390px)",
   globals: MOBILE,
 };
-
-export const WorkspaceSettingsSlackUnsetEdit: Story = {
-  name: "Slack v3 › 연결 설정: token 넣는 중",
-  args: { slack: "slack", token: "unset", editing: true },
+export const WorkspaceSettingsSlackReplace: Story = {
+  name: "Slack › 토큰 교체 중",
+  args: { page: "slack", editing: true },
 };
-export const WorkspaceSettingsSlackUnsetEditDark: Story = {
-  ...WorkspaceSettingsSlackUnsetEdit,
-  name: "Slack v3 › 연결 설정: token 넣는 중 (dark)",
-  globals: DARK,
-};
-export const WorkspaceSettingsSlackUnsetEditMobile: Story = {
-  ...WorkspaceSettingsSlackUnsetEdit,
-  name: "Slack v3 › 연결 설정: token 넣는 중 (390px)",
-  globals: MOBILE,
-};
-
-export const WorkspaceSettingsSlackReadOnly: Story = {
-  name: "Slack v3 › 연결 설정: 읽기 전용",
-  args: { slack: "slack", viewer: "member" },
-};
-export const WorkspaceSettingsSlackReadOnlyDark: Story = {
-  ...WorkspaceSettingsSlackReadOnly,
-  name: "Slack v3 › 연결 설정: 읽기 전용 (dark)",
-  globals: DARK,
-};
-export const WorkspaceSettingsSlackReadOnlyMobile: Story = {
-  ...WorkspaceSettingsSlackReadOnly,
-  name: "Slack v3 › 연결 설정: 읽기 전용 (390px)",
-  globals: MOBILE,
-};
-
 export const WorkspaceSettingsSlackReentry: Story = {
-  name: "Slack v3 › 연결 설정: token 교체 필요",
-  args: { slack: "slack", token: "needs_reentry" },
-};
-export const WorkspaceSettingsSlackReentryDark: Story = {
-  ...WorkspaceSettingsSlackReentry,
-  name: "Slack v3 › 연결 설정: token 교체 필요 (dark)",
-  globals: DARK,
+  name: "Slack › 재등록 필요",
+  args: { page: "slack", token: "needs_reentry" },
 };
 export const WorkspaceSettingsSlackReentryMobile: Story = {
   ...WorkspaceSettingsSlackReentry,
-  name: "Slack v3 › 연결 설정: token 교체 필요 (390px)",
+  name: "Slack › 재등록 필요 (390px)",
   globals: MOBILE,
 };
-
-export const WorkspaceSettingsSlackApps: Story = {
-  name: "Slack v3 › 자동으로 만든 앱",
-  args: { slack: "apps" },
+export const WorkspaceSettingsSlackReentryNoApps: Story = {
+  name: "Slack › 재등록 필요, 만든 앱 없음",
+  args: { page: "slack", token: "needs_reentry", appsEmpty: true },
 };
-export const WorkspaceSettingsSlackAppsDark: Story = {
-  ...WorkspaceSettingsSlackApps,
-  name: "Slack v3 › 자동으로 만든 앱 (dark)",
-  globals: DARK,
+export const WorkspaceSettingsSlackUnset: Story = {
+  name: "Slack › 토큰 삭제됨, 만든 앱 있음",
+  args: { page: "slack", token: "unset" },
 };
-export const WorkspaceSettingsSlackAppsMobile: Story = {
-  ...WorkspaceSettingsSlackApps,
-  name: "Slack v3 › 자동으로 만든 앱 (390px)",
+export const WorkspaceSettingsSlackStart: Story = {
+  name: "Slack › 처음 연결",
+  args: { page: "slack", token: "unset", appsEmpty: true },
+};
+export const WorkspaceSettingsSlackStartMobile: Story = {
+  ...WorkspaceSettingsSlackStart,
+  name: "Slack › 처음 연결 (390px)",
+  globals: MOBILE,
+};
+export const WorkspaceSettingsSlackUnsetEdit: Story = {
+  name: "Slack › 처음 연결: 토큰 등록 중",
+  args: { page: "slack", token: "unset", appsEmpty: true, editing: true },
+};
+export const WorkspaceSettingsSlackUnsetEditMobile: Story = {
+  ...WorkspaceSettingsSlackUnsetEdit,
+  name: "Slack › 처음 연결: 토큰 등록 중 (390px)",
+  globals: MOBILE,
+};
+export const WorkspaceSettingsSlackAppsEmpty: Story = {
+  name: "Slack › 만든 앱 없음",
+  args: { page: "slack", appsEmpty: true },
+};
+export const WorkspaceSettingsSlackLoading: Story = {
+  name: "Slack › 토큰 불러오는 중",
+  args: { page: "slack", token: "loading" },
+};
+export const WorkspaceSettingsSlackStoreOff: Story = {
+  name: "Slack › 비밀 저장소 꺼짐",
+  args: { page: "slack", token: "storeOff" },
+};
+/** The guest switch while its save is in flight: focusable, but refuses. */
+export const WorkspaceSettingsSlackGuestSaving: Story = {
+  name: "Slack › 게스트 저장 중",
+  args: { page: "slack", guestSaving: true },
+};
+export const WorkspaceSettingsSlackReadOnly: Story = {
+  name: "Slack › 구성원 (읽기 전용)",
+  args: { page: "slack", viewer: "member" },
+};
+export const WorkspaceSettingsSlackReadOnlyMobile: Story = {
+  ...WorkspaceSettingsSlackReadOnly,
+  name: "Slack › 구성원 (읽기 전용, 390px)",
   globals: MOBILE,
 };
