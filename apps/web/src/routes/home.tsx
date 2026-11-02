@@ -19,7 +19,11 @@ import {
 } from "@werft-ai/core";
 import { useAgentPlatform, useSessions } from "@werft-ai/react";
 import { ApprovalInbox, usePendingRail } from "@werft-ai/react/blocks";
-import { DetailLayout, OPERATIONS_MESSAGES } from "@werft-ai/react/components";
+import {
+  DetailLayout,
+  OPERATIONS_MESSAGES,
+  useMinute,
+} from "@werft-ai/react/components";
 import {
   Badge,
   Button,
@@ -34,6 +38,8 @@ import {
   GridTableHeader,
   GridTableRow,
   GridTableRowOpener,
+  IconTile,
+  MoreLink,
   Page,
   RelativeTime,
   RowLines,
@@ -49,7 +55,6 @@ import {
   TooltipTrigger,
 } from "@werft-ai/ui";
 import {
-  ArrowRight,
   Bot,
   ClipboardCheck,
   Folder,
@@ -59,13 +64,7 @@ import {
   Link as LinkIcon,
   List,
 } from "lucide-react";
-import {
-  type ComponentProps,
-  type ReactNode,
-  useEffect,
-  useId,
-  useState,
-} from "react";
+import { type ComponentProps, type ReactNode, useId, useState } from "react";
 import {
   administeredAgentsQuery,
   agentCountsQuery,
@@ -85,7 +84,6 @@ import {
   GoogleDriveMark,
   SlackMark,
 } from "../components/brand-marks.tsx";
-import { IconTile } from "../components/icon-tile.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
@@ -138,20 +136,6 @@ const RECENT_NARROW_COLUMNS = "minmax(0,1fr) 116px 64px";
 const STALE_WAIT_MS = 30 * 60 * 1000;
 // Lines the home inbox draws before the rest go to the sessions screen.
 const HOME_REQUESTS_LIMIT = 5;
-const MINUTE_MS = 60 * 1000;
-
-/**
- * The time, moved on every minute. Polls that return the same data do not
- * re-render, so waits and "x ago" would otherwise stay as first drawn.
- */
-export function useNow(): number {
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), MINUTE_MS);
-    return () => clearInterval(id);
-  }, []);
-  return now;
-}
 
 /**
  * The bootstrap checklist until every step is done, then the requests waiting
@@ -184,7 +168,7 @@ export function HomeScreen() {
       : role === "owner" || role === "admin"
         ? [role]
         : ["manager", "requester"];
-  const now = useNow();
+  const now = useMinute(true);
   const unavailable = useUnavailable();
   const refusal = (error: { readonly code: string }) => t(errorKey(error.code));
   const rail = usePendingRail({
@@ -685,15 +669,11 @@ export function HomeScreen() {
           },
         ]}
         link={
-          <TextLink
-            asChild
-            className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-(color:--ap-color-link) text-control"
-          >
+          <MoreLink asChild size="control" arrow>
             <Link to="/agents/$id" params={{ id: agent.id }}>
               {t("home.glance.toAgent")}
-              <ArrowRight className="size-3.5" aria-hidden="true" />
             </Link>
-          </TextLink>
+          </MoreLink>
         }
       />
     );
@@ -993,15 +973,11 @@ function ArrowLink({
   readonly children: ReactNode;
 }) {
   return (
-    <TextLink
-      asChild
-      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-(color:--ap-color-link) text-control"
-    >
+    <MoreLink asChild size="control" arrow>
       <Link to={to} {...(search ? { search } : {})}>
         {children}
-        <ArrowRight className="size-3.5" aria-hidden="true" />
       </Link>
-    </TextLink>
+    </MoreLink>
   );
 }
 

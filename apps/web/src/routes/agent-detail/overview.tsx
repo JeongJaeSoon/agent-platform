@@ -23,7 +23,7 @@ import {
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
-  Link,
+  MoreLink,
   RelativeTime,
   Skeleton,
   StatCard,
@@ -361,9 +361,9 @@ export function AgentRecentSessions({ agentId }: { readonly agentId: string }) {
         <h2 id={titleId} className={SECTION_TITLE}>
           {t("agent.sessions.title")}
         </h2>
-        <Link asChild className="text-control">
+        <MoreLink asChild size="control">
           <RouterLink to="/sessions">{t("agent.sessions.all")}</RouterLink>
-        </Link>
+        </MoreLink>
       </div>
       {sessions.error ? (
         <LoadFailure
