@@ -241,3 +241,28 @@ export const GridMobile: Story = {
     viewport: { value: "mobile390", isRotated: false },
   },
 };
+
+/** `stack="sm"`: two columns from `sm`, each value under its label below. */
+export const GridStacked: Story = {
+  ...Grid,
+  name: "Grid, stacked below sm",
+  args: { variant: "grid", stack: "sm" },
+};
+
+export const GridStackedMobile: Story = {
+  ...GridStacked,
+  name: "Grid, stacked below sm (390px)",
+  globals: {
+    locale: "ja",
+    viewport: { value: "mobile390", isRotated: false },
+  },
+};
+
+export const GridStackedMobileDark: Story = {
+  ...GridStackedMobile,
+  name: "Grid, stacked below sm (390px, dark)",
+  globals: {
+    theme: "dark",
+    viewport: { value: "mobile390", isRotated: false },
+  },
+};

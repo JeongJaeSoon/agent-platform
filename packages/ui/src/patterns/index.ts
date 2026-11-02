@@ -14,6 +14,7 @@ export {
   ConfirmDialog,
   type ConfirmDialogProps,
 } from "./confirm-dialog.tsx";
+export { CopyButton, type CopyButtonProps } from "./copy-button.tsx";
 export {
   DangerZone,
   type DangerZoneProps,

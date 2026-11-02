@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 
+import { writeClipboard } from "../foundations/clipboard.ts";
 import { cn } from "../foundations/cn.ts";
 import { Button } from "../primitives/button.tsx";
 
@@ -56,14 +57,7 @@ export function SecretField({
   const copy = async () => {
     const copied = value;
     const started = generation;
-    let ok = true;
-    try {
-      const clipboard = globalThis.navigator?.clipboard;
-      if (!clipboard) throw new Error("clipboard unavailable");
-      await clipboard.writeText(copied);
-    } catch {
-      ok = false;
-    }
+    const ok = await writeClipboard(copied);
     if (latest.current !== started) return;
     // Selected, the value is one keystroke from a manual copy.
     if (!ok && valueRef.current) {

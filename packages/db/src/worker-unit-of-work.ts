@@ -2813,6 +2813,11 @@ export function createPostgresWorkerUnitOfWork(
             .returning({ id: sessions.id }),
           "session",
         );
+        // The Nth turn's end is when an every_n_turns judgment is due.
+        await queueAchievementJudgment(tx, fence.sessionId, {
+          trigger: "turns",
+          turn: turn.sequence,
+        });
         // After every event of the turn, which the check above found
         // durable: the stream ends the turn where the session now reads
         // . Only an open turn holds a question, so the stored
@@ -3466,6 +3471,19 @@ export function createPostgresWorkerUnitOfWork(
                         : {}),
           })
           .where(eq(sessions.id, session.id));
+        // The run ended with nothing left unknown: idle between turns,
+        // paused or closed. A pause or close of a session with no run has
+        // nothing running to stop, and its last run already queued this.
+        if (
+          unresolved.length === 0 &&
+          !stopping &&
+          (paused ||
+            closedNow ||
+            closed ||
+            (session.admissionState === "active" && session.status === "idle"))
+        ) {
+          await queueAchievementJudgment(tx, session.id, { trigger: "idle" });
+        }
         const startupOutcome =
           failedStartup === null
             ? null

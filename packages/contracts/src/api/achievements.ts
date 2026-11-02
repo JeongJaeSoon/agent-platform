@@ -267,6 +267,7 @@ export const ACHIEVEMENT_JUDGE_BACKEND_VALUES = ["luna"] as const;
 export const ACHIEVEMENT_JUDGMENT_ERROR_VALUES = [
   "judge_unavailable",
   "outputs_unavailable",
+  "session_limit",
 ] as const;
 
 /** `auto` counts at once; `needs_review` counts once a person confirms it. */
@@ -386,6 +387,17 @@ export const listSessionAchievementsResponseSchema = z
   })
   .strict();
 
+/** The judgment the session's manual rejudge queued, or merged into. */
+export const rejudgeSessionResponseSchema = z
+  .object({
+    judgment_id: z.uuid(),
+    receipt_id: receiptIdSchema,
+  })
+  .strict();
+
+export type RejudgeSessionResponse = z.infer<
+  typeof rejudgeSessionResponseSchema
+>;
 export type AchievementJudgmentTrigger = z.infer<
   typeof achievementJudgmentTriggerSchema
 >;
