@@ -201,13 +201,14 @@ describe("GitHub 연결 › 저장소 시트", () => {
     await waitFor(() => expect(document.activeElement === menu).toBe(true));
   });
 
-  test("같은 역할 App이 여럿이면 정지되지 않은 첫 설치를 이름으로 읽는다", async () => {
+  test("같은 역할 App이 여럿이면 정지·확인 못 함이 아닌 첫 설치를 이름으로 읽는다", async () => {
     const twoApps = {
       ...SETTINGS,
       connections: [
         githubConnection({
           installations: [
             githubInstallation({ id: 76, account: "aaa", status: "suspended" }),
+            githubInstallation({ id: 75, account: "aab", status: "unknown" }),
             githubInstallation({ id: 78, account: "beta" }),
           ],
         }),
