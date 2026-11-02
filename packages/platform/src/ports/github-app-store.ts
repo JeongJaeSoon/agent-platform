@@ -287,6 +287,11 @@ export interface GitHubAppDirectory {
   installations(
     app: Pick<GitHubAppCredential, "appId" | "apiBase" | "privateKey">,
   ): Promise<GitHubAppInstallationView[]>;
+  /** One installation of this App (`GET /app/installations/{id}`); null when it is not one. */
+  installation(
+    app: Pick<GitHubAppCredential, "appId" | "apiBase" | "privateKey">,
+    installationId: number,
+  ): Promise<GitHubAppInstallationView | null>;
   /**
    * The installation that covers `repo` and what it grants, or null when
    * there is none.
@@ -314,6 +319,70 @@ export interface GitHubAppDirectory {
     installationId: number,
     repositoryId: number,
   ): Promise<GitHubInstallationRepository | null>;
+}
+
+/** A connection's installations as GitHub last listed them. */
+export type GitHubInstallationSnapshot = {
+  installations: GitHubAppInstallationView[];
+  readAt: Date;
+};
+
+/** An installation started in the console, bound to what started it. */
+export type GitHubInstallationState = {
+  workspaceId: string;
+  connectionId: string;
+  appId: number;
+  actorUserId: string;
+  createdAt: Date;
+  expiresAt: Date;
+};
+
+/** Who finished an installation started in the console, and when. */
+export type GitHubInstallationLink = {
+  connectionId: string;
+  installationId: number;
+  connectedBy: { userId: string; displayName: string } | null;
+  connectedAt: Date;
+};
+
+/**
+ * What the platform keeps of a connection's installations (design GHUI-v3
+ * §8): the last list GitHub gave, and who connected an installation from the
+ * console. Neither decides access.
+ */
+export interface GitHubInstallationStore {
+  /** Kept while the row `connectionId` names still holds App `appId`. */
+  recordSnapshot(
+    connectionId: string,
+    appId: number,
+    snapshot: GitHubInstallationSnapshot,
+  ): Promise<void>;
+  /** Null when none was kept for App `appId` on that row. */
+  snapshot(
+    connectionId: string,
+    appId: number,
+  ): Promise<GitHubInstallationSnapshot | null>;
+  /** Stores a new state and drops states that expired before `now`. */
+  issueState(
+    stateHash: Uint8Array,
+    state: GitHubInstallationState,
+    now: Date,
+  ): Promise<void>;
+  /** Removes the state and returns it, so it is spent whatever comes next. */
+  consumeState(stateHash: Uint8Array): Promise<GitHubInstallationState | null>;
+  /**
+   * Writes the link while the connection still holds `appId` and no link
+   * exists for that installation; true when this call wrote it.
+   */
+  recordLink(input: {
+    workspaceId: string;
+    connectionId: string;
+    appId: number;
+    installationId: number;
+    connectedBy: string;
+  }): Promise<boolean>;
+  /** The workspace's links, for connections that still hold the App linked. */
+  links(workspaceId: string): Promise<GitHubInstallationLink[]>;
 }
 
 export type GitHubInstallationRepository = {

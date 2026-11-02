@@ -17,6 +17,9 @@ import {
   type GitHubAppInstallationView,
   type GitHubAppRecord,
   type GitHubAppStore,
+  type GitHubInstallationLink,
+  type GitHubInstallationSnapshot,
+  type GitHubInstallationStore,
   githubUnavailableOf,
 } from "../ports/github-app-store.ts";
 import type {
@@ -63,6 +66,8 @@ export function createGitHubSettingsService(deps: {
   /** Null when the API runs without a master key: no App is registered. */
   apps: GitHubAppStore | null;
   directory: GitHubAppDirectory;
+  /** Absent: a failed read lists no installations, and none names who connected it. */
+  installations?: GitHubInstallationStore | null;
   newId?: () => string;
   now?: () => Date;
 }) {
@@ -100,6 +105,7 @@ export function createGitHubSettingsService(deps: {
     record: GitHubAppRecord & { role: GitHubAppRole },
     credential: GitHubAppCredential,
     manager: boolean,
+    links: ReadonlyMap<number, GitHubInstallationLink>,
   ): Promise<GitHubSettingsConnection> {
     const [described, listed] = await Promise.allSettled([
       deps.directory.describe(credential),
@@ -108,13 +114,16 @@ export function createGitHubSettingsService(deps: {
     const checkedAt = now().toISOString();
     const profile = described.status === "fulfilled" ? described.value : null;
     if (manager && profile !== null && deps.apps !== null) {
-      // An owner widens the App on GitHub; a manager's read is how it shows here.
-      await deps.apps.recordPermissions(
-        record.id,
-        credential.appId,
-        profile.permissions,
-        profile.clientId,
-      );
+      // An owner widens the App on GitHub; a manager's read is how it shows
+      // here. This read answers what GitHub said whether or not it is kept.
+      await deps.apps
+        .recordPermissions(
+          record.id,
+          credential.appId,
+          profile.permissions,
+          profile.clientId,
+        )
+        .catch(() => undefined);
     }
     const asked = profile?.permissions ?? record.permissions;
     const rejected = [described, listed].some(
@@ -123,21 +132,36 @@ export function createGitHubSettingsService(deps: {
         githubUnavailableOf(settled.reason) === "github_app_auth_failed",
     );
     const answered = profile !== null || listed.status === "fulfilled";
-    const installations =
-      listed.status === "fulfilled"
-        ? [...listed.value].sort(
-            (a, b) => a.account.localeCompare(b.account) || a.id - b.id,
+    const kept = deps.installations;
+    let snapshot: GitHubInstallationSnapshot | null = null;
+    if (listed.status === "fulfilled") {
+      snapshot = { installations: listed.value, readAt: new Date(checkedAt) };
+      // Written on a manager's read only, as the permissions are; a failed
+      // write leaves the last list, which is all it is for.
+      if (manager && kept) {
+        await kept
+          .recordSnapshot(record.id, credential.appId, snapshot)
+          .catch(() => undefined);
+      }
+    } else if (kept) {
+      snapshot = await kept
+        .snapshot(record.id, credential.appId)
+        .catch(() => null);
+    }
+    const fresh = listed.status === "fulfilled";
+    const installations = [...(snapshot?.installations ?? [])].sort(
+      (a, b) => a.account.localeCompare(b.account) || a.id - b.id,
+    );
+    const counts =
+      manager && fresh
+        ? await Promise.all(
+            installations.map((installation, index) =>
+              index < INSTALLATION_COUNT_MAX
+                ? repositoryCount(credential, installation)
+                : Promise.resolve(null),
+            ),
           )
         : [];
-    const counts = manager
-      ? await Promise.all(
-          installations.map((installation, index) =>
-            index < INSTALLATION_COUNT_MAX
-              ? repositoryCount(credential, installation)
-              : Promise.resolve(null),
-          ),
-        )
-      : [];
     return {
       connection_id: record.id,
       role: record.role,
@@ -148,19 +172,23 @@ export function createGitHubSettingsService(deps: {
       permissions: asked,
       key_status: answered ? "ok" : rejected ? "rejected" : "unknown",
       installations: installations.map((installation, index) => {
+        // An installation from the last list may have changed since: say
+        // nothing GitHub did not say on this read.
         const approval =
-          asked === null
+          asked === null || !fresh
             ? "unknown"
             : githubPermissionsMissing(installation.permissions, asked)
                   .length === 0
               ? "approved"
               : "pending";
+        const connected = links.get(installation.id);
         return {
           id: installation.id,
           account: installation.account,
           account_type: installation.accountType,
-          status:
-            installation.suspendedAt !== null
+          status: !fresh
+            ? "unknown"
+            : installation.suspendedAt !== null
               ? "suspended"
               : approval === "pending"
                 ? "approval_pending"
@@ -179,11 +207,24 @@ export function createGitHubSettingsService(deps: {
                 html_url: installation.htmlUrl,
                 created_at: installation.createdAt?.toISOString() ?? null,
                 suspended_at: installation.suspendedAt?.toISOString() ?? null,
+                connected:
+                  connected === undefined
+                    ? null
+                    : {
+                        by:
+                          connected.connectedBy === null
+                            ? null
+                            : {
+                                user_id: connected.connectedBy.userId,
+                                display_name: connected.connectedBy.displayName,
+                              },
+                        at: connected.connectedAt.toISOString(),
+                      },
               }
             : null,
         };
       }),
-      installations_read_at: listed.status === "fulfilled" ? checkedAt : null,
+      installations_read_at: snapshot?.readAt.toISOString() ?? null,
       check:
         listed.status === "fulfilled"
           ? { state: "ok", checked_at: checkedAt }
@@ -201,14 +242,24 @@ export function createGitHubSettingsService(deps: {
   ): Promise<GitHubSettingsConnection[]> {
     const apps = deps.apps;
     if (apps === null) return [];
-    const [records, credentials] = await Promise.all([
+    const kept = deps.installations;
+    const [records, credentials, links] = await Promise.all([
       apps.list(workspaceId),
       Promise.all(
         GITHUB_APP_ROLE_VALUES.map((role) =>
           apps.credentials(role, workspaceId),
         ),
       ),
+      manager && kept
+        ? kept.links(workspaceId).catch(() => [])
+        : Promise.resolve([]),
     ]);
+    const linksOf = (connectionId: string) =>
+      new Map(
+        links
+          .filter((link) => link.connectionId === connectionId)
+          .map((link) => [link.installationId, link]),
+      );
     const keyOf = new Map(credentials.flat().map((held) => [held.id, held]));
     return await Promise.all(
       records.flatMap((record) => {
@@ -216,7 +267,7 @@ export function createGitHubSettingsService(deps: {
         const credential = keyOf.get(record.id);
         return credential === undefined || credential.appId !== record.appId
           ? []
-          : [connectionOf(record, credential, manager)];
+          : [connectionOf(record, credential, manager, linksOf(record.id))];
       }),
     );
   }

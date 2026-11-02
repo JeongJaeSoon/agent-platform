@@ -439,6 +439,8 @@ export function createPostgresGitHubAppStore(
         await tx.insert(receipts).values(
           receiptRow(audit, workspaceId, "set_github_app", {
             ...appResult(row, role, app.permissions),
+            // A connection address takes only its own App: a new key.
+            ...(target.kind === "connection" ? { purpose: "private_key" } : {}),
             ...(pinsCleared > 0 ? { pins_cleared: pinsCleared } : {}),
             ...(pinsRestored > 0 ? { pins_restored: pinsRestored } : {}),
             ...(manifest === undefined
