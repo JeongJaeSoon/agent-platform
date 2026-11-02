@@ -9,6 +9,7 @@ import {
 } from "@werft-ai/execution-local-docker";
 import {
   type ExecutionBackend,
+  messageOf,
   type ReclaimOptions,
   reclaimNetworks,
   reclaimWorkspaces,
@@ -122,8 +123,4 @@ async function dockerPreflight(
       }
     },
   });
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

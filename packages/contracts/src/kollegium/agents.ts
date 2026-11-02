@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { githubFeaturesSchema } from "../musterrolle/github-settings.ts";
+import { AGENT_INSTRUCTIONS_MAX_LENGTH } from "../shared/agent-card.ts";
 import {
   agentIdSchema,
   agentReleaseIdSchema,
@@ -16,6 +17,8 @@ import {
   userIdSchema,
   workspaceIdSchema,
 } from "../shared/index.ts";
+
+export { AGENT_INSTRUCTIONS_MAX_LENGTH } from "../shared/agent-card.ts";
 
 export const AGENT_STATUS_VALUES = ["active", "paused", "archived"] as const;
 export const agentStatusSchema = z.enum(AGENT_STATUS_VALUES);
@@ -133,7 +136,7 @@ export const agentCapabilitiesSchema = z
 export const agentCardSchema = z
   .object({
     role: z.string().min(1).max(200),
-    instructions: z.string().min(1).max(20_000),
+    instructions: z.string().min(1).max(AGENT_INSTRUCTIONS_MAX_LENGTH),
     language: z.enum(AGENT_CARD_LANGUAGE_VALUES).default("ko"),
     /** Must sit inside the runtime profile's model allowlist. */
     model: z.string().min(1).max(128),

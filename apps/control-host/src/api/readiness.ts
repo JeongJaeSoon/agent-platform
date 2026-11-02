@@ -6,6 +6,7 @@ import {
   type MigrationEntry,
   type MigrationHead,
 } from "@werft-ai/db";
+import { messageOf as describe } from "@werft-ai/platform";
 
 export type ReadinessResult =
   | { ready: true }
@@ -88,10 +89,6 @@ function migrationDrift(
     }
   }
   return null;
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 // database → schema → config, stopping at the first failure. Nothing here

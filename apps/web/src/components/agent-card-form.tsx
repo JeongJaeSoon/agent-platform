@@ -5,6 +5,7 @@ import type {
   ListProfilesResponse,
   ProfileSummary,
 } from "@werft-ai/contracts";
+import { AGENT_INSTRUCTIONS_MAX_LENGTH } from "@werft-ai/contracts/agent-card";
 import {
   Alert,
   Field,
@@ -22,7 +23,7 @@ import {
 } from "@werft-ai/ui";
 import { useId } from "react";
 import type { components } from "../api/schema.gen.ts";
-import { errorKey, useI18n } from "../i18n/i18n.tsx";
+import { errorKey, LOCALE_NAMES, useI18n } from "../i18n/i18n.tsx";
 import { pickable } from "./profile-options.tsx";
 
 /** The card languages; agent-card-form.test.ts pins it to the contract. */
@@ -178,7 +179,7 @@ export function AgentCardFields({
         <FieldLabel>{t("agentCard.instructions")}</FieldLabel>
         <Textarea
           required
-          maxLength={20_000}
+          maxLength={AGENT_INSTRUCTIONS_MAX_LENGTH}
           rows={8}
           value={draft.instructions}
           onChange={(event) => set("instructions", event.target.value)}
@@ -195,7 +196,7 @@ export function AgentCardFields({
         >
           {AGENT_CARD_LANGUAGE_VALUES.map((value) => (
             <NativeSelectOption key={value} value={value}>
-              {value === "ko" ? "한국어" : "English"}
+              {LOCALE_NAMES[value]}
             </NativeSelectOption>
           ))}
         </NativeSelect>
