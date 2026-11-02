@@ -254,6 +254,54 @@ describe("session achievements", () => {
     ).toBeNull();
   });
 
+  test("a confirmed achievement shows as decided before the card is read again", async () => {
+    let posted = false;
+    let release = () => {};
+    const confirmed = {
+      ...listed,
+      items: listed.items.map((item) =>
+        item.id === DOCUMENT.id
+          ? { ...item, review_state: "confirmed" as const }
+          : item,
+      ),
+    };
+    renderAt(
+      `/sessions/${SESSION_ID}`,
+      routes(
+        () =>
+          (posted
+            ? new Promise<Response>((resolve) => {
+                release = () => resolve(json(200, confirmed));
+              })
+            : json(200, listed)) as Response,
+        me(),
+        {
+          [`POST /v1/achievements/${DOCUMENT.id}/review`]: () => {
+            posted = true;
+            return json(200, {
+              achievement: { ...DOCUMENT, review_state: "confirmed" },
+              receipt_id: RECEIPT_ID,
+            });
+          },
+        },
+      ),
+    );
+    const card = await openCard();
+    await (await setupUser()).click(
+      within(card).getByRole("button", { name: "설계 문서 작성 성과 확인" }),
+    );
+    // The read after the POST has not answered yet.
+    await waitFor(() =>
+      expect(
+        within(card).queryByRole("button", {
+          name: "설계 문서 작성 성과 확인",
+        }),
+      ).toBeNull(),
+    );
+    expect(within(card).getAllByText("확인됨")).toHaveLength(1);
+    release();
+  });
+
   test("a refused review says why in its row", async () => {
     renderAt(
       `/sessions/${SESSION_ID}`,

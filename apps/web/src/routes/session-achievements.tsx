@@ -1,9 +1,10 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import type {
   AchievementJudgment,
   ListSessionAchievementsResponse,
   ReviewAchievementRequest,
+  ReviewAchievementResponse,
   SessionAchievement,
   SessionDetail,
 } from "@werft-ai/contracts";
@@ -50,10 +51,17 @@ const JUDGE_USD = new Intl.NumberFormat("en-US", {
 });
 const RATIO = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 
+function achievementsKey(
+  client: ReturnType<typeof useAgentPlatform>["client"],
+  sessionId: string,
+) {
+  return [...queryKeysOf(client).session(sessionId), "achievements"];
+}
+
 export function useSessionAchievements(session: SessionDetail) {
   const { client } = useAgentPlatform();
   return useQuery({
-    queryKey: [...queryKeysOf(client).session(session.id), "achievements"],
+    queryKey: achievementsKey(client, session.id),
     queryFn: () =>
       unwrap(
         client.GET("/v1/sessions/{id}/achievements", {
@@ -97,8 +105,25 @@ export function SessionAchievements({
 }) {
   const { t } = useI18n();
   const titleId = useId();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const achievements = useSessionAchievements(session);
   const reviewable = useReviewable();
+  // The list read right after a review may still be the old one; show the
+  // decision the POST returned, then read the card again.
+  const reviewed = (decided: SessionAchievement) => {
+    queryClient.setQueryData<ListSessionAchievementsResponse>(
+      achievementsKey(client, session.id),
+      (old) =>
+        old && {
+          ...old,
+          items: old.items.map((item) =>
+            item.id === decided.id ? decided : item,
+          ),
+        },
+    );
+    return achievements.refetch();
+  };
   const data = achievements.data;
   if (data === undefined || (data.items.length === 0 && !data.judgment)) {
     return null;
@@ -119,7 +144,7 @@ export function SessionAchievements({
             achievement={achievement}
             threshold={data.threshold}
             reviewable={reviewable(achievement.agent_id)}
-            onReviewed={() => void achievements.refetch()}
+            onReviewed={reviewed}
           />
         ))}
         {data.judgment ? (
@@ -179,13 +204,13 @@ function AchievementRow({
   readonly achievement: SessionAchievement;
   readonly threshold: number;
   readonly reviewable: boolean;
-  readonly onReviewed: () => void;
+  readonly onReviewed: (decided: SessionAchievement) => Promise<unknown>;
 }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const [failure, setFailure] = useState<string | null>(null);
   const review = useMutation<
-    unknown,
+    ReviewAchievementResponse,
     ApiError,
     ReviewAchievementRequest["decision"]
   >({
@@ -197,7 +222,7 @@ function AchievementRow({
         }),
       ),
     onMutate: () => setFailure(null),
-    onSuccess: onReviewed,
+    onSuccess: (response) => onReviewed(response.achievement),
     onError: (error) => setFailure(t(errorKey(error.code))),
   });
   const state = achievement.review_state;
