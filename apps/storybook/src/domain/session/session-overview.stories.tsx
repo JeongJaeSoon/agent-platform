@@ -177,7 +177,15 @@ export const Mixed: Story = {
   render: (args) => (
     <SessionOverviewTable label="Sessions" messages={HEAD}>
       {MIXED.map((row) => (
-        <SessionOverviewRow {...args} {...row} key={row.session.id} now={NOW} />
+        <SessionOverviewRow
+          {...args}
+          {...row}
+          key={row.session.id}
+          now={NOW}
+          renderLink={(link) => (
+            <a href={`/sessions/${row.session.id}`} {...link} />
+          )}
+        />
       ))}
     </SessionOverviewTable>
   ),
