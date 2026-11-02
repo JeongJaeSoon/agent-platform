@@ -16,6 +16,9 @@ import {
   FieldLabel,
   NativeSelect,
   NativeSelectOption,
+  PageBreadcrumb,
+  PageBreadcrumbCurrent,
+  PageBreadcrumbLink,
   PageFrame,
   SkipLink,
   Text,
@@ -322,24 +325,20 @@ function PageTrail({
   // The same words as the sidebar item and the page title; a screen under an
   // item leads with the item, a link back to its list (console v4 `.crumbs`).
   return (
-    <p className="m-0 flex min-w-0 items-center gap-2 whitespace-nowrap text-control text-subtle-foreground">
+    // Named apart from a page's own breadcrumb under its title.
+    <PageBreadcrumb label={t("shell.menuTrail")}>
       {leaf === undefined ? null : (
-        <>
-          <Link
-            to={here.item.to}
-            className="shrink-0 text-subtle-foreground no-underline hover:text-foreground"
-          >
+        <PageBreadcrumbLink asChild>
+          {/* The list is above this page, not this page. */}
+          <Link to={here.item.to} activeOptions={{ exact: true }}>
             {t(here.item.label)}
           </Link>
-          <span aria-hidden="true" className="text-border-strong">
-            /
-          </span>
-        </>
+        </PageBreadcrumbLink>
       )}
-      <span className="min-w-0 truncate font-medium text-foreground">
+      <PageBreadcrumbCurrent className="wrap-anywhere">
         {leaf ?? t(here.item.label)}
-      </span>
-    </p>
+      </PageBreadcrumbCurrent>
+    </PageBreadcrumb>
   );
 }
 

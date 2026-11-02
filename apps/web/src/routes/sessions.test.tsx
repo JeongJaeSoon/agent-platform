@@ -1306,7 +1306,7 @@ describe("sessions list", () => {
       },
       "en",
     );
-    const nav = await screen.findByRole("navigation");
+    const nav = await screen.findByRole("navigation", { name: "Main menu" });
     const link = await waitFor(() => {
       const found = Array.from(nav.querySelectorAll("a")).find(
         (anchor) => anchor.textContent === "Sessions",

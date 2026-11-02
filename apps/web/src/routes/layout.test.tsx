@@ -272,6 +272,35 @@ describe("app shell", () => {
     expect(contentColumn()?.dataset.slot).toBe("page-frame");
   });
 
+  test("the top bar's trail is a named nav: a list, the item a link back, the page current", async () => {
+    renderAt("/sessions/map", {
+      ...signedIn,
+      "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
+    });
+    const [header] = await screen.findAllByRole("banner");
+    const trail = await within(header as HTMLElement).findByRole("navigation", {
+      name: "메뉴 위치",
+    });
+    // The item and the page; the separator between them is hidden.
+    await waitFor(() =>
+      expect(within(trail).getAllByRole("listitem")).toHaveLength(2),
+    );
+    const back = within(trail).getByRole("link", { name: "세션" });
+    expect(back.getAttribute("href")).toBe("/sessions");
+    expect(
+      [...trail.querySelectorAll("[aria-current=page]")].map(
+        (item) => item.textContent,
+      ),
+    ).toEqual(["에이전트 지도"]);
+    // The separator is drawn, not read.
+    expect(
+      within(trail)
+        .getAllByRole("listitem", { hidden: true })
+        .filter((item) => item.getAttribute("aria-hidden") === "true")
+        .map((item) => item.textContent),
+    ).toEqual(["/"]);
+  });
+
   test("the sessions list opens the agent map", async () => {
     renderAt("/sessions", signedIn);
     await screen.findByRole("heading", { level: 1, name: "세션" });
