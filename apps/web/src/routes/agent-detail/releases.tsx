@@ -55,7 +55,7 @@ import {
 import { useHasPermission, useRole } from "../../auth/guard.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
 import { ProfileOptions, pickable } from "../../components/profile-options.tsx";
-import { NODE, withNodes } from "../../components/with-nodes.tsx";
+import { withNodes } from "../../components/with-nodes.tsx";
 import { errorKey, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
 import { SECTION } from "./classes.ts";
@@ -65,8 +65,8 @@ import { latestVersion, VersionSelect } from "./versions.tsx";
 // a narrow table keeps the version, the status and the action, and the
 // version cell lists the rest.
 const COLUMNS = [
-  "minmax(0,1fr) 72px minmax(0,1.2fr) 72px minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1.2fr) 88px",
-  "minmax(0,1fr) 72px 88px",
+  "minmax(0,1fr) 96px minmax(0,1.2fr) 72px minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1.2fr) 120px",
+  "minmax(0,1fr) 96px 120px",
 ] as const;
 
 export function Releases({
@@ -368,11 +368,10 @@ export function Releases({
               ) : item.deactivated_at == null ? (
                 at(item.activated_at)
               ) : (
-                withNodes(
-                  t("agent.releases.activePeriod", { from: NODE, to: NODE }),
-                  at(item.activated_at),
-                  at(item.deactivated_at),
-                )
+                withNodes((vars) => t("agent.releases.activePeriod", vars), {
+                  from: at(item.activated_at),
+                  to: at(item.deactivated_at),
+                })
               );
             const card = t("agent.versionShort", {
               version: versionNo(item.version_id) ?? "?",
@@ -415,7 +414,11 @@ export function Releases({
               <GridTableRow key={item.id} data-active={active}>
                 <GridTableCell>
                   <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
-                    <Text as="span" weight="medium" className="tabular-nums">
+                    <Text
+                      as="span"
+                      weight="medium"
+                      className="tabular-nums wrap-anywhere"
+                    >
                       {name}
                     </Text>
                     {/* GridTable's narrowAt={760}, where the other columns drop. */}

@@ -58,7 +58,7 @@ import { OPENS_ROW, TABLE_ROW_LINK } from "../components/row-link.ts";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { SlackActionLink } from "../components/slack-action-link.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
-import { NODE, withNodes } from "../components/with-nodes.tsx";
+import { withNodes } from "../components/with-nodes.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 
 // The release check's model refusal (release-ids.ts), as "<field>: <message>".
@@ -392,7 +392,9 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
                   variant="meta"
                   className="hidden [@container(width<480px)]:block"
                 >
-                  {withNodes(t("agents.updated", { at: NODE }), updated)}
+                  {withNodes((vars) => t("agents.updated", vars), {
+                    at: updated,
+                  })}
                 </Text>
                 <SlackActionLink agent={agent} />
               </RowLines>

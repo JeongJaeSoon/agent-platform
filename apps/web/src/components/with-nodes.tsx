@@ -1,19 +1,23 @@
 import { Fragment, type ReactNode } from "react";
 
-/** Stands in for each node in the translated line `withNodes` splits. */
-export const NODE = "\u0000";
+const MARK = "\u0000";
 
 /**
- * A translated line with elements where its placeholders go, in the order
- * they appear: `withNodes(t("x", { at: NODE }), <RelativeTime … />)`. Every
- * locale has to keep the placeholders in that order.
+ * A translated line with elements in its placeholders, by name, wherever
+ * each locale puts them: `withNodes((vars) => t("x", vars), { at: <… /> })`.
  */
-export function withNodes(line: string, ...nodes: ReactNode[]): ReactNode {
-  return line.split(NODE).map((text, index) => (
-    // biome-ignore lint/suspicious/noArrayIndexKey: the pieces are positional
-    <Fragment key={index}>
-      {text}
-      {nodes[index]}
-    </Fragment>
-  ));
+export function withNodes(
+  translate: (vars: Record<string, string>) => string,
+  nodes: Readonly<Record<string, ReactNode>>,
+): ReactNode {
+  const vars = Object.fromEntries(
+    Object.keys(nodes).map((name) => [name, `${MARK}${name}${MARK}`]),
+  );
+  // Split on the marks: text, name, text, name, …, text.
+  return translate(vars)
+    .split(MARK)
+    .map((piece, index) => (
+      // biome-ignore lint/suspicious/noArrayIndexKey: the pieces are positional
+      <Fragment key={index}>{index % 2 === 0 ? piece : nodes[piece]}</Fragment>
+    ));
 }

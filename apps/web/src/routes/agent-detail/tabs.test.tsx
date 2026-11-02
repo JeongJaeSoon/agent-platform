@@ -13,6 +13,7 @@ import {
 import { appHarness } from "../../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor, within } = await appHarness();
+const { formatExactTime, formatRelativeTime } = await import("@werft-ai/ui");
 
 const meOk = { "GET /v1/auth/me": () => json(200, me()) };
 const DETAIL = `/agents/${AGENT_ID}`;
@@ -969,6 +970,15 @@ describe("에이전트 상세 탭", () => {
         "v1",
       ],
     ]);
+    // Each end reads relative, with the exact instant in its tooltip, in
+    // the locale's period form.
+    const previous = within(table).getAllByRole("row")[2] as HTMLElement;
+    const period = within(previous).getAllByRole("cell")[2];
+    const end = (iso: string) =>
+      `${formatRelativeTime(iso, "ko")}${formatExactTime(iso, "ko")}`;
+    expect(period?.textContent).toBe(
+      `${end("2026-10-11T02:00:00.000Z")} ~ ${end("2026-10-11T02:01:00.000Z")}`,
+    );
   });
 
   test("이름·활성화 시각이 없는 예전 API 응답이면 카드 버전과 —로 보이고 깨지지 않는다", async () => {

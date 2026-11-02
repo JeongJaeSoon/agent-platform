@@ -783,7 +783,7 @@ function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
 // workspace-slack-apps.tsx COLUMNS.
 const APP_COLUMNS = [
   "minmax(0,1.4fr) minmax(0,1fr) 136px 120px 64px",
-  "minmax(0,1fr) 136px 64px",
+  "minmax(0,1fr) 104px 64px",
 ] as const;
 
 function SlackApps({
