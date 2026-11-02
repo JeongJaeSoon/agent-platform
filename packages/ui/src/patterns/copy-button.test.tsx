@@ -144,51 +144,152 @@ describe("CopyButton", () => {
     }
   });
 
-  test("copiedMessage가 없으면 status 영역을 두지 않고, hideIcon이면 글자만 그린다", () => {
+  test("copiedMessage가 없으면 status 영역을 두지 않고, icon none이면 글자만, iconClassName은 아이콘에 붙는다", () => {
     const screen = render(
-      <CopyButton value={VALUE} label="복사" hideIcon={true} />,
+      <>
+        <CopyButton value={VALUE} label="복사" icon="none" />
+        <CopyButton value={VALUE} label="ID 복사" iconClassName="size-3.5" />
+      </>,
     );
     expect(screen.queryByRole("status")).toBeNull();
-    const button = screen.getByRole("button", { name: "복사" });
-    expect(button.querySelector("svg")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "복사" }).querySelector("svg"),
+    ).toBeNull();
+    expect(icon(screen.getByRole("button", { name: "ID 복사" }))).toContain(
+      "size-3.5",
+    );
   });
 
-  test("값이 바뀌면 복사 상태가 풀리고, 바뀌기 전에 시작한 복사는 알리지 않는다", async () => {
-    const results: boolean[] = [];
-    const props = {
-      label: "복사",
-      copiedLabel: "복사됨",
-      onResult: (ok: boolean) => results.push(ok),
-    };
-    const screen = render(<CopyButton value="first" {...props} />);
-    const user = await setupUser();
-    const pending: Array<() => void> = [];
-    const restore = stubClipboard(
-      () =>
-        new Promise<void>((resolve) => {
-          pending.push(resolve);
-        }),
+  test("icon copy는 성공한 뒤에도 Copy 아이콘을 둔다", async () => {
+    const screen = render(
+      <CopyButton value={VALUE} aria-label="초대 명령 복사" icon="copy" />,
     );
+    const user = await setupUser();
+    const restore = stubClipboard(async () => {});
     try {
-      const button = screen.getByRole("button", { name: "복사" });
+      const button = screen.getByRole("button", { name: "초대 명령 복사" });
       await user.click(button);
-      await waitFor(() => expect(pending.length).toBe(1));
-      pending[0]?.();
-      await waitFor(() => expect(results).toEqual([true]));
-      expect(button.textContent).toBe("복사됨");
-
-      screen.rerender(<CopyButton value="second" {...props} />);
-      expect(button.textContent).toBe("복사");
-
-      await user.click(button);
-      await waitFor(() => expect(pending.length).toBe(2));
-      screen.rerender(<CopyButton value="third" {...props} />);
-      pending[1]?.();
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      expect(results).toEqual([true]);
-      expect(button.textContent).toBe("복사");
+      await waitFor(() =>
+        expect(button.hasAttribute("data-copied")).toBe(true),
+      );
+      expect(icon(button)).toContain("lucide-copy");
     } finally {
       restore();
     }
+  });
+
+  test("다시 복사해 성공하면 status에 새 알림 노드를 넣는다", async () => {
+    const screen = render(
+      <CopyButton value={VALUE} aria-label="복사" copiedMessage="복사됨" />,
+    );
+    const user = await setupUser();
+    const restore = stubClipboard(async () => {});
+    try {
+      const button = screen.getByRole("button", { name: "복사" });
+      const status = screen.getByRole("status");
+      await user.click(button);
+      await waitFor(() => expect(status.textContent).toBe("복사됨"));
+      const first = status.firstElementChild;
+      await user.click(button);
+      await waitFor(() =>
+        expect(status.firstElementChild === first).toBe(false),
+      );
+      expect(status.textContent).toBe("복사됨");
+    } finally {
+      restore();
+    }
+  });
+
+  describe("늦게 끝난 복사", () => {
+    type Pending = { readonly settle: (ok: boolean) => void };
+    async function setup(initial: string) {
+      const results: Array<[boolean, string]> = [];
+      const field = createRef<HTMLInputElement>();
+      const props = {
+        label: "복사",
+        copiedLabel: "복사됨",
+        fallbackField: field,
+        onResult: (ok: boolean, copied: string) => results.push([ok, copied]),
+      };
+      const view = (value: string) => (
+        <>
+          <input ref={field} readOnly value={value} aria-label="값" />
+          <CopyButton value={value} {...props} />
+        </>
+      );
+      const screen = render(view(initial));
+      const user = await setupUser();
+      const pending: Pending[] = [];
+      const restore = stubClipboard(
+        () =>
+          new Promise<void>((resolve, reject) => {
+            pending.push({
+              settle: (ok) => (ok ? resolve() : reject(new Error("denied"))),
+            });
+          }),
+      );
+      const button = screen.getByRole("button", { name: "복사" });
+      const settled = () => new Promise((resolve) => setTimeout(resolve, 20));
+      return { screen, user, button, pending, results, restore, view, settled };
+    }
+
+    test("값이 바뀌면 복사 상태가 풀리고, 그 전에 시작한 복사는 결과만 그 값으로 넘긴다", async () => {
+      const t = await setup("first");
+      try {
+        await t.user.click(t.button);
+        await waitFor(() => expect(t.pending.length).toBe(1));
+        t.pending[0]?.settle(true);
+        await waitFor(() => expect(t.results).toEqual([[true, "first"]]));
+        expect(t.button.textContent).toBe("복사됨");
+
+        t.screen.rerender(t.view("second"));
+        expect(t.button.textContent).toBe("복사");
+
+        await t.user.click(t.button);
+        await waitFor(() => expect(t.pending.length).toBe(2));
+        t.screen.rerender(t.view("third"));
+        t.pending[1]?.settle(true);
+        await waitFor(() => expect(t.results.length).toBe(2));
+        expect(t.results[1]).toEqual([true, "second"]);
+        expect(t.button.textContent).toBe("복사");
+      } finally {
+        t.restore();
+      }
+    });
+
+    test("A→B→A로 돌아와도 A에서 시작한 실패가 지금 버튼에 포커스를 옮기거나 상태를 바꾸지 않는다", async () => {
+      const t = await setup("A");
+      try {
+        await t.user.click(t.button);
+        await waitFor(() => expect(t.pending.length).toBe(1));
+        t.screen.rerender(t.view("B"));
+        t.screen.rerender(t.view("A"));
+        t.button.focus();
+        t.pending[0]?.settle(false);
+        await waitFor(() => expect(t.results).toEqual([[false, "A"]]));
+        expect(document.activeElement === t.button).toBe(true);
+      } finally {
+        t.restore();
+      }
+    });
+
+    test("같은 값을 두 번 누르면 앞 클릭이 늦게 실패해도 뒤 클릭의 성공이 남는다", async () => {
+      const t = await setup("same");
+      try {
+        await t.user.click(t.button);
+        await t.user.click(t.button);
+        await waitFor(() => expect(t.pending.length).toBe(2));
+        t.pending[1]?.settle(true);
+        await waitFor(() => expect(t.results).toEqual([[true, "same"]]));
+        t.button.focus();
+        t.pending[0]?.settle(false);
+        await t.settled();
+        expect(t.results).toEqual([[true, "same"]]);
+        expect(t.button.textContent).toBe("복사됨");
+        expect(document.activeElement === t.button).toBe(true);
+      } finally {
+        t.restore();
+      }
+    });
   });
 });

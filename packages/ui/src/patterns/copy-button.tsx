@@ -3,7 +3,7 @@ import {
   type JSX,
   type ReactNode,
   type RefObject,
-  useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -25,16 +25,25 @@ export type CopyButtonProps = Omit<
    */
   readonly copiedLabel?: ReactNode;
   /**
-   * Announced politely after a copy. A button's changed name is not announced
-   * reliably, and a fixed `aria-label` hides it entirely.
+   * Announced politely after each copy. A button's changed name is not
+   * announced reliably, and a fixed `aria-label` hides it entirely.
    */
   readonly copiedMessage?: string;
-  /** Leaves out the Copy icon that turns into a Check once copied. */
-  readonly hideIcon?: boolean;
+  /**
+   * `swap`: Copy, then Check once copied. `copy`: Copy throughout, for a
+   * screen that reports the copy elsewhere. `none`: text only.
+   */
+  readonly icon?: "swap" | "copy" | "none";
+  /** Sizes the icon, e.g. `size-3.5`; the button's default is 16px. */
+  readonly iconClassName?: string;
   /** Focused when the clipboard refuses, so it can select the value. */
   readonly fallbackField?: RefObject<HTMLElement | null>;
-  /** The outcome, for the screen to show its own success or failure line. */
-  readonly onResult?: (copied: boolean) => void;
+  /**
+   * The outcome of the latest click, for the screen to show its own success
+   * or failure line. Reported even if `value` changed meanwhile, with the
+   * value that was copied.
+   */
+  readonly onResult?: (copied: boolean, value: string) => void;
 };
 
 /**
@@ -46,50 +55,66 @@ export function CopyButton({
   label,
   copiedLabel = label,
   copiedMessage,
-  hideIcon = false,
+  icon = "swap",
+  iconClassName,
   fallbackField,
   onResult,
   type = "button",
   ...props
 }: CopyButtonProps): JSX.Element {
+  // Counts successes, so a repeated copy is announced again.
+  const [copies, setCopies] = useState(0);
   const [copied, setCopied] = useState(false);
-  // A new value has not been copied yet.
   const [copiedFor, setCopiedFor] = useState(value);
   if (copiedFor !== value) {
     setCopiedFor(value);
     setCopied(false);
   }
-  // A copy that settles after the value changed must not report.
-  const latest = useRef(value);
-  useEffect(() => {
-    latest.current = value;
+  // A layout effect runs in the commit, before any copy can settle against
+  // the new value; a passive one could run after.
+  const epoch = useRef({ value, count: 0 });
+  useLayoutEffect(() => {
+    if (epoch.current.value !== value)
+      epoch.current = { value, count: epoch.current.count + 1 };
   }, [value]);
+  const clicks = useRef(0);
 
   const copy = async () => {
-    const started = value;
-    const ok = await writeClipboard(started);
-    if (latest.current !== started) return;
-    if (!ok) fallbackField?.current?.focus();
-    setCopied(ok);
-    onResult?.(ok);
+    const click = ++clicks.current;
+    const started = epoch.current.count;
+    const text = value;
+    const ok = await writeClipboard(text);
+    // A later click supersedes this one; a later value keeps the report but
+    // not the button's state or the focus.
+    if (click !== clicks.current) return;
+    if (started === epoch.current.count) {
+      if (!ok) fallbackField?.current?.focus();
+      setCopied(ok);
+      if (ok) setCopies((count) => count + 1);
+    }
+    onResult?.(ok, text);
   };
 
-  const Icon = copied ? Check : Copy;
+  const Icon = copied && icon === "swap" ? Check : Copy;
   const text = copied ? copiedLabel : label;
   return (
     <>
       <Button
         data-slot="copy-button"
-        data-copied={copied ? "" : undefined}
         type={type}
         onClick={() => void copy()}
         {...props}
+        data-copied={copied ? "" : undefined}
       >
-        {hideIcon ? null : <Icon aria-hidden="true" />}
+        {icon === "none" ? null : (
+          <Icon aria-hidden="true" className={iconClassName} />
+        )}
         {text === undefined || text === null ? null : <span>{text}</span>}
       </Button>
       {copiedMessage === undefined ? null : (
-        <output className="sr-only">{copied ? copiedMessage : ""}</output>
+        <output className="sr-only">
+          {copied ? <span key={copies}>{copiedMessage}</span> : null}
+        </output>
       )}
     </>
   );

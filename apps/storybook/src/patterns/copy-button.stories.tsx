@@ -142,7 +142,7 @@ export const CopyFailedDark: Story = {
  */
 export const IconOnlyCopied: Story = {
   name: "Icon only, copied",
-  args: { variant: "ghost" },
+  args: { variant: "ghost", size: "icon-sm" },
   render: (args, context) => {
     const copy = copyFor(context);
     return (
