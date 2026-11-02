@@ -1006,8 +1006,8 @@ export const AgentGitHubConnectionRefusals: Story = {
   name: "App 연결 거절 기록",
   args: { activity: CONNECTION_REFUSALS },
   play: async ({ canvas }) => {
-    await expect(canvas.getByText("고정된 App 삭제됨")).toBeVisible();
-    await expect(canvas.getByText("App 선택 필요")).toBeVisible();
+    await expect(await canvas.findByText(/고정된 App 삭제됨/)).toBeVisible();
+    await expect(await canvas.findByText(/App 선택 필요/)).toBeVisible();
   },
 };
 export const AgentGitHubConnectionRefusalsDark: Story = {
