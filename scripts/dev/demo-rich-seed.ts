@@ -1042,7 +1042,9 @@ async function ensureInstallationCeilings(owner: Web) {
         ...(base.installation.title_model
           ? { title_model: base.installation.title_model }
           : {}),
-        ...(base.installation.project_settings
+        // A ceiling without a repository has no CLAUDE.md to read.
+        ...(base.installation.project_settings &&
+        spec.repository_mode !== "none"
           ? { project_settings: base.installation.project_settings }
           : {}),
         connection_id: base.installation.connection_id,
@@ -2035,6 +2037,46 @@ async function drive(client: Web, id: string, spec: SessionSpec) {
   }
 }
 
+// A run cut short (a timeout, a lost worker) leaves a session short of its
+// outcome; a rerun takes the last step instead of skipping it.
+async function finish(client: Web, existing: any, spec: SessionSpec) {
+  const id = existing.id;
+  const row = await client.ok<any>(200, "GET", `/v1/sessions/${id}`);
+  if (spec.outcome === "approve-then-idle") {
+    const pending = await client.ok<any>(
+      200,
+      "GET",
+      `/v1/sessions/${id}/pending-requests`,
+    );
+    for (const request of pending.items) {
+      await client.ok(202, "POST", `/v1/sessions/${id}/answers`, {
+        request_id: request.request_id,
+        kind: "permission",
+        decision: "allow",
+      });
+    }
+    if (pending.items.length > 0)
+      note(`finished session ${spec.title}: approved`);
+    return;
+  }
+  const path = { close: "close", pause: "pause", stopped: "terminate" }[
+    spec.outcome as string
+  ];
+  if (!path || row.status !== "idle") return;
+  const reply = await client.req<any>("POST", `/v1/sessions/${id}/${path}`, {
+    expected_revision: row.revision,
+    reason: "데모",
+  });
+  // A paused session still reads idle.
+  if (reply.status === 409 && reply.body?.error?.code === "SESSION_PAUSED")
+    return;
+  if (reply.status !== 202)
+    throw new Error(
+      `${path} -> ${reply.status} ${reply.body?.error?.code ?? ""}`,
+    );
+  note(`finished session ${spec.title} -> ${spec.outcome}`);
+}
+
 async function ensureSessions() {
   const seen: Record<string, any[]> = {};
   for (const spec of SESSIONS) {
@@ -2064,6 +2106,7 @@ async function ensureSessions() {
       if (existing) {
         ids[`session:${spec.title}`] = existing.id;
         note(`exists session ${spec.title} (${existing.status})`);
+        await finish(client, existing, spec);
         return;
       }
       await createSession(client, spec);
