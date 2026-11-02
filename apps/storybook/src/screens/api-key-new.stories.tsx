@@ -44,9 +44,9 @@ import {
   useRef,
   useState,
 } from "react";
-import { expect, userEvent, within } from "storybook/test";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 
-import { MOBILE, type Role, ScreenShell } from "./screen-kit.tsx";
+import { MOBILE, type Role, ScreenShell, VIEWER } from "./screen-kit.tsx";
 
 /*
  * Making a key, apps/web routes/api-keys.tsx NewKeyScreen
@@ -61,7 +61,6 @@ const SEARCH_MAX = 200;
 const SEARCH_SETTLE_MS = 300;
 const AGENT_KEY_DEFAULT_DAYS = 90;
 const WORKSPACE = "5b0e8f3a-2c41-4d7e-9a16-3f8b2c7d4e10";
-const OWNER = "8d2f4a6c-1b3e-4f5a-9c7d-0e1f2a3b4c5d";
 
 const SCOPE_NAME: Record<SessionScope, string> = {
   "sessions:read": "세션 보기",
@@ -132,11 +131,17 @@ function issued(kind: KeyKind): CreateApiKeyResponse {
       name: "ci-deploy",
       workspace_id: WORKSPACE,
       agent_id: kind === "agent" ? (AGENTS[0]?.id ?? null) : null,
-      created_by: OWNER,
-      created_by_user: { id: OWNER, display_name: "김지수" },
+      created_by: VIEWER.id,
+      created_by_user: { id: VIEWER.id, display_name: VIEWER.name },
       scopes: ["sessions:read"],
       created_at: new Date().toISOString(),
-      expires_at: null,
+      // The form's default: none for a personal key, 90 days for an agent's.
+      expires_at:
+        kind === "agent"
+          ? new Date(
+              `${localDay(AGENT_KEY_DEFAULT_DAYS)}T23:59:59`,
+            ).toISOString()
+          : null,
       revoked_at: null,
       last_used_at: null,
     },
@@ -355,11 +360,25 @@ function AgentKeyForm({
   held,
   agents,
   picked,
+  everywhere,
 }: {
   readonly held: readonly SessionScope[];
   readonly agents: readonly Pick<Agent, "id" | "name" | "slug">[];
   readonly picked: boolean;
+  /** An owner or admin searches every agent on the server. */
+  readonly everywhere: boolean;
 }) {
+  const [term, setTerm] = useState("");
+  const q = term.trim().toLowerCase() || undefined;
+  // GET /v1/agents?q= stands in as a filter over the fixture.
+  const searched = everywhere
+    ? agents.filter(
+        (agent) =>
+          q === undefined ||
+          agent.name.toLowerCase().includes(q) ||
+          agent.slug.includes(q),
+      )
+    : agents;
   const first = picked ? agents[0] : undefined;
   const [name, setName] = useState("");
   const [scopes, setScopes] = useState<SessionScope[]>(["sessions:read"]);
@@ -373,7 +392,8 @@ function AgentKeyForm({
   );
   const pickerId = useId();
   const granted = scopes.filter((scope) => held.includes(scope));
-  const noAgents = agents.length === 0;
+  // Only an unsearched list proves there is no agent at all.
+  const noAgents = searched.length === 0 && (!everywhere || q === undefined);
   const reason =
     noAgents && chosenAgent === null
       ? "관리하는 에이전트가 없습니다."
@@ -391,7 +411,7 @@ function AgentKeyForm({
             <div className="w-full max-w-sm">
               <Combobox
                 id={pickerId}
-                options={agents.map((agent) => ({
+                options={searched.map((agent) => ({
                   value: agent.id,
                   label: agent.name,
                   description: agent.slug,
@@ -408,8 +428,11 @@ function AgentKeyForm({
                   setChosenAgent({ id: value, name: option.label })
                 }
                 maxLength={SEARCH_MAX}
-                filter="internal"
+                filter={everywhere ? "none" : "internal"}
+                onQueryChange={everywhere ? setTerm : undefined}
                 debounceMs={SEARCH_SETTLE_MS}
+                hasMore={false}
+                loading={false}
                 placeholder="이름이나 식별자로 에이전트 찾기"
                 loadingMessage="에이전트를 불러오는 중…"
                 emptyMessage={
@@ -549,7 +572,12 @@ function NewKeyScreen({
         ) : kind === "personal" ? (
           <PersonalKeyForm held={held} />
         ) : (
-          <AgentKeyForm held={held} agents={agents} picked={picked} />
+          <AgentKeyForm
+            held={held}
+            agents={agents}
+            picked={picked}
+            everywhere={role !== "member"}
+          />
         )}
       </Page>
     </ScreenShell>
@@ -588,6 +616,22 @@ export const NewPersonalKeyMember: Story = {
 export const NewAgentKey: Story = {
   name: "Owner · new agent key (no agent chosen yet)",
   args: { kind: "agent" },
+};
+export const NewAgentKeySearch: Story = {
+  name: "Owner · agent search (server, filter none)",
+  args: { kind: "agent" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const page = within(canvasElement.ownerDocument.body);
+    await userEvent.type(
+      canvas.getByRole("combobox", { name: "에이전트" }),
+      "review",
+    );
+    await waitFor(() =>
+      expect(page.queryByRole("option", { name: /배포 봇/ })).toBeNull(),
+    );
+    await expect(page.getByRole("option", { name: /리뷰 봇/ })).toBeVisible();
+  },
 };
 export const NewAgentKeyPicked: Story = {
   name: "Owner · new agent key, agent chosen",

@@ -26,7 +26,7 @@ import { CircleAlert, Clock, InfinityIcon, Plus } from "lucide-react";
 import { useId, useState } from "react";
 import { expect, userEvent, within } from "storybook/test";
 
-import { MOBILE, type Role, ScreenShell } from "./screen-kit.tsx";
+import { MOBILE, type Role, ScreenShell, VIEWER } from "./screen-kit.tsx";
 
 /*
  * The key screens of apps/web routes/api-keys.tsx: the personal and agent
@@ -43,7 +43,12 @@ const KEY_COPY = "-my-1 -mr-1 -ml-1.5 h-6 min-w-6 gap-1 px-1 text-xs";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SOON_MS = 7 * DAY_MS;
 const WORKSPACE = "5b0e8f3a-2c41-4d7e-9a16-3f8b2c7d4e10";
-const OWNER = "8d2f4a6c-1b3e-4f5a-9c7d-0e1f2a3b4c5d";
+// The shell's viewer: GET /v1/api-keys lists only their own personal keys.
+const ME = { id: VIEWER.id, display_name: VIEWER.name };
+const ADMIN = {
+  id: "8d2f4a6c-1b3e-4f5a-9c7d-0e1f2a3b4c5d",
+  display_name: "Verify Admin",
+};
 
 /** Days from now, so the expiry states read the same on any day. */
 const day = (days: number) =>
@@ -55,7 +60,8 @@ const AGENTS: Record<string, string> = {
 };
 const [DEPLOY, REVIEW] = Object.keys(AGENTS) as [string, string];
 
-// GET /v1/api-keys for an owner: their own keys and every agent key.
+// GET /v1/api-keys for an owner: their own personal keys and every agent
+// key, whoever issued it.
 const KEYS: readonly ApiKeyView[] = [
   {
     id: "0f9c2e4a-6b1d-4c3e-8a7f-2d5b9e1c3a40",
@@ -63,8 +69,8 @@ const KEYS: readonly ApiKeyView[] = [
     name: "laptop",
     workspace_id: WORKSPACE,
     agent_id: null,
-    created_by: OWNER,
-    created_by_user: { id: OWNER, display_name: "김지수" },
+    created_by: ME.id,
+    created_by_user: ME,
     scopes: ["sessions:read", "sessions:write"],
     created_at: day(-21),
     expires_at: day(80),
@@ -77,8 +83,8 @@ const KEYS: readonly ApiKeyView[] = [
     name: null,
     workspace_id: WORKSPACE,
     agent_id: null,
-    created_by: OWNER,
-    created_by_user: { id: OWNER, display_name: "김지수" },
+    created_by: ME.id,
+    created_by_user: ME,
     scopes: ["sessions:read", "sessions:approve"],
     created_at: day(-60),
     expires_at: null,
@@ -91,8 +97,8 @@ const KEYS: readonly ApiKeyView[] = [
     name: "ci-deploy",
     workspace_id: WORKSPACE,
     agent_id: DEPLOY,
-    created_by: OWNER,
-    created_by_user: { id: OWNER, display_name: "김지수" },
+    created_by: ME.id,
+    created_by_user: ME,
     scopes: ["sessions:read", "sessions:write", "sessions:approve"],
     created_at: day(-30),
     expires_at: day(3),
@@ -105,8 +111,8 @@ const KEYS: readonly ApiKeyView[] = [
     name: "nightly",
     workspace_id: WORKSPACE,
     agent_id: REVIEW,
-    created_by: OWNER,
-    created_by_user: { id: OWNER, display_name: "김지수" },
+    created_by: ADMIN.id,
+    created_by_user: ADMIN,
     scopes: ["sessions:read", "sessions:write"],
     created_at: day(-120),
     expires_at: day(-2),
@@ -128,6 +134,8 @@ const KEYS: readonly ApiKeyView[] = [
     last_used_at: null,
   },
 ];
+
+const REVOKED_ID = "c4b8d2e6-1a3f-4b5c-8d7e-9f0a1b2c3d4e";
 
 // A member who administers the deploy agent lists only that agent's keys.
 const MEMBER_KEYS = KEYS.filter(
@@ -462,7 +470,15 @@ function KeysScreen({
   readonly revoked: boolean;
 }) {
   const manager = role !== "member";
-  const keys = list === "empty" ? [] : manager ? KEYS : MEMBER_KEYS;
+  const listed = list === "empty" ? [] : manager ? KEYS : MEMBER_KEYS;
+  // After a revoke the list reads again: the key stays, revoked just now.
+  const keys = revoked
+    ? listed.map((key) =>
+        key.id === REVOKED_ID
+          ? { ...key, revoked_at: new Date().toISOString() }
+          : key,
+      )
+    : listed;
   // useIssuesAgentKeys: managers issue for every agent, a member for theirs.
   const agentKeys = manager || administers;
   const tabs: KeyKind[] =
