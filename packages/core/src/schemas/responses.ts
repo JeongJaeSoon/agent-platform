@@ -19,6 +19,7 @@ import {
   bootstrapResponseSchema,
   commentPullRequestResponseSchema,
   completeGitHubAppManifestResponseSchema,
+  completeGitHubInstallationResponseSchema,
   completeSlackInstallResponseSchema,
   countAgentsResponseSchema,
   countSessionsResponseSchema,
@@ -119,6 +120,7 @@ import {
   slackGuestResponseSchema,
   slackLinkCallbackResponseSchema,
   startGitHubAppManifestResponseSchema,
+  startGitHubInstallationResponseSchema,
   startGitHubLinkResponseSchema,
   startGoogleLoginResponseSchema,
   startSlackInstallResponseSchema,
@@ -181,6 +183,10 @@ export const responseSchemas = {
     startGitHubAppManifestResponseSchema,
   "POST /v1/workspaces/{id}/github-apps/author/manifest/complete":
     completeGitHubAppManifestResponseSchema,
+  "POST /v1/workspaces/{id}/github-apps/{connectionId}/installations/start":
+    startGitHubInstallationResponseSchema,
+  "POST /v1/workspaces/{id}/github-apps/installations/complete":
+    completeGitHubInstallationResponseSchema,
   "GET /v1/workspaces/{id}/github-repositories":
     listGitHubRepositoriesResponseSchema,
   "PATCH /v1/workspaces/{id}/github-repositories/{repositoryId}":

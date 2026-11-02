@@ -45,6 +45,8 @@ import {
   commentPullRequestResponseSchema,
   completeGitHubAppManifestRequestSchema,
   completeGitHubAppManifestResponseSchema,
+  completeGitHubInstallationRequestSchema,
+  completeGitHubInstallationResponseSchema,
   completeSlackInstallRequestSchema,
   completeSlackInstallResponseSchema,
   countAgentsResponseSchema,
@@ -78,6 +80,7 @@ import {
   dispatchWorkflowRequestSchema,
   dispatchWorkflowResponseSchema,
   GITHUB_APP_MANIFEST_STATE_TTL_SECONDS,
+  GITHUB_INSTALLATION_STATE_TTL_SECONDS,
   getGitHubAppResponseSchema,
   getGitHubRepositoryAppPinsResponseSchema,
   getReceiptResponseSchema,
@@ -86,6 +89,7 @@ import {
   getSlackAppResponseSchema,
   getTurnResponseSchema,
   githubAppRoleParamsSchema,
+  githubConnectionParamsSchema,
   githubLinkCallbackRequestSchema,
   githubLinkCallbackResponseSchema,
   githubPackagesSettingsResponseSchema,
@@ -235,6 +239,7 @@ import {
   sseEventSchema,
   startGitHubAppManifestRequestSchema,
   startGitHubAppManifestResponseSchema,
+  startGitHubInstallationResponseSchema,
   startGitHubLinkResponseSchema,
   startGoogleLoginResponseSchema,
   startSlackInstallResponseSchema,
@@ -363,6 +368,7 @@ const requestComponents = {
   PutGitHubRepositoryAppPinRequest: putGitHubRepositoryAppPinRequestSchema,
   StartGitHubAppManifestRequest: startGitHubAppManifestRequestSchema,
   CompleteGitHubAppManifestRequest: completeGitHubAppManifestRequestSchema,
+  CompleteGitHubInstallationRequest: completeGitHubInstallationRequestSchema,
   GitHubRepositoryPageQuery: githubRepositoryPageQuerySchema,
   PatchGitHubRepositoryRequest: patchGitHubRepositoryRequestSchema,
   PickAgentGitHubRepositoryRequest: pickAgentGitHubRepositoryRequestSchema,
@@ -461,6 +467,8 @@ const responseComponents = {
   GetGitHubAppResponse: getGitHubAppResponseSchema,
   StartGitHubAppManifestResponse: startGitHubAppManifestResponseSchema,
   CompleteGitHubAppManifestResponse: completeGitHubAppManifestResponseSchema,
+  StartGitHubInstallationResponse: startGitHubInstallationResponseSchema,
+  CompleteGitHubInstallationResponse: completeGitHubInstallationResponseSchema,
   PutGitHubAppResponse: putGitHubAppResponseSchema,
   DeleteGitHubAppResponse: deleteGitHubAppResponseSchema,
   ListGitHubAppsResponse: listGitHubAppsResponseSchema,
@@ -1761,6 +1769,66 @@ export const API_ROUTE_DECLARATIONS = [
     errorNotes: {
       BACKEND_UNAVAILABLE:
         "Also when the API runs without a master key (PLATFORM_SECRET_KEY), GitHub could not be reached (`github_unreachable`), or the App could not be stored (`store_failed`).",
+    },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/workspaces/{id}/github-apps/{connectionId}/installations/start",
+    operationId: "startGitHubInstallation",
+    tag: "Workspace settings",
+    summary:
+      "Start installing a connection's GitHub App on an account (owner or admin)",
+    description: `Returns the App's \`/installations/new\` page with a new single-use \`state\`, valid ${GITHUB_INSTALLATION_STATE_TTL_SECONDS / 60} minutes and bound to the caller, the workspace and the connection; only its SHA-256 is stored. GitHub sends the browser back to the App's setup URL with \`installation_id\` and the state, and \`POST …/github-apps/installations/complete\` records who connected it. 404 for a connection not the workspace's. API keys are refused.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "StartGitHubInstallationResponse",
+      description:
+        "Where the browser installs the App, and when the state expires.",
+      example: {
+        install_url:
+          "https://github.com/apps/werft-acme-1a2b/installations/new?state=<single-use>",
+        expires_at: "2026-11-02T10:00:00Z",
+      },
+    },
+    errors: [401, 403, 404, 503],
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/workspaces/{id}/github-apps/installations/complete",
+    operationId: "completeGitHubInstallation",
+    tag: "Workspace settings",
+    summary: "Record who connected a GitHub App installation from the console",
+    description:
+      "The console's setup page sends the `state` and `installation_id` GitHub's setup URL redirect carried. The state is spent first: unknown, spent, expired, issued to another caller or workspace, or for a connection that was removed or now holds another App answers 400 `BAD_REQUEST` `state_invalid`. The installation is read with the state's App's JWT (`GET /app/installations/{id}`): one that App does not have is 404 `installation_not_found`, and GitHub not answering is 502 `GITHUB_UNAVAILABLE` (`github_unavailable` or `github_app_auth_failed`). The caller and the time are recorded only when GitHub made the installation after the state, and only once: an installation that existed before, or already has someone recorded, answers `recorded: false` and keeps what it has. The setup URL's values can be forged, so the record is what `GET …/github-settings` shows as `detail.connected` and decides no access. Every answer carries `Referrer-Policy: no-referrer`. API keys are refused.",
+    auth: "session",
+    body: "CompleteGitHubInstallationRequest",
+    requestExample: {
+      state: "state-from-the-redirect",
+      installation_id: 176243287,
+    },
+    success: {
+      status: 200,
+      schema: "CompleteGitHubInstallationResponse",
+      description:
+        "The installation's connection, and whether it was recorded now.",
+      example: {
+        connection_id: "6f1b8c1e-3a4d-4f0a-9c7e-2b5d8e9f0a1b",
+        installation_id: 176243287,
+        recorded: true,
+      },
+    },
+    errors: [400, 401, 403, 404, 502, 503],
+    errorCodes: { 502: ["GITHUB_UNAVAILABLE"] },
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
     },
     idempotent: false,
   },
@@ -6510,6 +6578,12 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path.startsWith("/v1/users/{user_id}")) return memberUserParamsSchema;
   if (path === "/v1/workspaces/{id}/github-apps/{role}") {
     return githubAppRoleParamsSchema;
+  }
+  if (
+    path ===
+    "/v1/workspaces/{id}/github-apps/{connectionId}/installations/start"
+  ) {
+    return githubConnectionParamsSchema;
   }
   if (
     path === "/v1/workspaces/{id}/github-repositories/{repositoryId}" ||
