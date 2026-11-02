@@ -23,21 +23,3 @@ export async function issueJudgmentToken(
     ? token
     : null;
 }
-
-/** The UTC midnight the day's judgment budget counts from. */
-export function utcDayStart(at: Date): Date {
-  return new Date(
-    Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()),
-  );
-}
-
-export function nextUtcDay(at: Date): Date {
-  const start = utcDayStart(at);
-  return new Date(
-    Date.UTC(
-      start.getUTCFullYear(),
-      start.getUTCMonth(),
-      start.getUTCDate() + 1,
-    ),
-  );
-}

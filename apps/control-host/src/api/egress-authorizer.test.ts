@@ -572,10 +572,18 @@ describe("the judgment route", () => {
       connection_id: "luna-main",
       daily_budget_usd: 0.5,
     });
-    await db
-      .update(schema.achievementJudgments)
-      .set({ costUsd: 0.5 })
+    const [judged] = await db
+      .select({ workspaceId: schema.achievementJudgments.workspaceId })
+      .from(schema.achievementJudgments)
       .where(eq(schema.achievementJudgments.id, judgmentId));
+    if (!judged) throw new Error("no judgment");
+    await db.insert(schema.achievementJudgmentUsage).values({
+      exchangeId: crypto.randomUUID(),
+      judgmentId,
+      workspaceId: judged.workspaceId,
+      inputTokens: 1,
+      costUsd: 0.5,
+    });
     const refused = await ask({ token: TOKEN, purpose: "judgment" });
     expect(refused.status).toBe(403);
     expect(await refused.json()).toMatchObject({ code: "BUDGET_EXCEEDED" });

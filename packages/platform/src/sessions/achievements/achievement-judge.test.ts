@@ -59,6 +59,7 @@ const NO_JUDGE: JudgeInForce = {
   dailyBudgetUsd: 1,
   maxPerSession: 20,
   spentUsd: 0,
+  budgetResetsAt: new Date("2026-11-03T00:00:00.000Z"),
   sessionJudgments: 0,
 };
 
@@ -72,17 +73,14 @@ function judgeOf(
     attempts?: number;
     contextFails?: boolean;
     outputsThrow?: boolean;
-    now?: Date;
   } = {},
 ) {
   const finished: JudgmentResult[] = [];
-  const days: Date[] = [];
   const warnings: string[] = [];
   const store: Pick<AchievementJudgmentStore, "claim" | "context" | "finish"> =
     {
       claim: async () => [{ ...CLAIMED, attempts: options.attempts ?? 1 }],
-      context: async (_judgment, today) => {
-        days.push(today);
+      context: async () => {
         if (options.contextFails) throw new Error("connection refused");
         return {
           session: {
@@ -112,9 +110,8 @@ function judgeOf(
       },
     },
     logger: { info() {}, warn: (message) => warnings.push(message) },
-    ...(options.now === undefined ? {} : { now: () => options.now as Date }),
   });
-  return { judge, finished, warnings, reads, days };
+  return { judge, finished, warnings, reads };
 }
 
 describe("achievement judge", () => {
@@ -254,28 +251,58 @@ describe("achievement judge", () => {
     ]);
   });
 
-  test("over the day's budget, a luna pair defers the judgment to the next UTC midnight; always rules still count", async () => {
-    const { judge, finished, days } = judgeOf(
-      {
-        rules: [
-          rule("pull_request", "github_pull_request", { judge: "luna" }),
-          rule("code_review", "github_review"),
-        ],
-        outcomes: [PULL_REQUEST, REVIEW],
-        judge: { connectionId: "conn-1", dailyBudgetUsd: 1, spentUsd: 1 },
+  test("over the day's budget, a luna pair defers the judgment to the store's next UTC midnight; always rules still count", async () => {
+    const { judge, finished } = judgeOf({
+      rules: [
+        rule("pull_request", "github_pull_request", { judge: "luna" }),
+        rule("code_review", "github_review"),
+      ],
+      outcomes: [PULL_REQUEST, REVIEW],
+      judge: {
+        connectionId: "conn-1",
+        dailyBudgetUsd: 1,
+        spentUsd: 1,
+        budgetResetsAt: new Date("2026-11-04T00:00:00.000Z"),
       },
-      { status: "none" },
-      { now: new Date("2026-11-02T15:30:00.000Z") },
-    );
+    });
     await judge.runOnce();
-    expect(days).toEqual([new Date("2026-11-02T00:00:00.000Z")]);
     expect(finished).toHaveLength(1);
     expect(finished[0]).toMatchObject({
       status: "deferred",
-      until: new Date("2026-11-03T00:00:00.000Z"),
+      until: new Date("2026-11-04T00:00:00.000Z"),
       errorCode: null,
     });
     expect(finished[0]?.achievements.map((a) => a.ruleId)).toEqual([
+      "rule-code_review",
+    ]);
+  });
+
+  test("a zero budget never holds back always rules: alone they succeed, beside a luna pair they still count", async () => {
+    const zero = { connectionId: "conn-1", dailyBudgetUsd: 0, spentUsd: 0 };
+    const alone = judgeOf({
+      rules: [rule("code_review", "github_review")],
+      outcomes: [REVIEW],
+      judge: zero,
+    });
+    await alone.judge.runOnce();
+    expect(alone.finished[0]).toMatchObject({
+      status: "succeeded",
+      errorCode: null,
+    });
+    expect(alone.finished[0]?.achievements.map((a) => a.ruleId)).toEqual([
+      "rule-code_review",
+    ]);
+    const beside = judgeOf({
+      rules: [
+        rule("pull_request", "github_pull_request", { judge: "luna" }),
+        rule("code_review", "github_review"),
+      ],
+      outcomes: [PULL_REQUEST, REVIEW],
+      judge: zero,
+    });
+    await beside.judge.runOnce();
+    expect(beside.finished[0]).toMatchObject({ status: "deferred" });
+    expect(beside.finished[0]?.achievements.map((a) => a.ruleId)).toEqual([
       "rule-code_review",
     ]);
   });

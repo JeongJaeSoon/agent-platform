@@ -63,9 +63,11 @@ export type JudgeInForce = {
   connectionId: string | null;
   dailyBudgetUsd: number;
   maxPerSession: number;
-  /** What the workspace's judgments have cost since the UTC day began. */
+  /** What the workspace's judgment calls cost since the UTC day began. */
   spentUsd: number;
-  /** The session's judgments that called the judge so far. */
+  /** The next UTC midnight, by the database's clock. */
+  budgetResetsAt: Date;
+  /** The session's other judgments that called the judge. */
   sessionJudgments: number;
 };
 
@@ -119,9 +121,9 @@ export interface AchievementJudgmentStore {
   claim(input: { max: number; leaseMs: number }): Promise<ClaimedJudgment[]>;
   /**
    * What the judgment pairs: the session, its rules in use, its outcomes,
-   * and the workspace's judge with its spend since `today` (a UTC midnight).
+   * and the workspace's judge with its spend since UTC midnight.
    */
-  context(judgment: ClaimedJudgment, today: Date): Promise<JudgmentContext>;
+  context(judgment: ClaimedJudgment): Promise<JudgmentContext>;
   /**
    * Writes the result and the achievements in one transaction under the
    * lease; one a rule family already has for the evidence is kept. A retry
@@ -158,9 +160,9 @@ export interface JudgmentEgressStore {
   ): Promise<boolean>;
   /**
    * The running judgment the token belongs to while its lease holds, with
-   * the workspace's judge and its spend since `today`.
+   * the workspace's judge and its spend since UTC midnight.
    */
-  authorizeToken(input: { tokenHash: Uint8Array; today: Date }): Promise<
+  authorizeToken(input: { tokenHash: Uint8Array }): Promise<
     | {
         outcome: "ok";
         judgmentId: string;
@@ -170,10 +172,19 @@ export interface JudgmentEgressStore {
       }
     | { outcome: "invalid_token" }
   >;
-  /** Adds one call's use to the judgment's ledger; false for no such judgment. */
+  /**
+   * Adds one call's use to the judgment's ledger once per exchange; the
+   * same report again is `replayed`, other use under its exchange a
+   * `conflict`.
+   */
   recordUsage(input: {
+    exchangeId: string;
     judgmentId: string;
     inputTokens: number;
     costUsd: number;
-  }): Promise<boolean>;
+  }): Promise<
+    | { outcome: "recorded" | "replayed"; costUsd: number }
+    | { outcome: "conflict" }
+    | { outcome: "unknown_judgment" }
+  >;
 }

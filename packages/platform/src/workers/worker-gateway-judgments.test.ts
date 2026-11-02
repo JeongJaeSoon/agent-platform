@@ -43,10 +43,10 @@ function harness(
   options: {
     authorized?: Authorized;
     upstream?: ((connectionId: string) => typeof LUNA | null) | null;
-    recorded?: boolean;
+    recorded?: Awaited<ReturnType<JudgmentEgressStore["recordUsage"]>>;
   } = {},
 ) {
-  const asked: Array<{ tokenHash: Uint8Array; today: Date }> = [];
+  const asked: Array<{ tokenHash: Uint8Array }> = [];
   const usage: Array<Parameters<JudgmentEgressStore["recordUsage"]>[0]> = [];
   const sessionCalls: string[] = [];
   const store: JudgmentEgressStore = {
@@ -57,7 +57,7 @@ function harness(
     },
     async recordUsage(input) {
       usage.push(input);
-      return options.recorded ?? true;
+      return options.recorded ?? { outcome: "recorded", costUsd: 0.00006 };
     },
   };
   const work = {
@@ -99,12 +99,7 @@ describe("judgment requests on the judgment route", () => {
     expect(grant).toEqual({ judgment_id: JUDGMENT, upstream: LUNA });
     expect(Object.keys(grant)).not.toContain("session_id");
     expect(Object.keys(grant)).not.toContain("attempt_id");
-    expect(asked).toEqual([
-      {
-        tokenHash: hashJudgmentToken("wej_judge"),
-        today: new Date("2026-11-02T00:00:00.000Z"),
-      },
-    ]);
+    expect(asked).toEqual([{ tokenHash: hashJudgmentToken("wej_judge") }]);
   });
 
   test("only a judgment token is asked about; an unknown one is refused", async () => {
@@ -171,17 +166,34 @@ describe("judgment requests on the judgment route", () => {
       }),
     ).toEqual({ costUsd: 0.00006, pricedBy: "table" });
     expect(usage).toEqual([
-      { judgmentId: JUDGMENT, inputTokens: 600, costUsd: 0.00006 },
+      {
+        exchangeId: "8c9d0e1f-2a3b-4c5d-8e6f-7a8b9c0d1e2f",
+        judgmentId: JUDGMENT,
+        inputTokens: 600,
+        costUsd: 0.00006,
+      },
     ]);
     expect(sessionCalls).toEqual([]);
 
-    const gone = harness({ recorded: false });
+    const report = {
+      exchangeId: "8c9d0e1f-2a3b-4c5d-8e6f-7a8b9c0d1e2f",
+      judgmentId: JUDGMENT,
+      usage: USAGE,
+    };
+    const replayed = harness({
+      recorded: { outcome: "replayed", costUsd: 0.00007 },
+    });
+    expect(await replayed.instance.recordJudgmentUsage(report)).toEqual({
+      costUsd: 0.00007,
+      pricedBy: "table",
+    });
+    const gone = harness({ recorded: { outcome: "unknown_judgment" } });
     await expect(
-      gone.instance.recordJudgmentUsage({
-        exchangeId: "8c9d0e1f-2a3b-4c5d-8e6f-7a8b9c0d1e2f",
-        judgmentId: JUDGMENT,
-        usage: USAGE,
-      }),
+      gone.instance.recordJudgmentUsage(report),
     ).rejects.toMatchObject({ status: 404, code: "NOT_FOUND" });
+    const other = harness({ recorded: { outcome: "conflict" } });
+    await expect(
+      other.instance.recordJudgmentUsage(report),
+    ).rejects.toMatchObject({ status: 409, code: "IDEMPOTENCY_CONFLICT" });
   });
 });

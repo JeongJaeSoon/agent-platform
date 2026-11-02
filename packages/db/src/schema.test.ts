@@ -59,6 +59,7 @@ describe("database schema", () => {
     );
     expect(result.rows.map(({ tablename }) => tablename)).toEqual([
       "achievement_categories",
+      "achievement_judgment_usage",
       "achievement_judgments",
       "achievement_rules",
       "achievement_types",

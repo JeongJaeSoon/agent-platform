@@ -29,6 +29,7 @@ import {
   gt,
   inArray,
   isNull,
+  ne,
   type SQL,
   sql,
 } from "drizzle-orm";
@@ -38,6 +39,7 @@ import { rowsOf } from "./control-unit-of-work.ts";
 import type { Database } from "./queries.ts";
 import {
   achievementJudgments,
+  achievementJudgmentUsage,
   achievementRules,
   achievementTypes,
   agentReleases,
@@ -82,9 +84,11 @@ function gateOf(cause: JudgmentCause): SQL {
  * the transaction that wrote its evidence, `turns` and `idle` in the one
  * that ended the turn or the session's run, each when the workspace's
  * judge setting asks for it; `manual` always. A pending one already there
- * (queued, or deferred to the next day's budget) is kept with its trigger
- * and waits the quiet time again from now, never less than it already
- * waits; a retry it was becomes a first try, as a new trigger counts
+ * is kept and takes the newest trigger. A queued one waits the quiet time
+ * again from now, never less than it already waits; a deferred one is
+ * queued again after the quiet time, so its `always` pairs are counted
+ * without waiting for the next day's budget and its `luna` pairs deferred
+ * again. A retry it was becomes a first try, as a new trigger counts
  * afresh. Nothing is queued for a session without a workspace. Returns the
  * pending judgment's id, or null when nothing was queued.
  */
@@ -109,7 +113,12 @@ export async function queueAchievementJudgment(
     JOIN workspaces w ON w.id = s.workspace_id
     WHERE s.id = ${sessionId} AND ${gateOf(cause)}
     ON CONFLICT (session_id) WHERE status IN ('queued', 'deferred')
-    DO UPDATE SET next_attempt_at = GREATEST(achievement_judgments.next_attempt_at, EXCLUDED.next_attempt_at),
+    DO UPDATE SET trigger = EXCLUDED.trigger,
+                  status = 'queued',
+                  next_attempt_at = CASE achievement_judgments.status
+                    WHEN 'deferred' THEN EXCLUDED.next_attempt_at
+                    ELSE GREATEST(achievement_judgments.next_attempt_at, EXCLUDED.next_attempt_at)
+                  END,
                   attempts = 0
     RETURNING id`);
   return rowsOf<{ id: string }>(queued)[0]?.id ?? null;
@@ -121,27 +130,34 @@ function judgeSettingsOf(settings: unknown) {
   );
 }
 
+// The UTC day by the database's clock, the one leases and retries keep.
+const DAY_START = sql`date_trunc('day', now(), 'UTC')`;
+
 /**
- * What the workspace's judgments have cost since `today`: those finished
- * since, and those not finished yet, whose calls may be running now.
+ * What the workspace's judgment calls made since UTC midnight cost, and when
+ * the next day's budget starts.
  */
-async function spentSince(
+async function spentToday(
   db: Database,
   workspaceId: string,
-  today: Date,
-): Promise<number> {
+): Promise<{ spentUsd: number; budgetResetsAt: Date }> {
   const [spent] = await db
     .select({
-      usd: sql<string>`COALESCE(sum(${achievementJudgments.costUsd}), 0)`,
+      usd: sql<string>`COALESCE(sum(${achievementJudgmentUsage.costUsd}), 0)`,
+      resetsAt: sql<string>`(${DAY_START} + interval '1 day')::text`,
     })
-    .from(achievementJudgments)
+    .from(achievementJudgmentUsage)
     .where(
       and(
-        eq(achievementJudgments.workspaceId, workspaceId),
-        sql`(${achievementJudgments.finishedAt} IS NULL OR ${achievementJudgments.finishedAt} >= ${today.toISOString()}::timestamptz)`,
+        eq(achievementJudgmentUsage.workspaceId, workspaceId),
+        sql`${achievementJudgmentUsage.createdAt} >= ${DAY_START}`,
       ),
     );
-  return Number(spent?.usd ?? 0);
+  if (!spent) throw new Error("aggregate returned no row");
+  return {
+    spentUsd: Number(spent.usd),
+    budgetResetsAt: new Date(spent.resetsAt),
+  };
 }
 
 const iso = (at: Date | null) => at?.toISOString() ?? null;
@@ -240,6 +256,8 @@ export function createPostgresAchievementJudgments(
           leaseToken,
           leaseExpiresAt: sql`now() + make_interval(secs => ${leaseMs / 1000})`,
           attempts: sql`${achievementJudgments.attempts} + 1`,
+          // A lease taken over takes the earlier holder's token with it.
+          tokenHash: null,
         })
         .where(
           sql`${achievementJudgments.id} IN (SELECT ${achievementJudgments.id} FROM ${achievementJudgments} WHERE ${achievementJudgments.status} IN ('queued', 'running', 'deferred') AND ${achievementJudgments.nextAttemptAt} <= now() AND (${achievementJudgments.leaseExpiresAt} IS NULL OR ${achievementJudgments.leaseExpiresAt} < now()) ORDER BY ${achievementJudgments.nextAttemptAt} LIMIT ${max} FOR UPDATE SKIP LOCKED)`,
@@ -252,7 +270,7 @@ export function createPostgresAchievementJudgments(
       return claimed.map((row) => ({ ...row, leaseToken }));
     },
 
-    async context(judgment, today) {
+    async context(judgment) {
       const [session] = await db
         .select({
           id: sessions.id,
@@ -309,6 +327,7 @@ export function createPostgresAchievementJudgments(
         .where(
           and(
             eq(achievementJudgments.sessionId, judgment.sessionId),
+            ne(achievementJudgments.id, judgment.id),
             gt(achievementJudgments.calls, 0),
           ),
         );
@@ -323,7 +342,7 @@ export function createPostgresAchievementJudgments(
           connectionId: settings.connection_id,
           dailyBudgetUsd: settings.daily_budget_usd,
           maxPerSession: settings.max_per_session,
-          spentUsd: await spentSince(db, session.workspaceId, today),
+          ...(await spentToday(db, session.workspaceId)),
           sessionJudgments: called?.count ?? 0,
         },
         rules: rules.map((rule) => ({
@@ -551,7 +570,7 @@ export function createPostgresJudgmentEgress(
       return issued.length > 0;
     },
 
-    async authorizeToken({ tokenHash, today }) {
+    async authorizeToken({ tokenHash }) {
       const [held] = await db
         .select({
           id: achievementJudgments.id,
@@ -578,33 +597,61 @@ export function createPostgresJudgmentEgress(
         judgmentId: held.id,
         connectionId: settings.connection_id,
         dailyBudgetUsd: settings.daily_budget_usd,
-        spentUsd: await spentSince(db, held.workspaceId, today),
+        spentUsd: (await spentToday(db, held.workspaceId)).spentUsd,
       };
     },
 
-    recordUsage({ judgmentId, inputTokens, costUsd }) {
+    recordUsage({ exchangeId, judgmentId, inputTokens, costUsd }) {
       return db.transaction(async (tx) => {
         const [judgment] = await tx
-          .select({ sessionId: achievementJudgments.sessionId })
+          .select({
+            sessionId: achievementJudgments.sessionId,
+            workspaceId: achievementJudgments.workspaceId,
+          })
           .from(achievementJudgments)
           .where(eq(achievementJudgments.id, judgmentId))
           .limit(1);
-        if (!judgment) return false;
+        if (!judgment) return { outcome: "unknown_judgment" as const };
         // Before the judgment row, as queueAchievementJudgment.
         await tx.execute(
           sql`SELECT 1 FROM sessions WHERE id = ${judgment.sessionId} FOR KEY SHARE`,
         );
         // Whole micro-dollars, rounded up like a session's spend.
-        const recorded = await tx
+        const [inserted] = await tx
+          .insert(achievementJudgmentUsage)
+          .values({
+            exchangeId,
+            judgmentId,
+            workspaceId: judgment.workspaceId,
+            inputTokens,
+            costUsd: sql`ceil(${costUsd}::numeric * 1000000) / 1000000`,
+          })
+          .onConflictDoNothing({ target: achievementJudgmentUsage.exchangeId })
+          .returning({ costUsd: achievementJudgmentUsage.costUsd });
+        if (inserted === undefined) {
+          // The proxy reports an exchange again when no answer came back.
+          const [stored] = await tx
+            .select({
+              judgmentId: achievementJudgmentUsage.judgmentId,
+              inputTokens: achievementJudgmentUsage.inputTokens,
+              costUsd: achievementJudgmentUsage.costUsd,
+            })
+            .from(achievementJudgmentUsage)
+            .where(eq(achievementJudgmentUsage.exchangeId, exchangeId));
+          return stored?.judgmentId === judgmentId &&
+            stored.inputTokens === inputTokens
+            ? { outcome: "replayed" as const, costUsd: stored.costUsd }
+            : { outcome: "conflict" as const };
+        }
+        await tx
           .update(achievementJudgments)
           .set({
             calls: sql`${achievementJudgments.calls} + 1`,
             inputTokens: sql`${achievementJudgments.inputTokens} + ${inputTokens}`,
-            costUsd: sql`${achievementJudgments.costUsd} + ceil(${costUsd}::numeric * 1000000) / 1000000`,
+            costUsd: sql`${achievementJudgments.costUsd} + ${inserted.costUsd}::numeric`,
           })
-          .where(eq(achievementJudgments.id, judgmentId))
-          .returning({ id: achievementJudgments.id });
-        return recorded.length > 0;
+          .where(eq(achievementJudgments.id, judgmentId));
+        return { outcome: "recorded" as const, costUsd: inserted.costUsd };
       });
     },
   };

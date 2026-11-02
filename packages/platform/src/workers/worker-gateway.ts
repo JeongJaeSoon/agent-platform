@@ -95,7 +95,6 @@ import type { JudgmentEgressStore } from "../sessions/achievements/achievement-j
 import {
   hashJudgmentToken,
   JUDGMENT_TOKEN_PREFIX,
-  utcDayStart,
 } from "../sessions/achievements/judgment-token.ts";
 import {
   acceptedRuntimeVersions,
@@ -1673,7 +1672,6 @@ export function createWorkerGateway(deps: {
       }
       const result = await deps.judgments.store.authorizeToken({
         tokenHash: hashJudgmentToken(request.token),
-        today: utcDayStart(now()),
       });
       if (result.outcome !== "ok") throw invalid();
       if (result.spentUsd >= result.dailyBudgetUsd) {
@@ -1706,17 +1704,26 @@ export function createWorkerGateway(deps: {
       usage: ProviderUsage;
     }): Promise<{ costUsd: number; pricedBy: PricedBy }> {
       const priced = priceJudgmentUsage(report.usage);
-      const recorded =
-        deps.judgments !== undefined &&
-        (await deps.judgments.store.recordUsage({
-          judgmentId: report.judgmentId,
-          inputTokens: report.usage.inputTokens,
-          costUsd: priced.costUsd,
-        }));
-      if (!recorded) {
+      const result =
+        deps.judgments === undefined
+          ? { outcome: "unknown_judgment" as const }
+          : await deps.judgments.store.recordUsage({
+              exchangeId: report.exchangeId,
+              judgmentId: report.judgmentId,
+              inputTokens: report.usage.inputTokens,
+              costUsd: priced.costUsd,
+            });
+      if (result.outcome === "unknown_judgment") {
         throw new WorkerGatewayError(404, "NOT_FOUND", "No such judgment");
       }
-      return priced;
+      if (result.outcome === "conflict") {
+        throw new WorkerGatewayError(
+          409,
+          "IDEMPOTENCY_CONFLICT",
+          "That exchange was reported with other usage",
+        );
+      }
+      return { costUsd: result.costUsd, pricedBy: priced.pricedBy };
     },
 
     // What one Messages call through the provider route used, as the proxy

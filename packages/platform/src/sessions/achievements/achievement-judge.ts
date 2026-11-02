@@ -13,7 +13,6 @@ import {
   type JudgmentResult,
   type NewAchievement,
 } from "./achievement-judgment-store.ts";
-import { nextUtcDay, utcDayStart } from "./judgment-token.ts";
 
 export const ACHIEVEMENT_JUDGE_INTERVAL_MS = 30_000;
 /** A judgment a dead replica held is claimed again after this. */
@@ -126,10 +125,8 @@ export function createAchievementJudge(deps: {
   logger: Logger;
   claimMax?: number;
   leaseMs?: number;
-  now?: () => Date;
 }) {
   const { store, outputs, logger } = deps;
-  const now = deps.now ?? (() => new Date());
   const claimMax = deps.claimMax ?? ACHIEVEMENT_JUDGMENT_CLAIM_MAX;
   const leaseMs = deps.leaseMs ?? ACHIEVEMENT_JUDGMENT_LEASE_MS;
 
@@ -165,8 +162,7 @@ export function createAchievementJudge(deps: {
   }
 
   async function judge(claimed: ClaimedJudgment): Promise<JudgmentResult> {
-    const at = now();
-    const context = await store.context(claimed, utcDayStart(at));
+    const context = await store.context(claimed);
     let files: { path: string; bytes: number }[] = [];
     let outputsUnavailable = false;
     if (context.rules.some((rule) => rule.evidenceKind === "out_file")) {
@@ -240,7 +236,7 @@ export function createAchievementJudge(deps: {
     if (judge.connectionId !== null && judge.spentUsd >= judge.dailyBudgetUsd) {
       return {
         status: "deferred",
-        until: nextUtcDay(at),
+        until: judge.budgetResetsAt,
         errorCode: null,
         ...paired,
       };

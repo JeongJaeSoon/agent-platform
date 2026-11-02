@@ -1,5 +1,5 @@
 {
-  "id": "6f1f8ba4-84f4-4826-b1e8-3d349fdac2cf",
+  "id": "d552e30d-e40b-4a8c-925f-d71d8df0d2b9",
   "prevId": "f2a563d6-092f-4236-9708-a909f22d3c89",
   "version": "7",
   "dialect": "postgresql",
@@ -126,6 +126,93 @@
         "achievement_categories_archived_check": {
           "name": "achievement_categories_archived_check",
           "value": "(\"achievement_categories\".\"archived_at\" IS NULL) = (\"achievement_categories\".\"archived_by\" IS NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.achievement_judgment_usage": {
+      "name": "achievement_judgment_usage",
+      "schema": "",
+      "columns": {
+        "exchange_id": {
+          "name": "exchange_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "judgment_id": {
+          "name": "judgment_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "input_tokens": {
+          "name": "input_tokens",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cost_usd": {
+          "name": "cost_usd",
+          "type": "numeric(14, 6)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "achievement_judgment_usage_workspace_idx": {
+          "name": "achievement_judgment_usage_workspace_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "achievement_judgment_usage_judgment_id_achievement_judgments_id_fk": {
+          "name": "achievement_judgment_usage_judgment_id_achievement_judgments_id_fk",
+          "tableFrom": "achievement_judgment_usage",
+          "tableTo": "achievement_judgments",
+          "columnsFrom": ["judgment_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "achievement_judgment_usage_amounts_check": {
+          "name": "achievement_judgment_usage_amounts_check",
+          "value": "\"achievement_judgment_usage\".\"input_tokens\" >= 0 AND \"achievement_judgment_usage\".\"cost_usd\" >= 0"
         }
       },
       "isRLSEnabled": false
@@ -303,27 +390,6 @@
           ],
           "isUnique": false,
           "where": "\"achievement_judgments\".\"status\" IN ('queued', 'running', 'deferred')",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "achievement_judgments_workspace_idx": {
-          "name": "achievement_judgments_workspace_idx",
-          "columns": [
-            {
-              "expression": "workspace_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "finished_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}
