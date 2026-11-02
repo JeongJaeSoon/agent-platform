@@ -266,6 +266,54 @@ type ClaimOwner = {
   readonly agentInstructions: string | null;
 };
 
+/** A `sessions` row with its release and the release's card, as read for a plan. */
+export type SessionRow = {
+  agent_instructions: unknown;
+  branch: string | null;
+  id: string;
+  model: string | null;
+  owner_id: string;
+  profile_fingerprint: string | null;
+  profile_id: string | null;
+  release_github: boolean | null;
+  release_id: string | null;
+  release_tools: unknown;
+  repo_url: string | null;
+  repository_id: string | null;
+  repository_mode: "repository" | "none";
+};
+
+export function claimedSessionOf(
+  row: SessionRow,
+): ClaimedSession & { readonly id: string; readonly githubAttached: boolean } {
+  return {
+    id: row.id,
+    branch: row.branch,
+    model: row.model,
+    ownerId: row.owner_id,
+    profileFingerprint: row.profile_fingerprint,
+    profileId: row.profile_id,
+    // As the claim's binding reads them (worker-unit-of-work.ts releaseToolsOf).
+    releaseTools:
+      row.release_id === null
+        ? null
+        : Array.isArray(row.release_tools) &&
+            row.release_tools.every((tool) => typeof tool === "string")
+          ? (row.release_tools as string[])
+          : [],
+    // Counted as attached whenever pinned, unreadable or not: one config too
+    // many only makes the count stricter.
+    githubAttached: row.release_github === true,
+    repoUrl: row.repo_url,
+    repositoryId: row.repository_id,
+    repositoryMode: row.repository_mode,
+    agentInstructions:
+      typeof row.agent_instructions === "string"
+        ? row.agent_instructions
+        : null,
+  };
+}
+
 function runnableProfile(
   session: ClaimedSession,
   catalog: SessionCatalog,

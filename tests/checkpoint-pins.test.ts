@@ -53,6 +53,7 @@ import {
   type CheckpointRow,
   captureArchiveObjects,
   captureCheckpointObjects,
+  claimedSessionOf,
   describeMismatches,
   earlierProfileClaims,
   earlierProfileKey,
@@ -1008,6 +1009,45 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       ).status,
     ).toBe("ready");
     expect(alternateDigests(image, [`${sessionId}#gone`])).toEqual([]);
+  });
+
+  test("a session row's release card instructions reach its claims; a row without a release, or a card without them, has none", () => {
+    const row = {
+      agent_instructions: "Answer in haiku.",
+      branch: "main",
+      id: "s1",
+      model: null,
+      owner_id: "owner-a",
+      profile_fingerprint: null,
+      profile_id: PROFILE_ID,
+      release_github: null,
+      release_id: "r1",
+      release_tools: ["Read"],
+      repo_url: null,
+      repository_id: REPOSITORY_ID,
+      repository_mode: "repository" as const,
+    };
+    expect(claimedSessionOf(row)).toMatchObject({
+      agentInstructions: "Answer in haiku.",
+      releaseTools: ["Read"],
+      githubAttached: false,
+    });
+    // LEFT JOINs leave a session without a release, or a card without the
+    // key, as SQL NULL; anything not a string is no instructions.
+    for (const none of [null, undefined, 42, { text: "x" }]) {
+      expect(
+        claimedSessionOf({ ...row, agent_instructions: none })
+          .agentInstructions,
+      ).toBeNull();
+    }
+    expect(
+      claimedSessionOf({
+        ...row,
+        release_id: null,
+        release_tools: null,
+        agent_instructions: null,
+      }),
+    ).toMatchObject({ releaseTools: null, agentInstructions: null });
   });
 
   test("a release's agent instructions ride on every claim of its session and are part of the digest a checkpoint is planned with", async () => {

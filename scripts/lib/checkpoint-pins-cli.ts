@@ -45,6 +45,7 @@ import {
   type CheckpointRow,
   captureArchiveObjects,
   captureCheckpointObjects,
+  claimedSessionOf,
   describeMismatches,
   type ImageRuntime,
   parseImageRuntime,
@@ -52,6 +53,7 @@ import {
   planRepin,
   planRuntime,
   restoreClaims,
+  type SessionRow,
   sessionClaim,
   sha256Hex,
 } from "./checkpoint-pins.ts";
@@ -280,24 +282,13 @@ async function plans(
     objects,
     store: createPostgresCheckpointStore(drizzle(pool, { schema })),
   });
-  const { rows: pointers } = await pool.query<{
-    agent_instructions: unknown;
-    branch: string | null;
-    id: string;
-    manifest_ref: string | null;
-    manifest_version: string | null;
-    model: string | null;
-    owner_id: string;
-    profile_fingerprint: string | null;
-    profile_id: string | null;
-    release_github: boolean | null;
-    release_id: string | null;
-    release_tools: unknown;
-    repo_url: string | null;
-    repository_id: string | null;
-    repository_mode: "repository" | "none";
-    revision: number;
-  }>(
+  const { rows: pointers } = await pool.query<
+    SessionRow & {
+      manifest_ref: string | null;
+      manifest_version: string | null;
+      revision: number;
+    }
+  >(
     `SELECT s.id, s.checkpoint_revision AS revision, c.manifest_ref, c.manifest_version,
             s.owner_id, s.profile_id, s.profile_fingerprint, s.model, s.repository_id, s.repository_mode, s.repo_url, s.branch,
             s.agent_release_id AS release_id, r.runtime_config_snapshot->'tools' AS release_tools,
@@ -309,14 +300,6 @@ async function plans(
      LEFT JOIN agent_versions v ON v.id = r.version_id
      WHERE s.checkpoint_revision IS NOT NULL ORDER BY s.id`,
   );
-  // As the claim's binding reads them (worker-unit-of-work.ts releaseToolsOf).
-  const releaseToolsOf = (pointer: (typeof pointers)[number]) =>
-    pointer.release_id === null
-      ? null
-      : Array.isArray(pointer.release_tools) &&
-          pointer.release_tools.every((tool) => typeof tool === "string")
-        ? (pointer.release_tools as string[])
-        : [];
   // The profiles each session's restorable checkpoints were made under other
   // than its own, newest first, as a claim offers them
   // (worker-unit-of-work.ts withRestoreProfiles, worker-gateway.ts
@@ -353,25 +336,7 @@ async function plans(
     });
     const claims: Record<string, unknown> = {};
     for (const pointer of pointers) {
-      const session = {
-        id: pointer.id,
-        branch: pointer.branch,
-        model: pointer.model,
-        ownerId: pointer.owner_id,
-        profileFingerprint: pointer.profile_fingerprint,
-        profileId: pointer.profile_id,
-        releaseTools: releaseToolsOf(pointer),
-        // Counted as attached whenever pinned, unreadable or not: one
-        // config too many only makes the count stricter.
-        githubAttached: pointer.release_github === true,
-        repoUrl: pointer.repo_url,
-        repositoryId: pointer.repository_id,
-        repositoryMode: pointer.repository_mode,
-        agentInstructions:
-          typeof pointer.agent_instructions === "string"
-            ? pointer.agent_instructions
-            : null,
-      };
+      const session = claimedSessionOf(pointer);
       try {
         claims[pointer.id] = sessionClaim(session, catalog);
         const made = restoreClaims(
