@@ -1486,7 +1486,7 @@ describe("WorkerGateway", () => {
     ]);
   });
 
-  test("a claim runs the profile's tools and offers its release's for restore, and the switched claim offers them back", async () => {
+  test("a claim runs its release's tools and offers the profile's for restore, and the switched-off claim offers them back", async () => {
     const current = {
       runtime_kind: "claude_agent_sdk" as const,
       runtime_version: "0.3.270",
@@ -1570,23 +1570,46 @@ describe("WorkerGateway", () => {
     const withoutRelease = await claimWith({ ...binding, releaseTools: null });
     const unbound = { ...binding };
     delete unbound.releaseTools;
-    // The tools run do not change with the release.
-    expect(claimed.runtime_config.tools).toEqual([
+    // Without a release the profile's tools run, as before the switch.
+    expect(withoutRelease.runtime_config.tools).toEqual([
       "Read",
       "Edit",
       "Bash",
       github,
     ]);
-    expect(shape(claimed.runtime_config)).toEqual(
-      shape(withoutRelease.runtime_config),
-    );
     expect(shape((await claimWith(unbound)).runtime_config)).toEqual(
       shape(withoutRelease.runtime_config),
     );
+    // With one, the release's tools within the profile run.
+    expect(claimed.runtime_config.tools).toEqual(["Read", "Bash", github]);
     expect(bootstrapClaimResponseSchema.safeParse(claimed).success).toBe(true);
-    // Newest first: the profile run now (before the built-in server, then
-    // with the release's tools), then the earlier profile the same way.
+    // Newest first, every profile list before the release's: the current
+    // profile's (with and before the built-in server), the earlier
+    // profile's, then the release's as checkpoints from before the server.
     expect(claimed.restore_runtime_configs?.map(shape)).toEqual([
+      {
+        model: "claude-sonnet-5",
+        tools: ["Read", "Edit", "Bash", github],
+        mcp: ["github"],
+      },
+      { model: "claude-sonnet-5", tools: ["Read", "Edit", "Bash"], mcp: [] },
+      {
+        model: "claude-sonnet-5",
+        tools: ["Read", "Bash", github],
+        mcp: ["github"],
+      },
+      { model: "claude-sonnet-5", tools: ["Read", "Bash"], mcp: [] },
+      { model: "claude-sonnet-5", tools: ["Read", "Bash"], mcp: [] },
+    ]);
+
+    // Switched off (the rollback floor's claim), the profile's tools run and
+    // the release's are offered: a checkpoint either makes resumes on the
+    // other.
+    const off = await claimWith(binding, false);
+    expect(shape(off.runtime_config)).toEqual(
+      shape(withoutRelease.runtime_config),
+    );
+    expect(off.restore_runtime_configs?.map(shape)).toEqual([
       { model: "claude-sonnet-5", tools: ["Read", "Edit", "Bash"], mcp: [] },
       {
         model: "claude-sonnet-5",
@@ -1612,19 +1635,14 @@ describe("WorkerGateway", () => {
       { model: "claude-sonnet-5", tools: ["Read", "Bash"], mcp: [] },
     ]);
 
-    // Switched on, the claim runs the release's tools and offers the
-    // profile's: a checkpoint either image made resumes on the other.
-    const switched = await claimWith(binding, true);
-    expect(switched.runtime_config.tools).toEqual(["Read", "Bash", github]);
-    expect(claimed.restore_runtime_configs?.map(shape)).toContainEqual(
-      shape(switched.runtime_config),
-    );
-    expect(switched.restore_runtime_configs?.map(shape)).toContainEqual(
+    expect(off.restore_runtime_configs?.map(shape)).toContainEqual(
       shape(claimed.runtime_config),
     );
-    expect(bootstrapClaimResponseSchema.safeParse(switched).success).toBe(true);
+    expect(claimed.restore_runtime_configs?.map(shape)).toContainEqual(
+      shape(off.runtime_config),
+    );
     // `[]` is a release that allows no built-in tool, not one missing.
-    const none = await claimWith({ ...binding, releaseTools: [] }, true);
+    const none = await claimWith({ ...binding, releaseTools: [] });
     expect(none.runtime_config.tools).toEqual([github]);
 
     // At the cap, the profile lists go first: every profile list a claim
@@ -1640,13 +1658,13 @@ describe("WorkerGateway", () => {
     };
     const full = ["Read", "Edit", "Bash"];
     const narrow = ["Read", "Bash"];
-    const crowded = (await claimWith(many)).restore_runtime_configs;
+    const crowded = (await claimWith(many, false)).restore_runtime_configs;
     expect(crowded?.map((config) => config.tools)).toEqual([
       ...Array.from({ length: 8 }, () => full),
       ...Array.from({ length: 8 }, () => narrow),
     ]);
     expect(crowded?.[8]?.model).toBe("claude-sonnet-5");
-    const crowdedOn = (await claimWith(many, true)).restore_runtime_configs;
+    const crowdedOn = (await claimWith(many)).restore_runtime_configs;
     expect(crowdedOn?.map((config) => config.tools)).toEqual([
       ...Array.from({ length: 9 }, () => full),
       ...Array.from({ length: 7 }, () => narrow),

@@ -146,7 +146,7 @@ async function seeded(slug = "default") {
     cardSha256: "0".repeat(64),
     runtimeProfileId: "coding",
     profileDigest: "digest",
-    runtimeConfigSnapshot: {},
+    runtimeConfigSnapshot: { tools: ["Read"] },
     effectiveTools: { tools: ["Read"], mcp: ["mcp__fake__whoami"] },
     policyPins: {
       tools: {

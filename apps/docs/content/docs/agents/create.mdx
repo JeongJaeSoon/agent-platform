@@ -6,7 +6,7 @@ description: 에이전트를 정의하고, release를 만들어 활성화하고,
 에이전트는 워크스페이스 안의 이름 붙은 정의다. 정의는 카드(역할, 지시문, 모델, 도구)이고, 카드를 고칠 때마다 새 version이 쌓인다. version 하나를 실행 프로필과 묶은 것이 release이고, 에이전트가 가리키는 release가 활성 release다. 세션을 만들 때 release를 넣으면 그 세션은 그 에이전트의 것이 된다.
 
 <Callout type="warn">
-지금 세션은 `profile_id`의 실행 프로필로 돈다. release의 지시문과 도구 목록은 세션에 기록만 되고 모델에는 아직 전달되지 않는다. 자세한 내용은 [지시문과 역할](/agents/instructions-and-roles)과 [권한](/agents/permissions)에 있다.
+세션은 `profile_id`의 실행 프로필로 돌고, release로 만든 세션은 그 release에 고정된 도구만 쓴다. release의 지시문은 세션에 기록만 되고 모델에는 아직 전달되지 않는다. 자세한 내용은 [지시문과 역할](/agents/instructions-and-roles)과 [권한](/agents/permissions)에 있다.
 </Callout>
 
 ## 웹 콘솔에서

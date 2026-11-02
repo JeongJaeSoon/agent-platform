@@ -17,6 +17,7 @@ import {
   createPostgresGitHubAppManifestStore,
   createPostgresGitHubAppStore,
   createPostgresGitHubGateStore,
+  createPostgresGitHubInstallationStore,
   createPostgresGitHubMcpStore,
   createPostgresGitHubOAuthStore,
   createPostgresGitHubPackagesStore,
@@ -767,6 +768,7 @@ const githubRepositories = createGitHubRepositoryService({
   fileRepositories: profileSources.catalog.repositories,
   changed: () => workspaceProfileVersions.refresh(),
 });
+const githubInstallations = createPostgresGitHubInstallationStore(db);
 const githubApps = createGitHubAppService({
   authorization,
   store: githubAppStore,
@@ -789,6 +791,11 @@ const githubApps = createGitHubAppService({
     webBase: "https://github.com",
     refused: (check) =>
       logger.warn("GitHub App manifest state refused", { check }),
+  },
+  installations: {
+    store: githubInstallations,
+    refused: (check) =>
+      logger.warn("GitHub installation state refused", { check }),
   },
 });
 // Every GitHub token (clone, push, pull requests, Actions) is issued here,
@@ -823,6 +830,7 @@ const githubSettings = createGitHubSettingsService({
   secretsOn: secretKey !== null,
   apps: githubAppStore,
   directory: githubAppDirectory,
+  installations: githubInstallations,
 });
 const githubPackagesConfig = githubPackagesConfigFromEnv(process.env);
 const githubPackagesStore = createPostgresGitHubPackagesStore(db, secretKey);

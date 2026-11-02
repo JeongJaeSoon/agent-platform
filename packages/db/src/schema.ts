@@ -601,6 +601,66 @@ export const githubAppManifestStates = pgTable(
   ],
 );
 
+export const githubInstallationSnapshots = pgTable(
+  "github_installation_snapshots",
+  {
+    connectionId: uuid("connection_id")
+      .primaryKey()
+      .references(() => githubApps.id, { onDelete: "cascade" }),
+    appId: bigint("app_id", { mode: "number" }).notNull(),
+    installations: jsonb().$type<unknown[]>().notNull(),
+    readAt: timestamp("read_at", { withTimezone: true }).notNull(),
+  },
+);
+
+export const githubInstallationStates = pgTable(
+  "github_installation_states",
+  {
+    stateHash: bytea("state_hash").primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => githubApps.id, { onDelete: "cascade" }),
+    appId: bigint("app_id", { mode: "number" }).notNull(),
+    actorUserId: uuid("actor_user_id").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("github_installation_states_expires_idx").on(table.expiresAt),
+  ],
+);
+
+// Who finished an installation started in the console. Display only: the
+// setup URL GitHub returns to can be forged, so nothing decides on it.
+export const githubInstallationLinks = pgTable(
+  "github_installation_links",
+  {
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => githubApps.id, { onDelete: "cascade" }),
+    installationId: bigint("installation_id", { mode: "number" }).notNull(),
+    appId: bigint("app_id", { mode: "number" }).notNull(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    /** No foreign key: the row outlives the account. */
+    connectedBy: uuid("connected_by").notNull(),
+    connectedAt: timestamp("connected_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.connectionId, table.installationId] }),
+    check(
+      "github_installation_links_installation_id_check",
+      sql`${table.installationId} > 0`,
+    ),
+  ],
+);
+
 // What the workspace lets its agents' GitHub settings reach. No row reads as
 // every ceiling off and no OAuth client secret.
 export const githubWorkspaceSettings = pgTable("github_workspace_settings", {
