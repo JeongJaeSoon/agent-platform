@@ -93,7 +93,7 @@ try {
 | `sessions.requests.list` · `answer` | 권한 요청과 질문 | [승인 대기와 재개](/sessions/waiting-and-resume) |
 | `sessions.interrupt` · `pause` · `resume` · `terminate` · `close` · `changeProfile` | 제어 | [상태와 수명](/sessions/lifecycle), [닫기](/sessions/close) |
 | `sessions.recoveryDecisions.create` | 복구 결정 | [상태와 수명](/sessions/lifecycle) |
-| `sessions.pushRequests.create` · `list` · `get` · `decide` · `openPullRequest` · `commentPullRequest` | push 승인과 PR | [요청](/approvals/request) |
+| `sessions.pushRequests.create` · `list` · `get` · `approve` · `reject` · `openPullRequest` · `commentPullRequest` | push 승인과 PR | [요청](/approvals/request) |
 | `receipts.get`, `auth.me`, `limits.get`, `profiles.list`, `root.get` | receipt, 내 정보, 한도, 프로필, 상태 | [receipt](/approvals/receipt) |
 
 `sessions.list`와 `turns.list`는 `await`하면 첫 페이지, `for await`하면 모든 항목을 준다. 필드 이름은 HTTP API와 같은 snake_case다. 에이전트·멤버·key 관리처럼 웹 로그인으로만 부르는 API는 감싸지 않는다. `limits.get`은 로그인한 workspace owner만 읽으므로 API key로 부르면 403이다.

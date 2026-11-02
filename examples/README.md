@@ -57,7 +57,7 @@ bun examples/sdk-discovery/src/discover.ts
 | `sessions.requests.list`, `sessions.requests.answer` | questions, close |
 | `sessions.interrupt`, `pause`, `resume`, `terminate`, `changeProfile`, `recoveryDecisions.create` | control |
 | `sessions.close` | 모든 세션 샘플 |
-| `sessions.pushRequests.create`·`list`·`get`·`decide`·`openPullRequest`·`commentPullRequest` | push |
+| `sessions.pushRequests.create`·`list`·`get`·`approve`·`reject`·`openPullRequest`·`commentPullRequest` | push |
 | `receipts.get` | questions·control·close·push(`waitForReceipt`를 거쳐) |
 | `waitForTurn`(`onRequest`·`onAnswer`·`events`), `answerPending` | questions, close, push, approver |
 | `waitForReceipt`, `waitForPushRequest` | `waitForReceipt`: 세션 샘플 모두 / `waitForPushRequest`: push |

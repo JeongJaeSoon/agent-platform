@@ -57,7 +57,7 @@ done
 
 拒否されたリクエストは、エラー本文の `error.details.receipt_id` がその receipt を指す。拒否にも記録が残るということである。
 
-2026 年 11 月より前に残った承認・拒否の receipt は、operation が `decide_push` で、値は `result.decision` にある。再び判断した試行の refusal は `already_decided` である。過去の receipt はそのまま読める。
+名前を変える前のバージョンのサーバーが残した承認・拒否の receipt は、operation が `decide_push` で、値は `result.decision` にある。再び判断した試行の refusal は `already_decided` である。過去の receipt はそのまま読める。
 
 ## 終わるまで待つ
 

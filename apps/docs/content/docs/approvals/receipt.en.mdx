@@ -57,7 +57,7 @@ Reference: [`GET /v1/receipts/{id}`](/reference/http-api/limits-and-receipts/get
 
 For a refused request, `error.details.receipt_id` in the error body points to that receipt. This means a refusal is recorded too.
 
-Approval and rejection receipts written before November 2026 have the operation `decide_push` and the value in `result.decision`. A repeated attempt's refusal is `already_decided`. Past receipts read as they were written.
+Approval and rejection receipts written by a server from before the rename have the operation `decide_push` and the value in `result.decision`. A repeated attempt's refusal is `already_decided`. Past receipts read as they were written.
 
 ## Wait until it finishes
 

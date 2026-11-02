@@ -93,7 +93,7 @@ The error codes are listed per operation in the [HTTP API reference](/reference/
 | `sessions.requests.list` · `answer` | Permission requests and questions | [Waiting for approval and resuming](/sessions/waiting-and-resume) |
 | `sessions.interrupt` · `pause` · `resume` · `terminate` · `close` · `changeProfile` | Control | [Status and lifecycle](/sessions/lifecycle), [Close](/sessions/close) |
 | `sessions.recoveryDecisions.create` | Recovery decisions | [Status and lifecycle](/sessions/lifecycle) |
-| `sessions.pushRequests.create` · `list` · `get` · `decide` · `openPullRequest` · `commentPullRequest` | Push approval and PRs | [Request](/approvals/request) |
+| `sessions.pushRequests.create` · `list` · `get` · `approve` · `reject` · `openPullRequest` · `commentPullRequest` | Push approval and PRs | [Request](/approvals/request) |
 | `receipts.get`, `auth.me`, `limits.get`, `profiles.list`, `root.get` | Receipts, who you are, limits, profiles, status | [receipt](/approvals/receipt) |
 
 `await` on `sessions.list` or `turns.list` gives the first page, and `for await` gives every item. Field names are snake_case, as in the HTTP API. APIs that only a web login can call, such as managing agents, members and keys, are not wrapped. `limits.get` is readable only by a logged-in workspace owner, so with an API key it returns 403.

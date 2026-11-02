@@ -111,7 +111,7 @@ OpenAPI: [`listPendingRequests`](api/index.html), [`answerPendingRequest`](api/i
 
 **목적.** worker가 기다리는 도구 승인과 `AskUserQuestion`을 같은 pending-requests 흐름으로 처리한다.
 
-**순서.** 원하는 종류의 pending request가 목록에 나타날 때까지 기다리고 `request_id`를 읽는다. 권한 요청은 `decision`, 질문 요청은 각 `question_id`의 `selected_option_ids` 또는 `free_text`로 답한다. 응답은 202 receipt이므로 receipt와 turn을 다시 조회한다.
+**순서.** 원하는 종류의 pending request가 목록에 나타날 때까지 기다리고 `request_id`를 읽는다. 권한 요청은 `action`(`allow`·`deny`), 질문 요청은 각 `question_id`의 `selected_option_ids` 또는 `free_text`로 답한다. 응답은 202 receipt이므로 receipt와 turn을 다시 조회한다.
 
 ```bash
 wait_for_pending permission
