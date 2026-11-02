@@ -152,7 +152,6 @@ export function SessionAchievements({
           <AchievementRow
             key={achievement.id}
             achievement={achievement}
-            threshold={data.threshold}
             reviewable={reviewable(achievement.agent_id)}
             onReviewed={reviewed}
           />
@@ -207,12 +206,10 @@ function EvidenceLink({
 
 function AchievementRow({
   achievement,
-  threshold,
   reviewable,
   onReviewed,
 }: {
   readonly achievement: SessionAchievement;
-  readonly threshold: number;
   readonly reviewable: boolean;
   readonly onReviewed: (decided: SessionAchievement) => Promise<unknown>;
 }) {
@@ -254,10 +251,14 @@ function AchievementRow({
         </Text>
         {achievement.judge === "luna" && achievement.probability !== null ? (
           <Text as="span" variant="sub">
-            {t("session.achievements.probability", {
-              probability: RATIO.format(achievement.probability),
-              threshold: RATIO.format(threshold),
-            })}
+            {achievement.threshold === null
+              ? t("session.achievements.probability", {
+                  probability: RATIO.format(achievement.probability),
+                })
+              : t("session.achievements.probabilityThreshold", {
+                  probability: RATIO.format(achievement.probability),
+                  threshold: RATIO.format(achievement.threshold),
+                })}
           </Text>
         ) : null}
         <Text

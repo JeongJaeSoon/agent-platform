@@ -2038,6 +2038,45 @@ integration("achievement judgments on PostgreSQL", () => {
       expect(down?.supersededAt).not.toBeNull();
     });
 
+    test("an achievement keeps the threshold its judgment asked with; a judgment that asks nothing keeps none", async () => {
+      const ws = await workspace();
+      await judgeSettings(ws.workspaceId, {
+        connection_id: "conn-1",
+        threshold: 0.9,
+      });
+      await rule(ws, await typeId(ws.workspaceId, "pull_request"), "luna");
+      const sessionId = await session(ws.workspaceId);
+      await pullRequest(sessionId, ws.workspaceId);
+      const replica = lunaReplica(() => 0.94);
+      await quietPassed(sessionId);
+      await replica.judge.runOnce();
+      expect((await judgmentsOf(sessionId)).map((j) => j.threshold)).toEqual([
+        0.9,
+      ]);
+
+      await judgeSettings(ws.workspaceId, {
+        connection_id: "conn-1",
+        threshold: 0.75,
+      });
+      const listed = await judgments.list(ws.workspaceId, sessionId);
+      expect(listed?.items.map((item) => item.threshold)).toEqual([0.9]);
+      expect(listed).not.toHaveProperty("threshold");
+
+      // Same inputs, same threshold: nothing is asked.
+      await judgeSettings(ws.workspaceId, {
+        connection_id: "conn-1",
+        threshold: 0.9,
+      });
+      await judgedOnce(sessionId, replica);
+      expect(replica.sent).toHaveLength(1);
+      expect(
+        (await judgmentsOf(sessionId)).map((j) => [j.status, j.threshold]),
+      ).toEqual([
+        ["succeeded", 0.9],
+        ["succeeded", null],
+      ]);
+    });
+
     test("a person's rejection stands against a yes and a no alike", async () => {
       const ws = await workspace();
       await judgeSettings(ws.workspaceId, { connection_id: "conn-1" });
@@ -2343,7 +2382,7 @@ integration("achievement judgments on PostgreSQL", () => {
     });
   }
 
-  test("the list names each achievement's rule version and type, and gives the finished judgments, their cost and the threshold", async () => {
+  test("the list names each achievement's rule version and type, and gives the finished judgments and their cost", async () => {
     const ws = await workspace();
     const { sessionId, listed, file } = await decided(ws);
     expect(listSessionAchievementsResponseSchema.parse(listed)).toEqual(listed);
@@ -2355,7 +2394,6 @@ integration("achievement judgments on PostgreSQL", () => {
     expect(listed).toMatchObject({
       judgment_count: 1,
       judge_cost_usd: 0,
-      threshold: 0.9,
     });
     // A pending judgment is not counted; the ledger's cost is.
     const [judgment] = await judgmentsOf(sessionId);
@@ -2364,17 +2402,10 @@ integration("achievement judgments on PostgreSQL", () => {
       .set({ costUsd: 0.000_25 })
       .where(eq(achievementJudgments.id, judgment?.id ?? ""));
     await queueAchievementJudgment(db, sessionId, { trigger: "manual" });
-    await db
-      .update(workspaces)
-      .set({
-        settings: sql`jsonb_set(${workspaces.settings}, '{achievement_judge}', '{"threshold": 0.75}'::jsonb)`,
-      })
-      .where(eq(workspaces.id, ws.workspaceId));
     expect(await judgments.list(ws.workspaceId, sessionId)).toMatchObject({
       judgment: { status: "queued", trigger: "manual" },
       judgment_count: 1,
       judge_cost_usd: 0.000_25,
-      threshold: 0.75,
     });
   });
 

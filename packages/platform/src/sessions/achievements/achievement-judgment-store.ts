@@ -135,6 +135,8 @@ export type JudgmentResult = {
      * superseded, unless a person confirmed or rejected it.
      */
     declined: { ruleFamilyId: string; evidenceId: string | null }[];
+    /** The threshold the pairs were asked against; null when none was asked. */
+    threshold: number | null;
   };
 } & (
   | { status: "succeeded" | "skipped" | "failed" }

@@ -73,6 +73,7 @@ function achievement(
     rule_version: 2,
     type_key: "pull_request",
     probability: 0.99,
+    threshold: 0.9,
     judgment_id: JUDGMENT_ID,
     review_state: "auto",
     reviewed_by: null,
@@ -94,6 +95,8 @@ const DOCUMENT = achievement("0b1c2d3e-4f5a-4b6c-8d7e-9f0a1b2c3d42", {
   rule_version: 3,
   type_key: "document",
   probability: 0.91,
+  // Kept from a judgment before thresholds were kept.
+  threshold: null,
   review_state: "needs_review",
 });
 const REVIEW = achievement("0b1c2d3e-4f5a-4b6c-8d7e-9f0a1b2c3d43", {
@@ -102,6 +105,7 @@ const REVIEW = achievement("0b1c2d3e-4f5a-4b6c-8d7e-9f0a1b2c3d43", {
   evidence_kind: "github_review",
   judge: "always",
   probability: null,
+  threshold: null,
   rule_title: "코드 리뷰 제출",
   rule_version: 1,
   type_key: "code_review",
@@ -120,7 +124,6 @@ const listed: ListSessionAchievementsResponse = {
   },
   judgment_count: 2,
   judge_cost_usd: 0.0005,
-  threshold: 0.9,
 };
 
 function routes(
@@ -186,6 +189,9 @@ describe("session achievements", () => {
         .getByRole("link", { name: "out/payment-retry.md" })
         .getAttribute("href"),
     ).toBe("#session-out-files");
+    // A probability whose threshold was not kept stands alone.
+    expect(document_?.textContent).toContain("정의에 맞을 확률 0.91");
+    expect(document_?.textContent).not.toContain("문턱");
 
     // `always` has no probability.
     expect(review?.textContent).toContain("거절됨코드 리뷰 제출code_review");
@@ -536,7 +542,6 @@ describe("session achievements", () => {
           judgment: null,
           judgment_count: 0,
           judge_cost_usd: 0,
-          threshold: 0.9,
         }),
       ),
     );

@@ -13,7 +13,8 @@ export const outputsKo = {
   "session.achievements.state.confirmed": "확인됨",
   "session.achievements.state.needs_review": "확인 필요",
   "session.achievements.state.rejected": "거절됨",
-  "session.achievements.probability":
+  "session.achievements.probability": "정의에 맞을 확률 {probability}",
+  "session.achievements.probabilityThreshold":
     "정의에 맞을 확률 {probability} (문턱 {threshold})",
   "session.achievements.evidence": "근거",
   "session.achievements.fileNeedsReview": "(에이전트가 쓴 파일이라 확인 필요)",
@@ -96,7 +97,8 @@ export const outputsJa: Record<keyof typeof outputsKo, string> = {
   "session.achievements.state.confirmed": "確認済み",
   "session.achievements.state.needs_review": "要確認",
   "session.achievements.state.rejected": "却下",
-  "session.achievements.probability":
+  "session.achievements.probability": "定義に合う確率 {probability}",
+  "session.achievements.probabilityThreshold":
     "定義に合う確率 {probability} (しきい値 {threshold})",
   "session.achievements.evidence": "根拠",
   "session.achievements.fileNeedsReview":
@@ -186,6 +188,8 @@ export const outputsEn: Record<keyof typeof outputsKo, string> = {
   "session.achievements.state.needs_review": "Needs review",
   "session.achievements.state.rejected": "Rejected",
   "session.achievements.probability":
+    "Probability it fits the definition {probability}",
+  "session.achievements.probabilityThreshold":
     "Probability it fits the definition {probability} (threshold {threshold})",
   "session.achievements.evidence": "Evidence",
   "session.achievements.fileNeedsReview":

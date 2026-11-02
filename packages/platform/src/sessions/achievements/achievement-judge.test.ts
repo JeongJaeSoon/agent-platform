@@ -882,6 +882,7 @@ describe("achievement judge with Luna", () => {
       connectionId: "conn-1",
       inputDigest: digest,
       declined: [],
+      threshold: null,
     });
     const merged = await run(
       {
@@ -1157,10 +1158,15 @@ describe("achievement judge with Luna", () => {
     };
     const first = await run(0.9, null);
     expect(first.result?.achievements).toHaveLength(1);
+    expect(first.result?.luna?.threshold).toBe(0.9);
     const digest = first.result?.luna?.inputDigest ?? "";
-    expect((await run(0.9, digest)).sent).toBe(0);
+    const same = await run(0.9, digest);
+    expect(same.sent).toBe(0);
+    // Nothing asked, so no threshold to keep.
+    expect(same.result?.luna?.threshold).toBeNull();
     const stricter = await run(0.95, digest);
     expect(stricter.sent).toBe(1);
+    expect(stricter.result?.luna?.threshold).toBe(0.95);
     expect(stricter.result?.luna?.declined).toEqual([
       { ruleFamilyId: "family-pull_request", evidenceId: "outcome-pr" },
     ]);

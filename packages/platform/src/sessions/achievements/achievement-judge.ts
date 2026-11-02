@@ -394,6 +394,7 @@ export function createAchievementJudge(deps: {
       connectionId: judge.connectionId,
       inputDigest,
       declined: [],
+      threshold: null,
     };
     if (asked.length === 0 || inputDigest === judge.lastInputDigest) {
       return {
@@ -451,7 +452,7 @@ export function createAchievementJudge(deps: {
       errorCode: refused ? "judge_refused" : null,
       ...paired,
       achievements: [...achievements, ...judged],
-      luna: { ...unchanged, declined },
+      luna: { ...unchanged, declined, threshold: judge.threshold },
     };
   }
 

@@ -370,6 +370,8 @@ export const sessionAchievementSchema = z
     type_key: achievementTypeKeySchema,
     /** Null for `always`. */
     probability: z.number().min(0).max(1).nullable(),
+    /** The threshold its judgment asked against; null when it asked none. */
+    threshold: z.number().min(0).max(1).nullable(),
     judgment_id: z.uuid(),
     review_state: achievementReviewStateSchema,
     reviewed_by: userIdSchema.nullable(),
@@ -399,11 +401,6 @@ export const listSessionAchievementsResponseSchema = z
     /** The session's finished judgments, and what their calls cost. */
     judgment_count: z.number().int().nonnegative(),
     judge_cost_usd: z.number().nonnegative(),
-    /**
-     * The workspace's threshold now; a judgment does not keep the one it
-     * judged with.
-     */
-    threshold: z.number().min(0).max(1),
   })
   .strict();
 

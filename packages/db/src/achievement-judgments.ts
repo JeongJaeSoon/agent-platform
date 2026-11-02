@@ -186,6 +186,7 @@ type AchievementRow = {
   ruleTitle: string;
   ruleVersion: number;
   typeKey: string;
+  threshold: number | null;
 };
 
 /** Achievements with their rule version's title and number and type key. */
@@ -196,6 +197,7 @@ function achievementsWhere(db: Database, where: SQL | undefined) {
       ruleTitle: achievementRules.title,
       ruleVersion: achievementRules.version,
       typeKey: achievementTypes.key,
+      threshold: achievementJudgments.threshold,
     })
     .from(sessionAchievements)
     .innerJoin(
@@ -206,6 +208,10 @@ function achievementsWhere(db: Database, where: SQL | undefined) {
       achievementTypes,
       eq(achievementTypes.id, sessionAchievements.typeId),
     )
+    .innerJoin(
+      achievementJudgments,
+      eq(achievementJudgments.id, sessionAchievements.judgmentId),
+    )
     .where(where)
     .orderBy(asc(sessionAchievements.createdAt), asc(sessionAchievements.id));
 }
@@ -215,6 +221,7 @@ function achievementOf({
   ruleTitle,
   ruleVersion,
   typeKey,
+  threshold,
 }: AchievementRow): SessionAchievement {
   return {
     id: row.id,
@@ -234,6 +241,7 @@ function achievementOf({
     rule_version: ruleVersion,
     type_key: typeKey,
     probability: row.probability,
+    threshold,
     judgment_id: row.judgmentId,
     review_state: row.reviewState as AchievementReviewState,
     reviewed_by: row.reviewedBy,
@@ -509,6 +517,7 @@ export function createPostgresAchievementJudgments(
                 inputDigest: result.luna.inputDigest,
                 backend: "luna",
                 connectionId: result.luna.connectionId,
+                threshold: result.luna.threshold,
               }),
         };
         const self = eq(achievementJudgments.id, judgment.id);
@@ -666,9 +675,8 @@ export function createPostgresAchievementJudgments(
     async list(ownerId, rawSessionId) {
       const sessionId = rawSessionId.toLowerCase();
       const [session] = await db
-        .select({ id: sessions.id, settings: workspaces.settings })
+        .select({ id: sessions.id })
         .from(sessions)
-        .leftJoin(workspaces, eq(workspaces.id, sessions.workspaceId))
         .where(and(eq(sessions.id, sessionId), eq(sessions.ownerId, ownerId)))
         .limit(1);
       if (!session) return null;
@@ -700,7 +708,6 @@ export function createPostgresAchievementJudgments(
         judgment: latest ? judgmentOf(latest) : null,
         judgment_count: spent?.finished ?? 0,
         judge_cost_usd: Number(spent?.usd ?? 0),
-        threshold: judgeSettingsOf(session.settings).threshold,
       };
     },
 

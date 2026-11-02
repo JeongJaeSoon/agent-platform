@@ -752,6 +752,7 @@ describe("a session's achievements", () => {
         rule_version: 1,
         type_key: "pull_request",
         probability: null,
+        threshold: null,
         judgment_id: ID,
         review_state: "auto",
         reviewed_by: null,
@@ -770,7 +771,6 @@ describe("a session's achievements", () => {
     },
     judgment_count: 1,
     judge_cost_usd: 0,
-    threshold: 0.9,
   };
   const asked: Array<[string, string]> = [];
   const api = createApiApp({
@@ -1032,6 +1032,7 @@ describe("POST /v1/achievements/{id}/review", () => {
     rule_version: 3,
     type_key: "document",
     probability: null,
+    threshold: null,
     judgment_id: ID,
     review_state: "confirmed" as const,
     reviewed_by: USER,
