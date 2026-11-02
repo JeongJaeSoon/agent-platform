@@ -1,16 +1,17 @@
 import type { AgentDetail, AgentVersion } from "@werft-ai/contracts";
-import { formatTimestamp, RowLines, RowList, RowListItem } from "@werft-ai/ui";
+import {
+  formatTimestamp,
+  Heading,
+  RowLines,
+  RowList,
+  RowListItem,
+  Text,
+} from "@werft-ai/ui";
 import { ChevronRight } from "lucide-react";
 import { useId, useState } from "react";
 import { RevisionDiff } from "../../components/revision-diff.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
-import {
-  FORM_INLINE,
-  PRIMARY,
-  SECONDARY,
-  SECTION,
-  SECTION_TITLE,
-} from "./classes.ts";
+import { FORM_INLINE, SECTION } from "./classes.ts";
 import { VersionSelect } from "./versions.tsx";
 
 export function VersionHistory({ detail }: { readonly detail: AgentDetail }) {
@@ -39,24 +40,33 @@ export function VersionHistory({ detail }: { readonly detail: AgentDetail }) {
           aria-hidden="true"
           className="size-4 text-muted-foreground transition-transform group-open:rotate-90"
         />
-        <h2 id={titleId} className={SECTION_TITLE}>
+        <Heading id={titleId} className="leading-normal">
           {t("agent.versions.title")}
-        </h2>
-        <span className="text-caption text-muted-foreground">
+        </Heading>
+        <Text as="span" variant="meta" className="text-muted-foreground">
           {ordered.length}
-        </span>
+        </Text>
       </summary>
       <RowList>
         {ordered.map((version) => (
           <RowListItem key={version.id}>
             <RowLines>
-              <span className={PRIMARY}>{label(version)}</span>
-              <span className={SECONDARY}>
+              <Text
+                as="span"
+                className="block break-words font-semibold text-body"
+              >
+                {label(version)}
+              </Text>
+              <Text
+                as="span"
+                variant="meta"
+                className="block text-muted-foreground leading-4 [overflow-wrap:anywhere]"
+              >
                 {formatTimestamp(version.created_at, locale)}
                 {version.id === activeVersionId
                   ? ` · ${t("agent.versions.active")}`
                   : ""}
-              </span>
+              </Text>
             </RowLines>
           </RowListItem>
         ))}

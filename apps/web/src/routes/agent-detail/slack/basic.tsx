@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { unwrap } from "@werft-ai/client";
 import { useAgentPlatform } from "@werft-ai/react";
-import { FieldError, SettingRow, Switch } from "@werft-ai/ui";
+import { FieldError, SettingRow, Switch, Text } from "@werft-ai/ui";
 import { useState } from "react";
 import { useI18n } from "../../../i18n/i18n.tsx";
 import type { Notify } from "../toast.tsx";
@@ -42,11 +42,11 @@ export function SlackDmSetting({ agentId }: { readonly agentId: string }) {
       title={t("slack.dmSetting")}
       description={t("slack.dmHint")}
       status={
-        <span className="text-control text-muted-foreground">
+        <Text as="span" variant="sub" className="leading-normal">
           {bindings.isError && !bindings.data
             ? "—"
             : t(dmOn(dm) ? "slack.on" : "slack.off")}
-        </span>
+        </Text>
       }
       meta={
         <>
@@ -127,13 +127,13 @@ export function SlackMentionOnly({
       title={t("slack.mentionOnly")}
       description={t("slack.mentionOnlyHint")}
       status={
-        <span className="text-control text-muted-foreground">
+        <Text as="span" variant="sub" className="leading-normal">
           {lost
             ? "—"
             : settings.data
               ? t(settings.data.mention_only ? "slack.on" : "slack.off")
               : null}
-        </span>
+        </Text>
       }
       meta={
         error ? <FieldError>{slackFailure(error, t)}</FieldError> : undefined

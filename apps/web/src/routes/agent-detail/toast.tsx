@@ -1,3 +1,4 @@
+import { Text } from "@werft-ai/ui";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -67,9 +68,9 @@ function Toast({
     };
   }, [text, onDone]);
   const body = shown ? (
-    <p className="m-0 max-w-sm rounded-card border bg-popover px-4 py-3 text-control text-popover-foreground shadow-pop">
+    <Text className="max-w-sm rounded-card border bg-popover px-4 py-3 text-popover-foreground leading-normal shadow-pop">
       {shown}
-    </p>
+    </Text>
   ) : null;
   return createPortal(
     silent ? (

@@ -3,6 +3,7 @@ import {
   AlertDescription,
   AlertTitle,
   Badge,
+  Code,
   FieldError,
   Link,
   RowList,
@@ -73,9 +74,7 @@ export function SlackStatus({ agentId }: { readonly agentId: string }) {
           </Badge>
           <span className="flex items-center gap-2">
             <span className="text-muted-foreground">{t("slack.botId")}</span>
-            <span className="font-mono text-caption">
-              {identity?.bot_user_id ?? "—"}
-            </span>
+            <Code>{identity?.bot_user_id ?? "—"}</Code>
           </span>
           <span className="flex items-center gap-2">
             <span className="text-muted-foreground">
