@@ -763,6 +763,40 @@ describe("워크스페이스 설정", () => {
     ).toBeDefined();
   });
 
+  test("팀·발급자·등록자를 모르는 token은 끝 네 글자와 마지막 확인 시각만 보인다", async () => {
+    renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${TOKEN}`]: () =>
+        json(200, { ...ACTIVE_TOKEN, issuer: null, updated_by: null }),
+    });
+    expect(
+      await screen.findByText(/^••••abcd · 마지막 토큰 확인 [^·]+$/),
+    ).toBeDefined();
+  });
+
+  test("등록에 성공하면 Slack이 확인한 팀과 발급자를 알린다", async () => {
+    renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${TOKEN}`]: () => json(200, ACTIVE_TOKEN),
+      [`PUT ${TOKEN}`]: () =>
+        json(200, {
+          ...ACTIVE_TOKEN,
+          receipt_id: "5f0c2c1e-8a4b-4c1d-9e2f-3a4b5c6d7e8f",
+          warnings: [],
+        }),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "토큰 교체" }));
+    await user.type(
+      screen.getByLabelText("Refresh Token"),
+      "fake-config-value",
+    );
+    await user.click(screen.getByRole("button", { name: "등록" }));
+    expect((await screen.findByRole("status")).textContent).toBe(
+      "Slack이 토큰을 확인했습니다. 팀 T0TEAM001, 발급자 U0ISSUER1.",
+    );
+  });
+
   test("발급자가 바뀐 저장은 Slack이 확인한 팀·발급자와 함께 앞으로 만드는 앱의 협업자가 바뀐다고 알린다", async () => {
     renderAt("/settings/workspace/slack", {
       "GET /v1/auth/me": () => json(200, me()),
@@ -970,7 +1004,7 @@ describe("워크스페이스 설정", () => {
     ).toBeDefined();
   });
 
-  test("Slack이 토큰을 더 받지 않고 앱도 없으면 재등록만 묻는다", async () => {
+  test("저장된 토큰을 사용할 수 없고 앱도 없으면 재등록만 묻는다", async () => {
     renderAt("/settings/workspace/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () =>
