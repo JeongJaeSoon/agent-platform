@@ -1522,197 +1522,210 @@ function RuleEditor({
     : "";
   const pullRequest = type?.evidence_kind === "github_pull_request";
 
+  // Beside the form, not in it: a portal's submit still bubbles through the
+  // React tree and would save the rule as well.
+  const typeDialog = (
+    <TypeDialog
+      open={makingType}
+      type={undefined}
+      onClose={() => setMakingType(false)}
+      onCreated={(created) => set({ type_id: created.id })}
+    />
+  );
+
   return (
-    <RulesSection
-      id={EDITOR_ID}
-      titleRef={titleRef}
-      title={
-        rule
-          ? t("achievementRules.edit.title", { title: rule.title })
-          : t("achievementRules.addRule")
-      }
-      description={
-        rule
-          ? creatorName === undefined
-            ? t("achievementRules.edit.meta", {
-                version: rule.version,
-                date: rule.created_at.slice(0, 10),
-              })
-            : t("achievementRules.edit.metaBy", {
-                version: rule.version,
-                date: rule.created_at.slice(0, 10),
-                // Korean marks the maker with a particle the name decides.
-                name:
-                  locale === "ko"
-                    ? `${creatorName}${subjectParticle(creatorName)}`
-                    : creatorName,
-              })
-          : ""
-      }
-      onSubmit={submit}
-      foot={
-        <>
-          <Text as="span" variant="meta">
-            {rule ? (
-              <Marked
-                template={(slot) =>
-                  t("achievementRules.edit.nextVersion", { version: slot })
-                }
-                mark={`v${rule.version + 1}`}
+    <>
+      {typeDialog}
+      <RulesSection
+        id={EDITOR_ID}
+        titleRef={titleRef}
+        title={
+          rule
+            ? t("achievementRules.edit.title", { title: rule.title })
+            : t("achievementRules.addRule")
+        }
+        description={
+          rule
+            ? creatorName === undefined
+              ? t("achievementRules.edit.meta", {
+                  version: rule.version,
+                  date: rule.created_at.slice(0, 10),
+                })
+              : t("achievementRules.edit.metaBy", {
+                  version: rule.version,
+                  date: rule.created_at.slice(0, 10),
+                  // Korean marks the maker with a particle the name decides.
+                  name:
+                    locale === "ko"
+                      ? `${creatorName}${subjectParticle(creatorName)}`
+                      : creatorName,
+                })
+            : ""
+        }
+        onSubmit={submit}
+        foot={
+          <>
+            <Text as="span" variant="meta">
+              {rule ? (
+                <Marked
+                  template={(slot) =>
+                    t("achievementRules.edit.nextVersion", { version: slot })
+                  }
+                  mark={`v${rule.version + 1}`}
+                />
+              ) : null}
+            </Text>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onClose}
+              >
+                {t("common.cancel")}
+              </Button>
+              <ReasonButton
+                type="submit"
+                className={buttonVariants({ size: "sm" })}
+                reason={reason}
+                aria-disabled={save.isPending || undefined}
+              >
+                {rule
+                  ? t("achievementRules.edit.saveVersion")
+                  : t("achievementRules.save")}
+              </ReasonButton>
+            </div>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4 p-4">
+          <div className="grid gap-4 md:grid-cols-[1fr_2fr]">
+            <Field>
+              <FieldLabel htmlFor={ids.category}>
+                {t("achievementRules.edit.category")}
+              </FieldLabel>
+              <NativeSelect
+                id={ids.category}
+                value={draft.category_id}
+                disabled={locked}
+                onChange={(event) => set({ category_id: event.target.value })}
+              >
+                {shownCategories.map((category) => (
+                  <NativeSelectOption key={category.id} value={category.id}>
+                    {category.name}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={ids.title}>
+                {t("achievementRules.edit.ruleTitle")}
+              </FieldLabel>
+              <Input
+                id={ids.title}
+                autoComplete="off"
+                maxLength={ACHIEVEMENT_RULE_TITLE_MAX}
+                value={draft.title}
+                disabled={locked}
+                onChange={(event) => set({ title: event.target.value })}
               />
-            ) : null}
-          </Text>
-          <div className="flex gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={onClose}>
-              {t("common.cancel")}
-            </Button>
-            <ReasonButton
-              type="submit"
-              className={buttonVariants({ size: "sm" })}
-              reason={reason}
-              aria-disabled={save.isPending || undefined}
-            >
-              {rule
-                ? t("achievementRules.edit.saveVersion")
-                : t("achievementRules.save")}
-            </ReasonButton>
+            </Field>
           </div>
-        </>
-      }
-    >
-      <div className="flex flex-col gap-4 p-4">
-        <div className="grid gap-4 md:grid-cols-[1fr_2fr]">
           <Field>
-            <FieldLabel htmlFor={ids.category}>
-              {t("achievementRules.edit.category")}
+            <FieldLabel htmlFor={ids.type}>
+              {t("achievementRules.edit.type")}
             </FieldLabel>
-            <NativeSelect
-              id={ids.category}
-              value={draft.category_id}
-              disabled={locked}
-              onChange={(event) => set({ category_id: event.target.value })}
-            >
-              {shownCategories.map((category) => (
-                <NativeSelectOption key={category.id} value={category.id}>
-                  {category.name}
+            <div className="max-w-85 *:w-full max-md:max-w-none">
+              <NativeSelect
+                id={ids.type}
+                value={draft.type_id}
+                disabled={locked}
+                onChange={(event) => {
+                  if (event.target.value === NEW_TYPE) setMakingType(true);
+                  else set({ type_id: event.target.value });
+                }}
+              >
+                {pickable.map((option) => (
+                  <NativeSelectOption key={option.id} value={option.id}>
+                    {t("achievementRules.edit.typeOption", {
+                      key: option.key,
+                      name: option.name,
+                      evidence: t(
+                        `achievementRules.evidence.${option.evidence_kind}`,
+                      ),
+                    })}
+                  </NativeSelectOption>
+                ))}
+                <NativeSelectOption value={NEW_TYPE}>
+                  {t("achievementRules.edit.newType")}
                 </NativeSelectOption>
-              ))}
-            </NativeSelect>
+              </NativeSelect>
+            </div>
+            <FieldDescription>
+              {t("achievementRules.edit.typeHint", { fields })}
+              {pullRequest && !type?.builtin
+                ? ` ${t("achievementRules.edit.prStateHint")}`
+                : null}
+            </FieldDescription>
           </Field>
           <Field>
-            <FieldLabel htmlFor={ids.title}>
-              {t("achievementRules.edit.ruleTitle")}
+            <FieldLabel htmlFor={ids.definition}>
+              {t("achievementRules.edit.definition")}
             </FieldLabel>
-            <Input
-              id={ids.title}
-              autoComplete="off"
-              maxLength={ACHIEVEMENT_RULE_TITLE_MAX}
-              value={draft.title}
+            <Textarea
+              id={ids.definition}
+              rows={4}
+              maxLength={ACHIEVEMENT_RULE_DEFINITION_MAX}
+              value={draft.definition}
               disabled={locked}
-              onChange={(event) => set({ title: event.target.value })}
+              onChange={(event) => set({ definition: event.target.value })}
             />
+            <FieldDescription>
+              {t("achievementRules.edit.length", {
+                count: draft.definition.length,
+                max: ACHIEVEMENT_RULE_DEFINITION_MAX,
+              })}
+              {pullRequest
+                ? ` · ${t("achievementRules.edit.prDefinitionHint")}`
+                : null}
+            </FieldDescription>
           </Field>
-        </div>
-        <Field>
-          <FieldLabel htmlFor={ids.type}>
-            {t("achievementRules.edit.type")}
-          </FieldLabel>
-          <div className="max-w-85 *:w-full max-md:max-w-none">
-            <NativeSelect
-              id={ids.type}
-              value={draft.type_id}
+          <FieldSet>
+            <FieldLegend id={ids.judge} variant="label">
+              {t("achievementRules.edit.judge")}
+            </FieldLegend>
+            <RadioGroup
+              aria-labelledby={ids.judge}
+              value={draft.judge}
               disabled={locked}
-              onChange={(event) => {
-                if (event.target.value === NEW_TYPE) setMakingType(true);
-                else set({ type_id: event.target.value });
-              }}
+              onValueChange={(value) =>
+                set({ judge: value as AchievementRuleJudge })
+              }
+              className="gap-2"
             >
-              {pickable.map((option) => (
-                <NativeSelectOption key={option.id} value={option.id}>
-                  {t("achievementRules.edit.typeOption", {
-                    key: option.key,
-                    name: option.name,
-                    evidence: t(
-                      `achievementRules.evidence.${option.evidence_kind}`,
-                    ),
-                  })}
-                </NativeSelectOption>
+              {(["always", "luna"] as const).map((value) => (
+                <Field key={value} orientation="horizontal">
+                  <RadioGroupItem value={value} />
+                  <FieldLabel className="font-normal">
+                    {t(
+                      value === "always"
+                        ? "achievementRules.edit.always"
+                        : "achievementRules.edit.luna",
+                    )}
+                  </FieldLabel>
+                </Field>
               ))}
-              <NativeSelectOption value={NEW_TYPE}>
-                {t("achievementRules.edit.newType")}
-              </NativeSelectOption>
-            </NativeSelect>
+            </RadioGroup>
+          </FieldSet>
+          <div className="flex flex-col gap-1.5">
+            <Text as="div" weight="medium">
+              {t("achievementRules.edit.agents")}
+            </Text>
+            <Text>{t("achievementRules.edit.allAgents")}</Text>
+            <Text variant="meta">{t("achievementRules.edit.agentsLater")}</Text>
           </div>
-          <FieldDescription>
-            {t("achievementRules.edit.typeHint", { fields })}
-            {pullRequest && !type?.builtin
-              ? ` ${t("achievementRules.edit.prStateHint")}`
-              : null}
-          </FieldDescription>
-        </Field>
-        <Field>
-          <FieldLabel htmlFor={ids.definition}>
-            {t("achievementRules.edit.definition")}
-          </FieldLabel>
-          <Textarea
-            id={ids.definition}
-            rows={4}
-            maxLength={ACHIEVEMENT_RULE_DEFINITION_MAX}
-            value={draft.definition}
-            disabled={locked}
-            onChange={(event) => set({ definition: event.target.value })}
-          />
-          <FieldDescription>
-            {t("achievementRules.edit.length", {
-              count: draft.definition.length,
-              max: ACHIEVEMENT_RULE_DEFINITION_MAX,
-            })}
-            {pullRequest
-              ? ` · ${t("achievementRules.edit.prDefinitionHint")}`
-              : null}
-          </FieldDescription>
-        </Field>
-        <FieldSet>
-          <FieldLegend id={ids.judge} variant="label">
-            {t("achievementRules.edit.judge")}
-          </FieldLegend>
-          <RadioGroup
-            aria-labelledby={ids.judge}
-            value={draft.judge}
-            disabled={locked}
-            onValueChange={(value) =>
-              set({ judge: value as AchievementRuleJudge })
-            }
-            className="gap-2"
-          >
-            {(["always", "luna"] as const).map((value) => (
-              <Field key={value} orientation="horizontal">
-                <RadioGroupItem value={value} />
-                <FieldLabel className="font-normal">
-                  {t(
-                    value === "always"
-                      ? "achievementRules.edit.always"
-                      : "achievementRules.edit.luna",
-                  )}
-                </FieldLabel>
-              </Field>
-            ))}
-          </RadioGroup>
-        </FieldSet>
-        <div className="flex flex-col gap-1.5">
-          <Text as="div" weight="medium">
-            {t("achievementRules.edit.agents")}
-          </Text>
-          <Text>{t("achievementRules.edit.allAgents")}</Text>
-          <Text variant="meta">{t("achievementRules.edit.agentsLater")}</Text>
         </div>
-      </div>
-      <TypeDialog
-        open={makingType}
-        type={undefined}
-        onClose={() => setMakingType(false)}
-        onCreated={(created) => set({ type_id: created.id })}
-      />
-    </RulesSection>
+      </RulesSection>
+    </>
   );
 }

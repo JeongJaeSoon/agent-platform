@@ -675,6 +675,53 @@ describe("성과 규칙", () => {
     ]);
   });
 
+  test("규칙 편집에서 새 type을 만들면 type만 POST 하고, 그 type을 고른다", async () => {
+    const created = type(
+      "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+      "hotfix_pr",
+      "긴급 수정 PR",
+      "github_pull_request",
+      false,
+    );
+    const types = [...TYPES];
+    const { api } = await opened({
+      "GET /v1/achievement-types": () => json(200, { items: types }),
+      "POST /v1/achievement-types": () => {
+        types.push(created);
+        return json(201, { type: created, receipt_id: RECEIPT_ID });
+      },
+    });
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "버그 수정 PR" }));
+    const editor = (
+      await screen.findByRole("heading", {
+        level: 2,
+        name: "규칙 편집 — 버그 수정 PR",
+      })
+    ).closest("section") as HTMLElement;
+    const typeSelect = within(editor).getByRole("combobox", {
+      name: "성과 type",
+    }) as HTMLSelectElement;
+    await user.selectOptions(typeSelect, "새 type 만들기…");
+    const dialog = await screen.findByRole("dialog");
+    await user.type(
+      within(dialog).getByRole("textbox", { name: "이름" }),
+      "긴급 수정 PR",
+    );
+    await user.type(
+      within(dialog).getByRole("textbox", { name: "key" }),
+      "hotfix_pr",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog") === null).toBe(true),
+    );
+    await waitFor(() => expect(typeSelect.value).toBe(created.id));
+    expect(writes(api.calls).map((call) => [call.method, call.path])).toEqual([
+      ["POST", "/v1/achievement-types"],
+    ]);
+  });
+
   test("규칙 추가: 첫 버전을 만든다", async () => {
     const { api } = await opened({
       "POST /v1/achievement-rules": async (request) => {
