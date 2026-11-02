@@ -36,6 +36,23 @@ export const openPullRequestRequestSchema = z
   })
   .strict();
 
+// What the session's agent may change on a pull request it opened: the
+// platform's tail stays in the body either way.
+export const updatePullRequestRequestSchema = z
+  .object({
+    title: z
+      .string()
+      .trim()
+      .min(1)
+      .max(PULL_REQUEST_TITLE_REQUEST_MAX)
+      .optional(),
+    body: z.string().max(PULL_REQUEST_TEXT_REQUEST_MAX).optional(),
+  })
+  .strict()
+  .refine((value) => value.title !== undefined || value.body !== undefined, {
+    message: "Give a title, a body or both",
+  });
+
 export const PULL_REQUEST_COMMENT_MARKER_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
 export const DEFAULT_PULL_REQUEST_COMMENT_MARKER = "status";
 
@@ -62,6 +79,11 @@ export const pullRequestCommentSchema = z.object({
   created: z.boolean(),
 });
 
+export const updatePullRequestResponseSchema = z.object({
+  pull_request: pullRequestSchema,
+  receipt_id: receiptIdSchema,
+});
+
 export const commentPullRequestResponseSchema = z.object({
   pull_request: pullRequestSchema,
   comment: pullRequestCommentSchema,
@@ -86,7 +108,8 @@ export const PULL_REQUEST_REFUSAL_VALUES = [
 export const pullRequestRefusalSchema = z.enum(PULL_REQUEST_REFUSAL_VALUES);
 
 /**
- * `result` of an `open_pull_request` or `comment_pull_request` receipt.
+ * `result` of an `open_pull_request`, `update_pull_request` or
+ * `comment_pull_request` receipt.
  * Fields the attempt never learned are null.
  */
 export const pullRequestReceiptResultSchema = z.object({
@@ -109,6 +132,12 @@ export const pullRequestReceiptResultSchema = z.object({
 export type PullRequest = z.infer<typeof pullRequestSchema>;
 export type OpenPullRequestRequest = z.infer<
   typeof openPullRequestRequestSchema
+>;
+export type UpdatePullRequestRequest = z.infer<
+  typeof updatePullRequestRequestSchema
+>;
+export type UpdatePullRequestResponse = z.infer<
+  typeof updatePullRequestResponseSchema
 >;
 export type CommentPullRequestRequest = z.infer<
   typeof commentPullRequestRequestSchema

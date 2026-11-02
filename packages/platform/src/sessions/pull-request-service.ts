@@ -7,6 +7,8 @@ import {
   type OpenPullRequestResponse,
   type PullRequestReceiptResult,
   type PullRequestRefusal,
+  type UpdatePullRequestRequest,
+  type UpdatePullRequestResponse,
 } from "@werft-ai/contracts";
 import type { AuthorizationPolicy } from "../musterrolle/policy.ts";
 import { ForgeCredentialError } from "../ports/forge.ts";
@@ -225,6 +227,34 @@ export function createPullRequestService(deps: {
     return { forge: grant.api, base: entry.branch };
   }
 
+  // A later push request of the session to the same repository and branch
+  // updates that branch, so it acts on the pull request an earlier one
+  // opened.
+  async function pullRequestOf(ownerId: string, source: PullRequestSource) {
+    const pullRequest =
+      (await store.findPullRequest(ownerId, source.id)) ??
+      (source.state === "pushed"
+        ? await store.findBranchPullRequest(
+            ownerId,
+            source.sessionId,
+            source.repositoryId,
+            source.targetBranch,
+          )
+        : null);
+    const fields = {
+      repository_id: source.repositoryId,
+      ...(pullRequest === null
+        ? {}
+        : {
+            number: pullRequest.number,
+            url: pullRequest.url,
+            head: pullRequest.head,
+            base: pullRequest.base,
+          }),
+    };
+    return { pullRequest, fields };
+  }
+
   return {
     async open(
       actor: PushActor,
@@ -347,6 +377,76 @@ export function createPullRequestService(deps: {
       };
     },
 
+    /**
+     * The title and the person's part of the body of the pull request the
+     * push request's branch has open; the body keeps the platform's tail,
+     * naming this push request's commit.
+     */
+    async update(
+      actor: PushActor,
+      rawSessionId: string,
+      rawPushRequestId: string,
+      input: { readBody: () => Promise<UpdatePullRequestRequest> },
+    ): Promise<UpdatePullRequestResponse> {
+      const { sessionId, pushRequestId, receipt, refuse, submitter } =
+        await begin(
+          actor,
+          rawSessionId,
+          rawPushRequestId,
+          "update_pull_request",
+        );
+      const body = await input.readBody();
+      const source = await store.findSource(
+        actor.ownerId,
+        sessionId,
+        pushRequestId,
+      );
+      if (source === null) return await refuse("not_found");
+      const { pullRequest, fields } = await pullRequestOf(
+        actor.ownerId,
+        source,
+      );
+      if (pullRequest === null) return await refuse("no_pull_request", fields);
+      if (submitter && source.state !== "pushed") {
+        return await refuse("not_pushed", fields);
+      }
+      const { forge } = await forgeFor(actor, source, (refusal, extra) =>
+        refuse(refusal, { ...fields, ...extra }),
+      );
+      const tail = body.body === undefined ? null : await tailFor(source);
+      const text =
+        body.body === undefined
+          ? null
+          : cleanBody(body.body, forge.maxBodyLength - 2_000, redact);
+      try {
+        await forge.updatePullRequestBody(
+          pullRequest.number,
+          (current) =>
+            text === null || tail === null
+              ? current
+              : withPullRequestTail(text, tail),
+          body.title === undefined ? undefined : cleanTitle(body.title, redact),
+        );
+      } catch (error) {
+        if (error instanceof ForgeCredentialError) {
+          return await refuse("forge_failed", fields);
+        }
+        throw error;
+      }
+      const receiptId = await store.recordReceipt({
+        ...receipt,
+        pushRequestId: source.id,
+        result: {
+          ...EMPTY_RESULT,
+          ...fields,
+          push_request_id: source.id,
+          verdict: "allow",
+          created: false,
+        },
+      });
+      return { pull_request: pullRequest, receipt_id: receiptId };
+    },
+
     async comment(
       actor: PushActor,
       rawSessionId: string,
@@ -368,31 +468,9 @@ export function createPullRequestService(deps: {
         pushRequestId,
       );
       if (source === null) return await refuse("not_found", { marker });
-      // A later push request of the session to the same repository and
-      // branch updates that branch, so it comments on the pull request an
-      // earlier one opened.
-      const pullRequest =
-        (await store.findPullRequest(actor.ownerId, source.id)) ??
-        (source.state === "pushed"
-          ? await store.findBranchPullRequest(
-              actor.ownerId,
-              source.sessionId,
-              source.repositoryId,
-              source.targetBranch,
-            )
-          : null);
-      const fields = {
-        repository_id: source.repositoryId,
-        marker,
-        ...(pullRequest === null
-          ? {}
-          : {
-              number: pullRequest.number,
-              url: pullRequest.url,
-              head: pullRequest.head,
-              base: pullRequest.base,
-            }),
-      };
+      const found = await pullRequestOf(actor.ownerId, source);
+      const { pullRequest } = found;
+      const fields = { ...found.fields, marker };
       if (pullRequest === null) return await refuse("no_pull_request", fields);
       if (submitter && source.state !== "pushed") {
         return await refuse("not_pushed", fields);

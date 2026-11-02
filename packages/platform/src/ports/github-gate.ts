@@ -98,10 +98,14 @@ export interface GitHubApi {
     pullRequest: ForgePullRequestDetail;
     rateLimit: GitHubRateLimit;
   }>;
-  /** Reads the pull request's body and writes back what `edit` makes of it. */
+  /**
+   * Reads the pull request's body and writes back what `edit` makes of it,
+   * with `title` in the same write when one is given.
+   */
   updatePullRequestBody(
     number: number,
     edit: (body: string) => string,
+    title?: string,
   ): Promise<void>;
   upsertComment(
     number: number,

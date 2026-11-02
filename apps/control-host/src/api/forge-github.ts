@@ -377,17 +377,24 @@ export function createGitHubConnection(
           );
         }
       },
-      async updatePullRequestBody(number, edit) {
+      async updatePullRequestBody(number, edit, title) {
         await call("pull request update", async () => {
           const { data } = await client.request(
             "GET /repos/{owner}/{repo}/pulls/{pull_number}",
             { ...target, pull_number: number, headers },
           );
           const body = edit(data.body ?? "");
-          if (body === (data.body ?? "")) return;
+          const retitled = title !== undefined && title !== data.title;
+          if (body === (data.body ?? "") && !retitled) return;
           await client.request(
             "PATCH /repos/{owner}/{repo}/pulls/{pull_number}",
-            { ...target, pull_number: number, body, headers },
+            {
+              ...target,
+              pull_number: number,
+              body,
+              ...(retitled ? { title } : {}),
+              headers,
+            },
           );
         });
       },

@@ -673,6 +673,9 @@ export async function startFakeGitHub(
       if (method === "PATCH" && typeof input.body === "string") {
         pull.body = input.body;
       }
+      if (method === "PATCH" && typeof input.title === "string") {
+        pull.title = input.title;
+      }
       return Response.json(pullJson(pull));
     }
     const comments = /^\/issues\/(\d+)\/comments$/.exec(rest);

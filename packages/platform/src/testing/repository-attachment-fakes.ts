@@ -156,6 +156,9 @@ export function memoryAttachmentStore(
       });
       return id;
     },
+    async list() {
+      return [...rows.values()].map((row) => ({ ...row }));
+    },
     async pending() {
       return [...rows.values()].filter((row) => row.status === "pending");
     },

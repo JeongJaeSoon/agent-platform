@@ -1,11 +1,20 @@
-import type { ReceiptActor, RepositoryAttachment } from "@werft-ai/contracts";
+import type {
+  ListedRepository,
+  ListRepositoriesResponse,
+  ReceiptActor,
+  RepositoryAttachment,
+} from "@werft-ai/contracts";
 import type { GitHubGateStore } from "../ports/github-gate.ts";
 import type {
   RepositoryAttachmentRow,
   RepositoryAttachmentStore,
 } from "../ports/repository-attachments.ts";
-import { additionalRepositoryAllowed } from "./additional-repositories.ts";
+import {
+  additionalRepositoriesOf,
+  additionalRepositoryAllowed,
+} from "./additional-repositories.ts";
 import type { SessionCatalog } from "./catalog.ts";
+import { pathNameOf } from "./session-repository.ts";
 import { SessionServiceError } from "./session-service.ts";
 
 /**
@@ -89,6 +98,59 @@ export function createRepositoryAttachmentService(deps: {
   }
 
   return {
+    /**
+     * `list_repositories`: the session's own repository and, from the cap
+     * alone, every other one the release allows, each with where it stands.
+     * Ids, URL paths and branches only; no catalog entry leaves this.
+     */
+    async list(rawSessionId: string): Promise<ListRepositoriesResponse> {
+      const sessionId = rawSessionId.toLowerCase();
+      const context = await deps.context.context(sessionId);
+      if (context === null) {
+        throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      }
+      const nameOf = (id: string, url: string | undefined) =>
+        (url === undefined ? null : pathNameOf(url)) ?? id;
+      const repositories: ListedRepository[] = [];
+      if (context.repositoryId !== null) {
+        repositories.push({
+          id: context.repositoryId,
+          name: nameOf(context.repositoryId, context.repository?.url),
+          branch: context.repository?.branch ?? null,
+          status: "primary",
+        });
+      }
+      // The cap with the attached list left out, as attach judges it: the
+      // list would hide what is not attached yet.
+      const allowed = additionalRepositoriesOf(catalog, {
+        repositoryId: context.repositoryId,
+        profileId: context.profileId,
+        attached: null,
+        github: context.release?.github ?? null,
+        githubEnabled: context.agent?.githubEnabled ?? false,
+      });
+      const rows = new Map(
+        (allowed.length === 0 ? [] : await store.list(sessionId)).map((row) => [
+          row.repositoryId,
+          row,
+        ]),
+      );
+      const attached = context.attachedRepositoryIds;
+      for (const { id, repository } of allowed) {
+        repositories.push({
+          id,
+          name: nameOf(id, repository.url),
+          branch: repository.branch,
+          status:
+            rows.get(id)?.status ??
+            (attached === null || attached.includes(id)
+              ? "attached"
+              : "available"),
+        });
+      }
+      return { repositories };
+    },
+
     async attach(input: AttachRepositoryInput): Promise<RepositoryAttachment> {
       const deadline = now() + waitMs;
       const sessionId = input.sessionId.toLowerCase();

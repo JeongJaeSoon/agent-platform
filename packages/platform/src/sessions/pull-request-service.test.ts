@@ -105,6 +105,7 @@ function harness(
   const attribution =
     options.attribution === undefined ? LINKED : options.attribution;
   const bodies = new Map<number, string>();
+  const titles = new Map<number, string>();
   const warnings: string[] = [];
   const receipts: PullRequestReceipt[] = [];
   const saved: PullRequest[] = [];
@@ -219,13 +220,14 @@ function harness(
       return { ...open, created: true };
     },
     getPullRequest: unused,
-    updatePullRequestBody: async (number, edit) => {
+    updatePullRequestBody: async (number, edit, title) => {
       calls.push(`update ${number}`);
       fail();
       if (options.failUpdate) {
         throw new ForgeCredentialError("GitHub call failed (502)");
       }
       bodies.set(number, edit(bodies.get(number) ?? ""));
+      if (title !== undefined) titles.set(number, title);
     },
     upsertComment: async (number, marker, body) => {
       calls.push(`comment ${number}`);
@@ -277,6 +279,7 @@ function harness(
   return {
     service,
     bodies,
+    titles,
     warnings,
     receipts,
     sourceReads,
@@ -777,6 +780,62 @@ describe("commenting on the pull request", () => {
   });
 });
 
+describe("updating the pull request", () => {
+  test("needs the pull request first, and asks GitHub nothing", async () => {
+    const { service, calls, receipts } = harness();
+    expect(
+      (
+        await refusal(
+          service.update(actor, SESSION, PUSH, {
+            readBody: async () => ({ title: "New" }),
+          }),
+        )
+      ).code,
+    ).toBe("PULL_REQUEST_MISSING");
+    expect(calls).toEqual([]);
+    expect(receipts.at(-1)).toMatchObject({
+      operation: "update_pull_request",
+      result: { verdict: "refuse", refusal: "no_pull_request" },
+    });
+  });
+
+  test("replaces the title and the person's text, keeping the platform's tail", async () => {
+    const { service, bodies, titles, receipts } = harness();
+    await service.open(actor, SESSION, PUSH, {
+      readBody: async () => ({ title: "First", body: "Draft" }),
+    });
+    const opened = bodies.get(7) ?? "";
+    expect(opened.startsWith("Draft\n\n")).toBe(true);
+    const tail = opened.slice("Draft\n\n".length);
+    const updated = await service.update(actor, SESSION, PUSH, {
+      readBody: async () => ({
+        title: "Final, @team",
+        body: "What changed, with ghp_x",
+      }),
+    });
+    expect(updated.pull_request.number).toBe(7);
+    expect(titles.get(7)).toBe(`Final, @${ZWSP}team`);
+    expect(bodies.get(7)).toBe(`[REDACTED]\n\n${tail}`);
+    expect(receipts.at(-1)).toMatchObject({
+      operation: "update_pull_request",
+      result: { verdict: "allow", number: 7, created: false },
+    });
+  });
+
+  test("a title alone leaves the body as GitHub has it", async () => {
+    const { service, bodies, titles } = harness();
+    await service.open(actor, SESSION, PUSH, {
+      readBody: async () => ({ body: "Kept" }),
+    });
+    const before = bodies.get(7);
+    await service.update(actor, SESSION, PUSH, {
+      readBody: async () => ({ title: "Renamed" }),
+    });
+    expect(bodies.get(7)).toBe(before);
+    expect(titles.get(7)).toBe("Renamed");
+  });
+});
+
 describe("a caller that may submit to the session", () => {
   const AGENT = "019a0000-0000-7000-8000-0000000000c1";
   const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
@@ -838,6 +897,28 @@ describe("a caller that may submit to the session", () => {
       principal: { kind: "api_key", id: "agent-key-1" },
       agent_id: AGENT,
     });
+  });
+
+  test("an agent key updates the pull request of a pushed request only", async () => {
+    const pushed = harness({ authorization: policy });
+    pushed.saved.push(pulled);
+    await pushed.service.update(submitter, SESSION, PUSH, {
+      readBody: async () => ({ title: "Ready" }),
+    });
+    expect(pushed.titles.get(7)).toBe("Ready");
+
+    const pushing = harness({ authorization: policy, state: "pushing" });
+    pushing.saved.push(pulled);
+    expect(
+      (
+        await refusal(
+          pushing.service.update(submitter, SESSION, PUSH, {
+            readBody: async () => ({ title: "Not yet" }),
+          }),
+        )
+      ).code,
+    ).toBe("PUSH_NOT_PUSHED");
+    expect(pushing.calls).toEqual([]);
   });
 
   test("a submitter cannot open or comment for a request that is not pushed, where an approver may comment", async () => {
