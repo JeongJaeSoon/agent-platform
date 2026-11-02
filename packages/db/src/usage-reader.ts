@@ -1,5 +1,11 @@
 import type { TurnStatus } from "@werft-ai/contracts";
-import type { UsageReader, UsageTotalsFilter } from "@werft-ai/platform";
+import type {
+  UsageAchievementCountsRecord,
+  UsageAchievementsFilter,
+  UsageAchievementsRecord,
+  UsageReader,
+  UsageTotalsFilter,
+} from "@werft-ai/platform";
 import {
   type AnyColumn,
   and,
@@ -11,14 +17,20 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import { rowsOf } from "./control-unit-of-work.ts";
 import { INSTALLATION_STORAGE_SCOPE } from "./input-limits.ts";
 import type { Database } from "./queries.ts";
 import {
+  achievementCategories,
+  achievementJudgments,
+  achievementRules,
+  achievementTypes,
   agentReleases,
   agents,
   checkpointOutputObjects,
   checkpointOutputTotals,
   checkpoints,
+  sessionAchievements,
   sessionEventArchives,
   sessionModelUsage,
   sessionOutcomes,
@@ -29,6 +41,7 @@ import {
   users,
   workerLaunches,
 } from "./schema.ts";
+import { sessionVisibleTo } from "./session-shares.ts";
 import { toolCallDays, toolCallPage } from "./tool-call-pages.ts";
 import { toolCallTotals, toolDescriptionsOf } from "./tool-calls.ts";
 
@@ -327,6 +340,295 @@ type OutcomeRow = {
   cost_per_merged_pr_usd: string | null;
 };
 
+type AchievementTotalsRow = {
+  read_at: Date | string;
+  until: Date | string;
+  key: string | null;
+  name: string | null;
+  total: boolean;
+  session_count: number;
+  cost_usd: string;
+  incomplete: number;
+  sessions_with: number;
+  counted: number;
+  waiting: number;
+  rejected: number;
+  judgments: number;
+  calls: number;
+  judge_cost_usd: string;
+  cost_per_achievement_usd: string | null;
+};
+
+type AchievementRuleRow = {
+  id: string;
+  family_id: string;
+  version: number;
+  title: string;
+  category_id: string;
+  category_name: string;
+  type_id: string;
+  type_key: string;
+  type_name: string;
+  counted: number;
+  waiting: number;
+};
+
+type RecentAchievementRow = {
+  id: string;
+  created_at: Date | string;
+  session_id: string | null;
+  session_title: string | null;
+  rule_id: string;
+  rule_title: string;
+  title: string;
+  link: string;
+  evidence_kind: UsageAchievementsRecord["recent"][number]["evidenceKind"];
+  judge: UsageAchievementsRecord["recent"][number]["judge"];
+  review_state: UsageAchievementsRecord["recent"][number]["reviewState"];
+};
+
+const COUNTED = sql`a.review_state IN ('auto', 'confirmed')`;
+
+/**
+ * The three statements read one snapshot, so the totals, the groups and the
+ * recent rows agree. Sessions are counted before the achievements join them,
+ * so a session's cost adds once however many it has.
+ */
+async function usageAchievements(
+  db: Database,
+  filter: UsageTotalsFilter,
+  options: UsageAchievementsFilter,
+): Promise<UsageAchievementsRecord> {
+  const { since, until } = periodBounds(options.period);
+  const picked = sql`
+    s AS (
+      SELECT ${sessions.id} AS id, ${agentReleases.agentId} AS agent_id,
+             ${sessions.costUsd} AS cost_usd
+      FROM ${sessions}
+      LEFT JOIN ${agentReleases} ON ${agentReleases.id} = ${sessions.agentReleaseId}
+      WHERE ${sessions.createdAt} >= ${since} AND ${sessions.createdAt} < ${until}
+        AND ${startedBy(filter) ?? sql`TRUE`}
+        AND ${options.agentId === undefined ? sql`TRUE` : sql`${agentReleases.agentId} = ${options.agentId}::uuid`}
+    ),
+    a AS (
+      SELECT sa.*, r.category_id
+      FROM ${sessionAchievements} sa
+      JOIN ${achievementRules} r ON r.id = sa.rule_id
+      WHERE sa.session_id IN (SELECT id FROM s) AND sa.superseded_at IS NULL
+        AND ${options.typeId === undefined ? sql`TRUE` : sql`sa.type_id = ${options.typeId}::uuid`}
+        AND ${options.categoryId === undefined ? sql`TRUE` : sql`r.category_id = ${options.categoryId}::uuid`}
+    )`;
+  return db.transaction(
+    async (tx) => {
+      const run = async <Row>(query: SQL) =>
+        rowsOf<Row>(await tx.execute(query));
+      const totals = await run<AchievementTotalsRow>(sql`
+        WITH ${picked},
+        per AS (
+          SELECT a.session_id,
+                 count(*) FILTER (WHERE ${COUNTED}) AS counted,
+                 count(*) FILTER (WHERE a.review_state = 'needs_review') AS waiting,
+                 count(*) FILTER (WHERE a.review_state = 'rejected') AS rejected
+          FROM a
+          GROUP BY a.session_id
+        ),
+        t AS (
+          SELECT ${turns.sessionId} AS session_id, count(*) AS incomplete
+          FROM ${turns}
+          WHERE ${turns.sessionId} IN (SELECT id FROM s) AND ${incomplete}
+          GROUP BY ${turns.sessionId}
+        ),
+        j AS (
+          SELECT ${achievementJudgments.sessionId} AS session_id,
+                 count(*) FILTER (WHERE ${achievementJudgments.calls} > 0) AS judgments,
+                 sum(${achievementJudgments.calls}) AS calls,
+                 sum(${achievementJudgments.costUsd}) AS cost_usd
+          FROM ${achievementJudgments}
+          WHERE ${achievementJudgments.sessionId} IN (SELECT id FROM s)
+          GROUP BY ${achievementJudgments.sessionId}
+        ),
+        g AS (
+          SELECT s.agent_id, grouping(s.agent_id) = 1 AS total,
+                 count(s.id)::int AS session_count,
+                 coalesce(sum(s.cost_usd), 0) AS cost_usd,
+                 coalesce(sum(t.incomplete), 0)::int AS incomplete,
+                 (count(*) FILTER (WHERE per.counted > 0))::int AS sessions_with,
+                 coalesce(sum(per.counted), 0)::int AS counted,
+                 coalesce(sum(per.waiting), 0)::int AS waiting,
+                 coalesce(sum(per.rejected), 0)::int AS rejected,
+                 coalesce(sum(j.judgments), 0)::int AS judgments,
+                 coalesce(sum(j.calls), 0)::int AS calls,
+                 coalesce(sum(j.cost_usd), 0) AS judge_cost_usd
+          FROM s
+          LEFT JOIN per ON per.session_id = s.id
+          LEFT JOIN t ON t.session_id = s.id
+          LEFT JOIN j ON j.session_id = s.id
+          GROUP BY GROUPING SETS ((s.agent_id), ())
+        )
+        SELECT now() AS read_at, ${until} AS until, g.agent_id::text AS key,
+               ${agents.name} AS name, g.total, g.session_count,
+               g.cost_usd::text AS cost_usd, g.incomplete, g.sessions_with,
+               g.counted, g.waiting, g.rejected, g.judgments, g.calls,
+               g.judge_cost_usd::text AS judge_cost_usd,
+               CASE WHEN g.counted > 0
+                 THEN round(g.cost_usd / g.counted, 6)::text END AS cost_per_achievement_usd
+        FROM g
+        LEFT JOIN ${agents} ON ${agents.id} = g.agent_id
+        ORDER BY g.total DESC, g.counted DESC, g.cost_usd DESC, key NULLS LAST`);
+      const rules = await run<AchievementRuleRow>(sql`
+        WITH ${picked}
+        SELECT r.id, r.family_id, r.version, r.title, r.category_id,
+               c.name AS category_name, r.type_id, ty.key AS type_key,
+               ty.name AS type_name,
+               (count(*) FILTER (WHERE ${COUNTED}))::int AS counted,
+               (count(*) FILTER (WHERE a.review_state = 'needs_review'))::int AS waiting
+        FROM a
+        JOIN ${achievementRules} r ON r.id = a.rule_id
+        JOIN ${achievementCategories} c ON c.id = r.category_id
+        JOIN ${achievementTypes} ty ON ty.id = r.type_id
+        GROUP BY r.id, c.id, ty.id
+        HAVING count(*) FILTER (WHERE a.review_state <> 'rejected') > 0
+        ORDER BY c.position, c.name, c.id, counted DESC, r.title, r.version DESC`);
+      // A family is one row under its latest version, whose category, title
+      // and type it shows, with what every version counted.
+      const families = await run<AchievementRuleRow>(sql`
+        WITH ${picked},
+        f AS (
+          SELECT r.family_id,
+                 (count(*) FILTER (WHERE ${COUNTED}))::int AS counted,
+                 (count(*) FILTER (WHERE a.review_state = 'needs_review'))::int AS waiting
+          FROM a
+          JOIN ${achievementRules} r ON r.id = a.rule_id
+          GROUP BY r.family_id
+          HAVING count(*) FILTER (WHERE a.review_state <> 'rejected') > 0
+        )
+        SELECT l.id, f.family_id, l.version, l.title, l.category_id,
+               c.name AS category_name, l.type_id, ty.key AS type_key,
+               ty.name AS type_name, f.counted, f.waiting
+        FROM f
+        CROSS JOIN LATERAL (
+          SELECT * FROM ${achievementRules} r
+          WHERE r.family_id = f.family_id
+          ORDER BY r.version DESC LIMIT 1
+        ) l
+        JOIN ${achievementCategories} c ON c.id = l.category_id
+        JOIN ${achievementTypes} ty ON ty.id = l.type_id
+        ORDER BY c.position, c.name, c.id, f.counted DESC, l.title`);
+      const recent = await run<RecentAchievementRow>(sql`
+        WITH ${picked}
+        SELECT a.id, a.created_at,
+               CASE WHEN EXISTS (
+                 SELECT 1 FROM ${sessions}
+                 WHERE ${sessions.id} = a.session_id AND ${sessions.ownerId} = ${options.ownerId}
+                   AND ${sessionVisibleTo(options.viewer)}
+               ) THEN a.session_id END AS session_id,
+               ss.title AS session_title, a.rule_id, r.title AS rule_title,
+               a.title, a.link, a.evidence_kind, a.judge, a.review_state
+        FROM a
+        JOIN ${achievementRules} r ON r.id = a.rule_id
+        JOIN ${sessions} ss ON ss.id = a.session_id
+        ORDER BY a.created_at DESC, a.id DESC
+        LIMIT ${options.recentLimit}`);
+      const total = totals.find((row) => row.total);
+      if (!total) throw new Error("usage achievements read returned no total");
+      return {
+        readAt: new Date(total.read_at),
+        until: new Date(total.until),
+        sessionCount: total.session_count,
+        sessionsWithAchievementCount: total.sessions_with,
+        costUsd: total.cost_usd,
+        incompleteTurnCount: total.incomplete,
+        achievementCount: total.counted,
+        needsReviewCount: total.waiting,
+        rejectedCount: total.rejected,
+        judgmentCount: total.judgments,
+        judgeCalls: total.calls,
+        judgeCostUsd: total.judge_cost_usd,
+        costPerAchievementUsd: total.cost_per_achievement_usd,
+        byCategory: groupRules(rules, (row) => row.category_id).map(
+          ([row, counts]) => ({
+            id: row.category_id,
+            name: row.category_name,
+            ...counts,
+          }),
+        ),
+        byType: groupRules(rules, (row) => row.type_id)
+          .map(([row, counts]) => ({
+            id: row.type_id,
+            key: row.type_key,
+            name: row.type_name,
+            ...counts,
+          }))
+          .sort(
+            (a, b) =>
+              b.achievementCount - a.achievementCount ||
+              a.key.localeCompare(b.key),
+          ),
+        byRule: families.map((row) => ({
+          id: row.id,
+          familyId: row.family_id,
+          version: row.version,
+          title: row.title,
+          categoryId: row.category_id,
+          categoryName: row.category_name,
+          typeId: row.type_id,
+          typeKey: row.type_key,
+          achievementCount: row.counted,
+          needsReviewCount: row.waiting,
+        })),
+        byAgent: totals
+          .filter((row) => !row.total)
+          .map((row) => ({
+            id: row.key,
+            name: row.name,
+            sessionCount: row.session_count,
+            costUsd: row.cost_usd,
+            achievementCount: row.counted,
+            costPerAchievementUsd: row.cost_per_achievement_usd,
+          })),
+        recent: recent.map((row) => ({
+          id: row.id,
+          createdAt: new Date(row.created_at),
+          sessionId: row.session_id,
+          sessionTitle: row.session_id === null ? null : row.session_title,
+          ruleId: row.rule_id,
+          ruleTitle: row.rule_title,
+          title: row.session_id === null ? null : row.title,
+          link: row.session_id === null ? null : row.link,
+          evidenceKind: row.evidence_kind,
+          judge: row.judge,
+          reviewState: row.review_state,
+        })),
+      };
+    },
+    { isolationLevel: "repeatable read", accessMode: "read only" },
+  );
+}
+
+// Rule rows summed under their category or type, in the rules' order.
+function groupRules(
+  rules: readonly AchievementRuleRow[],
+  by: (row: AchievementRuleRow) => string,
+): [AchievementRuleRow, UsageAchievementCountsRecord][] {
+  const groups = new Map<
+    string,
+    [AchievementRuleRow, UsageAchievementCountsRecord]
+  >();
+  for (const row of rules) {
+    const group = groups.get(by(row));
+    if (group) {
+      group[1].achievementCount += row.counted;
+      group[1].needsReviewCount += row.waiting;
+    } else {
+      groups.set(by(row), [
+        row,
+        { achievementCount: row.counted, needsReviewCount: row.waiting },
+      ]);
+    }
+  }
+  return [...groups.values()];
+}
+
 function figuresOf(row: BreakdownRow) {
   return {
     sessionCount: row.session_count,
@@ -565,6 +867,9 @@ export function createPostgresUsageReader(db: Database): UsageReader {
           .map((row) => ({ id: row.key, name: row.name, ...figures(row) })),
       };
     },
+
+    usageAchievements: (filter, options) =>
+      usageAchievements(db, filter, options),
 
     async usageSummaryGroups(filter, period, by) {
       const { since, until } = periodBounds(period);

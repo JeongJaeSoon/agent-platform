@@ -131,6 +131,86 @@ export type UsageOutcomesRecord = UsageOutcomeFiguresRecord & {
   })[];
 };
 
+export type UsageAchievementsFilter = {
+  period: { since: Date; until?: Date };
+  /** Only sessions pinned to a release of this agent. */
+  agentId?: string;
+  /** Narrow the achievements, not the sessions. */
+  typeId?: string;
+  categoryId?: string;
+  recentLimit: number;
+  /** A recent achievement shows its session only in this owner, to this viewer. */
+  ownerId: string;
+  viewer: SessionViewer;
+};
+
+/** `achievementCount` is `auto` plus `confirmed`. */
+export type UsageAchievementCountsRecord = {
+  achievementCount: number;
+  needsReviewCount: number;
+};
+
+/** The figures of GET /v1/usage/achievements from one snapshot. */
+export type UsageAchievementsRecord = UsageAchievementCountsRecord & {
+  readAt: Date;
+  until: Date;
+  sessionCount: number;
+  sessionsWithAchievementCount: number;
+  costUsd: string;
+  incompleteTurnCount: number;
+  rejectedCount: number;
+  judgmentCount: number;
+  judgeCalls: number;
+  judgeCostUsd: string;
+  /** Every session's cost over `achievementCount`, to six places; null with none. */
+  costPerAchievementUsd: string | null;
+  byCategory: (UsageAchievementCountsRecord & { id: string; name: string })[];
+  byType: (UsageAchievementCountsRecord & {
+    id: string;
+    key: string;
+    name: string;
+  })[];
+  byRule: (UsageAchievementCountsRecord & {
+    id: string;
+    familyId: string;
+    version: number;
+    title: string;
+    categoryId: string;
+    categoryName: string;
+    typeId: string;
+    typeKey: string;
+  })[];
+  byAgent: {
+    id: string | null;
+    name: string | null;
+    sessionCount: number;
+    costUsd: string;
+    achievementCount: number;
+    costPerAchievementUsd: string | null;
+  }[];
+  recent: {
+    id: string;
+    createdAt: Date;
+    /**
+     * null, with the session's title and the achievement's title and link,
+     * for a session the viewer may not read: those can name the session.
+     */
+    sessionId: string | null;
+    sessionTitle: string | null;
+    ruleId: string;
+    ruleTitle: string;
+    title: string | null;
+    link: string | null;
+    evidenceKind:
+      | "github_pull_request"
+      | "github_review"
+      | "out_file"
+      | "conversation";
+    judge: "always" | "luna";
+    reviewState: "auto" | "needs_review" | "confirmed" | "rejected";
+  }[];
+};
+
 export type UsageBreakdownFiguresRecord = {
   sessionCount: number;
   inputTokens: number;
@@ -215,6 +295,10 @@ export interface UsageReader {
     filter: UsageTotalsFilter,
     period: { since: Date; until?: Date },
   ): Promise<UsageOutcomesRecord>;
+  usageAchievements(
+    filter: UsageTotalsFilter,
+    achievements: UsageAchievementsFilter,
+  ): Promise<UsageAchievementsRecord>;
   /** Largest cost first. */
   usageSummaryGroups(
     filter: UsageSummaryFilter,

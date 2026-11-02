@@ -443,6 +443,7 @@ describe("OpenAPI document", () => {
         "/v1/workspaces/{id}/achievement-judge",
         "/v1/usage/summary",
         "/v1/usage/outcomes",
+        "/v1/usage/achievements",
         "/v1/usage/series",
         "/v1/usage/breakdown",
         "/v1/usage/tools",

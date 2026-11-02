@@ -4,6 +4,8 @@ import {
   limitsResponseSchema,
   sessionIdParamsSchema,
   sessionUsageResponseSchema,
+  usageAchievementsQuerySchema,
+  usageAchievementsResponseSchema,
   usageBreakdownQuerySchema,
   usageBreakdownResponseSchema,
   usageOutcomesQuerySchema,
@@ -48,6 +50,18 @@ export function registerUsageRoutes(router: ApiRouter, service: UsageService) {
       service.getUsageOutcomes(context.get("caller"), query),
     );
     return jsonWithSchema(context, usageOutcomesResponseSchema, outcomes);
+  });
+
+  apiRoute(router, "getUsageAchievements", async (context) => {
+    const query = requireQuery(context, usageAchievementsQuerySchema);
+    const achievements = await mapped(() =>
+      service.getUsageAchievements(context.get("caller"), query),
+    );
+    return jsonWithSchema(
+      context,
+      usageAchievementsResponseSchema,
+      achievements,
+    );
   });
 
   apiRoute(router, "getUsageSeries", async (context) => {
