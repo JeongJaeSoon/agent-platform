@@ -104,7 +104,7 @@ function VariableGrantDialogScreen({ state }: { readonly state: GrantState }) {
 }
 
 const meta = {
-  title: "Screens/Variable grant dialog (v3)",
+  title: "Proposals/Variable grant dialog (v3)",
   component: VariableGrantDialogScreen,
   parameters: { layout: "fullscreen" },
   args: { state: "selected" },

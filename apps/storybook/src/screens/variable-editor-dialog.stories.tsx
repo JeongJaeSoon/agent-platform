@@ -131,7 +131,7 @@ function VariableEditorDialogScreen({
 }
 
 const meta = {
-  title: "Screens/Variable editor dialog (v3)",
+  title: "Proposals/Variable editor dialog (v3)",
   component: VariableEditorDialogScreen,
   parameters: { layout: "fullscreen" },
   args: { state: "new" },
