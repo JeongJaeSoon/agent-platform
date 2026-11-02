@@ -57,7 +57,6 @@ import {
 } from "./workspace-settings.tsx";
 import { SlackApps, useWorkspaceSlackApps } from "./workspace-slack-apps.tsx";
 
-// Row buttons share one width down the right edge.
 const SLACK_APPS_URL = "https://api.slack.com/apps";
 
 const tokenKey = (client: ApiClient, workspaceId: string) =>
