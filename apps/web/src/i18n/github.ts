@@ -51,11 +51,13 @@ export const githubKo = {
     "GitHub가 이 App의 키를 받지 않습니다. 키가 지워졌다면 ⋯ 메뉴에서 새 키를 등록하고, App이 삭제됐다면 새 App을 추가해 저장소 고정을 옮기세요. 고정이 없는 저장소의 요청도 실패합니다.",
   "github.apps.removeTitle": "App 연결을 해제할까요?",
   "github.apps.removeUsage":
-    "이 App에 고정된 저장소 {pinned}개, 활성 릴리스에서 쓰는 에이전트 {agents}개, 끝나지 않은 세션 {sessions}개가 있습니다.",
+    "이 App에 고정된 저장소 {pinned}개, 활성 릴리스에서 쓰는 에이전트 적어도 {agents}개, 끝나지 않은 세션 {sessions}개가 있습니다.",
   "github.apps.removeUserLink":
-    "구성원 GitHub 계정 연결도 이 App을 씁니다. 해제하면 다른 작성용 App을 고르기 전까지 구성원이 계정을 연결할 수 없습니다.",
+    "구성원이 새로 GitHub 계정을 연결할 수 없게 됩니다(이미 연결한 계정은 그대로입니다).",
   "github.apps.removeHint":
-    "고정된 저장소의 요청은 다른 App으로 고정을 옮길 때까지 거절됩니다. GitHub의 App과 설치는 그대로 남습니다.",
+    "고정된 저장소의 요청은 다른 App으로 고정을 옮길 때까지 거절됩니다. 같은 App을 다시 더하면 이 고정이 되살아납니다. GitHub의 App과 설치는 그대로 남습니다.",
+  "github.apps.removeHeld":
+    "구성원 GitHub 계정 연결이 이 App을 씁니다. 구성원 계정 연결을 다른 작성용 App으로 바꾼 뒤 해제할 수 있습니다.",
   "github.apps.removed": "{name} 연결을 해제했습니다.",
   "github.add.title": "App 추가",
   "github.add.hint":
@@ -309,11 +311,13 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
     "GitHub does not accept this App's key. If the key was deleted, register a new one from the ⋯ menu; if the App was deleted, add a new App and move the repository pins to it. Requests for repositories without a pin fail too.",
   "github.apps.removeTitle": "Disconnect this App?",
   "github.apps.removeUsage":
-    "{pinned} repositories are pinned to it, {agents} agents use it in their active release and {sessions} sessions on it have not ended.",
+    "{pinned} repositories are pinned to it, at least {agents} agents use it in their active release and {sessions} sessions on it have not ended.",
   "github.apps.removeUserLink":
-    "Member GitHub account linking uses this App too. Members cannot link accounts until another author App is chosen.",
+    "Members can no longer link new GitHub accounts (accounts already linked stay).",
   "github.apps.removeHint":
-    "Requests for pinned repositories are refused until their pins move to another App. The App and its installations stay on GitHub.",
+    "Requests for pinned repositories are refused until their pins move to another App. Adding the same App again brings these pins back. The App and its installations stay on GitHub.",
+  "github.apps.removeHeld":
+    "Member GitHub account linking uses this App. Switch it to another author App, then disconnect this one.",
   "github.apps.removed": "Disconnected {name}.",
   "github.add.title": "Add App",
   "github.add.hint":
@@ -571,11 +575,13 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
     "GitHub がこの App の鍵を受け付けません。鍵が削除された場合は ⋯ メニューから新しい鍵を登録し、App が削除された場合は新しい App を追加してリポジトリの固定を移してください。固定のないリポジトリのリクエストも失敗します。",
   "github.apps.removeTitle": "App の接続を解除しますか?",
   "github.apps.removeUsage":
-    "この App に固定されたリポジトリ {pinned} 件、有効なリリースで使うエージェント {agents} 件、終わっていないセッション {sessions} 件があります。",
+    "この App に固定されたリポジトリ {pinned} 件、有効なリリースで使うエージェント 少なくとも {agents} 件、終わっていないセッション {sessions} 件があります。",
   "github.apps.removeUserLink":
-    "メンバーの GitHub アカウント連携もこの App を使っています。別の作成用 App を選ぶまで、メンバーはアカウントを連携できません。",
+    "メンバーは新しく GitHub アカウントを連携できなくなります (連携済みのアカウントはそのままです)。",
   "github.apps.removeHint":
-    "固定されたリポジトリのリクエストは、固定を別の App に移すまで拒否されます。GitHub の App とインストールはそのまま残ります。",
+    "固定されたリポジトリのリクエストは、固定を別の App に移すまで拒否されます。同じ App をもう一度追加すると、この固定が戻ります。GitHub の App とインストールはそのまま残ります。",
+  "github.apps.removeHeld":
+    "メンバーの GitHub アカウント連携がこの App を使っています。アカウント連携を別の作成用 App に切り替えてから解除できます。",
   "github.apps.removed": "{name} の接続を解除しました。",
   "github.add.title": "App を追加",
   "github.add.hint":

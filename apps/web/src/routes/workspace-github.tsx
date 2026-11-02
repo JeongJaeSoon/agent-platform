@@ -70,6 +70,7 @@ import {
 } from "./workspace-github-app-dialogs.tsx";
 import { githubNavigation } from "./workspace-github-new-app.tsx";
 import {
+  defaultInstallation,
   outsideInstallations,
   RepositorySheet,
   repositoriesKey,
@@ -301,7 +302,10 @@ function GitHubCard({
           />
           <Installations connections={connections} />
           {canManage ? (
-            <RepositoriesLine onOpen={() => setSheet(true)} />
+            <RepositoriesLine
+              connections={connections}
+              onOpen={() => setSheet(true)}
+            />
           ) : null}
         </>
       )}
@@ -492,6 +496,7 @@ function AppList({
       />
       <RemoveApp
         connection={removing}
+        connections={settings.connections}
         onClose={() => setRemoving(null)}
         onOutcome={onOutcome}
         onRemoved={async () => {
@@ -767,13 +772,25 @@ function ExternalButton({
 }
 
 /** Disconnecting an App, with what goes with it read first. */
+const otherAuthors = (
+  connections: readonly GitHubSettingsConnection[],
+  connection: GitHubSettingsConnection | null,
+) =>
+  connections.filter(
+    (held) =>
+      held.role === "author" &&
+      held.connection_id !== connection?.connection_id,
+  );
+
 function RemoveApp({
   connection,
+  connections,
   onClose,
   onOutcome,
   onRemoved,
 }: {
   readonly connection: GitHubSettingsConnection | null;
+  readonly connections: readonly GitHubSettingsConnection[];
   readonly onClose: () => void;
   readonly onOutcome: OnOutcome;
   readonly onRemoved: () => Promise<void>;
@@ -817,8 +834,15 @@ function RemoveApp({
     },
   });
   const read = usage.data?.usage;
+  // People link accounts with it while another author App exists: the
+  // server refuses until linking moves to that one.
+  const held =
+    read?.user_link === true &&
+    otherAuthors(connections, connection).length > 0;
   const consequence: ReactNode = usage.isPending ? (
     <Skeleton width="80%" />
+  ) : held ? (
+    t("github.apps.removeHeld")
   ) : read ? (
     <>
       {t("github.apps.removeUsage", {
@@ -845,6 +869,7 @@ function RemoveApp({
       cancelLabel={t("common.cancel")}
       tone="danger"
       busy={remove.isPending}
+      confirmDisabled={held || usage.isPending}
       onConfirm={() => {
         if (!remove.isPending) remove.mutate();
       }}
@@ -1054,9 +1079,15 @@ function InstallationBadge({
 }
 
 /** Its own line, apart from the table: open even once every installation is gone. */
-function RepositoriesLine({ onOpen }: { readonly onOpen: () => void }) {
+function RepositoriesLine({
+  connections,
+  onOpen,
+}: {
+  readonly connections: readonly GitHubSettingsConnection[];
+  readonly onOpen: () => void;
+}) {
   const { t } = useI18n();
-  const list = useRepositoryPage(undefined, 1);
+  const list = useRepositoryPage(defaultInstallation(connections), 1);
   const catalog = list.data?.catalog ?? [];
   const outside = outsideInstallations(catalog).length;
   return (

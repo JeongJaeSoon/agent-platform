@@ -100,6 +100,29 @@ export function useRepositoryPage(
   });
 }
 
+/**
+ * The installation a page is read from before one is chosen: the server's
+ * own default (the first author App installation not suspended, by account),
+ * named, since with several Apps of a role it refuses to pick one.
+ */
+export function defaultInstallation(
+  connections: readonly GitHubSettingsConnection[],
+): number | undefined {
+  const role = connections.some((held) => held.role === "author")
+    ? "author"
+    : "reviewer";
+  return connections
+    .filter((held) => held.role === role)
+    .flatMap((held) => held.installations)
+    .filter((installation) => installation.status !== "suspended")
+    .sort((a, b) => a.account.localeCompare(b.account) || a.id - b.id)[0]?.id;
+}
+
+const installationRequired = (error: unknown) =>
+  isApiError(error, "BAD_REQUEST") &&
+  (error.details as { reason_code?: unknown } | null)?.reason_code ===
+    "installation_required";
+
 /** Catalog rows agents picked that no installation reaches now. */
 export const outsideInstallations = (catalog: readonly CatalogRow[]) =>
   catalog.filter((row) => row.installed === false);
@@ -129,7 +152,11 @@ export function RepositorySheet({
   } | null>(null);
   const selectId = useId();
   const outsideId = useId();
-  const list = useRepositoryPage(installation, page, open);
+  const list = useRepositoryPage(
+    installation ?? defaultInstallation(connections),
+    page,
+    open,
+  );
   // The picked installation is gone or suspended: back to the first one.
   const gone =
     installation !== undefined &&
@@ -199,6 +226,9 @@ export function RepositorySheet({
         </DialogHeader>
         {list.isPending ? (
           <Skeleton width="60%" />
+        ) : installationRequired(list.error) ? (
+          // Several Apps of a role and none installed: no page to name.
+          <Text variant="sub">{t("github.repo.pickNoInstallation")}</Text>
         ) : list.isError && !gone ? (
           <LoadFailure error={list.error} onRetry={() => void list.refetch()} />
         ) : data ? (

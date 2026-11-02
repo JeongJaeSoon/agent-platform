@@ -395,6 +395,89 @@ describe("GitHub 연결 › App 목록과 GitHub 링크", () => {
   });
 });
 
+describe("GitHub 연결 › App 연결 해제", () => {
+  const OTHER = "1a2b3c4d-0000-4000-8000-00000000000c";
+  const usage = (userLink: boolean) => () =>
+    json(200, {
+      github_app: null,
+      check: null,
+      installations: [],
+      repositories: [],
+      manifest_blocked: null,
+      usage: {
+        pinned_repository_count: 3,
+        agent_count: 2,
+        active_session_count: 1,
+        user_link: userLink,
+      },
+    });
+
+  test("구성원 계정 연결에 쓰는 App은 다른 작성용 App이 있으면 해제하지 않게 한다", async () => {
+    const { api } = renderAt(
+      PATH,
+      routes(
+        settingsWith([
+          githubConnection(),
+          githubConnection({ connection_id: OTHER, name: "werft-agent-2" }),
+        ]),
+        { [`GET ${APPS}/${AUTHOR_CONNECTION}`]: usage(true) },
+      ),
+    );
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "werft-agent 메뉴" }),
+    );
+    await user.click(
+      await screen.findByRole("menuitem", { name: "연결 해제" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "App 연결을 해제할까요?",
+    });
+    expect(
+      await within(dialog).findByText(/다른 작성용 App으로 바꾼 뒤 해제할 수/),
+    ).toBeDefined();
+    const confirm = within(dialog).getByRole("button", { name: "연결 해제" });
+    expect(
+      (confirm as HTMLButtonElement).disabled ||
+        confirm.getAttribute("aria-disabled") === "true",
+    ).toBe(true);
+    await user.click(confirm);
+    expect(api.calls.some((call) => call.method === "DELETE")).toBe(false);
+  });
+
+  test("마지막 작성용 App은 영향을 보이고 해제한다", async () => {
+    const { api } = renderAt(
+      PATH,
+      routes(settingsWith([githubConnection()]), {
+        [`GET ${APPS}/${AUTHOR_CONNECTION}`]: usage(true),
+        [`DELETE ${APPS}/${AUTHOR_CONNECTION}`]: () =>
+          json(200, { receipt_id: "5f0c2c1e-8a4b-4c1d-9e2f-3a4b5c6d7e8f" }),
+      }),
+    );
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "werft-agent 메뉴" }),
+    );
+    await user.click(
+      await screen.findByRole("menuitem", { name: "연결 해제" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "App 연결을 해제할까요?",
+    });
+    expect(
+      await within(dialog).findByText(
+        /고정된 저장소 3개, 활성 릴리스에서 쓰는 에이전트 적어도 2개, 끝나지 않은 세션 1개.*새로 GitHub 계정을 연결할 수 없게.*다시 더하면 이 고정이 되살아납니다/,
+      ),
+    ).toBeDefined();
+    await user.click(within(dialog).getByRole("button", { name: "연결 해제" }));
+    await waitFor(() =>
+      expect(
+        api.calls.filter((call) => call.method === "DELETE").map((c) => c.path),
+      ).toEqual([`${APPS}/${AUTHOR_CONNECTION}`]),
+    );
+  });
+});
+
 describe("GitHub 연결 › 저장소 관리", () => {
   test("설치가 모두 사라져도 저장소 관리로 들어갈 수 있다", async () => {
     renderAt(

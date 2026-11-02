@@ -163,6 +163,59 @@ describe("GitHub 연결 › 저장소 시트", () => {
     expect(lists.at(-1)).toBe("?installation_id=78&page=1&per_page=20");
   });
 
+  test("같은 역할 App이 여럿이면 정지되지 않은 첫 설치를 이름으로 읽는다", async () => {
+    const twoApps = {
+      ...SETTINGS,
+      connections: [
+        githubConnection({
+          installations: [
+            githubInstallation({ id: 76, account: "aaa", status: "suspended" }),
+            githubInstallation({ id: 78, account: "beta" }),
+          ],
+        }),
+        githubConnection({
+          connection_id: OTHER_AUTHOR,
+          name: "werft-agent-2",
+          installations: [githubInstallation({ id: 77, account: "acme" })],
+        }),
+      ],
+    };
+    const { api } = renderAt(PATH, {
+      ...routes(),
+      [`GET ${GITHUB_SETTINGS}`]: () => json(200, twoApps),
+      [`GET ${LIST}`]: (request: Request) => {
+        const query = new URL(request.url).searchParams;
+        const id = query.get("installation_id");
+        return id === null
+          ? json(400, {
+              error: {
+                code: "BAD_REQUEST",
+                message: "name it",
+                retryable: false,
+                request_id: "req-1",
+                details: { reason_code: "installation_required" },
+              },
+            })
+          : json(200, page(Number(id), 1));
+      },
+    });
+    expect(
+      await screen.findByText("에이전트가 고른 저장소 2개 · 설치 밖 1개"),
+    ).toBeDefined();
+    const { sheet } = await openSheet();
+    expect(
+      await within(sheet).findByRole("table", {
+        name: "acme · werft-agent 설치의 저장소",
+      }),
+    ).toBeDefined();
+    const searches = api.calls
+      .filter((call) => call.method === "GET" && call.path === LIST)
+      .map((call) => call.search);
+    expect(new Set(searches)).toEqual(
+      new Set(["?installation_id=77&page=1&per_page=20"]),
+    );
+  });
+
   test("설치 밖 저장소는 따로 모여 남는다", async () => {
     renderAt(PATH, routes());
     expect(
