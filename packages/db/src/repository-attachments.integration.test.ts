@@ -1,0 +1,255 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
+import type { ReceiptActor } from "@werft-ai/contracts";
+import type { RepositoryAttachmentRequest } from "@werft-ai/platform";
+import {
+  createTempDatabase,
+  type TempDatabase,
+  testDatabaseUrl,
+} from "@werft-ai/testkit/postgres";
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
+import { createPostgresGitHubGateStore } from "./github-settings.ts";
+import { createPostgresRepositoryAttachments } from "./repository-attachments.ts";
+import * as schema from "./schema.ts";
+
+const integration = testDatabaseUrl() ? describe : describe.skip;
+
+const COMMIT = "a".repeat(40);
+
+integration("repository attachments on PostgreSQL", () => {
+  let database: TempDatabase;
+  let pool: Pool;
+  let db: NodePgDatabase<typeof schema>;
+
+  beforeAll(async () => {
+    database = await createTempDatabase({ prefix: "repo_attach_it" });
+    pool = new Pool({ connectionString: database.url, max: 4 });
+    db = drizzle(pool, { schema });
+  }, 60_000);
+
+  afterAll(async () => {
+    await pool.end();
+    await database.drop();
+  }, 60_000);
+
+  const actor: ReceiptActor = {
+    principal: { kind: "user", id: "user-1" },
+    actor_user_id: "user-1",
+    agent_id: null,
+  };
+
+  /** A session with an open attempt; `attached` is its starting list. */
+  async function session(attached: string[] | null) {
+    const ownerId = randomUUID();
+    const sessionId = randomUUID();
+    const attemptId = `att_${randomUUID()}`;
+    await pool.query(
+      "INSERT INTO workspaces (id, slug, name) VALUES ($1, $2, 'ws')",
+      [ownerId, `ws-${ownerId.slice(0, 8)}`],
+    );
+    await pool.query(
+      `INSERT INTO sessions (id, owner_id, repo_url, branch, repository_id,
+         workspace_id, attached_repository_ids)
+       VALUES ($1, $2, 'https://github.com/acme/app.git', 'main', 'sample-app',
+         $3, $4)`,
+      [sessionId, ownerId, ownerId, attached],
+    );
+    await pool.query(
+      `INSERT INTO attempts (id, session_id, execution_id, lease_epoch,
+         execution_generation, auth_revision, state, lease_expires_at)
+       VALUES ($1, $2, 'exec-1', 1, 1, 1, 'running', now() + interval '1 minute')`,
+      [attemptId, sessionId],
+    );
+    const request = (repositoryId = "docs"): RepositoryAttachmentRequest => ({
+      ownerId,
+      sessionId,
+      attemptId,
+      repositoryId,
+      branch: "main",
+      actor,
+      result: { repository_id: repositoryId, attempt_id: attemptId },
+    });
+    return { ownerId, sessionId, attemptId, request };
+  }
+
+  async function attachedList(sessionId: string) {
+    const { rows } = await pool.query(
+      "SELECT attached_repository_ids AS ids FROM sessions WHERE id = $1",
+      [sessionId],
+    );
+    return rows[0]?.ids as string[] | null;
+  }
+
+  async function receipts(ownerId: string) {
+    const { rows } = await pool.query(
+      `SELECT id, status, result, error FROM receipts
+        WHERE owner_id = $1 AND operation = 'attach_repository'
+        ORDER BY created_at`,
+      [ownerId],
+    );
+    return rows as Array<{
+      id: string;
+      status: string;
+      result: Record<string, unknown>;
+      error: { code: string; message: string } | null;
+    }>;
+  }
+
+  test("a request writes the row, the accepted receipt and the attached list, which the gate reads at once", async () => {
+    const store = createPostgresRepositoryAttachments(db);
+    const gate = createPostgresGitHubGateStore(db);
+    const s = await session([]);
+    expect((await gate.context(s.sessionId))?.attachedRepositoryIds).toEqual(
+      [],
+    );
+
+    const outcome = await store.request(s.request());
+
+    expect(outcome).toMatchObject({
+      outcome: "requested",
+      row: { repositoryId: "docs", status: "pending", attemptId: s.attemptId },
+    });
+    expect(await attachedList(s.sessionId)).toEqual(["docs"]);
+    expect((await gate.context(s.sessionId))?.attachedRepositoryIds).toEqual([
+      "docs",
+    ]);
+    const [receipt] = await receipts(s.ownerId);
+    expect(receipt?.status).toBe("accepted");
+    expect(
+      (await store.pending(s.sessionId)).map((row) => row.repositoryId),
+    ).toEqual(["docs"]);
+  });
+
+  test("asking again, or twice at once, leaves one row and one receipt", async () => {
+    const store = createPostgresRepositoryAttachments(db);
+    const s = await session([]);
+    const [a, b] = await Promise.all([
+      store.request(s.request()),
+      store.request(s.request()),
+    ]);
+    expect([a.outcome, b.outcome].sort()).toEqual(["requested", "unchanged"]);
+    const again = await store.request(s.request());
+    expect(again.outcome).toBe("unchanged");
+    expect(await receipts(s.ownerId)).toHaveLength(1);
+    expect(await attachedList(s.sessionId)).toEqual(["docs"]);
+  });
+
+  test("a report settles the row and its receipt once; a resent one changes nothing", async () => {
+    const store = createPostgresRepositoryAttachments(db);
+    const s = await session([]);
+    await store.request(s.request());
+    const report = {
+      repository_id: "docs",
+      status: "attached" as const,
+      commit: COMMIT,
+    };
+    await store.settle(s.sessionId, [report]);
+    await store.settle(s.sessionId, [
+      { repository_id: "docs", status: "failed", failure: "fetch_failed" },
+    ]);
+
+    expect(await store.find(s.sessionId, "docs")).toMatchObject({
+      status: "attached",
+      commit: COMMIT,
+      failure: null,
+    });
+    const [receipt] = await receipts(s.ownerId);
+    expect(receipt).toMatchObject({
+      status: "succeeded",
+      error: null,
+      result: { repository_id: "docs", commit: COMMIT },
+    });
+    expect(await store.pending(s.sessionId)).toEqual([]);
+    expect(await store.request(s.request())).toMatchObject({
+      outcome: "unchanged",
+      row: { status: "attached", commit: COMMIT },
+    });
+    expect(await receipts(s.ownerId)).toHaveLength(1);
+  });
+
+  test("a failed fetch leaves the list and fails its receipt; asking again starts over with a new receipt", async () => {
+    const store = createPostgresRepositoryAttachments(db);
+    const s = await session(["other"]);
+    await store.request(s.request());
+    await store.settle(s.sessionId, [
+      { repository_id: "docs", status: "failed", failure: "fetch_too_large" },
+    ]);
+
+    expect(await attachedList(s.sessionId)).toEqual(["other"]);
+    const [failed] = await receipts(s.ownerId);
+    expect(failed).toMatchObject({
+      status: "failed",
+      result: { failure: "fetch_too_large" },
+      error: { code: "BACKEND_UNAVAILABLE" },
+    });
+
+    const retried = await store.request(s.request());
+    expect(retried).toMatchObject({
+      outcome: "requested",
+      row: { status: "pending", failure: null },
+    });
+    expect(await attachedList(s.sessionId)).toEqual(["other", "docs"]);
+    const all = await receipts(s.ownerId);
+    expect(all).toHaveLength(2);
+    expect(retried.outcome === "requested" ? retried.row.receiptId : null).toBe(
+      all[1]?.id ?? "missing",
+    );
+  });
+
+  test("an ended attempt is refused and writes nothing", async () => {
+    const store = createPostgresRepositoryAttachments(db);
+    const s = await session([]);
+    await pool.query("UPDATE attempts SET ended_at = now() WHERE id = $1", [
+      s.attemptId,
+    ]);
+    expect(await store.request(s.request())).toEqual({
+      outcome: "attempt_ended",
+    });
+    expect(
+      await store.request({ ...s.request(), attemptId: "att_other" }),
+    ).toEqual({ outcome: "attempt_ended" });
+    expect(await store.find(s.sessionId, "docs")).toBeNull();
+    expect(await receipts(s.ownerId)).toEqual([]);
+    expect(await attachedList(s.sessionId)).toEqual([]);
+  });
+
+  test("a session whose list is the release's whole list keeps it null", async () => {
+    const store = createPostgresRepositoryAttachments(db);
+    const s = await session(null);
+    expect((await store.request(s.request())).outcome).toBe("requested");
+    expect(await attachedList(s.sessionId)).toBeNull();
+  });
+
+  test("a refusal is a failed receipt with the error given", async () => {
+    const store = createPostgresRepositoryAttachments(db);
+    const s = await session([]);
+    const id = await store.recordRefusal({
+      ownerId: s.ownerId,
+      sessionId: s.sessionId,
+      actor,
+      result: {
+        repository_id: "secret",
+        reason_code: "repository_not_allowed",
+      },
+      error: {
+        code: "GITHUB_REFUSED",
+        message: "GitHub work refused: repository_not_allowed",
+      },
+    });
+    expect(await receipts(s.ownerId)).toEqual([
+      {
+        id,
+        status: "failed",
+        result: {
+          repository_id: "secret",
+          reason_code: "repository_not_allowed",
+        },
+        error: {
+          code: "GITHUB_REFUSED",
+          message: "GitHub work refused: repository_not_allowed",
+        },
+      },
+    ]);
+  });
+});

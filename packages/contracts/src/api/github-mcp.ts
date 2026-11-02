@@ -42,6 +42,9 @@ export const GITHUB_MCP_TOOL_ARGUMENTS = {
   submit_review: submitPullRequestReviewRequestSchema.safeExtend({
     number: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   }),
+  attach_repository: z
+    .object({ repository_id: z.string().min(1).max(128) })
+    .strict(),
 } as const;
 
 export type GitHubMcpTool = keyof typeof GITHUB_MCP_TOOL_ARGUMENTS;
@@ -58,7 +61,65 @@ export const GITHUB_MCP_TOOL_FEATURES: Record<
   get_workflow_run: "actions",
   rerun_workflow: "actions",
   submit_review: "review",
+  attach_repository: null,
 };
+
+export const REPOSITORY_ATTACHMENT_STATUS_VALUES = [
+  "pending",
+  "attached",
+  "failed",
+] as const;
+
+/**
+ * Why a fetch the worker ran for an attachment ended without the remote:
+ * over the time or size limit, or any other git failure.
+ */
+export const REPOSITORY_ATTACH_FAILURE_VALUES = [
+  "fetch_timeout",
+  "fetch_too_large",
+  "fetch_failed",
+] as const;
+export const repositoryAttachFailureSchema = z.enum(
+  REPOSITORY_ATTACH_FAILURE_VALUES,
+);
+
+/**
+ * What `attach_repository` answers, and the `result` of its receipt.
+ * `pending` while the worker has not reported the fetch yet; calling again
+ * reads the same attachment. `already_attached` when the call changed
+ * nothing: the session's own repository, one attached before, or a session
+ * whose list is the release's whole list.
+ */
+export const repositoryAttachmentSchema = z.object({
+  repository_id: z.string().min(1),
+  status: z.enum(REPOSITORY_ATTACHMENT_STATUS_VALUES),
+  branch: z.string().nullable(),
+  commit: z.string().nullable(),
+  failure: repositoryAttachFailureSchema.nullable(),
+  already_attached: z.boolean(),
+  receipt_id: z.string().nullable(),
+});
+export type RepositoryAttachment = z.infer<typeof repositoryAttachmentSchema>;
+export type RepositoryAttachFailure = z.infer<
+  typeof repositoryAttachFailureSchema
+>;
+
+/**
+ * `result` of an `attach_repository` receipt: who asked from which attempt,
+ * under which release, and what the worker fetched. `reason_code` is the
+ * gate's refusal, as on the GitHub gate's own receipts.
+ */
+export const attachRepositoryReceiptResultSchema = z.object({
+  session_id: z.string(),
+  attempt_id: z.string(),
+  agent_id: z.string().nullable(),
+  agent_release_id: z.string().nullable(),
+  repository_id: z.string(),
+  branch: z.string().nullable(),
+  commit: z.string().nullable(),
+  failure: repositoryAttachFailureSchema.nullable(),
+  reason_code: z.string().nullable(),
+});
 
 /**
  * The tools a release exposes, by the release's features alone. The server's

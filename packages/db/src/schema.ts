@@ -2148,6 +2148,48 @@ export const pushRequests = pgTable(
   ],
 );
 
+// A repository the session's agent attached mid-session
+// (session-repository-attachment.md decision 3), one row per repository: a
+// second call reads the row instead of attaching again. `pending` until a
+// worker of the session reports the fetch; a failed one goes back to
+// `pending` when asked again, with a new receipt.
+export const sessionRepositoryAttachments = pgTable(
+  "session_repository_attachments",
+  {
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id),
+    repositoryId: text("repository_id").notNull(),
+    // The attempt whose agent asked last.
+    attemptId: text("attempt_id").notNull(),
+    branch: text().notNull(),
+    status: text().notNull(),
+    gitCommit: text("git_commit"),
+    failure: text(),
+    receiptId: uuid("receipt_id")
+      .notNull()
+      .references(() => receipts.id),
+    requestedAt: timestamp("requested_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sessionId, table.repositoryId] }),
+    check(
+      "session_repository_attachments_status_check",
+      sql`${table.status} IN ('pending','attached','failed')`,
+    ),
+    check(
+      "session_repository_attachments_settled_check",
+      sql`(${table.status} = 'attached') = (${table.gitCommit} IS NOT NULL) AND (${table.status} = 'failed') = (${table.failure} IS NOT NULL) AND (${table.status} = 'pending') = (${table.settledAt} IS NULL)`,
+    ),
+    index("session_repository_attachments_pending_idx")
+      .on(table.sessionId)
+      .where(sql`${table.status} = 'pending'`),
+  ],
+);
+
 // api.md § 승인·중단·강제 종료: a control request the worker has to act on,
 // kept apart from the input FIFO. An interrupt names its turn and the attempt
 // that turn is bound to — a running turn never moves to another attempt — and

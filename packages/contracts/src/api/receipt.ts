@@ -121,6 +121,9 @@ export const RECEIPT_OPERATION_VALUES = [
   "review_pull_request",
   "dispatch_workflow",
   "rerun_workflow",
+  // A session's agent attaching another repository mid-session
+  // (session-repository-attachment.md decision 3).
+  "attach_repository",
   // The workspace's GitHub Packages bot token and package allowlist; the
   // receipt names the token's last four characters, never the value.
   "set_github_packages_token",
