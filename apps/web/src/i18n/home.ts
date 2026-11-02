@@ -95,16 +95,10 @@ export const homeKo = {
   "home.requests.empty": "지금 답할 요청이 없습니다",
   "home.requests.emptyHint":
     "세션이 권한이나 답을 기다리면 여기에 먼저 나옵니다.",
-  "home.recent.agent": "에이전트",
-  "home.recent.repository": "저장소",
-  "home.recent.noRepository": "저장소 없음",
-  "home.recent.statusAxis": "작업:",
   "home.glance.relink": "다시 연결",
   "home.overview.basis": "최근 30일 · UTC 기준",
   "home.glance.costPartial":
     "추정 비용 · 진행 중이거나 비용을 보고하지 않은 턴은 빠짐",
-  "home.recent.activity": "최근 활동",
-  "home.recent.open": "세션 열기: {title}",
 };
 
 export const homeEn: Record<keyof typeof homeKo, string> = {
@@ -208,16 +202,10 @@ export const homeEn: Record<keyof typeof homeKo, string> = {
   "home.requests.empty": "Nothing to answer right now",
   "home.requests.emptyHint":
     "When a session waits for a permission or an answer, it shows up here first.",
-  "home.recent.agent": "Agent",
-  "home.recent.repository": "Repository",
-  "home.recent.noRepository": "No repository",
-  "home.recent.statusAxis": "Work:",
   "home.glance.relink": "Reconnect",
   "home.overview.basis": "Last 30 days · UTC",
   "home.glance.costPartial":
     "Estimated cost · leaves out turns still running or without a reported cost",
-  "home.recent.activity": "Last activity",
-  "home.recent.open": "Open session: {title}",
 };
 
 export const homeJa: Record<keyof typeof homeKo, string> = {
@@ -321,14 +309,8 @@ export const homeJa: Record<keyof typeof homeKo, string> = {
   "home.requests.empty": "いま回答するリクエストはありません",
   "home.requests.emptyHint":
     "セッションが権限や回答を待つと、まずここに表示されます。",
-  "home.recent.agent": "エージェント",
-  "home.recent.repository": "リポジトリ",
-  "home.recent.noRepository": "リポジトリなし",
-  "home.recent.statusAxis": "作業:",
   "home.glance.relink": "再接続",
   "home.overview.basis": "直近30日 · UTC 基準",
   "home.glance.costPartial":
     "推定コスト · 実行中またはコスト未報告のターンは含みません",
-  "home.recent.activity": "最近のアクティビティ",
-  "home.recent.open": "セッションを開く: {title}",
 };

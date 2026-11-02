@@ -8,11 +8,12 @@ import {
   FieldDescription,
   FieldLabel,
   Input,
+  Text,
   Link as TextLink,
 } from "@werft-ai/ui";
 import { type FormEvent, useState } from "react";
 import { PASSWORD_MIN_LENGTH } from "../auth/limits.ts";
-import { ASIDE, AuthPage, FormError } from "../components/auth-page.tsx";
+import { AuthPage, FormError } from "../components/auth-page.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
 
 const FIELDS = [
@@ -121,7 +122,7 @@ export function BootstrapScreen() {
 
   return (
     <AuthPage title={t("bootstrap.title")}>
-      <p className={ASIDE}>{t("bootstrap.intro")}</p>
+      <Text variant="sub">{t("bootstrap.intro")}</Text>
       <form className="flex flex-col gap-4" onSubmit={submit}>
         {FIELDS.map((field) => {
           const hint =
@@ -170,11 +171,11 @@ export function BootstrapScreen() {
           {create.isPending ? t("bootstrap.submitting") : t("bootstrap.submit")}
         </Button>
       </form>
-      <p className={ASIDE}>
+      <Text variant="sub">
         <TextLink asChild underline="always">
           <Link to="/login">{t("bootstrap.loginLink")}</Link>
         </TextLink>
-      </p>
+      </Text>
     </AuthPage>
   );
 }

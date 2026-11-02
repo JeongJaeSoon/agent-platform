@@ -24,6 +24,7 @@ import {
   AlertDescription,
   AlertTitle,
   Button,
+  Code,
   ConfirmDialog,
   cn,
   EmptyState,
@@ -41,7 +42,7 @@ import type { Outcome } from "../../components/outcome.tsx";
 import { StatusScreen } from "../../components/status-screen.tsx";
 import { type Translate, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
-import { MUTED, SECTION } from "./classes.ts";
+import { SECTION } from "./classes.ts";
 import { latestVersion } from "./versions.tsx";
 
 /** Under the agent's key, so whatever refreshes the agent refreshes these. */
@@ -170,12 +171,12 @@ export function Credentials({
       <Heading id={titleId} ref={titleRef} tabIndex={-1}>
         {t("agent.credentials.title")}
       </Heading>
-      <p className={MUTED}>{t("agent.credentials.intro")}</p>
+      <Text variant="sub">{t("agent.credentials.intro")}</Text>
       {bindings.isPending ? (
         <StatusScreen kind="loading" />
       ) : bindings.error ? (
         isApiError(bindings.error, "FORBIDDEN") ? (
-          <p className={MUTED}>{permissionReason(t, "agent.manage", role)}</p>
+          <Text variant="sub">{permissionReason(t, "agent.manage", role)}</Text>
         ) : (
           <LoadFailure
             error={bindings.error}
@@ -198,9 +199,10 @@ export function Credentials({
                   <RowLines>
                     <Text
                       as="span"
-                      className="block break-words font-semibold text-body"
+                      weight="medium"
+                      className="block break-words"
                     >
-                      {ref}
+                      <Code size="inherit">{ref}</Code>
                     </Text>
                     <Text
                       as="span"
@@ -241,9 +243,10 @@ export function Credentials({
                   <RowLines>
                     <Text
                       as="span"
-                      className="block break-words font-semibold text-body"
+                      weight="medium"
+                      className="block break-words"
                     >
-                      {binding.credential_ref}
+                      <Code size="inherit">{binding.credential_ref}</Code>
                     </Text>
                     <Text
                       as="span"

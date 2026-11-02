@@ -12,16 +12,12 @@ import {
   Field,
   FieldLabel,
   Input,
+  Text,
   Link as TextLink,
 } from "@werft-ai/ui";
 import { type FormEvent, useState } from "react";
 import { loginMethodsQuery } from "../api/queries.ts";
-import {
-  ASIDE,
-  AuthPage,
-  FormError,
-  Notice,
-} from "../components/auth-page.tsx";
+import { AuthPage, FormError, Notice } from "../components/auth-page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 import { useAppServices } from "../services.tsx";
@@ -144,12 +140,12 @@ export function LoginScreen() {
         </Button>
       </form>
       <GoogleChoice redirect={redirect} />
-      <p className={ASIDE}>
+      <Text variant="sub">
         {t("login.bootstrapPrompt")}{" "}
         <TextLink asChild underline="always">
           <Link to="/bootstrap">{t("login.bootstrapLink")}</Link>
         </TextLink>
-      </p>
+      </Text>
     </AuthPage>
   );
 }
@@ -189,7 +185,9 @@ function GoogleChoice({ redirect }: { readonly redirect: string | undefined }) {
       className="flex flex-col gap-3"
       aria-label={t("login.alternatives")}
     >
-      <p className={`${ASIDE} text-center`}>{t("login.or")}</p>
+      <Text variant="sub" className="text-center">
+        {t("login.or")}
+      </Text>
       {start.error ? (
         <FormError>{t(errorKey(start.error.code))}</FormError>
       ) : null}

@@ -25,6 +25,7 @@ import {
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
 import { type RefObject, useEffect, useId, useRef, useState } from "react";
+import { LoadFailure } from "../../../components/load-failure.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
 import type { Notify } from "../toast.tsx";
 import { slackKey, useSlackBindings, useSlackChannels } from "./queries.ts";
@@ -35,6 +36,7 @@ import {
   SECTION,
   SECTION_BOX,
   slackFailure,
+  slackReason,
 } from "./shared.ts";
 
 /**
@@ -210,7 +212,7 @@ export function SlackChannels({
       ),
     }));
   }, [channels.data]);
-  const error = bindings.error ?? channels.error ?? update.error;
+  const readError = bindings.error ?? channels.error;
   const connectChannel = (channelId: string) => {
     if (locked) return;
     const row = rows.find((item) => item.external_surface_id === channelId);
@@ -295,9 +297,18 @@ export function SlackChannels({
           >
             {notice}
           </output>
-          {error ? (
+          {/* The status section above reports a failed bindings read. */}
+          {channels.error ? (
+            <LoadFailure
+              error={channels.error}
+              guidance={slackReason(channels.error, t)}
+              kept={channels.data !== undefined}
+              onRetry={() => void channels.refetch()}
+            />
+          ) : null}
+          {update.error ? (
             <div>
-              <FieldError>{slackFailure(error, t)}</FieldError>
+              <FieldError>{slackFailure(update.error, t)}</FieldError>
             </div>
           ) : null}
           {homeStep ? null : bindings.isPending ? (
@@ -381,7 +392,22 @@ export function SlackChannels({
             </DialogTitle>
             <DialogDescription>{t("slack.joinHintAuto")}</DialogDescription>
           </DialogHeader>
-          {error ? <FieldError>{slackFailure(error, t)}</FieldError> : null}
+          {readError ? (
+            // An alert even before any result: a full failure state does not
+            // fit inside the dialog.
+            <LoadFailure
+              error={readError}
+              guidance={slackReason(readError, t)}
+              kept
+              onRetry={() => {
+                for (const read of [bindings, channels])
+                  if (read.isError) void read.refetch();
+              }}
+            />
+          ) : null}
+          {update.error ? (
+            <FieldError>{slackFailure(update.error, t)}</FieldError>
+          ) : null}
           <Field>
             <FieldLabel>{t("slack.search")}</FieldLabel>
             <Input
@@ -475,15 +501,6 @@ export function SlackChannels({
                 onClick={() => void channels.fetchNextPage()}
               >
                 {t("slack.more")}
-              </Button>
-            ) : null}
-            {channels.error ? (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => void channels.refetch()}
-              >
-                {t("slack.refresh")}
               </Button>
             ) : null}
           </div>

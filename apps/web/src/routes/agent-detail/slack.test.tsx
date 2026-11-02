@@ -115,6 +115,69 @@ function routes(app: typeof APP | null = null, installed = false) {
 }
 
 describe("Slack management", () => {
+  test("a failed read asks again for that query only and saves nothing", async () => {
+    let down = true;
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () =>
+        down
+          ? apiError(500, "INTERNAL_ERROR", "down")
+          : json(200, { items: [BINDING] }),
+    });
+    const user = await setupUser();
+    const state = await screen.findByRole("region", { name: "상태" });
+    const alert = await within(state).findByRole("alert");
+    expect(alert.textContent).toContain("불러오지 못했습니다");
+    expect(alert.textContent).toContain("INTERNAL_ERROR");
+    const reads = (path: string) =>
+      api.calls.filter((c) => c.method === "GET" && c.path === path).length;
+    const before = {
+      app: reads(`${PATH}/slack/app`),
+      identities: reads(`${PATH}/identities`),
+      bindings: reads(`${PATH}/slack-bindings`),
+    };
+    down = false;
+    await user.click(within(alert).getByRole("button", { name: "다시 시도" }));
+    await waitFor(() =>
+      expect(within(state).queryByRole("alert") === null).toBe(true),
+    );
+    await screen.findByRole("switch", { name: "DM 받기" });
+    expect(reads(`${PATH}/slack-bindings`)).toBeGreaterThan(before.bindings);
+    expect(reads(`${PATH}/slack/app`)).toBe(before.app);
+    expect(reads(`${PATH}/identities`)).toBe(before.identities);
+    expect(api.calls.filter((c) => c.method !== "GET")).toEqual([]);
+  });
+
+  test("a setting row whose read failed offers to read it again, apart from save errors", async () => {
+    let down = true;
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/app/settings`]: () =>
+        down
+          ? apiError(500, "INTERNAL_ERROR", "down")
+          : json(200, { mention_only: true }),
+    });
+    const user = await setupUser();
+    const basic = await screen.findByRole("region", { name: "기본" });
+    const again = await within(basic).findByRole("button", {
+      name: "다시 시도",
+    });
+    const [alert] = within(basic).getAllByRole("alert");
+    expect(within(basic).getAllByRole("alert")).toHaveLength(1);
+    // Nothing was read yet, so the full failure state, not the kept alert.
+    expect(alert?.getAttribute("data-variant") === "red").toBe(false);
+    expect(basic.querySelector(".ap-state__code")?.textContent).toBe(
+      "INTERNAL_ERROR",
+    );
+    down = false;
+    await user.click(again);
+    expect(
+      await within(basic).findByRole("switch", { name: "멘션했을 때만 반응" }),
+    ).toBeTruthy();
+    expect(within(basic).queryByRole("alert") === null).toBe(true);
+    expect(api.calls.filter((c) => c.method !== "GET")).toEqual([]);
+  });
+
   test("does not claim there are no channels when bindings or search failed", async () => {
     renderAt(DETAIL, {
       ...routes(APP, true),
@@ -126,9 +189,7 @@ describe("Slack management", () => {
     const user = await setupUser();
     await screen.findByText("홈 채널");
     await waitFor(() =>
-      expect(document.querySelector("[data-slot=field-error]") !== null).toBe(
-        true,
-      ),
+      expect(document.querySelector("main [role=alert]") !== null).toBe(true),
     );
     const state = screen.getByRole("region", { name: "상태" });
     // Home and DM both read as unknown.
@@ -141,9 +202,7 @@ describe("Slack management", () => {
     );
     await screen.findByRole("navigation", { name: "Slack 구역" });
     await waitFor(() =>
-      expect(document.querySelector("[data-slot=field-error]") !== null).toBe(
-        true,
-      ),
+      expect(document.querySelector("main [role=alert]") !== null).toBe(true),
     );
     expect(screen.queryByText("연결된 채널이 없습니다") === null).toBe(true);
     await user.click(await screen.findByRole("button", { name: "채널 추가" }));
@@ -1659,6 +1718,42 @@ describe("Slack management", () => {
     expect(
       screen.getAllByRole("button", { name: /#(one|two) 연결/ }),
     ).toHaveLength(2);
+  });
+
+  test("a failed channel search in the picker is an alert that reads the channels again, apart from save errors", async () => {
+    let down = true;
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/channels`]: () =>
+        down
+          ? apiError(500, "INTERNAL_ERROR", "down")
+          : json(200, {
+              items: [
+                { id: "C9", name: "found", is_private: false, is_member: true },
+              ],
+              next_cursor: null,
+              stale: false,
+              truncated: false,
+            }),
+    });
+    const user = await setupUser();
+    await screen.findByRole("navigation", { name: "Slack 구역" });
+    await user.click(await screen.findByRole("button", { name: "채널 추가" }));
+    const dialog = await screen.findByRole("dialog");
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert.getAttribute("data-variant")).toBe("red");
+    expect(alert.textContent).toContain("불러오지 못했습니다");
+    const reads = (path: string) =>
+      api.calls.filter((c) => c.method === "GET" && c.path === path).length;
+    const bindingsBefore = reads(`${PATH}/slack-bindings`);
+    const channelsBefore = reads(`${PATH}/slack/channels`);
+    down = false;
+    await user.click(within(alert).getByRole("button", { name: "다시 시도" }));
+    await within(dialog).findByText("#found");
+    expect(within(dialog).queryByRole("alert") === null).toBe(true);
+    expect(reads(`${PATH}/slack/channels`)).toBeGreaterThan(channelsBefore);
+    expect(reads(`${PATH}/slack-bindings`)).toBe(bindingsBefore);
+    expect(api.calls.filter((c) => c.method !== "GET")).toEqual([]);
   });
 
   test("clears the previous result for consecutive saves and keeps focus during the request", async () => {

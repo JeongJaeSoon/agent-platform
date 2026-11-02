@@ -3,10 +3,11 @@ import { unwrap } from "@werft-ai/client";
 import { useAgentPlatform } from "@werft-ai/react";
 import { FieldError, SettingRow, Switch, Text } from "@werft-ai/ui";
 import { useState } from "react";
+import { LoadFailure } from "../../../components/load-failure.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
 import type { Notify } from "../toast.tsx";
 import { slackKey, useSlackBindings, useSlackSettings } from "./queries.ts";
-import { dmOn, slackFailure } from "./shared.ts";
+import { dmOn, slackFailure, slackReason } from "./shared.ts";
 
 export function SlackDmSetting({ agentId }: { readonly agentId: string }) {
   const { t } = useI18n();
@@ -36,21 +37,22 @@ export function SlackDmSetting({ agentId }: { readonly agentId: string }) {
     },
   });
   const unavailable = !bindings.isSuccess || update.isPending;
-  const error = bindings.error ?? update.error;
+  const lost = bindings.isError && !bindings.data;
   return (
     <SettingRow
       title={t("slack.dmSetting")}
       description={t("slack.dmHint")}
       status={
         <Text as="span" variant="sub">
-          {bindings.isError && !bindings.data
-            ? "—"
-            : t(dmOn(dm) ? "slack.on" : "slack.off")}
+          {lost ? "—" : t(dmOn(dm) ? "slack.on" : "slack.off")}
         </Text>
       }
       meta={
         <>
-          {error ? <FieldError>{slackFailure(error, t)}</FieldError> : null}
+          {/* The status section above reports a failed bindings read. */}
+          {update.error ? (
+            <FieldError>{slackFailure(update.error, t)}</FieldError>
+          ) : null}
           <output
             aria-live="polite"
             className={notice ? "text-control" : "sr-only"}
@@ -60,7 +62,7 @@ export function SlackDmSetting({ agentId }: { readonly agentId: string }) {
         </>
       }
       control={
-        bindings.isError && !bindings.data ? null : (
+        lost ? null : (
           <Switch
             aria-label={t("slack.dmSetting")}
             checked={dmOn(dm)}
@@ -121,7 +123,6 @@ export function SlackMentionOnly({
       }),
   });
   const lost = settings.isError && !settings.data;
-  const error = settings.error ?? update.error;
   return (
     <SettingRow
       title={t("slack.mentionOnly")}
@@ -136,7 +137,21 @@ export function SlackMentionOnly({
         </Text>
       }
       meta={
-        error ? <FieldError>{slackFailure(error, t)}</FieldError> : undefined
+        settings.error || update.error ? (
+          <>
+            {settings.error ? (
+              <LoadFailure
+                error={settings.error}
+                guidance={slackReason(settings.error, t)}
+                kept={settings.data !== undefined}
+                onRetry={() => void settings.refetch()}
+              />
+            ) : null}
+            {update.error ? (
+              <FieldError>{slackFailure(update.error, t)}</FieldError>
+            ) : null}
+          </>
+        ) : undefined
       }
       control={
         lost ? null : (
