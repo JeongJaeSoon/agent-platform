@@ -1,5 +1,7 @@
 import { type ComponentProps, type JSX, type ReactNode, useId } from "react";
 
+import { cn } from "../foundations/cn.ts";
+
 export type SectionProps = Omit<ComponentProps<"section">, "title"> & {
   readonly title: ReactNode;
   /** The heading level; `h2` under a page's `h1`. */
@@ -10,6 +12,10 @@ export type SectionProps = Omit<ComponentProps<"section">, "title"> & {
   readonly description?: ReactNode | undefined;
   /** The section's own actions, on the right of its head. */
   readonly actions?: ReactNode | undefined;
+  /** Passed to the heading, e.g. a ref and `tabIndex={-1}` to move focus there. */
+  readonly titleProps?:
+    | Omit<ComponentProps<"h2">, "id" | "children" | "dangerouslySetInnerHTML">
+    | undefined;
 };
 
 /**
@@ -22,6 +28,7 @@ export function Section({
   badge,
   description,
   actions,
+  titleProps,
   className,
   children,
   ...props
@@ -38,8 +45,12 @@ export function Section({
         <div className="flex min-w-0 flex-col gap-0.5">
           <div className="flex items-center gap-2">
             <Heading
+              {...titleProps}
               id={titleId}
-              className="m-0 font-semibold text-body leading-5"
+              className={cn(
+                "m-0 font-semibold text-body leading-5",
+                titleProps?.className,
+              )}
             >
               {title}
             </Heading>
