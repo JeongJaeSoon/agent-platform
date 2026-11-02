@@ -1,10 +1,11 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   GOOGLE_LOGIN_FLOW_TTL_MINUTES,
   normalizeEmail,
 } from "@werft-ai/contracts";
 import { Jwt } from "hono/utils/jwt";
 import type { HonoJsonWebKey } from "hono/utils/jwt/jws";
+import { sameString } from "./same-string.ts";
 
 export const GOOGLE_ISSUER = "https://accounts.google.com";
 const FLOW_TTL_MS = GOOGLE_LOGIN_FLOW_TTL_MINUTES * 60 * 1000;
@@ -136,12 +137,6 @@ export type GoogleFlow = {
 
 function randomToken(): string {
   return randomBytes(32).toString("base64url");
-}
-
-function sameString(left: string, right: string): boolean {
-  const a = Buffer.from(left, "utf8");
-  const b = Buffer.from(right, "utf8");
-  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 async function providerFetch(url: string, init?: RequestInit) {
