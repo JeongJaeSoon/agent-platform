@@ -41,6 +41,7 @@ import {
   workerReadyResponseSchema,
 } from "@werft-ai/contracts";
 import { WorkerGatewayRequestError } from "@werft-ai/runtime-core";
+import { messageOf as message } from "./message-of.ts";
 
 import type { WorkerGatewaySession } from "./worker-host.ts";
 
@@ -236,8 +237,4 @@ function failure(
     `POST ${path} failed with ${code}: ${detail}`,
     retryable,
   );
-}
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
