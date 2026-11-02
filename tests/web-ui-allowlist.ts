@@ -9,7 +9,6 @@ export const webUiAllowlist: WebUiCounts = {
   "components/auth-page.tsx": { "raw-destructive": 1 },
   "router.tsx": { "legacy-class": 1 },
   "routes/agents.tsx": { "legacy-class": 1 },
-  "routes/api-keys.tsx": { "raw-destructive": 1 },
   "routes/layout.tsx": { "legacy-class": 1 },
   "styles.css": { "legacy-class": 35 },
 };
