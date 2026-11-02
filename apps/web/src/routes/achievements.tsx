@@ -44,7 +44,7 @@ export type AchievementPeriod = (typeof ACHIEVEMENT_PERIODS)[number];
 // Cut at the next UTC midnight, as the usage screens are, so the query key
 // stays the same all day.
 export function achievementPeriod(
-  period: AchievementPeriod,
+  period: AchievementPeriod | "1",
   now = new Date(),
 ): { readonly since: string; readonly until: string } {
   const until = Date.UTC(
