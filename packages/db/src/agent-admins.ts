@@ -95,7 +95,7 @@ export async function lockedAdministers(
   }
   return (
     agent.managingTeamId !== null &&
-    lockedTeamRow(tx, agent.managingTeamId, userId, ["lead"])
+    lockedTeamRow(tx, workspaceId, agent.managingTeamId, userId, ["lead"])
   );
 }
 
@@ -106,6 +106,7 @@ export async function lockedAdministers(
  */
 export async function lockedTeamRow(
   tx: Database,
+  workspaceId: string,
   teamId: string,
   userId: string,
   roles: readonly TeamMemberRole[],
@@ -113,7 +114,13 @@ export async function lockedTeamRow(
   const [team] = await tx
     .select({ id: memberTeams.id })
     .from(memberTeams)
-    .where(and(eq(memberTeams.id, teamId), isNull(memberTeams.archivedAt)))
+    .where(
+      and(
+        eq(memberTeams.workspaceId, workspaceId),
+        eq(memberTeams.id, teamId),
+        isNull(memberTeams.archivedAt),
+      ),
+    )
     .for("share");
   if (!team) return false;
   const row = await tx
@@ -146,7 +153,10 @@ export async function managingTeamAllowed(
   if (!UUID.test(teamId)) return "team_not_found";
   const id = teamId.toLowerCase();
   if (!actor.manager) {
-    return (await lockedTeamRow(tx, id, actor.userId, ["lead", "member"]))
+    return (await lockedTeamRow(tx, workspaceId, id, actor.userId, [
+      "lead",
+      "member",
+    ]))
       ? "ok"
       : "team_not_allowed";
   }
@@ -371,7 +381,9 @@ async function change(
       );
       if (
         !manager &&
-        !(await lockedTeamRow(tx, subjectId, actor.userId, ["lead"]))
+        !(await lockedTeamRow(tx, actor.workspaceId, subjectId, actor.userId, [
+          "lead",
+        ]))
       ) {
         return { outcome: "team_not_allowed" };
       }

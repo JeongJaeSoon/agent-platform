@@ -462,6 +462,50 @@ integration("the managing team on PostgreSQL", () => {
       "FORBIDDEN:team_not_allowed",
     );
     expect(await create(owner, randomUUID())).toBe("NOT_FOUND");
+
+    // A team the member is in, but in another workspace, is not this one's.
+    const elsewhere = randomUUID();
+    await db.insert(schema.workspaces).values({
+      id: elsewhere,
+      slug: `ws-${elsewhere.slice(0, 8)}`,
+      name: "elsewhere",
+    });
+    await db
+      .insert(schema.memberships)
+      .values({ workspaceId: elsewhere, userId: idOf(member), role: "owner" });
+    const foreignOwner = callerFor(
+      {
+        kind: "user",
+        id: idOf(member),
+        workspace_id: elsewhere,
+        role: "owner",
+        scopes: [...scopesForRole("owner")],
+      },
+      { kind: "web" },
+      randomUUID(),
+    );
+    const foreignTeam = await newTeam(foreignOwner);
+    await join(foreignOwner, foreignTeam, foreignOwner, "lead");
+    expect(await create(member, foreignTeam)).toBe(
+      "FORBIDDEN:team_not_allowed",
+    );
+    await admins().add({
+      actor: acting(owner),
+      receiptId: randomUUID(),
+      agentId,
+      subject: { kind: "user", id: idOf(member) },
+      managerRoles: MANAGERS,
+    });
+    expect(await name(member, agentId, foreignTeam)).toEqual({
+      outcome: "team_not_allowed",
+    });
+    await admins().remove({
+      actor: acting(owner),
+      receiptId: randomUUID(),
+      agentId,
+      subject: { kind: "user", id: idOf(member) },
+      managerRoles: MANAGERS,
+    });
     expect(await create(owner, otherTeam)).toBe("ok");
 
     // After: the agent's admin moves it only to a team they are in.
@@ -557,22 +601,65 @@ integration("the managing team on PostgreSQL", () => {
     expect(await remove()).toEqual({ outcome: "deleted" });
   });
 
-  test("a team delete and naming that team to an agent never both land", async () => {
-    for (let round = 0; round < 5; round++) {
+  test("a team delete and naming that team never both land, whichever locks the team first", async () => {
+    // Delete first: replays its lock and archive; the naming waits, then
+    // finds no live team.
+    {
       const { owner, agentId } = await cast();
       const target = await newTeam(owner);
-      const [deleted, named] = await Promise.all([
-        teams().delete({
+      const deleter = await pool.connect();
+      try {
+        await deleter.query("BEGIN");
+        await deleter.query(
+          "SELECT id FROM member_teams WHERE id = $1 FOR UPDATE",
+          [target],
+        );
+        const named = name(owner, agentId, target);
+        await blockedBy(deleter);
+        await deleter.query(
+          "UPDATE member_teams SET archived_at = now() WHERE id = $1",
+          [target],
+        );
+        await deleter.query("COMMIT");
+        expect(await named).toEqual({ outcome: "team_not_found" });
+      } finally {
+        deleter.release();
+      }
+    }
+    // Naming first: replays setManagingTeam's locks and update; the delete
+    // waits on the team row, then sees the agent it manages.
+    {
+      const { owner, agentId } = await cast();
+      const target = await newTeam(owner);
+      const namer = await pool.connect();
+      try {
+        await namer.query("BEGIN");
+        await namer.query(
+          "SELECT id FROM agents WHERE id = $1 FOR NO KEY UPDATE",
+          [agentId],
+        );
+        await namer.query(
+          "SELECT id FROM member_teams WHERE id = $1 FOR SHARE",
+          [target],
+        );
+        await namer.query(
+          "UPDATE agents SET managing_team_id = $2 WHERE id = $1",
+          [agentId, target],
+        );
+        const deleted = teams().delete({
           actor: acting(owner),
           receiptId: randomUUID(),
           teamId: target,
-        }),
-        name(owner, agentId, target),
-      ]);
-      const outcomes = `${deleted.outcome}/${named.outcome}`;
-      expect(["deleted/team_not_found", "manages_agents/set"]).toContain(
-        outcomes,
-      );
+        });
+        await blockedBy(namer);
+        await namer.query("COMMIT");
+        expect(await deleted).toEqual({
+          outcome: "manages_agents",
+          agentIds: [agentId],
+        });
+      } finally {
+        namer.release();
+      }
     }
   });
 
@@ -618,29 +705,41 @@ integration("the managing team on PostgreSQL", () => {
     write: () => Promise<unknown>,
   ) {
     const client = await pool.connect();
+    let open = false;
     try {
       await client.query("BEGIN");
+      open = true;
       await change(client);
       const pending = write().then(
         (value) => value,
         (error: unknown) => error,
       );
-      const waiting = async () =>
-        (
-          await pool.query(
-            "SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
-          )
-        ).rowCount;
-      for (let i = 0; i < 100 && !(await waiting()); i++) await Bun.sleep(20);
-      expect(await waiting()).toBeGreaterThan(0);
+      await blockedBy(client);
       await client.query("COMMIT");
+      open = false;
       const result = await pending;
       if (result instanceof SessionServiceError) return reasonOf(result);
       if (result instanceof Error) throw result;
       return (result as { outcome?: string }).outcome ?? "ok";
     } finally {
+      if (open) await client.query("ROLLBACK");
       client.release();
     }
+  }
+
+  // Until some backend waits on a lock this connection holds.
+  async function blockedBy(holder: PoolClient) {
+    const pid = (await holder.query("SELECT pg_backend_pid() AS pid")).rows[0]
+      .pid as number;
+    const waiting = async () =>
+      (
+        await pool.query(
+          "SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))",
+          [pid],
+        )
+      ).rowCount;
+    for (let i = 0; i < 100 && !(await waiting()); i++) await Bun.sleep(20);
+    expect(await waiting()).toBeGreaterThan(0);
   }
 
   const moveAway =
@@ -653,7 +752,11 @@ integration("the managing team on PostgreSQL", () => {
         teamId,
       ]);
     };
+  // setMemberRole's order: the team row, then the member row.
   const demote = (teamId: string, who: Caller) => async (c: PoolClient) => {
+    await c.query("SELECT id FROM member_teams WHERE id = $1 FOR UPDATE", [
+      teamId,
+    ]);
     await c.query(
       "UPDATE member_team_members SET role = 'member' WHERE team_id = $1 AND user_id = $2 AND removed_at IS NULL",
       [teamId, idOf(who)],
@@ -737,30 +840,36 @@ integration("the managing team on PostgreSQL", () => {
     }
   }, 120_000);
 
-  test("activation by the lead loses to a managing-team move that committed while it waited", async () => {
-    const s = await cast();
-    const other = await newTeam(s.owner);
-    const version = s.created.versions[0];
-    if (!version) throw new Error("no version");
-    const { release } = await service().createRelease(s.owner, s.agentId, {
-      version_id: version.id,
-      runtime_profile_id: "coding",
-    });
-    expect(
-      await raced(moveAway(s.agentId, other), () =>
-        service().activateAgent(s.lead, s.agentId, {
-          release_id: release.id,
-          expected_revision: -1,
-        }),
-      ),
-    ).toBe("FORBIDDEN:role");
-    expect(
-      await codeOf(
-        service().activateAgent(s.owner, s.agentId, {
-          release_id: release.id,
-          expected_revision: -1,
-        }),
-      ),
-    ).toBe("ok");
+  test("activation by the lead loses to a managing-team move or a demotion that committed while it waited", async () => {
+    for (const label of ["move", "demote"] as const) {
+      const s = await cast();
+      const other = await newTeam(s.owner);
+      const version = s.created.versions[0];
+      if (!version) throw new Error("no version");
+      const { release } = await service().createRelease(s.owner, s.agentId, {
+        version_id: version.id,
+        runtime_profile_id: "coding",
+      });
+      const change =
+        label === "move"
+          ? moveAway(s.agentId, other)
+          : demote(s.teamId, s.lead);
+      expect(
+        `${label}:${await raced(change, () =>
+          service().activateAgent(s.lead, s.agentId, {
+            release_id: release.id,
+            expected_revision: -1,
+          }),
+        )}`,
+      ).toBe(`${label}:FORBIDDEN:role`);
+      expect(
+        await codeOf(
+          service().activateAgent(s.owner, s.agentId, {
+            release_id: release.id,
+            expected_revision: -1,
+          }),
+        ),
+      ).toBe("ok");
+    }
   });
 });
