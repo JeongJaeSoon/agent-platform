@@ -70,16 +70,36 @@ const SEEDS = [
   ),
 ];
 
-async function account(): Promise<{ email: string; password: string }> {
-  const text = await readFile(args.accounts as string, "utf8");
+/**
+ * The account row named `key`: from the stack's accounts table, or from the
+ * `{ "<key>": { "email", "password" } }` file scripts/dev/demo-rich-seed.sh
+ * keeps.
+ */
+export function accountFrom(
+  text: string,
+  key: string,
+): { email: string; password: string } {
+  if (text.trimStart().startsWith("{")) {
+    const row = (JSON.parse(text) as Record<string, unknown>)[key];
+    if (
+      typeof row === "object" &&
+      row !== null &&
+      "email" in row &&
+      "password" in row &&
+      typeof row.email === "string" &&
+      typeof row.password === "string"
+    )
+      return { email: row.email, password: row.password };
+    throw new Error(`no "${key}" entry in the accounts file`);
+  }
   const table = text.split("<!-- accounts -->")[1]?.split("<!-- /accounts")[0];
   for (const line of table?.split("\n") ?? []) {
     const cells = line.split("|").map((cell) => cell.trim());
-    if (cells[1] !== args.account) continue;
+    if (cells[1] !== key) continue;
     const unquote = (cell = "") => cell.replace(/^`|`$/g, "");
     return { email: unquote(cells[4]), password: unquote(cells[5]) };
   }
-  throw new Error(`no "${args.account}" row in the accounts table`);
+  throw new Error(`no "${key}" row in the accounts table`);
 }
 
 async function signIn(): Promise<string> {
@@ -89,7 +109,12 @@ async function signIn(): Promise<string> {
       "content-type": "application/json",
       [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
     },
-    body: JSON.stringify(await account()),
+    body: JSON.stringify(
+      accountFrom(
+        await readFile(args.accounts as string, "utf8"),
+        args.account as string,
+      ),
+    ),
   });
   if (!response.ok) throw new Error(`login answered ${response.status}`);
   const cookie = response.headers
