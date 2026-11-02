@@ -573,7 +573,7 @@ describe("GitHub 연결 › 저장소 관리", () => {
       name: "설치 밖 저장소",
     });
     expect(within(outside).getByText("acme/sandbox")).toBeDefined();
-    expect(within(outside).getByText("설치 밖")).toBeDefined();
+    expect(within(outside).getAllByText("설치 밖").length).toBeGreaterThan(0);
   });
 });
 

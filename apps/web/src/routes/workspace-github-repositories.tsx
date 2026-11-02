@@ -54,7 +54,8 @@ export const repositoriesKey = (client: ApiClient, workspaceId: string) =>
 
 const PER_PAGE = 20;
 const COLUMNS = "minmax(0,1fr) 112px 64px 32px";
-const NARROW_COLUMNS = "minmax(0,1fr) 104px 48px 32px";
+const NARROW_COLUMNS = "minmax(0,1fr) 48px 32px";
+const NARROW_ONLY = "[@container(min-width:481px)]:hidden";
 
 type CatalogRow = ListGitHubRepositoriesResponse["catalog"][number];
 
@@ -307,7 +308,7 @@ export function RepositorySheet({
                     <GridTableColumnHeader>
                       {t("github.sheet.col.repository")}
                     </GridTableColumnHeader>
-                    <GridTableColumnHeader>
+                    <GridTableColumnHeader hideNarrow>
                       {t("github.repo.branch")}
                     </GridTableColumnHeader>
                     <GridTableColumnHeader align="end">
@@ -321,15 +322,28 @@ export function RepositorySheet({
                     const row = catalogOf(repository.catalog_id);
                     return (
                       <GridTableRow key={repository.github_repository_id}>
-                        <GridTableCell {...{ role: "rowheader" }}>
-                          <Text as="span" truncate>
-                            {repository.full_name}
+                        <GridTableCell {...{ role: "rowheader" }} lines>
+                          <Text
+                            as="span"
+                            className="flex min-w-0 items-center gap-2"
+                          >
+                            <Text as="span" truncate>
+                              {repository.full_name}
+                            </Text>
+                            {repository.private ? (
+                              <Badge>{t("github.repo.private")}</Badge>
+                            ) : null}
                           </Text>
-                          {repository.private ? (
-                            <Badge>{t("github.repo.private")}</Badge>
-                          ) : null}
+                          <Text
+                            as="span"
+                            variant="meta"
+                            truncate
+                            className={NARROW_ONLY}
+                          >
+                            {row?.branch ?? repository.default_branch}
+                          </Text>
                         </GridTableCell>
-                        <GridTableCell>
+                        <GridTableCell hideNarrow>
                           <Text as="span" truncate>
                             {row?.branch ?? repository.default_branch}
                           </Text>
@@ -398,7 +412,7 @@ export function RepositorySheet({
                     <GridTableColumnHeader>
                       {t("github.sheet.col.repository")}
                     </GridTableColumnHeader>
-                    <GridTableColumnHeader>
+                    <GridTableColumnHeader hideNarrow>
                       {t("github.sheet.col.status")}
                     </GridTableColumnHeader>
                     <GridTableColumnHeader align="end">
@@ -412,12 +426,17 @@ export function RepositorySheet({
                     const name = row.full_name ?? row.id;
                     return (
                       <GridTableRow key={row.id}>
-                        <GridTableCell {...{ role: "rowheader" }}>
+                        <GridTableCell {...{ role: "rowheader" }} lines>
                           <Text as="span" truncate>
                             {name}
                           </Text>
+                          <Text as="span" className={NARROW_ONLY}>
+                            <Badge variant="amber">
+                              {t("github.sheet.outsideBadge")}
+                            </Badge>
+                          </Text>
                         </GridTableCell>
-                        <GridTableCell>
+                        <GridTableCell hideNarrow>
                           <Badge variant="amber">
                             {t("github.sheet.outsideBadge")}
                           </Badge>

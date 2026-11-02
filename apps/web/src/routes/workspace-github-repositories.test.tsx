@@ -163,6 +163,39 @@ describe("GitHub 연결 › 저장소 시트", () => {
     expect(lists.at(-1)).toBe("?installation_id=78&page=1&per_page=20");
   });
 
+  test("좁은 폭에서 접히는 기본 브랜치·상태는 이름 칸 안에 들어 있다", async () => {
+    renderAt(PATH, routes());
+    const { sheet } = await openSheet();
+    const table = await within(sheet).findByRole("table", {
+      name: "acme · werft-agent 설치의 저장소",
+    });
+    const outside = within(sheet).getByRole("table", {
+      name: "설치 밖 저장소",
+    });
+    for (const each of [table, outside]) {
+      expect(each.getAttribute("data-narrow-at")).toBe("480");
+      for (const row of within(each).getAllByRole("row")) {
+        // Name, agents, menu stay; the second column folds into the name.
+        expect(
+          Array.from(row.children).filter(
+            (cell) =>
+              cell.getAttribute("role") &&
+              !cell.hasAttribute("data-hide-narrow"),
+          ),
+        ).toHaveLength(3);
+      }
+    }
+    const moved = (each: HTMLElement) =>
+      Array.from(
+        within(each)
+          .getAllByRole("rowheader")[0]
+          ?.querySelectorAll("[class*='min-width:481px']") ?? [],
+        (line) => line.textContent,
+      );
+    expect(moved(table)).toEqual(["main"]);
+    expect(moved(outside)).toEqual(["설치 밖"]);
+  });
+
   test("닫기 버튼으로 시트를 닫으면 저장소 관리로 포커스가 돌아온다", async () => {
     renderAt(PATH, routes());
     const { user, sheet } = await openSheet();
@@ -301,7 +334,9 @@ describe("GitHub 연결 › 저장소 시트", () => {
     const rows = within(outside).getAllByRole("row");
     expect(rows).toHaveLength(2);
     expect(within(rows[1] as HTMLElement).getByText("acme/gone")).toBeDefined();
-    expect(within(rows[1] as HTMLElement).getByText("설치 밖")).toBeDefined();
+    expect(
+      within(rows[1] as HTMLElement).getAllByText("설치 밖").length,
+    ).toBeGreaterThan(0);
   });
 
   test("기본 브랜치를 바꾸면 읽은 version과 함께 보낸다", async () => {
