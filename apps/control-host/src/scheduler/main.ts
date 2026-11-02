@@ -6,7 +6,11 @@ import {
   SEQUENTIAL_ROLE_POOL_MAX,
 } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
-import { runScheduler, type SchedulerRunSummary } from "@werft-ai/platform";
+import {
+  messageOf,
+  runScheduler,
+  type SchedulerRunSummary,
+} from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { PASS_DEGRADED_EXIT, PASS_SKIPPED_EXIT } from "../pass-loop/loop.ts";
 import { schedulerBackendFor } from "./backend.ts";
@@ -88,10 +92,6 @@ export async function main(
   } finally {
     await pool.end();
   }
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 /**
