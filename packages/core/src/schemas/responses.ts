@@ -97,6 +97,7 @@ import {
   putSlackSecretResponseSchema,
   readyResponseSchema,
   receiptAcceptedResponseSchema,
+  rejudgeSessionResponseSchema,
   rerunWorkflowResponseSchema,
   revokeAgentIdentityResponseSchema,
   revokeApiKeyResponseSchema,
@@ -252,6 +253,7 @@ export const responseSchemas = {
     listSessionGitHubRefusalsResponseSchema,
   "GET /v1/sessions/{id}/outcomes": listSessionOutcomesResponseSchema,
   "GET /v1/sessions/{id}/achievements": listSessionAchievementsResponseSchema,
+  "POST /v1/sessions/{id}/achievement-judgments": rejudgeSessionResponseSchema,
   "POST /v1/sessions/{id}/github/pull-requests/{number}/reviews":
     submitPullRequestReviewResponseSchema,
   "GET /v1/invites": listInvitesResponseSchema,

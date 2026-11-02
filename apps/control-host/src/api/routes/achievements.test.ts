@@ -14,6 +14,7 @@ import {
   listAchievementTypesResponseSchema,
   listSessionAchievementsResponseSchema,
   REQUEST_BODY_MAX_BYTES,
+  rejudgeSessionResponseSchema,
   WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
 import {
@@ -795,6 +796,7 @@ describe("a session's achievements", () => {
               }
               return owner === "owner-a" && session === SESSION ? listed : null;
             },
+            rejudge: async () => ({ outcome: "not_found" }),
           },
         }),
       ),
@@ -852,6 +854,7 @@ describe("a session's achievements", () => {
                 unshared.push(session);
                 return listed;
               },
+              rejudge: async () => ({ outcome: "not_found" }),
             },
           }),
         ),
@@ -862,5 +865,114 @@ describe("a session's achievements", () => {
     );
     expect(response.status).toBe(404);
     expect(unshared).toEqual([]);
+  });
+});
+
+describe("POST /v1/sessions/{id}/achievement-judgments", () => {
+  const SESSION = "33333333-3333-4333-8333-333333333333";
+  const DOWN = "55555555-5555-4555-8555-555555555555";
+  const JUDGMENT = "66666666-6666-4666-8666-666666666666";
+  const asked: Array<{ userId: string; sessionId: string; receiptId: string }> =
+    [];
+  let outcome: "queued" | "not_found" | "actor_inactive" = "queued";
+  beforeEach(() => {
+    asked.length = 0;
+    outcome = "queued";
+  });
+  const rejudging = createApiApp({
+    authMode: "api-key",
+    identity,
+    keyStore: {
+      async find(candidate) {
+        return keyHash.equals(Buffer.from(candidate))
+          ? {
+              id: KEY_ID,
+              ownerId: WORKSPACE,
+              workspaceId: WORKSPACE,
+              kind: "personal" as const,
+              createdByUserId: USER,
+              creatorRole: "owner" as const,
+              scopes: ["sessions:read", "sessions:write"],
+            }
+          : null;
+      },
+    },
+    registerRoutes: (router) =>
+      registerSessionAchievementRoutes(
+        router,
+        createSessionAchievementService({
+          authorization: createAuthorizationPolicy({
+            identity: {
+              async reread(subject) {
+                const { principal } = subject;
+                return principal.kind === "api_key"
+                  ? {
+                      status: "ok",
+                      principal,
+                      keyCreator: { userId: USER, role: "owner" },
+                    }
+                  : { status: "ok", principal };
+              },
+            },
+          }),
+          store: {
+            list: async () => null,
+            rejudge: async ({ actor, sessionId, receiptId }) => {
+              asked.push({ userId: actor.userId, sessionId, receiptId });
+              if (sessionId === DOWN) {
+                throw Object.assign(new Error("connection refused"), {
+                  code: "ECONNREFUSED",
+                });
+              }
+              return outcome === "queued"
+                ? { outcome, judgmentId: JUDGMENT }
+                : { outcome };
+            },
+          },
+        }),
+      ),
+  });
+  const rejudge = (session: string, who: Who) => {
+    const headers: Record<string, string> = {
+      [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
+    };
+    if (who === "key") headers.Authorization = `Bearer ${KEY}`;
+    else if (who !== null && who !== "agent_key") {
+      headers.Cookie = cookieFor(who);
+    }
+    return rejudging.request(`/v1/sessions/${session}/achievement-judgments`, {
+      method: "POST",
+      headers,
+    });
+  };
+
+  test("an owner or an admin queues a manual judgment and gets its id and the rejudge_session receipt", async () => {
+    for (const who of ["owner", "admin"] as const) {
+      const response = await rejudge(SESSION.toUpperCase(), who);
+      expect(response.status).toBe(202);
+      const body = rejudgeSessionResponseSchema.parse(await response.json());
+      expect(body.judgment_id).toBe(JUDGMENT);
+      expect(asked.at(-1)).toEqual({
+        userId: USER,
+        sessionId: SESSION,
+        receiptId: body.receipt_id,
+      });
+    }
+  });
+
+  test("a member or an API key is 403 and nothing is queued; no login 401", async () => {
+    expect((await rejudge(SESSION, "member")).status).toBe(403);
+    expect((await rejudge(SESSION, "key")).status).toBe(403);
+    expect((await rejudge(SESSION, null)).status).toBe(401);
+    expect(asked).toEqual([]);
+  });
+
+  test("an unseen session is 404, a manager who lost the role 403, a store outage 503", async () => {
+    outcome = "not_found";
+    expect((await rejudge(SESSION, "owner")).status).toBe(404);
+    expect((await rejudge("not-a-uuid", "owner")).status).toBe(404);
+    outcome = "actor_inactive";
+    expect((await rejudge(SESSION, "owner")).status).toBe(403);
+    expect((await rejudge(DOWN, "owner")).status).toBe(503);
   });
 });

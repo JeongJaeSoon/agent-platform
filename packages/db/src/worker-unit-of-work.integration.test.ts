@@ -39,7 +39,10 @@ import { reconcileOrphanedSessions } from "./queries.ts";
 import { createPostgresSchedulerStore } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
+  achievementCategories,
   achievementJudgments,
+  achievementRules,
+  achievementTypes,
   attempts,
   checkpointOutputs,
   checkpoints,
@@ -50,6 +53,7 @@ import {
   sessions,
   turns,
   unassignedSessions,
+  users,
   workerCredentials,
   workerImageRefusals,
   workerLaunches,
@@ -3728,6 +3732,109 @@ integration("worker gateway on PostgreSQL", () => {
     ).toEqual([
       { revision: 0, key: `${ref}/a`, bytes: 7 },
       { revision: 0, key: "outputs/inherited", bytes: 11 },
+    ]);
+  });
+
+  test("a turn's end queues a turns judgment when every_n_turns divides it, and the run's end an idle one", async () => {
+    const partition = partitionFor("judgment-triggers");
+    const workspaceId = crypto.randomUUID();
+    await db.insert(workspaces).values({
+      id: workspaceId,
+      slug: `triggers-${workspaceId.slice(0, 8)}`,
+      name: "triggers",
+      // every_n_turns below the API's minimum, so the first turn is due.
+      settings: {
+        achievement_judge: {
+          on_evidence: false,
+          every_n_turns: 1,
+          on_idle: true,
+        },
+      },
+    });
+    const typeId = crypto.randomUUID();
+    await db.insert(achievementTypes).values({
+      id: typeId,
+      workspaceId,
+      key: "talk",
+      name: "Talk",
+      evidenceKind: "conversation",
+      // No creator to point at: the gate reads the evidence kind only.
+      builtin: true,
+    });
+    const userId = crypto.randomUUID();
+    await db.insert(users).values({
+      id: userId,
+      email: `${userId}@example.invalid`,
+      passwordHash: "argon2id$placeholder",
+      displayName: "owner",
+    });
+    const categoryId = crypto.randomUUID();
+    await db.insert(achievementCategories).values({
+      id: categoryId,
+      workspaceId,
+      name: "Talk",
+      position: 0,
+      createdBy: userId,
+    });
+    const ruleId = crypto.randomUUID();
+    await db.insert(achievementRules).values({
+      id: ruleId,
+      workspaceId,
+      familyId: ruleId,
+      version: 1,
+      categoryId,
+      title: "Talk",
+      typeId,
+      definition: "A useful talk.",
+      judge: "luna",
+      createdBy: userId,
+    });
+    const {
+      session,
+      launch: l,
+      claimed,
+      input,
+    } = await claimAndDeliver(partition, workspaceId);
+    await db
+      .update(sessions)
+      .set({ workspaceId })
+      .where(eq(sessions.id, session.session_id));
+    const judged = () =>
+      db
+        .select({
+          trigger: achievementJudgments.trigger,
+          status: achievementJudgments.status,
+        })
+        .from(achievementJudgments)
+        .where(eq(achievementJudgments.sessionId, session.session_id));
+    await gateway.finalize(principalOf(claimed), {
+      ...scopeOf(claimed, input.turn_id),
+      turn_id: input.turn_id,
+      finalize_key: `fin-${input.turn_id}`,
+      final_source_sequence: 0,
+      terminal: {
+        status: "completed",
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: null,
+    });
+    expect(await judged()).toEqual([{ trigger: "turns", status: "queued" }]);
+
+    // The idle run's end merges into the judgment already pending.
+    await db
+      .update(achievementJudgments)
+      .set({ status: "skipped", finishedAt: new Date() })
+      .where(eq(achievementJudgments.sessionId, session.session_id));
+    await gateway.release(principalOf(claimed), {
+      ...scopeOf(claimed),
+      reason: "idle_timeout",
+    });
+    await confirmExecutionGone(db, l.executionId);
+    expect(await judged()).toEqual([
+      { trigger: "turns", status: "skipped" },
+      { trigger: "idle", status: "queued" },
     ]);
   });
 
