@@ -187,7 +187,7 @@ export function createPostgresSessionTitleStore(
   };
 }
 
-function resultTextOf(resultJson: unknown): string | null {
+export function resultTextOf(resultJson: unknown): string | null {
   if (typeof resultJson !== "object" || resultJson === null) return null;
   const { result } = resultJson as { result?: unknown };
   return typeof result === "string" ? result : null;

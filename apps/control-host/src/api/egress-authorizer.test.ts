@@ -485,7 +485,7 @@ describe("the judgment route", () => {
       checkpoints: acceptAllCheckpoints,
       judgments: {
         store: createPostgresJudgmentEgress(db),
-        upstream: () => LUNA,
+        upstream: async () => LUNA,
       },
       options: {
         sessionCostLimitUsd: 1_000,
