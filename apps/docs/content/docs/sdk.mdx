@@ -5,23 +5,17 @@ description: "@werft-ai/sdk로 세션을 만들고, 권한 요청에 답하고, 
 
 `@werft-ai/sdk`는 서버와 스크립트에서 Werft API를 부르는 TypeScript 클라이언트다. API key로 세션을 다룬다. HTTP API의 규칙(scope, Idempotency-Key, 오류 코드, 이벤트 스트림)을 그대로 따르고, 재시도·key 생성·turn 대기를 대신 해 준다. Node 20.3 이상과 Bun에서 돈다.
 
-<Callout type="warn">
-SDK는 npm 공개 패키지 `@werft-ai/sdk`(버전 0.x, Apache License 2.0)로 배포한다. npm에 첫 버전이 올라가기 전에는 이 저장소의 workspace 패키지(`packages/sdk`)라서 저장소 안의 스크립트에서만 가져올 수 있다. 올라간 뒤에는 `npm install @werft-ai/sdk`로 설치한다.
-</Callout>
+설치와 첫 연결은 [SDK 설치](/getting-started/install)에 있다. 이 쪽은 그다음에 알아야 할 것, 곧 handler로 답하는 스크립트, 이벤트와 오류, 재시도, 클라이언트 옵션을 다룬다. 같은 일을 HTTP API로 하는 방법은 각 기능 문서의 **HTTP API** 탭과 [HTTP API 레퍼런스](/reference/http-api/auth/getApiRoot)에 있다.
 
 ## 준비
 
-[설치](/getting-started/install)대로 띄운 스택과 [Quickstart](/getting-started/quickstart)의 `API`와 `KEY`를 쓴다. 스택은 `--fake-model`로 띄운다. 아래 스크립트의 `GATE-SPEC {…}` 메시지는 fake 모델이 읽는 대본이라, 실제 Claude 스택에서는 같은 도구 호출과 출력이 나오지 않는다. 저장소 루트에서 의존성을 설치한다.
+[SDK 설치](/getting-started/install)대로 SDK를 설치한 디렉터리에서 돌린다. 서버는 [개발용 서버](/server/dev)를 `--fake-model`로 띄운 것이다. 아래 스크립트의 `GATE-SPEC {…}` 메시지는 fake 모델이 읽는 대본이라, 실제 Claude 서버에서는 같은 도구 호출과 출력이 나오지 않는다.
 
-```sh
-bun install
-```
-
-key에는 아래 스크립트가 쓰는 `sessions:read`, `sessions:write`, `sessions:approve`, `sessions:control`이 필요하다. 클라이언트는 `WERFT_BASE_URL`과 `WERFT_API_KEY` 환경 변수를 읽는다.
+key에는 아래 스크립트가 쓰는 `sessions:read`, `sessions:write`, `sessions:approve`, `sessions:control`이 필요하다. 이 쪽의 스크립트는 `new Werft()`로 클라이언트를 만들어 서버 주소와 key를 `WERFT_BASE_URL`, `WERFT_API_KEY` 환경 변수에서 읽는다. 아래 실행 줄의 `API`는 서버 주소, `KEY`는 key를 담은 셸 변수다.
 
 ## 첫 스크립트
 
-세션을 만들고, 파일을 쓰려는 권한 요청에 답하고, turn이 끝나면 세션을 닫는다. 저장소 루트에 저장한다.
+세션을 만들고, 파일을 쓰려는 권한 요청에 답하고, turn이 끝나면 세션을 닫는다. SDK를 설치한 디렉터리에 저장한다.
 
 ```ts title="werft-first.ts"
 import {
@@ -188,23 +182,23 @@ const approver = werft.withOptions({ apiKey: approverKey });
 
 ## 감싸는 API
 
-| 메서드 | API |
-| --- | --- |
-| `sessions.create` · `get` · `list` · `usage` · `share` | 세션 만들기·읽기·목록·사용량·공유 |
-| `sessions.messages.send` | 메시지 보내기 |
-| `sessions.turns.get` · `list` | turn 읽기 |
-| `sessions.events.stream` | 이벤트 스트림 |
-| `sessions.requests.list` · `answer` | 권한 요청과 질문 |
-| `sessions.interrupt` · `pause` · `resume` · `terminate` · `close` · `changeProfile` | 제어 |
-| `sessions.recoveryDecisions.create` | 복구 결정 |
-| `sessions.pushRequests.create` · `list` · `get` · `decide` · `openPullRequest` · `commentPullRequest` | [push 승인](/approvals/request)과 PR |
-| `receipts.get`, `auth.me`, `limits.get`, `profiles.list`, `root.get` | receipt, 내 정보, 한도, 프로필, 상태 |
+| 메서드 | 하는 일 | HTTP API |
+| --- | --- | --- |
+| `sessions.create` · `get` · `list` · `usage` · `share` | 세션 만들기·읽기·목록·사용량·공유 | [`POST /v1/sessions`](/reference/http-api/sessions/createSession) 외 |
+| `sessions.messages.send` | 메시지 보내기 | [`POST …/messages`](/reference/http-api/messages-and-turns/appendSessionMessage) |
+| `sessions.turns.get` · `list` | turn 읽기 | [`GET …/turns/{turn_id}`](/reference/http-api/messages-and-turns/getSessionTurn) |
+| `sessions.events.stream` | 이벤트 스트림 | [`GET …/events`](/reference/http-api/events/streamSessionEvents) |
+| `sessions.requests.list` · `answer` | 권한 요청과 질문 | [`GET …/pending-requests`](/reference/http-api/pending-requests/listPendingRequests), [`POST …/answers`](/reference/http-api/pending-requests/answerPendingRequest) |
+| `sessions.interrupt` · `pause` · `resume` · `terminate` · `close` · `changeProfile` | 제어 | [Session control](/reference/http-api/session-control/closeSession) |
+| `sessions.recoveryDecisions.create` | 복구 결정 | [`POST …/recovery-decisions`](/reference/http-api/recovery/decideSessionRecovery) |
+| `sessions.pushRequests.create` · `list` · `get` · `decide` · `openPullRequest` · `commentPullRequest` | [push 승인](/approvals/request)과 PR | [Push requests](/reference/http-api/push-requests/createPushRequest) |
+| `receipts.get`, `auth.me`, `limits.get`, `profiles.list`, `root.get` | receipt, 내 정보, 한도, 프로필, 상태 | [`GET /v1/receipts/{id}`](/reference/http-api/limits-and-receipts/getReceipt) 외 |
 
 `sessions.list`와 `turns.list`는 `await`하면 첫 페이지, `for await`하면 모든 항목을 준다. 필드 이름은 API와 같은 snake_case다. 에이전트·멤버·key 관리처럼 웹 로그인으로만 부르는 API는 감싸지 않는다. `limits.get`은 로그인한 workspace owner만 읽으므로 API key로 부르면 403이다.
 
 ## 에이전트 key로 실행하기
 
-위 첫 스크립트는 Quickstart의 operator key 하나로 세션을 만들고 승인한다. workspace의 key(개인·에이전트)는 자기가 시작한 세션의 요청을 승인하지 못하므로 승인에는 다른 key나 사람이 필요하다. 에이전트 key는 자기 에이전트의 `agent_release_id`로 세션을 만든다. `profile_id`와 `repository_id` 대신 배포의 ID를 보내고, 승인에는 해당 세션을 읽고 답할 수 있는 별도 key(사용자 key나 같은 에이전트의 다른 key)를 쓴다.
+위 첫 스크립트는 [개발용 서버](/server/dev#api-key-발급)에서 발급한 operator key 하나로 세션을 만들고 승인한다. workspace의 key(개인·에이전트)는 자기가 시작한 세션의 요청을 승인하지 못하므로 승인에는 다른 key나 사람이 필요하다. 에이전트 key는 자기 에이전트의 `agent_release_id`로 세션을 만든다. `profile_id`와 `repository_id` 대신 배포의 ID를 보내고, 승인에는 해당 세션을 읽고 답할 수 있는 별도 key(사용자 key나 같은 에이전트의 다른 key)를 쓴다.
 
 기존 샘플은 `WERFT_AGENT_RELEASE_ID`와 `WERFT_APPROVER_API_KEY`를 지원한다. 에이전트 key에는 `sessions:read`, `sessions:write`, `sessions:control`, 승인자 key에는 `sessions:read`, `sessions:approve`가 필요하다. 생성한 세션의 공유 범위에도 승인자가 포함되어야 한다.
 
@@ -214,7 +208,7 @@ const approver = werft.withOptions({ apiKey: approverKey });
 
 [examples](https://github.com/JeongJaeSoon/agent-platform/blob/main/examples/README.md)에는 유즈케이스별 샘플이 있다. key와 카탈로그 확인, 세션 목록, 이벤트 스트림 이어 받기, 재시도와 Idempotency-Key, 질문·권한 요청 답변, 세션 제어와 복구, 막힌 close, push 승인과 PR을 다루고, 어떤 SDK API를 어느 샘플이 쓰는지 표로 정리했다.
 
-`examples/sdk-approver/src/session-close.ts`는 세션 생성, 이벤트를 받으며 turn 대기, 권한 요청 허락, close, 닫힌 뒤의 메시지 거절까지 한 번에 돈다.
+`examples/sdk-approver/src/session-close.ts`는 세션 생성, 이벤트를 받으며 turn 대기, 권한 요청 허락, close, 닫힌 뒤의 메시지 거절까지 한 번에 돈다. 저장소 checkout의 루트에서 `bun install` 뒤에 돌린다.
 
 ```bash
 WERFT_BASE_URL="$API" WERFT_API_KEY="$KEY" bun examples/sdk-approver/src/session-close.ts | tail -7
@@ -232,5 +226,5 @@ message after close: 409 SESSION_CLOSED
 
 ## 다음 단계
 
-- [Quickstart](/getting-started/quickstart): 같은 흐름을 curl로
+- [첫 세션 만들기](/getting-started/quickstart): 같은 흐름을 조각으로 나눠, HTTP API 호출과 함께
 - [승인 대기와 재개](/sessions/waiting-and-resume): handler가 답하는 요청의 종류

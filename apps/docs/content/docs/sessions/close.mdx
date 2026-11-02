@@ -3,11 +3,12 @@ title: "닫기"
 description: 일을 마친 세션을 닫고, 멈춰야 하는 실행을 terminate하고, 결과를 알 수 없는 turn을 복구한다
 ---
 
-세션을 끝내는 길은 셋이다. 일을 마친 세션은 close로 닫는다. 지금 당장 멈춰야 하면 terminate한다. terminate로 결과를 알 수 없는 turn이 남으면 복구 결정을 한다. [시작](/sessions/start)에서 만든 `SID`를 이어 쓴다.
+세션을 끝내는 길은 셋이다. 일을 마친 세션은 close로 닫는다. 지금 당장 멈춰야 하면 terminate한다. terminate로 결과를 알 수 없는 turn이 남으면 복구 결정을 한다. [시작](/sessions/start)에서 만든 세션(SDK는 `sessionId`, HTTP API는 `SID`)을 이어 쓴다.
 
 | | close | terminate | 복구 결정 `close` |
 | --- | --- | --- | --- |
-| 요청 | `POST …/close` | `POST …/terminate` | `POST …/recovery-decisions` |
+| SDK | `sessions.close` | `sessions.terminate` | `sessions.recoveryDecisions.create` |
+| HTTP API | `POST …/close` | `POST …/terminate` | `POST …/recovery-decisions` |
 | scope | `sessions:control` | `sessions:control` | `sessions:recover` |
 | 진행 중 turn | 끝까지 돌리고 checkpoint를 남긴다 | 실행을 죽인다. turn이 `outcome_unknown`이 될 수 있다 | 이미 멈춘 세션이 대상이다 |
 | 대기 중인 입력 | 닫힐 때 취소 | 바로 취소 | 바로 취소 |
@@ -16,6 +17,35 @@ description: 일을 마친 세션을 닫고, 멈춰야 하는 실행을 terminat
 ## close
 
 close는 돌고 있는 turn을 끝까지 기다린다. 아직 시작하지 않은 turn은 취소된다(`cancelled_turn_count`). 아래는 첫 turn이 끝난 뒤에 닫는다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { closeResult, waitForReceipt, waitForTurn } from "@werft-ai/sdk";
+
+await waitForTurn(werft, sessionId, created.turn_id);
+const { revision } = await werft.sessions.get(sessionId);
+const accepted = await werft.sessions.close(sessionId, {
+  expected_revision: revision,
+  reason: "work is done",
+});
+const receipt = await waitForReceipt(werft, accepted.receipt_id);
+console.log(receipt.operation, receipt.status, closeResult(receipt));
+```
+
+```text
+close succeeded {
+  checkpoint_revision: 3,
+  cancelled_turn_count: 0,
+  resulting_admission_state: 'closed'
+}
+```
+
+`closeResult`는 close receipt의 `result`를 타입으로 꺼낸다. 열린 요청 때문에 막혔는지는 `closeBlocked(session)`으로 본다.
+
+</Tab>
+<Tab>
 
 ```bash
 until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
@@ -46,11 +76,50 @@ curl -sS "$API/v1/receipts/$RID" -H "Authorization: Bearer $KEY" | jq '{operatio
 }
 ```
 
+레퍼런스: [`POST /v1/sessions/{id}/close`](/reference/http-api/session-control/closeSession)
+
+</Tab>
+</Tabs>
+
 닫는 동안 세션은 `closing`이다. 열린 권한 요청이나 질문은 close를 막는다. 답하거나 interrupt하면 풀린다. 60초가 넘으면 `attention`이 `CLOSE_BLOCKED`가 된다. 닫힌 뒤의 메시지와 pause·resume·close·terminate는 409 `SESSION_CLOSED`다. 이미 끝난 turn을 가리키는 interrupt는 닫힌 뒤에도 아무것도 하지 않는 성공(`no_op: true`)이다.
 
 ## terminate
 
 terminate는 실행을 바로 내린다. 도구가 이미 바깥에 한 일은 되돌리지 않는다. 쉬고 있는 세션을 terminate하면 바로 `stopped`이고 그대로 resume할 수 있다. 돌고 있던 turn이 있으면 그 turn은 `outcome_unknown`이 되고 세션은 복구 결정을 기다린다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const runaway = await werft.sessions.create({
+  profile_id: "claude-coding-local",
+  repository_id: "sample-app",
+  message:
+    'GATE-SPEC {"id":"runaway","steps":[],"final":"never","finalDelayMs":300000}',
+});
+const id = runaway.session_id;
+while ((await werft.sessions.turns.get(id, runaway.turn_id)).status !== "running") {
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+}
+const current = await werft.sessions.get(id);
+const terminated = await werft.sessions.terminate(id, {
+  expected_revision: current.revision,
+  reason: "runaway turn",
+});
+console.log(terminated.receipt_status, terminated.external_effects_reverted);
+while ((await werft.sessions.get(id)).admission_state !== "recovery_required") {
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+}
+console.log((await werft.sessions.turns.get(id, runaway.turn_id)).status);
+```
+
+```text
+accepted false
+outcome_unknown
+```
+
+</Tab>
+<Tab>
 
 ```bash
 created=$(curl -sS "$API/v1/sessions" \
@@ -86,6 +155,11 @@ curl -sS "$API/v1/sessions/$TID/turns/1" -H "Authorization: Bearer $KEY" | jq '{
 }
 ```
 
+레퍼런스: [`POST /v1/sessions/{id}/terminate`](/reference/http-api/session-control/terminateSession)
+
+</Tab>
+</Tabs>
+
 ## 복구 결정
 
 `outcome_unknown`은 성공도 실패도 아니다. 그 turn이 바깥에 무엇을 했는지 확인한 사람이 결정한다.
@@ -97,6 +171,33 @@ curl -sS "$API/v1/sessions/$TID/turns/1" -H "Authorization: Bearer $KEY" | jq '{
 | `start_fresh` | 이전 대화를 버리고 새 Claude Code 세션에서 대기 중인 입력을 실행한다 |
 | `retry_restore` | checkpoint 복원 실패의 원인을 고친 뒤 같은 checkpoint로 다시 복원한다 |
 | `close` | 세션을 끝낸다. 되돌릴 수 없다 |
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const stopped = await werft.sessions.get(id);
+const decided = await werft.sessions.recoveryDecisions.create(id, {
+  decision: "close",
+  expected_revision: stopped.revision,
+  reason: "nothing to keep",
+});
+const decision = await waitForReceipt(werft, decided.receipt_id);
+console.log(decision.operation, decision.result);
+```
+
+```text
+recovery_decision {
+  resumable: false,
+  checkpoint_revision: null,
+  resulting_admission_state: 'closed'
+}
+```
+
+key에 `sessions:recover`가 있어야 한다.
+
+</Tab>
+<Tab>
 
 ```bash
 REV=$(curl -sS "$API/v1/sessions/$TID" -H "Authorization: Bearer $KEY" | jq .revision)
@@ -122,6 +223,11 @@ curl -sS "$API/v1/receipts/$RID" -H "Authorization: Bearer $KEY" | jq '{operatio
   }
 }
 ```
+
+레퍼런스: [`POST /v1/sessions/{id}/recovery-decisions`](/reference/http-api/recovery/decideSessionRecovery)
+
+</Tab>
+</Tabs>
 
 `abandon`과 `confirm_completed`에는 대상 turn을 `target_turn_id`로 함께 보낸다. 다른 결정은 받지 않는다(400). `abandon`의 receipt `result.resumable`이 `true`면 resume으로 이어 간다.
 

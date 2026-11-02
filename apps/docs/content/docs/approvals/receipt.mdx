@@ -14,7 +14,28 @@ description: 명령 하나가 어떻게 끝났는지 남는 기록을 읽는다
 
 ## 읽기
 
-응답의 `receipt_id`로 `GET /v1/receipts/{id}`를 부른다. [거부](/approvals/reject)에서 만든 요청의 receipt를 읽는다.
+응답의 `receipt_id`로 `receipts.get`(`GET /v1/receipts/{id}`)을 부른다. [거부](/approvals/reject)에서 만든 요청의 receipt를 읽는다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const pr = await werft.sessions.pushRequests.get(sessionId, second.id);
+for (const id of [pr.request_receipt_id, pr.decision_receipt_id]) {
+  if (!id) continue;
+  const receipt = await werft.receipts.get(id);
+  const result = receipt.result as { decision?: string | null } | null;
+  console.log(receipt.operation, receipt.status, result?.decision);
+}
+```
+
+```text
+request_push succeeded null
+decide_push succeeded reject
+```
+
+</Tab>
+<Tab>
 
 ```bash
 pr=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID" -H "Authorization: Bearer $KEY")
@@ -29,11 +50,39 @@ done
 {"operation":"decide_push","status":"succeeded","actor":"api_key","decision":"reject"}
 ```
 
+레퍼런스: [`GET /v1/receipts/{id}`](/reference/http-api/limits-and-receipts/getReceipt)
+
+</Tab>
+</Tabs>
+
 거절된 요청은 오류 본문의 `error.details.receipt_id`가 그 receipt를 가리킨다. 거절도 기록이 남는다는 뜻이다.
 
 ## 끝날 때까지 기다리기
 
-비동기 제어의 receipt는 `accepted`에서 `succeeded`나 `failed`로 바뀐다. 기다리는 동안 다른 결과가 나와도 멈추도록 둘 다 본다.
+비동기 제어의 receipt는 `accepted`에서 `succeeded`나 `failed`로 바뀐다. 기다리는 동안 다른 결과가 나와도 멈추도록 둘 다 본다. SDK의 `waitForReceipt`는 `accepted`가 아닌 값이 될 때까지 기다린다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { waitForReceipt } from "@werft-ai/sdk";
+
+const { revision } = await werft.sessions.get(sessionId);
+const paused = await werft.sessions.pause(sessionId, {
+  expected_revision: revision,
+  reason: "lunch",
+});
+const receipt = await waitForReceipt(werft, paused.receipt_id);
+const state = receipt.result as { resulting_admission_state?: string } | null;
+console.log(receipt.operation, receipt.status, state?.resulting_admission_state);
+```
+
+```text
+pause succeeded paused
+```
+
+</Tab>
+<Tab>
 
 ```bash
 REV=$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .revision)
@@ -57,6 +106,9 @@ curl -sS "$API/v1/receipts/$RID" -H "Authorization: Bearer $KEY" \
   "state": "paused"
 }
 ```
+
+</Tab>
+</Tabs>
 
 receipt에는 비밀 값이 들어가지 않는다. 남의 범위에 있는 receipt는 404다.
 

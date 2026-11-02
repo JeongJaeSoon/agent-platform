@@ -34,14 +34,14 @@ export const messages: Record<Locale, Messages> = {
     siteTitle: "Werft 문서",
     siteDescription: "Werft 개발자 문서",
     homeLead:
-      "격리된 worker에서 Claude Agent SDK 세션을 실행하고, 시작·이벤트·승인·제어를 HTTP API로 다루는 플랫폼입니다.",
+      "격리된 worker에서 Claude Agent SDK 세션을 실행하는 플랫폼입니다. 세션의 시작·이벤트·승인·제어를 TypeScript SDK로 다룹니다.",
     untranslated: "",
   },
   ja: {
     siteTitle: "Werft ドキュメント",
     siteDescription: "Werft 開発者ドキュメント",
     homeLead:
-      "隔離された worker で Claude Agent SDK のセッションを実行し、開始・イベント・承認・制御を HTTP API で扱うプラットフォームです。",
+      "隔離された worker で Claude Agent SDK のセッションを実行するプラットフォームです。セッションの開始・イベント・承認・制御を TypeScript SDK で扱います。",
     untranslated:
       "このページはまだ日本語に翻訳されていません。韓国語の原文を表示しています。",
   },
@@ -49,7 +49,7 @@ export const messages: Record<Locale, Messages> = {
     siteTitle: "Werft Docs",
     siteDescription: "Werft developer documentation",
     homeLead:
-      "A platform that runs Claude Agent SDK sessions in isolated workers and exposes start, events, approvals and control over an HTTP API.",
+      "A platform that runs Claude Agent SDK sessions in isolated workers. You start sessions, read events, answer approvals and control them with the TypeScript SDK.",
     untranslated:
       "This page has not been translated into English yet. It is shown in the original Korean.",
   },

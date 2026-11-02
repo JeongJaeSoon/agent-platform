@@ -1,53 +1,43 @@
 ---
-title: "Quickstart"
-description: API key를 받고 curl로 첫 세션을 만든다
+title: "첫 세션 만들기"
+description: SDK로 세션을 만들고, turn이 끝나길 기다려 모델의 답을 읽는다
 ---
 
-[설치](/getting-started/install)대로 띄운 로컬 스택에서 API key를 받고, 세션 하나를 만들어 첫 turn이 끝나는 것까지 본다. 같은 터미널에서 순서대로 실행한다.
-
-## API key 받기
-
-```bash
-API=http://127.0.0.1:3000
-KEY=$(scripts/local.sh key quickstart \
-  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)
-echo "${KEY:0:4}…"
-```
-
-```text
-key_id …
-csp_…
-```
-
-`key_id`는 stderr로 나오는 key의 id다. key 자체는 stdout에 한 번만 나온다. 다시 볼 수 없으니 변수에만 둔다. `quickstart`는 key의 owner 이름이고, 이 key로 만든 세션은 이 owner의 것이다. scope는 [API key](/api-keys)에 있다.
-
-key가 맞는지 본다.
-
-```bash
-curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $KEY"
-```
-
-```text
-{"status":"ok","owner_id":"quickstart"}
-```
+[SDK 설치](/getting-started/install)에서 만든 `werft` 클라이언트로 세션 하나를 만들고 첫 turn이 끝나는 것까지 본다. 예제는 [개발용 서버](/server/dev)를 `--fake-model`로 띄운 경우다. `GATE-SPEC {…}` 메시지는 fake 모델이 읽는 대본이라, 실제 Claude가 도는 서버에서는 평범한 문장을 보낸다.
 
 ## 실행 프로필 고르기
 
-세션은 운영자가 등록한 실행 프로필(profile) 중 하나로 돈다. 로컬 fake 스택에는 저장소를 쓰는 `claude-coding-local`(권한 요청에 사람이 답한다)과 `claude-coding-auto`(분류기가 판정한다), 저장소 없이 도는 `general`이 있다.
+세션은 서버 운영자가 등록한 실행 프로필(profile) 중 하나로 돈다. [연결 확인](/getting-started/install#연결-확인)에서 본 목록이다. 개발용 서버에는 저장소를 쓰는 `claude-coding-local`(권한 요청에 사람이 답한다)과 `claude-coding-auto`(분류기가 판정한다), 저장소 없이 도는 `general`이 있다. 여기서는 `claude-coding-local`을 쓴다.
 
-```bash
-curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" | jq '.items[] | {id, model, repository_mode}'
+## 세션 만들기
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts title="first-session.ts"
+import { waitForTurn } from "@werft-ai/sdk";
+import { werft } from "./werft.ts";
+
+const created = await werft.sessions.create({
+  profile_id: "claude-coding-local",
+  repository_id: "sample-app",
+  message: 'GATE-SPEC {"id":"hello","steps":[],"final":"hello from Werft"}',
+});
+console.log(created);
 ```
 
 ```text
 {
-  "id": "claude-coding-local",
-  "model": "claude-sonnet-5",
-  "repository_mode": "required"
+  session_id: '…',
+  turn_id: '1',
+  receipt_id: '…',
+  receipt_status: 'accepted',
+  status: 'queued'
 }
 ```
 
-## 세션 만들기
+</Tab>
+<Tab>
 
 ```bash
 created=$(curl -sS "$API/v1/sessions" \
@@ -73,13 +63,39 @@ SID=$(echo "$created" | jq -r .session_id)
 }
 ```
 
-- `repository_id`는 세션이 clone할 저장소다. 로컬 스택의 Gitea에 `sample-app`이 들어 있다.
-- `message`는 첫 turn의 입력이다. fake 모델은 `GATE-SPEC {…}` 대본을 읽고 그대로 답한다. 이 대본은 도구를 부르지 않고 `hello from Werft`로 끝난다. 실제 Claude 스택에서는 평범한 문장을 쓴다.
-- 세션 API의 POST에는 `Idempotency-Key`가 필요하다. 같은 key로 다시 보내면 처음 응답이 그대로 온다.
+세션 API의 POST에는 `Idempotency-Key` 헤더가 필요하다. 같은 key로 다시 보내면 처음 응답이 그대로 온다. SDK는 이 key를 호출마다 만들어 붙인다.
+
+레퍼런스: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
+
+</Tab>
+</Tabs>
+
+- `repository_id`는 세션이 clone할 저장소다. 개발용 서버의 Gitea에 `sample-app`이 들어 있다.
+- `message`는 첫 turn의 입력이다. 이 대본은 도구를 부르지 않고 `hello from Werft`로 끝난다.
+- 만들기는 접수만 한다. 결과는 turn이 끝난 뒤에 읽는다.
 
 ## turn 끝나기 기다리기
 
 scheduler가 worker를 띄우고 worker가 저장소를 clone한 뒤 turn 1을 돈다. 처음에는 수십 초 걸린다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts title="first-session.ts (이어서)"
+const turn = await waitForTurn(werft, created.session_id, created.turn_id, {
+  signal: AbortSignal.timeout(5 * 60_000),
+});
+console.log(`turn ${turn.turn_id}: ${turn.status}`);
+```
+
+```text
+turn 1: completed
+```
+
+`waitForTurn`은 turn의 `status`가 끝난 값이 될 때까지 2초마다 확인한다.
+
+</Tab>
+<Tab>
 
 ```bash
 until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
@@ -95,11 +111,39 @@ curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq '{
 }
 ```
 
-turn이 끝났는지는 turn 조회의 `status`로만 판단한다. `completed`·`failed`·`interrupted`·`cancelled`·`outcome_unknown`이 끝난 상태다.
+레퍼런스: [`GET /v1/sessions/{id}/turns/{turn_id}`](/reference/http-api/messages-and-turns/getSessionTurn)
+
+</Tab>
+</Tabs>
+
+turn이 끝났는지는 turn의 `status`로만 판단한다. `completed`·`failed`·`interrupted`·`cancelled`·`outcome_unknown`이 끝난 상태다.
 
 ## 모델의 답 보기
 
-세션에서 일어난 일은 이벤트 스트림(SSE)으로 온다. 스트림은 서버가 닫지 않으므로 여기서는 5초 뒤 끊는다.
+세션에서 일어난 일은 이벤트 스트림으로 온다. 스트림은 turn이 끝나도 닫히지 않으므로 필요한 이벤트를 받으면 직접 끝낸다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts title="first-session.ts (이어서)"
+const stream = werft.sessions.events.stream(created.session_id);
+for await (const event of stream) {
+  if (event.kind === "assistant") {
+    console.log((event.payload as { text?: string }).text);
+  }
+  if (event.kind === "result") break;
+}
+stream.close();
+```
+
+```text
+hello from Werft
+```
+
+</Tab>
+<Tab>
+
+이벤트 스트림은 SSE다. 서버가 닫지 않으므로 여기서는 5초 뒤 끊는다.
 
 ```bash
 curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
@@ -112,9 +156,16 @@ curl: (28) Operation timed out after 5002 milliseconds with 3362 bytes received
 hello from Werft
 ```
 
-이벤트 하나는 `event:` 줄(종류)과 `data:` 줄(JSON)이다. assistant 이벤트의 `data.text`가 모델이 보낸 텍스트다. `curl: (28) Operation timed out`은 `--max-time`이 끊은 것이라 정상이다.
+이벤트 하나는 `event:` 줄(종류)과 `data:` 줄(JSON)이다. `curl: (28) Operation timed out`은 `--max-time`이 끊은 것이라 정상이다.
+
+레퍼런스: [`GET /v1/sessions/{id}/events`](/reference/http-api/events/streamSessionEvents)
+
+</Tab>
+</Tabs>
+
+assistant 이벤트의 `text`가 모델이 보낸 텍스트다. 세 조각을 이어 붙인 `first-session.ts`를 `WERFT_API_KEY=… node first-session.ts`로 돌리면 위 출력이 차례로 나온다.
 
 ## 다음 단계
 
-- [첫 세션](/getting-started/first-session): 권한 요청에 답하고, 메시지를 이어 보내고, 세션을 닫는다
+- [권한 요청과 닫기](/getting-started/first-session): 권한 요청에 답하고, 메시지를 이어 보내고, 세션을 닫는다
 - [스트리밍 받기](/messages/streaming): 이벤트 종류와 재연결

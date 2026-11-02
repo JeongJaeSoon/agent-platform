@@ -15,7 +15,28 @@ description: 세션이 만든 commit을 저장소의 agent/<session-id> 브랜�
 
 ## 파일을 바꾸는 세션 준비
 
-[Quickstart](/getting-started/quickstart)의 `API`와 `KEY`를 쓴다. 이 대본은 저장소의 `README.md`에 한 줄을 더하고, 권한 요청을 허락하면 turn이 끝난다.
+SDK 예제는 [SDK 설치](/getting-started/install)의 `werft` 클라이언트를, HTTP API 예제는 서버 주소 `API`와 key `KEY` 셸 변수를 쓴다. 이 대본은 저장소의 `README.md`에 한 줄을 더하고, 권한 요청을 허락하면 turn이 끝난다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { waitForTurn } from "@werft-ai/sdk";
+
+const note = await werft.sessions.create({
+  profile_id: "claude-coding-local",
+  repository_id: "sample-app",
+  message:
+    'GATE-SPEC {"id":"note","steps":[{"tool":"Bash","input":{"command":"echo tested >> README.md","description":"append to README.md"}}],"final":"updated README.md"}',
+});
+const sessionId = note.session_id;
+await waitForTurn(werft, sessionId, note.turn_id, {
+  onRequest: { permission: () => ({ decision: "allow" }) },
+});
+```
+
+</Tab>
+<Tab>
 
 ```bash
 SID=$(curl -sS "$API/v1/sessions" \
@@ -39,9 +60,37 @@ until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $K
 done
 ```
 
+</Tab>
+</Tabs>
+
 ## 요청하기
 
-요청 본문으로 빈 JSON 객체(`{}`)를 보낸다. 무엇을 어디로 보낼지는 요청하는 사람이 고르지 않는다. 플랫폼이 그때 세션의 최신 checkpoint와 그 commit, 세션의 저장소, 브랜치 `agent/<session-id>`를 고정한다.
+SDK는 세션 id만 넘기고, HTTP API는 요청 본문으로 빈 JSON 객체(`{}`)를 보낸다. 무엇을 어디로 보낼지는 요청하는 사람이 고르지 않는다. 플랫폼이 그때 세션의 최신 checkpoint와 그 commit, 세션의 저장소, 브랜치 `agent/<session-id>`를 고정한다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const push = await werft.sessions.pushRequests.create(sessionId);
+console.log({
+  state: push.state,
+  repository_id: push.repository_id,
+  checkpoint_revision: push.checkpoint_revision,
+  target_branch: push.target_branch,
+});
+```
+
+```text
+{
+  state: 'requested',
+  repository_id: 'sample-app',
+  checkpoint_revision: 0,
+  target_branch: 'agent/…'
+}
+```
+
+</Tab>
+<Tab>
 
 ```bash
 push=$(curl -sS "$API/v1/sessions/$SID/push-requests" \
@@ -64,7 +113,12 @@ PUSH_COMMIT=$(echo "$push" | jq -r .git_commit)
 }
 ```
 
-응답은 201이다. `GET /v1/sessions/{id}/push-requests`로 세션의 요청 목록을, `GET …/push-requests/{push_request_id}`로 요청 하나를 본다.
+레퍼런스: [`POST /v1/sessions/{id}/push-requests`](/reference/http-api/push-requests/createPushRequest)
+
+</Tab>
+</Tabs>
+
+응답은 201이다. 세션의 요청 목록은 `pushRequests.list`(`GET /v1/sessions/{id}/push-requests`)로, 요청 하나는 `pushRequests.get`(`GET …/push-requests/{push_request_id}`)으로 본다.
 
 | 응답 | 뜻 |
 | --- | --- |

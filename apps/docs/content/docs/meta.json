@@ -2,6 +2,8 @@
   "pages": [
     "index",
     "getting-started",
+    "sdk",
+    "server",
     "agents",
     "sessions",
     "messages",
@@ -9,10 +11,8 @@
     "integrations",
     "api-keys",
     "observability",
-    "sdk",
     "ui",
     "reference",
-    "operations",
     "contributing"
   ]
 }

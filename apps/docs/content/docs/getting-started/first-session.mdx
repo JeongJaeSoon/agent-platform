@@ -1,13 +1,48 @@
 ---
-title: "첫 세션"
+title: "권한 요청과 닫기"
 description: 권한 요청에 답하고, 메시지를 이어 보내고, 세션을 닫는다
 ---
 
-세션 하나를 처음부터 끝까지 돈다. 에이전트가 파일을 쓰려다 권한을 묻고, 사람이 허락하고, 다음 메시지가 같은 작업 트리에서 이어지고, 마지막에 세션을 닫는다. [Quickstart](/getting-started/quickstart)에서 만든 `API`와 `KEY`를 같은 터미널에서 쓴다.
+세션 하나를 처음부터 끝까지 돈다. 에이전트가 파일을 쓰려다 권한을 묻고, 스크립트가 허락하고, 다음 메시지가 같은 작업 트리에서 이어지고, 마지막에 세션을 닫는다. [SDK 설치](/getting-started/install)의 `werft` 클라이언트를 쓴다. key에 `sessions:approve`와 `sessions:control`도 있어야 한다.
 
 ## 파일을 쓰는 세션 만들기
 
-이 대본은 Bash로 `hello.txt`를 쓴다. 로컬 프로필은 파일을 바꾸는 명령 전에 권한을 묻는다.
+이 대본은 Bash로 `hello.txt`를 쓴다. `claude-coding-local` 프로필은 파일을 바꾸는 명령 전에 권한을 묻는다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts title="approve-and-close.ts"
+import {
+  closeResult,
+  type PendingRequestHandlers,
+  waitForReceipt,
+  waitForTurn,
+} from "@werft-ai/sdk";
+import { werft } from "./werft.ts";
+
+const signal = AbortSignal.timeout(5 * 60_000);
+const COMMAND = "echo alpha > hello.txt";
+
+const created = await werft.sessions.create({
+  profile_id: "claude-coding-local",
+  repository_id: "sample-app",
+  message: `GATE-SPEC ${JSON.stringify({
+    id: "first",
+    steps: [
+      {
+        tool: "Bash",
+        input: { command: COMMAND, description: "write hello.txt" },
+      },
+    ],
+    final: "wrote hello.txt",
+  })}`,
+});
+const sessionId = created.session_id;
+```
+
+</Tab>
+<Tab>
 
 ```bash
 created=$(curl -sS "$API/v1/sessions" \
@@ -22,9 +57,46 @@ echo "$SID"
 
 본문을 `jq -nc --arg`로 만들면 메시지 안의 따옴표를 손으로 escape하지 않아도 된다.
 
-## 권한 요청 기다리기
+</Tab>
+</Tabs>
 
-세션이 권한을 묻고 멈추면 `status`가 `needs_input`이 된다.
+## 권한 요청에 답하기
+
+세션이 권한을 묻고 멈추면 `status`가 `needs_input`이 된다. SDK에서는 `waitForTurn`에 handler를 넘긴다. turn을 기다리는 동안 생긴 권한 요청과 질문이 handler로 온다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts title="approve-and-close.ts (이어서)"
+// Allow the exact command this script expects, deny everything else.
+const approvals: PendingRequestHandlers = {
+  permission(request) {
+    console.log("asked:", request.tool, request.input);
+    const command = (request.input as { command?: unknown } | null)?.command;
+    if (request.tool === "Bash" && command === COMMAND)
+      return { decision: "allow" };
+    return { decision: "deny", reason: `This script only allows: ${COMMAND}` };
+  },
+};
+
+const first = await waitForTurn(werft, sessionId, created.turn_id, {
+  signal,
+  onRequest: approvals,
+  onAnswer: (outcome) => console.log(`answered: ${outcome.outcome}`),
+});
+console.log(`turn ${first.turn_id}: ${first.status}`);
+```
+
+```text
+asked: Bash { command: 'echo alpha > hello.txt', description: 'write hello.txt' }
+answered: accepted
+turn 1: completed
+```
+
+handler가 `undefined`를 돌려주거나 그 종류의 handler가 없으면 요청을 열어 두고 사람에게 맡긴다.
+
+</Tab>
+<Tab>
 
 ```bash
 until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .status)" = needs_input ]; do
@@ -42,8 +114,6 @@ curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY
   "command": "echo alpha > hello.txt"
 }
 ```
-
-## 허락하기
 
 ```bash
 REQ=$(curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY" | jq -r '.items[0].request_id')
@@ -65,11 +135,35 @@ done
 }
 ```
 
-거절하려면 `"decision": "deny"`와 `"reason"`을 보낸다. 답하지 않은 요청은 30분 뒤 거절로 끝난다. 자세한 내용은 [승인 대기와 재개](/sessions/waiting-and-resume)에 있다.
+레퍼런스: [`GET /v1/sessions/{id}/pending-requests`](/reference/http-api/pending-requests/listPendingRequests), [`POST /v1/sessions/{id}/answers`](/reference/http-api/pending-requests/answerPendingRequest)
+
+</Tab>
+</Tabs>
+
+거절은 `decision: "deny"`와 `reason`이다. 답하지 않은 요청은 30분 뒤 거절로 끝난다. 자세한 내용은 [승인 대기와 재개](/sessions/waiting-and-resume)에 있다.
 
 ## 이어서 보내기
 
 같은 세션에 메시지를 보내면 다음 turn이 된다. worker는 같은 작업 트리와 같은 Claude Code 대화를 이어 쓴다. 읽기 명령은 권한을 묻지 않는다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts title="approve-and-close.ts (이어서)"
+const sent = await werft.sessions.messages.send(sessionId, {
+  message:
+    'GATE-SPEC {"id":"second","steps":[{"tool":"Bash","input":{"command":"cat hello.txt","description":"read hello.txt"}}],"final":"read it"}',
+});
+const second = await waitForTurn(werft, sessionId, sent.turn_id, { signal });
+console.log(`turn ${second.turn_id}: ${second.status}`);
+```
+
+```text
+turn 2: completed
+```
+
+</Tab>
+<Tab>
 
 ```bash
 curl -sS "$API/v1/sessions/$SID/messages" \
@@ -93,9 +187,42 @@ curl -sS "$API/v1/sessions/$SID/turns" -H "Authorization: Bearer $KEY" | jq -c '
 {"turn_id":"2","status":"completed"}
 ```
 
+레퍼런스: [`POST /v1/sessions/{id}/messages`](/reference/http-api/messages-and-turns/appendSessionMessage)
+
+</Tab>
+</Tabs>
+
 ## 닫기
 
-할 일을 마친 세션은 닫는다. 진행 중인 turn을 끝까지 돌리고 checkpoint를 남긴 뒤 `closed`가 된다. 제어 요청에는 지금 세션의 `revision`을 `expected_revision`으로 보낸다.
+할 일을 마친 세션은 닫는다. 진행 중인 turn을 끝까지 돌리고 checkpoint를 남긴 뒤 `closed`가 된다. 제어 요청에는 지금 세션의 `revision`을 `expected_revision`으로 넘긴다. SDK는 이 값을 대신 읽어 채우지 않는다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts title="approve-and-close.ts (이어서)"
+const { revision } = await werft.sessions.get(sessionId);
+const accepted = await werft.sessions.close(sessionId, {
+  expected_revision: revision,
+  reason: "first session done",
+});
+const receipt = await waitForReceipt(werft, accepted.receipt_id, { signal });
+console.log(`close: ${receipt.status}`, closeResult(receipt));
+
+const session = await werft.sessions.get(sessionId);
+console.log(session.status, session.admission_state);
+```
+
+```text
+close: succeeded {
+  checkpoint_revision: 1,
+  cancelled_turn_count: 0,
+  resulting_admission_state: 'closed'
+}
+stopped closed
+```
+
+</Tab>
+<Tab>
 
 ```bash
 REV=$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .revision)
@@ -121,10 +248,15 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{status, 
 }
 ```
 
+레퍼런스: [`POST /v1/sessions/{id}/close`](/reference/http-api/session-control/closeSession)
+
+</Tab>
+</Tabs>
+
 닫힌 세션에는 메시지를 더 보낼 수 없다(409 `SESSION_CLOSED`).
 
 ## 다음 단계
 
+- [TypeScript SDK](/sdk): 이벤트, 오류, 재시도, 클라이언트 옵션
 - [시작](/sessions/start): 세션 생성 요청의 필드와 오류
-- [상태와 수명](/sessions/lifecycle): `status`와 `admission_state`가 뜻하는 것
 - [만들기](/agents/create): 에이전트를 정의하고 세션에 묶는다
