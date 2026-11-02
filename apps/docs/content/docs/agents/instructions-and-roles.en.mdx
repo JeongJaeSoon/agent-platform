@@ -1,16 +1,41 @@
 ---
-title: "Instructions and roles"
-description: The fields of an agent card, how versions accumulate, and the instructions the model actually reads today
+title: "Instructions and description"
+description: How name and description differ from agent instructions, the card fields, how versions accumulate, and the instructions the model actually reads today
 ---
 
-A card is the definition that says who an agent is and what it should do. Editing a card creates a new version, and earlier versions never change.
+An agent has values people read and values a run uses, and they live in different places.
+
+| Value | Where | When you change it | Does the model read it |
+| --- | --- | --- | --- |
+| Name (`name`) and description (`description`) | Agent row | Changes at once. No version or release is created | No |
+| Agent instructions (`agent_instructions`) and the other card fields | Card | Creates a new version. It is used only once a release of it is activated | The instructions, yes |
+
+Name and description help people recognise the agent in lists and on its page. They do not affect what the agent does. How the agent should work goes in the agent instructions.
+
+## Agent instructions
+
+Agent instructions are text added to the system prompt of every session of that agent. Write here what you used to put in `CLAUDE.md` or `AGENTS.md`: how to work, how to answer, rules to keep. Up to 20,000 characters.
+
+In the web console, open the "Settings" tab on the agent's page, press "Edit settings", write in "Agent instructions" under "Run settings", and save. The new-agent flow has no such field. Write them in Settings after creating the agent.
+
+- Saving creates a new version. The active release stays as it is.
+- Once you create a release from that version and activate it, sessions started after that get the text in their system prompt, after the platform's instructions and before the repository's `CLAUDE.md`.
+- A session is pinned to the release it started on. When the session's runtime comes back up (the next message after the runtime shut down because no input came for 30 minutes after the last turn, or a resume after a pause), the same release's instructions are added again, so changing the active release does not change the instructions of a session already running.
+- Clearing the field or leaving only spaces removes it from the card, and nothing is added to the prompt. Text you write is stored as is, including leading and trailing spaces.
+
+### Earlier instructions
+
+Earlier cards had "Role" (`role`) and "Instructions" (`instructions`) fields. Both were stored in the version but never passed to the model.
+
+- New cards do not send them. Values in versions already saved stay.
+- The role was copied once into the agent's description when this feature shipped. For an agent without a description, the screens show the card's role in its place.
+- Instructions are not moved automatically, because that would change existing agents' behaviour with text no one has checked. Settings shows them as "Earlier instructions (never applied)", and "Copy into agent instructions" on the edit screen puts that text into the agent instructions field. They are used in runs only after you save and activate a release.
 
 ## Card fields
 
 | Field | Required | Content |
 | --- | --- | --- |
-| `role` | Yes | One-line role. Up to 200 characters |
-| `instructions` | Yes | Instructions. Up to 20,000 characters |
+| `agent_instructions` | | Agent instructions. Up to 20,000 characters. Left out when empty |
 | `model` | Yes | Model name. Must be one of the models the run profile can run when you create a release |
 | `capabilities.tools` | Yes | List of tool names to use. They must be tools the run profile has. `null` means all of the profile's tools when the release is created |
 | `capabilities.mcp` | Yes | Only `null` is accepted for now |
@@ -19,10 +44,13 @@ A card is the definition that says who an agent is and what it should do. Editin
 | `capabilities.credential_refs` | | Names of the credentials to use (not the values). [Permissions](/agents/permissions) |
 | `language` | | `ko` (default) or `en` |
 | `rules` | | List of `{id, text, source}`. `source` is `user` or `correction` |
+| `role`, `instructions` | | Values from earlier cards. Not passed to the model. New cards do not send them |
+
+Name (1–120 characters) and description (0–2,000 characters) are fields of the agent, not the card. Send them as `name` and `description` to `POST /v1/agents` and `PATCH /v1/agents/{id}`.
 
 ## Choosing tools in the web console
 
-In card editing (the "What it does" step of a new agent, and card editing on the agent's page), "Tools it may use" is a checklist of one profile's tools.
+In card editing (the "What it does" step of a new agent, and Edit settings on the agent's page), "Tools it may use" is a checklist of one profile's tools.
 
 - "Profile to choose tools from": pick one of the profiles that run the card's model. The new-agent flow lists first the profiles it can release without a repository, and picks the chosen one first in the release step. This value is not saved on the card.
 - With "Every tool the profile allows at release" on, `tools` is `null`. Turn it off and the checked tools are `tools`. Unchecking a tool is what forbids it.
@@ -33,26 +61,25 @@ In card editing (the "What it does" step of a new agent, and card editing on the
 
 ## What the model reads today
 
+The worker adds these instructions to the model's system prompt, in this order.
+
+1. For a session without a repository, a single line telling the agent to put files meant for people in `out/`.
+2. The agent instructions of the session's release.
+3. `CLAUDE.md` at the repository root. When the run profile has `project_settings.claude_md: true`, the committed content is read. The local profile `claude-coding-local` has it on.
+
 <Callout type="warn">
-A card's `role`, `instructions`, and `rules` are stored in the version and the release and pinned to the session, but they are not passed to the model yet.
+Name, description, and the card's `role`, `instructions`, `language`, and `rules` are not passed to the model. To set the answer language, write it in the agent instructions.
 </Callout>
-
-The worker currently adds two instructions to the model.
-
-- `CLAUDE.md` at the repository root. When the run profile has `project_settings.claude_md: true`, the committed content is read. The local profile `claude-coding-local` has it on.
-- For a session without a repository, a single line telling the agent to put files meant for people in `out/`.
-
-So to tell an agent how to work, write it in the repository's `CLAUDE.md` for now.
 
 ## Editing and versions
 
-Editing a card makes `PATCH /v1/agents/{id}` add a new version. To change only the name, send only `name`. Sending a card identical to an existing version adds nothing. This continues with `AID` and `WEB` from [Create](/agents/create).
+Sending a card makes `PATCH /v1/agents/{id}` add a new version. To change only the name or description, send only `name` or `description`; no version is created. Sending a card identical to an existing version adds nothing. This continues with `AID` and `WEB` from [Create](/agents/create).
 
 ```bash
 curl -sS -X PATCH "$API/v1/agents/$AID" "${WEB[@]}" -d '{
+  "description": "Reads the repository and answers questions",
   "card": {
-    "role": "저장소를 읽고 질문에 답한다",
-    "instructions": "Answer briefly. Cite file paths. Say when you are unsure.",
+    "agent_instructions": "Answer briefly. Cite file paths. Say when you are unsure.",
     "model": "claude-sonnet-5",
     "language": "en",
     "capabilities": { "tools": ["Read", "Grep", "Glob"], "mcp": null },
@@ -66,7 +93,7 @@ curl -sS -X PATCH "$API/v1/agents/$AID" "${WEB[@]}" -d '{
 {"version_no":2,"language":"en"}
 ```
 
-A new version does not change the active release. To use it, create a release from that version and activate it ([Create](/agents/create#create-a-release)). In the web console, "Save" on the agent detail does the same thing and shows the difference between the two versions.
+A new version does not change the active release. To use it, create a release from that version and activate it ([Create](/agents/create#create-a-release)). In the web console, "Save" in Settings does the same thing and shows the difference between the two versions.
 
 ## Next steps
 

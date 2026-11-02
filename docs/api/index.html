@@ -2522,209 +2522,8 @@
                 "minLength": 1,
                 "maxLength": 20000
               },
-              "language": {
-                "default": "ko",
+              "agent_instructions": {
                 "type": "string",
-                "enum": [
-                  "ko",
-                  "en"
-                ]
-              },
-              "model": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 128
-              },
-              "capabilities": {
-                "type": "object",
-                "properties": {
-                  "tools": {
-                    "anyOf": [
-                      {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 128
-                        }
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "mcp": {
-                    "anyOf": [
-                      {
-                        "minItems": 1,
-                        "maxItems": 1,
-                        "type": "array",
-                        "items": {
-                          "type": "object",
-                          "properties": {
-                            "server": {
-                              "type": "string",
-                              "pattern": "^[a-z0-9](?:[a-z0-9-]|_(?!_)){0,31}$"
-                            }
-                          },
-                          "required": [
-                            "server"
-                          ],
-                          "additionalProperties": false
-                        }
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "forbidden": {
-                    "default": [],
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 128
-                    }
-                  },
-                  "tool_policy": {
-                    "type": "object",
-                    "properties": {
-                      "default": {
-                        "type": "object",
-                        "properties": {
-                          "builtin": {
-                            "type": "string",
-                            "enum": [
-                              "allow",
-                              "ask",
-                              "deny"
-                            ]
-                          },
-                          "mcp": {
-                            "type": "string",
-                            "enum": [
-                              "allow",
-                              "ask",
-                              "deny"
-                            ]
-                          }
-                        },
-                        "additionalProperties": false
-                      },
-                      "per_tool": {
-                        "type": "object",
-                        "propertyNames": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 128
-                        },
-                        "additionalProperties": {
-                          "type": "string",
-                          "enum": [
-                            "allow",
-                            "ask",
-                            "deny"
-                          ]
-                        }
-                      }
-                    },
-                    "additionalProperties": false
-                  },
-                  "credential_refs": {
-                    "maxItems": 32,
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "pattern": "^[a-z0-9][a-z0-9._:/-]{0,127}$"
-                    }
-                  }
-                },
-                "required": [
-                  "tools",
-                  "mcp"
-                ],
-                "additionalProperties": false
-              },
-              "rules": {
-                "default": [],
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 64
-                    },
-                    "text": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 2000
-                    },
-                    "source": {
-                      "type": "string",
-                      "enum": [
-                        "user",
-                        "correction"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "id",
-                    "text",
-                    "source"
-                  ],
-                  "additionalProperties": false
-                }
-              }
-            },
-            "required": [
-              "role",
-              "instructions",
-              "model",
-              "capabilities"
-            ],
-            "additionalProperties": false
-          }
-        },
-        "required": [
-          "slug",
-          "name",
-          "card"
-        ],
-        "additionalProperties": false
-      },
-      "UpdateAgentRequest": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 120
-          },
-          "description": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 2000
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "card": {
-            "type": "object",
-            "properties": {
-              "role": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200
-              },
-              "instructions": {
-                "type": "string",
-                "minLength": 1,
                 "maxLength": 20000
               },
               "language": {
@@ -2885,8 +2684,213 @@
               }
             },
             "required": [
-              "role",
-              "instructions",
+              "model",
+              "capabilities"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "slug",
+          "name",
+          "card"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateAgentRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "card": {
+            "type": "object",
+            "properties": {
+              "role": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "instructions": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20000
+              },
+              "agent_instructions": {
+                "type": "string",
+                "maxLength": 20000
+              },
+              "language": {
+                "default": "ko",
+                "type": "string",
+                "enum": [
+                  "ko",
+                  "en"
+                ]
+              },
+              "model": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "capabilities": {
+                "type": "object",
+                "properties": {
+                  "tools": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "mcp": {
+                    "anyOf": [
+                      {
+                        "minItems": 1,
+                        "maxItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "server": {
+                              "type": "string",
+                              "pattern": "^[a-z0-9](?:[a-z0-9-]|_(?!_)){0,31}$"
+                            }
+                          },
+                          "required": [
+                            "server"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "forbidden": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    }
+                  },
+                  "tool_policy": {
+                    "type": "object",
+                    "properties": {
+                      "default": {
+                        "type": "object",
+                        "properties": {
+                          "builtin": {
+                            "type": "string",
+                            "enum": [
+                              "allow",
+                              "ask",
+                              "deny"
+                            ]
+                          },
+                          "mcp": {
+                            "type": "string",
+                            "enum": [
+                              "allow",
+                              "ask",
+                              "deny"
+                            ]
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "per_tool": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "additionalProperties": {
+                          "type": "string",
+                          "enum": [
+                            "allow",
+                            "ask",
+                            "deny"
+                          ]
+                        }
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "credential_refs": {
+                    "maxItems": 32,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9._:/-]{0,127}$"
+                    }
+                  }
+                },
+                "required": [
+                  "tools",
+                  "mcp"
+                ],
+                "additionalProperties": false
+              },
+              "rules": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "text": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2000
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "user",
+                        "correction"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "text",
+                    "source"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
               "model",
               "capabilities"
             ],

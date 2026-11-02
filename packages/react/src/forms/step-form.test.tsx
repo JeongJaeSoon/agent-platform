@@ -88,7 +88,7 @@ const identity = (send: (values: { slug: string; name: string }) => unknown) =>
       <StepFormView
         schema={agentIdentityStep}
         fields={["slug", "name"]}
-        defaultValues={{ slug: "", name: "" }}
+        defaultValues={{ slug: "", name: "", description: "" }}
         send={send}
       />
     </Wrap>,
@@ -145,8 +145,6 @@ describe("a step form", () => {
       return { data: {} };
     });
     const card = agentCardStep().parse({
-      role: "Support",
-      instructions: "Answer.",
       language: "ko",
       model: "claude-sonnet-5",
       toolsMode: "all",
@@ -161,6 +159,7 @@ describe("a step form", () => {
     expect(post.mock.calls[0]?.[1].body).toEqual({
       slug: "refunds",
       name: "Refunds",
+      description: "",
       card,
     });
     expect(alerts(view)).toEqual([]);
@@ -194,8 +193,6 @@ describe("a step form", () => {
     };
     const send = mock();
     const draft: AgentCardDraft = {
-      role: "Support",
-      instructions: "Answer.",
       language: "ko",
       model: "claude-sonnet-5",
       toolsMode: "list",
@@ -206,7 +203,7 @@ describe("a step form", () => {
       <Wrap>
         <StepFormView
           schema={agentCardStep(base)}
-          fields={["role", "instructions", "model"]}
+          fields={["model"]}
           defaultValues={draft}
           send={send}
         />

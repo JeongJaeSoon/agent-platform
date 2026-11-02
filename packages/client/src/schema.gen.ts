@@ -4289,8 +4289,9 @@ export interface components {
             /** Format: uuid */
             managing_team_id?: string;
             card: {
-                role: string;
-                instructions: string;
+                role?: string;
+                instructions?: string;
+                agent_instructions?: string;
                 /**
                  * @default ko
                  * @enum {string}
@@ -4330,8 +4331,9 @@ export interface components {
             name?: string;
             description?: string | null;
             card?: {
-                role: string;
-                instructions: string;
+                role?: string;
+                instructions?: string;
+                agent_instructions?: string;
                 /**
                  * @default ko
                  * @enum {string}

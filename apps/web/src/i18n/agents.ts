@@ -40,7 +40,6 @@ export const agentsKo = {
   "agents.slackAction.install": "앱 설치 대기",
   "agents.slackAction.reinstall": "다시 설치 필요",
   "agents.slackAction.home_unset": "홈 채널 지정 필요",
-  "agents.cards.instructions": "지시문",
   "agents.cards.admins": "관리자",
   "agents.updated": "{at} 수정",
   "agents.state.draft": "초안",
@@ -53,6 +52,10 @@ export const agentsKo = {
     "빈 카드에서 다섯 단계로 만듭니다. '하는 일'까지 마치면 초안으로 저장되어, 그 뒤에 나가도 목록에 초안으로 남습니다.",
   "agents.name": "이름",
   "agents.slug": "식별자",
+  "agents.description": "설명",
+  "agents.descriptionOptional": "설명 (선택)",
+  "agents.descriptionHint":
+    "사람이 읽는 소개입니다. 목록과 상세 화면에 보이고, 에이전트의 동작에는 쓰이지 않습니다.",
   "agents.slugHint":
     "이 워크스페이스에서 에이전트를 구분하는 이름으로, 목록과 상세 화면에 보이고 다른 에이전트와 겹칠 수 없습니다. 영문 소문자, 숫자, 하이픈(-). 이름에서 채워지고 고칠 수 있습니다. 저장한 뒤에는 바꿀 수 없습니다",
   "agents.slugLocked": "초안으로 저장해 식별자는 더 바꿀 수 없습니다",
@@ -65,7 +68,7 @@ export const agentsKo = {
   "agents.flow.activate": "켜기",
   "agents.flow.next": "다음",
   "agents.flow.jobIntro":
-    "에이전트가 맡을 일을 적습니다. 다음으로 넘어가면 초안으로 저장됩니다.",
+    "에이전트가 쓸 모델과 도구를 고릅니다. 다음으로 넘어가면 초안으로 저장됩니다. 동작 지시는 만든 뒤 에이전트 상세의 '상세 설정'에서 에이전트 지시문으로 적습니다.",
   "agents.flow.saveDraft": "초안 저장하고 다음",
   "agents.flow.saving": "저장하는 중…",
   "agents.flow.releaseIntro":
@@ -91,9 +94,11 @@ export const agentsKo = {
     "여기서 쓰고 저장하지 않은 내용은 사라집니다. 남기려면 '초안 저장하고 다음'을 누르세요.",
   "agents.flow.leave": "나가기",
   "agents.flow.stay": "계속 쓰기",
-  "agentCard.role": "역할",
-  "agentCard.roleHint": "한 줄로: 무엇을 맡는 에이전트인지",
-  "agentCard.instructions": "지시 사항",
+  "agentCard.agentInstructions": "에이전트 지시문",
+  "agentCard.agentInstructionsHint":
+    "이 에이전트의 세션마다 시스템 프롬프트에 붙는 지시입니다. CLAUDE.md나 AGENTS.md에 쓰던 내용을 여기에 적습니다. 저장하면 새 버전이 되고, 그 버전으로 릴리스해 켠 뒤 시작한 세션부터 쓰입니다.",
+  "agentCard.earlierInstructions": "이전 지시 사항 (적용된 적 없음)",
+  "agentCard.importEarlier": "에이전트 지시문으로 가져오기",
   "agentCard.language": "답변 언어",
   "agentCard.model": "모델",
   "agentCard.modelHint":
@@ -127,6 +132,8 @@ export const agentsKo = {
     "저장했습니다. 같은 카드가 이미 있어(버전 {version}) 새 버전은 생기지 않았습니다.",
   "agent.savedNoChange":
     "저장했습니다. 카드 내용이 같아 새 버전은 생기지 않았습니다.",
+  "agent.identitySaved":
+    "이름과 설명을 저장했습니다. 바로 반영되고 새 버전은 생기지 않았습니다.",
   "agent.activated":
     "활성화됐습니다 — 이제 새 세션은 {release}(으)로 시작합니다.",
   "agent.alreadyActive": "이미 활성 릴리스입니다. 바뀐 것은 없습니다.",
@@ -136,9 +143,15 @@ export const agentsKo = {
   "agent.conflict.reload": "최신 상태 불러오기",
   "agent.conflict.reloaded":
     "보던 화면의 활성 릴리스: {seen}. 지금 활성 릴리스: {now}. 아래 차이를 확인하고 필요하면 다시 활성화하세요.",
-  "agent.card.title": "카드",
+  "agent.card.title": "상세 설정",
   "agent.card.intro":
-    "저장하면 새 버전이 생깁니다. 활성 릴리스는 그대로입니다.",
+    "이름과 설명은 저장하면 바로 바뀝니다. 실행 설정은 새 버전으로 저장되고, 활성 릴리스는 그대로입니다.",
+  "agent.card.identity": "이름과 설명",
+  "agent.card.identityHint":
+    "사람이 보는 값입니다. 새 버전이나 릴리스 없이 바로 바뀌고, 에이전트의 동작에는 영향이 없습니다.",
+  "agent.card.run": "실행 설정",
+  "agent.card.runHint":
+    "저장하면 새 버전이 생깁니다. 그 버전으로 릴리스를 만들어 켜야 새 세션에 쓰입니다.",
   "agent.card.save": "저장",
   "agent.card.saving": "저장하는 중…",
   "agent.card.stale":
@@ -230,7 +243,7 @@ export const agentsKo = {
   "agent.unbound.go": "자격 증명 연결로 가기",
   "agent.tabs.label": "에이전트 상세",
   "agent.tabs.overview": "개요",
-  "agent.tabs.card": "카드",
+  "agent.tabs.card": "상세 설정",
   "agent.tabs.release": "릴리스",
   "agent.tabs.admins": "관리자",
   "agent.tabs.toRelease": "릴리스 탭으로",
@@ -284,7 +297,7 @@ export const agentsKo = {
   "agent.card.raw": "카드 원문",
   "agent.card.rawSub": "최신 버전 기준 · 읽기 전용",
   "agent.card.rawSubActive": "릴리스된 버전 기준 · 읽기 전용",
-  "agent.card.edit": "카드 편집",
+  "agent.card.edit": "상세 설정 편집",
   "agent.card.copy": "복사",
   "agent.card.copied": "복사했습니다",
   "agent.card.copyFailed":
@@ -368,7 +381,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.slackAction.install": "app not installed",
   "agents.slackAction.reinstall": "reinstall needed",
   "agents.slackAction.home_unset": "pick a home channel",
-  "agents.cards.instructions": "Instructions",
   "agents.cards.admins": "Admins",
   "agents.updated": "Updated {at}",
   "agents.state.draft": "Draft",
@@ -381,6 +393,10 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "Create an agent from a blank card in five steps. Once 'What it does' is done the agent is saved as a draft, so it stays in the list as a draft if you leave after that.",
   "agents.name": "Name",
   "agents.slug": "Identifier",
+  "agents.description": "Description",
+  "agents.descriptionOptional": "Description (optional)",
+  "agents.descriptionHint":
+    "An introduction for people. It shows in the list and on the agent's page and does not affect how the agent behaves.",
   "agents.slugHint":
     "Tells this agent apart in the workspace, shows in the list and on its page, and no other agent can use it. Lowercase letters, digits and hyphens (-). Filled in from the name; you can change it. Cannot be changed once saved.",
   "agents.slugLocked":
@@ -394,7 +410,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.flow.activate": "Turn on",
   "agents.flow.next": "Next",
   "agents.flow.jobIntro":
-    "Write down the agent's job. Going on saves the agent as a draft.",
+    "Choose the model and tools the agent uses. Going on saves the agent as a draft. Instructions for how it works go in its agent instructions, under Settings on the agent's page, once it is made.",
   "agents.flow.saveDraft": "Save draft and continue",
   "agents.flow.saving": "Saving…",
   "agents.flow.releaseIntro":
@@ -420,9 +436,11 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "What you typed here and did not save is lost. To keep it, press 'Save draft and continue'.",
   "agents.flow.leave": "Leave",
   "agents.flow.stay": "Keep editing",
-  "agentCard.role": "Role",
-  "agentCard.roleHint": "One line on what this agent does",
-  "agentCard.instructions": "Instructions",
+  "agentCard.agentInstructions": "Agent instructions",
+  "agentCard.agentInstructionsHint":
+    "Added to the system prompt of every session of this agent: what you would put in a CLAUDE.md or AGENTS.md. Saving makes a new version; sessions use it once that version is released and turned on, starting with the next new session.",
+  "agentCard.earlierInstructions": "Earlier instructions (never applied)",
+  "agentCard.importEarlier": "Copy into agent instructions",
   "agentCard.language": "Reply language",
   "agentCard.model": "Model",
   "agentCard.modelHint":
@@ -457,6 +475,8 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "Saved. This card matches version {version}, so no new version was created.",
   "agent.savedNoChange":
     "Saved. Nothing changed, so no new version was created.",
+  "agent.identitySaved":
+    "Name and description saved. They apply now; no new version was created.",
   "agent.activated": "Activated — new sessions now start with {release}.",
   "agent.alreadyActive": "That release is already active. Nothing changed.",
   "agent.conflict.title": "Someone else changed the active release first",
@@ -465,9 +485,15 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.conflict.reload": "Load the latest state",
   "agent.conflict.reloaded":
     "This page showed {seen} as active; it is now {now}. Check the difference below and activate again if you still want to.",
-  "agent.card.title": "Card",
+  "agent.card.title": "Settings",
   "agent.card.intro":
-    "Saving creates a new version. The active release does not change.",
+    "Name and description change as soon as you save. Run settings are saved as a new version; the active release does not change.",
+  "agent.card.identity": "Name and description",
+  "agent.card.identityHint":
+    "For people to read. They change at once, with no new version or release, and do not affect how the agent behaves.",
+  "agent.card.run": "Run settings",
+  "agent.card.runHint":
+    "Saving creates a new version. New sessions use it once a release of that version is turned on.",
   "agent.card.save": "Save",
   "agent.card.saving": "Saving…",
   "agent.card.stale":
@@ -556,7 +582,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.unbound.go": "Go to Credentials",
   "agent.tabs.label": "Agent details",
   "agent.tabs.overview": "Overview",
-  "agent.tabs.card": "Card",
+  "agent.tabs.card": "Settings",
   "agent.tabs.release": "Release",
   "agent.tabs.admins": "Admins",
   "agent.tabs.toRelease": "Go to the Release tab",
@@ -607,7 +633,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.card.raw": "Card source",
   "agent.card.rawSub": "Latest version · read-only",
   "agent.card.rawSubActive": "Released version · read-only",
-  "agent.card.edit": "Edit card",
+  "agent.card.edit": "Edit settings",
   "agent.card.copy": "Copy",
   "agent.card.copied": "Copied",
   "agent.card.copyFailed":
@@ -686,7 +712,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.slackAction.install": "アプリのインストール待ち",
   "agents.slackAction.reinstall": "再インストールが必要",
   "agents.slackAction.home_unset": "ホームチャンネルの設定が必要",
-  "agents.cards.instructions": "指示文",
   "agents.cards.admins": "管理者",
   "agents.updated": "{at}に更新",
   "agents.state.draft": "下書き",
@@ -699,6 +724,10 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "空のカードから5ステップで作成します。「役割」まで完了すると下書きとして保存され、その後に離れても一覧に下書きとして残ります。",
   "agents.name": "名前",
   "agents.slug": "識別子",
+  "agents.description": "説明",
+  "agents.descriptionOptional": "説明（任意）",
+  "agents.descriptionHint":
+    "人が読むための紹介です。一覧と詳細画面に表示され、エージェントの動作には使われません。",
   "agents.slugHint":
     "このワークスペースでエージェントを区別する名前で、一覧と詳細画面に表示され、ほかのエージェントと重複できません。英小文字・数字・ハイフン（-）。名前から自動入力され、変更できます。保存後は変更できません",
   "agents.slugLocked": "下書きを保存したため、識別子は変更できません",
@@ -711,7 +740,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.flow.activate": "有効化",
   "agents.flow.next": "次へ",
   "agents.flow.jobIntro":
-    "エージェントに任せる仕事を入力します。次へ進むと下書きとして保存されます。",
+    "エージェントが使うモデルとツールを選びます。次へ進むと下書きとして保存されます。動作の指示は、作成後にエージェント詳細の「詳細設定」でエージェント指示文に書きます。",
   "agents.flow.saveDraft": "下書きを保存して次へ",
   "agents.flow.saving": "保存中…",
   "agents.flow.releaseIntro":
@@ -738,9 +767,11 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "ここで入力して保存していない内容は失われます。残すには「下書きを保存して次へ」を押してください。",
   "agents.flow.leave": "移動する",
   "agents.flow.stay": "編集を続ける",
-  "agentCard.role": "役割",
-  "agentCard.roleHint": "このエージェントが担当することを 1 行で",
-  "agentCard.instructions": "指示",
+  "agentCard.agentInstructions": "エージェント指示文",
+  "agentCard.agentInstructionsHint":
+    "このエージェントのセッションごとにシステムプロンプトに付く指示です。CLAUDE.md や AGENTS.md に書いていた内容をここに書きます。保存すると新しいバージョンになり、そのバージョンでリリースして有効にした後に始まったセッションから使われます。",
+  "agentCard.earlierInstructions": "以前の指示（適用されたことはありません）",
+  "agentCard.importEarlier": "エージェント指示文に取り込む",
   "agentCard.language": "回答言語",
   "agentCard.model": "モデル",
   "agentCard.modelHint":
@@ -775,6 +806,8 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "保存しました。このカードはバージョン {version} と同じため、新しいバージョンは作成していません。",
   "agent.savedNoChange":
     "保存しました。変更がないため、新しいバージョンは作成していません。",
+  "agent.identitySaved":
+    "名前と説明を保存しました。すぐに反映され、新しいバージョンは作成していません。",
   "agent.activated":
     "有効化しました。新しいセッションは {release} で開始します。",
   "agent.alreadyActive": "すでに有効なリリースです。変更はありません。",
@@ -784,9 +817,15 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.conflict.reload": "最新の状態を読み込む",
   "agent.conflict.reloaded":
     "このページでは {seen} が有効と表示されていましたが、現在は {now} です。下の差分を確認し、必要であれば再度有効化してください。",
-  "agent.card.title": "カード",
+  "agent.card.title": "詳細設定",
   "agent.card.intro":
-    "保存すると新しいバージョンが作成されます。有効なリリースは変わりません。",
+    "名前と説明は保存するとすぐに変わります。実行設定は新しいバージョンとして保存され、有効なリリースは変わりません。",
+  "agent.card.identity": "名前と説明",
+  "agent.card.identityHint":
+    "人が見るための値です。新しいバージョンやリリースなしですぐに変わり、エージェントの動作には影響しません。",
+  "agent.card.run": "実行設定",
+  "agent.card.runHint":
+    "保存すると新しいバージョンが作成されます。そのバージョンのリリースを有効にすると、新しいセッションで使われます。",
   "agent.card.save": "保存",
   "agent.card.saving": "保存中…",
   "agent.card.stale":
@@ -877,7 +916,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.unbound.go": "認証情報へ移動",
   "agent.tabs.label": "エージェント詳細",
   "agent.tabs.overview": "概要",
-  "agent.tabs.card": "カード",
+  "agent.tabs.card": "詳細設定",
   "agent.tabs.release": "リリース",
   "agent.tabs.admins": "管理者",
   "agent.tabs.toRelease": "「リリース」タブへ移動",
@@ -930,7 +969,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.card.raw": "カードの原文",
   "agent.card.rawSub": "最新バージョン · 読み取り専用",
   "agent.card.rawSubActive": "リリース済みバージョン · 読み取り専用",
-  "agent.card.edit": "カードを編集",
+  "agent.card.edit": "詳細設定を編集",
   "agent.card.copy": "コピー",
   "agent.card.copied": "コピーしました",
   "agent.card.copyFailed":

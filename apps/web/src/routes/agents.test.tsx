@@ -16,6 +16,12 @@ import {
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import type { Locale } from "../i18n/i18n.tsx";
 import { AGENT_ID, agentServer, CARD } from "../test-support/fake-agents.ts";
+
+const DESCRIPTION = "결제 문의 담당";
+/** What an earlier card held: never applied, shown to be copied in. */
+const EARLIER = "결제 문의에 답한다.";
+const AGENT_TEXT = "짧게 답한다.";
+
 import {
   apiError,
   json,
@@ -113,8 +119,6 @@ async function toJobStep(user: User) {
 }
 
 async function fillJob(user: User) {
-  await user.type(screen.getByLabelText("역할"), CARD.role);
-  await user.type(screen.getByLabelText("지시 사항"), CARD.instructions);
   await user.selectOptions(await screen.findByLabelText("모델"), CARD.model);
   await user.click(screen.getByRole("button", { name: "초안 저장하고 다음" }));
 }
@@ -126,7 +130,10 @@ const CARD_TAB = `${DETAIL}?tab=card`;
 // The card tab reads first; its form opens behind this button.
 async function openCardEditor(user: User) {
   await user.click(
-    await screen.findByRole("button", { name: "카드 편집", hidden: true }),
+    await screen.findByRole("button", {
+      name: "상세 설정 편집",
+      hidden: true,
+    }),
   );
 }
 const RELEASE_TAB = `${DETAIL}?tab=release`;
@@ -475,7 +482,11 @@ describe("에이전트 카드", () => {
       activated_at: "2026-10-11T02:00:00.000Z",
       deactivated_at: null,
     };
-    const agent = { ...base.agent, active_release_id: release.id };
+    const agent = {
+      ...base.agent,
+      description: DESCRIPTION,
+      active_release_id: release.id,
+    };
     const detail = agentDetailSchema.parse({
       ...base,
       agent,
@@ -526,7 +537,7 @@ describe("에이전트 카드", () => {
     [...card.querySelectorAll("dt")].find((dt) => dt.textContent === term)
       ?.nextElementSibling?.textContent;
 
-  test("배포 판·역할·지시문·실행 프로필·MCP·자격 증명·담당을 카드에 모은다", async () => {
+  test("배포 판·설명·실행 프로필·MCP·자격 증명·담당을 카드에 모은다", async () => {
     renderAt("/agents", { ...meOk, ...releasedServer() });
     const card = await cardFor("결제 담당");
     await waitFor(() =>
@@ -537,8 +548,8 @@ describe("에이전트 카드", () => {
       stateOf(screen.getByRole("link", { name: "결제 담당" }))?.textContent,
     ).toBe("릴리스");
     expect(card.textContent).not.toContain("2026-10-11_10:00:00");
-    expect(card.textContent).toContain(CARD.role);
-    expect(card.textContent).toContain(`지시문${CARD.instructions}`);
+    expect(card.textContent).toContain(DESCRIPTION);
+    expect(card.textContent).not.toContain("지시문");
     expect(fact(card, "실행 프로필")).toBe(PROFILE);
     expect(fact(card, "MCP")).toBe("linear");
     expect(fact(card, "자격 증명")).toBe("연결 필요 1개");
@@ -633,7 +644,7 @@ describe("에이전트 카드", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  test("카드 내용을 못 불러오면 지시문·자격 증명 칸도 비우지 않고 그렇다고 적는다", async () => {
+  test("카드 내용을 못 불러와도 설명은 에이전트 행에서 보이고, 자격 증명 칸은 그렇다고 적는다", async () => {
     const routes = releasedServer();
     renderAt("/agents", {
       ...meOk,
@@ -643,7 +654,7 @@ describe("에이전트 카드", () => {
     });
     const card = await cardFor("결제 담당");
     await waitFor(() => expect(fact(card, "자격 증명")).toBe("—불러오지 못함"));
-    expect(card.textContent).toContain("지시문—불러오지 못함");
+    expect(card.textContent).toContain(DESCRIPTION);
   });
 
   test("카드 내용이 늦으면 자격 증명 칸은 연결 목록이 먼저 와도 기다린다", async () => {
@@ -717,11 +728,13 @@ describe("에이전트 카드", () => {
     test("목록이 요약을 함께 주면 카드는 에이전트마다 따로 부르지 않는다", async () => {
       const agents = items(14).map((agent, index) => ({
         ...agent,
+        // The first has no description yet: its card's earlier role stands in.
+        description: index === 0 ? null : `설명 ${index}`,
         summary: {
           version: {
             version_no: 3,
-            role: CARD.role,
-            instructions: CARD.instructions,
+            role: "옛 역할",
+            instructions: "적용된 적 없는 지시",
             mcp_servers: ["linear"],
             credential_refs: ["github", "slack"],
           },
@@ -749,7 +762,10 @@ describe("에이전트 카드", () => {
       expect(fact(card, "실행 프로필")).toBe(PROFILE);
       expect(fact(card, "MCP")).toBe("linear");
       expect(fact(card, "자격 증명")).toBe("연결 필요 1개");
-      expect(card.textContent).toContain(CARD.instructions);
+      expect(card.textContent).toContain("설명 13");
+      expect(card.textContent).not.toContain("옛 역할");
+      expect(card.textContent).not.toContain("적용된 적 없는 지시");
+      expect(draft.textContent).toContain("옛 역할");
       expect(card.textContent).toContain("관리자: Owner, 재무팀");
       expect(api.calls.find((c) => c.path === "/v1/agents")?.search).toContain(
         "include=summary",
@@ -972,8 +988,8 @@ describe("Slack 조치 링크", () => {
       summary: {
         version: {
           version_no: 1,
-          role: CARD.role,
-          instructions: CARD.instructions,
+          role: null,
+          instructions: null,
           mcp_servers: [],
           credential_refs: [],
         },
@@ -1127,15 +1143,22 @@ describe("새 에이전트", () => {
     await atStep("이름");
     await user.type(screen.getByLabelText("이름"), "결제 담당");
     await user.type(screen.getByLabelText("식별자"), "billing");
+    expect(
+      screen.getByText(
+        "사람이 읽는 소개입니다. 목록과 상세 화면에 보이고, 에이전트의 동작에는 쓰이지 않습니다.",
+      ),
+    ).toBeDefined();
+    await user.type(screen.getByLabelText("설명 (선택)"), ` ${DESCRIPTION} `);
     await user.click(screen.getByRole("button", { name: "다음" }));
 
     await atStep("하는 일");
     expect(
       screen.getByRole("button", { name: /^이름\s*, 완료$/ }),
     ).toBeDefined();
-    expect((screen.getByLabelText("역할") as HTMLInputElement).value).toBe("");
-    await user.type(screen.getByLabelText("역할"), CARD.role);
-    await user.type(screen.getByLabelText("지시 사항"), CARD.instructions);
+    // How the agent works is written later, in its settings tab.
+    expect(screen.queryByLabelText("역할")).toBeNull();
+    expect(screen.queryByLabelText("에이전트 지시문")).toBeNull();
+    expect(screen.queryByLabelText("에이전트 지시문")).toBeNull();
     const model = screen.getByLabelText("모델") as HTMLSelectElement;
     expect(model.getAttribute("data-slot")).toBe("native-select");
     expect(model.value).toBe("");
@@ -1179,6 +1202,7 @@ describe("새 에이전트", () => {
     expect(posted(api, "/v1/agents")).toEqual({
       slug: "billing",
       name: "결제 담당",
+      description: DESCRIPTION,
       card: {
         ...CARD,
         capabilities: { tools: ["Read", "Edit"], mcp: null, forbidden: [] },
@@ -1246,8 +1270,6 @@ describe("새 에이전트", () => {
     await user.type(screen.getByLabelText("식별자"), "billing");
     await user.click(screen.getByRole("button", { name: "다음" }));
     await atStep("하는 일");
-    await user.type(screen.getByLabelText("역할"), CARD.role);
-    await user.type(screen.getByLabelText("지시 사항"), CARD.instructions);
     await user.selectOptions(screen.getByLabelText("모델"), CARD.model);
     await user.click(
       screen.getByRole("button", { name: "초안 저장하고 다음" }),
@@ -1470,13 +1492,10 @@ describe("새 에이전트", () => {
       screen.getByRole("button", { name: "초안 저장하고 다음" }),
     );
     await waitFor(() =>
-      expect(screen.getByLabelText("역할").getAttribute("aria-invalid")).toBe(
+      expect(screen.getByLabelText("모델").getAttribute("aria-invalid")).toBe(
         "true",
       ),
     );
-    expect(
-      screen.getByLabelText("지시 사항").getAttribute("aria-invalid"),
-    ).toBe("true");
     expect(api.calls.some((c) => c.method === "POST")).toBe(false);
     expect(currentStep()).toBe("2하는 일");
   });
@@ -1532,7 +1551,7 @@ describe("새 에이전트", () => {
 
     act(() => history.back());
     await atStep("하는 일");
-    await user.type(screen.getByLabelText("지시 사항"), " 더.");
+    await user.selectOptions(screen.getByLabelText("답변 언어"), "en");
     await user.click(
       screen.getByRole("button", { name: "초안 저장하고 다음" }),
     );
@@ -1563,7 +1582,7 @@ describe("새 에이전트", () => {
 
     act(() => history.back());
     await atStep("하는 일");
-    await user.type(screen.getByLabelText("지시 사항"), " 더.");
+    await user.selectOptions(screen.getByLabelText("답변 언어"), "en");
     await user.click(
       screen.getByRole("button", { name: "초안 저장하고 다음" }),
     );
@@ -1572,9 +1591,9 @@ describe("새 에이전트", () => {
       api.calls.filter((c) => c.method === "POST" && c.path === "/v1/agents"),
     ).toHaveLength(1);
     const patch = api.calls.find((c) => c.method === "PATCH");
-    expect(
-      (patch?.body as { card: { instructions: string } }).card.instructions,
-    ).toBe(`${CARD.instructions} 더.`);
+    expect((patch?.body as { card: { language: string } }).card.language).toBe(
+      "en",
+    );
     // The release is made from the version this save produced.
     await user.click(
       await screen.findByRole("button", { name: "릴리스 만들기" }),
@@ -1610,10 +1629,10 @@ describe("새 에이전트", () => {
     await atStep("릴리스");
     act(() => history.back());
     await atStep("하는 일");
-    expect((screen.getByLabelText("역할") as HTMLInputElement).value).toBe(
-      CARD.role,
+    expect((screen.getByLabelText("모델") as HTMLSelectElement).value).toBe(
+      CARD.model,
     );
-    await user.type(screen.getByLabelText("지시 사항"), " 더.");
+    await user.selectOptions(screen.getByLabelText("답변 언어"), "en");
     await user.click(
       screen.getByRole("button", { name: "초안 저장하고 다음" }),
     );
@@ -1648,8 +1667,6 @@ describe("새 에이전트", () => {
     });
     const user = await setupUser();
     await toJobStep(user);
-    await user.type(screen.getByLabelText("역할"), CARD.role);
-    await user.type(screen.getByLabelText("지시 사항"), CARD.instructions);
     await user.selectOptions(await screen.findByLabelText("모델"), CARD.model);
     const preview = () =>
       (screen.getByLabelText("도구를 보여 줄 프로필") as HTMLSelectElement)
@@ -1699,8 +1716,8 @@ describe("새 에이전트", () => {
     );
     await user.click(screen.getByRole("button", { name: "다음" }));
     await atStep("하는 일");
-    expect((screen.getByLabelText("역할") as HTMLInputElement).value).toBe(
-      CARD.role,
+    expect((screen.getByLabelText("모델") as HTMLSelectElement).value).toBe(
+      CARD.model,
     );
     await user.click(
       screen.getByRole("button", { name: "초안 저장하고 다음" }),
@@ -1709,6 +1726,46 @@ describe("새 에이전트", () => {
     expect(
       api.calls.filter((c) => c.method === "POST" && c.path === "/v1/agents"),
     ).toHaveLength(1);
+  });
+
+  test("저장한 초안의 설명을 이름 단계에서 고치면 그 초안의 설명만 바꾼다", async () => {
+    const server = agentServer();
+    const { api, history } = renderAt("/agents/new", {
+      ...meOk,
+      ...server.routes,
+    });
+    const user = await setupUser();
+    await user.type(await screen.findByLabelText("이름"), "결제 담당");
+    await user.type(screen.getByLabelText("식별자"), "billing");
+    await user.type(screen.getByLabelText("설명 (선택)"), DESCRIPTION);
+    await user.click(screen.getByRole("button", { name: "다음" }));
+    await atStep("하는 일");
+    await fillJob(user);
+    await atStep("릴리스");
+    expect(
+      (posted(api, "/v1/agents") as { description?: string }).description,
+    ).toBe(DESCRIPTION);
+
+    act(() => history.go(-2));
+    await atStep("이름");
+    const description = screen.getByLabelText(
+      "설명 (선택)",
+    ) as HTMLTextAreaElement;
+    expect(description.value).toBe(DESCRIPTION);
+    await user.clear(description);
+    await user.click(screen.getByRole("button", { name: "다음" }));
+    await atStep("하는 일");
+    await user.click(
+      screen.getByRole("button", { name: "초안 저장하고 다음" }),
+    );
+    await atStep("릴리스");
+    const patch = api.calls.find((c) => c.method === "PATCH")?.body as {
+      name?: string;
+      description?: string;
+    };
+    expect(patch.description).toBe("");
+    expect("name" in patch).toBe(false);
+    expect(server.detail().agent.description).toBe("");
   });
 
   test("Stepper로 앞 단계에 돌아가면 그 단계 제목이 포커스를 받는다", async () => {
@@ -1784,7 +1841,7 @@ describe("에이전트 상세", () => {
     const { api } = renderAt(CARD_TAB, { ...meOk, ...server.routes });
     const user = await setupUser();
     await openCardEditor(user);
-    const instructions = await screen.findByLabelText("지시 사항");
+    const instructions = await screen.findByLabelText("에이전트 지시문");
     await user.clear(instructions);
     await user.type(instructions, "환불 문의에도 답한다.");
     await user.click(screen.getByRole("button", { name: "저장" }));
@@ -1795,7 +1852,7 @@ describe("에이전트 상세", () => {
     ).toBeDefined();
     expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
     // The save closes the form; the card it shows is the one just saved.
-    expect(screen.queryByLabelText("지시 사항")).toBeNull();
+    expect(screen.queryByLabelText("에이전트 지시문")).toBeNull();
     expect(screen.getAllByText("환불 문의에도 답한다.").length).toBeGreaterThan(
       0,
     );
@@ -1803,16 +1860,17 @@ describe("에이전트 상세", () => {
     expect(patch?.headers.get("idempotency-key")).toBeNull();
     expect((patch?.body as { card: unknown }).card).toEqual({
       ...CARD,
-      instructions: "환불 문의에도 답한다.",
+      agent_instructions: "환불 문의에도 답한다.",
     });
+    // Only the card changed: name and description stay off the request.
+    expect(Object.keys(patch?.body as object)).toEqual(["card"]);
     const diff = await screen.findByText("버전 1 → 버전 2");
     const figure = diff.closest("figure") as HTMLElement;
     expect(
-      figure.querySelector('[data-kind="removed"]')?.textContent,
-    ).toContain("결제 문의에 답한다.");
-    expect(figure.querySelector('[data-kind="added"]')?.textContent).toContain(
-      "환불 문의에도 답한다.",
-    );
+      [...figure.querySelectorAll('[data-kind="added"]')]
+        .map((line) => line.textContent)
+        .join("\n"),
+    ).toContain('"agent_instructions": "환불 문의에도 답한다."');
   });
 
   test("이미 있는 version과 같은 카드로 저장하면 그 version을 저장 결과로 본다", async () => {
@@ -1820,21 +1878,21 @@ describe("에이전트 상세", () => {
     renderAt(CARD_TAB, { ...meOk, ...server.routes });
     const user = await setupUser();
     await openCardEditor(user);
-    const instructions = await screen.findByLabelText("지시 사항");
+    const instructions = await screen.findByLabelText("에이전트 지시문");
     await user.clear(instructions);
     await user.type(instructions, "환불 문의에도 답한다.");
     await user.click(screen.getByRole("button", { name: "저장" }));
     await screen.findByText(/저장했습니다 — 버전 2/);
     await openCardEditor(user);
-    await user.clear(screen.getByLabelText("지시 사항"));
-    await user.type(screen.getByLabelText("지시 사항"), CARD.instructions);
+    // Cleared, the card leaves the field out: version 1's card again.
+    await user.clear(screen.getByLabelText("에이전트 지시문"));
     await user.click(screen.getByRole("button", { name: "저장" }));
     expect(
       await screen.findByText(
         "저장했습니다. 같은 카드가 이미 있어(버전 1) 새 버전은 생기지 않았습니다.",
       ),
     ).toBeDefined();
-    expect(screen.queryByLabelText("지시 사항")).toBeNull();
+    expect(screen.queryByLabelText("에이전트 지시문")).toBeNull();
     expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
     await showTab(user, "릴리스");
     const release = await openRelease(user);
@@ -1867,16 +1925,16 @@ describe("에이전트 상세", () => {
         ...base,
         id: "8d9e0f1a-2b3c-4d4e-9f5a-6b7c8d9e0f1a",
         version_no: 3,
-        card: { ...CARD, instructions: "다른 지시.", rules: [rule("x")] },
+        card: { ...CARD, agent_instructions: "다른 지시.", rules: [rule("x")] },
         content_sha256: "3".repeat(64),
       },
     );
     renderAt(CARD_TAB, { ...meOk, ...server.routes });
     const user = await setupUser();
     await openCardEditor(user);
-    const instructions = await screen.findByLabelText("지시 사항");
+    const instructions = await screen.findByLabelText("에이전트 지시문");
     await user.clear(instructions);
-    await user.type(instructions, CARD.instructions);
+    await user.type(instructions, "  ");
     await user.type(screen.getByLabelText("모델"), "  ");
     await user.click(screen.getByRole("button", { name: "저장" }));
     expect(
@@ -1884,6 +1942,71 @@ describe("에이전트 상세", () => {
         "저장했습니다. 같은 카드가 이미 있어(버전 1) 새 버전은 생기지 않았습니다.",
       ),
     ).toBeDefined();
+  });
+
+  test("이름·설명만 고치면 카드 없이 행만 저장하고, 새 버전이 없다고 말한다", async () => {
+    const server = agentServer();
+    const { api } = renderAt(CARD_TAB, { ...meOk, ...server.routes });
+    const user = await setupUser();
+    await openCardEditor(user);
+    const identity = screen.getByRole("group", { name: "이름과 설명" });
+    expect(
+      within(identity).getByText(
+        "사람이 보는 값입니다. 새 버전이나 릴리스 없이 바로 바뀌고, 에이전트의 동작에는 영향이 없습니다.",
+      ),
+    ).toBeDefined();
+    await user.type(within(identity).getByLabelText("설명"), ` ${DESCRIPTION}`);
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    expect(
+      await screen.findByText(
+        "이름과 설명을 저장했습니다. 바로 반영되고 새 버전은 생기지 않았습니다.",
+      ),
+    ).toBeDefined();
+    const patch = api.calls.find((c) => c.method === "PATCH");
+    expect(patch?.body).toEqual({ description: DESCRIPTION });
+    expect(server.versions).toHaveLength(1);
+    const summary = screen.getByRole("region", { name: "에이전트 카드" });
+    expect(within(summary).getByText(DESCRIPTION)).toBeDefined();
+  });
+
+  test("이전 지시 사항은 자동으로 옮기지 않고, 가져오기를 눌러야 에이전트 지시문 칸에 들어간다", async () => {
+    const server = agentServer();
+    const first = server.versions[0] as (typeof server.versions)[number];
+    server.versions.splice(0, 1, {
+      ...first,
+      card: { ...CARD, role: "결제 문의 담당", instructions: EARLIER },
+    });
+    const { api } = renderAt(CARD_TAB, { ...meOk, ...server.routes });
+    const user = await setupUser();
+    const summary = await screen.findByRole("region", {
+      name: "에이전트 카드",
+    });
+    expect(
+      within(summary).getByText("이전 지시 사항 (적용된 적 없음)"),
+    ).toBeDefined();
+    await openCardEditor(user);
+    const field = screen.getByLabelText(
+      "에이전트 지시문",
+    ) as HTMLTextAreaElement;
+    expect(field.value).toBe("");
+    const copy = screen.getByRole("button", {
+      name: "에이전트 지시문으로 가져오기",
+    }) as HTMLButtonElement;
+    await user.click(copy);
+    expect(field.value).toBe(EARLIER);
+    expect(copy.disabled).toBe(true);
+    await user.type(field, ` ${AGENT_TEXT}`);
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByText(/저장했습니다 — 버전 2/);
+    const card = (
+      api.calls.find((c) => c.method === "PATCH")?.body as {
+        card: Record<string, unknown>;
+      }
+    ).card;
+    expect(card.agent_instructions).toBe(`${EARLIER} ${AGENT_TEXT}`);
+    // The earlier fields stay as they were; nothing is moved.
+    expect(card.instructions).toBe(EARLIER);
+    expect(card.role).toBe("결제 문의 담당");
   });
 
   test("바뀐 것 없이 저장하면 새 version이 없다고 말한다", async () => {
@@ -2169,9 +2292,9 @@ describe("에이전트 상세", () => {
       screen.getByRole("heading", { name }).closest("section") as HTMLElement;
     await user.click(await screen.findByRole("button", { name: "저장" }));
     const saved = await screen.findByText(/저장했습니다/);
-    expect(screen.getByRole("tabpanel", { name: "카드" }).contains(saved)).toBe(
-      true,
-    );
+    expect(
+      screen.getByRole("tabpanel", { name: "상세 설정" }).contains(saved),
+    ).toBe(true);
     expect(document.activeElement?.contains(saved)).toBe(true);
 
     await showTab(user, "릴리스");
@@ -2205,7 +2328,7 @@ describe("에이전트 상세", () => {
     renderAt(CARD_TAB, { ...meOk, ...server.routes });
     const user = await setupUser();
     await openCardEditor(user);
-    const instructions = await screen.findByLabelText("지시 사항");
+    const instructions = await screen.findByLabelText("에이전트 지시문");
     await user.clear(instructions);
     await user.type(instructions, "환불 문의에도 답한다.");
     await user.click(screen.getByRole("button", { name: "저장" }));
@@ -2309,7 +2432,7 @@ describe("편집 중 다른 곳의 저장", () => {
       ...(server.versions[0] as (typeof server.versions)[number]),
       id: "7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f",
       version_no: 2,
-      card: { ...CARD, instructions: "다른 탭이 고친 지시." },
+      card: { ...CARD, agent_instructions: "다른 탭이 고친 지시." },
       content_sha256: "e".repeat(64),
     });
   }
@@ -2319,7 +2442,7 @@ describe("편집 중 다른 곳의 저장", () => {
     const { services } = renderAt(CARD_TAB, { ...meOk, ...server.routes });
     const user = await setupUser();
     await openCardEditor(user);
-    const instructions = await screen.findByLabelText("지시 사항");
+    const instructions = await screen.findByLabelText("에이전트 지시문");
     await user.clear(instructions);
     await user.type(instructions, "내가 고치던 지시.");
     otherTabSaves(server);
@@ -2332,13 +2455,13 @@ describe("편집 중 다른 곳의 저장", () => {
       ),
     ).toBeDefined();
     expect(
-      (screen.getByLabelText("지시 사항") as HTMLTextAreaElement).value,
+      (screen.getByLabelText("에이전트 지시문") as HTMLTextAreaElement).value,
     ).toBe("내가 고치던 지시.");
     await user.click(
       screen.getByRole("button", { name: "최신 카드 불러오기" }),
     );
     expect(
-      (screen.getByLabelText("지시 사항") as HTMLTextAreaElement).value,
+      (screen.getByLabelText("에이전트 지시문") as HTMLTextAreaElement).value,
     ).toBe("다른 탭이 고친 지시.");
     expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
   });
@@ -2440,7 +2563,7 @@ describe("편집 중 다른 곳의 저장", () => {
     const user = await setupUser();
     const shown = async (name: string, alert: string, button: string) => {
       await showTab(user, name);
-      if (name === "카드") await openCardEditor(user);
+      if (name === "상세 설정") await openCardEditor(user);
       if (name === "릴리스") await openRelease(user);
       expect(
         (await screen.findAllByRole("alert")).map((a) => a.textContent),
@@ -2450,7 +2573,11 @@ describe("편집 중 다른 곳의 저장", () => {
           .disabled,
       ).toBe(true);
     };
-    await shown("카드", "모델 목록을 불러오지 못해 저장할 수 없습니다", "저장");
+    await shown(
+      "상세 설정",
+      "모델 목록을 불러오지 못해 저장할 수 없습니다",
+      "저장",
+    );
     await shown("릴리스", "프로필 목록을 불러오지 못했습니다", "릴리스 만들기");
     expect(screen.queryByLabelText("프로필")).toBeNull();
     expect(screen.queryByLabelText("모델")).toBeNull();
@@ -2485,7 +2612,7 @@ describe("편집 중 다른 곳의 저장", () => {
       .map((id) => document.getElementById(id)?.textContent)
       .join(" ");
     expect(described).toContain("카탈로그에 없어");
-    const instructions = screen.getByLabelText("지시 사항");
+    const instructions = screen.getByLabelText("에이전트 지시문");
     await user.clear(instructions);
     await user.type(instructions, "모델은 그대로.");
     await user.click(screen.getByRole("button", { name: "저장" }));
@@ -2529,15 +2656,15 @@ describe("편집 중 다른 곳의 저장", () => {
     });
     const user = await setupUser();
     await openCardEditor(user);
-    const instructions = await screen.findByLabelText("지시 사항");
+    const instructions = await screen.findByLabelText("에이전트 지시문");
     await user.clear(instructions);
     await user.type(instructions, "첫 저장.");
     await user.click(screen.getByRole("button", { name: "저장" }));
-    await user.type(screen.getByLabelText("지시 사항"), " 이어서 쓴 줄.");
+    await user.type(screen.getByLabelText("에이전트 지시문"), " 이어서 쓴 줄.");
     release();
     expect(await screen.findByText(/저장했습니다 — 버전 2/)).toBeDefined();
     expect(
-      (screen.getByLabelText("지시 사항") as HTMLTextAreaElement).value,
+      (screen.getByLabelText("에이전트 지시문") as HTMLTextAreaElement).value,
     ).toBe("첫 저장. 이어서 쓴 줄.");
     expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
   });
@@ -2552,7 +2679,7 @@ describe("편집 중 다른 곳의 저장", () => {
       versions: other.versions.map((v) => ({
         ...v,
         agent_id: OTHER,
-        card: { ...CARD, instructions: "환불 문의에 답한다." },
+        card: { ...CARD, agent_instructions: "환불 문의에 답한다." },
       })),
     };
     const { api, history } = renderAt(`/agents/${OTHER}?tab=card`, {
@@ -2567,14 +2694,14 @@ describe("편집 중 다른 곳의 저장", () => {
     await screen.findByRole("heading", { name: "결제 담당" });
     const user = await setupUser();
     await openCardEditor(user);
-    const instructions = screen.getByLabelText("지시 사항");
+    const instructions = screen.getByLabelText("에이전트 지시문");
     await user.clear(instructions);
     await user.type(instructions, "결제 담당에게만 쓴 지시.");
     history.push(`/agents/${OTHER}?tab=card`);
     await screen.findByRole("heading", { name: "환불 담당" });
     await openCardEditor(user);
     expect(
-      (screen.getByLabelText("지시 사항") as HTMLTextAreaElement).value,
+      (screen.getByLabelText("에이전트 지시문") as HTMLTextAreaElement).value,
     ).toBe("환불 문의에 답한다.");
     await user.click(screen.getByRole("button", { name: "저장" }));
     await screen.findByText(/저장했습니다/);
@@ -2600,7 +2727,7 @@ describe("편집 중 다른 곳의 저장", () => {
     });
     const user = await setupUser();
     await openCardEditor(user);
-    const instructions = await screen.findByLabelText("지시 사항");
+    const instructions = await screen.findByLabelText("에이전트 지시문");
     await user.clear(instructions);
     await user.type(instructions, "카드만 고친다.");
     renamed = true;
@@ -2618,14 +2745,14 @@ describe("편집 중 다른 곳의 저장", () => {
     const server = agentServer();
     const { services } = renderAt(DETAIL, { ...meOk, ...server.routes });
     await openCardEditor(await setupUser());
-    await screen.findByLabelText("지시 사항");
+    await screen.findByLabelText("에이전트 지시문");
     otherTabSaves(server);
     await services.queryClient.invalidateQueries({
       queryKey: keys.agent(AGENT_ID),
     });
     await waitFor(() =>
       expect(
-        (screen.getByLabelText("지시 사항") as HTMLTextAreaElement).value,
+        (screen.getByLabelText("에이전트 지시문") as HTMLTextAreaElement).value,
       ).toBe("다른 탭이 고친 지시."),
     );
     expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
@@ -2649,12 +2776,32 @@ describe("식별자와 상태 문구", () => {
     expect(slug.value).toBe("pay");
   });
 
-  test("상세 머리는 상태 배지와 역할만 두고 식별자는 카드 탭에 둔다", async () => {
-    renderAt(DETAIL, { ...meOk, ...agentServer().routes });
+  const describedAs = (
+    server: ReturnType<typeof agentServer>,
+    description: string | null,
+    role?: string,
+  ) => {
+    const detail = server.detail();
+    return {
+      ...server.routes,
+      [`GET /v1/agents/${AGENT_ID}`]: () =>
+        json(200, {
+          ...detail,
+          agent: { ...detail.agent, description },
+          versions: detail.versions.map((v) => ({
+            ...v,
+            card: role === undefined ? v.card : { ...v.card, role },
+          })),
+        }),
+    };
+  };
+
+  test("상세 머리는 상태 배지와 설명만 두고 식별자는 상세 설정 탭에 둔다", async () => {
+    renderAt(DETAIL, { ...meOk, ...describedAs(agentServer(), DESCRIPTION) });
     const heading = await screen.findByRole("heading", { level: 1 });
     const head = heading.closest("[data-slot=page-header]") as HTMLElement;
     expect(within(head).getByText("초안")).toBeDefined();
-    expect(within(head).getByText("결제 문의 담당")).toBeDefined();
+    expect(within(head).getByText(DESCRIPTION)).toBeDefined();
     expect(within(head).queryByText(/billing/)).toBeNull();
     const card = screen.getByRole("region", {
       name: "에이전트 카드",
@@ -2662,6 +2809,27 @@ describe("식별자와 상태 문구", () => {
     });
     expect(within(card).getByText("billing")).toBeDefined();
     expect(screen.queryByText(/000000000001/)).toBeNull();
+  });
+
+  const pageHead = async () =>
+    (await screen.findByRole("heading", { level: 1 })).closest(
+      "[data-slot=page-header]",
+    ) as HTMLElement;
+
+  test("설명이 없으면 카드의 이전 역할이 대신한다", async () => {
+    renderAt(DETAIL, {
+      ...meOk,
+      ...describedAs(agentServer(), null, "옛 역할"),
+    });
+    expect(within(await pageHead()).getByText("옛 역할")).toBeDefined();
+  });
+
+  test("비운 설명은 이전 역할도 보이지 않는다", async () => {
+    renderAt(DETAIL, {
+      ...meOk,
+      ...describedAs(agentServer(), "", "옛 역할"),
+    });
+    expect(within(await pageHead()).queryByText("옛 역할")).toBeNull();
   });
 });
 
@@ -2713,16 +2881,16 @@ describe("새 에이전트: 브라우저 history", () => {
     });
     const user = await setupUser();
     await toJobStep(user);
-    await user.type(screen.getByLabelText("지시 사항"), "짧게 답한다.");
+    await user.selectOptions(await screen.findByLabelText("모델"), CARD.model);
     await waitFor(() =>
-      expect(JSON.stringify(window.history.state)).toContain("짧게 답한다."),
+      expect(JSON.stringify(window.history.state)).toContain(CARD.model),
     );
 
     reload();
     await atStep("하는 일");
     expect(
-      (screen.getByLabelText("지시 사항") as HTMLTextAreaElement).value,
-    ).toBe("짧게 답한다.");
+      ((await screen.findByLabelText("모델")) as HTMLSelectElement).value,
+    ).toBe(CARD.model);
   });
 
   test("저장하지 않은 입력이 있으면 흐름을 떠나기 전에 묻고, 단계 사이 이동은 묻지 않는다", async () => {
@@ -2732,7 +2900,7 @@ describe("새 에이전트: 브라우저 history", () => {
       await screen.findByRole("button", { name: "새 에이전트" }),
     );
     await toJobStep(user);
-    await user.type(screen.getByLabelText("역할"), CARD.role);
+    await user.selectOptions(await screen.findByLabelText("모델"), CARD.model);
     const unload = () => {
       const event = new Event("beforeunload", { cancelable: true });
       window.dispatchEvent(event);
@@ -2752,8 +2920,8 @@ describe("새 에이전트: 브라우저 history", () => {
 
     await user.click(screen.getByRole("button", { name: "다음" }));
     await atStep("하는 일");
-    expect((screen.getByLabelText("역할") as HTMLInputElement).value).toBe(
-      CARD.role,
+    expect((screen.getByLabelText("모델") as HTMLSelectElement).value).toBe(
+      CARD.model,
     );
     await user.click(
       within(screen.getByRole("navigation", { name: "주요 메뉴" })).getByRole(
@@ -2797,21 +2965,18 @@ describe("새 에이전트: 브라우저 history", () => {
     });
     const user = await setupUser();
     await toJobStep(user);
-    await user.type(screen.getByLabelText("역할"), CARD.role);
-    await user.type(screen.getByLabelText("지시 사항"), "처음 쓴 것.");
     await user.selectOptions(await screen.findByLabelText("모델"), CARD.model);
     await waitFor(() =>
       expect(JSON.stringify(window.history.state)).toContain(CARD.model),
     );
-    await user.type(screen.getByLabelText("지시 사항"), " 고친 것.");
+    await user.selectOptions(screen.getByLabelText("답변 언어"), "en");
     await user.click(
       screen.getByRole("button", { name: "초안 저장하고 다음" }),
     );
     await atStep("릴리스");
-    const sent = (
-      posted(api, "/v1/agents") as { card: { instructions: string } }
-    ).card.instructions;
-    expect(sent).toBe("처음 쓴 것. 고친 것.");
+    const sent = (posted(api, "/v1/agents") as { card: { language: string } })
+      .card.language;
+    expect(sent).toBe("en");
 
     reload();
     await atStep("릴리스");
@@ -2819,7 +2984,7 @@ describe("새 에이전트: 브라우저 history", () => {
     await back();
     await atStep("하는 일");
     expect(
-      (screen.getByLabelText("지시 사항") as HTMLTextAreaElement).value,
+      (screen.getByLabelText("답변 언어") as HTMLSelectElement).value,
     ).toBe(sent);
   });
 });

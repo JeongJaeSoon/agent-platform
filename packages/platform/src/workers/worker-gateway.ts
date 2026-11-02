@@ -553,20 +553,33 @@ export function createWorkerGateway(deps: {
     deps.options.runReleaseTools ?? CLAIM_RUNS_RELEASE_TOOLS;
 
   // The session's configs under one profile, one per tool list
-  // (claimToolLists), and the list the engine runs.
+  // (claimToolLists), and the list the engine runs. Each carries the
+  // release card's agent instructions, which a checkpoint's fingerprint
+  // holds whichever config made it; none leaves the field off, so such a
+  // claim is the one an older worker accepts.
   function toolConfigsOf(
     profile: CatalogProfile,
-    releaseTools: readonly string[] | null | undefined,
+    release: Pick<WorkerBinding, "releaseTools" | "agentInstructions">,
     providerToken: string,
     hasRepository: boolean,
   ): ToolConfigs {
     const lists = claimToolLists(
       profile,
-      releaseTools ?? null,
+      release.releaseTools ?? null,
       runReleaseTools,
     );
-    const configOf = (tools: readonly string[]) =>
-      runtimeConfigOf(profile, providerToken, hasRepository, tools);
+    const instructions = release.agentInstructions;
+    const configOf = (tools: readonly string[]): RuntimeConfig => {
+      const config = runtimeConfigOf(
+        profile,
+        providerToken,
+        hasRepository,
+        tools,
+      );
+      return instructions
+        ? { ...config, agent_instructions: instructions }
+        : config;
+    };
     return {
       profile: configOf(lists.profile),
       release: lists.release === null ? null : configOf(lists.release),
@@ -911,7 +924,7 @@ export function createWorkerGateway(deps: {
     pin: ProfilePin,
     providerToken: string,
     hasRepository: boolean,
-    releaseTools: readonly string[] | null | undefined,
+    release: Pick<WorkerBinding, "releaseTools" | "agentInstructions">,
   ): {
     runtime: SessionRuntime;
     profile_fingerprint: string;
@@ -932,7 +945,7 @@ export function createWorkerGateway(deps: {
     }
     const tool_configs = toolConfigsOf(
       profile,
-      releaseTools,
+      release,
       providerToken,
       hasRepository,
     );
@@ -966,6 +979,7 @@ export function createWorkerGateway(deps: {
       | "restoreProfiles"
       | "repository"
       | "releaseTools"
+      | "agentInstructions"
     >,
     current: ToolConfigs,
     providerToken: string,
@@ -992,7 +1006,7 @@ export function createWorkerGateway(deps: {
         ? [
             toolConfigsOf(
               profile,
-              binding.releaseTools,
+              binding,
               providerToken,
               binding.repository !== null,
             ),
@@ -1428,7 +1442,7 @@ export function createWorkerGateway(deps: {
               { fingerprint: binding.profileFingerprint, model: binding.model },
               providerToken,
               binding.repository !== null,
-              binding.releaseTools,
+              binding,
             );
           // A launch on the previous image runs that image's engine, which
           // the worker checks the claim against; the catalog names the

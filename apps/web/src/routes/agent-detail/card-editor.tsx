@@ -1,15 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import type { AgentCard, AgentDetail, AgentVersion } from "@werft-ai/contracts";
+import { AGENT_DESCRIPTION_MAX_LENGTH } from "@werft-ai/contracts/agent-card";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   Alert,
   AlertActions,
   Button,
   Field,
+  FieldDescription,
   FieldLabel,
+  FieldLegend,
+  FieldSet,
   Input,
   Section,
+  Textarea,
 } from "@werft-ai/ui";
 import {
   type FormEvent,
@@ -27,6 +32,7 @@ import { useRole } from "../../auth/guard.tsx";
 import {
   AGENT_FORM,
   AgentCardFields,
+  AgentInstructionsField,
   type CardDraft,
   cardFromDraft,
   draftFromCard,
@@ -65,16 +71,27 @@ export function CardEditor({
   // background refetch last brought in, so unsaved input is never replaced.
   const [edit, setEdit] = useState(() => startEdit(detail));
   const base = detail.versions.find((v) => v.id === edit.baseId);
+  const cardChanged = (e: Edit) =>
+    e.draft !== null &&
+    JSON.stringify(e.draft) !==
+      JSON.stringify(base ? draftFromCard(base.card) : null);
   const dirty =
     edit.name !== edit.baseName ||
-    JSON.stringify(edit.draft) !==
-      JSON.stringify(base ? draftFromCard(base.card) : null);
+    edit.description !== edit.baseDescription ||
+    cardChanged(edit);
   const stale = (latest?.id ?? null) !== edit.seenLatestId;
-  if ((stale || detail.agent.name !== edit.baseName) && !dirty)
+  if (
+    (stale ||
+      detail.agent.name !== edit.baseName ||
+      descriptionOf(detail) !== edit.baseDescription) &&
+    !dirty
+  )
     setEdit(startEdit(detail));
   const setName = (name: string) => setEdit((e) => ({ ...e, name }));
+  const setDescription = (description: string) =>
+    setEdit((e) => ({ ...e, description }));
   const setDraft = (draft: CardDraft) => setEdit((e) => ({ ...e, draft }));
-  const { name, draft } = edit;
+  const { name, description, draft } = edit;
   const catalog = useQuery(profilesQuery(client));
   const latestEdit = useRef(edit);
   latestEdit.current = edit;
@@ -82,18 +99,31 @@ export function CardEditor({
   // The editor replaces the button that opened it.
   useEffect(() => title.current?.focus(), []);
 
-  const save = useMutation<AgentDetail, ApiError, Edit>({
-    mutationFn: ({ baseName, name, draft }) =>
+  const save = useMutation<AgentDetail, ApiError, Submitted>({
+    mutationFn: ({
+      baseName,
+      baseDescription,
+      name,
+      description,
+      draft,
+      sendsCard,
+    }) =>
       unwrap(
         client.PATCH("/v1/agents/{id}", {
           params: {
             path: { id: detail.agent.id },
           },
           body: {
-            // Only a name the user changed: sending the one the edit started
-            // from would undo a rename made elsewhere since.
+            // Only what the user changed: sending the value the edit started
+            // from would undo a change made elsewhere since.
             ...(name.trim() !== baseName ? { name: name.trim() } : {}),
-            ...(draft ? { card: cardFromDraft(draft, base?.card) } : {}),
+            ...(description.trim() !== baseDescription
+              ? { description: description.trim() }
+              : {}),
+            // Name and description alone change the row, not the version.
+            ...(sendsCard && draft
+              ? { card: cardFromDraft(draft, base?.card) }
+              : {}),
           },
         }),
       ) as Promise<AgentDetail>,
@@ -101,29 +131,37 @@ export function CardEditor({
     onSuccess: async (updated, submitted) => {
       // The server keeps one version per card content, so the card just saved
       // may be an older version rather than the highest one.
-      const saved = savedVersion(detail, updated, submitted);
+      const saved = submitted.sendsCard
+        ? savedVersion(detail, updated, submitted)
+        : undefined;
       if (saved) onSaved(saved.id);
       const isNew =
         saved !== undefined && !detail.versions.some((v) => v.id === saved.id);
       onOutcome({
         kind: "notice",
-        text: isNew
-          ? t("agent.saved", { version: saved.version_no })
-          : saved && saved.id !== submitted.baseId
-            ? t("agent.savedExisting", { version: saved.version_no })
-            : t("agent.savedNoChange"),
+        text: !submitted.sendsCard
+          ? t("agent.identitySaved")
+          : isNew
+            ? t("agent.saved", { version: saved.version_no })
+            : saved && saved.id !== submitted.baseId
+              ? t("agent.savedExisting", { version: saved.version_no })
+              : t("agent.savedNoChange"),
       });
       if (sameEdit(latestEdit.current, submitted)) onClose(false);
       // Input typed while the request was in flight stays; it is now an edit
-      // of the version just saved.
+      // of the version just saved, or of the one it started from when only
+      // the row changed.
+      const now =
+        saved ?? updated.versions.find((v) => v.id === submitted.baseId);
       setEdit((current) =>
         sameEdit(current, submitted)
-          ? startEdit(updated, saved)
+          ? startEdit(updated, now)
           : {
               ...current,
-              baseId: saved?.id ?? null,
+              baseId: now?.id ?? null,
               seenLatestId: latestVersion(updated)?.id ?? null,
               baseName: updated.agent.name,
+              baseDescription: descriptionOf(updated),
             },
       );
       queryClient.setQueryData(
@@ -138,7 +176,12 @@ export function CardEditor({
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    save.mutate(edit);
+    // A save with nothing changed still sends the card, which the server
+    // answers with the same version, as a request needs some field.
+    const rowChanged =
+      edit.name.trim() !== edit.baseName ||
+      edit.description.trim() !== edit.baseDescription;
+    save.mutate({ ...edit, sendsCard: cardChanged(edit) || !rowChanged });
   };
 
   return (
@@ -165,21 +208,45 @@ export function CardEditor({
           </Alert>
         ) : null}
         <form className={AGENT_FORM} onSubmit={submit}>
-          <Field>
-            <FieldLabel>{t("agents.name")}</FieldLabel>
-            <Input
-              required
-              maxLength={120}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </Field>
+          <FieldSet className="gap-4">
+            <FieldLegend>{t("agent.card.identity")}</FieldLegend>
+            <FieldDescription>{t("agent.card.identityHint")}</FieldDescription>
+            <Field>
+              <FieldLabel>{t("agents.name")}</FieldLabel>
+              <Input
+                required
+                maxLength={120}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </Field>
+            <Field>
+              <FieldLabel>{t("agents.description")}</FieldLabel>
+              <Textarea
+                maxLength={AGENT_DESCRIPTION_MAX_LENGTH}
+                rows={3}
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+              />
+            </Field>
+          </FieldSet>
           {draft ? (
-            <AgentCardFields
-              draft={draft}
-              catalog={catalog}
-              onChange={setDraft}
-            />
+            <FieldSet className="gap-4">
+              <FieldLegend>{t("agent.card.run")}</FieldLegend>
+              <FieldDescription>{t("agent.card.runHint")}</FieldDescription>
+              <AgentInstructionsField
+                value={draft.agentInstructions ?? ""}
+                earlier={base?.card.instructions}
+                onChange={(agentInstructions) =>
+                  setDraft({ ...draft, agentInstructions })
+                }
+              />
+              <AgentCardFields
+                draft={draft}
+                catalog={catalog}
+                onChange={setDraft}
+              />
+            </FieldSet>
           ) : null}
           <div className="flex flex-wrap gap-2">
             <Button
@@ -217,12 +284,23 @@ interface Edit {
   /** The newest version when the edit started; a newer one means another save. */
   readonly seenLatestId: string | null;
   readonly baseName: string;
+  readonly baseDescription: string;
   readonly name: string;
+  readonly description: string;
   readonly draft: CardDraft | null;
 }
 
+interface Submitted extends Edit {
+  /** Whether the card differs from its base; else only the row is saved. */
+  readonly sendsCard: boolean;
+}
+
 const sameEdit = (a: Edit, b: Edit) =>
-  a.name === b.name && JSON.stringify(a.draft) === JSON.stringify(b.draft);
+  a.name === b.name &&
+  a.description === b.description &&
+  JSON.stringify(a.draft) === JSON.stringify(b.draft);
+
+const descriptionOf = (detail: AgentDetail) => detail.agent.description ?? "";
 
 function startEdit(detail: AgentDetail, from?: AgentVersion): Edit {
   const latest = latestVersion(detail);
@@ -231,7 +309,9 @@ function startEdit(detail: AgentDetail, from?: AgentVersion): Edit {
     baseId: base?.id ?? null,
     seenLatestId: latest?.id ?? null,
     baseName: detail.agent.name,
+    baseDescription: descriptionOf(detail),
     name: detail.agent.name,
+    description: descriptionOf(detail),
     draft: base ? draftFromCard(base.card) : null,
   };
 }

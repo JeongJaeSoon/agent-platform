@@ -70,6 +70,9 @@ export type WorkerBinding = {
   // (runtime_config_snapshot.tools); `[]` is a release that allows none.
   // Null, or absent, for a session without a release.
   releaseTools?: readonly string[] | null;
+  // The release card's `agent_instructions` as stored, untrimmed. Null, or
+  // absent, without a release or when the card has none or "".
+  agentInstructions?: string | null;
   // The allows a parked turn's answers left for the turn carrying it on,
   // not yet spent.
   grants?: readonly PermissionGrant[];

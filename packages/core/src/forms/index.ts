@@ -3,6 +3,7 @@ import {
   acceptInviteRequestSchema,
   agentCardRequestSchema,
   agentCardSchema,
+  agentDescriptionSchema,
   createAgentReleaseRequestSchema,
   createAgentRequestSchema,
   createInviteRequestSchema,
@@ -22,9 +23,11 @@ import { z } from "zod";
 const trimmed = <T extends z.ZodType<unknown, string>>(field: T) =>
   z.string().trim().pipe(field);
 
+/** Empty for none: the description is optional. */
 export const agentIdentityStep = z.object({
   slug: trimmed(createAgentRequestSchema.shape.slug),
   name: trimmed(createAgentRequestSchema.shape.name),
+  description: trimmed(agentDescriptionSchema),
 });
 
 /** The release step of making an agent: the version comes from the saved draft. */
@@ -68,8 +71,8 @@ export const acceptInviteStep = z.object({
 
 /** The card as its form holds it. */
 const agentCardDraftSchema = z.object({
-  role: z.string(),
-  instructions: z.string(),
+  /** Absent from a form without the field (the new-agent flow). */
+  agentInstructions: z.string().optional(),
   language: agentCardSchema.shape.language.unwrap(),
   model: z.string(),
   /** `all` = whatever the runtime profile allows (`tools: null`). */
@@ -122,22 +125,42 @@ export function draftCapabilities(
 }
 
 /**
+ * `card` with the agent instructions a form holds, kept as typed. Blank
+ * leaves the field out, as the claim does; a form without the field
+ * (`undefined`) keeps what `card` has.
+ */
+export function withAgentInstructions<T extends object>(
+  card: T,
+  text: string | undefined,
+): T & { agent_instructions?: string } {
+  if (text === undefined) return card;
+  const { agent_instructions: _replaced, ...rest } = card as T & {
+    agent_instructions?: string;
+  };
+  return (
+    text.trim() === "" ? rest : { ...rest, agent_instructions: text }
+  ) as T;
+}
+
+/**
  * The card step. An edit passes the card it started from: the result keeps
  * every field the form has no input for (rules, tool_policy,
- * credential_refs, the MCP server, anything added later) instead of the
- * contract's defaults.
+ * credential_refs, the MCP server, a card's earlier role and instructions,
+ * anything added later) instead of the contract's defaults.
  */
 export function agentCardStep(base?: AgentCard) {
   return agentCardDraftSchema
-    .transform((draft): z.input<typeof agentCardRequestSchema> => {
-      return {
-        ...base,
-        role: draft.role.trim(),
-        instructions: draft.instructions.trim(),
-        language: draft.language,
-        model: draft.model.trim(),
-        capabilities: draftCapabilities(draft, base?.capabilities),
-      };
-    })
+    .transform(
+      (draft): z.input<typeof agentCardRequestSchema> =>
+        withAgentInstructions(
+          {
+            ...base,
+            language: draft.language,
+            model: draft.model.trim(),
+            capabilities: draftCapabilities(draft, base?.capabilities),
+          },
+          draft.agentInstructions,
+        ),
+    )
     .pipe(agentCardRequestSchema);
 }

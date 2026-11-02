@@ -674,24 +674,32 @@ describe("card read and request shapes", () => {
     ).toBe(false);
   });
 
-  test("a request still writes only the shape older images read", () => {
+  // Writing this shape waited for the rollback floor (bc5f14ad): every image
+  // since reads a card without role and instructions.
+  test("a request writes the read shape, and an edit may send a stored card back", () => {
     const body = (requestCard: unknown) => ({
       slug: "finance-analyst",
       name: "재무 분석가",
       card: requestCard,
     });
-    expect(createAgentRequestSchema.safeParse(body(bare)).success).toBe(false);
+    expect(createAgentRequestSchema.safeParse(body(bare)).success).toBe(true);
     expect(
       createAgentRequestSchema.safeParse(
-        body({ ...card, agent_instructions: "Answer in Korean." }),
+        body({ ...bare, agent_instructions: "Answer in Korean." }),
       ).success,
+    ).toBe(true);
+    expect(
+      updateAgentRequestSchema.safeParse({
+        card: { ...card, agent_instructions: "Answer in Korean." },
+      }).success,
+    ).toBe(true);
+    expect(
+      updateAgentRequestSchema.safeParse({
+        card: { ...bare, agent_instructions: "x".repeat(20_001) },
+      }).success,
     ).toBe(false);
     expect(
       updateAgentRequestSchema.safeParse({ card: { ...card, secret: "x" } })
-        .success,
-    ).toBe(false);
-    expect(
-      updateAgentRequestSchema.safeParse({ card: { ...bare, role: "r" } })
         .success,
     ).toBe(false);
   });

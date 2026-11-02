@@ -33,8 +33,6 @@ const BASE: AgentCard = {
 };
 
 const DRAFT: AgentCardDraft = {
-  role: "Support agent",
-  instructions: "Answer refund questions.",
   language: "en",
   model: "claude-sonnet-5",
   toolsMode: "list",
@@ -47,7 +45,11 @@ const paths = (result: { error?: { issues: { path: PropertyKey[] }[] } }) =>
 
 describe("steps validate trimmed values", () => {
   test("whitespace alone is empty", () => {
-    const result = agentIdentityStep.safeParse({ slug: "   ", name: " \t " });
+    const result = agentIdentityStep.safeParse({
+      slug: "   ",
+      name: " \t ",
+      description: "  ",
+    });
     expect(
       result.error?.issues
         .filter((issue) => issue.code === "too_small")
@@ -75,8 +77,16 @@ describe("steps validate trimmed values", () => {
 
   test("the value sent is the trimmed one", () => {
     expect(
-      agentIdentityStep.parse({ slug: "  refunds ", name: " Refunds  " }),
-    ).toEqual({ slug: "refunds", name: "Refunds" });
+      agentIdentityStep.parse({
+        slug: "  refunds ",
+        name: " Refunds  ",
+        description: " Answers refund questions.\n",
+      }),
+    ).toEqual({
+      slug: "refunds",
+      name: "Refunds",
+      description: "Answers refund questions.",
+    });
     expect(
       inviteStep.parse({ email: " ada@example.com ", role: "member" }),
     ).toEqual({ email: "ada@example.com", role: "member" });
@@ -84,27 +94,71 @@ describe("steps validate trimmed values", () => {
 
   test("the contract's own limits apply after the trim", () => {
     const long = `  ${"a".repeat(64)}  `;
-    expect(agentIdentityStep.safeParse({ slug: long, name: "x" }).success).toBe(
-      true,
-    );
+    const identity = { name: "x", description: "" };
     expect(
-      agentIdentityStep.safeParse({ slug: `${long}a`, name: "x" }).success,
+      agentIdentityStep.safeParse({ ...identity, slug: long }).success,
+    ).toBe(true);
+    expect(
+      agentIdentityStep.safeParse({ ...identity, slug: `${long}a` }).success,
     ).toBe(false);
     expect(
-      agentIdentityStep.safeParse({ slug: "Not Kebab", name: "x" }).success,
+      agentIdentityStep.safeParse({ ...identity, slug: "Not Kebab" }).success,
     ).toBe(false);
+    const description = ` ${"d".repeat(2_000)} `;
+    expect(
+      agentIdentityStep.safeParse({ ...identity, slug: "x", description })
+        .success,
+    ).toBe(true);
+    expect(
+      paths(
+        agentIdentityStep.safeParse({
+          ...identity,
+          slug: "x",
+          description: `${description}d`,
+        }),
+      ),
+    ).toEqual(["description"]);
   });
 
   test("a card field of whitespace fails on that field", () => {
-    const result = agentCardStep().safeParse({ ...DRAFT, role: "   " });
-    expect(paths(result)).toEqual(["role"]);
+    const result = agentCardStep().safeParse({ ...DRAFT, model: "   " });
+    expect(paths(result)).toEqual(["model"]);
   });
 });
 
 describe("the card step keeps what its base has", () => {
-  test("a field the form has no input for survives an edit", () => {
-    const card = agentCardStep(BASE).parse({ ...DRAFT, role: "Refund lead" });
-    expect<unknown>(card).toEqual({ ...BASE, role: "Refund lead" });
+  test("a field the form has no input for survives an edit, earlier role and instructions included", () => {
+    const card = agentCardStep(BASE).parse({ ...DRAFT, language: "ko" });
+    expect<unknown>(card).toEqual({ ...BASE, language: "ko" });
+  });
+
+  test("a new card has no role or instructions", () => {
+    const card = agentCardStep().parse(DRAFT);
+    expect("role" in card).toBe(false);
+    expect("instructions" in card).toBe(false);
+    expect("agent_instructions" in card).toBe(false);
+  });
+
+  test("agent instructions go as typed; blank leaves them out; a form without the field keeps the base's", () => {
+    const base: AgentCard = { ...BASE, agent_instructions: "Be brief." };
+    const typed = "  Answer in Korean.\n";
+    expect(
+      agentCardStep(base).parse({ ...DRAFT, agentInstructions: typed })
+        .agent_instructions,
+    ).toBe(typed);
+    expect(
+      "agent_instructions" in
+        agentCardStep(base).parse({ ...DRAFT, agentInstructions: " \n " }),
+    ).toBe(false);
+    expect(agentCardStep(base).parse(DRAFT).agent_instructions).toBe(
+      "Be brief.",
+    );
+    expect(
+      agentCardStep().safeParse({
+        ...DRAFT,
+        agentInstructions: "x".repeat(20_001),
+      }).success,
+    ).toBe(false);
   });
 
   test("the form's inputs win over the base", () => {
@@ -192,10 +246,22 @@ describe("the card step keeps what its base has", () => {
 });
 
 test("the steps join into requests the contract accepts", () => {
-  const identity = agentIdentityStep.parse({ slug: " refunds", name: "R " });
-  const card = agentCardStep(BASE).parse(DRAFT);
+  const identity = agentIdentityStep.parse({
+    slug: " refunds",
+    name: "R ",
+    description: "",
+  });
   expect(
-    createAgentRequestSchema.safeParse({ ...identity, card }).success,
+    createAgentRequestSchema.safeParse({
+      ...identity,
+      card: agentCardStep(BASE).parse(DRAFT),
+    }).success,
+  ).toBe(true);
+  expect(
+    createAgentRequestSchema.safeParse({
+      ...identity,
+      card: agentCardStep().parse({ ...DRAFT, agentInstructions: "Be brief." }),
+    }).success,
   ).toBe(true);
   const invite = inviteStep.parse({ email: "a@example.com ", role: "admin" });
   expect(createInviteRequestSchema.safeParse(invite).success).toBe(true);

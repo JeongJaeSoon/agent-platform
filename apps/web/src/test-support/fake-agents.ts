@@ -23,9 +23,8 @@ const VERSION_IDS = [
   "8d9e0f1a-2b3c-4d4e-9f5a-6b7c8d9e0f1a",
 ];
 
+/** A card as the console writes it: no role or instructions. */
 export const CARD: AgentCardRequest = {
-  role: "결제 문의 담당",
-  instructions: "결제 문의에 답한다.",
   language: "ko",
   model: "claude-sonnet-5",
   capabilities: { tools: null, mcp: null, forbidden: [] },
@@ -43,10 +42,14 @@ const bindingId = (n: number) =>
  */
 export function agentServer({
   repositoryMode = "required",
+  description: initialDescription = null,
 }: {
   repositoryMode?: ProfileSummary["repository_mode"];
+  description?: string | null;
 } = {}) {
   const versions: AgentVersion[] = [version(1, CARD)];
+  let name = "결제 담당";
+  let description = initialDescription;
   const releases: AgentRelease[] = [];
   const bindings: CredentialBindingView[] = [];
   let active: string | null = null;
@@ -70,8 +73,8 @@ export function agentServer({
         id: AGENT_ID,
         workspace_id: WORKSPACE_ID,
         slug: "billing",
-        name: "결제 담당",
-        description: null,
+        name,
+        description,
         managing_team_id: null,
         status: "active",
         active_release_id: active,
@@ -101,8 +104,14 @@ export function agentServer({
       }),
     // Creating the agent makes its first version from the card sent.
     "POST /v1/agents": async (request: Request) => {
-      const body = (await request.json()) as { card: AgentCard };
+      const body = (await request.json()) as {
+        name: string;
+        description?: string;
+        card: AgentCard;
+      };
       versions.splice(0, versions.length, version(1, body.card));
+      name = body.name;
+      description = body.description ?? null;
       return json(201, detail());
     },
     [`GET ${path}`]: () => json(200, detail()),
@@ -138,7 +147,13 @@ export function agentServer({
       return json(200, { binding, created: true, receipt_id: RECEIPT_ID });
     },
     [`PATCH ${path}`]: async (request: Request) => {
-      const body = (await request.json()) as { card?: AgentCard };
+      const body = (await request.json()) as {
+        name?: string;
+        description?: string | null;
+        card?: AgentCard;
+      };
+      if (body.name !== undefined) name = body.name;
+      if (body.description !== undefined) description = body.description;
       const card = body.card;
       if (
         card &&

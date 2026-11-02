@@ -135,10 +135,9 @@ export const agentCapabilitiesSchema = z
  * `description` live on the agent row, not here, so editing them does not
  * mint a new immutable version.
  *
- * `role` and `instructions` never reach a run and are optional so a card
- * without them reads; `agent_instructions` is what will. Requests still take
- * `agentCardRequestSchema` until every image that may be rolled back to reads
- * this shape (agent-wizard-rework.md, item 2).
+ * `role` and `instructions` never reach a run: new cards leave them out and
+ * older ones keep theirs. `agent_instructions` is what a run appends to its
+ * system prompt (agent-wizard-rework.md, item 2).
  *
  * `.strict()` is what enforces "a card holds no secrets": there is
  * structurally nowhere to put one, and a credential field is rejected rather
@@ -164,14 +163,11 @@ export const agentCardSchema = z
   })
   .strict();
 
-/** The card a request may write: the shape every older image reads. */
-export const agentCardRequestSchema = agentCardSchema
-  .omit({ agent_instructions: true })
-  .extend({
-    role: z.string().min(1).max(200),
-    instructions: z.string().min(1).max(AGENT_INSTRUCTIONS_MAX_LENGTH),
-  })
-  .strict();
+/**
+ * The card a request may write: the shape it is read in, so an edit can send
+ * back the stored card it started from.
+ */
+export const agentCardRequestSchema = agentCardSchema;
 
 /**
  * A card as stored. Cards written before `tone` was dropped (94S-761) still

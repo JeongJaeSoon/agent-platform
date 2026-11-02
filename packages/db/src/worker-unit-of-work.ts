@@ -148,6 +148,7 @@ import {
 import {
   achievementJudgments,
   agentReleases,
+  agentVersions,
   approvalCheckpoints,
   attempts,
   catalogAuthority,
@@ -1408,26 +1409,39 @@ async function bindingOf(
     providerTokens: session.providerTokens,
     mcp: await sessionMcpOf(tx, session),
     githubMcp: await sessionGitHubMcpOf(tx, session),
-    releaseTools: await releaseToolsOf(tx, session),
+    ...(await releaseRunOf(tx, session)),
     grants: await unspentGrants(tx, session.id, attempt.id),
   };
 }
 
 // A snapshot this image cannot read allows no tool rather than guessing.
-async function releaseToolsOf(
+async function releaseRunOf(
   tx: Database,
   session: SessionRow,
-): Promise<string[] | null> {
-  if (session.agentReleaseId === null) return null;
+): Promise<Pick<WorkerBinding, "releaseTools" | "agentInstructions">> {
+  if (session.agentReleaseId === null)
+    return { releaseTools: null, agentInstructions: null };
   const [release] = await tx
-    .select({ snapshot: agentReleases.runtimeConfigSnapshot })
+    .select({
+      snapshot: agentReleases.runtimeConfigSnapshot,
+      instructions: sql<unknown>`${agentVersions.card}->'agent_instructions'`,
+    })
     .from(agentReleases)
+    .innerJoin(agentVersions, eq(agentVersions.id, agentReleases.versionId))
     .where(eq(agentReleases.id, session.agentReleaseId))
     .limit(1);
   const tools = (release?.snapshot as { tools?: unknown } | undefined)?.tools;
-  return Array.isArray(tools) && tools.every((tool) => typeof tool === "string")
-    ? tools
-    : [];
+  const instructions = release?.instructions;
+  return {
+    releaseTools:
+      Array.isArray(tools) && tools.every((tool) => typeof tool === "string")
+        ? tools
+        : [],
+    agentInstructions:
+      typeof instructions === "string" && instructions !== ""
+        ? instructions
+        : null,
+  };
 }
 
 // Only for a turn not yet finished: a grant outlives nothing past the turn

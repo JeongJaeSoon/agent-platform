@@ -1,16 +1,41 @@
 ---
-title: "지시문과 역할"
-description: 에이전트 카드의 필드, version이 쌓이는 방식, 지금 모델이 실제로 읽는 지시
+title: "지시문과 설명"
+description: 이름·설명과 에이전트 지시문의 차이, 카드 필드, version이 쌓이는 방식, 지금 모델이 실제로 읽는 지시
 ---
 
-카드는 에이전트가 누구이고 무엇을 해야 하는지 적은 정의다. 카드를 고치면 새 version이 생기고, 이전 version은 바뀌지 않는다.
+에이전트에는 사람이 보는 값과 실행에 쓰이는 값이 따로 있다.
+
+| 값 | 자리 | 바꾸면 | 모델이 읽나 |
+| --- | --- | --- | --- |
+| 이름(`name`)·설명(`description`) | 에이전트 행 | 바로 바뀐다. version·release가 생기지 않는다 | 읽지 않는다 |
+| 에이전트 지시문(`agent_instructions`)과 그 밖의 카드 필드 | 카드 | 새 version이 생긴다. release로 만들어 활성화해야 쓰인다 | 지시문은 읽는다 |
+
+이름과 설명은 목록과 상세 화면에서 에이전트를 알아보게 하는 값이다. 에이전트의 동작에는 영향이 없다. 에이전트가 어떻게 일할지는 에이전트 지시문에 적는다.
+
+## 에이전트 지시문
+
+에이전트 지시문은 그 에이전트의 세션마다 시스템 프롬프트에 붙는 글이다. `CLAUDE.md`나 `AGENTS.md`에 적던 일하는 방식, 답하는 말투, 지켜야 할 규칙을 여기에 적는다. 20,000자까지다.
+
+웹 콘솔에서는 에이전트 상세의 "상세 설정" 탭에서 "상세 설정 편집"을 누르고, "실행 설정" 묶음의 "에이전트 지시문"에 적어 저장한다. 새 에이전트 흐름에는 이 칸이 없다. 에이전트를 만든 뒤 상세 설정에서 적는다.
+
+- 저장하면 새 version이 생긴다. 활성 release는 그대로다.
+- 그 version으로 release를 만들어 활성화하면, 그 뒤로 시작한 세션의 시스템 프롬프트에 붙는다. 플랫폼 지시 다음, 저장소 `CLAUDE.md` 앞이다.
+- 세션은 시작할 때의 release에 고정된다. 세션의 실행 환경이 다시 뜰 때(마지막 턴이 끝난 뒤 입력 없이 30분이 지나 실행 환경이 내려간 다음의 메시지, 또는 일시 정지 뒤 재개)도 그 release의 지시문을 다시 붙이므로, 활성 release를 바꿔도 진행 중인 세션의 지시문은 바뀌지 않는다.
+- 비우거나 공백만 남기면 카드에서 빠지고 프롬프트에 아무것도 붙지 않는다. 적은 글은 앞뒤 공백까지 그대로 저장한다.
+
+### 이전 지시 사항
+
+예전 카드에는 "역할"(`role`)과 "지시 사항"(`instructions`) 칸이 있었다. 이 두 값은 version에 저장됐지만 모델에 전달된 적이 없다.
+
+- 새로 만드는 카드는 두 값을 보내지 않는다. 이미 저장된 version의 값은 그대로 남는다.
+- 역할은 이 기능이 들어올 때 에이전트의 설명으로 한 번 옮겼다. 설명이 없는 에이전트는 화면에서 카드의 역할을 대신 보인다.
+- 지시 사항은 자동으로 옮기지 않는다. 옮기면 사람이 확인하지 않은 글이 기존 에이전트의 동작을 바꾸기 때문이다. 상세 설정에 "이전 지시 사항 (적용된 적 없음)"으로 보이고, 편집 화면의 "에이전트 지시문으로 가져오기"를 누르면 그 글이 지시문 칸에 들어간다. 저장하고 release를 활성화해야 실행에 쓰인다.
 
 ## 카드 필드
 
 | 필드 | 필수 | 내용 |
 | --- | --- | --- |
-| `role` | 예 | 한 줄 역할. 200자까지 |
-| `instructions` | 예 | 지시 사항. 20,000자까지 |
+| `agent_instructions` | | 에이전트 지시문. 20,000자까지. 비면 넣지 않는다 |
 | `model` | 예 | 모델 이름. release를 만들 때 실행 프로필이 실행할 수 있는 모델 중 하나여야 한다 |
 | `capabilities.tools` | 예 | 쓸 도구 이름 목록. 실행 프로필에 있는 도구여야 한다. `null`이면 release를 만들 때 프로필의 도구 전부 |
 | `capabilities.mcp` | 예 | 지금은 `null`만 받는다 |
@@ -19,10 +44,13 @@ description: 에이전트 카드의 필드, version이 쌓이는 방식, 지금 
 | `capabilities.credential_refs` | | 쓸 자격 증명의 이름(값이 아니다). [권한](/agents/permissions) |
 | `language` | | `ko`(기본) 또는 `en` |
 | `rules` | | `{id, text, source}` 목록. `source`는 `user` 또는 `correction` |
+| `role`·`instructions` | | 이전 카드의 값. 모델에 전달되지 않는다. 새 카드에는 보내지 않는다 |
+
+이름(1~120자)과 설명(0~2,000자)은 카드가 아니라 에이전트의 필드다. `POST /v1/agents`와 `PATCH /v1/agents/{id}`에 `name`·`description`으로 보낸다.
 
 ## 웹 콘솔에서 도구 고르기
 
-카드 편집(새 에이전트의 "하는 일" 단계, 에이전트 상세의 카드 편집)의 "쓸 수 있는 도구"는 프로필 하나의 도구 체크 목록이다.
+카드 편집(새 에이전트의 "하는 일" 단계, 에이전트 상세의 상세 설정 편집)의 "쓸 수 있는 도구"는 프로필 하나의 도구 체크 목록이다.
 
 - "도구를 보여 줄 프로필": 카드 모델을 돌리는 프로필 중 하나를 고른다. 새 에이전트 흐름은 저장소 없이 release할 수 있는 프로필을 먼저 두고, 고른 프로필을 release 단계에서 먼저 골라 둔다. 이 값은 카드에 저장하지 않는다.
 - "릴리스할 때 프로필이 허용하는 도구 전부"를 켜 두면 `tools: null`이다. 끄면 체크한 도구가 `tools`다. 체크를 끄는 것이 금지다.
@@ -33,26 +61,25 @@ description: 에이전트 카드의 필드, version이 쌓이는 방식, 지금 
 
 ## 지금 모델이 읽는 것
 
+worker가 모델의 시스템 프롬프트에 덧붙이는 지시는 이 순서다.
+
+1. 저장소 없는 세션이면, 사람에게 줄 파일을 `out/`에 두라는 한 줄.
+2. 세션 release의 에이전트 지시문.
+3. 저장소 루트의 `CLAUDE.md`. 실행 프로필이 `project_settings.claude_md: true`일 때 커밋된 내용을 읽는다. 로컬 프로필 `claude-coding-local`은 켜져 있다.
+
 <Callout type="warn">
-카드의 `role`·`instructions`·`rules`는 version과 release에 저장되고 세션에 고정되지만, 아직 모델에 전달되지 않는다.
+이름·설명, 카드의 `role`·`instructions`·`language`·`rules`는 모델에 전달되지 않는다. 답변 언어를 정하려면 에이전트 지시문에 적는다.
 </Callout>
-
-지금 worker가 모델에 덧붙이는 지시는 둘이다.
-
-- 저장소 루트의 `CLAUDE.md`. 실행 프로필이 `project_settings.claude_md: true`일 때 커밋된 내용을 읽는다. 로컬 프로필 `claude-coding-local`은 켜져 있다.
-- 저장소 없는 세션이면, 사람에게 줄 파일을 `out/`에 두라는 한 줄.
-
-그래서 에이전트에게 일하는 방식을 알려 주려면 지금은 저장소의 `CLAUDE.md`에 적는다.
 
 ## 고치기와 version
 
-카드를 고치면 `PATCH /v1/agents/{id}`가 새 version을 더한다. 이름만 바꿀 때는 `name`만 보낸다. 이미 있는 version과 같은 카드를 보내면 아무것도 더하지 않는다. [만들기](/agents/create)의 `AID`와 `WEB`을 이어 쓴다.
+카드를 보내면 `PATCH /v1/agents/{id}`가 새 version을 더한다. 이름이나 설명만 바꿀 때는 `name`·`description`만 보낸다. 이때는 version이 생기지 않는다. 이미 있는 version과 같은 카드를 보내면 아무것도 더하지 않는다. [만들기](/agents/create)의 `AID`와 `WEB`을 이어 쓴다.
 
 ```bash
 curl -sS -X PATCH "$API/v1/agents/$AID" "${WEB[@]}" -d '{
+  "description": "저장소를 읽고 질문에 답한다",
   "card": {
-    "role": "저장소를 읽고 질문에 답한다",
-    "instructions": "Answer briefly. Cite file paths. Say when you are unsure.",
+    "agent_instructions": "Answer briefly. Cite file paths. Say when you are unsure.",
     "model": "claude-sonnet-5",
     "language": "en",
     "capabilities": { "tools": ["Read", "Grep", "Glob"], "mcp": null },
@@ -66,7 +93,7 @@ curl -sS -X PATCH "$API/v1/agents/$AID" "${WEB[@]}" -d '{
 {"version_no":2,"language":"en"}
 ```
 
-새 version은 활성 release를 바꾸지 않는다. 쓰려면 그 version으로 release를 만들고 활성화한다([만들기](/agents/create#릴리스-만들기)). 웹 콘솔에서는 에이전트 상세의 "저장"이 같은 일을 하고, 두 version의 차이를 보여 준다.
+새 version은 활성 release를 바꾸지 않는다. 쓰려면 그 version으로 release를 만들고 활성화한다([만들기](/agents/create#릴리스-만들기)). 웹 콘솔에서는 상세 설정의 "저장"이 같은 일을 하고, 두 version의 차이를 보여 준다.
 
 ## 다음 단계
 
