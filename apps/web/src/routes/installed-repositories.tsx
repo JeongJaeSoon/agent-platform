@@ -1,4 +1,4 @@
-import type { components } from "@werft-ai/client";
+import { type components, isApiError } from "@werft-ai/client";
 import {
   Badge,
   Button,
@@ -25,10 +25,21 @@ type Page<R> = Pick<
 /** The page size the console asks for; GitHub allows up to 100. */
 export const INSTALLED_PER_PAGE = 30;
 
-const UNAVAILABLE: Partial<Record<string, MessageKey>> = {
+const UNAVAILABLE: Record<string, MessageKey> = {
   no_author_app: "github.repo.pickNoApp",
   no_installation: "github.repo.pickNoInstallation",
 };
+
+/** A named installation GitHub no longer has: the caller goes back to the first. */
+export const installationGone = (error: unknown) =>
+  isApiError(error) &&
+  error.code === "NOT_FOUND" &&
+  (error.details as { reason_code?: unknown } | null)?.reason_code ===
+    "installation_not_found";
+
+/** react-query's three retries, none for a vanished installation. */
+export const retryUnlessGone = (failures: number, error: unknown) =>
+  !installationGone(error) && failures < 3;
 
 /**
  * One page of the repositories an installation of the author App reaches,
@@ -53,7 +64,7 @@ export function InstalledRepositoryPage<R extends InstalledRepository>({
   if (page.unavailable !== null) {
     return (
       <p className="m-0 text-caption">
-        {t(UNAVAILABLE[page.unavailable] ?? "github.repo.pickUnreachable")}
+        {t(UNAVAILABLE[page.unavailable] ?? "github.repo.pickNoInstallation")}
       </p>
     );
   }
@@ -77,7 +88,11 @@ export function InstalledRepositoryPage<R extends InstalledRepository>({
                 key={installation.id}
                 value={String(installation.id)}
               >
-                {installation.account}
+                {installation.role === "reviewer"
+                  ? t("github.repo.installationReviewer", {
+                      account: installation.account,
+                    })
+                  : installation.account}
               </NativeSelectOption>
             ))}
           </NativeSelect>

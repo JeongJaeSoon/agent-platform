@@ -118,6 +118,7 @@ function repositoriesFrom(
             ? repository.installation_id !== null
             : null,
         updated_at: null,
+        agent_count: 0,
       })),
     });
   };
@@ -314,6 +315,7 @@ export function githubSettings(
       callback_url: "http://console.test/settings/linked-accounts/github",
       ...oauth,
     },
+    connections: [],
     apps: { author: null, reviewer: null },
   };
 }
