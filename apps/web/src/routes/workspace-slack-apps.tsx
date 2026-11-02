@@ -35,14 +35,12 @@ type MadeApp = ListWorkspaceSlackAppsResponse["items"][number];
 
 export const SLACK_APPS_ANCHOR = "slack-apps";
 
-/** The Slack apps the console made: their state, changed elsewhere. */
-export function SlackApps() {
-  const { t } = useI18n();
+/** The apps the console made; only owners and admins may read them. */
+export function useWorkspaceSlackApps() {
   const { client } = useAgentPlatform();
-  const role = useRole();
   const workspaceId = useMe()?.workspace?.id ?? "";
   const canManage = useHasPermission("workspace.manage");
-  const apps = useQuery({
+  return useQuery({
     queryKey: scopedKey(client, "workspace", workspaceId, "slack-apps"),
     queryFn: () =>
       unwrap(
@@ -52,6 +50,16 @@ export function SlackApps() {
       ),
     enabled: workspaceId !== "" && canManage,
   });
+}
+
+/** The Slack apps the console made: their state, changed elsewhere. */
+export function SlackApps() {
+  const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  const role = useRole();
+  const workspaceId = useMe()?.workspace?.id ?? "";
+  const canManage = useHasPermission("workspace.manage");
+  const apps = useWorkspaceSlackApps();
   const anchored = useLocation({
     select: (location) => location.hash === SLACK_APPS_ANCHOR,
   });
