@@ -142,6 +142,19 @@ export const githubAppSchema = z
     permissions_checked_at: timestampSchema.nullable().optional(),
     /** Permissions wider than the role's guidance. */
     warnings: z.array(githubAppWarningSchema).optional(),
+    /**
+     * The account that owns the App, as GitHub gave it on this read; its
+     * permissions are set under that account. Null when GitHub did not
+     * answer; absent from a write's answer.
+     */
+    owner: z
+      .object({
+        login: z.string().min(1),
+        type: z.enum(["organization", "user"]),
+      })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict();
 

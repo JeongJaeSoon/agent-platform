@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 import { receiptIdSchema, timestampSchema } from "../shared/index.ts";
+import { githubAppPermissionsSchema } from "./github-app.ts";
+import { githubAppRoleSchema } from "./github-settings.ts";
 import { workspaceParamsSchema } from "./workspaces.ts";
 
 // GitHub App repositories are read from the author App's installations, a
@@ -82,6 +84,13 @@ export const githubAppInstallationSummarySchema = z
     id: z.number().int().positive(),
     /** The organization or user it is installed on. */
     account: z.string().min(1),
+    /** The registered App's row id. */
+    connection_id: z.string().min(1),
+    role: githubAppRoleSchema,
+    /** What the account approved for this installation. */
+    permissions: githubAppPermissionsSchema,
+    /** GitHub's count; null when it was not read. */
+    repository_count: z.number().int().min(0).nullable(),
   })
   .strict();
 
@@ -96,13 +105,23 @@ export const installedGitHubRepositorySchema = z
   })
   .strict();
 
+/**
+ * Why there is no page to show. GitHub failing to answer is an error, not
+ * one of these: 502 GITHUB_UNAVAILABLE.
+ */
 export const GITHUB_REPOSITORIES_UNAVAILABLE_VALUES = [
   // No author App is registered.
   "no_author_app",
-  // The author App is installed nowhere.
+  // No registered App is installed anywhere.
   "no_installation",
-  "github_unreachable",
-  "github_rejected",
+] as const;
+
+/** `details.reason_code` of a 502 GITHUB_UNAVAILABLE. */
+export const GITHUB_UNAVAILABLE_VALUES = [
+  // GitHub did not answer, answered 5xx, or rate-limited the App.
+  "github_unavailable",
+  // GitHub refused the App's key.
+  "github_app_auth_failed",
 ] as const;
 
 const installationPageFields = {
@@ -131,7 +150,14 @@ export const listGitHubRepositoriesResponseSchema = z
      * The catalog's GitHub repositories: rows picks resolved (any branch is
      * changed here), and the operator file's entries, read-only.
      */
-    catalog: z.array(catalogGitHubRepositorySchema),
+    catalog: z.array(
+      catalogGitHubRepositorySchema
+        .extend({
+          /** Agents whose active release names it. */
+          agent_count: z.number().int().min(0),
+        })
+        .strict(),
+    ),
   })
   .strict();
 
