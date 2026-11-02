@@ -7,8 +7,30 @@ description: セッションがどのモデル・ツール・権限モードで�
 
 ## 一覧を見る
 
+SDK の例は [SDK のインストール](/getting-started/install#クライアントを作る)で作った `werft` クライアントを、HTTP API の例はサーバーのアドレス `API` とキー `KEY` のシェル変数を使う。
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const profiles = await werft.profiles.list();
+for (const profile of profiles.items) {
+  console.log(profile.id, profile.model, profile.repository_mode);
+}
+```
+
+```text
+claude-coding-auto claude-sonnet-5 required
+claude-coding-local claude-sonnet-5 required
+general claude-sonnet-5 none
+```
+
+</Tab>
+<Tab>
+
 ```bash
-curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" | jq '.items[]'
+curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" \
+  | jq '.items[] | select(.id == "claude-coding-local") | {id, model, tools, runtime_kind, runtime_version, billing, repository_mode}'
 ```
 
 ```text
@@ -31,6 +53,11 @@ curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" | jq '.items[]'
 }
 ```
 
+リファレンス: [`GET /v1/profiles`](/reference/http-api/agents/listProfiles)
+
+</Tab>
+</Tabs>
+
 | フィールド | 意味 |
 | --- | --- |
 | `model` | デフォルトのモデル |
@@ -43,6 +70,33 @@ provider のアドレスと認証情報は一覧に表示されない。その�
 ## セッションで選ぶ
 
 セッションを作成するとき、`profile_id` で選ぶ。プロファイルが複数のモデルを許可している場合は `model` でその中の 1 つを選び、省略するとデフォルトのモデルで動く。
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const created = await werft.sessions.create({
+  profile_id: "claude-coding-local",
+  model: "claude-sonnet-5",
+  repository_id: "sample-app",
+  message: 'GATE-SPEC {"id":"profile","steps":[],"final":"ok"}',
+});
+const sessionId = created.session_id;
+console.log((await werft.sessions.get(sessionId)).runtime);
+```
+
+```text
+{
+  kind: 'claude_agent_sdk',
+  version: '0.3.270',
+  profile_id: 'claude-coding-local',
+  model: 'claude-sonnet-5',
+  permission_mode: 'default'
+}
+```
+
+</Tab>
+<Tab>
 
 ```bash
 created=$(curl -sS "$API/v1/sessions" \
@@ -65,13 +119,40 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .runtime
 }
 ```
 
+リファレンス: [`POST /v1/sessions`](/reference/http-api/sessions/createSession), [`GET /v1/sessions/{id}`](/reference/http-api/sessions/getSession)
+
+</Tab>
+</Tabs>
+
 カタログにないプロファイル、そのリポジトリで動作できないプロファイル、プロファイルが許可していないモデルは 422 になる。
 
 エージェントのリリースを作成するときは、`runtime_profile_id` で選ぶ。カードの `model` がそのプロファイルで実行できるモデルのひとつで、カードのツールがすべてプロファイルにある必要がある ([作成](/agents/create#リリースの作成))。
 
 ## 進行中のセッションのプロファイルを変更する
 
-`POST /v1/sessions/{id}/profile` で変更する。実行中のターンは開始時のプロファイルで終わり、その次の入力から新しいプロファイルで動く。会話と作業ツリーは最後の checkpoint から引き継がれる。同じプロファイルに変更しても何も変わらず、receipt だけが残る。
+`sessions.changeProfile`(`POST /v1/sessions/{id}/profile`)で変更する。実行中のターンは開始時のプロファイルで終わり、その次の入力から新しいプロファイルで動く。会話と作業ツリーは最後の checkpoint から引き継がれる。同じプロファイルに変更しても何も変わらず、receipt だけが残る。
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { waitForTurn } from "@werft-ai/sdk";
+
+await waitForTurn(werft, sessionId, created.turn_id);
+const { revision } = await werft.sessions.get(sessionId);
+const changed = await werft.sessions.changeProfile(sessionId, {
+  expected_revision: revision,
+  profile_id: "claude-coding-local",
+});
+console.log(changed.receipt_status);
+```
+
+```text
+succeeded
+```
+
+</Tab>
+<Tab>
 
 ```bash
 until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
@@ -88,6 +169,11 @@ curl -sS "$API/v1/sessions/$SID/profile" \
 ```text
 {"receipt_id":"…","receipt_status":"succeeded"}
 ```
+
+リファレンス: [`POST /v1/sessions/{id}/profile`](/reference/http-api/session-control/changeSessionProfile)
+
+</Tab>
+</Tabs>
 
 新しいプロファイルの runtime の種類・バージョンや課金方式が異なる場合、またはそのリポジトリと組み合わせられない場合は 422 `UNSUPPORTED_CAPABILITY` になる。エージェントのリリースで作成したセッションは、リリースがプロファイルを決めるため 409 `RELEASE_PROFILE_MISMATCH` になる。scope は `sessions:control` である。
 

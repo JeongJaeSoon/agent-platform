@@ -3,9 +3,29 @@ title: "Reject"
 description: Reject a push request. You can make a new request after rejecting
 ---
 
-Reject a commit that must not be sent out. It needs the same `sessions:approve` as approving. A session has only one open request, so if something needs fixing, reject, send the session its next message, and then make a new request. Use `SID` from the [Request](/approvals/request). Since the earlier request has ended, make a new one.
+Reject a commit that must not be sent out. It needs the same `sessions:approve` as approving. A session has only one open request, so if something needs fixing, reject, send the session its next message, and then make a new request. Use the session from [Request](/approvals/request) (`sessionId` in the SDK, `SID` in the HTTP API). Since the earlier request has ended, make a new one.
 
 ## Reject
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const second = await werft.sessions.pushRequests.create(sessionId);
+const rejected = await werft.sessions.pushRequests.decide(sessionId, second.id, {
+  decision: "reject",
+  git_commit: second.git_commit,
+  reason: "needs tests first",
+});
+console.log(rejected.state, rejected.decision_reason);
+```
+
+```text
+rejected needs tests first
+```
+
+</Tab>
+<Tab>
 
 ```bash
 push=$(curl -sS "$API/v1/sessions/$SID/push-requests" \
@@ -30,11 +50,47 @@ curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
 }
 ```
 
+Reference: [`POST …/push-requests/{push_request_id}/decision`](/reference/http-api/push-requests/decidePushRequest)
+
+</Tab>
+</Tabs>
+
 `reason` is optional. A rejection does not check whether the commit changed.
 
 ## One decision only
 
 Deciding again on an already decided request is 409 `PUSH_REQUEST_DECIDED`. That attempt is also kept as a receipt.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { isApiError } from "@werft-ai/sdk";
+
+try {
+  await werft.sessions.pushRequests.decide(sessionId, second.id, {
+    decision: "approve",
+    git_commit: second.git_commit,
+  });
+} catch (error) {
+  if (!isApiError(error, "PUSH_REQUEST_DECIDED")) throw error;
+  console.log(error.code);
+  const receiptId = (error.details as { receipt_id?: string } | null)?.receipt_id;
+  if (receiptId) {
+    const receipt = await werft.receipts.get(receiptId);
+    const result = receipt.result as { refusal?: string | null } | null;
+    console.log(receipt.operation, receipt.status, result?.refusal);
+  }
+}
+```
+
+```text
+PUSH_REQUEST_DECIDED
+decide_push failed already_decided
+```
+
+</Tab>
+<Tab>
 
 ```bash
 again=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
@@ -57,6 +113,11 @@ curl -sS "$API/v1/receipts/$(echo "$again" | jq -r .error.details.receipt_id)" -
   "refusal": "already_decided"
 }
 ```
+
+Reference: [`POST …/push-requests/{push_request_id}/decision`](/reference/http-api/push-requests/decidePushRequest), [`GET /v1/receipts/{id}`](/reference/http-api/limits-and-receipts/getReceipt)
+
+</Tab>
+</Tabs>
 
 ## Next steps
 

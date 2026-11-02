@@ -135,7 +135,29 @@ The list returns agents oldest first, `limit` at a time (default 50, at most 100
 
 ## Bind to a session
 
-Put `agent_release_id` in `POST /v1/sessions`. `profile_id` must be that release's profile (otherwise 409 `RELEASE_PROFILE_MISMATCH`). Use an agent key of that agent. Issue it with the web login cookie by sending `kind: "agent"` and `agent_id` to `POST /v1/api-keys` ([API key](/api-keys)). Keep the secret in a variable only.
+Put `agent_release_id` in the session create request. `profile_id` must be that release's profile (otherwise 409 `RELEASE_PROFILE_MISMATCH`). Use an agent key of that agent. Issue an agent key in the web console, or with the web login cookie by sending `kind: "agent"` and `agent_id` to `POST /v1/api-keys` ([API key](/api-keys)). The SDK has no method for issuing it. Keep the secret in a variable only.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { Werft } from "@werft-ai/sdk";
+
+// WERFT_API_KEY holds the agent key; WERFT_AGENT_RELEASE_ID the release above.
+const agent = new Werft();
+const started = await agent.sessions.create({
+  profile_id: "claude-coding-local",
+  repository_id: "sample-app",
+  agent_release_id: process.env.WERFT_AGENT_RELEASE_ID ?? "",
+  message: 'GATE-SPEC {"id":"agent","steps":[],"final":"hello from research-bot"}',
+});
+console.log(started.status, started.turn_id);
+```
+
+A request from a session made with an agent key is approved by another key or a person ([A separate key for approvals](/getting-started/client#a-separate-key-for-approvals)).
+
+</Tab>
+<Tab>
 
 ```bash
 AGENT_KEY=$(curl -sS "$API/v1/api-keys" "${WEB[@]}" \
@@ -156,6 +178,11 @@ curl -sS "$API/v1/sessions" \
   "turn_id": "1"
 }
 ```
+
+Reference: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
+
+</Tab>
+</Tabs>
 
 Sending with a key that is not in the workspace (for example `scripts/local.sh key quickstart …`) returns 404 because the release is not found.
 
