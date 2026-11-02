@@ -1,4 +1,3 @@
-import type { SessionStatus } from "@werft-ai/contracts";
 import {
   Badge,
   RelativeTime,
@@ -15,20 +14,12 @@ import {
 import { type CSSProperties, type JSX, type RefObject, useRef } from "react";
 
 import { useAgentPlatform } from "../../provider.tsx";
+import { statusDot } from "../status/vocabulary.ts";
 import { FRESH_CLASS, useArrival } from "./fresh.ts";
 import type { AgentMapMessages } from "./messages.ts";
 import { ToolChips } from "./tool-chip.tsx";
 import type { MapEdgeKind, MapNode } from "./types.ts";
 import { useAgentMapMessages } from "./use-messages.ts";
-
-const SESSION_DOT: Record<SessionStatus, StatusDotStatus> = {
-  queued: "idle",
-  running: "run",
-  needs_input: "wait",
-  idle: "idle",
-  failed: "failed",
-  stopped: "done",
-};
 
 // Delegation carries the design's own mark (the Task badge on a subagent);
 // every other edge names itself, so no edge is told apart by colour alone.
@@ -43,7 +34,7 @@ const EDGE_BADGE: Record<
 };
 
 export function nodeDot(node: MapNode): StatusDotStatus {
-  return node.kind === "run" ? node.status : SESSION_DOT[node.status];
+  return node.kind === "run" ? node.status : statusDot("session", node.status);
 }
 
 export interface RunNodeProps {
