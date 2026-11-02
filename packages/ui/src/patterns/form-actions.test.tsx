@@ -34,7 +34,7 @@ describe("FormActions", () => {
 
   test("호출자 className이 같은 축의 기본값을 이긴다", () => {
     const { container } = render(
-      <FormActions className="items-start" id="save-actions">
+      <FormActions className="items-start" data-testid="save-actions">
         <Button type="submit">저장</Button>
       </FormActions>,
     );
@@ -42,6 +42,6 @@ describe("FormActions", () => {
     const classes = row?.className.split(" ") ?? [];
     expect(classes).toContain("items-start");
     expect(classes).not.toContain("items-center");
-    expect(row?.id).toBe("save-actions");
+    expect(row?.getAttribute("data-testid")).toBe("save-actions");
   });
 });
