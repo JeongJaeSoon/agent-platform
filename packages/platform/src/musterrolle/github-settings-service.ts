@@ -104,8 +104,8 @@ export function createGitHubSettingsService(deps: {
     ]);
     const checkedAt = now().toISOString();
     const profile = described.status === "fulfilled" ? described.value : null;
-    if (profile !== null && deps.apps !== null) {
-      // An owner widens the App on GitHub; this read is how it shows here.
+    if (manager && profile !== null && deps.apps !== null) {
+      // An owner widens the App on GitHub; a manager's read is how it shows here.
       await deps.apps.recordPermissions(
         record.id,
         credential.appId,
@@ -209,9 +209,9 @@ export function createGitHubSettingsService(deps: {
     const keyOf = new Map(credentials.flat().map((held) => [held.id, held]));
     return await Promise.all(
       records.flatMap((record) => {
-        // Deleted between the two reads.
+        // Deleted or replaced (same row, another App) between the two reads.
         const credential = keyOf.get(record.id);
-        return credential === undefined
+        return credential === undefined || credential.appId !== record.appId
           ? []
           : [connectionOf(record, credential, manager)];
       }),

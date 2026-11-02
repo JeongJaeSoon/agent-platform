@@ -65,6 +65,8 @@ type FakeConnection = {
   id: string;
   role: GitHubAppRole;
   appId: number;
+  /** The App the key read finds on the row, when a replacement landed between. */
+  keyAppId?: number;
   fails?: GitHubAppCheckFailure;
   installations?: GitHubAppInstallationView[];
 };
@@ -116,7 +118,7 @@ function fakeApps(connections: readonly FakeConnection[]) {
         .map((held) => ({
           id: held.id,
           workspaceId: WORKSPACE,
-          appId: held.appId,
+          appId: held.keyAppId ?? held.appId,
           apiBase: "https://api.github.com",
           privateKey: "pem",
           updatedAt: NOW,
@@ -392,7 +394,7 @@ describe("GitHub settings service", () => {
   });
 
   test("a member reads each installation's account, type and status only", async () => {
-    const { service } = harness({
+    const { service, recorded } = harness({
       connections: [
         {
           id: "conn-a",
@@ -403,6 +405,8 @@ describe("GitHub settings service", () => {
       ],
     });
     const { connections } = await service.get(user("member"), WORKSPACE);
+    // A member's read writes nothing.
+    expect(recorded).toEqual([]);
     expect(connections[0]?.installations).toEqual([
       {
         id: 1,
@@ -413,6 +417,17 @@ describe("GitHub settings service", () => {
       },
     ]);
     expect(JSON.stringify(connections)).not.toContain("repository_count");
+  });
+
+  test("an App replaced between the row read and the key read is left out, not mixed", async () => {
+    const { service } = harness({
+      connections: [
+        { id: "conn-a", role: "author", appId: 11, keyAppId: 14 },
+        { id: "conn-r", role: "reviewer", appId: 13 },
+      ],
+    });
+    const { connections } = await service.get(user("owner"), WORKSPACE);
+    expect(connections.map((each) => each.connection_id)).toEqual(["conn-r"]);
   });
 
   test("GET for another workspace is NOT_FOUND", async () => {

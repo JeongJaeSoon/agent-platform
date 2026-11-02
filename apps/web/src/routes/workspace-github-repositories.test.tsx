@@ -181,53 +181,93 @@ describe("GitHub 연결 › 에이전트가 쓰는 저장소", () => {
     );
   });
 
-  test("고른 설치가 GitHub에서 사라지면 첫 설치로 돌아간다", async () => {
+  test.each([
+    ["사라지면", 404, "NOT_FOUND", "installation_not_found"],
+    ["정지되면", 409, "INSTALLATION_SUSPENDED", "installation_suspended"],
+  ])(
+    "고른 설치가 GitHub에서 %s 첫 설치로 돌아간다",
+    async (_, status, code, reason) => {
+      const state = { rows: [row({})] as unknown[] };
+      let gone = false;
+      const { api } = renderAt(
+        PATH,
+        routes(state, {
+          [`GET ${LIST}`]: (request: Request) => {
+            const search = new URL(request.url).search;
+            return gone && search.includes("installation_id=78")
+              ? json(status, {
+                  error: {
+                    code,
+                    message: "The installation cannot be read",
+                    retryable: false,
+                    request_id: "req-1",
+                    details: { reason_code: reason },
+                  },
+                })
+              : json(200, page(search, state.rows));
+          },
+        }),
+      );
+      const user = await setupUser();
+      const repos = await card();
+      await user.click(
+        repos.getByRole("button", { name: "설치된 저장소 보기" }),
+      );
+      const region = await screen.findByRole("region", {
+        name: "App이 설치된 저장소",
+      });
+      const browse = within(region);
+      expect(await browse.findByText("acme/repo-001")).toBeDefined();
+      gone = true;
+      await user.selectOptions(browse.getByLabelText("설치"), "78");
+      await waitFor(() => {
+        expect(
+          api.calls.some(
+            (c) =>
+              c.method === "GET" &&
+              c.path === LIST &&
+              c.search.includes("installation_id=78"),
+          ),
+        ).toBe(true);
+        // Read directly: happy-dom calls the select non-labellable mid re-render.
+        expect(region.querySelector("select")?.value).toBe("77");
+      });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(screen.queryByText("불러오지 못했습니다")).toBeNull();
+      expect(
+        repos.getByRole("button", { name: "acme/api 편집" }),
+      ).toBeDefined();
+    },
+  );
+
+  test("GitHub가 답하지 않아도 카탈로그 행은 남고, 설치 목록 자리에 이유를 보인다", async () => {
     const state = { rows: [row({})] as unknown[] };
-    let gone = false;
-    const { api } = renderAt(
+    renderAt(
       PATH,
       routes(state, {
-        [`GET ${LIST}`]: (request: Request) => {
-          const search = new URL(request.url).search;
-          return gone && search.includes("installation_id=78")
-            ? json(404, {
-                error: {
-                  code: "NOT_FOUND",
-                  message: "No registered GitHub App has an installation",
-                  retryable: false,
-                  request_id: "req-1",
-                  details: { reason_code: "installation_not_found" },
-                },
-              })
-            : json(200, page(search, state.rows));
-        },
+        [`GET ${LIST}`]: () =>
+          json(200, {
+            ...page("", state.rows),
+            installations: [],
+            installation_id: null,
+            total_count: 0,
+            repositories: [],
+            unavailable: "github_unavailable",
+          }),
       }),
     );
     const user = await setupUser();
     const repos = await card();
+    expect(
+      await repos.findByRole("button", { name: "acme/api 편집" }),
+    ).toBeDefined();
     await user.click(repos.getByRole("button", { name: "설치된 저장소 보기" }));
-    const region = await screen.findByRole("region", {
-      name: "App이 설치된 저장소",
-    });
-    const browse = within(region);
-    expect(await browse.findByText("acme/repo-001")).toBeDefined();
-    gone = true;
-    await user.selectOptions(browse.getByLabelText("설치"), "78");
-    await waitFor(() => {
-      expect(
-        api.calls.some(
-          (c) =>
-            c.method === "GET" &&
-            c.path === LIST &&
-            c.search.includes("installation_id=78"),
-        ),
-      ).toBe(true);
-      // Read directly: happy-dom calls the select non-labellable mid re-render.
-      expect(region.querySelector("select")?.value).toBe("77");
-    });
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(screen.queryByText("불러오지 못했습니다")).toBeNull();
-    expect(repos.getByRole("button", { name: "acme/api 편집" })).toBeDefined();
+    const browse = within(
+      await screen.findByRole("region", { name: "App이 설치된 저장소" }),
+    );
+    expect(
+      browse.getByText(/^GitHub에서 App의 설치나 저장소를 받지 못했습니다/),
+    ).toBeDefined();
   });
 
   test("기본 브랜치를 바꾸면 읽은 version과 함께 보낸다", async () => {

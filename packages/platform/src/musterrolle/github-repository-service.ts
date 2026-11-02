@@ -259,10 +259,8 @@ export function createGitHubRepositoryService(deps: {
               ),
             )
           ).flat();
-    if (!apps.some(({ role }) => role === "author")) {
-      return emptyPage(query, "no_author_app");
-    }
-    const failures: unknown[] = [];
+    if (apps.length === 0) return emptyPage(query, "no_author_app");
+    const failures: { role: GitHubAppRole; error: unknown }[] = [];
     const held = (
       await Promise.all(
         apps.map(async ({ role, app }) => {
@@ -273,7 +271,7 @@ export function createGitHubRepositoryService(deps: {
               installation,
             }));
           } catch (error) {
-            failures.push(error);
+            failures.push({ role, error });
             return [];
           }
         }),
@@ -286,15 +284,28 @@ export function createGitHubRepositoryService(deps: {
           a.installation.account.localeCompare(b.installation.account) ||
           a.installation.id - b.installation.id,
       );
-    const chosen =
-      query.installation_id === undefined
-        ? held[0]
-        : held.find(
-            ({ installation }) => installation.id === query.installation_id,
-          );
+    const named = query.installation_id !== undefined;
+    // The default page is the author App's when it has one; it answers the
+    // cause rather than failing, so the catalog beside it still shows.
+    const defaultFailure =
+      failures.find(({ role }) => role === "author") ?? failures[0];
+    if (
+      !named &&
+      defaultFailure !== undefined &&
+      (held.length === 0 || defaultFailure.role === "author")
+    ) {
+      return emptyPage(query, githubUnavailableOf(defaultFailure.error));
+    }
+    const chosen = named
+      ? held.find(
+          ({ installation }) => installation.id === query.installation_id,
+        )
+      : (held.find(({ installation }) => installation.suspendedAt === null) ??
+        held[0]);
     if (chosen === undefined) {
-      if (failures.length > 0) throw githubFailure(failures[0], "app");
-      if (query.installation_id !== undefined) throw installationNotFound();
+      const failure = failures[0];
+      if (failure !== undefined) throw githubFailure(failure.error, "app");
+      if (named) throw installationNotFound();
       return emptyPage(query, "no_installation");
     }
     if (chosen.installation.suspendedAt !== null) {
@@ -311,8 +322,10 @@ export function createGitHubRepositoryService(deps: {
         perPage: query.per_page,
       })
       .catch((error: unknown) => {
-        throw githubFailure(error, "installation");
+        if (named) throw githubFailure(error, "installation");
+        return githubUnavailableOf(error);
       });
+    if (typeof page === "string") return emptyPage(query, page);
     const counts = await Promise.all(
       held.map((entry, index) =>
         entry === chosen

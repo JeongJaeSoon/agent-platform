@@ -628,15 +628,15 @@ describe("the GitHub repository API", () => {
     }
   });
 
-  test("GitHub failing is an error by cause, never an empty page", async () => {
+  test("GitHub failing is an error by cause for a named installation; the default page keeps the catalog", async () => {
     const owner = cookieFor("owner");
     const pickBody = {
       installation_id: INSTALLATION,
       github_repository_id: idOf("acme/other"),
     };
     const reads = [
-      ["GET", workspacePath()],
-      ["GET", agentPath()],
+      ["GET", `${workspacePath()}?installation_id=${INSTALLATION}`],
+      ["GET", `${agentPath()}?installation_id=${INSTALLATION}`],
       ["POST", agentPath()],
     ] as const;
     for (const [status, reason] of [
@@ -645,6 +645,13 @@ describe("the GitHub repository API", () => {
     ] as const) {
       github.failApp(APP_ID, status);
       try {
+        const page = await call("GET", workspacePath(), { cookie: owner });
+        expect(page.status).toBe(200);
+        expect(page.json).toMatchObject({
+          installations: [],
+          unavailable: reason,
+          catalog: expect.any(Array),
+        });
         for (const [method, path] of reads) {
           const failed = await call(method, path, {
             cookie: owner,

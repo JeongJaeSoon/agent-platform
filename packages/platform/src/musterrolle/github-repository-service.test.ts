@@ -289,6 +289,85 @@ describe("the workspace's page of App installations", () => {
       details: { reason_code: "installation_suspended" },
     });
   });
+
+  test("GitHub failing for the default page answers the cause, not an error", async () => {
+    const { list } = serviceWith({
+      async installations() {
+        throw new GitHubAppCheckError("github_rejected", 401);
+      },
+    });
+    const page = await list();
+    expect([page.installations, page.unavailable]).toEqual([
+      [],
+      "github_app_auth_failed",
+    ]);
+    const paging = serviceWith({
+      async installations() {
+        return [installation(11)];
+      },
+      async installationRepositoriesPage() {
+        throw new Error("socket hang up");
+      },
+    });
+    expect((await paging.list()).unavailable).toBe("github_unavailable");
+    expect(await failed(paging.list(11))).toEqual({
+      code: "GITHUB_UNAVAILABLE",
+      details: { reason_code: "github_unavailable" },
+    });
+    // The author App failing is not hidden behind the reviewer App's page.
+    const authorDown = serviceWith(
+      {
+        async installations(app) {
+          if (app.appId === 1) throw new Error("socket hang up");
+          return [installation(21, "acme")];
+        },
+        async installationRepositoriesPage() {
+          return { repositories: [], totalCount: 0 };
+        },
+      },
+      twoApps,
+    );
+    expect((await authorDown.list()).unavailable).toBe("github_unavailable");
+    expect((await authorDown.list(21)).installation_id).toBe(21);
+  });
+
+  test("with none named, the first installation not suspended is read", async () => {
+    const { list } = serviceWith({
+      async installations() {
+        return [
+          { ...installation(11, "acme"), suspendedAt: new Date() },
+          installation(12, "zeta"),
+        ];
+      },
+      async installationRepositoriesPage() {
+        return { repositories: [], totalCount: 0 };
+      },
+    });
+    expect((await list()).installation_id).toBe(12);
+  });
+
+  test("a reviewer App left without an author App still lists its installations; the picker has none", async () => {
+    const reviewerOnly = {
+      ...twoApps,
+      async credentials(role: string) {
+        return role === "reviewer" ? [credentialOf("reviewer-row", 2)] : [];
+      },
+    } as unknown as GitHubAppStore;
+    const { list, agentPage } = serviceWith(
+      {
+        async installations() {
+          return [installation(21, "acme")];
+        },
+        async installationRepositoriesPage() {
+          return { repositories: [], totalCount: 0 };
+        },
+      },
+      reviewerOnly,
+    );
+    const page = await list();
+    expect([page.installation_id, page.unavailable]).toEqual([21, null]);
+    expect((await agentPage()).unavailable).toBe("no_author_app");
+  });
 });
 
 const reasonOf = async (promise: Promise<unknown>) => {

@@ -28,17 +28,21 @@ export const INSTALLED_PER_PAGE = 30;
 const UNAVAILABLE: Record<string, MessageKey> = {
   no_author_app: "github.repo.pickNoApp",
   no_installation: "github.repo.pickNoInstallation",
+  github_unavailable: "error.GITHUB_UNAVAILABLE",
+  github_app_auth_failed: "error.GITHUB_UNAVAILABLE",
 };
 
-export const installationGone = (error: unknown) =>
+/** A picked installation GitHub no longer has, or has suspended. */
+export const installationUnusable = (error: unknown) =>
   isApiError(error) &&
-  error.code === "NOT_FOUND" &&
-  (error.details as { reason_code?: unknown } | null)?.reason_code ===
-    "installation_not_found";
+  (error.code === "INSTALLATION_SUSPENDED" ||
+    (error.code === "NOT_FOUND" &&
+      (error.details as { reason_code?: unknown } | null)?.reason_code ===
+        "installation_not_found"));
 
-/** react-query's default three retries, none for a vanished installation. */
-export const retryUnlessGone = (failures: number, error: unknown) =>
-  !installationGone(error) && failures < 3;
+/** react-query's default three retries, none for an unusable installation. */
+export const retryUnlessUnusable = (failures: number, error: unknown) =>
+  !installationUnusable(error) && failures < 3;
 
 /**
  * One page of the repositories an installation of the author App reaches,

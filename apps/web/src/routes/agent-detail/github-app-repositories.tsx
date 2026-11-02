@@ -10,8 +10,8 @@ import {
   INSTALLED_PER_PAGE,
   type InstalledRepository,
   InstalledRepositoryPage,
-  installationGone,
-  retryUnlessGone,
+  installationUnusable,
+  retryUnlessUnusable,
 } from "../installed-repositories.tsx";
 
 const PICK_REFUSALS: Partial<Record<string, MessageKey>> = {
@@ -68,9 +68,9 @@ export function AppRepositoryPicker({
         }),
       ),
     placeholderData: (previous) => previous,
-    retry: retryUnlessGone,
+    retry: retryUnlessUnusable,
   });
-  const gone = installation !== undefined && installationGone(list.error);
+  const gone = installation !== undefined && installationUnusable(list.error);
   useEffect(() => {
     if (!gone) return;
     setInstallation(undefined);

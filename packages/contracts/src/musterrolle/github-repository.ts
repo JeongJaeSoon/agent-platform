@@ -2,7 +2,10 @@ import { z } from "zod";
 
 import { receiptIdSchema, timestampSchema } from "../shared/index.ts";
 import { githubAppPermissionsSchema } from "./github-app.ts";
-import { githubAppRoleSchema } from "./github-settings.ts";
+import {
+  GITHUB_UNAVAILABLE_VALUES,
+  githubAppRoleSchema,
+} from "./github-settings.ts";
 import { workspaceParamsSchema } from "./workspaces.ts";
 
 // GitHub App repositories are read from the author App's installations, a
@@ -106,15 +109,16 @@ export const installedGitHubRepositorySchema = z
   .strict();
 
 /**
- * Why there is no page to show. GitHub failing to answer is an error, not
- * one of these: 502 GITHUB_UNAVAILABLE, `details.reason_code` one of
- * GITHUB_UNAVAILABLE_VALUES.
+ * Why there is no page to show. GitHub failing for the default page is one
+ * of GITHUB_UNAVAILABLE_VALUES here, so the catalog still comes back; for a
+ * named installation it is 502 GITHUB_UNAVAILABLE with that `reason_code`.
  */
 export const GITHUB_REPOSITORIES_UNAVAILABLE_VALUES = [
   // No author App is registered.
   "no_author_app",
   // No registered App is installed anywhere.
   "no_installation",
+  ...GITHUB_UNAVAILABLE_VALUES,
 ] as const;
 
 const installationPageFields = {
