@@ -51,6 +51,7 @@ import {
   type ApprovalCheckpointer,
   PendingRequestRegistry,
 } from "./pending-requests.ts";
+import { goPrivateModules } from "./repository-routes.ts";
 import {
   claimSecrets,
   SecretScrubber,
@@ -150,6 +151,18 @@ export type WorkerHostOptions = {
   approvalCheckpointMs?: number;
   /** Hands the claim's commit author and trailers to the image's git config and hook. */
   gitTrailers?: (claim: BootstrapClaimResponse) => Promise<void>;
+  /**
+   * Sends the engine's own fetches of the session's repositories through
+   * their route; true when routes were written.
+   */
+  repositoryRoutes?: (workspace: WorkspaceDescriptor) => Promise<boolean>;
+  /** Points the engine's package managers at the claim's packages route. */
+  packageManagers?: (
+    token: string | undefined,
+    github?: { npm: string[]; rubygems: string[] },
+    /** Go module paths fetched through the repository route (`GOPRIVATE`). */
+    privateModules?: readonly string[],
+  ) => Promise<void>;
   /** What this image runs, sent with the claim so a misconfigured image is refused. */
   imageRuntime?: ImageRuntime;
 };
@@ -409,6 +422,30 @@ export class WorkerHost {
         reason: describe(error),
       }),
     );
+    // Not a boundary either: the gate judges every repository the route is
+    // asked for.
+    const routed =
+      (await this.options
+        .repositoryRoutes?.(claim.workspace)
+        .catch((error: unknown) => {
+          this.logger.warn("worker.repository_routes.not_written", {
+            reason: describe(error),
+          });
+          return false;
+        })) ?? false;
+    // Nor this: the proxy is. Without it an install fails. A Go module named
+    // private with no route to it would go to github.com directly.
+    await this.options
+      .packageManagers?.(
+        claim.packages?.access.token,
+        claim.packages?.github,
+        routed ? goPrivateModules(claim.workspace) : [],
+      )
+      .catch((error: unknown) =>
+        this.logger.warn("worker.package_managers.not_written", {
+          reason: describe(error),
+        }),
+      );
 
     // Everything this process holds that the engine's tools could print.
     this.scrubber = new SecretScrubber([
@@ -578,7 +615,25 @@ export class WorkerHost {
       () => {},
       () => {},
     );
-    return this.untilStopped(restoring);
+    const plan = await this.untilStopped(restoring);
+    const extra = claim.workspace.additional_repositories ?? [];
+    const attach = this.options.workspace.attachRepositories;
+    if (plan === undefined || extra.length === 0 || attach === undefined) {
+      return plan;
+    }
+    // After the restore, which rebuilds the checkout with origin alone.
+    const attached = await this.untilStopped(
+      attach.call(this.options.workspace, {
+        descriptor: claim.workspace,
+        signal: this.preparation.signal,
+      }),
+    );
+    if (attached === undefined || this.stopping !== undefined) return;
+    this.logger.info("worker.workspace.repositories_attached", {
+      attached: attached.attached,
+      failed: attached.failed,
+    });
+    return plan;
   }
 
   /**

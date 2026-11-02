@@ -1,15 +1,18 @@
-import type {
-  DecidePushRequestRequest,
-  ListPushRequestsResponse,
-  Principal,
-  PushRefusal,
-  PushRequest,
-  ReceiptActor,
+import {
+  type CreatePushRequestRequest,
+  type DecidePushRequestRequest,
+  type ListPushRequestsResponse,
+  type Principal,
+  type PushRefusal,
+  type PushRequest,
+  pushBranchFor,
+  type ReceiptActor,
 } from "@werft-ai/contracts";
 import type { PushSourceResult } from "../checkpoints/checkpoint-service.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
+  deciderKeyOf,
   receiptActorOf,
 } from "../musterrolle/policy.ts";
 import {
@@ -17,12 +20,14 @@ import {
   type PushRequestStore,
   type PushWriteResult,
 } from "../ports/push-requests.ts";
+import { additionalRepositoryAllowed } from "./additional-repositories.ts";
 import { repositoryBinding, type SessionCatalog } from "./catalog.ts";
 import {
   idempotencyConflict,
   payloadHash,
   requirePermitted,
   SessionServiceError,
+  selfApproval,
 } from "./session-service.ts";
 
 export type PushActor = {
@@ -98,8 +103,9 @@ function settled(result: PushWriteResult): PushRequest {
 
 /**
  * Push requests (94S-628): a human asks for the session's latest checkpoint
- * to be pushed to `agent/<session-id>`, and a human holding sessions:approve
- * approves or rejects exactly that commit. The push itself is the platform's
+ * to be pushed to `agent/<session-id>`, and a holder of sessions:approve other
+ * than the key that started the session approves or rejects exactly that
+ * commit (GA-8). The push itself is the platform's
  * (94S-629, push-executor.ts).
  */
 export function createPushRequestService(deps: {
@@ -127,10 +133,11 @@ export function createPushRequestService(deps: {
     async create(
       actor: PushActor,
       rawSessionId: string,
-      input: { idempotencyKey: string },
+      input: { idempotencyKey: string; body?: CreatePushRequestRequest },
     ): Promise<PushRequest> {
       requireVerified(actor);
       const sessionId = rawSessionId.toLowerCase();
+      const body = input.body ?? {};
       await requireSession(actor, "session.submit", sessionId);
       const refuse = async (
         refusal: PushRefusal,
@@ -160,7 +167,7 @@ export function createPushRequestService(deps: {
         ownerId: actor.ownerId,
         sessionId,
         idempotencyKey: input.idempotencyKey,
-        payloadHash: payloadHash({}),
+        payloadHash: payloadHash(body),
       });
       if (replay !== null) return settled(replay);
       const session = await store.findSession(actor.ownerId, sessionId);
@@ -168,11 +175,18 @@ export function createPushRequestService(deps: {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
       if (session.repositoryId === null) return refuse("no_repository");
-      const repository = { repository_id: session.repositoryId };
-      const entry = Object.hasOwn(catalog.repositories, session.repositoryId)
-        ? catalog.repositories[session.repositoryId]
+      const repositoryId = body.repository_id ?? session.repositoryId;
+      const repository = { repository_id: repositoryId };
+      const entry = Object.hasOwn(catalog.repositories, repositoryId)
+        ? catalog.repositories[repositoryId]
         : undefined;
       if (entry === undefined) return refuse("no_repository", repository);
+      if (
+        repositoryId !== session.repositoryId &&
+        additionalRepositoryAllowed(catalog, session, repositoryId) === null
+      ) {
+        return refuse("repository_not_allowed", repository);
+      }
       const pinned = await source.readPushSource(sessionId);
       if (pinned.status === "none") return refuse("no_checkpoint", repository);
       if (pinned.status === "unavailable") {
@@ -184,9 +198,10 @@ export function createPushRequestService(deps: {
           sessionId,
           actor: pushReceiptActor(actor),
           idempotencyKey: input.idempotencyKey,
-          payloadHash: payloadHash({}),
-          repositoryId: session.repositoryId,
-          repositoryBinding: repositoryBinding(session.repositoryId, entry),
+          payloadHash: payloadHash(body),
+          repositoryId,
+          repositoryBinding: repositoryBinding(repositoryId, entry),
+          targetBranch: pushBranchFor(sessionId, body.branch),
           checkpointRevision: pinned.revision,
           gitCommit: pinned.gitCommit,
           approvedByRelease: session.approvalOffRelease,
@@ -234,8 +249,8 @@ export function createPushRequestService(deps: {
       const sessionId = rawSessionId.toLowerCase();
       const pushRequestId = rawPushRequestId.toLowerCase();
       const receiptActor = pushReceiptActor(actor);
-      const refusal = mayDecidePush(actor.principal);
-      if (refusal !== null) {
+      const deciderKey = deciderKeyOf(actor.caller);
+      const refuseDecision = async (refusal: PushRefusal): Promise<never> =>
         refused(
           refusal,
           await store.recordRefusal({
@@ -253,11 +268,18 @@ export function createPushRequestService(deps: {
               checkpoint_revision: null,
               git_commit: null,
               target_branch: null,
+              decider_key: deciderKey,
             },
           }),
         );
+      const refusal = mayDecidePush(actor.principal);
+      if (refusal !== null) await refuseDecision(refusal);
+      try {
+        await requireSession(actor, "session.approve", sessionId);
+      } catch (error) {
+        if (selfApproval(error)) await refuseDecision("self_approval");
+        throw error;
       }
-      await requireSession(actor, "session.approve", sessionId);
       const body = await input.readBody();
       // Only consulted when the session checkpointed since the request; a
       // store that cannot answer leaves the exact-revision rule in force.
@@ -280,6 +302,7 @@ export function createPushRequestService(deps: {
             latest?.status === "ready"
               ? { revision: latest.revision, gitCommit: latest.gitCommit }
               : null,
+          deciderKey,
         }),
       );
     },

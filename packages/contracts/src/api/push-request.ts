@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { deciderKeySchema } from "../musterrolle/api-keys.ts";
 import { receiptActorSchema } from "../musterrolle/authorization.ts";
 import { githubRefusalSchema } from "../musterrolle/github-settings.ts";
 import {
@@ -32,9 +33,46 @@ export const OPEN_PUSH_REQUEST_STATES = [
 
 export const PUSH_BRANCH_PREFIX = "agent/";
 
-/** The only branch a session's result is ever pushed to. */
-export function pushBranchFor(sessionId: string): string {
-  return `${PUSH_BRANCH_PREFIX}${sessionId.toLowerCase()}`;
+/** What a push request may add to its session's branch name. */
+export const PUSH_BRANCH_SUFFIX_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
+
+/**
+ * The branch a session's result is pushed to: `agent/<session-id>`, or
+ * `agent/<session-id>-<suffix>`. Joined with `-`, not `/`: git cannot keep
+ * `agent/<id>` and `agent/<id>/x` in one repository.
+ */
+export function pushBranchFor(sessionId: string, suffix?: string): string {
+  const base = `${PUSH_BRANCH_PREFIX}${sessionId.toLowerCase()}`;
+  return suffix === undefined ? base : `${base}-${suffix}`;
+}
+
+/** Whether `branch` is one `pushBranchFor` makes for this session. */
+export function isSessionPushBranch(
+  sessionId: string,
+  branch: string,
+): boolean {
+  const base = pushBranchFor(sessionId);
+  if (branch === base) return true;
+  return (
+    branch.startsWith(`${base}-`) &&
+    PUSH_BRANCH_SUFFIX_PATTERN.test(branch.slice(base.length + 1))
+  );
+}
+
+/**
+ * Catalog ids an additional repository may have: each becomes a git remote
+ * name in the workspace and one path segment of the egress route.
+ */
+export const ADDITIONAL_REPOSITORY_ID_PATTERN =
+  /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+export function additionalRepositoryIdUsable(id: string): boolean {
+  return (
+    ADDITIONAL_REPOSITORY_ID_PATTERN.test(id) &&
+    id !== "origin" &&
+    !id.endsWith(".lock") &&
+    !id.includes("..")
+  );
 }
 
 export const pushRequestIdSchema = z.uuid();
@@ -79,7 +117,14 @@ export const pushRequestSchema = z.object({
   push_receipt_id: receiptIdSchema.nullable(),
 });
 
-export const createPushRequestRequestSchema = z.object({}).strict();
+export const createPushRequestRequestSchema = z
+  .object({
+    // Omitted: the session's own repository.
+    repository_id: z.string().min(1).max(128).optional(),
+    // Omitted: `agent/<session-id>`; else `agent/<session-id>-<branch>`.
+    branch: z.string().regex(PUSH_BRANCH_SUFFIX_PATTERN).optional(),
+  })
+  .strict();
 
 export const PUSH_DECISION_VALUES = ["approve", "reject"] as const;
 export const pushDecisionSchema = z.enum(PUSH_DECISION_VALUES);
@@ -118,6 +163,13 @@ export const PUSH_REFUSAL_VALUES = [
   "github_settings_unsupported",
   // The GitHub gate refused the push's token; `reason_code` says why.
   "github_refused",
+  // A repository other than the session's that its release does not list.
+  "repository_not_allowed",
+  // A new branch whose commit shares no history with the remote's default
+  // branch: most likely another repository's content.
+  "unrelated_history",
+  // The deciding key is the key that started the session (GA-8).
+  "self_approval",
 ] as const;
 export const pushRefusalSchema = z.enum(PUSH_REFUSAL_VALUES);
 
@@ -150,12 +202,18 @@ export const pushReceiptResultSchema = z.object({
   previous_commit: gitCommitShaSchema.nullable().optional(),
   approved_by: pushDeciderSchema.nullable().optional(),
   reason_code: pushReasonCodeSchema.nullable().optional(),
+  // A `decide_push` receipt only: the API key that decided, or null for a
+  // person or the policy.
+  decider_key: deciderKeySchema.nullable().optional(),
 });
 
 export type PushRequestState = (typeof PUSH_REQUEST_STATE_VALUES)[number];
 export type PushRequest = z.infer<typeof pushRequestSchema>;
 export type PushDecision = z.infer<typeof pushDecisionSchema>;
 export type PushDecider = z.infer<typeof pushDeciderSchema>;
+export type CreatePushRequestRequest = z.infer<
+  typeof createPushRequestRequestSchema
+>;
 export type DecidePushRequestRequest = z.infer<
   typeof decidePushRequestRequestSchema
 >;

@@ -8,8 +8,9 @@ import {
   waitForTurn,
 } from "@werft-ai/sdk";
 
-// The agent key works the session and asks for the push; a person's key
-// with sessions:approve decides it. An agent key never approves.
+// The agent key works the session and asks for the push; another key with
+// sessions:approve decides it, since no workspace key approves a session it
+// started.
 const client = new Werft();
 const approver = process.env.WERFT_APPROVER_API_KEY
   ? client.withOptions({ apiKey: process.env.WERFT_APPROVER_API_KEY })

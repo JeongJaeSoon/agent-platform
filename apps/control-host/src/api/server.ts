@@ -4,17 +4,22 @@ import {
   backfillSessionModels,
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
+  createPostgresAchievementJudgments,
+  createPostgresAchievementRuleStore,
   createPostgresAgentAdminStore,
   createPostgresAgentGitHubStore,
   createPostgresAgentIdentityStore,
   createPostgresAgentStore,
   createPostgresAuditRetention,
+  createPostgresCatalogRepositoryStore,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
+  createPostgresGitHubAppManifestStore,
   createPostgresGitHubAppStore,
   createPostgresGitHubGateStore,
   createPostgresGitHubMcpStore,
   createPostgresGitHubOAuthStore,
+  createPostgresGitHubPackagesStore,
   createPostgresGitHubSettingsStore,
   createPostgresInstallationProfileStore,
   createPostgresInviteStore,
@@ -55,6 +60,8 @@ import {
   allowedRun,
   catalogRevision,
   composeSlackFinalize,
+  createAchievementJudge,
+  createAchievementRuleService,
   createAgentAdminService,
   createAgentGitHubService,
   createAgentIdentityService,
@@ -65,6 +72,9 @@ import {
   createGitHubAppService,
   createGitHubGate,
   createGitHubMcpServer,
+  createGitHubPackagesService,
+  createGitHubPackagesTokenVerifier,
+  createGitHubRepositoryService,
   createGitHubSettingsService,
   createGitHubWorkService,
   createInstallationProfileService,
@@ -78,6 +88,7 @@ import {
   createPullRequestService,
   createPushExecutor,
   createPushRequestService,
+  createSessionAchievementService,
   createSessionAttributionService,
   createSessionOutcomeService,
   createSessionOutputService,
@@ -113,6 +124,7 @@ import {
   SessionServiceError,
   unrunnableProfiles,
   WORKSPACE_PROFILE_REFRESH_MS,
+  withConsoleRepositories,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
@@ -158,17 +170,27 @@ import {
   connectionsOf,
   createAppBotUsers,
   createGitHubAppDirectory,
+  createGitHubManifestConverter,
   createRegisteredGitHubConnection,
 } from "./forge-github.ts";
 import { createGitPusher } from "./git-push.ts";
 import { githubCallbackUrl } from "./github-link.ts";
+import { githubPackagesConfigFromEnv } from "./github-packages-config.ts";
 import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
-import { SeedProfilesError, seedCatalogProfiles } from "./profile-import.ts";
+import {
+  SeedProfilesError,
+  seedCatalogProfiles,
+  seedCatalogRepositories,
+} from "./profile-import.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { createReadinessProbe } from "./readiness.ts";
+import {
+  registerAchievementRoutes,
+  registerSessionAchievementRoutes,
+} from "./routes/achievements.ts";
 import { registerAgentGitHubRoutes } from "./routes/agent-github.ts";
 import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
@@ -178,6 +200,8 @@ import { registerCloseRoutes } from "./routes/close.ts";
 import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerGitHubAppRoutes } from "./routes/github-app.ts";
+import { registerGitHubPackagesRoutes } from "./routes/github-packages.ts";
+import { registerGitHubRepositoryRoutes } from "./routes/github-repositories.ts";
 import { registerGitHubSettingsRoutes } from "./routes/github-settings.ts";
 import {
   registerGitHubWorkRoutes,
@@ -302,9 +326,11 @@ const pool = createApiPool(databaseUrl, logger);
 const db = drizzle(pool, { schema });
 const workspaceProfileStore = createPostgresWorkspaceProfileStore(db);
 const installationProfileStore = createPostgresInstallationProfileStore(db);
+const catalogRepositoryStore = createPostgresCatalogRepositoryStore(db);
 const workspaceProfileVersions = createProfileRegistry({
   workspaces: workspaceProfileStore,
   installations: installationProfileStore,
+  repositories: catalogRepositoryStore,
   sources: profileSources.sources,
 });
 const runtimeVersions = runtimeVersionsFromEnv(process.env);
@@ -316,6 +342,7 @@ const catalog = profileCatalog(
       : { runtime_versions: runtimeVersions }),
   },
   workspaceProfileVersions,
+  (rows) => withConsoleRepositories(profileSources.catalog.repositories, rows),
 );
 const logCatalog = (message: string): void => {
   logger.info(message, {
@@ -349,6 +376,13 @@ const importProfiles = (): void => {
     { dir: catalogSource.dir, config: profileSources.config },
     logger,
   )
+    .then(() =>
+      seedCatalogRepositories(
+        catalogRepositoryStore,
+        profileSources.catalog.repositories,
+        logger,
+      ),
+    )
     .then(() => workspaceProfileVersions.refresh())
     .then(
       () => {
@@ -679,6 +713,10 @@ const workspaceProfiles = createWorkspaceProfileService({
   store: workspaceProfileStore,
   catalog,
 });
+const achievementRules = createAchievementRuleService({
+  authorization,
+  store: createPostgresAchievementRuleStore(db),
+});
 const installationProfiles = createInstallationProfileService({
   authorization,
   store: installationProfileStore,
@@ -722,10 +760,21 @@ const refreshRegisteredGitHub = (): Promise<void> =>
   });
 void refreshRegisteredGitHub();
 setInterval(refreshRegisteredGitHub, WORKSPACE_PROFILE_REFRESH_MS).unref();
+const githubAppDirectory = createGitHubAppDirectory({ logger });
+const githubRepositories = createGitHubRepositoryService({
+  authorization,
+  store: catalogRepositoryStore,
+  apps: githubAppStore,
+  directory: githubAppDirectory,
+  agents: agentStore,
+  catalog,
+  fileRepositories: profileSources.catalog.repositories,
+  changed: () => workspaceProfileVersions.refresh(),
+});
 const githubApps = createGitHubAppService({
   authorization,
   store: githubAppStore,
-  directory: createGitHubAppDirectory({ logger }),
+  directory: githubAppDirectory,
   apiBase: GITHUB_API_BASE,
   repositories: () =>
     Object.entries(catalog.repositories)
@@ -736,6 +785,15 @@ const githubApps = createGitHubAppService({
       )
       .map(([id, repository]) => ({ id, url: repository.url })),
   changed: reloadRegisteredGitHub,
+  manifests: {
+    states: createPostgresGitHubAppManifestStore(db),
+    convert: createGitHubManifestConverter({ logger }),
+    consoleOrigin,
+    callbackUrl: githubCallbackUrl(consoleOrigin),
+    webBase: "https://github.com",
+    refused: (check) =>
+      logger.warn("GitHub App manifest state refused", { check }),
+  },
 });
 // Every GitHub token (clone, push, pull requests, Actions) is issued here,
 // from one connection per repository and so one token cache.
@@ -761,6 +819,16 @@ const githubSettings = createGitHubSettingsService({
   store: githubSettingsStore,
   oauth: githubOAuth,
   callbackUrl: githubCallback,
+  secretsOn: secretKey !== null,
+});
+const githubPackagesConfig = githubPackagesConfigFromEnv(process.env);
+const githubPackagesStore = createPostgresGitHubPackagesStore(db, secretKey);
+const githubPackages = createGitHubPackagesService({
+  authorization,
+  store: githubPackagesStore,
+  verifier: createGitHubPackagesTokenVerifier({
+    apiBase: githubPackagesConfig.apiBase,
+  }),
   secretsOn: secretKey !== null,
 });
 const sessionAttribution = createPostgresSessionAttributionStore(db);
@@ -837,6 +905,14 @@ const outcomeRefresher = createOutcomeRefresher({
   connections: githubConnections,
   logger,
 }).start();
+// Each replica judges the sessions whose evidence changed; only it writes
+// achievements (achievement-rules.md §4).
+const achievementJudgments = createPostgresAchievementJudgments(db);
+const achievementJudge = createAchievementJudge({
+  store: achievementJudgments,
+  outputs: checkpoints.outputs,
+  logger,
+}).start();
 const interrupts = createInterruptService({
   authorization,
   store: createPostgresTurnInterrupts(db, { logger }),
@@ -883,6 +959,10 @@ const workers = createWorkerGateway({
   ...(githubMcpGrantKey === null
     ? {}
     : { githubMcp: { store: githubMcpStore, grantKey: githubMcpGrantKey } }),
+  githubPackages: {
+    store: githubPackagesStore,
+    upstreams: githubPackagesConfig.upstreams,
+  },
   ...(titleEgressUrl === null
     ? {}
     : {
@@ -1003,8 +1083,10 @@ const app = createApiApp({
       slackGuests,
     });
     registerSlackSecretRoutes(router, slackSecrets);
-    registerGitHubAppRoutes(router, githubApps);
+    registerGitHubAppRoutes(router, githubApps, logger);
+    registerGitHubRepositoryRoutes(router, githubRepositories);
     registerGitHubSettingsRoutes(router, githubSettings);
+    registerGitHubPackagesRoutes(router, githubPackages);
     registerAgentGitHubRoutes(router, agentGitHub);
     registerSessionRoutes(router, sessions);
     registerSessionOutputRoutes(router, sessionOutputs);
@@ -1014,6 +1096,14 @@ const app = createApiApp({
     registerReceiptRoutes(router, sessions);
     registerUsageRoutes(router, usage);
     registerProfileRoutes(router, workspaceProfiles, installationProfiles);
+    registerAchievementRoutes(router, achievementRules);
+    registerSessionAchievementRoutes(
+      router,
+      createSessionAchievementService({
+        authorization,
+        store: achievementJudgments,
+      }),
+    );
     registerPendingRoutes(router, pendingRequests);
     registerPushRequestRoutes(router, pushRequests);
     registerPullRequestRoutes(router, pullRequests);
@@ -1118,6 +1208,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
       [
         { name: "push-executor", close: () => pushExecutor.stop() },
         { name: "outcome-refresher", close: () => outcomeRefresher.stop() },
+        { name: "achievement-judge", close: () => achievementJudge.stop() },
         { name: "event-listener", close: () => notifier.close() },
         { name: "pool", close: () => pool.end() },
         { name: "probe-pool", close: () => probePool.end() },

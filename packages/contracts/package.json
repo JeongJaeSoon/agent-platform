@@ -7,7 +7,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./settings": "./src/shared/settings.ts"
+    "./settings": "./src/shared/settings.ts",
+    "./execution": "./src/shared/execution.ts"
   },
   "dependencies": {
     "zod": "4.6.7"

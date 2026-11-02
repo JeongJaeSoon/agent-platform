@@ -1,5 +1,7 @@
 import type {
+  AgentGitHub,
   ApiErrorCode,
+  DeciderKey,
   PushDecision,
   PushReasonCode,
   PushReceiptResult,
@@ -17,6 +19,11 @@ export const PUSH_REFUSAL_ERRORS: Record<
   missing_scope: {
     code: "FORBIDDEN",
     message: "This credential does not hold sessions:approve",
+  },
+  self_approval: {
+    code: "FORBIDDEN",
+    message:
+      "The key that started this session cannot approve its push requests; another key or a person approves them",
   },
   unverified_principal: {
     code: "FORBIDDEN",
@@ -38,7 +45,8 @@ export const PUSH_REFUSAL_ERRORS: Record<
   },
   request_open: {
     code: "PUSH_REQUEST_OPEN",
-    message: "The session already has an open push request",
+    message:
+      "The session already has an open push request to this repository and branch",
   },
   already_decided: {
     code: "PUSH_REQUEST_DECIDED",
@@ -60,7 +68,8 @@ export const PUSH_REFUSAL_ERRORS: Record<
   },
   target_refused: {
     code: "FORBIDDEN",
-    message: "The platform pushes only to agent/<session-id>",
+    message:
+      "The platform pushes only to agent/<session-id> or agent/<session-id>-<branch>",
   },
   default_branch: {
     code: "FORBIDDEN",
@@ -88,6 +97,15 @@ export const PUSH_REFUSAL_ERRORS: Record<
     code: "GITHUB_REFUSED",
     message: "The GitHub gate refused the push",
   },
+  repository_not_allowed: {
+    code: "FORBIDDEN",
+    message: "The session's release does not let it work on this repository",
+  },
+  unrelated_history: {
+    code: "FORBIDDEN",
+    message:
+      "The commit shares no history with the repository's default branch",
+  },
 };
 
 export type PushOperation = "request_push" | "decide_push";
@@ -110,6 +128,8 @@ export type CreatePushRequestInput = {
   repositoryId: string;
   /** `repositoryBinding` of the catalog entry when the request was made. */
   repositoryBinding: string;
+  /** `pushBranchFor` of the session; absent, the one without a suffix. */
+  targetBranch?: string;
   checkpointRevision: number;
   gitCommit: string;
   /**
@@ -136,6 +156,8 @@ export type DecidePushRequestInput = {
    * commit.
    */
   latest?: { revision: number; gitCommit: string } | null;
+  /** The deciding API key, for the receipt; null for a person. */
+  deciderKey?: DeciderKey | null;
 };
 
 export type PushWriteResult =
@@ -183,6 +205,13 @@ export interface PushRequestStore {
     sessionId: string,
   ): Promise<{
     repositoryId: string | null;
+    profileId: string | null;
+    /** The session row's attached list; null leaves the release's whole. */
+    attached: string[] | null;
+    /** The release's GitHub settings, for another repository's push. */
+    github: AgentGitHub | "invalid" | null;
+    /** False without an agent, or with its GitHub switch off. */
+    githubEnabled: boolean;
     /** The release, when it pins `github.push_approval: false`. */
     approvalOffRelease: string | null;
   } | null>;

@@ -1,13 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import {
   bootstrapClaimResponseSchema,
+  GITHUB_CEILING_NONE,
   runtimeConfigSchema,
 } from "@werft-ai/contracts";
 import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
 import {
+  type GitHubConnection,
   type GitHubGate,
   GitHubGateError,
+  type GitHubGateReceipt,
   type GitHubGrant,
+  type GitHubSessionContext,
   type GitHubWork,
 } from "../ports/github-gate.ts";
 import type { SessionAttributionRecord } from "../ports/session-attribution.ts";
@@ -29,6 +33,7 @@ import {
   repositoryBinding,
   type SessionCatalog,
 } from "../sessions/catalog.ts";
+import { createGitHubGate } from "../sessions/github-gate.ts";
 import { withSeededInstallation } from "../sessions/profile-registry.ts";
 import {
   type CheckpointProtocol,
@@ -591,6 +596,74 @@ describe("WorkerGateway", () => {
     expect(seen).toEqual([hashWorkerToken("wsc_x")]);
   });
 
+  test("an operator ceiling on every installed App repository may claim one it does not list", async () => {
+    const profile = {
+      runtime_kind: "claude_agent_sdk" as const,
+      runtime_version: "0.3.270",
+      model: "claude-sonnet-5",
+      tools: ["Read"],
+      permission_mode: "plan" as const,
+      provider: {
+        kind: "anthropic" as const,
+        endpoint: "https://api.anthropic.invalid",
+        auth: {
+          kind: "api_key" as const,
+          value: "provider-key",
+          ref: { value_env: "PROVIDER_KEY" },
+        },
+      },
+    };
+    const appAndPat: Record<string, CatalogRepository> = {
+      app: {
+        url: "https://github.com/acme/app.git",
+        branch: "main",
+        auth: { kind: "github_app", registered: true },
+      },
+      pat: { url: "https://github.com/acme/pat.git", branch: "main" },
+    };
+    const seeded = withSeededInstallation({
+      profiles: { p: profile },
+      repositories: appAndPat,
+    });
+    const ceiling = seeded.installation.get("p");
+    if (!ceiling) throw new Error("no seeded ceiling");
+    const runnable: ClaimInput["runnable"][] = [];
+    const instance = createWorkerGateway({
+      work: work({
+        claimAtomic: async (input) => {
+          runnable.push(input.runnable);
+          throw new Error("stop after the pairs");
+        },
+      }),
+      catalog: {
+        ...seeded,
+        installation: new Map([
+          ["p", { ...ceiling, github_app_repositories: "installed" as const }],
+        ]),
+      },
+      checkpoints: acceptAllCheckpoints,
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
+    });
+    await instance
+      .bootstrapClaim(
+        { kind: "bootstrap" },
+        {
+          execution_id: "e",
+          execution_generation: 1,
+          credential: { kind: "launch_nonce" as const, nonce: "n" },
+        },
+      )
+      .catch(() => {});
+    const repositories = new Set(runnable[0]?.map((pair) => pair.repositoryId));
+    expect(ceiling.repository_ids).toEqual([]);
+    expect(repositories.has("app")).toBe(true);
+    expect(repositories.has("pat")).toBe(false);
+  });
+
   test("bootstrapClaim answers the row's repository and the catalog's resolved profile", async () => {
     const binding = {
       sessionId: scope.session_id,
@@ -751,6 +824,10 @@ describe("WorkerGateway", () => {
       hashWorkerToken(claimed.object_store.access.token),
     );
     expect(claimed.object_store.access.token).toMatch(/^weo_/);
+    expect(egress.packagesHash).toEqual(
+      hashWorkerToken(claimed.packages?.access.token ?? ""),
+    );
+    expect(claimed.packages?.access.token).toMatch(/^wek_/);
     expect(
       egress.bindingsOf({
         id: "s-1",
@@ -762,6 +839,7 @@ describe("WorkerGateway", () => {
       }),
     ).toEqual({
       object_store: "sessions/s-1/",
+      packages: "public",
       provider: profileFingerprint(profile),
       repository: repositoryBinding("sample-app", {
         url: "https://example.invalid/app.git",
@@ -984,6 +1062,103 @@ describe("WorkerGateway", () => {
     repositories = {};
     expect((await claimOf()).git_author).toBeNull();
     expect(looked).toHaveLength(2);
+  });
+
+  test("the claim lists the other repositories the gate allows, on the attempt's repository token", async () => {
+    const profile = {
+      runtime_kind: "claude_agent_sdk" as const,
+      runtime_version: "0.3.270",
+      model: "claude-sonnet-5",
+      tools: ["Read"],
+      permission_mode: "plan" as const,
+      provider: {
+        kind: "anthropic" as const,
+        endpoint: "https://api.anthropic.invalid",
+        auth: {
+          kind: "api_key" as const,
+          value: "provider-key",
+          ref: { value_env: "PROVIDER_KEY" },
+        },
+      },
+    };
+    const asked: unknown[] = [];
+    const instance = createWorkerGateway({
+      work: work({
+        claimAtomic: async () => ({
+          outcome: "claimed",
+          binding: {
+            sessionId: scope.session_id,
+            attemptId: "att_1",
+            leaseEpoch: 1,
+            executionGeneration: 1,
+            authRevision: 0,
+            leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
+            leaseRemainingMs: 29_950,
+            profileId: "p",
+            profileFingerprint: null,
+            model: null,
+            unmetered: false,
+            ownerScope: "owner-a",
+            repository: {
+              id: "app",
+              url: "https://example.invalid/app.git",
+              branch: "main",
+            },
+            restore: null,
+            restoreProfiles: [],
+            costUsd: 0,
+            providerTokens: 0,
+          },
+        }),
+      }),
+      catalog: withSeededInstallation({
+        profiles: { p: profile },
+        repositories: {
+          app: {
+            url: "https://example.invalid/app.git",
+            branch: "main",
+            profiles: ["p"],
+          },
+          docs: {
+            url: "https://example.invalid/docs.git",
+            branch: "trunk",
+            profiles: ["p"],
+          },
+        },
+      }),
+      github: {
+        grant: async () => null,
+        additionalRepositories: async (sessionId) => {
+          asked.push(sessionId);
+          return ["docs", "gone-from-catalog"];
+        },
+      },
+      checkpoints: acceptAllCheckpoints,
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
+    });
+    const claimed = await instance.bootstrapClaim(
+      { kind: "bootstrap" },
+      {
+        execution_id: "e",
+        execution_generation: 1,
+        credential: { kind: "launch_nonce", nonce: "n" },
+      },
+    );
+    const token = claimed.workspace.repository?.access?.token;
+    expect(token).toMatch(/^wer_/);
+    expect(claimed.workspace.additional_repositories).toEqual([
+      {
+        id: "docs",
+        url: "https://example.invalid/docs.git",
+        branch: "trunk",
+        access: { kind: "egress_token", token: token ?? "" },
+      },
+    ]);
+    expect(asked).toEqual([scope.session_id]);
   });
 
   test("a session pinned before its profile's runtime moved to the next image is still claimed while the previous image is configured", async () => {
@@ -1228,6 +1403,7 @@ describe("WorkerGateway", () => {
       provider: profileFingerprint(general),
       repository: null,
       object_store: "sessions/s-1/",
+      packages: "public",
     });
     const optionalClaim = await claimWith({
       ...binding,
@@ -2347,6 +2523,7 @@ describe("authorizeEgress through a forge", () => {
   function gateway(
     repository: CatalogRepository,
     github?: GitHubGate,
+    others: { docs?: CatalogRepository } = {},
   ): ReturnType<typeof createWorkerGateway> {
     return createWorkerGateway({
       work: work({
@@ -2364,7 +2541,7 @@ describe("authorizeEgress through a forge", () => {
       }),
       catalog: withSeededInstallation({
         profiles: { p: profile },
-        repositories: { app: repository },
+        repositories: { app: repository, ...others },
       }),
       checkpoints: acceptAllCheckpoints,
       ...(github === undefined ? {} : { github }),
@@ -2451,6 +2628,36 @@ describe("authorizeEgress through a forge", () => {
         });
       }
     }
+  });
+
+  test("another repository's route asks the gate for that repository and goes to its url", async () => {
+    const docs: CatalogRepository = {
+      ...app,
+      url: "https://github.com/acme/docs.git",
+    };
+    const github = gate(async () => ({
+      username: "x-access-token",
+      password: "docs-install-token",
+    }));
+    const grant = await gateway(app, github, { docs }).authorizeEgress({
+      token: "tok",
+      purpose: "repository",
+      repository_id: "docs",
+    });
+    expect(github.asked).toEqual([
+      { sessionId: scope.session_id, purpose: "clone", repositoryId: "docs" },
+    ]);
+    expect(grant.upstream).toEqual({
+      url: docs.url,
+      headers: [["authorization", basic("x-access-token:docs-install-token")]],
+    });
+    await expect(
+      gateway(app, undefined, { docs }).authorizeEgress({
+        token: "tok",
+        purpose: "repository",
+        repository_id: "docs",
+      }),
+    ).rejects.toThrow();
   });
 
   test("a PAT repository sends the same header with or without a forge in front", async () => {
@@ -2654,5 +2861,193 @@ describe("unmetered sessions", () => {
     };
     expect(await claim(true)).toBeNull();
     expect(await claim(false)).toBe(0.75);
+  });
+});
+
+describe("egress and claim through the real GitHub gate", () => {
+  // The release lists docs and tools; the session attached docs alone.
+  const profile: CatalogProfile = {
+    runtime_kind: "claude_agent_sdk",
+    runtime_version: "0.3.270",
+    model: "claude-sonnet-5",
+    tools: ["Read"],
+    permission_mode: "default",
+    provider: {
+      kind: "anthropic",
+      endpoint: "https://api.anthropic.invalid",
+      auth: {
+        kind: "api_key",
+        value: "anthropic-key",
+        ref: { value_env: "K" },
+      },
+    },
+  };
+  const onGitHub = (name: string): CatalogRepository => ({
+    url: `https://github.com/acme/${name}.git`,
+    branch: "main",
+    profiles: ["p"],
+    auth: { kind: "github_app", registered: true },
+  });
+  const catalog = withSeededInstallation({
+    profiles: { p: profile },
+    repositories: {
+      app: onGitHub("app"),
+      docs: onGitHub("docs"),
+      tools: onGitHub("tools"),
+    },
+  });
+  const binding = {
+    sessionId: scope.session_id,
+    attemptId: "att_1",
+    profileId: "p",
+    model: profile.model,
+    costUsd: 0,
+    providerTokens: 0,
+    repository: { id: "app", url: onGitHub("app").url, branch: "main" },
+  };
+
+  function wired() {
+    const receipts: GitHubGateReceipt[] = [];
+    const connection: GitHubConnection = {
+      kind: "app",
+      githubCom: true,
+      appId: 7,
+      quotaKey: async () => "app:7",
+      installed: async () => true,
+      credential: async (repo) => ({
+        credential: {
+          username: "x-access-token",
+          password: `installation-for-${repo.name}`,
+        },
+        fresh: true,
+      }),
+      api: () => ({}) as GitHubGrant["api"],
+    };
+    const gate = createGitHubGate({
+      catalog,
+      connections: (_id, role) => (role === "author" ? connection : null),
+      store: {
+        context: async (sessionId): Promise<GitHubSessionContext | null> => ({
+          ownerId: "owner-a",
+          sessionId,
+          repositoryId: "app",
+          profileId: "p",
+          attachedRepositoryIds: ["docs"],
+          repository: { url: onGitHub("app").url, branch: "main" },
+          startedBy: null,
+          agent: { id: "agent-1", workspaceId: "owner-a", githubEnabled: true },
+          release: {
+            id: "release-1",
+            github: {
+              repositories: ["app", "docs", "tools"],
+              push_approval: true,
+              features: GITHUB_CEILING_NONE,
+              actions_allow: [],
+            },
+          },
+          ceiling: GITHUB_CEILING_NONE,
+        }),
+        findDispatch: async () => null,
+        recordReceipt: async (receipt) => {
+          receipts.push(receipt);
+          return `receipt-${receipts.length}`;
+        },
+      },
+    });
+    const gateway = createWorkerGateway({
+      work: work({
+        authorizeEgressAtomic: async () => ({
+          outcome: "ok",
+          ...binding,
+          binding: repositoryBinding("app", onGitHub("app")),
+        }),
+        claimAtomic: async () => ({
+          outcome: "claimed",
+          binding: {
+            ...binding,
+            leaseEpoch: 1,
+            executionGeneration: 1,
+            authRevision: 0,
+            leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
+            leaseRemainingMs: 29_950,
+            profileFingerprint: null,
+            model: null,
+            unmetered: false,
+            ownerScope: "owner-a",
+            restore: null,
+            restoreProfiles: [],
+          },
+        }),
+      }),
+      catalog,
+      github: gate,
+      checkpoints: acceptAllCheckpoints,
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
+    });
+    return { gateway, receipts };
+  }
+
+  test("a repository the release lists but the session did not attach is refused with its receipt", async () => {
+    const { gateway, receipts } = wired();
+    await expect(
+      gateway.authorizeEgress({
+        token: "tok",
+        purpose: "repository",
+        repository_id: "tools",
+      }),
+    ).rejects.toMatchObject({
+      status: 403,
+      code: "GITHUB_REFUSED",
+      reasonCode: "repository_not_allowed",
+    });
+    expect(receipts).toEqual([
+      expect.objectContaining({
+        sessionId: scope.session_id,
+        operation: "mint_github_token",
+        status: "failed",
+        result: expect.objectContaining({
+          repository_id: "tools",
+          purpose: "clone",
+          reason_code: "repository_not_allowed",
+        }),
+      }),
+    ]);
+  });
+
+  test("the attached one is fetched with its own contents: read token", async () => {
+    const { gateway, receipts } = wired();
+    const grant = await gateway.authorizeEgress({
+      token: "tok",
+      purpose: "repository",
+      repository_id: "docs",
+    });
+    expect(grant.upstream?.url).toBe(onGitHub("docs").url);
+    expect(receipts.at(-1)).toMatchObject({
+      status: "succeeded",
+      result: {
+        repository_id: "docs",
+        purpose: "clone",
+        permissions: { contents: "read" },
+      },
+    });
+  });
+
+  test("a claim attaches only the session's attached repositories", async () => {
+    const { gateway } = wired();
+    const claimed = await gateway.bootstrapClaim(
+      { kind: "bootstrap" },
+      {
+        execution_id: "e",
+        execution_generation: 1,
+        credential: { kind: "launch_nonce", nonce: "n" },
+      },
+    );
+    expect(
+      claimed.workspace.additional_repositories?.map(({ id }) => id),
+    ).toEqual(["docs"]);
   });
 });

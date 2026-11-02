@@ -31,7 +31,7 @@ import { type MessagesUsage, type UsageMeter, usageMeter } from "./usage.ts";
  * worker's network.
  *
  * Only the operations a session needs are routed — the Messages API, and
- * the read half of git's smart HTTP — so a leaked token buys at most that,
+ * the read half of git's smart HTTP and of Git LFS — so a leaked token buys at most that,
  * for as long as its attempt still owns its session.
  *
  * The object store route is the one way a worker reaches its
@@ -107,11 +107,30 @@ export const DEFAULT_MAX_BODY_BYTES_IN_FLIGHT = 512 * 1024 * 1024;
  */
 const UNAUTHORIZED_IDLE_SECONDS = 30;
 
-export type EgressPurpose = "provider" | "repository" | "object_store" | "mcp";
+export type EgressPurpose =
+  | "provider"
+  | "repository"
+  | "object_store"
+  | "mcp"
+  | "packages";
 
 export type CredentialRoute = {
   purpose: EgressPurpose;
   server?: string;
+  /** repository only: the catalog id the path named, for another repository. */
+  repository?: string;
+  /**
+   * repository only: a Git LFS download batch, or one object the proxy
+   * fetches from the location a batch answer names.
+   */
+  lfs?: "batch" | { oid: string; size: number };
+  /** The packages route's registry name; the authorizer maps it to a host. */
+  registry?: string;
+  /**
+   * A packages token carried as the `/_token/<token>` segment, already cut
+   * from `path`: Go sends no credential to an http proxy in any header.
+   */
+  pathToken?: string;
   /** Path and query appended to the upstream's base. */
   path: string;
   search: string;
@@ -126,6 +145,50 @@ const OBJECT_STORE_PREFIX = "/object-store";
 // The streamable HTTP transport's three methods, on the server's one URL.
 const MCP_METHODS = new Set(["POST", "GET", "DELETE"]);
 const MCP_PATH = /^\/mcp\/([a-z0-9](?:[a-z0-9-]|_(?!_)){0,31})$/;
+// `/repository/<id>/...`: a repository the session may fetch, named by its
+// catalog id. The id is the authorizer's to judge; this only keeps it one
+// segment. `/.git` is how a `https://github.com/<o>/<r>.git` URL comes out of
+// the worker's `insteadOf`.
+const REPOSITORY_PATH =
+  /^\/repository\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:\/\.git)?(\/info\/refs|\/git-upload-pack)$/;
+// The worker's routes all end in `/.git`, which Git LFS keeps as is when it
+// puts its endpoint at the remote URL plus `/info/lfs`. The object path is the
+// proxy's own: the batch answer's hrefs are rewritten to it.
+const LFS_PATH =
+  /^\/repository\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})\/\.git\/info\/lfs\/objects\/(batch|[0-9a-f]{64})$/;
+const LFS_OBJECT_QUERY = /^\?size=(0|[1-9][0-9]{0,15})$/;
+const LFS_MEDIA_TYPE = "application/vnd.git-lfs+json";
+// The Git LFS API's own ceiling on objects per batch.
+const MAX_LFS_BATCH_OBJECTS = 100;
+// A hundred objects with presigned hrefs fit many times over.
+const MAX_LFS_BATCH_ANSWER_BYTES = 1024 * 1024;
+
+// Reads only: a publish, an unpublish or a yank has no route.
+const PACKAGES_METHODS = new Set(["GET", "HEAD"]);
+const PACKAGES_PATH = /^\/packages\/([a-z][a-z0-9-]{0,31})(\/.*)$/;
+// No npm name starts with `_`, a Go module path's first element holds a dot,
+// and the checksum database's paths are fixed, so no registry path is this.
+const PACKAGES_TOKEN_SEGMENT = /^\/_token\/([A-Za-z0-9_-]{1,256})(\/.*)$/;
+const MAX_PACKAGE_REDIRECTS = 5;
+// A 304 answers a cache revalidation and carries no location to follow.
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+/**
+ * A segment the upstream would resolve as `.` or `..` once decoded, which
+ * would step out of the registry's base path; `%2f` inside a segment is how
+ * npm names a scoped package, and passes.
+ */
+function climbs(path: string): boolean {
+  return path.split("/").some((segment) => {
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(segment);
+    } catch {
+      return true;
+    }
+    return decoded === "." || decoded === "..";
+  });
+}
 
 /** The exact operations routed, or null for everything else. */
 export function routeOf(
@@ -146,6 +209,25 @@ export function routeOf(
   if (server !== undefined) {
     return MCP_METHODS.has(method) && search === ""
       ? { purpose: "mcp", server, path: "", search }
+      : null;
+  }
+  const packages = PACKAGES_PATH.exec(pathname);
+  if (packages !== null) {
+    const [, registry = "", full = ""] = packages;
+    if (full.startsWith("/_token/") && !PACKAGES_TOKEN_SEGMENT.test(full)) {
+      return null;
+    }
+    const [, pathToken, path = full] = PACKAGES_TOKEN_SEGMENT.exec(full) ?? [];
+    if (pathToken !== undefined && path.startsWith("/_token/")) return null;
+    // `//` would make the upstream target a protocol-relative URL.
+    return PACKAGES_METHODS.has(method) && !path.includes("//") && !climbs(path)
+      ? {
+          purpose: "packages",
+          registry,
+          ...(pathToken === undefined ? {} : { pathToken }),
+          path,
+          search,
+        }
       : null;
   }
   if (pathname.startsWith("/provider/")) {
@@ -174,7 +256,157 @@ export function routeOf(
   ) {
     return { purpose: "repository", path: "/git-upload-pack", search };
   }
+  const [, repository, path] = REPOSITORY_PATH.exec(pathname) ?? [];
+  if (repository !== undefined && path !== undefined) {
+    const upload =
+      path === "/info/refs"
+        ? method === "GET" && search === "?service=git-upload-pack"
+        : method === "POST" && search === "";
+    return upload ? { purpose: "repository", repository, path, search } : null;
+  }
+  const [, lfsRepository, operation] = LFS_PATH.exec(pathname) ?? [];
+  if (lfsRepository !== undefined && operation !== undefined) {
+    if (operation === "batch") {
+      return method === "POST" && search === ""
+        ? {
+            purpose: "repository",
+            repository: lfsRepository,
+            lfs: "batch",
+            path: "/info/lfs/objects/batch",
+            search,
+          }
+        : null;
+    }
+    const size = LFS_OBJECT_QUERY.exec(search)?.[1];
+    return method === "GET" && size !== undefined
+      ? {
+          purpose: "repository",
+          repository: lfsRepository,
+          lfs: { oid: operation, size: Number(size) },
+          path: "/info/lfs/objects/batch",
+          search: "",
+        }
+      : null;
+  }
   return null;
+}
+
+/**
+ * A worker's LFS batch as it goes upstream: a download, of objects named by
+ * a SHA-256 and a size, and nothing else it sent. An upload has no route, as
+ * receive-pack has none.
+ */
+export function lfsDownloadBatch(body: Uint8Array): Uint8Array | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(body));
+  } catch {
+    return null;
+  }
+  if (!isRecord(parsed) || parsed.operation !== "download") return null;
+  const { objects } = parsed;
+  if (
+    !Array.isArray(objects) ||
+    objects.length === 0 ||
+    objects.length > MAX_LFS_BATCH_OBJECTS
+  ) {
+    return null;
+  }
+  const named: Array<{ oid: string; size: number }> = [];
+  for (const object of objects) {
+    if (
+      !isRecord(object) ||
+      typeof object.oid !== "string" ||
+      !/^[0-9a-f]{64}$/.test(object.oid) ||
+      !Number.isSafeInteger(object.size) ||
+      (object.size as number) < 0
+    ) {
+      return null;
+    }
+    named.push({ oid: object.oid, size: object.size as number });
+  }
+  return lfsBatchBody(named);
+}
+
+function lfsBatchBody(objects: Array<{ oid: string; size: number }>) {
+  return new TextEncoder().encode(
+    JSON.stringify({ operation: "download", transfers: ["basic"], objects }),
+  );
+}
+
+/**
+ * A batch answer as the worker gets it: each download pointed at the proxy's
+ * own object path under `objectBase`, so the storage location, a capability
+ * of its own, never reaches the worker, and nothing else the server offered
+ * (an upload, a header) goes along.
+ */
+export function lfsBatchForWorker(
+  answer: unknown,
+  objectBase: string,
+): Record<string, unknown> | null {
+  if (!isRecord(answer) || !Array.isArray(answer.objects)) return null;
+  const objects: Array<Record<string, unknown>> = [];
+  for (const object of answer.objects) {
+    if (
+      !isRecord(object) ||
+      typeof object.oid !== "string" ||
+      !/^[0-9a-f]{64}$/.test(object.oid) ||
+      !Number.isSafeInteger(object.size)
+    ) {
+      return null;
+    }
+    const kept: Record<string, unknown> = {
+      oid: object.oid,
+      size: object.size,
+    };
+    if (isRecord(object.error)) {
+      // The server's message is free text that can name anything; the code
+      // is what git-lfs acts on.
+      kept.error = {
+        code: Number.isSafeInteger(object.error.code) ? object.error.code : 500,
+        message: "the LFS server refused this object",
+      };
+    }
+    const download = isRecord(object.actions)
+      ? object.actions.download
+      : undefined;
+    if (isRecord(download) && typeof download.href === "string") {
+      kept.authenticated = true;
+      kept.actions = {
+        download: {
+          href: `${objectBase}/${object.oid}?size=${object.size}`,
+          ...(typeof download.expires_in === "number"
+            ? { expires_in: download.expires_in }
+            : {}),
+          ...(typeof download.expires_at === "string"
+            ? { expires_at: download.expires_at }
+            : {}),
+        },
+      };
+    }
+    objects.push(kept);
+  }
+  return { transfer: "basic", objects };
+}
+
+/** Where a batch answer says to download `oid`, if it says so plainly. */
+export function lfsDownloadHref(answer: unknown, oid: string): URL | null {
+  if (!isRecord(answer) || !Array.isArray(answer.objects)) return null;
+  const object = answer.objects.find(
+    (candidate) => isRecord(candidate) && candidate.oid === oid,
+  );
+  const download =
+    isRecord(object) && isRecord(object.actions)
+      ? object.actions.download
+      : undefined;
+  if (!isRecord(download) || typeof download.href !== "string") return null;
+  const href = URL.parse(download.href);
+  return href !== null &&
+    (href.protocol === "https:" || href.protocol === "http:") &&
+    href.username === "" &&
+    href.password === ""
+    ? href
+    : null;
 }
 
 export type McpCall = { method: string | null; tool: string | null };
@@ -232,6 +464,18 @@ export function mcpCallOf(
 const BEARER = /^Bearer ([!-~]+)$/;
 /** An S3 client's header signature; the access key id is the token. */
 const SIGV4 = /^AWS4-HMAC-SHA256 Credential=([A-Za-z0-9_-]+)\//;
+/**
+ * Bundler and Go send a URL's userinfo as Basic, and neither can be given a
+ * bearer, so the packages route takes the token as the password; the user
+ * name is anything.
+ */
+const BASIC = /^Basic ([A-Za-z0-9+/]+={0,2})$/;
+
+function basicPassword(encoded: string): string | null {
+  const decoded = Buffer.from(encoded, "base64").toString("utf8");
+  const password = decoded.slice(decoded.indexOf(":") + 1);
+  return decoded.includes(":") && /^[!-~]+$/.test(password) ? password : null;
+}
 
 /**
  * The one token the request carries. Two carriers — an `x-api-key` beside an
@@ -249,6 +493,10 @@ export function tokenOf(
     return SIGV4.exec(authorization)?.[1] ?? null;
   }
   if (apiKey !== null && authorization !== null) return null;
+  if (authorization !== null && purpose === "packages") {
+    const basic = BASIC.exec(authorization)?.[1];
+    if (basic !== undefined) return basicPassword(basic);
+  }
   if (authorization !== null) return BEARER.exec(authorization)?.[1] ?? null;
   if (apiKey !== null && purpose === "provider" && /^[!-~]+$/.test(apiKey)) {
     return apiKey;
@@ -591,6 +839,11 @@ export type CredentialProxyOptions = {
   maxExchangesPerClient?: number;
   maxBodyBytesInFlight?: number;
   policy: EgressPolicy;
+  /**
+   * Where the packages route follows a registry's redirect, and where the
+   * repository route fetches an LFS object from; nowhere when absent.
+   */
+  packagesRedirect?: EgressPolicy;
   port?: number;
   regrantGraceMs?: number;
   regrantIntervalMs?: number;
@@ -653,6 +906,10 @@ export function startCredentialProxy(
     options.usageReportBackoffMs ?? DEFAULT_USAGE_REPORT_BACKOFF_MS;
   const maxBodyBytes =
     options.maxBodyBytesInFlight ?? DEFAULT_MAX_BODY_BYTES_IN_FLIGHT;
+  const packagesRedirect = options.packagesRedirect ?? {
+    allow: [],
+    allowPrivate: [],
+  };
   let open = 0;
   let bodyBytes = 0;
   const perClient = new Map<string, number>();
@@ -812,17 +1069,15 @@ export function startCredentialProxy(
     }
   }
 
-  async function exchange(
-    request: Request,
-    route: CredentialRoute,
-    grant: EgressGrant,
-    client: string,
+  /** Where `upstream` may be dialled under `policy`, or the refusal to send. */
+  async function dialable(
+    upstream: URL,
+    // null: the API's own built-in MCP server, on the authorizer's listener.
+    policy: EgressPolicy | null,
+    purpose: EgressPurpose,
+    who: Readonly<Record<string, unknown>>,
     signal: AbortSignal,
-    // The route's body as read since admission; null for the object store,
-    // whose body streams upstream.
-    whole: Promise<UpstreamBody> | null,
-  ): Promise<Response> {
-    const upstream = grant.upstream;
+  ): Promise<Dialable | Response> {
     const host = normalizeHost(upstream.hostname);
     const port =
       upstream.port === ""
@@ -830,23 +1085,11 @@ export function startCredentialProxy(
           ? 443
           : 80
         : Number(upstream.port);
-    const fields = {
-      purpose: route.purpose,
-      session_id: grant.sessionId,
-      attempt_id: grant.attemptId,
-      host,
-      port,
-      client,
-    };
-    // The upstream is the catalog's, not the worker's, and it is still held
-    // to the same allowlist and address rules as anything a worker asks for.
-    // The one exception is the API's own built-in MCP server, named by a
-    // path on the authorizer's listener: this process's control line, which
-    // no allowlist names on purpose. A catalog URL to that origin is not it.
+    const fields = { ...who, host, port };
     const decision = await untilEnded(
-      route.purpose === "mcp" && grant.builtin
+      policy === null
         ? authorizerDestination(host)
-        : decideEgress(options.policy, { host, port }, resolve),
+        : decideEgress(policy, { host, port }, resolve),
       signal,
     );
     if (!decision.allowed) {
@@ -855,13 +1098,13 @@ export function startCredentialProxy(
           ...fields,
           reason: decision.reason,
         });
-        return reply(502, decision.reason, route.purpose);
+        return reply(502, decision.reason, purpose);
       }
       logger.warn("Credential route denied", {
         ...fields,
         reason: decision.reason,
       });
-      return reply(403, `egress denied: ${decision.reason}`, route.purpose);
+      return reply(403, `egress denied: ${decision.reason}`, purpose);
     }
     // A privately listed name may resolve publicly for a worker's own
     // traffic, but a name that carries a login stays inside: an internal git
@@ -877,13 +1120,9 @@ export function startCredentialProxy(
       return reply(
         403,
         "egress denied: a private upstream resolved publicly",
-        route.purpose,
+        purpose,
       );
     }
-    // The address that was judged, and only it. A POST is never retried
-    // against a second address: its body may already have reached the
-    // first.
-    const address = decision.addresses[0] ?? "";
     // A certificate is checked for a name; an address would have to be
     // checked for itself, which the upstream client does not do. Nothing in
     // the catalog needs it: trigger to add, an https upstream only
@@ -893,9 +1132,258 @@ export function startCredentialProxy(
         ...fields,
         reason: "an https upstream must be named, not an address",
       });
-      return reply(502, "an https upstream must be named", route.purpose);
+      return reply(502, "an https upstream must be named", purpose);
     }
-    const base = upstream.pathname.replace(/\/$/, "");
+    // The address that was judged, and only it. A POST is never retried
+    // against a second address: its body may already have reached the
+    // first.
+    return { address: decision.addresses[0] ?? "", host, port };
+  }
+
+  function send(
+    upstream: URL,
+    at: Dialable,
+    exchange: Parameters<typeof upstreamExchange>[1],
+  ): Promise<Response> {
+    return upstreamExchange(
+      {
+        address: at.address,
+        port: at.port,
+        tls:
+          upstream.protocol === "https:"
+            ? {
+                serverName: at.host,
+                ...(options.upstreamCa === undefined
+                  ? {}
+                  : { ca: options.upstreamCa }),
+              }
+            : null,
+      },
+      exchange,
+    );
+  }
+
+  /**
+   * A registry's redirect, followed here rather than relayed, and only to a
+   * host on the packages redirect list: a relayed one would send the worker
+   * to a host it cannot reach, and one followed anywhere would make the
+   * route an open fetcher. Nothing the grant added goes along, so a
+   * credential put on the registry request never reaches the host it
+   * redirected to.
+   */
+  async function followRedirects(
+    first: Response,
+    from: URL,
+    request: Request,
+    grant: EgressGrant,
+    who: Readonly<Record<string, unknown>>,
+    signal: AbortSignal,
+  ): Promise<{ response: Response } | { refused: Response }> {
+    let response = first;
+    let at = from;
+    for (let hop = 0; REDIRECT_STATUSES.has(response.status); hop++) {
+      const location = response.headers.get("location");
+      await response.body?.cancel();
+      const next = location === null ? null : URL.parse(location, at);
+      const unusable =
+        next === null
+          ? "no usable location"
+          : hop >= MAX_PACKAGE_REDIRECTS
+            ? "too many redirects"
+            : (next.protocol !== "https:" && next.protocol !== "http:") ||
+                next.username !== "" ||
+                next.password !== ""
+              ? "the location is not a plain http(s) URL"
+              : null;
+      if (next === null || unusable !== null) {
+        logger.warn("Credential route redirect refused", {
+          ...who,
+          status: response.status,
+          reason: unusable,
+        });
+        return { refused: reply(502, "upstream redirected", "packages") };
+      }
+      const judged = await dialable(
+        next,
+        packagesRedirect,
+        "packages",
+        { ...who, redirect: true },
+        signal,
+      );
+      if (judged instanceof Response) {
+        await judged.body?.cancel();
+        return {
+          refused: reply(
+            502,
+            "upstream redirected to a host the packages route does not follow",
+            "packages",
+          ),
+        };
+      }
+      logger.info("Credential route redirect followed", {
+        ...who,
+        status: response.status,
+        to_host: judged.host,
+        to_port: judged.port,
+      });
+      try {
+        response = await send(next, judged, {
+          method: request.method,
+          target: `${next.pathname}${next.search}`,
+          headers: [
+            ...upstreamRequestHeaders(request.headers, {
+              ...grant,
+              upstream: next,
+              headers: [],
+            }),
+          ],
+          body: null,
+          signal,
+        });
+      } catch (error) {
+        logger.warn("Credential route upstream failed", {
+          ...who,
+          host: judged.host,
+          port: judged.port,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return {
+          refused: reply(502, "upstream connection failed", "packages"),
+        };
+      }
+      at = next;
+    }
+    return { response };
+  }
+
+  /**
+   * One LFS object, from where the repository's batch answer put it: a
+   * storage host on the packages redirect list, asked with nothing the grant
+   * added, as a followed redirect is. The location never reaches the worker.
+   */
+  async function lfsObject(
+    href: URL,
+    request: Request,
+    grant: EgressGrant,
+    who: Readonly<Record<string, unknown>>,
+    signal: AbortSignal,
+  ): Promise<{ response: Response } | { refused: Response }> {
+    const judged = await dialable(
+      href,
+      packagesRedirect,
+      "repository",
+      { ...who, lfs_object: true },
+      signal,
+    );
+    if (judged instanceof Response) {
+      await judged.body?.cancel();
+      return {
+        refused: reply(
+          502,
+          "the LFS object is on a host this route does not reach",
+        ),
+      };
+    }
+    logger.info("Credential route LFS object", {
+      ...who,
+      to_host: judged.host,
+      to_port: judged.port,
+    });
+    let response: Response;
+    try {
+      response = await send(href, judged, {
+        method: "GET",
+        target: `${href.pathname}${href.search}`,
+        headers: [
+          ...upstreamRequestHeaders(request.headers, {
+            ...grant,
+            upstream: href,
+            headers: [],
+          }),
+        ],
+        body: null,
+        signal,
+      });
+    } catch (error) {
+      logger.warn("Credential route upstream failed", {
+        ...who,
+        host: judged.host,
+        port: judged.port,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { refused: reply(502, "upstream connection failed") };
+    }
+    const fetched = REDIRECT_STATUSES.has(response.status)
+      ? await followRedirects(response, href, request, grant, who, signal)
+      : { response };
+    if ("refused" in fetched) return fetched;
+    // A storage answer may echo a presigned location, the first or one it
+    // redirected to; only the object and its length, type and encoding go
+    // back, the encoding so the encoded-body check below still sees it.
+    const answer = fetched.response;
+    if (!answer.ok) {
+      await answer.body?.cancel();
+      logger.warn("Credential route LFS object refused", {
+        ...who,
+        status: answer.status,
+      });
+      return {
+        refused: reply(502, `the LFS storage answered ${answer.status}`),
+      };
+    }
+    const headers = new Headers();
+    for (const name of ["content-length", "content-type", "content-encoding"]) {
+      const value = answer.headers.get(name);
+      if (value !== null) headers.set(name, value);
+    }
+    return {
+      response: new Response(answer.body, { status: answer.status, headers }),
+    };
+  }
+
+  async function exchange(
+    request: Request,
+    route: CredentialRoute,
+    grant: EgressGrant,
+    client: string,
+    signal: AbortSignal,
+    // The route's body as read since admission; null for the object store,
+    // whose body streams upstream.
+    whole: Promise<UpstreamBody> | null,
+  ): Promise<Response> {
+    const who = {
+      purpose: route.purpose,
+      ...(route.registry === undefined ? {} : { registry: route.registry }),
+      ...(route.repository === undefined
+        ? {}
+        : { repository_id: route.repository }),
+      session_id: grant.sessionId,
+      attempt_id: grant.attemptId,
+      client,
+    };
+    // The upstream is the catalog's, not the worker's, and it is still held
+    // to the same allowlist and address rules as anything a worker asks for.
+    // The one exception is the API's own built-in MCP server, named by a
+    // path on the authorizer's listener: this process's control line, which
+    // no allowlist names on purpose. A catalog URL to that origin is not it.
+    const first = await dialable(
+      grant.upstream,
+      route.purpose === "mcp" && grant.builtin ? null : options.policy,
+      route.purpose,
+      who,
+      signal,
+    );
+    if (first instanceof Response) return first;
+    const upstream = grant.upstream;
+    const fields = { ...who, host: first.host, port: first.port };
+    const trimmed = upstream.pathname.replace(/\/$/, "");
+    // As Git LFS finds the endpoint from a remote URL; GitHub answers a batch
+    // at the URL without `.git` with a 422.
+    const base =
+      route.lfs === undefined || trimmed.endsWith(".git")
+        ? trimmed
+        : `${trimmed}.git`;
+    const target = grant.target ?? `${base}${route.path}${route.search}`;
     const objectStore = route.purpose === "object_store";
     if (objectStore && grant.target === null) {
       logger.error("Egress authorizer signed no target", fields);
@@ -906,38 +1394,33 @@ export function startCredentialProxy(
     // charged from.
     let sent: Uint8Array | null = null;
     try {
-      const body = whole === null ? objectBody(request, grant) : await whole;
+      const body =
+        typeof route.lfs === "object"
+          ? lfsBatchBody([route.lfs])
+          : whole === null
+            ? objectBody(request, grant)
+            : await whole;
       if (body instanceof Uint8Array) sent = body;
-      response = await upstreamExchange(
-        {
-          address,
-          port,
-          tls:
-            upstream.protocol === "https:"
-              ? {
-                  serverName: host,
-                  ...(options.upstreamCa === undefined
-                    ? {}
-                    : { ca: options.upstreamCa }),
-                }
-              : null,
-        },
-        {
-          method: request.method,
-          target: grant.target ?? `${base}${route.path}${route.search}`,
-          // Only what the authorizer signed: the worker's own headers are
-          // what it was judged on, not what goes upstream.
-          headers: objectStore
-            ? [
-                ["host", upstream.host],
-                ["accept-encoding", "identity"],
-                ...grant.headers,
-              ]
-            : [...upstreamRequestHeaders(request.headers, grant)],
-          body,
-          signal,
-        },
-      );
+      const headers = upstreamRequestHeaders(request.headers, grant);
+      if (route.lfs !== undefined) {
+        headers.set("accept", LFS_MEDIA_TYPE);
+        headers.set("content-type", LFS_MEDIA_TYPE);
+      }
+      response = await send(upstream, first, {
+        method: route.lfs === undefined ? request.method : "POST",
+        target,
+        // Only what the authorizer signed: the worker's own headers are
+        // what it was judged on, not what goes upstream.
+        headers: objectStore
+          ? [
+              ["host", upstream.host],
+              ["accept-encoding", "identity"],
+              ...grant.headers,
+            ]
+          : [...headers],
+        body,
+        signal,
+      });
     } catch (error) {
       if (error instanceof BodyTooLargeError) {
         return reply(413, "request body too large", route.purpose);
@@ -949,7 +1432,61 @@ export function startCredentialProxy(
       return reply(502, "upstream connection failed", route.purpose);
     }
     logger.info("Credential route", { ...fields, status: response.status });
-    if (response.status >= 300 && response.status < 400) {
+    let presigned: string[] = [];
+    if (route.lfs !== undefined && response.ok) {
+      const answered = await lfsAnswer(response);
+      if (answered === null) {
+        logger.warn("Credential route LFS answer unusable", fields);
+        return reply(502, "the LFS server's answer was unusable");
+      }
+      if (route.lfs === "batch") {
+        const url = new URL(request.url);
+        const forWorker = lfsBatchForWorker(
+          answered,
+          `${url.origin}${url.pathname.slice(0, -"/batch".length)}`,
+        );
+        if (forWorker === null) {
+          logger.warn("Credential route LFS answer unusable", fields);
+          return reply(502, "the LFS server's answer was unusable");
+        }
+        response = new Response(JSON.stringify(forWorker), {
+          headers: { "content-type": LFS_MEDIA_TYPE },
+        });
+      } else {
+        const href = lfsDownloadHref(answered, route.lfs.oid);
+        if (href === null) {
+          return reply(404, "the LFS server offered no download");
+        }
+        const fetched = await lfsObject(href, request, grant, fields, signal);
+        if ("refused" in fetched) return fetched.refused;
+        response = fetched.response;
+        // The presigned location is a credential of its own; a storage
+        // error that echoes it must not hand it over.
+        presigned = [...href.searchParams.values()].filter(
+          (value) => value.length >= 8,
+        );
+      }
+    }
+    if (
+      route.purpose === "packages" &&
+      REDIRECT_STATUSES.has(response.status)
+    ) {
+      const followed = await followRedirects(
+        response,
+        new URL(target, upstream),
+        request,
+        grant,
+        fields,
+        signal,
+      );
+      if ("refused" in followed) return followed.refused;
+      response = followed.response;
+    }
+    if (
+      response.status >= 300 &&
+      response.status < 400 &&
+      !(route.purpose === "packages" && response.status === 304)
+    ) {
       // A followed redirect would carry the credential somewhere the catalog
       // never named, and a relayed one invites the client to.
       await response.body?.cancel();
@@ -957,7 +1494,9 @@ export function startCredentialProxy(
     }
     // Every spelling the upstream could echo back to the worker: headers,
     // a success body and an error body are all checked for them.
-    const secrets = objectStore ? objectStoreSecrets(grant) : secretsOf(grant);
+    const secrets = objectStore
+      ? objectStoreSecrets(grant)
+      : [...secretsOf(grant), ...presigned];
     const headers = responseHeaders(response.headers, secrets);
     // A head's answer is its length; there is no body to take it from.
     const length = response.headers.get("content-length");
@@ -1140,7 +1679,14 @@ export function startCredentialProxy(
       }
       const route = routeOf(request.method, url.pathname, url.search);
       if (route === null) return reply(404, "no such credential route");
-      const token = tokenOf(request.headers, route.purpose);
+      // A path token beside a header token is two carriers, refused alike.
+      const token =
+        route.pathToken === undefined
+          ? tokenOf(request.headers, route.purpose)
+          : request.headers.has("authorization") ||
+              request.headers.has("x-api-key")
+            ? null
+            : route.pathToken;
       if (token === null) {
         return reply(401, "one egress token is required", route.purpose);
       }
@@ -1153,7 +1699,11 @@ export function startCredentialProxy(
                 request.headers,
               ),
             }
-          : {};
+          : route.purpose === "packages"
+            ? { registry: route.registry, path: `${route.path}${route.search}` }
+            : route.repository === undefined
+              ? {}
+              : { repository_id: route.repository };
       // Decided before anything is awaited: Bun takes the body off the
       // socket meanwhile, and only a request answered now is never held.
       const reservation = bodyReservation(request.headers, route.purpose);
@@ -1230,7 +1780,9 @@ export function startCredentialProxy(
           const again = await authorize(
             token,
             route.purpose,
-            route.purpose === "mcp" ? { ...question, regrant: true } : question,
+            route.purpose === "mcp" || route.purpose === "packages"
+              ? { ...question, regrant: true }
+              : question,
           );
           if (ended) return;
           if (again.kind === "granted") grantedAt = performance.now();
@@ -1274,6 +1826,17 @@ export function startCredentialProxy(
               rpc: { method: null, tool: null },
             });
           }
+        }
+        if (route.lfs === "batch") {
+          // Before the authorizer, so an upload costs no token.
+          const read = whole === null ? null : await whole;
+          const batch =
+            read instanceof Uint8Array ? lfsDownloadBatch(read) : null;
+          if (batch === null) {
+            release();
+            return reply(400, "only an LFS download batch is routed");
+          }
+          whole = Promise.resolve(batch);
         }
         const authorized = await authorize(token, route.purpose, question);
         if (authorized.kind === "refused") {
@@ -1334,6 +1897,8 @@ export function startCredentialProxy(
 }
 
 class BodyTooLargeError extends Error {}
+
+type Dialable = { address: string; host: string; port: number };
 
 /** `work`, or the signal's reason if it fires first: a hung lookup too. */
 function untilEnded<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
@@ -1522,6 +2087,22 @@ function metered(
       return reader.cancel(reason);
     },
   });
+}
+
+/** A batch answer's JSON; null for one too large, encoded or not JSON. */
+async function lfsAnswer(response: Response): Promise<unknown> {
+  const encoding = response.headers.get("content-encoding");
+  if (encoding !== null && encoding.toLowerCase() !== "identity") {
+    await response.body?.cancel();
+    return null;
+  }
+  const body = await readAtMost(response, MAX_LFS_BATCH_ANSWER_BYTES);
+  if (body === null) return null;
+  try {
+    return JSON.parse(new TextDecoder().decode(body));
+  } catch {
+    return null;
+  }
 }
 
 async function readAtMost(

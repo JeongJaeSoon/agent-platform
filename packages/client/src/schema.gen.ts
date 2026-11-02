@@ -390,6 +390,94 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/workspaces/{id}/github-apps/author/manifest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start making the author GitHub App from a manifest (owner or admin)
+         * @description Returns the manifest for a new author App and the GitHub URL the browser form-POSTs it to (field `manifest`), with a new single-use `state` in that URL, valid 60 minutes and bound to the caller and the workspace. `owner` picks an organization (its owners can create the App) or the caller's own account; a private App (`public: false`, the default) installs only on that account. The manifest asks for `contents` and `pull_requests` write and `metadata` read, plus `actions` and `workflows` write with `actions: true`; its webhook is off, its redirect is the console's `/settings/workspace/github/new-app` and its callback the account-link page. While an author App is registered the request must say `replace: true` (else 409 `GITHUB_APP_CONFLICT` `author_app_exists`). API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["startGitHubAppManifest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{id}/github-apps/author/manifest/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish making the author GitHub App with what GitHub returned
+         * @description The console's callback page sends the `code` and `state` from GitHub's redirect. The state is spent first: unknown, spent, expired, or issued to another caller or workspace answers 400 `BAD_REQUEST` `state_invalid`. The code is exchanged once with `POST /app-manifests/{code}/conversions` (400 `code_rejected` when GitHub refuses it, 503 `github_unreachable` when it cannot be reached; never retried). The App, its private key and its OAuth client secret are stored in one transaction with a `set_github_app` receipt (`source: manifest`); the webhook secret is not kept. If the author App changed since the start, nothing is stored (409 `GITHUB_APP_CONFLICT` `author_app_changed`); if storing fails, 503 `store_failed`. Both name the App made on GitHub in `details.app_id` and `details.html_url`. No key, secret or code is in any response, receipt or log, and every answer carries `Referrer-Policy: no-referrer`. API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["completeGitHubAppManifest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{id}/github-repositories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A page of the author App's repositories, and the catalog's (owner or admin)
+         * @description The repositories one installation of the author App reaches, a page at a time as GitHub pages them (`GET /installation/repositories`): `installation_id` picks the installation (absent: the first in `installations`, by account), `page` and `per_page` (at most 100) the page, and `total_count` is GitHub's count. Nothing is registered: a repository becomes a catalog row when an agent's manager picks it (`POST /v1/agents/{id}/github/repositories`), and `catalog_id` then names it; `agent_count` counts agents whose active release names it. `unavailable` says why the page is empty: `no_author_app`, `no_installation`, `github_rejected` or `github_unreachable`. `catalog` lists the rows picks resolved or repositories.yaml seeded (`source` `selection`, `console` or `seed`; their branch is changed with PATCH) and the operator file's entries that carry their own credentials (`source: file`, read-only); `installed` says whether an installation of the App covers a row now (asked for the first 100 rows; null past them, or when GitHub could not answer). An installation id the App does not have is 400 `not_installed`. API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope.
+         */
+        get: operations["listGitHubRepositories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{id}/github-repositories/{repositoryId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change a repository's default branch (owner or admin)
+         * @description Sets the branch sessions start from. `version` is the one last read; another is 409 `REVISION_CONFLICT`. A session already running on the repository is refused its next repository request (`CATALOG_MISMATCH`), as after an operator edits the file. An operator file entry is 400 `file_repository`. Writes a `set_repository_branch` receipt with the branch before and after. API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        patch: operations["updateGitHubRepository"];
+        trace?: never;
+    };
     "/v1/workspaces/{id}/github-settings": {
         parameters: {
             query?: never;
@@ -455,6 +543,78 @@ export interface paths {
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         put: operations["putGitHubOAuthClientSecret"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{id}/github-packages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The workspace's GitHub Packages bot token and allowlist (members)
+         * @description What sessions may fetch from GitHub Packages (npm and RubyGems) through the egress proxy. `token` says whether a bot token is registered, with its last four characters, the GitHub login it belongs to and its expiry (`expires_at` null when it never expires), never the value. `allowlist` lists each owner's package, or every package of an owner (`name` `*`), that sessions may read; an entry with `repository_id` or `agent_id` applies only to sessions of that repository or agent. Without a token, or for a package no entry names, the proxy refuses the request. `revision` is 0 until the allowlist is first saved. Any member signed in to the console reads it; API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope.
+         */
+        get: operations["getGitHubPackages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{id}/github-packages/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Register or replace the GitHub Packages bot token (owner or admin)
+         * @description Stores a bot account's classic personal access token whose only scope is `read:packages`; GitHub Packages accepts no GitHub App token. Before storing, the API calls GitHub's `GET /user` with it: a token GitHub refuses is 400 `BAD_REQUEST` (`reason_code` `token_invalid`), and one with any other scope, or a fine-grained token, which has no classic scopes, is 400 (`reason_code` `token_scopes`). The login and expiry GitHub reports are kept beside it. The token is kept encrypted and never returned, logged or echoed; only the egress proxy's requests to GitHub Packages carry it. Setting it again replaces it. Writes a `set_github_packages_token` receipt with its last four characters. API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        put: operations["putGitHubPackagesToken"];
+        post?: never;
+        /**
+         * Remove the GitHub Packages bot token (owner or admin)
+         * @description Drops the stored token; from the next request on, the proxy refuses every GitHub Packages request. The allowlist stays. Writes a `delete_github_packages_token` receipt with the token's last four characters; 404 when none is stored. API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        delete: operations["deleteGitHubPackagesToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{id}/github-packages/allowlist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace the GitHub Packages allowlist (owner or admin)
+         * @description Replaces the whole allowlist, at most 200 entries. Each entry names a registry (`npm` or `rubygems`), a GitHub owner and a package name or `*`; `repository_id` (a catalog repository id) or `agent_id` narrows it to sessions of that repository or agent. Owners compare case-insensitively. `revision` is the one last read: a stale one is 409 `REVISION_CONFLICT`. Takes effect from the next request; a session's npm scopes and gem sources follow the owners named here from its next claim. Writes a `set_github_packages_allowlist` receipt. API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        put: operations["putGitHubPackagesAllowlist"];
         post?: never;
         delete?: never;
         options?: never;
@@ -943,7 +1103,7 @@ export interface paths {
          *
          *     A parked request (`state: parked`) is answered the same way, whichever worker asked. The answer is kept until every request of its `group` is answered or expired; the one that closes the group resumes the session (`resumed: true`), and the receipt settles once the turn that resumes it has the answer. `waiting_for` counts the group's requests still open. A session paused by a person rather than by its park keeps the answer and stays paused.
          *
-         *     Seeing a session is not answering for it: only its creator (for a session an API key made, that key), its agent's admins and the workspace's owners and admins answer. Anyone else the session is visible to gets 403 (`reason_code: role`) and the request stays open; anyone it is not visible to, 404.
+         *     Seeing a session is not answering for it: only its creator, its agent's admins, the workspace's owners and admins, and the keys of its agent that hold `sessions:approve` answer. Anyone else the session is visible to gets 403 (`reason_code: role`) and the request stays open; anyone it is not visible to, 404. No workspace key (personal or agent) answers a session that key started: 403 (`reason_code: self_approval`) with a failed `answer` receipt named by `error.details.receipt_id`, and the request stays open for another key or a person.
          *
          *     **Scope:** `sessions:approve` (API key or cookie session). **Idempotency-Key:** required.
          */
@@ -971,9 +1131,9 @@ export interface paths {
         put?: never;
         /**
          * Ask for the session's latest checkpoint to be pushed
-         * @description Pins the session's latest committed checkpoint: its `checkpoint_revision`, the `git_commit` its verified manifest names, the session's `repository_id`, and the target branch `agent/<session-id>`. None of these can be chosen: the body is `{}`. The request starts `requested` and nothing is pushed until a holder of `sessions:approve` approves it (`POST .../push-requests/{push_request_id}/decision`); the push itself is the platform's, never the worker's.
+         * @description Pins the session's latest committed checkpoint: its `checkpoint_revision`, the `git_commit` its verified manifest names, the repository and the target branch. The commit cannot be chosen. `repository_id` (default: the session's own) may name another catalog repository the session's release lists in `github.repositories` and its profile allows; the session's workspace has it as a git remote of that name. `branch` (default: none) makes the target `agent/<session-id>-<branch>` instead of `agent/<session-id>`, so one session can push to several branches, each its own pull request. The request starts `requested` and nothing is pushed until a holder of `sessions:approve` approves it (`POST .../push-requests/{push_request_id}/decision`); the push itself is the platform's, never the worker's.
          *
-         *     A session has at most one open request (`requested`, `approved` or `pushing`). Every attempt, refused ones included, leaves a `request_push` receipt; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request it created.
+         *     A session has at most one open request (`requested`, `approved` or `pushing`) per repository and branch; there is no limit on how many it makes. Every attempt, refused ones included, leaves a `request_push` receipt naming the repository and branch; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request it created.
          *
          *     **Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** required.
          */
@@ -1021,7 +1181,7 @@ export interface paths {
          * Approve or reject a push request
          * @description Decides a `requested` push request once: `approve` lets the platform push the pinned commit to the request's branch, `reject` closes it. `git_commit` must be the commit the decider reviewed; an approval naming any other is refused. An approval is also refused when the session has checkpointed since the request was made, so what is approved is what the session last committed; reject the request and ask again.
          *
-         *     Only a verified credential that holds `sessions:approve` decides: an API key or a signed-in user. Worker credentials are not accepted on `/v1` at all (401). Every attempt, refused ones included, leaves a `decide_push` receipt carrying the actor, the verdict and the refusal reason; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request this decision made, as it is now: once the platform has taken it to push, `state` reads `pushing`, `pushed` or `failed`, while `decided_by`, `decided_at` and `decision_receipt_id` still name this decision.
+         *     Only a verified credential that holds `sessions:approve` decides: an API key or a signed-in user. A workspace key (personal or agent) that started the session never decides its requests (403, `refusal: self_approval`); another key or a person does. Worker credentials are not accepted on `/v1` at all (401). Every attempt, refused ones included, leaves a `decide_push` receipt carrying the actor, the verdict and the refusal reason; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request this decision made, as it is now: once the platform has taken it to push, `state` reads `pushing`, `pushed` or `failed`, while `decided_by`, `decided_at` and `decision_receipt_id` still name this decision.
          *
          *     **Scope:** `sessions:approve` (API key or cookie session). **Idempotency-Key:** required.
          */
@@ -1043,13 +1203,13 @@ export interface paths {
         put?: never;
         /**
          * Open a pull request from a pushed request
-         * @description Opens a pull request on the repository's forge (GitHub or GHES) from the request's branch `agent/<session-id>` into the catalog entry's `branch`. Only a `pushed` request opens one, and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`, or the entry's PAT.
+         * @description Opens a pull request on the request's repository's forge (GitHub or GHES) from the request's branch (`agent/<session-id>` or `agent/<session-id>-<branch>`) into that catalog entry's `branch`. Only a `pushed` request opens one, and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`, or the entry's PAT.
          *
          *     `title` (default `Agent session <session-id>`) and `body` are cleaned before GitHub sees them: `@` mentions, cross-repository references (`owner/repo#N`), closing keywords (`Closes #N` and the like) and HTML comments are broken with a zero-width space, a line that looks like a secret is replaced by `[REDACTED]`, and both are cut to GitHub's limits. The body ends with a line naming the session and the commit. The platform never approves, merges or asks for reviews.
          *
          *     Safe to retry: a request opens at most one pull request. When one is already recorded, or GitHub already has an open one for the branch, it is answered with `created: false` (200). Every attempt, refused ones included, leaves an `open_pull_request` receipt; `receipt_id` names this one, and a refusal's `error.details.receipt_id` names it.
          *
-         *     A verified credential that holds `sessions:approve` opens one, as for a push decision. One that holds only `sessions:submit` (an agent's key) opens one too, since the request was already pushed. The token is issued through the agent's GitHub settings: with GitHub off for the agent, or the repository outside its release, the call is refused with `GITHUB_REFUSED`. Worker credentials are not accepted on `/v1` (401).
+         *     A verified credential that holds `sessions:approve` opens one, as for a push decision. One that may only submit to the session (an agent's key without `sessions:approve`, or the key that started the session) opens one too, since the request was already pushed. The token is issued through the agent's GitHub settings: with GitHub off for the agent, or the repository outside its release, the call is refused with `GITHUB_REFUSED`. Worker credentials are not accepted on `/v1` (401).
          *
          *     **Scope:** `sessions:approve` (API key or cookie session). **Idempotency-Key:** ignored.
          */
@@ -1204,14 +1364,38 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * What the session made: the pull requests it opened
-         * @description The session's outcomes, oldest first. Each pull request the platform's pull request opening recorded is one `github_pull_request` outcome, written in the same transaction as its `open_pull_request` receipt (`receipt_id`); opening it again for a later push request of the session answers the same pull request and adds none. Only the server writes outcomes.
+         * What the session made: the pull requests it opened and the reviews it submitted
+         * @description The session's outcomes, oldest first. Each pull request the platform's pull request opening recorded is one `github_pull_request` outcome, written in the same transaction as its `open_pull_request` receipt (`receipt_id`); opening it again for a later push request of the session answers the same pull request and adds none. Each review the session submitted is one `github_review` outcome, written in the same transaction as its `review_pull_request` receipt: `url` is the review's, `external_id` the review id, `state` always `submitted`, and `metadata` the pull request `number`, the `event`, the `commit_id` reviewed and `opened_by_session_id` (null for a pull request the platform did not open); never the review's body. Only the server writes outcomes.
          *
-         *     `state` is `open`, `merged` or `closed` as GitHub last answered, at `state_checked_at` (null until the first answer): GitHub tells the platform nothing, so the platform reads each pull request again on an interval (every 5 minutes in its first day, hourly to 30 days, then daily; a closed one daily for 30 days; a merged one never). A failed read keeps the state and sets `check_error` (`not_found`, `forge_failed`, `github_refused`). `metadata.adopted` is true when the platform answered a pull request it did not create, already open for the session's branch, and null when unknown. Reading changes nothing.
+         *     A pull request's `state` is `open`, `merged` or `closed` as GitHub last answered, at `state_checked_at` (null until the first answer): GitHub tells the platform nothing, so the platform reads each pull request again on an interval (every 5 minutes in its first day, hourly to 30 days, then daily; a closed one daily for 30 days; a merged one never). A failed read keeps the state and sets `check_error` (`not_found`, `forge_failed`, `github_refused`). `metadata.adopted` is true when the platform answered a pull request it did not create, already open for the session's branch, and null when unknown. `metadata.title` is the pull request's title cut to 200 characters, as the platform sent it or GitHub last answered; null until the first read of one the platform did not create, and on a row written before titles were kept until its next read, so a pull request already merged then keeps null. A review is never read again. Reading changes nothing.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
         get: operations["listSessionOutcomes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{id}/achievements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the workspace's achievement rules counted in the session
+         * @description The session's achievements in force, oldest first, and its latest judgment. Only the platform's judge writes achievements: when the session's evidence appears or changes (a pull request opened, merged or closed, a review submitted, a checkpoint whose `out/` files differ from its parent's) a judgment is queued in the same transaction, one queued per session, and the judge takes it once two minutes have passed since the last such change. It pairs each rule in use with the session's evidence of its type's `evidence_kind`. An `always` rule counts every pair at no cost; one rule family counts a piece of evidence of a session once (`evidence_id`: the outcome id, the `out/` path, or null for the conversation). `title` and `link` are the pull request or review as `owner/repo#number` and its URL, the file's path and the session's console path, or the session's title and console path. `payload` is set only for the built-in types (`pull_request`, `code_review`, `document`). `review_state` is `auto` for pull request and review evidence, counted at once, and `needs_review` for `out/` files and the conversation, counted once a person confirms them.
+         *
+         *     `judgment` is null before the session's first. Its `status` is `queued`, `running`, `succeeded`, `failed` or `skipped` (`error_code: judge_unavailable`: a `luna` rule had evidence and no judge answers it yet). A try that fails is queued again 1, 5 and 30 minutes later, then ends `failed`; `error_code: outputs_unavailable` says the checkpoint's `out/` list could not be read, and the achievements that need no `out/` list are written all the same. Reading changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
+         */
+        get: operations["listSessionAchievements"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2165,6 +2349,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{id}/github/repositories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A page of the author App's repositories, to pick for the agent
+         * @description The repositories one installation of the author App reaches, a page at a time, as `GET /v1/workspaces/{id}/github-repositories` pages them, with `catalog_id` set on those a pick resolved already. Only when the active release's installation profile ceiling runs on every App repository (`github_app_repositories: installed`); otherwise `unavailable` is `ceiling_listed` (pick among `options.repositories` of `GET /v1/agents/{id}/github`) or `no_active_release`, and the page is empty. Whoever manages the agent reads it.
+         *
+         *     **Auth:** cookie session only; no scope.
+         */
+        get: operations["listAgentGitHubRepositories"];
+        put?: never;
+        /**
+         * Resolve an App repository to the catalog id a release names
+         * @description Takes a repository from `GET …/github/repositories` and returns the catalog id to put in `github.repositories` of the next release (`POST /v1/agents/{id}/releases`); the release itself is unchanged. The server reads the repository by its GitHub id and checks that the named installation covers it, then takes its URL and default branch from GitHub. The same repository always resolves to the same id, by its GitHub id: the first pick writes a `resolve_repository` receipt (`receipt_id`), and so does a pick after a rename on GitHub, which moves the row to the new name and URL; other picks return null. 400 `details.reason_code`: `repository_not_allowed` (the active release's ceiling does not run on App repositories, or there is no active release), `no_author_app`, `not_installed`, `file_repository` (the operator file holds that repository with its own credential), or `name_held` (another row has that name: another GitHub repository's, whose pick after its rename frees the name, or one not yet tied to a GitHub id). A signed-in manager of the agent; API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["pickAgentGitHubRepository"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{id}/github/enabled": {
         parameters: {
             query?: never;
@@ -2342,7 +2554,7 @@ export interface paths {
         put?: never;
         /**
          * Issue a personal key or an agent key
-         * @description A personal key is the caller's own; an agent key names its agent in `agent_id` and takes an owner, an admin, or that agent's admin. No key reaches a whole workspace: an agent key without `agent_id` is a 400. `name` (1-64 characters once trimmed) is optional. `scopes` may not exceed what the caller holds now, and an agent key never holds `sessions:approve` (403 SCOPE_NOT_GRANTABLE). An API key never issues one. The secret is returned once; only its sha256 is stored. Writes a `create_api_key` receipt.
+         * @description A personal key is the caller's own; an agent key names its agent in `agent_id` and takes an owner, an admin, or that agent's admin. No key reaches a whole workspace: an agent key without `agent_id` is a 400. `name` (1-64 characters once trimmed) is optional. `scopes` may not exceed what the caller holds now (403 SCOPE_NOT_GRANTABLE); within that, either kind may hold any scope, `sessions:approve` included. A personal or agent key holding `sessions:approve` still never approves a session it started itself. An API key never issues one. The secret is returned once; only its sha256 is stored. Writes a `create_api_key` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -2641,6 +2853,272 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/achievement-categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the workspace's achievement categories
+         * @description Every category of the caller's workspace, archived ones included (`archived_at`), by `position`. A category groups achievement rules; its name is not copied anywhere, so renaming it renames it for past achievements too. Every member reads it, and so does a member's personal key (`workspace.read`); an agent's key is 403.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
+         */
+        get: operations["listAchievementCategories"];
+        put?: never;
+        /**
+         * Make an achievement category
+         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. The name (1 to 32 characters) is unique among the workspace's categories that are not archived (409 ALREADY_EXISTS, `details.reason_code: name_taken`). The new category goes after the last one. Writes a `create_achievement_category` receipt.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["createAchievementCategory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/achievement-categories/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Rename or reorder an achievement category
+         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Changes `name`, `position` or both. A name another category that is not archived holds is 409 ALREADY_EXISTS (`details.reason_code: name_taken`). Writes an `update_achievement_category` receipt unless nothing changed (`receipt_id` null). Another workspace's category is 404.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        patch: operations["updateAchievementCategory"];
+        trace?: never;
+    };
+    "/v1/achievement-categories/{id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive an achievement category
+         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. A category with a rule in use (its latest version, not disabled) is 409 REVISION_CONFLICT with `details.reason_code: category_in_use`. Archiving one already archived changes nothing and answers a null `receipt_id`; otherwise writes an `archive_achievement_category` receipt. Another workspace's category is 404.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["archiveAchievementCategory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/achievement-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the workspace's achievement types
+         * @description Every type of the caller's workspace, archived ones included: the built-in `pull_request`, `code_review` and `document` (`builtin: true`, `created_by` null) first, then the ones people made. A type is what a rule counts, and names the kind of evidence it is counted from. Every member reads it, and so does a member's personal key (`workspace.read`); an agent's key is 403.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
+         */
+        get: operations["listAchievementTypes"];
+        put?: never;
+        /**
+         * Make an achievement type
+         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. `key` matches `[a-z][a-z0-9_]{1,40}` and is unique in the workspace, archived types included (409 ALREADY_EXISTS, `details.reason_code: key_taken`); `key` and `evidence_kind` never change afterwards. A workspace holds at most 50 types that are not archived (409 REVISION_CONFLICT, `details.reason_code: limit_reached`). Writes a `create_achievement_type` receipt.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["createAchievementType"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/achievement-types/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Rename an achievement type
+         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Only `name` changes; a body naming `key` or `evidence_kind` is 400. To count under another key or evidence kind, make a new type and move the rule to it in a new version. Writes an `update_achievement_type` receipt unless the name is unchanged (`receipt_id` null). Another workspace's type is 404.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        patch: operations["updateAchievementType"];
+        trace?: never;
+    };
+    "/v1/achievement-types/{id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive an achievement type
+         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. A built-in type is never archived (409 REVISION_CONFLICT, `details.reason_code: builtin`), nor is one a rule in use counts (`details.reason_code: type_in_use`). Archiving one already archived changes nothing and answers a null `receipt_id`; otherwise writes an `archive_achievement_type` receipt. Another workspace's type is 404.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["archiveAchievementType"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/achievement-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the workspace's achievement rules
+         * @description The latest version of every rule of the caller's workspace, disabled ones included (`disabled_at`), grouped by category in the categories' order and by title within one. A rule is one title, one type and one definition; `judge: always` counts the type's evidence as it appears, `luna` asks the judge whether the definition holds. `agent_ids` is null: every agent. Every member reads it, and so does a member's personal key (`workspace.read`); an agent's key is 403.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
+         */
+        get: operations["listAchievementRules"];
+        put?: never;
+        /**
+         * Make an achievement rule
+         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Version 1 of a new rule. `category_id` and `type_id` name a category and a type of the workspace that are not archived (400, `details.reason_code: unknown_category` or `unknown_type`); `agent_ids` takes only null. A type is counted by one rule in use at a time: a type another rule in use counts is 409 REVISION_CONFLICT with `details.reason_code: type_in_use`. A workspace has at most 30 rules in use (`details.reason_code: limit_reached`). Writes a `create_achievement_rule` receipt naming the rule's id, family and version, never its definition.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["createAchievementRule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/achievement-rules/{family_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Edit an achievement rule as its next version
+         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. The body is the whole rule, as for a new one. A rule's rows never change: this makes version + 1 under a new id and sets the previous version's `superseded_by` to it; achievements already counted keep pointing at the version they were judged by. A disabled rule's new version is disabled too. 400 and 409 `type_in_use` as for a new rule; two edits at once are saved one after the other, each as its own version. Writes an `update_achievement_rule` receipt with the new and previous version ids, never the definition. Another workspace's rule is 404.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["createAchievementRuleVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/achievement-rules/{family_id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop using an achievement rule
+         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Disables the rule's latest version: it counts nothing from now on, and its type is free for another rule. Disabling one already disabled changes nothing and answers a null `receipt_id`; otherwise writes a `disable_achievement_rule` receipt. Another workspace's rule is 404.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["disableAchievementRule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/achievement-rules/{family_id}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Use a disabled achievement rule again
+         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Enables the rule's latest version. If another rule in use counts its type now, 409 REVISION_CONFLICT with `details.reason_code: type_in_use`; at 30 rules in use, `limit_reached`; a category or type archived since is 400 (`unknown_category`, `unknown_type`). Enabling one already in use changes nothing and answers a null `receipt_id`; otherwise writes an `enable_achievement_rule` receipt. Another workspace's rule is 404.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["enableAchievementRule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{id}/achievement-judge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read how the workspace's achievement judge runs
+         * @description `workspace.settings.achievement_judge` of the caller's workspace, every field filled with its default when never set. `connection_id` null leaves `luna` rules unjudged; `always` rules count regardless. Another workspace is 404. Every member reads it, and so does a member's personal key (`workspace.read`); an agent's key is 403.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
+         */
+        get: operations["getAchievementJudge"];
+        /**
+         * Change how the workspace's achievement judge runs
+         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Replaces the settings; a field left out takes its default. `threshold` is between 0 and 1, `every_n_turns` null or 5 to 100, `transcript` `none` or `recent`. Writes a `set_achievement_judge` receipt with the settings saved. Another workspace is 404.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        put: operations["putAchievementJudge"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/installation-profiles/options": {
         parameters: {
             query?: never;
@@ -2674,7 +3152,7 @@ export interface paths {
         put?: never;
         /**
          * Save a new version of an installation ceiling
-         * @description The operator (`profile.installation.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Saves the next version of `name` with a new id (`op_<name>_v<n>`) on the connection `connection_id`, whose provider the server copies in; earlier versions, and the workspace profiles and releases on them, stay as they were. A new version of an existing name sends that name's latest id as `previous_id`; anything else is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`), as is the second of two saves at once. A first version may name the ceiling it replaces in `previous_id` (400 `unknown_previous` when there is none). 400 `details.reason_code`: `unknown_connection`, `runtime_not_installed`, `unattended_not_allowed` (`bypassPermissions` while `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` is not `true`), `unknown_repository`, `model_not_in_models` or `invalid_profile`, each with `details.field`. 409 `details.reason_code: id_taken` when the id is already an imported profile's. A ceiling runs against its `repository_ids` and no other repository. Writes a `create_installation_profile` receipt.
+         * @description The operator (`profile.installation.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Saves the next version of `name` with a new id (`op_<name>_v<n>`) on the connection `connection_id`, whose provider the server copies in; earlier versions, and the workspace profiles and releases on them, stay as they were. A new version of an existing name sends that name's latest id as `previous_id`; anything else is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`), as is the second of two saves at once. A first version may name the ceiling it replaces in `previous_id` (400 `unknown_previous` when there is none). 400 `details.reason_code`: `unknown_connection`, `runtime_not_installed`, `unattended_not_allowed` (`bypassPermissions` while `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` is not `true`), `unknown_repository`, `model_not_in_models` or `invalid_profile`, each with `details.field`. 409 `details.reason_code: id_taken` when the id is already an imported profile's. A ceiling runs against its `repository_ids` and, with `github_app_repositories: installed`, every repository the author GitHub App's installations reach (picked per agent through `POST /v1/agents/{id}/github/repositories`); no other repository. Writes a `create_installation_profile` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -2981,6 +3459,8 @@ export interface components {
             title?: string;
             /** @description The catalog repository the session works on. Required when the profile's `repository_mode` is `required`, refused when it is `none`, either when it is `optional`; omitted, the session works on the release's `repository_id` when `agent_release_id` is sent, else starts in an empty workspace with no repository to push to. */
             repository_id?: string;
+            /** @description Catalog repositories besides the session's own that it may fetch, push to and open pull requests on, at most 32. Each one has to be listed in the agent release's GitHub settings (`github.repositories`), allowed for the profile, and other than the session's repository; otherwise 403 `GITHUB_REFUSED` with `repository_not_allowed`, as is any list sent for a session without an agent release or without a repository. Omitted, the session may use every repository its release lists; `[]`, none besides its own. */
+            attached_repository_ids?: string[];
             /** @description At most 32768 bytes of UTF-8 */
             message: string;
             agent_release_id?: string;
@@ -3252,7 +3732,10 @@ export interface components {
             /** @constant */
             decision: "retry_restore";
         };
-        CreatePushRequestRequest: Record<string, never>;
+        CreatePushRequestRequest: {
+            repository_id?: string;
+            branch?: string;
+        };
         DecidePushRequestRequest: {
             /** @enum {string} */
             decision: "approve" | "reject";
@@ -3296,6 +3779,20 @@ export interface components {
         PutGitHubOAuthClientSecretRequest: {
             client_id: string;
             client_secret: string;
+        };
+        PutGitHubPackagesTokenRequest: {
+            token: string;
+        };
+        PutGitHubPackagesAllowlistRequest: {
+            allowlist: {
+                /** @enum {string} */
+                registry: "npm" | "rubygems";
+                owner: string;
+                name: string;
+                repository_id: string | null;
+                agent_id: string | null;
+            }[];
+            revision: number;
         };
         GitHubLinkCallbackRequest: {
             code: string;
@@ -3359,12 +3856,96 @@ export interface components {
         SlackGuestRequest: {
             slack_guest_enabled: boolean;
         };
+        CreateAchievementCategoryRequest: {
+            name: string;
+        };
+        UpdateAchievementCategoryRequest: {
+            name?: string;
+            position?: number;
+        };
+        CreateAchievementTypeRequest: {
+            key: string;
+            name: string;
+            /** @enum {string} */
+            evidence_kind: "github_pull_request" | "github_review" | "out_file" | "conversation";
+        };
+        UpdateAchievementTypeRequest: {
+            name: string;
+        };
+        AchievementRuleRequest: {
+            /** Format: uuid */
+            category_id: string;
+            title: string;
+            /** Format: uuid */
+            type_id: string;
+            definition: string;
+            /** @enum {string} */
+            judge: "always" | "luna";
+            /** @default null */
+            agent_ids: null;
+        };
+        AchievementJudgeRequest: {
+            /** @default null */
+            connection_id: string | null;
+            /** @default 0.9 */
+            threshold: number;
+            /** @default true */
+            on_evidence: boolean;
+            /** @default null */
+            every_n_turns: number | null;
+            /** @default false */
+            on_idle: boolean;
+            /**
+             * @default recent
+             * @enum {string}
+             */
+            transcript: "none" | "recent";
+            /** @default 1 */
+            daily_budget_usd: number;
+            /** @default 20 */
+            max_per_session: number;
+        };
         PutSlackSecretRequest: {
             value: string;
         };
         PutGitHubAppRequest: {
             app_id: number;
             private_key: string;
+        };
+        StartGitHubAppManifestRequest: {
+            owner: {
+                /** @constant */
+                kind: "organization";
+                login: string;
+            } | {
+                /** @constant */
+                kind: "user";
+            };
+            /** @default false */
+            public: boolean;
+            /** @default false */
+            actions: boolean;
+            /** @default false */
+            replace: boolean;
+        };
+        CompleteGitHubAppManifestRequest: {
+            code: string;
+            state: string;
+        };
+        GitHubRepositoryPageQuery: {
+            installation_id?: number;
+            /** @default 1 */
+            page: number;
+            /** @default 30 */
+            per_page: number;
+        };
+        PatchGitHubRepositoryRequest: {
+            branch: string;
+            version: number;
+        };
+        PickAgentGitHubRepositoryRequest: {
+            installation_id: number;
+            github_repository_id: number;
         };
         CreateSlackAppRequest: {
             /** @default false */
@@ -3553,6 +4134,8 @@ export interface components {
             /** @enum {string} */
             repository_mode?: "required" | "optional" | "none";
             repository_ids: string[];
+            /** @enum {string} */
+            github_app_repositories?: "listed" | "installed";
             previous_id?: string;
         };
         SetSessionShareRequest: {
@@ -3735,6 +4318,8 @@ export interface components {
              * @default null
              */
             repository: components["schemas"]["SessionRepository"] | null;
+            /** @description The catalog repositories besides `repository_id` the session was created with (`attached_repository_ids` at create). The session reaches only those of them its agent release's GitHub settings still list. Null when none were given: every repository the release lists, besides its own, is reachable. Absent from a server older than the field. */
+            attached_repository_ids?: string[] | null;
             current_turn_id: string | null;
             queued_turn_count: number;
             last_event_at: string | null;
@@ -3894,6 +4479,8 @@ export interface components {
              * @default null
              */
             repository: components["schemas"]["SessionRepository"] | null;
+            /** @description The catalog repositories besides `repository_id` the session was created with (`attached_repository_ids` at create). The session reaches only those of them its agent release's GitHub settings still list. Null when none were given: every repository the release lists, besides its own, is reachable. Absent from a server older than the field. */
+            attached_repository_ids?: string[] | null;
             current_turn_id: string | null;
             queued_turn_count: number;
             last_event_at: string | null;
@@ -4571,6 +5158,27 @@ export interface components {
                     audit_retention_days: number;
                     /** @default false */
                     slack_guest_enabled: boolean;
+                    achievement_judge: {
+                        /** @default null */
+                        connection_id: string | null;
+                        /** @default 0.9 */
+                        threshold: number;
+                        /** @default true */
+                        on_evidence: boolean;
+                        /** @default null */
+                        every_n_turns: number | null;
+                        /** @default false */
+                        on_idle: boolean;
+                        /**
+                         * @default recent
+                         * @enum {string}
+                         */
+                        transcript: "none" | "recent";
+                        /** @default 1 */
+                        daily_budget_usd: number;
+                        /** @default 20 */
+                        max_per_session: number;
+                    };
                 };
                 /** Format: date-time */
                 created_at: string;
@@ -4841,6 +5449,54 @@ export interface components {
                 callback_url: string | null;
             };
         };
+        GitHubPackagesSettingsResponse: {
+            token: {
+                configured: boolean;
+                last4: string | null;
+                login: string | null;
+                expires_at: string | null;
+                updated_at: string | null;
+                updated_by: {
+                    /** Format: uuid */
+                    user_id: string;
+                    display_name: string;
+                } | null;
+            };
+            allowlist: {
+                /** @enum {string} */
+                registry: "npm" | "rubygems";
+                owner: string;
+                name: string;
+                repository_id: string | null;
+                agent_id: string | null;
+            }[];
+            revision: number;
+        };
+        GitHubPackagesWriteResponse: {
+            token: {
+                configured: boolean;
+                last4: string | null;
+                login: string | null;
+                expires_at: string | null;
+                updated_at: string | null;
+                updated_by: {
+                    /** Format: uuid */
+                    user_id: string;
+                    display_name: string;
+                } | null;
+            };
+            allowlist: {
+                /** @enum {string} */
+                registry: "npm" | "rubygems";
+                owner: string;
+                name: string;
+                repository_id: string | null;
+                agent_id: string | null;
+            }[];
+            revision: number;
+            /** Format: uuid */
+            receipt_id: string;
+        };
         StartGitHubLinkResponse: {
             /** Format: uri */
             authorize_url: string;
@@ -4895,24 +5551,27 @@ export interface components {
             }[];
         };
         ListSessionOutcomesResponse: {
-            items: {
+            items: ({
                 /** Format: uuid */
                 id: string;
-                /** @enum {string} */
-                type: "github_pull_request";
                 /** Format: uri */
                 url: string;
                 repository_id: string | null;
                 external_id: string | null;
-                /** @enum {string} */
-                state: "open" | "merged" | "closed";
                 /** Format: date-time */
                 state_changed_at: string;
                 merged_at: string | null;
                 closed_at: string | null;
                 state_checked_at: string | null;
                 check_error: ("not_found" | "forge_failed" | "github_refused") | null;
+                /** Format: date-time */
+                created_at: string;
+                /** @constant */
+                type: "github_pull_request";
+                /** @enum {string} */
+                state: "open" | "merged" | "closed";
                 metadata: {
+                    title: string | null;
                     head: string;
                     base: string;
                     adopted: boolean | null;
@@ -4922,9 +5581,100 @@ export interface components {
                     changed_files: number | null;
                     commits: number | null;
                 };
+            } | {
+                /** Format: uuid */
+                id: string;
+                /** Format: uri */
+                url: string;
+                repository_id: string | null;
+                external_id: string | null;
+                /** Format: date-time */
+                state_changed_at: string;
+                merged_at: string | null;
+                closed_at: string | null;
+                state_checked_at: string | null;
+                check_error: ("not_found" | "forge_failed" | "github_refused") | null;
+                /** Format: date-time */
+                created_at: string;
+                /** @constant */
+                type: "github_review";
+                /** @enum {string} */
+                state: "submitted";
+                metadata: {
+                    number: number;
+                    /** @enum {string} */
+                    event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
+                    commit_id: string;
+                    opened_by_session_id: string | null;
+                };
+            })[];
+        };
+        ListSessionAchievementsResponse: {
+            items: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                session_id: string;
+                agent_id: string | null;
+                agent_release_id: string | null;
+                /** Format: uuid */
+                rule_id: string;
+                /** Format: uuid */
+                rule_family_id: string;
+                /** Format: uuid */
+                type_id: string;
+                title: string;
+                link: string;
+                /** @enum {string} */
+                evidence_kind: "github_pull_request" | "github_review" | "out_file" | "conversation";
+                evidence_id: string | null;
+                payload: ({
+                    repository: string;
+                    number: number;
+                    /** Format: uri */
+                    url: string;
+                    /** @enum {string} */
+                    state: "open" | "merged" | "closed";
+                    merged_at: string | null;
+                    additions: number | null;
+                    deletions: number | null;
+                } | {
+                    repository: string;
+                    number: number;
+                    /** Format: uri */
+                    url: string;
+                    /** @enum {string} */
+                    event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
+                    commit_id: string;
+                } | {
+                    path: string;
+                    size: number;
+                }) | null;
+                /** @enum {string} */
+                judge: "always" | "luna";
+                probability: number | null;
+                /** Format: uuid */
+                judgment_id: string;
+                /** @enum {string} */
+                review_state: "auto" | "needs_review" | "confirmed" | "rejected";
+                reviewed_by: string | null;
+                reviewed_at: string | null;
+                review_note: string | null;
                 /** Format: date-time */
                 created_at: string;
             }[];
+            judgment: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                trigger: "evidence" | "turns" | "idle" | "manual";
+                /** @enum {string} */
+                status: "queued" | "running" | "succeeded" | "failed" | "deferred" | "skipped";
+                error_code: ("judge_unavailable" | "outputs_unavailable") | null;
+                /** Format: date-time */
+                created_at: string;
+                finished_at: string | null;
+            } | null;
         };
         AgentGitHubResponse: {
             enabled: boolean;
@@ -5021,7 +5771,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "change_profile" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "share_session" | "request_push" | "decide_push" | "push" | "open_pull_request" | "comment_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "set_agent_github" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "create_workspace_profile" | "retire_workspace_profile" | "create_installation_profile" | "retire_installation_profile" | "block_installation_profile" | "unblock_installation_profile";
+            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "change_profile" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "share_session" | "request_push" | "decide_push" | "push" | "open_pull_request" | "comment_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "resolve_repository" | "set_agent_github" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_workspace_profile" | "retire_workspace_profile" | "create_installation_profile" | "retire_installation_profile" | "block_installation_profile" | "unblock_installation_profile" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge";
             target_ref: {
                 /** Format: uuid */
                 session_id: string;
@@ -5084,6 +5834,27 @@ export interface components {
                     audit_retention_days: number;
                     /** @default false */
                     slack_guest_enabled: boolean;
+                    achievement_judge: {
+                        /** @default null */
+                        connection_id: string | null;
+                        /** @default 0.9 */
+                        threshold: number;
+                        /** @default true */
+                        on_evidence: boolean;
+                        /** @default null */
+                        every_n_turns: number | null;
+                        /** @default false */
+                        on_idle: boolean;
+                        /**
+                         * @default recent
+                         * @enum {string}
+                         */
+                        transcript: "none" | "recent";
+                        /** @default 1 */
+                        daily_budget_usd: number;
+                        /** @default 20 */
+                        max_per_session: number;
+                    };
                 };
                 /** Format: date-time */
                 created_at: string;
@@ -5251,6 +6022,52 @@ export interface components {
                     [key: string]: "read" | "write" | "admin";
                 } | null;
             }[];
+            manifest_blocked?: "console_origin_unset" | null;
+        };
+        StartGitHubAppManifestResponse: {
+            /** Format: uri */
+            action_url: string;
+            manifest: string;
+            /** Format: date-time */
+            expires_at: string;
+        };
+        CompleteGitHubAppManifestResponse: {
+            github_app: {
+                /** @enum {string} */
+                role?: "author" | "reviewer";
+                app_id: number;
+                slug: string;
+                name: string;
+                /** Format: uri */
+                html_url: string;
+                private_key: {
+                    /** Format: date-time */
+                    updated_at: string;
+                    updated_by: {
+                        /** Format: uuid */
+                        user_id: string;
+                        display_name: string;
+                    } | null;
+                };
+                /** Format: date-time */
+                created_at: string;
+                /** Format: date-time */
+                updated_at: string;
+                permissions?: {
+                    [key: string]: "read" | "write" | "admin";
+                } | null;
+                permissions_checked_at?: string | null;
+                warnings?: {
+                    permission: string;
+                    /** @enum {string} */
+                    level: "read" | "write" | "admin";
+                    guided: ("read" | "write" | "admin") | null;
+                }[];
+            };
+            /** Format: uri */
+            install_url: string;
+            /** Format: uuid */
+            receipt_id: string;
         };
         PutGitHubAppResponse: {
             github_app: {
@@ -5291,6 +6108,79 @@ export interface components {
         DeleteGitHubAppResponse: {
             /** Format: uuid */
             receipt_id: string;
+        };
+        ListGitHubRepositoriesResponse: {
+            installations: {
+                id: number;
+                account: string;
+            }[];
+            installation_id: number | null;
+            page: number;
+            per_page: number;
+            total_count: number;
+            repositories: {
+                github_repository_id: number;
+                full_name: string;
+                default_branch: string;
+                private: boolean;
+                catalog_id: string | null;
+                agent_count: number;
+            }[];
+            unavailable: ("no_author_app" | "no_installation" | "github_unreachable" | "github_rejected") | null;
+            catalog: {
+                id: string;
+                github_repository_id: number | null;
+                full_name: string | null;
+                /** Format: uri */
+                url: string;
+                branch: string;
+                /** @enum {string} */
+                source: "console" | "seed" | "selection" | "file";
+                editable: boolean;
+                version: number | null;
+                installed: boolean | null;
+                updated_at: string | null;
+            }[];
+        };
+        GitHubRepositoryWriteResponse: {
+            repository: {
+                id: string;
+                github_repository_id: number | null;
+                full_name: string | null;
+                /** Format: uri */
+                url: string;
+                branch: string;
+                /** @enum {string} */
+                source: "console" | "seed" | "selection" | "file";
+                editable: boolean;
+                version: number | null;
+                installed: boolean | null;
+                updated_at: string | null;
+            };
+            /** Format: uuid */
+            receipt_id: string;
+        };
+        ListAgentGitHubRepositoriesResponse: {
+            installations: {
+                id: number;
+                account: string;
+            }[];
+            installation_id: number | null;
+            page: number;
+            per_page: number;
+            total_count: number;
+            repositories: {
+                github_repository_id: number;
+                full_name: string;
+                default_branch: string;
+                private: boolean;
+                catalog_id: string | null;
+            }[];
+            unavailable: ("no_author_app" | "no_installation" | "github_unreachable" | "github_rejected" | "no_active_release" | "ceiling_listed") | null;
+        };
+        PickAgentGitHubRepositoryResponse: {
+            catalog_id: string;
+            receipt_id: string | null;
         };
         GetSlackAppResponse: {
             slack_app: {
@@ -5580,12 +6470,33 @@ export interface components {
                     audit_retention_days: number;
                     /** @default false */
                     slack_guest_enabled: boolean;
+                    achievement_judge: {
+                        /** @default null */
+                        connection_id: string | null;
+                        /** @default 0.9 */
+                        threshold: number;
+                        /** @default true */
+                        on_evidence: boolean;
+                        /** @default null */
+                        every_n_turns: number | null;
+                        /** @default false */
+                        on_idle: boolean;
+                        /**
+                         * @default recent
+                         * @enum {string}
+                         */
+                        transcript: "none" | "recent";
+                        /** @default 1 */
+                        daily_budget_usd: number;
+                        /** @default 20 */
+                        max_per_session: number;
+                    };
                 };
                 /** Format: date-time */
                 created_at: string;
             } | null;
             scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
-            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "credential.bind" | "binding.manage" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "usage.installation_read" | "usage.agent_read" | "profile.installation.manage" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send")[];
+            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "credential.bind" | "binding.manage" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "usage.installation_read" | "usage.agent_read" | "profile.installation.manage" | "achievement_rule.manage" | "achievement.review" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send")[];
         };
         UpdateAuthMeRequest: {
             /** @enum {string} */
@@ -5930,6 +6841,8 @@ export interface components {
                     retired_at: string | null;
                     blocked_by?: string | null;
                     blocked_at?: string | null;
+                    /** @enum {string} */
+                    github_app_repositories?: "listed" | "installed";
                 };
             }[];
         };
@@ -5994,9 +6907,172 @@ export interface components {
                     retired_at: string | null;
                     blocked_by?: string | null;
                     blocked_at?: string | null;
+                    /** @enum {string} */
+                    github_app_repositories?: "listed" | "installed";
                 };
             };
             receipt_id: string | null;
+        };
+        ListAchievementCategoriesResponse: {
+            items: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                position: number;
+                /** Format: uuid */
+                created_by: string;
+                /** Format: date-time */
+                created_at: string;
+                archived_at: string | null;
+                archived_by: string | null;
+            }[];
+        };
+        AchievementCategoryChangeResponse: {
+            category: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                position: number;
+                /** Format: uuid */
+                created_by: string;
+                /** Format: date-time */
+                created_at: string;
+                archived_at: string | null;
+                archived_by: string | null;
+            };
+            receipt_id: string | null;
+        };
+        ListAchievementTypesResponse: {
+            items: {
+                /** Format: uuid */
+                id: string;
+                key: string;
+                name: string;
+                /** @enum {string} */
+                evidence_kind: "github_pull_request" | "github_review" | "out_file" | "conversation";
+                builtin: boolean;
+                created_by: string | null;
+                /** Format: date-time */
+                created_at: string;
+                archived_at: string | null;
+                archived_by: string | null;
+            }[];
+        };
+        AchievementTypeChangeResponse: {
+            type: {
+                /** Format: uuid */
+                id: string;
+                key: string;
+                name: string;
+                /** @enum {string} */
+                evidence_kind: "github_pull_request" | "github_review" | "out_file" | "conversation";
+                builtin: boolean;
+                created_by: string | null;
+                /** Format: date-time */
+                created_at: string;
+                archived_at: string | null;
+                archived_by: string | null;
+            };
+            receipt_id: string | null;
+        };
+        ListAchievementRulesResponse: {
+            items: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                family_id: string;
+                version: number;
+                /** Format: uuid */
+                category_id: string;
+                title: string;
+                /** Format: uuid */
+                type_id: string;
+                definition: string;
+                /** @enum {string} */
+                judge: "always" | "luna";
+                agent_ids: string[] | null;
+                /** Format: uuid */
+                created_by: string;
+                /** Format: date-time */
+                created_at: string;
+                superseded_by: string | null;
+                disabled_at: string | null;
+                disabled_by: string | null;
+            }[];
+        };
+        AchievementRuleChangeResponse: {
+            rule: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                family_id: string;
+                version: number;
+                /** Format: uuid */
+                category_id: string;
+                title: string;
+                /** Format: uuid */
+                type_id: string;
+                definition: string;
+                /** @enum {string} */
+                judge: "always" | "luna";
+                agent_ids: string[] | null;
+                /** Format: uuid */
+                created_by: string;
+                /** Format: date-time */
+                created_at: string;
+                superseded_by: string | null;
+                disabled_at: string | null;
+                disabled_by: string | null;
+            };
+            receipt_id: string | null;
+        };
+        AchievementJudgeResponse: {
+            achievement_judge: {
+                /** @default null */
+                connection_id: string | null;
+                /** @default 0.9 */
+                threshold: number;
+                /** @default true */
+                on_evidence: boolean;
+                /** @default null */
+                every_n_turns: number | null;
+                /** @default false */
+                on_idle: boolean;
+                /**
+                 * @default recent
+                 * @enum {string}
+                 */
+                transcript: "none" | "recent";
+                /** @default 1 */
+                daily_budget_usd: number;
+                /** @default 20 */
+                max_per_session: number;
+            };
+        };
+        AchievementJudgeChangeResponse: {
+            achievement_judge: {
+                /** @default null */
+                connection_id: string | null;
+                /** @default 0.9 */
+                threshold: number;
+                /** @default true */
+                on_evidence: boolean;
+                /** @default null */
+                every_n_turns: number | null;
+                /** @default false */
+                on_idle: boolean;
+                /**
+                 * @default recent
+                 * @enum {string}
+                 */
+                transcript: "none" | "recent";
+                /** @default 1 */
+                daily_budget_usd: number;
+                /** @default 20 */
+                max_per_session: number;
+            };
+            /** Format: uuid */
+            receipt_id: string;
         };
         InstallationProfileOptionsResponse: {
             connections: {
@@ -6950,7 +8026,17 @@ export interface operations {
                      *           "daily_cost_limit_usd": null,
                      *           "idle_pause_minutes": 30,
                      *           "audit_retention_days": 90,
-                     *           "slack_guest_enabled": false
+                     *           "slack_guest_enabled": false,
+                     *           "achievement_judge": {
+                     *             "connection_id": null,
+                     *             "threshold": 0.9,
+                     *             "on_evidence": true,
+                     *             "every_n_turns": null,
+                     *             "on_idle": false,
+                     *             "transcript": "recent",
+                     *             "daily_budget_usd": 1,
+                     *             "max_per_session": 20
+                     *           }
                      *         },
                      *         "created_at": "2026-10-01T09:00:00Z"
                      *       },
@@ -9241,6 +10327,619 @@ export interface operations {
             };
         };
     };
+    startGitHubAppManifest: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "owner": {
+                 *         "kind": "organization",
+                 *         "login": "acme"
+                 *       },
+                 *       "public": false,
+                 *       "actions": false
+                 *     }
+                 */
+                "application/json": components["schemas"]["StartGitHubAppManifestRequest"];
+            };
+        };
+        responses: {
+            /** @description Where the browser posts the manifest, and when the state expires. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "action_url": "https://github.com/organizations/acme/settings/apps/new?state=<single-use>",
+                     *       "manifest": "{\"name\":\"werft-acme-1a2b\",\"public\":false}",
+                     *       "expires_at": "2026-11-01T10:00:00Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["StartGitHubAppManifestResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `GITHUB_APP_CONFLICT`: The App would clash with the workspace's other GitHub App. `error.details.reason_code` says how: `same_app` (the other role already holds this App; GitHub refuses an approval from the App that opened the pull request) or `no_author_app` (a reviewer App needs the author App first). */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "GITHUB_APP_CONFLICT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also when the API runs without a master key (PLATFORM_SECRET_KEY), or without CONSOLE_ORIGIN (`console_origin_unset`). */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    completeGitHubAppManifest: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "code": "code-from-the-redirect",
+                 *       "state": "state-from-the-redirect"
+                 *     }
+                 */
+                "application/json": components["schemas"]["CompleteGitHubAppManifestRequest"];
+            };
+        };
+        responses: {
+            /** @description Stored; the App, where it is installed next, and the receipt. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "github_app": {
+                     *         "role": "author",
+                     *         "app_id": 234568,
+                     *         "slug": "werft-acme-1a2b",
+                     *         "name": "werft-acme-1a2b",
+                     *         "html_url": "https://github.com/apps/werft-acme-1a2b",
+                     *         "private_key": {
+                     *           "updated_at": "2026-11-01T09:05:00Z",
+                     *           "updated_by": {
+                     *             "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *             "display_name": "Jae"
+                     *           }
+                     *         },
+                     *         "created_at": "2026-11-01T09:05:00Z",
+                     *         "updated_at": "2026-11-01T09:05:00Z",
+                     *         "permissions": {
+                     *           "contents": "write",
+                     *           "metadata": "read",
+                     *           "pull_requests": "write"
+                     *         },
+                     *         "permissions_checked_at": "2026-11-01T09:05:00Z",
+                     *         "warnings": []
+                     *       },
+                     *       "install_url": "https://github.com/apps/werft-acme-1a2b/installations/new",
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CompleteGitHubAppManifestResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `GITHUB_APP_CONFLICT`: The App would clash with the workspace's other GitHub App. `error.details.reason_code` says how: `same_app` (the other role already holds this App; GitHub refuses an approval from the App that opened the pull request) or `no_author_app` (a reviewer App needs the author App first). */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "GITHUB_APP_CONFLICT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also when the API runs without a master key (PLATFORM_SECRET_KEY), GitHub could not be reached (`github_unreachable`), or the App could not be stored (`store_failed`). */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    listGitHubRepositories: {
+        parameters: {
+            query?: {
+                installation_id?: number;
+                page?: number;
+                per_page?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page and the catalog's repositories. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "installations": [
+                     *         {
+                     *           "id": 4242,
+                     *           "account": "acme"
+                     *         }
+                     *       ],
+                     *       "installation_id": 4242,
+                     *       "page": 1,
+                     *       "per_page": 30,
+                     *       "total_count": 1,
+                     *       "repositories": [
+                     *         {
+                     *           "github_repository_id": 123456789,
+                     *           "full_name": "acme/app",
+                     *           "default_branch": "main",
+                     *           "private": true,
+                     *           "catalog_id": "app",
+                     *           "agent_count": 2
+                     *         }
+                     *       ],
+                     *       "unavailable": null,
+                     *       "catalog": [
+                     *         {
+                     *           "id": "app",
+                     *           "github_repository_id": 123456789,
+                     *           "full_name": "acme/app",
+                     *           "url": "https://github.com/acme/app.git",
+                     *           "branch": "main",
+                     *           "source": "selection",
+                     *           "editable": true,
+                     *           "version": 1,
+                     *           "installed": true,
+                     *           "updated_at": "2026-11-01T09:00:00Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ListGitHubRepositoriesResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    updateGitHubRepository: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+                repositoryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "branch": "develop",
+                 *       "version": 1
+                 *     }
+                 */
+                "application/json": components["schemas"]["PatchGitHubRepositoryRequest"];
+            };
+        };
+        responses: {
+            /** @description Changed; the repository and the receipt. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "repository": {
+                     *         "id": "app",
+                     *         "github_repository_id": 123456789,
+                     *         "full_name": "acme/app",
+                     *         "url": "https://github.com/acme/app.git",
+                     *         "branch": "develop",
+                     *         "source": "selection",
+                     *         "editable": true,
+                     *         "version": 2,
+                     *         "installed": true,
+                     *         "updated_at": "2026-11-01T09:05:00Z"
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["GitHubRepositoryWriteResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
     getGitHubSettings: {
         parameters: {
             query?: never;
@@ -9857,6 +11556,567 @@ export interface operations {
             };
         };
     };
+    getGitHubPackages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The token's summary and the allowlist. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "token": {
+                     *         "configured": true,
+                     *         "last4": "x9Qa",
+                     *         "login": "acme-packages-bot",
+                     *         "expires_at": "2027-01-30T00:00:00.000Z",
+                     *         "updated_at": "2026-11-01T09:00:00.000Z",
+                     *         "updated_by": {
+                     *           "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *           "display_name": "Mina"
+                     *         }
+                     *       },
+                     *       "allowlist": [
+                     *         {
+                     *           "registry": "npm",
+                     *           "owner": "acme",
+                     *           "name": "*",
+                     *           "repository_id": null,
+                     *           "agent_id": null
+                     *         }
+                     *       ],
+                     *       "revision": 1
+                     *     }
+                     */
+                    "application/json": components["schemas"]["GitHubPackagesSettingsResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    putGitHubPackagesToken: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "token": "ghp_EXAMPLE"
+                 *     }
+                 */
+                "application/json": components["schemas"]["PutGitHubPackagesTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description Stored; the receipt and the settings. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "token": {
+                     *         "configured": true,
+                     *         "last4": "MPLE",
+                     *         "login": "acme-packages-bot",
+                     *         "expires_at": "2027-01-30T00:00:00.000Z",
+                     *         "updated_at": "2026-11-01T09:00:00.000Z",
+                     *         "updated_by": {
+                     *           "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *           "display_name": "Mina"
+                     *         }
+                     *       },
+                     *       "allowlist": [],
+                     *       "revision": 0
+                     *     }
+                     */
+                    "application/json": components["schemas"]["GitHubPackagesWriteResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. When GitHub cannot be asked about the token, or the API runs without a master key (PLATFORM_SECRET_KEY). */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    deleteGitHubPackagesToken: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed; the receipt and the settings. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "token": {
+                     *         "configured": false,
+                     *         "last4": null,
+                     *         "login": null,
+                     *         "expires_at": null,
+                     *         "updated_at": null,
+                     *         "updated_by": null
+                     *       },
+                     *       "allowlist": [],
+                     *       "revision": 0
+                     *     }
+                     */
+                    "application/json": components["schemas"]["GitHubPackagesWriteResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. When the API runs without a master key (PLATFORM_SECRET_KEY). */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    putGitHubPackagesAllowlist: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "allowlist": [
+                 *         {
+                 *           "registry": "rubygems",
+                 *           "owner": "acme",
+                 *           "name": "acme-auth",
+                 *           "repository_id": "billing",
+                 *           "agent_id": null
+                 *         }
+                 *       ],
+                 *       "revision": 0
+                 *     }
+                 */
+                "application/json": components["schemas"]["PutGitHubPackagesAllowlistRequest"];
+            };
+        };
+        responses: {
+            /** @description Stored; the receipt and the settings. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "token": {
+                     *         "configured": false,
+                     *         "last4": null,
+                     *         "login": null,
+                     *         "expires_at": null,
+                     *         "updated_at": null,
+                     *         "updated_by": null
+                     *       },
+                     *       "allowlist": [
+                     *         {
+                     *           "registry": "rubygems",
+                     *           "owner": "acme",
+                     *           "name": "acme-auth",
+                     *           "repository_id": "billing",
+                     *           "agent_id": null
+                     *         }
+                     *       ],
+                     *       "revision": 1
+                     *     }
+                     */
+                    "application/json": components["schemas"]["GitHubPackagesWriteResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
     deleteSlackApp: {
         parameters: {
             query?: never;
@@ -10302,7 +12562,17 @@ export interface operations {
                      *           "daily_cost_limit_usd": null,
                      *           "idle_pause_minutes": 30,
                      *           "audit_retention_days": 90,
-                     *           "slack_guest_enabled": false
+                     *           "slack_guest_enabled": false,
+                     *           "achievement_judge": {
+                     *             "connection_id": null,
+                     *             "threshold": 0.9,
+                     *             "on_evidence": true,
+                     *             "every_n_turns": null,
+                     *             "on_idle": false,
+                     *             "transcript": "recent",
+                     *             "daily_budget_usd": 1,
+                     *             "max_per_session": 20
+                     *           }
                      *         },
                      *         "created_at": "2026-10-01T09:00:00Z"
                      *       },
@@ -10722,7 +12992,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read. */
+            /**
+             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read.
+             *     - `GITHUB_REFUSED`: The platform refused the GitHub work before asking GitHub, or GitHub refused the token it asked for. `error.details.reason_code` says why and `error.details.receipt_id` names the receipt of the refusal. A refusal the workspace or the agent's release decided (`github_disabled`, `repository_not_allowed`, `feature_off`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`) is 403; one an owner fixes outside the release (`over_workspace_ceiling`, `app_required`, `app_permission_missing`, `github_host_unsupported`, `no_reviewer_app`, `github_settings_unsupported`) is 409. `repository_not_allowed`: the agent release's GitHub settings do not list `repository_id`, or one of `attached_repository_ids` is the session's own repository, not listed there, or not allowed for the profile, or the list was sent for a session without an agent release or without a repository. No receipt is written: `details.receipt_id` is null.
+             */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -10732,7 +13005,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "FORBIDDEN";
+                            code?: "FORBIDDEN" | "GITHUB_REFUSED";
                         };
                     };
                 };
@@ -13469,7 +15742,12 @@ export interface operations {
         };
         requestBody: {
             content: {
-                /** @example {} */
+                /**
+                 * @example {
+                 *       "repository_id": "docs",
+                 *       "branch": "fix-typo"
+                 *     }
+                 */
                 "application/json": components["schemas"]["CreatePushRequestRequest"];
             };
         };
@@ -13541,7 +15819,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read. Also when the deployment does not authenticate callers (`AUTH_MODE=none`): push requests need a verified credential. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read. Also when the deployment does not authenticate callers (`AUTH_MODE=none`): push requests need a verified credential; and with `details.refusal: repository_not_allowed` when `repository_id` names a repository the session's release does not list, its profile does not allow, or its agent has GitHub off. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -13589,7 +15867,7 @@ export interface operations {
             /**
              * @description - `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.
              *     - `PUSH_SOURCE_MISSING`: The session has no repository, or no committed checkpoint, to push.
-             *     - `PUSH_REQUEST_OPEN`: The session already has an open push request (`requested`, `approved` or `pushing`); the refusal receipt's `result.push_request_id` names it.
+             *     - `PUSH_REQUEST_OPEN`: The session already has an open push request (`requested`, `approved` or `pushing`) to the same repository and branch; the refusal receipt's `result.push_request_id` names it. Here: the session already has an open request to this repository and branch; requests to other branches or repositories are not held back.
              *     - `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. Here: the latest checkpoint's manifest did not verify; a push never falls back to an older one.
              *     - `CHECKPOINT_MOVED`: The commit or checkpoint named no longer matches what the push request pinned. Here: the session checkpointed again while the request was being pinned; send it again.
              */
@@ -15045,6 +17323,7 @@ export interface operations {
                      *           "state_checked_at": "2026-10-30T10:02:11.000Z",
                      *           "check_error": null,
                      *           "metadata": {
+                     *             "title": "Retry failed payment webhooks",
                      *             "head": "agent/0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
                      *             "base": "main",
                      *             "adopted": false,
@@ -15055,11 +17334,160 @@ export interface operations {
                      *             "commits": 2
                      *           },
                      *           "created_at": "2026-10-30T09:40:03.000Z"
+                     *         },
+                     *         {
+                     *           "id": "6c1f5b0e-2d7a-4e8b-9f3c-1a2b3c4d5e70",
+                     *           "type": "github_review",
+                     *           "url": "https://github.com/acme/sample-app/pull/9#pullrequestreview-2104",
+                     *           "repository_id": "sample-app",
+                     *           "external_id": "2104",
+                     *           "state": "submitted",
+                     *           "state_changed_at": "2026-10-30T10:20:00.000Z",
+                     *           "merged_at": null,
+                     *           "closed_at": null,
+                     *           "state_checked_at": null,
+                     *           "check_error": null,
+                     *           "metadata": {
+                     *             "number": 9,
+                     *             "event": "APPROVE",
+                     *             "commit_id": "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d",
+                     *             "opened_by_session_id": null
+                     *           },
+                     *           "created_at": "2026-10-30T10:20:00.000Z"
                      *         }
                      *       ]
                      *     }
                      */
                     "application/json": components["schemas"]["ListSessionOutcomesResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    listSessionAchievements: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The achievements, oldest first, and the latest judgment. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "0b1c2d3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+                     *           "session_id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+                     *           "agent_id": null,
+                     *           "agent_release_id": null,
+                     *           "rule_id": "7d3a4e5f-6b7c-4d8e-8f9a-1b2c3d4e5f60",
+                     *           "rule_family_id": "8e4b5f6a-7c8d-4e9f-9a0b-2c3d4e5f6a71",
+                     *           "type_id": "9f5c6a7b-8d9e-4f0a-8b1c-3d4e5f6a7b82",
+                     *           "title": "acme/sample-app#12",
+                     *           "link": "https://github.com/acme/sample-app/pull/12",
+                     *           "evidence_kind": "github_pull_request",
+                     *           "evidence_id": "6c1f5b0e-2d7a-4e8b-9f3c-1a2b3c4d5e6f",
+                     *           "payload": {
+                     *             "repository": "acme/sample-app",
+                     *             "number": 12,
+                     *             "url": "https://github.com/acme/sample-app/pull/12",
+                     *             "state": "open",
+                     *             "merged_at": null,
+                     *             "additions": 42,
+                     *             "deletions": 7
+                     *           },
+                     *           "judge": "always",
+                     *           "probability": null,
+                     *           "judgment_id": "1c2d3e4f-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
+                     *           "review_state": "auto",
+                     *           "reviewed_by": null,
+                     *           "reviewed_at": null,
+                     *           "review_note": null,
+                     *           "created_at": "2026-10-30T09:42:10.000Z"
+                     *         }
+                     *       ],
+                     *       "judgment": {
+                     *         "id": "1c2d3e4f-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
+                     *         "trigger": "evidence",
+                     *         "status": "succeeded",
+                     *         "error_code": null,
+                     *         "created_at": "2026-10-30T09:40:03.000Z",
+                     *         "finished_at": "2026-10-30T09:42:10.000Z"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ListSessionAchievementsResponse"];
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
@@ -21407,6 +23835,267 @@ export interface operations {
             };
         };
     };
+    listAgentGitHubRepositories: {
+        parameters: {
+            query?: {
+                installation_id?: number;
+                page?: number;
+                per_page?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "installations": [
+                     *         {
+                     *           "id": 4242,
+                     *           "account": "acme"
+                     *         }
+                     *       ],
+                     *       "installation_id": 4242,
+                     *       "page": 1,
+                     *       "per_page": 30,
+                     *       "total_count": 1,
+                     *       "repositories": [
+                     *         {
+                     *           "github_repository_id": 123456789,
+                     *           "full_name": "acme/app",
+                     *           "default_branch": "main",
+                     *           "private": true,
+                     *           "catalog_id": null
+                     *         }
+                     *       ],
+                     *       "unavailable": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ListAgentGitHubRepositoriesResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    pickAgentGitHubRepository: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "installation_id": 4242,
+                 *       "github_repository_id": 123456789
+                 *     }
+                 */
+                "application/json": components["schemas"]["PickAgentGitHubRepositoryRequest"];
+            };
+        };
+        responses: {
+            /** @description The catalog id, and the receipt when this pick added or renamed its row. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "catalog_id": "app",
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["PickAgentGitHubRepositoryResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. GitHub could not be reached to read the repository; nothing stored changed. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
     putAgentGitHubEnabled: {
         parameters: {
             query?: never;
@@ -22775,7 +25464,7 @@ export interface operations {
             };
             /**
              * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.
-             *     - `SCOPE_NOT_GRANTABLE`: The key asks for a scope its issuer does not hold now, or an agent's key asks for `sessions:approve`.
+             *     - `SCOPE_NOT_GRANTABLE`: The key asks for a scope its issuer does not hold now.
              */
             403: {
                 headers: {
@@ -24717,6 +27406,2063 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    listAchievementCategories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The categories, by `position` then creation. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "5b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+                     *           "name": "Delivery",
+                     *           "position": 0,
+                     *           "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *           "created_at": "2026-11-02T01:00:00.000Z",
+                     *           "archived_at": null,
+                     *           "archived_by": null
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ListAchievementCategoriesResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    createAchievementCategory: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "name": "Delivery"
+                 *     }
+                 */
+                "application/json": components["schemas"]["CreateAchievementCategoryRequest"];
+            };
+        };
+        responses: {
+            /** @description The category made, and its receipt. */
+            201: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "category": {
+                     *         "id": "5b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+                     *         "name": "Delivery",
+                     *         "position": 0,
+                     *         "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "created_at": "2026-11-02T01:00:00.000Z",
+                     *         "archived_at": null,
+                     *         "archived_by": null
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AchievementCategoryChangeResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "ALREADY_EXISTS";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    updateAchievementCategory: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "name": "Delivery",
+                 *       "position": 1
+                 *     }
+                 */
+                "application/json": components["schemas"]["UpdateAchievementCategoryRequest"];
+            };
+        };
+        responses: {
+            /** @description The category as changed. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "category": {
+                     *         "id": "5b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+                     *         "name": "Delivery",
+                     *         "position": 1,
+                     *         "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "created_at": "2026-11-02T01:00:00.000Z",
+                     *         "archived_at": null,
+                     *         "archived_by": null
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AchievementCategoryChangeResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "ALREADY_EXISTS";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    archiveAchievementCategory: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The category as archived. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "category": {
+                     *         "id": "5b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+                     *         "name": "Delivery",
+                     *         "position": 0,
+                     *         "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "created_at": "2026-11-02T01:00:00.000Z",
+                     *         "archived_at": "2026-11-02T02:00:00.000Z",
+                     *         "archived_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AchievementCategoryChangeResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    listAchievementTypes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The types, built-in first, then by creation. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "6c2f3d4e-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
+                     *           "key": "design_doc",
+                     *           "name": "Design doc",
+                     *           "evidence_kind": "out_file",
+                     *           "builtin": false,
+                     *           "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *           "created_at": "2026-11-02T01:00:00.000Z",
+                     *           "archived_at": null,
+                     *           "archived_by": null
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ListAchievementTypesResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    createAchievementType: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "key": "design_doc",
+                 *       "name": "Design doc",
+                 *       "evidence_kind": "out_file"
+                 *     }
+                 */
+                "application/json": components["schemas"]["CreateAchievementTypeRequest"];
+            };
+        };
+        responses: {
+            /** @description The type made, and its receipt. */
+            201: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": {
+                     *         "id": "6c2f3d4e-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
+                     *         "key": "design_doc",
+                     *         "name": "Design doc",
+                     *         "evidence_kind": "out_file",
+                     *         "builtin": false,
+                     *         "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "created_at": "2026-11-02T01:00:00.000Z",
+                     *         "archived_at": null,
+                     *         "archived_by": null
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AchievementTypeChangeResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /**
+             * @description - `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique.
+             *     - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
+             */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "ALREADY_EXISTS" | "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    updateAchievementType: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "name": "Design document"
+                 *     }
+                 */
+                "application/json": components["schemas"]["UpdateAchievementTypeRequest"];
+            };
+        };
+        responses: {
+            /** @description The type as renamed. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": {
+                     *         "id": "6c2f3d4e-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
+                     *         "key": "design_doc",
+                     *         "name": "Design document",
+                     *         "evidence_kind": "out_file",
+                     *         "builtin": false,
+                     *         "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "created_at": "2026-11-02T01:00:00.000Z",
+                     *         "archived_at": null,
+                     *         "archived_by": null
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AchievementTypeChangeResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    archiveAchievementType: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The type as archived. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": {
+                     *         "id": "6c2f3d4e-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
+                     *         "key": "design_doc",
+                     *         "name": "Design doc",
+                     *         "evidence_kind": "out_file",
+                     *         "builtin": false,
+                     *         "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "created_at": "2026-11-02T01:00:00.000Z",
+                     *         "archived_at": "2026-11-02T02:00:00.000Z",
+                     *         "archived_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AchievementTypeChangeResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    listAchievementRules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The latest versions. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "7d3a4e5f-6b7c-4d8e-8f9a-1b2c3d4e5f60",
+                     *           "family_id": "8e4b5f6a-7c8d-4e9f-9a0b-2c3d4e5f6a71",
+                     *           "version": 1,
+                     *           "category_id": "5b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+                     *           "title": "Design doc written",
+                     *           "type_id": "6c2f3d4e-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
+                     *           "definition": "A design document for a change the session made: it says what changes and why.",
+                     *           "judge": "luna",
+                     *           "agent_ids": null,
+                     *           "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *           "created_at": "2026-11-02T01:00:00.000Z",
+                     *           "superseded_by": null,
+                     *           "disabled_at": null,
+                     *           "disabled_by": null
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ListAchievementRulesResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    createAchievementRule: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "category_id": "5b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+                 *       "title": "Design doc written",
+                 *       "type_id": "6c2f3d4e-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
+                 *       "definition": "A design document for a change the session made: it says what changes and why.",
+                 *       "judge": "luna"
+                 *     }
+                 */
+                "application/json": components["schemas"]["AchievementRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description Version 1, and its receipt. */
+            201: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "rule": {
+                     *         "id": "7d3a4e5f-6b7c-4d8e-8f9a-1b2c3d4e5f60",
+                     *         "family_id": "8e4b5f6a-7c8d-4e9f-9a0b-2c3d4e5f6a71",
+                     *         "version": 1,
+                     *         "category_id": "5b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+                     *         "title": "Design doc written",
+                     *         "type_id": "6c2f3d4e-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
+                     *         "definition": "A design document for a change the session made: it says what changes and why.",
+                     *         "judge": "luna",
+                     *         "agent_ids": null,
+                     *         "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "created_at": "2026-11-02T01:00:00.000Z",
+                     *         "superseded_by": null,
+                     *         "disabled_at": null,
+                     *         "disabled_by": null
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AchievementRuleChangeResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    createAchievementRuleVersion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                family_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "category_id": "5b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+                 *       "title": "Design doc merged",
+                 *       "type_id": "6c2f3d4e-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
+                 *       "definition": "A design document for a change the session made: it says what changes and why.",
+                 *       "judge": "luna"
+                 *     }
+                 */
+                "application/json": components["schemas"]["AchievementRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description The new version, and its receipt. */
+            201: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "rule": {
+                     *         "id": "9f5c6a7b-8d9e-4f0a-8b1c-3d4e5f6a7b82",
+                     *         "family_id": "8e4b5f6a-7c8d-4e9f-9a0b-2c3d4e5f6a71",
+                     *         "version": 2,
+                     *         "category_id": "5b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+                     *         "title": "Design doc merged",
+                     *         "type_id": "6c2f3d4e-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
+                     *         "definition": "A design document for a change the session made: it says what changes and why.",
+                     *         "judge": "luna",
+                     *         "agent_ids": null,
+                     *         "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "created_at": "2026-11-02T01:00:00.000Z",
+                     *         "superseded_by": null,
+                     *         "disabled_at": null,
+                     *         "disabled_by": null
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AchievementRuleChangeResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    disableAchievementRule: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                family_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The latest version, disabled. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "rule": {
+                     *         "id": "7d3a4e5f-6b7c-4d8e-8f9a-1b2c3d4e5f60",
+                     *         "family_id": "8e4b5f6a-7c8d-4e9f-9a0b-2c3d4e5f6a71",
+                     *         "version": 1,
+                     *         "category_id": "5b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+                     *         "title": "Design doc written",
+                     *         "type_id": "6c2f3d4e-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
+                     *         "definition": "A design document for a change the session made: it says what changes and why.",
+                     *         "judge": "luna",
+                     *         "agent_ids": null,
+                     *         "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "created_at": "2026-11-02T01:00:00.000Z",
+                     *         "superseded_by": null,
+                     *         "disabled_at": "2026-11-02T02:00:00.000Z",
+                     *         "disabled_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AchievementRuleChangeResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    enableAchievementRule: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                family_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The latest version, in use. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "rule": {
+                     *         "id": "7d3a4e5f-6b7c-4d8e-8f9a-1b2c3d4e5f60",
+                     *         "family_id": "8e4b5f6a-7c8d-4e9f-9a0b-2c3d4e5f6a71",
+                     *         "version": 1,
+                     *         "category_id": "5b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+                     *         "title": "Design doc written",
+                     *         "type_id": "6c2f3d4e-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
+                     *         "definition": "A design document for a change the session made: it says what changes and why.",
+                     *         "judge": "luna",
+                     *         "agent_ids": null,
+                     *         "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "created_at": "2026-11-02T01:00:00.000Z",
+                     *         "superseded_by": null,
+                     *         "disabled_at": null,
+                     *         "disabled_by": null
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AchievementRuleChangeResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: . Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getAchievementJudge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The settings. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "achievement_judge": {
+                     *         "connection_id": null,
+                     *         "threshold": 0.9,
+                     *         "on_evidence": true,
+                     *         "every_n_turns": null,
+                     *         "on_idle": false,
+                     *         "transcript": "recent",
+                     *         "daily_budget_usd": 1,
+                     *         "max_per_session": 20
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AchievementJudgeResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    putAchievementJudge: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "connection_id": null,
+                 *       "threshold": 0.9,
+                 *       "on_evidence": true,
+                 *       "every_n_turns": 10,
+                 *       "on_idle": false,
+                 *       "transcript": "recent",
+                 *       "daily_budget_usd": 1,
+                 *       "max_per_session": 20
+                 *     }
+                 */
+                "application/json": components["schemas"]["AchievementJudgeRequest"];
+            };
+        };
+        responses: {
+            /** @description The settings saved, and the receipt. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "achievement_judge": {
+                     *         "connection_id": null,
+                     *         "threshold": 0.9,
+                     *         "on_evidence": true,
+                     *         "every_n_turns": 10,
+                     *         "on_idle": false,
+                     *         "transcript": "recent",
+                     *         "daily_budget_usd": 1,
+                     *         "max_per_session": 20
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AchievementJudgeChangeResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
                         };
                     };
                 };

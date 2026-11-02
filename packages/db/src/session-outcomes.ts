@@ -2,16 +2,19 @@ import { randomUUID } from "node:crypto";
 import {
   GITHUB_PURPOSE_VALUES,
   GITHUB_REFUSAL_VALUES,
+  GITHUB_REVIEW_EVENT_VALUES,
   type GitHubPullRequestOutcomeMetadata,
   type GitHubPullRequestOutcomeState,
   type GitHubPurpose,
   type GitHubRefusal,
+  type GitHubReviewOutcomeMetadata,
   type SessionGitHubRefusal,
   type SessionOutcome,
   type SessionOutcomeCheckError,
 } from "@werft-ai/contracts";
 import type { ClaimedOutcome, SessionOutcomeStore } from "@werft-ai/platform";
 import { and, asc, eq, sql } from "drizzle-orm";
+import { queueAchievementJudgment } from "./achievement-judgments.ts";
 import { insertPullRequestOutcome } from "./pull-requests.ts";
 import type { Database } from "./queries.ts";
 import { outcomeRefreshQuotas, sessionOutcomes, sessions } from "./schema.ts";
@@ -48,6 +51,7 @@ function metadataOf(row: Row): GitHubPullRequestOutcomeMetadata {
       ? field
       : null;
   return {
+    title: typeof value.title === "string" ? value.title : null,
     head: typeof value.head === "string" ? value.head : "",
     base: typeof value.base === "string" ? value.base : "",
     adopted: typeof value.adopted === "boolean" ? value.adopted : null,
@@ -62,22 +66,49 @@ function metadataOf(row: Row): GitHubPullRequestOutcomeMetadata {
   };
 }
 
-function publicOutcome(row: Row): SessionOutcome {
+function reviewMetadataOf(row: Row): GitHubReviewOutcomeMetadata {
+  const value = row.metadata as Partial<GitHubReviewOutcomeMetadata>;
   return {
+    number: typeof value.number === "number" ? value.number : 0,
+    event: GITHUB_REVIEW_EVENT_VALUES.includes(
+      value.event as GitHubReviewOutcomeMetadata["event"],
+    )
+      ? (value.event as GitHubReviewOutcomeMetadata["event"])
+      : "COMMENT",
+    commit_id: typeof value.commit_id === "string" ? value.commit_id : "",
+    opened_by_session_id:
+      typeof value.opened_by_session_id === "string"
+        ? value.opened_by_session_id
+        : null,
+  };
+}
+
+function publicOutcome(row: Row): SessionOutcome {
+  const fields = {
     id: row.id,
-    type: row.type,
     url: row.url,
     repository_id: row.repositoryId,
     external_id: row.externalId,
-    state: row.state,
     state_changed_at: row.stateChangedAt.toISOString(),
     merged_at: row.mergedAt?.toISOString() ?? null,
     closed_at: row.closedAt?.toISOString() ?? null,
     state_checked_at: row.stateCheckedAt?.toISOString() ?? null,
     check_error: row.checkError,
-    metadata: metadataOf(row),
     created_at: row.createdAt.toISOString(),
   };
+  return row.type === "github_review"
+    ? {
+        ...fields,
+        type: "github_review",
+        state: "submitted",
+        metadata: reviewMetadataOf(row),
+      }
+    : {
+        ...fields,
+        type: "github_pull_request",
+        state: row.state as GitHubPullRequestOutcomeState,
+        metadata: metadataOf(row),
+      };
 }
 
 const GATE_OPERATIONS = [
@@ -129,19 +160,22 @@ export function createPostgresSessionOutcomes(
         }[];
       };
       for (const row of rows) {
-        await insertPullRequestOutcome(db, {
-          ownerId: row.owner_id,
-          sessionId: row.session_id,
-          url: row.url,
-          repositoryId: row.repository_id,
-          number: row.number,
-          head: row.head,
-          base: row.base,
-          adopted: null,
-          receiptId: row.receipt_id,
-          createdAt:
-            row.created_at === null ? new Date() : new Date(row.created_at),
-        });
+        await db.transaction((tx) =>
+          insertPullRequestOutcome(tx, {
+            ownerId: row.owner_id,
+            sessionId: row.session_id,
+            url: row.url,
+            repositoryId: row.repository_id,
+            number: row.number,
+            title: null,
+            head: row.head,
+            base: row.base,
+            adopted: null,
+            receiptId: row.receipt_id,
+            createdAt:
+              row.created_at === null ? new Date() : new Date(row.created_at),
+          }),
+        );
       }
       return rows.length;
     },
@@ -218,7 +252,13 @@ export function createPostgresSessionOutcomes(
         }
         return claimed.flatMap((row): ClaimedOutcome[] => {
           const number = Number(row.externalId);
-          if (row.repositoryId === null || !Number.isSafeInteger(number)) {
+          // `due` claims pull requests only; a review is never read again.
+          if (
+            row.type !== "github_pull_request" ||
+            row.state === "submitted" ||
+            row.repositoryId === null ||
+            !Number.isSafeInteger(number)
+          ) {
             return [];
           }
           return [
@@ -262,21 +302,32 @@ export function createPostgresSessionOutcomes(
         return rows.length > 0;
       }
       const state: GitHubPullRequestOutcomeState = check.state;
-      const rows = await db
-        .update(sessionOutcomes)
-        .set({
-          ...released,
-          state,
-          stateChangedAt: sql`CASE WHEN ${sessionOutcomes.state} = ${state} THEN ${sessionOutcomes.stateChangedAt} ELSE now() END`,
-          mergedAt: check.mergedAt,
-          closedAt: check.closedAt,
-          checkError: null,
-          stateCheckedAt: sql`now()`,
-          metadata: sql`${sessionOutcomes.metadata} || ${JSON.stringify(check.metadata)}::jsonb`,
-        })
-        .where(held)
-        .returning({ id: sessionOutcomes.id });
-      return rows.length > 0;
+      return db.transaction(async (tx) => {
+        const [before] = await tx
+          .select({ state: sessionOutcomes.state })
+          .from(sessionOutcomes)
+          .where(held)
+          .for("update");
+        if (!before) return false;
+        await tx
+          .update(sessionOutcomes)
+          .set({
+            ...released,
+            state,
+            stateChangedAt: sql`CASE WHEN ${sessionOutcomes.state} = ${state} THEN ${sessionOutcomes.stateChangedAt} ELSE now() END`,
+            mergedAt: check.mergedAt,
+            closedAt: check.closedAt,
+            checkError: null,
+            stateCheckedAt: sql`now()`,
+            metadata: sql`${sessionOutcomes.metadata} || ${JSON.stringify(check.metadata)}::jsonb`,
+          })
+          .where(held);
+        // A pull request merged or closed is changed evidence.
+        if (before.state !== state) {
+          await queueAchievementJudgment(tx, outcome.sessionId);
+        }
+        return true;
+      });
     },
 
     async failDue(repositoryIds, checkError, limit) {

@@ -32,6 +32,7 @@ import {
 } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {
+  achievementJudgments,
   approvalCheckpoints,
   checkpoints,
   pendingRequests,
@@ -40,6 +41,7 @@ import {
   turnContinuations,
   turns,
   unassignedSessions,
+  workspaces,
 } from "./schema.ts";
 import { launchSession } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
@@ -133,9 +135,9 @@ integration("crash park on an approval-wait checkpoint", () => {
     await database.drop();
   }, 60_000);
 
-  async function runningSession() {
+  async function runningSession(ownerId = `owner-${crypto.randomUUID()}`) {
     const partition = `crash-park-${crypto.randomUUID()}`;
-    const owner = testCaller(`owner-${crypto.randomUUID()}`);
+    const owner = testCaller(ownerId);
     const accepted = await createPostgresSessionUnitOfWork(
       db,
     ).acceptInputAtomic({
@@ -393,6 +395,32 @@ integration("crash park on an approval-wait checkpoint", () => {
       credential: { kind: "launch_nonce", nonce },
     });
     expect(claimed.restore?.manifest_ref).toBe(checkpoint.manifest_ref);
+  });
+
+  test("the promotion queues an achievement judgment, as a finalize's checkpoint does", async () => {
+    const workspaceId = crypto.randomUUID();
+    await db.insert(workspaces).values({
+      id: workspaceId,
+      slug: `crash-park-${workspaceId.slice(0, 8)}`,
+      name: "crash park",
+    });
+    const { sessionId, worker } = await runningSession(workspaceId);
+    await db
+      .update(sessions)
+      .set({ workspaceId })
+      .where(eq(sessions.id, sessionId));
+    await register(worker, { checkpoint: checkpointOf(worker) });
+    const queued = () =>
+      db
+        .select({ status: achievementJudgments.status })
+        .from(achievementJudgments)
+        .where(eq(achievementJudgments.sessionId, sessionId));
+    expect(await queued()).toEqual([]);
+
+    await executionGone(worker);
+
+    expect((await sessionRow(sessionId)).checkpointRevision).toBe(0);
+    expect(await queued()).toEqual([{ status: "queued" }]);
   });
 
   test("an answer given but never delivered parks with the request and carries the turn on", async () => {

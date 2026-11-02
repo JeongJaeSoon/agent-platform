@@ -136,6 +136,10 @@ function memoryStore(rows: InstallationProfileRecord[]) {
         permission_mode: input.permission_mode,
         fingerprint: input.fingerprint,
         repository_ids: input.repository_ids,
+        github_app_repositories:
+          input.github_app_repositories ??
+          latest?.github_app_repositories ??
+          "listed",
         previous_id: input.previousId,
         created_by: input.actor.userId,
         created_at: new Date("2026-10-28T00:00:00Z"),
@@ -289,6 +293,27 @@ describe("saving an installation ceiling", () => {
       },
     });
     expect(JSON.stringify(saved)).not.toContain("api.anthropic.invalid");
+  });
+
+  test("github_app_repositories stays outside the fingerprint, so pins on a ceiling never move with it", async () => {
+    const listed = setup();
+    await listed.service.create(caller("owner"), {
+      ...REQUEST,
+      github_app_repositories: "listed",
+    });
+    const installed = setup();
+    await installed.service.create(caller("owner"), {
+      ...REQUEST,
+      github_app_repositories: "installed",
+    });
+    expect(installed.writes[0]?.fingerprint).toBe(
+      listed.writes[0]?.fingerprint,
+    );
+    expect(installed.writes[0]?.github_app_repositories).toBe("installed");
+    // Absent on a first version: listed, as every ceiling before it.
+    const absent = setup();
+    await absent.service.create(caller("owner"), REQUEST);
+    expect(absent.rows.at(-1)?.github_app_repositories).toBe("listed");
   });
 
   test("the next version names the latest as previous_id; anything else is a conflict", async () => {

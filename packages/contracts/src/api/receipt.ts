@@ -107,17 +107,45 @@ export const RECEIPT_OPERATION_VALUES = [
   // A GitHub token issued afresh for a session's work, or refused before it.
   "mint_github_token",
   "set_github_ceiling",
+  // A GitHub App repository added to the catalog from the console, its
+  // default branch changed, removed, or imported from repositories.yaml.
+  // Console adds and removes are gone; their receipts stay readable.
+  "add_repository",
+  "set_repository_branch",
+  "remove_repository",
+  "import_repository",
+  // An agent's pick resolved a GitHub App repository to a new catalog row.
+  "resolve_repository",
   // An agent's GitHub switch turned on or off.
   "set_agent_github",
   "review_pull_request",
   "dispatch_workflow",
   "rerun_workflow",
+  // The workspace's GitHub Packages bot token and package allowlist; the
+  // receipt names the token's last four characters, never the value.
+  "set_github_packages_token",
+  "delete_github_packages_token",
+  "set_github_packages_allowlist",
+  // One GitHub Packages request through the egress proxy, allowed or refused.
+  "fetch_github_package",
   "create_workspace_profile",
   "retire_workspace_profile",
   "create_installation_profile",
   "retire_installation_profile",
   "block_installation_profile",
   "unblock_installation_profile",
+  // Achievement rules: ids and versions only, never a definition's text.
+  "create_achievement_category",
+  "update_achievement_category",
+  "archive_achievement_category",
+  "create_achievement_type",
+  "update_achievement_type",
+  "archive_achievement_type",
+  "create_achievement_rule",
+  "update_achievement_rule",
+  "disable_achievement_rule",
+  "enable_achievement_rule",
+  "set_achievement_judge",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);

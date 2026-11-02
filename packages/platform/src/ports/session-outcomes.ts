@@ -23,6 +23,7 @@ export type OutcomeCheck =
       mergedAt: Date | null;
       closedAt: Date | null;
       metadata: {
+        title: string;
         merge_commit_sha: string | null;
         additions: number | null;
         deletions: number | null;

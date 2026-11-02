@@ -34,6 +34,13 @@ const SESSION = "11111111-1111-4111-8111-111111111111";
 const PUSH = "22222222-2222-4222-8222-222222222222";
 const RECEIPT = "33333333-3333-4333-8333-333333333333";
 const COMMIT = "a".repeat(40);
+// A session whose release has no GitHub settings: its own repository only.
+const NO_GITHUB = {
+  profileId: null,
+  attached: null,
+  github: null,
+  githubEnabled: false,
+};
 const KEYS: Record<string, readonly SessionScope[]> = {
   csp_writer: ["sessions:read", "sessions:write"],
   csp_approver: ["sessions:read", "sessions:approve"],
@@ -117,6 +124,11 @@ const CATALOG = {
       branch: "main",
       profiles: ["default"],
     },
+    docs: {
+      url: "https://git.example/acme/docs.git",
+      branch: "main",
+      profiles: ["default"],
+    },
   },
 } satisfies SessionCatalog;
 
@@ -131,13 +143,14 @@ function app(
     store?: Partial<PushRequestStore>;
     source?: PushSourceResult;
     authMode?: "none";
+    startedBy?: string | null;
   } = {},
 ) {
   const seen: Seen = { created: [], decided: [], refusals: [] };
   const store: PushRequestStore = {
     findSession: async (ownerId, sessionId) =>
       ownerId === "owner-a" && sessionId === SESSION
-        ? { repositoryId: "sample-app", approvalOffRelease: null }
+        ? { ...NO_GITHUB, repositoryId: "sample-app", approvalOffRelease: null }
         : null,
     recordRefusal: async (input) => {
       seen.refusals.push(input);
@@ -164,7 +177,16 @@ function app(
     ...options.store,
   };
   const service = createPushRequestService({
-    authorization: createAuthorizationPolicy({ identity: keyIssuers }),
+    authorization: createAuthorizationPolicy({
+      identity: keyIssuers,
+      sessions: {
+        visibleTo: async () => true,
+        originOf: async () => ({
+          creatorUserId: options.startedBy ? null : ISSUER,
+          creatorApiKeyId: options.startedBy ?? null,
+        }),
+      },
+    }),
     store,
     catalog: CATALOG,
     source: {
@@ -260,6 +282,7 @@ describe("push request routes", () => {
         payloadHash: expect.any(String),
         repositoryId: "sample-app",
         repositoryBinding: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+        targetBranch: `agent/${SESSION}`,
         checkpointRevision: 2,
         gitCommit: COMMIT,
         approvedByRelease: null,
@@ -267,11 +290,89 @@ describe("push request routes", () => {
     ]);
   });
 
+  test("POST with a branch pins agent/<session-id>-<branch>; a bad branch is a 400", async () => {
+    const target = app();
+    const send = (body: unknown, key: string) =>
+      post(target, "", body, undefined, { "Idempotency-Key": key });
+    expect((await send({ branch: "docs-fix" }, "branch-1")).status).toBe(201);
+    expect(target.seen.created.at(-1)?.targetBranch).toBe(
+      `agent/${SESSION}-docs-fix`,
+    );
+    for (const branch of ["", "Upper", "a/b", "-lead", "x".repeat(41)]) {
+      expect((await send({ branch }, `bad-${branch}`)).status).toBe(400);
+    }
+    expect(target.seen.created).toHaveLength(1);
+  });
+
+  test("POST to another repository needs the release to list it and the profile to allow it", async () => {
+    const github = {
+      repositories: ["sample-app", "docs"],
+      features: {
+        workflows: false,
+        actions: false,
+        checks: false,
+        issues: false,
+        review: false,
+      },
+      actions_allow: [],
+      push_approval: true,
+    };
+    const toDocs = (target: ReturnType<typeof app>, key: string) =>
+      post(target, "", { repository_id: "docs" }, undefined, {
+        "Idempotency-Key": key,
+      });
+    const session = {
+      repositoryId: "sample-app",
+      profileId: "default",
+      attached: null,
+      github,
+      githubEnabled: true,
+      approvalOffRelease: null,
+    };
+
+    // The release does not list it: refused with a receipt, nothing created.
+    const unlisted = app({
+      store: {
+        findSession: async () => ({
+          ...session,
+          github: { ...github, repositories: ["sample-app"] },
+        }),
+      },
+    });
+    const refused = await toDocs(unlisted, "other-1");
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({
+      error: {
+        code: "FORBIDDEN",
+        details: { refusal: "repository_not_allowed", receipt_id: RECEIPT },
+      },
+    });
+    expect(unlisted.seen.refusals.at(-1)?.result).toMatchObject({
+      repository_id: "docs",
+      refusal: "repository_not_allowed",
+    });
+    expect(unlisted.seen.created).toEqual([]);
+
+    // Listed, but the catalog does not let the session's profile run it.
+    const listed = app({ store: { findSession: async () => session } });
+    expect((await toDocs(listed, "other-2")).status).toBe(403);
+    expect(listed.seen.created).toEqual([]);
+
+    // GitHub off for the agent.
+    const off = app({
+      store: {
+        findSession: async () => ({ ...session, githubEnabled: false }),
+      },
+    });
+    expect((await toDocs(off, "other-3")).status).toBe(403);
+  });
+
   test("POST from a session whose release pushes without approval passes that release on", async () => {
     const release = "019a0000-0000-7000-8000-0000000000f1";
     const target = app({
       store: {
         findSession: async () => ({
+          ...NO_GITHUB,
           repositoryId: "sample-app",
           approvalOffRelease: release,
         }),
@@ -316,6 +417,7 @@ describe("push request routes", () => {
         {
           store: {
             findSession: async () => ({
+              ...NO_GITHUB,
               repositoryId: null,
               approvalOffRelease: null,
             }),
@@ -574,6 +676,59 @@ describe("push request routes", () => {
   });
 });
 
+describe("a key approving the session it started (GA-8)", () => {
+  test("is refused 403 self_approval with a decide_push receipt naming the key and its issuer, body unread", async () => {
+    const owners = new Set(["owner-a", WORKSPACE]);
+    const target = app({
+      startedBy: `key-${PERSONAL}`,
+      store: {
+        findSession: async (ownerId) =>
+          owners.has(ownerId)
+            ? {
+                ...NO_GITHUB,
+                repositoryId: "sample-app",
+                approvalOffRelease: null,
+              }
+            : null,
+      },
+    });
+    const response = await target.api.request(
+      `/v1/sessions/${SESSION}/push-requests/${PUSH}/decision`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${PERSONAL}`,
+          "Content-Type": "application/json",
+          "Idempotency-Key": crypto.randomUUID(),
+        },
+        body: JSON.stringify({ decision: "approve", git_commit: COMMIT }),
+      },
+    );
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: "FORBIDDEN",
+        details: { refusal: "self_approval", receipt_id: RECEIPT },
+      },
+    });
+    expect(target.seen.decided).toEqual([]);
+    expect(target.seen.refusals).toMatchObject([
+      {
+        operation: "decide_push",
+        refusal: "self_approval",
+        actor: { principal: { kind: "api_key", id: `key-${PERSONAL}` } },
+        result: {
+          decider_key: {
+            id: `key-${PERSONAL}`,
+            kind: "personal",
+            issued_by_user_id: ISSUER,
+          },
+        },
+      },
+    ]);
+  });
+});
+
 describe("push receipts name the person behind the credential", () => {
   const cases = [
     {
@@ -607,7 +762,11 @@ describe("push receipts name the person behind the credential", () => {
         store: {
           findSession: async (ownerId) =>
             owners.has(ownerId)
-              ? { repositoryId: "sample-app", approvalOffRelease: null }
+              ? {
+                  ...NO_GITHUB,
+                  repositoryId: "sample-app",
+                  approvalOffRelease: null,
+                }
               : null,
           get: async (ownerId) => (owners.has(ownerId) ? PINNED : null),
         },

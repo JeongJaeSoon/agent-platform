@@ -118,9 +118,22 @@ export const workspaceRepositorySchema = z
     access: egressTokenAuthSchema.optional(),
   })
   .strict();
-// Null for a session accepted without a repository.
+// Another catalog repository the session's release lets it work on
+// (session-multi-repository.md decision 2): a git remote named `id` in the
+// workspace, its `branch` fetched through the egress route for `id`.
+export const additionalWorkspaceRepositorySchema = workspaceRepositorySchema
+  .extend({ id: z.string().min(1) })
+  .strict();
+
+// Null for a session accepted without a repository. `additional_repositories`
+// is sent only when there is one.
 export const workspaceDescriptorSchema = z
-  .object({ repository: workspaceRepositorySchema.nullable() })
+  .object({
+    repository: workspaceRepositorySchema.nullable(),
+    additional_repositories: z
+      .array(additionalWorkspaceRepositorySchema)
+      .optional(),
+  })
   .strict();
 
 // Who the session acts for: its owner partition (`AuthorizationContext.
@@ -294,6 +307,25 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   // object store credential, only this token, which reaches its session's
   // prefix for as long as the attempt owns the session.
   object_store: z.object({ access: egressTokenAuthSchema }).strict(),
+  // The packages route's capability: public package registries, read
+  // through the egress proxy with no credential. Absent from an older API;
+  // a worker then points no package manager at the route.
+  // `github` names the GitHub Packages owners the workspace allows, so the
+  // worker can point their npm scopes and gem sources at the route; whether
+  // a request is allowed is still the authorizer's to decide.
+  packages: z
+    .object({
+      access: egressTokenAuthSchema,
+      github: z
+        .object({
+          npm: z.array(z.string().min(1).max(39)).max(200),
+          rubygems: z.array(z.string().min(1).max(39)).max(200),
+        })
+        .strict()
+        .optional(),
+    })
+    .strict()
+    .optional(),
   principal: claimPrincipalSchema,
   restore: checkpointRefSchema.nullable(),
   // Present when the session's checkpoints up to `restore` were committed
@@ -911,6 +943,9 @@ export type ClaimGit = z.infer<typeof claimGitSchema>;
 export type ClaimGitAuthor = z.infer<typeof claimGitAuthorSchema>;
 export type WorkspaceRepository = z.infer<typeof workspaceRepositorySchema>;
 export type WorkspaceDescriptor = z.infer<typeof workspaceDescriptorSchema>;
+export type AdditionalWorkspaceRepository = z.infer<
+  typeof additionalWorkspaceRepositorySchema
+>;
 export type ClaimPrincipal = z.infer<typeof claimPrincipalSchema>;
 export type RuntimeProvider = z.infer<typeof runtimeProviderSchema>;
 export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;

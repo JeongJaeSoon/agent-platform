@@ -1,4 +1,3 @@
-import { GITHUB_CEILING_NONE } from "@werft-ai/contracts";
 import {
   type GitHubOAuthClient,
   type GitHubOAuthStore,
@@ -6,8 +5,11 @@ import {
   type SecretKey,
 } from "@werft-ai/platform";
 import { and, eq } from "drizzle-orm";
-import { DB_NOW } from "./db-clock.ts";
-import { lockGitHubApps, oauthSecretSlot } from "./github-apps.ts";
+import {
+  lockGitHubApps,
+  oauthSecretSlot,
+  writeOAuthSecret,
+} from "./github-apps.ts";
 import type { Database } from "./queries.ts";
 import {
   githubApps,
@@ -18,7 +20,6 @@ import {
 import {
   createPostgresSecretStore,
   secretAuditRefusal,
-  writeSecretInTx,
 } from "./secret-values.ts";
 
 const author = (workspaceId: string) =>
@@ -104,29 +105,7 @@ export function createPostgresGitHubOAuthStore(
         if (row.clientId !== clientId) {
           return { outcome: "client_changed" as const };
         }
-        const updatedBy = audit.principal.actor?.userId ?? null;
-        await writeSecretInTx(
-          tx,
-          key,
-          oauthSecretSlot(row),
-          clientSecret,
-          updatedBy,
-        );
-        // `revision` is the ceiling's compare-and-set, which this leaves be:
-        // a row made here reads as the never-saved ceiling, revision 0.
-        await tx
-          .insert(githubWorkspaceSettings)
-          .values({
-            workspaceId,
-            ceiling: GITHUB_CEILING_NONE,
-            oauthClientSecretSet: true,
-            revision: 0,
-            updatedBy,
-          })
-          .onConflictDoUpdate({
-            target: githubWorkspaceSettings.workspaceId,
-            set: { oauthClientSecretSet: true, updatedAt: DB_NOW },
-          });
+        await writeOAuthSecret(tx, key, row, clientSecret, audit);
         await tx.insert(receipts).values({
           id: audit.receiptId,
           ownerId: workspaceId,

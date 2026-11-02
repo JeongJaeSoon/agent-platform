@@ -16,6 +16,7 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresGitHubAppManifestStore } from "./github-app-manifest-states.ts";
 import { createPostgresGitHubAppStore } from "./github-apps.ts";
 import { createPostgresGitHubOAuthStore } from "./github-oauth.ts";
 import * as schema from "./schema.ts";
@@ -471,5 +472,108 @@ integration("the GitHub App on PostgreSQL", () => {
     expect(
       await db.select().from(receipts).where(eq(receipts.id, audit.receiptId)),
     ).toEqual([]);
+  });
+
+  test("an App from a manifest is stored with its client secret and one receipt, only while the App it replaces is still there", async () => {
+    const store = createPostgresGitHubAppStore(db, key);
+    const oauth = createPostgresGitHubOAuthStore(db, key);
+    const ws = await workspace();
+    const owner = await person(ws, "owner");
+    const secret = fakeGitHubClientSecret();
+    const audit = owner();
+    const made = await store.put(ws, "author", profile(61), pemOf(), audit, {
+      clientSecret: secret,
+      replaces: null,
+      owner: "acme",
+      public: false,
+    });
+    expect(made.outcome).toBe("stored");
+    const client = await oauth.client(ws);
+    expect(client?.clientId).toBe("Iv23li61");
+    expect(client?.clientSecret === secret).toBe(true);
+    const written = await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.ownerId, ws));
+    expect(written.map((receipt) => receipt.operation)).toEqual([
+      "set_github_app",
+    ]);
+    expect(written[0]?.result).toMatchObject({
+      app_id: 61,
+      role: "author",
+      source: "manifest",
+      owner: "acme",
+      public: false,
+    });
+    expect(JSON.stringify(written).includes(secret)).toBe(false);
+
+    // Started while App 61 was registered, but 62 took its place.
+    await store.put(ws, "author", profile(62), pemOf(), owner());
+    const late = owner();
+    expect(
+      await store.put(ws, "author", profile(63), pemOf(), late, {
+        clientSecret: fakeGitHubClientSecret(),
+        replaces: 61,
+        owner: "acme",
+        public: true,
+      }),
+    ).toEqual({ outcome: "author_app_changed" });
+    expect((await store.find(ws, "author"))?.appId).toBe(62);
+    expect((await oauth.status(ws)).clientSecretSet).toBe(false);
+    expect(
+      await db.select().from(receipts).where(eq(receipts.id, late.receiptId)),
+    ).toEqual([]);
+
+    const stale = fakeGitHubClientSecret();
+    expect(await oauth.putClientSecret(ws, stale, owner(), "Iv23li62")).toEqual(
+      { outcome: "stored" },
+    );
+    const replaced = await store.put(
+      ws,
+      "author",
+      profile(64),
+      pemOf(),
+      owner(),
+      {
+        clientSecret: secret,
+        replaces: 62,
+        owner: "acme",
+        public: false,
+      },
+    );
+    expect(replaced.outcome).toBe("stored");
+    const next = await oauth.client(ws);
+    expect(next?.clientId).toBe("Iv23li64");
+    expect(next !== null && next.clientSecret !== stale).toBe(true);
+  });
+
+  test("a manifest state is spent by the first read; expired ones go at the next start", async () => {
+    const states = createPostgresGitHubAppManifestStore(db);
+    const ws = await workspace();
+    const state = {
+      workspaceId: ws,
+      actorUserId: randomUUID(),
+      role: "author" as const,
+      ownerLogin: "acme",
+      public: false,
+      replacesAppId: 7,
+      expiresAt: new Date(Date.now() + 60_000),
+    };
+    const hash = randomBytes(32);
+    await states.issueState(hash, state, new Date());
+    const [first, second] = await Promise.all([
+      states.consumeState(hash),
+      states.consumeState(hash),
+    ]);
+    expect([first, second].filter((read) => read !== null)).toEqual([state]);
+
+    const old = randomBytes(32);
+    await states.issueState(
+      old,
+      { ...state, expiresAt: new Date(Date.now() - 1000) },
+      new Date(),
+    );
+    await states.issueState(randomBytes(32), state, new Date());
+    expect(await states.consumeState(old)).toBeNull();
   });
 });

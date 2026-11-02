@@ -203,6 +203,8 @@ function app(
               ownerId: "owner-a",
               sessionId,
               repositoryId: "app",
+              profileId: null,
+              attachedRepositoryIds: null,
               repository: {
                 url: catalog.repositories.app?.url ?? "",
                 branch: "main",
@@ -234,6 +236,18 @@ function app(
     store: {
       recordReceipt: async (receipt) => {
         receipts.push(receipt);
+        return nextReceipt();
+      },
+      recordReview: async ({ context, actor, result }) => {
+        receipts.push({
+          ownerId: context.ownerId,
+          sessionId: context.sessionId,
+          actor,
+          operation: "review_pull_request",
+          status: "succeeded",
+          result,
+          error: null,
+        });
         return nextReceipt();
       },
       recordDispatch: async ({ context, actor, result, run }) => {
@@ -770,6 +784,7 @@ describe("GET /v1/sessions/{id}/outcomes and …/github/refusals", () => {
     state_checked_at: "2026-10-31T01:02:00.000Z",
     check_error: null,
     metadata: {
+      title: "Retry failed payments",
       head: `agent/${SESSION}`,
       base: "main",
       adopted: false,
@@ -780,6 +795,26 @@ describe("GET /v1/sessions/{id}/outcomes and …/github/refusals", () => {
       commits: 1,
     },
     created_at: "2026-10-31T00:00:00.000Z",
+  };
+  const review: SessionOutcome = {
+    id: "019a0000-0000-7000-8000-0000000000a2",
+    type: "github_review",
+    url: "https://github.com/acme/app/pull/9#pullrequestreview-77",
+    repository_id: "app",
+    external_id: "77",
+    state: "submitted",
+    state_changed_at: "2026-10-31T02:00:00.000Z",
+    merged_at: null,
+    closed_at: null,
+    state_checked_at: null,
+    check_error: null,
+    metadata: {
+      number: 9,
+      event: "APPROVE",
+      commit_id: "e".repeat(40),
+      opened_by_session_id: null,
+    },
+    created_at: "2026-10-31T02:00:00.000Z",
   };
   const refusal: SessionGitHubRefusal = {
     receipt_id: "019a0000-0000-7000-8000-0000000000b1",
@@ -825,7 +860,7 @@ describe("GET /v1/sessions/{id}/outcomes and …/github/refusals", () => {
           store: {
             list: async (owner, session) => {
               asked.push([owner, session]);
-              return answer(owner, session, [outcome]);
+              return answer(owner, session, [outcome, review]);
             },
             refusals: async (owner, session, limit) => {
               asked.push([owner, session, limit]);
@@ -851,7 +886,7 @@ describe("GET /v1/sessions/{id}/outcomes and …/github/refusals", () => {
     );
     expect(outcomes.status).toBe(200);
     expect(listSessionOutcomesResponseSchema.parse(outcomes.json)).toEqual({
-      items: [outcome],
+      items: [outcome, review],
     });
     const refusals = await read(
       `/v1/sessions/${SESSION}/github/refusals`,

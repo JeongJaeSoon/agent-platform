@@ -10,6 +10,7 @@ import type { CheckpointFence } from "../ports/checkpoint-store.ts";
 import {
   type CheckpointOutputObject,
   checkpointOutputObjects,
+  checkpointOutputsDigest,
 } from "../ports/checkpoint-verifier.ts";
 
 export type CommitCheckpointInput = {
@@ -24,6 +25,8 @@ export type CommitCheckpointInput = {
   transcriptBytes?: number;
   /** The verified manifest's stored output objects, recorded beside it. */
   outputs?: readonly CheckpointOutputObject[];
+  /** The verified manifest's out/ list digest, recorded on its row. */
+  outputsDigest?: string | null;
   /** The verified manifest's runtime fingerprint, recorded on its row. */
   runtime?: RuntimeFingerprint;
 };
@@ -91,6 +94,7 @@ export async function finalizeCheckpoint(
       transcriptParts(verdict.manifest.transcripts),
     ),
     outputs: checkpointOutputObjects(verdict.manifest.outputs),
+    outputsDigest: checkpointOutputsDigest(verdict.manifest.outputs),
     runtime: verdict.manifest.runtime,
   });
 }

@@ -112,6 +112,16 @@ function routesFor(
         active_release_id: server.detail().agent.active_release_id,
       }),
     [`GET ${PATH}/github/activity`]: () => json(200, { items: [] }),
+    [`GET ${PATH}/github/repositories`]: () =>
+      json(200, {
+        installations: [],
+        installation_id: null,
+        page: 1,
+        per_page: 30,
+        total_count: 0,
+        repositories: [],
+        unavailable: "ceiling_listed",
+      }),
     ...extra,
   };
 }
@@ -120,7 +130,72 @@ const switchNamed = (name: string) =>
   screen.getByRole("switch", { name }) as HTMLButtonElement;
 
 describe("에이전트 GitHub 탭", () => {
-  test("쓸 수 없는 저장소와 권한은 여섯 가지 이유를 그 행에 적고 스위치를 잠근다", async () => {
+  test("상한이 App 저장소 전체를 허용하면 설치 목록에서 골라 저장 전 목록에 더한다", async () => {
+    const { server } = await activeAgent();
+    const tab = structuredClone(TAB);
+    const { api } = renderAt(
+      DETAIL,
+      routesFor(server, tab, {
+        [`GET ${PATH}/github/repositories`]: () =>
+          json(200, {
+            installations: [{ id: 77, account: "acme" }],
+            installation_id: 77,
+            page: 1,
+            per_page: 30,
+            total_count: 2,
+            repositories: [
+              {
+                github_repository_id: 11,
+                full_name: "acme/werft-sandbox",
+                default_branch: "main",
+                private: true,
+                catalog_id: "werft-sandbox",
+              },
+              {
+                github_repository_id: 12,
+                full_name: "acme/api",
+                default_branch: "main",
+                private: false,
+                catalog_id: null,
+              },
+            ],
+            unavailable: null,
+          }),
+        [`POST ${PATH}/github/repositories`]: () => {
+          tab.options.repositories.push({
+            id: "api",
+            url: "https://github.com/acme/api.git",
+            available: true,
+            reason: null,
+            installed: UNKNOWN,
+          });
+          return json(200, { catalog_id: "api", receipt_id: RECEIPT_ID });
+        },
+      }),
+    );
+    const user = await setupUser();
+    const picker = within(
+      await screen.findByRole("region", {
+        name: "App이 설치된 저장소에서 고르기",
+      }),
+    );
+    expect(await picker.findByText("목록에 있음")).toBeTruthy();
+    await user.click(picker.getByRole("button", { name: "acme/api 고르기" }));
+    await screen.findByText("릴리스에 넣지 않은 변경 1건");
+    expect(
+      api.calls
+        .filter(
+          (c) =>
+            c.method === "POST" && c.path === `${PATH}/github/repositories`,
+        )
+        .map((c) => c.body),
+    ).toEqual([{ installation_id: 77, github_repository_id: 12 }]);
+    await waitFor(() =>
+      expect(switchNamed("api").getAttribute("aria-checked")).toBe("true"),
+    );
+  });
+
+  test("쓸 수 없는 저장소와 권한은 그 이유를 행에 적고 스위치를 잠근다", async () => {
     const { server } = await activeAgent();
     const reason = <R,>(r: R) => ({ available: false, reason: r });
     renderAt(
@@ -148,10 +223,11 @@ describe("에이전트 GitHub 탭", () => {
             },
           ],
           features: {
-            workflows: reason("app_permission_missing" as const),
-            actions: open,
-            checks: reason("over_workspace_ceiling" as const),
-            issues: reason("github_host_unsupported" as const),
+            workflows: reason("over_workspace_ceiling" as const),
+            actions: reason("github_host_unsupported" as const),
+            // Not offered on the tab; the contract still carries them.
+            checks: reason("app_permission_missing" as const),
+            issues: open,
             review: reason("no_reviewer_app" as const),
           },
         },
@@ -166,22 +242,23 @@ describe("에이전트 GitHub 탭", () => {
     };
     expectLocked("billing-api", /실행 프로필이 이 저장소를 허용하지 않습니다/);
     expectLocked("legacy-pat", /PAT로 연결된 저장소라/);
-    expectLocked("워크플로 파일 수정", /App에 이 권한이 없습니다/);
-    expectLocked("검사 결과 쓰기", /워크스페이스 상한 밖입니다/);
-    expectLocked("이슈 쓰기", /GitHub Enterprise에 있어/);
+    expectLocked("워크플로 파일 수정", /워크스페이스 상한 밖입니다/);
+    expectLocked("Actions 실행", /GitHub Enterprise에 있어/);
     expectLocked("리뷰 승인", /리뷰용 App이 없습니다/);
     // The release's repository stays; others with no reason may change.
     expect(switchNamed("werft-sandbox").disabled).toBe(true);
     expect(switchNamed("docs-site").disabled).toBe(false);
-    expect(switchNamed("Actions 실행").disabled).toBe(false);
+    // Checks and issues have no work behind them, so they are not offered.
+    expect(screen.queryByRole("switch", { name: "검사 결과 쓰기" })).toBeNull();
+    expect(screen.queryByRole("switch", { name: "이슈 쓰기" })).toBeNull();
     // A ceiling reason links to where it is lifted; the host one does not.
     expect(
-      within(rowOf("검사 결과 쓰기"))
+      within(rowOf("워크플로 파일 수정"))
         .getByRole("link", { name: "GitHub 연결 설정" })
         .getAttribute("href"),
     ).toBe("/settings/workspace/github");
     expect(
-      within(rowOf("이슈 쓰기")).queryByRole("link", {
+      within(rowOf("Actions 실행")).queryByRole("link", {
         name: "GitHub 연결 설정",
       }),
     ).toBeNull();
@@ -439,7 +516,7 @@ describe("에이전트 GitHub 탭", () => {
       }),
     );
     await services.queryClient.invalidateQueries();
-    await screen.findByText(/2026-10-11_11:00:00 · 활성/);
+    await screen.findByText("2026-10-11_11:00:00");
 
     await user.click(switchNamed("push 전 사람 승인"));
     await user.click(

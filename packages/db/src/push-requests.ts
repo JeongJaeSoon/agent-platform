@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  agentGitHubSchema,
   OPEN_PUSH_REQUEST_STATES,
   type PushDecider,
   type PushReceiptResult,
@@ -24,6 +25,7 @@ import {
 import type { Database } from "./queries.ts";
 import {
   agentReleases,
+  agents,
   idempotencyKeys,
   pushRequests,
   receipts,
@@ -55,7 +57,10 @@ function publicPushRequest(row: Row): PushRequest {
 
 function resultOf(
   row: Row | null,
-  fields: Pick<PushReceiptResult, "decision" | "verdict" | "refusal">,
+  fields: Pick<
+    PushReceiptResult,
+    "decision" | "verdict" | "refusal" | "decider_key"
+  >,
 ): PushReceiptResult {
   return {
     push_request_id: row?.id ?? null,
@@ -127,13 +132,18 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
       const [row] = await db
         .select({
           repositoryId: sessions.repositoryId,
+          profileId: sessions.profileId,
+          attached: sessions.attachedRepositoryIds,
           releaseId: agentReleases.id,
           // Only an explicit false: a release without GitHub settings, or
           // with a shape this image does not know, keeps a person deciding.
           approvalOff: sql<boolean>`coalesce(${agentReleases.policyPins} -> 'github' -> 'push_approval' = 'false'::jsonb, false)`,
+          github: sql<unknown>`${agentReleases.policyPins} -> 'github'`,
+          githubEnabled: agents.githubEnabled,
         })
         .from(sessions)
         .leftJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
+        .leftJoin(agents, eq(agents.id, agentReleases.agentId))
         .where(
           and(
             eq(sessions.id, sessionId.toLowerCase()),
@@ -142,8 +152,17 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
         )
         .limit(1);
       if (row === undefined) return null;
+      const github =
+        row.github === null || row.github === undefined
+          ? null
+          : agentGitHubSchema.safeParse(row.github);
       return {
         repositoryId: row.repositoryId,
+        profileId: row.profileId,
+        attached: row.attached,
+        github:
+          github === null ? null : github.success ? github.data : "invalid",
+        githubEnabled: row.githubEnabled ?? false,
         approvalOffRelease:
           row.approvalOff && row.releaseId !== null ? row.releaseId : null,
       };
@@ -163,6 +182,7 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
 
     create(input): Promise<PushWriteResult> {
       const sessionId = input.sessionId.toLowerCase();
+      const targetBranch = input.targetBranch ?? pushBranchFor(sessionId);
       const scope = createScope(input.ownerId, sessionId, input.idempotencyKey);
       const refuse = async (
         tx: Database,
@@ -206,6 +226,8 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
           .where(
             and(
               eq(pushRequests.sessionId, sessionId),
+              eq(pushRequests.repositoryId, input.repositoryId),
+              eq(pushRequests.targetBranch, targetBranch),
               inArray(pushRequests.state, [...OPEN_PUSH_REQUEST_STATES]),
             ),
           )
@@ -216,7 +238,6 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
         }
         const id = randomUUID();
         const receiptId = randomUUID();
-        const targetBranch = pushBranchFor(sessionId);
         await tx.insert(receipts).values({
           id: receiptId,
           ownerId: input.ownerId,
@@ -366,6 +387,7 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
               decision: input.decision,
               verdict: "refuse",
               refusal,
+              decider_key: input.deciderKey ?? null,
             }),
           }),
         });
@@ -447,6 +469,7 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
             decision: input.decision,
             verdict: "allow",
             refusal: null,
+            decider_key: input.deciderKey ?? null,
           }),
           actor: input.actor,
         });

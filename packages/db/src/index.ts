@@ -1,3 +1,5 @@
+export * from "./achievement-judgments.ts";
+export * from "./achievement-rules.ts";
 export * from "./agent-admins.ts";
 export * from "./agent-authority.ts";
 export * from "./agent-github.ts";
@@ -6,6 +8,7 @@ export * from "./agents.ts";
 export * from "./api-keys.ts";
 export * from "./authz-decisions.ts";
 export * from "./catalog-authority.ts";
+export * from "./catalog-repositories.ts";
 export {
   listUncollectedSessionPointers,
   type RuntimeFingerprint,
@@ -19,8 +22,10 @@ export { decodeEventCursor, encodeEventCursor } from "./cursors.ts";
 export * from "./drain.ts";
 export * from "./enqueue.ts";
 export * from "./execution-revocation.ts";
+export * from "./github-app-manifest-states.ts";
 export * from "./github-apps.ts";
 export * from "./github-oauth.ts";
+export * from "./github-packages.ts";
 export * from "./github-settings.ts";
 export * from "./identity.ts";
 export * from "./identity-reader.ts";

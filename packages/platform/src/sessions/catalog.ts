@@ -5,6 +5,7 @@ import {
   canonicalJson,
   credentialRefSchema,
   GITHUB_MCP_SERVER,
+  type GitHubAppRepositories,
   MCP_TOOL_PREFIX,
   mcpServerIdSchema,
   narrowOnlyPolicy,
@@ -513,6 +514,8 @@ export type InstallationProfileEntry = {
   state: InstallationProfileState;
   /** Repositories a console ceiling runs against beside `repositories.<id>.profiles`. */
   repository_ids: readonly string[];
+  /** `installed` also runs every resolved GitHub App repository; absent is `listed`. */
+  github_app_repositories?: GitHubAppRepositories | undefined;
   /** The row as stored, for listing; absent in a snapshot built without rows. */
   record?: InstallationProfileRecord | undefined;
   /** The row's definition when it still parses, whatever the state. */
@@ -577,7 +580,14 @@ type ProviderView<P> = P extends { auth: infer A }
 export type CatalogProfileView = Omit<CatalogProfile, "provider"> & {
   provider: ProviderView<CatalogProfile["provider"]>;
 };
-export type CatalogRepositoryView = Omit<CatalogRepository, "auth">;
+/**
+ * A repository without its credentials. `github_app` is set when it uses the
+ * App registered in the console, which an `installed` ceiling allows; that
+ * `auth` holds no secret.
+ */
+export type CatalogRepositoryView = Omit<CatalogRepository, "auth"> & {
+  github_app?: true;
+};
 
 /**
  * The catalog without credential values: what creating a session and
@@ -962,18 +972,49 @@ function trustedProfileId(
 
 /**
  * Whether `profileId` (or the ceiling a workspace version narrows) may run
- * against the repository: among the ceiling's `repository_ids`.
+ * against the repository: among the ceiling's `repository_ids`, or, on an
+ * `installed` ceiling, a repository of the console's GitHub App.
  */
 export function profileAllowsRepository(
-  catalog: ProfileLookup<CatalogProfileView>,
+  catalog: ProfileLookup<CatalogProfileView> & {
+    repositories: Readonly<Record<string, CatalogRepositoryView>>;
+  },
   profileId: string,
   repositoryId: string,
 ): boolean {
-  return (
-    catalog.installation
-      ?.get(trustedProfileId(catalog, profileId))
-      ?.repository_ids.includes(repositoryId) === true
+  const ceiling = catalog.installation?.get(
+    trustedProfileId(catalog, profileId),
   );
+  if (ceiling === undefined) return false;
+  if (ceiling.repository_ids.includes(repositoryId)) return true;
+  if (ceiling.github_app_repositories !== "installed") return false;
+  const repository = Object.hasOwn(catalog.repositories, repositoryId)
+    ? catalog.repositories[repositoryId]
+    : undefined;
+  return repository !== undefined && usesConsoleApp(repository);
+}
+
+/** The ceiling's `github_app_repositories`; null for a profile with no ceiling. */
+export function ceilingAppRepositories(
+  catalog: ProfileLookup<CatalogProfileView>,
+  profileId: string,
+): GitHubAppRepositories | null {
+  const ceiling = catalog.installation?.get(
+    trustedProfileId(catalog, profileId),
+  );
+  if (ceiling === undefined) return null;
+  return ceiling.github_app_repositories ?? "listed";
+}
+
+/** Whether it uses the App registered in the console, view or not. */
+export function usesConsoleApp(
+  repository: CatalogRepositoryView | CatalogRepository,
+): boolean {
+  if ("github_app" in repository && repository.github_app === true) {
+    return true;
+  }
+  const auth = "auth" in repository ? repository.auth : undefined;
+  return auth?.kind === "github_app" && "registered" in auth;
 }
 
 /** Whether every session of the profile names a repository; false for an unknown profile. */
@@ -1457,8 +1498,11 @@ export function sessionCatalogView(
   }
   const repositories: Record<string, CatalogRepositoryView> = {};
   for (const [id, repository] of Object.entries(config.repositories)) {
-    const { auth: _auth, ...rest } = repository;
-    repositories[id] = rest;
+    const { auth, ...rest } = repository;
+    repositories[id] =
+      auth !== undefined && "registered" in auth
+        ? { ...rest, github_app: true }
+        : rest;
   }
   return { profiles, repositories };
 }

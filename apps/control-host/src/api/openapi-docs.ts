@@ -200,8 +200,7 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
     "The account is suspended. Lift the suspension before changing the role or enabling the membership.",
   OWNER_PROTECTED:
     "Only an owner may grant the owner role or change an owner's role or access (disable, suspend, enable).",
-  SCOPE_NOT_GRANTABLE:
-    "The key asks for a scope its issuer does not hold now, or an agent's key asks for `sessions:approve`.",
+  SCOPE_NOT_GRANTABLE: "The key asks for a scope its issuer does not hold now.",
   SLACK_NOT_INSTALLED:
     "The workspace has no verified Slack install for this team.",
   LINK_TEAM_MISMATCH:
@@ -226,7 +225,7 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
   PUSH_SOURCE_MISSING:
     "The session has no repository, or no committed checkpoint, to push.",
   PUSH_REQUEST_OPEN:
-    "The session already has an open push request (`requested`, `approved` or `pushing`); the refusal receipt's `result.push_request_id` names it.",
+    "The session already has an open push request (`requested`, `approved` or `pushing`) to the same repository and branch; the refusal receipt's `result.push_request_id` names it.",
   PUSH_REQUEST_DECIDED: "The push request was already approved or rejected.",
   CHECKPOINT_MOVED:
     "The commit or checkpoint named no longer matches what the push request pinned.",

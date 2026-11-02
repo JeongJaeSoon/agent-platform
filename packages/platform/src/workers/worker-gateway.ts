@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type {
+  AdditionalWorkspaceRepository,
   ApiErrorCode,
   AppendEventsRequest,
   AppendEventsResponse,
@@ -11,6 +12,7 @@ import type {
   ClaimGitAuthor,
   FinalizeRequest,
   FinalizeResponse,
+  GitHubPackagesRegistry,
   HeartbeatRequest,
   HeartbeatResponse,
   InvalidateApprovalCheckpointRequest,
@@ -68,6 +70,7 @@ import {
   type GitHubGrant,
 } from "../ports/github-gate.ts";
 import type { GitHubMcpStore } from "../ports/github-mcp.ts";
+import type { GitHubPackagesStore } from "../ports/github-packages.ts";
 import type { McpEgressStore } from "../ports/mcp-egress.ts";
 import type {
   ApprovalCheckpointCommit,
@@ -129,7 +132,15 @@ import {
   titleProfile,
 } from "../sessions/session-titler.ts";
 import { createGitHubMcpEgress } from "./github-mcp-egress.ts";
+import { allowedOwners, isGitHubNpmTarball } from "./github-packages.ts";
+import { createGitHubPackagesEgress } from "./github-packages-egress.ts";
 import { createMcpEgress, type McpEgressRequest } from "./mcp-egress.ts";
+import {
+  GITHUB_PACKAGE_REGISTRIES,
+  PACKAGES_BINDING,
+  type PackageRegistry,
+  PUBLIC_PACKAGE_REGISTRIES,
+} from "./package-registries.ts";
 
 const WORKSPACE_PROFILE_MAX_AGE_MS = 1000;
 
@@ -248,6 +259,7 @@ const EGRESS_TOKEN_PREFIXES: Record<EgressPurpose, string> = {
   repository: "wer",
   object_store: "weo",
   mcp: "wem",
+  packages: "wek",
 };
 
 function generateEgressToken(purpose: EgressPurpose): string {
@@ -470,6 +482,12 @@ export function createWorkerGateway(deps: {
   onMcpReceiptError?: (error: unknown) => void;
   // Absent, the built-in `github` MCP route is refused.
   githubMcp?: { store: GitHubMcpStore; grantKey: Uint8Array };
+  // Absent, the GitHub Packages registries refuse every request and a
+  // claim names no GitHub owners.
+  githubPackages?: {
+    store: GitHubPackagesStore;
+    upstreams?: Partial<Record<GitHubPackagesRegistry, string>>;
+  };
   // Absent, a session keeps the title cut from its first message.
   titles?: { store: SessionTitleStore; titler: SessionTitler };
   // Absent, events are stored without the engine-neutral fields beside them.
@@ -522,6 +540,10 @@ export function createWorkerGateway(deps: {
         });
   const decideGitHubMcp =
     deps.githubMcp === undefined ? null : createGitHubMcpEgress(deps.githubMcp);
+  const decideGitHubPackages =
+    deps.githubPackages === undefined
+      ? null
+      : createGitHubPackagesEgress(deps.githubPackages);
   const protocol = deps.checkpointProtocol;
   function requireProtocol(): CheckpointProtocol {
     if (protocol === undefined) {
@@ -614,8 +636,8 @@ export function createWorkerGateway(deps: {
       ...Object.entries(catalog.repositories).flatMap(
         ([repositoryId, repository]) =>
           ceilings
-            .filter(({ repository_ids }) =>
-              repository_ids.includes(repositoryId),
+            .filter(({ id }) =>
+              profileAllowsRepository(catalog, id, repositoryId),
             )
             .flatMap(({ id }) => pairsOf(id, repositoryId, repository)),
       ),
@@ -639,6 +661,7 @@ export function createWorkerGateway(deps: {
   let runnableOf: {
     records: WorkspaceProfiles["records"] | undefined;
     profiles: SessionCatalog["profiles"];
+    repositories: SessionCatalog["repositories"];
     pairs: RunnablePair[];
     revision: string;
     settled: ReadonlySet<string>;
@@ -646,15 +669,18 @@ export function createWorkerGateway(deps: {
   function claimCatalog(): NonNullable<typeof runnableOf> {
     const records = catalog.workspace_profiles?.records;
     const profiles = catalog.profiles;
+    const repositories = catalog.repositories;
     if (
       runnableOf === null ||
       runnableOf.records !== records ||
-      runnableOf.profiles !== profiles
+      runnableOf.profiles !== profiles ||
+      runnableOf.repositories !== repositories
     ) {
       const workspace = workspaceCatalogProfiles(catalog);
       runnableOf = {
         records,
         profiles,
+        repositories,
         pairs: buildRunnablePairs(workspace),
         revision: catalogRevision(catalog),
         settled: new Set([
@@ -885,7 +911,10 @@ export function createWorkerGateway(deps: {
     // One token serves both servers; it is held to the catalog server's
     // binding when there is one, as the remote route checks.
     const [first] = claimedMcp(session);
-    const mcpBinding = first === undefined ? {} : { mcp: first.binding };
+    const mcpBinding = {
+      ...(first === undefined ? {} : { mcp: first.binding }),
+      packages: PACKAGES_BINDING,
+    };
     if (session.repositoryMode === "none") {
       return { provider, repository: null, object_store, ...mcpBinding };
     }
@@ -901,6 +930,42 @@ export function createWorkerGateway(deps: {
       object_store,
       ...mcpBinding,
     };
+  }
+
+  // The owners the worker points at the GitHub Packages registries; null
+  // when none are allowed, so the claim carries nothing for them.
+  async function githubOwnersOf(
+    workspaceId: string,
+  ): Promise<Record<GitHubPackagesRegistry, string[]> | null> {
+    if (deps.githubPackages === undefined) return null;
+    const owners = allowedOwners(
+      await deps.githubPackages.store.allowlist(workspaceId),
+    );
+    return owners.npm.length + owners.rubygems.length === 0 ? null : owners;
+  }
+
+  // The repositories besides its own the session's release lets it work on
+  // (session-multi-repository.md decision 2), reached with the attempt's
+  // repository token on the route named for each. Not pinned at the claim:
+  // the gate reads the release and catalog again on every fetch.
+  async function additionalWorkspaceRepositories(
+    sessionId: string,
+    token: string,
+  ): Promise<AdditionalWorkspaceRepository[]> {
+    const ids = (await deps.github?.additionalRepositories?.(sessionId)) ?? [];
+    return ids.flatMap((id) => {
+      const entry = own(catalog.repositories, id);
+      return entry === undefined
+        ? []
+        : [
+            {
+              id,
+              url: entry.url,
+              branch: entry.branch,
+              access: { kind: "egress_token" as const, token },
+            },
+          ];
+    });
   }
 
   // A catalog that moved since the claim (an edited config and a restart)
@@ -920,6 +985,41 @@ export function createWorkerGateway(deps: {
       "The repository's forge credential could not be issued",
       true,
     );
+  }
+
+  function githubRefused(error: GitHubGateError): never {
+    throw new WorkerGatewayError(
+      githubRefusalStatus(error.reasonCode),
+      "GITHUB_REFUSED",
+      `GitHub work refused: ${error.reasonCode}`,
+      false,
+      undefined,
+      error.reasonCode,
+    );
+  }
+
+  // Another repository is reached only with the gate's own token: the gate
+  // decides whether the session's release still lets it (decision 5), so a
+  // deployment without one has no route to it.
+  async function additionalRepositoryUpstream(
+    sessionId: string,
+    repositoryId: string,
+  ): Promise<EgressUpstream> {
+    if (deps.github === undefined) moved("session's repository");
+    let issued: GitHubGrant | null;
+    try {
+      issued = await deps.github.grant({
+        sessionId,
+        purpose: "clone",
+        repositoryId,
+      });
+    } catch (error) {
+      if (error instanceof GitHubGateError) githubRefused(error);
+      forgeUnavailable();
+    }
+    const entry = own(catalog.repositories, repositoryId);
+    if (issued === null || entry === undefined) forgeUnavailable();
+    return repositoryUpstreamOf(entry, issued.gitCredential);
   }
 
   // A title request's token, held to the session's budget and profile as
@@ -1087,6 +1187,7 @@ export function createWorkerGateway(deps: {
       const repositoryToken = generateEgressToken("repository");
       const objectStoreToken = generateEgressToken("object_store");
       const mcpToken = generateEgressToken("mcp");
+      const packagesToken = generateEgressToken("packages");
       await refreshForClaim();
       const claimable = claimCatalog();
       const result = await work.claimAtomic({
@@ -1117,6 +1218,7 @@ export function createWorkerGateway(deps: {
           repositoryHash: hashWorkerToken(repositoryToken),
           objectStoreHash: hashWorkerToken(objectStoreToken),
           mcpHash: hashWorkerToken(mcpToken),
+          packagesHash: hashWorkerToken(packagesToken),
           bindingsOf: egressBindingsOf,
         },
         leaseTtlMs,
@@ -1196,6 +1298,7 @@ export function createWorkerGateway(deps: {
             ...profile,
             runtime_config: withMcp(profile.runtime_config, mcp, mcpToken),
           };
+          const githubOwners = await githubOwnersOf(binding.ownerScope);
           const attribution = deps.attribution;
           const record =
             attribution === undefined
@@ -1214,6 +1317,13 @@ export function createWorkerGateway(deps: {
             record?.authorApp ?? null,
             binding.repository?.id ?? null,
           );
+          const additional =
+            binding.repository === null
+              ? []
+              : await additionalWorkspaceRepositories(
+                  binding.sessionId,
+                  repositoryToken,
+                );
           return {
             session_id: binding.sessionId,
             turn_id: null,
@@ -1232,11 +1342,18 @@ export function createWorkerGateway(deps: {
               mcp,
               mcpToken,
             ),
+            packages: {
+              access: { kind: "egress_token", token: packagesToken },
+              ...(githubOwners === null ? {} : { github: githubOwners }),
+            },
             workspace: {
               repository: binding.repository && {
                 ...binding.repository,
                 access: { kind: "egress_token", token: repositoryToken },
               },
+              ...(additional.length === 0
+                ? {}
+                : { additional_repositories: additional }),
             },
             object_store: {
               access: { kind: "egress_token", token: objectStoreToken },
@@ -1326,9 +1443,81 @@ export function createWorkerGateway(deps: {
       };
     },
 
+    // A public registry carries no credential, so the gateway's part is the
+    // fence: only a token whose attempt still owns its session reaches one.
+    // A GitHub Packages registry also needs the workspace's bot token, which
+    // only the allowlist hands out.
+    async authorizePackagesEgress(request: {
+      token: string;
+      registry: PackageRegistry;
+      /** Path and query below the registry; required for GitHub's. */
+      path?: string | undefined;
+      regrant?: boolean | undefined;
+    }): Promise<EgressGrant> {
+      const result = await authorizedEgress({
+        token: request.token,
+        purpose: "packages",
+      });
+      if (result.binding !== PACKAGES_BINDING) moved("package registry set");
+      const github =
+        request.registry in GITHUB_PACKAGE_REGISTRIES
+          ? GITHUB_PACKAGE_REGISTRIES[
+              request.registry as keyof typeof GITHUB_PACKAGE_REGISTRIES
+            ]
+          : request.registry === "npm" &&
+              request.path !== undefined &&
+              isGitHubNpmTarball(request.path)
+            ? "npm"
+            : null;
+      if (github !== null) {
+        if (decideGitHubPackages === null || request.path === undefined) {
+          throw new WorkerGatewayError(
+            403,
+            "FORBIDDEN",
+            "GitHub Packages are not served here",
+          );
+        }
+        const decision = await decideGitHubPackages({
+          sessionId: result.sessionId,
+          attemptId: result.attemptId,
+          repositoryId: result.repository?.id ?? null,
+          registry: github,
+          path: request.path,
+          regrant: request.regrant === true,
+        });
+        if (decision.kind === "refused") {
+          throw new WorkerGatewayError(
+            403,
+            "FORBIDDEN",
+            `GitHub Packages request refused: ${decision.reason}`,
+            false,
+            decision.receiptId ?? undefined,
+            decision.reason,
+          );
+        }
+        return {
+          session_id: result.sessionId,
+          attempt_id: result.attemptId,
+          upstream: decision.upstream,
+        };
+      }
+      return {
+        session_id: result.sessionId,
+        attempt_id: result.attemptId,
+        upstream: {
+          url: PUBLIC_PACKAGE_REGISTRIES[
+            request.registry as keyof typeof PUBLIC_PACKAGE_REGISTRIES
+          ],
+          headers: [],
+        },
+      };
+    },
+
     async authorizeEgress(request: {
       token: string;
       purpose: "provider" | "repository";
+      /** repository only: another repository than the session's own. */
+      repository_id?: string | undefined;
     }): Promise<EgressGrant> {
       if (request.purpose === "provider") {
         const titled = await authorizedTitleEgress(request.token);
@@ -1379,6 +1568,12 @@ export function createWorkerGateway(deps: {
       }
       if (result.repository === null) moved("session's repository");
       const { id, url, branch } = result.repository;
+      const other = request.repository_id;
+      if (other !== undefined && other !== id) {
+        return grant(
+          await additionalRepositoryUpstream(result.sessionId, other),
+        );
+      }
       const pair =
         id !== null && result.profileId !== null
           ? allowedPair(catalog, result.profileId, id)
@@ -1405,16 +1600,7 @@ export function createWorkerGateway(deps: {
       } catch (error) {
         // The proxy hands git only a refusal; the session's receipt (the
         // gate's) carries the reason for the person reading the session.
-        if (error instanceof GitHubGateError) {
-          throw new WorkerGatewayError(
-            githubRefusalStatus(error.reasonCode),
-            "GITHUB_REFUSED",
-            `GitHub work refused: ${error.reasonCode}`,
-            false,
-            undefined,
-            error.reasonCode,
-          );
-        }
+        if (error instanceof GitHubGateError) githubRefused(error);
         // The adapter logs why; nothing of its error reaches the proxy.
         forgeUnavailable();
       }
@@ -1776,6 +1962,7 @@ export function createWorkerGateway(deps: {
       let checkpointVersionsHeld = false;
       let checkpointTranscriptBytes: number | undefined;
       let checkpointOutputs: readonly CheckpointOutputObject[] | undefined;
+      let checkpointOutputsDigest: string | null | undefined;
       let checkpointRuntime: RuntimeFingerprint | undefined;
       if (request.checkpoint) {
         const checkpoint = request.checkpoint;
@@ -1808,6 +1995,7 @@ export function createWorkerGateway(deps: {
         checkpointVersionsHeld = verdict.versionsHeld === true;
         checkpointTranscriptBytes = verdict.transcriptBytes;
         checkpointOutputs = verdict.outputs;
+        checkpointOutputsDigest = verdict.outputsDigest;
         checkpointRuntime = verdict.runtime;
       }
       // Verification is a network call that can outlast the lease, so the
@@ -1820,6 +2008,9 @@ export function createWorkerGateway(deps: {
           ? {}
           : { checkpointTranscriptBytes }),
         ...(checkpointOutputs === undefined ? {} : { checkpointOutputs }),
+        ...(checkpointOutputsDigest === undefined
+          ? {}
+          : { checkpointOutputsDigest }),
         ...(checkpointRuntime === undefined ? {} : { checkpointRuntime }),
         now: now(),
       });

@@ -350,6 +350,7 @@ integration("installation profiles on PostgreSQL", () => {
       permission_mode: "acceptEdits",
       fingerprint: entry.fingerprint,
       repository_ids: ["app"],
+      github_app_repositories: null,
       connectionId: "main",
     };
   }
@@ -395,6 +396,32 @@ integration("installation profiles on PostgreSQL", () => {
         connection_id: "main",
       },
     });
+  });
+
+  test("github_app_repositories starts listed and a version without one keeps the one before", async () => {
+    const owner = await person(await workspace(), "owner");
+    const store = createPostgresInstallationProfileStore(db);
+    const name = `apps${ids()}`;
+    const v1 = await store.create(save(owner, name, null));
+    expect(v1.outcome === "created" && v1.record.github_app_repositories).toBe(
+      "listed",
+    );
+    const v2 = await store.create({
+      ...save(owner, name, `op_${name}_v1`),
+      github_app_repositories: "installed",
+    });
+    expect(v2.outcome === "created" && v2.record.github_app_repositories).toBe(
+      "installed",
+    );
+    const v3 = await store.create(save(owner, name, `op_${name}_v2`));
+    expect(v3.outcome === "created" && v3.record.github_app_repositories).toBe(
+      "installed",
+    );
+    const [held] = await db
+      .select({ value: installationProfiles.githubAppRepositories })
+      .from(installationProfiles)
+      .where(eq(installationProfiles.id, `op_${name}_v3`));
+    expect(held?.value).toBe("installed");
   });
 
   test("a first version replaces an existing row or nothing, and never takes an imported id", async () => {

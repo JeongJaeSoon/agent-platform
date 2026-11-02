@@ -2,9 +2,11 @@ import { createPublicKey, randomBytes, verify } from "node:crypto";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { GitBundleFixture } from "./git-bundle.ts";
 import {
   createServedRepository,
   runTestGit,
+  seedServedBranch,
   serveGitHttp,
 } from "./git-http.ts";
 
@@ -121,6 +123,13 @@ export type FakeGitHub = {
     name: string,
     files: Record<string, string>,
     options?: { branch?: string; private?: boolean },
+  ): Promise<void>;
+  /** Points `branch` at a bundle's commit (`seedServedBranch`). */
+  seedBranch(
+    owner: string,
+    name: string,
+    branch: string,
+    bundle: GitBundleFixture,
   ): Promise<void>;
   /** Every branch and tag of a served repository, ref → commit. */
   refs(owner: string, name: string): Promise<Record<string, string>>;
@@ -407,6 +416,20 @@ export async function startFakeGitHub(
       second.installedOn === undefined ||
       second.installedOn.includes(repository)
     );
+  }
+
+  function installationRepository(key: string): Record<string, unknown> {
+    const [owner = "", name = ""] = key.split("/");
+    const repo = served.get(key);
+    return {
+      id: repo?.id,
+      name,
+      full_name: key,
+      owner: { login: owner },
+      html_url: `${origin()}/${key}`,
+      default_branch: repo?.defaultBranch,
+      private: repo?.private ?? true,
+    };
   }
 
   function reaches(grant: Issued, owner: string, name: string): boolean {
@@ -842,6 +865,51 @@ export async function startFakeGitHub(
       if (path === "/healthz") return new Response("ok");
       const app = appCall(request, path);
       if (app !== undefined) return app;
+      if (path === "/installation/repositories" && request.method === "GET") {
+        const carried = installationToken(
+          request.headers.get("authorization"),
+          "token",
+        );
+        if (carried === undefined) {
+          return Response.json({ message: "Bad credentials" }, { status: 401 });
+        }
+        const grant = carried[1];
+        const repositories = [...served.keys()]
+          .filter((key) => {
+            const [owner = "", name = ""] = key.split("/");
+            return reaches(grant, owner, name);
+          })
+          .sort()
+          .map(installationRepository);
+        const perPage = Number(url.searchParams.get("per_page") ?? "30");
+        const page = Number(url.searchParams.get("page") ?? "1");
+        return Response.json({
+          total_count: repositories.length,
+          repositories: repositories.slice(
+            (page - 1) * perPage,
+            page * perPage,
+          ),
+        });
+      }
+      const byId = /^\/repositories\/(\d+)$/.exec(path);
+      if (byId?.[1] && request.method === "GET") {
+        const carried = installationToken(
+          request.headers.get("authorization"),
+          "token",
+        );
+        if (carried === undefined) {
+          return Response.json({ message: "Bad credentials" }, { status: 401 });
+        }
+        const key = [...served.entries()].find(
+          ([, repo]) => repo.id === Number(byId[1]),
+        )?.[0];
+        const [owner = "", name = ""] = key?.split("/") ?? [];
+        return key !== undefined &&
+          (served.get(key)?.private === false ||
+            reaches(carried[1], owner, name))
+          ? Response.json(installationRepository(key))
+          : Response.json({ message: "Not Found" }, { status: 404 });
+      }
       const tokens = /^\/app\/installations\/(\d+)\/access_tokens$/.exec(path);
       if (tokens?.[1] && request.method === "POST") {
         return await accessTokens(request, Number(tokens[1]));
@@ -1038,6 +1106,14 @@ export async function startFakeGitHub(
         runs: [],
         reviews: [],
       });
+    },
+    seedBranch(owner, name, branch, bundle) {
+      return seedServedBranch(
+        { root: join(root, owner) },
+        name,
+        branch,
+        bundle,
+      );
     },
     async refs(owner, name) {
       const listed = await runTestGit(

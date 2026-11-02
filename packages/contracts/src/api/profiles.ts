@@ -15,6 +15,17 @@ const projectSettingsSchema = z.object({ claude_md: z.boolean() }).strict();
 export const repositoryModeSchema = z.enum(["required", "optional", "none"]);
 
 /**
+ * Which GitHub App repositories an installation ceiling runs against besides
+ * its `repository_ids`: `listed` none, `installed` every one the author App's
+ * installations reach. Kept beside `repository_ids`, outside the fingerprint.
+ */
+export const GITHUB_APP_REPOSITORIES_VALUES = ["listed", "installed"] as const;
+export const githubAppRepositoriesSchema = z.enum(
+  GITHUB_APP_REPOSITORIES_VALUES,
+);
+export type GitHubAppRepositories = z.infer<typeof githubAppRepositoriesSchema>;
+
+/**
  * Where a profile is defined: the operator's catalog file, or a workspace
  * owner or admin in the console, narrowing one operator profile.
  */
@@ -156,6 +167,7 @@ export const profileSummarySchema = z
         // Optional so a reader ahead of its server reads a ceiling without them.
         blocked_by: userIdSchema.nullable().optional(),
         blocked_at: timestampSchema.nullable().optional(),
+        github_app_repositories: githubAppRepositoriesSchema.optional(),
       })
       .strict()
       .optional(),
@@ -229,6 +241,8 @@ export const createInstallationProfileRequestSchema = z
     project_settings: projectSettingsSchema.optional(),
     repository_mode: repositoryModeSchema.optional(),
     repository_ids: z.array(z.string().min(1).max(200)).max(256),
+    // Absent: the previous version's value, or `listed` for a first version.
+    github_app_repositories: githubAppRepositoriesSchema.optional(),
     previous_id: z.string().min(1).max(200).optional(),
   })
   .strict();

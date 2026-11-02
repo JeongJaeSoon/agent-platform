@@ -18,7 +18,7 @@ export const apiKeysKo = {
   "apiKeys.guide.agent.startSession":
     "세션을 만들려면 '세션 만들기'와 '세션 보기' 권한을 넣으세요. 이 키로 GET /v1/agents를 부르면 그 에이전트의 active_release_id가 나오고, 그 값을 POST /v1/sessions의 agent_release_id로 보냅니다.",
   "apiKeys.guide.agent.approve":
-    "'요청에 답하기'(sessions:approve) 권한이 없습니다. 승인과 질문 답변은 사람이 합니다.",
+    "'요청에 답하기'(sessions:approve) 권한을 넣으면 그 에이전트의 세션에서 승인과 질문 답변을 합니다. 이 키로 시작한 세션의 요청은 이 키로 승인하지 못합니다.",
   "apiKeys.docs":
     "API 문서에서 키를 Bearer 칸에 넣고 Test Request로 실제 요청을 보내 볼 수 있습니다.",
   "apiKeys.docsLink": "API 문서 열기",
@@ -54,8 +54,8 @@ export const apiKeysKo = {
     "키를 쓸 에이전트입니다. 발급한 뒤에는 바꿀 수 없습니다.",
   "apiKeys.noAgents": "관리하는 에이전트가 없습니다.",
   "apiKeys.agentNeedsScope": "권한을 하나 이상 고르세요.",
-  "apiKeys.agentNoApprove":
-    "'요청에 답하기'(sessions:approve)는 에이전트 키에 넣을 수 없습니다. 승인과 질문 답변은 사람이 합니다.",
+  "apiKeys.selfApproval":
+    "'요청에 답하기'를 넣어도 이 키로 시작한 세션의 요청은 이 키로 승인하지 못합니다. 다른 키나 사람이 승인합니다.",
   "apiKeys.name": "이름(필수 아님)",
   "apiKeys.nameHint": "목록에서 이 키를 알아보는 이름입니다. 예: ci-deploy",
   "apiKeys.scopes": "권한",
@@ -130,7 +130,7 @@ export const apiKeysEn: Record<keyof typeof apiKeysKo, string> = {
   "apiKeys.guide.agent.startSession":
     "To start sessions, include Create sessions and View sessions. GET /v1/agents with this key returns the agent's active_release_id; send it as agent_release_id to POST /v1/sessions.",
   "apiKeys.guide.agent.approve":
-    "Never holds Answer requests (sessions:approve): approvals and answers come from a person.",
+    "With Answer requests (sessions:approve), approves and answers in the agent's sessions. It never approves requests of a session it started itself.",
   "apiKeys.docs":
     "In the API reference, put a key in the Bearer field and send a real request with Test Request.",
   "apiKeys.docsLink": "Open the API reference",
@@ -166,8 +166,8 @@ export const apiKeysEn: Record<keyof typeof apiKeysKo, string> = {
     "The agent the key works for. It cannot be changed after the key is issued.",
   "apiKeys.noAgents": "You do not administer any agent.",
   "apiKeys.agentNeedsScope": "Choose at least one permission.",
-  "apiKeys.agentNoApprove":
-    "Answer requests (sessions:approve) is not available for agent keys: approvals and answers come from a person.",
+  "apiKeys.selfApproval":
+    "Even with Answer requests, this key cannot approve requests of a session it started. Another key or a person approves them.",
   "apiKeys.name": "Name (not required)",
   "apiKeys.nameHint":
     "Shown in the list so you can tell this key apart, for example ci-deploy.",
@@ -244,7 +244,7 @@ export const apiKeysJa: Record<keyof typeof apiKeysKo, string> = {
   "apiKeys.guide.agent.startSession":
     "セッションを作成するには「セッションの作成」と「セッションの閲覧」を含めてください。このキーで GET /v1/agents を呼ぶとエージェントの active_release_id が返るので、その値を POST /v1/sessions の agent_release_id として送ります。",
   "apiKeys.guide.agent.approve":
-    "「リクエストへの回答」（sessions:approve）は持てません。承認と質問への回答は人が行います。",
+    "「リクエストへの回答」（sessions:approve）を含めると、そのエージェントのセッションで承認と質問への回答を行います。このキーで開始したセッションのリクエストは、このキーでは承認できません。",
   "apiKeys.docs":
     "API リファレンスでキーを Bearer 欄に入れ、Test Request で実際のリクエストを送れます。",
   "apiKeys.docsLink": "API リファレンスを開く",
@@ -279,8 +279,8 @@ export const apiKeysJa: Record<keyof typeof apiKeysKo, string> = {
   "apiKeys.agentHint": "キーを使うエージェントです。発行後は変更できません。",
   "apiKeys.noAgents": "管理しているエージェントがありません。",
   "apiKeys.agentNeedsScope": "権限を 1 つ以上選択してください。",
-  "apiKeys.agentNoApprove":
-    "「リクエストへの回答」（sessions:approve）はエージェントキーに含められません。承認と質問への回答は人が行います。",
+  "apiKeys.selfApproval":
+    "「リクエストへの回答」を含めても、このキーで開始したセッションのリクエストはこのキーでは承認できません。別のキーか人が承認します。",
   "apiKeys.name": "名前（任意）",
   "apiKeys.nameHint": "一覧でこのキーを見分けるための名前です。例: ci-deploy",
   "apiKeys.scopes": "権限",

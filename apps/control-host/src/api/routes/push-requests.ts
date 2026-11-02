@@ -33,9 +33,12 @@ export function registerPushRequestRoutes(
   apiRoute(router, "createPushRequest", async (context) => {
     const params = requireParams(context, sessionIdParamsSchema);
     const key = requireIdempotencyKey(context);
-    await parseJsonBody(context, createPushRequestRequestSchema);
+    const body = await parseJsonBody(context, createPushRequestRequestSchema);
     const created = await mapped(() =>
-      service.create(actorOf(context), params.id, { idempotencyKey: key }),
+      service.create(actorOf(context), params.id, {
+        idempotencyKey: key,
+        body,
+      }),
     );
     return jsonWithSchema(context, pushRequestSchema, created, 201);
   });

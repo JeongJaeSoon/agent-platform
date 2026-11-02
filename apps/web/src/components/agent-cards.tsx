@@ -21,6 +21,7 @@ import {
   CardHeader,
   CardTitle,
   cn,
+  formatTimestamp,
   linkVariants,
   Skeleton,
   StatusDot,
@@ -31,7 +32,7 @@ import type { ReactNode } from "react";
 import { agentAdminsQuery, agentQuery } from "../api/queries.ts";
 import { useI18n } from "../i18n/i18n.tsx";
 import { credentialBindingsQuery } from "../routes/agent-detail/credentials.tsx";
-import { AgentStateBadge, agentState } from "./agent-state.tsx";
+import { AgentStateBadge } from "./agent-state.tsx";
 import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
 import { useSeen } from "./seen.ts";
 import { SlackActionLink } from "./slack-action-link.tsx";
@@ -141,6 +142,12 @@ function factsOf(data: AgentDetail): Facts {
   };
 }
 
+/** A release label is the Seoul second it was made, `-2` on a tie. */
+function releasedAt(label: string): string {
+  const [date, time] = label.slice(0, 19).split("_");
+  return `${date}T${time}+09:00`;
+}
+
 function liveRefs(page: ListCredentialBindingsResponse) {
   return page.items
     .filter((binding) => binding.revoked_at === null)
@@ -165,17 +172,15 @@ function AgentCard({
   readonly bound: Part<readonly string[]>;
   readonly admins: Part<readonly string[]>;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const version = facts.data?.version;
-  const released =
-    agentState(agent) === "active" ? facts.data?.release_label : null;
 
   return (
     <Card className={cn("w-full", OPENS_ROW)} data-agent={agent.slug}>
       <CardHeader>
         <div className="flex min-w-0 items-center gap-3">
-          <AgentAvatar name={agent.name} />
-          <div className="flex min-w-0 flex-col gap-1">
+          <AgentAvatar name={agent.name} size="two-line" />
+          <div className="flex min-w-0 flex-col gap-(--ap-row-line-gap)">
             <CardTitle className="[overflow-wrap:anywhere]">
               <RouterLink
                 to="/agents/$id"
@@ -192,7 +197,7 @@ function AgentCard({
               truncate
               title={agent.slug}
               // Above the card's stretched link, so the hover reaches the title.
-              className="relative z-1"
+              className="relative z-1 leading-(--ap-leading-caption)"
             >
               <span className="sr-only">{t("agents.slug")} </span>
               {agent.slug}
@@ -200,13 +205,7 @@ function AgentCard({
           </div>
         </div>
         <CardAction>
-          {released ? (
-            <Badge variant="green" data-state="active">
-              {t("agents.cards.released", { release: released })}
-            </Badge>
-          ) : (
-            <AgentStateBadge agent={agent} />
-          )}
+          <AgentStateBadge agent={agent} />
         </CardAction>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-3">
@@ -233,11 +232,23 @@ function AgentCard({
           </div>
         </div>
         <dl className="m-0 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-2 text-control">
+          <Fact term={t("agents.cards.release")}>
+            <Detail query={facts}>
+              {facts.data ? (
+                facts.data.release_label ? (
+                  formatTimestamp(releasedAt(facts.data.release_label), locale)
+                ) : (
+                  <Dash label={t("agents.cards.notReleased")} />
+                )
+              ) : null}
+            </Detail>
+          </Fact>
           <Fact term={t("agents.cards.profile")}>
             <Detail query={facts}>
               {facts.data
-                ? (facts.data.runtime_profile_id ??
-                  t("agents.cards.notReleased"))
+                ? (facts.data.runtime_profile_id ?? (
+                    <Dash label={t("agent.panel.none")} />
+                  ))
                 : null}
             </Detail>
           </Fact>
@@ -315,8 +326,7 @@ function Detail({
   if (queries.some((q) => q.isError))
     return (
       <span className="text-muted-foreground">
-        <span aria-hidden="true">—</span>
-        <span className="sr-only">{t("agents.cards.unavailable")}</span>
+        <Dash label={t("agents.cards.unavailable")} />
       </span>
     );
   if (queries.some((q) => q.isPending))
@@ -337,6 +347,16 @@ function Detail({
       </span>
     );
   return <>{children}</>;
+}
+
+/** A dash to the eye, words to a screen reader. */
+function Dash({ label }: { readonly label: string }) {
+  return (
+    <>
+      <span aria-hidden="true">—</span>
+      <span className="sr-only">{label}</span>
+    </>
+  );
 }
 
 function Fact({
@@ -408,11 +428,17 @@ export function CredentialNeed({
   );
 }
 
-/** The design's 32px square initials mark, one colour per name. */
-export function AgentAvatar({ name }: { readonly name: string }) {
+/** The design's square initials mark, one colour per name. */
+export function AgentAvatar({
+  name,
+  size = "lg",
+}: {
+  readonly name: string;
+  readonly size?: "lg" | "two-line";
+}) {
   return (
     <Avatar
-      size="lg"
+      size={size}
       shape="square"
       tone={avatarTone(name)}
       initials={avatarInitials(name)}

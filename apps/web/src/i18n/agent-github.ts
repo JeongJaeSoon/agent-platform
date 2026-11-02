@@ -71,6 +71,14 @@ export const agentGitHubKo = {
     "PAT로 연결된 저장소라 권한을 좁힐 수 없습니다. GitHub App으로 옮겨야 고를 수 있습니다.",
   "agentGitHub.repositoriesFoot":
     "목록에 없는 저장소는 GitHub에서 App 설치에 더한 뒤 운영자가 카탈로그에 추가합니다.",
+  "agentGitHub.pickTitle": "App이 설치된 저장소에서 고르기",
+  "agentGitHub.pickHint":
+    "설치 프로필이 App 저장소 전체를 허용합니다. 고른 저장소는 위 목록에 켜진 채로 더해지고, 저장하면 새 릴리스에 반영됩니다.",
+  "agentGitHub.pickOne": "고르기",
+  "agentGitHub.pickName": "{name} 고르기",
+  "agentGitHub.picked": "{name}을(를) 더했습니다. 저장하면 반영됩니다.",
+  "agentGitHub.pickInList": "목록에 있음",
+  "agentGitHub.pickRefused": "저장소를 고르지 못했습니다: {reason}",
   "agentGitHub.permissionsHint":
     "기본은 PR 작성·수정까지입니다. 브랜치 보호·필수 리뷰·CODEOWNERS처럼 GitHub가 막는 것은 저장소 설정을 따릅니다. merge 권한은 없습니다.",
   "agentGitHub.base": "PR 작성·수정",
@@ -83,12 +91,6 @@ export const agentGitHubKo = {
   "agentGitHub.feature.actions": "Actions 실행",
   "agentGitHub.feature.actionsHint":
     "허용 목록의 워크플로만 실행(workflow_dispatch)하거나 다시 실행합니다. 필요한 권한: actions 쓰기",
-  "agentGitHub.feature.checks": "검사 결과 쓰기",
-  "agentGitHub.feature.checksHint":
-    "check run을 만들고 결과를 올립니다. 필요한 권한: checks 쓰기",
-  "agentGitHub.feature.issues": "이슈 쓰기",
-  "agentGitHub.feature.issuesHint":
-    "이슈를 열고 코멘트를 남깁니다. 필요한 권한: issues 쓰기",
   "agentGitHub.feature.workflows": "워크플로 파일 수정",
   "agentGitHub.feature.workflowsHint":
     ".github/workflows 아래 파일을 바꾼 commit도 push합니다. 필요한 권한: workflows 쓰기",
@@ -250,6 +252,14 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
     "It connects with a PAT, which cannot be narrowed. Move it to a GitHub App to pick it.",
   "agentGitHub.repositoriesFoot":
     "To add a repository, add it to the App's installation on GitHub; the operator then adds it to the catalog.",
+  "agentGitHub.pickTitle": "Pick from repositories the App is installed on",
+  "agentGitHub.pickHint":
+    "The installation profile allows every App repository. A picked repository joins the list above, turned on, and takes effect in a new release when you save.",
+  "agentGitHub.pickOne": "Pick",
+  "agentGitHub.pickName": "Pick {name}",
+  "agentGitHub.picked": "Added {name}. Save to apply it.",
+  "agentGitHub.pickInList": "In the list",
+  "agentGitHub.pickRefused": "The repository could not be picked: {reason}",
   "agentGitHub.permissionsHint":
     "By default an agent writes pull requests and nothing more. What GitHub enforces, such as branch protection, required reviews and CODEOWNERS, follows the repository's settings. There is no merge permission.",
   "agentGitHub.base": "Write pull requests",
@@ -262,12 +272,6 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.feature.actions": "Run Actions",
   "agentGitHub.feature.actionsHint":
     "Runs (workflow_dispatch) or reruns only workflows on the allow list. Needs: actions write",
-  "agentGitHub.feature.checks": "Write checks",
-  "agentGitHub.feature.checksHint":
-    "Creates check runs and reports results. Needs: checks write",
-  "agentGitHub.feature.issues": "Write issues",
-  "agentGitHub.feature.issuesHint":
-    "Opens issues and comments on them. Needs: issues write",
   "agentGitHub.feature.workflows": "Edit workflow files",
   "agentGitHub.feature.workflowsHint":
     "Also pushes commits that change files under .github/workflows. Needs: workflows write",
@@ -433,6 +437,14 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
     "PAT で接続されたリポジトリのため権限を絞れません。GitHub App に移すと選べます。",
   "agentGitHub.repositoriesFoot":
     "一覧にないリポジトリは、GitHub で App のインストールに加えたあと運用者がカタログに追加します。",
+  "agentGitHub.pickTitle": "App がインストールされたリポジトリから選ぶ",
+  "agentGitHub.pickHint":
+    "インストールのプロファイルが App のリポジトリすべてを許可しています。選んだリポジトリはオンの状態で上の一覧に加わり、保存すると新しいリリースに反映されます。",
+  "agentGitHub.pickOne": "選ぶ",
+  "agentGitHub.pickName": "{name} を選ぶ",
+  "agentGitHub.picked": "{name} を加えました。保存すると反映されます。",
+  "agentGitHub.pickInList": "一覧にあります",
+  "agentGitHub.pickRefused": "リポジトリを選べませんでした: {reason}",
   "agentGitHub.permissionsHint":
     "既定は PR の作成・修正までです。ブランチ保護・必須レビュー・CODEOWNERS のように GitHub が止めるものはリポジトリの設定に従います。merge の権限はありません。",
   "agentGitHub.base": "PR の作成・修正",
@@ -445,12 +457,6 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.feature.actions": "Actions の実行",
   "agentGitHub.feature.actionsHint":
     "許可リストのワークフローだけを実行(workflow_dispatch)または再実行します。必要な権限: actions の書き込み",
-  "agentGitHub.feature.checks": "チェック結果の書き込み",
-  "agentGitHub.feature.checksHint":
-    "check run を作って結果を上げます。必要な権限: checks の書き込み",
-  "agentGitHub.feature.issues": "Issue の書き込み",
-  "agentGitHub.feature.issuesHint":
-    "Issue を開いてコメントを残します。必要な権限: issues の書き込み",
   "agentGitHub.feature.workflows": "ワークフローファイルの変更",
   "agentGitHub.feature.workflowsHint":
     ".github/workflows 以下のファイルを変えた commit も push します。必要な権限: workflows の書き込み",

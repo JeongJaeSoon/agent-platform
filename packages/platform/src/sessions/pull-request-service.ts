@@ -2,11 +2,11 @@ import {
   type CommentPullRequestRequest,
   type CommentPullRequestResponse,
   DEFAULT_PULL_REQUEST_COMMENT_MARKER,
+  isSessionPushBranch,
   type OpenPullRequestRequest,
   type OpenPullRequestResponse,
   type PullRequestReceiptResult,
   type PullRequestRefusal,
-  pushBranchFor,
 } from "@werft-ai/contracts";
 import type { AuthorizationPolicy } from "../musterrolle/policy.ts";
 import { ForgeCredentialError } from "../ports/forge.ts";
@@ -203,6 +203,7 @@ export function createPullRequestService(deps: {
       grant = await gate.grant({
         sessionId: source.sessionId,
         purpose: "pull_request",
+        repositoryId: source.repositoryId,
         actor: pushReceiptActor(actor),
       });
     } catch (error) {
@@ -269,7 +270,7 @@ export function createPullRequestService(deps: {
       const fields = { repository_id: source.repositoryId };
       if (source.state !== "pushed") return await refuse("not_pushed", fields);
       const head = source.targetBranch;
-      if (head !== pushBranchFor(source.sessionId)) {
+      if (!isSessionPushBranch(source.sessionId, head)) {
         return await refuse("not_pushed", fields);
       }
       const { forge, base } = await forgeFor(actor, source, refuse);
@@ -280,6 +281,10 @@ export function createPullRequestService(deps: {
         base: string;
         created: boolean;
       };
+      const title = cleanTitle(
+        body.title ?? `Agent session ${source.sessionId}`,
+        redact,
+      );
       try {
         const found = await forge.findPullRequestForBranch(head);
         // An open one found, or GitHub answering a racing one with 422, is
@@ -290,10 +295,7 @@ export function createPullRequestService(deps: {
             : await forge.createPullRequest({
                 head,
                 base,
-                title: cleanTitle(
-                  body.title ?? `Agent session ${source.sessionId}`,
-                  redact,
-                ),
+                title,
                 body: withPullRequestTail(
                   cleanBody(
                     body.body ?? "",
@@ -333,6 +335,7 @@ export function createPullRequestService(deps: {
         repositoryId: source.repositoryId,
         number: opened.number,
         url: opened.url,
+        title: created ? title : null,
         head,
         base: opened.base,
         created,
@@ -365,14 +368,16 @@ export function createPullRequestService(deps: {
         pushRequestId,
       );
       if (source === null) return await refuse("not_found", { marker });
-      // A later push request of the session updates the same branch, so it
-      // comments on the pull request an earlier one opened.
+      // A later push request of the session to the same repository and
+      // branch updates that branch, so it comments on the pull request an
+      // earlier one opened.
       const pullRequest =
         (await store.findPullRequest(actor.ownerId, source.id)) ??
         (source.state === "pushed"
           ? await store.findBranchPullRequest(
               actor.ownerId,
               source.sessionId,
+              source.repositoryId,
               source.targetBranch,
             )
           : null);

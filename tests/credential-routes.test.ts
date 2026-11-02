@@ -567,4 +567,28 @@ describe("credential routes end to end", () => {
     );
     expect(direct.status).toBe(401);
   }, 60_000);
+
+  // The public registries are on no list here, as on a proxy whose operator
+  // has not opened them: the claim's packages token is good, the route is
+  // judged, and the registry is still refused before anything is dialled.
+  test("a packages request reaches a registry only through the credential allowlist", async () => {
+    const { claim, credentialUrl } = await topology();
+    const token = claim.packages?.access.token ?? "";
+    expect(token.startsWith("wek_")).toBe(true);
+    const metadata = await fetch(`${credentialUrl}/packages/npm/left-pad`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(metadata.status).toBe(403);
+    expect(await metadata.text()).toContain("egress denied");
+    const publish = await fetch(`${credentialUrl}/packages/npm/left-pad`, {
+      method: "PUT",
+      headers: { authorization: `Bearer ${token}` },
+      body: "{}",
+    });
+    expect(publish.status).toBe(404);
+    const other = await fetch(`${credentialUrl}/packages/npm/left-pad`, {
+      headers: { authorization: `Bearer ${claim.object_store.access.token}` },
+    });
+    expect(other.status).toBe(401);
+  }, 60_000);
 });

@@ -139,6 +139,16 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "PUT /v1/workspaces/{id}/github-apps/{role}",
     "DELETE /v1/workspaces/{id}/github-apps/{role}",
   ],
+  "routes/github-app-manifest.test.ts": [
+    "POST /v1/workspaces/{id}/github-apps/author/manifest",
+    "POST /v1/workspaces/{id}/github-apps/author/manifest/complete",
+  ],
+  "routes/github-repositories.test.ts": [
+    "GET /v1/workspaces/{id}/github-repositories",
+    "PATCH /v1/workspaces/{id}/github-repositories/{repositoryId}",
+    "GET /v1/agents/{id}/github/repositories",
+    "POST /v1/agents/{id}/github/repositories",
+  ],
   "routes/agent-github.test.ts": [
     "GET /v1/agents/{id}/github",
     "PUT /v1/agents/{id}/github/enabled",
@@ -148,6 +158,12 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/workspaces/{id}/github-settings",
     "PUT /v1/workspaces/{id}/github-settings",
     "PUT /v1/workspaces/{id}/github-settings/oauth-client-secret",
+  ],
+  "routes/github-packages.test.ts": [
+    "GET /v1/workspaces/{id}/github-packages",
+    "PUT /v1/workspaces/{id}/github-packages/token",
+    "DELETE /v1/workspaces/{id}/github-packages/token",
+    "PUT /v1/workspaces/{id}/github-packages/allowlist",
   ],
   "routes/slack-secrets.test.ts": [
     "GET /v1/workspaces/{id}/slack/config-token",
@@ -216,6 +232,24 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/slack/install/complete",
   ],
   "routes/slack-events.test.ts": ["POST /v1/slack/events/{agent_id}"],
+  "routes/achievements.test.ts": [
+    "GET /v1/achievement-categories",
+    "POST /v1/achievement-categories",
+    "PATCH /v1/achievement-categories/{id}",
+    "POST /v1/achievement-categories/{id}/archive",
+    "GET /v1/achievement-types",
+    "POST /v1/achievement-types",
+    "PATCH /v1/achievement-types/{id}",
+    "POST /v1/achievement-types/{id}/archive",
+    "GET /v1/achievement-rules",
+    "POST /v1/achievement-rules",
+    "POST /v1/achievement-rules/{family_id}/versions",
+    "POST /v1/achievement-rules/{family_id}/disable",
+    "POST /v1/achievement-rules/{family_id}/enable",
+    "GET /v1/workspaces/{id}/achievement-judge",
+    "PUT /v1/workspaces/{id}/achievement-judge",
+    "GET /v1/sessions/{id}/achievements",
+  ],
 };
 
 // Declared for clients but produced by nothing yet: alpha never trims

@@ -1,4 +1,5 @@
 import type {
+  DeciderKey,
   ParkDeclinedRequest,
   ParkedDelivery,
   PendingRequest,
@@ -50,6 +51,16 @@ export interface PendingRequestStore {
     sessionId: string,
   ): Promise<PendingRequest[] | null>;
   answerAtomic(input: AnswerRequestInput): Promise<AnswerRequestResult>;
+  /**
+   * Writes the failed `answer` receipt of a key refused for answering the
+   * session it started (GA-8) and returns its id.
+   */
+  recordSelfApproval(input: {
+    principal: Principal;
+    sessionId: string;
+    requestId: string;
+    deciderKey: DeciderKey | null;
+  }): Promise<string>;
 }
 
 export type RegisterPendingInput = {

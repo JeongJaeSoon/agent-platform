@@ -12,11 +12,18 @@ export function agentState(agent: AgentSummary): AgentState {
 }
 
 const STATE_VARIANT = {
-  draft: "gray",
+  draft: "blue",
   active: "green",
-  paused: "gray",
+  paused: "amber",
   archived: "gray",
 } as const satisfies Record<AgentState, BadgeProps["variant"]>;
+
+const STATE_LABEL = {
+  draft: "agents.state.draft",
+  active: "agents.state.released",
+  paused: "agents.status.paused",
+  archived: "agents.status.archived",
+} as const;
 
 export function AgentStateBadge({ agent }: { readonly agent: AgentSummary }) {
   const { t } = useI18n();
@@ -27,9 +34,7 @@ export function AgentStateBadge({ agent }: { readonly agent: AgentSummary }) {
       data-state={state}
       className={state === "archived" ? "text-muted-foreground" : undefined}
     >
-      {state === "draft"
-        ? t("agents.state.draft")
-        : t(`agents.status.${state}`)}
+      {t(STATE_LABEL[state])}
     </Badge>
   );
 }

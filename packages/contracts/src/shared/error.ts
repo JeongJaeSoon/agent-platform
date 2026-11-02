@@ -84,8 +84,7 @@ export const API_ERROR_CODE_VALUES = [
   // A role change or membership enable for a suspended account: only lifting
   // the suspension brings the person back.
   "ACCOUNT_DISABLED",
-  // A key asked for more than its issuer holds now, or an agent's key asked
-  // to approve (design 4.1, D26).
+  // A key asked for more than its issuer holds now (design 4.1).
   "SCOPE_NOT_GRANTABLE",
   // A session named a release made for another runtime profile.
   "RELEASE_PROFILE_MISMATCH",

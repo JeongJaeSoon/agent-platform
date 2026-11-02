@@ -10,7 +10,10 @@ import {
 } from "../apps/control-host/src/api/shutdown.ts";
 import { PASS_LOOP_ROLES } from "../apps/control-host/src/pass-loop/loop.ts";
 import { DEFAULT_MAX_BODY_BYTES_IN_FLIGHT } from "../apps/egress-proxy/src/credential.ts";
-import { REMOVED_AFTER_INSTALL } from "../scripts/third-party-notices.ts";
+import {
+  GIT_LFS_VERSION,
+  REMOVED_AFTER_INSTALL,
+} from "../scripts/third-party-notices.ts";
 import {
   COMPOSE_RENDER_TIMEOUT_MS,
   CORE,
@@ -155,6 +158,34 @@ describe("app Dockerfiles", () => {
   // image-smoke.sh runs the tools themselves.
   test("the worker carries xfsprogs for the inode helper", () => {
     expect(basePins.worker.source).toMatch(/apt-get install .*\bxfsprogs\b/);
+  });
+
+  // A session's LFS objects come through the repository route (94S-1095).
+  // Upstream's release, pinned per arch; the notices name the same version.
+  test("the worker carries git-lfs", () => {
+    const source = basePins.worker.source;
+    expect(source).toContain(`ARG GIT_LFS_VERSION=${GIT_LFS_VERSION}\n`);
+    for (const arch of ["amd64", "arm64"]) {
+      expect(source).toMatch(
+        new RegExp(
+          `^ADD --checksum=sha256:[0-9a-f]{64} \\\\\\n {2}https://github\\.com/git-lfs/git-lfs/releases/download/v\\$\\{GIT_LFS_VERSION\\}/git-lfs-linux-${arch}-v\\$\\{GIT_LFS_VERSION\\}\\.tar\\.gz \\\\$`,
+          "m",
+        ),
+      );
+    }
+    expect(source).toContain(
+      "COPY --from=git-lfs /tmp/git-lfs /usr/local/bin/git-lfs\n",
+    );
+    expect(source).toMatch(
+      /^ADD --checksum=sha256:[0-9a-f]{64} \\\n {2}https:\/\/raw\.githubusercontent\.com\/git-lfs\/git-lfs\/v\$\{GIT_LFS_VERSION\}\/LICENSE\.md \\$/m,
+    );
+    expect(source).toContain(
+      "COPY --from=git-lfs /tmp/git-lfs-LICENSE.md /usr/local/share/doc/git-lfs/LICENSE.md\n",
+    );
+    expect(source).not.toMatch(/apt-get install .*\bgit-lfs\b/);
+    expect(source).toMatch(
+      /^RUN git lfs install --system --skip-repo --skip-smudge$/m,
+    );
   });
 
   // The API pushes approved sessions over https with git, the worker clones
@@ -718,8 +749,9 @@ type Rendered = {
       profiles?: string[];
       environment?: Record<string, string | null>;
       ports?: { host_ip?: string; published?: string; target: number }[];
-      volumes?: { source?: string; target: string }[];
+      volumes?: { source?: string; target: string; read_only?: boolean }[];
       depends_on?: Record<string, unknown>;
+      command?: string[];
     }
   >;
   volumes?: Record<string, unknown>;
@@ -1439,6 +1471,77 @@ describe("compose layers", () => {
         .sort();
       console.log(`${files.join(" + ")}: master key on ${holders.join(", ")}`);
       expect(holders).toEqual(["api", "slack"]);
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  // `scripts/local.sh dev`: the control host roles run the checkout's source
+  // read-only under the restarter, and the stack without the overlay is the
+  // same as before.
+  test(
+    "the dev overlay runs the control host roles on the mounted source and leaves the base render alone",
+    () => {
+      const base = render(["compose.yaml", FAKE_MODEL]);
+      const dev = render(["compose.yaml", FAKE_MODEL, "infra/compose.dev.yml"]);
+      expect({ exitCode: dev.exitCode, stderr: dev.stderr }).toEqual({
+        exitCode: 0,
+        stderr: "",
+      });
+      const services = dev.model?.services ?? {};
+      const source = [
+        { source: "apps/control-host", target: "/app/apps/control-host" },
+        { source: "packages", target: "/app/packages" },
+        { source: "scripts/dev", target: "/app/scripts/dev" },
+      ];
+      const mounted = (name: string) =>
+        (services[name]?.volumes ?? [])
+          .filter(({ source }) => source?.startsWith(`${root}/`))
+          .map(({ source, target, read_only }) => ({
+            source: source?.slice(root.length + 1),
+            target,
+            read_only,
+          }));
+      for (const role of ["api", "scheduler", "reconciler"]) {
+        const command = services[role]?.command ?? [];
+        expect({
+          role,
+          head: command.slice(0, 2),
+          tail: command.slice(-4),
+        }).toEqual({
+          role,
+          head: ["bun", "scripts/dev/hot-restart.ts"],
+          tail: ["bun", "run", "apps/control-host/src/main.ts", role],
+        });
+        expect({ role, mounted: mounted(role) }).toEqual({
+          role,
+          mounted: expect.arrayContaining(
+            source.map((mount) => ({ ...mount, read_only: true })),
+          ),
+        });
+      }
+      // What the layers already mount stays.
+      expect(
+        services.scheduler?.volumes?.map(({ target }) => target),
+      ).toContain("/var/run/docker.sock");
+      expect(services.api?.volumes?.map(({ target }) => target)).toContain(
+        "/app/config",
+      );
+      expect(Object.keys(services)).not.toContain("slack");
+      expect(Object.keys(services)).not.toContain("maintenance");
+
+      const baseServices = base.model?.services ?? {};
+      expect(Object.keys(baseServices)).toEqual(
+        expect.arrayContaining(["slack", "maintenance"]),
+      );
+      for (const [name, service] of Object.entries(baseServices))
+        expect({
+          name,
+          source: (service.volumes ?? []).some(
+            ({ target }) => target === "/app/apps/control-host",
+          ),
+        }).toEqual({ name, source: false });
+      // The image's own CMD.
+      expect(baseServices.api?.command ?? null).toBeNull();
     },
     COMPOSE_RENDER_TIMEOUT_MS,
   );

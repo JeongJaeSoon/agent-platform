@@ -15,10 +15,12 @@ import {
   GitHubAppCheckError,
   type GitHubAppDirectory,
   type GitHubAppInstallationView,
+  type GitHubAppManifestConversion,
   type GitHubAppStore,
   GitHubCallError,
   type GitHubConnection,
   type GitHubConnections,
+  type GitHubInstallationRepository,
   GitHubPermissionError,
   type GitHubPermissions,
   type GitHubRateLimit,
@@ -340,6 +342,7 @@ export function createGitHubConnection(
           return {
             pullRequest: {
               ...pullRequestOf(data),
+              title: data.title,
               mergeCommitSha: data.merged_at ? data.merge_commit_sha : null,
               additions: countOf(data.additions),
               deletions: countOf(data.deletions),
@@ -865,6 +868,102 @@ export function createGitHubAppDirectory(
       asking("App installation lookup", app, (client, auth) =>
         installationFor(client, auth, repo),
       ),
+    installationRepositoriesPage: (app, installationId, { page, perPage }) =>
+      asking("Installation repositories", app, async (client, auth) => {
+        const { token } = await auth({ type: "installation", installationId });
+        const { data } = await client.request(
+          "GET /installation/repositories",
+          {
+            per_page: perPage,
+            page,
+            headers: { authorization: `token ${token}` },
+          },
+        );
+        return {
+          repositories: data.repositories.map(installationRepositoryOf),
+          totalCount: data.total_count,
+        };
+      }),
+    repositoryById: (app, installationId, repositoryId) =>
+      asking("Repository lookup", app, async (client, auth) => {
+        const { token } = await auth({ type: "installation", installationId });
+        try {
+          const { data } = await client.request("GET /repositories/{id}", {
+            id: repositoryId,
+            headers: { authorization: `token ${token}` },
+          });
+          return installationRepositoryOf(data);
+        } catch (error) {
+          if (statusOf(error) === 404) return null;
+          throw error;
+        }
+      }),
+  };
+}
+
+function installationRepositoryOf(repository: {
+  id: number | bigint;
+  owner: { login: string };
+  name: string;
+  html_url: string;
+  default_branch?: string;
+  private: boolean;
+}): GitHubInstallationRepository {
+  return {
+    id: Number(repository.id),
+    owner: repository.owner.login,
+    name: repository.name,
+    url: repository.html_url,
+    defaultBranch: repository.default_branch ?? "main",
+    private: repository.private,
+  };
+}
+
+/**
+ * `POST /app-manifests/{code}/conversions`. The code is single-use: a retry
+ * after GitHub made the App would be refused and lose the key, so none is
+ * sent. Neither the code nor the answer's secrets reach the log.
+ */
+export function createGitHubManifestConverter(
+  options: { logger?: Logger } = {},
+) {
+  const clients = new Map<string, Client>();
+  return async (
+    apiBase: string,
+    code: string,
+  ): Promise<GitHubAppManifestConversion> => {
+    const base = apiBase.replace(/\/+$/, "");
+    let client = clients.get(base);
+    if (client === undefined) {
+      client = clientOf(base, options.logger, { paced: false });
+      clients.set(base, client);
+    }
+    try {
+      const { data } = await client.request(
+        "POST /app-manifests/{code}/conversions",
+        { code, request: { retries: 0 } },
+      );
+      const owner = data.owner as { login?: string; slug?: string } | null;
+      return {
+        appId: Number(data.id),
+        slug: data.slug ?? String(data.id),
+        name: data.name,
+        htmlUrl: data.html_url,
+        permissions: permissionsOf(data.permissions),
+        clientId: data.client_id,
+        clientSecret: data.client_secret,
+        privateKey: data.pem.replace(/\r\n?/g, "\n").trim(),
+        owner: owner?.login ?? owner?.slug ?? String(data.id),
+      };
+    } catch (error) {
+      const status = statusOf(error);
+      failure(options.logger, "App manifest conversion", error);
+      throw new GitHubAppCheckError(
+        status === 404 || status === 422
+          ? "github_rejected"
+          : "github_unreachable",
+      );
+    }
   };
 }
 
@@ -1085,11 +1184,9 @@ export function connectionsOf(
 ): GitHubConnections {
   const { registered, ...connectionOptions } = options;
   const connections = new Map<string, GitHubConnection>();
-  const usesRegistered = new Set<string>();
   for (const [id, repository] of Object.entries(catalog.repositories)) {
     const { auth } = repository;
     if (auth?.kind === "github_app" && "registered" in auth) {
-      usesRegistered.add(id);
     } else if (auth?.kind === "github_app") {
       connections.set(
         id,
@@ -1122,8 +1219,16 @@ export function connectionsOf(
       );
     }
   }
+  // Looked up per call: the console adds and removes registered-App
+  // repositories while the API runs; credentialed entries come from the
+  // file, which does not change.
   return (id, role) => {
-    if (usesRegistered.has(id)) return registered?.(role) ?? null;
+    const auth = Object.hasOwn(catalog.repositories, id)
+      ? catalog.repositories[id]?.auth
+      : undefined;
+    if (auth?.kind === "github_app" && "registered" in auth) {
+      return registered?.(role) ?? null;
+    }
     return role === "author" ? (connections.get(id) ?? null) : null;
   };
 }

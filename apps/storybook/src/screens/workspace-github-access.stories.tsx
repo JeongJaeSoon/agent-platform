@@ -79,8 +79,6 @@ const FEATURES: readonly (readonly [Feature, string, string])[] = [
     "Actions 실행",
     "에이전트 허용 목록의 워크플로를 실행하거나 다시 실행합니다.",
   ],
-  ["checks", "검사 결과 쓰기", "check run을 만들고 결과를 올립니다."],
-  ["issues", "이슈 쓰기", "이슈를 열고 코멘트를 남깁니다."],
   [
     "workflows",
     "워크플로 파일 수정",

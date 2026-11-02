@@ -70,6 +70,32 @@ describe("routeOf", () => {
     }
   });
 
+  test("routes another repository's read half by the one path segment naming it", () => {
+    expect(
+      routeOf("GET", "/repository/docs/info/refs", "?service=git-upload-pack"),
+    ).toEqual({
+      purpose: "repository",
+      repository: "docs",
+      path: "/info/refs",
+      search: "?service=git-upload-pack",
+    });
+    expect(
+      routeOf("POST", "/repository/my.repo_2/git-upload-pack", ""),
+    ).toMatchObject({ repository: "my.repo_2", path: "/git-upload-pack" });
+    for (const [method, path, search] of [
+      ["GET", "/repository/docs/info/refs", "?service=git-receive-pack"],
+      ["POST", "/repository/docs/git-receive-pack", ""],
+      ["POST", "/repository/docs/git-upload-pack", "?x=1"],
+      ["GET", "/repository/docs/git-upload-pack", ""],
+      ["POST", "/repository/a/b/git-upload-pack", ""],
+      ["POST", "/repository/../git-upload-pack", ""],
+      ["POST", "/repository/.hidden/git-upload-pack", ""],
+      ["POST", "/repository/%2e%2e/git-upload-pack", ""],
+    ] as const) {
+      expect(routeOf(method, path, search)).toBeNull();
+    }
+  });
+
   test("routes one remote MCP server's URL for the streamable HTTP methods", () => {
     for (const method of ["POST", "GET", "DELETE"]) {
       expect(routeOf(method, "/mcp/fake", "")).toEqual({
@@ -1313,6 +1339,54 @@ describe("startCredentialProxy", () => {
       "/agent/app.git/info/refs",
     );
     expect(up.seen[0]?.headers.authorization).toBe(basic);
+  });
+
+  test("asks the authorizer for the repository the path names", async () => {
+    const up = upstream(
+      () =>
+        new Response("001e# service=git-upload-pack\n0000", {
+          headers: {
+            "content-type": "application/x-git-upload-pack-advertisement",
+          },
+        }),
+    );
+    const asked: unknown[] = [];
+    const auth = authorizer((body) => {
+      asked.push(body);
+      return Response.json({
+        session_id: "s",
+        attempt_id: "a",
+        upstream: {
+          url: `http://upstream.test:${up.port}/acme/docs.git`,
+          headers: [],
+        },
+      });
+    });
+    const lines: string[] = [];
+    const server = proxy(auth.url, up.port, {
+      logger: createProxyLogger("info", (line) => lines.push(line)),
+    });
+    const response = await fetch(
+      `http://127.0.0.1:${server.port}/repository/docs/info/refs?service=git-upload-pack`,
+      { headers: { authorization: `Bearer ${WORKER_TOKEN}` } },
+    );
+    expect(response.status).toBe(200);
+    expect(asked).toEqual([
+      { token: WORKER_TOKEN, purpose: "repository", repository_id: "docs" },
+    ]);
+    expect(new URL(up.seen[0]?.url ?? "").pathname).toBe(
+      "/acme/docs.git/info/refs",
+    );
+    const routed = lines
+      .map((line) => JSON.parse(line) as { message: string; fields: unknown })
+      .find((entry) => entry.message === "Credential route");
+    expect(routed?.fields).toMatchObject({
+      purpose: "repository",
+      repository_id: "docs",
+      session_id: "s",
+      attempt_id: "a",
+      status: 200,
+    });
   });
 
   test("a success that echoes the credential is cut off before the value", async () => {

@@ -112,12 +112,6 @@ export function createApiKeyService(deps: {
           `The issuer does not hold ${beyond.join(", ")}`,
         );
       }
-      if (body.kind === "agent" && body.scopes.includes("sessions:approve")) {
-        throw new SessionServiceError(
-          "SCOPE_NOT_GRANTABLE",
-          "An agent key never approves (D26)",
-        );
-      }
       const expiresAt =
         body.expires_at === undefined ? null : new Date(body.expires_at);
       if (expiresAt !== null && expiresAt.getTime() <= now().getTime()) {

@@ -12,6 +12,7 @@ import type {
   GitHubWorkStore,
 } from "@werft-ai/platform";
 import { and, desc, eq, sql } from "drizzle-orm";
+import { queueAchievementJudgment } from "./achievement-judgments.ts";
 import { lockedRole } from "./api-keys.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -22,6 +23,7 @@ import {
   githubWorkspaceSettings,
   pullRequests,
   receipts,
+  sessionOutcomes,
   sessions,
   turns,
 } from "./schema.ts";
@@ -63,6 +65,8 @@ export function createPostgresGitHubGateStore(
         .select({
           ownerId: sessions.ownerId,
           repositoryId: sessions.repositoryId,
+          profileId: sessions.profileId,
+          attachedRepositoryIds: sessions.attachedRepositoryIds,
           repoUrl: sessions.repoUrl,
           branch: sessions.branch,
           // Turn 1's actor, else the creator: the session-shares rule.
@@ -93,6 +97,8 @@ export function createPostgresGitHubGateStore(
         ownerId: row.ownerId,
         sessionId,
         repositoryId: row.repositoryId,
+        profileId: row.profileId,
+        attachedRepositoryIds: row.attachedRepositoryIds,
         repository:
           row.repoUrl === null || row.branch === null
             ? null
@@ -181,6 +187,53 @@ export function createPostgresGitHubGateStore(
             ref: input.run.ref,
             receiptId: id,
           });
+        }
+        return id;
+      });
+    },
+
+    recordReview(input) {
+      return db.transaction(async (tx) => {
+        const id = randomUUID();
+        await tx.insert(receipts).values({
+          id,
+          ownerId: input.context.ownerId,
+          operation: "review_pull_request",
+          targetRef: sessionTarget(input.context.sessionId),
+          status: "succeeded",
+          result: input.result,
+          error: null,
+          actor: input.actor,
+        });
+        const now = new Date();
+        const inserted = await tx
+          .insert(sessionOutcomes)
+          .values({
+            id: randomUUID(),
+            ownerId: input.context.ownerId,
+            sessionId: input.context.sessionId,
+            agentReleaseId: input.context.agentReleaseId,
+            agentId: input.context.agentId,
+            type: "github_review",
+            url: input.review.url,
+            repositoryId: input.context.repositoryId,
+            externalId: String(input.review.id),
+            state: "submitted",
+            stateChangedAt: now,
+            metadata: input.metadata,
+            receiptId: id,
+            createdAt: now,
+          })
+          .onConflictDoNothing({
+            target: [
+              sessionOutcomes.sessionId,
+              sessionOutcomes.type,
+              sessionOutcomes.url,
+            ],
+          })
+          .returning({ id: sessionOutcomes.id });
+        if (inserted.length > 0) {
+          await queueAchievementJudgment(tx, input.context.sessionId);
         }
         return id;
       });

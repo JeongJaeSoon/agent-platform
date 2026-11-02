@@ -31,14 +31,16 @@ type TileIcon = ComponentType<{
 
 /**
  * A white glyph on a solid hue: the mark of a sidebar page and of a home card
- * about it, one size everywhere (owner, 2026-10-31).
+ * about it. Beside two stacked lines it spans both (owner, 2026-11-02).
  */
 export function IconTile({
   icon: Icon,
   hue,
+  size = "line",
 }: {
   readonly icon: TileIcon;
   readonly hue: TileHue;
+  readonly size?: "line" | "two-line";
 }) {
   return (
     <span
@@ -46,11 +48,19 @@ export function IconTile({
       data-slot="icon-tile"
       data-hue={hue}
       className={cn(
-        "grid size-(--ap-size-icon-tile) shrink-0 place-items-center rounded-control text-(--ap-color-tile-foreground)",
+        "grid shrink-0 place-items-center rounded-control text-(--ap-color-tile-foreground)",
+        size === "line"
+          ? "size-(--ap-size-icon-tile)"
+          : // Pinned to the first line when the text wraps past two.
+            "size-(--ap-size-tile-two-line) self-start",
         HUE_CLASS[hue],
       )}
     >
-      <Icon aria-hidden="true" strokeWidth={2} className="size-3.5" />
+      <Icon
+        aria-hidden="true"
+        strokeWidth={2}
+        className={size === "line" ? "size-3.5" : "size-5"}
+      />
     </span>
   );
 }

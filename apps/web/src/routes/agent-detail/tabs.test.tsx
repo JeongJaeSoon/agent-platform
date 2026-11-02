@@ -132,7 +132,7 @@ describe("에이전트 상세 탭", () => {
       name: "결제 담당",
     });
     await waitFor(() =>
-      expect(heading.nextElementSibling?.textContent).toBe("아직 쓸 수 없음"),
+      expect(heading.nextElementSibling?.textContent).toBe("초안"),
     );
     expect(heading.nextElementSibling?.getAttribute("data-slot")).toBe("badge");
     const description = document.getElementById(
@@ -612,7 +612,7 @@ describe("에이전트 상세 탭", () => {
     ).toBe(false);
   });
 
-  test("머리 태그는 켜진 version을 상태와 함께 보인다", async () => {
+  test("머리 태그는 릴리스한 에이전트를 목록과 같은 상태 이름으로 부른다", async () => {
     const server = agentServer();
     const path = `/v1/agents/${AGENT_ID}`;
     const post = (route: string, body: unknown) =>
@@ -635,9 +635,7 @@ describe("에이전트 상세 탭", () => {
     renderAt(DETAIL, { ...meOk, ...server.routes });
     const heading = await screen.findByRole("heading", { level: 1 });
     await waitFor(() =>
-      expect(heading.nextElementSibling?.textContent).toBe(
-        "2026-10-11_10:00:00 · 활성",
-      ),
+      expect(heading.nextElementSibling?.textContent).toBe("릴리스"),
     );
   });
 
@@ -676,6 +674,9 @@ describe("에이전트 상세 탭", () => {
     ).closest("section") as HTMLElement;
     expect(await within(section).findByText("할 일 있음")).toBeDefined();
     expect(within(section).queryByText("켜짐")).toBeNull();
+    expect(
+      screen.getByRole("heading", { level: 1 }).nextElementSibling?.textContent,
+    ).toBe("일시정지");
     expect(
       within(section).getByText(
         "에이전트가 일시정지 상태라 새 세션이 이 에이전트를 쓰지 않습니다.",
@@ -895,9 +896,7 @@ describe("에이전트 상세 탭", () => {
     renderAt(`${DETAIL}?tab=release`, { ...meOk, ...server.routes });
     const heading = await screen.findByRole("heading", { level: 1 });
     await waitFor(() =>
-      expect(heading.nextElementSibling?.textContent).toBe(
-        "2026-10-11_10:01:00 · 활성",
-      ),
+      expect(heading.nextElementSibling?.textContent).toBe("릴리스"),
     );
     const table = await screen.findByRole("table");
     expect(
@@ -936,7 +935,7 @@ describe("에이전트 상세 탭", () => {
     );
     const heading = await screen.findByRole("heading", { level: 1 });
     await waitFor(() =>
-      expect(heading.nextElementSibling?.textContent).toBe("활성"),
+      expect(heading.nextElementSibling?.textContent).toBe("릴리스"),
     );
     const table = await screen.findByRole("table");
     expect(
@@ -1110,7 +1109,7 @@ describe("에이전트 상세 탭", () => {
       ]),
     ).toEqual([
       [
-        "설치 상한",
+        "설치 프로필",
         [
           [
             "claude-coding-fast",

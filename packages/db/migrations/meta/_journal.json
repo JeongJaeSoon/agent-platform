@@ -785,6 +785,76 @@
       "when": 1793521192793,
       "tag": "0202_session_event_archives",
       "breakpoints": true
+    },
+    {
+      "idx": 203,
+      "version": "7",
+      "when": 1793530539978,
+      "tag": "0203_worker_credentials_packages",
+      "breakpoints": true
+    },
+    {
+      "idx": 204,
+      "version": "7",
+      "when": 1793543212403,
+      "tag": "0204_push_request_targets",
+      "breakpoints": true
+    },
+    {
+      "idx": 205,
+      "version": "7",
+      "when": 1793544870380,
+      "tag": "0205_github_packages_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 206,
+      "version": "7",
+      "when": 1793548597369,
+      "tag": "0206_catalog_repositories",
+      "breakpoints": true
+    },
+    {
+      "idx": 207,
+      "version": "7",
+      "when": 1793550485753,
+      "tag": "0207_session_attached_repositories",
+      "breakpoints": true
+    },
+    {
+      "idx": 208,
+      "version": "7",
+      "when": 1793558755818,
+      "tag": "0208_github_app_repository_selection",
+      "breakpoints": true
+    },
+    {
+      "idx": 209,
+      "version": "7",
+      "when": 1793563247981,
+      "tag": "0209_session_outcome_reviews",
+      "breakpoints": true
+    },
+    {
+      "idx": 210,
+      "version": "7",
+      "when": 1793567291458,
+      "tag": "0210_github_app_manifest_states",
+      "breakpoints": true
+    },
+    {
+      "idx": 211,
+      "version": "7",
+      "when": 1793570695686,
+      "tag": "0211_achievement_rules",
+      "breakpoints": true
+    },
+    {
+      "idx": 212,
+      "version": "7",
+      "when": 1793574915675,
+      "tag": "0212_achievement_judgments",
+      "breakpoints": true
     }
   ]
 }

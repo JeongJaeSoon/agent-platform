@@ -137,6 +137,8 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
       ownerId: workspaceId,
       sessionId,
       repositoryId: "sample-app",
+      profileId: null,
+      attachedRepositoryIds: null,
       repository: { url: "https://github.com/acme/app.git", branch: "main" },
       startedBy: userId,
       agent: { id: agentId, workspaceId, githubEnabled: true },
@@ -151,6 +153,24 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
       "invalid",
     );
     expect((await store.context(laterSession))?.startedBy).toBeNull();
+  });
+
+  test("the gate and a push read the session's attached list", async () => {
+    const { workspaceId, userId } = await workspace();
+    const { releaseId } = await agent(workspaceId, { github: GITHUB });
+    const sessionId = await session(workspaceId, releaseId, userId);
+    await pool.query(
+      "UPDATE sessions SET attached_repository_ids = $2 WHERE id = $1",
+      [sessionId, ["docs"]],
+    );
+    expect(
+      (await createPostgresGitHubGateStore(db).context(sessionId))
+        ?.attachedRepositoryIds,
+    ).toEqual(["docs"]);
+    expect(
+      (await createPostgresPushRequests(db).findSession(workspaceId, sessionId))
+        ?.attached,
+    ).toEqual(["docs"]);
   });
 
   test("a dispatch keeps its receipt and run in one write, and a rerun finds it by repository and run", async () => {
@@ -208,6 +228,64 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
       [workspaceId],
     );
     expect(counted.rows[0].n).toBe(1);
+  });
+
+  test("a review writes its receipt and github_review outcome together, never the body", async () => {
+    const { workspaceId, userId } = await workspace();
+    const { agentId, releaseId } = await agent(workspaceId, {
+      github: GITHUB,
+    });
+    const sessionId = await session(workspaceId, releaseId, userId);
+    const store = createPostgresGitHubGateStore(db);
+    const url =
+      "https://github.com/acme/sample-app/pull/398#pullrequestreview-77";
+    const receiptId = await store.recordReview({
+      context: {
+        ownerId: workspaceId,
+        sessionId,
+        agentId,
+        agentReleaseId: releaseId,
+        repositoryId: "sample-app",
+      },
+      actor: ownerActor(userId),
+      result: { number: 398, event: "APPROVE", review_id: 77 },
+      review: { id: 77, url },
+      metadata: {
+        number: 398,
+        event: "APPROVE",
+        commit_id: "c".repeat(40),
+        opened_by_session_id: null,
+      },
+    });
+    const { rows } = await pool.query(
+      "SELECT type, url, repository_id, external_id, state, agent_id, agent_release_id, metadata, receipt_id FROM session_outcomes WHERE session_id = $1",
+      [sessionId],
+    );
+    expect(rows).toEqual([
+      {
+        type: "github_review",
+        url,
+        repository_id: "sample-app",
+        external_id: "77",
+        state: "submitted",
+        agent_id: agentId,
+        agent_release_id: releaseId,
+        metadata: {
+          number: 398,
+          event: "APPROVE",
+          commit_id: "c".repeat(40),
+          opened_by_session_id: null,
+        },
+        receipt_id: receiptId,
+      },
+    ]);
+    const receipt = await pool.query(
+      "SELECT operation, status FROM receipts WHERE id = $1",
+      [receiptId],
+    );
+    expect(receipt.rows).toEqual([
+      { operation: "review_pull_request", status: "succeeded" },
+    ]);
   });
 
   test("the ceiling is written under its revision with a receipt, and counts agents using each feature", async () => {
@@ -315,6 +393,10 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
     const found = await pushes.findSession(workspaceId, sessionId);
     expect(found).toEqual({
       repositoryId: "sample-app",
+      profileId: null,
+      attached: null,
+      github: expect.objectContaining({ repositories: ["sample-app"] }),
+      githubEnabled: true,
       approvalOffRelease: releaseId,
     });
     const created = await pushes.create({
@@ -341,6 +423,10 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
     const other = await session(workspaceId, plain.releaseId, userId);
     expect(await pushes.findSession(workspaceId, other)).toEqual({
       repositoryId: "sample-app",
+      profileId: null,
+      attached: null,
+      github: null,
+      githubEnabled: true,
       approvalOffRelease: null,
     });
   });

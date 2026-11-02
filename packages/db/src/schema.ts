@@ -1,13 +1,21 @@
 import {
+  ACHIEVEMENT_EVIDENCE_KIND_VALUES,
+  ACHIEVEMENT_JUDGE_BACKEND_VALUES,
+  ACHIEVEMENT_JUDGMENT_ERROR_VALUES,
+  ACHIEVEMENT_JUDGMENT_STATUS_VALUES,
+  ACHIEVEMENT_JUDGMENT_TRIGGER_VALUES,
+  ACHIEVEMENT_REVIEW_STATE_VALUES,
+  ACHIEVEMENT_RULE_JUDGE_VALUES,
   ADMISSION_STATE_VALUES,
   AGENT_IDENTITY_PROVIDER_VALUES,
   AGENT_IDENTITY_STATUS_VALUES,
   AGENT_STATUS_VALUES,
   BINDING_MODE_VALUES,
   GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES,
+  GITHUB_REVIEW_OUTCOME_STATE_VALUES,
   type GitHubAppRole,
   type GitHubCeiling,
-  type GitHubPullRequestOutcomeState,
+  type GitHubPackagesAllowEntry,
   MEMORY_WRITE_POLICY_VALUES,
   OPEN_PUSH_REQUEST_STATES,
   PERMISSION_MODE_VALUES,
@@ -16,6 +24,7 @@ import {
   SESSION_OUTCOME_CHECK_ERROR_VALUES,
   SESSION_OUTCOME_TYPE_VALUES,
   SESSION_STATUS_VALUES,
+  type SessionOutcome,
   type SessionOutcomeCheckError,
   type SessionOutcomeType,
   SLACK_APP_KIND_VALUES,
@@ -53,6 +62,7 @@ import {
   check,
   customType,
   date,
+  doublePrecision,
   foreignKey,
   index,
   integer,
@@ -561,6 +571,35 @@ export const githubApps = pgTable(
   ],
 );
 
+// A GitHub App manifest's single-use state, stored as its SHA-256 (design
+// github-app-manifest.md §3).
+export const githubAppManifestStates = pgTable(
+  "github_app_manifest_states",
+  {
+    stateHash: bytea("state_hash").primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    actorUserId: uuid("actor_user_id").notNull(),
+    role: text().$type<GitHubAppRole>().notNull(),
+    /** Null: the actor's own account. */
+    ownerLogin: text("owner_login"),
+    public: boolean().notNull(),
+    replacesAppId: bigint("replaces_app_id", { mode: "number" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("github_app_manifest_states_expires_idx").on(table.expiresAt),
+    check(
+      "github_app_manifest_states_role_check",
+      sql`${table.role} IN ('author', 'reviewer')`,
+    ),
+  ],
+);
+
 // What the workspace lets its agents' GitHub settings reach. No row reads as
 // every ceiling off and no OAuth client secret.
 export const githubWorkspaceSettings = pgTable("github_workspace_settings", {
@@ -571,6 +610,24 @@ export const githubWorkspaceSettings = pgTable("github_workspace_settings", {
   oauthClientSecretSet: boolean("oauth_client_secret_set")
     .notNull()
     .default(false),
+  revision: integer().notNull().default(1),
+  /** No foreign key: the row outlives the account. */
+  updatedBy: uuid("updated_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+// The GitHub Packages bot token's facts (the value is in `secret_values`)
+// and the packages sessions may fetch with it. No row reads as no token and
+// an empty allowlist.
+export const githubPackagesSettings = pgTable("github_packages_settings", {
+  workspaceId: uuid("workspace_id")
+    .primaryKey()
+    .references(() => workspaces.id),
+  allowlist: jsonb().$type<GitHubPackagesAllowEntry[]>().notNull(),
+  tokenLogin: text("token_login"),
+  tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
   revision: integer().notNull().default(1),
   /** No foreign key: the row outlives the account. */
   updatedBy: uuid("updated_by"),
@@ -1011,6 +1068,10 @@ export const sessions = pgTable(
     // a replica that does not know the profile must not price its calls.
     unmetered: boolean().notNull().default(false),
     repositoryId: text("repository_id"),
+    // The repositories besides its own the session was started with,
+    // narrowing what its release lists (session-multi-repository.md). Null:
+    // not given at create, so the release's list applies whole.
+    attachedRepositoryIds: text("attached_repository_ids").array(),
     checkpointRevision: integer("checkpoint_revision"),
     checkpointCommittedAt: timestamp("checkpoint_committed_at", {
       withTimezone: true,
@@ -1182,6 +1243,10 @@ export const sessions = pgTable(
     check(
       "sessions_repository_mode_check",
       sql`(${table.repositoryMode} = 'repository' AND ${table.repoUrl} IS NOT NULL AND ${table.branch} IS NOT NULL) OR (${table.repositoryMode} = 'none' AND ${table.repositoryId} IS NULL AND ${table.repoUrl} IS NULL AND ${table.branch} IS NULL)`,
+    ),
+    check(
+      "sessions_attached_repositories_check",
+      sql`${table.attachedRepositoryIds} IS NULL OR ${table.repositoryMode} = 'repository'`,
     ),
     uniqueIndex("sessions_pod_uniq")
       .on(table.podId)
@@ -1355,7 +1420,7 @@ export const sessionOutcomes = pgTable(
     url: text().notNull(),
     repositoryId: text("repository_id"),
     externalId: text("external_id"),
-    state: text().$type<GitHubPullRequestOutcomeState>().notNull(),
+    state: text().$type<SessionOutcome["state"]>().notNull(),
     stateChangedAt: timestamp("state_changed_at", {
       withTimezone: true,
     }).notNull(),
@@ -1393,6 +1458,10 @@ export const sessionOutcomes = pgTable(
     check(
       "session_outcomes_pull_request_state_check",
       sql`${table.type} <> 'github_pull_request' OR ${table.state} IN (${sql.raw(sqlList(GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES))})`,
+    ),
+    check(
+      "session_outcomes_review_state_check",
+      sql`${table.type} <> 'github_review' OR ${table.state} IN (${sql.raw(sqlList(GITHUB_REVIEW_OUTCOME_STATE_VALUES))})`,
     ),
     check(
       "session_outcomes_check_error_check",
@@ -2057,14 +2126,16 @@ export const pushRequests = pgTable(
     ),
     check(
       "push_requests_target_branch_check",
-      sql`${table.targetBranch} = 'agent/' || ${table.sessionId}::text`,
+      sql`${table.targetBranch} = 'agent/' || ${table.sessionId}::text OR ${table.targetBranch} ~ ('^agent/' || ${table.sessionId}::text || '-[a-z0-9][a-z0-9-]{0,39}$')`,
     ),
     check(
       "push_requests_decision_check",
       sql`(${table.state} = 'requested') = (${table.decidedAt} IS NULL) AND (${table.decidedAt} IS NULL) = (${table.decidedBy} IS NULL) AND (${table.decidedAt} IS NULL) = (${table.decisionReceiptId} IS NULL)`,
     ),
-    uniqueIndex("push_requests_open_session_idx")
-      .on(table.sessionId)
+    // One open request per target: other repositories and branches of the
+    // session may each have their own (session-multi-repository.md).
+    uniqueIndex("push_requests_open_target_idx")
+      .on(table.sessionId, table.repositoryId, table.targetBranch)
       .where(
         sql`${table.state} IN (${sql.raw(sqlList(OPEN_PUSH_REQUEST_STATES))})`,
       ),
@@ -2181,6 +2252,9 @@ export const checkpoints = pgTable(
     // under outputs. False on rows committed before it was recorded, whose
     // outputs no figure counts.
     outputsRecorded: boolean("outputs_recorded").notNull().default(false),
+    // checkpointOutputsDigest of the manifest's out/ list, recorded with
+    // outputs_recorded; null when it names no file or was not recorded.
+    outputsDigest: text("outputs_digest"),
   },
   (table) => [
     primaryKey({ columns: [table.sessionId, table.revision] }),
@@ -2623,7 +2697,8 @@ export const workerImageRefusals = pgTable(
 // worker's own calls, `provider` and `repository` the egress proxy's
 // credential routes, `object_store` its object store route, and `mcp` the
 // remote MCP route of a session whose agent release names a server (only
-// then is one issued). All of them are issued, extended and revoked
+// then is one issued), and `packages` its package registry route. All of
+// them are issued, extended and revoked
 // together, and a token only ever works for its own purpose.
 export const workerCredentials = pgTable(
   "worker_credentials",
@@ -2655,7 +2730,7 @@ export const workerCredentials = pgTable(
       .where(sql`${table.revokedAt} IS NULL`),
     check(
       "worker_credentials_purpose_check",
-      sql`${table.purpose} IN ('gateway', 'provider', 'repository', 'object_store', 'mcp')`,
+      sql`${table.purpose} IN ('gateway', 'provider', 'repository', 'object_store', 'mcp', 'packages')`,
     ),
     check(
       "worker_credentials_binding_check",
@@ -3563,6 +3638,320 @@ export const workspaceProfiles = pgTable(
   ],
 );
 
+// docs/contributing/decisions/achievement-rules.md §3: what a workspace counts
+// as an achievement. Categories group rules; a type is what a rule counts.
+export const achievementCategories = pgTable(
+  "achievement_categories",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    name: text().notNull(),
+    position: integer().notNull(),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    archivedBy: uuid("archived_by").references(() => users.id),
+  },
+  (table) => [
+    uniqueIndex("achievement_categories_live_name_uniq")
+      .on(table.workspaceId, table.name)
+      .where(sql`${table.archivedAt} IS NULL`),
+    check(
+      "achievement_categories_name_check",
+      sql`char_length(${table.name}) BETWEEN 1 AND 32`,
+    ),
+    check("achievement_categories_position_check", sql`${table.position} >= 0`),
+    check(
+      "achievement_categories_archived_check",
+      sql`(${table.archivedAt} IS NULL) = (${table.archivedBy} IS NULL)`,
+    ),
+  ],
+);
+
+export const achievementTypes = pgTable(
+  "achievement_types",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    key: text().notNull(),
+    name: text().notNull(),
+    evidenceKind: text("evidence_kind").notNull(),
+    builtin: boolean().notNull(),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    archivedBy: uuid("archived_by").references(() => users.id),
+  },
+  (table) => [
+    unique("achievement_types_key_uniq").on(table.workspaceId, table.key),
+    check(
+      "achievement_types_key_check",
+      sql`${table.key} ~ '^[a-z][a-z0-9_]{1,40}$'`,
+    ),
+    check(
+      "achievement_types_name_check",
+      sql`char_length(${table.name}) BETWEEN 1 AND 40`,
+    ),
+    check(
+      "achievement_types_evidence_kind_check",
+      sql`${table.evidenceKind} IN (${sql.raw(sqlList(ACHIEVEMENT_EVIDENCE_KIND_VALUES))})`,
+    ),
+    // Built-in types come from the platform, not from a person.
+    check(
+      "achievement_types_builtin_check",
+      sql`${table.builtin} = (${table.createdBy} IS NULL)`,
+    ),
+    check(
+      "achievement_types_archived_check",
+      sql`(${table.archivedAt} IS NULL) = (${table.archivedBy} IS NULL) AND (NOT ${table.builtin} OR ${table.archivedAt} IS NULL)`,
+    ),
+  ],
+);
+
+// A row never changes but `superseded_by` and its disable; an edit is the
+// family's next version. `superseded_by` has no foreign key: it is set
+// before the next version exists, so the old version leaves the type-in-use
+// index before the new one enters it.
+export const achievementRules = pgTable(
+  "achievement_rules",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    familyId: uuid("family_id").notNull(),
+    version: integer().notNull(),
+    categoryId: uuid("category_id")
+      .notNull()
+      .references(() => achievementCategories.id),
+    title: text().notNull(),
+    typeId: uuid("type_id")
+      .notNull()
+      .references(() => achievementTypes.id),
+    definition: text().notNull(),
+    judge: text().notNull(),
+    agentIds: uuid("agent_ids").array(),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    supersededBy: uuid("superseded_by"),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    disabledBy: uuid("disabled_by").references(() => users.id),
+  },
+  (table) => [
+    unique("achievement_rules_family_version_uniq").on(
+      table.familyId,
+      table.version,
+    ),
+    // One rule in use per type, so a type's achievements share one definition.
+    uniqueIndex("achievement_rules_type_in_use_uniq")
+      .on(table.typeId)
+      .where(
+        sql`${table.supersededBy} IS NULL AND ${table.disabledAt} IS NULL`,
+      ),
+    index("achievement_rules_workspace_idx").on(table.workspaceId),
+    check("achievement_rules_version_check", sql`${table.version} >= 1`),
+    check(
+      "achievement_rules_title_check",
+      sql`char_length(${table.title}) BETWEEN 1 AND 80`,
+    ),
+    check(
+      "achievement_rules_definition_check",
+      sql`char_length(${table.definition}) BETWEEN 1 AND 2000`,
+    ),
+    check(
+      "achievement_rules_judge_check",
+      sql`${table.judge} IN (${sql.raw(sqlList(ACHIEVEMENT_RULE_JUDGE_VALUES))})`,
+    ),
+    check(
+      "achievement_rules_disabled_check",
+      sql`(${table.disabledAt} IS NULL) = (${table.disabledBy} IS NULL)`,
+    ),
+  ],
+);
+
+// One judgment of a session's evidence against the workspace's rules
+// (achievement-rules.md §3, §4). A session has at most one queued; another
+// trigger moves its `next_attempt_at`, so the judge picks it once triggers
+// have stopped for a while.
+export const achievementJudgments = pgTable(
+  "achievement_judgments",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    ownerId: text("owner_id").notNull(),
+    sessionId: uuid("session_id").notNull(),
+    trigger: text().notNull(),
+    status: text().notNull(),
+    rules: jsonb().$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    evidenceIds: text("evidence_ids").array().notNull().default(sql`'{}'`),
+    inputDigest: text("input_digest"),
+    backend: text(),
+    connectionId: text("connection_id"),
+    calls: integer().notNull().default(0),
+    inputTokens: bigint("input_tokens", { mode: "number" })
+      .notNull()
+      .default(0),
+    costUsd: numeric("cost_usd", { precision: 14, scale: 6, mode: "number" })
+      .notNull()
+      .default(0),
+    errorCode: text("error_code"),
+    attempts: integer().notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", {
+      withTimezone: true,
+    }).notNull(),
+    leaseToken: uuid("lease_token"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      name: "achievement_judgments_session_fk",
+      columns: [table.sessionId, table.ownerId, table.workspaceId],
+      foreignColumns: [sessions.id, sessions.ownerId, sessions.workspaceId],
+    }),
+    uniqueIndex("achievement_judgments_queued_uniq")
+      .on(table.sessionId)
+      .where(sql`${table.status} = 'queued'`),
+    index("achievement_judgments_due_idx")
+      .on(table.nextAttemptAt)
+      .where(sql`${table.status} IN ('queued', 'running')`),
+    index("achievement_judgments_session_idx").on(
+      table.sessionId,
+      table.createdAt,
+    ),
+    check(
+      "achievement_judgments_trigger_check",
+      sql`${table.trigger} IN (${sql.raw(sqlList(ACHIEVEMENT_JUDGMENT_TRIGGER_VALUES))})`,
+    ),
+    check(
+      "achievement_judgments_status_check",
+      sql`${table.status} IN (${sql.raw(sqlList(ACHIEVEMENT_JUDGMENT_STATUS_VALUES))})`,
+    ),
+    check(
+      "achievement_judgments_backend_check",
+      sql`${table.backend} IS NULL OR ${table.backend} IN (${sql.raw(sqlList(ACHIEVEMENT_JUDGE_BACKEND_VALUES))})`,
+    ),
+    check(
+      "achievement_judgments_error_code_check",
+      sql`${table.errorCode} IS NULL OR ${table.errorCode} IN (${sql.raw(sqlList(ACHIEVEMENT_JUDGMENT_ERROR_VALUES))})`,
+    ),
+    check(
+      "achievement_judgments_cost_check",
+      sql`${table.calls} >= 0 AND ${table.inputTokens} >= 0 AND ${table.costUsd} >= 0 AND ${table.attempts} >= 0`,
+    ),
+    check(
+      "achievement_judgments_lease_check",
+      sql`(${table.leaseToken} IS NULL) = (${table.leaseExpiresAt} IS NULL)`,
+    ),
+  ],
+);
+
+// What a rule counted. Only the judge writes a row; a person only confirms
+// or rejects one, and a row a person decided is never judged again.
+export const sessionAchievements = pgTable(
+  "session_achievements",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    ownerId: text("owner_id").notNull(),
+    sessionId: uuid("session_id").notNull(),
+    agentId: uuid("agent_id"),
+    agentReleaseId: text("agent_release_id"),
+    ruleId: uuid("rule_id")
+      .notNull()
+      .references(() => achievementRules.id),
+    ruleFamilyId: uuid("rule_family_id").notNull(),
+    typeId: uuid("type_id")
+      .notNull()
+      .references(() => achievementTypes.id),
+    title: text().notNull(),
+    link: text().notNull(),
+    evidenceKind: text("evidence_kind").notNull(),
+    // A session_outcomes id, or an out/ path; null for the conversation.
+    evidenceId: text("evidence_id"),
+    payload: jsonb().$type<Record<string, unknown>>(),
+    judge: text().notNull(),
+    probability: doublePrecision(),
+    judgmentId: uuid("judgment_id")
+      .notNull()
+      .references(() => achievementJudgments.id),
+    reviewState: text("review_state").notNull(),
+    reviewedBy: uuid("reviewed_by").references(() => users.id),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewNote: text("review_note"),
+    supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    supersededBy: uuid("superseded_by"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "session_achievements_session_fk",
+      columns: [table.sessionId, table.ownerId, table.workspaceId],
+      foreignColumns: [sessions.id, sessions.ownerId, sessions.workspaceId],
+    }),
+    // An out/ path names a file of one session only.
+    uniqueIndex("session_achievements_evidence_uniq")
+      .on(table.ruleFamilyId, table.sessionId, table.evidenceId)
+      .where(
+        sql`${table.evidenceId} IS NOT NULL AND ${table.supersededAt} IS NULL`,
+      ),
+    uniqueIndex("session_achievements_conversation_uniq")
+      .on(table.ruleFamilyId, table.sessionId)
+      .where(
+        sql`${table.evidenceId} IS NULL AND ${table.supersededAt} IS NULL`,
+      ),
+    index("session_achievements_session_idx").on(table.sessionId),
+    check(
+      "session_achievements_evidence_kind_check",
+      sql`${table.evidenceKind} IN (${sql.raw(sqlList(ACHIEVEMENT_EVIDENCE_KIND_VALUES))})`,
+    ),
+    check(
+      "session_achievements_evidence_id_check",
+      sql`(${table.evidenceId} IS NULL) = (${table.evidenceKind} = 'conversation')`,
+    ),
+    check(
+      "session_achievements_judge_check",
+      sql`${table.judge} IN (${sql.raw(sqlList(ACHIEVEMENT_RULE_JUDGE_VALUES))})`,
+    ),
+    check(
+      "session_achievements_probability_check",
+      sql`(${table.probability} IS NULL) = (${table.judge} = 'always') AND (${table.probability} IS NULL OR ${table.probability} BETWEEN 0 AND 1)`,
+    ),
+    check(
+      "session_achievements_review_state_check",
+      sql`${table.reviewState} IN (${sql.raw(sqlList(ACHIEVEMENT_REVIEW_STATE_VALUES))})`,
+    ),
+    // Evidence an agent wrote counts only once a person confirms it.
+    check(
+      "session_achievements_auto_check",
+      sql`${table.reviewState} <> 'auto' OR ${table.evidenceKind} IN ('github_pull_request', 'github_review')`,
+    ),
+    check(
+      "session_achievements_reviewed_check",
+      sql`(${table.reviewedBy} IS NULL) = (${table.reviewedAt} IS NULL)`,
+    ),
+  ],
+);
+
 // The installation's ceilings (docs/contributing/decisions/profile-db.md §1).
 // A row never changes but `retired_at`/`retired_by`; `definition` is the
 // profile entry as `catalogProfileConfigSchema` parses it, credential
@@ -3580,6 +3969,10 @@ export const installationProfiles = pgTable(
     // Null on a `catalog` row until startup fills it once from the
     // `profiles` arrays of repositories.yaml.
     repositoryIds: jsonb("repository_ids").$type<string[]>(),
+    // Beside repository_ids and, like it, outside the fingerprint.
+    githubAppRepositories: text("github_app_repositories")
+      .notNull()
+      .default("listed"),
     previousId: text("previous_id"),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -3623,6 +4016,65 @@ export const installationProfiles = pgTable(
     check(
       "installation_profiles_repository_ids_check",
       sql`${table.repositoryIds} IS NOT NULL OR ${table.origin} = 'catalog'`,
+    ),
+    check(
+      "installation_profiles_github_app_repositories_check",
+      sql`${table.githubAppRepositories} IN ('listed', 'installed')`,
+    ),
+  ],
+);
+
+/**
+ * Repositories that use the console's GitHub App: seeded or console rows
+ * from before, and rows an agent's pick resolved (decision
+ * settings-replace-file-catalog.md §1.1). A row is never deleted, so a
+ * catalog id never comes back meaning another repository.
+ */
+export const catalogRepositories = pgTable(
+  "catalog_repositories",
+  {
+    id: text().primaryKey(),
+    githubRepositoryId: bigint("github_repository_id", { mode: "number" }),
+    owner: text().notNull(),
+    name: text().notNull(),
+    url: text().notNull(),
+    branch: text().notNull(),
+    // A seeded row's yaml `profiles`, kept so its binding hash stays the
+    // one sessions claimed under before the move.
+    profiles: jsonb().$type<string[]>(),
+    appRole: text("app_role").notNull().default("author"),
+    source: text().notNull(),
+    version: integer().notNull().default(1),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedBy: uuid("updated_by").references(() => users.id),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+    removedBy: uuid("removed_by").references(() => users.id),
+  },
+  (table) => [
+    uniqueIndex("catalog_repositories_github_id_key")
+      .on(table.githubRepositoryId)
+      .where(sql`${table.removedAt} IS NULL`),
+    uniqueIndex("catalog_repositories_full_name_key")
+      .on(sql`lower(${table.owner})`, sql`lower(${table.name})`)
+      .where(sql`${table.removedAt} IS NULL`),
+    check(
+      "catalog_repositories_source_check",
+      sql`${table.source} IN ('seed', 'console', 'selection')`,
+    ),
+    check(
+      "catalog_repositories_app_role_check",
+      sql`${table.appRole} = 'author'`,
+    ),
+    check("catalog_repositories_version_check", sql`${table.version} >= 1`),
+    check(
+      "catalog_repositories_console_id_check",
+      sql`${table.source} = 'seed' OR ${table.githubRepositoryId} IS NOT NULL`,
     ),
   ],
 );

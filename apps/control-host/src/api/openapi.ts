@@ -3,6 +3,16 @@ import {
   type ApiErrorCode,
   acceptInviteRequestSchema,
   acceptInviteResponseSchema,
+  achievementCategoryChangeResponseSchema,
+  achievementCategoryParamsSchema,
+  achievementJudgeChangeResponseSchema,
+  achievementJudgeRequestSchema,
+  achievementJudgeResponseSchema,
+  achievementRuleChangeResponseSchema,
+  achievementRuleFamilyParamsSchema,
+  achievementRuleRequestSchema,
+  achievementTypeChangeResponseSchema,
+  achievementTypeParamsSchema,
   activateAgentRequestSchema,
   activateAgentResponseSchema,
   activationCredentialUnboundDetailsSchema,
@@ -32,11 +42,15 @@ import {
   closeSessionRequestSchema,
   commentPullRequestRequestSchema,
   commentPullRequestResponseSchema,
+  completeGitHubAppManifestRequestSchema,
+  completeGitHubAppManifestResponseSchema,
   completeSlackInstallRequestSchema,
   completeSlackInstallResponseSchema,
   countAgentsResponseSchema,
   countSessionsQuerySchema,
   countSessionsResponseSchema,
+  createAchievementCategoryRequestSchema,
+  createAchievementTypeRequestSchema,
   createAgentReleaseRequestSchema,
   createAgentReleaseResponseSchema,
   createAgentRequestSchema,
@@ -62,6 +76,7 @@ import {
   deleteTeamResponseSchema,
   dispatchWorkflowRequestSchema,
   dispatchWorkflowResponseSchema,
+  GITHUB_APP_MANIFEST_STATE_TTL_SECONDS,
   getGitHubAppResponseSchema,
   getReceiptResponseSchema,
   getSessionResponseSchema,
@@ -71,6 +86,11 @@ import {
   githubAppRoleParamsSchema,
   githubLinkCallbackRequestSchema,
   githubLinkCallbackResponseSchema,
+  githubPackagesSettingsResponseSchema,
+  githubPackagesWriteResponseSchema,
+  githubRepositoryPageQuerySchema,
+  githubRepositoryParamsSchema,
+  githubRepositoryWriteResponseSchema,
   githubSettingsResponseSchema,
   githubWorkflowRunSchema,
   googleLoginCallbackRequestSchema,
@@ -87,14 +107,19 @@ import {
   linkAgentIdentityRequestSchema,
   linkAgentIdentityResponseSchema,
   linkedAccountParamsSchema,
+  listAchievementCategoriesResponseSchema,
+  listAchievementRulesResponseSchema,
+  listAchievementTypesResponseSchema,
   listAdministeredAgentsResponseSchema,
   listAdminSessionsResponseSchema,
+  listAgentGitHubRepositoriesResponseSchema,
   listAgentIdentitiesResponseSchema,
   listAgentsQuerySchema,
   listAgentsResponseSchema,
   listApiKeysQuerySchema,
   listApiKeysResponseSchema,
   listCredentialBindingsResponseSchema,
+  listGitHubRepositoriesResponseSchema,
   listInvitesResponseSchema,
   listLinkedAccountsResponseSchema,
   listMembersQuerySchema,
@@ -104,6 +129,7 @@ import {
   listPendingRequestsResponseSchema,
   listProfilesResponseSchema,
   listPushRequestsResponseSchema,
+  listSessionAchievementsResponseSchema,
   listSessionGitHubRefusalsResponseSchema,
   listSessionOutcomesResponseSchema,
   listSessionOutputsResponseSchema,
@@ -129,7 +155,10 @@ import {
   openPullRequestResponseSchema,
   passwordResetRequestSchema,
   passwordResetResponseSchema,
+  patchGitHubRepositoryRequestSchema,
   pauseSessionRequestSchema,
+  pickAgentGitHubRepositoryRequestSchema,
+  pickAgentGitHubRepositoryResponseSchema,
   postSessionAnswerRequestSchema,
   postSessionAnswerResponseSchema,
   postSessionMessageRequestSchema,
@@ -143,6 +172,8 @@ import {
   putGitHubAppResponseSchema,
   putGitHubOAuthClientSecretRequestSchema,
   putGitHubOAuthClientSecretResponseSchema,
+  putGitHubPackagesAllowlistRequestSchema,
+  putGitHubPackagesTokenRequestSchema,
   putGitHubSettingsRequestSchema,
   putSlackBindingRequestSchema,
   putSlackBindingResponseSchema,
@@ -190,6 +221,8 @@ import {
   slackLinkCallbackResponseSchema,
   slackSecretSummarySchema,
   sseEventSchema,
+  startGitHubAppManifestRequestSchema,
+  startGitHubAppManifestResponseSchema,
   startGitHubLinkResponseSchema,
   startGoogleLoginResponseSchema,
   startSlackInstallResponseSchema,
@@ -205,6 +238,8 @@ import {
   terminateSessionResponseSchema,
   turnIdParamsSchema,
   turnSummarySchema,
+  updateAchievementCategoryRequestSchema,
+  updateAchievementTypeRequestSchema,
   updateAgentRequestSchema,
   updateAuthMeRequestSchema,
   updateMemberRequestSchema,
@@ -286,6 +321,8 @@ const requestComponents = {
   SubmitPullRequestReviewRequest: submitPullRequestReviewRequestSchema,
   PutGitHubSettingsRequest: putGitHubSettingsRequestSchema,
   PutGitHubOAuthClientSecretRequest: putGitHubOAuthClientSecretRequestSchema,
+  PutGitHubPackagesTokenRequest: putGitHubPackagesTokenRequestSchema,
+  PutGitHubPackagesAllowlistRequest: putGitHubPackagesAllowlistRequestSchema,
   GitHubLinkCallbackRequest: githubLinkCallbackRequestSchema,
   PutAgentGitHubEnabledRequest: putAgentGitHubEnabledRequestSchema,
   BootstrapRequest: bootstrapRequestSchema,
@@ -300,8 +337,19 @@ const requestComponents = {
   GoogleLoginCallbackRequest: googleLoginCallbackRequestSchema,
   AuditRetentionRequest: auditRetentionRequestSchema,
   SlackGuestRequest: slackGuestRequestSchema,
+  CreateAchievementCategoryRequest: createAchievementCategoryRequestSchema,
+  UpdateAchievementCategoryRequest: updateAchievementCategoryRequestSchema,
+  CreateAchievementTypeRequest: createAchievementTypeRequestSchema,
+  UpdateAchievementTypeRequest: updateAchievementTypeRequestSchema,
+  AchievementRuleRequest: achievementRuleRequestSchema,
+  AchievementJudgeRequest: achievementJudgeRequestSchema,
   PutSlackSecretRequest: putSlackSecretRequestSchema,
   PutGitHubAppRequest: putGitHubAppRequestSchema,
+  StartGitHubAppManifestRequest: startGitHubAppManifestRequestSchema,
+  CompleteGitHubAppManifestRequest: completeGitHubAppManifestRequestSchema,
+  GitHubRepositoryPageQuery: githubRepositoryPageQuerySchema,
+  PatchGitHubRepositoryRequest: patchGitHubRepositoryRequestSchema,
+  PickAgentGitHubRepositoryRequest: pickAgentGitHubRepositoryRequestSchema,
   CreateSlackAppRequest: createSlackAppRequestSchema,
   CompleteSlackInstallRequest: completeSlackInstallRequestSchema,
   SlackEventEnvelope: slackEventEnvelopeSchema,
@@ -365,11 +413,14 @@ const responseComponents = {
   SubmitPullRequestReviewResponse: submitPullRequestReviewResponseSchema,
   GitHubSettingsResponse: githubSettingsResponseSchema,
   PutGitHubOAuthClientSecretResponse: putGitHubOAuthClientSecretResponseSchema,
+  GitHubPackagesSettingsResponse: githubPackagesSettingsResponseSchema,
+  GitHubPackagesWriteResponse: githubPackagesWriteResponseSchema,
   StartGitHubLinkResponse: startGitHubLinkResponseSchema,
   GitHubLinkCallbackResponse: githubLinkCallbackResponseSchema,
   SessionGitHubAttribution: sessionGitHubAttributionSchema,
   ListSessionGitHubRefusalsResponse: listSessionGitHubRefusalsResponseSchema,
   ListSessionOutcomesResponse: listSessionOutcomesResponseSchema,
+  ListSessionAchievementsResponse: listSessionAchievementsResponseSchema,
   AgentGitHubResponse: agentGitHubResponseSchema,
   PutAgentGitHubEnabledResponse: putAgentGitHubEnabledResponseSchema,
   AgentGitHubActivityResponse: agentGitHubActivityResponseSchema,
@@ -390,8 +441,15 @@ const responseComponents = {
   SlackConfigTokenSummary: slackConfigTokenSummarySchema,
   PutSlackConfigTokenResponse: putSlackConfigTokenResponseSchema,
   GetGitHubAppResponse: getGitHubAppResponseSchema,
+  StartGitHubAppManifestResponse: startGitHubAppManifestResponseSchema,
+  CompleteGitHubAppManifestResponse: completeGitHubAppManifestResponseSchema,
   PutGitHubAppResponse: putGitHubAppResponseSchema,
   DeleteGitHubAppResponse: deleteGitHubAppResponseSchema,
+  ListGitHubRepositoriesResponse: listGitHubRepositoriesResponseSchema,
+  GitHubRepositoryWriteResponse: githubRepositoryWriteResponseSchema,
+  ListAgentGitHubRepositoriesResponse:
+    listAgentGitHubRepositoriesResponseSchema,
+  PickAgentGitHubRepositoryResponse: pickAgentGitHubRepositoryResponseSchema,
   GetSlackAppResponse: getSlackAppResponseSchema,
   GetSlackAppManifestResponse: getSlackAppManifestResponseSchema,
   SlackAppSettings: slackAppSettingsSchema,
@@ -419,6 +477,14 @@ const responseComponents = {
   CountAgentsResponse: countAgentsResponseSchema,
   ListProfilesResponse: listProfilesResponseSchema,
   WorkspaceProfileChangeResponse: workspaceProfileChangeResponseSchema,
+  ListAchievementCategoriesResponse: listAchievementCategoriesResponseSchema,
+  AchievementCategoryChangeResponse: achievementCategoryChangeResponseSchema,
+  ListAchievementTypesResponse: listAchievementTypesResponseSchema,
+  AchievementTypeChangeResponse: achievementTypeChangeResponseSchema,
+  ListAchievementRulesResponse: listAchievementRulesResponseSchema,
+  AchievementRuleChangeResponse: achievementRuleChangeResponseSchema,
+  AchievementJudgeResponse: achievementJudgeResponseSchema,
+  AchievementJudgeChangeResponse: achievementJudgeChangeResponseSchema,
   InstallationProfileOptionsResponse: installationProfileOptionsResponseSchema,
   AgentDetail: agentDetailSchema,
   CreateAgentReleaseResponse: createAgentReleaseResponseSchema,
@@ -685,6 +751,16 @@ const EXAMPLE_WORKSPACE = {
     idle_pause_minutes: 30,
     audit_retention_days: 90,
     slack_guest_enabled: false,
+    achievement_judge: {
+      connection_id: null,
+      threshold: 0.9,
+      on_evidence: true,
+      every_n_turns: null,
+      on_idle: false,
+      transcript: "recent",
+      daily_budget_usd: 1,
+      max_per_session: 20,
+    },
   },
   created_at: "2026-10-01T09:00:00Z",
 };
@@ -720,6 +796,50 @@ const WORKSPACE_PROFILE_EXAMPLE = {
     retired_at: null,
   },
 } as const;
+
+const ACHIEVEMENT_CATEGORY_EXAMPLE = {
+  id: "5b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+  name: "Delivery",
+  position: 0,
+  created_by: EXAMPLE_USER_ID,
+  created_at: "2026-11-02T01:00:00.000Z",
+  archived_at: null,
+  archived_by: null,
+};
+const ACHIEVEMENT_TYPE_EXAMPLE = {
+  id: "6c2f3d4e-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
+  key: "design_doc",
+  name: "Design doc",
+  evidence_kind: "out_file",
+  builtin: false,
+  created_by: EXAMPLE_USER_ID,
+  created_at: "2026-11-02T01:00:00.000Z",
+  archived_at: null,
+  archived_by: null,
+};
+const ACHIEVEMENT_RULE_REQUEST_EXAMPLE = {
+  category_id: ACHIEVEMENT_CATEGORY_EXAMPLE.id,
+  title: "Design doc written",
+  type_id: ACHIEVEMENT_TYPE_EXAMPLE.id,
+  definition:
+    "A design document for a change the session made: it says what changes and why.",
+  judge: "luna",
+};
+const ACHIEVEMENT_RULE_EXAMPLE = {
+  id: "7d3a4e5f-6b7c-4d8e-8f9a-1b2c3d4e5f60",
+  family_id: "8e4b5f6a-7c8d-4e9f-9a0b-2c3d4e5f6a71",
+  version: 1,
+  ...ACHIEVEMENT_RULE_REQUEST_EXAMPLE,
+  agent_ids: null,
+  created_by: EXAMPLE_USER_ID,
+  created_at: "2026-11-02T01:00:00.000Z",
+  superseded_by: null,
+  disabled_at: null,
+  disabled_by: null,
+};
+const ACHIEVEMENT_JUDGE_EXAMPLE = EXAMPLE_WORKSPACE.settings.achievement_judge;
+const ACHIEVEMENT_MANAGERS =
+  "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused.";
 
 const INSTALLATION_PROFILE_EXAMPLE = {
   id: "op_coding_v2",
@@ -1454,6 +1574,94 @@ export const API_ROUTE_DECLARATIONS = [
     idempotent: false,
   },
   {
+    method: "post",
+    path: "/v1/workspaces/{id}/github-apps/author/manifest",
+    operationId: "startGitHubAppManifest",
+    tag: "Workspace settings",
+    summary:
+      "Start making the author GitHub App from a manifest (owner or admin)",
+    description: `Returns the manifest for a new author App and the GitHub URL the browser form-POSTs it to (field \`manifest\`), with a new single-use \`state\` in that URL, valid ${GITHUB_APP_MANIFEST_STATE_TTL_SECONDS / 60} minutes and bound to the caller and the workspace. \`owner\` picks an organization (its owners can create the App) or the caller's own account; a private App (\`public: false\`, the default) installs only on that account. The manifest asks for \`contents\` and \`pull_requests\` write and \`metadata\` read, plus \`actions\` and \`workflows\` write with \`actions: true\`; its webhook is off, its redirect is the console's \`/settings/workspace/github/new-app\` and its callback the account-link page. While an author App is registered the request must say \`replace: true\` (else 409 \`GITHUB_APP_CONFLICT\` \`author_app_exists\`). API keys are refused.`,
+    auth: "session",
+    body: "StartGitHubAppManifestRequest",
+    requestExample: {
+      owner: { kind: "organization", login: "acme" },
+      public: false,
+      actions: false,
+    },
+    success: {
+      status: 200,
+      schema: "StartGitHubAppManifestResponse",
+      description:
+        "Where the browser posts the manifest, and when the state expires.",
+      example: {
+        action_url:
+          "https://github.com/organizations/acme/settings/apps/new?state=<single-use>",
+        manifest: '{"name":"werft-acme-1a2b","public":false}',
+        expires_at: "2026-11-01T10:00:00Z",
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 503],
+    errorCodes: { 409: ["GITHUB_APP_CONFLICT"] },
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY), or without CONSOLE_ORIGIN (`console_origin_unset`).",
+    },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/workspaces/{id}/github-apps/author/manifest/complete",
+    operationId: "completeGitHubAppManifest",
+    tag: "Workspace settings",
+    summary: "Finish making the author GitHub App with what GitHub returned",
+    description:
+      "The console's callback page sends the `code` and `state` from GitHub's redirect. The state is spent first: unknown, spent, expired, or issued to another caller or workspace answers 400 `BAD_REQUEST` `state_invalid`. The code is exchanged once with `POST /app-manifests/{code}/conversions` (400 `code_rejected` when GitHub refuses it, 503 `github_unreachable` when it cannot be reached; never retried). The App, its private key and its OAuth client secret are stored in one transaction with a `set_github_app` receipt (`source: manifest`); the webhook secret is not kept. If the author App changed since the start, nothing is stored (409 `GITHUB_APP_CONFLICT` `author_app_changed`); if storing fails, 503 `store_failed`. Both name the App made on GitHub in `details.app_id` and `details.html_url`. No key, secret or code is in any response, receipt or log, and every answer carries `Referrer-Policy: no-referrer`. API keys are refused.",
+    auth: "session",
+    body: "CompleteGitHubAppManifestRequest",
+    requestExample: {
+      code: "code-from-the-redirect",
+      state: "state-from-the-redirect",
+    },
+    success: {
+      status: 200,
+      schema: "CompleteGitHubAppManifestResponse",
+      description:
+        "Stored; the App, where it is installed next, and the receipt.",
+      example: {
+        github_app: {
+          role: "author",
+          app_id: 234568,
+          slug: "werft-acme-1a2b",
+          name: "werft-acme-1a2b",
+          html_url: "https://github.com/apps/werft-acme-1a2b",
+          private_key: {
+            updated_at: "2026-11-01T09:05:00Z",
+            updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
+          },
+          created_at: "2026-11-01T09:05:00Z",
+          updated_at: "2026-11-01T09:05:00Z",
+          permissions: {
+            contents: "write",
+            metadata: "read",
+            pull_requests: "write",
+          },
+          permissions_checked_at: "2026-11-01T09:05:00Z",
+          warnings: [],
+        },
+        install_url:
+          "https://github.com/apps/werft-acme-1a2b/installations/new",
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 503],
+    errorCodes: { 409: ["GITHUB_APP_CONFLICT"] },
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY), GitHub could not be reached (`github_unreachable`), or the App could not be stored (`store_failed`).",
+    },
+    idempotent: false,
+  },
+  {
     method: "delete",
     path: "/v1/workspaces/{id}/github-apps/{role}",
     operationId: "deleteWorkspaceGitHubApp",
@@ -1473,6 +1681,91 @@ export const API_ROUTE_DECLARATIONS = [
       BACKEND_UNAVAILABLE:
         "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
     },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/workspaces/{id}/github-repositories",
+    operationId: "listGitHubRepositories",
+    tag: "Workspace settings",
+    summary:
+      "A page of the author App's repositories, and the catalog's (owner or admin)",
+    description:
+      "The repositories one installation of the author App reaches, a page at a time as GitHub pages them (`GET /installation/repositories`): `installation_id` picks the installation (absent: the first in `installations`, by account), `page` and `per_page` (at most 100) the page, and `total_count` is GitHub's count. Nothing is registered: a repository becomes a catalog row when an agent's manager picks it (`POST /v1/agents/{id}/github/repositories`), and `catalog_id` then names it; `agent_count` counts agents whose active release names it. `unavailable` says why the page is empty: `no_author_app`, `no_installation`, `github_rejected` or `github_unreachable`. `catalog` lists the rows picks resolved or repositories.yaml seeded (`source` `selection`, `console` or `seed`; their branch is changed with PATCH) and the operator file's entries that carry their own credentials (`source: file`, read-only); `installed` says whether an installation of the App covers a row now (asked for the first 100 rows; null past them, or when GitHub could not answer). An installation id the App does not have is 400 `not_installed`. API keys are refused.",
+    auth: "session",
+    query: "GitHubRepositoryPageQuery",
+    success: {
+      status: 200,
+      schema: "ListGitHubRepositoriesResponse",
+      description: "The page and the catalog's repositories.",
+      example: {
+        installations: [{ id: 4242, account: "acme" }],
+        installation_id: 4242,
+        page: 1,
+        per_page: 30,
+        total_count: 1,
+        repositories: [
+          {
+            github_repository_id: 123456789,
+            full_name: "acme/app",
+            default_branch: "main",
+            private: true,
+            catalog_id: "app",
+            agent_count: 2,
+          },
+        ],
+        unavailable: null,
+        catalog: [
+          {
+            id: "app",
+            github_repository_id: 123456789,
+            full_name: "acme/app",
+            url: "https://github.com/acme/app.git",
+            branch: "main",
+            source: "selection",
+            editable: true,
+            version: 1,
+            installed: true,
+            updated_at: "2026-11-01T09:00:00Z",
+          },
+        ],
+      },
+    },
+    errors: [400, 401, 403, 404],
+  },
+  {
+    method: "patch",
+    path: "/v1/workspaces/{id}/github-repositories/{repositoryId}",
+    operationId: "updateGitHubRepository",
+    tag: "Workspace settings",
+    summary: "Change a repository's default branch (owner or admin)",
+    description:
+      "Sets the branch sessions start from. `version` is the one last read; another is 409 `REVISION_CONFLICT`. A session already running on the repository is refused its next repository request (`CATALOG_MISMATCH`), as after an operator edits the file. An operator file entry is 400 `file_repository`. Writes a `set_repository_branch` receipt with the branch before and after. API keys are refused.",
+    auth: "session",
+    body: "PatchGitHubRepositoryRequest",
+    requestExample: { branch: "develop", version: 1 },
+    success: {
+      status: 200,
+      schema: "GitHubRepositoryWriteResponse",
+      description: "Changed; the repository and the receipt.",
+      example: {
+        repository: {
+          id: "app",
+          github_repository_id: 123456789,
+          full_name: "acme/app",
+          url: "https://github.com/acme/app.git",
+          branch: "develop",
+          source: "selection",
+          editable: true,
+          version: 2,
+          installed: true,
+          updated_at: "2026-11-01T09:05:00Z",
+        },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 413],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
     idempotent: false,
   },
   {
@@ -1645,6 +1938,166 @@ export const API_ROUTE_DECLARATIONS = [
     errorNotes: {
       BACKEND_UNAVAILABLE: "Also when the API runs without a secret key.",
     },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/workspaces/{id}/github-packages",
+    operationId: "getGitHubPackages",
+    tag: "Workspace settings",
+    summary:
+      "The workspace's GitHub Packages bot token and allowlist (members)",
+    description:
+      "What sessions may fetch from GitHub Packages (npm and RubyGems) through the egress proxy. `token` says whether a bot token is registered, with its last four characters, the GitHub login it belongs to and its expiry (`expires_at` null when it never expires), never the value. `allowlist` lists each owner's package, or every package of an owner (`name` `*`), that sessions may read; an entry with `repository_id` or `agent_id` applies only to sessions of that repository or agent. Without a token, or for a package no entry names, the proxy refuses the request. `revision` is 0 until the allowlist is first saved. Any member signed in to the console reads it; API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "GitHubPackagesSettingsResponse",
+      description: "The token's summary and the allowlist.",
+      example: {
+        token: {
+          configured: true,
+          last4: "x9Qa",
+          login: "acme-packages-bot",
+          expires_at: "2027-01-30T00:00:00.000Z",
+          updated_at: "2026-11-01T09:00:00.000Z",
+          updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Mina" },
+        },
+        allowlist: [
+          {
+            registry: "npm",
+            owner: "acme",
+            name: "*",
+            repository_id: null,
+            agent_id: null,
+          },
+        ],
+        revision: 1,
+      },
+    },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "put",
+    path: "/v1/workspaces/{id}/github-packages/token",
+    operationId: "putGitHubPackagesToken",
+    tag: "Workspace settings",
+    summary:
+      "Register or replace the GitHub Packages bot token (owner or admin)",
+    description:
+      "Stores a bot account's classic personal access token whose only scope is `read:packages`; GitHub Packages accepts no GitHub App token. Before storing, the API calls GitHub's `GET /user` with it: a token GitHub refuses is 400 `BAD_REQUEST` (`reason_code` `token_invalid`), and one with any other scope, or a fine-grained token, which has no classic scopes, is 400 (`reason_code` `token_scopes`). The login and expiry GitHub reports are kept beside it. The token is kept encrypted and never returned, logged or echoed; only the egress proxy's requests to GitHub Packages carry it. Setting it again replaces it. Writes a `set_github_packages_token` receipt with its last four characters. API keys are refused.",
+    auth: "session",
+    body: "PutGitHubPackagesTokenRequest",
+    requestExample: { token: "ghp_EXAMPLE" },
+    success: {
+      status: 200,
+      schema: "GitHubPackagesWriteResponse",
+      description: "Stored; the receipt and the settings.",
+      example: {
+        receipt_id: EXAMPLE_RECEIPT_ID,
+        token: {
+          configured: true,
+          last4: "MPLE",
+          login: "acme-packages-bot",
+          expires_at: "2027-01-30T00:00:00.000Z",
+          updated_at: "2026-11-01T09:00:00.000Z",
+          updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Mina" },
+        },
+        allowlist: [],
+        revision: 0,
+      },
+    },
+    errors: [400, 401, 403, 404, 413, 503],
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "When GitHub cannot be asked about the token, or the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
+    idempotent: false,
+  },
+  {
+    method: "delete",
+    path: "/v1/workspaces/{id}/github-packages/token",
+    operationId: "deleteGitHubPackagesToken",
+    tag: "Workspace settings",
+    summary: "Remove the GitHub Packages bot token (owner or admin)",
+    description:
+      "Drops the stored token; from the next request on, the proxy refuses every GitHub Packages request. The allowlist stays. Writes a `delete_github_packages_token` receipt with the token's last four characters; 404 when none is stored. API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "GitHubPackagesWriteResponse",
+      description: "Removed; the receipt and the settings.",
+      example: {
+        receipt_id: EXAMPLE_RECEIPT_ID,
+        token: {
+          configured: false,
+          last4: null,
+          login: null,
+          expires_at: null,
+          updated_at: null,
+          updated_by: null,
+        },
+        allowlist: [],
+        revision: 0,
+      },
+    },
+    errors: [401, 403, 404, 503],
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "When the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
+    idempotent: false,
+  },
+  {
+    method: "put",
+    path: "/v1/workspaces/{id}/github-packages/allowlist",
+    operationId: "putGitHubPackagesAllowlist",
+    tag: "Workspace settings",
+    summary: "Replace the GitHub Packages allowlist (owner or admin)",
+    description:
+      "Replaces the whole allowlist, at most 200 entries. Each entry names a registry (`npm` or `rubygems`), a GitHub owner and a package name or `*`; `repository_id` (a catalog repository id) or `agent_id` narrows it to sessions of that repository or agent. Owners compare case-insensitively. `revision` is the one last read: a stale one is 409 `REVISION_CONFLICT`. Takes effect from the next request; a session's npm scopes and gem sources follow the owners named here from its next claim. Writes a `set_github_packages_allowlist` receipt. API keys are refused.",
+    auth: "session",
+    body: "PutGitHubPackagesAllowlistRequest",
+    requestExample: {
+      allowlist: [
+        {
+          registry: "rubygems",
+          owner: "acme",
+          name: "acme-auth",
+          repository_id: "billing",
+          agent_id: null,
+        },
+      ],
+      revision: 0,
+    },
+    success: {
+      status: 200,
+      schema: "GitHubPackagesWriteResponse",
+      description: "Stored; the receipt and the settings.",
+      example: {
+        receipt_id: EXAMPLE_RECEIPT_ID,
+        token: {
+          configured: false,
+          last4: null,
+          login: null,
+          expires_at: null,
+          updated_at: null,
+          updated_by: null,
+        },
+        allowlist: [
+          {
+            registry: "rubygems",
+            owner: "acme",
+            name: "acme-auth",
+            repository_id: "billing",
+            agent_id: null,
+          },
+        ],
+        revision: 1,
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 413],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
     idempotent: false,
   },
   {
@@ -1849,9 +2302,10 @@ export const API_ROUTE_DECLARATIONS = [
         status: "queued",
       },
     },
-    errors: [400, 401, 404, 409, 413, 422, 429, 503],
+    errors: [400, 401, 403, 404, 409, 413, 422, 429, 503],
     errorCodes: {
       400: ["BAD_REQUEST", "PERMISSION_WAIT_ABOVE_PROFILE"],
+      403: ["FORBIDDEN", "GITHUB_REFUSED"],
       409: [
         "IDEMPOTENCY_CONFLICT",
         "RELEASE_PROFILE_MISMATCH",
@@ -1866,6 +2320,8 @@ export const API_ROUTE_DECLARATIONS = [
         "A body its schema refuses, `profile_id` missing without `agent_release_id` included, names each field at fault in `details.issues` (`RequestBodyInvalidDetails`).",
       PERMISSION_WAIT_ABOVE_PROFILE:
         "A `permission_wait` value is longer than the profile's (`GET /v1/profiles`).",
+      GITHUB_REFUSED:
+        "`repository_not_allowed`: the agent release's GitHub settings do not list `repository_id`, or one of `attached_repository_ids` is the session's own repository, not listed there, or not allowed for the profile, or the list was sent for a session without an agent release or without a repository. No receipt is written: `details.receipt_id` is null.",
       UNSUPPORTED_CAPABILITY:
         "`profile_id` or `repository_id` is not in the catalog, the catalog does not allow the pair, the profile does not offer `model`, `repository_id` is missing for a profile whose `repository_mode` is `required` (`Profile <id> needs a repository: send repository_id`), or sent for one whose `repository_mode` is `none` (`Profile <id> runs without a repository: omit repository_id`).",
       RATE_LIMITED:
@@ -2357,7 +2813,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Pending requests",
     summary: "Answer a pending permission or question request",
     description:
-      "Answers one pending request by `request_id`: a permission with `allow` or `deny` (a denial needs a `reason` the model can act on), a question with one answer per question, by option ids or free text where the question allows it. The answer is stored and the request closes at once: the pending list drops it and a `status` event ends the wait. The worker then hands the answer to the engine, and the receipt settles when it reports: `succeeded` once delivered, `failed` if the request expired (`REQUEST_EXPIRED`) or was cancelled (`REQUEST_STALE`, with why in its message: an interrupt, a park, a shutdown, the worker refusing the answer, or the engine having closed the request already) first, `unknown` if the execution ended before it reported or the engine no longer knew the request, so it may or may not have acted on the answer.\n\nA parked request (`state: parked`) is answered the same way, whichever worker asked. The answer is kept until every request of its `group` is answered or expired; the one that closes the group resumes the session (`resumed: true`), and the receipt settles once the turn that resumes it has the answer. `waiting_for` counts the group's requests still open. A session paused by a person rather than by its park keeps the answer and stays paused.\n\nSeeing a session is not answering for it: only its creator (for a session an API key made, that key), its agent's admins and the workspace's owners and admins answer. Anyone else the session is visible to gets 403 (`reason_code: role`) and the request stays open; anyone it is not visible to, 404.",
+      "Answers one pending request by `request_id`: a permission with `allow` or `deny` (a denial needs a `reason` the model can act on), a question with one answer per question, by option ids or free text where the question allows it. The answer is stored and the request closes at once: the pending list drops it and a `status` event ends the wait. The worker then hands the answer to the engine, and the receipt settles when it reports: `succeeded` once delivered, `failed` if the request expired (`REQUEST_EXPIRED`) or was cancelled (`REQUEST_STALE`, with why in its message: an interrupt, a park, a shutdown, the worker refusing the answer, or the engine having closed the request already) first, `unknown` if the execution ended before it reported or the engine no longer knew the request, so it may or may not have acted on the answer.\n\nA parked request (`state: parked`) is answered the same way, whichever worker asked. The answer is kept until every request of its `group` is answered or expired; the one that closes the group resumes the session (`resumed: true`), and the receipt settles once the turn that resumes it has the answer. `waiting_for` counts the group's requests still open. A session paused by a person rather than by its park keeps the answer and stays paused.\n\nSeeing a session is not answering for it: only its creator, its agent's admins, the workspace's owners and admins, and the keys of its agent that hold `sessions:approve` answer. Anyone else the session is visible to gets 403 (`reason_code: role`) and the request stays open; anyone it is not visible to, 404. No workspace key (personal or agent) answers a session that key started: 403 (`reason_code: self_approval`) with a failed `answer` receipt named by `error.details.receipt_id`, and the request stays open for another key or a person.",
     scope: "approve",
     body: "PostSessionAnswerRequest",
     requestExample: {
@@ -2412,10 +2868,10 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Push requests",
     summary: "Ask for the session's latest checkpoint to be pushed",
     description:
-      "Pins the session's latest committed checkpoint: its `checkpoint_revision`, the `git_commit` its verified manifest names, the session's `repository_id`, and the target branch `agent/<session-id>`. None of these can be chosen: the body is `{}`. The request starts `requested` and nothing is pushed until a holder of `sessions:approve` approves it (`POST .../push-requests/{push_request_id}/decision`); the push itself is the platform's, never the worker's.\n\nA session has at most one open request (`requested`, `approved` or `pushing`). Every attempt, refused ones included, leaves a `request_push` receipt; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request it created.",
+      "Pins the session's latest committed checkpoint: its `checkpoint_revision`, the `git_commit` its verified manifest names, the repository and the target branch. The commit cannot be chosen. `repository_id` (default: the session's own) may name another catalog repository the session's release lists in `github.repositories` and its profile allows; the session's workspace has it as a git remote of that name. `branch` (default: none) makes the target `agent/<session-id>-<branch>` instead of `agent/<session-id>`, so one session can push to several branches, each its own pull request. The request starts `requested` and nothing is pushed until a holder of `sessions:approve` approves it (`POST .../push-requests/{push_request_id}/decision`); the push itself is the platform's, never the worker's.\n\nA session has at most one open request (`requested`, `approved` or `pushing`) per repository and branch; there is no limit on how many it makes. Every attempt, refused ones included, leaves a `request_push` receipt naming the repository and branch; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request it created.",
     scope: "write",
     body: "CreatePushRequestRequest",
-    requestExample: {},
+    requestExample: { repository_id: "docs", branch: "fix-typo" },
     success: {
       status: 201,
       schema: "PushRequest",
@@ -2435,7 +2891,9 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errorNotes: {
       FORBIDDEN:
-        "Also when the deployment does not authenticate callers (`AUTH_MODE=none`): push requests need a verified credential.",
+        "Also when the deployment does not authenticate callers (`AUTH_MODE=none`): push requests need a verified credential; and with `details.refusal: repository_not_allowed` when `repository_id` names a repository the session's release does not list, its profile does not allow, or its agent has GitHub off.",
+      PUSH_REQUEST_OPEN:
+        "Here: the session already has an open request to this repository and branch; requests to other branches or repositories are not held back.",
       CHECKPOINT_UNAVAILABLE:
         "Here: the latest checkpoint's manifest did not verify; a push never falls back to an older one.",
       CHECKPOINT_MOVED:
@@ -2483,7 +2941,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Push requests",
     summary: "Approve or reject a push request",
     description:
-      "Decides a `requested` push request once: `approve` lets the platform push the pinned commit to the request's branch, `reject` closes it. `git_commit` must be the commit the decider reviewed; an approval naming any other is refused. An approval is also refused when the session has checkpointed since the request was made, so what is approved is what the session last committed; reject the request and ask again.\n\nOnly a verified credential that holds `sessions:approve` decides: an API key or a signed-in user. Worker credentials are not accepted on `/v1` at all (401). Every attempt, refused ones included, leaves a `decide_push` receipt carrying the actor, the verdict and the refusal reason; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request this decision made, as it is now: once the platform has taken it to push, `state` reads `pushing`, `pushed` or `failed`, while `decided_by`, `decided_at` and `decision_receipt_id` still name this decision.",
+      "Decides a `requested` push request once: `approve` lets the platform push the pinned commit to the request's branch, `reject` closes it. `git_commit` must be the commit the decider reviewed; an approval naming any other is refused. An approval is also refused when the session has checkpointed since the request was made, so what is approved is what the session last committed; reject the request and ask again.\n\nOnly a verified credential that holds `sessions:approve` decides: an API key or a signed-in user. A workspace key (personal or agent) that started the session never decides its requests (403, `refusal: self_approval`); another key or a person does. Worker credentials are not accepted on `/v1` at all (401). Every attempt, refused ones included, leaves a `decide_push` receipt carrying the actor, the verdict and the refusal reason; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request this decision made, as it is now: once the platform has taken it to push, `state` reads `pushing`, `pushed` or `failed`, while `decided_by`, `decided_at` and `decision_receipt_id` still name this decision.",
     scope: "approve",
     scopeCheckedBy: "service",
     body: "DecidePushRequestRequest",
@@ -2522,7 +2980,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Push requests",
     summary: "Open a pull request from a pushed request",
     description:
-      "Opens a pull request on the repository's forge (GitHub or GHES) from the request's branch `agent/<session-id>` into the catalog entry's `branch`. Only a `pushed` request opens one, and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`, or the entry's PAT.\n\n`title` (default `Agent session <session-id>`) and `body` are cleaned before GitHub sees them: `@` mentions, cross-repository references (`owner/repo#N`), closing keywords (`Closes #N` and the like) and HTML comments are broken with a zero-width space, a line that looks like a secret is replaced by `[REDACTED]`, and both are cut to GitHub's limits. The body ends with a line naming the session and the commit. The platform never approves, merges or asks for reviews.\n\nSafe to retry: a request opens at most one pull request. When one is already recorded, or GitHub already has an open one for the branch, it is answered with `created: false` (200). Every attempt, refused ones included, leaves an `open_pull_request` receipt; `receipt_id` names this one, and a refusal's `error.details.receipt_id` names it.\n\nA verified credential that holds `sessions:approve` opens one, as for a push decision. One that holds only `sessions:submit` (an agent's key) opens one too, since the request was already pushed. The token is issued through the agent's GitHub settings: with GitHub off for the agent, or the repository outside its release, the call is refused with `GITHUB_REFUSED`. Worker credentials are not accepted on `/v1` (401).",
+      "Opens a pull request on the request's repository's forge (GitHub or GHES) from the request's branch (`agent/<session-id>` or `agent/<session-id>-<branch>`) into that catalog entry's `branch`. Only a `pushed` request opens one, and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`, or the entry's PAT.\n\n`title` (default `Agent session <session-id>`) and `body` are cleaned before GitHub sees them: `@` mentions, cross-repository references (`owner/repo#N`), closing keywords (`Closes #N` and the like) and HTML comments are broken with a zero-width space, a line that looks like a secret is replaced by `[REDACTED]`, and both are cut to GitHub's limits. The body ends with a line naming the session and the commit. The platform never approves, merges or asks for reviews.\n\nSafe to retry: a request opens at most one pull request. When one is already recorded, or GitHub already has an open one for the branch, it is answered with `created: false` (200). Every attempt, refused ones included, leaves an `open_pull_request` receipt; `receipt_id` names this one, and a refusal's `error.details.receipt_id` names it.\n\nA verified credential that holds `sessions:approve` opens one, as for a push decision. One that may only submit to the session (an agent's key without `sessions:approve`, or the key that started the session) opens one too, since the request was already pushed. The token is issued through the agent's GitHub settings: with GitHub off for the agent, or the repository outside its release, the call is refused with `GITHUB_REFUSED`. Worker credentials are not accepted on `/v1` (401).",
     scope: "approve",
     scopeCheckedBy: "service",
     idempotent: false,
@@ -2748,9 +3206,10 @@ export const API_ROUTE_DECLARATIONS = [
     path: "/v1/sessions/{id}/outcomes",
     operationId: "listSessionOutcomes",
     tag: "Sessions",
-    summary: "What the session made: the pull requests it opened",
+    summary:
+      "What the session made: the pull requests it opened and the reviews it submitted",
     description:
-      "The session's outcomes, oldest first. Each pull request the platform's pull request opening recorded is one `github_pull_request` outcome, written in the same transaction as its `open_pull_request` receipt (`receipt_id`); opening it again for a later push request of the session answers the same pull request and adds none. Only the server writes outcomes.\n\n`state` is `open`, `merged` or `closed` as GitHub last answered, at `state_checked_at` (null until the first answer): GitHub tells the platform nothing, so the platform reads each pull request again on an interval (every 5 minutes in its first day, hourly to 30 days, then daily; a closed one daily for 30 days; a merged one never). A failed read keeps the state and sets `check_error` (`not_found`, `forge_failed`, `github_refused`). `metadata.adopted` is true when the platform answered a pull request it did not create, already open for the session's branch, and null when unknown. Reading changes nothing.",
+      "The session's outcomes, oldest first. Each pull request the platform's pull request opening recorded is one `github_pull_request` outcome, written in the same transaction as its `open_pull_request` receipt (`receipt_id`); opening it again for a later push request of the session answers the same pull request and adds none. Each review the session submitted is one `github_review` outcome, written in the same transaction as its `review_pull_request` receipt: `url` is the review's, `external_id` the review id, `state` always `submitted`, and `metadata` the pull request `number`, the `event`, the `commit_id` reviewed and `opened_by_session_id` (null for a pull request the platform did not open); never the review's body. Only the server writes outcomes.\n\nA pull request's `state` is `open`, `merged` or `closed` as GitHub last answered, at `state_checked_at` (null until the first answer): GitHub tells the platform nothing, so the platform reads each pull request again on an interval (every 5 minutes in its first day, hourly to 30 days, then daily; a closed one daily for 30 days; a merged one never). A failed read keeps the state and sets `check_error` (`not_found`, `forge_failed`, `github_refused`). `metadata.adopted` is true when the platform answered a pull request it did not create, already open for the session's branch, and null when unknown. `metadata.title` is the pull request's title cut to 200 characters, as the platform sent it or GitHub last answered; null until the first read of one the platform did not create, and on a row written before titles were kept until its next read, so a pull request already merged then keeps null. A review is never read again. Reading changes nothing.",
     scope: "read",
     success: {
       status: 200,
@@ -2771,6 +3230,7 @@ export const API_ROUTE_DECLARATIONS = [
             state_checked_at: "2026-10-30T10:02:11.000Z",
             check_error: null,
             metadata: {
+              title: "Retry failed payment webhooks",
               head: `agent/${EXAMPLE_SESSION_ID}`,
               base: "main",
               adopted: false,
@@ -2782,7 +3242,85 @@ export const API_ROUTE_DECLARATIONS = [
             },
             created_at: "2026-10-30T09:40:03.000Z",
           },
+          {
+            id: "6c1f5b0e-2d7a-4e8b-9f3c-1a2b3c4d5e70",
+            type: "github_review",
+            url: "https://github.com/acme/sample-app/pull/9#pullrequestreview-2104",
+            repository_id: "sample-app",
+            external_id: "2104",
+            state: "submitted",
+            state_changed_at: "2026-10-30T10:20:00.000Z",
+            merged_at: null,
+            closed_at: null,
+            state_checked_at: null,
+            check_error: null,
+            metadata: {
+              number: 9,
+              event: "APPROVE",
+              commit_id: "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d",
+              opened_by_session_id: null,
+            },
+            created_at: "2026-10-30T10:20:00.000Z",
+          },
         ],
+      },
+    },
+    errors: [401, 404, 503],
+  },
+  {
+    method: "get",
+    path: "/v1/sessions/{id}/achievements",
+    operationId: "listSessionAchievements",
+    tag: "Sessions",
+    summary: "What the workspace's achievement rules counted in the session",
+    description:
+      "The session's achievements in force, oldest first, and its latest judgment. Only the platform's judge writes achievements: when the session's evidence appears or changes (a pull request opened, merged or closed, a review submitted, a checkpoint whose `out/` files differ from its parent's) a judgment is queued in the same transaction, one queued per session, and the judge takes it once two minutes have passed since the last such change. It pairs each rule in use with the session's evidence of its type's `evidence_kind`. An `always` rule counts every pair at no cost; one rule family counts a piece of evidence of a session once (`evidence_id`: the outcome id, the `out/` path, or null for the conversation). `title` and `link` are the pull request or review as `owner/repo#number` and its URL, the file's path and the session's console path, or the session's title and console path. `payload` is set only for the built-in types (`pull_request`, `code_review`, `document`). `review_state` is `auto` for pull request and review evidence, counted at once, and `needs_review` for `out/` files and the conversation, counted once a person confirms them.\n\n`judgment` is null before the session's first. Its `status` is `queued`, `running`, `succeeded`, `failed` or `skipped` (`error_code: judge_unavailable`: a `luna` rule had evidence and no judge answers it yet). A try that fails is queued again 1, 5 and 30 minutes later, then ends `failed`; `error_code: outputs_unavailable` says the checkpoint's `out/` list could not be read, and the achievements that need no `out/` list are written all the same. Reading changes nothing.",
+    scope: "read",
+    success: {
+      status: 200,
+      schema: "ListSessionAchievementsResponse",
+      description: "The achievements, oldest first, and the latest judgment.",
+      example: {
+        items: [
+          {
+            id: "0b1c2d3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+            session_id: EXAMPLE_SESSION_ID,
+            agent_id: null,
+            agent_release_id: null,
+            rule_id: "7d3a4e5f-6b7c-4d8e-8f9a-1b2c3d4e5f60",
+            rule_family_id: "8e4b5f6a-7c8d-4e9f-9a0b-2c3d4e5f6a71",
+            type_id: "9f5c6a7b-8d9e-4f0a-8b1c-3d4e5f6a7b82",
+            title: "acme/sample-app#12",
+            link: "https://github.com/acme/sample-app/pull/12",
+            evidence_kind: "github_pull_request",
+            evidence_id: "6c1f5b0e-2d7a-4e8b-9f3c-1a2b3c4d5e6f",
+            payload: {
+              repository: "acme/sample-app",
+              number: 12,
+              url: "https://github.com/acme/sample-app/pull/12",
+              state: "open",
+              merged_at: null,
+              additions: 42,
+              deletions: 7,
+            },
+            judge: "always",
+            probability: null,
+            judgment_id: "1c2d3e4f-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
+            review_state: "auto",
+            reviewed_by: null,
+            reviewed_at: null,
+            review_note: null,
+            created_at: "2026-10-30T09:42:10.000Z",
+          },
+        ],
+        judgment: {
+          id: "1c2d3e4f-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
+          trigger: "evidence",
+          status: "succeeded",
+          error_code: null,
+          created_at: "2026-10-30T09:40:03.000Z",
+          finished_at: "2026-10-30T09:42:10.000Z",
+        },
       },
     },
     errors: [401, 404, 503],
@@ -3847,6 +4385,65 @@ export const API_ROUTE_DECLARATIONS = [
     errors: [401, 403, 404, 503],
   },
   {
+    method: "get",
+    path: "/v1/agents/{id}/github/repositories",
+    operationId: "listAgentGitHubRepositories",
+    tag: "Agents",
+    summary: "A page of the author App's repositories, to pick for the agent",
+    description:
+      "The repositories one installation of the author App reaches, a page at a time, as `GET /v1/workspaces/{id}/github-repositories` pages them, with `catalog_id` set on those a pick resolved already. Only when the active release's installation profile ceiling runs on every App repository (`github_app_repositories: installed`); otherwise `unavailable` is `ceiling_listed` (pick among `options.repositories` of `GET /v1/agents/{id}/github`) or `no_active_release`, and the page is empty. Whoever manages the agent reads it.",
+    auth: "session",
+    query: "GitHubRepositoryPageQuery",
+    success: {
+      status: 200,
+      schema: "ListAgentGitHubRepositoriesResponse",
+      description: "The page.",
+      example: {
+        installations: [{ id: 4242, account: "acme" }],
+        installation_id: 4242,
+        page: 1,
+        per_page: 30,
+        total_count: 1,
+        repositories: [
+          {
+            github_repository_id: 123456789,
+            full_name: "acme/app",
+            default_branch: "main",
+            private: true,
+            catalog_id: null,
+          },
+        ],
+        unavailable: null,
+      },
+    },
+    errors: [400, 401, 403, 404],
+  },
+  {
+    method: "post",
+    path: "/v1/agents/{id}/github/repositories",
+    operationId: "pickAgentGitHubRepository",
+    tag: "Agents",
+    summary: "Resolve an App repository to the catalog id a release names",
+    description:
+      "Takes a repository from `GET …/github/repositories` and returns the catalog id to put in `github.repositories` of the next release (`POST /v1/agents/{id}/releases`); the release itself is unchanged. The server reads the repository by its GitHub id and checks that the named installation covers it, then takes its URL and default branch from GitHub. The same repository always resolves to the same id, by its GitHub id: the first pick writes a `resolve_repository` receipt (`receipt_id`), and so does a pick after a rename on GitHub, which moves the row to the new name and URL; other picks return null. 400 `details.reason_code`: `repository_not_allowed` (the active release's ceiling does not run on App repositories, or there is no active release), `no_author_app`, `not_installed`, `file_repository` (the operator file holds that repository with its own credential), or `name_held` (another row has that name: another GitHub repository's, whose pick after its rename frees the name, or one not yet tied to a GitHub id). A signed-in manager of the agent; API keys are refused.",
+    auth: "session",
+    body: "PickAgentGitHubRepositoryRequest",
+    requestExample: { installation_id: 4242, github_repository_id: 123456789 },
+    success: {
+      status: 200,
+      schema: "PickAgentGitHubRepositoryResponse",
+      description:
+        "The catalog id, and the receipt when this pick added or renamed its row.",
+      example: { catalog_id: "app", receipt_id: EXAMPLE_RECEIPT_ID },
+    },
+    errors: [400, 401, 403, 404, 413, 503],
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "GitHub could not be reached to read the repository; nothing stored changed.",
+    },
+    idempotent: false,
+  },
+  {
     method: "put",
     path: "/v1/agents/{id}/github/enabled",
     operationId: "putAgentGitHubEnabled",
@@ -4137,7 +4734,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "API keys",
     summary: "Issue a personal key or an agent key",
     description:
-      "A personal key is the caller's own; an agent key names its agent in `agent_id` and takes an owner, an admin, or that agent's admin. No key reaches a whole workspace: an agent key without `agent_id` is a 400. `name` (1-64 characters once trimmed) is optional. `scopes` may not exceed what the caller holds now, and an agent key never holds `sessions:approve` (403 SCOPE_NOT_GRANTABLE). An API key never issues one. The secret is returned once; only its sha256 is stored. Writes a `create_api_key` receipt.",
+      "A personal key is the caller's own; an agent key names its agent in `agent_id` and takes an owner, an admin, or that agent's admin. No key reaches a whole workspace: an agent key without `agent_id` is a 400. `name` (1-64 characters once trimmed) is optional. `scopes` may not exceed what the caller holds now (403 SCOPE_NOT_GRANTABLE); within that, either kind may hold any scope, `sessions:approve` included. A personal or agent key holding `sessions:approve` still never approves a session it started itself. An API key never issues one. The secret is returned once; only its sha256 is stored. Writes a `create_api_key` receipt.",
     auth: "session",
     body: "CreateApiKeyRequest",
     success: { status: 201, schema: "CreateApiKeyResponse" },
@@ -4437,6 +5034,340 @@ export const API_ROUTE_DECLARATIONS = [
   },
   {
     method: "get",
+    path: "/v1/achievement-categories",
+    operationId: "listAchievementCategories",
+    tag: "Workspace settings",
+    summary: "List the workspace's achievement categories",
+    description:
+      "Every category of the caller's workspace, archived ones included (`archived_at`), by `position`. A category groups achievement rules; its name is not copied anywhere, so renaming it renames it for past achievements too. Every member reads it, and so does a member's personal key (`workspace.read`); an agent's key is 403.",
+    scope: "read",
+    success: {
+      status: 200,
+      schema: "ListAchievementCategoriesResponse",
+      description: "The categories, by `position` then creation.",
+      example: { items: [ACHIEVEMENT_CATEGORY_EXAMPLE] },
+    },
+    errors: [401, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/achievement-categories",
+    operationId: "createAchievementCategory",
+    tag: "Workspace settings",
+    summary: "Make an achievement category",
+    description: `${ACHIEVEMENT_MANAGERS} The name (1 to 32 characters) is unique among the workspace's categories that are not archived (409 ALREADY_EXISTS, \`details.reason_code: name_taken\`). The new category goes after the last one. Writes a \`create_achievement_category\` receipt.`,
+    auth: "session",
+    body: "CreateAchievementCategoryRequest",
+    requestExample: { name: "Delivery" },
+    success: {
+      status: 201,
+      schema: "AchievementCategoryChangeResponse",
+      description: "The category made, and its receipt.",
+      example: {
+        category: ACHIEVEMENT_CATEGORY_EXAMPLE,
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 409, 413, 503],
+    errorCodes: { 409: ["ALREADY_EXISTS"] },
+    idempotent: false,
+  },
+  {
+    method: "patch",
+    path: "/v1/achievement-categories/{id}",
+    operationId: "updateAchievementCategory",
+    tag: "Workspace settings",
+    summary: "Rename or reorder an achievement category",
+    description: `${ACHIEVEMENT_MANAGERS} Changes \`name\`, \`position\` or both. A name another category that is not archived holds is 409 ALREADY_EXISTS (\`details.reason_code: name_taken\`). Writes an \`update_achievement_category\` receipt unless nothing changed (\`receipt_id\` null). Another workspace's category is 404.`,
+    auth: "session",
+    body: "UpdateAchievementCategoryRequest",
+    requestExample: { name: "Delivery", position: 1 },
+    success: {
+      status: 200,
+      schema: "AchievementCategoryChangeResponse",
+      description: "The category as changed.",
+      example: {
+        category: { ...ACHIEVEMENT_CATEGORY_EXAMPLE, position: 1 },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["ALREADY_EXISTS"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/achievement-categories/{id}/archive",
+    operationId: "archiveAchievementCategory",
+    tag: "Workspace settings",
+    summary: "Archive an achievement category",
+    description: `${ACHIEVEMENT_MANAGERS} A category with a rule in use (its latest version, not disabled) is 409 REVISION_CONFLICT with \`details.reason_code: category_in_use\`. Archiving one already archived changes nothing and answers a null \`receipt_id\`; otherwise writes an \`archive_achievement_category\` receipt. Another workspace's category is 404.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "AchievementCategoryChangeResponse",
+      description: "The category as archived.",
+      example: {
+        category: {
+          ...ACHIEVEMENT_CATEGORY_EXAMPLE,
+          archived_at: "2026-11-02T02:00:00.000Z",
+          archived_by: EXAMPLE_USER_ID,
+        },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [401, 403, 404, 409, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/achievement-types",
+    operationId: "listAchievementTypes",
+    tag: "Workspace settings",
+    summary: "List the workspace's achievement types",
+    description:
+      "Every type of the caller's workspace, archived ones included: the built-in `pull_request`, `code_review` and `document` (`builtin: true`, `created_by` null) first, then the ones people made. A type is what a rule counts, and names the kind of evidence it is counted from. Every member reads it, and so does a member's personal key (`workspace.read`); an agent's key is 403.",
+    scope: "read",
+    success: {
+      status: 200,
+      schema: "ListAchievementTypesResponse",
+      description: "The types, built-in first, then by creation.",
+      example: { items: [ACHIEVEMENT_TYPE_EXAMPLE] },
+    },
+    errors: [401, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/achievement-types",
+    operationId: "createAchievementType",
+    tag: "Workspace settings",
+    summary: "Make an achievement type",
+    description: `${ACHIEVEMENT_MANAGERS} \`key\` matches \`[a-z][a-z0-9_]{1,40}\` and is unique in the workspace, archived types included (409 ALREADY_EXISTS, \`details.reason_code: key_taken\`); \`key\` and \`evidence_kind\` never change afterwards. A workspace holds at most 50 types that are not archived (409 REVISION_CONFLICT, \`details.reason_code: limit_reached\`). Writes a \`create_achievement_type\` receipt.`,
+    auth: "session",
+    body: "CreateAchievementTypeRequest",
+    requestExample: {
+      key: "design_doc",
+      name: "Design doc",
+      evidence_kind: "out_file",
+    },
+    success: {
+      status: 201,
+      schema: "AchievementTypeChangeResponse",
+      description: "The type made, and its receipt.",
+      example: {
+        type: ACHIEVEMENT_TYPE_EXAMPLE,
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 409, 413, 503],
+    errorCodes: { 409: ["ALREADY_EXISTS", "REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "patch",
+    path: "/v1/achievement-types/{id}",
+    operationId: "updateAchievementType",
+    tag: "Workspace settings",
+    summary: "Rename an achievement type",
+    description: `${ACHIEVEMENT_MANAGERS} Only \`name\` changes; a body naming \`key\` or \`evidence_kind\` is 400. To count under another key or evidence kind, make a new type and move the rule to it in a new version. Writes an \`update_achievement_type\` receipt unless the name is unchanged (\`receipt_id\` null). Another workspace's type is 404.`,
+    auth: "session",
+    body: "UpdateAchievementTypeRequest",
+    requestExample: { name: "Design document" },
+    success: {
+      status: 200,
+      schema: "AchievementTypeChangeResponse",
+      description: "The type as renamed.",
+      example: {
+        type: { ...ACHIEVEMENT_TYPE_EXAMPLE, name: "Design document" },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/achievement-types/{id}/archive",
+    operationId: "archiveAchievementType",
+    tag: "Workspace settings",
+    summary: "Archive an achievement type",
+    description: `${ACHIEVEMENT_MANAGERS} A built-in type is never archived (409 REVISION_CONFLICT, \`details.reason_code: builtin\`), nor is one a rule in use counts (\`details.reason_code: type_in_use\`). Archiving one already archived changes nothing and answers a null \`receipt_id\`; otherwise writes an \`archive_achievement_type\` receipt. Another workspace's type is 404.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "AchievementTypeChangeResponse",
+      description: "The type as archived.",
+      example: {
+        type: {
+          ...ACHIEVEMENT_TYPE_EXAMPLE,
+          archived_at: "2026-11-02T02:00:00.000Z",
+          archived_by: EXAMPLE_USER_ID,
+        },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [401, 403, 404, 409, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/achievement-rules",
+    operationId: "listAchievementRules",
+    tag: "Workspace settings",
+    summary: "List the workspace's achievement rules",
+    description:
+      "The latest version of every rule of the caller's workspace, disabled ones included (`disabled_at`), grouped by category in the categories' order and by title within one. A rule is one title, one type and one definition; `judge: always` counts the type's evidence as it appears, `luna` asks the judge whether the definition holds. `agent_ids` is null: every agent. Every member reads it, and so does a member's personal key (`workspace.read`); an agent's key is 403.",
+    scope: "read",
+    success: {
+      status: 200,
+      schema: "ListAchievementRulesResponse",
+      description: "The latest versions.",
+      example: { items: [ACHIEVEMENT_RULE_EXAMPLE] },
+    },
+    errors: [401, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/achievement-rules",
+    operationId: "createAchievementRule",
+    tag: "Workspace settings",
+    summary: "Make an achievement rule",
+    description: `${ACHIEVEMENT_MANAGERS} Version 1 of a new rule. \`category_id\` and \`type_id\` name a category and a type of the workspace that are not archived (400, \`details.reason_code: unknown_category\` or \`unknown_type\`); \`agent_ids\` takes only null. A type is counted by one rule in use at a time: a type another rule in use counts is 409 REVISION_CONFLICT with \`details.reason_code: type_in_use\`. A workspace has at most 30 rules in use (\`details.reason_code: limit_reached\`). Writes a \`create_achievement_rule\` receipt naming the rule's id, family and version, never its definition.`,
+    auth: "session",
+    body: "AchievementRuleRequest",
+    requestExample: ACHIEVEMENT_RULE_REQUEST_EXAMPLE,
+    success: {
+      status: 201,
+      schema: "AchievementRuleChangeResponse",
+      description: "Version 1, and its receipt.",
+      example: {
+        rule: ACHIEVEMENT_RULE_EXAMPLE,
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 409, 413, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/achievement-rules/{family_id}/versions",
+    operationId: "createAchievementRuleVersion",
+    tag: "Workspace settings",
+    summary: "Edit an achievement rule as its next version",
+    description: `${ACHIEVEMENT_MANAGERS} The body is the whole rule, as for a new one. A rule's rows never change: this makes version + 1 under a new id and sets the previous version's \`superseded_by\` to it; achievements already counted keep pointing at the version they were judged by. A disabled rule's new version is disabled too. 400 and 409 \`type_in_use\` as for a new rule; two edits at once are saved one after the other, each as its own version. Writes an \`update_achievement_rule\` receipt with the new and previous version ids, never the definition. Another workspace's rule is 404.`,
+    auth: "session",
+    body: "AchievementRuleRequest",
+    requestExample: {
+      ...ACHIEVEMENT_RULE_REQUEST_EXAMPLE,
+      title: "Design doc merged",
+    },
+    success: {
+      status: 201,
+      schema: "AchievementRuleChangeResponse",
+      description: "The new version, and its receipt.",
+      example: {
+        rule: {
+          ...ACHIEVEMENT_RULE_EXAMPLE,
+          id: "9f5c6a7b-8d9e-4f0a-8b1c-3d4e5f6a7b82",
+          version: 2,
+          title: "Design doc merged",
+        },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/achievement-rules/{family_id}/disable",
+    operationId: "disableAchievementRule",
+    tag: "Workspace settings",
+    summary: "Stop using an achievement rule",
+    description: `${ACHIEVEMENT_MANAGERS} Disables the rule's latest version: it counts nothing from now on, and its type is free for another rule. Disabling one already disabled changes nothing and answers a null \`receipt_id\`; otherwise writes a \`disable_achievement_rule\` receipt. Another workspace's rule is 404.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "AchievementRuleChangeResponse",
+      description: "The latest version, disabled.",
+      example: {
+        rule: {
+          ...ACHIEVEMENT_RULE_EXAMPLE,
+          disabled_at: "2026-11-02T02:00:00.000Z",
+          disabled_by: EXAMPLE_USER_ID,
+        },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/achievement-rules/{family_id}/enable",
+    operationId: "enableAchievementRule",
+    tag: "Workspace settings",
+    summary: "Use a disabled achievement rule again",
+    description: `${ACHIEVEMENT_MANAGERS} Enables the rule's latest version. If another rule in use counts its type now, 409 REVISION_CONFLICT with \`details.reason_code: type_in_use\`; at 30 rules in use, \`limit_reached\`; a category or type archived since is 400 (\`unknown_category\`, \`unknown_type\`). Enabling one already in use changes nothing and answers a null \`receipt_id\`; otherwise writes an \`enable_achievement_rule\` receipt. Another workspace's rule is 404.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "AchievementRuleChangeResponse",
+      description: "The latest version, in use.",
+      example: {
+        rule: ACHIEVEMENT_RULE_EXAMPLE,
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/workspaces/{id}/achievement-judge",
+    operationId: "getAchievementJudge",
+    tag: "Workspace settings",
+    summary: "Read how the workspace's achievement judge runs",
+    description:
+      "`workspace.settings.achievement_judge` of the caller's workspace, every field filled with its default when never set. `connection_id` null leaves `luna` rules unjudged; `always` rules count regardless. Another workspace is 404. Every member reads it, and so does a member's personal key (`workspace.read`); an agent's key is 403.",
+    scope: "read",
+    success: {
+      status: 200,
+      schema: "AchievementJudgeResponse",
+      description: "The settings.",
+      example: { achievement_judge: ACHIEVEMENT_JUDGE_EXAMPLE },
+    },
+    errors: [401, 404, 503],
+  },
+  {
+    method: "put",
+    path: "/v1/workspaces/{id}/achievement-judge",
+    operationId: "putAchievementJudge",
+    tag: "Workspace settings",
+    summary: "Change how the workspace's achievement judge runs",
+    description: `${ACHIEVEMENT_MANAGERS} Replaces the settings; a field left out takes its default. \`threshold\` is between 0 and 1, \`every_n_turns\` null or 5 to 100, \`transcript\` \`none\` or \`recent\`. Writes a \`set_achievement_judge\` receipt with the settings saved. Another workspace is 404.`,
+    auth: "session",
+    body: "AchievementJudgeRequest",
+    requestExample: { ...ACHIEVEMENT_JUDGE_EXAMPLE, every_n_turns: 10 },
+    success: {
+      status: 200,
+      schema: "AchievementJudgeChangeResponse",
+      description: "The settings saved, and the receipt.",
+      example: {
+        achievement_judge: { ...ACHIEVEMENT_JUDGE_EXAMPLE, every_n_turns: 10 },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
+  },
+  {
+    method: "get",
     path: "/v1/installation-profiles/options",
     operationId: "getInstallationProfileOptions",
     tag: "Agents",
@@ -4478,7 +5409,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Save a new version of an installation ceiling",
     description:
-      "The operator (`profile.installation.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Saves the next version of `name` with a new id (`op_<name>_v<n>`) on the connection `connection_id`, whose provider the server copies in; earlier versions, and the workspace profiles and releases on them, stay as they were. A new version of an existing name sends that name's latest id as `previous_id`; anything else is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`), as is the second of two saves at once. A first version may name the ceiling it replaces in `previous_id` (400 `unknown_previous` when there is none). 400 `details.reason_code`: `unknown_connection`, `runtime_not_installed`, `unattended_not_allowed` (`bypassPermissions` while `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` is not `true`), `unknown_repository`, `model_not_in_models` or `invalid_profile`, each with `details.field`. 409 `details.reason_code: id_taken` when the id is already an imported profile's. A ceiling runs against its `repository_ids` and no other repository. Writes a `create_installation_profile` receipt.",
+      "The operator (`profile.installation.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Saves the next version of `name` with a new id (`op_<name>_v<n>`) on the connection `connection_id`, whose provider the server copies in; earlier versions, and the workspace profiles and releases on them, stay as they were. A new version of an existing name sends that name's latest id as `previous_id`; anything else is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`), as is the second of two saves at once. A first version may name the ceiling it replaces in `previous_id` (400 `unknown_previous` when there is none). 400 `details.reason_code`: `unknown_connection`, `runtime_not_installed`, `unattended_not_allowed` (`bypassPermissions` while `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` is not `true`), `unknown_repository`, `model_not_in_models` or `invalid_profile`, each with `details.field`. 409 `details.reason_code: id_taken` when the id is already an imported profile's. A ceiling runs against its `repository_ids` and, with `github_app_repositories: installed`, every repository the author GitHub App's installations reach (picked per agent through `POST /v1/agents/{id}/github/repositories`); no other repository. Writes a `create_installation_profile` receipt.",
     auth: "session",
     body: "CreateInstallationProfileRequest",
     requestExample: {
@@ -5106,6 +6037,12 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path.startsWith("/v1/teams/{team_id}")) return teamIdParamsSchema;
   if (path.startsWith("/v1/workspace-profiles/{profile_id}"))
     return workspaceProfileIdParamsSchema;
+  if (path.startsWith("/v1/achievement-categories/{id}"))
+    return achievementCategoryParamsSchema;
+  if (path.startsWith("/v1/achievement-types/{id}"))
+    return achievementTypeParamsSchema;
+  if (path.startsWith("/v1/achievement-rules/{family_id}"))
+    return achievementRuleFamilyParamsSchema;
   if (path.startsWith("/v1/installation-profiles/{profile_id}"))
     return installationProfileIdParamsSchema;
   if (path.startsWith("/v1/workspaces/{id}/members/{userId}"))
@@ -5119,6 +6056,9 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path.startsWith("/v1/users/{user_id}")) return memberUserParamsSchema;
   if (path === "/v1/workspaces/{id}/github-apps/{role}") {
     return githubAppRoleParamsSchema;
+  }
+  if (path === "/v1/workspaces/{id}/github-repositories/{repositoryId}") {
+    return githubRepositoryParamsSchema;
   }
   if (path.startsWith("/v1/workspaces/{id}")) return workspaceParamsSchema;
   if (path.includes("{turn_id}")) return turnIdParamsSchema;

@@ -98,7 +98,7 @@ export type GitHubMcpServices = {
 
 const DESCRIPTIONS: Record<GitHubMcpTool, string> = {
   request_push:
-    "Ask to push this session's last checkpoint (the end of the previous turn, not commits made in this turn) to its agent/<session-id> branch. When the release requires approval the request waits for a person and this returns at once; call open_pull_request after it is pushed.",
+    "Ask to push this session's last checkpoint (the end of the previous turn, not commits made in this turn; check out the branch to push before ending that turn) to agent/<session-id>, or to agent/<session-id>-<branch> when `branch` is given; each branch gets its own pull request. `repository_id` picks another repository the release allows (each is a git remote of that name in the workspace; start from `<repository_id>/<its default branch>`); omitted, the session's own. When the release requires approval the request waits for a person and this returns at once; call open_pull_request after it is pushed.",
   open_pull_request:
     "Open (or answer the already open) pull request from a pushed push request's branch and commit.",
   comment_pull_request:
@@ -367,6 +367,9 @@ async function run(
     case "request_push":
       return services.pushRequests.create(actor, sessionId, {
         idempotencyKey: `mcp-${randomUUID()}`,
+        body: args as z.infer<
+          (typeof GITHUB_MCP_TOOL_ARGUMENTS)["request_push"]
+        >,
       });
     case "open_pull_request": {
       const { push_request_id, ...body } = args as z.infer<

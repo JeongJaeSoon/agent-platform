@@ -118,9 +118,9 @@ export async function sessionGitHubMcpOf(
   };
 }
 
-function creatorOf(
+export function creatorOf(
   session: { createdByUserId: string | null; createdByApiKeyId: string | null },
-  agentId: string,
+  agentId: string | null,
 ): ReceiptActor | null {
   if (session.createdByApiKeyId !== null) {
     return {

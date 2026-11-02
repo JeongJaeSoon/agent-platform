@@ -41,6 +41,7 @@ import {
   type Translate,
   useI18n,
 } from "../../i18n/i18n.tsx";
+import { AppRepositoryPicker } from "./github-app-repositories.tsx";
 import { type Notify, useToast } from "./toast.tsx";
 import { useCurrentSection } from "./use-current-section.ts";
 import { usePageFits } from "./use-page-fits.ts";
@@ -72,13 +73,13 @@ const SECTION_BOX =
   "flex scroll-mt-4 flex-col gap-[var(--ap-space-block)] outline-none";
 const HEADING = "m-0 font-semibold text-body leading-5";
 // The order the mockup lists them in: what most agents turn on first.
-const FEATURES: readonly Feature[] = [
+// checks and issues stay in the contract but have no work behind them yet
+// (github-agent.md LATER), so they are not offered.
+const FEATURES = [
   "review",
   "actions",
-  "checks",
-  "issues",
   "workflows",
-];
+] as const satisfies readonly Feature[];
 const WORKFLOW_FILE = /^[A-Za-z0-9._-]+\.ya?ml$/;
 const ALLOW_MAX = 32;
 const REF_MAX = 255;
@@ -787,6 +788,25 @@ function GitHubSettings({
                 })}
               </RowList>
             )}
+            <AppRepositoryPicker
+              agentId={agentId}
+              chosen={settings.repositories}
+              disabled={readOnly}
+              onPicked={async (catalogId, name) => {
+                edit((current) =>
+                  current.repositories.includes(catalogId)
+                    ? current
+                    : {
+                        ...current,
+                        repositories: [...current.repositories, catalogId],
+                      },
+                );
+                notify(t("agentGitHub.picked", { name }));
+                await cache.invalidateQueries({
+                  queryKey: githubKey(client, agentId),
+                });
+              }}
+            />
             <span className="text-caption text-muted-foreground">
               {t("agentGitHub.repositoriesFoot")}
             </span>
