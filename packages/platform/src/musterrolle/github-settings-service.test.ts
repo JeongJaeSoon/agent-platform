@@ -25,6 +25,7 @@ import { type Caller, callerFor, createAuthorizationPolicy } from "./policy.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const OTHER = "019a0000-0000-7000-8000-0000000000f2";
+const AUTHOR_CONNECTION = "019a0000-0000-7000-8000-0000000000a1";
 
 function user(
   role: WorkspaceRole,
@@ -167,6 +168,7 @@ function harness(
   const oauth: GitHubOAuthStore = {
     status: async () => ({
       authorApp: options.authorApp !== false,
+      connectionId: options.authorApp === false ? null : AUTHOR_CONNECTION,
       clientId: options.authorApp === false ? null : "Iv23liClient",
       clientSecretSet: secrets.length > 0,
     }),
@@ -253,6 +255,7 @@ describe("GitHub settings service", () => {
         review: 1,
       },
       oauth: {
+        connection_id: AUTHOR_CONNECTION,
         client_id: "Iv23liClient",
         client_secret_set: false,
         callback_url: CALLBACK,
@@ -542,6 +545,7 @@ describe("storing the OAuth client secret", () => {
         "callback_url",
         "client_id",
         "client_secret_set",
+        "connection_id",
       ]);
       expect(stored.receipt_id).toBe("019a0000-0000-7000-8000-0000000000aa");
       expect(stored.oauth.client_id).toBe("Iv23liClient");

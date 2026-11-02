@@ -93,7 +93,60 @@ scripts/local.sh key --workspace <workspace-id> --personal <user-id> --scopes se
 
 `<owner>` で作ったキーは、その名前を owner として使う。`--workspace` は `--personal` と一緒にだけ使う。そのメンバーの個人キーになり、その人として動作する。`--personal` なしで `--workspace` だけを渡すか、`<owner>` の位置にワークスペース id を渡すと拒否する。ワークスペース全体に届くキーはない。エージェントキーは Web コンソールか `POST /v1/api-keys` で発行する。
 
+## SDK でキーを使う
+
+`new Werft()` は環境変数 `WERFT_BASE_URL` と `WERFT_API_KEY` を読む。コードで指定するには `baseUrl` と `apiKey` を渡す。どのキーで何を呼んでいるかは `auth.me` で、サーバーが応答するかは `root.get` で確認する。scope は要らない。
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { Werft } from "@werft-ai/sdk";
+
+const client = new Werft({
+  baseUrl: process.env.WERFT_BASE_URL,
+  apiKey: process.env.WERFT_API_KEY,
+});
+const me = await client.auth.me();
+console.log(me.principal.kind, me.scopes);
+const root = await client.root.get();
+console.log(root.status);
+```
+
+```text
+api_key [
+  'sessions:read',
+  'sessions:write',
+  'sessions:approve',
+  'sessions:control',
+  'sessions:recover'
+]
+ok
+```
+
+</Tab>
+<Tab>
+
+```bash
+curl -sS "$API/v1/auth/me" -H "Authorization: Bearer $KEY" | jq -c '{kind: .principal.kind, scopes}'
+curl -sS "$API/v1" -H "Authorization: Bearer $KEY" | jq -c '{status}'
+```
+
+```text
+{"kind":"api_key","scopes":["sessions:read","sessions:write","sessions:approve","sessions:control","sessions:recover"]}
+{"status":"ok"}
+```
+
+リファレンス: [`GET /v1/auth/me`](/reference/http-api/auth/getAuthMe), [`GET /v1`](/reference/http-api/auth/getApiRoot)
+
+</Tab>
+</Tabs>
+
+SDK はキーを `Authorization` ヘッダーでのみ送り、ブラウザーと loopback 以外の `http://` アドレスではクライアントを作らない。オプションは[クライアントのオプション](/getting-started/client#クライアントのオプション)にある。
+
+Web コンソールで発行した個人キー・エージェントキーは、自分が開始したセッションのリクエストを承認できない(403 `self_approval`)。開発用サーバーの運用者キー(`scripts/local.sh key`)だけが例外である。セッションを作るキーと承認するキーを分ける方法は[承認用のキーを分けて使う](/getting-started/client#承認用のキーを分けて使う)にある。エージェントキーには `sessions:read`、`sessions:write`、`sessions:control`、承認者のキーには `sessions:read`、`sessions:approve` が必要で、セッションの共有範囲に承認者が含まれている必要がある。
+
 ## 次のステップ
 
 - [オブザーバビリティ (OTel)](/observability)
-- [Quickstart](/getting-started/quickstart)
+- [SDK のインストール](/getting-started/install)

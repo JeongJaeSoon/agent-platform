@@ -44,6 +44,7 @@ function agent(id: string, name: string): Agent {
     workspace_id: WORKSPACE_ID,
     slug: name.toLowerCase(),
     name,
+    description: null,
     status: "active",
     active_release_id: null,
     activation_revision: -1,

@@ -24,10 +24,16 @@ import {
   FieldLabel,
   FormActions,
   formatTimestamp,
+  GridTable,
+  GridTableCell,
+  GridTableColumnHeader,
+  GridTableHeader,
+  GridTableRow,
   Input,
   Link,
   linkVariants,
   Page,
+  RelativeTime,
   RowAction,
   RowLines,
   RowListItem,
@@ -37,12 +43,6 @@ import {
   Skeleton,
   Steps,
   Switch,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
   Text,
   Tooltip,
   TooltipContent,
@@ -205,8 +205,6 @@ const SECTIONS = "flex flex-col gap-10";
 // The server's ceiling (workspace-settings.tsx AUDIT_RETENTION_MAX_DAYS).
 const AUDIT_RETENTION_MAX_DAYS = 3650;
 const ICON = "size-3.5 shrink-0";
-const FIT = "w-px whitespace-nowrap";
-const WIDE = "hidden @[560px]:table-cell";
 const SLACK_APPS_URL = "https://api.slack.com/apps";
 // The page's link target for the app list (workspace-slack-apps.tsx).
 const SLACK_APPS_ANCHOR = "slack-apps";
@@ -690,94 +688,103 @@ function AppState({ item }: { readonly item: MadeApp }) {
 
 function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
   return (
-    <div className="@container overflow-hidden rounded-card border bg-card">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead scope="col">앱</TableHead>
-            <TableHead scope="col" className={WIDE}>
-              에이전트
-            </TableHead>
-            <TableHead scope="col" className={FIT}>
-              상태
-            </TableHead>
-            <TableHead scope="col" className={cn(FIT, WIDE, "text-right")}>
-              갱신
-            </TableHead>
-            <TableHead scope="col" className={FIT}>
-              <Text as="span" className="sr-only">
-                자세히
-              </Text>
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.map((item) => {
-            const name =
-              item.slack_app.kind === "link"
-                ? "계정 연결 앱"
-                : `${item.agent?.name ?? "없음"} 앱`;
-            const updated = formatTimestamp(item.slack_app.updated_at, "ko");
-            return (
-              <TableRow key={item.slack_app.id}>
-                <TableCell>
-                  <RowLines>
-                    <Text
-                      as="span"
-                      weight="medium"
-                      className="[overflow-wrap:anywhere]"
-                    >
-                      {name}
-                    </Text>
-                    <Code className="text-muted-foreground">
-                      {item.slack_app.app_id ?? "앱 ID 없음"}
-                    </Code>
-                    <Text as="span" variant="meta" className="@[560px]:hidden">
-                      {item.agent?.name ?? "없음"}
-                      {" · "}
-                      {updated}
-                    </Text>
-                  </RowLines>
-                </TableCell>
-                <TableCell className={cn(WIDE, "text-muted-foreground")}>
-                  {item.agent ? (
-                    <a href="#nav" className={linkVariants()}>
-                      {item.agent.name}
-                    </a>
-                  ) : (
-                    "없음"
-                  )}
-                </TableCell>
-                <TableCell className={FIT}>
-                  <AppState item={item} />
-                </TableCell>
-                <TableCell
-                  className={cn(
-                    FIT,
-                    WIDE,
-                    "text-right text-caption text-muted-foreground",
-                  )}
+    <GridTable
+      aria-label="앱 목록"
+      columns={APP_COLUMNS[0]}
+      narrowAt={640}
+      narrowColumns={APP_COLUMNS[1]}
+      framed={true}
+    >
+      <GridTableHeader>
+        <GridTableColumnHeader>앱</GridTableColumnHeader>
+        <GridTableColumnHeader hideNarrow>에이전트</GridTableColumnHeader>
+        <GridTableColumnHeader>상태</GridTableColumnHeader>
+        <GridTableColumnHeader align="end" hideNarrow>
+          갱신
+        </GridTableColumnHeader>
+        <GridTableColumnHeader>
+          <Text as="span" className="sr-only">
+            자세히
+          </Text>
+        </GridTableColumnHeader>
+      </GridTableHeader>
+      {items.map((item) => {
+        const name =
+          item.slack_app.kind === "link"
+            ? "계정 연결 앱"
+            : `${item.agent?.name ?? "없음"} 앱`;
+        const updated = (
+          <RelativeTime value={item.slack_app.updated_at} locale="ko" />
+        );
+        return (
+          <GridTableRow key={item.slack_app.id}>
+            <GridTableCell>
+              <RowLines>
+                <Text
+                  as="span"
+                  weight="medium"
+                  className="[overflow-wrap:anywhere]"
                 >
-                  <time dateTime={item.slack_app.updated_at}>{updated}</time>
-                </TableCell>
-                <TableCell className={FIT}>
-                  {item.agent ? (
-                    <a href="#nav" className={linkVariants()}>
-                      자세히
-                      <Text as="span" className="sr-only">
-                        : {name}
-                      </Text>
-                    </a>
-                  ) : null}
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </div>
+                  {name}
+                </Text>
+                <Code className="text-muted-foreground">
+                  {item.slack_app.app_id ?? "앱 ID 없음"}
+                </Code>
+                <Text
+                  as="span"
+                  variant="meta"
+                  className="hidden [@container(max-width:640px)]:block"
+                >
+                  {item.agent?.name ?? "없음"}
+                  {" · "}
+                  {updated}
+                </Text>
+              </RowLines>
+            </GridTableCell>
+            <GridTableCell hideNarrow className="text-muted-foreground">
+              {item.agent ? (
+                <a
+                  href="#nav"
+                  className={cn(linkVariants(), "[overflow-wrap:anywhere]")}
+                >
+                  {item.agent.name}
+                </a>
+              ) : (
+                "없음"
+              )}
+            </GridTableCell>
+            <GridTableCell>
+              <AppState item={item} />
+            </GridTableCell>
+            <GridTableCell
+              align="end"
+              hideNarrow
+              className="text-caption text-muted-foreground"
+            >
+              {updated}
+            </GridTableCell>
+            <GridTableCell align="end">
+              {item.agent ? (
+                <a href="#nav" className={linkVariants()}>
+                  자세히
+                  <Text as="span" className="sr-only">
+                    : {name}
+                  </Text>
+                </a>
+              ) : null}
+            </GridTableCell>
+          </GridTableRow>
+        );
+      })}
+    </GridTable>
   );
 }
+
+// workspace-slack-apps.tsx COLUMNS.
+const APP_COLUMNS = [
+  "minmax(0,1.4fr) minmax(0,1fr) 136px 120px 64px",
+  "minmax(0,1fr) 120px 64px",
+] as const;
 
 function SlackApps({
   viewer,

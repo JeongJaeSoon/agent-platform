@@ -135,7 +135,29 @@ curl -sS "$API/v1/agents/counts" "${WEB[@]}" | jq -c
 
 ## セッションに紐付ける
 
-`POST /v1/sessions` に `agent_release_id` を指定する。`profile_id` はそのリリースのプロファイルでなければならない (そうでなければ 409 `RELEASE_PROFILE_MISMATCH`)。キーはそのエージェントのエージェントキーを使う。Web ログインの cookie で `POST /v1/api-keys` に `kind: "agent"` と `agent_id` を渡して発行する([API キー](/api-keys))。秘密値は変数にだけ入れる。
+セッションを作成するときに `agent_release_id` を指定する。`profile_id` はそのリリースのプロファイルでなければならない (そうでなければ 409 `RELEASE_PROFILE_MISMATCH`)。キーはそのエージェントのエージェントキーを使う。エージェントキーは Web コンソールか Web ログインの cookie で `POST /v1/api-keys` に `kind: "agent"` と `agent_id` を渡して発行する([API キー](/api-keys))。この発行には SDK のメソッドがない。秘密値は変数にだけ入れる。
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { Werft } from "@werft-ai/sdk";
+
+// WERFT_API_KEY holds the agent key; WERFT_AGENT_RELEASE_ID the release above.
+const agent = new Werft();
+const started = await agent.sessions.create({
+  profile_id: "claude-coding-local",
+  repository_id: "sample-app",
+  agent_release_id: process.env.WERFT_AGENT_RELEASE_ID ?? "",
+  message: 'GATE-SPEC {"id":"agent","steps":[],"final":"hello from research-bot"}',
+});
+console.log(started.status, started.turn_id);
+```
+
+エージェントキーで作成したセッションのリクエストは、別のキーか人が承認する([承認用のキーを分けて使う](/getting-started/client#承認用のキーを分けて使う))。
+
+</Tab>
+<Tab>
 
 ```bash
 AGENT_KEY=$(curl -sS "$API/v1/api-keys" "${WEB[@]}" \
@@ -156,6 +178,11 @@ curl -sS "$API/v1/sessions" \
   "turn_id": "1"
 }
 ```
+
+リファレンス: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
+
+</Tab>
+</Tabs>
 
 ワークスペースに属さないキー (例: `scripts/local.sh key quickstart …`) で送ると、リリースが見つからず 404 になる。
 

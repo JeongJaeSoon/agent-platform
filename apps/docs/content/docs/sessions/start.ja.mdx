@@ -1,11 +1,41 @@
 ---
 title: "開始"
-description: セッション作成リクエストのフィールド、レスポンス、リトライとエラー
+description: セッション作成リクエストのフィールド、レスポンス、Idempotency-Key、一覧・共有範囲・タイトル、エラー
 ---
 
-セッションは、リポジトリ 1 つと実行プロファイル 1 つで動く会話である。セッションを作ると最初のメッセージがターン 1 として受け付けられ、scheduler がそのセッションの worker コンテナを起動する。scope は `sessions:write` である。
+セッションは、実行プロファイル 1 つで動く会話である。プロファイルがリポジトリを使うなら、リポジトリも 1 つ選ぶ。セッションを作ると最初のメッセージがターン 1 として受け付けられ、scheduler がそのセッションの worker コンテナを起動する。scope は `sessions:write` である。SDK の例は [SDK のインストール](/getting-started/install#クライアントを作る)で作った `werft` クライアントを、HTTP API の例はサーバーのアドレス `API` とキー `KEY` のシェル変数を使う。
+
+<Callout>
+例の `GATE-SPEC {…}` メッセージは、[開発用サーバー](/run-server/dev-server)の fake モデルが読むスクリプトである。fake モデルはスクリプトどおりにツールを呼んで応答するので、出力はいつも同じになる。実際のモデルで起動したサーバーでは同じツール呼び出しと出力にはならないので、普段の指示を送る。
+</Callout>
 
 ## 作成する
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const created = await werft.sessions.create({
+  profile_id: "claude-coding-local",
+  repository_id: "sample-app",
+  message: 'GATE-SPEC {"id":"start","steps":[],"final":"started"}',
+});
+console.log(created);
+const sessionId = created.session_id;
+```
+
+```text
+{
+  session_id: '…',
+  turn_id: '1',
+  receipt_id: '…',
+  receipt_status: 'accepted',
+  status: 'queued'
+}
+```
+
+</Tab>
+<Tab>
 
 ```bash
 created=$(curl -sS "$API/v1/sessions" \
@@ -28,20 +58,49 @@ SID=$(echo "$created" | jq -r .session_id)
 }
 ```
 
+リファレンス: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
+
+</Tab>
+</Tabs>
+
 | フィールド | 必須 | 内容 |
 | --- | --- | --- |
-| `profile_id` | はい | 実行プロファイルの id([実行プロファイルを選ぶ](/agents/run-profiles)) |
-| `repository_id` | はい | カタログ上のリポジトリ id。worker はこのリポジトリを clone する |
+| `profile_id` | `agent_release_id` がなければ必須 | 実行プロファイルの id([実行プロファイルを選ぶ](/agents/run-profiles)) |
+| `repository_id` | プロファイルによる | カタログ上のリポジトリ id。worker はこのリポジトリを clone する。プロファイルの `repository_mode` が `required` なら必須、`none` なら送らない([リポジトリなしのセッション](/sessions/without-repository)) |
 | `message` | はい | 最初のターンの入力。UTF-8 で 32,768 バイトまで |
 | `model` | | プロファイルが許可したモデルのうち 1 つ。省略するとデフォルトのモデル |
 | `title` | | セッションの名前。省略すると最初の `message` から作る([タイトル](#タイトル)) |
-| `agent_release_id` | | このセッションをエージェントのリリースに紐づける([作成](/agents/create#セッションに紐付ける)) |
+| `agent_release_id` | | このセッションをエージェントのリリースに紐づける([セッションに紐付ける](/agents/create#セッションに紐付ける))。このとき `profile_id` と `repository_id` は、省略するとリリースの値になる |
 
 レスポンスは 201 である。受け付けただけで、結果はターンの取得で確認する([状態とライフサイクル](/sessions/lifecycle))。
 
 ## Idempotency-Key
 
-セッション API のすべての POST には `Idempotency-Key` ヘッダーが必要である。ないと 400 になる。レスポンスを受け取れなかったときは、**同じキーと同じ本文**でもう一度送る。サーバーはコマンドを 1 回だけ実行する。セッション作成とメッセージは最初のレスポンスをそのまま返し、interrupt などの制御はその receipt の現在の状態を返す。同じキーで本文が違うと 409 `IDEMPOTENCY_CONFLICT` になる。
+セッション API のすべての POST には `Idempotency-Key` ヘッダーが必要である。レスポンスを受け取れなかったときは、**同じキーと同じ本文**でもう一度送る。サーバーはコマンドを 1 回だけ実行する。セッション作成とメッセージは最初のレスポンスをそのまま返し、interrupt などの制御はその receipt の現在の状態を返す。同じキーで本文が違うと 409 `IDEMPOTENCY_CONFLICT` になる。
+
+SDK は呼び出しごとにキーを 1 つ作り、その呼び出しの再試行に同じキーを送る。プロセスを再起動したあとも同じコマンドを続けたいときは、キーを自分で作って `idempotencyKey` として渡す。
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const params = {
+  profile_id: "claude-coding-local",
+  repository_id: "sample-app",
+  message: 'GATE-SPEC {"id":"retry","steps":[],"final":"once"}',
+};
+const idempotencyKey = crypto.randomUUID();
+const first = await werft.sessions.create(params, { idempotencyKey });
+const second = await werft.sessions.create(params, { idempotencyKey });
+console.log(first.session_id === second.session_id ? "same session" : "two sessions");
+```
+
+```text
+same session
+```
+
+</Tab>
+<Tab>
 
 ```bash
 IDEM=$(uuidgen)
@@ -58,51 +117,172 @@ second=$(curl -sS "$API/v1/sessions" -H "Authorization: Bearer $KEY" -H 'Content
 same session
 ```
 
+ヘッダーがないと 400 になる。リファレンス: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
+
+</Tab>
+</Tabs>
+
 新しい意図には新しいキーを使う。timeout の後に新しいキーで送ると、セッションが 2 つできることがある。
 
 ## 一覧を見る
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const page = await werft.sessions.list({ limit: 5 });
+for (const session of page.items) {
+  console.log(session.id, session.title, session.status);
+}
+
+// for await walks every page.
+for await (const session of werft.sessions.list({ status: "idle" })) {
+  console.log(session.id);
+}
+```
+
+`await` すると最初のページ(`items`、`next_cursor`、`nextPage()`)を、`for await` するとすべてのページの項目を返す。
+
+</Tab>
+<Tab>
 
 ```bash
 curl -sS "$API/v1/sessions?limit=5" -H "Authorization: Bearer $KEY" | jq -c '.items[] | {id, title, status}'
 ```
 
-`limit`、`cursor`(レスポンスの `next_cursor`)、`status` で絞り込む。キーが見られるセッションだけが返る。
+次のページは、レスポンスの `next_cursor` を `cursor` に渡して読む。
+
+リファレンス: [`GET /v1/sessions`](/reference/http-api/sessions/listSessions)
+
+</Tab>
+</Tabs>
+
+`limit`、`status` で絞り込む。キーが見られるセッションだけが返る。
 
 `relation` は見られるセッションの中をさらに絞るだけで、広げることはない。`started` は自分が始めたセッション(キーならそのキーかキーを作った人が始めたもの)、`shared` は他の人が始めて自分を名指しするか自分の属するチームを指定して共有したセッション、`administered` は自分が(直接またはチームで)管理するエージェントのセッションだ。ワークスペース全体に見える他人のセッションは `all`(既定値)にだけ出る。`q` はタイトルにその文字列を含む(大文字小文字を区別しない)か、id がその文字列で始まるセッションを探す。`agent_id` はそのエージェントのリリース(どのリリースでも)で作られたセッションだけを残す。
 
 各項目の `agent`(`id`、`name`、`release_version_no`、`release_label`)はセッションが結び付いたエージェントと release で、エージェントの release なしに作ったセッションでは `null` だ。`release_version_no` はその release が使うカードのバージョン、`release_label` は release の名前(作成時刻。例: `2026-10-30_14:30:28`)だ。`created_by`(`user_id`、`display_name`)はセッションを始めた人で、キーで作ったセッションではキーを作った人になる。引き継ぎの後も変わらない。引き継いだ人はそのセッションを読めるが、`started` には始めた人にだけ出る。`channel` はセッションを作ったリクエストの入口(`web`、`api`、`slack`)だ。始めた人や入口が記録からわからない古いセッションは `null` になる。`slack_permalink` は Slack で始めたセッションの最初のメッセージへのリンクだ([元の Slack メッセージへのリンク](/integrations/slack#元の-slack-メッセージへのリンク))。ほかの経路で作ったセッションとリンクを残す前のセッションは `null` になる。
 
+ステータスごとの件数は SDK にないので、HTTP API で読む。`GET /v1/sessions/counts` は、同じ `relation`・`q` で一覧を最後まで読んだときのステータスごとの件数と `total` を返す。見られないセッションは数えない。
+
 ```bash
 curl -sS "$API/v1/sessions/counts?relation=started" -H "Authorization: Bearer $KEY" | jq -c
 ```
 
-`GET /v1/sessions/counts` は、同じ `relation`・`q` で一覧を最後まで読んだときのステータスごとの件数と `total` を返す。見られないセッションは数えない。
+リファレンス: [`GET /v1/sessions/counts`](/reference/http-api/sessions/countSessions)
 
 一覧と詳細の `repository` は、セッションを作ったときのリポジトリだ。`id` はカタログのキー(`repository_id` と同じ)、`full_name` は画面に出す名前で、リポジトリ URL から host・認証情報・query・`.git` を除いたパス(`owner/name`、グループがあれば `group/sub/name`)、そう読めない URL ならカタログのキーになる。`branch` は worker が clone したブランチで、push が書き込む `agent/<session-id>` ではない。三つとも作成時に記録した値なので、運用者があとでカタログを変えたりリポジトリを外したりしても変わらない。リポジトリなしで作ったセッションは `repository` が `null`、カタログができる前に作ったセッションは `id` が `null` だ。リポジトリ URL そのものはどのレスポンスにも出ない。
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const session = await werft.sessions.get(sessionId);
+console.log(session.repository);
+```
+
+```text
+{ id: 'sample-app', full_name: 'agent/sample-app', branch: 'main' }
+```
+
+</Tab>
+<Tab>
 
 ```bash
 curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -c .repository
 # {"id":"sample-app","full_name":"agent/sample-app","branch":"main"}
 ```
 
+リファレンス: [`GET /v1/sessions/{id}`](/reference/http-api/sessions/getSession)
+
+</Tab>
+</Tabs>
+
+## 共有範囲
+
+セッションを誰が見られるかは、共有範囲で読む。セッションを見られる人なら誰でも読める。scope は `sessions:read` である。
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const share = await werft.sessions.share(sessionId);
+console.log(share.scope, share.revision);
+```
+
+```text
+workspace 0
+```
+
+</Tab>
+<Tab>
+
+```bash
+curl -sS "$API/v1/sessions/$SID/share" -H "Authorization: Bearer $KEY" | jq -c '{scope, revision}'
+# {"scope":"workspace","revision":0}
+```
+
+リファレンス: [`GET /v1/sessions/{id}/share`](/reference/http-api/sessions/getSessionShare)
+
+</Tab>
+</Tabs>
+
+`scope` は `private`(作った人だけ)、`people`(`user_ids` の人)、`team`(`team_ids` のチームの現在のメンバー)、`workspace`(すべてのメンバー)のいずれかである。一度も変えていないセッションは `workspace`、`revision` 0 になる。範囲を変える `POST /v1/sessions/{id}/share` は Web ログインでしか呼べないため、SDK のメソッドはない([`setSessionShare`](/reference/http-api/sessions/setSessionShare))。
+
 ## タイトル
 
 `title` を送ると、連続する空白・改行を空白 1 つにまとめ、前後を切って保存する。その結果が空か 80 文字(絵文字や結合文字は 1 つで 1 文字)を超えると 400 になる。省略すると最初の `message` から同じ規則で作り、80 文字を超えると先頭 79 文字に `…` を付ける。モデルは呼ばないので、同じメッセージからは必ず同じタイトルになる。空白だけのメッセージと、この機能より前に作ったセッションは `title` が `null` になる。
 
+名前の変更は SDK にないので、HTTP API で呼ぶ。
+
 ```bash
 curl -sS -X PATCH "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" \
-  -H 'Content-Type: application/json' -d '{"title":"決済テストを直す"}' | jq '{id, title}'
+  -H 'Content-Type: application/json' -d '{"title":"결제 테스트 고치기"}' | jq '{id, title}'
 ```
 
-名前を変えられるのは、作った人(キーが作ったセッションならそのキー)、エージェントの管理者、owner・admin だ。共有で見ているだけの人は 403、見られない人は 404 になる。Idempotency-Key は要らない。変わると SSE に `title` を載せた `status` イベントが届く。
+名前を変えられるのは、作った人(キーが作ったセッションならそのキー)、エージェントの管理者、owner・admin だ。共有で見ているだけの人は 403、見られない人は 404 になる。Idempotency-Key は要らない。変わると SSE に `title` を載せた `status` イベントが届く。リファレンス: [`PATCH /v1/sessions/{id}`](/reference/http-api/sessions/updateSession)
 
 ## エラー
+
+サーバーのエラーは SDK では `APIError` として届く。`isApiError(error, code)` で判別し、`retryable` が `true` のエラーは SDK が自分で再送する([リトライと Idempotency-Key](/getting-started/client#リトライと-idempotency-key))。
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { isApiError } from "@werft-ai/sdk";
+
+try {
+  await werft.sessions.create({
+    profile_id: "claude-coding-local",
+    repository_id: "sample-app",
+    model: "claude-opus-9",
+    message: "hello",
+  });
+} catch (error) {
+  if (isApiError(error, "UNSUPPORTED_CAPABILITY")) {
+    console.log(error.status, error.code, error.retryable, error.message);
+  } else throw error;
+}
+```
+
+```text
+422 UNSUPPORTED_CAPABILITY false Profile claude-coding-local does not offer model claude-opus-9
+```
+
+</Tab>
+<Tab>
 
 エラー本文はどの API でも同じ形である。`retryable` が `true` のときだけ、同じキーで再送する価値がある。
 
 ```text
 {"error":{"code":"UNSUPPORTED_CAPABILITY","message":"Profile claude-coding-local does not offer model claude-opus-9","retryable":false,"request_id":"…","details":null}}
 ```
+
+リファレンス: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
+
+</Tab>
+</Tabs>
 
 | レスポンス | 意味 |
 | --- | --- |
@@ -117,7 +297,10 @@ curl -sS -X PATCH "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" \
 
 実行 slot が足りなくても拒否はしない。セッションは `queued` で待機する。
 
+SDK のエラークラス(`APIError`、`ConnectionError`、`TimeoutError` など)とリトライ回数・timeout はすべての呼び出しで共通なので、[クライアントの設定とエラー](/getting-started/client#エラー)にまとめた。
+
 ## 次のステップ
 
 - [状態とライフサイクル](/sessions/lifecycle): セッションとターンの状態
 - [送信](/messages/send): 同じセッションにメッセージをさらに送る
+- [リポジトリのサンプル](https://github.com/JeongJaeSoon/agent-platform/blob/main/examples/README.md): キーとカタログの確認、セッション一覧、イベントの受信再開、リトライ、質問・権限リクエストへの回答、制御と復旧、push の承認と PR をユースケース別の SDK サンプルで

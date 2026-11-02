@@ -1,130 +1,128 @@
 ---
-title: "最初のセッション"
+title: "権限リクエストとクローズ"
 description: 権限リクエストに答え、メッセージを続けて送り、セッションを閉じる
 ---
 
-セッション 1 つを最初から最後まで通して実行する。エージェントがファイルを書き込む前に権限を求め、人が許可する。次のメッセージを同じ作業ツリーで続けて処理し、最後にセッションを閉じる。[Quickstart](/getting-started/quickstart) で作成した `API` と `KEY` を同じターミナルで使う。
+セッションを 1 つ、最初から最後まで動かす。エージェントがファイルを書こうとして権限を求め、スクリプトが許可し、次のメッセージが同じ作業ツリーで続き、最後にセッションを閉じる。[SDK のインストール](/getting-started/install)の `werft` クライアントを使う。キーには `sessions:approve` と `sessions:control` も必要である。
 
-## ファイルを書くセッションを作成する
+## ファイルを書くセッションを作る
 
-このスクリプトは Bash で `hello.txt` を作成する。ローカルのプロファイルは、ファイルを変更するコマンドの前に権限を尋ねる。
+この台本は Bash で `hello.txt` を書く。`claude-coding-local` プロファイルは、ファイルを変えるコマンドの前に権限を求める。
 
-```bash
-created=$(curl -sS "$API/v1/sessions" \
-  -H "Authorization: Bearer $KEY" \
-  -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"first","steps":[{"tool":"Bash","input":{"command":"echo alpha > hello.txt","description":"write hello.txt"}}],"final":"wrote hello.txt"}' \
-    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')")
-SID=$(echo "$created" | jq -r .session_id)
-echo "$SID"
+```ts title="approve-and-close.ts"
+import {
+  closeResult,
+  type PendingRequestHandlers,
+  waitForReceipt,
+  waitForTurn,
+} from "@werft-ai/sdk";
+import { werft } from "./werft.ts";
+
+const signal = AbortSignal.timeout(5 * 60_000);
+const COMMAND = "echo alpha > hello.txt";
+
+const created = await werft.sessions.create({
+  profile_id: "claude-coding-local",
+  repository_id: "sample-app",
+  message: `GATE-SPEC ${JSON.stringify({
+    id: "first",
+    steps: [
+      {
+        tool: "Bash",
+        input: { command: COMMAND, description: "write hello.txt" },
+      },
+    ],
+    final: "wrote hello.txt",
+  })}`,
+});
+const sessionId = created.session_id;
 ```
 
-本文を `jq -nc --arg` で組み立てると、メッセージ内の引用符を手で escape しなくてよい。
+## 権限リクエストに答える
 
-## 権限リクエストを待つ
+セッションが権限を求めて止まると、`status` が `needs_input` になる。`waitForTurn` に handler を渡すと、ターンを待つ間に出た権限リクエストと質問が handler に届く。
 
-セッションが権限を尋ねて止まると、`status` が `needs_input` になる。
+```ts title="approve-and-close.ts (続き)"
+// Allow the exact command this script expects, deny everything else.
+const approvals: PendingRequestHandlers = {
+  permission(request) {
+    console.log("asked:", request.tool, request.input);
+    const command = (request.input as { command?: unknown } | null)?.command;
+    if (request.tool === "Bash" && command === COMMAND)
+      return { decision: "allow" };
+    return { decision: "deny", reason: `This script only allows: ${COMMAND}` };
+  },
+};
 
-```bash
-until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .status)" = needs_input ]; do
-  sleep 2
-done
-curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY" \
-  | jq '.items[] | {request_id, kind, tool, command: .input.command}'
+const first = await waitForTurn(werft, sessionId, created.turn_id, {
+  signal,
+  onRequest: approvals,
+  onAnswer: (outcome) => console.log(`answered: ${outcome.outcome}`),
+});
+console.log(`turn ${first.turn_id}: ${first.status}`);
 ```
 
 ```text
-{
-  "request_id": "req_…",
-  "kind": "permission",
-  "tool": "Bash",
-  "command": "echo alpha > hello.txt"
-}
+asked: Bash { command: 'echo alpha > hello.txt', description: 'write hello.txt' }
+answered: accepted
+turn 1: completed
 ```
 
-## 許可する
-
-```bash
-REQ=$(curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY" | jq -r '.items[0].request_id')
-curl -sS "$API/v1/sessions/$SID/answers" \
-  -H "Authorization: Bearer $KEY" \
-  -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -d "$(jq -nc --arg r "$REQ" '{request_id: $r, kind: "permission", decision: "allow"}')" \
-  | jq '{receipt_status, approval: .approval.surface}'
-until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
-  sleep 2
-done
-```
-
-```text
-{
-  "receipt_status": "accepted",
-  "approval": "api"
-}
-```
-
-拒否するには `"decision": "deny"` と `"reason"` を送る。答えなかったリクエストは 30 分後に拒否として終了する。詳しくは [承認待ちと再開](/sessions/waiting-and-resume) を参照。
+- handler が `undefined` を返すか、その種類の handler がなければ、リクエストを開いたまま人に任せる。
+- 拒否は `{ decision: "deny", reason }` である。答えのないリクエストは 30 分後に拒否で終わる。詳しくは[承認待ちと再開](/sessions/waiting-and-resume)にある。
+- workspace のキー(個人・エージェント)は、自分が始めたセッションのリクエストを承認できない。承認用のキーを分けて使う方法は[クライアントの設定とエラー](/getting-started/client#承認用のキーを分けて使う)にある。
 
 ## 続けて送る
 
-同じセッションにメッセージを送ると、次のターンになる。worker は同じ作業ツリーと同じ Claude Code の会話を引き継いで使う。読み取りコマンドは権限を尋ねない。
+同じセッションにメッセージを送ると次のターンになる。worker は同じ作業ツリーと同じ Claude Code の会話を引き続き使う。読み取りのコマンドは権限を求めない。
 
-```bash
-curl -sS "$API/v1/sessions/$SID/messages" \
-  -H "Authorization: Bearer $KEY" \
-  -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"second","steps":[{"tool":"Bash","input":{"command":"cat hello.txt","description":"read hello.txt"}}],"final":"read it"}' '{message: $m}')" \
-  | jq '{turn_id, receipt_status}'
-until [ "$(curl -sS "$API/v1/sessions/$SID/turns/2" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
-  sleep 2
-done
-curl -sS "$API/v1/sessions/$SID/turns" -H "Authorization: Bearer $KEY" | jq -c '.items[] | {turn_id, status}'
+```ts title="approve-and-close.ts (続き)"
+const sent = await werft.sessions.messages.send(sessionId, {
+  message:
+    'GATE-SPEC {"id":"second","steps":[{"tool":"Bash","input":{"command":"cat hello.txt","description":"read hello.txt"}}],"final":"read it"}',
+});
+const second = await waitForTurn(werft, sessionId, sent.turn_id, { signal });
+console.log(`turn ${second.turn_id}: ${second.status}`);
 ```
 
 ```text
-{
-  "turn_id": "2",
-  "receipt_status": "accepted"
-}
-{"turn_id":"1","status":"completed"}
-{"turn_id":"2","status":"completed"}
+turn 2: completed
 ```
 
 ## 閉じる
 
-作業を終えたセッションは閉じる。進行中のターンを最後まで実行し、checkpoint を残してから `closed` になる。制御リクエストには、現在のセッションの `revision` を `expected_revision` として送る。
+やることを終えたセッションは閉じる。実行中のターンを最後まで動かし、checkpoint を残してから `closed` になる。制御リクエストには、今のセッションの `revision` を `expected_revision` として渡す。SDK はこの値を代わりに読んで埋めず、`REVISION_CONFLICT` を受けても再送しない。
 
-```bash
-REV=$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .revision)
-curl -sS "$API/v1/sessions/$SID/close" \
-  -H "Authorization: Bearer $KEY" \
-  -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -d "$(jq -nc --argjson r "$REV" '{expected_revision: $r, reason: "first session done"}')" \
-  | jq '{receipt_status}'
-until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .admission_state)" = closed ]; do
-  sleep 2
-done
-curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{status, admission_state}'
+```ts title="approve-and-close.ts (続き)"
+const { revision } = await werft.sessions.get(sessionId);
+const accepted = await werft.sessions.close(sessionId, {
+  expected_revision: revision,
+  reason: "first session done",
+});
+const receipt = await waitForReceipt(werft, accepted.receipt_id, { signal });
+console.log(`close: ${receipt.status}`, closeResult(receipt));
+
+const session = await werft.sessions.get(sessionId);
+console.log(session.status, session.admission_state);
 ```
 
 ```text
-{
-  "receipt_status": "accepted"
+close: succeeded {
+  checkpoint_revision: 1,
+  cancelled_turn_count: 0,
+  resulting_admission_state: 'closed'
 }
-{
-  "status": "stopped",
-  "admission_state": "closed"
-}
+stopped closed
 ```
 
-閉じたセッションにはメッセージをこれ以上送れない (409 `SESSION_CLOSED`)。
+閉じたセッションにはこれ以上メッセージを送れない(409 `SESSION_CLOSED`)。
+
+<Callout type="info" title="HTTP API で行うとき">
+権限リクエストは [`GET /v1/sessions/{id}/pending-requests`](/reference/http-api/pending-requests/listPendingRequests) で読み、[`POST /v1/sessions/{id}/answers`](/reference/http-api/pending-requests/answerPendingRequest) で答える。メッセージは [`POST /v1/sessions/{id}/messages`](/reference/http-api/messages-and-turns/appendSessionMessage)、クローズは [`POST /v1/sessions/{id}/close`](/reference/http-api/session-control/closeSession) である。POST にはすべて `Idempotency-Key` ヘッダーが必要である。
+</Callout>
 
 ## 次のステップ
 
+- [クライアントの設定とエラー](/getting-started/client): オプション、エラーの種類、リトライ
 - [開始](/sessions/start): セッション作成リクエストのフィールドとエラー
-- [状態とライフサイクル](/sessions/lifecycle): `status` と `admission_state` が意味するもの
-- [作成](/agents/create): エージェントを定義し、セッションに紐付ける
+- [作成](/agents/create): エージェントを定義してセッションに結び付ける

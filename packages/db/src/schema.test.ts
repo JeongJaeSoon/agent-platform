@@ -78,6 +78,7 @@ describe("database schema", () => {
       "bootstrap_token_uses",
       "catalog_authority",
       "catalog_repositories",
+      "catalog_repository_github_apps",
       "checkpoint_output_objects",
       "checkpoint_output_totals",
       "checkpoint_outputs",

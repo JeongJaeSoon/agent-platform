@@ -3,11 +3,29 @@ title: "承認"
 description: push リクエストが固定した commit を確認して承認する。プラットフォームが数秒以内に push する
 ---
 
-承認には `sessions:approve` が必要である。個人キーとエージェントキーのどちらもこの scope を受け取れるが、セッションを開始したキーはそのセッションの push リクエストを承認できない。別のキーか人が承認する。セッションを実行する worker の認証情報では `/v1` を呼び出せないため(401)、エージェントは自分で承認できない。[リクエスト](/approvals/request)の `SID`、`PUSH_ID`、`PUSH_COMMIT` を使う。
+承認には `sessions:approve` が必要である。個人キーとエージェントキーのどちらもこの scope を受け取れるが、セッションを開始したキーはそのセッションの push リクエストを承認できない。別のキーか人が承認する。セッションを実行する worker の認証情報では `/v1` を呼び出せないため(401)、エージェントは自分で承認できない。[リクエスト](/approvals/request)の `sessionId` と `push`(HTTP API は `SID`、`PUSH_ID`、`PUSH_COMMIT`)を使う。SDK で承認用のキーを別に使うには、`werft.withOptions({ apiKey })` で 2 つ目のクライアントを作る。
 
 ## 承認する
 
 判断の本文の `git_commit` は、リクエストが固定した commit と同じでなければならない。承認する人が、何を承認するのかを確認したことを示す印である。
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const decided = await werft.sessions.pushRequests.decide(sessionId, push.id, {
+  decision: "approve",
+  git_commit: push.git_commit,
+});
+console.log(decided.state);
+```
+
+```text
+approved
+```
+
+</Tab>
+<Tab>
 
 ```bash
 curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
@@ -25,9 +43,39 @@ curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
 }
 ```
 
+リファレンス: [`POST …/push-requests/{push_request_id}/decision`](/reference/http-api/push-requests/decidePushRequest)
+
+</Tab>
+</Tabs>
+
 ## push の結果を見る
 
 プラットフォームは 3 秒ごとに、承認されたリクエストを 1 件ずつ取り上げて push する。リクエストが `pushing` を経て `pushed` または `failed` になるまで待つ。
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { waitForPushRequest } from "@werft-ai/sdk";
+
+const done = await waitForPushRequest(werft, sessionId, push.id);
+console.log(done.state);
+if (done.push_receipt_id) {
+  const receipt = await werft.receipts.get(done.push_receipt_id);
+  const result = receipt.result as { refusal?: string | null } | null;
+  console.log(receipt.operation, receipt.status, result?.refusal);
+}
+```
+
+```text
+failed
+push failed no_push_credential
+```
+
+`waitForPushRequest` は、リクエストが `pushed`・`failed`・`rejected` になるまで待つ。
+
+</Tab>
+<Tab>
 
 ```bash
 until curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID" -H "Authorization: Bearer $KEY" \
@@ -51,7 +99,12 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" -H "Autho
 }
 ```
 
-ローカルスタックの `sample-app` リポジトリには push の認証情報がないため、`no_push_credential` で終わる。運用者がリポジトリに GitHub App または PAT を設定すると([GitHub](/integrations/github))`pushed` になり、receipt の `result` に `remote_ref`(`refs/heads/agent/<session-id>`)と `previous_commit` が残る。
+リファレンス: [`GET …/push-requests/{push_request_id}`](/reference/http-api/push-requests/getPushRequest)
+
+</Tab>
+</Tabs>
+
+開発用サーバーの `sample-app` リポジトリには push の認証情報がないため、`no_push_credential` で終わる。運用者がリポジトリに GitHub App または PAT を設定すると([GitHub](/integrations/github))`pushed` になり、receipt の `result` に `remote_ref`(`refs/heads/agent/<session-id>`)と `previous_commit` が残る。
 
 プラットフォームは、その commit 1 つだけをそのブランチに送る。force push はしない。デフォルトブランチには送らない。
 
@@ -72,7 +125,7 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" -H "Autho
 | 403 `FORBIDDEN` | キーに `sessions:approve` がない、またはセッションを見ているだけで承認する人(作った人、エージェントの管理者、owner・admin)ではない |
 | 403 `FORBIDDEN`(`details.refusal: self_approval`) | セッションを開始したキーで承認した。失敗した `decide_push` receipt が残る。別のキーか人が承認する |
 
-拒否された試行にも receipt が残る。エラー本文の `error.details.receipt_id` で読む。
+拒否された試行にも receipt が残る。エラー本文の `error.details.receipt_id`(SDK は `APIError` の `details.receipt_id`)で読む。
 
 ## 次のステップ
 

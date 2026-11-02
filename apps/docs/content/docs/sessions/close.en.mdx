@@ -3,11 +3,12 @@ title: "Close"
 description: Close a finished session, terminate an execution that must stop, and recover a turn with an unknown outcome
 ---
 
-There are three ways to end a session. Close a session whose work is done. Terminate if you must stop it right now. If terminate leaves a turn with an unknown outcome, make a recovery decision. Continue using the `SID` created in [Start](/sessions/start).
+There are three ways to end a session. Close a session whose work is done. Terminate if you must stop it right now. If terminate leaves a turn with an unknown outcome, make a recovery decision. Continue using the session created in [Start](/sessions/start) (`sessionId` in the SDK, `SID` in the HTTP API).
 
 | | close | terminate | recovery decision `close` |
 | --- | --- | --- | --- |
-| Request | `POST …/close` | `POST …/terminate` | `POST …/recovery-decisions` |
+| SDK | `sessions.close` | `sessions.terminate` | `sessions.recoveryDecisions.create` |
+| HTTP API | `POST …/close` | `POST …/terminate` | `POST …/recovery-decisions` |
 | scope | `sessions:control` | `sessions:control` | `sessions:recover` |
 | Turn in progress | Runs to the end and saves a checkpoint | Kills the execution. The turn may become `outcome_unknown` | Targets a session that has already stopped |
 | Queued input | Cancelled when closed | Cancelled immediately | Cancelled immediately |
@@ -16,6 +17,35 @@ There are three ways to end a session. Close a session whose work is done. Termi
 ## close
 
 Close waits for the running turn to finish. Turns that have not started are cancelled (`cancelled_turn_count`). The example below closes after the first turn has finished.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { closeResult, waitForReceipt, waitForTurn } from "@werft-ai/sdk";
+
+await waitForTurn(werft, sessionId, created.turn_id);
+const { revision } = await werft.sessions.get(sessionId);
+const accepted = await werft.sessions.close(sessionId, {
+  expected_revision: revision,
+  reason: "work is done",
+});
+const receipt = await waitForReceipt(werft, accepted.receipt_id);
+console.log(receipt.operation, receipt.status, closeResult(receipt));
+```
+
+```text
+close succeeded {
+  checkpoint_revision: 0,
+  cancelled_turn_count: 0,
+  resulting_admission_state: 'closed'
+}
+```
+
+`closeResult` extracts the close receipt's `result` as a type. Use `closeBlocked(session)` to see whether an open request is blocking it.
+
+</Tab>
+<Tab>
 
 ```bash
 until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
@@ -39,18 +69,57 @@ curl -sS "$API/v1/receipts/$RID" -H "Authorization: Bearer $KEY" | jq '{operatio
   "operation": "close",
   "status": "succeeded",
   "result": {
-    "checkpoint_revision": 3,
+    "checkpoint_revision": 0,
     "cancelled_turn_count": 0,
     "resulting_admission_state": "closed"
   }
 }
 ```
 
+Reference: [`POST /v1/sessions/{id}/close`](/reference/http-api/session-control/closeSession)
+
+</Tab>
+</Tabs>
+
 While closing, the session is `closing`. An open permission request or question blocks close. Answer it or interrupt to unblock. After 60 seconds, `attention` becomes `CLOSE_BLOCKED`. After the session is closed, messages and pause, resume, close, and terminate get 409 `SESSION_CLOSED`. An interrupt that points at an already finished turn is still a successful no-op (`no_op: true`) after the session is closed.
 
 ## terminate
 
 Terminate takes the execution down immediately. It does not undo what a tool has already done outside. Terminating an idle session makes it `stopped` immediately, and you can resume it as is. If a turn was running, that turn becomes `outcome_unknown` and the session waits for a recovery decision.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const runaway = await werft.sessions.create({
+  profile_id: "claude-coding-local",
+  repository_id: "sample-app",
+  message:
+    'GATE-SPEC {"id":"runaway","steps":[],"final":"never","finalDelayMs":300000}',
+});
+const id = runaway.session_id;
+while ((await werft.sessions.turns.get(id, runaway.turn_id)).status !== "running") {
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+}
+const current = await werft.sessions.get(id);
+const terminated = await werft.sessions.terminate(id, {
+  expected_revision: current.revision,
+  reason: "runaway turn",
+});
+console.log(terminated.receipt_status, terminated.external_effects_reverted);
+while ((await werft.sessions.get(id)).admission_state !== "recovery_required") {
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+}
+console.log((await werft.sessions.turns.get(id, runaway.turn_id)).status);
+```
+
+```text
+accepted false
+outcome_unknown
+```
+
+</Tab>
+<Tab>
 
 ```bash
 created=$(curl -sS "$API/v1/sessions" \
@@ -86,6 +155,11 @@ curl -sS "$API/v1/sessions/$TID/turns/1" -H "Authorization: Bearer $KEY" | jq '{
 }
 ```
 
+Reference: [`POST /v1/sessions/{id}/terminate`](/reference/http-api/session-control/terminateSession)
+
+</Tab>
+</Tabs>
+
 ## Recovery decision
 
 `outcome_unknown` is neither success nor failure. A person who has checked what the turn did outside decides.
@@ -97,6 +171,33 @@ curl -sS "$API/v1/sessions/$TID/turns/1" -H "Authorization: Bearer $KEY" | jq '{
 | `start_fresh` | Discards the earlier conversation and runs the queued input in a new Claude Code session |
 | `retry_restore` | After fixing the cause of the checkpoint restore failure, restores from the same checkpoint again |
 | `close` | Ends the session. This cannot be undone |
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const stopped = await werft.sessions.get(id);
+const decided = await werft.sessions.recoveryDecisions.create(id, {
+  decision: "close",
+  expected_revision: stopped.revision,
+  reason: "nothing to keep",
+});
+const decision = await waitForReceipt(werft, decided.receipt_id);
+console.log(decision.operation, decision.result);
+```
+
+```text
+recovery_decision {
+  resumable: false,
+  checkpoint_revision: null,
+  resulting_admission_state: 'closed'
+}
+```
+
+The key needs `sessions:recover`.
+
+</Tab>
+<Tab>
 
 ```bash
 REV=$(curl -sS "$API/v1/sessions/$TID" -H "Authorization: Bearer $KEY" | jq .revision)
@@ -123,9 +224,15 @@ curl -sS "$API/v1/receipts/$RID" -H "Authorization: Bearer $KEY" | jq '{operatio
 }
 ```
 
+Reference: [`POST /v1/sessions/{id}/recovery-decisions`](/reference/http-api/recovery/decideSessionRecovery)
+
+</Tab>
+</Tabs>
+
 For `abandon` and `confirm_completed`, also send the target turn as `target_turn_id`. Other decisions do not accept it (400). If the `abandon` receipt's `result.resumable` is `true`, continue with resume.
 
 ## Next steps
 
 - [receipt](/approvals/receipt): read the result of a control command
 - [Sessions without a repository](/sessions/without-repository)
+- [`session-close.ts` sample](https://github.com/JeongJaeSoon/agent-platform/blob/main/examples/sdk-approver/src/session-close.ts): an SDK script that runs session creation, waiting for the turn while receiving events, allowing a permission request, close, and the rejection of a message after close (409 `SESSION_CLOSED`) in one go

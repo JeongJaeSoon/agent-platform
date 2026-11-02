@@ -130,6 +130,23 @@ describe("Slack 연결 설정의 자동으로 만든 Slack 앱", () => {
         .getAttribute("href"),
     ).toBe(`/agents/${AGENT_ID}?tab=slack`);
 
+    // A narrow table drops the agent and time columns; the app cell says them.
+    expect(table.dataset.narrowAt).toBe("640");
+    expect(
+      within(table)
+        .getAllByRole("columnheader")
+        .filter((head) => head.dataset.hideNarrow === "true")
+        .map((head) => head.textContent),
+    ).toEqual(["에이전트", "갱신"]);
+    const [appCell] = installed.getAllByRole("cell");
+    const narrow = [...(appCell?.querySelectorAll("span") ?? [])].find((line) =>
+      line.className.includes("[@container(max-width:640px)]:block"),
+    );
+    expect(narrow?.textContent).toStartWith("Release Notes · ");
+    expect(narrow?.querySelector("time")?.getAttribute("datetime")).toBe(
+      "2026-10-23T12:48:00.000Z",
+    );
+
     expect(within(rows[2] as HTMLElement).getByText("설치 전")).toBeTruthy();
     const creating = within(rows[3] as HTMLElement);
     expect(creating.getByText("만드는 중")).toBeTruthy();

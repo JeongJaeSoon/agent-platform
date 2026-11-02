@@ -1,130 +1,128 @@
 ---
-title: "First session"
-description: Answer a permission request, send follow-up messages, and close the session
+title: "Permission requests and closing"
+description: Answer a permission request, send another message, and close the session
 ---
 
-This guide walks you through one session from start to finish. The agent asks for permission before writing a file, a person allows it, a follow-up message continues in the same working tree, and finally you close the session. Use the `API` and `KEY` you created in the [Quickstart](/getting-started/quickstart) in the same terminal.
+Run one session from start to finish. The agent asks for permission to write a file, the script allows it, the next message continues in the same working tree, and at the end you close the session. Use the `werft` client from [Install the SDK](/getting-started/install). The key also needs `sessions:approve` and `sessions:control`.
 
 ## Create a session that writes a file
 
-This script writes `hello.txt` with Bash. The local profile asks for permission before a command that changes files.
+This script writes `hello.txt` with Bash. The `claude-coding-local` profile asks for permission before a command that changes files.
 
-```bash
-created=$(curl -sS "$API/v1/sessions" \
-  -H "Authorization: Bearer $KEY" \
-  -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"first","steps":[{"tool":"Bash","input":{"command":"echo alpha > hello.txt","description":"write hello.txt"}}],"final":"wrote hello.txt"}' \
-    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')")
-SID=$(echo "$created" | jq -r .session_id)
-echo "$SID"
+```ts title="approve-and-close.ts"
+import {
+  closeResult,
+  type PendingRequestHandlers,
+  waitForReceipt,
+  waitForTurn,
+} from "@werft-ai/sdk";
+import { werft } from "./werft.ts";
+
+const signal = AbortSignal.timeout(5 * 60_000);
+const COMMAND = "echo alpha > hello.txt";
+
+const created = await werft.sessions.create({
+  profile_id: "claude-coding-local",
+  repository_id: "sample-app",
+  message: `GATE-SPEC ${JSON.stringify({
+    id: "first",
+    steps: [
+      {
+        tool: "Bash",
+        input: { command: COMMAND, description: "write hello.txt" },
+      },
+    ],
+    final: "wrote hello.txt",
+  })}`,
+});
+const sessionId = created.session_id;
 ```
 
-Building the body with `jq -nc --arg` means you do not have to escape the quotes inside the message by hand.
+## Answer permission requests
 
-## Wait for the permission request
+When the session asks for permission and stops, its `status` becomes `needs_input`. Pass handlers to `waitForTurn`, and the permission requests and questions that come up while it waits for the turn go to them.
 
-When the session asks for permission and stops, `status` becomes `needs_input`.
+```ts title="approve-and-close.ts (continued)"
+// Allow the exact command this script expects, deny everything else.
+const approvals: PendingRequestHandlers = {
+  permission(request) {
+    console.log("asked:", request.tool, request.input);
+    const command = (request.input as { command?: unknown } | null)?.command;
+    if (request.tool === "Bash" && command === COMMAND)
+      return { decision: "allow" };
+    return { decision: "deny", reason: `This script only allows: ${COMMAND}` };
+  },
+};
 
-```bash
-until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .status)" = needs_input ]; do
-  sleep 2
-done
-curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY" \
-  | jq '.items[] | {request_id, kind, tool, command: .input.command}'
-```
-
-```text
-{
-  "request_id": "req_…",
-  "kind": "permission",
-  "tool": "Bash",
-  "command": "echo alpha > hello.txt"
-}
-```
-
-## Allow it
-
-```bash
-REQ=$(curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY" | jq -r '.items[0].request_id')
-curl -sS "$API/v1/sessions/$SID/answers" \
-  -H "Authorization: Bearer $KEY" \
-  -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -d "$(jq -nc --arg r "$REQ" '{request_id: $r, kind: "permission", decision: "allow"}')" \
-  | jq '{receipt_status, approval: .approval.surface}'
-until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
-  sleep 2
-done
-```
-
-```text
-{
-  "receipt_status": "accepted",
-  "approval": "api"
-}
-```
-
-To deny, send `"decision": "deny"` and a `"reason"`. A request that is not answered ends as denied after 30 minutes. Details are in [Waiting for approval and resuming](/sessions/waiting-and-resume).
-
-## Send a follow-up
-
-Sending a message to the same session becomes the next turn. The worker continues with the same working tree and the same Claude Code conversation. Read commands do not ask for permission.
-
-```bash
-curl -sS "$API/v1/sessions/$SID/messages" \
-  -H "Authorization: Bearer $KEY" \
-  -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"second","steps":[{"tool":"Bash","input":{"command":"cat hello.txt","description":"read hello.txt"}}],"final":"read it"}' '{message: $m}')" \
-  | jq '{turn_id, receipt_status}'
-until [ "$(curl -sS "$API/v1/sessions/$SID/turns/2" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
-  sleep 2
-done
-curl -sS "$API/v1/sessions/$SID/turns" -H "Authorization: Bearer $KEY" | jq -c '.items[] | {turn_id, status}'
+const first = await waitForTurn(werft, sessionId, created.turn_id, {
+  signal,
+  onRequest: approvals,
+  onAnswer: (outcome) => console.log(`answered: ${outcome.outcome}`),
+});
+console.log(`turn ${first.turn_id}: ${first.status}`);
 ```
 
 ```text
-{
-  "turn_id": "2",
-  "receipt_status": "accepted"
-}
-{"turn_id":"1","status":"completed"}
-{"turn_id":"2","status":"completed"}
+asked: Bash { command: 'echo alpha > hello.txt', description: 'write hello.txt' }
+answered: accepted
+turn 1: completed
+```
+
+- If a handler returns `undefined`, or there is no handler for that kind, the request stays open for a person.
+- A denial is `{ decision: "deny", reason }`. A request nobody answers ends as denied after 30 minutes. The details are in [Waiting for approval and resuming](/sessions/waiting-and-resume).
+- A workspace key (personal or agent) cannot approve requests from a session it started. How to use a separate key for approvals is in [Client settings and errors](/getting-started/client#a-separate-key-for-approvals).
+
+## Send another message
+
+A message to the same session becomes the next turn. The worker keeps the same working tree and the same Claude Code conversation. Read-only commands do not ask for permission.
+
+```ts title="approve-and-close.ts (continued)"
+const sent = await werft.sessions.messages.send(sessionId, {
+  message:
+    'GATE-SPEC {"id":"second","steps":[{"tool":"Bash","input":{"command":"cat hello.txt","description":"read hello.txt"}}],"final":"read it"}',
+});
+const second = await waitForTurn(werft, sessionId, sent.turn_id, { signal });
+console.log(`turn ${second.turn_id}: ${second.status}`);
+```
+
+```text
+turn 2: completed
 ```
 
 ## Close
 
-Close a session when its work is done. The running turn finishes, a checkpoint is saved, and then the session enters the `closed` state. Send the session's current `revision` as `expected_revision` in control requests.
+Close a session once its work is done. It runs the current turn to the end, leaves a checkpoint and becomes `closed`. A control request takes the session's current `revision` as `expected_revision`. The SDK does not read it for you, and it does not resend after a `REVISION_CONFLICT`.
 
-```bash
-REV=$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .revision)
-curl -sS "$API/v1/sessions/$SID/close" \
-  -H "Authorization: Bearer $KEY" \
-  -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -d "$(jq -nc --argjson r "$REV" '{expected_revision: $r, reason: "first session done"}')" \
-  | jq '{receipt_status}'
-until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .admission_state)" = closed ]; do
-  sleep 2
-done
-curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{status, admission_state}'
+```ts title="approve-and-close.ts (continued)"
+const { revision } = await werft.sessions.get(sessionId);
+const accepted = await werft.sessions.close(sessionId, {
+  expected_revision: revision,
+  reason: "first session done",
+});
+const receipt = await waitForReceipt(werft, accepted.receipt_id, { signal });
+console.log(`close: ${receipt.status}`, closeResult(receipt));
+
+const session = await werft.sessions.get(sessionId);
+console.log(session.status, session.admission_state);
 ```
 
 ```text
-{
-  "receipt_status": "accepted"
+close: succeeded {
+  checkpoint_revision: 1,
+  cancelled_turn_count: 0,
+  resulting_admission_state: 'closed'
 }
-{
-  "status": "stopped",
-  "admission_state": "closed"
-}
+stopped closed
 ```
 
-You cannot send more messages to a closed session (409 `SESSION_CLOSED`).
+A closed session takes no more messages (409 `SESSION_CLOSED`).
+
+<Callout type="info" title="Doing it with the HTTP API">
+Read permission requests with [`GET /v1/sessions/{id}/pending-requests`](/reference/http-api/pending-requests/listPendingRequests) and answer with [`POST /v1/sessions/{id}/answers`](/reference/http-api/pending-requests/answerPendingRequest). Messages are [`POST /v1/sessions/{id}/messages`](/reference/http-api/messages-and-turns/appendSessionMessage), and closing is [`POST /v1/sessions/{id}/close`](/reference/http-api/session-control/closeSession). Every POST needs an `Idempotency-Key` header.
+</Callout>
 
 ## Next steps
 
-- [Start](/sessions/start): Fields and errors of the session creation request
-- [Status and lifecycle](/sessions/lifecycle): What `status` and `admission_state` mean
-- [Create](/agents/create): Define an agent and bind it to a session
+- [Client settings and errors](/getting-started/client): options, error types, retries
+- [Start](/sessions/start): fields and errors of the session creation request
+- [Create](/agents/create): define an agent and bind it to sessions
