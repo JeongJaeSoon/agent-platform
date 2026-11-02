@@ -12,12 +12,12 @@ import { administeredAgentsQuery, queryKeysOf } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   Badge,
-  Button,
   Code,
   FieldError,
   Heading,
   Link,
   RelativeTime,
+  RowAction,
   RowLines,
   RowList,
   RowListItem,
@@ -289,24 +289,23 @@ function AchievementRow({
       </RowLines>
       {reviewable && open ? (
         <div className="flex flex-none gap-1.5">
-          <Button
-            size="sm"
+          <RowAction
             variant={state === "auto" ? "danger" : "outline"}
             disabled={review.isPending}
             aria-label={t("session.achievements.rejectNamed", { name })}
             onClick={() => review.mutate("reject")}
           >
             {t("session.achievements.reject")}
-          </Button>
+          </RowAction>
           {state === "needs_review" ? (
-            <Button
-              size="sm"
+            <RowAction
+              variant="default"
               disabled={review.isPending}
               aria-label={t("session.achievements.confirmNamed", { name })}
               onClick={() => review.mutate("confirm")}
             >
               {t("session.achievements.confirm")}
-            </Button>
+            </RowAction>
           ) : null}
         </div>
       ) : null}
@@ -392,14 +391,12 @@ function JudgmentLine({
         {failure === null ? null : <FieldError>{failure}</FieldError>}
       </RowLines>
       {manager ? (
-        <Button
-          size="sm"
-          variant="outline"
+        <RowAction
           disabled={rejudge.isPending}
           onClick={() => rejudge.mutate()}
         >
           {t("session.achievements.rejudge")}
-        </Button>
+        </RowAction>
       ) : null}
     </RowListItem>
   );
