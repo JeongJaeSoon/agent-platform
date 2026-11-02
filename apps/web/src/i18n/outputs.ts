@@ -6,6 +6,49 @@ export const outputsKo = {
   "session.outputs.empty": "아직 결과물이 없습니다.",
   "session.outputs.emptyHint":
     "결과물은 이 세션이 연 GitHub PR과 작업 공간의 out/ 폴더에 남긴 파일을 셉니다. 저장소 파일을 고친 내역은 진행 탭의 도구 호출에서 볼 수 있습니다.",
+  "session.achievements.title": "성과",
+  "session.achievements.description":
+    "워크스페이스 성과 규칙으로 판정한 것입니다. PR·리뷰가 근거인 성과는 바로 집계되고, out/ 파일이나 대화가 근거인 성과는 확인해야 집계됩니다.",
+  "session.achievements.state.auto": "집계됨",
+  "session.achievements.state.confirmed": "확인됨",
+  "session.achievements.state.needs_review": "확인 필요",
+  "session.achievements.state.rejected": "거절됨",
+  "session.achievements.probability": "정의에 맞을 확률 {probability}",
+  "session.achievements.probabilityThreshold":
+    "정의에 맞을 확률 {probability} (문턱 {threshold})",
+  "session.achievements.evidence": "근거",
+  "session.achievements.fileNeedsReview": "(에이전트가 쓴 파일이라 확인 필요)",
+  "session.achievements.rule": "규칙 v{version}",
+  "session.achievements.judge.luna": "Luna 판정",
+  "session.achievements.judge.always": "바로 인정",
+  "session.achievements.reject": "거절",
+  "session.achievements.rejectNamed": "{name} 성과 거절",
+  "session.achievements.confirm": "확인",
+  "session.achievements.confirmNamed": "{name} 성과 확인",
+  "session.achievements.lastJudged": "마지막 판정",
+  "session.achievements.status.queued": "판정 대기",
+  "session.achievements.status.running": "판정 중",
+  "session.achievements.status.deferred": "하루 판정 예산을 넘어 다음 날 판정",
+  "session.achievements.status.failed": "판정 실패",
+  "session.achievements.status.skipped": "판정 건너뜀",
+  "session.achievements.trigger.evidence": "근거 바뀜",
+  "session.achievements.trigger.pr_merged": "근거 바뀜(PR 머지)",
+  "session.achievements.rejudgedAfterMerge": "머지 뒤 다시 판정",
+  "session.achievements.trigger.turns": "턴 주기",
+  "session.achievements.trigger.idle": "세션 멈춤",
+  "session.achievements.trigger.manual": "다시 판정 요청",
+  "session.achievements.count": "판정 {count}회",
+  "session.achievements.cost": "판정 비용 {cost} (세션 비용과 별도)",
+  "session.achievements.rejudge": "다시 판정",
+  "session.achievements.error.judge_unavailable": "판정기 없음",
+  "session.achievements.error.outputs_unavailable":
+    "out/ 파일 목록을 읽지 못함",
+  "session.achievements.error.session_limit": "세션 판정 횟수 상한에 닿음",
+  "session.achievements.error.judge_refused": "판정기가 답을 거부함",
+  "session.achievements.error.judge_timeout": "판정기가 10초 안에 답하지 않음",
+  "session.achievements.error.judge_http_error": "판정기 요청이 실패함",
+  "session.achievements.error.judge_bad_response":
+    "판정기 답의 모양이 맞지 않음",
   "session.outcomes.title": "근거",
   "session.outcomes.description":
     "플랫폼이 직접 본 사실입니다. GitHub 상태는 주기적으로 다시 읽습니다.",
@@ -49,6 +92,54 @@ export const outputsJa: Record<keyof typeof outputsKo, string> = {
   "session.outputs.empty": "まだ成果物はありません。",
   "session.outputs.emptyHint":
     "成果物として数えるのは、このセッションが開いた GitHub PR と、作業スペースの out/ フォルダに残したファイルです。リポジトリのファイルを変更した内容は、経過タブのツール呼び出しで確認できます。",
+  "session.achievements.title": "成果",
+  "session.achievements.description":
+    "ワークスペースの成果ルールで判定したものです。PR・レビューが根拠の成果はすぐに集計され、out/ ファイルや会話が根拠の成果は確認すると集計されます。",
+  "session.achievements.state.auto": "集計済み",
+  "session.achievements.state.confirmed": "確認済み",
+  "session.achievements.state.needs_review": "要確認",
+  "session.achievements.state.rejected": "却下",
+  "session.achievements.probability": "定義に合う確率 {probability}",
+  "session.achievements.probabilityThreshold":
+    "定義に合う確率 {probability} (しきい値 {threshold})",
+  "session.achievements.evidence": "根拠",
+  "session.achievements.fileNeedsReview":
+    "(エージェントが書いたファイルのため要確認)",
+  "session.achievements.rule": "ルール v{version}",
+  "session.achievements.judge.luna": "Luna 判定",
+  "session.achievements.judge.always": "そのまま認定",
+  "session.achievements.reject": "却下",
+  "session.achievements.rejectNamed": "{name} の成果を却下",
+  "session.achievements.confirm": "確認",
+  "session.achievements.confirmNamed": "{name} の成果を確認",
+  "session.achievements.lastJudged": "最後の判定",
+  "session.achievements.status.queued": "判定待ち",
+  "session.achievements.status.running": "判定中",
+  "session.achievements.status.deferred":
+    "1 日の判定予算を超えたため翌日に判定",
+  "session.achievements.status.failed": "判定失敗",
+  "session.achievements.status.skipped": "判定スキップ",
+  "session.achievements.trigger.evidence": "根拠の変化",
+  "session.achievements.trigger.pr_merged": "根拠の変化(PRマージ)",
+  "session.achievements.rejudgedAfterMerge": "マージ後に再判定",
+  "session.achievements.trigger.turns": "ターン周期",
+  "session.achievements.trigger.idle": "セッション停止",
+  "session.achievements.trigger.manual": "再判定の依頼",
+  "session.achievements.count": "判定 {count} 回",
+  "session.achievements.cost": "判定コスト {cost} (セッションのコストとは別)",
+  "session.achievements.rejudge": "再判定",
+  "session.achievements.error.judge_unavailable": "判定器なし",
+  "session.achievements.error.outputs_unavailable":
+    "out/ ファイルの一覧を読めませんでした",
+  "session.achievements.error.session_limit":
+    "セッションの判定回数の上限に達しました",
+  "session.achievements.error.judge_refused": "判定器が回答を拒否しました",
+  "session.achievements.error.judge_timeout":
+    "判定器が 10 秒以内に応答しませんでした",
+  "session.achievements.error.judge_http_error":
+    "判定器へのリクエストが失敗しました",
+  "session.achievements.error.judge_bad_response":
+    "判定器の応答の形式が想定と違いました",
   "session.outcomes.title": "根拠",
   "session.outcomes.description":
     "プラットフォームが直接確認した事実です。GitHub の状態は定期的に読み直します。",
@@ -93,6 +184,55 @@ export const outputsEn: Record<keyof typeof outputsKo, string> = {
   "session.outputs.empty": "No outputs yet.",
   "session.outputs.emptyHint":
     "Outputs are the GitHub pull requests this session opened and the files left in the workspace's out/ folder. Changes to repository files show up as tool calls on the Timeline tab.",
+  "session.achievements.title": "Achievements",
+  "session.achievements.description":
+    "Judged by the workspace's achievement rules. Achievements from pull requests and reviews count at once; those from out/ files or the conversation count once confirmed.",
+  "session.achievements.state.auto": "Counted",
+  "session.achievements.state.confirmed": "Confirmed",
+  "session.achievements.state.needs_review": "Needs review",
+  "session.achievements.state.rejected": "Rejected",
+  "session.achievements.probability":
+    "Probability it fits the definition {probability}",
+  "session.achievements.probabilityThreshold":
+    "Probability it fits the definition {probability} (threshold {threshold})",
+  "session.achievements.evidence": "Evidence",
+  "session.achievements.fileNeedsReview":
+    "(a file the agent wrote, so it needs review)",
+  "session.achievements.rule": "Rule v{version}",
+  "session.achievements.judge.luna": "Judged by Luna",
+  "session.achievements.judge.always": "Counted as it appears",
+  "session.achievements.reject": "Reject",
+  "session.achievements.rejectNamed": "Reject the {name} achievement",
+  "session.achievements.confirm": "Confirm",
+  "session.achievements.confirmNamed": "Confirm the {name} achievement",
+  "session.achievements.lastJudged": "Last judged",
+  "session.achievements.status.queued": "Waiting to be judged",
+  "session.achievements.status.running": "Being judged",
+  "session.achievements.status.deferred":
+    "Over the day's judging budget; judged tomorrow",
+  "session.achievements.status.failed": "Judgment failed",
+  "session.achievements.status.skipped": "Judgment skipped",
+  "session.achievements.trigger.evidence": "evidence changed",
+  "session.achievements.trigger.pr_merged": "evidence changed (PR merged)",
+  "session.achievements.rejudgedAfterMerge": "judged again after the merge",
+  "session.achievements.trigger.turns": "turn interval",
+  "session.achievements.trigger.idle": "session stopped",
+  "session.achievements.trigger.manual": "rejudge requested",
+  "session.achievements.count": "{count} judgments",
+  "session.achievements.cost": "judging cost {cost} (apart from the session's)",
+  "session.achievements.rejudge": "Judge again",
+  "session.achievements.error.judge_unavailable": "no judge",
+  "session.achievements.error.outputs_unavailable":
+    "could not read the out/ file list",
+  "session.achievements.error.session_limit":
+    "the session reached its judgment limit",
+  "session.achievements.error.judge_refused": "the judge refused to answer",
+  "session.achievements.error.judge_timeout":
+    "the judge did not answer within 10 seconds",
+  "session.achievements.error.judge_http_error":
+    "the request to the judge failed",
+  "session.achievements.error.judge_bad_response":
+    "the judge's answer had an unexpected shape",
   "session.outcomes.title": "Evidence",
   "session.outcomes.description":
     "Facts the platform saw itself. GitHub states are read again periodically.",

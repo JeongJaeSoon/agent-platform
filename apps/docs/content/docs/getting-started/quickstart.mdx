@@ -1,27 +1,13 @@
 ---
 title: "Quickstart"
-description: API key를 받고 curl로 첫 세션을 만든다
+description: curl로 첫 세션을 만든다
 ---
 
-[설치](/getting-started/install)대로 띄운 로컬 스택에서 API key를 받고, 세션 하나를 만들어 첫 turn이 끝나는 것까지 본다. 같은 터미널에서 순서대로 실행한다.
+서버가 이미 있다고 전제한다. 서버가 없으면 [서버 실행하기](/run-server/dev-server)에서 띄우고 API key를 받는다. 세션 하나를 만들어 첫 turn이 끝나는 것까지 본다. 아래 예제의 저장소, 프로필, `GATE-SPEC` 대본은 `--fake-model`로 띄운 개발용 서버 기준이다. 같은 터미널에서 순서대로 실행한다.
 
-## API key 받기
+## 서버에 붙기
 
-```bash
-API=http://127.0.0.1:3000
-KEY=$(scripts/local.sh key quickstart \
-  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)
-echo "${KEY:0:4}…"
-```
-
-```text
-key_id …
-csp_…
-```
-
-`key_id`는 stderr로 나오는 key의 id다. key 자체는 stdout에 한 번만 나온다. 다시 볼 수 없으니 변수에만 둔다. `quickstart`는 key의 owner 이름이고, 이 key로 만든 세션은 이 owner의 것이다. scope는 [API key](/api-keys)에 있다.
-
-key가 맞는지 본다.
+[준비](/getting-started/install)의 `API`(서버 주소)와 `KEY`(API key)를 쓴다. key가 맞는지 본다.
 
 ```bash
 curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $KEY"

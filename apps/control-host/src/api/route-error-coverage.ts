@@ -255,6 +255,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "PUT /v1/workspaces/{id}/achievement-judge",
     "GET /v1/sessions/{id}/achievements",
     "POST /v1/sessions/{id}/achievement-judgments",
+    "POST /v1/achievements/{id}/review",
   ],
 };
 

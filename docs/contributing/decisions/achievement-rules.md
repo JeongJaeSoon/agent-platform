@@ -219,6 +219,7 @@ PR 행의 `metadata`에 `title`(200자)을 더한다. Luna가 "버그 수정 PR"
 | `input_digest` | 보낸 입력의 sha256. 같은 입력을 다시 보내지 않는다 |
 | `backend`, `connection_id` | `backend`는 `luna` |
 | `calls`, `input_tokens`, `cost_usd` | **판정 비용 원장.** 세션 비용과 따로 |
+| `threshold` | Luna에 물을 때 쓴 워크스페이스 문턱. 물은 것이 없으면 null. 성과는 자기를 만든 판정의 값을 보인다 |
 | `error_code`, `attempts`, `next_attempt_at` | 실패·재시도 |
 | `lease_token`, `lease_expires_at` | 판정기가 집었다는 표시(refresher와 같은 방식) |
 | `created_at`, `finished_at` | |

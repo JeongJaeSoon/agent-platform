@@ -435,6 +435,7 @@ describe("OpenAPI document", () => {
         "/v1/achievement-types",
         "/v1/achievement-types/{id}",
         "/v1/achievement-types/{id}/archive",
+        "/v1/achievements/{id}/review",
         "/v1/achievement-rules",
         "/v1/achievement-rules/{family_id}/versions",
         "/v1/achievement-rules/{family_id}/disable",

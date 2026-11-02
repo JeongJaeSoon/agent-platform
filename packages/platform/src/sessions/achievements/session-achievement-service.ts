@@ -1,16 +1,33 @@
 import type {
   ListSessionAchievementsResponse,
   RejudgeSessionResponse,
+  ReviewAchievementRequest,
+  ReviewAchievementResponse,
 } from "@werft-ai/contracts";
 import type { AuthorizationPolicy, Caller } from "../../musterrolle/policy.ts";
 import { NOT_FOUND, OUTRANKED } from "../../musterrolle/service-errors.ts";
+import type { TeamActor } from "../../ports/team-store.ts";
 import { requirePermitted, SessionServiceError } from "../session-service.ts";
 import type { AchievementJudgmentStore } from "./achievement-judgment-store.ts";
 
-/** A session's achievements and its latest judgment, and its manual rejudge. */
+function personOf(caller: Caller, refusal: string): TeamActor {
+  const userId = caller.actor?.userId;
+  const workspaceId = caller.actor?.workspaceId;
+  if (caller.subject.principal?.kind !== "user" || !userId || !workspaceId) {
+    throw new SessionServiceError("FORBIDDEN", refusal, undefined, {
+      reason_code: "role",
+    });
+  }
+  return { principal: caller, workspaceId, userId };
+}
+
+/**
+ * A session's achievements and its latest judgment, its manual rejudge, and
+ * a person's review of one achievement.
+ */
 export function createSessionAchievementService(deps: {
   authorization: AuthorizationPolicy;
-  store: Pick<AchievementJudgmentStore, "list" | "rejudge">;
+  store: Pick<AchievementJudgmentStore, "list" | "rejudge" | "find" | "review">;
   newId?: () => string;
 }) {
   const newId = deps.newId ?? (() => crypto.randomUUID());
@@ -31,6 +48,57 @@ export function createSessionAchievementService(deps: {
       return listed;
     },
 
+    /**
+     * Owners, admins and the agent's admins who can read the session; a
+     * person, never a key.
+     */
+    async review(
+      caller: Caller,
+      rawAchievementId: string,
+      request: ReviewAchievementRequest,
+    ): Promise<ReviewAchievementResponse> {
+      const achievementId = rawAchievementId.toLowerCase();
+      const found = await deps.store.find(caller.ownerId, achievementId);
+      if (found === null) throw NOT_FOUND();
+      await requirePermitted(deps.authorization, caller, "session.read", {
+        kind: "session",
+        id: found.sessionId,
+      });
+      await requirePermitted(deps.authorization, caller, "achievement.review", {
+        kind: "agent",
+        id: found.agentId,
+      });
+      const actor = personOf(
+        caller,
+        "Only a signed-in person reviews an achievement",
+      );
+      const receiptId = newId();
+      const result = await deps.store.review({
+        actor,
+        achievementId,
+        decision: request.decision,
+        note: request.note ?? null,
+        receiptId,
+      });
+      switch (result.outcome) {
+        case "reviewed":
+          return { achievement: result.achievement, receipt_id: receiptId };
+        case "actor_inactive":
+          throw OUTRANKED();
+        case "not_found":
+          throw NOT_FOUND();
+        case "not_reviewable":
+          throw new SessionServiceError(
+            "REVISION_CONFLICT",
+            request.decision === "confirm"
+              ? "Only an achievement that needs review can be confirmed"
+              : "This achievement was already reviewed",
+            undefined,
+            { reason_code: "not_reviewable" },
+          );
+      }
+    },
+
     /** Owners and admins who can read the session; a person, never a key. */
     async rejudge(
       caller: Caller,
@@ -47,23 +115,13 @@ export function createSessionAchievementService(deps: {
         "achievement_rule.manage",
         { kind: "workspace", id: caller.ownerId },
       );
-      const userId = caller.actor?.userId;
-      const workspaceId = caller.actor?.workspaceId;
-      if (
-        caller.subject.principal?.kind !== "user" ||
-        !userId ||
-        !workspaceId
-      ) {
-        throw new SessionServiceError(
-          "FORBIDDEN",
-          "Only a signed-in person rejudges a session",
-          undefined,
-          { reason_code: "role" },
-        );
-      }
+      const actor = personOf(
+        caller,
+        "Only a signed-in person rejudges a session",
+      );
       const receiptId = newId();
       const result = await deps.store.rejudge({
-        actor: { principal: caller, workspaceId, userId },
+        actor,
         sessionId,
         receiptId,
       });

@@ -12,12 +12,14 @@ import {
   type GitHubPullRequestOutcomeState,
   type GitHubReviewEvent,
   type SessionAchievement,
+  type WorkspaceRole,
   workspaceSettingsSchema,
 } from "@werft-ai/contracts";
 import {
   ACHIEVEMENT_JUDGMENT_QUIET_MS,
   type AchievementJudgmentStore,
   type JudgmentEgressStore,
+  MANAGEMENT_ROLES,
   type OutcomeEvidence,
 } from "@werft-ai/platform";
 import {
@@ -35,9 +37,11 @@ import {
   sql,
 } from "drizzle-orm";
 import { managing } from "./achievement-rules.ts";
-import { findPgError, receiptActorOf } from "./control-shared.ts";
+import { lockedAdministers } from "./agent-admins.ts";
+import { findPgError, lockPeople, receiptActorOf } from "./control-shared.ts";
 import { rowsOf } from "./control-unit-of-work.ts";
 import type { Database } from "./queries.ts";
+import { lockSessionReach } from "./requester-locks.ts";
 import {
   achievementJudgments,
   achievementJudgmentUsage,
@@ -177,9 +181,62 @@ async function spentToday(
 
 const iso = (at: Date | null) => at?.toISOString() ?? null;
 
-function achievementOf(
-  row: typeof sessionAchievements.$inferSelect,
-): SessionAchievement {
+type AchievementRow = {
+  row: typeof sessionAchievements.$inferSelect;
+  ruleTitle: string;
+  ruleVersion: number;
+  typeKey: string;
+  threshold: number | null;
+  rejudgedAfterMerge: boolean;
+};
+
+/** Achievements with their rule version's title and number and type key. */
+function achievementsWhere(db: Database, where: SQL | undefined) {
+  return db
+    .select({
+      row: sessionAchievements,
+      ruleTitle: achievementRules.title,
+      ruleVersion: achievementRules.version,
+      typeKey: achievementTypes.key,
+      threshold: achievementJudgments.threshold,
+      // Counted by a judgment after the merge, with one before it.
+      rejudgedAfterMerge: sql<boolean>`EXISTS (
+        SELECT 1 FROM ${sessionOutcomes} o
+        WHERE ${sessionAchievements.evidenceKind} = 'github_pull_request'
+          AND o.id::text = ${sessionAchievements.evidenceId}
+          AND o.merged_at < ${achievementJudgments.createdAt}
+          AND EXISTS (
+            SELECT 1 FROM ${achievementJudgments} earlier
+            WHERE earlier.session_id = ${sessionAchievements.sessionId}
+              AND earlier.created_at < o.merged_at
+          )
+      )`,
+    })
+    .from(sessionAchievements)
+    .innerJoin(
+      achievementRules,
+      eq(achievementRules.id, sessionAchievements.ruleId),
+    )
+    .innerJoin(
+      achievementTypes,
+      eq(achievementTypes.id, sessionAchievements.typeId),
+    )
+    .innerJoin(
+      achievementJudgments,
+      eq(achievementJudgments.id, sessionAchievements.judgmentId),
+    )
+    .where(where)
+    .orderBy(asc(sessionAchievements.createdAt), asc(sessionAchievements.id));
+}
+
+function achievementOf({
+  row,
+  ruleTitle,
+  ruleVersion,
+  typeKey,
+  threshold,
+  rejudgedAfterMerge,
+}: AchievementRow): SessionAchievement {
   return {
     id: row.id,
     session_id: row.sessionId,
@@ -194,7 +251,12 @@ function achievementOf(
     evidence_id: row.evidenceId,
     payload: row.payload as AchievementPayload | null,
     judge: row.judge as AchievementRuleJudge,
+    rule_title: ruleTitle,
+    rule_version: ruleVersion,
+    type_key: typeKey,
     probability: row.probability,
+    threshold,
+    rejudged_after_merge: rejudgedAfterMerge,
     judgment_id: row.judgmentId,
     review_state: row.reviewState as AchievementReviewState,
     reviewed_by: row.reviewedBy,
@@ -204,14 +266,51 @@ function achievementOf(
   };
 }
 
+/**
+ * `pr_merged` when the session's pull request merged after the judgment
+ * before this `evidence` one was made, and by the time this one was.
+ */
+async function evidenceChangeOf(
+  db: Database,
+  judgment: typeof achievementJudgments.$inferSelect,
+): Promise<AchievementJudgment["evidence_change"]> {
+  if (judgment.trigger !== "evidence") return null;
+  // One statement over the rows themselves: a timestamp read back into a
+  // Date loses its microseconds, and a merge in the judgment's millisecond
+  // would fall outside.
+  const result = await db.execute(sql`
+    SELECT EXISTS (
+      SELECT 1
+      FROM ${achievementJudgments} j
+      CROSS JOIN LATERAL (
+        SELECT p.created_at
+        FROM ${achievementJudgments} p
+        WHERE p.session_id = j.session_id
+          AND (p.created_at, p.id) < (j.created_at, j.id)
+        ORDER BY p.created_at DESC, p.id DESC
+        LIMIT 1
+      ) previous
+      JOIN ${sessionOutcomes} o
+        ON o.session_id = j.session_id
+       AND o.type = 'github_pull_request'
+       AND o.merged_at > previous.created_at
+       AND o.merged_at <= j.created_at
+      WHERE j.id = ${judgment.id}
+    ) AS merged
+  `);
+  return rowsOf<{ merged: boolean }>(result)[0]?.merged ? "pr_merged" : null;
+}
+
 function judgmentOf(
   row: typeof achievementJudgments.$inferSelect,
+  evidenceChange: AchievementJudgment["evidence_change"],
 ): AchievementJudgment {
   return {
     id: row.id,
     trigger: row.trigger as AchievementJudgmentTrigger,
     status: row.status as AchievementJudgmentStatus,
     error_code: row.errorCode as AchievementJudgmentError | null,
+    evidence_change: evidenceChange,
     created_at: row.createdAt.toISOString(),
     finished_at: iso(row.finishedAt),
   };
@@ -471,6 +570,9 @@ export function createPostgresAchievementJudgments(
                 backend: "luna",
                 connectionId: result.luna.connectionId,
               }),
+          ...(result.threshold === undefined
+            ? {}
+            : { threshold: result.threshold }),
         };
         const self = eq(achievementJudgments.id, judgment.id);
         // A session has one pending judgment, and a newer trigger's judges
@@ -632,19 +734,13 @@ export function createPostgresAchievementJudgments(
         .where(and(eq(sessions.id, sessionId), eq(sessions.ownerId, ownerId)))
         .limit(1);
       if (!session) return null;
-      const items = await db
-        .select()
-        .from(sessionAchievements)
-        .where(
-          and(
-            eq(sessionAchievements.sessionId, sessionId),
-            isNull(sessionAchievements.supersededAt),
-          ),
-        )
-        .orderBy(
-          asc(sessionAchievements.createdAt),
-          asc(sessionAchievements.id),
-        );
+      const items = await achievementsWhere(
+        db,
+        and(
+          eq(sessionAchievements.sessionId, sessionId),
+          isNull(sessionAchievements.supersededAt),
+        ),
+      );
       const [latest] = await db
         .select()
         .from(achievementJudgments)
@@ -654,10 +750,146 @@ export function createPostgresAchievementJudgments(
           desc(achievementJudgments.id),
         )
         .limit(1);
+      const [spent] = await db
+        .select({
+          finished: count(achievementJudgments.finishedAt),
+          usd: sql<string>`COALESCE(sum(${achievementJudgments.costUsd}), 0)`,
+        })
+        .from(achievementJudgments)
+        .where(eq(achievementJudgments.sessionId, sessionId));
       return {
         items: items.map(achievementOf),
-        judgment: latest ? judgmentOf(latest) : null,
+        judgment: latest
+          ? judgmentOf(latest, await evidenceChangeOf(db, latest))
+          : null,
+        judgment_count: spent?.finished ?? 0,
+        judge_cost_usd: Number(spent?.usd ?? 0),
       };
+    },
+
+    async find(ownerId, achievementId) {
+      const [found] = await db
+        .select({
+          sessionId: sessionAchievements.sessionId,
+          agentId: sessionAchievements.agentId,
+        })
+        .from(sessionAchievements)
+        .where(
+          and(
+            eq(sessionAchievements.id, achievementId),
+            eq(sessionAchievements.ownerId, ownerId),
+            isNull(sessionAchievements.supersededAt),
+          ),
+        )
+        .limit(1);
+      return found ?? null;
+    },
+
+    review({ actor, achievementId, decision, note, receiptId }) {
+      return db.transaction(async (tx) => {
+        const [me] = await lockPeople(tx, actor.workspaceId, [actor.userId]);
+        if (me?.live !== true) return { outcome: "actor_inactive" as const };
+        const current = and(
+          eq(sessionAchievements.id, achievementId),
+          eq(sessionAchievements.ownerId, actor.principal.ownerId),
+          eq(sessionAchievements.workspaceId, actor.workspaceId),
+          isNull(sessionAchievements.supersededAt),
+        );
+        const [target] = await tx
+          .select({
+            sessionId: sessionAchievements.sessionId,
+            agentId: sessionAchievements.agentId,
+          })
+          .from(sessionAchievements)
+          .where(current)
+          .limit(1);
+        if (!target) return { outcome: "not_found" as const };
+        // The share may have narrowed since the service's session.read:
+        // check it again under the session row (requester-locks.ts order).
+        const [session] = await tx
+          .select({
+            id: sessions.id,
+            workspaceId: sessions.workspaceId,
+            createdByUserId: sessions.createdByUserId,
+            createdByApiKeyId: sessions.createdByApiKeyId,
+            agentReleaseId: sessions.agentReleaseId,
+          })
+          .from(sessions)
+          .where(eq(sessions.id, target.sessionId))
+          .limit(1)
+          .for("update");
+        if (!session) return { outcome: "not_found" as const };
+        const reviewers: readonly string[] =
+          MANAGEMENT_ROLES["achievement.review"] ?? [];
+        if (
+          !reviewers.includes(me.role) &&
+          (target.agentId === null ||
+            !(await lockedAdministers(
+              tx,
+              actor.workspaceId,
+              target.agentId,
+              actor.userId,
+            )))
+        ) {
+          return { outcome: "actor_inactive" as const };
+        }
+        const reach = await lockSessionReach(
+          tx,
+          {
+            userId: actor.userId,
+            apiKeyId: null,
+            role: me.role as WorkspaceRole,
+            keyAgentId: null,
+          },
+          session,
+        );
+        if (reach !== "ok") return { outcome: "not_found" as const };
+        const [found] = await tx
+          .select()
+          .from(sessionAchievements)
+          .where(current)
+          .for("update");
+        if (!found) return { outcome: "not_found" as const };
+        const from =
+          decision === "confirm" ? ["needs_review"] : ["auto", "needs_review"];
+        if (!from.includes(found.reviewState)) {
+          return { outcome: "not_reviewable" as const };
+        }
+        const reviewState = decision === "confirm" ? "confirmed" : "rejected";
+        await tx
+          .update(sessionAchievements)
+          .set({
+            reviewState,
+            reviewedBy: actor.userId,
+            reviewedAt: sql`now()`,
+            reviewNote: note,
+          })
+          .where(eq(sessionAchievements.id, found.id));
+        // The note is the reviewer's words; the receipt names the decision.
+        await tx.insert(receipts).values({
+          id: receiptId,
+          ownerId: actor.principal.ownerId,
+          actor: receiptActorOf(actor.principal),
+          operation: "review_achievement",
+          targetRef: {
+            session_id: found.sessionId,
+            turn_id: null,
+            request_id: null,
+          },
+          result: { achievement_id: found.id, review_state: reviewState },
+          status: "succeeded",
+          requestId: actor.principal.requestId ?? null,
+        });
+        const [reviewed] = await achievementsWhere(
+          tx,
+          eq(sessionAchievements.id, found.id),
+        );
+        if (!reviewed) throw new Error("reviewed achievement vanished");
+        return {
+          outcome: "reviewed" as const,
+          achievement: achievementOf(reviewed),
+        };
+      });
     },
   };
 }

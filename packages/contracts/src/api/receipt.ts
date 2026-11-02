@@ -153,6 +153,7 @@ export const RECEIPT_OPERATION_VALUES = [
   "enable_achievement_rule",
   "set_achievement_judge",
   "rejudge_session",
+  "review_achievement",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);
