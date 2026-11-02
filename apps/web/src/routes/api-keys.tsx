@@ -26,6 +26,7 @@ import {
   Card,
   CardFooter,
   Checkbox,
+  Code,
   Combobox,
   ConfirmDialog,
   CopyButton,
@@ -455,9 +456,9 @@ function KeyIdMeta({ id }: { readonly id: string }) {
   return (
     <span className="inline-flex min-w-0 items-center gap-1">
       <span>{t("apiKeys.idLabel")}</span>
-      <code className="min-w-0 font-mono text-foreground [overflow-wrap:anywhere]">
+      <Code className="min-w-0 text-foreground [overflow-wrap:anywhere]">
         {id}
-      </code>
+      </Code>
       <CopyButton
         value={id}
         variant="ghost"

@@ -18,6 +18,7 @@ import {
   Button,
   buttonVariants,
   Card,
+  Code,
   ConfirmDialog,
   cn,
   DangerZone,
@@ -37,6 +38,7 @@ import {
   PageBreadcrumbLink,
   Section,
   Skeleton,
+  Text,
 } from "@werft-ai/ui";
 import { Lock } from "lucide-react";
 import { type ReactNode, useRef, useState } from "react";
@@ -784,7 +786,7 @@ function History({
                 </GridTableRowOpener>
                 <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
                   <span className="leading-5">
-                    <span className="font-medium text-foreground">
+                    <Text as="span" weight="medium">
                       {item.workspace
                         ? t("profiles.versionTag", {
                             version: versionOf(item),
@@ -793,7 +795,7 @@ function History({
                             name: profileName(item),
                             version: versionOf(item),
                           })}
-                    </span>
+                    </Text>
                     {item.id === profile.id ? (
                       <span className={META}>
                         {" "}
@@ -801,11 +803,9 @@ function History({
                       </span>
                     ) : null}
                   </span>
-                  <span
-                    className={cn("font-mono leading-4 wrap-anywhere", META)}
-                  >
+                  <Code className="text-muted-foreground leading-4 wrap-anywhere">
                     {item.id}
-                  </span>
+                  </Code>
                 </div>
               </GridTableCell>
               <GridTableCell>
@@ -886,17 +886,15 @@ function Narrowings({
                     />
                   </GridTableRowOpener>
                   <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
-                    <span className="font-medium text-foreground leading-5 wrap-anywhere">
+                    <Text as="span" weight="medium" className="wrap-anywhere">
                       {t("profiles.detail.history.named", {
                         name: profileName(item),
                         version: versionOf(item),
                       })}
-                    </span>
-                    <span
-                      className={cn("font-mono leading-4 wrap-anywhere", META)}
-                    >
+                    </Text>
+                    <Code className="text-muted-foreground leading-4 wrap-anywhere">
                       {item.id}
-                    </span>
+                    </Code>
                   </div>
                 </GridTableCell>
                 <GridTableCell>
@@ -905,9 +903,7 @@ function Narrowings({
                   </Badge>
                 </GridTableCell>
                 <GridTableCell hideNarrow>
-                  <span className="font-mono text-caption wrap-anywhere">
-                    {item.model}
-                  </span>
+                  <Code className="wrap-anywhere">{item.model}</Code>
                 </GridTableCell>
               </GridTableRow>
             );
@@ -985,9 +981,13 @@ function AgentsOn({ profile }: { readonly profile: ProfileSummary }) {
                       search={{ tab: "release" }}
                     />
                   </GridTableRowOpener>
-                  <span className="font-medium text-foreground [overflow-wrap:anywhere]">
+                  <Text
+                    as="span"
+                    weight="medium"
+                    className="[overflow-wrap:anywhere]"
+                  >
                     {agent.name}
-                  </span>
+                  </Text>
                 </GridTableCell>
                 <GridTableCell>
                   {/* As the release tab names it. */}

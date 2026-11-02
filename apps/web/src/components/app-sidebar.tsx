@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { waitingSessionsQuery } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
-import { cn, IconTile, type TileHue } from "@werft-ai/ui";
+import { cn, IconTile, Text, type TileHue } from "@werft-ai/ui";
 import {
   Bell,
   Bot,
@@ -320,14 +320,14 @@ export function AppSidebar({
             >
               {initial(me.workspace.name)}
             </span>
-            <p className="m-0 min-w-0 truncate text-control leading-5">
+            <Text truncate>
               <span className="sr-only">{t("shell.group.workspace")}: </span>
               <span className="font-semibold">{me.workspace.name}</span>
               <span className="text-muted-foreground">
                 {" · "}
                 {t("common.appName")}
               </span>
-            </p>
+            </Text>
           </>
         ) : (
           <p className="m-0 truncate font-semibold text-control leading-5">

@@ -1,4 +1,4 @@
-import { Alert, Card } from "@werft-ai/ui";
+import { Alert, Card, Heading } from "@werft-ai/ui";
 import type { ReactNode } from "react";
 import { Main } from "./main.tsx";
 
@@ -16,7 +16,9 @@ export function AuthPage({
   return (
     <Main className="auth-page px-4 py-8">
       <div className="mx-auto flex w-full max-w-[25rem] flex-col gap-6">
-        <h1 className="m-0 text-center font-semibold text-title">{title}</h1>
+        <Heading level={1} size="title" className="text-center">
+          {title}
+        </Heading>
         <Card className="gap-4 px-4">{children}</Card>
       </div>
     </Main>

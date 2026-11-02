@@ -13,6 +13,7 @@ import {
   AlertTitle,
   Badge,
   buttonVariants,
+  Code,
   cn,
   EmptyState,
   GridTable,
@@ -25,6 +26,7 @@ import {
   SegmentedControl,
   SegmentedControlItem,
   Skeleton,
+  Text,
 } from "@werft-ai/ui";
 import { ChevronDown, ChevronRight, Lock, Plus } from "lucide-react";
 import { type ReactNode, useState } from "react";
@@ -355,9 +357,9 @@ function ProfileRow({
         <Stack
           first={
             <>
-              <span className="font-medium text-foreground">
+              <Text as="span" weight="medium">
                 {profileName(profile)}
-              </span>
+              </Text>
               {older ? (
                 <>
                   {" "}
@@ -400,19 +402,15 @@ function ProfileRow({
         <span className={META}>{t(`profiles.kind.${kind}`)}</span>
       </GridTableCell>
       <GridTableCell hideNarrow>
-        <span className="font-mono text-caption wrap-anywhere">
+        <Code className="wrap-anywhere">
           {profile.workspace?.base_profile_id ?? "—"}
-        </span>
+        </Code>
       </GridTableCell>
       <GridTableCell hideNarrow>
-        <span className="font-mono text-caption wrap-anywhere">
-          {profile.model}
-        </span>
+        <Code className="wrap-anywhere">{profile.model}</Code>
       </GridTableCell>
       <GridTableCell hideNarrow>
-        <span className="font-mono text-caption">
-          {profile.permission_mode}
-        </span>
+        <Code>{profile.permission_mode}</Code>
       </GridTableCell>
       <GridTableCell>
         <Badge variant={STATE_BADGE[state]}>
