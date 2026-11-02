@@ -72,10 +72,10 @@ import {
 } from "../auth/guard.tsx";
 import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { SECTION_BODY } from "../components/my-teams.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
+import { SECTION_BODY } from "../components/section-body.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import {
   errorKey,

@@ -31,8 +31,8 @@ import {
   cardFromDraft,
   draftFromCard,
 } from "../../components/agent-card-form.tsx";
-import { SECTION_BODY } from "../../components/my-teams.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
+import { SECTION_BODY } from "../../components/section-body.ts";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
 import { latestVersion } from "./versions.tsx";

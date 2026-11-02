@@ -46,10 +46,10 @@ import {
 import { ReasonButton } from "../auth/reason-button.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { LoadFailure } from "./load-failure.tsx";
-import { SECTION_BODY } from "./my-teams.tsx";
 import type { Outcome } from "./outcome.tsx";
 import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
 import { SEARCH_MAX, SEARCH_SETTLE_MS } from "./search-term.ts";
+import { SECTION_BODY } from "./section-body.ts";
 import { StatusScreen } from "./status-screen.tsx";
 
 // Lines that wrap on a narrow screen sit a line gap apart, not RowListItem's 8px.

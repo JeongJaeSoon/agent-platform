@@ -51,9 +51,9 @@ import {
   queryKeysOf,
 } from "../../api/queries.ts";
 import { useHasPermission, useRole } from "../../auth/guard.tsx";
-import { SECTION_BODY } from "../../components/my-teams.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
 import { ProfileOptions, pickable } from "../../components/profile-options.tsx";
+import { SECTION_BODY } from "../../components/section-body.ts";
 import { errorKey, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
 import { latestVersion, VersionSelect } from "./versions.tsx";

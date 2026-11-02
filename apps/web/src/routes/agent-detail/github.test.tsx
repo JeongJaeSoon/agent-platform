@@ -384,10 +384,20 @@ describe("에이전트 GitHub 탭", () => {
 
     const nav = screen.getAllByRole("navigation", { name: "GitHub 구역" })[0];
     if (!nav) throw new Error("no section nav");
-    await user.click(within(nav).getByRole("link", { name: "저장소" }));
-    const section = screen.getByRole("region", { name: "저장소" });
-    expect(section.id).toBe("github-repositories");
-    expect(document.activeElement === section).toBe(true);
+    for (const [name, id] of [
+      ["사용", "github-use"],
+      ["저장소", "github-repositories"],
+      ["권한", "github-permissions"],
+      ["Actions 허용 목록", "github-allowlist"],
+      ["push 승인", "github-push"],
+      ["최근 기록", "github-activity"],
+    ] as const) {
+      await user.click(within(nav).getByRole("link", { name }));
+      const section = screen.getByRole("region", { name });
+      expect(section.id).toBe(id);
+      expect(section.tabIndex).toBe(-1);
+      expect(document.activeElement === section).toBe(true);
+    }
   });
 
   test("바꾼 것은 저장 전 상자에 세고, 되돌리면 상자가 사라진다", async () => {

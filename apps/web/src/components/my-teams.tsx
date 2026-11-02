@@ -15,8 +15,7 @@ import { myTeamsQuery } from "../api/queries.ts";
 import { useI18n } from "../i18n/i18n.tsx";
 import { LoadFailure } from "./load-failure.tsx";
 import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
-
-export const SECTION_BODY = "flex flex-col gap-[var(--ap-space-block)]";
+import { SECTION_BODY } from "./section-body.ts";
 
 /**
  * The teams the viewer is in, each linking to its page: a team's members

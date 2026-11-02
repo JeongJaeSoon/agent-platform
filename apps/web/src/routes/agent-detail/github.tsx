@@ -40,7 +40,7 @@ import {
 import { Plus } from "lucide-react";
 import { type FormEvent, useLayoutEffect, useRef, useState } from "react";
 import { LoadFailure } from "../../components/load-failure.tsx";
-import { SECTION_BODY } from "../../components/my-teams.tsx";
+import { SECTION_BODY } from "../../components/section-body.ts";
 import {
   errorKey,
   type MessageKey,
