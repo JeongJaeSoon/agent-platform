@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { components } from "@werft-ai/client";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { AGENT_ID, agentServer } from "../../test-support/fake-agents.ts";
-import { json, me, RECEIPT_ID } from "../../test-support/fake-api.ts";
+import { apiError, json, me, RECEIPT_ID } from "../../test-support/fake-api.ts";
 import { appHarness } from "../../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor, within } = await appHarness();
@@ -130,6 +130,70 @@ const switchNamed = (name: string) =>
   screen.getByRole("switch", { name }) as HTMLButtonElement;
 
 describe("에이전트 GitHub 탭", () => {
+  test("받은 설정이 있는 중 다시 읽기가 실패하면 설정을 남기고 위에 알린다", async () => {
+    const { server } = await activeAgent();
+    const base: Record<
+      string,
+      (request: Request) => Response | Promise<Response>
+    > = routesFor(server, TAB);
+    const key = `GET ${PATH}/github`;
+    let down = false;
+    renderAt(DETAIL, {
+      ...base,
+      [key]: (request: Request) =>
+        down
+          ? apiError(500, "INTERNAL_ERROR", "down")
+          : (base[key] as NonNullable<(typeof base)[string]>)(request),
+    });
+    await screen.findByRole("switch", { name: "werft-sandbox" });
+    down = true;
+    window.dispatchEvent(new Event("visibilitychange"));
+    const alert = await screen.findByRole("alert");
+    expect(alert.getAttribute("data-variant")).toBe("red");
+    expect(screen.getByRole("switch", { name: "werft-sandbox" }) !== null).toBe(
+      true,
+    );
+  });
+
+  for (const read of ["github", "github/activity"]) {
+    test(`${read} 읽기가 실패하면 그 query만 다시 읽고 저장하지 않는다`, async () => {
+      const { server } = await activeAgent();
+      const base: Record<
+        string,
+        (request: Request) => Response | Promise<Response>
+      > = routesFor(server, TAB);
+      const key = `GET ${PATH}/${read}`;
+      let failed = false;
+      const { api } = renderAt(DETAIL, {
+        ...base,
+        [key]: (request: Request) => {
+          if (failed)
+            return (base[key] as NonNullable<(typeof base)[string]>)(request);
+          failed = true;
+          return apiError(500, "INTERNAL_ERROR", "down");
+        },
+      });
+      const user = await setupUser();
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("불러오지 못했습니다");
+      await user.click(
+        within(alert).getByRole("button", { name: "다시 시도" }),
+      );
+      await waitFor(() =>
+        expect(screen.queryByRole("alert") === null).toBe(true),
+      );
+      const reads = api.calls.filter(
+        (c) => c.method === "GET" && c.path === `${PATH}/${read}`,
+      );
+      expect(reads).toHaveLength(2);
+      expect(
+        api.calls.filter(
+          (c) => c.method !== "GET" && c.path.startsWith(`${PATH}/github`),
+        ),
+      ).toEqual([]);
+    });
+  }
+
   test("상한이 App 저장소 전체를 허용하면 설치 목록에서 골라 저장 전 목록에 더한다", async () => {
     const { server } = await activeAgent();
     const tab = structuredClone(TAB);

@@ -428,7 +428,11 @@ export function createAchievementJudge(deps: {
             error instanceof DecisionsCallError ? error.reason : "unexpected",
           status: error instanceof DecisionsCallError ? error.status : null,
         });
-        return { ...again(claimed, failureCodeOf(error)), ...paired };
+        return {
+          ...again(claimed, failureCodeOf(error)),
+          ...paired,
+          threshold: judge.threshold,
+        };
       }
       if (answer.achieved) {
         const achievement = achievementOf(
@@ -452,6 +456,7 @@ export function createAchievementJudge(deps: {
       ...paired,
       achievements: [...achievements, ...judged],
       luna: { ...unchanged, declined },
+      threshold: judge.threshold,
     };
   }
 

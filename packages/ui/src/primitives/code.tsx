@@ -3,14 +3,30 @@ import type { ComponentProps, JSX } from "react";
 import { cn } from "../foundations/cn.ts";
 import { withLeading } from "./leading.ts";
 
-export type CodeProps = ComponentProps<"code">;
+export type CodeProps = ComponentProps<"code"> & {
+  /**
+   * `inherit` takes the parent's size and weight, for code inside body text
+   * or a row's main value; a code mark standing on its own stays 12px.
+   */
+  readonly size?: "caption" | "inherit" | undefined;
+};
 
 /** Code inside a line of text: the mono face at 12px, with no fill (v4). */
-export function Code({ className, ...props }: CodeProps): JSX.Element {
+export function Code({
+  size = "caption",
+  className,
+  ...props
+}: CodeProps): JSX.Element {
   return (
     <code
       data-slot="code"
-      className={cn("font-mono font-normal text-caption", className)}
+      className={cn(
+        "font-mono",
+        size === "caption"
+          ? "font-normal text-caption"
+          : "[font-size:inherit] [font-weight:inherit]",
+        className,
+      )}
       {...props}
     />
   );

@@ -98,7 +98,7 @@ function ChoiceCard({
             <Field orientation="horizontal" className="items-start">
               <RadioGroupItem value={option.value} />
               <FieldContent className="gap-1">
-                <span className="font-semibold">{option.label}</span>
+                <span>{option.label}</span>
                 <Text as="span" variant="meta">
                   {option.note}
                 </Text>

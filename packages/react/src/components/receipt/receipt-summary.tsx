@@ -7,6 +7,7 @@ import type {
 import { cn, formatTimestamp } from "@werft-ai/ui";
 import type { JSX, ReactNode } from "react";
 
+import type { Locale } from "../../messages/index.ts";
 import { guidanceFor } from "../feedback/error-guidance.ts";
 import { StatusLabel } from "../status/status-label.tsx";
 
@@ -79,6 +80,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   enable_achievement_rule: "성과 규칙 다시 사용",
   set_achievement_judge: "성과 판정 설정 변경",
   rejudge_session: "성과 다시 판정",
+  review_achievement: "성과 확인·거절",
   set_github_app: "GitHub App 등록",
   delete_github_app: "GitHub App 삭제",
   mint_github_token: "GitHub 토큰 발급",
@@ -113,6 +115,8 @@ export interface ReceiptSummaryProps {
   /** Trailing slot: `ReceiptLink`, a retry button, whatever the screen owns. */
   readonly action?: ReactNode | undefined;
   readonly className?: string | undefined;
+  /** The language of the error guidance. */
+  readonly locale?: Locale | undefined;
 }
 
 /**
@@ -127,8 +131,9 @@ export function ReceiptSummary({
   error,
   action,
   className,
+  locale = "ko",
 }: ReceiptSummaryProps): JSX.Element {
-  const guidance = guidanceFor(error?.code);
+  const guidance = guidanceFor(error?.code, locale);
 
   return (
     <div className={cn("ap-receipt", className)} data-status={status}>

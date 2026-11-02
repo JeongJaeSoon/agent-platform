@@ -4,12 +4,12 @@ import {
   AlertTitle,
   Badge,
   Code,
-  FieldError,
   Link,
   RowList,
   RowListItem,
   Skeleton,
 } from "@werft-ai/ui";
+import { LoadFailure } from "../../../components/load-failure.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
 import {
   unverifiedApp,
@@ -17,7 +17,7 @@ import {
   useSlackChannels,
   useSlackState,
 } from "./queries.ts";
-import { dmOn, slackFailure, slackState } from "./shared.ts";
+import { dmOn, slackReason, slackState } from "./shared.ts";
 
 export function SlackStatus({ agentId }: { readonly agentId: string }) {
   const { t } = useI18n();
@@ -33,6 +33,10 @@ export function SlackStatus({ agentId }: { readonly agentId: string }) {
     .flatMap((page) => page.items)
     .find((channel) => channel.id === home?.external_surface_id)?.name;
   const error = app.error ?? identities.error ?? bindings.error;
+  const failed = [app, identities, bindings].filter((read) => read.isError);
+  const retry = () => {
+    for (const read of failed) void read.refetch();
+  };
   const state = slackState(error, identity, app.data?.slack_app);
   const placeholder = <Skeleton className="h-5 w-24" />;
   const bindingsLost = bindings.isError && !bindings.data;
@@ -42,7 +46,14 @@ export function SlackStatus({ agentId }: { readonly agentId: string }) {
       className="flex flex-col gap-[var(--ap-space-block)]"
       aria-label={t("slack.status")}
     >
-      {error ? <FieldError>{slackFailure(error, t)}</FieldError> : null}
+      {error ? (
+        <LoadFailure
+          error={error}
+          guidance={slackReason(error, t)}
+          kept={failed.every((read) => read.data !== undefined)}
+          onRetry={retry}
+        />
+      ) : null}
       {unverified ? (
         <Alert variant="amber">
           <AlertTitle>{t("slack.eventsPending.title")}</AlertTitle>

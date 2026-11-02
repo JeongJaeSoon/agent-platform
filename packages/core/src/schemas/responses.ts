@@ -99,6 +99,7 @@ import {
   receiptAcceptedResponseSchema,
   rejudgeSessionResponseSchema,
   rerunWorkflowResponseSchema,
+  reviewAchievementResponseSchema,
   revokeAgentIdentityResponseSchema,
   revokeApiKeyResponseSchema,
   revokeCredentialBindingResponseSchema,
@@ -254,6 +255,7 @@ export const responseSchemas = {
   "GET /v1/sessions/{id}/outcomes": listSessionOutcomesResponseSchema,
   "GET /v1/sessions/{id}/achievements": listSessionAchievementsResponseSchema,
   "POST /v1/sessions/{id}/achievement-judgments": rejudgeSessionResponseSchema,
+  "POST /v1/achievements/{id}/review": reviewAchievementResponseSchema,
   "POST /v1/sessions/{id}/github/pull-requests/{number}/reviews":
     submitPullRequestReviewResponseSchema,
   "GET /v1/invites": listInvitesResponseSchema,

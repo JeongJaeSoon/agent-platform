@@ -14,6 +14,7 @@ import {
   checkpointOutputObjects,
   checkpointOutputsDigest,
   createAchievementJudge,
+  DecisionsCallError,
   type DecisionsRequest,
   type SessionOutputsResult,
   type TeamActor,
@@ -50,11 +51,14 @@ import {
   achievementJudgments,
   achievementJudgmentUsage,
   achievementTypes,
+  agentAdmins,
+  agents,
   attempts,
   memberships,
   receipts,
   sessionAchievements,
   sessionOutcomes,
+  sessionShares,
   sessions,
   turns,
   users,
@@ -1811,7 +1815,7 @@ integration("achievement judgments on PostgreSQL", () => {
 
   describe("Luna pairs", () => {
     function lunaReplica(
-      probability: () => number | "refuse",
+      probability: () => number | "refuse" | "fail",
       options: {
         leaseMs?: number;
         delayMs?: number;
@@ -1849,6 +1853,7 @@ integration("achievement judgments on PostgreSQL", () => {
                 await Bun.sleep(options.delayMs);
               }
               const yes = probability();
+              if (yes === "fail") throw new DecisionsCallError("timeout");
               if (yes === "refuse") {
                 return { answers: [{ type: "refusal", name: "achievement" }] };
               }
@@ -2033,6 +2038,190 @@ integration("achievement judgments on PostgreSQL", () => {
       expect(replica.sent).toHaveLength(2);
       const [down] = await achievementsOf(sessionId);
       expect(down?.supersededAt).not.toBeNull();
+    });
+
+    test("an achievement keeps the threshold its judgment asked with; a judgment that asks nothing keeps none", async () => {
+      const ws = await workspace();
+      await judgeSettings(ws.workspaceId, {
+        connection_id: "conn-1",
+        threshold: 0.9,
+      });
+      await rule(ws, await typeId(ws.workspaceId, "pull_request"), "luna");
+      const sessionId = await session(ws.workspaceId);
+      await pullRequest(sessionId, ws.workspaceId);
+      const replica = lunaReplica(() => 0.94);
+      await quietPassed(sessionId);
+      await replica.judge.runOnce();
+      expect((await judgmentsOf(sessionId)).map((j) => j.threshold)).toEqual([
+        0.9,
+      ]);
+
+      await judgeSettings(ws.workspaceId, {
+        connection_id: "conn-1",
+        threshold: 0.75,
+      });
+      const listed = await judgments.list(ws.workspaceId, sessionId);
+      expect(listed?.items.map((item) => item.threshold)).toEqual([0.9]);
+      expect(listed).not.toHaveProperty("threshold");
+
+      // Same inputs, same threshold: nothing is asked.
+      await judgeSettings(ws.workspaceId, {
+        connection_id: "conn-1",
+        threshold: 0.9,
+      });
+      await judgedOnce(sessionId, replica);
+      expect(replica.sent).toHaveLength(1);
+      expect(
+        (await judgmentsOf(sessionId)).map((j) => [j.status, j.threshold]),
+      ).toEqual([
+        ["succeeded", 0.9],
+        ["succeeded", null],
+      ]);
+    });
+
+    test("a judgment after a merge says the evidence changed by it, and an achievement first counted then says it was judged again after the merge", async () => {
+      const ws = await workspace();
+      await judgeSettings(ws.workspaceId, { connection_id: "conn-1" });
+      await rule(ws, await typeId(ws.workspaceId, "pull_request"), "luna");
+      const sessionId = await session(ws.workspaceId);
+      const pr = await pullRequest(sessionId, ws.workspaceId);
+      let yes = 0.5;
+      const replica = lunaReplica(() => yes);
+      await quietPassed(sessionId);
+      await replica.judge.runOnce();
+      const before = await judgments.list(ws.workspaceId, sessionId);
+      expect(before?.items).toEqual([]);
+      expect(before?.judgment?.evidence_change).toBeNull();
+
+      yes = 0.95;
+      await db
+        .update(sessionOutcomes)
+        .set({ state: "merged", mergedAt: sql`now()` })
+        .where(eq(sessionOutcomes.id, pr.id));
+      await judgedOnce(sessionId, replica);
+      const after = await judgments.list(ws.workspaceId, sessionId);
+      expect(after?.judgment).toMatchObject({
+        trigger: "evidence",
+        evidence_change: "pr_merged",
+      });
+      expect(after?.items.map((item) => item.rejudged_after_merge)).toEqual([
+        true,
+      ]);
+
+      // A judgment with no merge since the one before it says nothing.
+      await judgedOnce(sessionId, replica);
+      expect(
+        (await judgments.list(ws.workspaceId, sessionId))?.judgment
+          ?.evidence_change,
+      ).toBeNull();
+    });
+
+    test("an achievement first counted after its pull request merged was not judged again", async () => {
+      const ws = await workspace();
+      await judgeSettings(ws.workspaceId, { connection_id: "conn-1" });
+      await rule(ws, await typeId(ws.workspaceId, "pull_request"), "luna");
+      const sessionId = await session(ws.workspaceId);
+      const pr = await pullRequest(sessionId, ws.workspaceId);
+      await db
+        .update(sessionOutcomes)
+        // Merged before the session's first judgment was queued.
+        .set({ state: "merged", mergedAt: sql`now() - interval '1 hour'` })
+        .where(eq(sessionOutcomes.id, pr.id));
+      const replica = lunaReplica(() => 0.95);
+      await quietPassed(sessionId);
+      await replica.judge.runOnce();
+      const listed = await judgments.list(ws.workspaceId, sessionId);
+      expect(listed?.items.map((item) => item.rejudged_after_merge)).toEqual([
+        false,
+      ]);
+      // The first judgment has no judgment before it to change from.
+      expect(listed?.judgment?.evidence_change).toBeNull();
+    });
+
+    test("a merge a few hundred microseconds before the judgment, in the same millisecond, still changed its evidence", async () => {
+      const ws = await workspace();
+      const sessionId = await session(ws.workspaceId);
+      const pr = await pullRequest(sessionId, ws.workspaceId);
+      const [first] = await judgmentsOf(sessionId);
+      // One transaction: now() is the same in every statement.
+      const base = sql`date_trunc('milliseconds', now())`;
+      const secondId = randomUUID();
+      await db.transaction(async (tx) => {
+        await tx
+          .update(achievementJudgments)
+          .set({
+            status: "succeeded",
+            createdAt: sql`${base} - interval '1 second'`,
+            finishedAt: sql`${base} - interval '1 second'`,
+          })
+          .where(eq(achievementJudgments.id, first?.id ?? ""));
+        await tx.insert(achievementJudgments).values({
+          id: secondId,
+          workspaceId: ws.workspaceId,
+          ownerId: ws.workspaceId,
+          sessionId,
+          trigger: "evidence",
+          status: "succeeded",
+          nextAttemptAt: sql`${base}`,
+          createdAt: sql`${base} + interval '900 microseconds'`,
+          finishedAt: sql`${base} + interval '1 second'`,
+        });
+        await tx
+          .update(sessionOutcomes)
+          .set({
+            state: "merged",
+            mergedAt: sql`${base} + interval '600 microseconds'`,
+          })
+          .where(eq(sessionOutcomes.id, pr.id));
+      });
+      const listed = await judgments.list(ws.workspaceId, sessionId);
+      expect(listed?.judgment).toMatchObject({
+        id: secondId,
+        evidence_change: "pr_merged",
+      });
+    });
+
+    test("a judgment that asked and then failed keeps the threshold it asked with, but no digest, so the next try asks again", async () => {
+      for (const answers of [
+        [0.95, "fail"],
+        ["fail", "fail"],
+      ] as const) {
+        const ws = await workspace();
+        await judgeSettings(ws.workspaceId, {
+          connection_id: "conn-1",
+          threshold: 0.9,
+        });
+        await rule(ws, await typeId(ws.workspaceId, "pull_request"), "luna");
+        const sessionId = await session(ws.workspaceId);
+        await pullRequest(sessionId, ws.workspaceId);
+        await pullRequest(sessionId, ws.workspaceId);
+        let call = 0;
+        let failing = true;
+        const replica = lunaReplica(() =>
+          failing ? (answers[call++] ?? 0.95) : 0.95,
+        );
+        await quietPassed(sessionId);
+        await replica.judge.runOnce();
+        const [tried] = await judgmentsOf(sessionId);
+        expect(tried).toMatchObject({
+          status: "queued",
+          threshold: 0.9,
+          inputDigest: null,
+        });
+        expect(tried?.errorCode).toBe("judge_timeout");
+
+        failing = false;
+        const sentBefore = replica.sent.length;
+        await db
+          .update(achievementJudgments)
+          .set({ nextAttemptAt: sql`now() - interval '1 second'` })
+          .where(eq(achievementJudgments.id, tried?.id ?? ""));
+        await replica.judge.runOnce();
+        expect(replica.sent.length).toBe(sentBefore + 2);
+        const [retried] = await judgmentsOf(sessionId);
+        expect(retried).toMatchObject({ status: "succeeded", threshold: 0.9 });
+        expect(retried?.inputDigest).toMatch(/^[0-9a-f]{64}$/);
+      }
     });
 
     test("a person's rejection stands against a yes and a no alike", async () => {
@@ -2294,5 +2483,271 @@ integration("achievement judgments on PostgreSQL", () => {
         { sequence: 4, message: "ask 4", result: "answer 4" },
       ]);
     });
+  });
+
+  async function decided(ws: Awaited<ReturnType<typeof workspace>>) {
+    await rule(ws, await typeId(ws.workspaceId, "pull_request"));
+    await rule(ws, await typeId(ws.workspaceId, "document"));
+    const sessionId = await session(ws.workspaceId);
+    await pullRequest(sessionId, ws.workspaceId);
+    outputsBySession.set(sessionId, {
+      status: "ready",
+      revision: 1,
+      outputs: [
+        {
+          path: "out/report.md",
+          bytes: 42,
+          sha256: "b".repeat(64),
+          key: `sessions/${sessionId}/outputs/${"b".repeat(64)}`,
+        },
+      ],
+    });
+    await quietPassed(sessionId);
+    await replica().runOnce();
+    const listed = await judgments.list(ws.workspaceId, sessionId);
+    if (!listed) throw new Error("not listed");
+    const pull = listed.items.find(
+      (item) => item.evidence_kind === "github_pull_request",
+    );
+    const file = listed.items.find((item) => item.evidence_kind === "out_file");
+    if (!pull || !file) throw new Error("no achievements");
+    return { sessionId, listed, pull, file };
+  }
+
+  function reviewing(
+    actor: TeamActor,
+    achievementId: string,
+    decision: "confirm" | "reject",
+    note: string | null = null,
+  ) {
+    return judgments.review({
+      actor,
+      achievementId,
+      decision,
+      note,
+      receiptId: randomUUID(),
+    });
+  }
+
+  test("the list names each achievement's rule version and type, and gives the finished judgments and their cost", async () => {
+    const ws = await workspace();
+    const { sessionId, listed, file } = await decided(ws);
+    expect(listSessionAchievementsResponseSchema.parse(listed)).toEqual(listed);
+    expect(file).toMatchObject({
+      rule_title: "Counted",
+      rule_version: 1,
+      type_key: "document",
+    });
+    expect(listed).toMatchObject({
+      judgment_count: 1,
+      judge_cost_usd: 0,
+    });
+    // A pending judgment is not counted; the ledger's cost is.
+    const [judgment] = await judgmentsOf(sessionId);
+    await db
+      .update(achievementJudgments)
+      .set({ costUsd: 0.000_25 })
+      .where(eq(achievementJudgments.id, judgment?.id ?? ""));
+    await queueAchievementJudgment(db, sessionId, { trigger: "manual" });
+    expect(await judgments.list(ws.workspaceId, sessionId)).toMatchObject({
+      judgment: { status: "queued", trigger: "manual" },
+      judgment_count: 1,
+      judge_cost_usd: 0.000_25,
+    });
+  });
+
+  test("a person confirms a needs_review achievement or rejects an undecided one once, with a review_achievement receipt", async () => {
+    const ws = await workspace();
+    const { sessionId, pull, file } = await decided(ws);
+    expect(await judgments.find(ws.workspaceId, file.id)).toEqual({
+      sessionId,
+      agentId: null,
+    });
+    expect(await judgments.find("another-owner", file.id)).toBeNull();
+
+    expect((await reviewing(ws.owner, pull.id, "confirm")).outcome).toBe(
+      "not_reviewable",
+    );
+    const receiptId = randomUUID();
+    const confirmed = await judgments.review({
+      actor: ws.owner,
+      achievementId: file.id,
+      decision: "confirm",
+      note: "Read it",
+      receiptId,
+    });
+    if (confirmed.outcome !== "reviewed") throw new Error(confirmed.outcome);
+    expect(confirmed.achievement).toMatchObject({
+      id: file.id,
+      review_state: "confirmed",
+      reviewed_by: ws.owner.userId,
+      review_note: "Read it",
+      rule_title: "Counted",
+      type_key: "document",
+    });
+    expect(confirmed.achievement.reviewed_at).not.toBeNull();
+    const [receipt] = await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.id, receiptId));
+    expect(receipt).toMatchObject({
+      ownerId: ws.workspaceId,
+      operation: "review_achievement",
+      status: "succeeded",
+      targetRef: { session_id: sessionId, turn_id: null, request_id: null },
+      result: { achievement_id: file.id, review_state: "confirmed" },
+    });
+    expect(JSON.stringify(receipt)).not.toContain("Read it");
+
+    const rejected = await reviewing(ws.owner, pull.id, "reject");
+    expect(rejected).toMatchObject({
+      outcome: "reviewed",
+      achievement: { review_state: "rejected" },
+    });
+    for (const [id, decision] of [
+      [file.id, "reject"],
+      [pull.id, "reject"],
+      [pull.id, "confirm"],
+    ] as const) {
+      expect((await reviewing(ws.owner, id, decision)).outcome).toBe(
+        "not_reviewable",
+      );
+    }
+    const other = await workspace();
+    expect((await reviewing(other.owner, file.id, "reject")).outcome).toBe(
+      "not_found",
+    );
+  });
+
+  test("confirmed and rejected achievements stay as decided when the session is judged again", async () => {
+    const ws = await workspace();
+    const { sessionId, pull, file } = await decided(ws);
+    await reviewing(ws.owner, file.id, "reject");
+    await reviewing(ws.owner, pull.id, "reject");
+    const rejudged = await judgments.rejudge({
+      actor: ws.owner,
+      sessionId,
+      receiptId: randomUUID(),
+    });
+    expect(rejudged.outcome).toBe("queued");
+    await quietPassed(sessionId);
+    await replica().runOnce();
+    expect((await judgmentsOf(sessionId)).map((row) => row.status)).toEqual([
+      "succeeded",
+      "succeeded",
+    ]);
+    const after = await judgments.list(ws.workspaceId, sessionId);
+    expect(
+      after?.items.map((item) => [item.id, item.review_state]).sort(),
+    ).toEqual(
+      [
+        [pull.id, "rejected"],
+        [file.id, "rejected"],
+      ].sort(),
+    );
+  });
+
+  test("a member reviews an agent's achievements only while administering it; a suspended person never", async () => {
+    const ws = await workspace();
+    const { pull, file } = await decided(ws);
+    const agentId = randomUUID();
+    await db.insert(agents).values({
+      id: agentId,
+      workspaceId: ws.workspaceId,
+      slug: `agent-${agentId.slice(0, 8)}`,
+      name: "Fixer",
+    });
+    await db
+      .update(sessionAchievements)
+      .set({ agentId })
+      .where(eq(sessionAchievements.id, file.id));
+    const userId = randomUUID();
+    await db.insert(users).values({
+      id: userId,
+      email: `${userId}@example.invalid`,
+      passwordHash: "argon2id$placeholder",
+      displayName: "member",
+    });
+    await db
+      .insert(memberships)
+      .values({ workspaceId: ws.workspaceId, userId, role: "member" });
+    const member: TeamActor = { ...ws.owner, userId };
+
+    expect((await reviewing(member, file.id, "confirm")).outcome).toBe(
+      "actor_inactive",
+    );
+    // An achievement without an agent has no agent admins.
+    expect((await reviewing(member, pull.id, "reject")).outcome).toBe(
+      "actor_inactive",
+    );
+    await db
+      .insert(agentAdmins)
+      .values({ workspaceId: ws.workspaceId, agentId, userId });
+    expect((await reviewing(member, file.id, "confirm")).outcome).toBe(
+      "reviewed",
+    );
+    await db
+      .update(memberships)
+      .set({ disabledAt: new Date() })
+      .where(eq(memberships.userId, ws.owner.userId));
+    expect((await reviewing(ws.owner, pull.id, "reject")).outcome).toBe(
+      "actor_inactive",
+    );
+  });
+
+  test("a session made private since the read is not reviewed by an agent admin who no longer sees it", async () => {
+    const ws = await workspace();
+    const { sessionId, file } = await decided(ws);
+    const agentId = randomUUID();
+    await db.insert(agents).values({
+      id: agentId,
+      workspaceId: ws.workspaceId,
+      slug: `agent-${agentId.slice(0, 8)}`,
+      name: "Fixer",
+    });
+    await db
+      .update(sessionAchievements)
+      .set({ agentId })
+      .where(eq(sessionAchievements.id, file.id));
+    const userId = randomUUID();
+    await db.insert(users).values({
+      id: userId,
+      email: `${userId}@example.invalid`,
+      passwordHash: "argon2id$placeholder",
+      displayName: "member",
+    });
+    await db
+      .insert(memberships)
+      .values({ workspaceId: ws.workspaceId, userId, role: "member" });
+    await db
+      .insert(agentAdmins)
+      .values({ workspaceId: ws.workspaceId, agentId, userId });
+    const member: TeamActor = { ...ws.owner, userId };
+    await db.insert(sessionShares).values({
+      sessionId,
+      ownerId: ws.owner.principal.ownerId,
+      workspaceId: ws.workspaceId,
+      scope: "private",
+    });
+
+    expect((await reviewing(member, file.id, "confirm")).outcome).toBe(
+      "not_found",
+    );
+    const [row] = await db
+      .select({ reviewState: sessionAchievements.reviewState })
+      .from(sessionAchievements)
+      .where(eq(sessionAchievements.id, file.id));
+    expect(row?.reviewState).toBe("needs_review");
+    expect(
+      await db
+        .select({ id: receipts.id })
+        .from(receipts)
+        .where(
+          and(
+            eq(receipts.operation, "review_achievement"),
+            eq(receipts.ownerId, ws.owner.principal.ownerId),
+          ),
+        ),
+    ).toHaveLength(0);
   });
 });

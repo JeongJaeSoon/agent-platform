@@ -639,9 +639,7 @@ function ReleaseStep({
           refuse={refuse}
         />
       ) : (
-        <p className="m-0 text-muted-foreground text-sm">
-          {t("agent.releases.profilesLoading")}
-        </p>
+        <Text variant="sub">{t("agent.releases.profilesLoading")}</Text>
       )}
       <div>
         <LaterLink agentId={agentId} />
@@ -837,9 +835,7 @@ function ActivateStep({
   return (
     <section className={AGENT_FORM}>
       <StepHeading focus={focus}>{t("agents.flow.activate")}</StepHeading>
-      <p className="m-0 text-muted-foreground text-sm">
-        {t("agents.flow.activateIntro")}
-      </p>
+      <Text variant="sub">{t("agents.flow.activateIntro")}</Text>
       {activate.error ? <Alerts lines={[refuse(activate.error)]} /> : null}
       {agent.error ? <Alerts lines={[refuse(agent.error)]} /> : null}
       <div className="flex flex-wrap gap-2">

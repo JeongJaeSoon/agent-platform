@@ -28,6 +28,21 @@ describe("ApiErrorState", () => {
     );
   });
 
+  test("화면이 준 안내가 코드의 일반 안내를 대신한다", () => {
+    const { container } = render(
+      <ApiErrorState
+        code="BACKEND_UNAVAILABLE"
+        guidance="저장소가 꺼져 있습니다."
+      />,
+    );
+    expect(container.querySelector(".ap-state__guidance")?.textContent).toBe(
+      "저장소가 꺼져 있습니다.",
+    );
+    expect(container.querySelector(".ap-state__code")?.textContent).toBe(
+      "BACKEND_UNAVAILABLE",
+    );
+  });
+
   test("ErrorState에 그 코드의 할 일을 넘긴 것과 같은 마크업이다", () => {
     const api = render(
       <ApiErrorState

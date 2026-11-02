@@ -3848,6 +3848,8 @@ export const achievementJudgments = pgTable(
     costUsd: numeric("cost_usd", { precision: 14, scale: 6, mode: "number" })
       .notNull()
       .default(0),
+    /** The workspace threshold the luna pairs were asked against. */
+    threshold: doublePrecision(),
     errorCode: text("error_code"),
     attempts: integer().notNull().default(0),
     nextAttemptAt: timestamp("next_attempt_at", {
@@ -3900,6 +3902,10 @@ export const achievementJudgments = pgTable(
     check(
       "achievement_judgments_cost_check",
       sql`${table.calls} >= 0 AND ${table.inputTokens} >= 0 AND ${table.costUsd} >= 0 AND ${table.attempts} >= 0`,
+    ),
+    check(
+      "achievement_judgments_threshold_check",
+      sql`${table.threshold} IS NULL OR ${table.threshold} BETWEEN 0 AND 1`,
     ),
     check(
       "achievement_judgments_lease_check",

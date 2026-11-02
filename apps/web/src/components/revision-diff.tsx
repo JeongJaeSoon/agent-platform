@@ -1,3 +1,4 @@
+import { Text } from "@werft-ai/ui";
 import { useI18n } from "../i18n/i18n.tsx";
 
 export type DiffLine = {
@@ -72,8 +73,10 @@ export function RevisionDiff({
   const changed = lines.some((line) => line.kind !== "same");
   return (
     <figure className="m-0 flex min-w-0 flex-col gap-2">
-      <figcaption className="text-muted-foreground text-sm">
-        {t("diff.caption", { before: beforeLabel, after: afterLabel })}
+      <figcaption>
+        <Text as="div" variant="sub">
+          {t("diff.caption", { before: beforeLabel, after: afterLabel })}
+        </Text>
       </figcaption>
       {changed ? (
         <pre className="m-0 overflow-x-auto rounded-card border p-3 font-mono text-xs">

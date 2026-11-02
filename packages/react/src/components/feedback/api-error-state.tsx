@@ -4,7 +4,7 @@ import type { JSX } from "react";
 import type { Locale } from "../../messages/index.ts";
 import { guidanceFor } from "./error-guidance.ts";
 
-export interface ApiErrorStateProps extends Omit<ErrorStateProps, "guidance"> {
+export interface ApiErrorStateProps extends ErrorStateProps {
   /** `error.code` — branching and copy key on the code, not the HTTP status. */
   readonly code?: string | undefined;
   /** The language of the guidance and of the default title and buttons. */
@@ -31,6 +31,7 @@ export function ApiErrorState({
   title,
   retryLabel,
   evidenceLink,
+  guidance,
   ...props
 }: ApiErrorStateProps): JSX.Element {
   const copy = COPY[locale] ?? COPY.ko;
@@ -45,7 +46,8 @@ export function ApiErrorState({
           : undefined
       }
       code={code}
-      guidance={guidanceFor(code, locale)}
+      // A screen that knows the cause better than the code says it instead.
+      guidance={guidance ?? guidanceFor(code, locale)}
     />
   );
 }

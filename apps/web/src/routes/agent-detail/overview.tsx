@@ -569,9 +569,9 @@ export function CardSummary({
             {
               label: t("agents.slug"),
               value: (
-                <span className={`${VALUE} font-mono`}>
+                <Code size="inherit" className={VALUE}>
                   {detail.agent.slug}
-                </span>
+                </Code>
               ),
             },
             ...(card
@@ -603,7 +603,9 @@ export function CardSummary({
                   {
                     label: t("agentCard.model"),
                     value: (
-                      <span className={`${VALUE} font-mono`}>{card.model}</span>
+                      <Code size="inherit" className={VALUE}>
+                        {card.model}
+                      </Code>
                     ),
                   },
                   {

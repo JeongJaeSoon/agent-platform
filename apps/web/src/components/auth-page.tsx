@@ -1,4 +1,4 @@
-import { Alert, Card, Heading } from "@werft-ai/ui";
+import { Alert, Card, Heading, Text } from "@werft-ai/ui";
 import type { ReactNode } from "react";
 import { Main } from "./main.tsx";
 
@@ -27,13 +27,11 @@ export function AuthPage({
 
 export function FormError({ children }: { readonly children: ReactNode }) {
   return (
-    <p className="m-0 text-destructive" role="alert">
+    <Text role="alert" className="text-destructive">
       {children}
-    </p>
+    </Text>
   );
 }
-
-export const ASIDE = "m-0 text-muted-foreground text-sm";
 
 /**
  * What an action came to, as a live region. Without children it stays
