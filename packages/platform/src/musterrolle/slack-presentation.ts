@@ -17,7 +17,7 @@ export type SlackMentionPolicy = {
   maskedLinks?: "keep" | "expand";
 };
 
-function isSafeUrl(value: string): boolean {
+export function isSafeUrl(value: string): boolean {
   if (/[<>|\s]/.test(value)) return false;
   try {
     const protocol = new URL(value).protocol.toLowerCase();
@@ -99,7 +99,7 @@ function escapeCode(value: string): string {
   return escapeAmpersands(value).replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function mapCodeAndText(
+export function mapCodeAndText(
   value: string,
   text: (part: string) => string,
   code: (part: string) => string,
