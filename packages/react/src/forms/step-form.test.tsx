@@ -150,8 +150,8 @@ describe("a step form", () => {
       language: "ko",
       model: "claude-sonnet-5",
       toolsMode: "all",
-      tools: "",
-      forbidden: "",
+      tools: [],
+      forbidden: [],
     });
     const view = identity((values) =>
       post("/v1/agents", { body: { ...values, card } }),
@@ -199,8 +199,8 @@ describe("a step form", () => {
       language: "ko",
       model: "claude-sonnet-5",
       toolsMode: "list",
-      tools: "x".repeat(129),
-      forbidden: "",
+      tools: ["x".repeat(129)],
+      forbidden: [],
     };
     const view = render(
       <Wrap>

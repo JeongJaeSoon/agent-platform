@@ -59,14 +59,15 @@ import {
 import { FunnelResetNotice, useFunnel } from "../funnel/tanstack-funnel.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import {
-  AGENT_CARD_LANGUAGE_VALUES,
   AGENT_FORM,
   AgentCardFields,
   type ApiCard,
   CARD_ERROR_FIELDS,
   type CardDraft,
   type CardErrors,
+  cardDraftOf,
   EMPTY_DRAFT,
+  toolsBlocked,
 } from "./agent-card-form.tsx";
 import { Notice } from "./auth-page.tsx";
 import { ProfileOptions, pickable } from "./profile-options.tsx";
@@ -98,6 +99,8 @@ type Steps = {
     slug: string;
     agentId: string;
     versionId: string;
+    /** The profile the job step previewed tools with. */
+    previewId?: string;
   };
   activate: {
     flow: string;
@@ -128,18 +131,6 @@ const STEP_LABEL = {
 const NEW_CARD_STEP = agentCardStep();
 const CARD_FIELDS = Object.keys(EMPTY_DRAFT) as (keyof CardDraft)[];
 const KEEP_INPUT_DELAY_MS = 300;
-
-/** Input kept in history.state from before a deploy may not fit the form. */
-const isCardDraft = (value: unknown): value is CardDraft =>
-  typeof value === "object" &&
-  value !== null &&
-  CARD_FIELDS.every(
-    (key) =>
-      typeof (value as Record<string, unknown>)[key] ===
-      typeof EMPTY_DRAFT[key],
-  ) &&
-  AGENT_CARD_LANGUAGE_VALUES.includes((value as CardDraft).language) &&
-  ["all", "list"].includes((value as CardDraft).toolsMode);
 
 /**
  * The slug a name suggests: what is left of it in lowercase kebab-case. A
@@ -204,7 +195,10 @@ const draftKey = (flow: string) => `new-agent.${flow}`;
 function readDraft(flow: string): SavedDraft | null {
   try {
     const raw = sessionStorage.getItem(draftKey(flow));
-    return raw ? (JSON.parse(raw) as SavedDraft) : null;
+    if (!raw) return null;
+    const draft = JSON.parse(raw) as SavedDraft;
+    // The agent was saved, so the draft stays even when its input does not.
+    return { ...draft, card: cardDraftOf(draft.card) ?? EMPTY_DRAFT };
   } catch {
     return null;
   }
@@ -295,10 +289,11 @@ export function NewAgentFlow({
       void funnel.history.replace(funnel.step, funnel.context);
   }, []);
   const card = useStepForm(NEW_CARD_STEP, {
-    defaultValues: isCardDraft(restored.card)
-      ? restored.card
-      : (saved?.card ?? EMPTY_DRAFT),
+    defaultValues: cardDraftOf(restored.card) ?? saved?.card ?? EMPTY_DRAFT,
   });
+  // The profile the job step previewed tools with, which the release step
+  // then starts from; unpicked, both take the first that runs the model.
+  const [previewId, setPreviewId] = useState<string>();
   const cardInput = useWatch({ control: card.control }) as CardDraft;
   const identityInput = useWatch({ control: identity.control });
   const router = useRouter();
@@ -427,9 +422,13 @@ export function NewAgentFlow({
             form={card}
             catalog={catalog}
             focus={moved}
+            onPreviewChange={setPreviewId}
             onSave={async (values) => {
               clearTimeout(keepTimer.current);
-              await history.push("release", await saveDraft(values, context));
+              await history.push("release", {
+                ...(await saveDraft(values, context)),
+                ...(previewId === undefined ? {} : { previewId }),
+              });
             }}
             refuse={refuse}
           />
@@ -438,6 +437,11 @@ export function NewAgentFlow({
           <ReleaseStep
             agentId={context.agentId}
             versionId={context.versionId}
+            previewId={
+              typeof context.previewId === "string"
+                ? context.previewId
+                : undefined
+            }
             focus={moved}
             onReleased={(releaseId) => history.push("activate", { releaseId })}
             refuse={refuse}
@@ -539,12 +543,14 @@ function JobStep({
   form,
   catalog,
   focus,
+  onPreviewChange,
   onSave,
   refuse,
 }: {
   readonly form: StepForm<typeof NEW_CARD_STEP>;
   readonly catalog: UseQueryResult<{ items: ProfileSummary[] }>;
   readonly focus: boolean;
+  readonly onPreviewChange: (profileId: string) => void;
   readonly onSave: (card: z.output<typeof NEW_CARD_STEP>) => Promise<unknown>;
   readonly refuse: (error: unknown) => string;
 }) {
@@ -575,10 +581,19 @@ function JobStep({
         catalog={catalog}
         onChange={change}
         errors={fieldErrors}
+        previewable={releasable}
+        onPreviewChange={onPreviewChange}
       />
       <Alerts lines={formAlerts(errors, CARD_ERROR_FIELDS)} />
       <div>
-        <Button type="submit" disabled={isSubmitting || !catalog.isSuccess}>
+        <Button
+          type="submit"
+          disabled={
+            isSubmitting ||
+            !catalog.isSuccess ||
+            toolsBlocked(catalog.data.items, draft)
+          }
+        >
           {isSubmitting ? t("agents.flow.saving") : t("agents.flow.saveDraft")}
         </Button>
       </div>
@@ -600,12 +615,14 @@ function LaterLink({ agentId }: { readonly agentId: string }) {
 function ReleaseStep({
   agentId,
   versionId,
+  previewId,
   focus,
   onReleased,
   refuse,
 }: {
   readonly agentId: string;
   readonly versionId: string;
+  readonly previewId: string | undefined;
   readonly focus: boolean;
   readonly onReleased: (releaseId: string) => void;
   readonly refuse: (error: unknown) => string;
@@ -635,6 +652,7 @@ function ReleaseStep({
           agentId={agentId}
           versionId={versionId}
           cardModel={cardModel}
+          previewId={previewId}
           profiles={profiles.data.items}
           onReleased={onReleased}
           refuse={refuse}
@@ -660,6 +678,7 @@ function ReleaseForm({
   agentId,
   versionId,
   cardModel,
+  previewId,
   profiles,
   onReleased,
   refuse,
@@ -667,6 +686,7 @@ function ReleaseForm({
   readonly agentId: string;
   readonly versionId: string;
   readonly cardModel: string | undefined;
+  readonly previewId: string | undefined;
   readonly profiles: readonly ProfileSummary[];
   readonly onReleased: (releaseId: string) => void;
   readonly refuse: (error: unknown) => string;
@@ -674,8 +694,20 @@ function ReleaseForm({
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
+  const runsCard = (profile: ProfileSummary) =>
+    cardModel === undefined || profile.models.includes(cardModel);
+  // The job step's preview, else the same default it showed.
   const first =
-    profiles.find((p) => releasable(p) && p.model === cardModel) ??
+    profiles.find(
+      (p) =>
+        p.id === previewId &&
+        releasable(p) &&
+        cardModel !== undefined &&
+        runsCard(p),
+    ) ??
+    profiles.find(
+      (p) => releasable(p) && cardModel !== undefined && runsCard(p),
+    ) ??
     profiles.find(releasable);
   const fallback = first?.id ?? "";
   const form = useStepForm(agentReleaseStep, {
@@ -745,7 +777,7 @@ function ReleaseForm({
             usable={releasable}
             label={(profile) => {
               const label = t(
-                cardModel === undefined || profile.model === cardModel
+                runsCard(profile)
                   ? "agent.releases.profileOption"
                   : "agent.releases.profileOptionMismatch",
                 { profile: profile.id, model: profile.model },
@@ -767,7 +799,8 @@ function ReleaseForm({
         </FieldDescription>
         {cardModel !== undefined &&
         profileModel !== undefined &&
-        cardModel !== profileModel ? (
+        picked !== undefined &&
+        !runsCard(picked) ? (
           <Alert variant="amber">
             <FieldDescription>
               {t("agent.releases.modelMismatch", {

@@ -164,7 +164,7 @@
   - 앞으로: 배포 전 checkpoint는 프로필 도구 전부로 만든 지문이다. claim의 `restore_runtime_configs`(`worker-gateway.ts:943`)에 "프로필 도구 전부" 설정을 대체로 넣는다. fallback checkpoint와 GitHub 서버를 붙이기 전·후 변형(`worker-gateway.ts:949-957`)에도 같이 넣는다. 첫 claim만의 일이 아니라, 옛 지문의 checkpoint가 남아 있는 동안 계속 넣는다.
   - 롤백: 좁힌 도구로 만든 checkpoint는 옛 이미지가 재개하지 못한다. 옛 대체 설정 생성은 같은 프로필·모델이면 건너뛴다(`worker-gateway.ts:926-931`). 그래서 ① 두 설정을 모두 대체로 넣을 줄 아는 이미지를 먼저 배포하고 ② 그 이미지가 롤백 하한이 된 뒤에 좁힘을 켠다(설정 플래그 또는 다음 배포).
   - 복구 검증 도구도 claim과 같은 규칙으로 도구를 정하게 한다. 지금은 카탈로그 프로필만으로 claim을 다시 만든다(`scripts/lib/checkpoint-pins.ts:165`, `:226`).
-- 동작 변화: `tools`를 고르거나 `forbidden`을 적은 기존 에이전트는 다음 claim부터 그 값대로 좁혀진다. claim마다 실행 설정을 다시 만들므로(`worker-gateway.ts:903`) 이미 진행 중인 세션도 다음 턴부터 좁혀진다. 화면이 약속한 동작이 되는 것이다. 배포 전에 그런 릴리스가 몇 개인지 세어 PR 본문에 적는다(`SELECT count(*) FROM agent_releases WHERE runtime_config_snapshot->'tools' <> …` 같은 읽기 쿼리, 운영 DB에서는 리드가 돌린다).
+- 동작 변화: `tools`를 고르거나 `forbidden`을 적은 기존 에이전트는 다음 claim부터 그 값대로 좁혀진다. claim마다 실행 설정을 다시 만들므로(`worker-gateway.ts:903`) 이미 진행 중인 세션도 다음 claim부터(마지막 턴 뒤 30분 idle로 실행 환경이 내려간 다음의 메시지, 또는 일시 정지·재개 뒤) 좁혀진다. 턴마다가 아니다(U2b JeongJaeSoon/agent-platform#1087에서 실측). 화면이 약속한 동작이 되는 것이다. 배포 전에 그런 릴리스가 몇 개인지 세어 PR 본문에 적는다(`SELECT count(*) FROM agent_releases WHERE runtime_config_snapshot->'tools' <> …` 같은 읽기 쿼리, 운영 DB에서는 리드가 돌린다).
 - MCP 도구는 지금처럼 `per_tool`이 `allow`인 것만 붙는다(`pinnedMcpTools` `catalog.ts:642-656`, `runtimeConfigWithMcp` `catalog.ts:693-708`). 바꾸지 않는다.
 
 ### 3b. 체크 목록
@@ -271,7 +271,7 @@
 
 1. ~~세션 공개 범위 기본값~~: 폐기. [agent-rbac.md (g)](agent-rbac.md#g-오너-확인-필요)의 G2(워크스페이스 설정 축 B의 기본값)로 바뀌었다.
 2. 되돌릴 수 없는 이행: 설계가 정한 이행은 열을 더하고 채우는 것뿐이고, 기존 카드 버전은 고치지 않는다. 롤백 때 새 열(`agents.description`, `agents.managing_team_id`, `member_team_members.role`)은 남긴다. 그 열을 지우는 정리는 배포 뒤 입력한 값을 잃으므로 되돌릴 수 없다. 하려면 그때 오너 확인을 받는다. 지금 계획에는 넣지 않는다.
-3. 동작 변화(데이터 이행 아님): U2b는 `tools`를 고르거나 `forbidden`을 적은 기존 에이전트를 다음 claim부터 실제로 좁힌다. 이미 진행 중인 세션도 다음 턴부터 좁혀진다. 화면이 약속한 대로 되는 것이지만 오너에게 알린다. 켜기 전에 해당 릴리스 수를 센다.
+3. 동작 변화(데이터 이행 아님): U2b는 `tools`를 고르거나 `forbidden`을 적은 기존 에이전트를 다음 claim부터 실제로 좁힌다. 이미 진행 중인 세션도 다음 claim부터(마지막 턴 뒤 30분 idle 또는 일시 정지·재개 뒤) 좁혀진다. 화면이 약속한 대로 되는 것이지만 오너에게 알린다. 켜기 전에 해당 릴리스 수를 센다.
 
 ## 발견
 

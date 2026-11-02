@@ -7,6 +7,7 @@ import {
   createAgentRequestSchema,
   createInviteRequestSchema,
   createWorkspaceProfileRequestSchema,
+  MCP_TOOL_PREFIX,
 } from "@werft-ai/contracts";
 // biome-ignore lint/style/noRestrictedImports: the forms entry, like the schemas entry, may name zod; the root entry still may not.
 import { z } from "zod";
@@ -65,7 +66,7 @@ export const acceptInviteStep = z.object({
     .pipe(acceptInviteRequestSchema.shape.display_name),
 });
 
-/** The card as its form holds it: lists as one name per line. */
+/** The card as its form holds it. */
 const agentCardDraftSchema = z.object({
   role: z.string(),
   instructions: z.string(),
@@ -73,22 +74,58 @@ const agentCardDraftSchema = z.object({
   model: z.string(),
   /** `all` = whatever the runtime profile allows (`tools: null`). */
   toolsMode: z.enum(["all", "list"]),
-  tools: z.string(),
-  forbidden: z.string(),
+  /** The checked tools; read only in `list` mode. */
+  tools: z.array(z.string()),
+  /** Only ever shrinks in the form: it shows the list and can clear it. */
+  forbidden: z.array(z.string()),
 });
 export type AgentCardDraft = z.input<typeof agentCardDraftSchema>;
 
-// One name per line: the contract lets a tool name hold spaces and commas.
-const splitList = (text: string) =>
-  text
-    .split("\n")
-    .map((item) => item.trim())
-    .filter(Boolean);
+/**
+ * The capabilities a draft sends, over those of the card it edits. A
+ * built-in tool that will not run (unchecked, or forbidden) loses its
+ * `per_tool` entry: a release refuses a policy for a built-in tool it does
+ * not run, and the form has no way to edit one. MCP entries attach apart
+ * from this list and stay.
+ */
+export function draftCapabilities(
+  draft: Pick<AgentCardDraft, "toolsMode" | "tools" | "forbidden">,
+  base?: AgentCard["capabilities"],
+): AgentCard["capabilities"] {
+  const tools = draft.toolsMode === "all" ? null : [...new Set(draft.tools)];
+  const policy = base?.tool_policy;
+  const perTool = policy?.per_tool;
+  const runs = (tool: string) =>
+    (tools === null || tools.includes(tool)) && !draft.forbidden.includes(tool);
+  const kept =
+    perTool === undefined
+      ? perTool
+      : Object.fromEntries(
+          Object.entries(perTool).filter(
+            ([tool]) => tool.startsWith(MCP_TOOL_PREFIX) || runs(tool),
+          ),
+        );
+  return {
+    ...base,
+    tools,
+    mcp: base?.mcp ?? null,
+    forbidden: [...draft.forbidden],
+    ...(policy === undefined
+      ? {}
+      : {
+          tool_policy: {
+            ...policy,
+            ...(kept === undefined ? {} : { per_tool: kept }),
+          },
+        }),
+  };
+}
 
 /**
  * The card step. An edit passes the card it started from: the result keeps
  * every field the form has no input for (rules, tool_policy,
- * credential_refs, anything added later) instead of the contract's defaults.
+ * credential_refs, the MCP server, anything added later) instead of the
+ * contract's defaults.
  */
 export function agentCardStep(base?: AgentCard) {
   return agentCardDraftSchema
@@ -99,12 +136,7 @@ export function agentCardStep(base?: AgentCard) {
         instructions: draft.instructions.trim(),
         language: draft.language,
         model: draft.model.trim(),
-        capabilities: {
-          ...base?.capabilities,
-          tools: draft.toolsMode === "all" ? null : splitList(draft.tools),
-          mcp: null,
-          forbidden: splitList(draft.forbidden),
-        },
+        capabilities: draftCapabilities(draft, base?.capabilities),
       };
     })
     .pipe(agentCardRequestSchema);

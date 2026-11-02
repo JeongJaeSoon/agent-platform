@@ -276,6 +276,71 @@ describe("에이전트 상세 탭", () => {
     expect(document.activeElement?.contains(saved)).toBe(true);
   });
 
+  test("카드 편집의 도구는 프로필 도구 체크 목록이고, 프로필에 없는 도구·금지 도구는 끄거나 지울 수만 있다", async () => {
+    const server = agentServer();
+    const first = server.versions[0];
+    if (!first) throw new Error("agentServer starts with a version");
+    server.versions[0] = {
+      ...first,
+      card: {
+        ...first.card,
+        capabilities: {
+          tools: ["Read", "WebFetch"],
+          mcp: null,
+          forbidden: ["Bash"],
+        },
+      },
+    };
+    const { api } = renderAt(`${DETAIL}?tab=card`, {
+      ...meOk,
+      ...server.routes,
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "카드 편집" }));
+    expect(screen.queryByRole("textbox", { name: /도구/ })).toBeNull();
+    const all = await screen.findByRole("switch", {
+      name: "릴리스할 때 프로필이 허용하는 도구 전부",
+    });
+    expect(all.getAttribute("aria-checked")).toBe("false");
+    const read = screen.getByRole("checkbox", { name: /^Read/ });
+    expect(read.getAttribute("aria-checked")).toBe("true");
+    const outside = screen.getByRole("checkbox", { name: /^WebFetch/ });
+    expect(outside.getAttribute("aria-checked")).toBe("true");
+    expect(
+      screen.getByText("프로필에 없는 도구 · 끌 수만 있습니다"),
+    ).toBeDefined();
+    expect(
+      screen.getByText(
+        /고른 도구를 모두 허용하는 프로필이 없어 저장할 수 없습니다/,
+      ),
+    ).toBeDefined();
+    const save = screen.getByRole("button", { name: "저장" });
+    expect((save as HTMLButtonElement).disabled).toBe(true);
+
+    const blocked = screen.getByRole("group", { name: "금지 도구" });
+    expect(within(blocked).getByText("Bash")).toBeDefined();
+    await user.click(
+      within(blocked).getByRole("button", { name: "금지 도구 지우기" }),
+    );
+    expect(screen.queryByRole("group", { name: "금지 도구" })).toBeNull();
+
+    await user.click(outside);
+    expect(screen.queryByRole("checkbox", { name: /^WebFetch/ })).toBeNull();
+    expect(
+      screen.getByText("고른 도구를 모두 허용하는 프로필 1개"),
+    ).toBeDefined();
+    expect((save as HTMLButtonElement).disabled).toBe(false);
+    await user.click(save);
+    await screen.findByText(/저장했습니다/);
+    const patch = api.calls.find(
+      (call) =>
+        call.method === "PATCH" && call.path === `/v1/agents/${AGENT_ID}`,
+    );
+    expect(
+      (patch?.body as { card: { capabilities: unknown } }).card.capabilities,
+    ).toEqual({ tools: ["Read"], mcp: null, forbidden: [] });
+  });
+
   test("개요의 켜기까지 단계는 아직 켜지지 않았다고 하고 배포 탭으로 잇는다", async () => {
     renderAt(DETAIL, { ...meOk, ...agentServer().routes });
     const user = await setupUser();
@@ -854,7 +919,9 @@ describe("에이전트 상세 탭", () => {
     await waitFor(() => expect(value("역할")).toBe("결제 문의 담당"));
     expect(value("식별자")).toBe("billing");
     expect(value("모델")).toBe("claude-sonnet-5");
-    expect(value("쓸 수 있는 도구")).toBe("프로필이 허용하는 도구 전부");
+    expect(value("쓸 수 있는 도구")).toBe(
+      "릴리스할 때 프로필이 허용하는 도구 전부",
+    );
     expect(within(summary).queryByRole("textbox")).toBeNull();
     const raw = screen
       .getByRole("region", { name: "카드 원문" })
