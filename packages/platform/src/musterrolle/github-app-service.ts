@@ -193,7 +193,6 @@ export function createGitHubAppService(deps: {
     /** Which check refused a state; for the log, never the response. */
     refused?: (check: string) => void;
   };
-  /** Who connected an installation started in the console; absent, refused. */
   installations?: {
     store: GitHubInstallationStore;
     now?: () => Date;
@@ -595,11 +594,6 @@ export function createGitHubAppService(deps: {
       };
     },
 
-    /**
-     * The App's install page with a single-use state bound to the caller,
-     * the workspace and the connection, so the setup URL GitHub returns to
-     * can say who connected the installation (design GHUI-v3 §8).
-     */
     async startInstallation(
       caller: Caller,
       workspaceId: string,
@@ -633,10 +627,8 @@ export function createGitHubAppService(deps: {
     },
 
     /**
-     * Records who connected the installation GitHub's setup URL named, once,
-     * and only when the state is the caller's, the installation is the
-     * state's App's, and GitHub made it after the state. The redirect can be
-     * forged, so the record is shown and never decides access.
+     * GitHub's setup URL redirect can be forged: the record is shown, never
+     * used to decide access.
      */
     async completeInstallation(
       caller: Caller,

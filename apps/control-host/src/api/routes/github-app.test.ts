@@ -284,7 +284,6 @@ function memoryStore() {
   };
 }
 
-// As the Postgres store keeps them; its SQL is the integration test's.
 function memoryInstallations() {
   const states = new Map<string, GitHubInstallationState>();
   const links: Array<{
@@ -1032,7 +1031,6 @@ function userOfCookie(cookie: string): string {
   return session.userId;
 }
 
-/** Registers the author App and answers its connection id. */
 async function registered(owner: string): Promise<string> {
   memory.clear();
   installs.clear();
@@ -1042,7 +1040,10 @@ async function registered(owner: string): Promise<string> {
     body: body({ app_id: APP_ID, private_key: privateKey }),
   });
   expect(set.status).toBe(200);
-  return putGitHubAppResponseSchema.parse(set.json).github_app.connection_id;
+  const connectionId = putGitHubAppResponseSchema.parse(set.json).github_app
+    .connection_id;
+  if (connectionId === undefined) throw new Error("no connection id");
+  return connectionId;
 }
 
 describe("a new key for a connection's own App", () => {
@@ -1070,14 +1071,11 @@ describe("a new key for a connection's own App", () => {
     expect(memory.receipts.length).toBe(receiptsBefore + 1);
 
     for (const [refused, reason] of [
-      // A key GitHub does not know.
       [{ app_id: APP_ID, private_key: strangerKey }, "github_app_rejected"],
-      // Another App's key named as this App.
       [
         { app_id: APP_ID, private_key: reviewerKeys.privateKey },
         "github_app_rejected",
       ],
-      // Another App's id and key: that is another connection.
       [
         { app_id: REVIEWER_APP_ID, private_key: reviewerKeys.privateKey },
         "app_id_mismatch",
@@ -1103,7 +1101,6 @@ describe("a new key for a connection's own App", () => {
 });
 
 describe("who connected an installation started in the console", () => {
-  /** Starts as `cookie` and returns the state GitHub would send back. */
   async function start(cookie: string, connectionId: string) {
     const started = await call("POST", {
       cookie,
@@ -1148,13 +1145,11 @@ describe("who connected an installation started in the console", () => {
       expect(installs.links).toEqual([
         { connectionId, installationId: 77, connectedBy: userOfCookie(owner) },
       ]);
-      // A spent state does not count twice.
       const replay = await complete(owner, { state, installation_id: 77 });
       expect(replay.status).toBe(400);
       expect(code(replay.json).details).toEqual({
         reason_code: "state_invalid",
       });
-      // Another console flow for the same installation writes over nothing.
       const admin = cookieFor("admin");
       const again = await complete(admin, {
         state: await start(admin, connectionId),
@@ -1207,7 +1202,6 @@ describe("who connected an installation started in the console", () => {
     });
     expect(code(someoneElse.json).details).toEqual(stateInvalid);
 
-    // GitHub says it was made on 2026-10-01, before this state.
     const before = await complete(owner, {
       state: await start(owner, connectionId),
       installation_id: 77,
@@ -1215,10 +1209,9 @@ describe("who connected an installation started in the console", () => {
     expect(before.status).toBe(200);
     expect(before.json).toMatchObject({ recorded: false });
 
-    // The reviewer App's installation, not this connection's App's.
     const foreign = await complete(owner, {
       state: await start(owner, connectionId),
-      installation_id: 88,
+      installation_id: REVIEWER_FAKE.installationId,
     });
     expect(foreign.status).toBe(404);
     expect(code(foreign.json).details).toEqual({
@@ -1240,7 +1233,6 @@ describe("who connected an installation started in the console", () => {
       github.failApp(APP_ID, undefined);
     }
 
-    // A removed connection's state.
     const orphan = await start(owner, connectionId);
     memory.clear();
     const removed = await complete(owner, {

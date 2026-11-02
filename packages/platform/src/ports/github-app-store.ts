@@ -321,13 +321,11 @@ export interface GitHubAppDirectory {
   ): Promise<GitHubInstallationRepository | null>;
 }
 
-/** A connection's installations as GitHub last listed them. */
 export type GitHubInstallationSnapshot = {
   installations: GitHubAppInstallationView[];
   readAt: Date;
 };
 
-/** An installation started in the console, bound to what started it. */
 export type GitHubInstallationState = {
   workspaceId: string;
   connectionId: string;
@@ -337,7 +335,6 @@ export type GitHubInstallationState = {
   expiresAt: Date;
 };
 
-/** Who finished an installation started in the console, and when. */
 export type GitHubInstallationLink = {
   connectionId: string;
   installationId: number;

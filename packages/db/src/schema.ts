@@ -601,9 +601,6 @@ export const githubAppManifestStates = pgTable(
   ],
 );
 
-// A connection's installations as GitHub last listed them, shown while
-// GitHub does not answer. `app_id` ties it to the App read: a role address
-// can put another App on the same row.
 export const githubInstallationSnapshots = pgTable(
   "github_installation_snapshots",
   {
@@ -616,8 +613,6 @@ export const githubInstallationSnapshots = pgTable(
   },
 );
 
-// The single-use state of an installation started in the console, stored as
-// its SHA-256 (design GHUI-v3 §8 "연결한 사람").
 export const githubInstallationStates = pgTable(
   "github_installation_states",
   {

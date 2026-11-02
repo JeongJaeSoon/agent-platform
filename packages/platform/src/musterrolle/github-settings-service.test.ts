@@ -501,7 +501,6 @@ describe("GitHub settings service", () => {
           ],
           readAt: lastRead,
         },
-        // Another App's list on a row a role address replaced: not shown.
         {
           connectionId: "conn-r",
           appId: 99,
@@ -554,7 +553,6 @@ describe("GitHub settings service", () => {
         installations_read_at: null,
       });
     }
-    // A failed read writes over nothing.
     expect(kept.snapshots.map((held) => held.readAt)).toEqual([
       lastRead,
       lastRead,
@@ -571,7 +569,6 @@ describe("GitHub settings service", () => {
           connectedBy: { userId: OTHER, displayName: "Jae" },
           connectedAt,
         },
-        // The same installation id under another connection: not this one's.
         {
           connectionId: "conn-b",
           installationId: 2,

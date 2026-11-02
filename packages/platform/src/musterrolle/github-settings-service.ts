@@ -66,7 +66,6 @@ export function createGitHubSettingsService(deps: {
   /** Null when the API runs without a master key: no App is registered. */
   apps: GitHubAppStore | null;
   directory: GitHubAppDirectory;
-  /** Absent: a failed read lists no installations, and none names who connected it. */
   installations?: GitHubInstallationStore | null;
   newId?: () => string;
   now?: () => Date;
@@ -114,8 +113,7 @@ export function createGitHubSettingsService(deps: {
     const checkedAt = now().toISOString();
     const profile = described.status === "fulfilled" ? described.value : null;
     if (manager && profile !== null && deps.apps !== null) {
-      // An owner widens the App on GitHub; a manager's read is how it shows
-      // here. This read answers what GitHub said whether or not it is kept.
+      // An owner widens the App on GitHub; a manager's read is how it shows here.
       await deps.apps
         .recordPermissions(
           record.id,
@@ -136,8 +134,6 @@ export function createGitHubSettingsService(deps: {
     let snapshot: GitHubInstallationSnapshot | null = null;
     if (listed.status === "fulfilled") {
       snapshot = { installations: listed.value, readAt: new Date(checkedAt) };
-      // Written on a manager's read only, as the permissions are; a failed
-      // write leaves the last list, which is all it is for.
       if (manager && kept) {
         await kept
           .recordSnapshot(record.id, credential.appId, snapshot)
@@ -172,8 +168,6 @@ export function createGitHubSettingsService(deps: {
       permissions: asked,
       key_status: answered ? "ok" : rejected ? "rejected" : "unknown",
       installations: installations.map((installation, index) => {
-        // An installation from the last list may have changed since: say
-        // nothing GitHub did not say on this read.
         const approval =
           asked === null || !fresh
             ? "unknown"

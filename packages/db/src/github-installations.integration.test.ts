@@ -81,7 +81,6 @@ integration("GitHub installation records on PostgreSQL", () => {
     await database?.drop();
   });
 
-  /** A workspace, its owner, and an author connection of App `appId`. */
   async function connected(appId: number) {
     const workspaceId = randomUUID();
     await db.insert(workspaces).values({
@@ -145,7 +144,6 @@ integration("GitHub installation records on PostgreSQL", () => {
       installations: listed,
       readAt: at,
     });
-    // Another App's read, or a stale one, writes nothing over it.
     await store.recordSnapshot(connectionId, 999, {
       installations: [view(9)],
       readAt: new Date("2026-11-02T10:00:00.000Z"),
@@ -169,7 +167,6 @@ integration("GitHub installation records on PostgreSQL", () => {
       readAt: later,
     });
 
-    // A row in a shape this image does not read is no snapshot.
     await db
       .update(githubInstallationSnapshots)
       .set({ installations: [{ id: "x" }] })
@@ -248,7 +245,6 @@ integration("GitHub installation records on PostgreSQL", () => {
     });
     expect(await store.links(other.workspaceId)).toEqual([]);
 
-    // A new key keeps the App, its links and a receipt that says so.
     const audited = audit();
     expect(
       await apps.put(
@@ -271,7 +267,6 @@ integration("GitHub installation records on PostgreSQL", () => {
     expect(JSON.stringify(receipt)).not.toContain("PRIVATE KEY");
     expect(await store.links(workspaceId)).toHaveLength(1);
 
-    // The role address may put another App on the same row: its links stop showing.
     expect(
       await apps.put(
         workspaceId,

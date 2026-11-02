@@ -51,7 +51,6 @@ function installationOf(stored: unknown): GitHubAppInstallationView | null {
   };
 }
 
-// A row in a shape this image does not read counts as no snapshot.
 function installationsOf(stored: unknown): GitHubAppInstallationView[] | null {
   if (!Array.isArray(stored)) return null;
   const installations = stored.map(installationOf);
@@ -70,7 +69,6 @@ export function createPostgresGitHubInstallationStore(
         createdAt: installation.createdAt?.toISOString() ?? null,
         suspendedAt: installation.suspendedAt?.toISOString() ?? null,
       }));
-      // Through the row itself: a deleted or replaced connection writes nothing.
       await db.execute(sql`
         INSERT INTO ${githubInstallationSnapshots}
           (connection_id, app_id, installations, read_at)
@@ -119,7 +117,6 @@ export function createPostgresGitHubInstallationStore(
     },
 
     async consumeState(stateHash) {
-      // One DELETE: of two requests with the same state, one gets the row.
       const [row] = await db
         .delete(githubInstallationStates)
         .where(eq(githubInstallationStates.stateHash, stateHash))
