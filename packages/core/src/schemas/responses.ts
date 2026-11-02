@@ -34,6 +34,7 @@ import {
   deleteTeamResponseSchema,
   dispatchWorkflowResponseSchema,
   getGitHubAppResponseSchema,
+  getGitHubRepositoryAppPinsResponseSchema,
   getReceiptResponseSchema,
   getSessionResponseSchema,
   getSlackAppManifestResponseSchema,
@@ -61,6 +62,7 @@ import {
   listAgentsResponseSchema,
   listApiKeysResponseSchema,
   listCredentialBindingsResponseSchema,
+  listGitHubAppsResponseSchema,
   listGitHubRepositoriesResponseSchema,
   listInvitesResponseSchema,
   listLinkedAccountsResponseSchema,
@@ -92,6 +94,8 @@ import {
   putAgentGitHubEnabledResponseSchema,
   putGitHubAppResponseSchema,
   putGitHubOAuthClientSecretResponseSchema,
+  putGitHubRepositoryAppPinResponseSchema,
+  putGitHubUserLinkAppResponseSchema,
   putSlackBindingResponseSchema,
   putSlackConfigTokenResponseSchema,
   putSlackSecretResponseSchema,
@@ -99,6 +103,7 @@ import {
   receiptAcceptedResponseSchema,
   rejudgeSessionResponseSchema,
   rerunWorkflowResponseSchema,
+  reviewAchievementResponseSchema,
   revokeAgentIdentityResponseSchema,
   revokeApiKeyResponseSchema,
   revokeCredentialBindingResponseSchema,
@@ -122,6 +127,7 @@ import {
   teamChangeResponseSchema,
   teamDetailSchema,
   terminateSessionResponseSchema,
+  usageAchievementsResponseSchema,
   usageBreakdownResponseSchema,
   usageOutcomesResponseSchema,
   usageSeriesResponseSchema,
@@ -164,6 +170,14 @@ export const responseSchemas = {
   "PUT /v1/workspaces/{id}/github-apps/{role}": putGitHubAppResponseSchema,
   "DELETE /v1/workspaces/{id}/github-apps/{role}":
     deleteGitHubAppResponseSchema,
+  "GET /v1/workspaces/{id}/github-apps": listGitHubAppsResponseSchema,
+  "POST /v1/workspaces/{id}/github-apps": putGitHubAppResponseSchema,
+  "GET /v1/workspaces/{id}/github-repositories/{repositoryId}/app-pins":
+    getGitHubRepositoryAppPinsResponseSchema,
+  "PUT /v1/workspaces/{id}/github-repositories/{repositoryId}/app-pins/{role}":
+    putGitHubRepositoryAppPinResponseSchema,
+  "PUT /v1/workspaces/{id}/github-settings/user-link-app":
+    putGitHubUserLinkAppResponseSchema,
   "POST /v1/workspaces/{id}/github-apps/author/manifest":
     startGitHubAppManifestResponseSchema,
   "POST /v1/workspaces/{id}/github-apps/author/manifest/complete":
@@ -254,6 +268,7 @@ export const responseSchemas = {
   "GET /v1/sessions/{id}/outcomes": listSessionOutcomesResponseSchema,
   "GET /v1/sessions/{id}/achievements": listSessionAchievementsResponseSchema,
   "POST /v1/sessions/{id}/achievement-judgments": rejudgeSessionResponseSchema,
+  "POST /v1/achievements/{id}/review": reviewAchievementResponseSchema,
   "POST /v1/sessions/{id}/github/pull-requests/{number}/reviews":
     submitPullRequestReviewResponseSchema,
   "GET /v1/invites": listInvitesResponseSchema,
@@ -347,6 +362,7 @@ export const responseSchemas = {
   "GET /v1/limits": limitsResponseSchema,
   "GET /v1/usage/summary": usageSummaryResponseSchema,
   "GET /v1/usage/outcomes": usageOutcomesResponseSchema,
+  "GET /v1/usage/achievements": usageAchievementsResponseSchema,
   "GET /v1/usage/series": usageSeriesResponseSchema,
   "GET /v1/usage/breakdown": usageBreakdownResponseSchema,
   "GET /v1/usage/tools": usageToolsResponseSchema,

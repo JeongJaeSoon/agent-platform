@@ -20,6 +20,7 @@ import {
   createPostgresGitHubMcpStore,
   createPostgresGitHubOAuthStore,
   createPostgresGitHubPackagesStore,
+  createPostgresGitHubPinStore,
   createPostgresGitHubSettingsStore,
   createPostgresInstallationProfileStore,
   createPostgresInviteStore,
@@ -73,6 +74,7 @@ import {
   createCredentialBindingService,
   createDecisionsClient,
   createGitHubAppService,
+  createGitHubConnectionResolver,
   createGitHubGate,
   createGitHubMcpServer,
   createGitHubPackagesService,
@@ -176,7 +178,7 @@ import {
   createAppBotUsers,
   createGitHubAppDirectory,
   createGitHubManifestConverter,
-  createRegisteredGitHubConnection,
+  createRegisteredGitHubConnections,
 } from "./forge-github.ts";
 import { createGitPusher } from "./git-push.ts";
 import { githubCallbackUrl } from "./github-link.ts";
@@ -738,24 +740,12 @@ const inviteStore = createPostgresInviteStore(db);
 const invites = createInviteService({ authorization, store: inviteStore });
 const githubAppStore =
   secretKey === null ? null : createPostgresGitHubAppStore(db, secretKey);
-const registeredGitHub = {
-  author: createRegisteredGitHubConnection({
-    store: githubAppStore,
-    role: "author",
-    logger,
-  }),
-  reviewer: createRegisteredGitHubConnection({
-    store: githubAppStore,
-    role: "reviewer",
-    logger,
-  }),
-};
-const reloadRegisteredGitHub = async (): Promise<void> => {
-  await Promise.all([
-    registeredGitHub.author.refresh(),
-    registeredGitHub.reviewer.refresh(),
-  ]);
-};
+const registeredGitHub = createRegisteredGitHubConnections({
+  store: githubAppStore,
+  logger,
+});
+const reloadRegisteredGitHub = (): Promise<void> => registeredGitHub.refresh();
+const githubPins = createPostgresGitHubPinStore(db);
 // Another replica's change arrives with the next read.
 const refreshRegisteredGitHub = (): Promise<void> =>
   reloadRegisteredGitHub().catch((error: unknown) => {
@@ -770,6 +760,7 @@ const githubRepositories = createGitHubRepositoryService({
   authorization,
   store: catalogRepositoryStore,
   apps: githubAppStore,
+  pins: githubAppStore === null ? null : githubPins,
   directory: githubAppDirectory,
   agents: agentStore,
   catalog,
@@ -805,12 +796,17 @@ const githubApps = createGitHubAppService({
 const githubGateStore = createPostgresGitHubGateStore(db);
 const githubConnections = connectionsOf(catalog, {
   logger,
-  registered: (role) => registeredGitHub[role].connection(),
+  registered: (role) => registeredGitHub.connections(role),
+});
+const githubResolver = createGitHubConnectionResolver({
+  connections: githubConnections,
+  pins: githubPins,
 });
 const github = createGitHubGate({
   store: githubGateStore,
   catalog,
   connections: githubConnections,
+  resolver: githubResolver,
 });
 const githubWork = createGitHubWorkService({
   authorization,
@@ -846,6 +842,10 @@ const agentGitHub = createAgentGitHubService({
   catalog,
   githubSettings: githubSettingsStore,
   connections: githubConnections,
+  resolver: githubResolver,
+  ...(githubAppStore === null
+    ? {}
+    : { pinned: { apps: githubAppStore, pins: githubPins } }),
 });
 const pushStore = createPostgresPushRequests(db);
 const pushRequests = createPushRequestService({
@@ -917,6 +917,7 @@ const outcomeRefresher = createOutcomeRefresher({
   gate: github,
   catalog,
   connections: githubConnections,
+  resolver: githubResolver,
   logger,
 }).start();
 // Each replica judges the sessions whose evidence changed; only it writes

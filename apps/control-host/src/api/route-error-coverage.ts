@@ -83,6 +83,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/sessions/{id}/usage",
     "GET /v1/usage/summary",
     "GET /v1/usage/outcomes",
+    "GET /v1/usage/achievements",
     "GET /v1/usage/series",
     "GET /v1/usage/breakdown",
     "GET /v1/usage/tools",
@@ -138,6 +139,8 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/workspaces/{id}/github-apps/{role}",
     "PUT /v1/workspaces/{id}/github-apps/{role}",
     "DELETE /v1/workspaces/{id}/github-apps/{role}",
+    "GET /v1/workspaces/{id}/github-apps",
+    "POST /v1/workspaces/{id}/github-apps",
   ],
   "routes/github-app-manifest.test.ts": [
     "POST /v1/workspaces/{id}/github-apps/author/manifest",
@@ -146,6 +149,8 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "routes/github-repositories.test.ts": [
     "GET /v1/workspaces/{id}/github-repositories",
     "PATCH /v1/workspaces/{id}/github-repositories/{repositoryId}",
+    "GET /v1/workspaces/{id}/github-repositories/{repositoryId}/app-pins",
+    "PUT /v1/workspaces/{id}/github-repositories/{repositoryId}/app-pins/{role}",
     "GET /v1/agents/{id}/github/repositories",
     "POST /v1/agents/{id}/github/repositories",
   ],
@@ -158,6 +163,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/workspaces/{id}/github-settings",
     "PUT /v1/workspaces/{id}/github-settings",
     "PUT /v1/workspaces/{id}/github-settings/oauth-client-secret",
+    "PUT /v1/workspaces/{id}/github-settings/user-link-app",
   ],
   "routes/github-packages.test.ts": [
     "GET /v1/workspaces/{id}/github-packages",
@@ -250,6 +256,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "PUT /v1/workspaces/{id}/achievement-judge",
     "GET /v1/sessions/{id}/achievements",
     "POST /v1/sessions/{id}/achievement-judgments",
+    "POST /v1/achievements/{id}/review",
   ],
 };
 

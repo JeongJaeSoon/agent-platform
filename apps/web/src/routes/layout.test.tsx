@@ -61,6 +61,7 @@ describe("app shell", () => {
     [
       ["실행 프로필", "/profiles"],
       ["사용량·한도", "/operations"],
+      ["성과", "/achievements"],
       ["구성원", "/members"],
       ["설정", "/settings/workspace"],
     ],
@@ -76,6 +77,7 @@ describe("app shell", () => {
         [
           ["실행 프로필", "/profiles"],
           ["사용량·한도", "/operations"],
+          ["성과", "/achievements"],
         ],
       ],
     ],
@@ -110,19 +112,28 @@ describe("app shell", () => {
     });
     const group = within(nav).getByRole("group", { name: "워크스페이스" });
     expect(heading.getAttribute("aria-expanded")).toBe("true");
-    expect(within(group).getAllByRole("link")).toHaveLength(4);
+    expect(within(group).getAllByRole("link")).toHaveLength(5);
     // Every page shows its own tile colour.
     expect(
       Array.from(nav.querySelectorAll("[data-slot=icon-tile]"), (tile) =>
         tile.getAttribute("data-hue"),
       ),
-    ).toEqual(["blue", "violet", "orange", "teal", "pink", "green", "slate"]);
+    ).toEqual([
+      "blue",
+      "violet",
+      "orange",
+      "teal",
+      "pink",
+      "sky",
+      "green",
+      "slate",
+    ]);
     const user = await setupUser();
     await user.click(heading);
     expect(heading.getAttribute("aria-expanded")).toBe("false");
     expect(within(group).queryAllByRole("link")).toHaveLength(0);
     await user.click(heading);
-    expect(within(group).getAllByRole("link")).toHaveLength(4);
+    expect(within(group).getAllByRole("link")).toHaveLength(5);
   });
 
   test("a member keeps their own settings in the account menu", async () => {
@@ -171,6 +182,7 @@ describe("app shell", () => {
   for (const [path, title] of [
     ["/operations", "사용량·한도"],
     ["/operations/limits", "사용량·한도"],
+    ["/achievements", "성과"],
     ["/profiles", "실행 프로필"],
   ] as const) {
     test(`${path} is named ${title} in the top bar and the page head`, async () => {

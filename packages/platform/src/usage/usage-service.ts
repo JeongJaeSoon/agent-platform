@@ -2,7 +2,10 @@ import {
   type InstallationLimitsResponse,
   type MemberLimitsResponse,
   type SessionUsageResponse,
+  USAGE_RECENT_ACHIEVEMENTS_LIMIT,
   USAGE_TOOLS_LIMIT,
+  type UsageAchievementsQuery,
+  type UsageAchievementsResponse,
   type UsageBreakdownQuery,
   type UsageBreakdownResponse,
   type UsageOutcomesQuery,
@@ -24,6 +27,7 @@ import {
 } from "../limits/installation-limits.ts";
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import type {
+  UsageAchievementCountsRecord,
   UsageBreakdownFiguresRecord,
   UsageOutcomeFiguresRecord,
   UsageReader,
@@ -342,6 +346,100 @@ export function createUsageService(deps: {
               })),
             }
           : {}),
+      };
+    },
+
+    async getUsageAchievements(
+      actor: Caller,
+      query: UsageAchievementsQuery,
+    ): Promise<UsageAchievementsResponse> {
+      const filter =
+        query.scope === "agent"
+          ? await agentFilter(actor, query.agent_id)
+          : await filterFor(actor, query.scope);
+      const read = await reader.usageAchievements(filter, {
+        period: {
+          since: query.since,
+          ...(query.until === undefined ? {} : { until: query.until }),
+        },
+        ...(query.scope === "agent" || query.agent_id === undefined
+          ? {}
+          : { agentId: query.agent_id }),
+        ...(query.type_id === undefined ? {} : { typeId: query.type_id }),
+        ...(query.category_id === undefined
+          ? {}
+          : { categoryId: query.category_id }),
+        recentLimit: USAGE_RECENT_ACHIEVEMENTS_LIMIT,
+        ownerId: actor.ownerId,
+        viewer: {
+          userId: actor.actor?.userId ?? null,
+          apiKeyId: actor.actor?.apiKeyId ?? null,
+        },
+      });
+      const counts = (row: UsageAchievementCountsRecord) => ({
+        achievement_count: row.achievementCount,
+        needs_review_count: row.needsReviewCount,
+      });
+      return {
+        scope: query.scope,
+        period: {
+          since: query.since.toISOString(),
+          until: read.until.toISOString(),
+        },
+        refreshed_at: read.readAt.toISOString(),
+        session_count: read.sessionCount,
+        sessions_with_achievement_count: read.sessionsWithAchievementCount,
+        cost_usd: read.costUsd,
+        cost_complete: read.incompleteTurnCount === 0,
+        ...counts(read),
+        rejected_count: read.rejectedCount,
+        judgment_count: read.judgmentCount,
+        judge_calls: read.judgeCalls,
+        judge_cost_usd: read.judgeCostUsd,
+        cost_per_achievement_usd: read.costPerAchievementUsd,
+        by_category: read.byCategory.map(({ id, name, ...row }) => ({
+          id,
+          name,
+          ...counts(row),
+        })),
+        by_type: read.byType.map(({ id, key, name, ...row }) => ({
+          id,
+          key,
+          name,
+          ...counts(row),
+        })),
+        by_rule: read.byRule.map((row) => ({
+          id: row.id,
+          family_id: row.familyId,
+          version: row.version,
+          title: row.title,
+          category_id: row.categoryId,
+          category_name: row.categoryName,
+          type_id: row.typeId,
+          type_key: row.typeKey,
+          ...counts(row),
+        })),
+        by_agent: read.byAgent.map((row) => ({
+          id: row.id,
+          name: row.name,
+          session_count: row.sessionCount,
+          cost_usd: row.costUsd,
+          achievement_count: row.achievementCount,
+          cost_per_achievement_usd: row.costPerAchievementUsd,
+        })),
+        recent: read.recent.map((row) => ({
+          id: row.id,
+          created_at: row.createdAt.toISOString(),
+          session_id: row.sessionId,
+          session_title: row.sessionTitle,
+          rule_id: row.ruleId,
+          rule_title: row.ruleTitle,
+          title: row.title,
+          link: row.link,
+          evidence_kind: row.evidenceKind,
+          judge: row.judge,
+          review_state: row.reviewState,
+        })),
       };
     },
 

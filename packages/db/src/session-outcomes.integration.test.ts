@@ -223,11 +223,14 @@ integration("postgres session outcomes and the outcome refresher", () => {
       },
       connections: (repositoryId) =>
         input.repositories.includes(repositoryId)
-          ? ({
-              kind: input.installed ? "app" : "pat",
-              quotaKey: () => input.unitOf(repositoryId),
-              installed: input.installed ?? (async () => null),
-            } as unknown as GitHubConnection)
+          ? {
+              kind: "fixed",
+              connection: {
+                kind: input.installed ? "app" : "pat",
+                quotaKey: () => input.unitOf(repositoryId),
+                installed: input.installed ?? (async () => null),
+              } as unknown as GitHubConnection,
+            }
           : null,
       logger: {
         info() {},

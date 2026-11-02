@@ -1,120 +1,86 @@
 ---
-title: "Quickstart"
-description: API キーを取得し、curl で最初のセッションを作成する
+title: "最初のセッションを作る"
+description: SDK でセッションを作り、ターンの終わりを待って、モデルの答えを読む
 ---
 
-[インストール](/getting-started/install)の手順で立ち上げたローカルスタックで API キーを取得し、セッションを 1 つ作成して最初のターンが終わるところまで確認する。同じターミナルで順番に実行する。
-
-## API キーを取得する
-
-```bash
-API=http://127.0.0.1:3000
-KEY=$(scripts/local.sh key quickstart \
-  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)
-echo "${KEY:0:4}…"
-```
-
-```text
-key_id …
-csp_…
-```
-
-`key_id` は stderr に出力されるキーの id である。キー本体は stdout に一度だけ出力される。再び見ることはできないので、変数にだけ保持する。`quickstart` はキーの owner 名で、このキーで作成したセッションはこの owner のものになる。scope は [API キー](/api-keys) にある。
-
-キーが正しいか確認する。
-
-```bash
-curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $KEY"
-```
-
-```text
-{"status":"ok","owner_id":"quickstart"}
-```
+[SDK のインストール](/getting-started/install)で作った `werft` クライアントでセッションを 1 つ作り、最初のターンが終わるところまで見る。例は[開発用サーバー](/run-server/dev-server)を `--fake-model` で立ち上げた場合である。`GATE-SPEC {…}` メッセージは fake モデルが読む台本なので、実際の Claude が動くサーバーでは普通の文を送る。
 
 ## 実行プロファイルを選ぶ
 
-セッションは、運用者が登録した実行プロファイル (profile) のいずれかで動く。ローカルの fake スタックには、リポジトリを使う `claude-coding-local`(権限リクエストに人が答える)と `claude-coding-auto`(分類器が判定する)、リポジトリなしで動く `general` がある。
+セッションは、サーバーの運用者が登録した実行プロファイル(profile)のどれかで動く。[接続を確認する](/getting-started/install#接続を確認する)で見た一覧である。開発用サーバーには、リポジトリを使う `claude-coding-local`(権限リクエストに人が答える)と `claude-coding-auto`(分類器が判定する)、リポジトリなしで動く `general` がある。ここでは `claude-coding-local` を使う。
 
-```bash
-curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" | jq '.items[] | {id, model, repository_mode}'
+## セッションを作る
+
+```ts title="first-session.ts"
+import { waitForTurn } from "@werft-ai/sdk";
+import { werft } from "./werft.ts";
+
+const created = await werft.sessions.create({
+  profile_id: "claude-coding-local",
+  repository_id: "sample-app",
+  message: 'GATE-SPEC {"id":"hello","steps":[],"final":"hello from Werft"}',
+});
+console.log(created);
 ```
 
 ```text
 {
-  "id": "claude-coding-local",
-  "model": "claude-sonnet-5",
-  "repository_mode": "required"
+  session_id: '…',
+  turn_id: '1',
+  receipt_id: '…',
+  receipt_status: 'accepted',
+  status: 'queued'
 }
 ```
 
-## セッションを作成する
+- `repository_id` はセッションが clone するリポジトリである。開発用サーバーの Gitea に `sample-app` が入っている。
+- `message` は最初のターンの入力である。この台本はツールを呼ばずに `hello from Werft` で終わる。
+- 作成は受け付けるだけである。結果はターンが終わってから読む。
+- セッションを作るリクエストには `Idempotency-Key` が必要である。SDK が呼び出しごとに 1 つ作って付け、その呼び出しをリトライするときは同じキーを送る。
 
-```bash
-created=$(curl -sS "$API/v1/sessions" \
-  -H "Authorization: Bearer $KEY" \
-  -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -d '{
-    "profile_id": "claude-coding-local",
-    "repository_id": "sample-app",
-    "message": "GATE-SPEC {\"id\":\"hello\",\"steps\":[],\"final\":\"hello from Werft\"}"
-  }')
-echo "$created" | jq .
-SID=$(echo "$created" | jq -r .session_id)
+## ターンの終わりを待つ
+
+scheduler が worker を立ち上げ、worker がリポジトリを clone してからターン 1 を実行する。最初は数十秒かかる。
+
+```ts title="first-session.ts (続き)"
+const turn = await waitForTurn(werft, created.session_id, created.turn_id, {
+  signal: AbortSignal.timeout(5 * 60_000),
+});
+console.log(`turn ${turn.turn_id}: ${turn.status}`);
 ```
 
 ```text
-{
-  "session_id": "…",
-  "turn_id": "1",
-  "receipt_id": "…",
-  "receipt_status": "accepted",
-  "status": "queued"
+turn 1: completed
+```
+
+`waitForTurn` は、ターンの `status` が終わった値になるまで 2 秒ごとに確認する。`completed`・`failed`・`interrupted`・`cancelled`・`outcome_unknown` が終わった状態である。`failed` もエラーではなく `status` の値なので、作業ができたかはイベントで判断する。
+
+## モデルの答えを見る
+
+セッションで起きたことはイベントストリームで届く。ストリームはターンが終わっても閉じないので、必要なイベントを受け取ったら自分で終える。
+
+```ts title="first-session.ts (続き)"
+const stream = werft.sessions.events.stream(created.session_id);
+for await (const event of stream) {
+  if (event.kind === "assistant") {
+    console.log((event.payload as { text?: string }).text);
+  }
+  if (event.kind === "result") break;
 }
-```
-
-- `repository_id` はセッションが clone するリポジトリである。ローカルスタックの Gitea には `sample-app` が入っている。
-- `message` は最初のターンの入力である。fake モデルは `GATE-SPEC {…}` のスクリプトを読み、そのとおりに答える。このスクリプトはツールを呼び出さず、`hello from Werft` で終わる。実際の Claude スタックでは普通の文章を使う。
-- セッション API の POST には `Idempotency-Key` が必要である。同じキーで再送すると、最初の応答がそのまま返る。
-
-## ターンの終了を待つ
-
-scheduler が worker を起動し、worker がリポジトリを clone してからターン 1 を実行する。初回は数十秒かかる。
-
-```bash
-until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
-  sleep 2
-done
-curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq '{turn_id, status}'
+stream.close();
 ```
 
 ```text
-{
-  "turn_id": "1",
-  "status": "completed"
-}
-```
-
-ターンが終わったかどうかは、ターン取得の `status` だけで判断する。`completed`・`failed`・`interrupted`・`cancelled`・`outcome_unknown` が終了状態である。
-
-## モデルの応答を見る
-
-セッションで起きたことはイベントストリーム (SSE) で届く。ストリームはサーバーが閉じないため、ここでは 5 秒後に切断する。
-
-```bash
-curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
-  | awk '/^event: assistant/ { getline; sub(/^data: /, ""); print }' \
-  | jq -r '.data.text // empty' || true
-```
-
-```text
-curl: (28) Operation timed out after 5002 milliseconds with 3362 bytes received
 hello from Werft
 ```
 
-イベントは 1 つにつき `event:` 行 (種類) と `data:` 行 (JSON) からなる。assistant イベントの `data.text` がモデルの送ったテキストである。`curl: (28) Operation timed out` は `--max-time` による切断なので正常である。
+assistant イベントの `text` がモデルの送ったテキストである。3 つの断片をつなげた `first-session.ts` を `WERFT_API_KEY=csp_… node first-session.ts` で実行すると、上の出力が順に出る。
+
+<Callout type="info" title="HTTP API で行うとき">
+同じ流れは [`POST /v1/sessions`](/reference/http-api/sessions/createSession)(`Idempotency-Key` ヘッダーが必要)、[`GET /v1/sessions/{id}/turns/{turn_id}`](/reference/http-api/messages-and-turns/getSessionTurn) のポーリング、[`GET /v1/sessions/{id}/events`](/reference/http-api/events/streamSessionEvents)(SSE)である。
+</Callout>
 
 ## 次のステップ
 
-- [最初のセッション](/getting-started/first-session): 権限リクエストに答え、メッセージを続けて送り、セッションを閉じる
+- [権限リクエストとクローズ](/getting-started/first-session): 権限リクエストに答え、メッセージを続けて送り、セッションを閉じる
 - [ストリーミングの受信](/messages/streaming): イベントの種類と再接続

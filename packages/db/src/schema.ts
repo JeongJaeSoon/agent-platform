@@ -526,8 +526,8 @@ export const slackConfigTokens = pgTable(
   ],
 );
 
-// The workspace's GitHub Apps, registered in the console: one per role. Its
-// private key is a secret_values row owned by `github_app:<id>`.
+// A GitHub App connection registered in the console. Its private key is a
+// secret_values row owned by `github_app:<id>`.
 export const githubApps = pgTable(
   "github_apps",
   {
@@ -558,7 +558,7 @@ export const githubApps = pgTable(
       .defaultNow(),
   },
   (table) => [
-    unique("github_apps_workspace_role_uniq").on(table.workspaceId, table.role),
+    unique("github_apps_workspace_app_uniq").on(table.workspaceId, table.appId),
     check("github_apps_app_id_check", sql`${table.appId} > 0`),
     check(
       "github_apps_role_check",
@@ -610,6 +610,15 @@ export const githubWorkspaceSettings = pgTable("github_workspace_settings", {
   oauthClientSecretSet: boolean("oauth_client_secret_set")
     .notNull()
     .default(false),
+  /**
+   * The author connection people link their accounts with. Null with one
+   * author connection reads as that one: an earlier image registers the
+   * first without setting it.
+   */
+  userLinkConnectionId: uuid("user_link_connection_id").references(
+    () => githubApps.id,
+    { onDelete: "restrict" },
+  ),
   revision: integer().notNull().default(1),
   /** No foreign key: the row outlives the account. */
   updatedBy: uuid("updated_by"),
@@ -617,6 +626,46 @@ export const githubWorkspaceSettings = pgTable("github_workspace_settings", {
     .notNull()
     .defaultNow(),
 });
+
+/**
+ * The connection each catalog repository's work uses, per role (decision
+ * github-agent.md 11). A row is not deleted when its connection is: the
+ * connection id goes null and the gate refuses until an admin re-pins it or
+ * the same App is added back.
+ */
+export const catalogRepositoryGitHubApps = pgTable(
+  "catalog_repository_github_apps",
+  {
+    repositoryId: text("repository_id").notNull(),
+    role: text().$type<GitHubAppRole>().notNull(),
+    connectionId: uuid("connection_id").references(() => githubApps.id, {
+      onDelete: "set null",
+    }),
+    appId: bigint("app_id", { mode: "number" }).notNull(),
+    pinnedBy: text("pinned_by")
+      .$type<"selection" | "first_mint" | "admin">()
+      .notNull(),
+    /** No foreign key: the row outlives the account. */
+    updatedBy: uuid("updated_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.repositoryId, table.role] }),
+    index("catalog_repository_github_apps_connection_idx").on(
+      table.connectionId,
+    ),
+    check(
+      "catalog_repository_github_apps_role_check",
+      sql`${table.role} IN ('author', 'reviewer')`,
+    ),
+    check(
+      "catalog_repository_github_apps_pinned_by_check",
+      sql`${table.pinnedBy} IN ('selection', 'first_mint', 'admin')`,
+    ),
+  ],
+);
 
 // The GitHub Packages bot token's facts (the value is in `secret_values`)
 // and the packages sessions may fetch with it. No row reads as no token and
@@ -3848,6 +3897,8 @@ export const achievementJudgments = pgTable(
     costUsd: numeric("cost_usd", { precision: 14, scale: 6, mode: "number" })
       .notNull()
       .default(0),
+    /** The workspace threshold the luna pairs were asked against. */
+    threshold: doublePrecision(),
     errorCode: text("error_code"),
     attempts: integer().notNull().default(0),
     nextAttemptAt: timestamp("next_attempt_at", {
@@ -3900,6 +3951,10 @@ export const achievementJudgments = pgTable(
     check(
       "achievement_judgments_cost_check",
       sql`${table.calls} >= 0 AND ${table.inputTokens} >= 0 AND ${table.costUsd} >= 0 AND ${table.attempts} >= 0`,
+    ),
+    check(
+      "achievement_judgments_threshold_check",
+      sql`${table.threshold} IS NULL OR ${table.threshold} BETWEEN 0 AND 1`,
     ),
     check(
       "achievement_judgments_lease_check",

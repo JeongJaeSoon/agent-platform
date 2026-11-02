@@ -58,4 +58,5 @@ API로 세션을 만들고 쓰는 사람.
 | [결정(설계): Musterrolle 모듈 경계](contributing/decisions/musterrolle-boundary.md) | 흩어진 신원·역할·권한 코드의 위치 실측, 패키지마다 `musterrolle/` 디렉터리와 공개면 하나로 닫는 목표 경계, architecture 테스트 규칙, 단계별 PR 순서와 증명 방법 |
 | [결정(제안): 로그 레코드 계약과 에러 기록](contributing/decisions/logging-contract.md) | 세 logger의 출력 모양과 로그 소비자, 표준 레코드와 계약 테스트, proxy 무의존 유지, 에러를 문자열로 남기는 규칙, 로그 필드가 바뀌는 단계별 PR |
 | [결정(제안): worker Pod를 누가 만드나](contributing/decisions/k8s-pull-execution.md) | 플랫폼 직접 생성 + 권한 축소(추천)와 KEDA ScaledJob pull의 비교, 두 안의 설계, PoC 실측, Codex 의견 |
+| [결정(설계): 새 에이전트 마법사 재작업](contributing/decisions/agent-wizard-rework.md) | 마법사의 저장소 지정 제거, 역할·지시 사항을 이름·설명과 에이전트 지시문으로, 도구 선택과 실행 적용, 관리 팀과 팀 역할 권한, 구현 단위와 순서 |
 | [실제 Claude로 확인하기](real-claude.md) | 실제 Claude로 스택 확인 |

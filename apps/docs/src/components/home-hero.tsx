@@ -10,9 +10,6 @@ export function HomeHero({ lang }: { lang: Locale }) {
       lang={lang}
       className="not-prose mb-10 flex flex-col items-start gap-4 border-b pb-10"
     >
-      <span className="rounded-full border px-2.5 py-0.5 text-xs font-medium text-fd-muted-foreground">
-        private alpha
-      </span>
       <h1 className="text-3xl font-semibold tracking-tight">Werft</h1>
       <p className="text-lg text-fd-muted-foreground">
         {messages[lang].homeLead}
@@ -25,7 +22,7 @@ export function HomeHero({ lang }: { lang: Locale }) {
           Quickstart
         </Link>
         <Link
-          href={localizeHref("/sdk", lang)}
+          href={localizeHref("/getting-started/install", lang)}
           className={`${button} border hover:bg-fd-accent`}
         >
           TypeScript SDK

@@ -59,6 +59,17 @@ export const Failed: Story = {
   },
 };
 
+/** An admin pinned a repository to one of several App connections. */
+export const RepositoryAppPin: Story = {
+  name: "Repository GitHub App pin",
+  args: {
+    operation: "set_repository_github_app",
+    status: "succeeded",
+    target: { session_id: SESSION_ID, turn_id: null, request_id: null },
+    timestamps: { created_at: CREATED_AT, updated_at: CREATED_AT },
+  },
+};
+
 /** An agent's mid-session attachment the release's list refused. */
 export const AttachRefused: Story = {
   name: "Attach repository refused",

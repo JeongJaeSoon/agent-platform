@@ -7,6 +7,8 @@ import type {
   GitHubPullRequestOutcomeState,
   GitHubReviewEvent,
   ListSessionAchievementsResponse,
+  ReviewAchievementRequest,
+  SessionAchievement,
 } from "@werft-ai/contracts";
 import type { TeamActor } from "../../ports/team-store.ts";
 
@@ -134,6 +136,12 @@ export type JudgmentResult = {
      */
     declined: { ruleFamilyId: string; evidenceId: string | null }[];
   };
+  /**
+   * The threshold `luna` pairs were asked against, set once a call went out
+   * whether or not the try then failed; apart from `luna`, whose digest a
+   * failed try must not keep.
+   */
+  threshold?: number;
 } & (
   | { status: "succeeded" | "skipped" | "failed" }
   /** Tried again after `retryInMs`. */
@@ -179,6 +187,22 @@ export interface AchievementJudgmentStore {
    * Queues a `manual` judgment of the session, or merges into its pending
    * one, with a `rejudge_session` receipt in the same transaction.
    */
+  /** The session and agent of an achievement in force; null when none. */
+  find(
+    ownerId: string,
+    achievementId: string,
+  ): Promise<{ sessionId: string; agentId: string | null } | null>;
+  /**
+   * Confirms a `needs_review` achievement, or rejects an `auto` or
+   * `needs_review` one, with a `review_achievement` receipt in the same
+   * transaction. `not_reviewable`: the decision does not apply to its state.
+   */
+  review(
+    input: AchievementReview,
+  ): Promise<
+    | { outcome: "reviewed"; achievement: SessionAchievement }
+    | { outcome: "not_found" | "actor_inactive" | "not_reviewable" }
+  >;
   rejudge(input: {
     actor: TeamActor;
     sessionId: string;
@@ -188,6 +212,15 @@ export interface AchievementJudgmentStore {
     | { outcome: "not_found" | "actor_inactive" }
   >;
 }
+
+/** What a person decided about an achievement, as the store writes it. */
+export type AchievementReview = {
+  actor: TeamActor;
+  achievementId: string;
+  decision: ReviewAchievementRequest["decision"];
+  note: string | null;
+  receiptId: string;
+};
 
 /** The judgment egress token's half of the store (achievement-rules.md §4). */
 export interface JudgmentEgressStore {

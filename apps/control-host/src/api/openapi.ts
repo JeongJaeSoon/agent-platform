@@ -8,6 +8,7 @@ import {
   achievementJudgeChangeResponseSchema,
   achievementJudgeRequestSchema,
   achievementJudgeResponseSchema,
+  achievementParamsSchema,
   achievementRuleChangeResponseSchema,
   achievementRuleFamilyParamsSchema,
   achievementRuleRequestSchema,
@@ -78,6 +79,7 @@ import {
   dispatchWorkflowResponseSchema,
   GITHUB_APP_MANIFEST_STATE_TTL_SECONDS,
   getGitHubAppResponseSchema,
+  getGitHubRepositoryAppPinsResponseSchema,
   getReceiptResponseSchema,
   getSessionResponseSchema,
   getSlackAppManifestResponseSchema,
@@ -88,6 +90,7 @@ import {
   githubLinkCallbackResponseSchema,
   githubPackagesSettingsResponseSchema,
   githubPackagesWriteResponseSchema,
+  githubRepositoryAppPinParamsSchema,
   githubRepositoryPageQuerySchema,
   githubRepositoryParamsSchema,
   githubRepositoryWriteResponseSchema,
@@ -119,6 +122,7 @@ import {
   listApiKeysQuerySchema,
   listApiKeysResponseSchema,
   listCredentialBindingsResponseSchema,
+  listGitHubAppsResponseSchema,
   listGitHubRepositoriesResponseSchema,
   listInvitesResponseSchema,
   listLinkedAccountsResponseSchema,
@@ -159,6 +163,7 @@ import {
   pauseSessionRequestSchema,
   pickAgentGitHubRepositoryRequestSchema,
   pickAgentGitHubRepositoryResponseSchema,
+  postGitHubAppRequestSchema,
   postSessionAnswerRequestSchema,
   postSessionAnswerResponseSchema,
   postSessionMessageRequestSchema,
@@ -174,7 +179,11 @@ import {
   putGitHubOAuthClientSecretResponseSchema,
   putGitHubPackagesAllowlistRequestSchema,
   putGitHubPackagesTokenRequestSchema,
+  putGitHubRepositoryAppPinRequestSchema,
+  putGitHubRepositoryAppPinResponseSchema,
   putGitHubSettingsRequestSchema,
+  putGitHubUserLinkAppRequestSchema,
+  putGitHubUserLinkAppResponseSchema,
   putSlackBindingRequestSchema,
   putSlackBindingResponseSchema,
   putSlackConfigTokenResponseSchema,
@@ -189,6 +198,8 @@ import {
   rerunWorkflowRequestSchema,
   rerunWorkflowResponseSchema,
   resumeSessionRequestSchema,
+  reviewAchievementRequestSchema,
+  reviewAchievementResponseSchema,
   revokeAgentIdentityResponseSchema,
   revokeApiKeyResponseSchema,
   revokeCredentialBindingResponseSchema,
@@ -246,6 +257,8 @@ import {
   updateMemberRequestSchema,
   updateSessionRequestSchema,
   updateTeamRequestSchema,
+  usageAchievementsQuerySchema,
+  usageAchievementsResponseSchema,
   usageBreakdownQuerySchema,
   usageBreakdownResponseSchema,
   usageOutcomesQuerySchema,
@@ -296,6 +309,7 @@ const requestComponents = {
   LimitsQuery: limitsQuerySchema,
   UsageSummaryQuery: usageSummaryQuerySchema,
   UsageOutcomesQuery: usageOutcomesQuerySchema,
+  UsageAchievementsQuery: usageAchievementsQuerySchema,
   UsageSeriesQuery: usageSeriesQuerySchema,
   UsageBreakdownQuery: usageBreakdownQuerySchema,
   UsageToolsQuery: usageToolsQuerySchema,
@@ -344,8 +358,12 @@ const requestComponents = {
   UpdateAchievementTypeRequest: updateAchievementTypeRequestSchema,
   AchievementRuleRequest: achievementRuleRequestSchema,
   AchievementJudgeRequest: achievementJudgeRequestSchema,
+  ReviewAchievementRequest: reviewAchievementRequestSchema,
   PutSlackSecretRequest: putSlackSecretRequestSchema,
   PutGitHubAppRequest: putGitHubAppRequestSchema,
+  PostGitHubAppRequest: postGitHubAppRequestSchema,
+  PutGitHubUserLinkAppRequest: putGitHubUserLinkAppRequestSchema,
+  PutGitHubRepositoryAppPinRequest: putGitHubRepositoryAppPinRequestSchema,
   StartGitHubAppManifestRequest: startGitHubAppManifestRequestSchema,
   CompleteGitHubAppManifestRequest: completeGitHubAppManifestRequestSchema,
   GitHubRepositoryPageQuery: githubRepositoryPageQuerySchema,
@@ -423,6 +441,7 @@ const responseComponents = {
   ListSessionOutcomesResponse: listSessionOutcomesResponseSchema,
   ListSessionAchievementsResponse: listSessionAchievementsResponseSchema,
   RejudgeSessionResponse: rejudgeSessionResponseSchema,
+  ReviewAchievementResponse: reviewAchievementResponseSchema,
   AgentGitHubResponse: agentGitHubResponseSchema,
   PutAgentGitHubEnabledResponse: putAgentGitHubEnabledResponseSchema,
   AgentGitHubActivityResponse: agentGitHubActivityResponseSchema,
@@ -447,6 +466,10 @@ const responseComponents = {
   CompleteGitHubAppManifestResponse: completeGitHubAppManifestResponseSchema,
   PutGitHubAppResponse: putGitHubAppResponseSchema,
   DeleteGitHubAppResponse: deleteGitHubAppResponseSchema,
+  ListGitHubAppsResponse: listGitHubAppsResponseSchema,
+  PutGitHubUserLinkAppResponse: putGitHubUserLinkAppResponseSchema,
+  GetGitHubRepositoryAppPinsResponse: getGitHubRepositoryAppPinsResponseSchema,
+  PutGitHubRepositoryAppPinResponse: putGitHubRepositoryAppPinResponseSchema,
   ListGitHubRepositoriesResponse: listGitHubRepositoriesResponseSchema,
   GitHubRepositoryWriteResponse: githubRepositoryWriteResponseSchema,
   ListAgentGitHubRepositoriesResponse:
@@ -469,6 +492,7 @@ const responseComponents = {
   LimitsResponse: limitsResponseSchema,
   UsageSummaryResponse: usageSummaryResponseSchema,
   UsageOutcomesResponse: usageOutcomesResponseSchema,
+  UsageAchievementsResponse: usageAchievementsResponseSchema,
   UsageSeriesResponse: usageSeriesResponseSchema,
   UsageBreakdownResponse: usageBreakdownResponseSchema,
   UsageToolsResponse: usageToolsResponseSchema,
@@ -1549,7 +1573,7 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "One of the workspace's GitHub Apps and where it is installed (owner or admin)",
     description:
-      "`role` is `author` (the App that clones, pushes and opens pull requests; `…/github-app` is the same) or `reviewer` (an optional second App that only submits pull request reviews, since GitHub refuses an approval from the App that opened the pull request). Answers as `GET …/github-app` does for that role's App: the App as registered, its permissions as GitHub reports them now, its installations, and for each catalog repository written as `auth: { kind: github_app }` the installation that covers it and what that installation grants (`installation_permissions`; it trails the App's own permissions until an owner approves a raise on GitHub). API keys are refused.",
+      "`role` is `author` (the App that clones, pushes and opens pull requests; `…/github-app` is the same) or `reviewer` (an optional second App that only submits pull request reviews, since GitHub refuses an approval from the App that opened the pull request), served while the role has at most one connection (else 409 `GITHUB_APP_CONFLICT` `ambiguous_role`), or a connection id (`GET …/github-apps` lists them; 404 for one not the workspace's). `usage` says what removing it affects: repositories pinned to it, agents with GitHub on whose active release names one, sessions not ended on one, and whether people link their accounts with it. Answers as `GET …/github-app` does for that role's App: the App as registered, its permissions as GitHub reports them now, its installations, and for each catalog repository written as `auth: { kind: github_app }` the installation that covers it and what that installation grants (`installation_permissions`; it trails the App's own permissions until an owner approves a raise on GitHub). API keys are refused.",
     auth: "session",
     success: {
       status: 200,
@@ -1600,7 +1624,8 @@ export const API_ROUTE_DECLARATIONS = [
         ],
       },
     },
-    errors: [401, 403, 404, 503],
+    errors: [401, 403, 404, 409, 503],
+    errorCodes: { 409: ["GITHUB_APP_CONFLICT"] },
     errorNotes: {
       BACKEND_UNAVAILABLE:
         "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
@@ -1614,7 +1639,7 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "Register or replace one of the workspace's GitHub Apps (owner or admin)",
     description:
-      "Takes the App's id and private key as `PUT …/github-app` does, checks the key with GitHub the same way, and stores it for `role`. A workspace has one App per role, each with its own key: replacing or deleting one never touches the other. The two roles must be different Apps (409 `GITHUB_APP_CONFLICT` `same_app`), and a reviewer App needs the author App first (409 `no_author_app`); both are decided under the workspace's lock. A reviewer App needs `pull_requests: write` and `contents`, `metadata` read; wider permissions are kept and listed in `warnings`. Writes a `set_github_app` receipt naming the App id and role. The key is in no response, receipt, log or error. API keys are refused.",
+      "Takes the App's id and private key as `PUT …/github-app` does, checks the key with GitHub the same way, and stores it. `role` is a role or a connection id. A role registers the role's first connection, or replaces it while the role has exactly one; with several it is 409 `GITHUB_APP_CONFLICT` `ambiguous_role` (name one by id, or add with `POST …/github-apps`). Replacing it with another App drops the repository pins it held (`pins_cleared`). A connection id rotates that connection's key: the `app_id` must be its App (400 `app_id_mismatch`). Each connection has its own key: changing one never touches another. One App is one connection in a workspace, whatever the role (409 `same_app`), and a reviewer App needs an author App first (409 `no_author_app`); both are decided under the workspace's lock. A reviewer App needs `pull_requests: write` and `contents`, `metadata` read; wider permissions are kept and listed in `warnings`. Writes a `set_github_app` receipt naming the App id and role. The key is in no response, receipt, log or error. API keys are refused.",
     auth: "session",
     body: "PutGitHubAppRequest",
     requestExample: {
@@ -1664,7 +1689,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Workspace settings",
     summary:
       "Start making the author GitHub App from a manifest (owner or admin)",
-    description: `Returns the manifest for a new author App and the GitHub URL the browser form-POSTs it to (field \`manifest\`), with a new single-use \`state\` in that URL, valid ${GITHUB_APP_MANIFEST_STATE_TTL_SECONDS / 60} minutes and bound to the caller and the workspace. \`owner\` picks an organization (its owners can create the App) or the caller's own account; a private App (\`public: false\`, the default) installs only on that account. The manifest asks for \`contents\` and \`pull_requests\` write and \`metadata\` read, plus \`actions\` and \`workflows\` write with \`actions: true\`; its webhook is off, its redirect is the console's \`/settings/workspace/github/new-app\` and its callback the account-link page. While an author App is registered the request must say \`replace: true\` (else 409 \`GITHUB_APP_CONFLICT\` \`author_app_exists\`). API keys are refused.`,
+    description: `Returns the manifest for a new author App and the GitHub URL the browser form-POSTs it to (field \`manifest\`), with a new single-use \`state\` in that URL, valid ${GITHUB_APP_MANIFEST_STATE_TTL_SECONDS / 60} minutes and bound to the caller and the workspace. \`owner\` picks an organization (its owners can create the App) or the caller's own account; a private App (\`public: false\`, the default) installs only on that account. The manifest asks for \`contents\` and \`pull_requests\` write and \`metadata\` read, plus \`actions\` and \`workflows\` write with \`actions: true\`; its webhook is off, its redirect is the console's \`/settings/workspace/github/new-app\` and its callback the account-link page. The App it makes is always another author connection, beside any registered: \`replace\` is ignored, and moving to the new App is removing the old connection afterwards. API keys are refused.`,
     auth: "session",
     body: "StartGitHubAppManifestRequest",
     requestExample: {
@@ -1684,8 +1709,7 @@ export const API_ROUTE_DECLARATIONS = [
         expires_at: "2026-11-01T10:00:00Z",
       },
     },
-    errors: [400, 401, 403, 404, 409, 503],
-    errorCodes: { 409: ["GITHUB_APP_CONFLICT"] },
+    errors: [400, 401, 403, 404, 503],
     errorNotes: {
       BACKEND_UNAVAILABLE:
         "Also when the API runs without a master key (PLATFORM_SECRET_KEY), or without CONSOLE_ORIGIN (`console_origin_unset`).",
@@ -1699,7 +1723,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Workspace settings",
     summary: "Finish making the author GitHub App with what GitHub returned",
     description:
-      "The console's callback page sends the `code` and `state` from GitHub's redirect. The state is spent first: unknown, spent, expired, or issued to another caller or workspace answers 400 `BAD_REQUEST` `state_invalid`. The code is exchanged once with `POST /app-manifests/{code}/conversions` (400 `code_rejected` when GitHub refuses it, 503 `github_unreachable` when it cannot be reached; never retried). The App, its private key and its OAuth client secret are stored in one transaction with a `set_github_app` receipt (`source: manifest`); the webhook secret is not kept. If the author App changed since the start, nothing is stored (409 `GITHUB_APP_CONFLICT` `author_app_changed`); if storing fails, 503 `store_failed`. Both name the App made on GitHub in `details.app_id` and `details.html_url`. No key, secret or code is in any response, receipt or log, and every answer carries `Referrer-Policy: no-referrer`. API keys are refused.",
+      "The console's callback page sends the `code` and `state` from GitHub's redirect. The state is spent first: unknown, spent, expired, or issued to another caller or workspace answers 400 `BAD_REQUEST` `state_invalid`. The code is exchanged once with `POST /app-manifests/{code}/conversions` (400 `code_rejected` when GitHub refuses it, 503 `github_unreachable` when it cannot be reached; never retried). The App is stored as another author connection, with its private key, in one transaction with a `set_github_app` receipt (`source: manifest`); its OAuth client secret is kept only when it becomes the connection people link their accounts with (the workspace had no author connection), and the webhook secret is not kept. If storing fails, 503 `store_failed`, naming the App made on GitHub in `details.app_id` and `details.html_url`. No key, secret or code is in any response, receipt or log, and every answer carries `Referrer-Policy: no-referrer`. API keys are refused.",
     auth: "session",
     body: "CompleteGitHubAppManifestRequest",
     requestExample: {
@@ -1737,8 +1761,7 @@ export const API_ROUTE_DECLARATIONS = [
         receipt_id: EXAMPLE_RECEIPT_ID,
       },
     },
-    errors: [400, 401, 403, 404, 409, 503],
-    errorCodes: { 409: ["GITHUB_APP_CONFLICT"] },
+    errors: [400, 401, 403, 404, 503],
     errorNotes: {
       BACKEND_UNAVAILABLE:
         "Also when the API runs without a master key (PLATFORM_SECRET_KEY), GitHub could not be reached (`github_unreachable`), or the App could not be stored (`store_failed`).",
@@ -1752,7 +1775,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Workspace settings",
     summary: "Remove one of the workspace's GitHub Apps (owner or admin)",
     description:
-      "Deletes that role's App and its private key and writes a `delete_github_app` receipt naming the role. Without the reviewer App, review work is refused from the next request on (409 `GITHUB_REFUSED` `no_reviewer_app`) and the agent GitHub tab locks its review option; the author App is as `DELETE …/github-app`. The App stays on GitHub. 404 when none is registered for the role. API keys are refused.",
+      "Deletes a connection and its private key and writes a `delete_github_app` receipt naming the role. `role` is a role while it has exactly one connection (else 409 `GITHUB_APP_CONFLICT` `ambiguous_role`), or a connection id. Repositories pinned to it keep their pin, emptied: their work for that role is refused (`pinned_app_removed`) until an admin pins another connection, or the same App is added again. The connection people link their accounts with is refused while another author connection exists (409 `in_use_for_user_link`; choose another with `PUT …/github-settings/user-link-app` first); the last author connection is removed with the link. Without a reviewer App, review work is refused from the next request on (409 `GITHUB_REFUSED` `no_reviewer_app`). `GET` on it answers `usage` first. The App stays on GitHub. 404 when none is registered. API keys are refused.",
     auth: "session",
     success: {
       status: 200,
@@ -1760,10 +1783,86 @@ export const API_ROUTE_DECLARATIONS = [
       description: "Deleted; the receipt.",
       example: { receipt_id: EXAMPLE_RECEIPT_ID },
     },
+    errors: [401, 403, 404, 409, 503],
+    errorCodes: { 409: ["GITHUB_APP_CONFLICT"] },
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/workspaces/{id}/github-apps",
+    operationId: "listWorkspaceGitHubApps",
+    tag: "Workspace settings",
+    summary: "Every GitHub App connection of the workspace (owner or admin)",
+    description:
+      "Each registered App connection, author ones first and oldest first within a role, with its `connection_id`, as stored: nothing is asked of GitHub. A role may have several connections; `…/github-apps/{connection_id}` reads, rotates the key of, or removes one. API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "ListGitHubAppsResponse",
+      description: "The connections; never a private key.",
+      example: { github_apps: [] },
+    },
     errors: [401, 403, 404, 503],
     errorNotes: {
       BACKEND_UNAVAILABLE:
         "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
+  },
+  {
+    method: "post",
+    path: "/v1/workspaces/{id}/github-apps",
+    operationId: "addWorkspaceGitHubApp",
+    tag: "Workspace settings",
+    summary: "Add a GitHub App connection for a role (owner or admin)",
+    description:
+      "Takes `role`, the App's id and private key, checks the key with GitHub as `PUT …/github-apps/{role}` does and stores a new connection; a role may have any number. An App already registered in the workspace, in either role, is 409 `GITHUB_APP_CONFLICT` `same_app`; a reviewer App needs an author App first (409 `no_author_app`). The first author connection is the one people link their accounts with. Pins that the same App held before it was removed are filled again with the new connection (`pins_restored`). Writes a `set_github_app` receipt. API keys are refused.",
+    auth: "session",
+    body: "PostGitHubAppRequest",
+    requestExample: {
+      role: "author",
+      app_id: 234569,
+      private_key: "[REDACTED]",
+    },
+    success: {
+      status: 200,
+      schema: "PutGitHubAppResponse",
+      description: "Stored; the new connection and the receipt.",
+      example: {
+        github_app: {
+          role: "author",
+          connection_id: "019a0000-0000-7000-8000-0000000000c9",
+          app_id: 234569,
+          slug: "acme-second",
+          name: "Acme second",
+          html_url: "https://github.com/apps/acme-second",
+          private_key: {
+            updated_at: "2026-11-02T09:00:00Z",
+            updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
+          },
+          created_at: "2026-11-02T09:00:00Z",
+          updated_at: "2026-11-02T09:00:00Z",
+          permissions: {
+            contents: "write",
+            metadata: "read",
+            pull_requests: "write",
+          },
+          permissions_checked_at: "2026-11-02T09:00:00Z",
+          warnings: [],
+        },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+        pins_cleared: 0,
+        pins_restored: 0,
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["GITHUB_APP_CONFLICT"] },
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY), or GitHub could not be reached (`github_unreachable`); nothing stored changed.",
     },
     idempotent: false,
   },
@@ -1775,7 +1874,7 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "A page of the GitHub Apps' repositories, and the catalog's (owner or admin)",
     description:
-      "The repositories one installation of the workspace's GitHub Apps reaches, a page at a time as GitHub pages them (`GET /installation/repositories`): `installation_id` picks the installation (absent: the first not suspended, the author App's before the reviewer App's, by account), `page` and `per_page` (at most 100) the page, and `total_count` is GitHub's count. `installations` lists the author App's installations, then the reviewer App's, each with its App's `connection_id` and `role`, the `permissions` the account approved, and `repository_count` (GitHub's count, asked for the first 20 installations; null past them or when GitHub did not give it). An App GitHub does not answer for leaves its installations out. Nothing is registered: a repository becomes a catalog row when an agent's manager picks it (`POST /v1/agents/{id}/github/repositories`), and `catalog_id` then names it; `agent_count` counts agents whose active release names it, and on a reviewer App's page only those that turn review on. `unavailable` says why the page is empty: `no_author_app`, `no_installation`, or, with no `installation_id` named, GitHub not answering (`github_unavailable` or `github_app_auth_failed`, the author App's cause first) or every installation suspended (`installation_suspended`); then `catalog` and the installations that were read still come back, to name one. `catalog` lists the rows picks resolved or repositories.yaml seeded (`source` `selection`, `console` or `seed`; their branch is changed with PATCH) and the operator file's entries that carry their own credentials (`source: file`, read-only), each with its `agent_count`; `installed` says whether an installation of the author App covers a row now (asked for the first 100 rows; null past them, or when GitHub could not answer). An installation id no registered App has, or one GitHub no longer has, is 404 `installation_not_found`; a suspended one is 409 `INSTALLATION_SUSPENDED`; GitHub not answering for the App that may hold a named installation is 502 `GITHUB_UNAVAILABLE` (`github_unavailable` is worth retrying, `github_app_auth_failed` is not). API keys are refused.",
+      "The repositories one installation of the workspace's GitHub Apps reaches, a page at a time as GitHub pages them (`GET /installation/repositories`): `installation_id` picks the installation (absent: the first not suspended, the author App's before the reviewer App's, by account; while the role read first has several connections, absent is 400 `installation_required`), `page` and `per_page` (at most 100) the page, and `total_count` is GitHub's count. `installations` lists the author App's installations, then the reviewer App's, each with its App's `connection_id` and `role`, the `permissions` the account approved, and `repository_count` (GitHub's count, asked for the first 20 installations; null past them or when GitHub did not give it). An App GitHub does not answer for leaves its installations out. Nothing is registered: a repository becomes a catalog row when an agent's manager picks it (`POST /v1/agents/{id}/github/repositories`), and `catalog_id` then names it; `agent_count` counts agents whose active release names it, and on a reviewer App's page only those that turn review on. `unavailable` says why the page is empty: `no_author_app`, `no_installation`, or, with no `installation_id` named, GitHub not answering (`github_unavailable` or `github_app_auth_failed`, the author App's cause first) or every installation suspended (`installation_suspended`); then `catalog` and the installations that were read still come back, to name one. `catalog` lists the rows picks resolved or repositories.yaml seeded (`source` `selection`, `console` or `seed`; their branch is changed with PATCH) and the operator file's entries that carry their own credentials (`source: file`, read-only), each with its `agent_count`; `installed` says whether an installation of any author App covers a row now (asked for the first 100 rows; null past them, or when GitHub could not answer for an App and none said yes), and a row's `pins` names the connection each role's work uses (`GET …/app-pins` for the choices). An installation id no registered App has, or one GitHub no longer has, is 404 `installation_not_found`; a suspended one is 409 `INSTALLATION_SUSPENDED`; GitHub not answering for the App that may hold a named installation is 502 `GITHUB_UNAVAILABLE` (`github_unavailable` is worth retrying, `github_app_auth_failed` is not). API keys are refused.",
     auth: "session",
     query: "GitHubRepositoryPageQuery",
     success: {
@@ -1855,6 +1954,70 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errors: [400, 401, 403, 404, 409, 413],
     errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/workspaces/{id}/github-repositories/{repositoryId}/app-pins",
+    operationId: "getGitHubRepositoryAppPins",
+    tag: "Workspace settings",
+    summary:
+      "Which App connection a repository uses per role, and the choices (owner or admin)",
+    description:
+      "`pins` names the connection each role's work on the repository uses (null: none yet, or the pinned one was removed, which the gate then refuses as `pinned_app_removed`). `candidates` lists every connection with `installed`: whether an installation of its App covers the repository now (null when GitHub did not answer). An operator file entry is 400 `file_repository`. API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "GetGitHubRepositoryAppPinsResponse",
+      description: "The pins and the candidates.",
+      example: {
+        catalog_id: "app",
+        pins: {
+          author: "019a0000-0000-7000-8000-0000000000c9",
+          reviewer: null,
+        },
+        candidates: [
+          {
+            connection_id: "019a0000-0000-7000-8000-0000000000c9",
+            role: "author",
+            name: "Acme second",
+            app_id: 234569,
+            installed: true,
+          },
+        ],
+      },
+    },
+    errors: [400, 401, 403, 404],
+  },
+  {
+    method: "put",
+    path: "/v1/workspaces/{id}/github-repositories/{repositoryId}/app-pins/{role}",
+    operationId: "putGitHubRepositoryAppPin",
+    tag: "Workspace settings",
+    summary:
+      "Pin the App connection a repository's work uses for a role (owner or admin)",
+    description:
+      "Sets the connection `role`'s tokens for the repository are issued from. The connection must be the workspace's and of that role (else 404, or 400 `role_mismatch`), and an installation of its App must cover the repository now (400 `not_installed`); GitHub not answering is 502 `GITHUB_UNAVAILABLE`. Tokens already issued keep working until they expire; the next one comes from the new connection. Writes a `set_repository_github_app` receipt with the connection before and after; `receipt_id` is null when it was already pinned there. An operator file entry is 400 `file_repository`. API keys are refused.",
+    auth: "session",
+    body: "PutGitHubRepositoryAppPinRequest",
+    requestExample: { connection_id: "019a0000-0000-7000-8000-0000000000c9" },
+    success: {
+      status: 200,
+      schema: "PutGitHubRepositoryAppPinResponse",
+      description: "Pinned; the receipt.",
+      example: {
+        catalog_id: "app",
+        role: "author",
+        connection_id: "019a0000-0000-7000-8000-0000000000c9",
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 413, 502, 503],
+    errorCodes: { 502: ["GITHUB_UNAVAILABLE"] },
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
     idempotent: false,
   },
   {
@@ -2003,7 +2166,7 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "Set the author App's client secret for user linking (owner or admin)",
     description:
-      "Stores the client secret of the workspace's author GitHub App, made in GitHub under the App's settings, so people can link their GitHub account. It is kept encrypted like the App's private key and never returned, logged or echoed; the answer carries only whether one is set. Setting it again replaces it. Registering a different App, or deleting the author App, drops it. Refused with 409 `GITHUB_LINK_NOT_CONFIGURED` (`reason_code` `no_author_app`) while the workspace has no author App. `client_id` names the App the secret was made for, as `oauth.client_id` showed it; when the author App's client id is another one by the time the secret is stored (the App was replaced meanwhile), nothing is stored and the answer is 409 `REVISION_CONFLICT` (`reason_code` `github_app_changed`). Writes a `set_github_app` receipt with the secret's last four characters. Does not change the ceiling's `revision`. API keys are refused.",
+      "Stores the client secret of the author GitHub App people link their accounts with (`oauth.connection_id`), made in GitHub under the App's settings, so people can link their GitHub account. It is kept encrypted like the App's private key and never returned, logged or echoed; the answer carries only whether one is set. Setting it again replaces it. Registering a different App, or deleting the author App, drops it. Refused with 409 `GITHUB_LINK_NOT_CONFIGURED` (`reason_code` `no_author_app`) while the workspace has no author App. `client_id` names the App the secret was made for, as `oauth.client_id` showed it; when the author App's client id is another one by the time the secret is stored (the App was replaced meanwhile), nothing is stored and the answer is 409 `REVISION_CONFLICT` (`reason_code` `github_app_changed`). Writes a `set_github_app` receipt with the secret's last four characters. Does not change the ceiling's `revision`. API keys are refused.",
     auth: "session",
     body: "PutGitHubOAuthClientSecretRequest",
     requestExample: {
@@ -2026,6 +2189,39 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errors: [400, 401, 403, 404, 409, 413, 503],
     errorCodes: { 409: ["GITHUB_LINK_NOT_CONFIGURED", "REVISION_CONFLICT"] },
+    errorNotes: {
+      BACKEND_UNAVAILABLE: "Also when the API runs without a secret key.",
+    },
+    idempotent: false,
+  },
+  {
+    method: "put",
+    path: "/v1/workspaces/{id}/github-settings/user-link-app",
+    operationId: "putGitHubUserLinkApp",
+    tag: "Workspace settings",
+    summary:
+      "Choose the author App people link their GitHub accounts with (owner or admin)",
+    description:
+      "Names the author connection (`connection_id`) whose OAuth client people link their accounts with. The client secret belongs to that connection: after a change, `oauth.client_secret_set` is that connection's, so a secret may need setting again (`PUT …/oauth-client-secret`). A link started before the change cannot finish with the old connection's state. A reviewer connection is 400 `role_mismatch`; an unknown one 404. Writes a `set_github_app` receipt with the connection before and after; `receipt_id` is null when nothing changed. API keys are refused.",
+    auth: "session",
+    body: "PutGitHubUserLinkAppRequest",
+    requestExample: { connection_id: "019a0000-0000-7000-8000-0000000000c9" },
+    success: {
+      status: 200,
+      schema: "PutGitHubUserLinkAppResponse",
+      description: "Stored; the receipt and the user-linking state.",
+      example: {
+        receipt_id: EXAMPLE_RECEIPT_ID,
+        oauth: {
+          connection_id: "019a0000-0000-7000-8000-0000000000c9",
+          client_id: "Iv23liExampleClientId",
+          client_secret_set: false,
+          callback_url:
+            "https://console.example.com/settings/linked-accounts/github",
+        },
+      },
+    },
+    errors: [400, 401, 403, 404, 413, 503],
     errorNotes: {
       BACKEND_UNAVAILABLE: "Also when the API runs without a secret key.",
     },
@@ -3365,7 +3561,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Sessions",
     summary: "What the workspace's achievement rules counted in the session",
     description:
-      "The session's achievements in force, oldest first, and its latest judgment. Only the platform's judge writes achievements: when the session's evidence appears or changes (a pull request opened, merged or closed, a review submitted, a checkpoint whose `out/` files differ from its parent's) a judgment is queued in the same transaction, one queued per session, and the judge takes it once two minutes have passed since the last such change. It pairs each rule in use with the session's evidence of its type's `evidence_kind`. An `always` rule counts every pair at no cost; one rule family counts a piece of evidence of a session once (`evidence_id`: the outcome id, the `out/` path, or null for the conversation). `title` and `link` are the pull request or review as `owner/repo#number` and its URL, the file's path and the session's console path, or the session's title and console path. `payload` is set only for the built-in types (`pull_request`, `code_review`, `document`). `review_state` is `auto` for pull request and review evidence, counted at once, and `needs_review` for `out/` files and the conversation, counted once a person confirms them.\n\n`judgment` is null before the session's first. Its `trigger` is `evidence`, `turns` (every `every_n_turns` turns, with a rule of `conversation` evidence in use), `idle` (the session's run ended idle, paused or closed, with `on_idle` on) or `manual`. Its `status` is `queued`, `running`, `succeeded` (with `error_code: judge_refused` when the judge refused a pair, which then is no achievement and is not asked again), `failed`, `deferred` (the workspace's judgment calls spent `daily_budget_usd` for the UTC day; taken again after the next UTC midnight, or two minutes after a new trigger, when `always` rules count the new evidence and `luna` pairs wait again) or `skipped` (`error_code: judge_unavailable`: a `luna` rule had evidence and the workspace's connection does not reach a judge; `session_limit`: the session's other judgments that called the judge reached `max_per_session`). A try that fails is queued again 1, 5 and 30 minutes later, then ends `failed`, with the `error_code` of its last failure: `judge_timeout` (no answer within 10 seconds), `judge_http_error` (an error status, or the judge was not reached), `judge_bad_response` (an answer of another shape); `error_code: outputs_unavailable` says the checkpoint's `out/` list could not be read, and the achievements that need no `out/` list are written all the same. Reading changes nothing.",
+      "The session's achievements in force, oldest first, and its latest judgment. Only the platform's judge writes achievements: when the session's evidence appears or changes (a pull request opened, merged or closed, a review submitted, a checkpoint whose `out/` files differ from its parent's) a judgment is queued in the same transaction, one queued per session, and the judge takes it once two minutes have passed since the last such change. It pairs each rule in use with the session's evidence of its type's `evidence_kind`. An `always` rule counts every pair at no cost; one rule family counts a piece of evidence of a session once (`evidence_id`: the outcome id, the `out/` path, or null for the conversation). `title` and `link` are the pull request or review as `owner/repo#number` and its URL, the file's path and the session's console path, or the session's title and console path. `payload` is set only for the built-in types (`pull_request`, `code_review`, `document`). `review_state` is `auto` for pull request and review evidence, counted at once, and `needs_review` for `out/` files and the conversation, counted once a person confirms them; `confirmed` and `rejected` are a person's decision (`POST /v1/achievements/{id}/review`), which a later judgment never changes. `rule_title`, `rule_version` and `type_key` name the rule version that counted it and its type. `threshold` is the workspace threshold its judgment held a `luna` rule's `probability` against, kept with that judgment; null when that judgment asked the judge nothing. `rejudged_after_merge` is true for pull request evidence counted by a judgment made after the pull request merged, in a session with a judgment made before the merge.\n\n`judgment_count` is the session's finished judgments and `judge_cost_usd` what their judge calls cost, apart from the session's own cost.\n\n`judgment` is null before the session's first. Its `trigger` is `evidence`, `turns` (every `every_n_turns` turns, with a rule of `conversation` evidence in use), `idle` (the session's run ended idle, paused or closed, with `on_idle` on) or `manual`; `evidence_change` is `pr_merged` for an `evidence` judgment when one of the session's pull requests merged after the judgment before it was made and by the time this one was, and null otherwise. Its `status` is `queued`, `running`, `succeeded` (with `error_code: judge_refused` when the judge refused a pair, which then is no achievement and is not asked again), `failed`, `deferred` (the workspace's judgment calls spent `daily_budget_usd` for the UTC day; taken again after the next UTC midnight, or two minutes after a new trigger, when `always` rules count the new evidence and `luna` pairs wait again) or `skipped` (`error_code: judge_unavailable`: a `luna` rule had evidence and the workspace's connection does not reach a judge; `session_limit`: the session's other judgments that called the judge reached `max_per_session`). A try that fails is queued again 1, 5 and 30 minutes later, then ends `failed`, with the `error_code` of its last failure: `judge_timeout` (no answer within 10 seconds), `judge_http_error` (an error status, or the judge was not reached), `judge_bad_response` (an answer of another shape); `error_code: outputs_unavailable` says the checkpoint's `out/` list could not be read, and the achievements that need no `out/` list are written all the same. Reading changes nothing.",
     scope: "read",
     success: {
       status: 200,
@@ -3395,7 +3591,12 @@ export const API_ROUTE_DECLARATIONS = [
               deletions: 7,
             },
             judge: "always",
+            rule_title: "Merged pull request",
+            rule_version: 2,
+            type_key: "pull_request",
             probability: null,
+            threshold: null,
+            rejudged_after_merge: false,
             judgment_id: "1c2d3e4f-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
             review_state: "auto",
             reviewed_by: null,
@@ -3409,9 +3610,12 @@ export const API_ROUTE_DECLARATIONS = [
           trigger: "evidence",
           status: "succeeded",
           error_code: null,
+          evidence_change: null,
           created_at: "2026-10-30T09:40:03.000Z",
           finished_at: "2026-10-30T09:42:10.000Z",
         },
+        judgment_count: 1,
+        judge_cost_usd: 0,
       },
     },
     errors: [401, 404, 503],
@@ -3434,6 +3638,56 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/achievements/{id}/review",
+    operationId: "reviewAchievement",
+    tag: "Sessions",
+    summary: "Confirm or reject one of a session's achievements",
+    description:
+      "Owners, admins and the admins of the achievement's agent (`achievement.review`), signed in, who can also read its session; API keys are refused. `confirm` counts a `needs_review` achievement (`review_state: confirmed`); `reject` drops an `auto` or `needs_review` one from the count (`rejected`). A decision is final: a later judgment never changes it, and a second review, or confirming an `auto` one, is 409 REVISION_CONFLICT with `details.reason_code: not_reviewable`. `note` is kept on the achievement as `review_note`, not in the receipt. Writes a `review_achievement` receipt naming the achievement and its new state. An achievement of another owner, or one a later judgment replaced, is 404.",
+    auth: "session",
+    body: "ReviewAchievementRequest",
+    requestExample: { decision: "confirm" },
+    success: {
+      status: 200,
+      schema: "ReviewAchievementResponse",
+      description: "The achievement as reviewed, and the receipt.",
+      example: {
+        achievement: {
+          id: "0b1c2d3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+          session_id: EXAMPLE_SESSION_ID,
+          agent_id: null,
+          agent_release_id: null,
+          rule_id: "7d3a4e5f-6b7c-4d8e-8f9a-1b2c3d4e5f60",
+          rule_family_id: "8e4b5f6a-7c8d-4e9f-9a0b-2c3d4e5f6a71",
+          type_id: "9f5c6a7b-8d9e-4f0a-8b1c-3d4e5f6a7b82",
+          title: "out/payment-retry.md",
+          link: `/sessions/${EXAMPLE_SESSION_ID}`,
+          evidence_kind: "out_file",
+          evidence_id: "out/payment-retry.md",
+          payload: { path: "out/payment-retry.md", size: 4198 },
+          judge: "always",
+          rule_title: "Design document",
+          rule_version: 3,
+          type_key: "document",
+          probability: null,
+          threshold: null,
+          rejudged_after_merge: false,
+          judgment_id: "1c2d3e4f-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
+          review_state: "confirmed",
+          reviewed_by: EXAMPLE_USER_ID,
+          reviewed_at: "2026-10-30T10:02:00.000Z",
+          review_note: null,
+          created_at: "2026-10-30T09:42:10.000Z",
+        },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
     idempotent: false,
   },
   {
@@ -4502,7 +4756,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "A page of the author App's repositories, to pick for the agent",
     description:
-      "The repositories one installation of the author App reaches, a page at a time, as `GET /v1/workspaces/{id}/github-repositories` pages them (its failures too), with `catalog_id` set on those a pick resolved already; `installations` lists only the author App's. Only when the active release's installation profile ceiling runs on every App repository (`github_app_repositories: installed`); otherwise `unavailable` is `ceiling_listed` (pick among `options.repositories` of `GET /v1/agents/{id}/github`) or `no_active_release`, and the page is empty. Whoever manages the agent reads it.",
+      "The repositories one installation of the author App reaches, a page at a time, as `GET /v1/workspaces/{id}/github-repositories` pages them (its failures too), with `catalog_id` set on those a pick resolved already; `installations` lists only the author Apps'. With several author connections, `installation_id` is required (400 `installation_required`). Only when the active release's installation profile ceiling runs on every App repository (`github_app_repositories: installed`); otherwise `unavailable` is `ceiling_listed` (pick among `options.repositories` of `GET /v1/agents/{id}/github`) or `no_active_release`, and the page is empty. Whoever manages the agent reads it.",
     auth: "session",
     query: "GitHubRepositoryPageQuery",
     success: {
@@ -4540,7 +4794,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Resolve an App repository to the catalog id a release names",
     description:
-      "Takes a repository from `GET …/github/repositories` and returns the catalog id to put in `github.repositories` of the next release (`POST /v1/agents/{id}/releases`); the release itself is unchanged. The server reads the repository by its GitHub id and checks that the named installation covers it, then takes its URL and default branch from GitHub. The same repository always resolves to the same id, by its GitHub id: the first pick writes a `resolve_repository` receipt (`receipt_id`), and so does a pick after a rename on GitHub, which moves the row to the new name and URL; other picks return null. 400 `details.reason_code`: `repository_not_allowed` (the active release's ceiling does not run on App repositories, or there is no active release), `no_author_app`, `not_installed` (the author App has no such installation, or it does not cover the repository), `file_repository` (the operator file holds that repository with its own credential), or `name_held` (another row has that name: another GitHub repository's, whose pick after its rename frees the name, or one not yet tied to a GitHub id). GitHub not answering is 502 `GITHUB_UNAVAILABLE`, and an installation GitHub dropped while it was read is 404 `installation_not_found`; nothing stored changed. A signed-in manager of the agent; API keys are refused.",
+      "Takes a repository from `GET …/github/repositories` and returns the catalog id to put in `github.repositories` of the next release (`POST /v1/agents/{id}/releases`); the release itself is unchanged. The server reads the repository by its GitHub id and checks that the named installation covers it, then takes its URL and default branch from GitHub. The same repository always resolves to the same id, by its GitHub id: the first pick writes a `resolve_repository` receipt (`receipt_id`), and so does a pick after a rename on GitHub, which moves the row to the new name and URL; other picks return null. A repository with no author pin yet is pinned to the connection whose App holds the installation (a `set_repository_github_app` receipt), and `connection_id` names the author connection it is pinned to; a pin made before stays. 400 `details.reason_code`: `repository_not_allowed` (the active release's ceiling does not run on App repositories, or there is no active release), `no_author_app`, `not_installed` (the author App has no such installation, or it does not cover the repository), `file_repository` (the operator file holds that repository with its own credential), or `name_held` (another row has that name: another GitHub repository's, whose pick after its rename frees the name, or one not yet tied to a GitHub id). GitHub not answering is 502 `GITHUB_UNAVAILABLE`, and an installation GitHub dropped while it was read is 404 `installation_not_found`; nothing stored changed. A signed-in manager of the agent; API keys are refused.",
     auth: "session",
     body: "PickAgentGitHubRepositoryRequest",
     requestExample: { installation_id: 4242, github_repository_id: 123456789 },
@@ -5844,6 +6098,99 @@ export const API_ROUTE_DECLARATIONS = [
   },
   {
     method: "get",
+    path: "/v1/usage/achievements",
+    operationId: "getUsageAchievements",
+    tag: "Limits & receipts",
+    summary:
+      "What the sessions created in a period cost and the achievements they earned",
+    description:
+      "The sessions `GET /v1/usage/summary` would count for the same `scope`, `since`, `until` and `agent_id`, read by the same callers (403 and 404 alike), with the achievements the workspace's achievement rules counted for them (`GET /v1/sessions/{id}/achievements`). With `scope=installation` or `me`, `agent_id` narrows the sessions to that agent's. `session_count` and `cost_usd` are the summary's; each session's cost adds once however many achievements it has.\n\n`achievement_count` counts the achievements in force whose review state is `auto` or `confirmed`; `needs_review_count` and `rejected_count` count the others. `cost_per_achievement_usd` is every session's cost, those without an achievement included, over `achievement_count` (null with none). `judge_cost_usd`, `judge_calls` and `judgment_count` are the judge's spend on the same sessions, apart from the sessions' cost; `judgment_count` counts the judgments that called the judge.\n\n`type_id` and `category_id` narrow the achievements, never the sessions, their cost or the judge's cost. `by_category`, `by_type` and `by_rule` list the rows with an achievement counted or waiting for review, a category or type under its current name and a rule family once, under its latest version's category, title and `version` and with every version's achievements; `by_agent` lists every agent with a session in the period; `recent` the latest 20 achievements in force, rejected ones included. For a session the caller may not read (one in another owner, or private and not shared with the caller) `session_id`, `session_title`, `title` and `link` are null, since a conversation's achievement carries its session's title and link; the rule, evidence kind, judge and review state still show. The period cuts on when each session was created. It changes nothing.",
+    scope: "read",
+    query: "UsageAchievementsQuery",
+    success: {
+      status: 200,
+      schema: "UsageAchievementsResponse",
+      description: "The figures as of `refreshed_at`.",
+      example: {
+        scope: "installation",
+        period: {
+          since: "2026-10-01T00:00:00.000Z",
+          until: "2026-10-31T00:00:00.000Z",
+        },
+        refreshed_at: "2026-10-31T00:00:02.000Z",
+        session_count: 9,
+        sessions_with_achievement_count: 2,
+        cost_usd: "4.120000",
+        cost_complete: true,
+        achievement_count: 2,
+        needs_review_count: 0,
+        rejected_count: 0,
+        judgment_count: 1,
+        judge_calls: 2,
+        judge_cost_usd: "0.000310",
+        cost_per_achievement_usd: "2.060000",
+        by_category: [
+          {
+            id: "8c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f",
+            name: "Development",
+            achievement_count: 2,
+            needs_review_count: 0,
+          },
+        ],
+        by_type: [
+          {
+            id: "6a7b8c9d-0e1f-4a2b-8c3d-4e5f6a7b8c9d",
+            key: "pull_request",
+            name: "GitHub PR",
+            achievement_count: 2,
+            needs_review_count: 0,
+          },
+        ],
+        by_rule: [
+          {
+            id: "2f3e4d5c-6b7a-4980-8b1c-2d3e4f5a6b7c",
+            family_id: "2f3e4d5c-6b7a-4980-8b1c-2d3e4f5a6b7c",
+            version: 1,
+            title: "Merged pull request",
+            category_id: "8c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f",
+            category_name: "Development",
+            type_id: "6a7b8c9d-0e1f-4a2b-8c3d-4e5f6a7b8c9d",
+            type_key: "pull_request",
+            achievement_count: 2,
+            needs_review_count: 0,
+          },
+        ],
+        by_agent: [
+          {
+            id: "4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f7a",
+            name: "backend-fixer",
+            session_count: 9,
+            cost_usd: "4.120000",
+            achievement_count: 2,
+            cost_per_achievement_usd: "2.060000",
+          },
+        ],
+        recent: [
+          {
+            id: "0b1c2d3e-4f5a-4b6c-8d7e-8f9a0b1c2d3e",
+            created_at: "2026-10-30T11:03:00.000Z",
+            session_id: "9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d",
+            session_title: "Orders are charged twice when payment fails",
+            rule_id: "2f3e4d5c-6b7a-4980-8b1c-2d3e4f5a6b7c",
+            rule_title: "Merged pull request",
+            title: "acme/shop#412",
+            link: "https://github.com/acme/shop/pull/412",
+            evidence_kind: "github_pull_request",
+            judge: "luna",
+            review_state: "auto",
+          },
+        ],
+      },
+    },
+    errors: [400, 401, 404, 503],
+  },
+  {
+    method: "get",
     path: "/v1/usage/series",
     operationId: "getUsageSeries",
     tag: "Limits & receipts",
@@ -6242,6 +6589,7 @@ function paramsSchemaFor(path: string): z.ZodObject {
     return workspaceProfileIdParamsSchema;
   if (path.startsWith("/v1/achievement-categories/{id}"))
     return achievementCategoryParamsSchema;
+  if (path === "/v1/achievements/{id}/review") return achievementParamsSchema;
   if (path.startsWith("/v1/achievement-types/{id}"))
     return achievementTypeParamsSchema;
   if (path.startsWith("/v1/achievement-rules/{family_id}"))
@@ -6260,8 +6608,17 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path === "/v1/workspaces/{id}/github-apps/{role}") {
     return githubAppRoleParamsSchema;
   }
-  if (path === "/v1/workspaces/{id}/github-repositories/{repositoryId}") {
+  if (
+    path === "/v1/workspaces/{id}/github-repositories/{repositoryId}" ||
+    path === "/v1/workspaces/{id}/github-repositories/{repositoryId}/app-pins"
+  ) {
     return githubRepositoryParamsSchema;
+  }
+  if (
+    path ===
+    "/v1/workspaces/{id}/github-repositories/{repositoryId}/app-pins/{role}"
+  ) {
+    return githubRepositoryAppPinParamsSchema;
   }
   if (path.startsWith("/v1/workspaces/{id}")) return workspaceParamsSchema;
   if (path.includes("{turn_id}")) return turnIdParamsSchema;

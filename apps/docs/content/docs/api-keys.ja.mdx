@@ -84,7 +84,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' "$API/v1" -H "Authorization: Bearer $M
 
 ## 運用者 CLI
 
-運用者はサーバーでキーを直接発行できる。ローカルスタックでは `scripts/local.sh key` である([Quickstart](/getting-started/quickstart#api-キーを取得する))。この経路は上記の権限判定を通らない。
+運用者はサーバーでキーを直接発行できる。ローカルスタックでは `scripts/local.sh key` である([開発用サーバーの実行](/run-server/dev-server#api-キーを取得する))。この経路は上記の権限判定を通らない。
 
 ```sh
 scripts/local.sh key <owner> --scopes sessions:read,sessions:write

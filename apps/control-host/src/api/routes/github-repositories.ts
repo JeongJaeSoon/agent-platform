@@ -1,5 +1,7 @@
 import {
   agentIdParamsSchema,
+  getGitHubRepositoryAppPinsResponseSchema,
+  githubRepositoryAppPinParamsSchema,
   githubRepositoryPageQuerySchema,
   githubRepositoryParamsSchema,
   githubRepositoryWriteResponseSchema,
@@ -8,6 +10,8 @@ import {
   patchGitHubRepositoryRequestSchema,
   pickAgentGitHubRepositoryRequestSchema,
   pickAgentGitHubRepositoryResponseSchema,
+  putGitHubRepositoryAppPinRequestSchema,
+  putGitHubRepositoryAppPinResponseSchema,
   workspaceParamsSchema,
 } from "@werft-ai/contracts";
 import type { GitHubRepositoryService } from "@werft-ai/platform";
@@ -50,6 +54,46 @@ export function registerGitHubRepositoryRoutes(
       ),
     );
     return jsonWithSchema(context, githubRepositoryWriteResponseSchema, set);
+  });
+
+  apiRoute(router, "getGitHubRepositoryAppPins", async (context) => {
+    const { id, repositoryId } = requireParams(
+      context,
+      githubRepositoryParamsSchema,
+    );
+    const pins = await mapped(() =>
+      service.pinCandidates(
+        context.get("caller"),
+        id.toLowerCase(),
+        repositoryId,
+      ),
+    );
+    return jsonWithSchema(
+      context,
+      getGitHubRepositoryAppPinsResponseSchema,
+      pins,
+    );
+  });
+
+  apiRoute(router, "putGitHubRepositoryAppPin", async (context) => {
+    const { id, repositoryId, role } = requireParams(
+      context,
+      githubRepositoryAppPinParamsSchema,
+    );
+    const set = await mapped(() =>
+      service.setPin(
+        context.get("caller"),
+        id.toLowerCase(),
+        repositoryId,
+        role,
+        () => parseJsonBody(context, putGitHubRepositoryAppPinRequestSchema),
+      ),
+    );
+    return jsonWithSchema(
+      context,
+      putGitHubRepositoryAppPinResponseSchema,
+      set,
+    );
   });
 
   apiRoute(router, "listAgentGitHubRepositories", async (context) => {

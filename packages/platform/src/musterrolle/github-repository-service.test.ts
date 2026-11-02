@@ -1,12 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentDetail } from "@werft-ai/contracts";
-import type { CatalogRepositoryStore } from "../ports/catalog-repository-store.ts";
+import type {
+  CatalogRepositoryRow,
+  CatalogRepositoryStore,
+} from "../ports/catalog-repository-store.ts";
 import {
   GitHubAppCheckError,
   type GitHubAppDirectory,
   type GitHubAppInstallationView,
   type GitHubAppStore,
   type GitHubInstallationRepository,
+  type GitHubPinStore,
+  type GitHubRepositoryPin,
 } from "../ports/github-app-store.ts";
 import {
   ceilingAppRepositories,
@@ -77,14 +82,81 @@ const apps = {
   },
 } as unknown as GitHubAppStore;
 
+function memoryPins(): GitHubPinStore & { rows: GitHubRepositoryPin[] } {
+  const rows: GitHubRepositoryPin[] = [];
+  const held = (repositoryId: string, role: string) =>
+    rows.find((pin) => pin.repositoryId === repositoryId && pin.role === role);
+  return {
+    rows,
+    async get(repositoryId, role) {
+      return held(repositoryId, role) ?? null;
+    },
+    async list() {
+      return [...rows];
+    },
+    async pinFirst(input) {
+      const before = held(input.repositoryId, input.role);
+      if (before !== undefined) return { pin: before, created: false };
+      const pin = {
+        repositoryId: input.repositoryId,
+        role: input.role,
+        connectionId: input.connectionId,
+        appId: input.appId,
+        pinnedBy: input.pinnedBy,
+      };
+      rows.push(pin);
+      return { pin, created: true };
+    },
+    async set(input) {
+      const before = held(input.repositoryId, input.role);
+      if (before?.connectionId === input.connectionId) {
+        return {
+          outcome: "stored",
+          before: input.connectionId,
+          changed: false,
+        };
+      }
+      if (before !== undefined) rows.splice(rows.indexOf(before), 1);
+      rows.push({
+        repositoryId: input.repositoryId,
+        role: input.role,
+        connectionId: input.connectionId,
+        appId: 0,
+        pinnedBy: "admin",
+      });
+      return {
+        outcome: "stored",
+        before: before?.connectionId ?? null,
+        changed: true,
+      };
+    },
+  };
+}
+
+const ROW = {
+  id: "widget",
+  github_repository_id: 5,
+  owner: "acme",
+  name: "widget",
+  url: "https://github.com/acme/widget.git",
+  branch: "main",
+  profiles: null,
+  source: "selection",
+  version: 1,
+  created_at: "",
+  updated_at: "",
+} as const;
+
 function serviceWith(
   directory: Partial<GitHubAppDirectory>,
   registered: GitHubAppStore = apps,
+  pins: ReturnType<typeof memoryPins> | null = null,
+  active: readonly CatalogRepositoryRow[] = [],
 ) {
   const resolved: string[] = [];
   const store = {
     async listActive() {
-      return [];
+      return [...active];
     },
     async agentCounts() {
       return new Map();
@@ -115,6 +187,7 @@ function serviceWith(
     authorization: createAuthorizationPolicy({}),
     store,
     apps: registered,
+    pins,
     directory: {
       async installations() {
         return [installation(INSTALLATION)];
@@ -159,7 +232,11 @@ function serviceWith(
     });
   const agentPage = () =>
     service.agentPage(caller, AGENT, { page: 1, per_page: 30 });
-  return { pick, list, agentPage, resolved };
+  const setPin = (role: "author" | "reviewer", connectionId: string) =>
+    service.setPin(caller, WORKSPACE, ROW.id, role, async () => ({
+      connection_id: connectionId,
+    }));
+  return { pick, list, agentPage, setPin, service, resolved };
 }
 
 const credentialOf = (id: string, appId: number) => ({
@@ -550,5 +627,165 @@ describe("picking a GitHub App repository for an agent", () => {
       code: "GITHUB_UNAVAILABLE",
       details: { reason_code: "github_app_auth_failed" },
     });
+  });
+});
+
+const twoAuthors = {
+  async get(_workspaceId: string, id: string) {
+    return ["author-a", "author-b", "reviewer-row"].includes(id)
+      ? { id, role: id === "reviewer-row" ? "reviewer" : "author" }
+      : null;
+  },
+  async list() {
+    return [
+      { id: "author-a", role: "author", name: "A", appId: 1 },
+      { id: "author-b", role: "author", name: "B", appId: 2 },
+      { id: "reviewer-row", role: "reviewer", name: "R", appId: 3 },
+    ];
+  },
+  async credentials(role: string) {
+    return role === "author"
+      ? [credentialOf("author-a", 1), credentialOf("author-b", 2)]
+      : [credentialOf("reviewer-row", 3)];
+  },
+} as unknown as GitHubAppStore;
+
+const byApp = {
+  async installations(app: { id: string }) {
+    return app.id === "author-b"
+      ? [installation(INSTALLATION)]
+      : [installation(app.id === "author-a" ? 11 : 12)];
+  },
+  async repositoryById() {
+    return repository(5, "widget");
+  },
+  async installationRepositoriesPage() {
+    return { repositories: [], totalCount: 0 };
+  },
+  async installationFor(app: { id: string }) {
+    return app.id === "author-b" ? { id: INSTALLATION, permissions: {} } : null;
+  },
+} as unknown as Partial<GitHubAppDirectory>;
+
+describe("several Apps of one role (decision github-agent.md 11)", () => {
+  test("a pick pins the repository to the App holding the installation, once", async () => {
+    const pins = memoryPins();
+    const { pick } = serviceWith(byApp, twoAuthors, pins);
+    expect(await pick(5)).toMatchObject({
+      catalog_id: "widget",
+      connection_id: "author-b",
+    });
+    expect(pins.rows).toEqual([
+      {
+        repositoryId: "widget",
+        role: "author",
+        connectionId: "author-b",
+        appId: 2,
+        pinnedBy: "selection",
+      },
+    ]);
+    pins.rows[0] = {
+      ...(pins.rows[0] as GitHubRepositoryPin),
+      connectionId: "author-a",
+      pinnedBy: "admin",
+    };
+    expect((await pick(5)).connection_id).toBe("author-a");
+    expect(pins.rows).toHaveLength(1);
+  });
+
+  test("a page with no installation named is refused only when its role has several Apps", async () => {
+    const { list, agentPage } = serviceWith(byApp, twoAuthors, memoryPins());
+    for (const read of [list(), agentPage()]) {
+      expect(await failed(read)).toEqual({
+        code: "BAD_REQUEST",
+        details: { reason_code: "installation_required" },
+      });
+    }
+    const named = await list(INSTALLATION);
+    expect(named.installation_id).toBe(INSTALLATION);
+    const single = serviceWith(
+      {
+        async installationRepositoriesPage() {
+          return { repositories: [], totalCount: 0 };
+        },
+      },
+      twoApps,
+      memoryPins(),
+    );
+    expect((await single.list()).installation_id).toBe(INSTALLATION);
+  });
+
+  test("an admin pin needs a connection of the role whose App covers the repository", async () => {
+    const pins = memoryPins();
+    const { setPin } = serviceWith(byApp, twoAuthors, pins, [ROW]);
+    expect(await reasonOf(setPin("author", "author-a"))).toBe("not_installed");
+    expect(await reasonOf(setPin("author", "reviewer-row"))).toBe(
+      "role_mismatch",
+    );
+    expect((await failed(setPin("author", "author-z"))).code).toBe("NOT_FOUND");
+    expect(pins.rows).toEqual([]);
+    expect(await setPin("author", "author-b")).toEqual({
+      catalog_id: "widget",
+      role: "author",
+      connection_id: "author-b",
+      receipt_id: expect.any(String),
+    });
+    expect((await setPin("author", "author-b")).receipt_id).toBeNull();
+  });
+
+  test("an App whose covering installation GitHub suspended does not reach the repository", async () => {
+    const suspended = {
+      ...byApp,
+      async installations() {
+        return [
+          {
+            ...installation(INSTALLATION),
+            suspendedAt: new Date("2026-11-01T00:00:00Z"),
+          },
+        ];
+      },
+    } as unknown as Partial<GitHubAppDirectory>;
+    const pins = memoryPins();
+    const { setPin, service } = serviceWith(suspended, twoAuthors, pins, [ROW]);
+    expect(await reasonOf(setPin("author", "author-b"))).toBe("not_installed");
+    expect(pins.rows).toEqual([]);
+    const { candidates } = await service.pinCandidates(
+      caller,
+      WORKSPACE,
+      "widget",
+    );
+    expect(candidates.map(({ installed }) => installed)).toEqual([
+      false,
+      false,
+      false,
+    ]);
+  });
+
+  test("the catalog row carries its pins, and candidates say which App reaches it", async () => {
+    const pins = memoryPins();
+    const { setPin, list, service } = serviceWith(byApp, twoAuthors, pins, [
+      ROW,
+    ]);
+    await setPin("author", "author-b");
+    const catalog = (await list(INSTALLATION)).catalog;
+    expect(catalog).toEqual([
+      expect.objectContaining({
+        id: "widget",
+        installed: true,
+        pins: { author: "author-b", reviewer: null },
+      }),
+    ]);
+    const candidates = await service.pinCandidates(caller, WORKSPACE, "widget");
+    expect(candidates.pins).toEqual({ author: "author-b", reviewer: null });
+    expect(
+      candidates.candidates.map(({ connection_id, installed }) => [
+        connection_id,
+        installed,
+      ]),
+    ).toEqual([
+      ["author-a", false],
+      ["author-b", true],
+      ["reviewer-row", false],
+    ]);
   });
 });

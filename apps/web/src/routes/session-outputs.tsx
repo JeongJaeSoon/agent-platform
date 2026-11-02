@@ -33,6 +33,11 @@ import { useId } from "react";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
+import {
+  OUT_FILES_ID,
+  SessionAchievements,
+  useSessionAchievements,
+} from "./session-achievements.tsx";
 
 const UNITS = ["byte", "kilobyte", "megabyte", "gigabyte"] as const;
 
@@ -94,7 +99,7 @@ function useSessionOutcomes(session: SessionDetail) {
   });
 }
 
-/** Pull requests and files, once both are read: the outputs tab's count. */
+/** Achievements, evidence and files, once all are read: the outputs tab's count. */
 export function SessionOutputsCount({
   session,
 }: {
@@ -102,6 +107,7 @@ export function SessionOutputsCount({
 }) {
   const outputs = useSessionOutputs(session);
   const outcomes = useSessionOutcomes(session);
+  const achievements = useSessionAchievements(session);
   const files =
     session.checkpoint_revision === null
       ? 0
@@ -109,7 +115,11 @@ export function SessionOutputsCount({
   const pulls = hasRepository(session)
     ? (outcomes.data?.items.length ?? (outcomes.error ? 0 : null))
     : 0;
-  return files === null || pulls === null ? null : files + pulls;
+  const achieved =
+    achievements.data?.items.length ?? (achievements.error ? 0 : null);
+  return files === null || pulls === null || achieved === null
+    ? null
+    : files + pulls + achieved;
 }
 
 type PullRequestOutcome = Extract<
@@ -357,6 +367,9 @@ export function SessionOutputsTab({
   const { t } = useI18n();
   const outputs = useSessionOutputs(session);
   const outcomes = useSessionOutcomes(session);
+  // The tab counts achievements, so with any it is not empty.
+  const achieved =
+    (useSessionAchievements(session).data?.items.length ?? 0) > 0;
   const files = outputs.data?.items ?? [];
   const pulls = outcomes.data?.items ?? [];
   const filesRead =
@@ -370,13 +383,14 @@ export function SessionOutputsTab({
       : isApiError(outcomes.error, "NOT_FOUND"));
   return (
     <div className="flex flex-col gap-[var(--ap-space-block)]">
+      <SessionAchievements session={session} />
       <SessionAttribution session={session} />
       <SessionPullRequests session={session} outcomes={outcomes} />
       <SessionGitHubRefusals session={session} />
       {filesRead && pullsRead && files.length === 0 && pulls.length === 0 ? (
         outputs.error && !isApiError(outputs.error, "NOT_FOUND") ? (
           <SessionOutputs session={session} />
-        ) : (
+        ) : achieved ? null : (
           <EmptyState
             title={t("session.outputs.empty")}
             description={t("session.outputs.emptyHint")}
@@ -461,7 +475,11 @@ function SessionOutputs({ session }: { readonly session: SessionDetail }) {
   const items = outputs.data?.items ?? [];
   if (items.length === 0) return null;
   return (
-    <section className="flex flex-col gap-2" aria-labelledby={titleId}>
+    <section
+      id={OUT_FILES_ID}
+      className="flex flex-col gap-2"
+      aria-labelledby={titleId}
+    >
       <Heading id={titleId}>{t("session.outputs.files")}</Heading>
       <ul className="m-0 flex list-none flex-col gap-2 rounded-card border bg-card p-4">
         {items.map((item) => {

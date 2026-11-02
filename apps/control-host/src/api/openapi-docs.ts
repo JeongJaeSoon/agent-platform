@@ -23,7 +23,7 @@ export type ErrorContext = {
   query: boolean;
 };
 
-export const API_INFO_DESCRIPTION = `Private alpha session control plane. This document is generated from the route declarations in apps/control-host/src/api/openapi.ts and the Zod schemas in packages/contracts; do not edit it by hand.
+export const API_INFO_DESCRIPTION = `Session control plane for Werft agents. This document is generated from the route declarations in apps/control-host/src/api/openapi.ts and the Zod schemas in packages/contracts; do not edit it by hand.
 
 ## Authentication
 

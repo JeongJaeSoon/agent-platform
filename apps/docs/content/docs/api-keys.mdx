@@ -84,7 +84,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' "$API/v1" -H "Authorization: Bearer $M
 
 ## 운영자 CLI
 
-운영자는 서버에서 key를 바로 발급할 수 있다. 로컬 스택에서는 `scripts/local.sh key`다([Quickstart](/getting-started/quickstart#api-key-받기)). 이 길은 위의 권한 판정을 거치지 않는다.
+운영자는 서버에서 key를 바로 발급할 수 있다. 로컬 스택에서는 `scripts/local.sh key`다([개발용 서버 실행](/run-server/dev-server#api-key-받기)). 이 길은 위의 권한 판정을 거치지 않는다.
 
 ```sh
 scripts/local.sh key <owner> --scopes sessions:read,sessions:write

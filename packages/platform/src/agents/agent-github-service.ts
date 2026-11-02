@@ -15,6 +15,10 @@ import { ACTOR_INACTIVE, NOT_FOUND } from "../musterrolle/service-errors.ts";
 import type { AgentGitHubStore } from "../ports/agent-github-store.ts";
 import type { AgentStore } from "../ports/agent-store.ts";
 import { repoRefOf } from "../ports/forge.ts";
+import type {
+  GitHubAppStore,
+  GitHubPinStore,
+} from "../ports/github-app-store.ts";
 import type { GitHubConnections } from "../ports/github-gate.ts";
 import type { GitHubSettingsStore } from "../ports/github-settings.ts";
 import {
@@ -22,6 +26,10 @@ import {
   GITHUB_API_BASE,
   type SessionCatalog,
 } from "../sessions/catalog.ts";
+import {
+  createGitHubConnectionResolver,
+  type GitHubConnectionResolver,
+} from "../sessions/github-connection-resolver.ts";
 import {
   requirePermitted,
   SessionServiceError,
@@ -76,8 +84,22 @@ export function createAgentGitHubService(deps: {
   githubSettings: Pick<GitHubSettingsStore, "get" | "appPermissions">;
   /** Each repository's connections, asked whether their App is installed. */
   connections?: GitHubConnections;
+  resolver?: GitHubConnectionResolver;
+  /** Absent: permissions come from `githubSettings.appPermissions`. */
+  pinned?: {
+    apps: Pick<GitHubAppStore, "list">;
+    pins: Pick<GitHubPinStore, "list">;
+  };
 }) {
   const { authorization, catalog, store } = deps;
+  const resolver =
+    deps.resolver ??
+    (deps.connections === undefined
+      ? null
+      : createGitHubConnectionResolver({
+          connections: deps.connections,
+          pins: null,
+        }));
 
   // GitHub not answering leaves the badge off rather than failing the tab.
   async function installed(
@@ -85,10 +107,51 @@ export function createAgentGitHubService(deps: {
     url: string,
     role: GitHubAppRole,
   ): Promise<boolean | null> {
-    const connection = deps.connections?.(id, role) ?? null;
     const repo = repoRefOf(url);
-    if (connection === null || repo === null) return null;
-    return connection.installed(repo).catch(() => null);
+    if (resolver === null || repo === null) return null;
+    return resolver.installed(id, role, repo).catch(() => null);
+  }
+
+  /**
+   * Per role, the permissions of the connections the scope's repositories
+   * use: the pinned one, or the role's only connection where none is pinned
+   * yet, as the first token issue will pin it. A repository neither tells is
+   * left to the gate. Null with no connection of the role.
+   */
+  async function scopePermissions(
+    workspaceId: string,
+    scope: readonly string[],
+  ): Promise<Record<
+    GitHubAppRole,
+    { permissions: (Record<string, string> | null)[] } | null
+  > | null> {
+    if (deps.pinned === undefined) return null;
+    const [apps, pins] = await Promise.all([
+      deps.pinned.apps.list(workspaceId),
+      deps.pinned.pins.list(),
+    ]);
+    const of = (role: GitHubAppRole) => {
+      const held = apps.filter((app) => app.role === role);
+      if (held.length === 0) return null;
+      // Every pin of the role is this one, or emptied by a removal.
+      if (held.length === 1) {
+        return { permissions: held.map((app) => app.permissions) };
+      }
+      const permissions = scope.flatMap((id) => {
+        const pin = pins.find(
+          (entry) => entry.repositoryId === id && entry.role === role,
+        );
+        const app =
+          pin === undefined
+            ? undefined
+            : held.find(
+                ({ id: connection }) => connection === pin.connectionId,
+              );
+        return app === undefined ? [] : [app.permissions];
+      });
+      return { permissions };
+    };
+    return { author: of("author"), reviewer: of("reviewer") };
   }
 
   const manage = (caller: Caller, agentId: string) =>
@@ -166,18 +229,41 @@ export function createAgentGitHubService(deps: {
       const scope = github?.repositories ?? legacyDefaults?.repositories ?? [];
       const enterprise =
         scope.length > 0 && scope.every((id) => enterpriseApp(entry(id)));
-      const author = apps.author?.permissions ?? null;
+      const pinned = await scopePermissions(workspaceId, scope);
+      const known = (
+        role: GitHubAppRole,
+      ): { present: boolean; permissions: Record<string, string>[] } => {
+        if (pinned !== null) {
+          const held = pinned[role];
+          return {
+            present: held !== null,
+            permissions: (held?.permissions ?? []).filter(
+              (entry): entry is Record<string, string> => entry !== null,
+            ),
+          };
+        }
+        const app = apps[role];
+        return {
+          present: app !== null,
+          permissions: app?.permissions == null ? [] : [app.permissions],
+        };
+      };
+      const authors = known("author");
+      const reviewers = known("reviewer");
       const featureOption = (feature: keyof GitHubFeatures) => {
         const missing =
           feature === "review"
-            ? apps.reviewer?.permissions != null &&
-              !writes(apps.reviewer.permissions.pull_requests)
-            : author !== null && !writes(author[feature]);
+            ? reviewers.permissions.some(
+                (permissions) => !writes(permissions.pull_requests),
+              )
+            : authors.permissions.some(
+                (permissions) => !writes(permissions[feature]),
+              );
         const reason: AgentGitHubFeatureUnavailable | null = enterprise
           ? "github_host_unsupported"
           : !settings.ceiling[feature]
             ? "over_workspace_ceiling"
-            : feature === "review" && apps.reviewer === null
+            : feature === "review" && !reviewers.present
               ? "no_reviewer_app"
               : missing
                 ? "app_permission_missing"

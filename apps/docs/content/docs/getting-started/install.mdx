@@ -1,80 +1,109 @@
 ---
-title: "설치"
-description: 로컬 머신에 Werft 스택을 띄운다
+title: "SDK 설치"
+description: "@werft-ai/sdk를 설치하고, 서버 주소와 API key로 클라이언트를 만든다"
 ---
 
-Werft는 API 서버, scheduler, 세션마다 뜨는 worker 컨테이너, PostgreSQL, S3(SeaweedFS), Git 서버(Gitea), egress proxy로 이뤄진다. 이 페이지는 이 전부를 Docker Compose로 한 머신에 띄운다. 모델은 key 없이 도는 fake 모델을 쓰므로 Anthropic 계정이 없어도 된다.
+Werft는 TypeScript SDK `@werft-ai/sdk`로 쓴다. SDK는 이미 떠 있는 Werft 서버에 API key로 붙는다. 이 페이지에서 SDK를 설치하고, 서버 주소와 key로 클라이언트를 만들고, 연결을 확인한다.
 
-## 준비물
+## 필요한 것
 
-| 항목 | 버전 |
+| 항목 | 설명 |
 | --- | --- |
-| Docker Engine | 28 이상 |
-| Docker Compose | 2.24.6 이상 |
-| curl, jq, uuidgen, git | 아무 버전 |
+| 서버 주소 | Werft 서버의 URL. 예: `https://werft.example.com`. 개발용 서버는 `http://127.0.0.1:3000`이다 |
+| API key | `csp_`로 시작하는 key. 세션을 만들려면 `sessions:read`, `sessions:write`가, 권한 요청에 답하고 세션을 닫으려면 `sessions:approve`, `sessions:control`도 필요하다 |
+| Node 20.3 이상 또는 Bun | SDK가 도는 런타임 |
 
-스택은 `127.0.0.1`에만 포트를 연다. 3000(API·웹 콘솔), 5432(PostgreSQL), 4566(S3), 4567(LocalStack Secrets Manager), 3001(Gitea)이 비어 있어야 한다.
+<Callout type="info">
+서버가 없으면 [서버 실행하기](/run-server/dev-server)에서 개발용 서버를 띄우고 [API key를 받는다](/run-server/dev-server#api-key-받기). 운영 중인 서버라면 웹 콘솔에서 key를 발급한다([API key](/api-keys)).
+</Callout>
 
-```sh
-docker version --format 'Docker Engine {{.Server.Version}}'
-docker compose version
-for p in 3000 5432 4566 4567 3001; do
-  lsof -nP -iTCP:$p -sTCP:LISTEN >/dev/null 2>&1 && echo "사용 중: $p"
-done
-```
+## 설치
 
-`사용 중:` 줄이 없으면 된다.
-
-## 받기
+`@werft-ai/sdk`는 아직 npm 레지스트리에 올라가지 않았다. 지금은 저장소에서 패키지를 빌드해 tarball로 설치한다. 저장소가 고정한 Bun 1.3.14와 npm이 필요하다.
 
 ```sh
 git clone https://github.com/JeongJaeSoon/agent-platform.git
 cd agent-platform
+bun install
+bun run --cwd packages/sdk build:package
+npm pack ./packages/sdk/dist
 ```
 
-## 띄우기
-
-```bash
-scripts/local.sh up --fake-model
-```
-
-처음에는 이미지를 이 checkout에서 빌드하므로 몇 분에서 10분쯤 걸린다. 준비가 끝나면 마지막 줄에 다음이 나온다.
-
-```text
-{"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}
-```
-
-`--fake-model`을 붙이면 모델 호출을 compose 안의 fake Messages API가 받는다. worker 안에서는 진짜 Claude Code가 돌고, fake는 메시지에 적힌 대본대로 답한다([Quickstart](/getting-started/quickstart)). 옵션 없이 `scripts/local.sh up`으로 띄우면 셸의 `ANTHROPIC_API_KEY`로 실제 Claude를 부르고 비용이 든다.
-
-## 상태 보기
-
-```bash
-scripts/local.sh status
-```
-
-`api`·`scheduler`·`reconciler`가 running이고 끝에 `/readyz` 응답이 있으면 된다. worker 컨테이너는 상주하지 않는다. scheduler가 세션마다 띄우고 지운다.
-
-## 내리기
+저장소 루트에 `werft-ai-sdk-0.1.0.tgz`가 생긴다. 저장소 옆에 앱 디렉터리를 만들고 그 파일을 설치한다.
 
 ```sh
-scripts/local.sh down
+cd ..
+mkdir my-werft-app && cd my-werft-app
+npm init -y
+npm pkg set type=module
+npm install ../agent-platform/werft-ai-sdk-0.1.0.tgz
 ```
 
-`scripts/local.sh down`은 스택과 **모든 데이터**(세션, checkpoint, API key, Gitea 저장소)를 지운다. 처음부터 다시 하려면 `scripts/local.sh reset --fake-model`이다.
+npm에 올라가면 마지막 줄이 `npm install @werft-ai/sdk`로 바뀐다. SDK 패키지는 Apache License 2.0이다. 서버와 저장소의 나머지는 PolyForm Small Business License 1.0.0을 따르는 source-available 코드다.
 
-데이터를 보존하고 worker 컨테이너·네트워크도 정리하려면 `scripts/local.sh down --keep-volumes`를 쓴다. 다시 `scripts/local.sh up --fake-model`로 띄우면 PostgreSQL·Gitea·S3 named volume의 데이터가 남는다. S3 객체와 암호화 키는 `local-s3-data`에 함께 저장되므로 Docker/OrbStack 재시작 뒤에도 checkpoint를 읽을 수 있다.
+## 클라이언트 만들기
 
-이전 LocalStack 설치에서 전환할 때는 pull 전에 옛 checkout에서 백업하고, pull 뒤 사용한 적 없는 새 프로젝트에 복원한다. 이미 유실된 checkpoint는 복원할 수 없으므로 복구 가능한 백업을 찾거나 유실 참조를 명시적으로 해제해야 한다. [전환·백업 안내](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/quickstart.md#재부팅이나-docker-재시작-뒤)를 따른다.
+`Werft`를 만들 때 서버 주소(`baseUrl`)와 API key(`apiKey`)를 넘긴다. 서버 주소에 기본값은 없다. key는 코드에 적지 말고 환경 변수에서 읽는다.
 
-## 막혔을 때
+```ts title="werft.ts"
+import { Werft } from "@werft-ai/sdk";
 
-| 증상 | 조치 |
-| --- | --- |
-| `Docker Engine … is too old` | Docker Engine을 28 이상으로 올린다 |
-| `127.0.0.1 port(s) … already in use` | 위 `lsof` 루프로 그 포트를 쓰는 프로세스를 찾는다 |
-| `up needs ANTHROPIC_API_KEY exported or in .env` | 옵션 없는 `up`은 실제 Claude를 쓴다. key 없이 하려면 `--fake-model`을 붙인다 |
-| Docker를 재시작한 뒤 API가 뜨지 않는다 | S3 volume과 암호화 키를 확인하고 로그를 읽는다. 이전 LocalStack의 객체 유실이면 전환·백업 안내의 복구 결정을 따른다 |
+export const werft = new Werft({
+  baseUrl: "http://127.0.0.1:3000",
+  apiKey: process.env.WERFT_API_KEY,
+});
+```
+
+- `baseUrl`은 서버의 주소다. `/v1`은 붙이지 않는다.
+- 옵션을 빼면 `WERFT_BASE_URL`, `WERFT_API_KEY` 환경 변수를 읽는다. 둘 중 하나라도 없으면 `new Werft()`가 `TypeError`를 던진다.
+- loopback이 아닌 주소에 `http://`를 쓰면 key가 평문으로 지나가므로 거절한다. 원격 서버에는 `https://`로 붙는다.
+- 브라우저에서는 만들 수 없다. 페이지에 key를 두면 새기 때문이다.
+
+재시도, timeout, 오류 종류 같은 나머지 옵션은 [클라이언트 설정과 오류](/getting-started/client)에 있다.
+
+## 연결 확인
+
+key의 주인과 scope, 서버에 등록된 실행 프로필을 읽는다.
+
+```ts title="check.ts"
+import { werft } from "./werft.ts";
+
+const me = await werft.auth.me();
+console.log(me.principal.kind, me.scopes);
+
+const { items } = await werft.profiles.list();
+for (const profile of items) console.log(profile.id, profile.repository_mode);
+```
+
+```bash
+WERFT_API_KEY=csp_… node check.ts
+```
+
+```text
+api_key [
+  'sessions:read',
+  'sessions:write',
+  'sessions:approve',
+  'sessions:control',
+  'sessions:recover'
+]
+claude-coding-auto required
+claude-coding-local required
+general none
+```
+
+Node 22.18 이상과 Bun은 `.ts` 파일을 바로 돌린다. 그보다 낮은 Node에서는 `npx tsx check.ts`로 돌린다. key가 틀리면 `APIError`(401)가, 서버에 닿지 않으면 `ConnectionError`가 난다.
+
+<Callout type="info" title="HTTP API로 부를 때">
+SDK 없이 부를 때는 모든 요청에 `Authorization: Bearer <key>` 헤더를 붙인다. 문서의 curl 예제는 서버 주소를 `API`, key를 `KEY` 셸 변수에 둔다.
+
+```bash
+curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $KEY"
+```
+
+엔드포인트는 [HTTP API 레퍼런스](/reference/http-api/auth/getApiRoot)에 있다.
+</Callout>
 
 ## 다음 단계
 
-- [Quickstart](/getting-started/quickstart): API key를 받고 첫 세션을 만든다
+- [첫 세션 만들기](/getting-started/quickstart): SDK로 세션을 만들고 모델의 답을 읽는다
