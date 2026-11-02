@@ -66,7 +66,6 @@ async function pick(
   await user.keyboard("{ArrowDown}{Enter}");
 }
 
-/** Opens 구성원 추가 from the 팀 구성원 head; the picker inside has the keyboard. */
 async function openAdd(user: Awaited<ReturnType<typeof setupUser>>) {
   await user.click(await screen.findByRole("button", { name: "구성원 추가" }));
   const dialog = await screen.findByRole("dialog", {
@@ -630,11 +629,8 @@ describe("팀 화면", () => {
     const user = await setupUser();
     const memberReads = () =>
       api.calls.filter((c) => c.path === "/v1/members").map((c) => c.search);
-    // One search box on the page: adding lives in its own dialog.
     await screen.findByRole("button", { name: "구성원 추가" });
     expect(screen.queryByRole("combobox")).toBeNull();
-    // The page head's two; the picker has not asked, and an empty team has
-    // no roles to read.
     await waitFor(() => expect(memberReads()).toEqual(["?limit=2"]));
     const { dialog, picker } = await openAdd(user);
     await waitFor(() => expect(memberReads()).toEqual(["?limit=2", ""]));
@@ -672,7 +668,6 @@ describe("팀 화면", () => {
       () => expect(said()).toContain("추가할 수 있는 활성 구성원이 없습니다."),
       { timeout: 3000 },
     );
-    // Escape closes the suggestions, not the dialog.
     await user.keyboard("{Escape}");
     expect(screen.getByRole("dialog")).toBeDefined();
 
@@ -692,7 +687,6 @@ describe("팀 화면", () => {
         .filter((c) => c.method === "POST" && c.path.endsWith("/members"))
         .map((c) => c.body),
     ).toEqual([{ user_id: MATE_ID }, { user_id: USER_ID }]);
-    // Everyone joined: the dialog closes and hands the keyboard back.
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(
       document.activeElement ===
@@ -719,7 +713,6 @@ describe("팀 화면", () => {
       "2026. 10. 11. 09:00",
       "빼기",
     ]);
-    // A row's remove is a row action that takes access away (B-25).
     const remove = within(mateRow).getByRole("button", {
       name: "Mate님을 팀에서 빼기",
     });
@@ -776,7 +769,6 @@ describe("팀 화면", () => {
     expect(
       within(dialog).getByRole("button", { name: "구성원 추가" }),
     ).toBeDefined();
-    // Closed, the page says who joined.
     await user.click(within(dialog).getByRole("button", { name: "취소" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(said()).toContain("Mate님을 팀에 추가했습니다.");
@@ -825,7 +817,6 @@ describe("팀 화면", () => {
       within(dialog).getByRole("button", { name: "구성원 추가" }),
     );
     await pick(user, picker, "Owner");
-    // Open until the requests answer, whatever closes it meanwhile.
     await user.click(within(dialog).getByRole("button", { name: "취소" }));
     expect(screen.getByRole("dialog") === dialog).toBe(true);
     act(() => answer());

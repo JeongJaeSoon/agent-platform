@@ -684,12 +684,6 @@ type AddResult = {
   }[];
 };
 
-/**
- * The 팀 구성원 head's button: search by name or email in a dialog, pick as
- * many as needed, add them in one go. The API takes one person per request,
- * so the picks go one after another; when everyone joined the dialog closes,
- * and whoever was refused stays picked in it, ready to try again.
- */
 function AddMembersDialog({
   team,
   onOutcome,
@@ -744,7 +738,6 @@ function AddMembersDialog({
           : t("teams.membersAdded", { count: added.length })
         : null;
       if (joinedText) onOutcome({ kind: "notice", text: joinedText });
-      // Who did not join and why, one sentence per reason.
       const byReason = new Map<string, string[]>();
       for (const { member, error: refusal } of failed) {
         const why = refusalText(t, refusal, "team.manage", role);
@@ -769,14 +762,12 @@ function AddMembersDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        // Open until the requests answer, so their answer lands in this opening.
         if (add.isPending) return;
         setResult(null);
         setPicked([]);
         setOpen(next);
       }}
     >
-      {/* As the trigger, the button gets the focus back when the dialog closes. */}
       <DialogTrigger asChild>
         <Button type="button" variant="outline" size="sm">
           <Plus aria-hidden="true" />
@@ -819,7 +810,6 @@ function AddMembersForm({
   const { client } = useAgentPlatform();
   const role = useRole();
   const pickerId = useId();
-  // The picker asks the server, a page at a time, as typing pauses.
   const [term, setTerm] = useState("");
   const members = useInfiniteQuery(
     memberPagesQuery(client, term.trim() || undefined),

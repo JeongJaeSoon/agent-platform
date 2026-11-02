@@ -1274,10 +1274,6 @@ function TeamMembers({
   );
 }
 
-/**
- * The 팀 구성원 head's button: pick active members who are not in the team
- * yet in a dialog, then add them at once.
- */
 function AddMembers({
   team,
   initialOpen,
