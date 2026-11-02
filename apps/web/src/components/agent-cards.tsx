@@ -211,25 +211,14 @@ function AgentCard({
       <CardContent className="flex flex-1 flex-col gap-3">
         {/* Two lines whether read or not, so the card never grows as it loads. */}
         <div className="h-[2lh] text-control">
-          <Detail query={facts} lines={2}>
-            {version ? (
-              <p className="m-0 line-clamp-2">{version.role}</p>
-            ) : null}
-          </Detail>
-        </div>
-        <div className="flex flex-col gap-1 rounded-control bg-muted px-3 py-2">
-          <Text as="span" variant="meta" className="text-muted-foreground">
-            {t("agents.cards.instructions")}
-          </Text>
-          <div className="h-[2lh] text-control">
+          {agent.description !== null ? (
+            <Description text={agent.description} />
+          ) : (
+            // A card's earlier role stands in until the agent has a description.
             <Detail query={facts} lines={2}>
-              {version ? (
-                <p className="m-0 line-clamp-2 [overflow-wrap:anywhere]">
-                  {version.instructions}
-                </p>
-              ) : null}
+              {version?.role ? <Description text={version.role} /> : null}
             </Detail>
-          </div>
+          )}
         </div>
         <dl className="m-0 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-2 text-control">
           <Fact term={t("agents.cards.release")}>
@@ -347,6 +336,10 @@ function Detail({
       </span>
     );
   return <>{children}</>;
+}
+
+function Description({ text }: { readonly text: string }) {
+  return <p className="m-0 line-clamp-2 [overflow-wrap:anywhere]">{text}</p>;
 }
 
 /** A dash to the eye, words to a screen reader. */

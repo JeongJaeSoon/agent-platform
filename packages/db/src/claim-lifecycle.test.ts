@@ -150,7 +150,10 @@ function pass(backend: ExecutionBackend) {
 }
 
 /** A release whose runtime_config_snapshot is `snapshot`. */
-async function releaseWith(snapshot: unknown): Promise<string> {
+async function releaseWith(
+  snapshot: unknown,
+  card: Record<string, unknown> = {},
+): Promise<string> {
   const workspaceId = crypto.randomUUID();
   const agentId = crypto.randomUUID();
   const versionId = crypto.randomUUID();
@@ -163,7 +166,13 @@ async function releaseWith(snapshot: unknown): Promise<string> {
     id: versionId,
     agentId,
     versionNo: 1,
-    card: { role: "r", instructions: "i", model: "m", capabilities: {} },
+    card: {
+      role: "r",
+      instructions: "i",
+      model: "m",
+      capabilities: {},
+      ...card,
+    },
     contentSha256: "0".repeat(64),
   });
   await db.insert(agentReleases).values({
@@ -284,6 +293,34 @@ describe("claim lifecycle", () => {
     expect(await toolsBound(await releaseWith({ tools: [] }))).toEqual([]);
     expect(await toolsBound(await releaseWith({ tools: "Read" }))).toEqual([]);
     expect(await toolsBound(await releaseWith({}))).toEqual([]);
+  });
+
+  test("the binding carries the release card's agent instructions as stored, and none for a card without them, an empty one, or no release", async () => {
+    const instructionsBound = async (agentReleaseId: string | null) => {
+      const backend = new NonceHoldingBackend();
+      await queuedSession("default", agentReleaseId);
+      const [ref] = (await pass(backend)).launched;
+      if (!ref) throw new Error("nothing launched");
+      const bound = await claim(ref, backend.nonceOf(ref));
+      if (bound.outcome !== "claimed") throw new Error(bound.outcome);
+      return bound.binding.agentInstructions;
+    };
+    const text = "  Answer in Korean.\n";
+    expect(await instructionsBound(null)).toBeNull();
+    expect(
+      await instructionsBound(
+        await releaseWith({ tools: [] }, { agent_instructions: text }),
+      ),
+    ).toBe(text);
+    // The card's earlier `instructions` never reach a run.
+    expect(
+      await instructionsBound(await releaseWith({ tools: [] })),
+    ).toBeNull();
+    expect(
+      await instructionsBound(
+        await releaseWith({ tools: [] }, { agent_instructions: "" }),
+      ),
+    ).toBeNull();
   });
 
   test("a claimed execution lost after its claim comes back as the next generation with a new nonce; the old nonce claims nothing", async () => {

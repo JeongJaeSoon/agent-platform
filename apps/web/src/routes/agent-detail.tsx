@@ -524,7 +524,8 @@ function AgentView({
     </Tabs>
   );
 
-  const cardRole = latestVersion(detail)?.card.role;
+  // A card's earlier role stands in until the agent has a description.
+  const description = agent.description ?? latestVersion(detail)?.card.role;
   return (
     <Page
       // Below 1024 the two buttons leave the name too little room to keep
@@ -539,8 +540,8 @@ function AgentView({
       }
       titleAside={<AgentStateBadge agent={agent} />}
       description={
-        cardRole ? (
-          <span className="[overflow-wrap:anywhere]">{cardRole}</span>
+        description ? (
+          <span className="[overflow-wrap:anywhere]">{description}</span>
         ) : undefined
       }
       actions={

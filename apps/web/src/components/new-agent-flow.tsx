@@ -17,6 +17,7 @@ import type {
   AgentDetail,
   ProfileSummary,
 } from "@werft-ai/contracts";
+import { AGENT_DESCRIPTION_MAX_LENGTH } from "@werft-ai/contracts/agent-card";
 import {
   agentCardStep,
   agentIdentityStep,
@@ -45,6 +46,7 @@ import {
   Skeleton,
   Stepper,
   Text,
+  Textarea,
 } from "@werft-ai/ui";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useWatch } from "react-hook-form";
@@ -91,8 +93,14 @@ type Steps = {
     versionId: string;
     releaseId: string;
   };
-  name: { flow: string; name?: string; slug?: string };
-  job: { flow: string; name: string; slug: string; card?: unknown };
+  name: { flow: string; name?: string; slug?: string; description?: string };
+  job: {
+    flow: string;
+    name: string;
+    slug: string;
+    description?: string;
+    card?: unknown;
+  };
   release: {
     flow: string;
     name: string;
@@ -181,6 +189,7 @@ interface SavedDraft {
   readonly agentId: string;
   readonly name: string;
   readonly slug: string;
+  readonly description: string;
   readonly card: CardDraft;
 }
 
@@ -198,7 +207,12 @@ function readDraft(flow: string): SavedDraft | null {
     if (!raw) return null;
     const draft = JSON.parse(raw) as SavedDraft;
     // The agent was saved, so the draft stays even when its input does not.
-    return { ...draft, card: cardDraftOf(draft.card) ?? EMPTY_DRAFT };
+    return {
+      ...draft,
+      description:
+        typeof draft.description === "string" ? draft.description : "",
+      card: cardDraftOf(draft.card) ?? EMPTY_DRAFT,
+    };
   } catch {
     return null;
   }
@@ -279,6 +293,12 @@ export function NewAgentFlow({
     defaultValues: {
       name: restored.name ?? saved?.name ?? "",
       slug: restored.slug ?? saved?.slug ?? "",
+      description:
+        (typeof restored.description === "string"
+          ? restored.description
+          : undefined) ??
+        saved?.description ??
+        "",
     },
   });
   // The first entry holds no context until written, so coming back to it
@@ -315,11 +335,17 @@ export function NewAgentFlow({
 
   // Moving between steps keeps the input; leaving the flow drops what the
   // draft does not hold.
-  const kept = saved ?? { name: "", slug: "", card: EMPTY_DRAFT };
+  const kept = saved ?? {
+    name: "",
+    slug: "",
+    description: "",
+    card: EMPTY_DRAFT,
+  };
   const unsaved = useRef(false);
   unsaved.current =
     identityInput.name !== kept.name ||
     identityInput.slug !== kept.slug ||
+    identityInput.description !== kept.description ||
     canonical(cardInput) !== canonical(kept.card);
   const leaving = useBlocker({
     shouldBlockFn: ({ current, next }) =>
@@ -363,12 +389,15 @@ export function NewAgentFlow({
         )
       : undefined;
     const sent = base ? agentCardStep(base).parse(input) : values;
+    const description =
+      typeof context.description === "string" ? context.description : "";
     const detail = (await unwrap(
       saved
         ? client.PATCH("/v1/agents/{id}", {
             params: { path: { id: saved.agentId } },
             body: {
               ...(context.name !== saved.name ? { name: context.name } : {}),
+              ...(description !== saved.description ? { description } : {}),
               card: sent as unknown as ApiCard,
             },
           })
@@ -376,6 +405,7 @@ export function NewAgentFlow({
             body: {
               slug: context.slug,
               name: context.name,
+              ...(description === "" ? {} : { description }),
               card: sent as unknown as ApiCard,
             },
           }),
@@ -384,12 +414,17 @@ export function NewAgentFlow({
       agentId: detail.agent.id,
       name: detail.agent.name,
       slug: detail.agent.slug,
+      description: detail.agent.description ?? "",
       card: input,
     };
     setSaved(draft);
     writeDraft(flow, draft);
     // The fields show what was saved, trimmed as the server keeps it.
-    identity.reset({ name: draft.name, slug: draft.slug });
+    identity.reset({
+      name: draft.name,
+      slug: draft.slug,
+      description: draft.description,
+    });
     queryClient.setQueryData(
       queryKeysOf(client).agent(detail.agent.id),
       detail,
@@ -532,7 +567,17 @@ function NameStep({
             : errors.slug?.message}
         </FieldError>
       </Field>
-      <Alerts lines={formAlerts(errors, ["name", "slug"])} />
+      <Field>
+        <FieldLabel>{t("agents.descriptionOptional")}</FieldLabel>
+        <Textarea
+          maxLength={AGENT_DESCRIPTION_MAX_LENGTH}
+          rows={3}
+          {...form.register("description")}
+        />
+        <FieldDescription>{t("agents.descriptionHint")}</FieldDescription>
+        <FieldError>{errors.description?.message}</FieldError>
+      </Field>
+      <Alerts lines={formAlerts(errors, ["name", "slug", "description"])} />
       <div>
         <Button type="submit">{t("agents.flow.next")}</Button>
       </div>
