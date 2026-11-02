@@ -16,7 +16,7 @@ const rejected = await werft.sessions.pushRequests.reject(sessionId, second.id, 
   git_commit: second.git_commit,
   reason: "needs tests first",
 });
-console.log(rejected.state, rejected.decision_reason);
+console.log(rejected.state, rejected.resolution_reason);
 ```
 
 ```text
@@ -39,13 +39,13 @@ curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/reject" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
   -d "$(jq -nc --arg c "$PUSH_COMMIT" '{git_commit: $c, reason: "needs tests first"}')" \
-  | jq '{state, decision_reason}'
+  | jq '{state, resolution_reason}'
 ```
 
 ```text
 {
   "state": "rejected",
-  "decision_reason": "needs tests first"
+  "resolution_reason": "needs tests first"
 }
 ```
 

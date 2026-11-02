@@ -542,6 +542,20 @@ describe("a release with push_approval off", () => {
         create: async (input: CreatePushRequestInput) => {
           created.push(input);
           const approved = input.approvedByRelease !== null;
+          const resolution = {
+            resolved_by:
+              input.approvedByRelease === null
+                ? null
+                : {
+                    kind: "policy" as const,
+                    agent_release_id: input.approvedByRelease,
+                  },
+            resolved_at: approved ? "2026-10-30T00:00:00.000Z" : null,
+            resolution_reason: null,
+            resolution_receipt_id: approved
+              ? "019a0000-0000-7000-8000-0000000000e2"
+              : null,
+          };
           const request: PushRequest = {
             id: PUSH,
             session_id: input.sessionId,
@@ -552,18 +566,14 @@ describe("a release with push_approval off", () => {
             state: approved ? "approved" : "requested",
             requested_by: input.actor,
             requested_at: "2026-10-30T00:00:00.000Z",
-            decided_by:
-              input.approvedByRelease === null
-                ? null
-                : { kind: "policy", agent_release_id: input.approvedByRelease },
-            decided_at: approved ? "2026-10-30T00:00:00.000Z" : null,
-            decision_reason: null,
+            ...resolution,
             request_receipt_id: "019a0000-0000-7000-8000-0000000000e1",
-            decision_receipt_id: approved
-              ? "019a0000-0000-7000-8000-0000000000e2"
-              : null,
             finished_at: null,
             push_receipt_id: null,
+            decided_by: resolution.resolved_by,
+            decided_at: resolution.resolved_at,
+            decision_reason: null,
+            decision_receipt_id: resolution.resolution_receipt_id,
           };
           return { outcome: "written", request };
         },
@@ -598,6 +608,7 @@ describe("a release with push_approval off", () => {
     expect(created[0]?.approvedByRelease).toBe(RELEASE);
     expect(request).toMatchObject({
       state: "approved",
+      resolved_by: { kind: "policy", agent_release_id: RELEASE },
       decided_by: { kind: "policy", agent_release_id: RELEASE },
     });
   });

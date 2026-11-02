@@ -52,6 +52,10 @@ export const PUSH_REFUSAL_ERRORS: Record<
     code: "PUSH_REQUEST_DECIDED",
     message: "The push request was already decided",
   },
+  already_resolved: {
+    code: "PUSH_REQUEST_RESOLVED",
+    message: "The push request was already decided",
+  },
   checkpoint_moved: {
     code: "CHECKPOINT_MOVED",
     message:

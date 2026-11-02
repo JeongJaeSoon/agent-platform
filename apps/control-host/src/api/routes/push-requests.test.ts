@@ -107,13 +107,17 @@ const PINNED: PushRequest = {
     agent_id: null,
   },
   requested_at: "2026-10-13T00:00:00.000Z",
+  resolved_by: null,
+  resolved_at: null,
+  resolution_reason: null,
+  request_receipt_id: RECEIPT,
+  resolution_receipt_id: null,
+  finished_at: null,
+  push_receipt_id: null,
   decided_by: null,
   decided_at: null,
   decision_reason: null,
-  request_receipt_id: RECEIPT,
   decision_receipt_id: null,
-  finished_at: null,
-  push_receipt_id: null,
 };
 
 const CATALOG = {

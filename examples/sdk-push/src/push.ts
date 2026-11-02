@@ -85,7 +85,7 @@ async function run(): Promise<void> {
     },
     { signal },
   );
-  console.log(`${show(rejected)}, reason "${rejected.decision_reason}"`);
+  console.log(`${show(rejected)}, reason "${rejected.resolution_reason}"`);
   const late = await approver.sessions.pushRequests
     .approve(sessionId, first.id, { git_commit: first.git_commit }, { signal })
     .catch((error: unknown) => error);
