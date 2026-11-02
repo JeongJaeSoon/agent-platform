@@ -845,9 +845,7 @@ describe("에이전트 상세 탭", () => {
 
   test("카드 원문을 복사하면 버튼이 복사했다고 바뀌고, 실패하면 직접 복사하라고 한다", async () => {
     renderAt(`${DETAIL}?tab=card`, { ...meOk, ...agentServer().routes });
-    const section = (
-      await screen.findByRole("heading", { name: "카드 원문" })
-    ).closest("section") as HTMLElement;
+    const section = await screen.findByRole("region", { name: "카드 원문" });
     const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
     const written: string[] = [];
     let refuse = true;
