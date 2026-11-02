@@ -91,7 +91,7 @@ const CARD: AgentDetail["versions"][number]["card"] = {
   rules: [],
 };
 
-const AGENT_ID = "agt_01JBILLING0000000000000000";
+const AGENT_ID = "9b1c2d3e-4f5a-4b6c-8d7e-0f1a2b3c4d5e";
 const SHA = "0".repeat(64);
 const VERSIONS: AgentDetail["versions"] = [
   {
@@ -115,7 +115,7 @@ const VERSIONS: AgentDetail["versions"] = [
 ];
 
 export const RELEASE: ReleaseFixture = {
-  id: "rel_01JBILLING00000000000000001",
+  id: "2e4f6a8b-0c1d-4e2f-9a3b-4c5d6e7f8a9b",
   version_id: "ver_01JBILLING00000000000000002",
   label: "2026-10-22_14:00:00",
   runtime_profile_id: "claude-coding",
@@ -531,7 +531,7 @@ const ADMISSION = {
 
 export const SESSIONS: readonly SessionFixture[] = [
   {
-    id: "ses_01JREFUND0000000000000001",
+    id: "d82440c2-6a1b-4c3d-8e5f-7a9b0c1d2e3f",
     title: "환불 요청 #4821 원인 확인",
     status: "needs_input",
     admission_state: "active",
@@ -545,7 +545,7 @@ export const SESSIONS: readonly SessionFixture[] = [
     created_at: "2026-11-02T01:10:00Z",
   },
   {
-    id: "ses_01JCHARGE0000000000000002",
+    id: "5f3a9c71-2b4d-4e6f-9a8b-1c2d3e4f5a6b",
     title: null,
     status: "idle",
     admission_state: "paused",

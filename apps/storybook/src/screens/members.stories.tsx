@@ -1477,7 +1477,9 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Members: Story = {
+export const Members: Story = {};
+// Apart from Members, so the list's own story is not left under the dialog.
+export const MemberRowOpensEdit: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(

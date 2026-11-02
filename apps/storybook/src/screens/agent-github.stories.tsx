@@ -236,7 +236,7 @@ const ACTIVITY: readonly ActivityReceipt[] = [
     operation: "dispatch_workflow",
     status: "failed",
     result: {
-      session_id: "ses_01JREFUND0000000000000001",
+      session_id: "d82440c2-6a1b-4c3d-8e5f-7a9b0c1d2e3f",
       repository_id: "werft-sandbox",
       workflow: "release.yml",
       ref: "main",
@@ -249,7 +249,7 @@ const ACTIVITY: readonly ActivityReceipt[] = [
     operation: "mint_github_token",
     status: "succeeded",
     result: {
-      session_id: "ses_01JREFUND0000000000000001",
+      session_id: "d82440c2-6a1b-4c3d-8e5f-7a9b0c1d2e3f",
       repository_id: "werft-sandbox",
       purpose: "push",
     },

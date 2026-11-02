@@ -356,7 +356,8 @@ export function ScreenShell({
   readonly children: ReactNode;
 }) {
   return (
-    <div className="flex min-h-screen flex-col text-body md:grid md:grid-cols-[var(--ap-layout-sidebar-width)_minmax(0,1fr)] md:grid-rows-[auto_1fr]">
+    // apps/web styles.css breaks Korean between words on the body.
+    <div className="flex min-h-screen flex-col break-keep text-body wrap-break-word md:grid md:grid-cols-[var(--ap-layout-sidebar-width)_minmax(0,1fr)] md:grid-rows-[auto_1fr]">
       <header className="flex min-h-[var(--ap-topbar-h)] items-center gap-3 border-b bg-surface px-4 md:col-start-2 md:row-start-1 md:px-6">
         <Button type="button" variant="outline" size="sm" className="md:hidden">
           메뉴 열기
