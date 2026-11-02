@@ -125,6 +125,8 @@ const PURPOSE: Record<string, string> = {
 const REFUSAL: Record<string, string> = {
   workflow_not_allowed: "허용 목록 밖",
   repository_not_allowed: "저장소 범위 밖",
+  ambiguous_app: "App 선택 필요",
+  pinned_app_removed: "고정된 App 삭제됨",
 };
 
 const SECTION_BOX =
@@ -965,6 +967,57 @@ export const AgentGitHubDefaultDark: Story = {
 };
 export const AgentGitHubDefaultMobile: Story = {
   name: "기본 (390px)",
+  globals: MOBILE,
+};
+const CONNECTION_REFUSALS: readonly ActivityReceipt[] = [
+  {
+    id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c11",
+    operation: "mint_github_token",
+    status: "failed",
+    result: {
+      session_id: "d82440c2-6a1b-4c3d-8e5f-7a9b0c1d2e3f",
+      repository_id: "werft-sandbox",
+      purpose: "clone",
+      role: "author",
+      reason_code: "pinned_app_removed",
+    },
+    created_at: "2026-11-02T02:10:00Z",
+  },
+  {
+    id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c12",
+    operation: "mint_github_token",
+    status: "failed",
+    result: {
+      session_id: "d82440c2-6a1b-4c3d-8e5f-7a9b0c1d2e3f",
+      repository_id: "werft-sandbox",
+      purpose: "push",
+      role: "author",
+      reason_code: "ambiguous_app",
+      candidate_connection_ids: [
+        "0193a000-0000-7000-8000-00000000000a",
+        "0193a000-0000-7000-8000-00000000000b",
+      ],
+    },
+    created_at: "2026-11-02T02:00:00Z",
+  },
+  ...ACTIVITY,
+];
+export const AgentGitHubConnectionRefusals: Story = {
+  name: "App 연결 거절 기록",
+  args: { activity: CONNECTION_REFUSALS },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("고정된 App 삭제됨")).toBeVisible();
+    await expect(canvas.getByText("App 선택 필요")).toBeVisible();
+  },
+};
+export const AgentGitHubConnectionRefusalsDark: Story = {
+  ...AgentGitHubConnectionRefusals,
+  name: "App 연결 거절 기록 (dark)",
+  globals: DARK,
+};
+export const AgentGitHubConnectionRefusalsMobile: Story = {
+  ...AgentGitHubConnectionRefusals,
+  name: "App 연결 거절 기록 (390px)",
   globals: MOBILE,
 };
 export const AgentGitHubUnsaved: Story = {
