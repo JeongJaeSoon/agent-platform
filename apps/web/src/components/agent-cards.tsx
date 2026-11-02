@@ -218,9 +218,9 @@ function AgentCard({
           </Detail>
         </div>
         <div className="flex flex-col gap-1 rounded-control bg-muted px-3 py-2">
-          <span className="text-caption text-muted-foreground">
+          <Text as="span" variant="meta" className="text-muted-foreground">
             {t("agents.cards.instructions")}
-          </span>
+          </Text>
           <div className="h-[2lh] text-control">
             <Detail query={facts} lines={2}>
               {version ? (

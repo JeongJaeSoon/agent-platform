@@ -11,6 +11,7 @@ import { ListToolbar, ListViewSwitch } from "@werft-ai/react/components";
 import {
   Button,
   buttonVariants,
+  Code,
   cn,
   EmptyState,
   formatTimestamp,
@@ -24,6 +25,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  Text,
 } from "@werft-ai/ui";
 import { LayoutGrid, List } from "lucide-react";
 import { useRef, useState } from "react";
@@ -276,11 +278,11 @@ function AgentList({
       ) : (
         <div>
           {truncated ? (
-            <p className="m-0 mb-3 text-caption text-muted-foreground">
+            <Text variant="meta" className="mb-3 text-muted-foreground">
               {t("agentAdmins.mine.truncated", {
                 count: ADMINISTERED_LIST_LIMIT,
               })}
-            </p>
+            </Text>
           ) : null}
           <AgentsIn view={view} agents={shown ?? []} onClear={clear} />
         </div>
@@ -368,15 +370,19 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
                   >
                     {agent.name}
                   </Link>
-                  <span className="font-mono text-caption text-muted-foreground [overflow-wrap:anywhere]">
+                  <Code className="text-muted-foreground [overflow-wrap:anywhere]">
                     <span className="sr-only">{t("agents.slug")} </span>
                     {agent.slug}
-                  </span>
-                  <span className="text-caption text-muted-foreground @[480px]:hidden">
+                  </Code>
+                  <Text
+                    as="span"
+                    variant="meta"
+                    className="text-muted-foreground @[480px]:hidden"
+                  >
                     {t("agents.updated", {
                       at: formatTimestamp(agent.updated_at, locale),
                     })}
-                  </span>
+                  </Text>
                   <SlackActionLink agent={agent} />
                 </RowLines>
               </TableCell>

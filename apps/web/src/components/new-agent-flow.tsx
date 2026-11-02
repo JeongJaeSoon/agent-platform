@@ -42,6 +42,7 @@ import {
   NativeSelect,
   NativeSelectOption,
   Stepper,
+  Text,
 } from "@werft-ai/ui";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useWatch } from "react-hook-form";
@@ -570,9 +571,9 @@ function JobStep({
       onSubmit={submitStep(form, onSave, refuse)}
     >
       <StepHeading focus={focus}>{t("agents.flow.job")}</StepHeading>
-      <p className="m-0 text-control text-muted-foreground">
+      <Text variant="sub" className="leading-normal">
         {t("agents.flow.jobIntro")}
-      </p>
+      </Text>
       <AgentCardFields
         draft={draft}
         catalog={catalog}
@@ -622,9 +623,9 @@ function ReleaseStep({
   return (
     <section className={AGENT_FORM}>
       <StepHeading focus={focus}>{t("agents.flow.release")}</StepHeading>
-      <p className="m-0 text-control text-muted-foreground">
+      <Text variant="sub" className="leading-normal">
         {t("agents.flow.releaseIntro")}
-      </p>
+      </Text>
       {agent.error ? (
         <Alerts lines={[refuse(agent.error)]} />
       ) : profiles.error ? (
@@ -843,9 +844,9 @@ function ActivateStep({
   return (
     <section className={AGENT_FORM}>
       <StepHeading focus={focus}>{t("agents.flow.activate")}</StepHeading>
-      <p className="m-0 text-muted-foreground text-sm">
+      <Text variant="sub" className="text-sm">
         {t("agents.flow.activateIntro")}
-      </p>
+      </Text>
       {activate.error ? <Alerts lines={[refuse(activate.error)]} /> : null}
       {agent.error ? <Alerts lines={[refuse(agent.error)]} /> : null}
       <div className="flex flex-wrap gap-2">
