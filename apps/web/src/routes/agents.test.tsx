@@ -2713,6 +2713,50 @@ describe("편집 중 다른 곳의 저장", () => {
     expect(last?.body).not.toHaveProperty("name");
   });
 
+  test("저장 중 원래 이름으로 되돌린 입력은 응답이 와도 남고, 다음 저장이 그 이름을 보낸다", async () => {
+    const server = agentServer();
+    const patch = server.routes[`PATCH /v1/agents/${AGENT_ID}`];
+    if (!patch) throw new Error("no PATCH route");
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held = true;
+    const { api } = renderAt(CARD_TAB, {
+      ...meOk,
+      ...server.routes,
+      [`PATCH /v1/agents/${AGENT_ID}`]: async (request: Request) => {
+        if (held) {
+          held = false;
+          await gate;
+        }
+        return patch(request);
+      },
+    });
+    const user = await setupUser();
+    await openCardEditor(user);
+    const name = screen.getByLabelText("이름") as HTMLInputElement;
+    await user.clear(name);
+    await user.type(name, "새 이름");
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await user.clear(name);
+    await user.type(name, "결제 담당");
+    release();
+    await screen.findByText(
+      "이름과 설명을 저장했습니다. 바로 반영되고 새 버전은 생기지 않았습니다.",
+    );
+    expect((screen.getByLabelText("이름") as HTMLInputElement).value).toBe(
+      "결제 담당",
+    );
+    await user.click(await screen.findByRole("button", { name: "저장" }));
+    await waitFor(() =>
+      expect(api.calls.filter((c) => c.method === "PATCH")).toHaveLength(2),
+    );
+    expect(api.calls.filter((c) => c.method === "PATCH").at(-1)?.body).toEqual({
+      name: "결제 담당",
+    });
+  });
+
   test("모델 목록을 못 불러와도 이름·설명만 고친 저장은 막지 않는다", async () => {
     const server = agentServer();
     const { api } = renderAt(CARD_TAB, {

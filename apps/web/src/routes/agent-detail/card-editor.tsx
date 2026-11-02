@@ -160,16 +160,17 @@ export function CardEditor({
               ...current,
               baseId: now?.id ?? null,
               seenLatestId: latestVersion(updated)?.id ?? null,
-              // An untouched field follows the server, so a change made
-              // elsewhere is not sent back as the user's on the next save.
+              // A field not typed in since the submit follows the server, so
+              // a change made elsewhere is not sent back as the user's on the
+              // next save; one typed in since keeps the input.
               baseName: updated.agent.name,
               name:
-                current.name.trim() === current.baseName
+                current.name === submitted.name
                   ? updated.agent.name
                   : current.name,
               baseDescription: descriptionOf(updated),
               description:
-                current.description.trim() === current.baseDescription
+                current.description === submitted.description
                   ? descriptionOf(updated)
                   : current.description,
             },
