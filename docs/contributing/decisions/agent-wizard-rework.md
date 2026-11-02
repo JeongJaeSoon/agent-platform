@@ -13,7 +13,7 @@
 | 1. 저장소 지정 | 마법사에서 뺀다. 마법사가 만드는 릴리스는 `repository_id` 없이 만든다. 기본 저장소는 에이전트 상세 '릴리스' 탭에서만 고른다. `required` 프로필은 마법사에서 고를 수 없게 하고 이유를 보인다 |
 | 2. 이름·설명 | 카드의 `role`을 없애고 에이전트 행의 `name`이 그 자리를 맡는다. 에이전트 행에 `description`을 새로 둔다. 둘 다 시스템 프롬프트에 넣지 않는다. 동작 지시는 상세 설정의 새 칸 '에이전트 지시문'(카드 `agent_instructions`)에 둔다 |
 | 3. 도구 선택 | 자유 입력 두 칸을 프로필의 도구 목록에서 고르는 체크 목록 하나로 바꾼다. 그 전에, 카드의 도구 제한이 실행에 적용되지 않는 지금의 결함을 먼저 고친다 |
-| 4. 관리 팀 | 에이전트 행에 `managing_team_id`를 둔다. 팀 구성원 행에 역할(`lead`·`member`)을 더한다. 관리 팀의 `lead`는 에이전트 관리자 권한을, `member`는 관리 권한 없이 그 에이전트를 쓰는 사람이 된다. 세션 공개 범위 기본값은 오너가 정한다 |
+| 4. 관리 팀 | 에이전트 행에 `managing_team_id`를 둔다. 팀 구성원 행에 역할(`lead`·`member`)을 더한다. 관리 팀의 `lead`는 에이전트 관리자 권한을, `member`는 관리 권한 없이 그 에이전트를 쓰는 사람이 된다. **담당 팀 필수, 관리 팀 안팎의 권한, 세션 열람 범위는 [agent-rbac.md](agent-rbac.md)가 대체한다** |
 
 ## 지금 구조 (실측)
 
@@ -137,7 +137,7 @@
 
 ### 화면
 
-- 마법사 1단계 '이름': 이름, slug, 설명(선택, 여러 줄), 관리 팀(항목 4).
+- 마법사 1단계 '이름': 이름, slug, 설명(선택, 여러 줄), 담당 팀(필수, [agent-rbac.md (d)](agent-rbac.md#d-담당-팀-필수)).
 - 마법사 2단계 '하는 일': 모델, 도구(항목 3), 답변 언어. 역할·지시 사항 칸은 없다.
 - 목록 카드(`apps/web/src/components/agent-cards.tsx`)와 상세 머리(`apps/web/src/routes/agent-detail.tsx:527-548`)는 `role` 대신 `description`을 보인다. 둘 다 없으면 비운다.
 - 상세 설정: 이름·설명(행 값, 바로 저장)과 카드 값(모델·도구·언어·에이전트 지시문, 새 버전)을 다른 묶음으로 나눈다. 행 값은 릴리스가 필요 없다는 것이 보여야 한다.
@@ -181,6 +181,8 @@
 
 ## 항목 4: 관리 팀
 
+> **이 항목은 [agent-rbac.md](agent-rbac.md)(94S-1249)로 바뀌었다.** 데이터 모델(`managing_team_id`, 팀 역할)은 그대로다. 담당 팀은 필수가 됐다. 담당 팀으로 고를 수 있는 팀은 "자기가 `lead`인 팀"에서 "자기가 속한 팀"으로 넓어졌다. 관리 팀 `member`의 권한도 정했다. 아래 "세션 공개 범위 기본값"은 폐기하고 워크스페이스 설정 축 B로 대체했다. 담당 팀이 맡은 에이전트가 있으면 팀을 보관하지 못한다. 구현 단위 U5a~U5c는 그 문서의 R1~R5로 대체했다. 아래 본문은 결정 기록으로 남기며, 그 문서와 다르면 그 문서를 따른다.
+
 ### 후보
 
 - **A. 에이전트에 관리 팀 하나, 팀 구성원에 역할(추천).** `agents.managing_team_id`와 `member_team_members.role`(`lead`·`member`)을 더한다. 관리 팀의 `lead`는 그 에이전트의 관리자 권한을 받는다. `member`는 관리 권한이 없다. 기존 `agent_admin_teams`(구성원 모두 관리자)는 그대로 둔다.
@@ -205,7 +207,7 @@
 | 사람 관리자(`agent_admins`) | 지금처럼 `AGENT_ADMIN_ACTIONS` |
 | 관리자 팀(`agent_admin_teams`)의 구성원 | 지금처럼 `AGENT_ADMIN_ACTIONS`(역할 무관) |
 | **관리 팀의 `lead`** | `AGENT_ADMIN_ACTIONS`. 관리자와 같다 |
-| **관리 팀의 `member`** | 관리 권한 없음. 세션 공개 범위 기본값이 '관리 팀'으로 정해지면 그 에이전트의 세션을 본다 |
+| **관리 팀의 `member`** | 관리 권한 없음. 설정 열람·사용·세션 열람은 [agent-rbac.md (b)](agent-rbac.md#b-rbac-표)를 따른다 |
 
 - 구현은 관리자 판정 두 곳에 세 번째 경로 "관리 팀이 보관되지 않았고, 그 팀의 살아 있는 구성원이며, 역할이 `lead`"를 더하는 것이다.
   - 읽기 판정: `administers()`(`administers.ts:27-68`). 판정 지점(`policy.ts:594-606`)이 이것을 쓴다.
@@ -227,7 +229,7 @@
 - 기존 값 이행: `member_team_members.role`은 모두 `member`로 시작한다. 관리 팀은 모든 에이전트가 NULL로 시작한다. 기존 권한은 하나도 줄지 않는다.
 - 되돌리기: 앱을 롤백해도 두 열은 남긴다. 옛 이미지는 두 열을 모르므로 관리 팀 `lead`의 권한만 사라지고 다른 권한은 그대로다. 열을 지우는 정리는 배포 뒤의 지정과 승격을 잃는 되돌릴 수 없는 작업이라 내보내기·복구 절차와 오너 확인이 먼저다.
 
-### 세션 공개 범위 기본값 (오너 확인 필요)
+### 세션 공개 범위 기본값 (폐기: [agent-rbac.md](agent-rbac.md)의 축 B로 대체)
 
 - 차이: 오너 답글 하나는 "세션 공개 범위 기본값은 Agent 관리 팀과 같다", 다른 답글과 PRD는 '워크스페이스'다. 코드와 운영자 문서는 '워크스페이스'다(`session-shares.ts:97`, `api-server.md:617`).
 - 선택지:
@@ -235,7 +237,7 @@
   2. **관리 팀이 있으면 관리 팀, 없으면 워크스페이스(추천).** 세션을 만들 때 그 에이전트에 관리 팀이 있으면 `team` 범위와 그 팀을 대상으로 공유 행을 넣는다. Slack DM은 지금처럼 `private`가 이긴다. 만든 사람은 늘 본다. 관리 팀이 없는 에이전트(이행 직후의 모든 에이전트)는 지금과 같다. 관리 팀을 바꿔도 이미 만든 세션의 공유는 바꾸지 않는다.
   3. 항상 관리 팀. 관리 팀이 없는 에이전트의 세션을 어떻게 할지(`private`?) 따로 정해야 하고, 기존 사용자에게 갑자기 세션이 안 보이게 된다.
 - 2의 추가 계약: `session-service.ts:613`의 `shareScope`가 `"private" | {team_id}`를 받는다. 운영자 문서 `api-server.md:617`, `:623`의 기본값 설명을 고친다. 워크스페이스 `owner`·`admin`이 팀 밖 세션을 보는 것은 지금처럼 감사 열람(`OUT_OF_SHARE_ACTIONS`, `policy.ts:301-306`) 경로다.
-- 오너가 정하기 전에는 U5c를 시작하지 않는다. U5a·U5b는 이 결정과 무관하다.
+- 이 질문과 U5c는 폐기했다. 공유 행을 쓰지 않고 판정 시점의 상한(워크스페이스 설정 축 B)으로 바꿨다. 이유는 [agent-rbac.md (e)](agent-rbac.md#e-앞선-결정과의-차이)에 있다.
 
 ## 구현 단위
 
@@ -248,28 +250,26 @@
 | U4a | 이름·설명 계약과 이행: `agents.description`, 카드 `role`·`instructions` 선택, `agent_instructions` 계약(읽기만), 두 필드를 읽는 쪽의 대체값 | `packages/db/migrations/<다음 번호>`, `packages/db/src/schema.ts`, `packages/db/src/agents.ts`, `packages/db/src/agent-summaries.ts`, `packages/contracts/src/kollegium/agents.ts`, `packages/platform/src/agents/agent-service.ts`, `apps/web/src/components/agent-card-form.tsx`(대체값만), `apps/web/src/components/agent-cards.tsx`(어댑터만), `packages/core/src/forms/index.ts`(대체값만), `apps/control-host/src/api/openapi.ts`, `packages/client/src/schema.gen.ts`, `docs/openapi.json` | 없음 | 없음 |
 | U4b | worker가 에이전트 지시문을 받는 계약과 조립, 복구 검증 도구(아직 서버는 싣지 않는다) | `packages/contracts/src/worker-protocol/index.ts`, `packages/runtime-core/src/agent-runtime.ts`, `apps/worker/src/composition.ts`, `packages/adapters/runtimes/claude/src/repository-instructions.ts`, `scripts/lib/checkpoint-pins.ts`, `scripts/lib/checkpoint-pins-cli.ts` | U4a | U4a, U2a |
 | U4c | 이름·설명 화면, 지시문 쓰기 켜기, claim에 지시문 싣기, 사용자 문서. U4a·U4b 이미지가 하한이 된 뒤 | `apps/web/src/components/new-agent-flow.tsx`, `agent-card-form.tsx`, `agent-cards.tsx`, `packages/core/src/forms/index.ts`, `apps/web/src/routes/agent-detail*.tsx`(개요 `overview.tsx:580-587` 포함), `apps/storybook/src/screens/agent-detail-parts.tsx`, `apps/web/src/i18n/agents.ts`, `packages/platform/src/workers/worker-gateway.ts`, claim binding, `apps/docs/content/docs/agents/instructions-and-roles*.mdx` | U4b 배포 | U4b, U3 |
-| U5a | 팀 역할과 관리 팀 계약·권한 | `packages/db/migrations/<다음 번호>`, `schema.ts`, `packages/db/src/administers.ts`, `packages/db/src/agent-admins.ts`, `packages/db/src/api-keys.ts`(시험만일 수 있음), `packages/platform/src/musterrolle/agent-admin-service.ts`, `packages/platform/src/musterrolle/team-service.ts`, `packages/contracts/src/musterrolle/teams.ts`, `packages/contracts/src/kollegium/agents.ts`, `apps/control-host/src/api/routes/teams.ts`·`agents.ts`, `openapi.ts`, `schema.gen.ts`, `docs/openapi.json`, `docs/operator/api-server.md` | U4a | U4a |
-| U5b | 관리 팀 화면: 마법사 1단계, 관리자 탭, 팀 구성원 역할 | `new-agent-flow.tsx`, `apps/web/src/components/agent-admins.tsx`, `apps/web/src/routes/teams.tsx`, `apps/web/src/i18n/agents.ts`·`teams.ts` | U5a | U5a, U4c |
-| U5c | 세션 공개 범위 기본값(오너가 2 또는 3을 고를 때만) | `packages/platform/src/sessions/session-service.ts`, `packages/db/src/postgres-unit-of-work.ts`, `docs/operator/api-server.md` | U5a, 오너 결정 | U5a |
+| U5a~U5c | (대체됨) [agent-rbac.md (f)](agent-rbac.md#f-구현-단위)의 R1~R5를 따른다. U5a → R1, U5b → R4, U5c(세션 공유 행 기본값)는 없애고 R3(워크스페이스 설정 축)로 대체한다 | 그 문서 참조 | — | — |
 
 - 같은 경로를 쓰는 단위:
-  - `new-agent-flow.tsx`: U1, U4c, U5b
+  - `new-agent-flow.tsx`: U1, U4c, R4
   - `agent-card-form.tsx`·`packages/core/src/forms/index.ts`: U4a(대체값), U3, U4c
   - `apps/web/src/components/agent-cards.tsx`: U4a(어댑터), U4c
   - `apps/web/src/routes/agent-detail/overview.tsx`: U3, U4c
   - `apps/docs/content/docs/agents/instructions-and-roles*.mdx`: U3, U4c
-  - `apps/web/src/i18n/agents.ts`: U1, U3, U4c, U5b
-  - `packages/contracts/src/kollegium/agents.ts`·`openapi.ts`·`schema.gen.ts`·`docs/openapi.json`·`packages/db/src/schema.ts`·마이그레이션 번호: U4a, U5a
+  - `apps/web/src/i18n/agents.ts`: U1, U3, U4c, R4
+  - `packages/contracts/src/kollegium/agents.ts`·`openapi.ts`·`schema.gen.ts`·`docs/openapi.json`·`packages/db/src/schema.ts`·마이그레이션 번호: U4a, R1, R2, R5
   - `worker-gateway.ts`·`catalog.ts`: U2a, U2b, U4c
   - `scripts/lib/checkpoint-pins.ts`·`checkpoint-pins-cli.ts`: U2a, U4b
-  - `docs/operator/api-server.md`: U5a, U5c
-- 줄 세우기: 화면 경로는 U1 → U3 → U4c → U5b, 계약·DB 경로는 U4a → U5a, claim 경로는 U2a → U2b → U4c. U5a는 U4a와 계약·DB 파일을 나눠 쓰므로 U4a가 착지한 뒤 시작한다. 처음에 같이 시작할 수 있는 것은 U1, U2a, U4a다.
+  - `docs/operator/api-server.md`: R1, R2, R3
+- 줄 세우기: 화면 경로는 U1 → U3 → U4c → R4, 계약·DB 경로는 U4a → R1 → R2 → R3, claim 경로는 U2a → U2b → U4c. R1은 U4a와 계약·DB 파일을 나눠 쓰므로 U4a가 착지한 뒤 시작한다. 처음에 같이 시작할 수 있는 것은 U1, U2a, U4a다. R 단위의 순서는 [agent-rbac.md (f)](agent-rbac.md#f-구현-단위)를 따른다.
 - 배포 하한이 필요한 단위: U2b(U2a 이미지), U4c(U4a·U4b 이미지). "착지"가 아니라 "그 이미지가 운영에 나가 롤백 하한이 됨"을 start-after로 본다.
-- 티켓은 U1, U2a+U2b+U3, U4a+U4b+U4c, U5a+U5b(+U5c) 네 개로 묶고, 각 티켓 안에서 위 단위대로 PR을 나눈다.
+- 티켓은 U1, U2a+U2b+U3, U4a+U4b+U4c 셋과 agent-rbac.md의 R 단위 묶음으로 나누고, 각 티켓 안에서 위 단위대로 PR을 나눈다.
 
 ## 오너 확인 필요
 
-1. **세션 공개 범위 기본값**: 1 워크스페이스 유지 / 2 관리 팀이 있으면 관리 팀, 없으면 워크스페이스(추천) / 3 항상 관리 팀. 오너 답글끼리 다르다.
+1. ~~세션 공개 범위 기본값~~: 폐기. [agent-rbac.md (g)](agent-rbac.md#g-오너-확인-필요)의 G2(워크스페이스 설정 축 B의 기본값)로 바뀌었다.
 2. 되돌릴 수 없는 이행: 설계가 정한 이행은 열을 더하고 채우는 것뿐이고, 기존 카드 버전은 고치지 않는다. 롤백 때 새 열(`agents.description`, `agents.managing_team_id`, `member_team_members.role`)은 남긴다. 그 열을 지우는 정리는 배포 뒤 입력한 값을 잃으므로 되돌릴 수 없다. 하려면 그때 오너 확인을 받는다. 지금 계획에는 넣지 않는다.
 3. 동작 변화(데이터 이행 아님): U2b는 `tools`를 고르거나 `forbidden`을 적은 기존 에이전트를 다음 claim부터 실제로 좁힌다. 이미 진행 중인 세션도 다음 턴부터 좁혀진다. 화면이 약속한 대로 되는 것이지만 오너에게 알린다. 켜기 전에 해당 릴리스 수를 센다.
 
@@ -278,7 +278,7 @@
 - 카드의 '고른 도구만'·'금지 도구'가 내장 도구 실행에 적용되지 않는다(위 [도구는 실행에서 어떻게 강제되나](#도구는-실행에서-어떻게-강제되나)). U2a·U2b가 고친다.
 - 카드의 '답변 언어'(`language`)와 `rules`도 실행에 들어가지 않는다. 화면은 이 값이 답변에 쓰이는 것처럼 보인다.
 - 저장소 없는 `optional` 릴리스는 GitHub 설정을 처음 만들 수 없다(`agent-github-service.ts:146-156`, `github.tsx:564`). 릴리스 생성 쪽(`agent-service.ts:143-149`)은 허용한다. U1이 고친다(#990 순서 3과 겹침).
-- `member`인 에이전트 관리자는 어느 팀이든 관리자 팀으로 추가해 그 팀 구성원 모두에게 관리 권한을 줄 수 있다(`agent-admin-service.ts:80`, `agent-admins.ts:209`). 지금도 있는 동작이다. U5a가 관리 팀 지정과 같은 제한을 건다.
+- `member`인 에이전트 관리자는 어느 팀이든 관리자 팀으로 추가해 그 팀 구성원 모두에게 관리 권한을 줄 수 있다(`agent-admin-service.ts:80`, `agent-admins.ts:209`). 지금도 있는 동작이다. agent-rbac.md의 R1이 새 추가를 `lead`인 팀으로 제한한다.
 
 ## Codex 반론
 
