@@ -2,9 +2,12 @@ import { createHash, createPrivateKey, randomBytes } from "node:crypto";
 import {
   type CompleteGitHubAppManifestRequest,
   type CompleteGitHubAppManifestResponse,
+  type CompleteGitHubInstallationRequest,
+  type CompleteGitHubInstallationResponse,
   type DeleteGitHubAppResponse,
   type GetGitHubAppResponse,
   GITHUB_APP_MANIFEST_STATE_TTL_SECONDS,
+  GITHUB_INSTALLATION_STATE_TTL_SECONDS,
   type GitHubApp,
   type GitHubAppRepository,
   type GitHubAppRole,
@@ -15,17 +18,21 @@ import {
   type PutGitHubAppResponse,
   type StartGitHubAppManifestRequest,
   type StartGitHubAppManifestResponse,
+  type StartGitHubInstallationResponse,
 } from "@werft-ai/contracts";
 import { repoRefOf } from "../ports/forge.ts";
 import {
   GitHubAppCheckError,
   type GitHubAppCredential,
   type GitHubAppDirectory,
+  type GitHubAppInstallationView,
   type GitHubAppManifestConversion,
   type GitHubAppManifestStore,
   type GitHubAppRecord,
   type GitHubAppStore,
   type GitHubAppTarget,
+  type GitHubInstallationStore,
+  githubUnavailableOf,
   type PutGitHubAppResult,
 } from "../ports/github-app-store.ts";
 import type { SecretAudit } from "../ports/secret-store.ts";
@@ -186,6 +193,12 @@ export function createGitHubAppService(deps: {
     /** Which check refused a state; for the log, never the response. */
     refused?: (check: string) => void;
   };
+  installations?: {
+    store: GitHubInstallationStore;
+    now?: () => Date;
+    /** Which check refused a state; for the log, never the response. */
+    refused?: (check: string) => void;
+  };
 }) {
   const { authorization, directory } = deps;
   const newId = deps.newId ?? (() => crypto.randomUUID());
@@ -213,6 +226,11 @@ export function createGitHubAppService(deps: {
     if (deps.store === null) throw STORE_OFF();
     return deps.store;
   }
+
+  const installationsOn = () => {
+    if (!deps.installations) throw STORE_OFF();
+    return deps.installations;
+  };
 
   const auditOf = (caller: Caller): SecretAudit => ({
     principal: caller,
@@ -318,12 +336,14 @@ export function createGitHubAppService(deps: {
         store.usage(workspaceId, record.id),
       ]);
       if (profile !== null) {
-        await store.recordPermissions(
-          record.id,
-          credential.appId,
-          profile.permissions,
-          profile.clientId,
-        );
+        await store
+          .recordPermissions(
+            record.id,
+            credential.appId,
+            profile.permissions,
+            profile.clientId,
+          )
+          .catch(() => undefined);
       }
       return {
         github_app: {
@@ -571,6 +591,131 @@ export function createGitHubAppService(deps: {
         github_app: githubApp,
         install_url: `${app.htmlUrl}/installations/new`,
         receipt_id: audit.receiptId,
+      };
+    },
+
+    async startInstallation(
+      caller: Caller,
+      workspaceId: string,
+      connectionId: string,
+    ): Promise<StartGitHubInstallationResponse> {
+      const store = await managedStore(caller, workspaceId);
+      const installs = installationsOn();
+      const record = await store.get(workspaceId, connectionId);
+      if (record === null) throw NOT_FOUND();
+      const at = installs.now?.() ?? new Date();
+      const expiresAt = new Date(
+        at.getTime() + GITHUB_INSTALLATION_STATE_TTL_SECONDS * 1000,
+      );
+      const state = randomBytes(32).toString("base64url");
+      await installs.store.issueState(
+        hashState(state),
+        {
+          workspaceId,
+          connectionId: record.id,
+          appId: record.appId,
+          actorUserId: userOf(caller),
+          createdAt: at,
+          expiresAt,
+        },
+        at,
+      );
+      return {
+        install_url: `${record.htmlUrl.replace(/\/+$/, "")}/installations/new?state=${state}`,
+        expires_at: expiresAt.toISOString(),
+      };
+    },
+
+    /**
+     * GitHub's setup URL redirect can be forged: the record is shown, never
+     * used to decide access.
+     */
+    async completeInstallation(
+      caller: Caller,
+      workspaceId: string,
+      readBody: () => Promise<CompleteGitHubInstallationRequest>,
+    ): Promise<CompleteGitHubInstallationResponse> {
+      const store = await managedStore(caller, workspaceId);
+      const installs = installationsOn();
+      const body = await readBody();
+      const state = await installs.store.consumeState(hashState(body.state));
+      const at = installs.now?.() ?? new Date();
+      const record =
+        state === null
+          ? null
+          : await store.get(workspaceId, state.connectionId);
+      const refusal =
+        state === null
+          ? "not_found"
+          : state.expiresAt.getTime() <= at.getTime()
+            ? "expired"
+            : state.workspaceId !== workspaceId
+              ? "workspace"
+              : state.actorUserId !== userOf(caller)
+                ? "actor"
+                : record === null || record.appId !== state.appId
+                  ? "connection"
+                  : null;
+      if (state === null || record === null || refusal !== null) {
+        installs.refused?.(refusal ?? "not_found");
+        throw refused(
+          "state_invalid",
+          "This installation link is expired, spent or someone else's; start again",
+        );
+      }
+      const credential = (
+        await store.credentials(record.role, workspaceId)
+      ).find((held) => held.id === record.id && held.appId === state.appId);
+      if (credential === undefined) {
+        installs.refused?.("connection");
+        throw refused(
+          "state_invalid",
+          "This installation link is expired, spent or someone else's; start again",
+        );
+      }
+      let installation: GitHubAppInstallationView | null;
+      try {
+        installation = await directory.installation(
+          credential,
+          body.installation_id,
+        );
+      } catch (error) {
+        const reason = githubUnavailableOf(error);
+        throw new SessionServiceError(
+          "GITHUB_UNAVAILABLE",
+          reason === "github_app_auth_failed"
+            ? "GitHub refused the App's key"
+            : "GitHub could not be reached to read the installation",
+          undefined,
+          { reason_code: reason },
+        );
+      }
+      if (installation === null) {
+        throw new SessionServiceError(
+          "NOT_FOUND",
+          "The App has no such installation",
+          undefined,
+          { reason_code: "installation_not_found" },
+        );
+      }
+      // GitHub keeps whole seconds, so an installation from the state's own
+      // second may predate it; only a later second proves it came after.
+      const startedAt = Math.floor(state.createdAt.getTime() / 1000) * 1000;
+      const made = installation.createdAt?.getTime() ?? null;
+      const recorded =
+        made !== null && made > startedAt
+          ? await installs.store.recordLink({
+              workspaceId,
+              connectionId: record.id,
+              appId: state.appId,
+              installationId: installation.id,
+              connectedBy: userOf(caller),
+            })
+          : false;
+      return {
+        connection_id: record.id,
+        installation_id: installation.id,
+        recorded,
       };
     },
 

@@ -4,12 +4,14 @@ import {
   apiErrorResponseSchema,
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
+  completeGitHubInstallationResponseSchema,
   deleteGitHubAppResponseSchema,
   type GitHubAppRole,
   getGitHubAppResponseSchema,
   listGitHubAppsResponseSchema,
   putGitHubAppResponseSchema,
   REQUEST_BODY_MAX_BYTES,
+  startGitHubInstallationResponseSchema,
   WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
@@ -20,6 +22,8 @@ import {
   type GitHubAppRecord,
   type GitHubAppStore,
   type GitHubAppTarget,
+  type GitHubInstallationState,
+  type GitHubInstallationStore,
   type IdentityStore,
   type MembershipRole,
   type ResolvedWebSession,
@@ -280,6 +284,51 @@ function memoryStore() {
   };
 }
 
+function memoryInstallations() {
+  const states = new Map<string, GitHubInstallationState>();
+  const links: Array<{
+    connectionId: string;
+    installationId: number;
+    connectedBy: string;
+  }> = [];
+  const store = {
+    async issueState(hash: Uint8Array, state: GitHubInstallationState) {
+      states.set(Buffer.from(hash).toString("hex"), state);
+    },
+    async consumeState(hash: Uint8Array) {
+      const key = Buffer.from(hash).toString("hex");
+      const state = states.get(key) ?? null;
+      states.delete(key);
+      return state;
+    },
+    async recordLink(input: {
+      connectionId: string;
+      installationId: number;
+      connectedBy: string;
+    }) {
+      if (
+        links.some(
+          (link) =>
+            link.connectionId === input.connectionId &&
+            link.installationId === input.installationId,
+        )
+      ) {
+        return false;
+      }
+      links.push({
+        connectionId: input.connectionId,
+        installationId: input.installationId,
+        connectedBy: input.connectedBy,
+      });
+      return true;
+    },
+  } as unknown as GitHubInstallationStore;
+  return { store, links, clear: () => links.splice(0) };
+}
+
+const installs = memoryInstallations();
+let installClock = Date.parse("2026-11-02T10:00:00.500Z");
+
 let github: FakeGitHub;
 const logs = new MemoryLogSink();
 const responses: string[] = [];
@@ -306,6 +355,10 @@ function appWith(options: { enabled?: boolean; apiBase?: string } = {}) {
           ],
           changed: async () => {
             changes += 1;
+          },
+          installations: {
+            store: installs.store,
+            now: () => new Date(installClock),
           },
         }),
       ),
@@ -340,7 +393,11 @@ function appWith(options: { enabled?: boolean; apiBase?: string } = {}) {
     );
     const text = await response.text();
     responses.push(text);
-    return { status: response.status, json: text ? JSON.parse(text) : null };
+    return {
+      status: response.status,
+      json: text ? JSON.parse(text) : null,
+      referrer: response.headers.get("Referrer-Policy"),
+    };
   };
 }
 
@@ -581,6 +638,8 @@ describe("the GitHub App API", () => {
       appId: APP_ID,
       publicKey: keys.publicKey,
       port: Number(new URL(github.origin).port),
+      installationId: 77,
+      slug: "werft-test",
       secondApp: REVIEWER_FAKE,
     });
     await call("DELETE", { cookie: owner });
@@ -960,6 +1019,307 @@ describe("the GitHub App API by role", () => {
     });
     expect(huge.status).toBe(413);
     expect(memory.authors()).toEqual([]);
+  });
+});
+
+function userOfCookie(cookie: string): string {
+  const token = cookie.split("=")[1] ?? "";
+  const session = sessions.get(
+    Buffer.from(hashWebSessionToken(token)).toString("hex"),
+  );
+  if (session === undefined) throw new Error("no such session");
+  return session.userId;
+}
+
+async function registered(owner: string): Promise<string> {
+  memory.clear();
+  installs.clear();
+  const set = await call("PUT", {
+    cookie: owner,
+    path: "github-apps/author",
+    body: body({ app_id: APP_ID, private_key: privateKey }),
+  });
+  expect(set.status).toBe(200);
+  const connectionId = putGitHubAppResponseSchema.parse(set.json).github_app
+    .connection_id;
+  if (connectionId === undefined) throw new Error("no connection id");
+  return connectionId;
+}
+
+describe("a new key for a connection's own App", () => {
+  test("a key GitHub takes for the App replaces the old one with a receipt; any other is refused and the old key stays", async () => {
+    const owner = cookieFor("owner");
+    const connectionId = await registered(owner);
+    const path = `github-apps/${connectionId}`;
+    const next = rsaPair();
+    github.addAppKey(next.publicKey);
+    const receiptsBefore = memory.receipts.length;
+
+    const rotated = await call("PUT", {
+      cookie: owner,
+      path,
+      body: body({ app_id: APP_ID, private_key: next.privateKey }),
+    });
+    expect(rotated.status).toBe(200);
+    const answer = putGitHubAppResponseSchema.parse(rotated.json);
+    expect(answer.github_app).toMatchObject({
+      app_id: APP_ID,
+      connection_id: connectionId,
+    });
+    expect(answer.receipt_id).toEqual(expect.any(String));
+    expect(memory.held()?.key).toBe(next.privateKey.trim());
+    expect(memory.receipts.length).toBe(receiptsBefore + 1);
+
+    for (const [refused, reason] of [
+      [{ app_id: APP_ID, private_key: strangerKey }, "github_app_rejected"],
+      [
+        { app_id: APP_ID, private_key: reviewerKeys.privateKey },
+        "github_app_rejected",
+      ],
+      [
+        { app_id: REVIEWER_APP_ID, private_key: reviewerKeys.privateKey },
+        "app_id_mismatch",
+      ],
+    ] as const) {
+      const answered = await call("PUT", {
+        cookie: owner,
+        path,
+        body: body(refused),
+      });
+      expect(answered.status).toBe(400);
+      expect(code(answered.json).details).toEqual({ reason_code: reason });
+      expect(memory.held()?.key).toBe(next.privateKey.trim());
+    }
+    expect(memory.receipts.length).toBe(receiptsBefore + 1);
+
+    const line = next.privateKey.split("\n")[1] ?? "";
+    expect(line.length).toBeGreaterThan(20);
+    const seen = [...responses, ...logs.records.map((r) => JSON.stringify(r))];
+    for (const text of seen) expect(text).not.toContain(line);
+    memory.clear();
+  });
+});
+
+describe("who connected an installation started in the console", () => {
+  async function start(cookie: string, connectionId: string) {
+    const started = await call("POST", {
+      cookie,
+      path: `github-apps/${connectionId}/installations/start`,
+    });
+    expect(started.status).toBe(200);
+    const parsed = startGitHubInstallationResponseSchema.parse(started.json);
+    const url = new URL(parsed.install_url);
+    expect(`${url.origin}${url.pathname}`).toBe(
+      `${memory.held()?.record.htmlUrl}/installations/new`,
+    );
+    expect(new Date(parsed.expires_at).getTime()).toBe(
+      installClock + 3_600_000,
+    );
+    return url.searchParams.get("state") ?? "";
+  }
+
+  const complete = (
+    cookie: string,
+    fields: Record<string, unknown>,
+    workspaceId?: string,
+  ) =>
+    call("POST", {
+      cookie,
+      path: "github-apps/installations/complete",
+      body: body(fields),
+      ...(workspaceId === undefined ? {} : { workspaceId }),
+    });
+
+  test("the state's own caller, back from GitHub with an installation made after it, is recorded once", async () => {
+    const owner = cookieFor("owner");
+    const connectionId = await registered(owner);
+    github.setInstallationCreatedAt(new Date("2026-11-02T10:00:00Z"));
+    try {
+      const sameSecond = await complete(owner, {
+        state: await start(owner, connectionId),
+        installation_id: 77,
+      });
+      expect(sameSecond.json).toMatchObject({ recorded: false });
+      expect(installs.links).toEqual([]);
+      github.setInstallationCreatedAt(new Date("2026-11-02T10:00:01Z"));
+      const state = await start(owner, connectionId);
+      const done = await complete(owner, { state, installation_id: 77 });
+      expect(done.status).toBe(200);
+      expect(done.referrer).toBe("no-referrer");
+      expect(completeGitHubInstallationResponseSchema.parse(done.json)).toEqual(
+        { connection_id: connectionId, installation_id: 77, recorded: true },
+      );
+      expect(installs.links).toEqual([
+        { connectionId, installationId: 77, connectedBy: userOfCookie(owner) },
+      ]);
+      const replay = await complete(owner, { state, installation_id: 77 });
+      expect(replay.status).toBe(400);
+      expect(code(replay.json).details).toEqual({
+        reason_code: "state_invalid",
+      });
+      const admin = cookieFor("admin");
+      const again = await complete(admin, {
+        state: await start(admin, connectionId),
+        installation_id: 77,
+      });
+      expect(again.json).toMatchObject({ recorded: false });
+      expect(installs.links).toEqual([
+        { connectionId, installationId: 77, connectedBy: userOfCookie(owner) },
+      ]);
+    } finally {
+      github.setInstallationCreatedAt(new Date("2026-10-01T09:00:00Z"));
+    }
+  });
+
+  test("a forged, expired, other workspace's or other person's state, an installation that was there before, another App's installation and GitHub not answering record nothing", async () => {
+    const owner = cookieFor("owner");
+    const connectionId = await registered(owner);
+    const stateInvalid = { reason_code: "state_invalid" };
+
+    const forged = await complete(owner, {
+      state: "A".repeat(43),
+      installation_id: 77,
+    });
+    expect(forged.status).toBe(400);
+    expect(code(forged.json).details).toEqual(stateInvalid);
+
+    const late = await start(owner, connectionId);
+    installClock += 3_600_000;
+    try {
+      const expired = await complete(owner, {
+        state: late,
+        installation_id: 77,
+      });
+      expect(code(expired.json).details).toEqual(stateInvalid);
+    } finally {
+      installClock -= 3_600_000;
+    }
+
+    const otherOwner = cookieFor("owner", OTHER_WORKSPACE);
+    const elsewhere = await complete(
+      otherOwner,
+      { state: await start(owner, connectionId), installation_id: 77 },
+      OTHER_WORKSPACE,
+    );
+    expect(code(elsewhere.json).details).toEqual(stateInvalid);
+
+    const someoneElse = await complete(cookieFor("admin"), {
+      state: await start(owner, connectionId),
+      installation_id: 77,
+    });
+    expect(code(someoneElse.json).details).toEqual(stateInvalid);
+
+    const before = await complete(owner, {
+      state: await start(owner, connectionId),
+      installation_id: 77,
+    });
+    expect(before.status).toBe(200);
+    expect(before.json).toMatchObject({ recorded: false });
+
+    const foreign = await complete(owner, {
+      state: await start(owner, connectionId),
+      installation_id: REVIEWER_FAKE.installationId,
+    });
+    expect(foreign.status).toBe(404);
+    expect(code(foreign.json).details).toEqual({
+      reason_code: "installation_not_found",
+    });
+
+    github.failApp(APP_ID, 500);
+    try {
+      const down = await complete(owner, {
+        state: await start(owner, connectionId),
+        installation_id: 77,
+      });
+      expect(down.status).toBe(502);
+      expect(code(down.json)).toMatchObject({
+        code: "GITHUB_UNAVAILABLE",
+        details: { reason_code: "github_unavailable" },
+      });
+    } finally {
+      github.failApp(APP_ID, undefined);
+    }
+
+    const orphan = await start(owner, connectionId);
+    memory.clear();
+    const removed = await complete(owner, {
+      state: orphan,
+      installation_id: 77,
+    });
+    expect(code(removed.json).details).toEqual(stateInvalid);
+    expect(installs.links).toEqual([]);
+  });
+
+  test("starting is a manager's, in a signed-in console, for the workspace's own connection", async () => {
+    const owner = cookieFor("owner");
+    const connectionId = await registered(owner);
+    const startPath = `github-apps/${connectionId}/installations/start`;
+    expect(
+      (await call("POST", { cookie: cookieFor("member"), path: startPath }))
+        .status,
+    ).toBe(403);
+    expect((await call("POST", { key: true, path: startPath })).status).toBe(
+      403,
+    );
+    expect((await call("POST", { path: startPath })).status).toBe(401);
+    expect(
+      (
+        await call("POST", {
+          cookie: owner,
+          path: `github-apps/${crypto.randomUUID()}/installations/start`,
+        })
+      ).status,
+    ).toBe(404);
+    const completePath = "github-apps/installations/complete";
+    expect(
+      (
+        await call("POST", {
+          cookie: cookieFor("member"),
+          path: completePath,
+          body: body({ state: "x", installation_id: 77 }),
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await call("POST", {
+          path: completePath,
+          body: body({ state: "x", installation_id: 77 }),
+        })
+      ).status,
+    ).toBe(401);
+    expect(
+      (
+        await call("POST", {
+          cookie: owner,
+          path: completePath,
+          body: body({ state: "x", installation_id: 0 }),
+        })
+      ).status,
+    ).toBe(400);
+    memory.clear();
+  });
+
+  test("without a master key both answer 503", async () => {
+    const off = appWith({ enabled: false });
+    const owner = cookieFor("owner");
+    expect(
+      (
+        await off("POST", {
+          cookie: owner,
+          path: `github-apps/${crypto.randomUUID()}/installations/start`,
+        })
+      ).status,
+    ).toBe(503);
+    expect(
+      (
+        await off("POST", {
+          cookie: owner,
+          path: "github-apps/installations/complete",
+          body: body({ state: "x", installation_id: 77 }),
+        })
+      ).status,
+    ).toBe(503);
   });
 });
 

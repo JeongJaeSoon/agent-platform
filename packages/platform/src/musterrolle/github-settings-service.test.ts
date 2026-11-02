@@ -12,6 +12,9 @@ import {
   type GitHubAppDirectory,
   type GitHubAppInstallationView,
   type GitHubAppStore,
+  type GitHubInstallationLink,
+  type GitHubInstallationSnapshot,
+  type GitHubInstallationStore,
 } from "../ports/github-app-store.ts";
 import type {
   GitHubOAuthStore,
@@ -157,11 +160,44 @@ function fakeApps(connections: readonly FakeConnection[]) {
   return { apps, directory, recorded };
 }
 
+function fakeInstallations(
+  seed: {
+    snapshots?: Array<
+      { connectionId: string; appId: number } & GitHubInstallationSnapshot
+    >;
+    links?: GitHubInstallationLink[];
+  } = {},
+) {
+  const snapshots = [...(seed.snapshots ?? [])];
+  const store = {
+    recordSnapshot: async (
+      connectionId: string,
+      appId: number,
+      snapshot: GitHubInstallationSnapshot,
+    ) => {
+      const at = snapshots.findIndex(
+        (held) => held.connectionId === connectionId,
+      );
+      if (at >= 0) snapshots.splice(at, 1);
+      snapshots.push({ connectionId, appId, ...snapshot });
+    },
+    snapshot: async (connectionId: string, appId: number) =>
+      snapshots.find(
+        (held) => held.connectionId === connectionId && held.appId === appId,
+      ) ?? null,
+    links: async () => seed.links ?? [],
+  } as unknown as GitHubInstallationStore;
+  return { store, snapshots };
+}
+
 function harness(
   options: {
     authorApp?: boolean;
     secretsOn?: boolean;
     connections?: readonly FakeConnection[];
+    installations?: GitHubInstallationStore;
+    failPermissionsWrite?: boolean;
+    now?: () => Date;
   } = {},
 ) {
   const secrets: Array<{ workspaceId: string; secret: string }> = [];
@@ -186,6 +222,9 @@ function harness(
   };
   const puts: Array<{ updatedBy: string; ceiling: GitHubCeiling }> = [];
   const fake = fakeApps(options.connections ?? []);
+  if (options.failPermissionsWrite) {
+    fake.apps.recordPermissions = () => Promise.reject(new Error("db down"));
+  }
   const store: GitHubSettingsStore = {
     get: async () => settings,
     agentsUsing: async () => ({
@@ -216,8 +255,9 @@ function harness(
     secretsOn: options.secretsOn ?? true,
     apps: fake.apps,
     directory: fake.directory,
+    installations: options.installations ?? null,
     newId: () => "019a0000-0000-7000-8000-0000000000aa",
-    now: () => NOW,
+    now: options.now ?? (() => NOW),
   });
   return { service, puts, secrets, recorded: fake.recorded };
 }
@@ -330,6 +370,7 @@ describe("GitHub settings service", () => {
             "https://github.com/organizations/acme/settings/installations/1",
           created_at: "2026-10-01T09:00:00.000Z",
           suspended_at: null,
+          connected: null,
         },
       },
       expect.objectContaining({ id: 2, account: "zeta", status: "active" }),
@@ -420,6 +461,176 @@ describe("GitHub settings service", () => {
       },
     ]);
     expect(JSON.stringify(connections)).not.toContain("repository_count");
+  });
+
+  test("any successful read keeps each connection's list, timed when the list answered", async () => {
+    const kept = fakeInstallations();
+    const connections: FakeConnection[] = [
+      {
+        id: "conn-a",
+        role: "author",
+        appId: 11,
+        installations: [installation(1, "acme")],
+      },
+    ];
+    // Each reading of the clock is a second later, so a list stamped after
+    // the whole lookup would carry a later time than when it answered.
+    let ticks = 0;
+    const { service } = harness({
+      connections,
+      installations: kept.store,
+      now: () => new Date(NOW.getTime() + 1000 * ticks++),
+    });
+    const read = await service.get(user("member"), WORKSPACE);
+    const [connection] = read.connections;
+    expect(connection?.installations_read_at).toBe(NOW.toISOString());
+    expect(connection?.check.checked_at).not.toBe(NOW.toISOString());
+    expect(kept.snapshots).toEqual([
+      {
+        connectionId: "conn-a",
+        appId: 11,
+        installations: [installation(1, "acme")],
+        readAt: NOW,
+      },
+    ]);
+  });
+
+  test("a connection GitHub fails for answers its last list, each installation unknown, read at the last answer", async () => {
+    const lastRead = new Date("2026-11-02T08:00:00.000Z");
+    const kept = fakeInstallations({
+      snapshots: [
+        {
+          connectionId: "conn-a",
+          appId: 11,
+          installations: [
+            installation(2, "beta", {
+              suspendedAt: new Date("2026-10-20T00:00:00.000Z"),
+            }),
+            installation(1, "acme", { permissions: { contents: "read" } }),
+          ],
+          readAt: lastRead,
+        },
+        {
+          connectionId: "conn-r",
+          appId: 99,
+          installations: [installation(5, "old")],
+          readAt: lastRead,
+        },
+      ],
+    });
+    const { service } = harness({
+      installations: kept.store,
+      connections: [
+        { id: "conn-a", role: "author", appId: 11, fails: "github_rejected" },
+        {
+          id: "conn-r",
+          role: "reviewer",
+          appId: 13,
+          fails: "github_unreachable",
+        },
+      ],
+    });
+    for (const role of ["admin", "member"] as const) {
+      const { connections } = await service.get(user(role), WORKSPACE);
+      const byId = new Map(
+        connections.map((each) => [each.connection_id, each]),
+      );
+      const failed = byId.get("conn-a");
+      expect(failed?.check).toEqual({
+        state: "failed",
+        reason_code: "github_app_auth_failed",
+        checked_at: NOW.toISOString(),
+      });
+      expect(failed?.installations_read_at).toBe(lastRead.toISOString());
+      expect(
+        failed?.installations.map((each) => [each.account, each.status]),
+      ).toEqual([
+        ["acme", "unknown"],
+        ["beta", "unknown"],
+      ]);
+      if (role === "admin") {
+        expect(failed?.installations[0]?.detail).toMatchObject({
+          approval: "unknown",
+          repository_count: null,
+          account_id: 9001,
+        });
+      } else {
+        expect(failed?.installations[0]?.detail).toBeNull();
+      }
+      expect(byId.get("conn-r")).toMatchObject({
+        installations: [],
+        installations_read_at: null,
+      });
+    }
+    expect(kept.snapshots.map((held) => held.readAt)).toEqual([
+      lastRead,
+      lastRead,
+    ]);
+  });
+
+  test("a manager reads who connected an installation from the console; a member does not", async () => {
+    const connectedAt = new Date("2026-11-01T10:00:00.000Z");
+    const kept = fakeInstallations({
+      links: [
+        {
+          connectionId: "conn-a",
+          installationId: 1,
+          connectedBy: { userId: OTHER, displayName: "Jae" },
+          connectedAt,
+        },
+        {
+          connectionId: "conn-b",
+          installationId: 2,
+          connectedBy: null,
+          connectedAt,
+        },
+      ],
+    });
+    const { service } = harness({
+      installations: kept.store,
+      connections: [
+        {
+          id: "conn-a",
+          role: "author",
+          appId: 11,
+          installations: [installation(1, "acme"), installation(2, "beta")],
+        },
+      ],
+    });
+    const managed = await service.get(user("owner"), WORKSPACE);
+    expect(
+      managed.connections[0]?.installations.map(
+        (each) => each.detail?.connected,
+      ),
+    ).toEqual([
+      {
+        by: { user_id: OTHER, display_name: "Jae" },
+        at: connectedAt.toISOString(),
+      },
+      null,
+    ]);
+    const read = await service.get(user("member"), WORKSPACE);
+    expect(JSON.stringify(read.connections)).not.toContain("Jae");
+  });
+
+  test("a manager's read answers what GitHub said when keeping the permissions fails", async () => {
+    const { service } = harness({
+      failPermissionsWrite: true,
+      connections: [
+        {
+          id: "conn-a",
+          role: "author",
+          appId: 11,
+          installations: [installation(1, "acme")],
+        },
+      ],
+    });
+    const { connections } = await service.get(user("owner"), WORKSPACE);
+    expect(connections[0]).toMatchObject({
+      key_status: "ok",
+      check: { state: "ok" },
+      installations: [expect.objectContaining({ status: "active" })],
+    });
   });
 
   test("an App replaced between the row read and the key read is left out, not mixed", async () => {
