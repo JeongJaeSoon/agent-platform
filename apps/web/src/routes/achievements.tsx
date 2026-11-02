@@ -483,16 +483,18 @@ function Filter({
   readonly options: readonly (readonly [string, string])[];
 }) {
   return (
-    <NativeSelect
-      aria-label={label}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-    >
-      {options.map(([option, text]) => (
-        <NativeSelectOption key={option} value={option}>
-          {text}
-        </NativeSelectOption>
-      ))}
-    </NativeSelect>
+    <div className="min-w-35 max-w-85 *:w-full max-md:min-w-0 max-md:flex-[1_1_140px]">
+      <NativeSelect
+        aria-label={label}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {options.map(([option, text]) => (
+          <NativeSelectOption key={option} value={option}>
+            {text}
+          </NativeSelectOption>
+        ))}
+      </NativeSelect>
+    </div>
   );
 }
