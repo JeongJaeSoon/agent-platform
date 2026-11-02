@@ -395,7 +395,8 @@ describe("에이전트 GitHub 탭", () => {
       await user.click(within(nav).getByRole("link", { name }));
       const section = screen.getByRole("region", { name });
       expect(section.id).toBe(id);
-      expect(section.tabIndex).toBe(-1);
+      // The DOM shim focuses any element and reports tabIndex -1 by default; only the attribute shows the section is focusable.
+      expect(section.getAttribute("tabindex")).toBe("-1");
       expect(document.activeElement === section).toBe(true);
     }
   });
