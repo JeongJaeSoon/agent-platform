@@ -41,7 +41,11 @@ const bindingId = (n: number) =>
  * each other's writes, and activation is a compare-and-swap on the revision
  * exactly as the real route does it.
  */
-export function agentServer() {
+export function agentServer({
+  repositoryMode = "required",
+}: {
+  repositoryMode?: ProfileSummary["repository_mode"];
+} = {}) {
   const versions: AgentVersion[] = [version(1, CARD)];
   const releases: AgentRelease[] = [];
   const bindings: CredentialBindingView[] = [];
@@ -90,8 +94,8 @@ export function agentServer() {
     "GET /v1/profiles": () =>
       json(200, {
         items: [
-          profile("claude-coding-fast", "claude-haiku-5"),
-          profile("claude-coding-local", "claude-sonnet-5"),
+          profile("claude-coding-fast", "claude-haiku-5", repositoryMode),
+          profile("claude-coding-local", "claude-sonnet-5", repositoryMode),
         ],
       }),
     // Creating the agent makes its first version from the card sent.
@@ -258,7 +262,11 @@ export function agentServer() {
   return { routes, detail, versions, releases, bindings };
 }
 
-function profile(id: string, model: string): ProfileSummary {
+function profile(
+  id: string,
+  model: string,
+  repositoryMode: ProfileSummary["repository_mode"],
+): ProfileSummary {
   return {
     id,
     source: "operator",
@@ -269,7 +277,7 @@ function profile(id: string, model: string): ProfileSummary {
     runtime_kind: "claude_agent_sdk",
     runtime_version: "0.3.270",
     billing: "metered",
-    repository_mode: "required",
+    repository_mode: repositoryMode,
     repository_ids: ["sample-app"],
   };
 }

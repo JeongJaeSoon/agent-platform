@@ -83,6 +83,20 @@ const FEATURES = [
   "actions",
   "workflows",
 ] as const satisfies readonly Feature[];
+// A savable release without a repository (an `optional` profile's) starts
+// its first save from none picked: `legacy_defaults` needs at least one.
+const NO_REPOSITORY_DEFAULTS: Settings = {
+  repositories: [],
+  push_approval: true,
+  features: {
+    workflows: false,
+    actions: false,
+    checks: false,
+    issues: false,
+    review: false,
+  },
+  actions_allow: [],
+};
 const WORKFLOW_FILE = /^[A-Za-z0-9._-]+\.ya?ml$/;
 const ALLOW_MAX = 32;
 const REF_MAX = 255;
@@ -452,7 +466,13 @@ function GitHubSettings({
   const [draft, setDraft] = useState<Draft | null>(null);
   // A draft keeps what it was made from, so a refetch after someone else
   // activates cannot turn it into an overwrite of their release.
-  const base = draft?.from.base ?? data.github ?? data.legacy_defaults;
+  const base =
+    draft?.from.base ??
+    data.github ??
+    data.legacy_defaults ??
+    (data.unsavable === null && data.release_repository_id === null
+      ? NO_REPOSITORY_DEFAULTS
+      : null);
   const settings = draft?.settings ?? base;
   const release = draft?.from.release ?? detail.active_release;
   const saveError = useRef<HTMLDivElement>(null);
@@ -552,6 +572,8 @@ function GitHubSettings({
     });
   };
   const pending = base && draft ? pendingCount(base, draft.settings) : 0;
+  const noRepository =
+    draft !== null && draft.settings.repositories.length === 0;
   const actionsOn = settings?.features.actions ?? false;
   const keys: SectionKey[] = [
     "use",
@@ -630,6 +652,11 @@ function GitHubSettings({
               version: version ?? "—",
               profile: release?.runtime_profile_id ?? "—",
             })}
+            {noRepository ? (
+              <div className="mt-2">
+                <FieldError>{t("agentGitHub.repositoriesRequired")}</FieldError>
+              </div>
+            ) : null}
             {saveFailure ? (
               <div ref={saveError} tabIndex={-1} className="mt-2 outline-none">
                 <FieldError>{saveFailure}</FieldError>
@@ -640,7 +667,7 @@ function GitHubSettings({
             <Button
               type="button"
               size="sm"
-              disabled={pending === 0 || save.isPending}
+              disabled={pending === 0 || noRepository || save.isPending}
               onClick={() => save.mutate()}
             >
               {save.isPending

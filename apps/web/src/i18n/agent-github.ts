@@ -55,13 +55,15 @@ export const agentGitHubKo = {
   "agentGitHub.unsavable.no_active_release":
     "활성 릴리스가 없습니다. 릴리스 탭에서 릴리스를 만들고 활성화하면 GitHub 설정을 정할 수 있습니다.",
   "agentGitHub.unsavable.repository_none":
-    "활성 릴리스에 저장소가 없습니다. 저장소가 있는 실행 프로필로 릴리스를 만들면 GitHub 설정을 정할 수 있습니다.",
+    "활성 릴리스의 실행 프로필은 저장소 없이 실행합니다. 저장소를 쓰는 실행 프로필로 릴리스를 만들면 GitHub 설정을 정할 수 있습니다.",
   "agentGitHub.unsavable.app_required":
     "활성 릴리스의 저장소가 PAT로 연결되어 권한을 좁힐 수 없습니다. 운영자가 그 저장소를 GitHub App으로 옮기면 설정할 수 있습니다.",
   "agentGitHub.repositoriesHint":
     "GitHub App을 쓰는 카탈로그 저장소 가운데 고릅니다. 토큰은 고른 저장소 하나로만 좁혀 발급합니다.",
   "agentGitHub.repositoriesNone":
     "카탈로그에 GitHub 저장소가 없습니다. 운영자가 카탈로그에 추가합니다.",
+  "agentGitHub.repositoriesRequired":
+    "저장소를 하나 이상 고르면 저장할 수 있습니다.",
   "agentGitHub.repositoryUse": "사용",
   "agentGitHub.repositoryUnused": "안 씀",
   "agentGitHub.repositoryRelease": "활성 릴리스의 저장소라 뺄 수 없습니다.",
@@ -238,13 +240,14 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.unsavable.no_active_release":
     "There is no active release. Make and activate one in the Release tab to set GitHub up.",
   "agentGitHub.unsavable.repository_none":
-    "The active release has no repository. Release under a runtime profile with one to set GitHub up.",
+    "The active release's runtime profile runs without a repository. Release under a runtime profile that uses one to set GitHub up.",
   "agentGitHub.unsavable.app_required":
     "The active release's repository connects with a PAT, which cannot be narrowed. It can be set up once the operator moves it to a GitHub App.",
   "agentGitHub.repositoriesHint":
     "Pick from the catalog's repositories that use a GitHub App. Each token is narrowed to the one repository.",
   "agentGitHub.repositoriesNone":
     "The catalog has no GitHub repository. The operator adds them.",
+  "agentGitHub.repositoriesRequired": "Pick at least one repository to save.",
   "agentGitHub.repositoryUse": "Used",
   "agentGitHub.repositoryUnused": "Not used",
   "agentGitHub.repositoryRelease": "The active release's repository; it stays.",
@@ -424,13 +427,15 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.unsavable.no_active_release":
     "有効なリリースがありません。リリースタブでリリースを作って有効にすると、GitHub を設定できます。",
   "agentGitHub.unsavable.repository_none":
-    "有効なリリースにリポジトリがありません。リポジトリのある実行プロファイルでリリースすると設定できます。",
+    "有効なリリースの実行プロファイルはリポジトリなしで実行します。リポジトリを使う実行プロファイルでリリースすると設定できます。",
   "agentGitHub.unsavable.app_required":
     "有効なリリースのリポジトリは PAT で接続されていて、権限を絞れません。運用者が GitHub App に移すと設定できます。",
   "agentGitHub.repositoriesHint":
     "GitHub App を使うカタログのリポジトリから選びます。トークンは選んだリポジトリ 1 つに絞って発行します。",
   "agentGitHub.repositoriesNone":
     "カタログに GitHub のリポジトリがありません。運用者が追加します。",
+  "agentGitHub.repositoriesRequired":
+    "リポジトリを 1 つ以上選ぶと保存できます。",
   "agentGitHub.repositoryUse": "使う",
   "agentGitHub.repositoryUnused": "使わない",
   "agentGitHub.repositoryRelease":
