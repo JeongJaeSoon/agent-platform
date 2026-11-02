@@ -125,7 +125,7 @@ const managerRow = alias(memberships, "manager_membership");
  */
 export function insideAgent(
   db: Database,
-  workspaceId: string,
+  workspaceId: string | SQLWrapper,
   userId: string,
   agentId: string | SQLWrapper,
 ): SQL {
@@ -170,7 +170,7 @@ export function agentReadable(
 /** True while `userId` is an enabled member of `workspaceId`: a disabled member administers nothing. */
 export function liveMember(
   db: Database,
-  workspaceId: string,
+  workspaceId: string | SQLWrapper,
   userId: string,
 ): SQL {
   return exists(

@@ -76,10 +76,43 @@ curl: (28) Operation timed out after 5006 milliseconds with 4482 bytes received
 | owner・admin | 読める | 読める | 変えられる |
 | エージェント管理者(担当チームの `lead` を含む) | 読める | 読める | 変えられる |
 | 担当チームの `member` | 読める | 読める | できない(`403`) |
-| それ以外の member | 読める | できない(`403`) | できない(`403`) |
+| それ以外の member | 読める(下の設定が `none` なら見えない) | できない(`403`、設定が `none` なら `404`) | できない(`403`) |
 
 <Callout>
 以前は、member は自分が管理しないエージェントを一覧で見られず、担当チームの `member` も設定を読めなかった。今はすべての member が `GET /v1/agents`・`GET /v1/agents/counts` でワークスペースのエージェントを探せ、担当チームの `member` は設定を読める。`include=summary` の要約(管理者・認証情報の紐付け)は、設定を読めるエージェントにだけ付く。エージェントの設定を変えた receipt も、設定を読める人だけが読める。
+</Callout>
+
+### エージェントの外の member ができること
+
+owner・admin、エージェント管理者、担当チームのメンバーをそのエージェントの内側と呼び、それ以外の member を外側と呼ぶ。外側の member がエージェントで何をできるかは、ワークスペースの設定二つが決める。変えられるのは owner・admin だけで(`PATCH /v1/workspaces/{id}/agent-access`)、変えるたびに receipt が残る。今の値は `GET /v1/auth/me` の `workspace.settings` にある。
+
+| 設定 | 値 | 外側の member には |
+| --- | --- | --- |
+| `agent_outsider_access` | `use`(既定値) | 情報を読み、セッションを開始できる |
+| | `view` | 情報だけ読める。セッション開始は `403 FORBIDDEN`(`reason_code: role`) |
+| | `none` | エージェントが一覧になく、読むと `404`。セッション開始は `403` |
+| `agent_outsider_session_visibility` | `managing_team`(既定値) | 担当チームがあるエージェントの `workspace` 共有セッションが、一覧・件数・詳細・イベント・使用量の最近の一覧に出ない |
+| | `workspace` | そのセッションもすべての member が見る |
+
+- `agent_outsider_access` は担当チームのないエージェントにも適用される。`agent_outsider_session_visibility` は担当チームがあるエージェントのセッションだけを絞る。
+- 外側の member でも、自分が開始したセッションと、自分や自分のチームを指定して共有された(`people`・`team`)セッションは引き続き見える。
+- どちらの設定も次のリクエストから、作成済みのセッションにも適用される。開いているイベントストリームは次の確認で切れる。担当チームを変えたときや、メンバーがチームから外れたときも同じである。
+- 使用量の合計(セッション数・費用・成果数)は変わらず、最近の成果一覧から見られないセッションの行だけが抜ける。
+- 共有範囲が `workspace` でも外側の member に見えないセッションは、`GET /v1/sessions/{id}/share` の `audience_limited` が `true` になる。
+
+```bash
+curl -sS -X PATCH "$API/v1/workspaces/$WID/agent-access" "${WEB[@]}" \
+  -d '{"agent_outsider_access": "view"}' | jq -c '{agent_outsider_access, agent_outsider_session_visibility, changed: (.receipt_id != null)}'
+```
+
+```text
+{"agent_outsider_access":"view","agent_outsider_session_visibility":"managing_team","changed":true}
+```
+
+`WID` は `GET /v1/auth/me` の `workspace.id` である。
+
+<Callout>
+以前は `workspace` 共有セッションをすべての member が見ていた。今は既定値が `managing_team` なので、担当チームを決めたエージェントのセッションはすぐに内側だけが見る。以前のように見せるには `agent_outsider_session_visibility` を `workspace` に変える。
 </Callout>
 
 [作成](/agents/create)の `AID` と `WEB` を引き続き使う。

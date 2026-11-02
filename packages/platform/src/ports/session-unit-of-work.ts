@@ -82,6 +82,8 @@ export type AcceptSessionResult =
   | { outcome: "accepted" | "replayed"; response: CreateSessionResponse }
   | { outcome: "conflict" | "unsupported" }
   | { outcome: "actor_inactive" }
+  /** Outside the agent while axis A is not `use`, judged in the write. */
+  | { outcome: "agent_use_refused" }
   | { outcome: "credential_unbound"; receiptId: string }
   | InputLimitRefusal;
 

@@ -557,3 +557,110 @@ describe("reading an agent: who is inside it (agent-rbac (b))", () => {
     expect(recorded).toEqual(["role"]);
   });
 });
+
+describe("starting a session: axis A (agent-rbac (b))", () => {
+  const TEAM_MEMBER = "019a0000-0000-7000-8000-0000000000c5";
+  const RELEASE = "019a0000-0000-7000-8000-00000000d0a1";
+  const inside: AgentAuthority = {
+    ...agents,
+    async isInside(workspaceId, agentId, userId) {
+      return (
+        (await agents.isAdmin(workspaceId, agentId, userId)) ||
+        (agentId === AGENT_A && userId === TEAM_MEMBER)
+      );
+    },
+    async agentOfRelease() {
+      return AGENT_A;
+    },
+  };
+  const start = { kind: "session", id: null, agent_id: AGENT_A } as const;
+
+  async function reason(
+    principal: Principal,
+    access: "use" | "view" | "none",
+    options: {
+      resource?: Omit<AuthorizationResource, "owner_scope">;
+      keyCreator?: { userId: string; role: WorkspaceRole };
+      keyAgentId?: string;
+    } = {},
+  ) {
+    const policy = createAuthorizationPolicy({
+      identity: {
+        reread: async (s) => ({
+          status: "ok",
+          principal: s.principal,
+          ...(options.keyCreator ? { keyCreator: options.keyCreator } : {}),
+          ...(options.keyAgentId ? { keyAgentId: options.keyAgentId } : {}),
+        }),
+      },
+      agents: inside,
+      credentials: { unboundRefs: async () => [] },
+      outsideAgents: { access: async () => access },
+    });
+    const caller = callerFor(
+      principal,
+      { kind: principal.kind === "user" ? "web" : "api" },
+      "r",
+      principal.kind === "api_key"
+        ? { creatorId: options.keyCreator?.userId ?? null }
+        : undefined,
+    );
+    return (
+      await policy.authorize({
+        subject: caller.subject,
+        action: "session.submit",
+        resource: {
+          ...(options.resource ?? { ...start, release_id: RELEASE }),
+          owner_scope: WORKSPACE,
+        },
+        request_id: "r",
+      })
+    ).reason_code;
+  }
+
+  const WHO = {
+    W: user("admin", USERS.admin),
+    L: user("member", USERS.agent_admin),
+    T: user("member", TEAM_MEMBER),
+    O: user("member", USERS.member),
+  };
+
+  test("use: everyone starts it; view and none: only those inside", async () => {
+    const expected = {
+      use: { W: "ok", L: "ok", T: "ok", O: "ok" },
+      view: { W: "ok", L: "ok", T: "ok", O: "role" },
+      none: { W: "ok", L: "ok", T: "ok", O: "role" },
+    };
+    for (const access of ["use", "view", "none"] as const) {
+      const got: Record<string, string> = {};
+      for (const [who, principal] of Object.entries(WHO)) {
+        got[who] = await reason(principal, access);
+      }
+      expect(got, access).toEqual(expected[access]);
+    }
+  });
+
+  test("a personal key starts as its creator; an agent key is inside its agent; a key with neither is outside", async () => {
+    expect(
+      await reason(key(), "view", {
+        keyCreator: { userId: TEAM_MEMBER, role: "member" },
+      }),
+    ).toBe("ok");
+    expect(
+      await reason(key(), "view", {
+        keyCreator: { userId: USERS.member, role: "member" },
+      }),
+    ).toBe("role");
+    expect(await reason(key(), "none", { keyAgentId: AGENT_A })).toBe("ok");
+    expect(await reason(key(), "view")).toBe("role");
+    expect(await reason(key(), "use")).toBe("ok");
+  });
+
+  test("a message to a session already started is not a start", async () => {
+    expect(
+      await reason(WHO.O, "none", {
+        resource: { kind: "session", id: SESSION_A },
+      }),
+    ).toBe("ok");
+  });
+});

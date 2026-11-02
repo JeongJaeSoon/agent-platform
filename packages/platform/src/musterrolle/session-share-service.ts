@@ -29,6 +29,7 @@ function shareView(share: SessionShare): SessionShareView {
     revision: share.revision,
     updated_by: share.updatedBy,
     updated_at: share.updatedAt?.toISOString() ?? null,
+    audience_limited: share.audienceLimited,
   };
 }
 

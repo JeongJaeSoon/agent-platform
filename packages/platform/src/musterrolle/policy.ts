@@ -218,7 +218,7 @@ export interface OutsideAgentAccessSetting {
   access(workspaceId: string): Promise<OutsideAgentAccess>;
 }
 
-// Until the workspace setting exists, axis A is its default.
+// Without a settings store axis A is its default.
 export const outsideAgentsUse: OutsideAgentAccessSetting = {
   async access() {
     return "use";
@@ -375,17 +375,19 @@ function authorityScopes(reading: {
 function viewerOf(reading: {
   principal: AuthenticatedPrincipal;
   keyCreator?: { userId: string };
+  keyAgentId?: string;
 }): SessionViewer {
   const { principal } = reading;
   if (principal.kind === "user")
-    return { userId: principal.id, apiKeyId: null };
+    return { userId: principal.id, apiKeyId: null, keyAgentId: null };
   if (principal.kind === "api_key") {
     return {
       userId: reading.keyCreator?.userId ?? null,
       apiKeyId: principal.id,
+      keyAgentId: reading.keyAgentId ?? null,
     };
   }
-  return { userId: null, apiKeyId: null };
+  return { userId: null, apiKeyId: null, keyAgentId: null };
 }
 
 function claimedActorMatches(
@@ -730,6 +732,33 @@ export function createAuthorizationPolicy(
     // next session.
     if (resource.release_id !== undefined) {
       if (action !== "session.submit") return ["error", []];
+      // A start on web, api and Slack alike: those outside the agent run it
+      // only while axis A is `use` (agent-rbac (b)). An agent key is inside
+      // its own agent, the only one the ceiling above lets it reach.
+      if (reading.keyAgentId === undefined) {
+        const starter =
+          principal.kind === "user"
+            ? { userId: principal.id, role: principal.role }
+            : reading.keyCreator;
+        const agentId = await agentOfResource(resource);
+        if (agentId === null) return ["error", []];
+        const inside =
+          starter !== undefined &&
+          (WORKSPACE_MANAGERS.includes(starter.role) ||
+            (await (agents.isInside
+              ? agents.isInside(resource.owner_scope, agentId, starter.userId)
+              : agents.isAdmin(
+                  resource.owner_scope,
+                  agentId,
+                  starter.userId,
+                ))));
+        if (
+          !inside &&
+          (await outsideAccess.access(resource.owner_scope)) !== "use"
+        ) {
+          return ["role", scopes];
+        }
+      }
       if (resource.kind !== "session") {
         if (agents.agentOfRelease === undefined) return ["error", []];
         const releaseAgent = await agents.agentOfRelease(

@@ -76,10 +76,43 @@ Who sees what of an agent:
 | Owners and admins | Read | Read | Change |
 | Agent administrators (the responsible team's `lead` included) | Read | Read | Change |
 | The responsible team's `member` | Read | Read | No (`403`) |
-| Any other member | Read | No (`403`) | No (`403`) |
+| Any other member | Read (hidden when the setting below is `none`) | No (`403`, or `404` when the setting is `none`) | No (`403`) |
 
 <Callout>
 Before, a member could not list agents they did not administer, and the responsible team's `member` could not read the settings either. Now every member finds the workspace's agents with `GET /v1/agents` and `GET /v1/agents/counts`, and the responsible team's `member` reads the settings. The `include=summary` summary (administrators, credential connections) comes only on the agents whose settings the caller reads. A receipt that changed an agent's settings is likewise read only by those who read the settings.
+</Callout>
+
+### What members outside an agent can do
+
+Owners, admins, the agent's administrators and its responsible team's members are inside the agent; every other member is outside it. Two workspace settings decide what those outside can do with it. Only owners and admins change them, with `PATCH /v1/workspaces/{id}/agent-access`, and every change leaves a receipt. The current values are `workspace.settings` in `GET /v1/auth/me`.
+
+| Setting | Value | For a member outside |
+| --- | --- | --- |
+| `agent_outsider_access` | `use` (default) | Reads the agent's information and starts its sessions |
+| | `view` | Only reads its information. Starting a session is `403 FORBIDDEN` (`reason_code: role`) |
+| | `none` | The agent is missing from lists and reading it is `404`; starting a session is `403` |
+| `agent_outsider_session_visibility` | `managing_team` (default) | `workspace`-shared sessions of an agent with a responsible team are left out of lists, counts, details, events and the usage recent list |
+| | `workspace` | Every member sees those sessions too |
+
+- `agent_outsider_access` applies to agents without a responsible team as well. `agent_outsider_session_visibility` narrows only the sessions of agents with one.
+- A member outside still sees the sessions they started and the ones shared with them or their team (`people`, `team`).
+- Both settings apply from the next request, to sessions already made too. An open event stream ends at its next check. Changing the responsible team, or leaving it, works the same way.
+- Usage totals (session count, cost, achievement count) stay the same; only the rows of sessions the caller cannot see drop out of the recent achievements list.
+- A session shared with `workspace` that members outside cannot see reads `audience_limited: true` in `GET /v1/sessions/{id}/share`.
+
+```bash
+curl -sS -X PATCH "$API/v1/workspaces/$WID/agent-access" "${WEB[@]}" \
+  -d '{"agent_outsider_access": "view"}' | jq -c '{agent_outsider_access, agent_outsider_session_visibility, changed: (.receipt_id != null)}'
+```
+
+```text
+{"agent_outsider_access":"view","agent_outsider_session_visibility":"managing_team","changed":true}
+```
+
+`WID` is `workspace.id` from `GET /v1/auth/me`.
+
+<Callout>
+Before, every member saw `workspace`-shared sessions. The default is now `managing_team`, so the sessions of an agent with a responsible team are seen only by those inside it right away. To see them as before, set `agent_outsider_session_visibility` to `workspace`.
 </Callout>
 
 This continues with `AID` and `WEB` from [Create](/agents/create).

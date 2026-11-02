@@ -227,7 +227,7 @@ curl -sS "$API/v1/sessions/$SID/share" -H "Authorization: Bearer $KEY" | jq -c '
 </Tab>
 </Tabs>
 
-`scope` は `private`(作った人だけ)、`people`(`user_ids` の人)、`team`(`team_ids` のチームの現在のメンバー)、`workspace`(すべてのメンバー)のいずれかである。一度も変えていないセッションは `workspace`、`revision` 0 になる。範囲を変える `POST /v1/sessions/{id}/share` は Web ログインでしか呼べないため、SDK のメソッドはない([`setSessionShare`](/reference/http-api/sessions/setSessionShare))。
+`scope` は `private`(作った人だけ)、`people`(`user_ids` の人)、`team`(`team_ids` のチームの現在のメンバー)、`workspace`(すべてのメンバー)のいずれかである。一度も変えていないセッションは `workspace`、`revision` 0 になる。担当チームがあるエージェントのセッションは、ワークスペースの設定によって `workspace` でもエージェントの内側だけが見られ、そのとき `audience_limited` が `true` になる([エージェントの外の member ができること](/agents/permissions#エージェントの外の-member-ができること))。範囲を変える `POST /v1/sessions/{id}/share` は Web ログインでしか呼べないため、SDK のメソッドはない([`setSessionShare`](/reference/http-api/sessions/setSessionShare))。
 
 ## タイトル
 
@@ -288,7 +288,7 @@ try {
 | --- | --- |
 | 400 | 本文が schema と異なる、または `Idempotency-Key` がない |
 | 401 | キーがない、誤っている、または失効している |
-| 403 | キーに `sessions:write` がない |
+| 403 | キーに `sessions:write` がない。または呼び出した人(個人キーなら作った人)がエージェントの外側で、ワークスペースの `agent_outsider_access` が `use` でない(`details.reason_code` が `role`) |
 | 409 `IDEMPOTENCY_CONFLICT` | 同じキーで本文が異なる |
 | 409 `PROFILE_BLOCKED` | オーナーが[運用担当者のプロファイルをブロック](/agents/run-profiles#運用担当者のプロファイルをブロックする)した。ワークスペースプロファイルなら、そのベースがブロックされている(`details.reason_code` が `base_blocked`)。送り直しても同じになる |
 | 413 | メッセージが 32,768 バイトを超えている。ストレージ容量の上限なら `STORAGE_LIMIT_EXCEEDED` |

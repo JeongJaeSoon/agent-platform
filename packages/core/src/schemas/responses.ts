@@ -7,6 +7,7 @@ import {
   achievementRuleChangeResponseSchema,
   achievementTypeChangeResponseSchema,
   activateAgentResponseSchema,
+  agentAccessResponseSchema,
   agentAdminChangeResponseSchema,
   agentAdminsViewSchema,
   agentDetailSchema,
@@ -161,6 +162,7 @@ export const responseSchemas = {
     issuePasswordResetResponseSchema,
   "POST /v1/workspaces/{id}/audit-retention": auditRetentionResponseSchema,
   "POST /v1/workspaces/{id}/slack-guest": slackGuestResponseSchema,
+  "PATCH /v1/workspaces/{id}/agent-access": agentAccessResponseSchema,
   "GET /v1/workspaces/{id}/slack/config-token": slackConfigTokenSummarySchema,
   "PUT /v1/workspaces/{id}/slack/config-token":
     putSlackConfigTokenResponseSchema,

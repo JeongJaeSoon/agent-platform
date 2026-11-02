@@ -178,7 +178,7 @@ export async function agentSummaries(
             eq(sessions.ownerId, workspaceId),
             inArray(agentReleases.agentId, found),
             inArray(sessions.status, IN_FLIGHT_STATUSES),
-            sessionVisibleTo(viewer),
+            sessionVisibleTo(db, viewer),
           ),
         )
         .groupBy(agentReleases.agentId)

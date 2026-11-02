@@ -516,17 +516,19 @@ async function usageAchievements(
         ORDER BY c.position, c.name, c.id, f.counted DESC, l.title`);
       const recent = await run<RecentAchievementRow>(sql`
         WITH ${picked}
-        SELECT a.id, a.created_at,
-               CASE WHEN EXISTS (
-                 SELECT 1 FROM ${sessions}
-                 WHERE ${sessions.id} = a.session_id AND ${sessions.ownerId} = ${options.ownerId}
-                   AND ${sessionVisibleTo(options.viewer)}
-               ) THEN a.session_id END AS session_id,
+        SELECT a.id, a.created_at, a.session_id,
                ss.title AS session_title, a.rule_id, r.title AS rule_title,
                a.title, a.link, a.evidence_kind, a.judge, a.review_state
         FROM a
         JOIN ${achievementRules} r ON r.id = a.rule_id
         JOIN ${sessions} ss ON ss.id = a.session_id
+        -- A session the viewer cannot see leaves its whole row out, title
+        -- and link with it, before the limit; the totals still count it.
+        WHERE EXISTS (
+          SELECT 1 FROM ${sessions}
+          WHERE ${sessions.id} = a.session_id AND ${sessions.ownerId} = ${options.ownerId}
+            AND ${sessionVisibleTo(db, options.viewer)}
+        )
         ORDER BY a.created_at DESC, a.id DESC
         LIMIT ${options.recentLimit}`);
       const total = totals.find((row) => row.total);
@@ -590,11 +592,11 @@ async function usageAchievements(
           id: row.id,
           createdAt: new Date(row.created_at),
           sessionId: row.session_id,
-          sessionTitle: row.session_id === null ? null : row.session_title,
+          sessionTitle: row.session_title,
           ruleId: row.rule_id,
           ruleTitle: row.rule_title,
-          title: row.session_id === null ? null : row.title,
-          link: row.session_id === null ? null : row.link,
+          title: row.title,
+          link: row.link,
           evidenceKind: row.evidence_kind,
           judge: row.judge,
           reviewState: row.review_state,

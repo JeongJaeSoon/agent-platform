@@ -40,6 +40,7 @@ type Account = {
 // Slack user id → the account it links to, as the stores would read it now.
 let accounts: Map<string, Account>;
 let guestsEnabled: boolean;
+let outsideAccess: "use" | "view" | "none";
 let recorded: Parameters<DecisionLog["record"]>[0][];
 let recordFails: boolean;
 // Channel id (null for the DM row) → the live binding the store resolves.
@@ -61,6 +62,7 @@ function link(slackUser: string, n: number, role: WorkspaceRole = "member") {
 beforeEach(() => {
   accounts = new Map();
   guestsEnabled = false;
+  outsideAccess = "use";
   recorded = [];
   recordFails = false;
   stored = new Map();
@@ -96,6 +98,7 @@ const deps = () => ({
   authorization: createAuthorizationPolicy({
     identity,
     slackGuests: { enabled: async () => guestsEnabled },
+    outsideAgents: { access: async () => outsideAccess },
     credentials: { unboundRefs: async () => [] },
     sessions: {
       async visibleTo(_ownerId, sessionId, viewer) {
@@ -344,6 +347,35 @@ describe("the channel's stored binding (94S-177)", () => {
         },
       },
     });
+  });
+
+  test("a member outside the agent starts nothing unless axis A is use; a reply in a thread still goes", async () => {
+    link("U0B", 1);
+    link("U0A", 2, "admin");
+    for (const access of ["view", "none"] as const) {
+      outsideAccess = access;
+      const start = { kind: "surface_binding", releaseId: "rel-1" } as const;
+      expect(
+        await judge(input(slackUser("U0B"), { resource: start })),
+      ).toMatchObject({
+        decision: { outcome: "deny", reason_code: "role" },
+        notice: { message: "noRequestRight" },
+      });
+      // An owner or admin is inside every agent.
+      expect(
+        (await judge(input(slackUser("U0A"), { resource: start }))).decision
+          .outcome,
+      ).toBe("allow");
+      expect(
+        (
+          await judge(
+            input(slackUser("U0B"), {
+              resource: { kind: "session_link", id: SESSION },
+            }),
+          )
+        ).decision.outcome,
+      ).toBe("allow");
+    }
   });
 
   test("a release of another agent, or none, is refused at the agent ceiling", async () => {

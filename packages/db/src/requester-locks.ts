@@ -18,6 +18,7 @@ import {
   sessionShareTargets,
   users,
 } from "./schema.ts";
+import { lockAgentAccessSettings } from "./workspace-settings.ts";
 
 // A session create, input or answer is decided by the policy before its
 // write opens, so the write judges the requester and their reach again over
@@ -25,12 +26,14 @@ import {
 // write or is seen by it (94S-834). Every such write, and every write that
 // revokes what they rely on, takes rows in this one order:
 //
-//   user → membership → linked account → api key → session → agent →
-//   agent_admins → member_teams (id order) →
+//   user → membership → linked account → api key → session → workspace →
+//   agent → agent_admins → member_teams (id order) →
 //   agent_admin_teams · session_shares · session_share_targets →
 //   member_team_members (id order)
 //
 // Agent usage grants (design P1 ②) lock their rows beside agent_admin_teams.
+// The workspace row carries the agent access settings and is held FOR KEY
+// SHARE (lockAgentAccessSettings); a create has no session row yet.
 
 const MANAGERS: readonly WorkspaceRole[] = ["owner", "admin"];
 
@@ -148,6 +151,125 @@ export async function keyReaches(
   return release?.agentId === requester.keyAgentId;
 }
 
+/**
+ * Whether the requester may start a session of `releaseId`'s agent, judged
+ * again under the rows the policy's axis A decision rests on: inside the
+ * agent, or axis A is `use` (agent-rbac (b)). After keyReaches, so an agent
+ * key is already held to its own agent.
+ */
+export async function lockAgentUse(
+  tx: Database,
+  requester: Requester,
+  workspaceId: string,
+  releaseId: string,
+): Promise<boolean> {
+  if (requester.keyAgentId !== null) return true;
+  const settings = await lockAgentAccessSettings(tx, workspaceId);
+  if (settings.agent_outsider_access === "use") return true;
+  if (requester.role !== null && MANAGERS.includes(requester.role)) {
+    return true;
+  }
+  const { userId } = requester;
+  if (userId === null) return false;
+  const [agent] = await tx
+    .select({ id: agents.id, managingTeamId: agents.managingTeamId })
+    .from(agents)
+    .innerJoin(agentReleases, eq(agentReleases.agentId, agents.id))
+    .where(
+      and(eq(agentReleases.id, releaseId), eq(agents.workspaceId, workspaceId)),
+    )
+    .limit(1)
+    .for("share", { of: agents });
+  if (!agent) return false;
+  const direct = await tx
+    .select({ userId: agentAdmins.userId })
+    .from(agentAdmins)
+    .where(
+      and(
+        eq(agentAdmins.workspaceId, workspaceId),
+        eq(agentAdmins.agentId, agent.id),
+        eq(agentAdmins.userId, userId),
+      ),
+    )
+    .limit(1)
+    .for("share");
+  if (direct.length > 0) return true;
+  const adminTeams = (
+    await tx
+      .select({ teamId: agentAdminTeams.teamId })
+      .from(agentAdminTeams)
+      .where(
+        and(
+          eq(agentAdminTeams.workspaceId, workspaceId),
+          eq(agentAdminTeams.agentId, agent.id),
+        ),
+      )
+  ).map((row) => row.teamId);
+  const teamIds = [
+    ...new Set([
+      ...adminTeams,
+      ...(agent.managingTeamId === null ? [] : [agent.managingTeamId]),
+    ]),
+  ].sort();
+  if (teamIds.length === 0) return false;
+  const liveTeams = new Set(
+    (
+      await tx
+        .select({ id: memberTeams.id })
+        .from(memberTeams)
+        .where(
+          and(
+            eq(memberTeams.workspaceId, workspaceId),
+            inArray(memberTeams.id, teamIds),
+            isNull(memberTeams.archivedAt),
+          ),
+        )
+        .orderBy(asc(memberTeams.id))
+        .for("share")
+    ).map((row) => row.id),
+  );
+  if (liveTeams.size === 0) return false;
+  const liveAdminTeams = adminTeams.filter((id) => liveTeams.has(id));
+  // A team removed from the agent since the read above is not lent any more.
+  const lending =
+    liveAdminTeams.length === 0
+      ? []
+      : (
+          await tx
+            .select({ teamId: agentAdminTeams.teamId })
+            .from(agentAdminTeams)
+            .where(
+              and(
+                eq(agentAdminTeams.workspaceId, workspaceId),
+                eq(agentAdminTeams.agentId, agent.id),
+                inArray(agentAdminTeams.teamId, liveAdminTeams),
+              ),
+            )
+            .orderBy(asc(agentAdminTeams.teamId))
+            .for("share")
+        ).map((row) => row.teamId);
+  const reaching = [
+    ...lending,
+    ...(agent.managingTeamId !== null && liveTeams.has(agent.managingTeamId)
+      ? [agent.managingTeamId]
+      : []),
+  ];
+  if (reaching.length === 0) return false;
+  const member = await tx
+    .select({ teamId: memberTeamMembers.teamId })
+    .from(memberTeamMembers)
+    .where(
+      and(
+        inArray(memberTeamMembers.teamId, [...liveTeams]),
+        eq(memberTeamMembers.userId, userId),
+        isNull(memberTeamMembers.removedAt),
+      ),
+    )
+    .orderBy(asc(memberTeamMembers.id))
+    .for("share");
+  return member.some((row) => reaching.includes(row.teamId));
+}
+
 export type LockedSession = {
   id: string;
   workspaceId: string | null;
@@ -200,22 +322,34 @@ export async function lockSessionReach(
           .from(sessionShareTargets)
           .where(eq(sessionShareTargets.sessionId, session.id))
       : [];
-  const sees =
-    scope === "workspace" ||
+  const owns =
     same(session.createdByUserId, userId) ||
     (session.createdByUserId === null &&
-      same(session.createdByApiKeyId, apiKeyId)) ||
-    (scope === "people" && targets.some((t) => same(t.userId, userId)));
+      same(session.createdByApiKeyId, apiKeyId));
+  const named =
+    scope === "people" && targets.some((t) => same(t.userId, userId));
   const shareTeams =
-    !sees && scope === "team" && userId !== null
+    !owns && !named && scope === "team" && userId !== null
       ? targets.flatMap((t) => (t.teamId === null ? [] : [t.teamId]))
       : [];
+  // Axis B, as sessionVisibleTo has it: a workspace-wide session of an agent
+  // with a managing team reaches only those inside the agent.
+  let gated =
+    scope === "workspace" &&
+    !owns &&
+    !manager &&
+    (await lockAgentAccessSettings(tx, workspaceId))
+      .agent_outsider_session_visibility !== "workspace";
+  if (gated && session.agentReleaseId === null) gated = false;
 
   let agentId: string | null = null;
   let managingTeamId: string | null = null;
   let directAdmin = false;
   let adminTeams: string[] = [];
-  if (!answerer && userId !== null && session.agentReleaseId !== null) {
+  if (
+    ((!answerer && userId !== null) || gated) &&
+    session.agentReleaseId !== null
+  ) {
     // The share lock queues this behind a change of the managing team.
     const [agent] = await tx
       .select({ id: agents.id, managingTeamId: agents.managingTeamId })
@@ -231,6 +365,9 @@ export async function lockSessionReach(
       .for("share", { of: agents });
     agentId = agent?.id ?? null;
     managingTeamId = agent?.managingTeamId ?? null;
+    if (managingTeamId === null || same(agentId, requester.keyAgentId)) {
+      gated = false;
+    }
   }
   if (agentId !== null && userId !== null) {
     const direct = await tx
@@ -343,7 +480,16 @@ export async function lockSessionReach(
           ).map((row) => [row.teamId, row.role]),
         );
 
-  if (!sees && !shareTeams.some((id) => memberOf.has(id))) return "not_found";
+  const inside =
+    directAdmin ||
+    [...lending].some((id) => memberOf.has(id)) ||
+    (managingTeamId !== null && memberOf.has(managingTeamId));
+  const sees =
+    owns ||
+    named ||
+    shareTeams.some((id) => memberOf.has(id)) ||
+    (scope === "workspace" && (!gated || inside));
+  if (!sees) return "not_found";
   if (answerer || directAdmin) return "ok";
   // The managing team's lead administers the agent, as administers() says.
   if (leadTeams.some((id) => memberOf.get(id) === "lead")) return "ok";

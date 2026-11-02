@@ -7,11 +7,15 @@ import type { Principal } from "../musterrolle/policy.ts";
 
 /**
  * Who is looking at a session. A key no person stands behind (a service
- * key) is no member: it sees workspace-wide sessions and the ones it made.
+ * key) is no member: it sees the ones it made and the workspace-wide
+ * sessions of agents with no managing team (or every one, under axis B
+ * `workspace`), and an agent key also its own agent's.
  */
 export type SessionViewer = {
   userId: string | null;
   apiKeyId: string | null;
+  /** The agent an agent key reaches; inside that agent (agent-rbac (b)). */
+  keyAgentId?: string | null;
 };
 
 /** Who made a session. A null user is a key's session (D21). */
@@ -29,6 +33,12 @@ export type SessionShare = {
   revision: number;
   updatedBy: string | null;
   updatedAt: Date | null;
+  /**
+   * `workspace` would reach only those inside the session's agent, whatever
+   * the scope is now: the agent has a managing team and axis B is
+   * `managing_team`.
+   */
+  audienceLimited: boolean;
 };
 
 export type SetSessionShareInput = {
