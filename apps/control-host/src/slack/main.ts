@@ -3,6 +3,7 @@ import * as schema from "@werft-ai/db";
 import {
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
+  createPostgresAgentAccessSetting,
   createPostgresAgentIdentityStore,
   createPostgresAgentStore,
   createPostgresCatalogRepositoryStore,
@@ -220,6 +221,7 @@ export function slackSessionHandler(deps: {
     agents: createDatabaseAgentAuthority(db),
     credentials,
     slackGuests: createPostgresSlackGuestSetting(db),
+    outsideAgents: createPostgresAgentAccessSetting(db),
     sessions: createPostgresSessionShareStore(db),
     decisions: createPostgresDecisionLog(db),
   });

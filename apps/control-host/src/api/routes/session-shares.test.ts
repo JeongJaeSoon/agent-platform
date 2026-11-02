@@ -36,6 +36,7 @@ const SHARE: SessionShareView = {
   revision: 1,
   updated_by: USER,
   updated_at: "2026-10-11T00:00:00.000Z",
+  audience_limited: false,
 };
 
 const DETAIL: SessionDetail = {

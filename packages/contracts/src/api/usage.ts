@@ -648,9 +648,9 @@ export const usageAchievementsResponseSchema = z
         })
         .strict(),
     ),
-    // `session_id`, `session_title`, `title` and `link` are null for a
-    // session the caller may not read: an achievement's title and link can
-    // name its session.
+    // An achievement of a session the caller may not read is left out, its
+    // title and link with it (they can name the session); the counts above
+    // still include it. `session_id` stays nullable for older readers.
     recent: z
       .array(
         z

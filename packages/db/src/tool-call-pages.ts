@@ -60,7 +60,7 @@ export async function toolCallPage(
         CASE WHEN EXISTS (
           SELECT 1 FROM sessions
           WHERE sessions.id = c.session_id AND sessions.owner_id = ${options.ownerId}
-            AND ${sessionVisibleTo(options.viewer)}
+            AND ${sessionVisibleTo(db, options.viewer)}
         ) THEN s.id END AS session_id,
         s.title
       FROM tool_calls c

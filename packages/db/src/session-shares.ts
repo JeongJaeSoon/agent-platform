@@ -16,11 +16,12 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
-import { administers } from "./administers.ts";
+import { administers, insideAgent } from "./administers.ts";
 import { lockPeople, receiptActorOf } from "./control-shared.ts";
 import type { Database } from "./queries.ts";
 import {
   agentReleases,
+  agents,
   memberTeams,
   receipts,
   sessionShares,
@@ -28,6 +29,7 @@ import {
   sessions,
   turns,
 } from "./schema.ts";
+import { outsidersSeeAgentSessions } from "./workspace-settings.ts";
 
 // Session share scopes (94S-584, design 4.6). Lock order: the people
 // involved (users, then memberships), the session, the named teams, then the
@@ -87,14 +89,49 @@ function startedBy(viewer: SessionViewer): SQL[] {
 const anyOf = (branches: SQL[]): SQL =>
   branches.length === 0 ? sql`false` : sql`(${sql.join(branches, sql` OR `)})`;
 
+// The session's agent has a managing team. Qualified by hand: agent_releases
+// and agents have ids of their own.
+const managedAgentSession = sql`EXISTS (SELECT 1 FROM ${agentReleases} mar JOIN ${agents} ma ON ma.id = mar.agent_id WHERE mar.id = ${sessions}.agent_release_id AND ma.managing_team_id IS NOT NULL)`;
+
+// The viewer is inside the session's agent (agent-rbac (b)): an agent key
+// of that agent, or a person inside it, read at this decision.
+function insideSessionAgent(db: Database, viewer: SessionViewer): SQL[] {
+  const userId = uuidOrNull(viewer.userId);
+  const keyAgentId = uuidOrNull(viewer.keyAgentId ?? null);
+  return [
+    ...(keyAgentId === null
+      ? []
+      : [
+          sql`EXISTS (SELECT 1 FROM ${agentReleases} kar WHERE kar.id = ${sessions}.agent_release_id AND kar.agent_id = ${keyAgentId})`,
+        ]),
+    ...(userId === null
+      ? []
+      : [
+          sql`EXISTS (SELECT 1 FROM ${agentReleases} iar WHERE iar.id = ${sessions}.agent_release_id AND ${insideAgent(db, sql`${sessions}.workspace_id`, userId, sql`iar.agent_id`)})`,
+        ]),
+  ];
+}
+
 /**
  * Whether `viewer` sees the session row the enclosing query reads from
  * `sessions`. One predicate for a decision on one session and for a list,
  * so what a list shows and what a detail answers never disagree.
+ *
+ * `workspace` reaches every member, save that a session of an agent with a
+ * managing team reaches only those inside the agent while the workspace's
+ * axis B is `managing_team` (agent-rbac (c)). Read at this decision, so a
+ * new managing team, a setting changed or a member leaving the team applies
+ * to sessions already made.
  */
-export function sessionVisibleTo(viewer: SessionViewer): SQL {
+export function sessionVisibleTo(db: Database, viewer: SessionViewer): SQL {
+  const workspaceWide = anyOf([
+    sql`${sessions}.workspace_id IS NULL`,
+    outsidersSeeAgentSessions(sql`${sessions}.workspace_id`),
+    sql`NOT ${managedAgentSession}`,
+    ...insideSessionAgent(db, viewer),
+  ]);
   return anyOf([
-    sql`coalesce((SELECT ${sessionShares.scope} FROM ${sessionShares} WHERE ${sessionShares.sessionId} = ${sessions.id}), 'workspace') = 'workspace'`,
+    sql`(coalesce((SELECT ${sessionShares.scope} FROM ${sessionShares} WHERE ${sessionShares.sessionId} = ${sessions.id}), 'workspace') = 'workspace' AND ${workspaceWide})`,
     ...ownedBy(viewer),
     ...sharedWith(viewer),
   ]);
@@ -140,6 +177,7 @@ async function readShare(
       revision: sessionShares.revision,
       updatedBy: sessionShares.updatedBy,
       updatedAt: sessionShares.updatedAt,
+      audienceLimited: sql<boolean>`(${sessions}.workspace_id IS NOT NULL AND ${managedAgentSession} AND NOT ${outsidersSeeAgentSessions(sql`${sessions}.workspace_id`)})`,
     })
     .from(sessions)
     .leftJoin(sessionShares, eq(sessionShares.sessionId, sessions.id))
@@ -164,6 +202,7 @@ async function readShare(
     revision: changed ? (row.revision ?? 0) : 0,
     updatedBy: changed ? row.updatedBy : null,
     updatedAt: changed ? row.updatedAt : null,
+    audienceLimited: row.audienceLimited === true,
   };
 }
 
@@ -324,7 +363,7 @@ export function createPostgresSessionShareStore(
           and(
             eq(sessions.id, sessionId.toLowerCase()),
             eq(sessions.ownerId, ownerId),
-            sessionVisibleTo(viewer),
+            sessionVisibleTo(db, viewer),
           ),
         )
         .limit(1);

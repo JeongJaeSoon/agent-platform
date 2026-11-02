@@ -86,7 +86,7 @@ export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
       // take a place among the latest.
       const visibleSession = and(
         inArray(receipts.operation, [...SESSION_OPERATIONS]),
-        sql`EXISTS (SELECT 1 FROM ${sessions} JOIN ${agentReleases} ON ${agentReleases.id} = ${sessions.agentReleaseId} WHERE ${sessions.id}::text = ${receipts.targetRef} ->> 'session_id' AND ${agentReleases.agentId} = ${id} AND ${sessionVisibleTo(viewer)})`,
+        sql`EXISTS (SELECT 1 FROM ${sessions} JOIN ${agentReleases} ON ${agentReleases.id} = ${sessions.agentReleaseId} WHERE ${sessions.id}::text = ${receipts.targetRef} ->> 'session_id' AND ${agentReleases.agentId} = ${id} AND ${sessionVisibleTo(db, viewer)})`,
       );
       const rows = await db
         .select()

@@ -80,6 +80,7 @@ import { deriveSessionTitle } from "./session-title.ts";
 export const viewerOf = (actor: Caller): SessionViewer => ({
   userId: actor.actor?.userId ?? null,
   apiKeyId: actor.actor?.apiKeyId ?? null,
+  keyAgentId: actor.actor?.agentId ?? null,
 });
 
 export class SessionServiceError extends Error {
@@ -830,6 +831,15 @@ export function createSessionService(deps: {
           throw new SessionServiceError(
             "FORBIDDEN",
             "This principal is no longer a member of the workspace",
+          );
+        // The policy allowed the start, then the workspace setting or the
+        // agent's team changed before the write: the same refusal it gives.
+        case "agent_use_refused":
+          throw new SessionServiceError(
+            "FORBIDDEN",
+            "This principal holds sessions:write but may not use it on this session",
+            undefined,
+            { reason_code: "role" },
           );
         default:
           return result.response;

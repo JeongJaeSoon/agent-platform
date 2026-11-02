@@ -43,6 +43,10 @@ export const sessionShareSchema = z
     revision: revisionSchema,
     updated_by: userIdSchema.nullable(),
     updated_at: timestampSchema.nullable(),
+    audience_limited: z.boolean().meta({
+      description:
+        "True when `workspace` reaches only those inside the session's agent, whatever `scope` is now: the agent has a managing team and the workspace's `agent_outsider_session_visibility` is `managing_team`. Owners, admins, the agent's admins and its managing team's members are inside. `people` and `team` still reach whom they name.",
+    }),
   })
   .strict();
 

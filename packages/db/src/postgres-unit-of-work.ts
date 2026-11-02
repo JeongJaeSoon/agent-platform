@@ -103,6 +103,7 @@ import type { Database } from "./queries.ts";
 import { earlierInSecond, releaseLabel } from "./release-labels.ts";
 import {
   keyReaches,
+  lockAgentUse,
   lockRequester,
   lockSessionReach,
 } from "./requester-locks.ts";
@@ -255,6 +256,20 @@ export function createPostgresSessionUnitOfWork(
           !(await keyReaches(tx, requester, input.agentReleaseId ?? null))
         ) {
           return { outcome: "actor_inactive" };
+        }
+        // AUTH_MODE=none and keys from before workspaces have no settings.
+        const workspaceId = input.principal.actor?.workspaceId;
+        if (
+          input.agentReleaseId !== undefined &&
+          workspaceId &&
+          !(await lockAgentUse(
+            tx,
+            requester,
+            workspaceId,
+            input.agentReleaseId,
+          ))
+        ) {
+          return { outcome: "agent_use_refused" };
         }
         if (
           input.agentReleaseId !== undefined &&
@@ -955,7 +970,7 @@ export function createPostgresSessionReader(
     const q = query.q?.toLowerCase();
     return and(
       eq(sessions.ownerId, ownerId),
-      sessionVisibleTo(viewer),
+      sessionVisibleTo(db, viewer),
       query.relation === undefined || query.relation === "all"
         ? undefined
         : sessionRelationIs(db, viewer, query.relation),

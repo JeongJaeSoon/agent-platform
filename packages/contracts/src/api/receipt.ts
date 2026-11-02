@@ -76,6 +76,8 @@ export const RECEIPT_OPERATION_VALUES = [
   "remove_team_member",
   "set_team_member_role",
   "set_agent_managing_team",
+  // The workspace's two agent access settings (agent-rbac (c)).
+  "set_agent_access_settings",
   "add_agent_admin",
   "remove_agent_admin",
   // Binding a credential name to an agent and taking it off (94S-581).
