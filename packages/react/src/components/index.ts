@@ -4,7 +4,11 @@ export {
   ApiErrorState,
   type ApiErrorStateProps,
 } from "./feedback/api-error-state.tsx";
-export { ERROR_GUIDANCE, guidanceFor } from "./feedback/error-guidance.ts";
+export {
+  ERROR_GUIDANCE,
+  ERROR_GUIDANCE_BY_LOCALE,
+  guidanceFor,
+} from "./feedback/error-guidance.ts";
 export {
   DetailLayout,
   type DetailLayoutProps,
