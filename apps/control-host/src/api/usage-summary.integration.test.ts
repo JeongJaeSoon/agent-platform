@@ -725,7 +725,7 @@ integration("usage summary on PostgreSQL", () => {
     await db
       .insert(schema.achievementRules)
       .values([
-        rule(mergedV1, 1, "Merged PR", dev, prType, mergedV2),
+        rule(mergedV1, 1, "PR merged", dev, prType, mergedV2),
         rule(mergedV2, 2, "Merged PR", dev, prType, null, mergedV1),
         rule(design, 1, "Design doc", docs, docType, null),
       ]);
@@ -863,10 +863,15 @@ integration("usage summary on PostgreSQL", () => {
         row.needs_review_count,
       ]),
     ).toEqual([
-      ["Dev", "Merged PR", 2, "pull_request", 2, 0],
-      ["Dev", "Merged PR", 1, "pull_request", 1, 0],
+      // One row per family, named and versioned by its latest version, with
+      // what every version counted.
+      ["Dev", "Merged PR", 2, "pull_request", 3, 0],
       ["Docs", "Design doc", 1, "document", 1, 1],
     ]);
+    expect(body.by_rule[0]).toMatchObject({
+      id: mergedV2,
+      family_id: mergedV1,
+    });
     expect(body.by_agent).toEqual([
       {
         id: agentId,

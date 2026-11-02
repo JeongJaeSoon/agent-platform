@@ -489,6 +489,31 @@ async function usageAchievements(
         GROUP BY r.id, c.id, ty.id
         HAVING count(*) FILTER (WHERE a.review_state <> 'rejected') > 0
         ORDER BY c.position, c.name, c.id, counted DESC, r.title, r.version DESC`);
+      // A family is one row under its latest version, whose category, title
+      // and type it shows, with what every version counted.
+      const families = await run<AchievementRuleRow>(sql`
+        WITH ${picked},
+        f AS (
+          SELECT r.family_id,
+                 (count(*) FILTER (WHERE ${COUNTED}))::int AS counted,
+                 (count(*) FILTER (WHERE a.review_state = 'needs_review'))::int AS waiting
+          FROM a
+          JOIN ${achievementRules} r ON r.id = a.rule_id
+          GROUP BY r.family_id
+          HAVING count(*) FILTER (WHERE a.review_state <> 'rejected') > 0
+        )
+        SELECT l.id, f.family_id, l.version, l.title, l.category_id,
+               c.name AS category_name, l.type_id, ty.key AS type_key,
+               ty.name AS type_name, f.counted, f.waiting
+        FROM f
+        CROSS JOIN LATERAL (
+          SELECT * FROM ${achievementRules} r
+          WHERE r.family_id = f.family_id
+          ORDER BY r.version DESC LIMIT 1
+        ) l
+        JOIN ${achievementCategories} c ON c.id = l.category_id
+        JOIN ${achievementTypes} ty ON ty.id = l.type_id
+        ORDER BY c.position, c.name, c.id, f.counted DESC, l.title`);
       const recent = await run<RecentAchievementRow>(sql`
         WITH ${picked}
         SELECT a.id, a.created_at,
@@ -539,7 +564,7 @@ async function usageAchievements(
               b.achievementCount - a.achievementCount ||
               a.key.localeCompare(b.key),
           ),
-        byRule: rules.map((row) => ({
+        byRule: families.map((row) => ({
           id: row.id,
           familyId: row.family_id,
           version: row.version,

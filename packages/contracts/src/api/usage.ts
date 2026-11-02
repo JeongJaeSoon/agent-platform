@@ -616,7 +616,9 @@ export const usageAchievementsResponseSchema = z
         })
         .strict(),
     ),
-    // One row per rule version, in its category's order.
+    // One row per rule family, as its latest version (`id`, `version`,
+    // title, category, type) with every version's achievements, in its
+    // category's order.
     by_rule: z.array(
       z
         .object({
