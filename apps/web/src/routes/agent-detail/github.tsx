@@ -21,13 +21,13 @@ import {
   Field,
   FieldError,
   FieldLabel,
-  Heading,
   Input,
   Link,
   RelativeTime,
   RowAction,
   RowList,
   RowListItem,
+  Section,
   SettingRow,
   SideNav,
   SideNavGroup,
@@ -40,6 +40,7 @@ import {
 import { Plus } from "lucide-react";
 import { type FormEvent, useLayoutEffect, useRef, useState } from "react";
 import { LoadFailure } from "../../components/load-failure.tsx";
+import { SECTION_BODY } from "../../components/my-teams.tsx";
 import {
   errorKey,
   type MessageKey,
@@ -74,8 +75,6 @@ const SECTION = {
   activity: "github-activity",
 } as const;
 type SectionKey = keyof typeof SECTION;
-const SECTION_BOX =
-  "flex scroll-mt-4 flex-col gap-[var(--ap-space-block)] outline-none";
 // The order the mockup lists them in: what most agents turn on first.
 // checks and issues stay in the contract but have no work behind them yet
 // (github-agent.md LATER), so they are not offered.
@@ -241,46 +240,41 @@ function Activity({
     retry: false,
   });
   return (
-    <section
+    <Section
       id={SECTION.activity}
       tabIndex={-1}
-      className={SECTION_BOX}
-      aria-labelledby={`${SECTION.activity}-title`}
+      className="scroll-mt-4 outline-none"
+      title={t("agentGitHub.section.activity")}
+      description={t("agentGitHub.activityHint")}
     >
-      <div className="flex flex-col gap-1">
-        <Heading id={`${SECTION.activity}-title`}>
-          {t("agentGitHub.section.activity")}
-        </Heading>
-        <Text as="span" variant="sub">
-          {t("agentGitHub.activityHint")}
-        </Text>
+      <div className={SECTION_BODY}>
+        {activity.error ? (
+          <LoadFailure
+            error={activity.error}
+            kept={activity.data !== undefined}
+            onRetry={() => void activity.refetch()}
+          />
+        ) : null}
+        {activity.data === undefined ? (
+          activity.error ? null : (
+            <Skeleton className="h-32 w-full" />
+          )
+        ) : activity.data.items.length === 0 ? (
+          <Text as="span" variant="sub">
+            {t("agentGitHub.activityEmpty")}
+          </Text>
+        ) : (
+          <RowList
+            variant="joined"
+            aria-label={t("agentGitHub.section.activity")}
+          >
+            {activity.data.items.map((receipt) => (
+              <ReceiptRow key={receipt.id} receipt={receipt} detail={detail} />
+            ))}
+          </RowList>
+        )}
       </div>
-      {activity.error ? (
-        <LoadFailure
-          error={activity.error}
-          kept={activity.data !== undefined}
-          onRetry={() => void activity.refetch()}
-        />
-      ) : null}
-      {activity.data === undefined ? (
-        activity.error ? null : (
-          <Skeleton className="h-32 w-full" />
-        )
-      ) : activity.data.items.length === 0 ? (
-        <Text as="span" variant="sub">
-          {t("agentGitHub.activityEmpty")}
-        </Text>
-      ) : (
-        <RowList
-          variant="joined"
-          aria-label={t("agentGitHub.section.activity")}
-        >
-          {activity.data.items.map((receipt) => (
-            <ReceiptRow key={receipt.id} receipt={receipt} detail={detail} />
-          ))}
-        </RowList>
-      )}
-    </section>
+    </Section>
   );
 }
 
@@ -360,31 +354,6 @@ function EnabledRow({
         ) : null}
       </ConfirmDialog>
     </>
-  );
-}
-
-function SectionHead({
-  id,
-  title,
-  hint,
-}: {
-  readonly id: string;
-  readonly title: MessageKey;
-  readonly hint?: MessageKey;
-}) {
-  const { t } = useI18n();
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex flex-wrap items-center gap-2">
-        <Heading id={`${id}-title`}>{t(title)}</Heading>
-        <Badge variant="blue">{t("agentGitHub.badge.release")}</Badge>
-      </div>
-      {hint ? (
-        <Text as="span" variant="sub">
-          {t(hint)}
-        </Text>
-      ) : null}
-    </div>
   );
 }
 
@@ -706,89 +675,227 @@ function GitHubSettings({
         </Alert>
       ) : null}
 
-      <section
+      <Section
         id={SECTION.use}
         tabIndex={-1}
-        className={SECTION_BOX}
-        aria-labelledby={`${SECTION.use}-title`}
+        className="scroll-mt-4 outline-none"
+        title={t("agentGitHub.section.use")}
       >
-        <Heading id={`${SECTION.use}-title`}>
-          {t("agentGitHub.section.use")}
-        </Heading>
-        <EnabledRow agentId={agentId} enabled={data.enabled} notify={notify} />
-        {data.enabled ? null : (
-          <Text as="span" variant="sub">
-            {t("agentGitHub.offNote")}
-          </Text>
-        )}
-      </section>
+        <div className={SECTION_BODY}>
+          <EnabledRow
+            agentId={agentId}
+            enabled={data.enabled}
+            notify={notify}
+          />
+          {data.enabled ? null : (
+            <Text as="span" variant="sub">
+              {t("agentGitHub.offNote")}
+            </Text>
+          )}
+        </div>
+      </Section>
 
       {settings ? (
         <div className="flex flex-col gap-8">
-          <section
+          <Section
             id={SECTION.repositories}
             tabIndex={-1}
-            className={SECTION_BOX}
-            aria-labelledby={`${SECTION.repositories}-title`}
+            className="scroll-mt-4 outline-none"
+            title={t("agentGitHub.section.repositories")}
+            badge={
+              <Badge variant="blue">{t("agentGitHub.badge.release")}</Badge>
+            }
+            description={t("agentGitHub.repositoriesHint")}
           >
-            <SectionHead
-              id={SECTION.repositories}
-              title="agentGitHub.section.repositories"
-              hint="agentGitHub.repositoriesHint"
-            />
-            {data.options.repositories.length === 0 ? (
-              <Text as="span" variant="sub">
-                {t("agentGitHub.repositoriesNone")}
+            <div className={SECTION_BODY}>
+              {data.options.repositories.length === 0 ? (
+                <Text as="span" variant="sub">
+                  {t("agentGitHub.repositoriesNone")}
+                </Text>
+              ) : (
+                <RowList variant="joined">
+                  {data.options.repositories.map((repository) => {
+                    const on = settings.repositories.includes(repository.id);
+                    const locked = repository.id === data.release_repository_id;
+                    const blocked = !repository.available && !on;
+                    return (
+                      <SettingRow
+                        key={repository.id}
+                        title={repository.id}
+                        badge={
+                          repository.installed.author === false ? (
+                            <Badge variant="amber">
+                              {t("agentGitHub.appNotInstalled")}
+                            </Badge>
+                          ) : undefined
+                        }
+                        description={
+                          <span className="[overflow-wrap:anywhere]">
+                            {repository.url}
+                            {locked
+                              ? ` · ${t("agentGitHub.repositoryRelease")}`
+                              : repository.reason
+                                ? ` · ${t(`agentGitHub.repositoryReason.${repository.reason}`)}`
+                                : null}
+                          </span>
+                        }
+                        status={
+                          <Text as="span" variant="sub">
+                            {t(
+                              on
+                                ? "agentGitHub.repositoryUse"
+                                : "agentGitHub.repositoryUnused",
+                            )}
+                          </Text>
+                        }
+                        control={
+                          <Switch
+                            aria-label={repository.id}
+                            checked={on}
+                            disabled={readOnly || locked || blocked}
+                            onCheckedChange={(checked) =>
+                              edit((current) => ({
+                                ...current,
+                                repositories: checked
+                                  ? [...current.repositories, repository.id]
+                                  : current.repositories.filter(
+                                      (id) => id !== repository.id,
+                                    ),
+                              }))
+                            }
+                          />
+                        }
+                      />
+                    );
+                  })}
+                </RowList>
+              )}
+              <AppRepositoryPicker
+                agentId={agentId}
+                chosen={settings.repositories}
+                disabled={readOnly}
+                onPicked={async (catalogId, name) => {
+                  edit((current) =>
+                    current.repositories.includes(catalogId)
+                      ? current
+                      : {
+                          ...current,
+                          repositories: [...current.repositories, catalogId],
+                        },
+                  );
+                  notify(t("agentGitHub.picked", { name }));
+                  await cache.invalidateQueries({
+                    queryKey: githubKey(client, agentId),
+                  });
+                }}
+              />
+              <Text as="span" variant="meta">
+                {t("agentGitHub.repositoriesFoot")}
               </Text>
-            ) : (
+            </div>
+          </Section>
+
+          <Section
+            id={SECTION.permissions}
+            tabIndex={-1}
+            className="scroll-mt-4 outline-none"
+            title={t("agentGitHub.section.permissions")}
+            badge={
+              <Badge variant="blue">{t("agentGitHub.badge.release")}</Badge>
+            }
+            description={t("agentGitHub.permissionsHint")}
+          >
+            <div className={SECTION_BODY}>
               <RowList variant="joined">
-                {data.options.repositories.map((repository) => {
-                  const on = settings.repositories.includes(repository.id);
-                  const locked = repository.id === data.release_repository_id;
-                  const blocked = !repository.available && !on;
+                <SettingRow
+                  title={t("agentGitHub.base")}
+                  badge={
+                    <Badge variant="gray">
+                      {t("agentGitHub.badge.default")}
+                    </Badge>
+                  }
+                  description={t("agentGitHub.baseHint")}
+                  status={
+                    <Text as="span" variant="sub">
+                      {t("agentGitHub.baseState")}
+                    </Text>
+                  }
+                />
+                {FEATURES.map((feature) => {
+                  const option = data.options.features[feature];
+                  const on = settings.features[feature];
+                  // GitHub refuses a review where the reviewer App is not installed.
+                  const uninstalled =
+                    feature === "review" && option.available
+                      ? settings.repositories.filter(
+                          (id) =>
+                            data.options.repositories.find(
+                              (repository) => repository.id === id,
+                            )?.installed.reviewer === false,
+                        )
+                      : [];
                   return (
                     <SettingRow
-                      key={repository.id}
-                      title={repository.id}
+                      key={feature}
+                      title={t(`agentGitHub.feature.${feature}`)}
                       badge={
-                        repository.installed.author === false ? (
+                        uninstalled.length > 0 ? (
                           <Badge variant="amber">
                             {t("agentGitHub.appNotInstalled")}
                           </Badge>
                         ) : undefined
                       }
+                      // A locked feature shows why in place of its hint, so
+                      // every row keeps one detail line.
                       description={
-                        <span className="[overflow-wrap:anywhere]">
-                          {repository.url}
-                          {locked
-                            ? ` · ${t("agentGitHub.repositoryRelease")}`
-                            : repository.reason
-                              ? ` · ${t(`agentGitHub.repositoryReason.${repository.reason}`)}`
-                              : null}
-                        </span>
+                        option.reason ? (
+                          <>
+                            {t(`agentGitHub.featureReason.${option.reason}`)}{" "}
+                            {option.reason ===
+                            "github_host_unsupported" ? null : (
+                              <Link asChild>
+                                <RouterLink to="/settings/workspace/github">
+                                  {t("agentGitHub.settingsLink")}
+                                </RouterLink>
+                              </Link>
+                            )}
+                          </>
+                        ) : uninstalled.length > 0 ? (
+                          <>
+                            {t("agentGitHub.reviewerNotInstalled", {
+                              repositories: uninstalled.join(", "),
+                            })}{" "}
+                            <Link asChild>
+                              <RouterLink to="/settings/workspace/github">
+                                {t("agentGitHub.settingsLink")}
+                              </RouterLink>
+                            </Link>
+                          </>
+                        ) : (
+                          t(`agentGitHub.feature.${feature}Hint`)
+                        )
                       }
                       status={
                         <Text as="span" variant="sub">
-                          {t(
-                            on
-                              ? "agentGitHub.repositoryUse"
-                              : "agentGitHub.repositoryUnused",
-                          )}
+                          {t(on ? "agentGitHub.on" : "agentGitHub.off")}
                         </Text>
                       }
                       control={
                         <Switch
-                          aria-label={repository.id}
+                          aria-label={t(`agentGitHub.feature.${feature}`)}
                           checked={on}
-                          disabled={readOnly || locked || blocked}
+                          disabled={readOnly || (!option.available && !on)}
                           onCheckedChange={(checked) =>
                             edit((current) => ({
                               ...current,
-                              repositories: checked
-                                ? [...current.repositories, repository.id]
-                                : current.repositories.filter(
-                                    (id) => id !== repository.id,
-                                  ),
+                              features: {
+                                ...current.features,
+                                [feature]: checked,
+                              },
+                              // The release refuses a list with Actions off.
+                              ...(feature === "actions" && !checked
+                                ? { actions_allow: [] }
+                                : {}),
                             }))
                           }
                         />
@@ -797,281 +904,155 @@ function GitHubSettings({
                   );
                 })}
               </RowList>
-            )}
-            <AppRepositoryPicker
-              agentId={agentId}
-              chosen={settings.repositories}
-              disabled={readOnly}
-              onPicked={async (catalogId, name) => {
-                edit((current) =>
-                  current.repositories.includes(catalogId)
-                    ? current
-                    : {
-                        ...current,
-                        repositories: [...current.repositories, catalogId],
-                      },
-                );
-                notify(t("agentGitHub.picked", { name }));
-                await cache.invalidateQueries({
-                  queryKey: githubKey(client, agentId),
-                });
-              }}
-            />
-            <Text as="span" variant="meta">
-              {t("agentGitHub.repositoriesFoot")}
-            </Text>
-          </section>
-
-          <section
-            id={SECTION.permissions}
-            tabIndex={-1}
-            className={SECTION_BOX}
-            aria-labelledby={`${SECTION.permissions}-title`}
-          >
-            <SectionHead
-              id={SECTION.permissions}
-              title="agentGitHub.section.permissions"
-              hint="agentGitHub.permissionsHint"
-            />
-            <RowList variant="joined">
-              <SettingRow
-                title={t("agentGitHub.base")}
-                badge={
-                  <Badge variant="gray">{t("agentGitHub.badge.default")}</Badge>
-                }
-                description={t("agentGitHub.baseHint")}
-                status={
-                  <Text as="span" variant="sub">
-                    {t("agentGitHub.baseState")}
-                  </Text>
-                }
-              />
-              {FEATURES.map((feature) => {
-                const option = data.options.features[feature];
-                const on = settings.features[feature];
-                // GitHub refuses a review where the reviewer App is not installed.
-                const uninstalled =
-                  feature === "review" && option.available
-                    ? settings.repositories.filter(
-                        (id) =>
-                          data.options.repositories.find(
-                            (repository) => repository.id === id,
-                          )?.installed.reviewer === false,
-                      )
-                    : [];
-                return (
-                  <SettingRow
-                    key={feature}
-                    title={t(`agentGitHub.feature.${feature}`)}
-                    badge={
-                      uninstalled.length > 0 ? (
-                        <Badge variant="amber">
-                          {t("agentGitHub.appNotInstalled")}
-                        </Badge>
-                      ) : undefined
-                    }
-                    // A locked feature shows why in place of its hint, so
-                    // every row keeps one detail line.
-                    description={
-                      option.reason ? (
-                        <>
-                          {t(`agentGitHub.featureReason.${option.reason}`)}{" "}
-                          {option.reason ===
-                          "github_host_unsupported" ? null : (
-                            <Link asChild>
-                              <RouterLink to="/settings/workspace/github">
-                                {t("agentGitHub.settingsLink")}
-                              </RouterLink>
-                            </Link>
-                          )}
-                        </>
-                      ) : uninstalled.length > 0 ? (
-                        <>
-                          {t("agentGitHub.reviewerNotInstalled", {
-                            repositories: uninstalled.join(", "),
-                          })}{" "}
-                          <Link asChild>
-                            <RouterLink to="/settings/workspace/github">
-                              {t("agentGitHub.settingsLink")}
-                            </RouterLink>
-                          </Link>
-                        </>
-                      ) : (
-                        t(`agentGitHub.feature.${feature}Hint`)
-                      )
-                    }
-                    status={
-                      <Text as="span" variant="sub">
-                        {t(on ? "agentGitHub.on" : "agentGitHub.off")}
-                      </Text>
-                    }
-                    control={
-                      <Switch
-                        aria-label={t(`agentGitHub.feature.${feature}`)}
-                        checked={on}
-                        disabled={readOnly || (!option.available && !on)}
-                        onCheckedChange={(checked) =>
-                          edit((current) => ({
-                            ...current,
-                            features: {
-                              ...current.features,
-                              [feature]: checked,
-                            },
-                            // The release refuses a list with Actions off.
-                            ...(feature === "actions" && !checked
-                              ? { actions_allow: [] }
-                              : {}),
-                          }))
-                        }
-                      />
-                    }
-                  />
-                );
-              })}
-            </RowList>
-            {settings.features.workflows && settings.features.actions ? (
-              <Alert variant="amber">
-                <AlertDescription>
-                  {t("agentGitHub.workflowsActions")}
-                </AlertDescription>
-              </Alert>
-            ) : null}
-            <Text as="span" variant="meta">
-              {t("agentGitHub.ceilingNote")}{" "}
-              <Link asChild>
-                <RouterLink to="/settings/workspace/github">
-                  {t("agentGitHub.settingsLink")}
-                </RouterLink>
-              </Link>
-            </Text>
-          </section>
+              {settings.features.workflows && settings.features.actions ? (
+                <Alert variant="amber">
+                  <AlertDescription>
+                    {t("agentGitHub.workflowsActions")}
+                  </AlertDescription>
+                </Alert>
+              ) : null}
+              <Text as="span" variant="meta">
+                {t("agentGitHub.ceilingNote")}{" "}
+                <Link asChild>
+                  <RouterLink to="/settings/workspace/github">
+                    {t("agentGitHub.settingsLink")}
+                  </RouterLink>
+                </Link>
+              </Text>
+            </div>
+          </Section>
 
           {actionsOn ? (
-            <section
+            <Section
               id={SECTION.allowlist}
               tabIndex={-1}
-              className={SECTION_BOX}
-              aria-labelledby={`${SECTION.allowlist}-title`}
+              className="scroll-mt-4 outline-none"
+              title={t("agentGitHub.section.allowlist")}
+              badge={
+                <Badge variant="blue">{t("agentGitHub.badge.release")}</Badge>
+              }
+              description={t("agentGitHub.allowlistHint")}
             >
-              <SectionHead
-                id={SECTION.allowlist}
-                title="agentGitHub.section.allowlist"
-                hint="agentGitHub.allowlistHint"
-              />
-              {settings.actions_allow.length === 0 ? (
-                <Text as="span" variant="sub">
-                  {t("agentGitHub.allowlistEmpty")}
-                </Text>
-              ) : (
-                <RowList
-                  variant="joined"
-                  aria-label={t("agentGitHub.section.allowlist")}
-                >
-                  {settings.actions_allow.map((entry) => (
-                    <SettingRow
-                      key={`${entry.workflow}@${entry.ref ?? ""}`}
-                      title={
-                        <Code className="font-medium text-control">
-                          {entry.workflow}
-                        </Code>
-                      }
-                      badge={
-                        base?.actions_allow.some((held) =>
-                          sameEntry(held, entry),
-                        ) ? undefined : (
-                          <Badge variant="blue">
-                            {t("agentGitHub.badge.unsaved")}
-                          </Badge>
-                        )
-                      }
-                      description={
-                        entry.ref === undefined
-                          ? t("agentGitHub.refDefault")
-                          : t("agentGitHub.refPattern", { ref: entry.ref })
-                      }
-                      actions={
-                        <RowAction
-                          disabled={readOnly}
-                          aria-label={t("agentGitHub.removeLabel", {
-                            workflow: entry.workflow,
-                          })}
-                          onClick={() =>
-                            edit((current) => ({
-                              ...current,
-                              actions_allow: current.actions_allow.filter(
-                                (held) => !sameEntry(held, entry),
-                              ),
-                            }))
-                          }
-                        >
-                          {t("agentGitHub.remove")}
-                        </RowAction>
-                      }
-                    />
-                  ))}
-                </RowList>
-              )}
-              <AllowAdd
-                entries={settings.actions_allow}
-                disabled={readOnly}
-                onAdd={(entry) =>
-                  edit((current) => ({
-                    ...current,
-                    actions_allow: [...current.actions_allow, entry],
-                  }))
-                }
-              />
-              <Alert>
-                <AlertDescription>
-                  {t("agentGitHub.allowlistNote")}
-                </AlertDescription>
-              </Alert>
-            </section>
+              <div className={SECTION_BODY}>
+                {settings.actions_allow.length === 0 ? (
+                  <Text as="span" variant="sub">
+                    {t("agentGitHub.allowlistEmpty")}
+                  </Text>
+                ) : (
+                  <RowList
+                    variant="joined"
+                    aria-label={t("agentGitHub.section.allowlist")}
+                  >
+                    {settings.actions_allow.map((entry) => (
+                      <SettingRow
+                        key={`${entry.workflow}@${entry.ref ?? ""}`}
+                        title={
+                          <Code className="font-medium text-control">
+                            {entry.workflow}
+                          </Code>
+                        }
+                        badge={
+                          base?.actions_allow.some((held) =>
+                            sameEntry(held, entry),
+                          ) ? undefined : (
+                            <Badge variant="blue">
+                              {t("agentGitHub.badge.unsaved")}
+                            </Badge>
+                          )
+                        }
+                        description={
+                          entry.ref === undefined
+                            ? t("agentGitHub.refDefault")
+                            : t("agentGitHub.refPattern", { ref: entry.ref })
+                        }
+                        actions={
+                          <RowAction
+                            disabled={readOnly}
+                            aria-label={t("agentGitHub.removeLabel", {
+                              workflow: entry.workflow,
+                            })}
+                            onClick={() =>
+                              edit((current) => ({
+                                ...current,
+                                actions_allow: current.actions_allow.filter(
+                                  (held) => !sameEntry(held, entry),
+                                ),
+                              }))
+                            }
+                          >
+                            {t("agentGitHub.remove")}
+                          </RowAction>
+                        }
+                      />
+                    ))}
+                  </RowList>
+                )}
+                <AllowAdd
+                  entries={settings.actions_allow}
+                  disabled={readOnly}
+                  onAdd={(entry) =>
+                    edit((current) => ({
+                      ...current,
+                      actions_allow: [...current.actions_allow, entry],
+                    }))
+                  }
+                />
+                <Alert>
+                  <AlertDescription>
+                    {t("agentGitHub.allowlistNote")}
+                  </AlertDescription>
+                </Alert>
+              </div>
+            </Section>
           ) : null}
 
-          <section
+          <Section
             id={SECTION.push}
             tabIndex={-1}
-            className={SECTION_BOX}
-            aria-labelledby={`${SECTION.push}-title`}
+            className="scroll-mt-4 outline-none"
+            title={t("agentGitHub.section.push")}
+            badge={
+              <Badge variant="blue">{t("agentGitHub.badge.release")}</Badge>
+            }
           >
-            <SectionHead id={SECTION.push} title="agentGitHub.section.push" />
-            <RowList variant="joined">
-              <SettingRow
-                title={t("agentGitHub.pushApproval")}
-                description={t("agentGitHub.pushApprovalHint")}
-                status={
-                  <Text as="span" variant="sub">
-                    {t(
-                      settings.push_approval
-                        ? "agentGitHub.on"
-                        : "agentGitHub.off",
-                    )}
-                  </Text>
-                }
-                control={
-                  <Switch
-                    aria-label={t("agentGitHub.pushApproval")}
-                    checked={settings.push_approval}
-                    disabled={readOnly}
-                    onCheckedChange={(checked) =>
-                      edit((current) => ({
-                        ...current,
-                        push_approval: checked,
-                      }))
-                    }
-                  />
-                }
-              />
-            </RowList>
-            {settings.push_approval ? null : (
-              <Alert variant="amber">
-                <AlertDescription>
-                  {t("agentGitHub.pushApprovalOff")}
-                </AlertDescription>
-              </Alert>
-            )}
-          </section>
+            <div className={SECTION_BODY}>
+              <RowList variant="joined">
+                <SettingRow
+                  title={t("agentGitHub.pushApproval")}
+                  description={t("agentGitHub.pushApprovalHint")}
+                  status={
+                    <Text as="span" variant="sub">
+                      {t(
+                        settings.push_approval
+                          ? "agentGitHub.on"
+                          : "agentGitHub.off",
+                      )}
+                    </Text>
+                  }
+                  control={
+                    <Switch
+                      aria-label={t("agentGitHub.pushApproval")}
+                      checked={settings.push_approval}
+                      disabled={readOnly}
+                      onCheckedChange={(checked) =>
+                        edit((current) => ({
+                          ...current,
+                          push_approval: checked,
+                        }))
+                      }
+                    />
+                  }
+                />
+              </RowList>
+              {settings.push_approval ? null : (
+                <Alert variant="amber">
+                  <AlertDescription>
+                    {t("agentGitHub.pushApprovalOff")}
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+          </Section>
         </div>
       ) : null}
       <Activity agentId={agentId} detail={detail} />

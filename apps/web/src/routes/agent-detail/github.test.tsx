@@ -375,6 +375,21 @@ describe("에이전트 GitHub 탭", () => {
     expect(switchNamed("리뷰 승인").disabled).toBe(false);
   });
 
+  test("구역 목차의 링크는 같은 id의 구역으로 포커스를 옮기고, 구역 이름은 제목이다", async () => {
+    const { server } = await activeAgent();
+    renderAt(DETAIL, routesFor(server, TAB));
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "저장소" });
+    Element.prototype.scrollIntoView ??= () => {};
+
+    const nav = screen.getAllByRole("navigation", { name: "GitHub 구역" })[0];
+    if (!nav) throw new Error("no section nav");
+    await user.click(within(nav).getByRole("link", { name: "저장소" }));
+    const section = screen.getByRole("region", { name: "저장소" });
+    expect(section.id).toBe("github-repositories");
+    expect(document.activeElement === section).toBe(true);
+  });
+
   test("바꾼 것은 저장 전 상자에 세고, 되돌리면 상자가 사라진다", async () => {
     const { server } = await activeAgent();
     renderAt(DETAIL, routesFor(server, TAB));
