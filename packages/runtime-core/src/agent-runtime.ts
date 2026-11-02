@@ -75,7 +75,12 @@ export type RuntimeBindings = {
   transcript?: TranscriptMirror;
 };
 
-export type InstructionPart = { scope: "platform"; text: string };
+/**
+ * A piece of the engine's instructions. `platform` is the platform's own
+ * wording; `agent` is what the agent's administrators wrote on its card,
+ * which an adapter presents as theirs.
+ */
+export type InstructionPart = { scope: "platform" | "agent"; text: string };
 
 /** A remote MCP server, reached through the egress proxy with the attempt's token. */
 export type PlatformMcpServer = {
