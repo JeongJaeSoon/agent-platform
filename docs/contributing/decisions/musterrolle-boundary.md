@@ -1,0 +1,178 @@
+# 결정(설계): Musterrolle 코드를 한 모듈 경계로 모으는 순서
+
+- 상태: 설계(2026-11-02).
+- 기준 커밋: `origin/main` `ebe54b10a`. 아래 `파일:줄`과 수는 모두 이 커밋 기준이다.
+- 오너 결정(2026-11-02, 요지): "지금 진행 — 단계별 PR 계획 설계 문서 먼저, 진행 중 리드 영역 파일은 land 뒤."
+- 이 문서는 구조와 PR 순서만 정한다. 코드를 옮기는 PR은 아래 단계마다 따로 연다.
+
+## 무엇을 골랐나
+
+1. **새 패키지를 만들지 않는다.** Musterrolle은 지금 패키지 셋에 나뉘어 있고, 그 나눔 자체(계약은 `packages/contracts`, 도메인과 port는 `packages/platform`, DB 구현은 `packages/db`, HTTP는 `apps/control-host`)는 다른 모듈과 같은 층 구조다. 흩어진 것은 층이 아니라 **각 층 안의 경계**다. 그래서 각 패키지 안에 `musterrolle/` 디렉터리 하나씩을 경계로 삼고, 그 경계를 `tests/architecture.test.ts` 규칙으로 고정한다.
+2. **경계를 넘는 길은 `packages/platform/src/musterrolle/index.ts` 하나다.** Kiel·Kollegium 코드는 이 파일만 import한다. Musterrolle 쪽은 Kiel·Kollegium 파일을 import하지 않는다. 지금 남은 반대 방향 import는 줄기만 하는 허용 목록(ratchet)에 적는다.
+3. **바깥에 보이는 이름은 바꾸지 않는다.** `@werft-ai/platform`·`@werft-ai/db`·`@werft-ai/contracts`의 export 이름 집합, 공개 API(`docs/openapi.json`), SDK, DB 스키마는 어느 단계에서도 그대로다. 그래서 HUMAN ONLY 단계는 없다.
+4. **순서는 규칙 먼저, 이동은 그 뒤.** 첫 PR이 지금 모양을 허용 목록으로 고정하고, 뒤 PR마다 목록이 줄어든다. 중간에 멈춰도 그때까지 줄인 만큼은 테스트가 지킨다.
+
+## 1. 지금 코드 위치
+
+### 1.1 층별 위치와 책임
+
+| 층 | 경로 | 책임 | 크기 | 누가 import하나 |
+|---|---|---|---|---|
+| 계약 | `packages/contracts/src/musterrolle/` (22파일, 테스트 제외) | 인증·권한·워크스페이스·팀·API 키·연동 계정·Slack·GitHub 연동의 Zod 계약 | 한 디렉터리에 모여 있음 | control-host api·routes, `apps/web`(type만), `packages/core`, `packages/db`, `packages/platform`(musterrolle·ports·sessions·agents·workers), `packages/testkit`. `authorization.ts`는 56파일, `workspaces.ts`는 28파일 |
+| 권한 판정 | `packages/platform/src/musterrolle/policy.ts` | `createAuthorizationPolicy`(`policy.ts:396`), `Principal`(`:43`), `Caller`(`:81`), `AuthorizationPolicy`(`:241`) | 744줄 | barrel로 control-host api·routes·slack, `packages/db` 21파일. 상대 경로로 platform `ports/` 17파일, `sessions/` 14파일(`achievements/` 포함), `agents/` 2파일, `usage/` 1파일 |
+| 도메인 서비스 | `packages/platform/src/musterrolle/*-service.ts` 외 (37파일, 테스트 제외) | 멤버·팀·초대·API 키·연동 계정·세션 공유·에이전트 신원·자격 증명 바인딩·GitHub App·Slack App과 Slack 채널 처리 | 테스트 포함 1만 4천여 줄 | control-host `api/`(조립)·`api/routes/`·`slack/`. 서비스마다 2~4파일 |
+| 서비스 오류·권한 helper | `packages/platform/src/sessions/session-service.ts` | `SessionServiceError`(`:85`), `requirePermitted`(`:268`), `requireAllowed`(`:279`) | — | platform 62파일. Musterrolle 24파일(테스트 제외)이 이 파일을 import한다 |
+| 신원 port | `packages/platform/src/ports/identity-store.ts` | `IdentityStore`(`:149`)·`InviteStore`(`:322`) | 352줄 | platform `musterrolle/invite-service.ts`, control-host `api/auth.ts`·`api/app.ts`·`api/routes/auth.ts`·`api/routes/invites.ts` |
+| 그 밖의 Musterrolle port | `packages/platform/src/ports/`의 `api-key-store`·`member-store`·`team-store`·`linked-account-store`·`session-share-store`·`agent-identity-store`·`agent-admin-store`·`credential-binding-store`·`surface-binding-store`·`decision-log`·`github-app-store`·`slack-*` | Musterrolle 서비스가 쓰는 저장 port | 다른 모듈 port와 한 디렉터리에 섞여 있음 | 구현은 `packages/db`. Kiel·Kollegium도 일부를 쓴다: `team-store`(sessions 4파일), `credential-binding-store`(agents·sessions), `session-share-store`·`api-key-store`(sessions·agents 각 1파일) |
+| DB 구현 | `packages/db/src/`의 `identity`·`identity-reader`·`api-keys`·`invites`·`members`·`member-teams`·`linked-accounts`·`session-shares`·`agent-identities`·`agent-admins`·`administers`·`agent-authority`·`authz-decisions`·`credential-bindings`·`surface-bindings`·`slack-*`·`github-apps`·`github-oauth`·`github-settings`·`github-packages`·`github-app-manifest-states`·`workspace-settings` | port 구현과 신원 쿼리 | 테스트 제외 28파일, 9,460줄. 테이블 정의는 `schema.ts` 한 파일(4,080줄)에 다른 모듈과 함께 있음 | `packages/db/src/index.ts`가 `export *`로 내놓고 control-host `api/server.ts`가 조립한다. `postgres-unit-of-work.ts`가 `credential-bindings`·`session-shares`를 import한다 |
+| app 안의 DB 구현 | `apps/control-host/src/api/auth.ts:58` `DatabaseIdentityStore`, `apps/control-host/src/api/keys.ts:25` `ApiKeyStore`·`:44` `ApiKeyWriter`·`:57` `DatabaseApiKeyStore` | `IdentityStore` port의 DB 구현과 인증기용 API 키 조회 port·구현이 app에 있다 | — | `api/server.ts:1031`·`:1059`, `api/keys.ts:246`(키 CLI) |
+| HTTP 경계 | `apps/control-host/src/api/`의 `auth.ts`·`keys.ts`·`google-login.ts`·`scope-policy.ts`·`grants.ts`·`demo-accounts.ts`, `api/routes/`의 `auth`·`api-keys`·`members`·`teams`·`invites`·`workspaces`·`linked-accounts`·`session-shares`·`agent-identities`·`credential-bindings`·`github-*`·`slack-*` | 인증기, 쿠키·CSRF, 로그인 잠금, Google 로그인, scope 판정, 운영자 CLI(`grants`·`keys`), route | — | `api/app.ts`·`api/server.ts`가 조립 |
+
+### 1.2 경계를 거꾸로 넘는 import
+
+Musterrolle이 Kiel·Kollegium 파일을 import하는 곳이다(`packages/platform/src/musterrolle`, 테스트 제외).
+
+| 대상 | import 문 수 | 왜 거꾸로인가 |
+|---|---|---|
+| `../sessions/session-service.ts` | 24 | `SessionServiceError`·`requirePermitted`가 Kiel 서비스 파일에 있다. `musterrolle/service-errors.ts`도 여기서 오류 class를 가져온다 |
+| `../ports/secret-store.ts` | 7 | 암호화한 비밀 값 저장. `secrets/secret-cipher.ts`도 쓰는 공용 port |
+| `../ports/agent-store.ts` | 3 | Kollegium의 에이전트 저장 port. Slack 채널 처리(`slack-session-handler`·`slack-welcome`)가 쓴다 |
+| `../sessions/catalog.ts` | 1 | 카탈로그 타입 |
+| `../ports/session-link-store.ts` | 1 | 세션 연결 port(`slack-session-handler`) |
+| `../ports/forge.ts` | 1 | GitHub 호출 port(GitHub 저장소 서비스) |
+| `../ports/catalog-repository-store.ts` | 1 | 카탈로그 저장소 port(GitHub 저장소 서비스) |
+
+반대로 Kiel·Kollegium 쪽은 Musterrolle 파일을 직접 import한다. `musterrolle/` 밖 platform 36파일에 import 문 44개다: `ports/` 18파일(17파일이 `policy.ts`의 `Principal`을, `slack-app-store.ts`·`slack-config-token-store.ts`가 `slack-config-api.ts`의 타입을), `sessions/` 14파일, `agents/` 2파일, `usage/`·`testing/` 각 1파일. 이 방향(Kiel → Musterrolle)은 목표 구조에서도 허용하고, 경로만 공개면 하나로 모은다(2.3절 규칙 2).
+
+### 1.3 실측 명령
+
+모두 저장소 루트에서 `ebe54b10a`에 대해 돌렸다.
+
+```sh
+# 파일과 크기
+git ls-files packages/contracts/src/musterrolle packages/platform/src/musterrolle packages/platform/src/ports/identity-store.ts | xargs wc -l
+wc -l packages/db/src/{identity,identity-reader,api-keys,invites,members,member-teams,linked-accounts,session-shares,agent-identities,agent-admins,administers,agent-authority,authz-decisions,credential-bindings,surface-bindings,secret-values,slack-apps,slack-installations,slack-install-states,slack-config-tokens,slack-outbox,slack-inbound-events,github-apps,github-oauth,github-settings,github-packages,github-app-manifest-states,workspace-settings}.ts
+
+# Musterrolle이 바깥 platform 파일을 import하는 곳(1.2 표)
+git grep -h -o -E 'from "\.\./[a-z-]+/[a-z-]+\.ts"' -- 'packages/platform/src/musterrolle/*.ts' ':!*.test.ts' | sort | uniq -c | sort -rn
+
+# Kiel·Kollegium이 Musterrolle을 import하는 곳(44줄, 36파일)
+git grep -n -E 'from "(\.\./)+musterrolle/' -- packages/platform/src ':!packages/platform/src/musterrolle' ':!*.test.ts'
+
+# Musterrolle port를 쓰는 바깥 platform 파일(port 하나씩)
+git grep -l "ports/team-store" -- packages/platform/src ':!*.test.ts' ':!packages/platform/src/musterrolle' ':!packages/platform/src/index.ts'
+
+# port를 구현하는 db 파일(타입 이름 하나씩)
+git grep -l -w IdentityStore -- 'packages/db/src/*.ts' ':!*.test.ts'
+git grep -l -w IdentityStore -- apps packages ':!*.test.ts'
+
+# 오류 class·권한 helper를 쓰는 platform 파일
+git grep -l -E 'SessionServiceError|requirePermitted|requireAllowed' -- packages/platform/src | wc -l
+
+# barrel(@werft-ai/platform, @werft-ai/contracts)로 export를 import하는 파일
+# 각 소스 파일의 export 이름을 모으고 `import { … } from "<패키지>"`의 이름과 맞춘다(테스트 제외)
+python3 -I importers.py . @werft-ai/platform 'packages/platform/src/musterrolle/*.ts' 'packages/platform/src/ports/identity-store.ts'
+python3 -I importers.py . @werft-ai/contracts 'packages/contracts/src/musterrolle/*.ts'
+```
+
+`importers.py`는 저장소 밖에서 쓴 일회용 스크립트다. 정규식으로 `export (class|function|const|type|interface|enum) <이름>`과 `import { … } from "<패키지>"`를 맞추므로 `export *`로 다시 내놓은 이름이나 namespace import는 세지 않는다. 그래서 1.1 표의 importer 수는 하한이다.
+
+## 2. 목표 경계
+
+### 2.1 소유와 공개면
+
+| 층 | Musterrolle이 소유하는 곳 | 바깥이 보는 것 |
+|---|---|---|
+| 계약 | `packages/contracts/src/musterrolle/` (지금 그대로) | `@werft-ai/contracts` barrel. 바뀌지 않는다 |
+| 도메인·port | `packages/platform/src/musterrolle/` 아래 `policy.ts`·서비스·`ports/`(Musterrolle 전용 port) | `packages/platform/src/musterrolle/index.ts`. platform 안의 Kiel·Kollegium 파일은 이것만 import하고, `packages/platform/src/index.ts`는 이것을 다시 내놓는다 |
+| DB 구현 | `packages/db/src/musterrolle/` (1.1 표의 DB 구현 파일과 app 안의 DB 구현) | `@werft-ai/db` barrel. export 이름은 그대로 |
+| HTTP | `apps/control-host/src/api/` 인증기와 `api/routes/`의 Musterrolle route(위치 그대로) | route 등록과 transport 메타데이터는 control-host가 소유한다(`architecture.md` 패키지 표) |
+| 테이블 | `packages/db/src/schema.ts`(위치 그대로) | migration은 이 계획 밖이다 |
+
+공개면 `musterrolle/index.ts`에 들어갈 것은 지금 Kiel·Kollegium이 실제로 쓰는 이름으로 시작한다: `Principal`·`Caller`·`AuthorizationPolicy`, 권한 helper(`requirePermitted`·`requireAllowed`), `service-errors.ts`의 오류 생성자, Kiel이 읽는 port(`TeamStore`·`CredentialBindingStore`·`SessionShareStore`·`WorkspaceKeyStore`·GitHub 설정·GitHub Packages port), `SlackWelcome`(`agents/agent-service.ts:23`). 새 이름은 Kiel 쪽에서 필요할 때 더한다.
+
+### 2.2 의존 방향
+
+```
+contracts/musterrolle ◀── platform/musterrolle ◀── platform/{sessions,agents,workers,usage,ports}
+        ▲                        ▲  (index.ts만)
+        │                        │
+        └──── db/musterrolle ────┘ ◀── control-host api·routes·slack (barrel만)
+```
+
+- `platform/musterrolle`이 import할 수 있는 것: `@werft-ai/contracts`, `@werft-ai/runtime-core`, `zod`, 자기 디렉터리, 그리고 공용으로 남기는 platform 파일(`service-error.ts`, `ports/secret-store.ts`). 그 밖은 허용 목록에 있어야 한다.
+- 공용으로 남기는 것: `SessionServiceError`는 Kiel·Kollegium·Musterrolle 모두의 오류 class라 `packages/platform/src/service-error.ts`로 옮긴다. `secret-store`는 연결 자격 증명(`settings-replace-file-catalog.md`)과 Slack·GitHub 비밀이 함께 쓰는 저장소라 `ports/`에 둔다.
+- 허용 목록에 남는 것: Kollegium의 `agent-store`, Lotse 쪽 `session-link-store`, 카탈로그(`sessions/catalog.ts`·`catalog-repository-store`), `forge`. 모두 Slack 채널 처리나 GitHub 저장소 서비스에서 온다. 이 import를 없애려면 그 파일들이 어느 모듈 것인지부터 정해야 한다(5절).
+
+### 2.3 `tests/architecture.test.ts`와 맞추기
+
+지금 규칙 가운데 이 계획이 닿는 것은 둘이고, 어느 단계도 둘을 바꾸지 않는다.
+
+- "platform depends on contracts, runtime-core and zod only"(`:999`): 새 패키지를 만들지 않으므로 그대로 성립한다.
+- "routes know database-backed errors and records through platform ports"(`:1510`): route는 `@werft-ai/db`를 import하지 않는다. 단계 4가 app 안의 DB 구현을 `packages/db`로 옮기면 `api/` 쪽 db import도 줄어든다.
+
+새로 더하는 규칙은 둘이다(단계 1).
+
+1. **Musterrolle은 바깥 platform 파일을 허용 목록으로만 import한다.** `packages/platform/src/musterrolle/**`의 상대 import 대상이 `musterrolle/` 밖이면 허용 목록에 있어야 한다. 목록은 코드보다 길어도 실패한다(`tests/web-ui-allowlist.ts`와 같은 ratchet).
+2. **Kiel·Kollegium은 `musterrolle/index.ts`만 import한다.** `packages/platform/src/` 아래 `musterrolle/` 밖 파일이 `musterrolle/<파일>`을 직접 import하면 실패한다. 이 규칙도 허용 목록으로 시작한다(1.2절 끝의 import 44개).
+
+검사는 import 지정자를 정규식이 아니라 이 파일의 `parse`(TypeScript AST, 주석·문자열을 코드로 읽지 않는다)로 읽는다. 규칙마다 위반 하나를 일부러 만든 fixture로 검사가 잡는지 확인하는 테스트를 함께 둔다.
+
+## 검토한 다른 모양
+
+- **`packages/musterrolle` 새 패키지.** platform의 Musterrolle 서비스·port를 새 패키지로 빼는 안이다. 고르지 않았다. policy 타입(`Principal`·`Caller`·`AuthorizationPolicy`)을 platform의 port 17파일과 Kiel·Kollegium 서비스 18파일이 쓰므로 platform이 새 패키지에 의존해야 하고, 그러면 `:999` 규칙과 `architecture.md`의 패키지 표를 바꿔야 한다. DB 구현은 `schema.ts` 한 파일과 migration 순서에 묶여 있어 같이 옮길 수 없으니 경계가 여전히 두 패키지에 걸친다. 바깥 import 지정자가 모두 바뀌어 control-host·db에서 수십 파일이 함께 바뀐다. 얻는 것(패키지 단위 의존 검사)은 디렉터리 규칙 둘로도 얻는다.
+- **port를 `ports/`에 두고 이름 목록으로 분류.** 파일은 옮기지 않고 테스트에 Musterrolle port 이름 목록만 두는 안이다. 고르지 않았다. 파일 하나만 연 사람은 그 port가 어느 모듈 것인지 알 수 없고, 새 port를 `ports/`에 더하면 목록에 넣는 것을 잊어도 테스트가 통과한다.
+
+## 3. 단계별 PR
+
+모든 단계에 공통인 증명이다. 단계별 표의 "증명"은 이것에 더하는 것만 적는다.
+
+- 이동만 한 파일은 `git diff -M --stat origin/main...HEAD`에서 rename으로 잡힌다(`R100` 또는 import 줄만 바뀐 높은 유사도).
+- barrel export 이름 집합이 전후 같다. 단계 전후에 각각 `bun -e 'console.log(Object.keys(await import("@werft-ai/platform")).sort().join("\n"))'`(db·contracts도 같은 방식)를 파일로 받아 `diff`가 비어 있다. type export는 런타임 키에 없으므로 root `bun run typecheck`가 함께 통과해야 한다.
+- 공개 API가 그대로다. `bun run --cwd apps/control-host openapi:generate` 뒤 `git diff --exit-code docs/openapi.json`이 0이다.
+- root `bun run typecheck`, `bun test tests/architecture.test.ts`, 바뀐 패키지의 `bun test`, `node_modules/.bin/biome check .`.
+
+| 단계 | 옮기거나 바꾸는 것 | 선행 | 크기 | 공개 API·SDK·DB 스키마 | 열린 PR과 겹침 |
+|---|---|---|---|---|---|
+| 1. 경계 규칙과 허용 목록 | `tests/architecture.test.ts`에 2.3절 규칙 둘과 지금 import를 담은 허용 목록 | 없음 | S | 닿지 않음 | 없음 |
+| 2. Musterrolle 공개면 | `packages/platform/src/musterrolle/index.ts`를 만들고 Kiel·Kollegium의 `musterrolle/<파일>` import 44개를 이것으로 바꾼다. `src/index.ts`의 Musterrolle 줄을 `export * from "./musterrolle/index.ts"`로 | 1 | M | 닿지 않음 | #1011 land 뒤 |
+| 3. 오류 class·권한 helper를 제자리로 | `SessionServiceError` → `packages/platform/src/service-error.ts`, `requirePermitted`·`requireAllowed` → `packages/platform/src/musterrolle/authorize.ts`(공개면으로 내놓는다). platform 안 62파일의 import 줄 | 2 | M | 닿지 않음 | #1011 land 뒤 |
+| 4. Musterrolle port를 경계 안으로 | 1.1 표의 Musterrolle port 파일과 `identity-store.ts`를 `packages/platform/src/musterrolle/ports/`로. Kiel이 쓰는 port는 공개면으로 내놓는다. 공용 `secret-store`와 Kiel·Kollegium port는 `ports/`에 남는다 | 2 | M | 닿지 않음 | #1011 land 뒤 |
+| 5. app 안의 DB 구현을 db로 | `DatabaseIdentityStore`(`api/auth.ts:58`) → `packages/db/src/musterrolle/identity-store.ts`. 인증기용 `ApiKeyStore`·`ApiKeyWriter`(`api/keys.ts:25·44`)를 `packages/platform/src/musterrolle/ports/`로, `DatabaseApiKeyStore`(`:57`) → `packages/db/src/musterrolle/`. 키 CLI 파서와 인증기 본문은 control-host에 남긴다 | 4 | M | 닿지 않음 | 없음 |
+| 6a. 신원·멤버·키 DB 구현 이동 | `packages/db/src/`의 `identity`·`identity-reader`·`api-keys`·`invites`·`members`·`member-teams`·`linked-accounts`·`session-shares`·`administers`·`agent-authority`·`authz-decisions`·`workspace-settings`와 각 테스트 → `packages/db/src/musterrolle/` | 5 | M | 닿지 않음 | #1011 land 뒤 |
+| 6b. 연동 DB 구현 이동 | `agent-identities`·`agent-admins`·`credential-bindings`·`surface-bindings`·`slack-*`·`github-apps`·`github-oauth`·`github-settings`·`github-packages`·`github-app-manifest-states`와 각 테스트 → `packages/db/src/musterrolle/` | 6a | M | 닿지 않음 | #1011 land 뒤 |
+| 7. 기여자 문서 | `docs/contributing/architecture.md`의 Musterrolle 줄(`:9`)을 새 경로와 2.3절 규칙으로 고친다 | 6b | S | 닿지 않음 | 없음 |
+
+단계마다 덧붙이는 내용:
+
+- **단계 1.** 규칙만 더하고 코드는 옮기지 않는다. 증명: 허용 목록이 지금 import와 정확히 같아 테스트가 통과하고, fixture에 목록 밖 import 하나를 넣으면 실패한다. 이후 단계는 이 목록에서 자기가 없앤 줄을 지운다. 목록이 코드보다 길면 실패하므로 지우는 것을 잊을 수 없다.
+- **단계 2.** 이름을 옮기지 않고 import 경로만 바꾼다. Musterrolle 파일 하나를 고쳐도 Kiel 쪽 import는 바뀌지 않게 하는 것이 목적이다. 증명: 2.3절 규칙 2의 허용 목록이 비고, 규칙이 허용 목록 없이 통과한다. 이 뒤로 Kiel·Kollegium은 공개면만 보므로, 단계 3·4가 Musterrolle 안에서 파일을 옮겨도 Kiel 쪽 import는 다시 바뀌지 않는다.
+- **단계 3.** 함수 본문은 그대로 옮긴다. 오류 class 이름과 `code` 값은 route 오류 매핑(`api/routes/errors.ts:84`, `instanceof SessionServiceError`)과 응답 본문이 쓰므로 바꾸지 않는다. 증명: 공통 증명에 더해 `bun test apps/control-host`. 규칙 1의 허용 목록에서 `sessions/session-service.ts` 24줄이 빠진다.
+- **단계 4.** port 파일 이동과 import 경로만 바뀐다. Kiel이 쓰는 port(`team-store` 등)는 단계 2의 공개면으로 내놓는다. 증명: 공통 증명만.
+- **단계 5.** 인증 경로라 동작이 같은지를 테스트로 보인다. 증명: `bun test apps/control-host/src/api/auth.test.ts`와 `auth.integration.test.ts`·`auth-recovery.integration.test.ts`·`api-keys.integration.test.ts`가 그대로 통과한다. 이 단계는 class 본문을 바꾸지 않고, `server.ts`와 키 CLI의 import만 바꾼다. control-host `api/`의 `@werft-ai/db` 직접 사용이 그만큼 준다.
+- **단계 6a·6b.** `packages/db/src/index.ts`의 `export *` 경로만 바뀌고 이름은 그대로다. migration·`schema.ts`는 건드리지 않는다. 증명: 공통 증명에 더해 `packages/db`의 integration 테스트(로컬은 PGlite, CI는 integration domain). 테스트 파일도 함께 옮긴다. `.github/workflows/ci.yml`의 `db` integration domain은 `packages/db/` 접두어로 파일을 고르므로 하위 디렉터리도 그대로 돈다. PR에서 그 job의 실행 테스트 수가 전후 같은지 본다. 파일이 많아 리뷰 크기로 둘로 나눴다.
+- **단계 7.** 문서만. 증명: `bun test tests/docs-links.test.ts`.
+
+크기는 리뷰할 diff 기준이다: S는 파일 몇 개, M은 이동 파일이 많아도 각 diff가 import 줄뿐인 것.
+
+## 4. 열린 PR과 겹치는 단계
+
+`gh pr list --state open --json number,title,files`(2026-11-02)로 확인했다. 열린 PR은 #1011·#1028·#1029이고, 이 계획과 겹치는 것은 #1011뿐이다.
+
+| 열린 PR | 이 계획이 옮기거나 고치는 파일 가운데 겹치는 것 | 겹치는 단계 |
+|---|---|---|
+| #1011 (저장소 없이 시작한 세션에 저장소 붙이기) | `packages/platform/src/sessions/session-service.ts`(오류 class와 helper가 있는 파일, Musterrolle port import), `packages/platform/src/sessions/push-request-service.ts`·`agents/agent-service.ts`(helper와 Musterrolle import), `packages/db/src/postgres-unit-of-work.ts`(`credential-bindings`·`session-shares` import) | 2, 3, 4, 6a, 6b: #1011 land 뒤 |
+| #1028 (worker 이미지 git-lfs) | 없음 | — |
+| #1029 (SettingsSection을 ui로) | 없음 | — |
+
+단계를 시작할 때 같은 명령을 다시 돌려, 그 단계가 옮기는 파일을 만지는 열린 PR이 있으면 그 PR land 뒤로 미룬다. 이동 PR은 import 줄을 넓게 바꾸므로 같은 파일을 만지는 PR과 동시에 열면 둘 중 하나가 충돌을 다시 풀어야 한다.
+
+## 5. 하지 않는 것
+
+- **계약을 옮기지 않는다.** `packages/contracts/src/musterrolle/`는 이미 한 디렉터리다. `apps/web`·`packages/core`가 type으로 읽고 OpenAPI·SDK가 이 계약에서 나오므로, 옮기면 공개 표면 검토가 따라온다.
+- **새 패키지를 만들지 않는다.** 이유는 "검토한 다른 모양"에 있다.
+- **`schema.ts`를 나누지 않고 migration을 만들지 않는다.** 테이블 정의는 다른 모듈 테이블과 외래 키로 엮여 있고, 나누는 일은 DB 스키마 작업으로 따로 다룬다.
+- **route 파일을 옮기지 않는다.** route와 transport 메타데이터는 control-host가 소유하고, `api/route-error-coverage.ts`가 테스트 파일 이름으로 route를 매핑한다. 경계는 route가 무엇을 import하는지로 지키고, Musterrolle route 목록은 `architecture.md`에 둔다.
+- **Slack 채널 처리를 Kollegium으로 옮기지 않는다.** `packages/platform/src/musterrolle/`의 Slack 파일 가운데 `slack-session-handler`·`slack-outbox`·`slack-inbox`·`slack-decision`·`slack-welcome`·`slack-presentation`·`slack-send-result`·`slack-notice-log`·`slack-events-service`·`slack-channel-join`은 채널에서 받은 이벤트를 세션으로 잇고 결과를 보내는 일이라, `architecture.md`가 Kollegium에 둔 Slack 채널 쪽에 가깝다. 반면 `slack-app-service`·`slack-install-service`·`slack-secret-service`·`slack-config-*`·`slack-link-app-service`는 연동 계정 설정이라 Musterrolle이다. 두 묶음은 서로 import한다(`slack-welcome` → `slack-install-service`, `slack-events-finalize` → `slack-app-service`). 어디에 둘지는 Kollegium 경계를 정할 때 함께 정하고, 그때까지 이 파일들은 Musterrolle 경계 안에 두며 2.2절 허용 목록의 `agent-store`·`session-link-store`가 남는다.
+- **이름을 바꾸지 않는다.** `SessionServiceError`처럼 모듈과 어긋난 이름도 이번에는 위치만 옮긴다. 이름을 바꾸면 export 이름 집합이 달라져 단계마다의 "바깥 이름 그대로" 증명을 쓸 수 없다.
+- **동작을 바꾸지 않는다.** 어느 단계에서 동작 변경이 필요해 보이면 그 단계를 멈추고 따로 다룬다.
