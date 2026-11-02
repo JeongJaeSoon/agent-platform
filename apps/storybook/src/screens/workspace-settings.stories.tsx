@@ -57,7 +57,7 @@ import {
   useState,
 } from "react";
 
-import { MOBILE, type Role, ScreenShell } from "./screen-kit.tsx";
+import { MOBILE, type Role, ScreenShell, VIEWER } from "./screen-kit.tsx";
 
 /*
  * apps/web routes/workspace-settings.tsx (설정 › 일반) and
@@ -82,10 +82,8 @@ const SETTINGS: Pick<
 // The distinct `model` of GET /v1/profiles items.
 const MODELS = ["claude-haiku-5", "claude-sonnet-5"];
 
-const OWNER = {
-  user_id: "0b5f8a52-6f0e-4b1a-9d0e-2c1e7c3f4a11",
-  display_name: "Verify Owner",
-};
+// The signed-in owner registered the token.
+const OWNER = { user_id: VIEWER.id, display_name: VIEWER.name };
 const ISSUER = { user_id: "U07QF3K2M1A", team_id: "T07QF3J8Z4B" };
 const CHECKED_AT = "2026-10-23T04:58:00Z";
 
@@ -138,6 +136,7 @@ function madeApp(
   id: string,
   kind: "agent" | "link",
   appId: string,
+  clientId: string,
   updatedAt: string,
   agent: MadeApp["agent"],
 ): MadeApp {
@@ -148,7 +147,7 @@ function madeApp(
       agent_id: agent?.id ?? null,
       state: "created",
       app_id: appId,
-      client_id: `7712${appId.slice(1)}.1`,
+      client_id: clientId,
       redirect_url: "https://console.example.com/v1/slack/oauth/callback",
       created_by_token_user: ISSUER.user_id,
       created_at: "2026-10-01T00:20:00Z",
@@ -169,6 +168,7 @@ const SLACK_APPS: readonly MadeApp[] = [
     "3c1d9e2a-0f4b-4a6c-8e1d-5b7a9c2e4f60",
     "link",
     "A07LINK0001",
+    "7712045893021.7745320118650",
     "2026-10-01T00:20:00Z",
     null,
   ),
@@ -176,6 +176,7 @@ const SLACK_APPS: readonly MadeApp[] = [
     "8e2f4a6c-1b3d-4e5f-9a7b-0c2d4e6f8a10",
     "agent",
     "A07RNOTES01",
+    "7712045893021.7798114502377",
     "2026-10-23T12:48:00Z",
     {
       id: "5a7c9e1b-3d5f-4a7b-8c9d-1e3f5a7b9c20",
@@ -188,6 +189,7 @@ const SLACK_APPS: readonly MadeApp[] = [
     "1f3e5d7c-9b2a-4c6e-8f0a-2b4d6f8a0c30",
     "agent",
     "A07TRIAGE01",
+    "7712045893021.7801529936441",
     "2026-10-24T02:05:00Z",
     {
       id: "7b9d1f3a-5c7e-4b9d-0f1a-3c5e7a9b1d40",
@@ -199,6 +201,8 @@ const SLACK_APPS: readonly MadeApp[] = [
 ];
 
 const SECTIONS = "flex flex-col gap-10";
+// The server's ceiling (workspace-settings.tsx AUDIT_RETENTION_MAX_DAYS).
+const AUDIT_RETENTION_MAX_DAYS = 3650;
 const ICON = "size-3.5 shrink-0";
 const ACTION = "min-w-12";
 const FIT = "w-px whitespace-nowrap";
@@ -389,12 +393,17 @@ function AuditRetention({
     event.preventDefault();
     const value = Number(days);
     onOutcome(
-      value < 30
+      value > AUDIT_RETENTION_MAX_DAYS
         ? {
             kind: "error",
-            text: "감사 기록은 30일보다 짧게 보존할 수 없습니다. 30일 이상(최대 3650일)으로 정하세요.",
+            text: `감사 기록은 최대 ${AUDIT_RETENTION_MAX_DAYS}일까지 보존할 수 있습니다. ${AUDIT_RETENTION_MAX_DAYS}일 이하로 정하세요.`,
           }
-        : { kind: "notice", text: `감사 기록을 ${value}일 보존합니다.` },
+        : value < 30
+          ? {
+              kind: "error",
+              text: "감사 기록은 30일보다 짧게 보존할 수 없습니다. 30일 이상(최대 3650일)으로 정하세요.",
+            }
+          : { kind: "notice", text: `감사 기록을 ${value}일 보존합니다.` },
     );
   };
   return (
