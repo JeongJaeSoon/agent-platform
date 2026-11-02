@@ -78,6 +78,7 @@ import {
   dispatchWorkflowResponseSchema,
   GITHUB_APP_MANIFEST_STATE_TTL_SECONDS,
   getGitHubAppResponseSchema,
+  getGitHubRepositoryAppPinsResponseSchema,
   getReceiptResponseSchema,
   getSessionResponseSchema,
   getSlackAppManifestResponseSchema,
@@ -88,6 +89,7 @@ import {
   githubLinkCallbackResponseSchema,
   githubPackagesSettingsResponseSchema,
   githubPackagesWriteResponseSchema,
+  githubRepositoryAppPinParamsSchema,
   githubRepositoryPageQuerySchema,
   githubRepositoryParamsSchema,
   githubRepositoryWriteResponseSchema,
@@ -119,6 +121,7 @@ import {
   listApiKeysQuerySchema,
   listApiKeysResponseSchema,
   listCredentialBindingsResponseSchema,
+  listGitHubAppsResponseSchema,
   listGitHubRepositoriesResponseSchema,
   listInvitesResponseSchema,
   listLinkedAccountsResponseSchema,
@@ -159,6 +162,7 @@ import {
   pauseSessionRequestSchema,
   pickAgentGitHubRepositoryRequestSchema,
   pickAgentGitHubRepositoryResponseSchema,
+  postGitHubAppRequestSchema,
   postSessionAnswerRequestSchema,
   postSessionAnswerResponseSchema,
   postSessionMessageRequestSchema,
@@ -174,7 +178,11 @@ import {
   putGitHubOAuthClientSecretResponseSchema,
   putGitHubPackagesAllowlistRequestSchema,
   putGitHubPackagesTokenRequestSchema,
+  putGitHubRepositoryAppPinRequestSchema,
+  putGitHubRepositoryAppPinResponseSchema,
   putGitHubSettingsRequestSchema,
+  putGitHubUserLinkAppRequestSchema,
+  putGitHubUserLinkAppResponseSchema,
   putSlackBindingRequestSchema,
   putSlackBindingResponseSchema,
   putSlackConfigTokenResponseSchema,
@@ -346,6 +354,9 @@ const requestComponents = {
   AchievementJudgeRequest: achievementJudgeRequestSchema,
   PutSlackSecretRequest: putSlackSecretRequestSchema,
   PutGitHubAppRequest: putGitHubAppRequestSchema,
+  PostGitHubAppRequest: postGitHubAppRequestSchema,
+  PutGitHubUserLinkAppRequest: putGitHubUserLinkAppRequestSchema,
+  PutGitHubRepositoryAppPinRequest: putGitHubRepositoryAppPinRequestSchema,
   StartGitHubAppManifestRequest: startGitHubAppManifestRequestSchema,
   CompleteGitHubAppManifestRequest: completeGitHubAppManifestRequestSchema,
   GitHubRepositoryPageQuery: githubRepositoryPageQuerySchema,
@@ -447,6 +458,10 @@ const responseComponents = {
   CompleteGitHubAppManifestResponse: completeGitHubAppManifestResponseSchema,
   PutGitHubAppResponse: putGitHubAppResponseSchema,
   DeleteGitHubAppResponse: deleteGitHubAppResponseSchema,
+  ListGitHubAppsResponse: listGitHubAppsResponseSchema,
+  PutGitHubUserLinkAppResponse: putGitHubUserLinkAppResponseSchema,
+  GetGitHubRepositoryAppPinsResponse: getGitHubRepositoryAppPinsResponseSchema,
+  PutGitHubRepositoryAppPinResponse: putGitHubRepositoryAppPinResponseSchema,
   ListGitHubRepositoriesResponse: listGitHubRepositoriesResponseSchema,
   GitHubRepositoryWriteResponse: githubRepositoryWriteResponseSchema,
   ListAgentGitHubRepositoriesResponse:
@@ -1549,7 +1564,7 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "One of the workspace's GitHub Apps and where it is installed (owner or admin)",
     description:
-      "`role` is `author` (the App that clones, pushes and opens pull requests; `…/github-app` is the same) or `reviewer` (an optional second App that only submits pull request reviews, since GitHub refuses an approval from the App that opened the pull request). Answers as `GET …/github-app` does for that role's App: the App as registered, its permissions as GitHub reports them now, its installations, and for each catalog repository written as `auth: { kind: github_app }` the installation that covers it and what that installation grants (`installation_permissions`; it trails the App's own permissions until an owner approves a raise on GitHub). API keys are refused.",
+      "`role` is `author` (the App that clones, pushes and opens pull requests; `…/github-app` is the same) or `reviewer` (an optional second App that only submits pull request reviews, since GitHub refuses an approval from the App that opened the pull request), served while the role has at most one connection (else 409 `GITHUB_APP_CONFLICT` `ambiguous_role`), or a connection id (`GET …/github-apps` lists them; 404 for one not the workspace's). `usage` says what removing it affects: repositories pinned to it, agents with GitHub on whose active release names one, sessions not ended on one, and whether people link their accounts with it. Answers as `GET …/github-app` does for that role's App: the App as registered, its permissions as GitHub reports them now, its installations, and for each catalog repository written as `auth: { kind: github_app }` the installation that covers it and what that installation grants (`installation_permissions`; it trails the App's own permissions until an owner approves a raise on GitHub). API keys are refused.",
     auth: "session",
     success: {
       status: 200,
@@ -1600,7 +1615,8 @@ export const API_ROUTE_DECLARATIONS = [
         ],
       },
     },
-    errors: [401, 403, 404, 503],
+    errors: [401, 403, 404, 409, 503],
+    errorCodes: { 409: ["GITHUB_APP_CONFLICT"] },
     errorNotes: {
       BACKEND_UNAVAILABLE:
         "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
@@ -1614,7 +1630,7 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "Register or replace one of the workspace's GitHub Apps (owner or admin)",
     description:
-      "Takes the App's id and private key as `PUT …/github-app` does, checks the key with GitHub the same way, and stores it for `role`. A workspace has one App per role, each with its own key: replacing or deleting one never touches the other. The two roles must be different Apps (409 `GITHUB_APP_CONFLICT` `same_app`), and a reviewer App needs the author App first (409 `no_author_app`); both are decided under the workspace's lock. A reviewer App needs `pull_requests: write` and `contents`, `metadata` read; wider permissions are kept and listed in `warnings`. Writes a `set_github_app` receipt naming the App id and role. The key is in no response, receipt, log or error. API keys are refused.",
+      "Takes the App's id and private key as `PUT …/github-app` does, checks the key with GitHub the same way, and stores it. `role` is a role or a connection id. A role registers the role's first connection, or replaces it while the role has exactly one; with several it is 409 `GITHUB_APP_CONFLICT` `ambiguous_role` (name one by id, or add with `POST …/github-apps`). Replacing it with another App drops the repository pins it held (`pins_cleared`). A connection id rotates that connection's key: the `app_id` must be its App (400 `app_id_mismatch`). Each connection has its own key: changing one never touches another. One App is one connection in a workspace, whatever the role (409 `same_app`), and a reviewer App needs an author App first (409 `no_author_app`); both are decided under the workspace's lock. A reviewer App needs `pull_requests: write` and `contents`, `metadata` read; wider permissions are kept and listed in `warnings`. Writes a `set_github_app` receipt naming the App id and role. The key is in no response, receipt, log or error. API keys are refused.",
     auth: "session",
     body: "PutGitHubAppRequest",
     requestExample: {
@@ -1664,7 +1680,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Workspace settings",
     summary:
       "Start making the author GitHub App from a manifest (owner or admin)",
-    description: `Returns the manifest for a new author App and the GitHub URL the browser form-POSTs it to (field \`manifest\`), with a new single-use \`state\` in that URL, valid ${GITHUB_APP_MANIFEST_STATE_TTL_SECONDS / 60} minutes and bound to the caller and the workspace. \`owner\` picks an organization (its owners can create the App) or the caller's own account; a private App (\`public: false\`, the default) installs only on that account. The manifest asks for \`contents\` and \`pull_requests\` write and \`metadata\` read, plus \`actions\` and \`workflows\` write with \`actions: true\`; its webhook is off, its redirect is the console's \`/settings/workspace/github/new-app\` and its callback the account-link page. While an author App is registered the request must say \`replace: true\` (else 409 \`GITHUB_APP_CONFLICT\` \`author_app_exists\`). API keys are refused.`,
+    description: `Returns the manifest for a new author App and the GitHub URL the browser form-POSTs it to (field \`manifest\`), with a new single-use \`state\` in that URL, valid ${GITHUB_APP_MANIFEST_STATE_TTL_SECONDS / 60} minutes and bound to the caller and the workspace. \`owner\` picks an organization (its owners can create the App) or the caller's own account; a private App (\`public: false\`, the default) installs only on that account. The manifest asks for \`contents\` and \`pull_requests\` write and \`metadata\` read, plus \`actions\` and \`workflows\` write with \`actions: true\`; its webhook is off, its redirect is the console's \`/settings/workspace/github/new-app\` and its callback the account-link page. The App it makes is always another author connection, beside any registered: \`replace\` is ignored, and moving to the new App is removing the old connection afterwards. API keys are refused.`,
     auth: "session",
     body: "StartGitHubAppManifestRequest",
     requestExample: {
@@ -1684,8 +1700,7 @@ export const API_ROUTE_DECLARATIONS = [
         expires_at: "2026-11-01T10:00:00Z",
       },
     },
-    errors: [400, 401, 403, 404, 409, 503],
-    errorCodes: { 409: ["GITHUB_APP_CONFLICT"] },
+    errors: [400, 401, 403, 404, 503],
     errorNotes: {
       BACKEND_UNAVAILABLE:
         "Also when the API runs without a master key (PLATFORM_SECRET_KEY), or without CONSOLE_ORIGIN (`console_origin_unset`).",
@@ -1699,7 +1714,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Workspace settings",
     summary: "Finish making the author GitHub App with what GitHub returned",
     description:
-      "The console's callback page sends the `code` and `state` from GitHub's redirect. The state is spent first: unknown, spent, expired, or issued to another caller or workspace answers 400 `BAD_REQUEST` `state_invalid`. The code is exchanged once with `POST /app-manifests/{code}/conversions` (400 `code_rejected` when GitHub refuses it, 503 `github_unreachable` when it cannot be reached; never retried). The App, its private key and its OAuth client secret are stored in one transaction with a `set_github_app` receipt (`source: manifest`); the webhook secret is not kept. If the author App changed since the start, nothing is stored (409 `GITHUB_APP_CONFLICT` `author_app_changed`); if storing fails, 503 `store_failed`. Both name the App made on GitHub in `details.app_id` and `details.html_url`. No key, secret or code is in any response, receipt or log, and every answer carries `Referrer-Policy: no-referrer`. API keys are refused.",
+      "The console's callback page sends the `code` and `state` from GitHub's redirect. The state is spent first: unknown, spent, expired, or issued to another caller or workspace answers 400 `BAD_REQUEST` `state_invalid`. The code is exchanged once with `POST /app-manifests/{code}/conversions` (400 `code_rejected` when GitHub refuses it, 503 `github_unreachable` when it cannot be reached; never retried). The App is stored as another author connection, with its private key, in one transaction with a `set_github_app` receipt (`source: manifest`); its OAuth client secret is kept only when it becomes the connection people link their accounts with (the workspace had no author connection), and the webhook secret is not kept. If storing fails, 503 `store_failed`, naming the App made on GitHub in `details.app_id` and `details.html_url`. No key, secret or code is in any response, receipt or log, and every answer carries `Referrer-Policy: no-referrer`. API keys are refused.",
     auth: "session",
     body: "CompleteGitHubAppManifestRequest",
     requestExample: {
@@ -1737,8 +1752,7 @@ export const API_ROUTE_DECLARATIONS = [
         receipt_id: EXAMPLE_RECEIPT_ID,
       },
     },
-    errors: [400, 401, 403, 404, 409, 503],
-    errorCodes: { 409: ["GITHUB_APP_CONFLICT"] },
+    errors: [400, 401, 403, 404, 503],
     errorNotes: {
       BACKEND_UNAVAILABLE:
         "Also when the API runs without a master key (PLATFORM_SECRET_KEY), GitHub could not be reached (`github_unreachable`), or the App could not be stored (`store_failed`).",
@@ -1752,7 +1766,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Workspace settings",
     summary: "Remove one of the workspace's GitHub Apps (owner or admin)",
     description:
-      "Deletes that role's App and its private key and writes a `delete_github_app` receipt naming the role. Without the reviewer App, review work is refused from the next request on (409 `GITHUB_REFUSED` `no_reviewer_app`) and the agent GitHub tab locks its review option; the author App is as `DELETE …/github-app`. The App stays on GitHub. 404 when none is registered for the role. API keys are refused.",
+      "Deletes a connection and its private key and writes a `delete_github_app` receipt naming the role. `role` is a role while it has exactly one connection (else 409 `GITHUB_APP_CONFLICT` `ambiguous_role`), or a connection id. Repositories pinned to it keep their pin, emptied: their work for that role is refused (`pinned_app_removed`) until an admin pins another connection, or the same App is added again. The connection people link their accounts with is refused while another author connection exists (409 `in_use_for_user_link`; choose another with `PUT …/github-settings/user-link-app` first); the last author connection is removed with the link. Without a reviewer App, review work is refused from the next request on (409 `GITHUB_REFUSED` `no_reviewer_app`). `GET` on it answers `usage` first. The App stays on GitHub. 404 when none is registered. API keys are refused.",
     auth: "session",
     success: {
       status: 200,
@@ -1760,10 +1774,86 @@ export const API_ROUTE_DECLARATIONS = [
       description: "Deleted; the receipt.",
       example: { receipt_id: EXAMPLE_RECEIPT_ID },
     },
+    errors: [401, 403, 404, 409, 503],
+    errorCodes: { 409: ["GITHUB_APP_CONFLICT"] },
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/workspaces/{id}/github-apps",
+    operationId: "listWorkspaceGitHubApps",
+    tag: "Workspace settings",
+    summary: "Every GitHub App connection of the workspace (owner or admin)",
+    description:
+      "Each registered App connection, author ones first and oldest first within a role, with its `connection_id`, as stored: nothing is asked of GitHub. A role may have several connections; `…/github-apps/{connection_id}` reads, rotates the key of, or removes one. API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "ListGitHubAppsResponse",
+      description: "The connections; never a private key.",
+      example: { github_apps: [] },
+    },
     errors: [401, 403, 404, 503],
     errorNotes: {
       BACKEND_UNAVAILABLE:
         "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
+  },
+  {
+    method: "post",
+    path: "/v1/workspaces/{id}/github-apps",
+    operationId: "addWorkspaceGitHubApp",
+    tag: "Workspace settings",
+    summary: "Add a GitHub App connection for a role (owner or admin)",
+    description:
+      "Takes `role`, the App's id and private key, checks the key with GitHub as `PUT …/github-apps/{role}` does and stores a new connection; a role may have any number. An App already registered in the workspace, in either role, is 409 `GITHUB_APP_CONFLICT` `same_app`; a reviewer App needs an author App first (409 `no_author_app`). The first author connection is the one people link their accounts with. Pins that the same App held before it was removed are filled again with the new connection (`pins_restored`). Writes a `set_github_app` receipt. API keys are refused.",
+    auth: "session",
+    body: "PostGitHubAppRequest",
+    requestExample: {
+      role: "author",
+      app_id: 234569,
+      private_key: "[REDACTED]",
+    },
+    success: {
+      status: 200,
+      schema: "PutGitHubAppResponse",
+      description: "Stored; the new connection and the receipt.",
+      example: {
+        github_app: {
+          role: "author",
+          connection_id: "019a0000-0000-7000-8000-0000000000c9",
+          app_id: 234569,
+          slug: "acme-second",
+          name: "Acme second",
+          html_url: "https://github.com/apps/acme-second",
+          private_key: {
+            updated_at: "2026-11-02T09:00:00Z",
+            updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
+          },
+          created_at: "2026-11-02T09:00:00Z",
+          updated_at: "2026-11-02T09:00:00Z",
+          permissions: {
+            contents: "write",
+            metadata: "read",
+            pull_requests: "write",
+          },
+          permissions_checked_at: "2026-11-02T09:00:00Z",
+          warnings: [],
+        },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+        pins_cleared: 0,
+        pins_restored: 0,
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["GITHUB_APP_CONFLICT"] },
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY), or GitHub could not be reached (`github_unreachable`); nothing stored changed.",
     },
     idempotent: false,
   },
@@ -1775,7 +1865,7 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "A page of the GitHub Apps' repositories, and the catalog's (owner or admin)",
     description:
-      "The repositories one installation of the workspace's GitHub Apps reaches, a page at a time as GitHub pages them (`GET /installation/repositories`): `installation_id` picks the installation (absent: the first not suspended, the author App's before the reviewer App's, by account), `page` and `per_page` (at most 100) the page, and `total_count` is GitHub's count. `installations` lists the author App's installations, then the reviewer App's, each with its App's `connection_id` and `role`, the `permissions` the account approved, and `repository_count` (GitHub's count, asked for the first 20 installations; null past them or when GitHub did not give it). An App GitHub does not answer for leaves its installations out. Nothing is registered: a repository becomes a catalog row when an agent's manager picks it (`POST /v1/agents/{id}/github/repositories`), and `catalog_id` then names it; `agent_count` counts agents whose active release names it, and on a reviewer App's page only those that turn review on. `unavailable` says why the page is empty: `no_author_app`, `no_installation`, or, with no `installation_id` named, GitHub not answering (`github_unavailable` or `github_app_auth_failed`, the author App's cause first) or every installation suspended (`installation_suspended`); then `catalog` and the installations that were read still come back, to name one. `catalog` lists the rows picks resolved or repositories.yaml seeded (`source` `selection`, `console` or `seed`; their branch is changed with PATCH) and the operator file's entries that carry their own credentials (`source: file`, read-only), each with its `agent_count`; `installed` says whether an installation of the author App covers a row now (asked for the first 100 rows; null past them, or when GitHub could not answer). An installation id no registered App has, or one GitHub no longer has, is 404 `installation_not_found`; a suspended one is 409 `INSTALLATION_SUSPENDED`; GitHub not answering for the App that may hold a named installation is 502 `GITHUB_UNAVAILABLE` (`github_unavailable` is worth retrying, `github_app_auth_failed` is not). API keys are refused.",
+      "The repositories one installation of the workspace's GitHub Apps reaches, a page at a time as GitHub pages them (`GET /installation/repositories`): `installation_id` picks the installation (absent: the first not suspended, the author App's before the reviewer App's, by account; while the role read first has several connections, absent is 400 `installation_required`), `page` and `per_page` (at most 100) the page, and `total_count` is GitHub's count. `installations` lists the author App's installations, then the reviewer App's, each with its App's `connection_id` and `role`, the `permissions` the account approved, and `repository_count` (GitHub's count, asked for the first 20 installations; null past them or when GitHub did not give it). An App GitHub does not answer for leaves its installations out. Nothing is registered: a repository becomes a catalog row when an agent's manager picks it (`POST /v1/agents/{id}/github/repositories`), and `catalog_id` then names it; `agent_count` counts agents whose active release names it, and on a reviewer App's page only those that turn review on. `unavailable` says why the page is empty: `no_author_app`, `no_installation`, or, with no `installation_id` named, GitHub not answering (`github_unavailable` or `github_app_auth_failed`, the author App's cause first) or every installation suspended (`installation_suspended`); then `catalog` and the installations that were read still come back, to name one. `catalog` lists the rows picks resolved or repositories.yaml seeded (`source` `selection`, `console` or `seed`; their branch is changed with PATCH) and the operator file's entries that carry their own credentials (`source: file`, read-only), each with its `agent_count`; `installed` says whether an installation of any author App covers a row now (asked for the first 100 rows; null past them, or when GitHub could not answer for an App and none said yes), and a row's `pins` names the connection each role's work uses (`GET …/app-pins` for the choices). An installation id no registered App has, or one GitHub no longer has, is 404 `installation_not_found`; a suspended one is 409 `INSTALLATION_SUSPENDED`; GitHub not answering for the App that may hold a named installation is 502 `GITHUB_UNAVAILABLE` (`github_unavailable` is worth retrying, `github_app_auth_failed` is not). API keys are refused.",
     auth: "session",
     query: "GitHubRepositoryPageQuery",
     success: {
@@ -1855,6 +1945,70 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errors: [400, 401, 403, 404, 409, 413],
     errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/workspaces/{id}/github-repositories/{repositoryId}/app-pins",
+    operationId: "getGitHubRepositoryAppPins",
+    tag: "Workspace settings",
+    summary:
+      "Which App connection a repository uses per role, and the choices (owner or admin)",
+    description:
+      "`pins` names the connection each role's work on the repository uses (null: none yet, or the pinned one was removed, which the gate then refuses as `pinned_app_removed`). `candidates` lists every connection with `installed`: whether an installation of its App covers the repository now (null when GitHub did not answer). An operator file entry is 400 `file_repository`. API keys are refused.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "GetGitHubRepositoryAppPinsResponse",
+      description: "The pins and the candidates.",
+      example: {
+        catalog_id: "app",
+        pins: {
+          author: "019a0000-0000-7000-8000-0000000000c9",
+          reviewer: null,
+        },
+        candidates: [
+          {
+            connection_id: "019a0000-0000-7000-8000-0000000000c9",
+            role: "author",
+            name: "Acme second",
+            app_id: 234569,
+            installed: true,
+          },
+        ],
+      },
+    },
+    errors: [400, 401, 403, 404],
+  },
+  {
+    method: "put",
+    path: "/v1/workspaces/{id}/github-repositories/{repositoryId}/app-pins/{role}",
+    operationId: "putGitHubRepositoryAppPin",
+    tag: "Workspace settings",
+    summary:
+      "Pin the App connection a repository's work uses for a role (owner or admin)",
+    description:
+      "Sets the connection `role`'s tokens for the repository are issued from. The connection must be the workspace's and of that role (else 404, or 400 `role_mismatch`), and an installation of its App must cover the repository now (400 `not_installed`); GitHub not answering is 502 `GITHUB_UNAVAILABLE`. Tokens already issued keep working until they expire; the next one comes from the new connection. Writes a `set_repository_github_app` receipt with the connection before and after; `receipt_id` is null when it was already pinned there. An operator file entry is 400 `file_repository`. API keys are refused.",
+    auth: "session",
+    body: "PutGitHubRepositoryAppPinRequest",
+    requestExample: { connection_id: "019a0000-0000-7000-8000-0000000000c9" },
+    success: {
+      status: 200,
+      schema: "PutGitHubRepositoryAppPinResponse",
+      description: "Pinned; the receipt.",
+      example: {
+        catalog_id: "app",
+        role: "author",
+        connection_id: "019a0000-0000-7000-8000-0000000000c9",
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 413, 502, 503],
+    errorCodes: { 502: ["GITHUB_UNAVAILABLE"] },
+    errorNotes: {
+      BACKEND_UNAVAILABLE:
+        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
+    },
     idempotent: false,
   },
   {
@@ -2003,7 +2157,7 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "Set the author App's client secret for user linking (owner or admin)",
     description:
-      "Stores the client secret of the workspace's author GitHub App, made in GitHub under the App's settings, so people can link their GitHub account. It is kept encrypted like the App's private key and never returned, logged or echoed; the answer carries only whether one is set. Setting it again replaces it. Registering a different App, or deleting the author App, drops it. Refused with 409 `GITHUB_LINK_NOT_CONFIGURED` (`reason_code` `no_author_app`) while the workspace has no author App. `client_id` names the App the secret was made for, as `oauth.client_id` showed it; when the author App's client id is another one by the time the secret is stored (the App was replaced meanwhile), nothing is stored and the answer is 409 `REVISION_CONFLICT` (`reason_code` `github_app_changed`). Writes a `set_github_app` receipt with the secret's last four characters. Does not change the ceiling's `revision`. API keys are refused.",
+      "Stores the client secret of the author GitHub App people link their accounts with (`oauth.connection_id`), made in GitHub under the App's settings, so people can link their GitHub account. It is kept encrypted like the App's private key and never returned, logged or echoed; the answer carries only whether one is set. Setting it again replaces it. Registering a different App, or deleting the author App, drops it. Refused with 409 `GITHUB_LINK_NOT_CONFIGURED` (`reason_code` `no_author_app`) while the workspace has no author App. `client_id` names the App the secret was made for, as `oauth.client_id` showed it; when the author App's client id is another one by the time the secret is stored (the App was replaced meanwhile), nothing is stored and the answer is 409 `REVISION_CONFLICT` (`reason_code` `github_app_changed`). Writes a `set_github_app` receipt with the secret's last four characters. Does not change the ceiling's `revision`. API keys are refused.",
     auth: "session",
     body: "PutGitHubOAuthClientSecretRequest",
     requestExample: {
@@ -2026,6 +2180,39 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errors: [400, 401, 403, 404, 409, 413, 503],
     errorCodes: { 409: ["GITHUB_LINK_NOT_CONFIGURED", "REVISION_CONFLICT"] },
+    errorNotes: {
+      BACKEND_UNAVAILABLE: "Also when the API runs without a secret key.",
+    },
+    idempotent: false,
+  },
+  {
+    method: "put",
+    path: "/v1/workspaces/{id}/github-settings/user-link-app",
+    operationId: "putGitHubUserLinkApp",
+    tag: "Workspace settings",
+    summary:
+      "Choose the author App people link their GitHub accounts with (owner or admin)",
+    description:
+      "Names the author connection (`connection_id`) whose OAuth client people link their accounts with. The client secret belongs to that connection: after a change, `oauth.client_secret_set` is that connection's, so a secret may need setting again (`PUT …/oauth-client-secret`). A link started before the change cannot finish with the old connection's state. A reviewer connection is 400 `role_mismatch`; an unknown one 404. Writes a `set_github_app` receipt with the connection before and after; `receipt_id` is null when nothing changed. API keys are refused.",
+    auth: "session",
+    body: "PutGitHubUserLinkAppRequest",
+    requestExample: { connection_id: "019a0000-0000-7000-8000-0000000000c9" },
+    success: {
+      status: 200,
+      schema: "PutGitHubUserLinkAppResponse",
+      description: "Stored; the receipt and the user-linking state.",
+      example: {
+        receipt_id: EXAMPLE_RECEIPT_ID,
+        oauth: {
+          connection_id: "019a0000-0000-7000-8000-0000000000c9",
+          client_id: "Iv23liExampleClientId",
+          client_secret_set: false,
+          callback_url:
+            "https://console.example.com/settings/linked-accounts/github",
+        },
+      },
+    },
+    errors: [400, 401, 403, 404, 413, 503],
     errorNotes: {
       BACKEND_UNAVAILABLE: "Also when the API runs without a secret key.",
     },
@@ -4502,7 +4689,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "A page of the author App's repositories, to pick for the agent",
     description:
-      "The repositories one installation of the author App reaches, a page at a time, as `GET /v1/workspaces/{id}/github-repositories` pages them (its failures too), with `catalog_id` set on those a pick resolved already; `installations` lists only the author App's. Only when the active release's installation profile ceiling runs on every App repository (`github_app_repositories: installed`); otherwise `unavailable` is `ceiling_listed` (pick among `options.repositories` of `GET /v1/agents/{id}/github`) or `no_active_release`, and the page is empty. Whoever manages the agent reads it.",
+      "The repositories one installation of the author App reaches, a page at a time, as `GET /v1/workspaces/{id}/github-repositories` pages them (its failures too), with `catalog_id` set on those a pick resolved already; `installations` lists only the author Apps'. With several author connections, `installation_id` is required (400 `installation_required`). Only when the active release's installation profile ceiling runs on every App repository (`github_app_repositories: installed`); otherwise `unavailable` is `ceiling_listed` (pick among `options.repositories` of `GET /v1/agents/{id}/github`) or `no_active_release`, and the page is empty. Whoever manages the agent reads it.",
     auth: "session",
     query: "GitHubRepositoryPageQuery",
     success: {
@@ -4540,7 +4727,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Resolve an App repository to the catalog id a release names",
     description:
-      "Takes a repository from `GET …/github/repositories` and returns the catalog id to put in `github.repositories` of the next release (`POST /v1/agents/{id}/releases`); the release itself is unchanged. The server reads the repository by its GitHub id and checks that the named installation covers it, then takes its URL and default branch from GitHub. The same repository always resolves to the same id, by its GitHub id: the first pick writes a `resolve_repository` receipt (`receipt_id`), and so does a pick after a rename on GitHub, which moves the row to the new name and URL; other picks return null. 400 `details.reason_code`: `repository_not_allowed` (the active release's ceiling does not run on App repositories, or there is no active release), `no_author_app`, `not_installed` (the author App has no such installation, or it does not cover the repository), `file_repository` (the operator file holds that repository with its own credential), or `name_held` (another row has that name: another GitHub repository's, whose pick after its rename frees the name, or one not yet tied to a GitHub id). GitHub not answering is 502 `GITHUB_UNAVAILABLE`, and an installation GitHub dropped while it was read is 404 `installation_not_found`; nothing stored changed. A signed-in manager of the agent; API keys are refused.",
+      "Takes a repository from `GET …/github/repositories` and returns the catalog id to put in `github.repositories` of the next release (`POST /v1/agents/{id}/releases`); the release itself is unchanged. The server reads the repository by its GitHub id and checks that the named installation covers it, then takes its URL and default branch from GitHub. The same repository always resolves to the same id, by its GitHub id: the first pick writes a `resolve_repository` receipt (`receipt_id`), and so does a pick after a rename on GitHub, which moves the row to the new name and URL; other picks return null. A repository with no author pin yet is pinned to the connection whose App holds the installation (a `set_repository_github_app` receipt), and `connection_id` names the author connection it is pinned to; a pin made before stays. 400 `details.reason_code`: `repository_not_allowed` (the active release's ceiling does not run on App repositories, or there is no active release), `no_author_app`, `not_installed` (the author App has no such installation, or it does not cover the repository), `file_repository` (the operator file holds that repository with its own credential), or `name_held` (another row has that name: another GitHub repository's, whose pick after its rename frees the name, or one not yet tied to a GitHub id). GitHub not answering is 502 `GITHUB_UNAVAILABLE`, and an installation GitHub dropped while it was read is 404 `installation_not_found`; nothing stored changed. A signed-in manager of the agent; API keys are refused.",
     auth: "session",
     body: "PickAgentGitHubRepositoryRequest",
     requestExample: { installation_id: 4242, github_repository_id: 123456789 },
@@ -6260,8 +6447,17 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path === "/v1/workspaces/{id}/github-apps/{role}") {
     return githubAppRoleParamsSchema;
   }
-  if (path === "/v1/workspaces/{id}/github-repositories/{repositoryId}") {
+  if (
+    path === "/v1/workspaces/{id}/github-repositories/{repositoryId}" ||
+    path === "/v1/workspaces/{id}/github-repositories/{repositoryId}/app-pins"
+  ) {
     return githubRepositoryParamsSchema;
+  }
+  if (
+    path ===
+    "/v1/workspaces/{id}/github-repositories/{repositoryId}/app-pins/{role}"
+  ) {
+    return githubRepositoryAppPinParamsSchema;
   }
   if (path.startsWith("/v1/workspaces/{id}")) return workspaceParamsSchema;
   if (path.includes("{turn_id}")) return turnIdParamsSchema;

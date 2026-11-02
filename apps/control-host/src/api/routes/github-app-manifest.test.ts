@@ -5,7 +5,6 @@ import {
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
   completeGitHubAppManifestResponseSchema,
-  type GitHubAppRole,
   getGitHubAppResponseSchema,
   startGitHubAppManifestResponseSchema,
   WEB_SESSION_COOKIE_NAME,
@@ -90,7 +89,7 @@ const keyStore = {
 // The Postgres store's transaction is its own integration test; this one
 // decides `replaces` as it does and remembers what it was handed.
 function memoryStore() {
-  const held = new Map<GitHubAppRole, GitHubAppRecord>();
+  const held: GitHubAppRecord[] = [];
   const puts: Array<{ key: string; manifest?: GitHubAppManifestPut }> = [];
   const states = new Map<string, GitHubAppManifestState>();
   let failing = false;
@@ -113,33 +112,43 @@ function memoryStore() {
       privateKey: { updatedAt: at, updatedBy: null },
     };
   };
+  const authors = () =>
+    held.map((row) => ({ ...row, role: "author" as const }));
   const store: GitHubAppStore = {
+    async ofRole(_workspaceId, role) {
+      return role === "author" ? authors() : [];
+    },
+    async get(_workspaceId, id) {
+      return authors().find((row) => row.id === id) ?? null;
+    },
     async list() {
-      return [...held].map(([role, record]) => ({ ...record, role }));
+      return authors();
     },
-    async find(_workspaceId, role) {
-      return held.get(role) ?? null;
-    },
-    async put(_workspaceId, role, app, key, _audit, manifest) {
+    async put(_workspaceId, target, app, key, _audit, manifest) {
       if (failing) throw new Error("database went away");
       if (outranked) return { outcome: "outranked" };
-      const current = held.get(role);
-      if (
-        manifest !== undefined &&
-        (current?.appId ?? null) !== manifest.replaces
-      ) {
-        return { outcome: "author_app_changed" };
+      // The routes here only ever add author connections.
+      if (target.kind !== "add" || target.role !== "author") {
+        throw new Error(`not reached: ${target.kind}`);
       }
       puts.push({ key, ...(manifest ? { manifest } : {}) });
       const row = { ...record(app.appId, app.slug), ...app };
-      held.set(role, row);
-      return { outcome: "stored", app: row };
+      held.push(row);
+      return {
+        outcome: "stored",
+        app: { ...row, role: "author" },
+        pinsCleared: 0,
+        pinsRestored: 0,
+      };
     },
-    async delete(_workspaceId, role) {
-      const row = held.get(role);
-      if (!row) return { outcome: "not_found" };
-      held.delete(role);
-      return { outcome: "deleted", appId: row.appId };
+    async delete() {
+      throw new Error("not reached: delete");
+    },
+    async usage() {
+      return null;
+    },
+    async setUserLink() {
+      return { outcome: "not_found" };
     },
     async recordPermissions() {},
     async credentials() {
@@ -161,8 +170,9 @@ function memoryStore() {
       },
     },
     /** An App someone registered outside this flow. */
-    hold: (appId: number) => held.set("author", record(appId, `held-${appId}`)),
-    clear: () => held.clear(),
+    hold: (appId: number) => held.push(record(appId, `held-${appId}`)),
+    clear: () => held.splice(0),
+    held: () => held.map((row) => row.appId),
     fail: (on: boolean) => {
       failing = on;
     },
@@ -372,7 +382,6 @@ describe("making the author GitHub App from a manifest", () => {
       key: PEM,
       manifest: {
         clientSecret: CLIENT_SECRET,
-        replaces: null,
         owner: "acme",
         public: false,
       },
@@ -429,38 +438,36 @@ describe("making the author GitHub App from a manifest", () => {
     ).toEqual(expect.arrayContaining(["expired", "actor", "not_found"]));
   });
 
-  test("a registered App needs replace: true, and one that changes before completion is not overwritten", async () => {
+  // Decision github-agent.md 11: a manifest adds a connection beside the
+  // ones registered, with or without `replace`, which is ignored.
+  test("with an author App registered, a manifest adds another author connection", async () => {
     memory.clear();
     memory.hold(5001);
     const owner = cookieFor("owner");
-    const refused = await call("manifest", { cookie: owner, body: ORG });
-    expect(refused.status).toBe(409);
-    expect(error(refused.json)).toMatchObject({
-      code: "GITHUB_APP_CONFLICT",
-      details: { reason_code: "author_app_exists" },
-    });
-
-    const replacing = await started(call, owner, { ...ORG, replace: true });
-    const done = await call("manifest/complete", {
-      cookie: owner,
-      body: { code: newCode(), state: replacing.state },
-    });
-    expect(done.status).toBe(200);
-    expect(memory.puts.at(-1)?.manifest?.replaces).toBe(5001);
-
-    const raced = await started(call, owner, { ...ORG, replace: true });
+    for (const replace of [false, true]) {
+      const begun = await started(call, owner, { ...ORG, replace });
+      const done = await call("manifest/complete", {
+        cookie: owner,
+        body: { code: newCode(), state: begun.state },
+      });
+      expect(done.status).toBe(200);
+    }
+    expect(memory.held()).toEqual([5001, nextApp - 2, nextApp - 1]);
+    // Raced by a registration in between: still added, nothing overwritten.
+    const raced = await started(call, owner, ORG);
     memory.hold(5002);
-    const lost = await call("manifest/complete", {
+    const done = await call("manifest/complete", {
       cookie: owner,
       body: { code: newCode(), state: raced.state },
     });
-    expect(lost.status).toBe(409);
-    const details = error(lost.json).details as Record<string, unknown>;
-    expect(details.reason_code).toBe("author_app_changed");
-    expect(details.html_url).toBe(
-      `https://github.com/apps/werft-acme-${details.app_id}`,
-    );
-    expect((await memory.store.find(WORKSPACE, "author"))?.appId).toBe(5002);
+    expect(done.status).toBe(200);
+    expect(memory.held()).toEqual([
+      5001,
+      nextApp - 3,
+      nextApp - 2,
+      5002,
+      nextApp - 1,
+    ]);
   });
 
   test("GitHub refusing the code is 400, not answering is 503, and a failed save names the App left on GitHub", async () => {

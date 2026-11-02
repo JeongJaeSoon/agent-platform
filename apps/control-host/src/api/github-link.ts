@@ -34,39 +34,56 @@ const cookieOptions = {
 
 /**
  * The state rides in an HttpOnly cookie scoped to the callback and bound to
- * the person who started, with its expiry, which the callback checks too.
+ * the person who started, the App connection whose client it was issued for
+ * (decision github-agent.md 11.3), and its expiry, which the callback checks.
  */
 export function issueGitHubLinkState(
   context: Context,
   userId: string,
+  connectionId: string,
   expiresAt: Date,
 ): string {
   const state = randomBytes(32).toString("base64url");
   setCookie(
     context,
     GITHUB_LINK_COOKIE_NAME,
-    `${state}.${userId}.${expiresAt.getTime()}`,
+    `${state}.${userId}.${expiresAt.getTime()}.${connectionId}`,
     { ...cookieOptions, expires: expiresAt },
   );
   return state;
 }
 
-/** Spends the cookie whatever the outcome; false unless it matches in time. */
+/**
+ * Spends the cookie whatever the outcome. The connection it was issued for
+ * when it matches in time; null otherwise. The caller compares that to the
+ * connection people link with now.
+ */
 export function consumeGitHubLinkState(
   context: Context,
   state: string,
   userId: string,
   now: Date = new Date(),
-): boolean {
+): string | null {
   const raw = getCookie(context, GITHUB_LINK_COOKIE_NAME);
   deleteCookie(context, GITHUB_LINK_COOKIE_NAME, cookieOptions);
-  const [cookieState, cookieUser, expires, ...rest] = raw?.split(".") ?? [];
-  if (!cookieState || !cookieUser || !expires || rest.length > 0) return false;
+  const [cookieState, cookieUser, expires, connectionId, ...rest] =
+    raw?.split(".") ?? [];
+  if (
+    !cookieState ||
+    !cookieUser ||
+    !expires ||
+    !connectionId ||
+    rest.length > 0
+  ) {
+    return null;
+  }
   const expiresAt = Number(expires);
   if (!Number.isSafeInteger(expiresAt) || expiresAt <= now.getTime()) {
-    return false;
+    return null;
   }
-  return sameToken(cookieState, state) && cookieUser === userId;
+  return sameToken(cookieState, state) && cookieUser === userId
+    ? connectionId
+    : null;
 }
 
 // ---------------------------------------------------------------------------

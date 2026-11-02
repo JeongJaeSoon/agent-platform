@@ -6,6 +6,7 @@ import {
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
   type GitHubAppRepositories,
+  getGitHubRepositoryAppPinsResponseSchema,
   githubRepositoryWriteResponseSchema,
   listAgentGitHubRepositoriesResponseSchema,
   listGitHubRepositoriesResponseSchema,
@@ -20,6 +21,8 @@ import {
   createAuthorizationPolicy,
   createGitHubRepositoryService,
   type GitHubAppStore,
+  type GitHubPinStore,
+  type GitHubRepositoryPin,
   type IdentityStore,
   type InstallationProfileEntry,
   type MembershipRole,
@@ -40,6 +43,7 @@ const AGENT = "019a0000-0000-7000-8000-0000000000c1";
 const LISTED_AGENT = "019a0000-0000-7000-8000-0000000000c2";
 const APP_ID = 4242;
 const INSTALLATION = 77;
+const APP_ROW = "019a0000-0000-7000-8000-0000000000e1";
 
 const keys = generateKeyPairSync("rsa", {
   modulusLength: 2048,
@@ -96,7 +100,7 @@ let appRegistered = true;
 function appStore(): GitHubAppStore {
   const at = new Date();
   const record = {
-    id: "app-row",
+    id: APP_ROW,
     workspaceId: WORKSPACE,
     appId: APP_ID,
     slug: "werft-test",
@@ -109,13 +113,20 @@ function appStore(): GitHubAppStore {
     updatedAt: at,
     privateKey: { updatedAt: at, updatedBy: null },
   };
+  const registered = (workspaceId: string) =>
+    appRegistered && workspaceId === WORKSPACE;
   return {
-    async find(workspaceId, role) {
-      if (!appRegistered || role !== "author" || workspaceId !== WORKSPACE)
-        return null;
-      return { ...record, apiBase: github.origin };
+    async get(workspaceId: string, id: string) {
+      return registered(workspaceId) && id === record.id
+        ? { ...record, apiBase: github.origin, role: "author" }
+        : null;
     },
-    async credentials(role) {
+    async list(workspaceId: string) {
+      return registered(workspaceId)
+        ? [{ ...record, apiBase: github.origin, role: "author" }]
+        : [];
+    },
+    async credentials(role: string) {
       if (!appRegistered || role !== "author") return [];
       return [
         {
@@ -128,7 +139,7 @@ function appStore(): GitHubAppStore {
         },
       ];
     },
-  } as GitHubAppStore;
+  } as unknown as GitHubAppStore;
 }
 
 // The Postgres store's locking and numbering are its own integration test;
@@ -217,8 +228,61 @@ function memoryRepositories() {
   return { store, receipts, rows, counts };
 }
 
+// The Postgres pin store's locking and receipts are its own integration test.
+function memoryPins() {
+  const rows: GitHubRepositoryPin[] = [];
+  const held = (repositoryId: string, role: string) =>
+    rows.find((pin) => pin.repositoryId === repositoryId && pin.role === role);
+  const store: GitHubPinStore = {
+    async get(repositoryId, role) {
+      return held(repositoryId, role) ?? null;
+    },
+    async list() {
+      return [...rows];
+    },
+    async pinFirst(input) {
+      const before = held(input.repositoryId, input.role);
+      if (before !== undefined) return { pin: before, created: false };
+      const pin = { ...input, pinnedBy: input.pinnedBy };
+      rows.push({
+        repositoryId: pin.repositoryId,
+        role: pin.role,
+        connectionId: pin.connectionId,
+        appId: pin.appId,
+        pinnedBy: pin.pinnedBy,
+      });
+      return { pin: rows.at(-1) as GitHubRepositoryPin, created: true };
+    },
+    async set(input) {
+      const before = held(input.repositoryId, input.role);
+      if (before?.connectionId === input.connectionId) {
+        return {
+          outcome: "stored",
+          before: input.connectionId,
+          changed: false,
+        };
+      }
+      if (before !== undefined) rows.splice(rows.indexOf(before), 1);
+      rows.push({
+        repositoryId: input.repositoryId,
+        role: input.role,
+        connectionId: input.connectionId,
+        appId: APP_ID,
+        pinnedBy: "admin",
+      });
+      return {
+        outcome: "stored",
+        before: before?.connectionId ?? null,
+        changed: true,
+      };
+    },
+  };
+  return { store, rows };
+}
+
 const logs = new MemoryLogSink();
 const memory = memoryRepositories();
+const pins = memoryPins();
 let changes = 0;
 
 const ceiling = (
@@ -248,6 +312,7 @@ function appWith() {
           authorization: createAuthorizationPolicy({}),
           store: memory.store,
           apps: appStore(),
+          pins: pins.store,
           directory: createGitHubAppDirectory({ retryAfterBaseMs: 1 }),
           agents: {
             async get(_workspaceId, agentId) {
@@ -296,7 +361,7 @@ function appWith() {
       ),
   });
   return async (
-    method: "GET" | "POST" | "PATCH",
+    method: "GET" | "POST" | "PATCH" | "PUT",
     path: string,
     request: {
       cookie?: string;
@@ -375,7 +440,7 @@ describe("the GitHub repository API", () => {
         {
           id: INSTALLATION,
           account: "acme",
-          connection_id: "app-row",
+          connection_id: APP_ROW,
           role: "author",
           repository_count: 3,
         },
@@ -469,7 +534,13 @@ describe("the GitHub repository API", () => {
     const again = pickAgentGitHubRepositoryResponseSchema.parse(
       (await call("POST", agentPath(), { cookie: owner, body })).json,
     );
-    expect(again).toEqual({ catalog_id: "app", receipt_id: null });
+    // The first pick pinned the repository to the App holding the installation.
+    expect(first.connection_id).toBe(APP_ROW);
+    expect(again).toEqual({
+      catalog_id: "app",
+      receipt_id: null,
+      connection_id: APP_ROW,
+    });
 
     memory.counts.set("app", { author: 2, reviewer: 1 });
     const listed = listGitHubRepositoriesResponseSchema.parse(
@@ -482,7 +553,111 @@ describe("the GitHub repository API", () => {
       source: "selection",
       editable: true,
       installed: true,
+      pins: { author: APP_ROW, reviewer: null },
     });
+  });
+
+  test("an owner reads a repository's pins and pins it to a connection whose App reaches it", async () => {
+    const owner = cookieFor("owner");
+    const pinsPath = workspacePath("/app/app-pins");
+    // The row from the pick above; picked again here should it run alone.
+    await call("POST", agentPath(), {
+      cookie: owner,
+      body: {
+        installation_id: INSTALLATION,
+        github_repository_id: idOf("acme/App"),
+      },
+    });
+    const read = await call("GET", pinsPath, { cookie: owner });
+    expect(read.status).toBe(200);
+    expect(getGitHubRepositoryAppPinsResponseSchema.parse(read.json)).toEqual({
+      catalog_id: "app",
+      pins: { author: APP_ROW, reviewer: null },
+      candidates: [
+        {
+          connection_id: APP_ROW,
+          role: "author",
+          name: "Werft test",
+          app_id: APP_ID,
+          installed: true,
+        },
+      ],
+    });
+    const set = await call("PUT", `${pinsPath}/author`, {
+      cookie: owner,
+      body: { connection_id: APP_ROW },
+    });
+    expect(set.status).toBe(200);
+    expect(set.json).toEqual({
+      catalog_id: "app",
+      role: "author",
+      connection_id: APP_ROW,
+      receipt_id: null,
+    });
+
+    // A connection of another role, one not the workspace's, a file entry,
+    // a malformed or oversized body.
+    const refusals = [
+      [
+        `${pinsPath}/reviewer`,
+        { connection_id: APP_ROW },
+        400,
+        "role_mismatch",
+      ],
+      [`${pinsPath}/author`, { connection_id: crypto.randomUUID() }, 404, null],
+      [
+        workspacePath("/tool/app-pins/author"),
+        { connection_id: APP_ROW },
+        400,
+        "file_repository",
+      ],
+      [`${pinsPath}/author`, { connection_id: "app-row" }, 400, null],
+      [
+        `${pinsPath}/author`,
+        { connection_id: "a".repeat(REQUEST_BODY_MAX_BYTES) },
+        413,
+        null,
+      ],
+    ] as const;
+    for (const [path, body, status, reason] of refusals) {
+      const refused = await call("PUT", path, { cookie: owner, body });
+      expect(refused.status, path).toBe(status);
+      if (reason !== null) {
+        expect(code(refused.json).details).toEqual({ reason_code: reason });
+      }
+    }
+    for (const path of [
+      workspacePath("/tool/app-pins"),
+      workspacePath("/missing/app-pins"),
+    ]) {
+      expect((await call("GET", path, { cookie: owner })).status).toBe(
+        path.includes("tool") ? 400 : 404,
+      );
+    }
+    expect(
+      (await call("GET", pinsPath, { cookie: cookieFor("member") })).status,
+    ).toBe(403);
+
+    // GitHub not answering for the App is 502; nothing is pinned.
+    github.failApp(APP_ID, 500);
+    try {
+      const failed = await call("PUT", `${pinsPath}/author`, {
+        cookie: owner,
+        body: { connection_id: APP_ROW },
+      });
+      expect(failed.status).toBe(502);
+    } finally {
+      github.failApp(APP_ID, undefined);
+    }
+    expect(pins.rows.filter((pin) => pin.repositoryId === "app")).toEqual([
+      {
+        repositoryId: "app",
+        role: "author",
+        connectionId: APP_ROW,
+        appId: APP_ID,
+        pinnedBy: "selection",
+      },
+    ]);
   });
 
   test("a pick outside the installation, a file entry's repository or a listed ceiling is refused", async () => {

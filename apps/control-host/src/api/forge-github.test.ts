@@ -3,11 +3,13 @@ import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { GitHubAppRole } from "@werft-ai/contracts";
 import {
   type CatalogRepository,
   ForgeCredentialError,
   GitHubAppCheckError,
   type GitHubAppCredential,
+  type GitHubConnectionSource,
   GitHubPermissionError,
   type SessionCatalog,
 } from "@werft-ai/platform";
@@ -17,7 +19,7 @@ import {
   createAppBotUsers,
   createGitHubAppDirectory,
   createGitHubConnection,
-  createRegisteredGitHubConnection,
+  createRegisteredGitHubConnections,
   REFRESH_BEFORE_EXPIRY_MS,
 } from "./forge-github.ts";
 
@@ -315,26 +317,65 @@ describe("connectionsOf", () => {
   test("an App or a github.com PAT has an author connection; Gitea, public repositories and the reviewer role have none", async () => {
     const connections = connectionsOf(catalog);
     expect(connections("app", "author")).toMatchObject({
-      kind: "app",
-      appId: 101,
-      githubCom: true,
+      kind: "fixed",
+      connection: { kind: "app", appId: 101, githubCom: true },
     });
     const pat = connections("pat", "author");
-    expect(pat).toMatchObject({ kind: "pat", appId: null, githubCom: true });
-    expect(await pat?.credential(repo, READ)).toEqual({
+    expect(pat).toMatchObject({
+      kind: "fixed",
+      connection: { kind: "pat", appId: null, githubCom: true },
+    });
+    if (pat?.kind !== "fixed") throw new Error("a PAT is a fixed connection");
+    expect(await pat.connection.credential(repo, READ)).toEqual({
       credential: {
         username: "x-access-token",
         password: "github_pat_fixture_value",
       },
       fresh: false,
     });
-    expect(connections("app", "author")).toBe(connections("app", "author"));
+    // One connection a repository, so one token cache.
+    expect(fixedOf(connections("app", "author"))).toBe(
+      fixedOf(connections("app", "author")),
+    );
     expect(connections("app", "reviewer")).toBeNull();
     expect(connections("gitea", "author")).toBeNull();
     expect(connections("public", "author")).toBeNull();
     expect(connections("missing", "author")).toBeNull();
   });
 });
+
+/** One role's first console connection, as there was one a role before. */
+function registeredFor({
+  role,
+  ...options
+}: { role: GitHubAppRole } & Parameters<
+  typeof createRegisteredGitHubConnections
+>[0]) {
+  const all = createRegisteredGitHubConnections({
+    ...options,
+    store:
+      options.store === null
+        ? null
+        : {
+            credentials: (asked) =>
+              asked === role
+                ? (options.store?.credentials(asked) ?? Promise.resolve([]))
+                : Promise.resolve([]),
+          },
+  });
+  return {
+    all,
+    refresh: () => all.refresh(),
+    connection: () => all.connections(role)[0]?.connection ?? null,
+  };
+}
+
+const fixedOf = (source: GitHubConnectionSource | null) =>
+  source?.kind === "fixed" ? source.connection : null;
+const firstCandidateOf = (source: GitHubConnectionSource | null) =>
+  source?.kind === "registered"
+    ? (source.candidates[0]?.connection ?? null)
+    : null;
 
 describe("the App registered in the console", () => {
   const credential = (fields: Partial<GitHubAppCredential> = {}) => ({
@@ -348,7 +389,7 @@ describe("the App registered in the console", () => {
   });
 
   test("finds the installation that covers the repository, then asks for a token on it", async () => {
-    const registered = createRegisteredGitHubConnection({
+    const registered = registeredFor({
       role: "author",
       store: { credentials: async () => [credential()] },
       paced: false,
@@ -368,7 +409,7 @@ describe("the App registered in the console", () => {
 
   test("reads its own role's App only, with the other registered beside it", async () => {
     const asked: string[] = [];
-    const reviewer = createRegisteredGitHubConnection({
+    const reviewer = registeredFor({
       role: "reviewer",
       store: {
         credentials: async (role: "author" | "reviewer") => {
@@ -381,7 +422,7 @@ describe("the App registered in the console", () => {
     expect(asked).toEqual(["reviewer"]);
     expect(reviewer.connection()?.appId).toBe(202);
     asked.length = 0;
-    const registered = createRegisteredGitHubConnection({
+    const registered = registeredFor({
       role: "author",
       store: {
         credentials: async (role: "author" | "reviewer") => {
@@ -412,7 +453,7 @@ describe("the App registered in the console", () => {
   });
 
   test("a repository the App is not installed on fails the ask by name", async () => {
-    const registered = createRegisteredGitHubConnection({
+    const registered = registeredFor({
       role: "author",
       store: { credentials: async () => [credential()] },
       paced: false,
@@ -428,7 +469,7 @@ describe("the App registered in the console", () => {
 
   test("a replaced App or key gets a new connection; a removed one leaves none", async () => {
     let held = [credential()];
-    const registered = createRegisteredGitHubConnection({
+    const registered = registeredFor({
       role: "author",
       store: { credentials: async () => held },
     });
@@ -452,7 +493,7 @@ describe("the App registered in the console", () => {
       }),
       Promise.resolve([]),
     ];
-    const registered = createRegisteredGitHubConnection({
+    const registered = registeredFor({
       role: "author",
       store: { credentials: () => reads.shift() ?? Promise.resolve([]) },
     });
@@ -463,14 +504,22 @@ describe("the App registered in the console", () => {
     expect(registered.connection()).toBeNull();
   });
 
-  test("connectionsOf hands each role's App to repositories written as { kind: github_app }", async () => {
-    const registered = createRegisteredGitHubConnection({
-      role: "author",
-      store: { credentials: async () => [credential()] },
-    });
-    const reviewer = createRegisteredGitHubConnection({
-      role: "reviewer",
-      store: { credentials: async () => [credential({ appId: 202 })] },
+  test("connectionsOf hands each role's Apps to repositories written as { kind: github_app }", async () => {
+    let reviewerOn = false;
+    const registered = createRegisteredGitHubConnections({
+      store: {
+        credentials: async (role: GitHubAppRole) =>
+          role === "author"
+            ? [credential()]
+            : reviewerOn
+              ? [
+                  credential({
+                    id: "8b0d2f4e-0000-4000-8000-000000000002",
+                    appId: 202,
+                  }),
+                ]
+              : [],
+      },
     });
     const connections = connectionsOf(
       {
@@ -484,24 +533,30 @@ describe("the App registered in the console", () => {
           open: { branch: "main", url: "https://github.com/acme/open.git" },
         },
       },
-      {
-        registered: (role) =>
-          (role === "author" ? registered : reviewer).connection(),
-      },
+      { registered: (role) => registered.connections(role) },
     );
-    expect(connections("app", "author")).toBeNull();
+    // Before the first read: candidates, none yet.
+    expect(connections("app", "author")).toEqual({
+      kind: "registered",
+      candidates: [],
+    });
     await registered.refresh();
-    expect(connections("app", "author")).toBe(registered.connection());
-    expect(connections("app", "reviewer")).toBeNull();
-    await reviewer.refresh();
-    expect(connections("app", "reviewer")).toBe(reviewer.connection());
-    expect(connections("app", "reviewer")?.appId).toBe(202);
+    expect(firstCandidateOf(connections("app", "author"))).toBe(
+      registered.connections("author")[0]?.connection ?? null,
+    );
+    expect(connections("app", "reviewer")).toEqual({
+      kind: "registered",
+      candidates: [],
+    });
+    reviewerOn = true;
+    await registered.refresh();
+    expect(firstCandidateOf(connections("app", "reviewer"))?.appId).toBe(202);
     expect(connections("open", "author")).toBeNull();
     expect(connections("open", "reviewer")).toBeNull();
   });
 
   test("a repository the console adds after startup uses the registered App", async () => {
-    const registered = createRegisteredGitHubConnection({
+    const registered = registeredFor({
       role: "author",
       store: { credentials: async () => [credential()] },
     });
@@ -514,7 +569,7 @@ describe("the App registered in the console", () => {
           return repositories;
         },
       },
-      { registered: () => registered.connection() },
+      { registered: (role) => registered.all.connections(role) },
     );
     expect(connections("later", "author")).toBeNull();
     repositories.later = {
@@ -522,13 +577,15 @@ describe("the App registered in the console", () => {
       url: "https://github.com/acme/later.git",
       auth: { kind: "github_app", registered: true },
     };
-    expect(connections("later", "author")).toBe(registered.connection());
+    expect(firstCandidateOf(connections("later", "author"))).toBe(
+      registered.connection(),
+    );
     delete repositories.later;
     expect(connections("later", "author")).toBeNull();
   });
 
   test("installed asks GitHub with the App's JWT and issues no token", async () => {
-    const registered = createRegisteredGitHubConnection({
+    const registered = registeredFor({
       role: "author",
       store: { credentials: async () => [credential()] },
     });

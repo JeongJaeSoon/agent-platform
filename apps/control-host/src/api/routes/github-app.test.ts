@@ -7,6 +7,7 @@ import {
   deleteGitHubAppResponseSchema,
   type GitHubAppRole,
   getGitHubAppResponseSchema,
+  listGitHubAppsResponseSchema,
   putGitHubAppResponseSchema,
   REQUEST_BODY_MAX_BYTES,
   WEB_SESSION_COOKIE_NAME,
@@ -18,6 +19,7 @@ import {
   type GitHubAppCredential,
   type GitHubAppRecord,
   type GitHubAppStore,
+  type GitHubAppTarget,
   type IdentityStore,
   type MembershipRole,
   type ResolvedWebSession,
@@ -104,40 +106,81 @@ const keyStore = {
 // The Postgres store's behaviour (audit, receipts, sealing) is its own
 // integration test; this one only remembers.
 function memoryStore() {
-  type Held = { record: GitHubAppRecord; key: string };
-  const held = new Map<GitHubAppRole, Held>();
+  type Held = { record: GitHubAppRecord; key: string; role: GitHubAppRole };
+  const held: Held[] = [];
   const receipts: Array<{ operation: string; app_id: number }> = [];
   const permissionReads: Array<{ id: string; permissions: unknown }> = [];
   let seeding = false;
-  const mine = (workspaceId: string | undefined, role: GitHubAppRole) => {
-    const row = held.get(role);
-    return row !== undefined &&
-      (workspaceId === undefined || row.record.workspaceId === workspaceId)
-      ? row
-      : null;
+  const mine = (workspaceId: string | undefined, role: GitHubAppRole) =>
+    held.filter(
+      (row) =>
+        row.role === role &&
+        (workspaceId === undefined || row.record.workspaceId === workspaceId),
+    );
+  // A role address names a connection only while the role has at most one.
+  const resolve = (
+    workspaceId: string,
+    target: GitHubAppTarget,
+  ): Held | null | "ambiguous" => {
+    if (target.kind === "connection") {
+      return (
+        held.find(
+          (row) =>
+            row.record.id === target.id &&
+            row.record.workspaceId === workspaceId,
+        ) ?? null
+      );
+    }
+    if (target.kind === "add") return null;
+    const rows = mine(workspaceId, target.role);
+    return rows.length > 1 ? "ambiguous" : (rows[0] ?? null);
   };
+  const withRole = (row: Held) => ({ ...row.record, role: row.role });
   const store: GitHubAppStore = {
+    async ofRole(workspaceId, role) {
+      return mine(workspaceId, role).map(withRole);
+    },
+    async get(workspaceId, id) {
+      const row = resolve(workspaceId, { kind: "connection", id });
+      return row === null || row === "ambiguous" ? null : withRole(row);
+    },
     async list(workspaceId) {
-      return (["author", "reviewer"] as const).flatMap((role) => {
-        const row = mine(workspaceId, role);
-        return row === null ? [] : [{ ...row.record, role }];
-      });
+      return (["author", "reviewer"] as const).flatMap((role) =>
+        mine(workspaceId, role).map(withRole),
+      );
     },
-    async find(workspaceId, role) {
-      return mine(workspaceId, role)?.record ?? null;
-    },
-    async put(workspaceId, role, app, key, audit) {
+    async put(workspaceId, target, app, key, audit) {
       const at = new Date();
       const by = audit.principal.actor?.userId ?? "";
-      const before = held.get(role);
+      const before = resolve(workspaceId, target);
+      if (before === "ambiguous") return { outcome: "ambiguous_role" };
+      if (target.kind === "connection" && before === null) {
+        return { outcome: "not_found" };
+      }
+      if (
+        target.kind === "connection" &&
+        before !== null &&
+        before.record.appId !== app.appId
+      ) {
+        return { outcome: "app_id_mismatch" };
+      }
+      const role = before?.role ?? (target as { role: GitHubAppRole }).role;
       // As the Postgres store decides it, under the workspace's lock.
-      const other = held.get(role === "author" ? "reviewer" : "author");
-      if (!seeding && role === "reviewer" && other === undefined) {
+      if (
+        !seeding &&
+        role === "reviewer" &&
+        mine(workspaceId, "author").length === 0
+      ) {
         return { outcome: "no_author_app" };
       }
-      if (other?.record.appId === app.appId) return { outcome: "same_app" };
+      if (
+        held.some((row) => row !== before && row.record.appId === app.appId)
+      ) {
+        return { outcome: "same_app" };
+      }
       const row: Held = {
         key,
+        role,
         record: {
           ...app,
           id: before?.record.id ?? crypto.randomUUID(),
@@ -151,23 +194,50 @@ function memoryStore() {
           },
         },
       };
-      held.set(role, row);
+      if (before === null) held.push(row);
+      else held[held.indexOf(before)] = row;
       receipts.push({ operation: "set_github_app", app_id: app.appId });
-      return { outcome: "stored", app: row.record };
+      return {
+        outcome: "stored",
+        app: withRole(row),
+        pinsCleared: 0,
+        pinsRestored: 0,
+      };
     },
-    async delete(workspaceId, role) {
-      const row = mine(workspaceId, role);
+    async delete(workspaceId, target) {
+      const row = resolve(workspaceId, target);
+      if (row === "ambiguous") return { outcome: "ambiguous_role" };
       if (row === null) return { outcome: "not_found" };
-      held.delete(role);
+      held.splice(held.indexOf(row), 1);
       receipts.push({
         operation: "delete_github_app",
         app_id: row.record.appId,
       });
-      return { outcome: "deleted", appId: row.record.appId };
+      return {
+        outcome: "deleted",
+        appId: row.record.appId,
+        usage: {
+          pinned_repository_count: 0,
+          agent_count: 0,
+          active_session_count: 0,
+          user_link: false,
+        },
+      };
+    },
+    async usage() {
+      return {
+        pinned_repository_count: 0,
+        agent_count: 0,
+        active_session_count: 0,
+        user_link: false,
+      };
+    },
+    async setUserLink() {
+      return { outcome: "not_found" };
     },
     async recordPermissions(id, appId, permissions) {
       permissionReads.push({ id, permissions });
-      for (const row of held.values()) {
+      for (const row of held) {
         if (row.record.id === id && row.record.appId === appId) {
           row.record = {
             ...row.record,
@@ -181,19 +251,14 @@ function memoryStore() {
       role: GitHubAppRole,
       workspaceId?: string,
     ): Promise<GitHubAppCredential[]> {
-      const row = mine(workspaceId, role);
-      return row === null
-        ? []
-        : [
-            {
-              id: row.record.id,
-              workspaceId: row.record.workspaceId,
-              appId: row.record.appId,
-              apiBase: row.record.apiBase,
-              privateKey: row.key,
-              updatedAt: row.record.updatedAt,
-            },
-          ];
+      return mine(workspaceId, role).map((row) => ({
+        id: row.record.id,
+        workspaceId: row.record.workspaceId,
+        appId: row.record.appId,
+        apiBase: row.record.apiBase,
+        privateKey: row.key,
+        updatedAt: row.record.updatedAt,
+      }));
     },
   };
   return {
@@ -209,8 +274,10 @@ function memoryStore() {
     },
     receipts,
     permissionReads,
-    held: () => held.get("author") ?? null,
-    reviewer: () => held.get("reviewer") ?? null,
+    held: () => mine(undefined, "author")[0] ?? null,
+    reviewer: () => mine(undefined, "reviewer")[0] ?? null,
+    authors: () => mine(undefined, "author"),
+    clear: () => held.splice(0),
   };
 }
 
@@ -245,7 +312,7 @@ function appWith(options: { enabled?: boolean; apiBase?: string } = {}) {
       ),
   });
   return async (
-    method: "GET" | "PUT" | "DELETE",
+    method: "GET" | "PUT" | "POST" | "DELETE",
     request: {
       cookie?: string;
       key?: boolean;
@@ -319,6 +386,7 @@ describe("the GitHub App API", () => {
           installation_id: null,
         },
       ],
+      usage: null,
     });
 
     const set = await call("PUT", {
@@ -383,7 +451,7 @@ describe("the GitHub App API", () => {
     const owner = cookieFor("owner");
     await memory.seed(
       WORKSPACE,
-      "reviewer",
+      { kind: "add", role: "reviewer" },
       {
         appId: APP_ID + 1,
         slug: "reviewer",
@@ -407,11 +475,15 @@ describe("the GitHub App API", () => {
     expect((await call("DELETE", { cookie: owner })).status).toBe(200);
     expect(memory.reviewer()).toBe(reviewer);
     expect(memory.reviewer()?.key).toBe(strangerKey);
-    await memory.store.delete(WORKSPACE, "reviewer", {
-      principal: { ownerId: WORKSPACE },
-      receiptId: "r",
-      roles: [],
-    });
+    await memory.store.delete(
+      WORKSPACE,
+      { kind: "role", role: "reviewer" },
+      {
+        principal: { ownerId: WORKSPACE },
+        receiptId: "r",
+        roles: [],
+      },
+    );
   });
 
   test("a read keeps the App's permissions as GitHub reports them now, and warns of any wider than the guidance", async () => {
@@ -767,6 +839,129 @@ describe("the GitHub App API by role", () => {
     });
     expect(huge.status).toBe(413);
     expect(memory.reviewer()).toBeNull();
+  });
+
+  test("several Apps a role: added, listed and addressed by id; the role address refuses while ambiguous", async () => {
+    memory.clear();
+    const owner = cookieFor("owner");
+    const second = body({
+      role: "author",
+      app_id: REVIEWER_APP_ID,
+      private_key: reviewerKeys.privateKey,
+    });
+    expect(
+      (
+        await call("PUT", {
+          cookie: owner,
+          path: "github-apps/author",
+          body: author,
+        })
+      ).status,
+    ).toBe(200);
+    const added = await call("POST", {
+      cookie: owner,
+      path: "github-apps",
+      body: second,
+    });
+    expect(added.status).toBe(200);
+    const app = putGitHubAppResponseSchema.parse(added.json).github_app;
+    expect(app).toMatchObject({ role: "author", app_id: REVIEWER_APP_ID });
+    const listed = listGitHubAppsResponseSchema.parse(
+      (await call("GET", { cookie: owner, path: "github-apps" })).json,
+    );
+    expect(listed.github_apps.map((each) => each.app_id)).toEqual([
+      APP_ID,
+      REVIEWER_APP_ID,
+    ]);
+
+    for (const method of ["GET", "PUT", "DELETE"] as const) {
+      const refused = await call(method, {
+        cookie: owner,
+        path: "github-apps/author",
+        ...(method === "PUT" ? { body: author } : {}),
+      });
+      expect(refused.status).toBe(409);
+      expect(code(refused.json)).toMatchObject({
+        code: "GITHUB_APP_CONFLICT",
+        details: { reason_code: "ambiguous_role" },
+      });
+    }
+    // One App is one connection, whatever the role.
+    const again = await call("POST", {
+      cookie: owner,
+      path: "github-apps",
+      body: body({ role: "reviewer", app_id: APP_ID, private_key: privateKey }),
+    });
+    expect(again.status).toBe(409);
+    expect(code(again.json).details).toEqual({ reason_code: "same_app" });
+
+    const path = `github-apps/${app.connection_id}`;
+    const read = await call("GET", { cookie: owner, path });
+    expect(read.status).toBe(200);
+    expect(getGitHubAppResponseSchema.parse(read.json)).toMatchObject({
+      github_app: { app_id: REVIEWER_APP_ID, connection_id: app.connection_id },
+      usage: { pinned_repository_count: 0, user_link: false },
+    });
+    expect((await call("DELETE", { cookie: owner, path })).status).toBe(200);
+    expect(
+      (await call("GET", { cookie: owner, path: "github-apps/author" })).json
+        .github_app.app_id,
+    ).toBe(APP_ID);
+    memory.clear();
+  });
+
+  test("the connection list and the add are refused as the role routes are", async () => {
+    const add = body({
+      role: "author",
+      app_id: REVIEWER_APP_ID,
+      private_key: reviewerKeys.privateKey,
+    });
+    const off = appWith({ enabled: false });
+    for (const [method, withBody] of [
+      ["GET", {}],
+      ["POST", { body: add }],
+    ] as const) {
+      const path = "github-apps";
+      expect((await call(method, { path, ...withBody })).status).toBe(401);
+      expect(
+        (await call(method, { cookie: cookieFor("member"), path, ...withBody }))
+          .status,
+      ).toBe(403);
+      expect(
+        (
+          await call(method, {
+            cookie: cookieFor("owner", OTHER_WORKSPACE),
+            path,
+            ...withBody,
+          })
+        ).status,
+      ).toBe(404);
+      expect(
+        (await off(method, { cookie: cookieFor("owner"), path, ...withBody }))
+          .status,
+      ).toBe(503);
+    }
+    const owner = cookieFor("owner");
+    for (const text of [
+      body({ app_id: REVIEWER_APP_ID, private_key: reviewerKeys.privateKey }),
+      body({ role: "owner", app_id: REVIEWER_APP_ID, private_key: "k" }),
+    ]) {
+      expect(
+        (await call("POST", { cookie: owner, path: "github-apps", body: text }))
+          .status,
+      ).toBe(400);
+    }
+    const huge = await call("POST", {
+      cookie: owner,
+      path: "github-apps",
+      body: body({
+        role: "author",
+        app_id: REVIEWER_APP_ID,
+        private_key: "a".repeat(REQUEST_BODY_MAX_BYTES),
+      }),
+    });
+    expect(huge.status).toBe(413);
+    expect(memory.authors()).toEqual([]);
   });
 });
 

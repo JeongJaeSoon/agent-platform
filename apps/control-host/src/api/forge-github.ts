@@ -3,7 +3,11 @@ import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/core";
 import { retry } from "@octokit/plugin-retry";
 import { throttling } from "@octokit/plugin-throttling";
-import type { GitHubAppPermissions, GitHubAppRole } from "@werft-ai/contracts";
+import {
+  GITHUB_APP_ROLE_VALUES,
+  type GitHubAppPermissions,
+  type GitHubAppRole,
+} from "@werft-ai/contracts";
 import type { StructuredLogger } from "@werft-ai/observability";
 import {
   type ForgeComment,
@@ -26,6 +30,7 @@ import {
   type GitHubPermissions,
   type GitHubRateLimit,
   type GitHubWorkflowRun,
+  type RegisteredGitHubConnection,
   type RepoRef,
   type SessionCatalog,
 } from "@werft-ai/platform";
@@ -1092,46 +1097,59 @@ function dateOf(raw: unknown): Date | null {
 }
 
 /**
- * The connection of the console's App for `role`, rebuilt (and its
- * token cache dropped) when the App or its key changes. `refresh` reads the
- * store; until the first read, and with no App registered, there is none.
+ * A connection per console App, each rebuilt (and its token cache dropped)
+ * when its App or key changes. `refresh` reads the store; until the first
+ * read there are none.
  */
-export function createRegisteredGitHubConnection(
+export function createRegisteredGitHubConnections(
   options: {
     store: Pick<GitHubAppStore, "credentials"> | null;
-    role: GitHubAppRole;
   } & Pick<ConnectionOptions, "logger" | "now" | "retryAfterBaseMs" | "paced">,
 ) {
-  const { store, role, ...connectionOptions } = options;
-  let current: { version: string; connection: GitHubConnection } | null = null;
+  const { store, ...connectionOptions } = options;
+  type Held = RegisteredGitHubConnection & { version: string };
+  let current: Record<GitHubAppRole, Held[]> = { author: [], reviewer: [] };
   // Reads run one after another, so a read that started before a change
   // cannot land after the read that saw it.
   let queue: Promise<void> = Promise.resolve();
   const read = async (): Promise<void> => {
     if (store === null) return;
-    // Bootstrap makes the one workspace, so there is at most one App a role.
-    const [app] = await store.credentials(role);
-    if (app === undefined) {
-      current = null;
-      return;
+    const previous = new Map(
+      [...current.author, ...current.reviewer].map((held) => [held.id, held]),
+    );
+    const next: Record<GitHubAppRole, Held[]> = { author: [], reviewer: [] };
+    // Bootstrap makes the one workspace, so every row is its connection.
+    for (const role of GITHUB_APP_ROLE_VALUES) {
+      for (const app of await store.credentials(role)) {
+        const version = `${app.appId}|${app.updatedAt.toISOString()}`;
+        const kept = previous.get(app.id);
+        next[role].push(
+          kept?.version === version
+            ? kept
+            : {
+                id: app.id,
+                appId: app.appId,
+                version,
+                // A new connection, so a changed App or key starts with an
+                // empty token cache.
+                connection: createGitHubConnection({
+                  ...connectionOptions,
+                  apiBase: app.apiBase,
+                  credentials: {
+                    kind: "app",
+                    appId: app.appId,
+                    privateKey: app.privateKey,
+                  },
+                }),
+              },
+        );
+      }
     }
-    const version = `${app.id}|${app.updatedAt.toISOString()}`;
-    if (current?.version === version) return;
-    current = {
-      version,
-      connection: createGitHubConnection({
-        ...connectionOptions,
-        apiBase: app.apiBase,
-        credentials: {
-          kind: "app",
-          appId: app.appId,
-          privateKey: app.privateKey,
-        },
-      }),
-    };
+    current = next;
   };
   return {
-    connection: (): GitHubConnection | null => current?.connection ?? null,
+    connections: (role: GitHubAppRole): readonly RegisteredGitHubConnection[] =>
+      current[role],
     refresh(): Promise<void> {
       const next = queue.then(read);
       queue = next.catch(() => undefined);
@@ -1212,7 +1230,7 @@ export function connectionsOf(
     "logger" | "now" | "retryAfterBaseMs" | "paced"
   > & {
     /** The console's Apps, for repositories written as `{ kind: github_app }`. */
-    registered?: (role: GitHubAppRole) => GitHubConnection | null;
+    registered?: (role: GitHubAppRole) => readonly RegisteredGitHubConnection[];
   } = {},
 ): GitHubConnections {
   const { registered, ...connectionOptions } = options;
@@ -1260,8 +1278,9 @@ export function connectionsOf(
       ? catalog.repositories[id]?.auth
       : undefined;
     if (auth?.kind === "github_app" && "registered" in auth) {
-      return registered?.(role) ?? null;
+      return { kind: "registered", candidates: registered?.(role) ?? [] };
     }
-    return role === "author" ? (connections.get(id) ?? null) : null;
+    const fixed = role === "author" ? connections.get(id) : undefined;
+    return fixed === undefined ? null : { kind: "fixed", connection: fixed };
   };
 }
